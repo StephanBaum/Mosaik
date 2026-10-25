@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+repository = "https://github.com/StephanBaum/Mosaik"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Secret-handling hygiene: no panicking shortcuts or debug output in library code.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "warn"
+module_name_repetitions = "allow"
+
+[profile.release]
+# Abort instead of unwinding: no unwinding through secret-holding frames and
+# no panic payloads crossing FFI boundaries.
+panic = "abort"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

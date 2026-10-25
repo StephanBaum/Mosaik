@@ -1,0 +1,52 @@
+# cargo-deny policy. Every exception added here needs a comment and an entry in
+# docs/DECISIONS.md or the commit message that introduced it.
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on any RustSec advisory, including unmaintained and yanked crates.
+version = 2
+yanked = "deny"
+unmaintained = "all"
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# The allow-list is policy, not an inventory; unused entries are fine.
+unused-allowed-license = "allow"
+# Permissive licenses only. Copyleft or unusual licenses require an ADR.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+
+[licenses.private]
+# Workspace crates are `publish = false`; their own license is an owner decision.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Crypto must come from the reviewed set in docs/CRYPTO_SPEC.md.
+deny = [
+    { name = "openssl", reason = "use rustls / RustCrypto; see CRYPTO_SPEC.md" },
+    { name = "openssl-sys", reason = "use rustls / RustCrypto; see CRYPTO_SPEC.md" },
+    { name = "rust-crypto", reason = "unmaintained" },
+    { name = "sodiumoxide", reason = "unmaintained" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

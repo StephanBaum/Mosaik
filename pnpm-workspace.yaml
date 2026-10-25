@@ -1,0 +1,6 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Supply chain: no dependency lifecycle scripts unless explicitly allow-listed here.
+onlyBuiltDependencies: []

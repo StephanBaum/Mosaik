@@ -1,0 +1,30 @@
+# Rust
+/target/
+**/fuzz/target/
+**/fuzz/corpus/
+**/fuzz/artifacts/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Local Claude Code settings (per developer)
+.claude/settings.local.json
+
+# Never commit secrets or local vaults
+*.env
+.env*
+*.mosaic-vault
