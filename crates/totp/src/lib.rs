@@ -7,6 +7,9 @@
 //!   for a stored configuration. HMAC-SHA-1/256/512 from RustCrypto, 6 to 8
 //!   digits ([`Digits`]), period 1 to 300 s ([`Period`]), `T0 = 0`. Steam
 //!   Guard codes are 5 characters from [`STEAM_ALPHABET`].
+//! - **Verification**: [`Otp::verify`] checks user input in constant time
+//!   against a bounded window of steps and rejects steps at or before the
+//!   last accepted one (replay guard).
 //! - **Time**: callers pass Unix seconds, so codes are deterministic and
 //!   testable; [`unix_time_now`] reads the system clock, and
 //!   [`Period::seconds_remaining`] / [`Otp::seconds_remaining`] drive a
@@ -38,10 +41,11 @@ pub mod uri;
 
 pub use error::{Error, Result};
 pub use otp::{
-    Algorithm, Code, Digits, Otp, OtpKind, Period, STEAM_ALPHABET, STEAM_CODE_LEN, hotp,
-    steam_guard, totp, unix_time_now,
+    Algorithm, Code, Digits, MAX_VERIFY_WINDOW, Otp, OtpKind, Period, STEAM_ALPHABET,
+    STEAM_CODE_LEN, hotp, steam_guard, totp, unix_time_now,
 };
 pub use secret::{
-    MAX_SECRET_LEN, MAX_SECRET_TEXT_LEN, OtpSecret, RFC4226_MIN_SECRET_LEN, SecretText,
+    COMMON_MIN_SECRET_LEN, MAX_SECRET_LEN, MAX_SECRET_TEXT_LEN, OtpSecret, RFC4226_MIN_SECRET_LEN,
+    SecretStrength, SecretText,
 };
 pub use uri::{MAX_PARAMS, MAX_TEXT_LEN, MAX_URI_LEN, OtpAuth};

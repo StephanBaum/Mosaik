@@ -20,10 +20,30 @@
 //! with Python's `hmac` module. Steam Guard always uses SHA-1 and 30 s in
 //! practice; the algorithm and period stay configurable because
 //! `otpauth://` URIs may state them.
+//!
+//! # Timing
+//!
+//! Code generation avoids memory accesses and branches that depend on the
+//! MAC, as far as portable Rust allows (best effort, not a guarantee):
+//!
+//! - Dynamic truncation reads every 4-byte window of the MAC and keeps the
+//!   one at the offset with `subtle` selects, so the read address does not
+//!   depend on the offset.
+//! - Steam Guard characters are chosen by a `subtle` select over all 26
+//!   alphabet entries, not by a table index.
+//! - Every division and remainder has a constant divisor (`10^digits` is
+//!   matched per digit count, `10`, `26`), which compilers turn into
+//!   multiplications rather than a variable-latency divide instruction.
+//!
+//! The residual leak would concern a short-lived code derived from the
+//! HMAC, not the key, which is why this is best effort. Verification
+//! ([`Otp::verify`]) compares in constant time (CRYPTO_SPEC §4) and has a
+//! replay guard.
 
 use core::fmt;
 
 use hmac::{Hmac, KeyInit, Mac};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::{Error, Result};
@@ -34,6 +54,10 @@ pub const STEAM_ALPHABET: &[u8; 26] = b"23456789BCDFGHJKMNPQRTVWXY";
 
 /// Length of a Steam Guard code.
 pub const STEAM_CODE_LEN: usize = 5;
+
+/// Largest verification window accepted by [`Otp::verify`]: 10 steps on
+/// each side (TOTP, Steam) or 10 counters ahead (HOTP).
+pub const MAX_VERIFY_WINDOW: u8 = 10;
 
 /// HMAC hash function (RFC 6238 §1.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -163,6 +187,11 @@ impl Default for Period {
 ///
 /// A code grants access for as long as it is valid, so it is treated as a
 /// short-lived secret: no `Display`, no `Clone`, redacted `Debug`.
+///
+/// To check user input, use [`Otp::verify`] (skew window and replay guard)
+/// or at least [`Code::ct_matches`]. Never compare
+/// [`expose_secret`](Self::expose_secret) with `==`: that is not constant
+/// time and has no replay protection.
 pub struct Code {
     buf: [u8; 8],
     len: u8,
@@ -202,6 +231,18 @@ impl Code {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+
+    /// Whether `candidate` is exactly this code. Constant time in the
+    /// contents; the lengths are not secret. No normalization: a caller
+    /// that displays codes in groups strips the spaces first.
+    #[must_use]
+    pub fn ct_matches(&self, candidate: &str) -> bool {
+        self.ct_eq_str(candidate).into()
+    }
+
+    fn ct_eq_str(&self, candidate: &str) -> Choice {
+        self.expose_secret().as_bytes().ct_eq(candidate.as_bytes())
+    }
 }
 
 impl Drop for Code {
@@ -219,13 +260,19 @@ impl fmt::Debug for Code {
 }
 
 /// RFC 4226 §5.3 dynamic truncation: the 31-bit value at the offset given
-/// by the low nibble of the last MAC byte.
+/// by the low nibble of the last MAC byte. Every 4-byte window is read and
+/// the one at the offset is kept by a constant-time select (see the module
+/// docs). Every supported MAC is at least 20 bytes, so the window at
+/// `offset <= 15` always exists.
 fn dynamic_truncation(mac: &[u8]) -> u32 {
-    let offset = usize::from(mac.last().copied().unwrap_or(0) & 0x0F);
-    // Every supported MAC is at least 20 bytes, so `offset + 3 <= 18` is in
-    // bounds; the fallback is never taken.
-    let word: [u8; 4] = core::array::from_fn(|i| mac.get(offset + i).copied().unwrap_or(0));
-    u32::from_be_bytes(word) & 0x7FFF_FFFF
+    let offset = mac.last().copied().unwrap_or(0) & 0x0F;
+    let mut word = 0u32;
+    // At most 64 - 3 windows, so the index fits a `u8`.
+    for (i, window) in (0u8..).zip(mac.windows(4)) {
+        let candidate = <[u8; 4]>::try_from(window).map_or(0, u32::from_be_bytes);
+        word.conditional_assign(&candidate, i.ct_eq(&offset));
+    }
+    word & 0x7FFF_FFFF
 }
 
 fn truncated_with<M: Mac + KeyInit>(key: &[u8], counter: u64) -> Result<u32> {
@@ -248,7 +295,12 @@ fn truncated(secret: &OtpSecret, algorithm: Algorithm, counter: u64) -> Result<u
 }
 
 fn decimal_code(mut value: u32, digits: Digits) -> Code {
-    value %= 10u32.pow(u32::from(digits.get()));
+    // Constant divisors only (see the module docs); `Digits` is 6 to 8.
+    value = match digits.get() {
+        6 => value % 1_000_000,
+        7 => value % 10_000_000,
+        _ => value % 100_000_000,
+    };
     let mut rev = [0u8; 8];
     for slot in rev.iter_mut().take(usize::from(digits.get())) {
         *slot = b'0' + u8::try_from(value % 10).unwrap_or(0);
@@ -303,11 +355,25 @@ pub fn steam_guard(
     period: Period,
     unix_time: u64,
 ) -> Result<Code> {
-    let mut v = truncated(secret, algorithm, period.time_step(unix_time))?;
+    steam_code(secret, algorithm, period.time_step(unix_time))
+}
+
+/// `STEAM_ALPHABET[idx]` by a constant-time select over every entry, so the
+/// memory access does not depend on `idx` (see the module docs).
+fn steam_symbol(idx: u32) -> u8 {
+    let mut out = 0u8;
+    for (i, &c) in (0u32..).zip(STEAM_ALPHABET.iter()) {
+        out.conditional_assign(&c, i.ct_eq(&idx));
+    }
+    out
+}
+
+/// The Steam Guard code for time step `counter`.
+fn steam_code(secret: &OtpSecret, algorithm: Algorithm, counter: u64) -> Result<Code> {
+    let mut v = truncated(secret, algorithm, counter)?;
     let mut code = Code::new();
     for _ in 0..STEAM_CODE_LEN {
-        let idx = usize::try_from(v % 26).unwrap_or(0);
-        code.push(STEAM_ALPHABET.get(idx).copied().unwrap_or(b'2'));
+        code.push(steam_symbol(v % 26));
         v /= 26;
     }
     v.zeroize();
@@ -401,6 +467,71 @@ impl Otp {
             }
             OtpKind::Hotp { .. } => None,
         }
+    }
+
+    /// The code for time step or counter `step`.
+    fn code_for_step(&self, step: u64) -> Result<Code> {
+        match self.kind {
+            OtpKind::Totp { digits, .. } | OtpKind::Hotp { digits, .. } => {
+                hotp(&self.secret, self.algorithm, digits, step)
+            }
+            OtpKind::Steam { .. } => steam_code(&self.secret, self.algorithm, step),
+        }
+    }
+
+    /// Verifies user input against this configuration (CRYPTO_SPEC §13).
+    ///
+    /// Candidate steps:
+    /// - **TOTP, Steam:** the time steps `T - window ..= T + window` around
+    ///   `T = floor(unix_time / period)` (clock skew, RFC 6238 §5.2, which
+    ///   recommends `window = 1`).
+    /// - **HOTP:** the counters `counter ..= counter + window`
+    ///   (look-ahead resynchronization, RFC 4226 §7.4); `unix_time` is
+    ///   ignored.
+    ///
+    /// **Replay guard:** a step at or below `last_used` never matches. The
+    /// caller stores the returned step as the new `last_used` (and, for
+    /// HOTP, sets `counter` to the step plus one) before it accepts the
+    /// login, so a code is accepted at most once.
+    ///
+    /// Every candidate step is computed and compared in constant time
+    /// ([`Code::ct_matches`]), with no early exit. If several steps match,
+    /// the largest is returned, which advances `last_used` furthest. The
+    /// candidate is not normalized (no space or case folding).
+    ///
+    /// Returns the matched step, or `None` if nothing matched.
+    ///
+    /// # Errors
+    /// [`Error::InvalidWindow`] if `window` exceeds [`MAX_VERIFY_WINDOW`].
+    pub fn verify(
+        &self,
+        candidate: &str,
+        unix_time: u64,
+        window: u8,
+        last_used: Option<u64>,
+    ) -> Result<Option<u64>> {
+        if window > MAX_VERIFY_WINDOW {
+            return Err(Error::InvalidWindow);
+        }
+        let w = u64::from(window);
+        let (first, last) = match self.kind {
+            OtpKind::Totp { period, .. } | OtpKind::Steam { period } => {
+                let t = period.time_step(unix_time);
+                (t.saturating_sub(w), t.saturating_add(w))
+            }
+            OtpKind::Hotp { counter, .. } => (counter, counter.saturating_add(w)),
+        };
+        let mut found = Choice::from(0);
+        let mut matched = 0u64;
+        for step in first..=last {
+            let code = self.code_for_step(step)?;
+            // Steps and `last_used` are not secret.
+            let fresh = Choice::from(u8::from(last_used.is_none_or(|l| step > l)));
+            let hit = code.ct_eq_str(candidate) & fresh;
+            matched.conditional_assign(&step, hit);
+            found |= hit;
+        }
+        Ok(bool::from(found).then_some(matched))
     }
 }
 
@@ -590,6 +721,130 @@ mod tests {
         }
         assert_eq!(one.seconds_remaining(12345), 1);
         assert!(unix_time_now().unwrap() > 1_700_000_000);
+    }
+
+    fn totp_otp(kind: OtpKind) -> Otp {
+        Otp {
+            secret: secret(RFC_SHA1),
+            algorithm: Algorithm::Sha1,
+            kind,
+        }
+    }
+
+    /// RFC 6238 SHA-1, 8 digits, `t = 59` is step 1 (`94287082`); the
+    /// neighbouring steps 0 and 2 are the RFC 4226 counters 0 and 2.
+    #[test]
+    fn verify_totp_window_and_replay() {
+        let o = totp_otp(OtpKind::Totp {
+            digits: Digits::new(8).unwrap(),
+            period: Period::DEFAULT,
+        });
+        assert_eq!(o.verify("94287082", 59, 0, None), Ok(Some(1)));
+        assert_eq!(o.verify("94287082", 59, 1, None), Ok(Some(1)));
+        // Skew: the code of step 1 one step late and one step early.
+        assert_eq!(o.verify("94287082", 60, 1, None), Ok(Some(1)));
+        assert_eq!(o.verify("94287082", 29, 1, None), Ok(Some(1)));
+        assert_eq!(o.verify("94287082", 60, 0, None), Ok(None));
+        assert_eq!(o.verify("94287082", 90, 1, None), Ok(None));
+        // Replay guard: the stored step and anything older is rejected.
+        assert_eq!(o.verify("94287082", 59, 1, Some(1)), Ok(None));
+        assert_eq!(o.verify("94287082", 59, 1, Some(2)), Ok(None));
+        assert_eq!(o.verify("94287082", 59, 1, Some(0)), Ok(Some(1)));
+        // Wrong, truncated, padded and empty input.
+        for bad in ["94287083", "9428708", "942870820", " 94287082", ""] {
+            assert_eq!(o.verify(bad, 59, 1, None), Ok(None), "{bad:?}");
+        }
+        // Window bounds and saturation at both ends of time.
+        assert_eq!(
+            o.verify("94287082", 59, MAX_VERIFY_WINDOW + 1, None),
+            Err(Error::InvalidWindow)
+        );
+        assert!(o.verify("x", 0, MAX_VERIFY_WINDOW, None).is_ok());
+        assert!(o.verify("x", u64::MAX, MAX_VERIFY_WINDOW, None).is_ok());
+        let now = o.code_at(u64::MAX).unwrap();
+        let last = Period::DEFAULT.time_step(u64::MAX);
+        assert_eq!(
+            o.verify(now.expose_secret(), u64::MAX, 1, None),
+            Ok(Some(last))
+        );
+    }
+
+    #[test]
+    fn verify_hotp_look_ahead() {
+        let o = totp_otp(OtpKind::Hotp {
+            digits: Digits::DEFAULT,
+            counter: 3,
+        });
+        // RFC 4226 Appendix D: counter 5 is 254676, counter 2 is 359152.
+        assert_eq!(o.verify("254676", 0, 2, None), Ok(Some(5)));
+        assert_eq!(o.verify("254676", 0, 1, None), Ok(None));
+        // No look-behind.
+        assert_eq!(o.verify("359152", 0, 10, None), Ok(None));
+        assert_eq!(o.verify("254676", 0, 2, Some(5)), Ok(None));
+        let max = totp_otp(OtpKind::Hotp {
+            digits: Digits::DEFAULT,
+            counter: u64::MAX,
+        });
+        let code = max.code_at(0).unwrap();
+        assert_eq!(
+            max.verify(code.expose_secret(), 0, 5, None),
+            Ok(Some(u64::MAX))
+        );
+    }
+
+    #[test]
+    fn verify_steam_and_ct_matches() {
+        let otp = Otp {
+            secret: secret(&hex!("cef21aca9dc93efb6f5ff4061eab2a28193fe38b")),
+            algorithm: Algorithm::Sha1,
+            kind: OtpKind::STEAM,
+        };
+        let step = Period::DEFAULT.time_step(1_616_374_841);
+        assert_eq!(otp.verify("2F9J5", 1_616_374_841, 1, None), Ok(Some(step)));
+        // Exact match only: no case folding.
+        assert_eq!(otp.verify("2f9j5", 1_616_374_841, 1, None), Ok(None));
+        let code = otp.code_at(1_616_374_841).unwrap();
+        assert!(code.ct_matches("2F9J5"));
+        assert!(!code.ct_matches("2F9J6"));
+        assert!(!code.ct_matches("2F9J"));
+    }
+
+    /// The table-free Steam mapping equals indexing the alphabet.
+    #[test]
+    fn steam_symbol_matches_table() {
+        for (i, &c) in (0u32..).zip(STEAM_ALPHABET.iter()) {
+            assert_eq!(steam_symbol(i), c);
+        }
+    }
+
+    proptest! {
+        /// The constant-time truncation equals the RFC 4226 §5.3 reference.
+        #[test]
+        fn dynamic_truncation_matches_reference(mac in proptest::collection::vec(any::<u8>(), 20..=64)) {
+            let offset = usize::from(mac[mac.len() - 1] & 0x0F);
+            let want = u32::from_be_bytes([mac[offset], mac[offset + 1], mac[offset + 2], mac[offset + 3]])
+                & 0x7FFF_FFFF;
+            prop_assert_eq!(dynamic_truncation(&mac), want);
+        }
+
+        /// A freshly generated code always verifies at its own step.
+        #[test]
+        fn verify_accepts_generated_code(
+            key in proptest::collection::vec(any::<u8>(), 1..=64),
+            t in any::<u64>(),
+            window in 0u8..=3,
+            steam in any::<bool>(),
+        ) {
+            let kind = if steam { OtpKind::STEAM } else { OtpKind::DEFAULT_TOTP };
+            let o = Otp { secret: secret(&key), algorithm: Algorithm::Sha256, kind };
+            let code = o.code_at(t).unwrap();
+            let got = o.verify(code.expose_secret(), t, window, None).unwrap();
+            prop_assert!(got.is_some());
+            let step = got.unwrap_or(0);
+            let now = Period::DEFAULT.time_step(t);
+            prop_assert!(step >= now && step <= now.saturating_add(u64::from(window)));
+            prop_assert_eq!(o.verify(code.expose_secret(), t, window, Some(step)).unwrap(), None);
+        }
     }
 
     proptest! {

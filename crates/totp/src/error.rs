@@ -56,15 +56,20 @@ pub enum Error {
     #[error("invalid parameter value")]
     InvalidParameter,
 
-    /// An issuer or account name is too long, contains control or
-    /// bidirectional formatting characters, has surrounding whitespace, or
-    /// cannot be represented unambiguously in a label.
+    /// An issuer or account name is too long, contains control,
+    /// bidirectional formatting, line or paragraph separator or invisible
+    /// formatting characters, has surrounding whitespace, or cannot be
+    /// represented unambiguously in a label.
     #[error("invalid label")]
     InvalidLabel,
 
     /// An input exceeds a length limit (URI, secret, parameter count).
     #[error("size limit exceeded")]
     SizeLimit,
+
+    /// A verification window exceeds `MAX_VERIFY_WINDOW`.
+    #[error("verification window too large")]
+    InvalidWindow,
 
     /// The system clock is set before 1970-01-01.
     #[error("system time before the Unix epoch")]

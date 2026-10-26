@@ -1,7 +1,8 @@
 //! `otpauth://` parsing: never panics; whatever parses formats to a URI
 //! that parses to an equal value and formats to the same text again
-//! (formatting is canonical), and every accepted entry generates a code of
-//! the right shape.
+//! (formatting is canonical), every accepted entry generates a code of the
+//! right shape, and that code verifies once and is then rejected as a
+//! replay.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -21,6 +22,19 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(uri2.expose_secret(), uri.expose_secret(), "canonical format");
 
     let code = entry.otp.code_at(1_616_374_841).expect("code");
+    let step = entry
+        .otp
+        .verify(code.expose_secret(), 1_616_374_841, 1, None)
+        .expect("window 1 is valid");
+    assert!(step.is_some(), "a generated code verifies");
+    assert_eq!(
+        entry
+            .otp
+            .verify(code.expose_secret(), 1_616_374_841, 1, step)
+            .expect("window 1 is valid"),
+        None,
+        "replay rejected"
+    );
     match entry.otp.kind {
         OtpKind::Steam { .. } => {
             assert_eq!(code.len(), STEAM_CODE_LEN);

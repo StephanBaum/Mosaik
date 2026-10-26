@@ -10,7 +10,9 @@
 //!
 //! # Parsing rules
 //!
-//! - Scheme and type ignore ASCII case. A fragment (`#`) is rejected.
+//! - ASCII whitespace around the whole URI (a trailing newline from a QR
+//!   decoder or a paste) is removed first. Scheme and type ignore ASCII
+//!   case. A fragment (`#`) is rejected.
 //! - Label and values are percent-decoded and must be UTF-8. In parameter
 //!   values `+` means a space (form encoding); in the label it is literal.
 //! - Parameter names ignore ASCII case. A known parameter given twice is an
@@ -21,16 +23,24 @@
 //!   parameter that does not apply to the type (`counter` on TOTP, `period`
 //!   on HOTP) is ignored.
 //! - Issuer: the `issuer` parameter wins. If the label starts with that
-//!   issuer followed by `:`, the prefix is removed; otherwise the label is
-//!   split at its first `:` and any prefix is dropped. Without the
-//!   parameter the label prefix before the first `:` is the issuer. Issuer
-//!   and account name are trimmed; an empty issuer is `None`. Without an
-//!   issuer, an account name containing `:` (left over after a blank
-//!   prefix, as in `%20:a:b`) is rejected, because it could not be
-//!   formatted back unambiguously.
+//!   issuer (ASCII case ignored) followed by `:`, or with a blank prefix
+//!   and `:`, the prefix is removed. Otherwise the whole label is the
+//!   account name, so nothing is lost: `alice:work` with `issuer=Example`
+//!   gives account `alice:work`. Without the parameter the label prefix
+//!   before the first `:` is the issuer. Issuer and account name are
+//!   trimmed; an empty issuer is `None`. Without an issuer, an account name
+//!   containing `:` (left over after a blank prefix, as in `%20:a:b`) is
+//!   rejected, because it could not be formatted back unambiguously.
 //! - Issuer and account name are at most [`MAX_TEXT_LEN`] bytes and must
-//!   not contain control characters or bidirectional formatting characters
-//!   (which could make a label display as something else).
+//!   not contain characters that break or disguise a single-line label:
+//!   controls (`Cc`), bidirectional formatting (`Bidi_Control`), line and
+//!   paragraph separators (`Zl`, `Zp`), and invisible characters with no
+//!   role in ordinary text (soft hyphen, zero-width space, word joiner and
+//!   the rest of U+2060..U+206F, BOM, Hangul and Khmer fillers, interlinear
+//!   annotation, musical formatting, tag characters). Zero-width non-joiner
+//!   and joiner (U+200C, U+200D) are required by Persian and Indic scripts
+//!   and by emoji sequences, so they are allowed between characters but
+//!   not at the start or end. Variation selectors (emoji) are allowed.
 //!
 //! # Steam Guard
 //!
@@ -181,18 +191,33 @@ fn decode_number(raw: &[u8]) -> Result<u64> {
     s.parse::<u64>().map_err(|_| Error::InvalidParameter)
 }
 
-/// Characters that may not appear in an issuer or account name: controls,
-/// and the bidirectional formatting characters (Unicode `Bidi_Control`).
+/// Characters that may not appear in an issuer or account name (see the
+/// module docs).
 fn is_forbidden(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
-            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+            // Bidi_Control (U+2066..U+2069 are in the U+2060 block below).
+            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
+            // Zl, Zp.
+            | '\u{2028}' | '\u{2029}'
+            // Invisible format characters and fillers.
+            | '\u{00AD}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}' | '\u{180E}'
+            | '\u{200B}' | '\u{2060}'..='\u{206F}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}'
+            | '\u{FFF9}'..='\u{FFFB}' | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}'
         )
 }
 
+/// Zero-width non-joiner and joiner: allowed only between characters.
+const JOINERS: [char; 2] = ['\u{200C}', '\u{200D}'];
+
 fn validate_text(s: &str) -> Result<()> {
-    if s.len() > MAX_TEXT_LEN || s.trim() != s || s.chars().any(is_forbidden) {
+    if s.len() > MAX_TEXT_LEN
+        || s.trim() != s
+        || s.chars().any(is_forbidden)
+        || s.starts_with(JOINERS)
+        || s.ends_with(JOINERS)
+    {
         return Err(Error::InvalidLabel);
     }
     Ok(())
@@ -203,14 +228,29 @@ fn non_empty(s: &str) -> Option<String> {
     (!s.is_empty()).then(|| s.to_owned())
 }
 
+/// The rest of `label` after `issuer` (ASCII case ignored, surrounding
+/// whitespace allowed) and `:`, if the label starts that way.
+fn strip_issuer<'a>(label: &'a str, issuer: &str) -> Option<&'a str> {
+    let label = label.trim_start();
+    let head = label.get(..issuer.len())?;
+    if !head.eq_ignore_ascii_case(issuer) {
+        return None;
+    }
+    label.get(issuer.len()..)?.trim_start().strip_prefix(':')
+}
+
 /// Splits the decoded label into issuer and account (see the module docs).
 fn split_label(label: &str, issuer_param: Option<String>) -> (Option<String>, String) {
     match issuer_param {
         Some(p) => {
-            let account = label
-                .strip_prefix(p.as_str())
-                .and_then(|r| r.strip_prefix(':'))
-                .or_else(|| label.split_once(':').map(|(_, a)| a))
+            // A prefix that differs from the parameter stays in the account
+            // name rather than being dropped.
+            let account = strip_issuer(label, &p)
+                .or_else(|| {
+                    label
+                        .split_once(':')
+                        .and_then(|(pre, a)| pre.trim().is_empty().then_some(a))
+                })
                 .unwrap_or(label);
             (Some(p), account.trim().to_owned())
         }
@@ -258,7 +298,7 @@ fn parse_secret(raw: &[u8]) -> Result<OtpSecret> {
 }
 
 fn parse(uri: &str) -> Result<OtpAuth> {
-    let bytes = uri.as_bytes();
+    let bytes = uri.trim_ascii().as_bytes();
     if bytes.len() > MAX_URI_LEN {
         return Err(Error::SizeLimit);
     }
@@ -602,12 +642,34 @@ mod tests {
 
     #[test]
     fn issuer_resolution() {
-        // Parameter wins over a differing label prefix.
+        // Parameter wins over a differing label prefix, and the prefix is
+        // kept in the account name instead of being dropped.
         let a = ok("otpauth://totp/Old:me?secret=MFRGG&issuer=New");
         assert_eq!(
             (a.issuer.as_deref(), a.account_name.as_str()),
-            (Some("New"), "me")
+            (Some("New"), "Old:me")
         );
+        let work = ok("otpauth://totp/alice:work?secret=MFRGG&issuer=Example");
+        assert_eq!(
+            (work.issuer.as_deref(), work.account_name.as_str()),
+            (Some("Example"), "alice:work")
+        );
+        assert_eq!(ok(work.to_uri().unwrap().expose_secret()), work);
+        // A matching prefix is removed ignoring ASCII case and whitespace;
+        // a blank prefix is removed too.
+        let case = ok("otpauth://totp/%20example%20:%20me?secret=MFRGG&issuer=Example");
+        assert_eq!(
+            (case.issuer.as_deref(), case.account_name.as_str()),
+            (Some("Example"), "me")
+        );
+        let blank = ok("otpauth://totp/%20:me?secret=MFRGG&issuer=X");
+        assert_eq!(blank.account_name, "me");
+        // A longer word that merely starts with the issuer is no prefix.
+        let longer = ok("otpauth://totp/Example2:me?secret=MFRGG&issuer=Example");
+        assert_eq!(longer.account_name, "Example2:me");
+        // The issuer length falls inside a multi-byte character.
+        let utf8 = ok("otpauth://totp/%C3%A4b:me?secret=MFRGG&issuer=a");
+        assert_eq!(utf8.account_name, "\u{e4}b:me");
         // Parameter without a label prefix.
         let b = ok("otpauth://totp/me?secret=MFRGG&issuer=New");
         assert_eq!(
@@ -806,7 +868,90 @@ mod tests {
             Error::InvalidLabel,
         ),
         ("otpauth://totp/a%C2%85b?secret=MFRGG", Error::InvalidLabel),
+        // Line and paragraph separators (Zl, Zp).
+        (
+            "otpauth://totp/a%E2%80%A8b?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/a?secret=MFRGG&issuer=a%E2%80%A9b",
+            Error::InvalidLabel,
+        ),
+        // Invisible format characters: soft hyphen, zero-width space, word
+        // joiner, invisible separator, BOM, Hangul filler, tag character.
+        (
+            "otpauth://totp/Goo%C2%ADgle?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/Goo%E2%80%8Bgle?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/Goo%E2%81%A0gle?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/Goo%E2%81%A3gle?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/Goo%EF%BB%BFgle?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/a%E3%85%A4b?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/a%F3%A0%81%81b?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        // Joiners at the edges, where they only hide.
+        (
+            "otpauth://totp/x:%E2%80%8Da?secret=MFRGG",
+            Error::InvalidLabel,
+        ),
+        (
+            "otpauth://totp/a?secret=MFRGG&issuer=x%E2%80%8C",
+            Error::InvalidLabel,
+        ),
     ];
+
+    /// Joiners between characters (Persian ZWNJ, emoji ZWJ sequences) and
+    /// variation selectors stay allowed.
+    #[test]
+    fn joiners_between_characters() {
+        let fa =
+            ok("otpauth://totp/x:%D9%85%DB%8C%E2%80%8C%D8%AE%D9%88%D8%A7%D9%87%D9%85?secret=MFRGG");
+        assert_eq!(
+            fa.account_name,
+            "\u{645}\u{6cc}\u{200c}\u{62e}\u{648}\u{627}\u{647}\u{645}"
+        );
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let heart = "\u{2764}\u{FE0F}";
+        let e = entry(Some(heart), family, OtpKind::DEFAULT_TOTP);
+        assert_eq!(ok(e.to_uri().unwrap().expose_secret()), e);
+    }
+
+    /// Regression: surrounding whitespace from a QR decoder or a paste.
+    #[test]
+    fn surrounding_whitespace() {
+        let base = "otpauth://totp/a?secret=MFRGG&digits=6";
+        for uri in [
+            format!("{base}\n"),
+            format!("{base}\r\n"),
+            format!("{base} "),
+            format!(" \t{base}"),
+            format!("\n{base}\n"),
+        ] {
+            let a = ok(&uri);
+            assert_eq!(a.otp.kind, OtpKind::DEFAULT_TOTP, "{uri:?}");
+            assert_eq!(a.account_name, "a");
+        }
+        // Interior whitespace in the scheme is still malformed.
+        assert_eq!(err("otp auth://totp/a?secret=MFRGG"), Error::MalformedUri);
+    }
 
     #[test]
     fn rejections() {
@@ -872,6 +1017,9 @@ mod tests {
             (None, "a:b"),
             (None, "a\u{7}"),
             (Some("\u{202E}"), "a"),
+            (None, "a\u{2028}b"),
+            (Some("Goo\u{200B}gle"), "a"),
+            (Some("x"), "\u{200D}a"),
         ] {
             assert_eq!(
                 entry(issuer, account, k).to_uri().err(),

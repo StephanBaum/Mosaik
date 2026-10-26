@@ -25,6 +25,25 @@ pub const MAX_SECRET_LEN: usize = 128;
 /// [`OtpSecret::meets_rfc4226_minimum`].
 pub const RFC4226_MIN_SECRET_LEN: usize = 16;
 
+/// The 80-bit secret length that most services (Google, GitHub and many
+/// others) issue. Shorter secrets are [`SecretStrength::Weak`].
+pub const COMMON_MIN_SECRET_LEN: usize = 10;
+
+/// How a secret's length compares with common practice and RFC 4226, for
+/// an import or setup hint. Lengths are not secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SecretStrength {
+    /// Shorter than [`COMMON_MIN_SECRET_LEN`] (80 bits): a real weakness
+    /// worth a warning.
+    Weak,
+    /// At least 80 bits but below the RFC 4226 minimum of 128 bits
+    /// ([`RFC4226_MIN_SECRET_LEN`]); what most services issue, so at most
+    /// an informational note.
+    BelowRfc4226,
+    /// At least 128 bits.
+    Rfc4226,
+}
+
 /// Longest accepted base32 text for a secret, including whitespace and
 /// padding.
 pub const MAX_SECRET_TEXT_LEN: usize = 1024;
@@ -105,10 +124,23 @@ impl OtpSecret {
 
     /// Whether the secret has at least the 128 bits RFC 4226 §4 R6 requires.
     /// Many services issue 80-bit secrets; those still work, and the UI may
-    /// point out that the service chose a short secret.
+    /// point out that the service chose a short secret. A UI warning should
+    /// use [`Self::strength`] instead, which singles out truly short
+    /// secrets.
     #[must_use]
     pub fn meets_rfc4226_minimum(&self) -> bool {
         self.0.len() >= RFC4226_MIN_SECRET_LEN
+    }
+
+    /// The length class of the secret: warn only on
+    /// [`SecretStrength::Weak`].
+    #[must_use]
+    pub fn strength(&self) -> SecretStrength {
+        match self.0.len() {
+            n if n < COMMON_MIN_SECRET_LEN => SecretStrength::Weak,
+            n if n < RFC4226_MIN_SECRET_LEN => SecretStrength::BelowRfc4226,
+            _ => SecretStrength::Rfc4226,
+        }
     }
 
     #[cfg(test)]
@@ -221,6 +253,21 @@ mod tests {
                 .unwrap()
                 .meets_rfc4226_minimum()
         );
+    }
+
+    #[test]
+    fn strength_thresholds() {
+        let s = |n: usize| OtpSecret::from_bytes(&vec![7; n]).unwrap().strength();
+        assert_eq!(s(1), SecretStrength::Weak);
+        assert_eq!(s(COMMON_MIN_SECRET_LEN - 1), SecretStrength::Weak);
+        // 80-bit secrets (Google, GitHub) are not flagged as weak.
+        assert_eq!(s(COMMON_MIN_SECRET_LEN), SecretStrength::BelowRfc4226);
+        assert_eq!(s(RFC4226_MIN_SECRET_LEN - 1), SecretStrength::BelowRfc4226);
+        assert_eq!(s(RFC4226_MIN_SECRET_LEN), SecretStrength::Rfc4226);
+        assert_eq!(s(MAX_SECRET_LEN), SecretStrength::Rfc4226);
+        let google = OtpSecret::from_base32("JBSWY3DPEHPK3PXP").unwrap();
+        assert_eq!(google.strength(), SecretStrength::BelowRfc4226);
+        assert!(SecretStrength::Weak < SecretStrength::BelowRfc4226);
     }
 
     #[test]

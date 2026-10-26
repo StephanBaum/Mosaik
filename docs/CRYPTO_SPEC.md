@@ -515,6 +515,11 @@ size buckets), tags, vault names, or attachment names.
   SHA-256 and SHA-512, 6 to 8 digits, period 1 to 300 s. Steam Guard: 5
   characters from `23456789BCDFGHJKMNPQRTVWXY`. Secrets are stored inside item
   plaintext.
+- OTP verification (account 2FA, §9.3) goes through `mosaic_totp::Otp::verify`:
+  a constant-time comparison against every step in a bounded window
+  (TOTP ±w steps, HOTP w counters ahead, w ≤ 10, recommended w = 1), and a
+  replay guard that rejects any step at or below the last accepted one, which
+  the caller stores before it accepts the login (ADR-0008).
 
 ## 14. Test requirements
 

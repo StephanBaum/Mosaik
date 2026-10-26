@@ -327,3 +327,65 @@ and the attachment header were not fully specified.
 The limits are format constants. Raising them is a spec change, but it does
 not need a version bump, because old objects stay valid. Golden files in
 `crates/core/tests/golden/` pin every layout.
+
+## ADR-0008: OTP verification, timing and label rules in mosaic-totp
+
+- Status: proposed
+- Date: 2026-10-26
+- Milestone: M2
+
+### Context
+CRYPTO_SPEC §13 fixes how codes are generated but not how they are checked.
+M6 needs server-side account 2FA (§9.3) and M4 may check codes too. A
+consumer comparing code strings with `==` gets a variable-time comparison
+and no replay protection. Review of the M2 totp track also found that code
+generation did secret-dependent table lookups that the base32 codec avoids
+(ADR-0007 item 12), that `otpauth://` labels dropped a mismatching issuer
+prefix and accepted invisible characters, and that the advisory secret
+length check fired for the 80-bit secrets most services issue.
+
+### Decision
+1. **Verification lives in the crate.** `Otp::verify(candidate, unix_time,
+   window, last_used)` computes every candidate step (TOTP and Steam:
+   `T - window ..= T + window`; HOTP: `counter ..= counter + window`, look-ahead
+   only) and compares each with `subtle` (`Code::ct_matches`), without an
+   early exit. `window ≤ 10` (`MAX_VERIFY_WINDOW`), else `InvalidWindow`;
+   recommended `1` (RFC 6238 §5.2). Steps at or below `last_used` never
+   match; the largest matching step is returned and the caller must store it
+   (HOTP: set `counter = step + 1`) before accepting the login. The
+   candidate is not normalized.
+2. **Code generation is table-free, best effort.** Dynamic truncation reads
+   every 4-byte window of the MAC and keeps the one at the offset with
+   `subtle` selects. Steam characters are a `subtle` select over all 26
+   entries. Divisions and remainders use constant divisors only. This is
+   not a guarantee (compilers decide), and the residual leak concerns a
+   short-lived HMAC-derived code, not the key.
+3. **Labels.** When the `issuer` parameter is present and the label prefix
+   differs from it (ASCII case and surrounding whitespace ignored), the whole
+   label becomes the account name instead of losing the prefix. A blank
+   prefix is still removed. Issuer and account names additionally reject
+   `Zl`/`Zp`, soft hyphen, zero-width space, U+2060..U+206F, BOM, Hangul and
+   Khmer fillers, interlinear annotation, musical formatting and tag
+   characters. ZWNJ and ZWJ stay allowed between characters (Persian, Indic
+   scripts, emoji sequences), but not at the start or end. The whole URI is
+   trimmed of ASCII whitespace before parsing.
+4. **Secret strength.** `OtpSecret::strength()` returns `Weak` (< 10 bytes),
+   `BelowRfc4226` (10 to 15 bytes) or `Rfc4226` (≥ 16 bytes). The UI warns
+   only on `Weak`.
+
+### Alternatives considered
+- Leaving verification to M6: every consumer would reimplement window and
+  replay logic, and the easy path (`==`) is the wrong one.
+- A boolean `verify`: the caller could not store the matched step, so
+  replays inside the window would pass.
+- Documenting generation as variable-time instead of fixing it: the fix is
+  a few lines and keeps the crate consistent with ADR-0007 item 12.
+- Rejecting all `Cf` characters including ZWNJ/ZWJ: would make Persian
+  account names and emoji ZWJ sequences unimportable.
+- Exposing the dropped label prefix as a separate field: it would not
+  survive formatting, so `parse(to_uri(x)) == x` would break.
+
+### Consequences
+M6 stores the last accepted step per account 2FA secret and calls `verify`
+with it. Imports that relied on a mismatching prefix being dropped now show
+it in the account name, which the user can edit.
