@@ -115,18 +115,38 @@ pub enum Error {
     #[error("vault key still in use")]
     VaultKeyInUse,
 
-    /// The caller's accepted-state blob exceeds
-    /// [`super::MAX_ACCEPTED_STATE_LEN`].
-    #[error("accepted state too large")]
-    AcceptedStateTooLarge,
+    /// No wrapped vault key of this generation is held, so there is nothing
+    /// to re-wrap.
+    #[error("unknown vault key generation")]
+    UnknownVaultKey,
+
+    /// The operation needs a vault whose keys are wrapped the other way: a
+    /// TK wrapping on a vault under AK, or a §6.6 re-key of a vault key that
+    /// is wrapped under TK (CRYPTO_SPEC §7.4).
+    #[error("vault key wrapping mismatch")]
+    KeyWrapMismatch,
+
+    /// Removing this TK wrapping would leave the hardware-protected vault
+    /// with none, which loses its vault keys for good. Delete the vault
+    /// instead.
+    #[error("last TK wrapping of the vault")]
+    LastTkWrapping,
+
+    /// A §6.6 re-key did not re-wrap every vault key held under AK. Keys
+    /// left under the old AK would become unreadable, so nothing was
+    /// changed.
+    #[error("re-key does not cover every vault key")]
+    RekeyIncomplete,
 
     /// The record is not in the store.
     #[error("unknown record")]
     UnknownRecord,
 
     /// A remote record would replace a local change that is still waiting
-    /// for upload. Resolve the conflict and store the result with
-    /// [`super::Origin::Merged`], so the local change is never lost.
+    /// for upload, or a delete would drop one (a record in the outbox or an
+    /// attachment not yet uploaded). For a remote record, resolve the
+    /// conflict and store the result with [`super::Origin::Merged`]; for a
+    /// delete, upload first or pass [`super::PendingPolicy::Discard`].
     #[error("record has a pending local change")]
     PendingLocalChange,
 

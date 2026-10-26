@@ -18,7 +18,7 @@ use mosaic_core::{
     ItemCiphertext, ItemId, Kek, KeyGeneration, PasswordParams, SecretBytes, TombstoneCiphertext,
     UnlockMethod, VaultId, VaultKey, VaultMetaCiphertext, open_attachment, seal_attachment,
 };
-use mosaic_vault::storage::{Origin, RecordBody, Store};
+use mosaic_vault::storage::{Origin, PendingPolicy, RecordBody, Store};
 
 const MARKER: &[u8] = b"MOSAIC-PLAINTEXT-MARKER-c0ffee";
 
@@ -64,6 +64,69 @@ fn assert_absent(dir: &Path, needles: &[(&str, &[u8])]) -> usize {
 
 fn any_file_contains(dir: &Path, needle: &[u8]) -> bool {
     all_files(dir).iter().any(|(_, b)| contains(b, needle))
+}
+
+/// §6.2: quick-unlock expiry deletes the wrapping, and §6.4 / §6.6 replace
+/// old wrappings. Once the deleting call returns, the old wrapping's bytes
+/// are gone from every file, including the WAL, while the store is still
+/// open (a crash right after the call must not leave them behind).
+#[test]
+fn removed_wrappings_leave_no_bytes_behind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("v.db");
+    let mut store = Store::open(&path).unwrap();
+    let kek = Kek::from_secret(SecretBytes::random().unwrap());
+    let params = PasswordParams {
+        account_id: AccountId::new_v7().unwrap(),
+        salt: AccountSalt::generate().unwrap(),
+        profile: Argon2Profile::DEFAULT,
+    };
+    let ak = AccountKey::generate().unwrap();
+    let old_password = ak
+        .wrap(&kek, &params.account_id, &UnlockMethod::Password)
+        .unwrap();
+    store.init_account(&params, &old_password).unwrap();
+    let quick = UnlockMethod::QuickUnlock(DeviceId::new_v7().unwrap());
+    let quick_wrapping = ak.wrap(&kek, &params.account_id, &quick).unwrap();
+    store
+        .put_unlock_method(&quick, &quick_wrapping, &[])
+        .unwrap();
+    // A vault so that the store holds more than the removed rows.
+    let vault = VaultId::new_v7().unwrap();
+    let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+    let old_vk_wrapping = vk.wrap(&ak, &params.account_id, &vault).unwrap();
+    store
+        .create_vault(&vault, KeyGeneration::FIRST, &old_vk_wrapping)
+        .unwrap();
+    // The scan is real: the bytes are on disk before the removal.
+    assert!(any_file_contains(tmp.path(), quick_wrapping.as_bytes()));
+    assert!(any_file_contains(tmp.path(), old_password.as_bytes()));
+
+    assert!(store.remove_unlock_method(&quick).unwrap());
+    assert!(
+        !any_file_contains(tmp.path(), quick_wrapping.as_bytes()),
+        "removed quick-unlock wrapping still on disk"
+    );
+
+    let new_password = ak
+        .wrap(&kek, &params.account_id, &UnlockMethod::Password)
+        .unwrap();
+    store.update_password(&params, &new_password).unwrap();
+    assert!(
+        !any_file_contains(tmp.path(), old_password.as_bytes()),
+        "replaced password wrapping still on disk"
+    );
+    assert!(any_file_contains(tmp.path(), new_password.as_bytes()));
+
+    let new_vk_wrapping = vk.wrap(&ak, &params.account_id, &vault).unwrap();
+    store
+        .rewrap_vault_key(&vault, KeyGeneration::FIRST, &new_vk_wrapping)
+        .unwrap();
+    assert!(
+        !any_file_contains(tmp.path(), old_vk_wrapping.as_bytes()),
+        "replaced vault-key wrapping still on disk"
+    );
+    drop(store);
 }
 
 #[test]
@@ -125,7 +188,7 @@ fn no_plaintext_or_key_bytes_on_disk() {
             Origin::Remote { server_seq: i }
         };
         store
-            .upsert_record(&vault, &id, &RecordBody::Item(ct.clone()), b"vv", origin)
+            .upsert_record(&vault, &id, &RecordBody::Item(ct.clone()), origin)
             .unwrap();
         items.push((id, ct));
     }
@@ -133,11 +196,15 @@ fn no_plaintext_or_key_bytes_on_disk() {
     for (id, _) in items.iter().take(5) {
         let t = TombstoneCiphertext::seal(&vk1, &vault, id, &with_marker("tombstone")).unwrap();
         store
-            .upsert_record(&vault, id, &RecordBody::Tombstone(t), b"", Origin::Local)
+            .upsert_record(&vault, id, &RecordBody::Tombstone(t), Origin::Local)
             .unwrap();
     }
     for (id, _) in items.iter().skip(5).take(3) {
-        assert!(store.delete_record(&vault, id).unwrap());
+        assert!(
+            store
+                .delete_record(&vault, id, PendingPolicy::Discard)
+                .unwrap()
+        );
     }
 
     // A three-chunk attachment full of markers.
@@ -161,13 +228,7 @@ fn no_plaintext_or_key_bytes_on_disk() {
     let id2 = ItemId::new_v7().unwrap();
     let ct2 = ItemCiphertext::seal(&vk2, &vault, &id2, 1, &with_marker("gen-2")).unwrap();
     store
-        .upsert_record(
-            &vault,
-            &id2,
-            &RecordBody::Item(ct2.clone()),
-            b"",
-            Origin::Local,
-        )
+        .upsert_record(&vault, &id2, &RecordBody::Item(ct2.clone()), Origin::Local)
         .unwrap();
 
     let needles: [(&str, &[u8]); 4] = [

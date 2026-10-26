@@ -62,10 +62,13 @@ CREATE UNIQUE INDEX unlock_methods_one_password ON unlock_methods (method) WHERE
 
 -- Vaults (CRYPTO_SPEC §7.1). `highest_accepted_generation` is the
 -- anti-rollback high-water mark; `current_generation` is the generation of
--- the newest vault key held, which new objects are sealed under.
+-- the newest vault key held, which new objects are sealed under. `key_wrap`
+-- says what every vault key of the vault is wrapped under: 1 = AK (§7.1),
+-- 2 = the TK of a hardware-protected TOTP vault (§7.4). It never changes.
 CREATE TABLE vaults (
     vault_id                    BLOB    PRIMARY KEY
                                 CHECK (length(vault_id) = 16 AND vault_id <> zeroblob(16)),
+    key_wrap                    INTEGER NOT NULL CHECK (key_wrap IN (1, 2)),
     current_generation          INTEGER NOT NULL CHECK (current_generation BETWEEN 1 AND 4294967295),
     highest_accepted_generation INTEGER NOT NULL
                                 CHECK (highest_accepted_generation BETWEEN 1 AND 4294967295),
@@ -76,6 +79,11 @@ CREATE TABLE vaults (
     CHECK ((meta IS NULL) = (meta_generation IS NULL)),
     CHECK (meta_generation IS NULL OR meta_generation <= highest_accepted_generation)
 ) STRICT;
+
+CREATE TRIGGER vaults_immutable
+BEFORE UPDATE OF vault_id, key_wrap ON vaults
+WHEN NEW.vault_id <> OLD.vault_id OR NEW.key_wrap <> OLD.key_wrap
+BEGIN SELECT RAISE(ABORT, 'mosaic: vault_id and key_wrap are immutable'); END;
 
 CREATE TRIGGER vaults_generation_monotonic
 BEFORE UPDATE OF current_generation, highest_accepted_generation ON vaults
@@ -88,7 +96,42 @@ BEFORE UPDATE OF meta, meta_generation ON vaults
 WHEN NEW.meta IS NOT NULL AND NEW.meta_generation <> NEW.highest_accepted_generation
 BEGIN SELECT RAISE(ABORT, 'mosaic: vault metadata generation not accepted'); END;
 
--- Wrapped vault keys, one per generation (CRYPTO_SPEC §7.1).
+-- The anti-rollback mark outlives the vault (CRYPTO_SPEC §7.1): when a vault
+-- is deleted, its highest accepted generation stays here, and the vault can
+-- only come back at that generation or a later one. Rows are never deleted
+-- and never decrease.
+CREATE TABLE vault_generation_floors (
+    vault_id    BLOB    PRIMARY KEY
+                CHECK (length(vault_id) = 16 AND vault_id <> zeroblob(16)),
+    generation  INTEGER NOT NULL CHECK (generation BETWEEN 1 AND 4294967295),
+    updated_at  INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TRIGGER vault_generation_floors_monotonic
+BEFORE UPDATE ON vault_generation_floors
+WHEN NEW.generation < OLD.generation OR NEW.vault_id <> OLD.vault_id
+BEGIN SELECT RAISE(ABORT, 'mosaic: key generation rollback'); END;
+
+CREATE TRIGGER vault_generation_floors_permanent
+BEFORE DELETE ON vault_generation_floors
+BEGIN SELECT RAISE(ABORT, 'mosaic: generation floors are permanent'); END;
+
+CREATE TRIGGER vaults_insert_above_floor
+BEFORE INSERT ON vaults
+WHEN NEW.highest_accepted_generation
+     < coalesce((SELECT generation FROM vault_generation_floors WHERE vault_id = NEW.vault_id), 0)
+BEGIN SELECT RAISE(ABORT, 'mosaic: key generation rollback'); END;
+
+CREATE TRIGGER vaults_delete_keeps_floor
+BEFORE DELETE ON vaults
+WHEN OLD.highest_accepted_generation
+     > coalesce((SELECT generation FROM vault_generation_floors WHERE vault_id = OLD.vault_id), 0)
+BEGIN SELECT RAISE(ABORT, 'mosaic: generation floor not recorded'); END;
+
+-- Wrapped vault keys, one per generation (CRYPTO_SPEC §7.1, §7.4), wrapped
+-- under what the vault's `key_wrap` says. No new row below the accepted
+-- generation; an existing row may be re-wrapped (`wrapped_vk` replaced, for
+-- example by a §6.6 re-key), but its vault and generation never change.
 CREATE TABLE vault_keys (
     vault_id    BLOB    NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
     generation  INTEGER NOT NULL CHECK (generation BETWEEN 1 AND 4294967295),
@@ -103,20 +146,45 @@ WHEN NEW.generation < (SELECT highest_accepted_generation FROM vaults WHERE vaul
 BEGIN SELECT RAISE(ABORT, 'mosaic: key generation rollback'); END;
 
 CREATE TRIGGER vault_keys_generation_update
-BEFORE UPDATE ON vault_keys
-WHEN NEW.generation < (SELECT highest_accepted_generation FROM vaults WHERE vault_id = NEW.vault_id)
-BEGIN SELECT RAISE(ABORT, 'mosaic: key generation rollback'); END;
+BEFORE UPDATE OF vault_id, generation ON vault_keys
+WHEN NEW.vault_id <> OLD.vault_id OR NEW.generation <> OLD.generation
+BEGIN SELECT RAISE(ABORT, 'mosaic: vault key generation is immutable'); END;
+
+-- The wrappings of a hardware-protected TOTP vault's TK, one per registered
+-- hardware key (CRYPTO_SPEC §7.4). `method_id` = SHA-256(credential_id)[..16]
+-- and `params` holds that key's own `prf_salt_hw`. This is a table of its
+-- own, so a TK wrapping can never replace the same credential's §6.3 AK
+-- wrapping in `unlock_methods`.
+CREATE TABLE tk_wrappings (
+    vault_id    BLOB    NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    method_id   BLOB    NOT NULL CHECK (length(method_id) = 16),
+    wrapped_tk  BLOB    NOT NULL CHECK (length(wrapped_tk) = 74),
+    params      BLOB    NOT NULL CHECK (length(params) <= 4096),
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, method_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TRIGGER tk_wrappings_insert_tk_vault
+BEFORE INSERT ON tk_wrappings
+WHEN (SELECT key_wrap FROM vaults WHERE vault_id = NEW.vault_id) IS NOT 2
+BEGIN SELECT RAISE(ABORT, 'mosaic: TK wrapping for a vault not under TK'); END;
+
+CREATE TRIGGER tk_wrappings_update_tk_vault
+BEFORE UPDATE OF vault_id, method_id ON tk_wrappings
+WHEN NEW.vault_id <> OLD.vault_id OR NEW.method_id <> OLD.method_id
+BEGIN SELECT RAISE(ABORT, 'mosaic: TK wrapping key is immutable'); END;
 
 -- Sync records (CRYPTO_SPEC §7.2, §10): items and tombstones. `outbox_seq`
 -- is set while a local change waits for upload (the outbox); it comes from
--- `outbox_counter` and is never reused.
+-- `outbox_counter` and is never reused. There is no cleartext sync state:
+-- the highest accepted version vector is the one inside the stored
+-- ciphertext (ADR-0009).
 CREATE TABLE records (
     vault_id        BLOB    NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
     record_id       BLOB    NOT NULL CHECK (length(record_id) = 16 AND record_id <> zeroblob(16)),
     kind            INTEGER NOT NULL CHECK (kind IN (1, 2)),
     key_generation  INTEGER NOT NULL CHECK (key_generation BETWEEN 1 AND 4294967295),
     ciphertext      BLOB    NOT NULL,
-    accepted_state  BLOB    NOT NULL CHECK (length(accepted_state) <= 65536),
     server_seq      INTEGER CHECK (server_seq >= 0),
     outbox_seq      INTEGER UNIQUE CHECK (outbox_seq >= 1),
     updated_at      INTEGER NOT NULL,
@@ -188,31 +256,46 @@ fn application_id(conn: &Connection) -> Result<i32> {
     Ok(conn.pragma_query_value(None, "application_id", |r| r.get(0))?)
 }
 
+/// The newest version in `migrations`.
+pub(crate) fn latest_of(migrations: &[Migration]) -> u32 {
+    migrations.last().map_or(0, |m| m.version)
+}
+
+/// Checks, reading only, that the database is a fresh one (no schema
+/// objects, `user_version` 0, no application ID) or a Mosaic store no newer
+/// than `latest`, and returns its version. [`super::Store`] runs this before
+/// it sets any persistent pragma, so a foreign or newer file is refused
+/// without a single write.
+pub(crate) fn check_compatible(conn: &Connection, latest: u32) -> Result<u32> {
+    let version = user_version(conn)?;
+    let app_id = application_id(conn)?;
+    if version == 0 && app_id == 0 {
+        let objects: i64 =
+            conn.query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))?;
+        if objects != 0 {
+            return Err(Error::NotAMosaicStore);
+        }
+    } else if app_id != APPLICATION_ID {
+        return Err(Error::NotAMosaicStore);
+    }
+    if version > latest {
+        return Err(Error::SchemaTooNew {
+            found: version,
+            supported: latest,
+        });
+    }
+    Ok(version)
+}
+
 /// Brings the database to the newest version in `migrations`.
 ///
 /// A fresh database (no schema objects, `user_version` 0) is stamped with
 /// [`APPLICATION_ID`]. Any other database must already carry it.
 pub(crate) fn migrate(conn: &mut Connection, migrations: &[Migration]) -> Result<u32> {
-    let latest = migrations.last().map_or(0, |m| m.version);
+    let latest = latest_of(migrations);
     loop {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let version = user_version(&tx)?;
-        let app_id = application_id(&tx)?;
-        if version == 0 && app_id == 0 {
-            let objects: i64 =
-                tx.query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))?;
-            if objects != 0 {
-                return Err(Error::NotAMosaicStore);
-            }
-        } else if app_id != APPLICATION_ID {
-            return Err(Error::NotAMosaicStore);
-        }
-        if version > latest {
-            return Err(Error::SchemaTooNew {
-                found: version,
-                supported: latest,
-            });
-        }
+        let version = check_compatible(&tx, latest)?;
         let Some(next) = migrations.iter().find(|m| m.version > version) else {
             return Ok(version);
         };
@@ -267,8 +350,9 @@ mod tests {
         let mut c = conn();
         migrate(&mut c, &MIGRATIONS[..1]).unwrap();
         c.execute(
-            "INSERT INTO vaults (vault_id, current_generation, highest_accepted_generation, updated_at)
-             VALUES (?1, 1, 1, 0)",
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (?1, 1, 1, 1, 0)",
             [[7u8; 16]],
         )
         .unwrap();
@@ -370,27 +454,85 @@ mod tests {
         migrate(&mut c, MIGRATIONS).unwrap();
         let v = [9u8; 16];
         c.execute(
-            "INSERT INTO vaults (vault_id, current_generation, highest_accepted_generation, updated_at)
-             VALUES (?1, 3, 3, 0)",
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (?1, 1, 3, 3, 0)",
+            [v],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at)
+             VALUES (?1, 3, zeroblob(74), 0)",
             [v],
         )
         .unwrap();
         for sql in [
             "UPDATE vaults SET highest_accepted_generation = 2 WHERE vault_id = ?1",
             "UPDATE vaults SET current_generation = 2 WHERE vault_id = ?1",
+            "UPDATE vaults SET key_wrap = 2 WHERE vault_id = ?1",
             "INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at)
              VALUES (?1, 2, zeroblob(74), 0)",
+            "UPDATE vault_keys SET generation = 2 WHERE vault_id = ?1",
             "INSERT INTO records (vault_id, record_id, kind, key_generation, ciphertext,
-                                  accepted_state, updated_at)
-             VALUES (?1, ?1, 1, 2, x'00', x'', 0)",
+                                  updated_at)
+             VALUES (?1, ?1, 1, 2, x'00', 0)",
             "INSERT INTO records (vault_id, record_id, kind, key_generation, ciphertext,
-                                  accepted_state, updated_at)
-             VALUES (?1, ?1, 1, 4, x'00', x'', 0)",
+                                  updated_at)
+             VALUES (?1, ?1, 1, 4, x'00', 0)",
             "UPDATE vaults SET meta = x'00', meta_generation = 2 WHERE vault_id = ?1",
+            // A TK wrapping only belongs to a vault under TK (§7.4).
+            "INSERT INTO tk_wrappings (vault_id, method_id, wrapped_tk, params, updated_at)
+             VALUES (?1, ?1, zeroblob(74), x'', 0)",
+            // Deleting a vault needs its floor first.
+            "DELETE FROM vaults WHERE vault_id = ?1",
         ] {
             let e = c.execute(sql, [v]).unwrap_err();
             assert!(e.to_string().contains("mosaic:"), "{sql}: {e}");
         }
+        // Re-wrapping a held key in place is allowed, even below the mark.
+        c.execute(
+            "UPDATE vault_keys SET wrapped_vk = zeroblob(74), updated_at = 1 WHERE vault_id = ?1",
+            [v],
+        )
+        .unwrap();
+
+        // The floor: recorded, then the vault can go, and it can only come
+        // back at the floor or above. Floors never drop or disappear.
+        c.execute(
+            "INSERT INTO vault_generation_floors (vault_id, generation, updated_at)
+             VALUES (?1, 3, 0)",
+            [v],
+        )
+        .unwrap();
+        c.execute("DELETE FROM vaults WHERE vault_id = ?1", [v])
+            .unwrap();
+        for sql in [
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (?1, 1, 2, 2, 0)",
+            "UPDATE vault_generation_floors SET generation = 2 WHERE vault_id = ?1",
+            "DELETE FROM vault_generation_floors WHERE vault_id = ?1",
+        ] {
+            let e = c.execute(sql, [v]).unwrap_err();
+            assert!(e.to_string().contains("mosaic:"), "{sql}: {e}");
+        }
+        c.execute(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (?1, 2, 3, 3, 0)",
+            [v],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tk_wrappings (vault_id, method_id, wrapped_tk, params, updated_at)
+             VALUES (?1, ?1, zeroblob(74), x'', 0)",
+            [v],
+        )
+        .unwrap();
+        let e = c
+            .execute("UPDATE tk_wrappings SET method_id = zeroblob(16)", [])
+            .unwrap_err();
+        assert!(e.to_string().contains("mosaic:"), "{e}");
         c.execute(
             "INSERT INTO account (id, account_id, salt, profile, updated_at)
              VALUES (1, ?1, zeroblob(16), 2, 0)",

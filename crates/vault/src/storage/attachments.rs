@@ -145,6 +145,38 @@ pub(super) fn prepare_db_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Makes an existing database and its `-wal` / `-shm` files owner-only on
+/// Unix (`0600`), for a store created by an older build or copied in with
+/// looser permissions. SQLite creates the WAL and shared-memory files with
+/// the database file's permissions. Runs only after the file was accepted
+/// as a Mosaic store, so a foreign file keeps its permissions. A no-op
+/// elsewhere.
+#[cfg_attr(
+    not(unix),
+    allow(clippy::unnecessary_wraps, reason = "fallible on Unix")
+)]
+pub(super) fn restrict_db_files(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut paths = vec![path.to_path_buf()];
+        for suffix in ["-wal", "-shm"] {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(suffix);
+            paths.push(name.into());
+        }
+        for p in paths {
+            match fs::set_permissions(&p, fs::Permissions::from_mode(0o600)) {
+                Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
+                _ => {}
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 /// Creates the attachment directory (owner-only on Unix).
 pub(super) fn create_dir(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
@@ -287,6 +319,14 @@ impl Store {
     /// must pass [`validate_attachment_ciphertext`]. Set `upload_pending`
     /// for an attachment created on this device, and clear it for one
     /// downloaded from the server.
+    ///
+    /// Attachment IDs are unique across the whole store (and the server,
+    /// §12), and a stored ciphertext is immutable. Moving an item to
+    /// another vault (§7.2) therefore re-seals each attachment under a
+    /// **fresh** attachment ID and FK (CRYPTO_SPEC §7.3, ADR-0009): the new
+    /// copy is stored first, and the old one is deleted only after the
+    /// moved item is safely stored, so there is never a moment without a
+    /// copy.
     ///
     /// # Errors
     /// [`Error::AttachmentsUnavailable`] for an in-memory store,
@@ -509,6 +549,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use super::super::PendingPolicy;
     use super::super::records::Origin;
     use super::super::records::tests::{item, store_with_vault};
     use super::super::vaults::tests::{fixture, g};
@@ -603,14 +644,8 @@ mod tests {
     fn in_memory_store_has_no_attachments() {
         let (mut s, f, vk) = store_with_vault();
         let rid = ItemId::new_v7().unwrap();
-        s.upsert_record(
-            &f.vault,
-            &rid,
-            &item(&f, &vk, &rid, b"x"),
-            b"",
-            Origin::Local,
-        )
-        .unwrap();
+        s.upsert_record(&f.vault, &rid, &item(&f, &vk, &rid, b"x"), Origin::Local)
+            .unwrap();
         let id = AttachmentId::new_v7().unwrap();
         assert!(matches!(
             s.put_attachment(&f.vault, &rid, &id, &sealed(1), true),
@@ -640,14 +675,8 @@ mod tests {
             s.put_attachment(&f.vault, &rid, &aid, &ct, true),
             Err(Error::UnknownRecord)
         ));
-        s.upsert_record(
-            &f.vault,
-            &rid,
-            &item(&f, &vk, &rid, b"x"),
-            b"",
-            Origin::Local,
-        )
-        .unwrap();
+        s.upsert_record(&f.vault, &rid, &item(&f, &vk, &rid, b"x"), Origin::Local)
+            .unwrap();
         assert!(matches!(
             s.put_attachment(&f.vault, &rid, &aid, b"plaintext", true),
             Err(Error::AttachmentMalformed)
@@ -697,10 +726,111 @@ mod tests {
         assert!(s.integrity_check().unwrap()[0].contains("file missing"));
         fs::write(&path, &ct).unwrap();
 
+        // The record is still in the outbox: no silent delete.
+        assert!(matches!(
+            s.delete_record(&f.vault, &rid, PendingPolicy::Refuse),
+            Err(Error::PendingLocalChange)
+        ));
+        assert!(path.exists());
         // Deleting the record removes its attachments (row and file).
-        assert!(s.delete_record(&f.vault, &rid).unwrap());
+        assert!(
+            s.delete_record(&f.vault, &rid, PendingPolicy::Discard)
+                .unwrap()
+        );
         assert_eq!(s.attachment_info(&aid).unwrap(), None);
         assert!(!path.exists());
+    }
+
+    /// An attachment not yet uploaded is a pending local change too.
+    #[test]
+    fn pending_attachment_blocks_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(dir.path().join("v.db")).unwrap();
+        let f = fixture();
+        let (vk, w) = f.key(1);
+        s.create_vault(&f.vault, g(1), &w).unwrap();
+        let rid = ItemId::new_v7().unwrap();
+        s.upsert_record(
+            &f.vault,
+            &rid,
+            &item(&f, &vk, &rid, b"x"),
+            Origin::Remote { server_seq: 1 },
+        )
+        .unwrap();
+        let aid = AttachmentId::new_v7().unwrap();
+        s.put_attachment(&f.vault, &rid, &aid, &sealed(3), true)
+            .unwrap();
+        for r in [
+            s.delete_record(&f.vault, &rid, PendingPolicy::Refuse),
+            s.delete_vault(&f.vault, PendingPolicy::Refuse),
+        ] {
+            assert!(matches!(r, Err(Error::PendingLocalChange)), "{r:?}");
+        }
+        assert!(s.attachment_info(&aid).unwrap().is_some());
+        assert!(s.mark_attachment_uploaded(&aid).unwrap());
+        assert!(
+            s.delete_record(&f.vault, &rid, PendingPolicy::Refuse)
+                .unwrap()
+        );
+    }
+
+    /// Moving an item to another vault (§7.2) re-seals its attachments
+    /// under fresh attachment IDs: the new copy is stored while the old one
+    /// still exists, so there is never a moment without a copy. Reusing
+    /// the old ID is refused instead of silently replacing it.
+    #[test]
+    fn moving_an_item_uses_fresh_attachment_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Store::open(dir.path().join("v.db")).unwrap();
+        let a = fixture();
+        let (vk_a, wa) = a.key(1);
+        s.create_vault(&a.vault, g(1), &wa).unwrap();
+        let b = fixture();
+        let (vk_b, wb) = b.key(1);
+        s.create_vault(&b.vault, g(1), &wb).unwrap();
+
+        let rid = ItemId::new_v7().unwrap();
+        s.upsert_record(
+            &a.vault,
+            &rid,
+            &item(&a, &vk_a, &rid, b"x"),
+            Origin::Remote { server_seq: 1 },
+        )
+        .unwrap();
+        let old_id = AttachmentId::new_v7().unwrap();
+        let fk = AttachmentKey::generate().unwrap();
+        let content = vec![9u8; 1000];
+        let old_ct = seal_attachment(&fk, &a.vault, &rid, &old_id, &content).unwrap();
+        s.put_attachment(&a.vault, &rid, &old_id, &old_ct, false)
+            .unwrap();
+
+        // The moved item in vault B, with its attachment re-sealed under
+        // the new vault ID.
+        s.upsert_record(&b.vault, &rid, &item(&b, &vk_b, &rid, b"x"), Origin::Local)
+            .unwrap();
+        let reused = seal_attachment(&fk, &b.vault, &rid, &old_id, &content).unwrap();
+        assert!(matches!(
+            s.put_attachment(&b.vault, &rid, &old_id, &reused, true),
+            Err(Error::AttachmentExists)
+        ));
+        let new_id = AttachmentId::new_v7().unwrap();
+        let fk2 = AttachmentKey::generate().unwrap();
+        let new_ct = seal_attachment(&fk2, &b.vault, &rid, &new_id, &content).unwrap();
+        s.put_attachment(&b.vault, &rid, &new_id, &new_ct, true)
+            .unwrap();
+        // Both copies exist until the old item is purged.
+        assert_eq!(s.attachment(&old_id).unwrap(), old_ct);
+        assert!(
+            s.delete_record(&a.vault, &rid, PendingPolicy::Refuse)
+                .unwrap()
+        );
+        assert!(matches!(
+            s.attachment(&old_id),
+            Err(Error::UnknownAttachment)
+        ));
+        let back = s.attachment(&new_id).unwrap();
+        let pt = open_attachment(&fk2, &b.vault, &rid, &new_id, &back).unwrap();
+        assert_eq!(pt.expose_secret(), content.as_slice());
     }
 
     #[test]
@@ -715,8 +845,7 @@ mod tests {
             &f.vault,
             &rid,
             &item(&f, &vk, &rid, b"x"),
-            b"",
-            Origin::Local,
+            Origin::Remote { server_seq: 1 },
         )
         .unwrap();
         let a1 = AttachmentId::new_v7().unwrap();
@@ -744,7 +873,7 @@ mod tests {
         assert_eq!(s.sweep_orphan_attachments().unwrap(), 0);
 
         // Deleting the vault removes the remaining attachment.
-        assert!(s.delete_vault(&f.vault).unwrap());
+        assert!(s.delete_vault(&f.vault, PendingPolicy::Refuse).unwrap());
         assert!(!att_dir.join(file_name(&a2)).exists());
         assert_eq!(s.attachment_info(&a2).unwrap(), None);
     }

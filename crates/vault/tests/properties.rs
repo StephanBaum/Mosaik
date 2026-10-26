@@ -16,7 +16,7 @@ use mosaic_core::{
     AccountId, AccountKey, ItemCiphertext, ItemId, KeyGeneration, VaultId, VaultKey,
     VaultMetaCiphertext,
 };
-use mosaic_vault::storage::{Error, Origin, OutboxSeq, RecordBody, Store};
+use mosaic_vault::storage::{Error, Origin, OutboxSeq, PendingPolicy, RecordBody, Store};
 use proptest::prelude::*;
 
 fn g(n: u32) -> KeyGeneration {
@@ -33,6 +33,8 @@ enum GenOp {
     WriteRecord(u8, u32),
     WriteMeta(u32),
     Prune(u32),
+    /// Delete the vault and add it again at a generation.
+    Recreate(u32),
 }
 
 fn gen_op() -> impl Strategy<Value = GenOp> {
@@ -41,6 +43,7 @@ fn gen_op() -> impl Strategy<Value = GenOp> {
         (0..3u8, 1..8u32).prop_map(|(r, n)| GenOp::WriteRecord(r, n)),
         (1..8u32).prop_map(GenOp::WriteMeta),
         (1..8u32).prop_map(GenOp::Prune),
+        (1..8u32).prop_map(GenOp::Recreate),
     ]
 }
 
@@ -89,9 +92,10 @@ fn check_write(r: Result<(), Error>, expected: Result<(), (u32, u32, bool)>) {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
-    /// The highest accepted generation never decreases, wrapped keys below
-    /// it are rejected, and records and metadata are accepted only at
-    /// exactly the highest accepted generation.
+    /// The highest accepted generation never decreases, not even across
+    /// deleting and re-adding the vault; wrapped keys below it are
+    /// rejected, and records and metadata are accepted only at exactly the
+    /// highest accepted generation.
     #[test]
     fn key_generations_are_monotonic(
         first in 1..4u32,
@@ -140,7 +144,7 @@ proptest! {
                         ItemCiphertext::seal(&vk, &vault, &id, 1, b"x").unwrap(),
                     );
                     let r = store
-                        .upsert_record(&vault, &id, &body, b"", Origin::Local)
+                        .upsert_record(&vault, &id, &body, Origin::Local)
                         .map(|_| ());
                     let expected = model.write_rule(n);
                     if expected.is_ok() {
@@ -170,6 +174,28 @@ proptest! {
                         model.keys.retain(|&k| k >= n);
                         prop_assert_eq!(r.unwrap(), before - model.keys.len());
                     }
+                }
+                GenOp::Recreate(n) => {
+                    prop_assert!(store.delete_vault(&vault, PendingPolicy::Discard).unwrap());
+                    prop_assert_eq!(store.generation_floor(&vault).unwrap(), Some(g(model.highest)));
+                    let r = store.create_vault(&vault, g(n), &wrap(n));
+                    if n < model.highest {
+                        prop_assert!(matches!(
+                            r,
+                            Err(Error::KeyGenerationRollback { highest_accepted, offered })
+                                if highest_accepted == model.highest && offered == n
+                        ), "{:?}", r);
+                        // Put the vault back at the floor to go on.
+                        store.create_vault(&vault, g(model.highest), &wrap(model.highest)).unwrap();
+                        model.current = model.highest;
+                    } else {
+                        r.unwrap();
+                        model.highest = n;
+                        model.current = n;
+                    }
+                    model.keys = BTreeSet::from([model.current]);
+                    model.records.clear();
+                    model.meta = None;
                 }
             }
             prop_assert!(model.highest >= highest_before);
@@ -204,7 +230,7 @@ enum RecOp {
     /// Acknowledge the `n`-th outbox position ever handed out for the
     /// record (modulo the number handed out), with a server sequence.
     Ack(u8, usize, u64),
-    Delete(u8),
+    Delete(u8, bool),
 }
 
 fn rec_op() -> impl Strategy<Value = RecOp> {
@@ -213,14 +239,13 @@ fn rec_op() -> impl Strategy<Value = RecOp> {
         2 => (0..3u8, 0..30u64).prop_map(|(r, s)| RecOp::Remote(r, s)),
         1 => (0..3u8, 0..30u64).prop_map(|(r, s)| RecOp::Merged(r, s)),
         2 => (0..3u8, 0..8usize, 0..30u64).prop_map(|(r, i, s)| RecOp::Ack(r, i, s)),
-        1 => (0..3u8).prop_map(RecOp::Delete),
+        1 => (0..3u8, any::<bool>()).prop_map(|(r, discard)| RecOp::Delete(r, discard)),
     ]
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct RecModel {
     body: RecordBody,
-    state: Vec<u8>,
     server_seq: Option<u64>,
     outbox: Option<OutboxSeq>,
 }
@@ -259,14 +284,14 @@ proptest! {
                 RecOp::Local(i) => {
                     let body = body_for(i);
                     let seq = store
-                        .upsert_record(&vault, &ids[usize::from(i)], &body, &state, Origin::Local)
+                        .upsert_record(&vault, &ids[usize::from(i)], &body, Origin::Local)
                         .unwrap()
                         .unwrap();
                     prop_assert!(last_seq.is_none_or(|l| seq > l));
                     last_seq = Some(seq);
                     tokens.entry(i).or_default().push(seq);
                     let server_seq = model.get(&i).and_then(|m| m.server_seq);
-                    model.insert(i, RecModel { body, state, server_seq, outbox: Some(seq) });
+                    model.insert(i, RecModel { body, server_seq, outbox: Some(seq) });
                 }
                 RecOp::Remote(i, s) | RecOp::Merged(i, s) => {
                     let merged = matches!(op, RecOp::Merged(..));
@@ -276,7 +301,7 @@ proptest! {
                     } else {
                         Origin::Remote { server_seq: s }
                     };
-                    let r = store.upsert_record(&vault, &ids[usize::from(i)], &body, &state, origin);
+                    let r = store.upsert_record(&vault, &ids[usize::from(i)], &body, origin);
                     let existing = model.get(&i);
                     let stored_seq = existing.and_then(|m| m.server_seq);
                     if stored_seq.is_some_and(|st| st > s) {
@@ -288,10 +313,10 @@ proptest! {
                         prop_assert!(last_seq.is_none_or(|l| seq > l));
                         last_seq = Some(seq);
                         tokens.entry(i).or_default().push(seq);
-                        model.insert(i, RecModel { body, state, server_seq: Some(s), outbox: Some(seq) });
+                        model.insert(i, RecModel { body, server_seq: Some(s), outbox: Some(seq) });
                     } else {
                         prop_assert_eq!(r.unwrap(), None);
-                        model.insert(i, RecModel { body, state, server_seq: Some(s), outbox: None });
+                        model.insert(i, RecModel { body, server_seq: Some(s), outbox: None });
                     }
                 }
                 RecOp::Ack(i, which, s) => {
@@ -319,9 +344,15 @@ proptest! {
                         }
                     }
                 }
-                RecOp::Delete(i) => {
-                    let existed = store.delete_record(&vault, &ids[usize::from(i)]).unwrap();
-                    prop_assert_eq!(existed, model.remove(&i).is_some());
+                RecOp::Delete(i, discard) => {
+                    let policy = if discard { PendingPolicy::Discard } else { PendingPolicy::Refuse };
+                    let r = store.delete_record(&vault, &ids[usize::from(i)], policy);
+                    if !discard && model.get(&i).is_some_and(|m| m.outbox.is_some()) {
+                        // A pending local change is never dropped silently.
+                        prop_assert!(matches!(r, Err(Error::PendingLocalChange)), "{r:?}");
+                    } else {
+                        prop_assert_eq!(r.unwrap(), model.remove(&i).is_some());
+                    }
                 }
             }
 
@@ -332,7 +363,6 @@ proptest! {
                     (None, None) => {}
                     (Some(s), Some(m)) => {
                         prop_assert_eq!(&s.body, &m.body);
-                        prop_assert_eq!(&s.accepted_state, &m.state);
                         prop_assert_eq!(s.server_seq, m.server_seq);
                         prop_assert_eq!(s.outbox_seq, m.outbox);
                     }
@@ -348,7 +378,10 @@ proptest! {
                 .outbox(usize::MAX)
                 .unwrap()
                 .into_iter()
-                .map(|r| (r.outbox_seq.unwrap(), r.record_id))
+                .map(|r| {
+                    let r = r.unwrap();
+                    (r.outbox_seq.unwrap(), r.record_id)
+                })
                 .collect();
             prop_assert_eq!(outbox, queued);
         }

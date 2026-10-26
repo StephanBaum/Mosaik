@@ -307,7 +307,10 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   `crates/core` every object type reports the single error
   `Error::Decryption`; the item layer maps it to `ItemCorrupted`, ADR-0007.)
 - **Moving an item** to another vault means decrypting it and re-encrypting it
-  under the target VK with the new `vault_id` in the AAD.
+  under the target VK with the new `vault_id` in the AAD. Each of its
+  attachments is re-sealed under a fresh `attachment_id` and a fresh FK in
+  the target vault. Attachment IDs are never reused, so the new copy is
+  stored before the old one is deleted (ADR-0009).
 
 ### 7.3 Attachments
 - `FK = random(32)` per attachment. FK, file name, MIME type and size live
@@ -456,7 +459,10 @@ therefore cannot lock the user out.
 - Records are `(record_id, vault_id, ciphertext, server_seq, hint_version)`.
   The client trusts only the version vector inside the decrypted plaintext.
 - **Rollback / replay:** the client keeps, per record, the highest version
-  vector it has accepted. A record whose authenticated vector is dominated by
+  vector it has accepted. It keeps it as the record ciphertext it last
+  accepted (an item or a tombstone) and reads the vector from that record's
+  authenticated plaintext. No cleartext copy of a vector is stored (§11,
+  ADR-0009). A record whose authenticated vector is dominated by
   the stored one is ignored. A record that is concurrent with the stored one
   goes to conflict resolution. The server can withhold updates (freeze attack)
   but cannot forge or roll back. Freeze detection: every device publishes a
@@ -475,6 +481,17 @@ therefore cannot lock the user out.
   plus the wrapped keys and the Argon2 parameters. Item plaintext, titles and
   URLs are never written to disk. The search index exists only in memory while
   unlocked.
+- Nothing derived from item plaintext is stored in cleartext. That includes
+  sync state such as version vectors, revisions and per-device counters.
+  The only cleartext metadata is what the server sees as well (§12): IDs, key
+  generations, sizes and sequence numbers. The highest accepted
+  `key_generation` of a vault (§7.1) outlives the vault's deletion from the
+  local store (ADR-0009).
+- A removed or replaced wrapped key (quick-unlock expiry §6.2, password
+  change §6.4, re-key §6.6) is erased from the database file and its
+  write-ahead log before the call returns. Copies that the file system or
+  the storage device keeps outside the database are out of reach
+  (THREAT_MODEL R12).
 - Locking zeroizes AK, every VK, `isk` and the decrypted item cache.
 - Auto-lock triggers: idle timeout (default 10 min), OS sleep, screen lock,
   user switch, and app quit. All configurable, but they cannot all be

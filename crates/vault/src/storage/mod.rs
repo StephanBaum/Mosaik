@@ -8,35 +8,43 @@
 //! |---|---|
 //! | `account` | `account_id`, Argon2id salt and profile (§5.3) |
 //! | `unlock_methods` | one [`WrappedKey`] of AK per unlock method (§6) |
-//! | `vaults` | current and highest accepted key generation, [`VaultMetaCiphertext`] (§7.1) |
+//! | `vaults` | key wrapping (AK or TK), current and highest accepted key generation, [`VaultMetaCiphertext`] (§7.1, §7.4) |
+//! | `vault_generation_floors` | the highest accepted generation of deleted vaults (§7.1) |
 //! | `vault_keys` | one [`WrappedKey`] of VK per generation (§7.1) |
-//! | `records` | [`ItemCiphertext`] / [`TombstoneCiphertext`], caller's accepted state, `server_seq`, outbox (§7.2, §10) |
+//! | `tk_wrappings` | one [`WrappedKey`] of TK per hardware key, for a hardware-protected TOTP vault (§7.4) |
+//! | `records` | [`ItemCiphertext`] / [`TombstoneCiphertext`], `server_seq`, outbox (§7.2, §10) |
 //! | `sync_cursors` | per-vault pull cursor (§10) |
 //! | `attachments` | routing metadata; the ciphertext is a file named by the attachment ID (§7.3) |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
 //! store cannot be handed a plaintext or a key. Every object is decoded
-//! strictly on the way in and again on the way out.
+//! strictly on the way in and again on the way out. Apart from IDs, key
+//! generations, sizes and sequence numbers (all of which the server sees,
+//! §12), nothing is stored in cleartext (ADR-0009).
 //!
 //! **Anti-rollback (§7.1).** Each vault has a highest accepted key
-//! generation that never decreases. Wrapped vault keys below it are
-//! rejected ([`Error::KeyGenerationRollback`]), and every record and the
-//! vault metadata must be written at exactly that generation: lower is a
+//! generation that never decreases, not even across deleting and re-adding
+//! the vault. New wrapped vault keys below it are rejected
+//! ([`Error::KeyGenerationRollback`]), and every record and the vault
+//! metadata must be written at exactly that generation: lower is a
 //! rollback, higher is a generation whose key the caller has not accepted
 //! ([`Error::KeyGenerationNotAccepted`]). Triggers in the schema repeat
 //! these rules.
 //!
 //! **Record versions (§10).** The store does not interpret versions. The
-//! caller decrypts, checks the authenticated version vector against the
-//! `accepted_state` it stored earlier, and only then writes. The store adds
-//! two cheap checks of its own: a record's `server_seq` never decreases,
-//! and a remote write never silently replaces a local change that is still
-//! in the outbox ([`Error::PendingLocalChange`]).
+//! highest accepted version vector of a record is the one inside its stored
+//! ciphertext: the caller decrypts the stored record and the incoming one,
+//! compares their authenticated vectors, and only then writes. The store
+//! adds two cheap checks of its own: a record's `server_seq` never
+//! decreases, and a remote write or a delete never silently drops a local
+//! change that is still in the outbox ([`Error::PendingLocalChange`]).
 //!
 //! Durability: WAL journal, `synchronous = FULL`, foreign keys on,
 //! `secure_delete` on (deleted rows are overwritten), `trusted_schema` off.
-//! Attachment files are written to a temporary file, synced, and renamed
-//! into place.
+//! Every call that removes or replaces a wrapped key checkpoints and
+//! truncates the WAL before it returns, so the old wrapping does not stay
+//! behind in WAL frames. Attachment files are written to a temporary file,
+//! synced, and renamed into place.
 //!
 //! ```
 //! use mosaic_core::{AccountId, AccountKey, ItemCiphertext, ItemId, KeyGeneration, VaultId, VaultKey};
@@ -51,7 +59,7 @@
 //!
 //! let item = ItemId::new_v7()?;
 //! let body = RecordBody::Item(ItemCiphertext::seal(&vk, &vault, &item, 1, b"item")?);
-//! let queued = store.upsert_record(&vault, &item, &body, b"", Origin::Local)?;
+//! let queued = store.upsert_record(&vault, &item, &body, Origin::Local)?;
 //! assert_eq!(store.outbox(10)?.len(), 1);
 //!
 //! // After the upload, the server reports its sequence number.
@@ -74,22 +82,34 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
-pub use account::StoredUnlockMethod;
+pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
 pub use error::{Error, Result};
-pub use records::{Origin, OutboxSeq, RecordBody, RecordKind, StoredRecord};
+pub use records::{
+    CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,
+};
 pub use schema::LATEST_VERSION;
-pub use vaults::VaultState;
+pub use vaults::{StoredTkWrapping, VaultKeyWrap, VaultState};
 
 #[cfg(doc)]
 use mosaic_core::{ItemCiphertext, TombstoneCiphertext, VaultMetaCiphertext, WrappedKey};
 use mosaic_core::{KeyGeneration, VaultId};
 
-/// Maximum length of a caller's opaque accepted-state blob per record.
-pub const MAX_ACCEPTED_STATE_LEN: usize = 64 * 1024;
-
-/// Maximum length of an unlock method's public parameters.
+/// Maximum length of an unlock method's (or a TK wrapping's) public
+/// parameters.
 pub const MAX_UNLOCK_PARAMS_LEN: usize = 4096;
+
+/// What a delete does with local changes that are not uploaded yet: a
+/// record in the outbox, or an attachment with its upload still pending.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingPolicy {
+    /// Refuse the delete with [`Error::PendingLocalChange`], so no local
+    /// change is lost silently (BRIEF §5).
+    Refuse,
+    /// Delete anyway and drop the pending changes. Only for an explicit
+    /// user decision (for example "discard unsynced changes").
+    Discard,
+}
 
 /// How long a write waits for another connection's lock before failing.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -122,6 +142,11 @@ impl Store {
     /// [`Error::NotAMosaicStore`] for another SQLite database,
     /// [`Error::SchemaTooNew`] for a store from a newer build,
     /// [`Error::Database`] / [`Error::Io`] otherwise.
+    ///
+    /// A foreign database or a newer store is refused before anything is
+    /// written to it. On Unix, the database, its WAL and shared-memory
+    /// files and the attachment directory are made owner-only (`0600` /
+    /// `0700`), also when they already existed with looser permissions.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let attachment_dir = attachment_dir_for(path)?;
@@ -131,6 +156,7 @@ impl Store {
         attachments::prepare_db_file(path)?;
         let conn = Connection::open_with_flags(path, flags)?;
         let store = Self::init(conn, Some(attachment_dir))?;
+        attachments::restrict_db_files(path)?;
         if let Some(dir) = &store.attachment_dir {
             attachments::create_dir(dir)?;
         }
@@ -148,14 +174,22 @@ impl Store {
     }
 
     fn init(mut conn: Connection, attachment_dir: Option<PathBuf>) -> Result<Self> {
+        // Connection settings only; none of them writes to the file.
         conn.busy_timeout(BUSY_TIMEOUT)?;
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "trusted_schema", false)?;
         conn.pragma_update(None, "secure_delete", true)?;
+        // Read-only check before the first write: switching to WAL changes
+        // the file header, which must not happen to a foreign database.
+        schema::check_compatible(&conn, schema::latest_of(schema::MIGRATIONS))?;
         // In memory the journal mode stays "memory"; on disk it is WAL.
         let _mode: String =
             conn.pragma_update_and_check(None, "journal_mode", "wal", |r| r.get(0))?;
         conn.pragma_update(None, "synchronous", "FULL")?;
+        // Truncate the WAL file whenever it is reset, so stale frames
+        // (old versions of deleted rows) do not linger past a checkpoint.
+        let _limit: i64 =
+            conn.pragma_update_and_check(None, "journal_size_limit", 0, |r| r.get(0))?;
         schema::migrate(&mut conn, schema::MIGRATIONS)?;
         Ok(Self {
             conn,
@@ -206,7 +240,7 @@ impl Store {
             problems.push(format!("foreign key: {table} references missing {parent}"));
             Ok(())
         })?;
-        let invariants: [(&str, &str); 3] = [
+        let invariants: [(&str, &str); 4] = [
             (
                 "SELECT lower(hex(vault_id)) FROM vaults v WHERE NOT EXISTS (
                      SELECT 1 FROM vault_keys k
@@ -222,6 +256,11 @@ impl Store {
                 "SELECT lower(hex(vault_id)) FROM vault_keys k JOIN vaults v USING (vault_id)
                  WHERE k.generation > v.highest_accepted_generation",
                 "vault key above the accepted generation",
+            ),
+            (
+                "SELECT lower(hex(vault_id)) FROM vaults v JOIN vault_generation_floors f
+                 USING (vault_id) WHERE v.highest_accepted_generation < f.generation",
+                "accepted generation below its floor",
             ),
         ];
         for (sql, what) in invariants {
@@ -251,6 +290,22 @@ impl Store {
         Ok(self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?)
+    }
+
+    /// Moves every committed page from the WAL into the database file
+    /// (where `secure_delete` has already overwritten deleted rows) and
+    /// truncates the WAL to zero bytes. Called after every change that
+    /// removes or replaces a wrapped key (§6.2, §6.4, §6.6), so the old
+    /// wrapping is not left in WAL frames if the process dies later.
+    ///
+    /// The checkpoint cannot finish while another connection is reading an
+    /// older snapshot; the frames are then removed by a later checkpoint
+    /// (at the latest on [`Store::close`]). A store is meant to be opened
+    /// by one process, so this is the exception.
+    fn scrub_wal(&self) -> Result<()> {
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
     }
 }
 
@@ -362,9 +417,117 @@ mod tests {
 
         let other = dir.path().join("other.db");
         let c = Connection::open(&other).unwrap();
+        c.execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1);")
+            .unwrap();
+        drop(c);
+        let before = std::fs::read(&other).unwrap();
+        assert_eq!(before[18..20], [1, 1], "rollback-journal file");
+        assert!(matches!(Store::open(&other), Err(Error::NotAMosaicStore)));
+        // The foreign file is not touched: no switch to WAL, no side files.
+        let after = std::fs::read(&other).unwrap();
+        assert_eq!(after[18..20], [1, 1], "switched to WAL");
+        assert!(after.iter().eq(before.iter()), "foreign file modified");
+        let mut names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["garbage.db", "other.db"]);
+        assert!(std::fs::read(&garbage).unwrap().iter().all(|&b| b == 0x5A));
+
+        // A foreign database with only a user_version is refused as well.
+        let versioned = dir.path().join("versioned.db");
+        let c = Connection::open(&versioned).unwrap();
+        c.pragma_update(None, "user_version", 1).unwrap();
+        drop(c);
+        let before = std::fs::read(&versioned).unwrap();
+        assert!(matches!(
+            Store::open(&versioned),
+            Err(Error::NotAMosaicStore)
+        ));
+        assert!(std::fs::read(&versioned).unwrap().iter().eq(before.iter()));
+    }
+
+    /// Unix: the database, its WAL and shared-memory files, the attachment
+    /// directory and attachment files are owner-only, and a store found
+    /// with looser permissions is tightened on open.
+    #[cfg(unix)]
+    #[test]
+    fn files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use mosaic_core::{
+            AttachmentId, AttachmentKey, ItemCiphertext, ItemId, VaultKey, seal_attachment,
+        };
+
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.db");
+        let wal = dir.path().join("v.db-wal");
+        let shm = dir.path().join("v.db-shm");
+        let mut s = Store::open(&path).unwrap();
+        let (f, vk) = (
+            vaults::tests::fixture(),
+            VaultKey::generate(KeyGeneration::FIRST).unwrap(),
+        );
+        s.create_vault(
+            &f.vault,
+            KeyGeneration::FIRST,
+            &vk.wrap(&f.ak, &f.account, &f.vault).unwrap(),
+        )
+        .unwrap();
+        let rid = ItemId::new_v7().unwrap();
+        let body = RecordBody::Item(ItemCiphertext::seal(&vk, &f.vault, &rid, 1, b"x").unwrap());
+        s.upsert_record(&f.vault, &rid, &body, Origin::Local)
+            .unwrap();
+        let aid = AttachmentId::new_v7().unwrap();
+        let ct = seal_attachment(
+            &AttachmentKey::generate().unwrap(),
+            &f.vault,
+            &rid,
+            &aid,
+            b"file",
+        )
+        .unwrap();
+        s.put_attachment(&f.vault, &rid, &aid, &ct, true).unwrap();
+        let att_dir = s.attachment_dir().unwrap().to_path_buf();
+        let att_file = std::fs::read_dir(&att_dir)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(wal.exists() && shm.exists());
+        for p in [&path, &wal, &shm, &att_file] {
+            assert_eq!(mode(p), 0o600, "{}", p.display());
+        }
+        assert_eq!(mode(&att_dir), 0o700);
+        drop(s);
+
+        // Loosened from outside: tightened again on open.
+        for p in [&path, &wal, &shm] {
+            if p.exists() {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o644)).unwrap();
+            }
+        }
+        std::fs::set_permissions(&att_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let s = Store::open(&path).unwrap();
+        for p in [&path, &wal, &shm] {
+            if p.exists() {
+                assert_eq!(mode(p), 0o600, "{}", p.display());
+            }
+        }
+        assert_eq!(mode(&att_dir), 0o700);
+        drop(s);
+
+        // A foreign file keeps its permissions.
+        let other = dir.path().join("other.db");
+        let c = Connection::open(&other).unwrap();
         c.execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
         drop(c);
+        std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(matches!(Store::open(&other), Err(Error::NotAMosaicStore)));
+        assert_eq!(mode(&other), 0o644);
     }
 
     #[test]

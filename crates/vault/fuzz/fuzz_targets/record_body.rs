@@ -11,7 +11,7 @@ use std::cell::RefCell;
 
 use libfuzzer_sys::fuzz_target;
 use mosaic_core::{ItemCiphertext, ItemId, TombstoneCiphertext, VaultId, WrappedKey};
-use mosaic_vault::storage::{Origin, RecordBody, RecordKind, Store};
+use mosaic_vault::storage::{Origin, PendingPolicy, RecordBody, RecordKind, Store};
 
 thread_local! {
     static STORE: RefCell<Store> = RefCell::new(Store::open_in_memory().expect("store"));
@@ -53,15 +53,20 @@ fuzz_target!(|data: &[u8]| {
             .create_vault(&vault, generation, &wrapped)
             .expect("create vault");
         let id = ItemId::from_bytes([0x0C; 16]).expect("id");
-        let state = bytes.get(..16).unwrap_or(&[]);
         store
-            .upsert_record(&vault, &id, &body, state, Origin::Remote { server_seq: 1 })
+            .upsert_record(&vault, &id, &body, Origin::Remote { server_seq: 1 })
             .expect("upsert");
         let back = store.record(&vault, &id).expect("read").expect("present");
         assert_eq!(back.body, body);
-        assert_eq!(back.accepted_state, state);
         assert_eq!(back.server_seq, Some(1));
-        assert!(store.delete_vault(&vault).expect("delete"));
+        let listed = store.records(&vault).expect("list");
+        assert_eq!(listed, vec![Ok(back)]);
+        // Nothing is pending (a remote record), so a refusing delete works.
+        // The vault keeps its generation floor; the next input with this
+        // generation re-creates it at the same generation, which is allowed.
+        assert!(store
+            .delete_vault(&vault, PendingPolicy::Refuse)
+            .expect("delete"));
         assert!(store.vault(&vault).expect("read").is_none());
     });
 });

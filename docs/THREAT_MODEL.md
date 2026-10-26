@@ -176,6 +176,7 @@ Mitigations name the milestone in which they are implemented and tested.
 | R9 | Changing MP or SK does not revoke someone who already holds old secrets plus an old wrapping. Only a full re-key does (CRYPTO_SPEC §6.5–6.6) | mitigated by the re-key flow and explicit UI copy |
 | R10 | Pre-login profile distribution drift gives weak statistical hints about which accounts exist (CRYPTO_SPEC §9.2) | accepted |
 | R11 | Upstream `hmac`/`hkdf` leave short-lived stack copies during derivation: the `key ^ ipad/opad` block (for `R` and the KEK/OPW step that is `R`-equivalent) and the last HKDF output block. They cannot be zeroized without patching the crates. Exploiting them needs a memory read of the process during or right after unlock, which is P5 (R1) territory | accepted, ADR-0005 / ADR-0007 item 9. Revisit with R5 in M9 or when upstream wipes them |
+| R12 | A removed wrapped key (expired quick unlock, old password wrapping) is overwritten in the local database and its WAL (`secure_delete`, WAL truncation), but the file system or SSD can keep old blocks, and backups or snapshots of the database keep it. Recovering AK from it still needs that method's `W` (or MP + SK) | accepted, ADR-0009. Full re-key (CRYPTO_SPEC §6.6) is the remedy after a compromise |
 
 ## 6. Review log
 
