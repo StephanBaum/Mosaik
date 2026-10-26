@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*"]
 # The fuzz crate has its own workspace (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -30,6 +30,11 @@ base64ct = { version = "=1.8.3", default-features = false }
 # Dev
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 hex-literal = "=1.1.0"
+# M2 store
+# SQLite with the amalgamation compiled in (no system libsqlite3 version drift).
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+# Dev-only: temporary directories for file-backed store tests.
+tempfile = { version = "=3.27.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

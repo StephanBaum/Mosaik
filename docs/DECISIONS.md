@@ -453,3 +453,114 @@ own device ID. Future schema work adds data under `fields`, never as a
 changing top-level member. The fuzz targets `item_plaintext` and
 `item_merge` get seeds with the other layout's reserved member and a
 libFuzzer dictionary of the member names.
+
+
+## ADR-0010: Local store state, anti-rollback and key-wrapping rules
+
+- Status: accepted
+- Date: 2026-10-26
+- Milestone: M2
+
+### Context
+The review of the M2 local store (`mosaic-vault::storage`) found gaps that
+CRYPTO_SPEC §7, §10 and §11 do not settle. The store kept an opaque
+`accepted_state` blob per record in cleartext, but the version vector it
+was meant to hold sits inside the item plaintext, which §11 keeps off disk.
+Deleting a vault also deleted its anti-rollback mark (§7.1). The schema had
+no place for the §7.4 TK wrappings. Deletes dropped queued local changes.
+A §6.6 re-key could not re-wrap older vault-key generations, and nothing
+made it atomic. Removed wrappings stayed in WAL frames. Whether a moved
+item keeps its attachment IDs was not specified. The schema is still at
+version 1 and unreleased, so these are fixed in schema v1 itself, without a
+migration.
+
+### Decision
+1. **No cleartext sync state.** The store keeps no caller-defined blob per
+   record. The highest accepted version vector of a record (§10) is the
+   vector inside the record ciphertext the client last accepted: before
+   writing a pulled record, the client decrypts the stored record and the
+   new one and compares their authenticated vectors. Nothing derived from
+   item plaintext (vectors, revisions, device counters) is written in
+   cleartext (§11).
+2. **Generation floors.** When a vault is deleted, its highest accepted
+   `key_generation` is kept in `vault_generation_floors`. Floors never
+   decrease and are never deleted. A vault comes back only at its floor or
+   above (`KeyGenerationRollback` otherwise). Schema triggers enforce
+   this: a vault row cannot be deleted before its floor is recorded.
+   A device that never held the vault still trusts the first generation it
+   sees, as before.
+3. **Hardware-protected TOTP vault (§7.4).** Each vault has an immutable
+   `key_wrap`: AK (`wrap/vault`) or TK (`wrap/vault-under-tk`), so the
+   caller knows which unwrap applies and a TOTP vault's key cannot be
+   re-filed under AK. TK wrappings live in their own table `tk_wrappings`,
+   keyed by `(vault_id, method_id)`, with the per-key `prf_salt_hw` in
+   `params`. They never share a key with the §6.3 AK wrappings in
+   `unlock_methods`, so neither can replace the other. A vault's last TK
+   wrapping cannot be removed (that would lose its keys); the vault is
+   deleted instead.
+4. **No silent loss on delete.** Deleting a record or a vault that has a
+   queued local change (a record in the outbox, or an attachment not yet
+   uploaded) fails with `PendingLocalChange` unless the caller passes
+   `PendingPolicy::Discard`. Deleting a record row is a local purge that
+   also drops the record's rollback anchor (item 1). A deletion the user
+   makes, including a hard delete from the trash (§7.4), is therefore
+   stored as a tombstone, which keeps the anchor. Rows are purged only
+   when the server no longer serves the record either.
+5. **Re-key and re-wrap.** A held vault key of any generation can be
+   re-wrapped in place, but no key is ever added below the accepted
+   generation. `rekey_account` applies a §6.6 re-key in one transaction:
+   the new password parameters and wrapping, exactly the given set of other
+   unlock methods (all other old wrappings are deleted), and the re-wrap of
+   every vault key held under AK. If any key under AK is missing from the
+   re-key, nothing changes (`RekeyIncomplete`). A crash cannot leave vault
+   keys under one AK and the unlock methods under another.
+6. **Attachments on a move.** Moving an item to another vault (§7.2)
+   re-seals each attachment under a fresh `attachment_id` and FK in the
+   target vault. Attachment IDs stay globally unique (the server keys
+   storage quotas by them, §12), and the new copy is stored before the old
+   one is deleted.
+7. **Erasing removed wrappings.** `secure_delete` overwrites deleted rows
+   in the database file. Every call that removes or replaces a wrapped key
+   also checkpoints the WAL into the database and truncates it to zero
+   bytes (`wal_checkpoint(TRUNCATE)`, `journal_size_limit = 0`) before it
+   returns. File-system and SSD remnants and backups are out of reach
+   (THREAT_MODEL R12).
+8. **Open without side effects.** A database is checked read-only
+   (`application_id`, `user_version`, schema objects) before the first
+   persistent pragma. A foreign or newer file is refused byte-for-byte
+   untouched, and its Unix permissions are left as they are. An accepted
+   store's files are made owner-only (`0600`, directory `0700`) on every
+   open.
+9. **Corrupt rows do not block the rest.** Record listings (`records`,
+   `outbox`, `records_below_generation`) report a row that fails
+   validation as a `CorruptRecord` with its IDs, in place, and still return
+   the other rows. `records_below_generation` also lists the queued local
+   edits that must be re-sealed after a rotation (§7.1) before upload.
+
+### Alternatives considered
+- Sealing `accepted_state` under a key derived from AK (for example
+  `HKDF(AK, ctx("local-state"))`): this adds a new key and object type to
+  the crypto core for a value the stored ciphertext already carries,
+  authenticated. Rejected.
+- Marking deleted vaults instead of deleting their rows: this keeps
+  records, keys and metadata of a vault the user removed. A one-row floor
+  keeps only the public generation number. Rejected.
+- Storing TK wrappings in `unlock_methods` under a new method byte: this
+  would mix AK and TK wrappings in one key space, and a TK wrapping is per
+  vault, not per account. Rejected.
+- Keying attachments by `(vault_id, attachment_id)`: this keeps IDs on a
+  move, but the server sees and keys attachment IDs globally, and the
+  per-vault file layout would add complexity. Rejected in favor of fresh
+  IDs.
+- Keeping a minimal anchor row after a hard record delete: without the
+  ciphertext it holds no authenticated vector, and with it the row is a
+  tombstone in all but name. Tombstones are the anchor instead.
+
+### Consequences
+The store's API takes no plaintext-derived state at all. The sync layer
+(M6) decrypts the stored record to compare versions, which costs one AEAD
+open per pulled record. Leaving and re-joining a vault keeps its floor, so
+an owner who really resets a vault must give it a new `vault_id`. Re-keys
+must list every held key, which the store can enumerate
+(`vault_keys`). Users who purge data locally lose rollback protection for
+those records, which is why only tombstones are used for user deletions.
