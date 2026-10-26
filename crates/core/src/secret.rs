@@ -214,6 +214,19 @@ impl SecretString {
         Ok(Self(s))
     }
 
+    /// Copies `s` into a new secret string of exactly its length (one
+    /// allocation, so no reallocated copy is left behind). The caller
+    /// remains responsible for the source, as with
+    /// [`SecretVec::from_slice`].
+    ///
+    /// # Errors
+    /// [`Error::Allocation`] if the memory cannot be reserved.
+    pub fn from_str_copy(s: &str) -> Result<Self> {
+        let mut out = Self::with_capacity(s.len())?;
+        out.0.push_str(s);
+        Ok(out)
+    }
+
     /// Borrows the secret string. Keep the borrow short and never log it.
     #[must_use]
     pub fn expose_secret(&self) -> &str {
@@ -228,6 +241,15 @@ impl SecretString {
     #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.0.capacity()
+    }
+}
+
+impl From<String> for SecretString {
+    /// Takes ownership of `s`; it will be zeroized on drop (spare capacity
+    /// included). Copies left by earlier reallocations of `s` are the
+    /// caller's.
+    fn from(s: String) -> Self {
+        Self(s)
     }
 }
 
@@ -474,6 +496,13 @@ mod tests {
         ss.push('x');
         assert_eq!(format!("{ss:?}"), "[REDACTED]");
         assert_eq!(ss.expose_secret(), "x");
+        let copy = SecretString::from_str_copy("pässword").unwrap();
+        assert_eq!(copy.expose_secret(), "pässword");
+        assert_eq!(copy.capacity(), "pässword".len());
+        assert_eq!(
+            SecretString::from(String::from("owned")).expose_secret(),
+            "owned"
+        );
     }
 
     #[test]

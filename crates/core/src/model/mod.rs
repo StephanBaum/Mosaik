@@ -14,7 +14,9 @@
 //!   value with the largest stamp; concurrent losers stay on the item as
 //!   conflict copies ([`Item::conflicts`]) until a device resolves them.
 //!   A delete that races with an edit loses: the edit survives and the item
-//!   is flagged ([`Item::deleted_concurrently`]).
+//!   is flagged ([`Item::deleted_concurrently`]). Stores merge received
+//!   records with [`Item::merge_and_repair`], which also writes back the
+//!   fields such a delete removed on every device that still held them.
 //! - The plaintext is self-describing JSON (`serde_json`) with
 //!   `schema_version` 1. Unknown fields, unknown members of known values and unknown
 //!   top-level members are preserved and written back, so an older client
@@ -58,7 +60,7 @@ pub use clock::{Causality, Stamp, Timestamp, VersionVector};
 pub use doc::{Entry, FieldConflict, MAX_FIELD_KEY_LEN, SCHEMA_VERSION};
 pub use item::{
     DeletionInfo, ElementId, HistoryEntry, Item, ItemEdit, ItemType, MAX_HISTORY, MAX_TAG_LEN,
-    SecretField, TextField,
+    MergeOutcome, SecretField, TextField,
 };
 pub use tombstone::Tombstone;
 pub use types::{

@@ -327,3 +327,129 @@ and the attachment header were not fully specified.
 The limits are format constants. Raising them is a spec change, but it does
 not need a version bump, because old objects stay valid. Golden files in
 `crates/core/tests/golden/` pin every layout.
+
+## ADR-0009: M2 item model, plaintext format and sync merge
+
+- Status: proposed
+- Date: 2026-10-26
+- Milestone: M2
+
+### Context
+Brief §5 asks for per-item records with version vectors, per-field
+last-writer-wins with conflict copies, and no silent data loss. CRYPTO_SPEC
+§7.2 leaves the item plaintext schema to `crates/core`, and §10 trusts
+only the authenticated version vector. Review of the M2 model track found
+that a pure merge alone cannot meet "never lose data" in four places: a
+delete racing an edit, two writers sharing a device ID, field keys the
+decoder rejects, and member names both plaintext layouts reuse.
+
+### Decision
+1. **Replicated document.** Each item, vault metadata and tombstone is a
+   version vector `{DeviceId: u64}` plus one register per field key. Every
+   value carries the Lamport stamp `(counter, device)` of the edit that
+   wrote it. The field value is the entry with the largest stamp. Wall
+   clocks are display only. `Item::merge` is the causal join: commutative,
+   associative and idempotent for any input. Concurrent losers stay as
+   conflict copies until a device resolves or dismisses them.
+2. **Plaintext.** Canonical compact JSON, `schema_version` 1:
+   `{"schema_version","vv","fields"}` for items and vault metadata,
+   `{"schema_version","vv","deleted"}` for tombstones. Unknown fields,
+   unknown members of known values and unknown top-level members are kept
+   and written back. The four names `schema_version`, `vv`, `fields` and
+   `deleted` are reserved in both layouts: a decoder rejects any of them
+   as an unknown member (`Malformed`), so neither layout can smuggle in the
+   other's member and re-encode it as a duplicate key. Nesting depth is at
+   most 32. Strings live in zeroizing `Text`; `serde_json` may keep short
+   unwiped copies of strings with escape sequences in its scratch buffer
+   while parsing (accepted residual, like ADR-0005).
+3. **Field keys.** 1 to 256 bytes, no control characters. The decoder
+   checks it, and so does every write, so the edit API cannot produce a
+   record that no device can decode. `ElementId::from_stored` validates its
+   input, and `set_url` / `set_custom_field` fail on an element that does
+   not exist instead of creating one.
+4. **Top-level members are grow-only.** Unknown top-level members have no
+   clock and merge by the larger value. A newer client therefore can never
+   lower or remove one: a stale replica brings the old value back. New
+   top-level members must only ever grow (flags that only turn on, sets
+   that only gain elements). Anything that changes or can be removed goes
+   under `fields`, where it gets a per-key clock.
+5. **Deletion.** A delete is one edit that removes every field and writes
+   a `deleted` entry; its tombstone is the version vector plus the
+   deletion entries (§7.2). Against stale replicas the delete wins. A
+   delete that races a concurrent *write* loses: the write survives and
+   the item is flagged (`deleted_concurrently`). An edit that only removed
+   fields does not conflict with a delete. Edits of a tombstone fail with
+   `ItemDeleted`; `Item::undelete(type)` revives it explicitly with a type
+   and `created_at` (the undelete time).
+6. **Repairing merge, the store contract (CRYPTO_SPEC §10).** The pure
+   merge keeps only the concurrent write; it cannot know which removed
+   fields the editing device still wants. Every store therefore merges a
+   received record into its own latest state with
+   `Item::merge_and_repair(received, device)` and persists only that
+   result; `Item::merge` is for tests, simulations and comparisons. The
+   repair runs as a local edit, with fresh stamps of `device`:
+   - If the merge is flagged by a deletion this replica had not seen,
+     every field this replica held that the merge dropped is written back
+     with all its values, conflict copies included, and the original
+     write times. The flag stays until the user dismisses it or deletes
+     again. A device that edited, or merely held, the item while another
+     device deleted it keeps every field it had.
+   - The deleting device cannot repair; it shows the item with an unknown
+     type and the deletion notice until a repair arrives.
+   - The repair restores only this replica's own state, never values from
+     the received record: those could be stale, and their fresh stamps
+     would outrank newer edits.
+   - It can bring back a field that a third device removed in the same
+     concurrent window. The item is flagged either way, so the user sees
+     it.
+   Without a repair the result equals the pure merge.
+7. **Device IDs.** A `DeviceId` belongs to exactly one install and one
+   writing process. The desktop app and the browser extension never share
+   one, even on the same machine. A restored backup or a copied profile
+   takes a new ID. Two writers with one ID produce equal stamps for
+   different edits, and the pure merge keeps one of them (larger content,
+   which keeps the laws). Detection, best effort:
+   - `merge_and_repair` fails with `DeviceIdReused` when the received
+     record holds a counter for `device` above this replica's own state.
+     The store rotates its device ID and merges again with the new one.
+   - When both replicas hold one stamp with different contents in the
+     same field, the repair writes the dropped value back (both show up
+     as a conflict) and sets `MergeOutcome::stamp_collision`; the store
+     warns the user.
+   Reuse across different fields of one edit cannot be detected from the
+   state, so unique IDs are the actual guarantee.
+8. **Conflict classification.** `Item::conflicts` lists content fields
+   only. `type`, `created_at`, `trashed_at`, `favorite` and `history:*`
+   take the value with the largest stamp and are never shown as a
+   conflict. The counters `otp.counter` and `passkey.sign_count` merge by
+   maximum. `resolve_conflict` on a counter accepts only the largest
+   value and `dismiss_conflict` keeps it, so neither lowers a HOTP counter
+   or a passkey signature count.
+9. **Secret construction for consumers.** `SecretString::from_str_copy`
+   (one exact allocation) and `From<String>`, and a public
+   `Text::to_secret`, so M3 to M6 can build `CustomFieldValue::Hidden` and
+   `SshKeyMaterial` without detours.
+
+### Alternatives considered
+- Repair inside `merge`: the merge must stay a pure join, or replicas do
+  not converge.
+- Keeping `type` and `created_at` in tombstones: §7.2 defines the tombstone
+  as the version vector and the deletion time, and the repair restores
+  them anyway.
+- Delete wins over a concurrent write: loses the write, against brief §5.
+- Restoring only when this replica made a concurrent edit itself: fails
+  when its edit reached it again folded into another device's merge.
+- Dropping a foreign reserved member on decode instead of rejecting it:
+  silent data change; strict rejection matches §10.
+- Treating equal stamps with different content as an error in `merge`:
+  the merge would no longer be total, and one corrupt record would stop
+  sync for the whole item.
+
+### Consequences
+M3 must call `merge_and_repair` for every received record, persist its
+result, rotate the device ID on `DeviceIdReused`, and show
+`stamp_collision` and `deleted_concurrently`. M4 gives the extension its
+own device ID. Future schema work adds data under `fields`, never as a
+changing top-level member. The fuzz targets `item_plaintext` and
+`item_merge` get seeds with the other layout's reserved member and a
+libFuzzer dictionary of the member names.

@@ -11,6 +11,12 @@
 //!   was written and never removed is in the converged state;
 //! - a replica's later states dominate its earlier ones (rollback check);
 //! - plaintext and tombstone encodings round-trip every reached state.
+//!
+//! Half of the histories sync with `Item::merge_and_repair`, as stores do.
+//! There, in addition: a replica that receives a delete it had not seen,
+//! racing a concurrent edit, keeps every field it held; the repair only
+//! adds fresh entries of the receiving device; and without a concurrent
+//! delete the result is exactly the pure merge.
 
 #![allow(
     clippy::unwrap_used,
@@ -121,6 +127,17 @@ fn apply(item: &mut Item, op: &Op, clock: i64) {
         item.delete(d, at).unwrap();
         return;
     }
+    if item.is_deleted() {
+        // A deleted item takes no edits; the user undeletes it first.
+        assert_eq!(
+            item.edit(d, at).set_title("refused").unwrap_err(),
+            mosaic_core::Error::ItemDeleted
+        );
+        if !matches!(op, Op::DismissDeletion(_)) {
+            item.undelete(&ItemType::Login, d, at).unwrap();
+        }
+        return;
+    }
     let first_conflict = item
         .conflicts()
         .first()
@@ -182,7 +199,37 @@ struct Run {
     removed: EntrySet,
 }
 
-fn run(ops: &[Op], separate_origin: bool) -> Run {
+/// The repairing merge of a store on device `to`, with its checks.
+fn repairing_sync(local: &Item, received: &Item, to: usize) -> Item {
+    let plain = local.merge(received);
+    let out = local.merge_and_repair(received, dev(to)).unwrap();
+    assert!(!out.stamp_collision, "honest histories never collide");
+    let missed_deletion = plain.deleted_concurrently().is_some()
+        && plain
+            .entries("deleted")
+            .any(|e| !local.version().covers(&e.stamp()));
+    if missed_deletion {
+        for k in local.keys().filter(|k| *k != "deleted") {
+            assert!(out.item.keys().any(|r| r == k), "repair kept {k}");
+        }
+    } else {
+        assert_eq!(out.restored_fields, 0);
+        assert_eq!(out.item, plain, "no repair: exactly the pure merge");
+    }
+    // The repair adds only fresh entries of this device.
+    let added: EntrySet = entries(&out.item)
+        .difference(&entries(&plain))
+        .cloned()
+        .collect();
+    for (_, s) in &added {
+        assert_eq!(s.device(), dev(to));
+        assert!(!plain.version().covers(s));
+    }
+    assert!(entries(&plain).is_subset(&entries(&out.item)));
+    out.item
+}
+
+fn run(ops: &[Op], separate_origin: bool, repair: bool) -> Run {
     let mut base = Item::new(&ItemType::Login, dev(0), Timestamp::from_unix_millis(0)).unwrap();
     base.edit(dev(0), Timestamp::from_unix_millis(0))
         .set_title("base")
@@ -208,9 +255,18 @@ fn run(ops: &[Op], separate_origin: bool) -> Run {
                 .union(&entries(&replicas[*from]))
                 .cloned()
                 .collect();
-            let merged = replicas[*to].merge(&replicas[*from]);
+            let merged = if repair {
+                repairing_sync(&replicas[*to], &replicas[*from], *to)
+            } else {
+                replicas[*to].merge(&replicas[*from])
+            };
             let after = entries(&merged);
-            assert!(after.is_subset(&before), "a merge invents no entries");
+            let fresh: EntrySet = after.difference(&before).cloned().collect();
+            assert!(
+                fresh.iter().all(|(_, s)| repair && s.device() == dev(*to)),
+                "a merge invents no entries; a repair adds only its own"
+            );
+            written.extend(fresh);
             for lost in before.difference(&after) {
                 assert!(
                     removed.contains(lost),
@@ -280,9 +336,10 @@ proptest! {
     fn histories_converge_and_lose_nothing(
         ops in proptest::collection::vec(op(), 0..48),
         separate_origin in proptest::bool::weighted(0.1),
+        repair in any::<bool>(),
         triples in proptest::collection::vec((any::<prop::sample::Index>(), any::<prop::sample::Index>(), any::<prop::sample::Index>()), 1..24),
     ) {
-        let r = run(&ops, separate_origin);
+        let r = run(&ops, separate_origin, repair);
 
         // Laws on reached states.
         for (i, j, k) in &triples {
@@ -344,4 +401,72 @@ proptest! {
         prop_assert_eq!(has_deleted && f.keys().count() > 1, f.deleted_concurrently().is_some());
         prop_assert_eq!(has_deleted && f.keys().count() == 1, f.is_deleted());
     }
+
+    /// A delete races a burst of edits on another device, and the three
+    /// devices sync in a random order with the repairing merge: all
+    /// devices converge, and if the burst wrote anything, the item stays
+    /// (flagged) with every field the editing device had. A burst that
+    /// only removed fields does not conflict with the delete.
+    #[test]
+    fn delete_racing_edits_keeps_the_editors_fields(
+        edits in proptest::collection::vec(edit_op(), 1..8),
+        syncs in proptest::collection::vec((0..3usize, 0..3usize), 0..12),
+    ) {
+        let mut base = Item::new(&ItemType::Login, dev(0), Timestamp::from_unix_millis(0)).unwrap();
+        {
+            let mut e = base.edit(dev(0), Timestamp::from_unix_millis(0));
+            e.set_title("base").unwrap();
+            e.set_text(TextField::Username, "user").unwrap();
+            e.set_secret(SecretField::Password, "pw").unwrap();
+            e.add_url(&LoginUrl::new("https://base.example")).unwrap();
+            e.add_tag("tag").unwrap();
+        }
+        // Device 0 deletes, device 1 edits, device 2 only relays.
+        let mut replicas: Vec<Item> = (0..3).map(|_| copy(&base)).collect();
+        replicas[0].delete(dev(0), Timestamp::from_unix_millis(1)).unwrap();
+        for (clock, op) in (2i64..).zip(&edits) {
+            apply(&mut replicas[1], op, clock);
+        }
+        let editor_keys: Vec<String> = replicas[1].keys().map(str::to_owned).collect();
+        let raced = !replicas[1].merge(&replicas[0]).is_deleted();
+        for (from, to) in syncs {
+            replicas[to] = repairing_sync(&replicas[to], &replicas[from], to);
+        }
+        for _ in 0..2 {
+            for to in 0..3 {
+                for from in 0..3 {
+                    replicas[to] = repairing_sync(&replicas[to], &replicas[from], to);
+                }
+            }
+        }
+        for r in &replicas {
+            prop_assert_eq!(r, &replicas[0], "converged");
+        }
+        let fin = &replicas[0];
+        if !raced {
+            prop_assert!(fin.is_deleted());
+            return Ok(());
+        }
+        prop_assert!(fin.deleted_concurrently().is_some());
+        for k in &editor_keys {
+            prop_assert!(fin.keys().any(|f| f == k), "editor lost {}", k);
+        }
+        prop_assert_eq!(fin.item_type(), Some(ItemType::Login));
+    }
+}
+
+fn edit_op() -> impl Strategy<Value = Op> {
+    let v = 0u8..4;
+    prop_oneof![
+        v.clone().prop_map(|v| Op::Title(1, v)),
+        v.clone().prop_map(|v| Op::Password(1, v)),
+        v.clone().prop_map(|v| Op::Username(1, v)),
+        Just(Op::ClearUsername(1)),
+        v.clone().prop_map(|v| Op::AddTag(1, v)),
+        v.clone().prop_map(|v| Op::RemoveTag(1, v)),
+        v.prop_map(|v| Op::AddUrl(1, v)),
+        Just(Op::RemoveFirstUrl(1)),
+        Just(Op::Favorite(1, true)),
+        Just(Op::Trash(1)),
+    ]
 }

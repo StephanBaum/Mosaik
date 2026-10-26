@@ -72,7 +72,8 @@ pub use keys::{
     derive_password_keys, unlock_with_password,
 };
 pub use model::{
-    Causality, Item, ItemEdit, ItemType, Stamp, Timestamp, Tombstone, VaultMeta, VersionVector,
+    Causality, Item, ItemEdit, ItemType, MergeOutcome, Stamp, Timestamp, Tombstone, VaultMeta,
+    VersionVector,
 };
 pub use secret::{
     AccountKey, AttachmentKey, Kek, MasterPassword, OpaquePassword, SecretBytes, SecretKey,

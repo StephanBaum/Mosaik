@@ -4,7 +4,9 @@
 //! Arbitrary input must never panic. Whatever decodes must re-encode to a
 //! canonical form that decodes to the same state and re-encodes to the same
 //! bytes, must merge with itself to itself, and every typed accessor must
-//! work on it. Seeds: the golden plaintexts in `crates/core/tests/golden/`.
+//! work on it. Seeds: the golden plaintexts in `crates/core/tests/golden/`
+//! and plaintexts carrying the other layout's reserved member; the
+//! dictionary `dicts/item_plaintext.dict` holds the member names.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -28,6 +30,10 @@ fn check_item(item: &Item) {
         "canonical form is stable"
     );
     assert_eq!(&item.merge(item), item, "idempotent");
+    let device = mosaic_core::DeviceId::from_bytes([0x5A; 16]).expect("id");
+    let own = item.merge_and_repair(item, device).expect("self merge");
+    assert_eq!(&own.item, item, "repairing a replica with itself changes nothing");
+    assert!(!own.stamp_collision);
 
     // Typed views never panic, whatever the values are.
     let _ = item.item_type();
@@ -54,7 +60,19 @@ fn check_item(item: &Item) {
                 assert_eq!(&Item::from(t2), item);
             }
         }
-        None => assert!(!item.is_deleted()),
+        None => {
+            assert!(!item.is_deleted());
+            // Deleting any live item gives a tombstone that decodes.
+            let mut d = Item::from_json(json.expose_secret()).expect("decodes");
+            let at = mosaic_core::model::Timestamp::from_unix_millis(0);
+            if d.delete(device, at).is_ok() {
+                let t = d.to_tombstone().expect("deleted");
+                if let Ok(tj) = t.to_json() {
+                    let t2 = Tombstone::from_json(tj.expose_secret()).expect("tombstone decodes");
+                    assert_eq!(Item::from(t2), d);
+                }
+            }
+        }
     }
 }
 

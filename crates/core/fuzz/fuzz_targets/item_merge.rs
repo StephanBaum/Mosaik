@@ -2,12 +2,14 @@
 //!
 //! - Mode 0: `[0, len_a:u16, a, len_b:u16, b, c]`: three plaintexts. If all
 //!   three decode as items, the merge must be commutative, associative and
-//!   idempotent on them, and its result must round-trip.
+//!   idempotent on them, and its result must round-trip. The repairing
+//!   merge must give a state that dominates the pure merge and round-trips.
 //! - Mode 1: `[1, ops...]`: an edit history (up to 32 operations of two
 //!   bytes, kind and argument) on three replicas of the small seed item
-//!   `unknown_members`, with syncs in between. The laws must hold on every
-//!   reached state, all replicas must converge in any merge order, and a
-//!   merge must never drop an entry that no device removed.
+//!   `unknown_members`, with syncs in between (repairing syncs when the
+//!   argument is 128 or more). The laws must hold on every reached state,
+//!   all replicas must converge in any merge order, and a merge must never
+//!   drop an entry that no device removed.
 //!
 //! Seeds: small and golden plaintexts and short histories
 //! (`seeds/item_merge`).
@@ -17,7 +19,7 @@ use std::collections::BTreeSet;
 
 use libfuzzer_sys::fuzz_target;
 use mosaic_core::DeviceId;
-use mosaic_core::model::{Item, LoginUrl, SecretField, Stamp, TextField, Timestamp};
+use mosaic_core::model::{Item, ItemType, LoginUrl, SecretField, Stamp, TextField, Timestamp};
 
 /// A small base item, so a history runs quickly under ASan.
 const BASE: &[u8] = include_bytes!("../seeds/item_plaintext/unknown_members");
@@ -30,6 +32,13 @@ fn laws(a: &Item, b: &Item, c: &Item) {
     assert_eq!(ab.merge(c), a.merge(&b.merge(c)), "associative");
     if let Ok(json) = ab.to_json() {
         assert_eq!(Item::from_json(json.expose_secret()).expect("decode"), ab);
+    }
+    if let Ok(out) = a.merge_and_repair(b, dev(0)) {
+        assert_eq!(out.item.merge(&ab), out.item, "the repair dominates the merge");
+        if let Ok(json) = out.item.to_json() {
+            let back = Item::from_json(json.expose_secret()).expect("repair decodes");
+            assert_eq!(back, out.item);
+        }
     }
 }
 
@@ -70,7 +79,14 @@ fn history(ops: &[u8]) {
                 .union(&entries(&replicas[from]))
                 .cloned()
                 .collect();
-            let merged = replicas[d].merge(&replicas[from]);
+            let merged = if arg >= 128 {
+                replicas[d]
+                    .merge_and_repair(&replicas[from], dev(arg))
+                    .expect("honest history")
+                    .item
+            } else {
+                replicas[d].merge(&replicas[from])
+            };
             for lost in before.difference(&entries(&merged)) {
                 assert!(removed.contains(lost), "merge dropped {lost:?}");
             }
@@ -85,6 +101,10 @@ fn history(ops: &[u8]) {
             let url = item.urls().first().map(|(id, _)| id.clone());
             if kind % 12 == 6 {
                 item.delete(dev(arg), at).expect("delete");
+            } else if item.is_deleted() {
+                // A deleted item takes no edits; undelete instead.
+                item.undelete(&ItemType::Login, dev(arg), at)
+                    .expect("undelete");
             } else {
                 let mut e = item.edit(dev(arg), at);
                 let r = match kind % 12 {

@@ -17,7 +17,7 @@ use mosaic_core::model::{
 };
 use mosaic_core::{
     AttachmentId, AttachmentKey, DeviceId, Error, ItemCiphertext, ItemId, KeyGeneration,
-    SecretBytes, SecretVec, TombstoneCiphertext, VaultId, VaultKey,
+    SecretBytes, SecretString, SecretVec, TombstoneCiphertext, VaultId, VaultKey,
 };
 
 fn dev(b: u8) -> DeviceId {
@@ -258,7 +258,7 @@ fn urls_and_custom_fields() {
     let f = e
         .add_custom_field(&CustomField::new(
             Text::new("PIN"),
-            CustomFieldValue::Hidden(Text::new("1234").as_str().to_owned().into_secret()),
+            CustomFieldValue::Hidden(SecretString::from_str_copy("1234").unwrap()),
         ))
         .unwrap();
     assert_ne!(first, second);
@@ -269,7 +269,7 @@ fn urls_and_custom_fields() {
     assert!(urls[1].1.allow_http);
     assert!(!urls[0].1.allow_http);
     assert_eq!(first.to_string(), first.as_str());
-    assert_eq!(ElementId::from_stored(first.as_str()), first);
+    assert_eq!(ElementId::from_stored(first.as_str()).unwrap(), first);
     // Replace and remove.
     let mut e = item.edit(dev(1), at(2));
     e.set_url(&first, &LoginUrl::new("https://github.com/login"))
@@ -320,21 +320,6 @@ fn urls_and_custom_fields() {
     let m = a.merge(&b);
     assert_eq!(m.urls().len(), 3);
     assert!(m.conflicts().is_empty());
-}
-
-trait IntoSecret {
-    fn into_secret(self) -> mosaic_core::SecretString;
-}
-
-impl IntoSecret for String {
-    fn into_secret(self) -> mosaic_core::SecretString {
-        // The public way to build a SecretString: read one back from an item.
-        let mut tmp = Item::new(&ItemType::SecureNote, dev(9), at(0)).unwrap();
-        tmp.edit(dev(9), at(0))
-            .set_secret(SecretField::CardPin, &self)
-            .unwrap();
-        tmp.secret(SecretField::CardPin).unwrap().unwrap()
-    }
 }
 
 #[test]
@@ -425,7 +410,7 @@ fn attachments_otp_passkey_ssh() {
 
     let mut ssh = Item::new(&ItemType::SshKey, dev(1), at(1)).unwrap();
     let key = SshKeyMaterial::new(
-        "-----BEGIN".to_owned().into_secret(),
+        SecretString::from("-----BEGIN".to_owned()),
         Text::new("ssh-ed25519 AAAA"),
         Text::new("SHA256:x"),
     );
@@ -589,14 +574,15 @@ fn delete_tombstone_and_concurrent_edit() {
     assert_eq!(m.title(), None, "fields the deleter had seen are removed");
     assert!(m.to_tombstone().is_none());
 
-    // The device holding the full pre-merge item restores what is missing.
-    let mut restored = copy(&m);
-    {
-        let mut e = restored.edit(dev(3), at(60));
-        e.restore_missing_from(&editor).unwrap();
-        e.dismiss_deletion().unwrap();
-    }
+    // The editing device merges with repair and keeps every field it had.
+    let out = editor.merge_and_repair(&as_item, dev(3)).unwrap();
+    assert_eq!(out.restored_fields, 4, "type, created_at, title, username");
+    assert!(!out.stamp_collision);
+    let mut restored = out.item;
+    assert!(restored.deleted_concurrently().is_some(), "still flagged");
+    restored.edit(dev(3), at(60)).dismiss_deletion().unwrap();
     assert_eq!(restored.title(), Some("GitHub"));
+    assert_eq!(restored.created_at(), Some(at(100)));
     assert_eq!(restored.item_type(), Some(ItemType::Login));
     assert_eq!(password(&restored), "changed offline");
     assert!(restored.deleted_concurrently().is_none());
@@ -621,12 +607,32 @@ fn delete_tombstone_and_concurrent_edit() {
     assert_eq!(t.deleted_by(), vec![dev(2), dev(3)]);
     assert_eq!(t.deleted_at(), at(2));
 
-    // Writing to a deleted item restores it (not flagged).
+    // A deleted item takes no edits; undelete brings it back with a type.
     let mut undo = copy(&deleted);
+    let v = undo.version().clone();
+    assert_eq!(
+        undo.edit(dev(2), at(80)).set_title("back").unwrap_err(),
+        Error::ItemDeleted
+    );
+    assert_eq!(
+        undo.edit(dev(2), at(80))
+            .add_url(&LoginUrl::new("https://x"))
+            .unwrap_err(),
+        Error::ItemDeleted
+    );
+    assert_eq!(undo.version(), &v, "a refused edit changes nothing");
+    undo.undelete(&ItemType::Login, dev(2), at(80)).unwrap();
     undo.edit(dev(2), at(80)).set_title("back").unwrap();
     assert!(!undo.is_deleted());
     assert!(undo.deleted_concurrently().is_none());
     assert_eq!(undo.title(), Some("back"));
+    assert_eq!(undo.item_type(), Some(ItemType::Login));
+    assert_eq!(undo.created_at(), Some(at(80)));
+    let v = undo.version().clone();
+    undo.undelete(&ItemType::Wifi, dev(2), at(81)).unwrap();
+    assert_eq!(undo.version(), &v, "undelete of a live item is a no-op");
+    // The undelete wins over the tombstone it saw.
+    assert!(!undo.merge(&deleted).is_deleted());
     // Dismissing on a deleted item does nothing.
     let mut still = copy(&deleted);
     let v = still.version().clone();
@@ -769,4 +775,317 @@ fn clock_is_independent_of_wall_time() {
     c.edit(dev(1), at(0)).set_title("third").unwrap();
     assert_eq!(c.merge(&b).title(), Some("third"));
     let _ = SecretBytes::<1>::from_slice(&[0]).unwrap();
+}
+
+fn keys(item: &Item) -> Vec<String> {
+    item.keys().map(str::to_owned).collect()
+}
+
+#[test]
+fn reserved_members_cannot_cross_layouts() {
+    // Review M2: a tombstone carrying a top-level "fields" member, or an
+    // item carrying "deleted", used to decode and then re-encode with a
+    // duplicate key that no device could decode again.
+    let mut deleted = login();
+    deleted.delete(dev(2), at(5)).unwrap();
+    let tomb = String::from_utf8(
+        deleted
+            .to_tombstone()
+            .unwrap()
+            .to_json()
+            .unwrap()
+            .expose_secret()
+            .to_vec(),
+    )
+    .unwrap();
+    let with_fields = format!(r#"{},"fields":{{}}}}"#, &tomb[..tomb.len() - 1]);
+    assert_eq!(
+        Tombstone::from_json(with_fields.as_bytes()).unwrap_err(),
+        Error::Malformed
+    );
+    let item = json_string(&login());
+    let with_deleted = format!(
+        r#"{},"deleted":[{{"at":0,"c":1,"d":"{}","v":null}}]}}"#,
+        &item[..item.len() - 1],
+        dev(1)
+    );
+    assert_eq!(
+        Item::from_json(with_deleted.as_bytes()).unwrap_err(),
+        Error::Malformed
+    );
+    for member in ["schema_version", "vv"] {
+        let dup = format!(r#"{},"{member}":1}}"#, &item[..item.len() - 1]);
+        assert_eq!(
+            Item::from_json(dup.as_bytes()).unwrap_err(),
+            Error::Malformed
+        );
+    }
+    // Other unknown top-level members still survive both layouts.
+    let newer = format!(r#"{},"later":[1]}}"#, &tomb[..tomb.len() - 1]);
+    let t = Tombstone::from_json(newer.as_bytes()).unwrap();
+    assert!(
+        String::from_utf8(t.to_json().unwrap().expose_secret().to_vec())
+            .unwrap()
+            .ends_with(r#","later":[1]}"#)
+    );
+}
+
+#[test]
+fn edit_api_only_writes_keys_that_decode() {
+    // Review M2: element IDs from outside used to become field keys the
+    // decoder rejects, which made the whole item unreadable once synced.
+    for bad in ["a\nb", "tab\there", &"x".repeat(253)] {
+        assert_eq!(ElementId::from_stored(bad).unwrap_err(), Error::Malformed);
+    }
+    let max = ElementId::from_stored(&"x".repeat(252)).unwrap();
+    let mut item = login();
+    let v = item.version().clone();
+    assert_eq!(
+        item.edit(dev(1), at(1))
+            .set_url(&max, &LoginUrl::new("https://a"))
+            .unwrap_err(),
+        Error::Malformed,
+        "no such URL: not silently created"
+    );
+    let text = CustomField::new(Text::new("l"), CustomFieldValue::Text(Text::new("v")));
+    assert_eq!(
+        item.edit(dev(1), at(1))
+            .set_custom_field(&max, &text)
+            .unwrap_err(),
+        Error::Malformed
+    );
+    assert_eq!(item.version(), &v, "refused edits tick nothing");
+
+    // The longest stored IDs work through the edit API and decode again.
+    let d = dev(1);
+    let url_id = "u".repeat(252);
+    let field_id = "f".repeat(250);
+    let json = format!(
+        concat!(
+            r#"{{"schema_version":1,"vv":{{"{d}":1}},"fields":{{"#,
+            r#""field:{f}":[{{"at":1,"c":1,"d":"{d}","v":{{"kind":"text","label":"l","value":"v"}}}}],"#,
+            r#""type":[{{"at":1,"c":1,"d":"{d}","v":"login"}}],"#,
+            r#""url:{u}":[{{"at":1,"c":1,"d":"{d}","v":{{"url":"https://a"}}}}]"#,
+            r#"}}}}"#
+        ),
+        d = d,
+        f = field_id,
+        u = url_id
+    );
+    let mut item = Item::from_json(json.as_bytes()).unwrap();
+    let uid = ElementId::from_stored(&url_id).unwrap();
+    assert_eq!(item.urls()[0].0, uid);
+    let fid = item.custom_fields()[0].0.clone();
+    {
+        let mut e = item.edit(dev(2), at(2));
+        e.set_url(&uid, &LoginUrl::new("https://b")).unwrap();
+        e.set_custom_field(&fid, &text).unwrap();
+        e.add_tag(&"t".repeat(MAX_TAG_LEN)).unwrap();
+        e.add_tag("\u{e9}\u{301} \u{1f511}").unwrap();
+        e.add_url(&LoginUrl::new("https://c")).unwrap();
+        e.add_custom_field(&text).unwrap();
+        e.set_secret(SecretField::Password, "new").unwrap();
+    }
+    assert_eq!(copy(&item), item, "every key the edit API wrote decodes");
+}
+
+#[test]
+fn delete_vs_concurrent_edit_keeps_every_field_after_repair() {
+    // Review M2 probe: base item with title, username and password; device
+    // A deletes, device B concurrently sets the notes.
+    let base = login();
+    let mut a = copy(&base);
+    a.delete(dev(2), at(10)).unwrap();
+    let tomb = Item::from(
+        Tombstone::from_json(a.to_tombstone().unwrap().to_json().unwrap().expose_secret()).unwrap(),
+    );
+    let mut b = copy(&base);
+    b.edit(dev(3), at(11))
+        .set_text(TextField::Notes, "note")
+        .unwrap();
+
+    // The pure merge keeps only the concurrent edit (the husk).
+    let husk = b.merge(&tomb);
+    assert!(husk.deleted_concurrently().is_some());
+    assert_eq!(husk.item_type(), None);
+    assert_eq!(husk.title(), None);
+    assert!(husk.secret(SecretField::Password).unwrap().is_none());
+
+    // The editing device merges with repair and keeps everything.
+    let out = b.merge_and_repair(&tomb, dev(3)).unwrap();
+    let repaired = out.item;
+    assert_eq!(out.restored_fields, 5);
+    assert_eq!(repaired.item_type(), Some(ItemType::Login));
+    assert_eq!(repaired.created_at(), Some(at(100)));
+    assert_eq!(repaired.title(), Some("GitHub"));
+    assert_eq!(repaired.text(TextField::Username), Some("octocat"));
+    assert_eq!(password(&repaired), "pw-1");
+    assert_eq!(repaired.text(TextField::Notes), Some("note"));
+    assert!(repaired.deleted_concurrently().is_some(), "still flagged");
+    assert!(repaired.conflicts().is_empty());
+    for k in keys(&b) {
+        assert!(repaired.keys().any(|r| r == k), "{k} kept");
+    }
+    // Stable: merging the tombstone again repairs nothing more.
+    let again = repaired.merge_and_repair(&tomb, dev(3)).unwrap();
+    assert_eq!(again.restored_fields, 0);
+    assert_eq!(again.item, repaired);
+
+    // The deleting device cannot repair (it saw its own deletion) ...
+    let at_a = tomb.merge_and_repair(&b, dev(2)).unwrap();
+    assert_eq!(at_a.restored_fields, 0);
+    assert_eq!(at_a.item, husk);
+    // ... and gets the full item once the repair arrives.
+    let at_a = at_a.item.merge_and_repair(&repaired, dev(2)).unwrap();
+    assert_eq!(at_a.item.title(), Some("GitHub"));
+    assert_eq!(at_a.item.item_type(), Some(ItemType::Login));
+
+    // A third device that held the item but had not seen the deletion
+    // repairs too; its values equal B's, so nothing conflicts.
+    let c = copy(&base);
+    let at_c = c.merge_and_repair(&husk, dev(4)).unwrap();
+    assert_eq!(at_c.restored_fields, 5);
+    let all = at_c.item.merge(&repaired).merge(&at_a.item);
+    assert!(all.conflicts().is_empty());
+    assert_eq!(all.title(), Some("GitHub"));
+    assert_eq!(all.text(TextField::Notes), Some("note"));
+
+    // Without a concurrent edit the delete wins: nothing is repaired.
+    let stale = c.merge_and_repair(&tomb, dev(4)).unwrap();
+    assert!(stale.item.is_deleted());
+    assert_eq!(stale.restored_fields, 0);
+
+    // Conflict copies come back too.
+    let mut x = copy(&base);
+    let mut y = copy(&base);
+    x.edit(dev(5), at(1)).set_title("from-x").unwrap();
+    y.edit(dev(6), at(1)).set_title("from-y").unwrap();
+    let conflicted = x.merge(&y);
+    let mut deleter = copy(&conflicted);
+    deleter.delete(dev(7), at(2)).unwrap();
+    let mut editor = copy(&conflicted);
+    editor
+        .edit(dev(5), at(3))
+        .set_text(TextField::Notes, "n")
+        .unwrap();
+    let fixed = editor.merge_and_repair(&deleter, dev(5)).unwrap().item;
+    let c = fixed.conflicts();
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].key, "title");
+    assert_eq!(fixed.title(), Some("from-y"), "the winner stays the winner");
+}
+
+#[test]
+fn device_id_reuse_is_detected() {
+    // Review M2 probe: desktop and extension writing as the same device.
+    let base = login();
+    let mut desktop = copy(&base);
+    let mut ext = copy(&base);
+    desktop
+        .edit(dev(4), at(1))
+        .set_secret(SecretField::Password, "from-desktop")
+        .unwrap();
+    ext.edit(dev(4), at(1))
+        .set_secret(SecretField::Password, "from-ext")
+        .unwrap();
+    let s = desktop.entries("login.password").last().unwrap().stamp();
+    assert_eq!(s, ext.entries("login.password").last().unwrap().stamp());
+    // The pure merge keeps one of them.
+    assert!(desktop.merge(&ext).conflicts().is_empty());
+    // A third device's repairing merge surfaces both.
+    let mut phone = copy(&base);
+    phone = phone.merge_and_repair(&desktop, dev(9)).unwrap().item;
+    let out = phone.merge_and_repair(&ext, dev(9)).unwrap();
+    assert!(out.stamp_collision);
+    let c = out.item.conflicts();
+    assert_eq!(c.len(), 1);
+    let mut values: Vec<&str> = c[0]
+        .losers
+        .iter()
+        .chain([&c[0].winner])
+        .filter_map(|e| e.value().as_str())
+        .collect();
+    values.sort_unstable();
+    assert_eq!(values, ["from-desktop", "from-ext"]);
+    // The writer whose ID was reused finds out on its next merge.
+    ext.edit(dev(4), at(2)).set_title("ext again").unwrap();
+    assert_eq!(
+        desktop.merge_and_repair(&ext, dev(4)).unwrap_err(),
+        Error::DeviceIdReused
+    );
+    // Its own record coming back is fine.
+    assert!(
+        !desktop
+            .merge_and_repair(&desktop, dev(4))
+            .unwrap()
+            .stamp_collision
+    );
+}
+
+#[test]
+fn metadata_is_never_a_conflict() {
+    let base = login();
+    let mut a = copy(&base);
+    let mut b = copy(&base);
+    {
+        let mut e = a.edit(dev(2), at(1));
+        e.set_favorite(true).unwrap();
+        e.trash().unwrap();
+        e.set_title("a").unwrap();
+    }
+    {
+        let mut e = b.edit(dev(3), at(2));
+        e.set_favorite(false).unwrap();
+        e.trash().unwrap();
+        e.set_title("b").unwrap();
+    }
+    let m = a.merge(&b);
+    assert_eq!(m.entries("favorite").count(), 2);
+    assert_eq!(m.entries("trashed_at").count(), 2);
+    let c = m.conflicts();
+    assert_eq!(c.len(), 1, "only the title");
+    assert_eq!(c[0].key, "title");
+    assert!(!m.favorite(), "largest stamp");
+    assert_eq!(m.trashed_at(), Some(at(2)));
+}
+
+#[test]
+fn counters_never_go_down_through_conflict_resolution() {
+    let mut item = Item::new(&ItemType::Passkey, dev(1), at(1)).unwrap();
+    item.edit(dev(1), at(1)).set_passkey_sign_count(5).unwrap();
+    let mut a = copy(&item);
+    let mut b = copy(&item);
+    a.edit(dev(2), at(2)).set_passkey_sign_count(9).unwrap();
+    b.edit(dev(3), at(2)).set_passkey_sign_count(7).unwrap();
+    let m = a.merge(&b);
+    let key = "passkey.sign_count";
+    let winner = m.entries(key).last().unwrap();
+    assert_eq!(winner.value().as_u64(), Some(7), "largest stamp holds 7");
+    let low = winner.stamp();
+    let high = m
+        .entries(key)
+        .find(|e| e.value().as_u64() == Some(9))
+        .unwrap()
+        .stamp();
+    let mut r = copy(&m);
+    assert_eq!(
+        r.edit(dev(1), at(3))
+            .resolve_conflict(key, low)
+            .unwrap_err(),
+        Error::Malformed
+    );
+    assert_eq!(r.passkey_sign_count(), 9);
+    let mut d = copy(&m);
+    d.edit(dev(1), at(3)).dismiss_conflict(key).unwrap();
+    assert_eq!(d.passkey_sign_count(), 9);
+    assert_eq!(d.entries(key).count(), 1);
+    r.edit(dev(1), at(3)).resolve_conflict(key, high).unwrap();
+    assert_eq!(r.passkey_sign_count(), 9);
+    assert_eq!(r.entries(key).count(), 1);
+    assert_eq!(
+        r.edit(dev(1), at(4))
+            .dismiss_conflict("otp.counter")
+            .unwrap_err(),
+        Error::Malformed
+    );
 }

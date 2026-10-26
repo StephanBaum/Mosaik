@@ -82,7 +82,7 @@ jobs:
             echo "::group::$t"
             test -d "seeds/$t" || { echo "::error::missing seeds/$t"; exit 1; }
             mkdir -p "corpus/$t"
-            extra=""
+            extra=""; if [ -f "dicts/$t.dict" ]; then extra="-dict=dicts/$t.dict"; fi
             if [ "$t" = attachment_open ]; then extra="-max_len=270000"; fi
             cargo "+$FUZZ_TOOLCHAIN" fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 $extra
             echo "::endgroup::"

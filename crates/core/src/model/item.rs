@@ -24,7 +24,9 @@
 use core::fmt;
 
 use super::clock::{Causality, Stamp, Timestamp, VersionVector};
-use super::doc::{DELETED_KEY, Doc, DocJson, Entry, FieldConflict, Format, SCHEMA_VERSION, decode};
+use super::doc::{
+    DELETED_KEY, Doc, DocJson, Entry, FieldConflict, Format, SCHEMA_VERSION, check_key, decode,
+};
 use super::tombstone::Tombstone;
 use super::types::{
     AttachmentRef, CustomField, LoginUrl, OtpConfig, PasskeyCredential, SshKeyMaterial,
@@ -57,6 +59,19 @@ const HISTORY_PREFIX: &str = "history:";
 
 /// Counters: the merged value is the largest one, never a conflict.
 const MAX_KEYS: [&str; 2] = [OTP_COUNTER, PASSKEY_SIGN_COUNT];
+
+/// Item metadata: concurrent values are resolved by the largest stamp only
+/// and never shown as a conflict ([`Item::conflicts`]). The same holds for
+/// `history:*` entries, `deleted` and the counters.
+const METADATA_KEYS: [&str; 4] = [TYPE, CREATED, TRASHED, FAVORITE];
+
+/// Whether concurrent values of `key` are a conflict the user resolves.
+fn is_user_content(key: &str) -> bool {
+    key != DELETED_KEY
+        && !MAX_KEYS.contains(&key)
+        && !METADATA_KEYS.contains(&key)
+        && !key.starts_with(HISTORY_PREFIX)
+}
 
 /// The kind of an item.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -255,10 +270,18 @@ impl ElementId {
         &self.0
     }
 
-    /// Wraps a stored ID.
-    #[must_use]
-    pub fn from_stored(id: &str) -> Self {
-        Self(id.to_owned())
+    /// Wraps a stored ID (as returned by [`ElementId::as_str`]).
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] if no field key can hold it: longer than
+    /// [`super::MAX_FIELD_KEY_LEN`] minus the `url:` prefix, or with control
+    /// characters. (The edit methods check the full key again.)
+    pub fn from_stored(id: &str) -> Result<Self> {
+        let mut key = String::with_capacity(URL_PREFIX.len().saturating_add(id.len()));
+        key.push_str(URL_PREFIX);
+        key.push_str(id);
+        check_key(&key)?;
+        Ok(Self(id.to_owned()))
     }
 }
 
@@ -333,6 +356,20 @@ pub(crate) fn deletion_info(doc: &Doc) -> Option<DeletionInfo> {
     })
 }
 
+/// The result of [`Item::merge_and_repair`].
+#[derive(Debug)]
+pub struct MergeOutcome {
+    /// The merged and repaired item. Persist and upload this one.
+    pub item: Item,
+    /// How many fields were written back after a concurrent delete.
+    pub restored_fields: usize,
+    /// Both replicas held one edit stamp with different contents. Two
+    /// writers share a device ID (or a record is corrupted): both values
+    /// are kept as a conflict, and the store warns and looks for the
+    /// writer that reuses an ID.
+    pub stamp_collision: bool,
+}
+
 /// A vault item: the replicated state that is encrypted as one record.
 ///
 /// Not `Clone`; `Debug` shows only the version vector and the field count.
@@ -383,11 +420,81 @@ impl Item {
 
     /// Merges two replicas of the same item. Pure, commutative, associative
     /// and idempotent; never loses a value that no device superseded.
+    ///
+    /// This is the lattice join, for tests, simulations and comparisons. A
+    /// store that merges a received record into its local state and keeps
+    /// the result uses [`Item::merge_and_repair`] instead.
     #[must_use]
     pub fn merge(&self, other: &Self) -> Self {
         Self {
             doc: self.doc.merge(&other.doc),
         }
+    }
+
+    /// Merges a `received` record into this local replica and repairs what
+    /// a pure merge cannot (CRYPTO_SPEC §10). Every store persists the
+    /// returned item instead of the plain [`Item::merge`].
+    ///
+    /// `self` is this device's own latest state of the item and `device`
+    /// is this device's ID. On top of the merge, as local edits by
+    /// `device` with fresh stamps (so the result syncs out like any edit):
+    ///
+    /// - **Concurrent delete.** If the merge is flagged
+    ///   ([`Item::deleted_concurrently`]) by a deletion this replica had not
+    ///   seen, every field this replica held that the merge dropped is
+    ///   written back with all its values, conflict copies included. A
+    ///   device that edited (or merely held) the item while another device
+    ///   deleted it therefore keeps every field it had; the flag stays
+    ///   until the user dismisses it or deletes again. This can also bring
+    ///   back a field that a third device removed in the same concurrent
+    ///   window; the flag puts the item in front of the user either way.
+    /// - **Same stamp, different contents** (two writers with one device
+    ///   ID): the value the merge dropped is written back, so both show up
+    ///   as a conflict, and [`MergeOutcome::stamp_collision`] is set.
+    ///
+    /// Restored values keep their original write times. Without a repair
+    /// the result equals `self.merge(received)`.
+    ///
+    /// # Errors
+    /// [`Error::DeviceIdReused`] if `received` holds edits by `device`
+    /// that `self` has not seen (another process or install shares the
+    /// ID, or local state came from a backup): rotate the device ID and
+    /// call again with the new one. [`Error::ClockOverflow`].
+    pub fn merge_and_repair(&self, received: &Self, device: DeviceId) -> Result<MergeOutcome> {
+        if received.doc.vv().get(&device) > self.doc.vv().get(&device) {
+            return Err(Error::DeviceIdReused);
+        }
+        let mut doc = self.doc.merge(&received.doc);
+        let repair = doc.repair_after_merge(&self.doc, &received.doc, device)?;
+        Ok(MergeOutcome {
+            item: Self { doc },
+            restored_fields: repair.restored_fields,
+            stamp_collision: repair.stamp_collision,
+        })
+    }
+
+    /// Brings a deleted item (a tombstone) back as a live item of
+    /// `item_type`, created at `at`. A tombstone keeps no fields, so this
+    /// is the only edit it accepts; every other edit of a deleted item
+    /// fails with [`Error::ItemDeleted`]. A no-op on a live item.
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn undelete(
+        &mut self,
+        item_type: &ItemType,
+        device: DeviceId,
+        at: Timestamp,
+    ) -> Result<()> {
+        if !self.doc.is_deleted() {
+            return Ok(());
+        }
+        let s = self.doc.tick(device)?;
+        self.doc.remove_key(DELETED_KEY);
+        self.doc
+            .write(TYPE, s, at, Value::text(item_type.as_str()), false)?;
+        self.doc
+            .write(CREATED, s, at, Value::int(at.as_unix_millis()), false)
     }
 
     /// The authenticated version vector.
@@ -406,8 +513,11 @@ impl Item {
         self.doc.vv().compare(other.doc.vv())
     }
 
-    /// The item type; `None` only if a concurrent delete removed it (see
-    /// [`Item::deleted_concurrently`]).
+    /// The item type. `None` only on a deleted item, or on the deleting
+    /// device after a delete lost against a concurrent edit, until the
+    /// repair of a device that still held the item arrives (see
+    /// [`Item::merge_and_repair`]). Show such an item as "unknown type"
+    /// together with the [`Item::deleted_concurrently`] notice.
     #[must_use]
     pub fn item_type(&self) -> Option<ItemType> {
         self.doc
@@ -544,13 +654,18 @@ impl Item {
             .and_then(|v| SshKeyMaterial::from_value(v).ok())
     }
 
-    /// Fields where concurrent edits left more than one distinct value.
-    /// The UI shows the winner as the value and offers the losers; resolve
-    /// with [`ItemEdit::resolve_conflict`] or [`ItemEdit::dismiss_conflict`].
+    /// Content fields where concurrent edits left more than one distinct
+    /// value. The UI shows the winner as the value and offers the losers;
+    /// resolve with [`ItemEdit::resolve_conflict`] or
+    /// [`ItemEdit::dismiss_conflict`].
+    ///
+    /// Metadata is never listed: `type`, `created_at`, `trashed_at`,
+    /// `favorite` and `history:*` take the value with the largest stamp,
+    /// the counters take the largest value, and a concurrent delete is
+    /// [`Item::deleted_concurrently`].
     #[must_use]
     pub fn conflicts(&self) -> Vec<FieldConflict<'_>> {
-        self.doc
-            .conflicts(|k| k != DELETED_KEY && !MAX_KEYS.contains(&k))
+        self.doc.conflicts(is_user_content)
     }
 
     /// Whether this is a deleted item (a tombstone).
@@ -560,9 +675,11 @@ impl Item {
     }
 
     /// A delete that lost against a concurrent edit: the item is live, but
-    /// a device deleted it without seeing that edit. Fields the deleting
-    /// device had seen are gone; the concurrent edits survive. Show it to
-    /// the user, then [`ItemEdit::dismiss_deletion`] or delete again.
+    /// a device deleted it without seeing that edit. The pure merge keeps
+    /// only the concurrent edits; [`Item::merge_and_repair`] on every
+    /// device that had not seen the deletion writes back the fields it
+    /// held. Show it to the user, then [`ItemEdit::dismiss_deletion`] or
+    /// delete again.
     #[must_use]
     pub fn deleted_concurrently(&self) -> Option<DeletionInfo> {
         if self.doc.is_deleted() {
@@ -704,7 +821,7 @@ impl Item {
             .filter_map(|(k, r)| {
                 let id = k.strip_prefix(prefix)?;
                 let v = decode(r.winner()?.value()).ok()?;
-                Some((ElementId::from_stored(id), v))
+                Some((ElementId(id.to_owned()), v))
             })
             .collect()
     }
@@ -775,16 +892,16 @@ impl fmt::Debug for ItemEdit<'_> {
 }
 
 impl ItemEdit<'_> {
-    /// The stamp of this edit, ticked on the first change. Changing a
-    /// deleted item restores it.
+    /// The stamp of this edit, ticked on the first change. A deleted item
+    /// takes no edits ([`Item::undelete`] first).
     fn stamp(&mut self) -> Result<Stamp> {
         if let Some(s) = self.stamp {
             return Ok(s);
         }
-        let s = self.doc.tick(self.device)?;
         if self.doc.is_deleted() {
-            self.doc.remove_key(DELETED_KEY);
+            return Err(Error::ItemDeleted);
         }
+        let s = self.doc.tick(self.device)?;
         self.stamp = Some(s);
         Ok(s)
     }
@@ -799,6 +916,7 @@ impl ItemEdit<'_> {
     /// Writes `value` unless it already is the field's only (or, with
     /// `keep_losers`, winning) value.
     fn put(&mut self, key: &str, value: Value, keep_losers: bool) -> Result<()> {
+        check_key(key)?;
         if let Some(reg) = self.doc.register(key)
             && let Some(w) = reg.winner()
             && *w.value() == value
@@ -807,8 +925,7 @@ impl ItemEdit<'_> {
             return Ok(());
         }
         let s = self.stamp()?;
-        self.doc.write(key, s, self.at, value, keep_losers);
-        Ok(())
+        self.doc.write(key, s, self.at, value, keep_losers)
     }
 
     fn remove(&mut self, key: &str) -> Result<bool> {
@@ -992,9 +1109,20 @@ impl ItemEdit<'_> {
     /// Replaces a login URL.
     ///
     /// # Errors
+    /// [`Error::Malformed`] if the item has no URL `id`;
     /// [`Error::ClockOverflow`].
     pub fn set_url(&mut self, id: &ElementId, url: &LoginUrl) -> Result<()> {
-        self.put(&format!("{URL_PREFIX}{}", id.0), url.to_value(), true)
+        let key = self.existing(URL_PREFIX, id)?;
+        self.put(&key, url.to_value(), true)
+    }
+
+    /// The key of element `id` under `prefix`, if the item has it.
+    fn existing(&self, prefix: &str, id: &ElementId) -> Result<String> {
+        let key = format!("{prefix}{}", id.0);
+        if self.doc.register(&key).is_none() {
+            return Err(Error::Malformed);
+        }
+        Ok(key)
     }
 
     /// Removes a login URL.
@@ -1020,11 +1148,12 @@ impl ItemEdit<'_> {
     /// Replaces a custom field.
     ///
     /// # Errors
-    /// [`Error::Malformed`] for an invalid OTP value;
-    /// [`Error::ClockOverflow`].
+    /// [`Error::Malformed`] for an invalid OTP value or if the item has no
+    /// custom field `id`; [`Error::ClockOverflow`].
     pub fn set_custom_field(&mut self, id: &ElementId, field: &CustomField) -> Result<()> {
         check_custom(field)?;
-        self.put(&format!("{FIELD_PREFIX}{}", id.0), field.to_value(), true)
+        let key = self.existing(FIELD_PREFIX, id)?;
+        self.put(&key, field.to_value(), true)
     }
 
     /// Removes a custom field.
@@ -1125,16 +1254,34 @@ impl ItemEdit<'_> {
         self.put(key, Value::uint(value.max(current.unwrap_or(0))), false)
     }
 
+    /// The entry of counter `key` with the largest value.
+    fn max_entry(&self, key: &str) -> Option<(Stamp, u64)> {
+        self.doc
+            .register(key)?
+            .entries()
+            .filter_map(|e| e.value().as_u64().map(|v| (e.stamp(), v)))
+            .max_by_key(|&(_, v)| v)
+    }
+
     /// Resolves a conflict on `key` by keeping the value written by edit
     /// `keep` (one of the entries listed by [`Item::conflicts`]). The other
     /// values of a field that keeps history go into the password history.
+    /// Counters (`otp.counter`, `passkey.sign_count`) never go down: for
+    /// them only the entry with the largest value can be kept.
     ///
     /// # Errors
-    /// [`Error::Malformed`] if `key` has no value with stamp `keep`;
+    /// [`Error::Malformed`] if `key` has no value with stamp `keep`, or
+    /// `keep` is a counter value below the largest one;
     /// [`Error::ClockOverflow`].
     pub fn resolve_conflict(&mut self, key: &str, keep: Stamp) -> Result<()> {
         let reg = self.doc.register(key).ok_or(Error::Malformed)?;
         let chosen = reg.get(&keep).ok_or(Error::Malformed)?.value().dup();
+        if MAX_KEYS.contains(&key) {
+            return match self.max_entry(key) {
+                Some((_, max)) if chosen.as_u64() == Some(max) => self.raise(key, max),
+                _ => Err(Error::Malformed),
+            };
+        }
         let is_winner = reg.winner().map(Entry::stamp) == Some(keep);
         let others: Vec<(Stamp, Option<Text>)> = reg
             .entries()
@@ -1163,22 +1310,23 @@ impl ItemEdit<'_> {
             }
         } else {
             let s = self.stamp()?;
-            self.doc.write(key, s, self.at, chosen, false);
+            self.doc.write(key, s, self.at, chosen, false)?;
         }
         Ok(())
     }
 
-    /// Keeps the winning value of `key` and drops the conflict copies.
+    /// Keeps the winning value of `key` and drops the conflict copies. For
+    /// a counter the winner is the largest value.
     ///
     /// # Errors
     /// [`Error::Malformed`] if `key` has no value; [`Error::ClockOverflow`].
     pub fn dismiss_conflict(&mut self, key: &str) -> Result<()> {
-        let winner = self
-            .doc
-            .winner(key)
-            .map(Entry::stamp)
-            .ok_or(Error::Malformed)?;
-        self.resolve_conflict(key, winner)
+        let winner = if MAX_KEYS.contains(&key) {
+            self.max_entry(key).map(|(s, _)| s)
+        } else {
+            self.doc.winner(key).map(Entry::stamp)
+        };
+        self.resolve_conflict(key, winner.ok_or(Error::Malformed)?)
     }
 
     /// Clears the "deleted concurrently" flag (see
@@ -1191,25 +1339,6 @@ impl ItemEdit<'_> {
             return Ok(());
         }
         self.remove(DELETED_KEY).map(|_| ())
-    }
-
-    /// Writes back, as part of this edit, every field that `previous` has
-    /// and this item lacks. After a delete lost against a concurrent edit,
-    /// the device that still holds the full pre-merge item uses this to
-    /// restore the fields the delete removed.
-    ///
-    /// # Errors
-    /// [`Error::ClockOverflow`].
-    pub fn restore_missing_from(&mut self, previous: &Item) -> Result<()> {
-        for (key, reg) in previous.doc.registers() {
-            if key == DELETED_KEY || self.doc.register(key).is_some() {
-                continue;
-            }
-            if let Some(w) = reg.winner() {
-                self.put(key, w.value().dup(), false)?;
-            }
-        }
-        Ok(())
     }
 }
 

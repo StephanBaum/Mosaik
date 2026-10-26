@@ -183,7 +183,7 @@ impl VaultMetaEdit<'_> {
             s
         };
         match value {
-            Some(v) => self.doc.write(key, s, self.at, Value::text(v), false),
+            Some(v) => self.doc.write(key, s, self.at, Value::text(v), false)?,
             None => {
                 self.doc.remove_key(key);
             }

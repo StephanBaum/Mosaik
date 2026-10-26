@@ -22,15 +22,18 @@
 //! other", "present and seen", "removed" form a chain, and the merge takes
 //! their maximum, so the merge is commutative, associative and idempotent
 //! for any inputs, including ill-formed ones. When both sides hold the same
-//! stamp with different contents (only possible with forged or corrupted
-//! data) the larger content wins, which keeps the laws.
+//! stamp with different contents (two writers sharing a device ID, or
+//! forged or corrupted data) the larger content wins, which keeps the laws;
+//! [`Doc::repair_after_merge`] detects it and adds the other value back.
 //!
 //! A deletion is an entry under the reserved key `deleted` in a document
 //! whose other fields were all removed by the same edit. Its vector covers
 //! every edit the deleting device had seen, so merging it with a replica
 //! that has only seen those edits removes them all again, while edits made
 //! concurrently survive together with the `deleted` entry, which flags the
-//! conflict.
+//! conflict. The pure merge cannot tell which removed fields the editing
+//! replica still wants; [`Doc::repair_after_merge`], run by every replica
+//! that had not seen the deletion, writes them back as a new edit.
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -46,6 +49,11 @@ use crate::ids::DeviceId;
 
 /// The reserved field key of deletion entries.
 pub(crate) const DELETED_KEY: &str = "deleted";
+
+/// Top-level member names that both plaintext layouts reserve. A decoder
+/// rejects any of them as an unknown member, so neither layout can carry
+/// the other's member and re-encode it as a duplicate key.
+const RESERVED_MEMBERS: [&str; 4] = ["schema_version", "vv", "fields", DELETED_KEY];
 
 /// Longest field key in bytes.
 pub const MAX_FIELD_KEY_LEN: usize = 256;
@@ -175,6 +183,15 @@ pub struct FieldConflict<'a> {
     pub losers: Vec<&'a Entry>,
 }
 
+/// What [`Doc::repair_after_merge`] found and did.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct Repair {
+    /// Fields brought back after a concurrent delete.
+    pub(crate) restored_fields: usize,
+    /// Both replicas held the same stamp with different contents.
+    pub(crate) stamp_collision: bool,
+}
+
 /// The replicated state. See the module documentation.
 #[derive(Default, PartialEq, Eq)]
 pub(crate) struct Doc {
@@ -227,6 +244,8 @@ impl Doc {
         Self {
             vv: self.vv.join(&other.vv),
             fields,
+            // No clock: top-level members are grow-only by contract
+            // (ADR-0009 item 4), so the larger value is the newer one.
             extra: self.extra.join_max(&other.extra),
         }
     }
@@ -239,6 +258,9 @@ impl Doc {
     /// Writes `value` under `key` with an already ticked `stamp`. With
     /// `keep_losers`, only the current winner is superseded and conflict
     /// copies stay; otherwise every value of the field is superseded.
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] for a key the decoder would reject.
     pub(crate) fn write(
         &mut self,
         key: &str,
@@ -246,7 +268,8 @@ impl Doc {
         at: Timestamp,
         value: Value,
         keep_losers: bool,
-    ) {
+    ) -> Result<()> {
+        check_key(key)?;
         let reg = self.fields.entry(Text::new(key)).or_default();
         if keep_losers {
             reg.0.pop_last();
@@ -254,6 +277,86 @@ impl Doc {
             reg.0.clear();
         }
         reg.0.insert(stamp, Entry::new(stamp, at, value));
+        Ok(())
+    }
+
+    /// Adds a copy of `entry` (value, time and unknown members) to `key`
+    /// under a fresh stamp of `device`, keeping every value already there.
+    /// The repair after a merge uses it to bring back values a merge
+    /// dropped (see [`Doc::repair_after_merge`]).
+    fn readd(&mut self, key: &Text, entry: &Entry, device: DeviceId) -> Result<()> {
+        let stamp = self.tick(device)?;
+        let reg = self.fields.entry(key.dup()).or_default();
+        reg.0.insert(
+            stamp,
+            Entry {
+                stamp,
+                at: entry.at,
+                value: entry.value.dup(),
+                extra: entry.extra.dup(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Repairs `self`, the merge of `local` and `received`, as a local edit
+    /// by `device`. Returns what it found. See
+    /// [`crate::model::Item::merge_and_repair`] for the contract.
+    ///
+    /// 1. Same stamp, different contents (only possible when two writers
+    ///    share a device ID): the merge kept one; the other value is added
+    ///    back under a fresh stamp, so both are visible as a conflict.
+    /// 2. A delete that lost against a concurrent edit, and `local` had not
+    ///    seen that deletion: every field `local` held that the merge
+    ///    dropped is added back (all its values, conflict copies included)
+    ///    under fresh stamps. The deletion entry stays as the flag.
+    pub(crate) fn repair_after_merge(
+        &mut self,
+        local: &Self,
+        received: &Self,
+        device: DeviceId,
+    ) -> Result<Repair> {
+        let mut repair = Repair::default();
+        for (key, mine) in &local.fields {
+            let Some(theirs) = received.fields.get(key.as_str()) else {
+                continue;
+            };
+            for (s, a) in &mine.0 {
+                let Some(b) = theirs.0.get(s) else {
+                    continue;
+                };
+                if a.payload_cmp(b) == Ordering::Equal {
+                    continue;
+                }
+                repair.stamp_collision = true;
+                if a.value != b.value {
+                    let loser = if a.payload_cmp(b) == Ordering::Less {
+                        a
+                    } else {
+                        b
+                    };
+                    self.readd(key, loser, device)?;
+                }
+            }
+        }
+        let missed_a_deletion = !self.is_deleted()
+            && self
+                .register(DELETED_KEY)
+                .into_iter()
+                .flat_map(Register::entries)
+                .any(|d| !local.vv.covers(&d.stamp));
+        if missed_a_deletion {
+            for (key, reg) in &local.fields {
+                if key.as_str() == DELETED_KEY || self.fields.contains_key(key.as_str()) {
+                    continue;
+                }
+                for e in reg.entries() {
+                    self.readd(key, e, device)?;
+                }
+                repair.restored_fields = repair.restored_fields.saturating_add(1);
+            }
+        }
+        Ok(repair)
     }
 
     /// Removes every value of `key`. The caller has ticked the clock.
@@ -284,8 +387,7 @@ impl Doc {
         }
         let stamp = self.tick(device)?;
         self.fields.clear();
-        self.write(DELETED_KEY, stamp, at, Value::Null, false);
-        Ok(())
+        self.write(DELETED_KEY, stamp, at, Value::Null, false)
     }
 
     /// The latest wall-clock time of any value.
@@ -402,7 +504,10 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
     Ok(out)
 }
 
-fn check_key(key: &str) -> Result<()> {
+/// The field-key rule of the decoder: 1 to [`MAX_FIELD_KEY_LEN`] bytes, no
+/// control characters. Every write checks it too, so the edit API never
+/// produces a document that does not decode.
+pub(crate) fn check_key(key: &str) -> Result<()> {
     if key.is_empty() || key.len() > MAX_FIELD_KEY_LEN || key.chars().any(char::is_control) {
         return Err(Error::Malformed);
     }
@@ -470,9 +575,10 @@ fn decode_register(v: Value, vv: &VersionVector) -> Result<Register> {
 ///
 /// # Errors
 /// [`Error::UnsupportedVersion`] for a `schema_version` other than 1;
-/// [`Error::Malformed`] for invalid JSON, a missing or mistyped member, an
-/// invalid field key, an empty register, a duplicate stamp or an entry the
-/// version vector does not cover.
+/// [`Error::Malformed`] for invalid JSON, a missing or mistyped member, a
+/// top-level member reserved by the other layout, an invalid field key, an
+/// empty register, a duplicate stamp or an entry the version vector does
+/// not cover.
 pub(crate) fn decode(bytes: &[u8], format: Format) -> Result<Doc> {
     let Value::Object(top) = parse_json(bytes)? else {
         return Err(Error::Malformed);
@@ -484,6 +590,8 @@ pub(crate) fn decode(bytes: &[u8], format: Format) -> Result<Doc> {
             ("schema_version", _) => schema = Some(v),
             ("vv", _) => vv = Some(v),
             ("fields", Format::Document) | ("deleted", Format::Tombstone) => fields = Some(v),
+            // The other layout's member: never an unknown extra.
+            (name, _) if RESERVED_MEMBERS.contains(&name) => return Err(Error::Malformed),
             _ => {
                 extra.insert_text(k, v);
             }
@@ -615,7 +723,8 @@ mod tests {
 
     fn set(doc: &mut Doc, d: u8, key: &str, v: &str) -> Stamp {
         let s = doc.tick(dev(d)).unwrap();
-        doc.write(key, s, Timestamp::from_unix_millis(7), Value::text(v), true);
+        doc.write(key, s, Timestamp::from_unix_millis(7), Value::text(v), true)
+            .unwrap();
         s
     }
 
@@ -877,18 +986,93 @@ mod tests {
             Timestamp::from_unix_millis(1),
             Value::text("x"),
             true,
-        );
+        )
+        .unwrap();
         b.write(
             "k",
             s,
             Timestamp::from_unix_millis(1),
             Value::text("y"),
             true,
-        );
+        )
+        .unwrap();
         let m = a.merge(&b);
         assert_eq!(m, b.merge(&a));
         assert_eq!(m.value("k").unwrap().as_str(), Some("y"));
         assert!(m.remove_entry_test("k", &s));
+
+        // The repair finds the collision and brings the other value back
+        // under a fresh stamp, so both are visible.
+        let mut repaired = a.merge(&b);
+        let found = repaired.repair_after_merge(&a, &b, dev(9)).unwrap();
+        assert!(found.stamp_collision);
+        assert_eq!(found.restored_fields, 0);
+        assert_eq!(repaired.register("k").unwrap().len(), 2);
+        assert_eq!(repaired.value("k").unwrap().as_str(), Some("x"));
+        assert_eq!(repaired.conflicts(|_| true).len(), 1);
+        // Same stamp, same value, different time: flagged, nothing added.
+        let mut left = a.dup();
+        let s2 = left.tick(dev(1)).unwrap();
+        let mut right = left.dup();
+        left.write("t", s2, Timestamp::from_unix_millis(1), Value::Null, false)
+            .unwrap();
+        right
+            .write("t", s2, Timestamp::from_unix_millis(2), Value::Null, false)
+            .unwrap();
+        let mut both = left.merge(&right);
+        let before = both.dup();
+        assert!(
+            both.repair_after_merge(&left, &right, dev(9))
+                .unwrap()
+                .stamp_collision
+        );
+        assert_eq!(both, before);
+        // Honest replicas: nothing found, nothing changed.
+        let mut aa = a.merge(&a);
+        assert_eq!(
+            aa.repair_after_merge(&a, &a, dev(9)).unwrap(),
+            Repair::default()
+        );
+        assert_eq!(aa, a);
+    }
+
+    #[test]
+    fn reserved_members_are_rejected_in_both_layouts() {
+        let entry = format!(r#"[{{"at":0,"c":1,"d":"{D1}","v":null}}]"#);
+        let doc_with_deleted =
+            format!(r#"{{"schema_version":1,"vv":{{"{D1}":1}},"fields":{{}},"deleted":{entry}}}"#);
+        let tomb_with_fields =
+            format!(r#"{{"schema_version":1,"vv":{{"{D1}":1}},"deleted":{entry},"fields":{{}}}}"#);
+        assert_eq!(
+            decode(doc_with_deleted.as_bytes(), Format::Document).unwrap_err(),
+            Error::Malformed
+        );
+        assert_eq!(
+            decode(tomb_with_fields.as_bytes(), Format::Tombstone).unwrap_err(),
+            Error::Malformed
+        );
+        // Any other unknown member is still kept.
+        let ok =
+            format!(r#"{{"schema_version":1,"vv":{{"{D1}":1}},"deleted":{entry},"later":{{}}}}"#);
+        assert!(decode(ok.as_bytes(), Format::Tombstone).is_ok());
+    }
+
+    #[test]
+    fn writes_check_keys_like_the_decoder() {
+        let mut doc = Doc::default();
+        let s = doc.tick(dev(1)).unwrap();
+        let at = Timestamp::from_unix_millis(0);
+        let long = "k".repeat(MAX_FIELD_KEY_LEN + 1);
+        for bad in ["", "a\nb", "url:\u{7f}", long.as_str()] {
+            assert_eq!(
+                doc.write(bad, s, at, Value::Null, false).unwrap_err(),
+                Error::Malformed
+            );
+        }
+        let max = "k".repeat(MAX_FIELD_KEY_LEN);
+        doc.write(&max, s, at, Value::Null, false).unwrap();
+        let json = json(&doc, Format::Document);
+        assert_eq!(decode(json.as_bytes(), Format::Document).unwrap(), doc);
     }
 
     impl Doc {

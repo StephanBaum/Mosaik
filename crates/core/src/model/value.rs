@@ -6,7 +6,7 @@
 //! its buffer on drop and prints as `[REDACTED]`, so dropping (or locking
 //! away) a decrypted item leaves no copies of its strings behind in memory
 //! this crate owns. Residual copies inside `serde_json`'s scratch buffer
-//! (strings with escape sequences) are recorded in the M2 ADR.
+//! (strings with escape sequences) are recorded in ADR-0009.
 //!
 //! Every type here has a total order. The merge needs it to pick a
 //! deterministic value when two replicas disagree about data that carries no
@@ -29,7 +29,7 @@ use crate::error::{Error, Result};
 use crate::secret::{SecretString, SecretVec};
 
 /// Deepest nesting of arrays and objects in a plaintext, counted from the
-/// root object (ADR draft M2). `serde_json` itself stops at 128.
+/// root object (ADR-0009). `serde_json` itself stops at 128.
 pub const MAX_JSON_DEPTH: usize = 32;
 
 const REDACTED: &str = "[REDACTED]";
@@ -84,12 +84,11 @@ impl Text {
     }
 
     /// Copies the string into a [`SecretString`].
-    pub(crate) fn to_secret(&self) -> Result<SecretString> {
-        let mut s = SecretString::with_capacity(self.0.len())?;
-        for c in self.0.chars() {
-            s.push(c);
-        }
-        Ok(s)
+    ///
+    /// # Errors
+    /// [`Error::Allocation`] if the memory cannot be reserved.
+    pub fn to_secret(&self) -> Result<SecretString> {
+        SecretString::from_str_copy(&self.0)
     }
 }
 

@@ -232,19 +232,28 @@ fn vault_meta_plaintext() {
 }
 
 /// The committed `item_plaintext` fuzz seeds stay valid inputs, so the
-/// fuzzer starts behind the decoder instead of at its first error.
+/// fuzzer starts behind the decoder instead of at its first error. Seeds
+/// named `reject_*` sit just outside the format (a layout carrying the
+/// other layout's reserved member) and must be rejected by every decoder.
 #[test]
 fn fuzz_seeds_decode() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fuzz/seeds/item_plaintext");
-    let mut n = 0;
+    let (mut valid, mut rejected) = (0, 0);
     for entry in std::fs::read_dir(dir).unwrap() {
-        let bytes = std::fs::read(entry.unwrap().path()).unwrap();
-        assert!(
-            Item::from_json(&bytes).is_ok()
-                || Tombstone::from_json(&bytes).is_ok()
-                || VaultMeta::from_json(&bytes).is_ok()
-        );
-        n += 1;
+        let entry = entry.unwrap();
+        let bytes = std::fs::read(entry.path()).unwrap();
+        let decodes = Item::from_json(&bytes).is_ok()
+            || Tombstone::from_json(&bytes).is_ok()
+            || VaultMeta::from_json(&bytes).is_ok();
+        let name = entry.file_name().into_string().unwrap();
+        if name.starts_with("reject_") {
+            assert!(!decodes, "{name}");
+            rejected += 1;
+        } else {
+            assert!(decodes, "{name}");
+            valid += 1;
+        }
     }
-    assert!(n >= 5);
+    assert!(valid >= 5);
+    assert!(rejected >= 2);
 }
