@@ -33,6 +33,60 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # Slow-in-debug tests (the 50 MiB attachment round trip at exactly
+      # MAX_ATTACHMENT_LEN) run optimized.
+      - run: cargo test --release --locked -p mosaic-core -- --ignored
+
+  coverage:
+    name: Coverage (mosaic-core >= 90 % lines)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml (includes llvm-tools-preview)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - run: cargo llvm-cov --locked -p mosaic-core --summary-only --fail-under-lines 90
+
+  fuzz-smoke:
+    name: Fuzz smoke (mosaic-core decoders, 60 s each)
+    runs-on: ubuntu-latest
+    env:
+      # Dated nightly so the job does not break when a new nightly ships.
+      # Bump deliberately together with cargo-fuzz.
+      FUZZ_TOOLCHAIN: nightly-2026-10-25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install pinned nightly (cargo-fuzz needs -Z sanitizer flags)
+        run: rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-fuzz@0.13.2
+      - name: Run every fuzz target for 60 s
+        working-directory: crates/core/fuzz
+        env:
+          RUSTFLAGS: ""
+        # `seeds/<target>` (committed, minimized inputs built from the golden
+        # files) is passed after the scratch corpus, so libFuzzer reads the
+        # seeds but writes new inputs only to `corpus/<target>`.
+        # attachment_open gets a max_len above two 64 KiB chunks.
+        run: |
+          set -euo pipefail
+          targets="$(cargo "+$FUZZ_TOOLCHAIN" fuzz list)"
+          test -n "$targets"
+          for t in $targets; do
+            echo "::group::$t"
+            test -d "seeds/$t" || { echo "::error::missing seeds/$t"; exit 1; }
+            mkdir -p "corpus/$t"
+            extra=""
+            if [ "$t" = attachment_open ]; then extra="-max_len=270000"; fi
+            cargo "+$FUZZ_TOOLCHAIN" fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 $extra
+            echo "::endgroup::"
+          done
 
   rust-supply-chain:
     name: Rust supply chain
@@ -43,10 +97,17 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
+      # The fuzz crate has its own workspace and lockfile (libfuzzer-sys and
+      # its build dependencies), which the checks above do not see.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: crates/core/fuzz/Cargo.toml
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
-          tool: cargo-audit
+          tool: cargo-audit@0.22.2
       - run: cargo audit --deny warnings
+      - run: cargo audit --deny warnings -f crates/core/fuzz/Cargo.lock
 
   typescript:
     name: TypeScript (${{ matrix.os }})

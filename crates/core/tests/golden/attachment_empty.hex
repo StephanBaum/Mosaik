@@ -1,0 +1,6 @@
+# Attachment (CRYPTO_SPEC 7.3), STREAM-BE32 over XChaCha20-Poly1305, one (last) chunk
+# FK = 40*32, vault_id = 0b*16, item_id = 0c*16, attachment_id = 0d*16, nonce_prefix = 70..82
+# plaintext = ""
+# layout: version(01) alg(02) chunk_log2(10) nonce_prefix[19] chunk(ciphertext || tag[16])
+010210707172737475767778797a7b7c7d7e7f808182f57236f0fc1f860bfda3
+15d4e07e6d8c

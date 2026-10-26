@@ -1,0 +1,7 @@
+# WrappedKey (CRYPTO_SPEC 6), label wrap/ak, method 0x02
+# W = 10*32, AK = 20*32, account_id = 0a*16, nonce = 50..67
+# device_id = 0e*16; hardware key method_id = SHA-256("credential-id")[..16]
+# layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]
+0101505152535455565758595a5b5c5d5e5f60616263646566678f4ef98d7f7f
+6825c0308e2a440c592c539e4fabbf012f282e8fa09f78bdeedbc5c3c887dc09
+da8d493dceaf52323dff

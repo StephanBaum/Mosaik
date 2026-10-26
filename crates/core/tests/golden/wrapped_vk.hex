@@ -1,0 +1,6 @@
+# WrappedKey (CRYPTO_SPEC 7.1), label wrap/vault
+# AK = 20*32, VK = 30*32, key_generation = 1, account_id = 0a*16, vault_id = 0b*16, nonce = 50..67
+# layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]
+0101505152535455565758595a5b5c5d5e5f60616263646566677d11ea54bb8b
+428156571600a52d6c35ce11a27e07ee07d57fcffc029e7aac826cd97a2a9ba3
+c9e0588097e89a08373b

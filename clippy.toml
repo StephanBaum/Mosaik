@@ -4,4 +4,4 @@ allow-panic-in-tests = true
 allow-print-in-tests = true
 allow-dbg-in-tests = true
 allow-indexing-slicing-in-tests = true
-doc-valid-idents = ["WebAuthn", "KeePass", "OPAQUE", "PostgreSQL", "WebSocket", "WebSockets", "UniFFI", "1Password", "..", ]
+doc-valid-idents = ["CRYPTO_SPEC", "UUIDv7", "RustCrypto", "WebAuthn", "KeePass", "OPAQUE", "PostgreSQL", "WebSocket", "WebSockets", "UniFFI", "1Password", "..", ]

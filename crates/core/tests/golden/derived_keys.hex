@@ -1,0 +1,4 @@
+# KEK || OPW (CRYPTO_SPEC 5.4) with TEST-ONLY Argon2id cost m = 64 KiB, t = 1, p = 1
+# MP = "correct horse battery staple", account_salt = 5a*16, SK = 0f*16, account_id = 0a*16
+dfbe7d2eab16ec679aba6f8cfd48970f58bcba4cdb1393051f2433a4f5d70166
+8f46291118dbe47cf2578f0a4f1462cf880a9aca21e5d149c0df2e5b8544d639

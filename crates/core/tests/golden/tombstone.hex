@@ -1,0 +1,5 @@
+# Tombstone (CRYPTO_SPEC 7.2), not padded
+# VK = 30*32, key_generation = 1, vault_id = 0b*16, item_id = 0c*16, nonce = 50..67, plaintext = "tombstone v1"
+# layout: version(01) alg(01) key_generation:u32 nonce[24] ciphertext[12] tag[16]
+010100000001505152535455565758595a5b5c5d5e5f606162636465666792d1
+8a435703c8c3abcf9cfad4a177803b514c0f1660ffba63e0890e

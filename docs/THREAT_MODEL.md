@@ -175,6 +175,7 @@ Mitigations name the milestone in which they are implemented and tested.
 | R8 | Hardware-key unlock: key + PIN + a copy of the wrapping unlocks without MP/SK (CRYPTO_SPEC §6.3) | accepted. It is opt-in, needs UV, and the UI explains it |
 | R9 | Changing MP or SK does not revoke someone who already holds old secrets plus an old wrapping. Only a full re-key does (CRYPTO_SPEC §6.5–6.6) | mitigated by the re-key flow and explicit UI copy |
 | R10 | Pre-login profile distribution drift gives weak statistical hints about which accounts exist (CRYPTO_SPEC §9.2) | accepted |
+| R11 | Upstream `hmac`/`hkdf` leave short-lived stack copies during derivation: the `key ^ ipad/opad` block (for `R` and the KEK/OPW step that is `R`-equivalent) and the last HKDF output block. They cannot be zeroized without patching the crates. Exploiting them needs a memory read of the process during or right after unlock, which is P5 (R1) territory | accepted, ADR-0005 / ADR-0007 item 9. Revisit with R5 in M9 or when upstream wipes them |
 
 ## 6. Review log
 
@@ -182,3 +183,5 @@ Mitigations name the milestone in which they are implemented and tested.
 |---|---|---|---|
 | 2026-10-25 | M0 | principal engineer (initial draft) | created |
 | 2026-10-25 | M0 | crypto-reviewer (design review of CRYPTO_SPEC) | 3 high, 7 medium, 3 low. All resolved in the spec, or recorded as R7–R10 |
+| 2026-10-26 | M1 | crypto-reviewer, test-engineer, gate review (implementation of `crates/core`) | 2 high, 7 medium, 11 low. Fixed with regression tests, except the upstream HMAC/HKDF stack residue (R11) and the items listed in PROGRESS "Open risks / findings" |
+| 2026-10-26 | M1 | crypto-reviewer, test-engineer, gate review (follow-up round) | 3 medium, 6 low. All fixed with regression tests; residual timing note recorded as PROGRESS M1-R6 |

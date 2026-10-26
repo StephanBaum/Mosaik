@@ -28,6 +28,13 @@ allow = [
     "Zlib",
     "CC0-1.0",
 ]
+# libfuzzer-sys bundles LLVM's libFuzzer, which is under the permissive
+# University of Illinois/NCSA license. It is only a dependency of the fuzz
+# crate (crates/core/fuzz, checked with --manifest-path in CI) and is never
+# linked into Mosaic. See ADR-0007 item 10.
+exceptions = [
+    { crate = "libfuzzer-sys", allow = ["NCSA"] },
+]
 
 [licenses.private]
 # Workspace crates are `publish = false`; their own license is an owner decision.

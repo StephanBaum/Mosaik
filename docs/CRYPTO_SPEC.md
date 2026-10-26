@@ -39,9 +39,9 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Passkeys | ECDSA P-256 (ES256); Ed25519 (EdDSA) | FIPS 186-5, RFC 8032, WebAuthn L3 | `p256`, `ed25519-dalek` |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
-| Randomness | OS CSPRNG | — | `getrandom` / `rand_core::OsRng` |
+| Randomness | OS CSPRNG | — | `getrandom` (directly in `crates/core`); `rand_core::OsRng` where a `rand` API is needed (generators, §13) |
 | Constant-time compare | — | — | `subtle` |
-| Secret memory | zero on drop | — | `zeroize`, `secrecy` |
+| Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
 | TLS | TLS 1.3 only | RFC 8446 | `rustls` |
 
@@ -221,7 +221,8 @@ can unlock (THREAT_MODEL R8).
 Derive a new `KEK'` (new `account_salt`, current parameters) from the new MP
 and the same SK. Re-wrap AK with `KEK'`, re-register OPAQUE with `OPW'`, then
 delete the old password wrapping atomically on the server. Items and vault keys
-are not touched.
+are not touched. The new profile is never weaker than the current one (§5.3);
+the client refuses a downgrade.
 
 ### 6.5 Secret Key rotation
 Same as §6.4 with a new SK. A new Emergency Kit is issued.
@@ -266,6 +267,7 @@ VaultMeta = header || nonce[24] || AEAD(VK, nonce, pad(meta), aad)
 header    = version:u8 || alg:u8 || key_generation:u32
 aad       = header || aad("vault-meta", vault_id, key_generation:u32)
 ```
+The padded metadata is at most 64 KiB (ADR-0007).
 
 ### 7.2 Item records
 Every item is encrypted on its own with its vault's key:
@@ -281,8 +283,10 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   record's vault binding. The decryptor therefore takes both from context,
   and a mismatch fails authentication.
 - A deletion is a **tombstone**:
-  `header || nonce || AEAD(VK, nonce, tombstone, header || aad("tombstone", vault_id, item_id, key_generation:u32))`.
-  Its plaintext holds the final version vector and the deletion time.
+  `header || nonce || AEAD(VK, nonce, tombstone, header || aad("tombstone", vault_id, item_id, key_generation:u32))`
+  with `header = version:u8 (0x01) || alg:u8 (0x01) || key_generation:u32`.
+  Its plaintext holds the final version vector and the deletion time. It is
+  not padded and is at most 64 KiB (ADR-0007).
 
 - **Plaintext** is the canonical serialization of the item (schema in
   `crates/core`, versioned by `schema_version`). It **includes** the item's
@@ -290,12 +294,18 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   server sees is only a routing hint (rollback handling: §10).
 - **Padding** `pad(x)`: ISO/IEC 7816-4 (`0x80` then zeros) to the next multiple
   of 256 bytes, with a minimum padded length of 512 bytes. This hides fine
-  length information such as password length.
+  length information such as password length. The padded plaintext is at
+  most 1 MiB (ADR-0007). Unpadding is strict: only the canonical padding of
+  some message is accepted. It runs on decrypted plaintext, so it is
+  constant-time in the contents (it does not stop early at the marker),
+  and its timing does not reveal the message length.
 - **Re-encryption** on every edit uses a fresh nonce. With 192-bit random
   nonces, collision risk is negligible far beyond any realistic number of
   encryptions under one key.
 - A decryption failure is reported as `ItemCorrupted { item_id }` and nothing
-  else. There is no distinction between tag and padding failures.
+  else. There is no distinction between tag and padding failures. (In
+  `crates/core` every object type reports the single error
+  `Error::Decryption`; the item layer maps it to `ItemCorrupted`, ADR-0007.)
 - **Moving an item** to another vault means decrypting it and re-encrypting it
   under the target VK with the new `vault_id` in the AAD.
 
@@ -306,8 +316,15 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   RustCrypto's STREAM implementation (`aead-stream` or `aead::stream`,
   depending on the `aead` version pinned in M1). File layout:
   `version:u8 || alg:u8 (0x02 = STREAM-BE32-XChaCha20-Poly1305) || chunk_log2:u8 (16) || nonce_prefix[19] || chunks…`.
-  Every chunk uses `aad = header || aad("attachment", vault_id, item_id, attachment_id)`.
+  Every chunk uses `aad = header || aad("attachment", vault_id, item_id, attachment_id)`
+  with `header = version || alg || chunk_log2`. The nonce prefix is
+  authenticated through each chunk's nonce: chunk `i` (from 0) uses
+  `nonce = nonce_prefix || i:u32 (big-endian) || last:u8`, with `last = 0x01`
+  for the final chunk and `0x00` otherwise.
   The last chunk carries STREAM's last-block flag, so truncation is detected.
+  Every chunk except the last holds exactly `2^chunk_log2` plaintext bytes.
+  The last one holds 1 to `2^chunk_log2` bytes, or 0 bytes only for an
+  empty file. Decoders reject any other layout (ADR-0007).
 - Default size limit: 50 MiB per attachment, 1 GiB per account. The server
   enforces it, and clients check it before encrypting.
 

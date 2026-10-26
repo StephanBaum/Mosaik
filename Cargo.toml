@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The fuzz crate has its own workspace (nightly-only, cargo-fuzz layout).
+exclude = ["crates/core/fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -9,10 +11,28 @@ rust-version = "1.99"
 publish = false
 repository = "https://github.com/StephanBaum/Mosaik"
 
+[workspace.dependencies]
+# Crypto: only crates listed in docs/CRYPTO_SPEC.md §2.
+argon2 = { version = "=0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+hkdf = { version = "=0.13.0", default-features = false }
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+aead-stream = { version = "=0.6.0", default-features = false, features = ["alloc"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
+subtle = { version = "=2.6.1", default-features = false }
+getrandom = { version = "=0.4.3", default-features = false }
+unicode-normalization = { version = "=0.1.26", default-features = false }
+thiserror = { version = "=2.0.21", default-features = false }
+# Dev
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
+hex-literal = "=1.1.0"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
 unused_must_use = "deny"
+# cargo-fuzz builds with `--cfg fuzzing` (crates/core/fuzz).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -28,6 +48,20 @@ todo = "deny"
 unimplemented = "deny"
 indexing_slicing = "warn"
 module_name_repetitions = "allow"
+
+# Crypto primitives are unusably slow without optimization (Argon2id with
+# 128 MiB would take minutes in a debug build). Optimize them in dev/test
+# builds too; this does not change behavior, only speed.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 # Abort instead of unwinding: no unwinding through secret-holding frames and

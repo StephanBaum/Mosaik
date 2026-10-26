@@ -1,0 +1,4 @@
+# Effective AAD of an item (CRYPTO_SPEC 3, 7.2): header || ctx("item") || 00 || vault_id || item_id || schema_version:u16 || key_generation:u32
+# header = 01 01 0003 00000007, vault_id = 0b*16, item_id = 0c*16
+01010003000000076d6f736169632f76312f6974656d000b0b0b0b0b0b0b0b0b
+0b0b0b0b0b0b0b0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c000300000007

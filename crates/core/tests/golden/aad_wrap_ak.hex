@@ -1,0 +1,4 @@
+# Effective AAD of a password wrapping of AK (CRYPTO_SPEC 3, 6.1): 01 01 || ctx("wrap/ak") || 00 || account_id || 01 || account_id
+# account_id = 0a*16
+01016d6f736169632f76312f777261702f616b000a0a0a0a0a0a0a0a0a0a0a0a
+0a0a0a0a010a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
