@@ -26,6 +26,17 @@
 //!   unusable value is dropped, and a stray token after a property discards
 //!   the whole rule set (leaving the default `allowed: ascii-printable`).
 //!   Parsing never fails.
+//! - Repeated identical `required` sets count once.
+//!
+//! Unlike the reference, input size is bounded, because a hostile page
+//! supplies the `passwordrules` attribute: a rule string longer than
+//! [`MAX_RULES_LEN`] characters, or one with more than
+//! [`MAX_REQUIRED_CLASSES`] distinct `required` sets, is treated as
+//! malformed (no rules). Real rules are far smaller (the longest vendored
+//! one has 204 characters, and none has more than 8 `required` sets). The
+//! bounds keep parsing, checking and generation linear in the input, and
+//! they are chosen so the canonical display of any accepted rule set is
+//! itself accepted.
 //!
 //! The reference parser does not define `max-repeating` and
 //! `max-sequential`. This crate enforces conservative readings that imply
@@ -38,13 +49,25 @@ use core::fmt;
 
 use crate::entropy::Entropy;
 use crate::error::{Error, Result};
-use crate::password::{DEFAULT_LENGTH, DIGITS, LOWER, MAX_LENGTH, UPPER};
+use zeroize::Zeroizing;
+
+use crate::password::{DEFAULT_LENGTH, DIGITS, LOWER, MAX_LENGTH, MIN_LENGTH, UPPER};
 use crate::policy::{
-    AsciiMask, MIN_ACCEPTANCE, Overlapping, Policy, Requirement, Runs, SPACE_BIT,
-    acceptance_consecutive, mask_contains, mask_len, runs_ok,
+    AsciiMask, MIN_ACCEPTANCE, Overlapping, Policy, Requirement, Runs, RunsAcceptance, SPACE_BIT,
+    acceptance_repeating, mask_contains, mask_len, runs_ok,
 };
 use crate::rng::{OsRandom, RandomSource};
 use crate::secret::GeneratedPassword;
+
+/// Longest `passwordrules` string [`PasswordRules::parse`] reads, in
+/// characters. Longer input is treated as malformed.
+pub const MAX_RULES_LEN: usize = 4096;
+
+/// Most distinct `required` sets [`PasswordRules::parse`] accepts. More are
+/// treated as malformed. A canonical `required` property is at most 105
+/// characters, so the display of an accepted rule set stays below
+/// [`MAX_RULES_LEN`].
+pub const MAX_REQUIRED_CLASSES: usize = 32;
 
 /// Printable ASCII, `' '..='~'`.
 const PRINTABLE: AsciiMask = {
@@ -194,10 +217,14 @@ impl Default for PasswordRules {
 
 impl PasswordRules {
     /// Parses a `passwordrules` string. Never fails: malformed input
-    /// degrades exactly as in Apple's reference parser (see the module
-    /// documentation).
+    /// degrades exactly as in Apple's reference parser, and input beyond
+    /// [`MAX_RULES_LEN`] characters or [`MAX_REQUIRED_CLASSES`] distinct
+    /// `required` sets counts as malformed (see the module documentation).
     #[must_use]
     pub fn parse(input: &str) -> Self {
+        if input.chars().nth(MAX_RULES_LEN).is_some() {
+            return Self::default();
+        }
         let chars: Vec<char> = input.chars().collect();
         let raw = parse_rules_internal(&chars).unwrap_or_default();
         let mut rules = Self {
@@ -210,8 +237,13 @@ impl PasswordRules {
                     let class = canonical_class(&values);
                     rules.allowed = rules.allowed.union(class);
                     // An empty required set constrains nothing; the
-                    // reference keeps it as `required: ` with no value.
-                    if !class.is_empty() {
+                    // reference keeps it as `required: ` with no value. A
+                    // repeated set adds nothing either. The list stays at
+                    // most MAX_REQUIRED_CLASSES long, so `contains` is cheap.
+                    if !class.is_empty() && !rules.required.contains(&class) {
+                        if rules.required.len() == MAX_REQUIRED_CLASSES {
+                            return Self::default();
+                        }
                         rules.required.push(class);
                     }
                 }
@@ -239,7 +271,8 @@ impl PasswordRules {
         rules
     }
 
-    /// The `required` sets, in input order.
+    /// The distinct `required` sets, in input order (at most
+    /// [`MAX_REQUIRED_CLASSES`]).
     #[must_use]
     pub fn required(&self) -> &[CharacterClass] {
         &self.required
@@ -292,18 +325,37 @@ impl PasswordRules {
 
     /// Whether `password` satisfies every rule (for checking existing or
     /// user-chosen passwords).
+    ///
+    /// Streams over `password` without copying it: the only derived state
+    /// is the set of ASCII characters it contains and the run counters, all
+    /// in zeroizing storage (see `runs_ok`). Linear in the password and the
+    /// number of `required` sets.
     #[must_use]
     pub fn is_satisfied_by(&self, password: &str) -> bool {
-        let chars: Vec<char> = password.chars().collect();
-        let len = u32::try_from(chars.len()).unwrap_or(u32::MAX);
+        let mut len = 0u32;
+        let mut present: Zeroizing<AsciiMask> = Zeroizing::new(0);
+        for c in password.chars() {
+            if !self.allowed.contains(c) {
+                return false;
+            }
+            len = len.saturating_add(1);
+            if let Ok(b) = u8::try_from(c)
+                && b.is_ascii()
+            {
+                *present |= 1u128 << b;
+            }
+        }
         self.min_length.is_none_or(|m| len >= m)
             && self.max_length.is_none_or(|m| len <= m)
-            && chars.iter().all(|&c| self.allowed.contains(c))
-            && self
-                .required
-                .iter()
-                .all(|r| chars.iter().any(|&c| r.contains(c)))
-            && runs_ok(&self.runs(), &chars)
+            && self.required.iter().all(|r| {
+                // `unicode` matches any character; other sets only ASCII.
+                if r.is_unicode() {
+                    len > 0
+                } else {
+                    r.ascii() & *present != 0
+                }
+            })
+            && runs_ok(&self.runs(), password.chars().map(u32::from))
     }
 
     /// The entropy [`PasswordRules::generate`] would report for
@@ -319,26 +371,37 @@ impl PasswordRules {
     ///
     /// Generation alphabet: the allowed set, limited to printable ASCII
     /// (`unicode` generates from printable ASCII, which it includes), and
-    /// without the space unless a `required` set needs it. Length:
-    /// `preferred_length` clamped to `minlength..=maxlength` and to at most
-    /// [`MAX_LENGTH`]; if the requirements are too unlikely at that length,
-    /// the shortest longer length within the limits that makes them likely
-    /// enough. Candidates are uniform over the alphabet and are checked and
-    /// retried as a whole, so the result is uniform over all passwords of
-    /// that length that satisfy the rules. The entropy is
+    /// without the space unless a `required` set needs it.
+    ///
+    /// Length: `preferred_length` **clamped** to the allowed range, which
+    /// is `minlength..=maxlength`, at most [`MAX_LENGTH`], at most
+    /// `max-repeating × |alphabet|`, and at least [`MIN_LENGTH`] unless the
+    /// site's `maxlength` is shorter (so `0` asks for the shortest
+    /// reasonable password, and a site with `maxlength: 2` gets 2
+    /// characters). If the rules are too unlikely to hold at that length
+    /// (estimated acceptance below 1 in 1024), the shortest longer length
+    /// that works is used, else the longest shorter one. The chosen length
+    /// is the length of the result, and its [`Entropy`] reflects it, so a
+    /// short site-imposed length shows up as a weak strength bucket.
+    ///
+    /// Candidates are uniform over the alphabet and are checked and retried
+    /// as a whole, so the result is uniform over all passwords of that
+    /// length that satisfy the rules. The entropy is
     /// `log2(|alphabet|) × length`, flagged as an upper bound when the rules
     /// can reject a candidate.
     ///
     /// # Errors
-    /// - [`Error::RulesUnsatisfiable`] if the rules contradict each other or
-    ///   need more than [`MAX_LENGTH`] characters.
+    /// - [`Error::RulesUnsatisfiable`] if the rules contradict each other
+    ///   (no allowed length can satisfy them) or need more than
+    ///   [`MAX_LENGTH`] characters.
     /// - [`Error::ConstraintsTooStrict`] if too few candidates would pass at
-    ///   any allowed length.
-    /// - [`Error::RetryLimit`] if no candidate passed (only possible with
-    ///   `max-repeating`/`max-sequential`, which the estimate ignores).
+    ///   every allowed length.
+    /// - [`Error::RetryLimit`] if no candidate passed. Each kind of
+    ///   constraint is estimated exactly, but combinations are estimated
+    ///   as if independent, so a few strongly correlated rule sets end here.
     /// - [`Error::Randomness`] if the OS CSPRNG fails.
     pub fn generate(&self, preferred_length: u32) -> Result<GeneratedPassword> {
-        self.generate_with(preferred_length, &mut OsRandom)
+        self.generate_with(preferred_length, &mut OsRandom::new())
     }
 
     pub(crate) fn generate_with<R: RandomSource + ?Sized>(
@@ -396,33 +459,61 @@ impl PasswordRules {
             .filter(|&s| !sets.iter().any(|&t| t != s && t & s == t))
             .collect();
 
-        let lo = self.min_length.unwrap_or(1).max(1);
-        let hi = self.max_length.unwrap_or(MAX_LENGTH).min(MAX_LENGTH);
-        if lo > hi {
+        let size = mask_len(alphabet);
+        let site_lo = self.min_length.unwrap_or(1).max(1);
+        let mut hi = self.max_length.unwrap_or(MAX_LENGTH).min(MAX_LENGTH);
+        // No character may occur more than k times: at most k × |alphabet|
+        // characters fit.
+        if let Some(k) = self.max_repeating {
+            hi = hi.min(k.saturating_mul(size));
+        }
+        if site_lo > hi {
             return Err(Error::RulesUnsatisfiable);
         }
-        let size = mask_len(alphabet);
+        // Prefer at least MIN_LENGTH, as in random-character mode, unless
+        // the site's maxlength is shorter.
+        let lo = site_lo.max(MIN_LENGTH.min(hi));
         let runs = self.runs();
         let required = Overlapping::new(alphabet, &pruned).ok_or(Error::ConstraintsTooStrict)?;
-        let mut length = preferred_length.clamp(lo, hi);
-        loop {
-            if self
-                .max_repeating
-                .is_none_or(|k| u64::from(k) * u64::from(size) >= u64::from(length))
-            {
-                let p_required = required.probability(length);
-                let p_runs = runs
-                    .max_consecutive
-                    .map_or(1.0, |k| acceptance_consecutive(size, k, length));
-                if p_required * p_runs >= MIN_ACCEPTANCE {
-                    break;
-                }
-            }
-            if length >= hi {
-                return Err(Error::ConstraintsTooStrict);
-            }
-            length += 1;
-        }
+        let mut p_runs =
+            RunsAcceptance::new(alphabet, runs.max_consecutive, runs.max_sequential, hi);
+        let p_repeating = runs
+            .max_repeating
+            .map(|k| acceptance_repeating(size, k, hi));
+        let at = |p: &[f64], n: u32| {
+            usize::try_from(n)
+                .ok()
+                .and_then(|i| p.get(i))
+                .copied()
+                .unwrap_or(0.0)
+        };
+        // The estimates are exact for each kind of constraint; their product
+        // is an approximation (see `crate::policy`).
+        let mut possible = false;
+        let mut likely_enough = |n: u32| {
+            let p = required.probability(n)
+                * p_runs.probability(n)
+                * p_repeating.as_deref().map_or(1.0, |p| at(p, n));
+            possible |= p > 0.0;
+            p >= MIN_ACCEPTANCE
+        };
+        // The preferred length if it works, else the shortest longer one,
+        // else the longest shorter one down to MIN_LENGTH, else down to the
+        // site's own minimum.
+        let start = preferred_length.clamp(lo, hi);
+        let length = (start..=hi)
+            .chain((lo..start).rev())
+            .chain((site_lo..lo).rev())
+            .find(|&n| likely_enough(n));
+        let Some(length) = length else {
+            // Zero means the rules exclude every length: a contradiction,
+            // not just an unlikely combination.
+            return Err(if possible {
+                Error::ConstraintsTooStrict
+            } else {
+                Error::RulesUnsatisfiable
+            });
+        };
         let requirements = pruned
             .into_iter()
             .map(|members| Requirement { members, min: 1 })

@@ -62,8 +62,11 @@ pub(crate) fn wordlist() -> Result<&'static [&'static str]> {
 pub struct PassphraseOptions {
     /// Number of words, [`MIN_WORDS`] to [`MAX_WORDS`].
     pub words: u32,
-    /// Placed between words. At most [`MAX_SEPARATOR_CHARS`] characters, no
-    /// control characters; may be empty.
+    /// Placed between words. At most [`MAX_SEPARATOR_CHARS`] printable
+    /// ASCII characters (`' '..='~'`); may be empty. Printable ASCII only,
+    /// like the symbol set of random-character passwords: no invisible or
+    /// bidirectional-control characters (`U+200B`, `U+202E`), no combining
+    /// marks, nothing that displays differently from what is typed.
     pub separator: String,
     /// Capitalize the first letter of every word.
     pub capitalize: bool,
@@ -91,8 +94,8 @@ impl PassphraseOptions {
                 max: MAX_WORDS,
             });
         }
-        let chars = self.separator.chars().count();
-        if chars > MAX_SEPARATOR_CHARS as usize || self.separator.chars().any(char::is_control) {
+        let printable_ascii = self.separator.bytes().all(|b| (b' '..=b'~').contains(&b));
+        if self.separator.len() > MAX_SEPARATOR_CHARS as usize || !printable_ascii {
             return Err(Error::InvalidSeparator {
                 max: MAX_SEPARATOR_CHARS,
             });
@@ -100,21 +103,43 @@ impl PassphraseOptions {
         Ok(())
     }
 
+    /// Whether different word sequences can produce the same text, so that
+    /// the words cannot be read back from the passphrase.
+    ///
+    /// Words are lowercase ASCII letters and `-`; an appended digit never
+    /// hides a boundary, because words contain no digits. Conservatively:
+    /// - With capitalization, every uppercase letter starts a word, so the
+    ///   boundaries are visible unless the separator has uppercase letters.
+    /// - Without it, an empty separator, or one with a lowercase letter or
+    ///   `-`, may hide boundaries. The exception is exactly `-` (the
+    ///   default): no hyphenated word in the list begins with a word
+    ///   followed by `-` (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`; tested
+    ///   below), so the list is a prefix code at the `-`-separated level and
+    ///   decodes uniquely.
+    fn boundaries_ambiguous(&self) -> bool {
+        let sep = self.separator.as_bytes();
+        if self.capitalize {
+            sep.iter().any(u8::is_ascii_uppercase)
+        } else {
+            sep.is_empty()
+                || (sep != b"-" && sep.iter().any(|&b| b.is_ascii_lowercase() || b == b'-'))
+        }
+    }
+
     /// `12.925 × words` (CRYPTO_SPEC §13). Capitalization is deterministic
     /// and adds nothing; the appended digit is not counted, which keeps the
-    /// estimate conservative. Without a separator and without
-    /// capitalization, word boundaries are not visible and different word
-    /// sequences can concatenate to the same text, so the value is then an
-    /// upper bound.
+    /// estimate conservative. When the separator can hide word boundaries
+    /// (an empty separator, or one made of word characters; see
+    /// `boundaries_ambiguous`), different word sequences can produce the
+    /// same text, so the value is then an upper bound.
     ///
     /// # Errors
     /// The validation errors of [`generate_passphrase`].
     pub fn entropy(&self) -> Result<Entropy> {
         self.validate()?;
-        let ambiguous_boundaries = self.separator.is_empty() && !self.capitalize;
         Ok(Entropy::new(
             BITS_PER_WORD * f64::from(self.words),
-            ambiguous_boundaries,
+            self.boundaries_ambiguous(),
         ))
     }
 }
@@ -124,12 +149,12 @@ impl PassphraseOptions {
 ///
 /// # Errors
 /// - [`Error::InvalidWordCount`] if the word count is out of range.
-/// - [`Error::InvalidSeparator`] if the separator is too long or contains a
-///   control character.
+/// - [`Error::InvalidSeparator`] if the separator is too long or contains
+///   anything other than printable ASCII.
 /// - [`Error::Randomness`] if the OS CSPRNG fails.
 /// - [`Error::Wordlist`] if the embedded wordlist is damaged.
 pub fn generate_passphrase(options: &PassphraseOptions) -> Result<GeneratedPassword> {
-    generate_passphrase_with(options, &mut OsRandom)
+    generate_passphrase_with(options, &mut OsRandom::new())
 }
 
 pub(crate) fn generate_passphrase_with<R: RandomSource + ?Sized>(
@@ -251,7 +276,7 @@ mod tests {
     fn options_shape_the_output() {
         let o = PassphraseOptions {
             words: 4,
-            separator: " · ".to_owned(),
+            separator: " + ".to_owned(),
             capitalize: true,
             append_digit: true,
         };
@@ -259,7 +284,7 @@ mod tests {
         for _ in 0..100 {
             let p = generate_passphrase_with(&o, &mut rng).unwrap();
             let s = p.expose_secret();
-            let parts: Vec<&str> = s.split(" · ").collect();
+            let parts: Vec<&str> = s.split(" + ").collect();
             assert_eq!(parts.len(), 4);
             assert!(
                 parts
@@ -300,6 +325,52 @@ mod tests {
         );
     }
 
+    /// Separators made of word characters can hide word boundaries, so the
+    /// entropy is then only an upper bound.
+    #[test]
+    fn separators_that_hide_boundaries_give_an_upper_bound() {
+        let bound = |separator: &str, capitalize: bool| {
+            PassphraseOptions {
+                separator: separator.to_owned(),
+                capitalize,
+                ..PassphraseOptions::default()
+            }
+            .entropy()
+            .unwrap()
+            .is_upper_bound()
+        };
+        for sep in ["", "a", "s", "x-", "--", " - ", "ab", "1a"] {
+            assert!(bound(sep, false), "{sep:?} without capitals");
+        }
+        for sep in ["-", " ", ".", "_", "1", "X", "+=+", "12345678"] {
+            assert!(!bound(sep, false), "{sep:?} without capitals");
+        }
+        // Capitals mark every word start, unless the separator has capitals.
+        for sep in ["", "a", "-", "s", "--", " "] {
+            assert!(!bound(sep, true), "{sep:?} with capitals");
+        }
+        for sep in ["X", "aB", "Q-"] {
+            assert!(bound(sep, true), "{sep:?} with capitals");
+        }
+    }
+
+    /// Why `-` counts as an unambiguous separator: no hyphenated word
+    /// starts with another word followed by `-`, so splitting a passphrase
+    /// at `-` and regrouping the pieces into words has only one solution
+    /// (a prefix code over the pieces).
+    #[test]
+    fn hyphenated_words_do_not_start_with_a_word() {
+        let list = wordlist().unwrap();
+        let words: HashSet<&str> = list.iter().copied().collect();
+        let hyphenated: Vec<&str> = list.iter().copied().filter(|w| w.contains('-')).collect();
+        assert_eq!(hyphenated, ["drop-down", "felt-tip", "t-shirt", "yo-yo"]);
+        for w in hyphenated {
+            for (i, _) in w.match_indices('-') {
+                assert!(!words.contains(&w[..i]), "{w}: {} is a word", &w[..i]);
+            }
+        }
+    }
+
     #[test]
     fn validation() {
         for words in [0, 2, 21, u32::MAX] {
@@ -312,7 +383,24 @@ mod tests {
                 Error::InvalidWordCount { min: 3, max: 20 }
             );
         }
-        for separator in ["123456789", "\n", "a\u{7f}"] {
+        // Too long, control characters, and anything outside printable
+        // ASCII: invisible (U+200B), bidi override (U+202E, which makes the
+        // passphrase display reversed), combining marks, other letters.
+        for separator in [
+            "123456789",
+            "\n",
+            "\t",
+            "a\u{7f}",
+            "\u{200b}",
+            "\u{202e}",
+            "\u{2066}",
+            "\u{feff}",
+            "e\u{301}",
+            "\u{301}",
+            "\u{a0}",
+            "·",
+            "ä",
+        ] {
             let o = PassphraseOptions {
                 separator: separator.to_owned(),
                 ..PassphraseOptions::default()
@@ -322,12 +410,19 @@ mod tests {
                 Error::InvalidSeparator { max: 8 },
                 "{separator:?}"
             );
+            assert_eq!(
+                generate_passphrase_with(&o, &mut SplitMix64::new(1)).unwrap_err(),
+                Error::InvalidSeparator { max: 8 },
+                "{separator:?}"
+            );
         }
-        let o = PassphraseOptions {
-            separator: "äöüßäöüß".to_owned(),
-            ..PassphraseOptions::default()
-        };
-        assert!(o.entropy().is_ok(), "8 characters, more than 8 bytes");
+        for separator in ["", " ", "~", "12345678", " !\"#$%&'", "()*+,./:"] {
+            let o = PassphraseOptions {
+                separator: separator.to_owned(),
+                ..PassphraseOptions::default()
+            };
+            assert!(o.entropy().is_ok(), "{separator:?}");
+        }
         assert_eq!(
             generate_passphrase_with(&PassphraseOptions::default(), &mut Failing).unwrap_err(),
             Error::Randomness

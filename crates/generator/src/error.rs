@@ -48,8 +48,9 @@ pub enum Error {
         /// Most allowed words.
         max: u32,
     },
-    /// The passphrase separator is too long or contains a control character.
-    #[error("the separator must be at most {max} characters and contain no control characters")]
+    /// The passphrase separator is too long or contains anything other than
+    /// printable ASCII.
+    #[error("the separator must be at most {max} printable ASCII characters")]
     InvalidSeparator {
         /// Longest allowed separator, in characters.
         max: u32,
@@ -58,8 +59,12 @@ pub enum Error {
     /// `minlength` above `maxlength`).
     #[error("the site's password rules contradict each other; generate a password without them")]
     RulesUnsatisfiable,
-    /// No candidate met the constraints within the retry budget.
-    #[error("no password meeting the requirements was found; relax the settings and try again")]
+    /// No candidate met the constraints within the retry budget. In
+    /// practice only site rules get here (their combined acceptance is
+    /// estimated, not exact); the remedy there is to generate without them.
+    #[error(
+        "no password meeting the requirements was found; try again, or generate a password without the site's rules"
+    )]
     RetryLimit,
     /// The embedded word list did not load. Indicates a corrupted build.
     #[error("the built-in word list is damaged; reinstall the application")]

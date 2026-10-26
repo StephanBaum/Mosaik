@@ -60,7 +60,7 @@ pub use password::{
     AMBIGUOUS_CHARACTERS, DEFAULT_LENGTH, DEFAULT_SYMBOLS, MAX_LENGTH, MIN_LENGTH, PasswordOptions,
     generate_password,
 };
-pub use rules::{CharacterClass, PasswordRules};
+pub use rules::{CharacterClass, MAX_REQUIRED_CLASSES, MAX_RULES_LEN, PasswordRules};
 pub use secret::GeneratedPassword;
 pub use sites::{SiteRules, rules_for_domain};
 

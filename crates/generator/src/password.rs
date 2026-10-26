@@ -177,7 +177,7 @@ impl PasswordOptions {
 ///   would meet the minimums.
 /// - [`Error::Randomness`] if the OS CSPRNG fails.
 pub fn generate_password(options: &PasswordOptions) -> Result<GeneratedPassword> {
-    generate_password_with(options, &mut OsRandom)
+    generate_password_with(options, &mut OsRandom::new())
 }
 
 pub(crate) fn generate_password_with<R: RandomSource + ?Sized>(

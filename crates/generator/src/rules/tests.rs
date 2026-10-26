@@ -573,17 +573,17 @@ fn unsatisfiable_and_strict_rules() {
         // One character, no repeats, two positions.
         (
             "allowed: [a]; max-consecutive: 1; minlength: 2",
-            Error::ConstraintsTooStrict,
+            Error::RulesUnsatisfiable,
         ),
         // Two characters, each at most twice, five positions.
         (
             "allowed: [ab]; max-repeating: 2; minlength: 5; maxlength: 5",
-            Error::ConstraintsTooStrict,
+            Error::RulesUnsatisfiable,
         ),
         // Four disjoint single characters do not fit in three positions.
         (
             "required: [a]; required: [b]; required: [c]; required: [d]; maxlength: 3",
-            Error::ConstraintsTooStrict,
+            Error::RulesUnsatisfiable,
         ),
         // Eight specific characters in at most 30 positions are too unlikely.
         (
@@ -593,11 +593,30 @@ fn unsatisfiable_and_strict_rules() {
         // No string over {a, b} of length 3 avoids both runs and sequences.
         (
             "allowed: [ab]; max-sequential: 1; max-consecutive: 1; minlength: 3; maxlength: 3",
-            Error::RetryLimit,
+            Error::RulesUnsatisfiable,
+        ),
+        // Only "aaa…" and "bbb…" avoid sequences: possible, but 2 in 2^128.
+        (
+            "allowed: [ab]; max-sequential: 1; minlength: 128",
+            Error::ConstraintsTooStrict,
+        ),
+        // Ten digits, each at most 13 times, in 128 positions: 130 fit,
+        // but almost no random string spreads that evenly.
+        (
+            "allowed: digit; max-repeating: 13; minlength: 128",
+            Error::ConstraintsTooStrict,
         ),
     ] {
         let r = PasswordRules::parse(rule);
         assert_eq!(r.generate_with(20, &mut rng).unwrap_err(), err, "{rule}");
+        // Refused up front: no randomness is drawn (a failing source would
+        // turn any draw into `Randomness`).
+        assert_eq!(
+            r.generate_with(20, &mut crate::rng::testing::Failing)
+                .unwrap_err(),
+            err,
+            "{rule}"
+        );
     }
     // Too many distinct requirements for the estimate.
     let many = ('a'..='m')
@@ -607,6 +626,233 @@ fn unsatisfiable_and_strict_rules() {
     let r = PasswordRules::parse(&many);
     assert_eq!(r.required().len(), 13);
     assert_eq!(r.entropy(128).unwrap_err(), Error::ConstraintsTooStrict);
+}
+
+/// A shorter length is used when the preferred one cannot work: ten
+/// characters, each at most once, fit in at most ten positions, and the
+/// estimate picks a length where enough random strings qualify.
+#[test]
+fn length_shrinks_when_longer_cannot_work() {
+    let r = PasswordRules::parse("allowed: [abcdefghij]; max-repeating: 1");
+    let policy = r.policy(20).unwrap();
+    assert!(
+        (MIN_LENGTH..=10).contains(&policy.length()),
+        "{}",
+        policy.length()
+    );
+    let mut rng = SplitMix64::new(8);
+    for _ in 0..20 {
+        let p = r.generate_with(20, &mut rng).unwrap();
+        assert!(r.is_satisfied_by(p.expose_secret()));
+        assert_eq!(p.expose_secret().len(), policy.length() as usize);
+    }
+    // `max-consecutive: 1` over two letters: only "abab…" and "baba…",
+    // which are likely enough only for short strings.
+    let r = PasswordRules::parse("allowed: [ab]; max-consecutive: 1");
+    let p = r.generate_with(64, &mut rng).unwrap();
+    assert!(r.is_satisfied_by(p.expose_secret()));
+    assert!(p.expose_secret().len() <= 11);
+}
+
+/// The preferred length is floored at `MIN_LENGTH`, as in random-character
+/// mode, unless the site's own limits are shorter.
+#[test]
+fn preferred_length_has_a_floor() {
+    let mut rng = SplitMix64::new(9);
+    let r = PasswordRules::parse("allowed: lower");
+    for preferred in [0, 1, 3] {
+        let p = r.generate_with(preferred, &mut rng).unwrap();
+        assert_eq!(p.expose_secret().len(), MIN_LENGTH as usize);
+    }
+    assert_eq!(
+        r.generate_with(5, &mut rng).unwrap().expose_secret().len(),
+        5
+    );
+    // The site's maxlength wins over the floor.
+    let short = PasswordRules::parse("allowed: lower; maxlength: 2");
+    assert_eq!(
+        short
+            .generate_with(0, &mut rng)
+            .unwrap()
+            .expose_secret()
+            .len(),
+        2
+    );
+    assert_eq!(
+        short
+            .generate_with(20, &mut rng)
+            .unwrap()
+            .expose_secret()
+            .len(),
+        2
+    );
+    // Below the floor only when nothing at or above it can work: one
+    // character, never twice in a row, so only "a" itself.
+    let single = PasswordRules::parse("allowed: [a]; max-consecutive: 1");
+    assert_eq!(
+        single.generate_with(20, &mut rng).unwrap().expose_secret(),
+        "a"
+    );
+}
+
+/// A deliberately correlated rule set: `b` may only sit next to `b` (its
+/// neighbours `a` and `c` are sequential steps), and one `b` is required,
+/// so the only qualifying 14-character string is `bbb…`, 1 in 3^14. The
+/// independent estimates (0.996 × 0.0034) overestimate it, so the policy
+/// is accepted and the retry budget runs out.
+#[test]
+fn correlated_rules_end_in_retry_limit() {
+    let r = PasswordRules::parse("allowed: [abc]; required: [b]; max-sequential: 1; minlength: 14");
+    assert_eq!(r.policy(14).unwrap().length(), 14);
+    assert_eq!(
+        r.generate_with(14, &mut SplitMix64::new(10)).unwrap_err(),
+        Error::RetryLimit
+    );
+}
+
+/// Hostile input: the bounds keep parsing linear and the rule set small.
+#[test]
+fn oversized_rules_are_malformed() {
+    // 20,000 distinct required sets (340 KB), the case from the review.
+    let mut huge = String::new();
+    for i in 0..20_000u32 {
+        let a = char::from(b'a' + u8::try_from(i % 26).unwrap());
+        let b = char::from(b'A' + u8::try_from((i / 26) % 26).unwrap());
+        let c = char::from(b'0' + u8::try_from((i / 676) % 10).unwrap());
+        huge.extend([
+            "required: [",
+            &a.to_string(),
+            &b.to_string(),
+            &c.to_string(),
+            "]; ",
+        ]);
+    }
+    let start = std::time::Instant::now();
+    let r = PasswordRules::parse(&huge);
+    assert_eq!(r, PasswordRules::default());
+    assert!(r.entropy(20).is_ok());
+    assert!(r.is_satisfied_by("x"));
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        start.elapsed()
+    );
+
+    // Exactly at the length bound is still parsed; one more is not.
+    let pad = |n: usize| format!("minlength: 9;{}", " ".repeat(n - 13));
+    assert_eq!(
+        PasswordRules::parse(&pad(MAX_RULES_LEN)).min_length(),
+        Some(9)
+    );
+    assert_eq!(
+        PasswordRules::parse(&pad(MAX_RULES_LEN + 1)),
+        PasswordRules::default()
+    );
+    // The bound counts characters, not bytes.
+    let wide = format!(
+        "minlength: 9; allowed: [{}]",
+        "ä".repeat(MAX_RULES_LEN - 30)
+    );
+    assert_eq!(PasswordRules::parse(&wide).min_length(), Some(9));
+
+    // Distinct required sets: MAX_REQUIRED_CLASSES are kept, one more makes
+    // the rule set malformed. Repeats do not count.
+    let sets = |n: usize| {
+        (0..n)
+            .map(|i| {
+                format!(
+                    "required: [{}]",
+                    char::from(b'!' + u8::try_from(i).unwrap())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let at_limit = PasswordRules::parse(&sets(MAX_REQUIRED_CLASSES));
+    assert_eq!(at_limit.required().len(), MAX_REQUIRED_CLASSES);
+    assert_eq!(
+        PasswordRules::parse(&sets(MAX_REQUIRED_CLASSES + 1)),
+        PasswordRules::default()
+    );
+    let repeated = vec!["required: [a]"; 200].join("; ");
+    assert_eq!(PasswordRules::parse(&repeated).required().len(), 1);
+    assert_eq!(
+        PasswordRules::parse(&repeated).to_string(),
+        "required: [a]; allowed: [a]"
+    );
+}
+
+/// The largest canonical display of an accepted rule set is itself within
+/// the bounds, so the display/parse round trip holds for every input.
+#[test]
+fn largest_display_round_trips() {
+    let upper: Vec<char> = ('A'..='Z').collect();
+    let lower: Vec<char> = ('a'..='z').collect();
+    let digits: Vec<char> = ('0'..='9').collect();
+    let special: Vec<char> = (' '..='~').filter(|c| !c.is_ascii_alphanumeric()).collect();
+    // Each set lacks one character of every named class, so none collapses
+    // into a named class and each displays as a 91-character custom class.
+    let mut props = Vec::new();
+    for i in 0..MAX_REQUIRED_CLASSES {
+        let skip = [
+            upper[i % 26],
+            lower[i % 26],
+            digits[i % 10],
+            special[i % 33],
+        ];
+        let kept: Vec<char> = (' '..='~').filter(|c| !skip.contains(c)).collect();
+        // `-` first and `]` last keep them literal in the custom class.
+        let mut class = String::new();
+        if kept.contains(&'-') {
+            class.push('-');
+        }
+        class.extend(kept.iter().filter(|&&c| c != '-' && c != ']'));
+        if kept.contains(&']') {
+            class.push(']');
+        }
+        assert_eq!(class.len(), 91);
+        props.push(format!("required: [{class}]"));
+    }
+    for limit in [
+        "max-consecutive",
+        "max-repeating",
+        "max-sequential",
+        "minlength",
+        "maxlength",
+    ] {
+        props.push(format!("{limit}: 4294967295"));
+    }
+    let rules = PasswordRules::parse(&props.join(";"));
+    assert_eq!(rules.required().len(), MAX_REQUIRED_CLASSES);
+    let shown = rules.to_string();
+    assert!(shown.len() < MAX_RULES_LEN, "{}", shown.len());
+    assert!(
+        rules
+            .required()
+            .iter()
+            .all(|r| format!("required: {r}").len() <= 103)
+    );
+    assert_eq!(PasswordRules::parse(&shown), rules);
+}
+
+/// `is_satisfied_by` keeps no copy of the password: it streams, and the
+/// non-ASCII `max-repeating` path counts through a wiping buffer. Long
+/// non-ASCII passwords are checked in linear-ish time.
+#[test]
+fn is_satisfied_by_streams() {
+    let r = PasswordRules::parse("allowed: unicode; required: unicode; max-repeating: 2");
+    assert!(r.is_satisfied_by("ääöö"));
+    assert!(!r.is_satisfied_by("äöäöä"));
+    let long: String = (0x4E00u32..0x4E00 + 50_000)
+        .filter_map(char::from_u32)
+        .collect();
+    let start = std::time::Instant::now();
+    assert!(r.is_satisfied_by(&long));
+    assert!(start.elapsed() < std::time::Duration::from_secs(2));
+    let required = PasswordRules::parse("required: upper; required: [!]; allowed: lower");
+    assert!(required.is_satisfied_by("aB!"));
+    assert!(!required.is_satisfied_by("aB"));
+    assert!(!required.is_satisfied_by("ä"));
 }
 
 #[test]

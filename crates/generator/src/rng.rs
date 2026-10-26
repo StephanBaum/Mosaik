@@ -13,6 +13,8 @@
 
 use core::num::NonZeroU32;
 
+use zeroize::{Zeroize, Zeroizing};
+
 use crate::error::{Error, Result};
 
 /// A source of uniformly distributed 32-bit values.
@@ -24,13 +26,46 @@ pub(crate) trait RandomSource {
     fn next_u32(&mut self) -> Result<u32>;
 }
 
-/// The operating system's CSPRNG. Stateless: every draw goes to `getrandom`,
-/// so no random state is buffered in this process.
-pub(crate) struct OsRandom;
+/// Bytes fetched from the OS per `getrandom` call (64 draws).
+const OS_BUFFER_BYTES: usize = 256;
+
+/// The operating system's CSPRNG, read in blocks of [`OS_BUFFER_BYTES`]
+/// with `getrandom::fill`: one system call per 64 draws instead of one per
+/// draw, which matters when a site rule makes generation retry (up to
+/// `MAX_ATTEMPTS × 128` draws). The bytes are used as they come from the
+/// OS, never expanded or mixed in userspace. The buffer is zeroized on drop,
+/// and each value is wiped from it as it is handed out; an `OsRandom` lives
+/// for one generator call.
+pub(crate) struct OsRandom {
+    buf: Zeroizing<[u8; OS_BUFFER_BYTES]>,
+    /// Bytes of `buf` already handed out (or not yet filled).
+    used: usize,
+}
+
+impl OsRandom {
+    pub(crate) fn new() -> Self {
+        Self {
+            buf: Zeroizing::new([0u8; OS_BUFFER_BYTES]),
+            used: OS_BUFFER_BYTES,
+        }
+    }
+}
 
 impl RandomSource for OsRandom {
     fn next_u32(&mut self) -> Result<u32> {
-        getrandom::u32().map_err(|_| Error::Randomness)
+        if self.used + 4 > OS_BUFFER_BYTES {
+            getrandom::fill(self.buf.as_mut_slice()).map_err(|_| Error::Randomness)?;
+            self.used = 0;
+        }
+        let word = self
+            .buf
+            .get_mut(self.used..self.used + 4)
+            .ok_or(Error::Randomness)?;
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(word);
+        word.zeroize();
+        self.used += 4;
+        Ok(u32::from_le_bytes(bytes))
     }
 }
 
@@ -293,10 +328,32 @@ mod tests {
 
     #[test]
     fn os_random_produces_varied_values() {
-        let mut rng = OsRandom;
+        let mut rng = OsRandom::new();
         let draws: Vec<u32> = (0..8).map(|_| rng.next_u32().unwrap()).collect();
         assert!(draws.iter().any(|&v| v != draws[0]));
         assert!(uniform_below(&mut rng, nz(94)).unwrap() < 94);
+    }
+
+    /// The buffer refills across block boundaries, never repeats a block,
+    /// and wipes each value it hands out.
+    #[test]
+    fn os_random_buffers_and_wipes() {
+        let mut rng = OsRandom::new();
+        let per_block = OS_BUFFER_BYTES / 4;
+        let draws: Vec<u32> = (0..=per_block * 3)
+            .map(|_| rng.next_u32().unwrap())
+            .collect();
+        let unique: std::collections::HashSet<u32> = draws.iter().copied().collect();
+        // 193 uniform 32-bit values collide with probability about 4e-6.
+        assert!(unique.len() >= draws.len() - 1);
+        assert_eq!(rng.used, 4);
+        assert!(
+            rng.buf[..4].iter().all(|&b| b == 0),
+            "handed-out bytes are wiped"
+        );
+        let ones: u32 = draws.iter().map(|v| v.count_ones()).sum();
+        let bits = 32 * u32::try_from(draws.len()).unwrap();
+        assert!((f64::from(ones) / f64::from(bits) - 0.5).abs() < 0.05);
     }
 
     /// The statistical proof of uniformity: chi-squared over many samples
