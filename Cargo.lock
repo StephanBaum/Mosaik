@@ -266,6 +266,16 @@ version = "0.0.0"
 [[package]]
 name = "mosaic-totp"
 version = "0.0.0"
+dependencies = [
+ "hex-literal",
+ "hmac",
+ "proptest",
+ "sha1",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "zeroize",
+]
 
 [[package]]
 name = "num-traits"
@@ -375,6 +385,17 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
 
 [[package]]
 name = "sha2"

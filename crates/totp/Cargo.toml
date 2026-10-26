@@ -11,3 +11,13 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+hex-literal.workspace = true

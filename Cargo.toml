@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The fuzz crate has its own workspace (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz"]
+# The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
+exclude = ["crates/core/fuzz", "crates/totp/fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -23,6 +23,11 @@ subtle = { version = "=2.6.1", default-features = false }
 getrandom = { version = "=0.4.3", default-features = false }
 unicode-normalization = { version = "=0.1.26", default-features = false }
 thiserror = { version = "=2.0.21", default-features = false }
+# M2 totp
+# HMAC for HOTP/TOTP (CRYPTO_SPEC §2 "OTP"); already in the tree through hkdf.
+hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
+# SHA-1 for HMAC-SHA-1, the RFC 4226 default (CRYPTO_SPEC §2 "OTP").
+sha1 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
 # Dev
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 hex-literal = "=1.1.0"
