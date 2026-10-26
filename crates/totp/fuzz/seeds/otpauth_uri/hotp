@@ -1,0 +1,1 @@
+otpauth://hotp/A%26B%20Co:m%20e?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=A%26B%20Co&algorithm=SHA256&digits=8&counter=42
