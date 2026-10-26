@@ -79,6 +79,31 @@ pub enum Error {
     /// An input exceeds a size limit (object plaintext, attachment, field).
     #[error("size limit exceeded")]
     SizeLimit,
+
+    /// An item record failed authentication or its padding was invalid
+    /// (CRYPTO_SPEC §7.2). This is the item layer's name for
+    /// [`Error::Decryption`] (ADR-0007 item 5); the ID is not secret.
+    #[error("item corrupted")]
+    ItemCorrupted {
+        /// The record whose ciphertext did not open.
+        item_id: crate::ids::ItemId,
+    },
+
+    /// A Lamport counter or version-vector entry would overflow `u64`.
+    #[error("sync clock overflow")]
+    ClockOverflow,
+
+    /// The item is deleted (a tombstone). Edits need an explicit
+    /// `Item::undelete` first.
+    #[error("item is deleted")]
+    ItemDeleted,
+
+    /// A received record carries edits under this device's ID that this
+    /// replica never made: another process or install uses the same
+    /// `DeviceId`, or local state was restored from a backup. Rotate the
+    /// device ID before merging or editing again (CRYPTO_SPEC §10).
+    #[error("device ID reused")]
+    DeviceIdReused,
 }
 
 /// Result alias with [`Error`].

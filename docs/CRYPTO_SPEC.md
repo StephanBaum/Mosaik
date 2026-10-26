@@ -466,6 +466,19 @@ therefore cannot lock the user out.
   per-device monotonic counter. Other devices warn when the checkpoints they receive are
   older than their own state for longer than 24 h.
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
+- **Merging** (ADR-0009): a client merges every received record into its
+  own latest state of that record with the repairing merge
+  (`Item::merge_and_repair` in `crates/core`) and persists only its result,
+  never the plain join. A delete that races a concurrent write loses; every
+  replica that had not seen the deletion writes back the fields it held,
+  and the item stays flagged until the user dismisses or deletes again.
+- **Device IDs** are unique per install and per writing process. The
+  desktop app and the browser extension never share one. A restored backup
+  or copied profile takes a new ID. A received record that holds a counter
+  for the client's own ID above the client's stored state for that record
+  means the ID is reused: the client rotates its ID before it edits or
+  merges again (`Error::DeviceIdReused`). Equal stamps with different
+  contents are kept as a conflict and reported to the user.
 - Message parsing on both ends is strict and length-bounded, and is covered by
   fuzz targets.
 

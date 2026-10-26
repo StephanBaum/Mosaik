@@ -57,3 +57,17 @@ path = "fuzz_targets/unpad.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "item_plaintext"
+path = "fuzz_targets/item_plaintext.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "item_merge"
+path = "fuzz_targets/item_merge.rs"
+test = false
+doc = false
+bench = false
