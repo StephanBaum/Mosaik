@@ -1,0 +1,33 @@
+[package]
+name = "mosaic-vault-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-vault store decoders (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+[workspace]
+members = ["."]
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+mosaic-vault = { path = ".." }
+
+[[bin]]
+name = "attachment_validate"
+path = "fuzz_targets/attachment_validate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record_body"
+path = "fuzz_targets/record_body.rs"
+test = false
+doc = false
+bench = false
