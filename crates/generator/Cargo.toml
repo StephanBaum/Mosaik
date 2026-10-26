@@ -6,8 +6,18 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 repository.workspace = true
+# Embedded data: the EFF large wordlist (CC BY 3.0 US) and Apple's
+# password-rules.json (MIT). See data/README.md.
+include = ["src/**", "data/**", "Cargo.toml"]
 
 [lints]
 workspace = true
 
 [dependencies]
+getrandom.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

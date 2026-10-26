@@ -326,6 +326,13 @@ dependencies = [
 [[package]]
 name = "mosaic-generator"
 version = "0.0.0"
+dependencies = [
+ "getrandom",
+ "proptest",
+ "serde_json",
+ "thiserror",
+ "zeroize",
+]
 
 [[package]]
 name = "mosaic-import"

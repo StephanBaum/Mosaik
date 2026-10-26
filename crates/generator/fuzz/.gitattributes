@@ -1,0 +1,2 @@
+# Fuzz seeds are raw inputs: never convert line endings.
+seeds/** binary
