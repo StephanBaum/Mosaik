@@ -20,6 +20,8 @@
 //!   metadata, tombstones and attachments, each bound to its context IDs.
 //! - **Flows** ([`create_account`], [`unlock_with_password`],
 //!   [`change_master_password`]).
+//! - **Model** ([`model`]): item types, their plaintext serialization and
+//!   the sync merge (version vectors, Lamport stamps, conflict copies).
 //!
 //! Every seal draws a fresh random nonce; the API never takes one. Every
 //! open takes the context (IDs, generation) from the caller, and every
@@ -50,6 +52,7 @@ mod error;
 mod ids;
 pub mod kdf;
 mod keys;
+pub mod model;
 mod rng;
 mod secret;
 mod secret_key;
@@ -67,6 +70,9 @@ pub use kdf::{AccountSalt, Argon2Profile, DerivedKeys};
 pub use keys::{
     NewAccount, PasswordChange, PasswordParams, change_master_password, create_account,
     derive_password_keys, unlock_with_password,
+};
+pub use model::{
+    Causality, Item, ItemEdit, ItemType, Stamp, Timestamp, Tombstone, VaultMeta, VersionVector,
 };
 pub use secret::{
     AccountKey, AttachmentKey, Kek, MasterPassword, OpaquePassword, SecretBytes, SecretKey,

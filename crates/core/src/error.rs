@@ -79,6 +79,19 @@ pub enum Error {
     /// An input exceeds a size limit (object plaintext, attachment, field).
     #[error("size limit exceeded")]
     SizeLimit,
+
+    /// An item record failed authentication or its padding was invalid
+    /// (CRYPTO_SPEC §7.2). This is the item layer's name for
+    /// [`Error::Decryption`] (ADR-0007 item 5); the ID is not secret.
+    #[error("item corrupted")]
+    ItemCorrupted {
+        /// The record whose ciphertext did not open.
+        item_id: crate::ids::ItemId,
+    },
+
+    /// A Lamport counter or version-vector entry would overflow `u64`.
+    #[error("sync clock overflow")]
+    ClockOverflow,
 }
 
 /// Result alias with [`Error`].
