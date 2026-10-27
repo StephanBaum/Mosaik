@@ -17,6 +17,7 @@ ciphertext.
 - [Threat model](docs/THREAT_MODEL.md)
 - [Cryptography specification](docs/CRYPTO_SPEC.md)
 - [UX guidelines](docs/UX_GUIDELINES.md)
+- [Desktop IPC contract](docs/DESKTOP_IPC.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Build brief](docs/BRIEF.md)
 
@@ -38,3 +39,12 @@ cargo test --workspace && pnpm check
 ```
 
 The full quality gate is listed in [`CLAUDE.md`](CLAUDE.md).
+
+Desktop app (`apps/desktop`, Tauri v2; on Linux it needs the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)):
+
+```sh
+pnpm --filter @mosaic/desktop dev:mock   # UI in the browser with the mock IPC
+pnpm --filter @mosaic/desktop tauri dev  # the real app
+pnpm test:e2e                            # Playwright + axe (after `playwright install chromium`)
+```

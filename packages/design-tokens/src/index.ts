@@ -7,6 +7,9 @@ export const space = [0, 2, 4, 8, 12, 16, 24, 32, 48, 64] as const;
 
 export const radius = { control: 6, card: 12, dialog: 14, pill: 9999 } as const;
 
+/** Stroke widths (px): hairline borders and the focus ring (UX_GUIDELINES §7: ≥ 2 px). */
+export const borderWidth = { hairline: 1, focus: 2 } as const;
+
 export const fontSize = {
   xs: { size: 12, lineHeight: 16 },
   sm: { size: 14, lineHeight: 20 },

@@ -1404,3 +1404,182 @@ sharing yet) does not re-seal attachments and is documented so.
 A revocation uploads every attachment of the vault again. M6/M7 implement
 the pass with the sharing and revoke flows; THREAT_MODEL lists the gap
 until then.
+
+## ADR-0018: Desktop IPC types are hand-written on both sides and checked by generated fixtures
+
+- Status: accepted
+- Date: 2026-10-27
+- Milestone: M3
+
+### Context
+The desktop webview (TypeScript) and its Rust core share about 35 commands,
+their requests and responses, events and one error enum
+(`docs/DESKTOP_IPC.md`). Five tracks build on that contract in parallel, so
+the two sides must not drift, and a mismatch has to fail CI rather than show up
+at runtime. The usual tools generate TypeScript from Rust:
+`tauri-specta`/`specta` (2.0 still a release candidate, rc.26 at this date) or
+`ts-rs`.
+
+### Decision
+1. **Hand-written types on both sides.** Rust in
+   `apps/desktop/src-tauri/src/contract/`, TypeScript in
+   `apps/desktop/src/ipc/contract/`, one module per area, with the same names.
+   Wire rules: camelCase JSON; tags in `kind`, `state`, `op` or `type`; every
+   key always present (`null` for "no value", no optional properties in
+   TypeScript); requests reject unknown keys; string enums are defined with
+   `wire_enum!` in Rust and as `as const` arrays in TypeScript.
+2. **Generated fixtures as the check.** A Rust test builds samples of every
+   request (per command, each one round-tripped through the Rust
+   deserializer), every response, every event variant, every error code and the
+   value list of every string enum. It writes them to
+   `apps/desktop/src/ipc/contract.fixtures.ts` as
+   `export const fixtures = {...} satisfies ContractFixtures`. The test fails
+   when the file is stale (`MOSAIC_UPDATE_FIXTURES=1` regenerates it).
+   - `tsc` then checks every sample against the TypeScript types, including
+     excess properties, missing keys and unknown tags. `ContractFixtures`
+     maps every command name to its request and response types, so a command
+     that exists on one side only also fails.
+   - A Vitest test compares the command list and every string enum as sets,
+     which catches TypeScript values that Rust never emits.
+   - Exhaustive `match`es in the sample builders stop a new Rust variant from
+     compiling until it has a sample.
+3. **One command list.** `src-tauri/src/commands/names.rs` is included by
+   `build.rs` (the ACL manifest) and read by the fixture and capability tests.
+   A mock-runtime test invokes every command through the real config and ACL
+   to prove that it is registered and allowed.
+
+### Alternatives considered
+- **tauri-specta / specta:** generates bindings from the command signatures.
+  Rejected for now. It is a release candidate, so pinning a pre-release that
+  sits in every command's type would need an ADR. Its proc-macros add a
+  dependency on every contract type. The generated code would need review on
+  each regeneration. Revisit when 2.0 is stable. The hand-written types map
+  one to one.
+- **ts-rs:** generates TypeScript per type but not the command map, so it
+  still needs a parity check for commands, and it adds a derive to every type.
+- **Runtime validation (zod) in the webview:** it catches drift only at
+  runtime and adds a dependency. The fixtures catch it at build time.
+
+### Consequences
+A contract change touches both sides and regenerates the fixtures. The
+procedure is in `DESKTOP_IPC.md` §8. The checks cover shapes and value sets,
+not semantics: a field Rust fills wrongly still type-checks. The fixtures also
+document the contract by example.
+
+## ADR-0019: Desktop shell security baseline and the M3 dependencies
+
+- Status: accepted
+- Date: 2026-10-27
+- Milestone: M3
+
+### Context
+M3 starts the Tauri v2 desktop app (brief §2). The webview renders vault
+content and is the largest attack surface on the desktop (THREAT_MODEL §4.2).
+The skeleton fixes the baseline that every M3 track builds on, and the
+dependencies it needs.
+
+### Decision
+1. **Tauri 2.12 without default features** (`tauri =2.12.5` with `wry`,
+   `compression` and `x11`; `tauri-build =2.7.4`). Left out:
+   - `dynamic-acl`, so capabilities are fixed at build time
+   - `dbus` (tao's XDG portal)
+   - `devtools`, so release builds have no web inspector
+   - `common-controls-v6`: native menus and dialogs, which Mosaic does not use.
+     Without it, `cargo test` runs on Windows, where test binaries carry no app
+     manifest.
+
+   No shell, fs, http, dialog, clipboard or updater plugin is installed. The
+   one plugin is `tauri-plugin-single-instance =2.5.4`, registered first: a
+   second launch focuses the running window, so one install never opens two
+   store sessions (CORE_API; the store lock also refuses them).
+2. **ACL: only Mosaic's commands.** `build.rs` declares every command in an
+   app manifest. That makes Tauri check each invoke against
+   `capabilities/main.json`, which grants exactly the `allow-<command>`
+   permissions for the window `main`: no `core:*` permission and no remote
+   origin. Events from Rust use a `Channel` passed to `subscribe_events`
+   instead of `core:event`. Tests check the capability against the command
+   list and invoke every command through the real ACL.
+3. **CSP.** Production:
+   `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src ipc: http://ipc.localhost; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`.
+   Tauri adds hashes for its own init scripts. The rules that keep this
+   working:
+   - No `unsafe-eval` and no remote origin.
+   - No `unsafe-inline` styles. The design tokens become a static stylesheet
+     (a Vite virtual module), and React sets `style` through the CSSOM.
+   - Vite never inlines assets as `data:` URIs.
+
+   `devCsp` relaxes only what Vite's dev server needs (inline styles and
+   scripts, its WebSocket) and applies only to `tauri dev`. Also set:
+   `freezePrototype: true` and `withGlobalTauri: false`. Playwright runs the
+   mock build under the production CSP and fails on any violation. A Rust test
+   pins the CSP's key directives.
+4. **Isolation pattern: deferred to M9.** THREAT_MODEL §4.2 lists it for
+   "webview reaches the Tauri API surface". Tauri's isolation feature
+   encrypts IPC between a sandboxed iframe and the core with AES-GCM, a
+   crypto dependency outside CRYPTO_SPEC §2. Its hook could only re-check what
+   Rust already validates: the command set is closed, inputs are typed and
+   checked in Rust, and no remote or third-party content is loaded. M9
+   revisits it together with the frontend dependency review. THREAT_MODEL
+   §4.2 is updated accordingly.
+5. **Secrets at the boundary.** Secrets enter as `SecretIn` and leave only as
+   `SecretOut`, in four responses. Copying to the clipboard, import file
+   reading and SSH signing run in Rust (`DESKTOP_IPC.md` §6). THREAT_MODEL R19
+   records the residual exposure in the webview.
+6. **Fonts.** DM Sans and IBM Plex Mono come from the `@fontsource` packages
+   (OFL-1.1). Vite bundles them, and the build ships the OFL texts as
+   `licenses/*-OFL.txt`. Nothing loads from a CDN, and a Playwright test fails
+   on any request leaving the app's origin.
+7. **ICU formatting:** `intl-messageformat =12.1.4` (FormatJS, BSD-3-Clause)
+   in `packages/i18n`. This settles the "formatter is chosen in M3" note there.
+8. **Mock IPC.** It is selected by build mode. Non-mock builds replace it with
+   a stub at build time, so no mock code or sample data ships.
+9. **License and advisory exceptions (cargo-deny, cargo-audit),** each scoped
+   to named crates or IDs:
+   - MPL-2.0 for `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors`
+     (Tauri's build-time HTML handling) and `option-ext` (the `dirs` stack).
+     MPL-2.0 is file-level copyleft: it binds changes to those files only, and
+     Mosaic uses them unmodified.
+   - RUSTSEC-2024-0370 (`proc-macro-error`, unmaintained, a build-time
+     proc-macro of gtk-rs 0.18).
+   - RUSTSEC-2024-0429 (`glib::VariantStrIter` unsoundness). Nothing in the
+     tree calls it; checked in tao, wry, muda, tauri, gtk and webkit2gtk.
+   - RUSTSEC-2026-0370, -0371 and -0372 (`zvariant`, `zbus_names` and
+     `zvariant_derive` folded into zbus 6). zbus 5 comes through the
+     single-instance plugin on Linux.
+
+   All are Linux-only or build-time, and none is an exploitable
+   vulnerability. Revisit when Tauri moves to gtk4 and zbus 6.
+   `.cargo/audit.toml` mirrors the advisory list.
+10. **JavaScript dependencies,** all exact pins:
+    - App: `react`/`react-dom 19.3.1`, `@tauri-apps/api 2.12.4`, the two
+      `@fontsource` packages `5.3.0`.
+    - Dev: `vite 8.3.5` (already in the tree through Vitest),
+      `@vitejs/plugin-react 6.1.2`, `@tauri-apps/cli 2.12.4`, `jsdom 29.1.1`
+      (30.x needs Node 22.22), `@testing-library/react 16.3.3`, `/dom 10.4.2`
+      and `/user-event 14.6.8`, `@playwright/test 1.64.1`,
+      `@axe-core/playwright 4.14.0`, `@types/react`/`-dom 19.3.0`, and
+      `eslint-plugin-react-hooks 7.1.1` (rules of hooks).
+
+    None of them needs an install script, so `onlyBuiltDependencies` stays
+    empty. Playwright browsers are installed explicitly
+    (`playwright install chromium`).
+
+### Alternatives considered
+- **Tauri default features:** they bring in dynamic ACL and the D-Bus portal
+  for nothing Mosaic uses.
+- **The official clipboard and dialog plugins:** they expose JavaScript APIs
+  that would put secrets and file contents into the webview. Their Rust sides
+  (or `arboard` / `rfd`) can be used from Rust by the tracks without granting
+  the webview any permission.
+- **Allowing MPL-2.0 globally:** rejected. Exceptions per crate keep any new
+  MPL dependency visible.
+- **Dropping single-instance** to avoid zbus 5: the store lock already refuses
+  a second session, but the second launch would then show an error instead of
+  focusing the open window.
+
+### Consequences
+The webview can do nothing but call Mosaic's commands. Every new command
+needs its permission in the capability (a test enforces it). The
+Linux-only advisories stay until upstream moves. Tracks that need native
+dialogs or the clipboard add Rust-only crates with a justification, and an ADR
+if a crate is security-relevant (the OS keystore crate, an SSH crate).

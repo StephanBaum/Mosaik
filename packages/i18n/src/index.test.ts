@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { catalogs, icuArguments, locales, negotiateLocale, type MessageKey } from "./index.ts";
+import {
+  catalogs,
+  formatMessage,
+  icuArguments,
+  locales,
+  negotiateLocale,
+  type MessageKey,
+} from "./index.ts";
 
 const keys = Object.keys(catalogs.en) as MessageKey[];
 
@@ -50,4 +57,25 @@ describe("negotiateLocale", () => {
     expect(negotiateLocale(["ja"])).toBe("en");
     expect(negotiateLocale([])).toBe("en");
   });
+});
+
+describe("formatMessage", () => {
+  it("formats plurals and arguments in both locales", () => {
+    expect(formatMessage("en", "vault.itemCount", { count: 0 })).toBe("No items");
+    expect(formatMessage("en", "vault.itemCount", { count: 1 })).toBe("1 item");
+    expect(formatMessage("de", "vault.itemCount", { count: 2 })).toBe("2 Einträge");
+    expect(formatMessage("de", "onboarding.step", { current: 1, total: 5 })).toBe(
+      "Schritt 1 von 5",
+    );
+  });
+
+  it.each(locales.flatMap((locale) => keys.map((key) => [locale, key] as const)))(
+    "%s %s is valid ICU and formats with sample values",
+    (locale, key) => {
+      const values = Object.fromEntries(
+        [...icuArguments(catalogs.en[key])].map((name) => [name, 2]),
+      );
+      expect(formatMessage(locale, key, values).trim()).not.toBe("");
+    },
+  );
 });

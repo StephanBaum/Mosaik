@@ -9,7 +9,17 @@ all-features = true
 version = 2
 yanked = "deny"
 unmaintained = "all"
-ignore = []
+# Tauri's Linux backend (gtk-rs 0.18, webkit2gtk) and tauri-plugin-single-instance
+# (zbus 5 on Linux) carry these. None is an exploitable vulnerability for Mosaic; each
+# is reviewed in ADR-0019 and revisited when Tauri moves to gtk4 / zbus 6. Keep this
+# list in sync with .cargo/audit.toml.
+ignore = [
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained: build-time proc-macro of glib-macros (gtk-rs 0.18, Linux only); ADR-0019" },
+    { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsound: no crate in the tree calls it (checked tao, wry, muda, tauri, webkit2gtk); Linux only; ADR-0019" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
+]
 
 [licenses]
 version = 2
@@ -34,6 +44,14 @@ allow = [
 # linked into Mosaic. See ADR-0007 item 10.
 exceptions = [
     { crate = "libfuzzer-sys", allow = ["NCSA"] },
+    # MPL-2.0 (file-level copyleft; unmodified crates only, no obligation on Mosaic's
+    # own code): Tauri's HTML/CSS handling at build time (tauri-utils -> kuchikiki) and
+    # the `dirs` stack's option-ext. ADR-0019.
+    { crate = "cssparser", allow = ["MPL-2.0"] },
+    { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+    { crate = "dtoa-short", allow = ["MPL-2.0"] },
+    { crate = "selectors", allow = ["MPL-2.0"] },
+    { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]

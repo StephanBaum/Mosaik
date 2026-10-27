@@ -40,4 +40,103 @@ export const de: Readonly<Record<MessageKey, string>> = {
     "{count, plural, =0 {Keine Einträge} one {# Eintrag} other {# Einträge}}",
   "vault.deleteConfirm":
     "„{title}“ löschen? Du kannst den Eintrag 30 Tage lang aus dem Papierkorb wiederherstellen.",
+
+  "app.loading": "Mosaic wird geöffnet …",
+  "app.skipToContent": "Zum Inhalt springen",
+
+  "onboarding.step": "Schritt {current} von {total}",
+  "onboarding.create.title": "Erstelle dein Konto",
+  "onboarding.create.body":
+    "Dein Master-Passwort und ein Secret Key, den wir auf diesem Gerät erzeugen, entsperren gemeinsam deinen Tresor. Keins von beiden wird jemals an den Server gesendet.",
+  "onboarding.create.email": "E-Mail",
+  "onboarding.create.password": "Master-Passwort",
+  "onboarding.create.passwordHint":
+    "Vier Wörter ohne Zusammenhang funktionieren gut. Nutze es nur für Mosaic.",
+  "onboarding.create.confirm": "Master-Passwort bestätigen",
+  "onboarding.create.mismatch":
+    "Die beiden Passwörter stimmen nicht überein. Gib in beiden Feldern dasselbe Master-Passwort ein.",
+  "onboarding.create.submit": "Konto erstellen",
+  "onboarding.create.working": "Dein Konto wird erstellt. Das dauert ein paar Sekunden.",
+  "onboarding.kit.accountId": "Konto-ID",
+  "onboarding.kit.secretKey": "Secret Key",
+  "onboarding.kit.lastGroup": "Letzte Gruppe deines Secret Keys",
+  "onboarding.kit.confirm": "Bestätigen",
+
+  "lock.secretKey": "Secret Key",
+  "lock.secretKeyHint":
+    "Dieses Gerät kennt deinen Secret Key noch nicht. Gib ihn aus deinem Emergency Kit ein, dann merkt Mosaic ihn sich auf diesem Gerät.",
+  "lock.submit": "Entsperren",
+  "lock.working": "Wird entsperrt …",
+
+  "vault.defaultName": "Persönlich",
+  "vault.unnamed": "Unbenannter Tresor",
+  "vault.vaults": "Tresore",
+  "vault.allItems": "Alle Einträge",
+  "vault.items": "Einträge",
+  "vault.search": "Tresor durchsuchen",
+  "vault.untitled": "Ohne Titel",
+  "vault.empty":
+    "Dein Tresor ist leer. Lege deinen ersten Login an oder importiere aus einem anderen Passwortmanager.",
+  "vault.noResults":
+    "Nichts passt zu „{query}“. Prüfe die Schreibweise oder suche stattdessen nach einer Website.",
+
+  "error.notImplemented":
+    "Das ist noch nicht verfügbar. Es kommt in einer späteren Version von Mosaic.",
+  "error.noAccount":
+    "Auf diesem Gerät gibt es noch kein Konto. Erstelle eins oder melde dich mit deinem Emergency Kit an.",
+  "error.accountExists":
+    "Auf diesem Gerät gibt es schon ein Mosaic-Konto. Entsperre es stattdessen.",
+  "error.locked": "Mosaic ist gesperrt. Entsperre es, um weiterzumachen.",
+  "error.alreadyUnlocked": "Mosaic ist bereits entsperrt. Du kannst direkt weitermachen.",
+  "error.wrongCredentials":
+    "Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es noch einmal.",
+  "error.secretKeyRequired":
+    "Dieses Gerät kennt deinen Secret Key nicht. Gib ihn aus deinem Emergency Kit ein.",
+  "error.secretKeyMalformed":
+    "Das ist kein Secret Key. Deiner beginnt mit „M1-“ und steht in deinem Emergency Kit.",
+  "error.secretKeyMistyped":
+    "Der Secret Key enthält einen Tippfehler. Vergleiche ihn Zeichen für Zeichen mit deinem Emergency Kit.",
+  "error.emptyPassword": "Das Master-Passwort ist leer. Gib es ein, um weiterzumachen.",
+  "error.quickUnlockUnavailable":
+    "Schnelles Entsperren ist auf diesem Gerät nicht eingerichtet. Entsperre mit deinem Master-Passwort.",
+  "error.storeInUse":
+    "Mosaic ist auf diesem Computer schon geöffnet. Schließe das andere Fenster und versuche es dann noch einmal.",
+  "error.storeUnavailable":
+    "Mosaic konnte deine Tresordatei auf diesem Gerät nicht öffnen. Prüfe, ob das Laufwerk verfügbar ist und freien Speicher hat, und starte Mosaic dann neu.",
+  "error.vaultNotFound":
+    "Diesen Tresor gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät gelöscht.",
+  "error.vaultUnavailable":
+    "Dieser Tresor lässt sich in dieser Sitzung nicht öffnen. Entsperre ihn mit seinem Hardware-Schlüssel oder synchronisiere und versuche es dann noch einmal.",
+  "error.itemNotFound":
+    "Diesen Eintrag gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät verschoben oder gelöscht.",
+  "error.itemDeleted":
+    "Dieser Eintrag wurde endgültig gelöscht und lässt sich nicht mehr öffnen. Wähle einen anderen Eintrag.",
+  "error.sameVault": "Der Eintrag liegt schon in diesem Tresor. Wähle einen anderen Tresor.",
+  "error.noOtp":
+    "Dieser Eintrag hat keinen Einmalcode. Bearbeite den Eintrag, um einen hinzuzufügen.",
+  "error.fieldEmpty":
+    "Dieses Feld ist leer, es gibt also nichts zu kopieren oder anzuzeigen. Bearbeite den Eintrag, um es auszufüllen.",
+  "error.invalidInput":
+    "Etwas in diesem Formular ist ungültig. Prüfe die markierten Felder und versuche es noch einmal.",
+  "error.reauthRequired":
+    "Diese Änderung braucht dein Master-Passwort. Gib es zur Bestätigung ein.",
+  "error.attachmentTooLarge": "Diese Datei ist größer als 50 MiB. Wähle eine kleinere Datei.",
+  "error.attachmentQuota":
+    "Deine Dateien würden mehr als die verfügbaren 1 GiB belegen. Entferne einige Anhänge und versuche es dann noch einmal.",
+  "error.clipboardUnavailable":
+    "Mosaic konnte die Zwischenablage nicht verwenden. Schließe Apps, die sie blockieren könnten, und versuche es dann noch einmal.",
+  "error.importFileUnreadable":
+    "Mosaic konnte die Datei nicht lesen. Prüfe, ob sie noch existiert und nicht in einer anderen App geöffnet ist, und versuche es dann noch einmal.",
+  "error.importFormatInvalid":
+    "Die Datei hat nicht das gewählte Format. Wähle das passende Format oder exportiere die Datei noch einmal.",
+  "error.importPreviewExpired":
+    "Dieser Import wurde abgebrochen. Wähle die Datei noch einmal aus, um neu zu beginnen.",
+  "error.sshRequestExpired":
+    "Diese SSH-Anfrage ist schon beendet. Führe den Befehl noch einmal aus, wenn du ihn noch brauchst.",
+  "error.sshAgentUnavailable":
+    "Der SSH-Agent konnte nicht starten. Prüfe, dass kein anderer SSH-Agent läuft, und schalte ihn dann wieder ein.",
+  "error.busy":
+    "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
+  "error.internal":
+    "Etwas Unerwartetes hat diese Aktion gestoppt. Versuche es noch einmal und starte Mosaic neu, wenn es wieder passiert.",
 };

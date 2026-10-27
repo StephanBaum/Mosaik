@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
 exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz"]
 
@@ -40,6 +40,14 @@ hex-literal = "=1.1.0"
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
 # Dev-only: temporary directories for file-backed store tests.
 tempfile = { version = "=3.27.0", default-features = false }
+# M3 desktop (ADR-0019). Tauri without default features: no dynamic ACL, no
+# D-Bus portal, no tray, no devtools in release builds, and no Common
+# Controls v6 (native menus and dialogs, unused; without it `cargo test` runs
+# on Windows, where test binaries carry no app manifest).
+tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "x11"] }
+tauri-build = { version = "=2.7.4", default-features = false, features = ["config-json"] }
+# Focus the running instance instead of opening a second store session.
+tauri-plugin-single-instance = { version = "=2.5.4", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

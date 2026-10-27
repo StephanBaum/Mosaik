@@ -31,12 +31,38 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
+      # The desktop app needs the webview toolchain; it has its own job below.
+      - run: cargo clippy --workspace --exclude mosaic-desktop --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --exclude mosaic-desktop --locked
       # Slow-in-debug tests (the 50 MiB attachment round trip at exactly
       # MAX_ATTACHMENT_LEN, the long multi-device sync simulation) run
       # optimized.
-      - run: cargo test --release --locked --workspace -- --ignored
+      - run: cargo test --release --locked --workspace --exclude mosaic-desktop -- --ignored
+
+  desktop-rust:
+    name: Desktop app, Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # Tauri v2 prerequisites (https://v2.tauri.app/start/prerequisites/), minus
+      # libssl-dev: Mosaic links no OpenSSL (deny.toml bans it).
+      - name: Install Tauri system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             build-essential file libwebkit2gtk-4.1-dev libayatana-appindicator3-dev             librsvg2-dev libxdo-dev
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo check -p mosaic-desktop --all-targets --locked
+      - run: cargo clippy -p mosaic-desktop --all-targets --locked -- -D warnings
+      # Includes the contract fixture check (ADR-0018) and the command/ACL wiring test.
+      - run: cargo test -p mosaic-desktop --locked
 
   coverage:
     name: Coverage (${{ matrix.crate }} >= 90 % lines)
@@ -164,3 +190,24 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm audit --audit-level low
+
+  desktop-frontend:
+    name: Desktop app, frontend (build, Playwright + axe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm exec vitest run --project desktop
+      - run: pnpm --filter @mosaic/desktop build
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @mosaic/desktop exec playwright install --with-deps chromium
+      # Mock-mode build served with the production CSP; axe in light and dark.
+      - run: pnpm test:e2e

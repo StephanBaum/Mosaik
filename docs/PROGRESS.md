@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (scaffold, then five parallel tracks: import, insights, SSH agent, Tauri shell, React UI) |
+| M3 Desktop app | 🔄 in progress (skeleton committed; next: five parallel tracks: import, insights, SSH agent, Tauri shell, React UI) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -828,6 +828,105 @@ Next steps for M2:
    here once CI is green on all three OSes, including the release
    `--ignored` run.
 
+## M3 Desktop app — skeleton (2026-10-27)
+
+The skeleton that the five tracks (import, insights, SSH agent, Tauri shell,
+React UI) build on. Committed on `main` as one `feat(desktop)` commit.
+
+What it contains:
+
+- `apps/desktop` (`@mosaic/desktop`): Tauri v2 + React 19 + Vite 8, strict
+  TypeScript.
+  - Rust side: `apps/desktop/src-tauri` (`mosaic-desktop`, a workspace
+    member).
+  - Security baseline (ADR-0019):
+    - the capability grants only Mosaic's 34 commands; events travel over a
+      `Channel`, so no `core:*` permission is needed
+    - strict CSP (no remote origin, no `unsafe-eval`, no `unsafe-inline`)
+    - `freezePrototype`, no devtools in release builds
+    - single-instance plugin, Tauri without default features
+  - DM Sans and IBM Plex Mono are bundled from `@fontsource`, with the OFL
+    texts in the build output.
+- IPC contract (`docs/DESKTOP_IPC.md`, ADR-0018):
+  - session state machine, Emergency Kit, unlock / quick unlock / lock
+  - vaults, items (summaries; detail with masked secrets; one-secret reveal)
+  - copy in Rust, generator, TOTP, settings with re-auth
+  - insights, import (Rust-side file dialog), SSH approvals, events
+  - one code-only error enum mapped to `error.<code>` in DE and EN
+
+  Type parity: Rust generates `src/ipc/contract.fixtures.ts`, `tsc` checks it
+  with `satisfies`, and a Vitest test compares commands and enums as sets. A
+  mock-runtime test invokes every command through the real config and ACL.
+- Wired to `mosaic-vault` now: `session_state`, `create_account` (calibrated
+  Argon2id, first vault, Emergency Kit), `verify_emergency_kit`, `unlock`,
+  `lock`, `subscribe_events`, vaults (list, create, rename), items (list and
+  search, detail, reveal, favorite, trash, restore, purge, move),
+  `generate_password`, `get_settings`, `ssh_agent_status` ("off"). Every other
+  command is a typed stub that returns `notImplemented`; each stub names its
+  track. The Secret Key is kept in memory (`MemoryKeystore`) until the unlock
+  track adds the OS keystore.
+- Mock IPC (`src/ipc/mock.ts`, handlers per area in `src/ipc/mock/`),
+  selected with `--mode mock`. Non-mock builds replace it with a stub.
+- Frontend:
+  - app shell with session-driven routing (onboarding → Emergency Kit
+    verification → vault; unlock; lock)
+  - theme (`data-theme` over the token stylesheet; system default)
+  - i18n provider (ICU through `intl-messageformat`; 61 new keys in DE and
+    EN)
+  - placeholder vault screen
+- Tests and tooling:
+  - Vitest + Testing Library: the full onboarding, unlock and lock flows
+    against the mock, plus a German check
+  - a tokens-only style check
+  - Playwright + axe in light and dark against the mock build under the
+    production CSP, with a no-external-request check
+- `packages/design-tokens`: `cssVariables()` (`@mosaic/design-tokens/css`),
+  plus `borderWidth`, primary-action label, fallback and rim variables.
+- New scaffold crates for the tracks: `crates/insights` (`mosaic-insights`)
+  and `crates/ssh-agent` (`mosaic-ssh-agent`). `crates/import` already
+  existed.
+- CI:
+  - `desktop-rust` (check, clippy, test of `mosaic-desktop` on Linux, Windows
+    and macOS; the WebKitGTK libraries on Linux)
+  - `desktop-frontend` (lint, typecheck, Vitest, build, Playwright with axe on
+    Ubuntu)
+  - the core `rust` job now excludes `mosaic-desktop`
+- THREAT_MODEL §4.2 (isolation pattern deferred to M9, ADR-0019 item 4) and
+  R19 (secrets in the webview).
+
+Run it:
+
+- `pnpm --filter @mosaic/desktop dev:mock`: the UI in a browser at
+  http://localhost:1420 (`?mock=locked` or `?mock=unlocked`; the mock master
+  password is `mosaic`).
+- `pnpm --filter @mosaic/desktop tauri dev`: the real app.
+- `pnpm test:e2e` runs Playwright (first `pnpm --filter @mosaic/desktop exec
+  playwright install chromium`).
+- `MOSAIC_UPDATE_FIXTURES=1 cargo test -p mosaic-desktop contract_fixtures`
+  after a contract change.
+
+Next steps for M3 (tracks, each in its own worktree):
+
+1. **Tauri shell:**
+   - OS keystore (keyring crate, ADR) and quick unlock (§6.2, §6.3)
+   - clipboard in Rust with auto-clear and history exclusion
+   - auto-lock on idle, sleep and screen lock
+   - settings persistence with re-auth
+   - TOTP codes, `add_item` / `update_item`
+   - screen-capture protection
+2. **React UI:**
+   - the screens D02–D21, the command palette and keyboard map
+   - the holo-foil primary button (port of `docs/design/holo/`)
+   - reveal and auto-hide, toasts with live regions
+   - Emergency Kit PDF; axe on every screen
+3. **Import:** `mosaic-import` (Enpass first) and the `import_*` commands.
+4. **Insights:** `mosaic-insights` and `security_report`.
+5. **SSH agent:** `mosaic-ssh-agent` (crate choice with an ADR), the
+   approval flow and the `ssh_*` commands.
+
+Then the milestone review (crypto-reviewer, extension-attacker for the IPC
+surface, ux-reviewer, test-engineer) and CI on all three OSes.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -856,6 +955,10 @@ Next steps for M2:
 | M2-R18 | info | Fresh writer IDs add one version-vector entry (about 44 bytes) per session that edits a record; an HOTP item grows by one per session that shows a code. Collision repairs can bring back superseded values as conflict copies. An oversized split leaves one conflict-copy item per value that left the record (copies have no type of their own; the UI shows the original's through `conflict_copy_of`); devices at different key generations derive different copy IDs and can leave a duplicate | accepted (ADR-0015, ADR-0016 and its amendment); vector pruning is a future format change |
 | M2-R19 | low | Writer-ID reuse is detected only where it shows (equal vectors with different contents, a counter above the replica's own, one stamp with two contents in a field). An honest device that merges two colliding versions showing none of these before the writers meet drops both writers' values (`reuse_that_shows_nowhere_is_not_detected`). Needs a forged or corrupted record or a UUIDv7 collision, since writer IDs are fresh per unlock | accepted (ADR-0015 amendment); the randomized test covers the case where the writers meet first |
 | M2-R20 | low | An oversized merge whose record does not fit even without every content field (its password history or attachment references alone exceed 1 MiB), or a value that does not fit a copy of its own, fails with `SizeLimit` and stays unmerged until the user shrinks the item | accepted (ADR-0016 amendment item 4); needs thousands of attachments or history entries near the limit |
+| M3-R1 | medium | The Secret Key is kept in process memory only (`MemoryKeystore`): after a restart the user types it from the Emergency Kit. Not a leak, but not the OS-keystore storage CORE_API asks for | open, M3 Tauri shell track (keystore crate with an ADR) |
+| M3-R2 | low | Tauri isolation pattern not used (THREAT_MODEL §4.2); the closed command set, typed Rust-side validation and the strict CSP stand in | accepted until M9 (ADR-0019 item 4) |
+| M3-R3 | low | Linux-only advisories in Tauri's stack: gtk-rs 0.18 (`proc-macro-error` unmaintained, `glib::VariantStrIter` unsound, not called) and zbus 5 parts folded into zbus 6 | accepted (ADR-0019 item 9, deny.toml, .cargo/audit.toml); revisit with Tauri's gtk4 / zbus 6 move |
+| M3-R4 | info | Typed secrets, revealed values, generated passwords and one-time codes live in the webview heap, and the parsed IPC body is not zeroized | accepted, THREAT_MODEL R19 |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) are listed as unavailable: TK unlock and acting on `OtpConfig::hardware_protected` are M3 | open, M3 |
 
@@ -868,6 +971,9 @@ See the THREAT_MODEL §5 residual-risk register.
   `publish = false` until decided.
 - **Name availability**: "Mosaic" on crates.io / npm / domains / app stores,
   and a trademark check.
+- **Bundle identifier**: the desktop app uses `io.github.stephanbaum.mosaic`
+  (`tauri.conf.json`) until the name and domain are settled; changing it later
+  moves the app data directory.
 - **Signing**: Apple Developer ID, Windows code-signing certificate, extension
   store accounts (Chrome Web Store, Edge Add-ons, AMO). Needed from M3/M4 and
   for releases in M9.

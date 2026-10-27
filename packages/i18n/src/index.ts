@@ -1,7 +1,9 @@
 /**
  * Mosaic UI string catalogs. All user-facing text comes from here
- * (docs/UX_GUIDELINES.md §6). The ICU formatter is chosen in M3.
+ * (docs/UX_GUIDELINES.md §6). Messages are ICU MessageFormat, formatted with
+ * intl-messageformat (FormatJS, BSD-3-Clause; ADR-0019).
  */
+import { IntlMessageFormat } from "intl-messageformat";
 import { de } from "./de.ts";
 import { en, type MessageKey } from "./en.ts";
 
@@ -11,6 +13,26 @@ export const locales = ["en", "de"] as const;
 export type Locale = (typeof locales)[number];
 
 export const catalogs: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = { en, de };
+
+/** Values for a message's ICU arguments. */
+export type MessageValues = Readonly<Record<string, string | number | Date>>;
+
+const formatters = new Map<string, IntlMessageFormat>();
+
+/**
+ * Formats `key` in `locale` with ICU plural/select rules and `Intl` number and date
+ * formatting. Throws if a value the message needs is missing.
+ */
+export function formatMessage(locale: Locale, key: MessageKey, values?: MessageValues): string {
+  const id = `${locale}:${key}`;
+  let formatter = formatters.get(id);
+  if (formatter === undefined) {
+    formatter = new IntlMessageFormat(catalogs[locale][key], locale);
+    formatters.set(id, formatter);
+  }
+  const result = formatter.format(values);
+  return Array.isArray(result) ? result.join("") : String(result);
+}
 
 /** Pick the best supported locale for a BCP 47 preference list; English is the fallback. */
 export function negotiateLocale(preferred: readonly string[]): Locale {

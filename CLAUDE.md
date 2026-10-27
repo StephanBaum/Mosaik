@@ -46,10 +46,11 @@ Use pnpm, never npm. The Rust toolchain is pinned in `rust-toolchain.toml`.
 ## Layout
 
 - `crates/core`: crypto, vault model, item types, sync types (CRYPTO_SPEC)
-- `crates/{totp,generator,passkey,import}`: feature crates on top of core
+- `crates/{totp,generator,passkey,import,insights,ssh-agent}`: feature crates on top of core
 - `crates/server`: axum sync server. `crates/cli`: the `mosaic` binary
 - `packages/{design-tokens,i18n}`: shared TS for the apps
-- `apps/{desktop,extension,mobile}`: added in M3, M4 and M10
+- `apps/desktop`: Tauri v2 app (M3). IPC contract: `docs/DESKTOP_IPC.md`;
+  `apps/{extension,mobile}` follow in M4 and M10
 - `.claude/agents/`: crypto-reviewer, extension-attacker, sync-chaos,
   ux-reviewer, test-engineer. Run the relevant ones before each milestone
   commit.

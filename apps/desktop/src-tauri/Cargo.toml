@@ -1,0 +1,42 @@
+[package]
+name = "mosaic-desktop"
+description = "Mosaic desktop app: the Tauri shell around the vault session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+default-run = "mosaic-desktop"
+
+[lints]
+workspace = true
+
+[lib]
+name = "mosaic_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mosaic-desktop"
+path = "src/main.rs"
+
+[features]
+# Set by `tauri build` (and `pnpm tauri build`): serve the bundled frontend
+# through the custom protocol instead of the Vite dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+mosaic-core = { path = "../../../crates/core" }
+mosaic-generator = { path = "../../../crates/generator" }
+mosaic-vault = { path = "../../../crates/vault" }
+serde = { workspace = true, features = ["derive"] }
+tauri.workspace = true
+tauri-plugin-single-instance.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+# The mock runtime for the command and ACL wiring test.
+tauri = { workspace = true, features = ["test"] }
