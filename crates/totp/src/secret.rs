@@ -182,15 +182,36 @@ impl PartialEq for OtpSecret {
 
 impl Eq for OtpSecret {}
 
-/// Text that contains a secret (a base32 secret or an `otpauth://` URI),
-/// zeroized on drop.
+/// Text that contains a secret (a base32 secret or an `otpauth://` URI) or
+/// item content the server must not learn (the issuer and account name of
+/// an [`OtpAuth`](crate::OtpAuth), CRYPTO_SPEC §7.5, §12), zeroized on drop.
 pub struct SecretText(pub(crate) String);
 
 impl SecretText {
+    /// Copies `text` into a new zeroizing buffer of exactly its length.
+    #[must_use]
+    pub fn new(text: &str) -> Self {
+        let mut s = String::with_capacity(text.len());
+        s.push_str(text);
+        Self(s)
+    }
+
     /// Borrows the text. Keep the borrow short and never log it.
     #[must_use]
     pub fn expose_secret(&self) -> &str {
         &self.0
+    }
+
+    /// Length in bytes.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the text is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     #[cfg(test)]
@@ -206,6 +227,24 @@ impl Drop for SecretText {
 }
 
 impl ZeroizeOnDrop for SecretText {}
+
+impl From<String> for SecretText {
+    /// Takes ownership of `text`; it is zeroized on drop from now on. Copies
+    /// the caller made before (reallocations while building it) are out of
+    /// reach.
+    fn from(text: String) -> Self {
+        Self(text)
+    }
+}
+
+impl PartialEq for SecretText {
+    /// Constant time in the contents; lengths are not secret.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
+    }
+}
+
+impl Eq for SecretText {}
 
 impl fmt::Debug for SecretText {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

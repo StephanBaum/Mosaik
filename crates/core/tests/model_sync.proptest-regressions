@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 3169dba5bc929ed196aa61fc79a1f9b3d8d4b853ca8860093c1e0592d3e4d5b1 # shrinks to ops = [Delete(1), Favorite(1, false)], separate_origin = false, triples = [(Index(0), Index(0), Index(0))]
 cc 9744579a95da36fc07e7db535245f6d8fc7b778c9a540fe890b3eb0de936b5ac # shrinks to edits = [RemoveFirstUrl(1)], syncs = []
+cc 23834519f90b960104ebbf2c575cf0f04f92983676de07a6fe2d9618d385e993 # shrinks to honest = 2, edits = [(1, 0), (0, 0), (0, 0), (1, 1), (1, 0), (1, 1), (1, 0), (0, 0), (0, 1)], w2_first = false, gossip = []

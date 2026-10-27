@@ -66,7 +66,7 @@
 
 use core::str::FromStr;
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::base32;
 use crate::error::{Error, Result};
@@ -84,15 +84,27 @@ pub const MAX_PARAMS: usize = 32;
 
 const SCHEME: &[u8] = b"otpauth://";
 
+/// The fixed part of a formatted URI before the secret:
+/// `otpauth://hotp/` + `:` + `?secret=`.
+const HEAD_FIXED_LEN: usize = 15 + 1 + 8;
+
+/// The fixed part after the secret, at its longest: `&issuer=`,
+/// `&algorithm=SHA512`, then `&digits=8&counter=` and 20 counter digits.
+const TAIL_FIXED_LEN: usize = 8 + 17 + 9 + 9 + 20;
+
 /// A parsed `otpauth://` URI: the OTP configuration plus its label.
+///
+/// Issuer and account name are item content that the server never sees
+/// (CRYPTO_SPEC §7.5, §12), so they are held in zeroizing [`SecretText`]
+/// like the secret, and `Debug` prints none of them.
 #[derive(Debug, PartialEq, Eq)]
 pub struct OtpAuth {
     /// Secret, algorithm and kind.
     pub otp: Otp,
     /// The service, if known.
-    pub issuer: Option<String>,
+    pub issuer: Option<SecretText>,
     /// The account name; may be empty.
-    pub account_name: String,
+    pub account_name: SecretText,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -179,12 +191,21 @@ fn percent_decode(raw: &[u8], plus_is_space: bool) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn decode_text(raw: &[u8], plus_is_space: bool) -> Result<String> {
-    String::from_utf8(percent_decode(raw, plus_is_space)?).map_err(|_| Error::MalformedUri)
+/// Percent-decodes `raw` into zeroizing text (labels are item content).
+fn decode_text(raw: &[u8], plus_is_space: bool) -> Result<SecretText> {
+    match String::from_utf8(percent_decode(raw, plus_is_space)?) {
+        Ok(text) => Ok(SecretText(text)),
+        Err(e) => {
+            let mut bytes = e.into_bytes();
+            bytes.zeroize();
+            Err(Error::MalformedUri)
+        }
+    }
 }
 
 fn decode_number(raw: &[u8]) -> Result<u64> {
-    let s = decode_text(raw, true)?;
+    let text = decode_text(raw, true)?;
+    let s = text.expose_secret();
     if s.is_empty() || s.len() > 20 || !s.bytes().all(|c| c.is_ascii_digit()) {
         return Err(Error::InvalidParameter);
     }
@@ -223,9 +244,9 @@ fn validate_text(s: &str) -> Result<()> {
     Ok(())
 }
 
-fn non_empty(s: &str) -> Option<String> {
+fn non_empty(s: &str) -> Option<SecretText> {
     let s = s.trim();
-    (!s.is_empty()).then(|| s.to_owned())
+    (!s.is_empty()).then(|| SecretText::new(s))
 }
 
 /// The rest of `label` after `issuer` (ASCII case ignored, surrounding
@@ -240,23 +261,23 @@ fn strip_issuer<'a>(label: &'a str, issuer: &str) -> Option<&'a str> {
 }
 
 /// Splits the decoded label into issuer and account (see the module docs).
-fn split_label(label: &str, issuer_param: Option<String>) -> (Option<String>, String) {
+fn split_label(label: &str, issuer_param: Option<SecretText>) -> (Option<SecretText>, SecretText) {
     match issuer_param {
         Some(p) => {
             // A prefix that differs from the parameter stays in the account
             // name rather than being dropped.
-            let account = strip_issuer(label, &p)
+            let account = strip_issuer(label, p.expose_secret())
                 .or_else(|| {
                     label
                         .split_once(':')
                         .and_then(|(pre, a)| pre.trim().is_empty().then_some(a))
                 })
                 .unwrap_or(label);
-            (Some(p), account.trim().to_owned())
+            (Some(p), SecretText::new(account.trim()))
         }
         None => match label.split_once(':') {
-            Some((prefix, account)) => (non_empty(prefix), account.trim().to_owned()),
-            None => (None, label.trim().to_owned()),
+            Some((prefix, account)) => (non_empty(prefix), SecretText::new(account.trim())),
+            None => (None, SecretText::new(label.trim())),
         },
     }
 }
@@ -327,33 +348,40 @@ fn parse(uri: &str) -> Result<OtpAuth> {
 
     let label = decode_text(label_raw, false)?;
     let issuer_param = match params.issuer {
-        Some(v) => non_empty(&decode_text(v, true)?),
+        Some(v) => non_empty(decode_text(v, true)?.expose_secret()),
         None => None,
     };
-    let (issuer, account_name) = split_label(&label, issuer_param);
+    let (issuer, account_name) = split_label(label.expose_secret(), issuer_param);
+    drop(label);
     if let Some(i) = &issuer {
-        validate_text(i)?;
+        validate_text(i.expose_secret())?;
     }
-    validate_text(&account_name)?;
+    validate_text(account_name.expose_secret())?;
     // Without an issuer a `:` in the account name would read as an issuer
     // separator when formatted (possible only after a blank label prefix).
-    if issuer.is_none() && account_name.contains(':') {
+    if issuer.is_none() && account_name.expose_secret().contains(':') {
         return Err(Error::InvalidLabel);
     }
 
     let algorithm = match params.algorithm {
-        Some(v) => Algorithm::parse(&decode_text(v, true)?)?,
+        Some(v) => Algorithm::parse(decode_text(v, true)?.expose_secret())?,
         None => Algorithm::default(),
     };
     let encoder_steam = match params.encoder {
-        Some(v) if decode_text(v, true)?.eq_ignore_ascii_case("steam") => true,
+        Some(v)
+            if decode_text(v, true)?
+                .expose_secret()
+                .eq_ignore_ascii_case("steam") =>
+        {
+            true
+        }
         Some(_) => return Err(Error::UnsupportedEncoder),
         None => false,
     };
 
     let issuer_is_steam = issuer
-        .as_deref()
-        .is_some_and(|i| i.eq_ignore_ascii_case("steam"));
+        .as_ref()
+        .is_some_and(|i| i.expose_secret().eq_ignore_ascii_case("steam"));
     let kind = match ty {
         UriType::Hotp if encoder_steam => return Err(Error::UnsupportedEncoder),
         UriType::Hotp => OtpKind::Hotp {
@@ -444,31 +472,40 @@ impl OtpAuth {
     /// characters, surrounding whitespace, an empty issuer, or a `:` in the
     /// account name when there is no issuer.
     pub fn to_uri(&self) -> Result<SecretText> {
-        if let Some(i) = &self.issuer {
+        let issuer = self.issuer.as_ref().map(SecretText::expose_secret);
+        let account = self.account_name.expose_secret();
+        if let Some(i) = issuer {
             if i.is_empty() {
                 return Err(Error::InvalidLabel);
             }
             validate_text(i)?;
         }
-        validate_text(&self.account_name)?;
-        if self.issuer.is_none() && self.account_name.contains(':') {
+        validate_text(account)?;
+        if issuer.is_none() && account.contains(':') {
             return Err(Error::InvalidLabel);
         }
 
-        let mut head = String::from("otpauth://");
+        // The label is item content: both parts are built in zeroizing
+        // buffers reserved at their worst-case size (every byte
+        // percent-encoded), so they never reallocate.
+        let issuer_len = issuer.map_or(0, str::len);
+        let mut head = Zeroizing::new(String::with_capacity(
+            HEAD_FIXED_LEN + 3 * (issuer_len + account.len()),
+        ));
+        head.push_str("otpauth://");
         head.push_str(match self.otp.kind {
             OtpKind::Hotp { .. } => "hotp/",
             OtpKind::Totp { .. } | OtpKind::Steam { .. } => "totp/",
         });
-        if let Some(i) = &self.issuer {
+        if let Some(i) = issuer {
             percent_encode(i, &mut head);
             head.push(':');
         }
-        percent_encode(&self.account_name, &mut head);
+        percent_encode(account, &mut head);
         head.push_str("?secret=");
 
-        let mut tail = String::new();
-        if let Some(i) = &self.issuer {
+        let mut tail = Zeroizing::new(String::with_capacity(TAIL_FIXED_LEN + 3 * issuer_len));
+        if let Some(i) = issuer {
             tail.push_str("&issuer=");
             percent_encode(i, &mut tail);
         }
@@ -531,12 +568,35 @@ mod tests {
         }
     }
 
+    /// Issuer and account name are item content (CRYPTO_SPEC §7.5, §12):
+    /// they live in zeroizing buffers of their exact size and `Debug` of an
+    /// entry prints neither (M2 review, third round).
+    #[test]
+    fn labels_are_zeroizing_and_redacted() {
+        let a = ok("otpauth://totp/Mark3rIssuer:mark3r.account%40example.com?secret=MFRGG");
+        let issuer = a.issuer.as_ref().unwrap();
+        assert_eq!(issuer.expose_secret(), "Mark3rIssuer");
+        assert_eq!(issuer.capacity(), issuer.len());
+        assert_eq!(a.account_name.capacity(), a.account_name.len());
+        let shown = format!("{a:?}");
+        assert!(!shown.contains("Mark3r"), "{shown}");
+        assert!(!shown.contains("mark3r"), "{shown}");
+        // Equality still compares the contents.
+        let mut other = ok("otpauth://totp/Mark3rIssuer:someone.else?secret=MFRGG");
+        assert_ne!(other, a);
+        other.account_name = SecretText::new("mark3r.account@example.com");
+        assert_eq!(other, a);
+    }
+
     #[test]
     fn google_example() {
         let a =
             ok("otpauth://totp/Example:alice@google.com?secret=JBSWY3DPEHPK3PXP&issuer=Example");
-        assert_eq!(a.issuer.as_deref(), Some("Example"));
-        assert_eq!(a.account_name, "alice@google.com");
+        assert_eq!(
+            a.issuer.as_ref().map(SecretText::expose_secret),
+            Some("Example")
+        );
+        assert_eq!(a.account_name.expose_secret(), "alice@google.com");
         assert_eq!(a.otp.algorithm, Algorithm::Sha1);
         assert_eq!(a.otp.kind, OtpKind::DEFAULT_TOTP);
         assert_eq!(a.otp.secret.expose_secret(), b"Hello!\xDE\xAD\xBE\xEF");
@@ -553,8 +613,11 @@ mod tests {
             "otpauth://totp/ACME%20Co:john.doe%40email.com?secret={RFC_B32}\
              &issuer=ACME%20Co&algorithm=SHA512&digits=8&period=60"
         ));
-        assert_eq!(a.issuer.as_deref(), Some("ACME Co"));
-        assert_eq!(a.account_name, "john.doe@email.com");
+        assert_eq!(
+            a.issuer.as_ref().map(SecretText::expose_secret),
+            Some("ACME Co")
+        );
+        assert_eq!(a.account_name.expose_secret(), "john.doe@email.com");
         assert_eq!(a.otp.algorithm, Algorithm::Sha512);
         assert_eq!(
             a.otp.kind,
@@ -586,7 +649,8 @@ mod tests {
             "otpauth://totp/a?secret=MFRGG"
                 .parse::<OtpAuth>()
                 .unwrap()
-                .account_name,
+                .account_name
+                .expose_secret(),
             "a"
         );
     }
@@ -601,8 +665,11 @@ mod tests {
                     gezdgnbvgy3tqojq%3D%3D&&Issuer=Big+Corp&algorithm=sha256\
                     &image=https%3A%2F%2Fexample.com%2Fx.png&color=ff0000&",
         );
-        assert_eq!(big.issuer.as_deref(), Some("Big Corp"));
-        assert_eq!(big.account_name, "bob");
+        assert_eq!(
+            big.issuer.as_ref().map(SecretText::expose_secret),
+            Some("Big Corp")
+        );
+        assert_eq!(big.account_name.expose_secret(), "bob");
         assert_eq!(big.otp.algorithm, Algorithm::Sha256);
         assert_eq!(big.otp.secret.expose_secret(), b"12345678901234567890");
         // Irrelevant parameters are ignored.
@@ -615,19 +682,25 @@ mod tests {
         ));
         // `+` is literal in the label, `%3A` separates like `:`.
         let plus = ok("otpauth://totp/a+b%3Ac?secret=MFRGG");
-        assert_eq!(plus.issuer.as_deref(), Some("a+b"));
-        assert_eq!(plus.account_name, "c");
+        assert_eq!(
+            plus.issuer.as_ref().map(SecretText::expose_secret),
+            Some("a+b")
+        );
+        assert_eq!(plus.account_name.expose_secret(), "c");
         // Raw UTF-8 in the label.
         let utf8 = ok("otpauth://totp/B\u{fc}ro:j\u{f6}rg?secret=MFRGG");
-        assert_eq!(utf8.issuer.as_deref(), Some("B\u{fc}ro"));
-        assert_eq!(utf8.account_name, "j\u{f6}rg");
+        assert_eq!(
+            utf8.issuer.as_ref().map(SecretText::expose_secret),
+            Some("B\u{fc}ro")
+        );
+        assert_eq!(utf8.account_name.expose_secret(), "j\u{f6}rg");
         // Empty label and empty issuer parameter.
         let empty = ok("otpauth://totp/?secret=MFRGG&issuer=");
         assert_eq!(empty.issuer, None);
-        assert_eq!(empty.account_name, "");
+        assert_eq!(empty.account_name.expose_secret(), "");
         let blank_prefix = ok("otpauth://totp/%20:acct?secret=MFRGG");
         assert_eq!(blank_prefix.issuer, None);
-        assert_eq!(blank_prefix.account_name, "acct");
+        assert_eq!(blank_prefix.account_name.expose_secret(), "acct");
         // Regression (fuzzing): a blank prefix leaves no issuer, so an
         // account name with a further `:` could not be formatted back.
         assert_eq!(
@@ -646,12 +719,18 @@ mod tests {
         // kept in the account name instead of being dropped.
         let a = ok("otpauth://totp/Old:me?secret=MFRGG&issuer=New");
         assert_eq!(
-            (a.issuer.as_deref(), a.account_name.as_str()),
+            (
+                a.issuer.as_ref().map(SecretText::expose_secret),
+                a.account_name.expose_secret()
+            ),
             (Some("New"), "Old:me")
         );
         let work = ok("otpauth://totp/alice:work?secret=MFRGG&issuer=Example");
         assert_eq!(
-            (work.issuer.as_deref(), work.account_name.as_str()),
+            (
+                work.issuer.as_ref().map(SecretText::expose_secret),
+                work.account_name.expose_secret()
+            ),
             (Some("Example"), "alice:work")
         );
         assert_eq!(ok(work.to_uri().unwrap().expose_secret()), work);
@@ -659,33 +738,45 @@ mod tests {
         // a blank prefix is removed too.
         let case = ok("otpauth://totp/%20example%20:%20me?secret=MFRGG&issuer=Example");
         assert_eq!(
-            (case.issuer.as_deref(), case.account_name.as_str()),
+            (
+                case.issuer.as_ref().map(SecretText::expose_secret),
+                case.account_name.expose_secret()
+            ),
             (Some("Example"), "me")
         );
         let blank = ok("otpauth://totp/%20:me?secret=MFRGG&issuer=X");
-        assert_eq!(blank.account_name, "me");
+        assert_eq!(blank.account_name.expose_secret(), "me");
         // A longer word that merely starts with the issuer is no prefix.
         let longer = ok("otpauth://totp/Example2:me?secret=MFRGG&issuer=Example");
-        assert_eq!(longer.account_name, "Example2:me");
+        assert_eq!(longer.account_name.expose_secret(), "Example2:me");
         // The issuer length falls inside a multi-byte character.
         let utf8 = ok("otpauth://totp/%C3%A4b:me?secret=MFRGG&issuer=a");
-        assert_eq!(utf8.account_name, "\u{e4}b:me");
+        assert_eq!(utf8.account_name.expose_secret(), "\u{e4}b:me");
         // Parameter without a label prefix.
         let b = ok("otpauth://totp/me?secret=MFRGG&issuer=New");
         assert_eq!(
-            (b.issuer.as_deref(), b.account_name.as_str()),
+            (
+                b.issuer.as_ref().map(SecretText::expose_secret),
+                b.account_name.expose_secret()
+            ),
             (Some("New"), "me")
         );
         // Issuer containing a colon is stripped as a whole.
         let c = ok("otpauth://totp/a%3Ab:c%3Ad?secret=MFRGG&issuer=a%3Ab");
         assert_eq!(
-            (c.issuer.as_deref(), c.account_name.as_str()),
+            (
+                c.issuer.as_ref().map(SecretText::expose_secret),
+                c.account_name.expose_secret()
+            ),
             (Some("a:b"), "c:d")
         );
         // Label prefix only.
         let d = ok("otpauth://totp/Pre:me:too?secret=MFRGG");
         assert_eq!(
-            (d.issuer.as_deref(), d.account_name.as_str()),
+            (
+                d.issuer.as_ref().map(SecretText::expose_secret),
+                d.account_name.expose_secret()
+            ),
             (Some("Pre"), "me:too")
         );
     }
@@ -925,7 +1016,7 @@ mod tests {
         let fa =
             ok("otpauth://totp/x:%D9%85%DB%8C%E2%80%8C%D8%AE%D9%88%D8%A7%D9%87%D9%85?secret=MFRGG");
         assert_eq!(
-            fa.account_name,
+            fa.account_name.expose_secret(),
             "\u{645}\u{6cc}\u{200c}\u{62e}\u{648}\u{627}\u{647}\u{645}"
         );
         let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
@@ -947,7 +1038,7 @@ mod tests {
         ] {
             let a = ok(&uri);
             assert_eq!(a.otp.kind, OtpKind::DEFAULT_TOTP, "{uri:?}");
-            assert_eq!(a.account_name, "a");
+            assert_eq!(a.account_name.expose_secret(), "a");
         }
         // Interior whitespace in the scheme is still malformed.
         assert_eq!(err("otp auth://totp/a?secret=MFRGG"), Error::MalformedUri);
@@ -1002,8 +1093,8 @@ mod tests {
                 algorithm: Algorithm::Sha256,
                 kind,
             },
-            issuer: issuer.map(str::to_owned),
-            account_name: account.to_owned(),
+            issuer: issuer.map(SecretText::new),
+            account_name: SecretText::new(account),
         }
     }
 
@@ -1123,8 +1214,8 @@ mod tests {
             let account = account.trim().to_owned();
             let e = OtpAuth {
                 otp: Otp { secret: OtpSecret::from_bytes(&secret).unwrap(), algorithm, kind },
-                issuer,
-                account_name: account,
+                issuer: issuer.as_deref().map(SecretText::new),
+                account_name: SecretText::new(&account),
             };
             let uri = e.to_uri().unwrap();
             let back = OtpAuth::parse(uri.expose_secret()).unwrap();

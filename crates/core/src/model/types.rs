@@ -20,8 +20,10 @@ use crate::error::{Error, Result};
 use crate::ids::AttachmentId;
 use crate::secret::{AttachmentKey, SecretBytes, SecretString, SecretVec};
 
-/// Longest OTP secret in bytes (a 4096-bit key; real ones are 10 to 64).
-pub const MAX_OTP_SECRET_LEN: usize = 512;
+/// Longest OTP secret in bytes: 1024 bits, the SHA-512 block size, and
+/// the limit of `mosaic-totp` (`MAX_SECRET_LEN`), so every stored secret can
+/// produce codes. Real-world secrets are 10 to 64 bytes.
+pub const MAX_OTP_SECRET_LEN: usize = 128;
 /// Longest WebAuthn credential ID in bytes (WebAuthn L3 §5.8.3: 1023).
 pub const MAX_CREDENTIAL_ID_LEN: usize = 1023;
 /// Longest WebAuthn user handle in bytes (WebAuthn L3: 64).
@@ -773,20 +775,24 @@ mod tests {
             c.validate()
         };
         assert!(check(&|_| {}).is_ok());
-        assert!(check(&|c| c.digits = 5).is_err());
-        assert!(check(&|c| c.digits = 9).is_err());
-        assert!(
+        assert_eq!(check(&|c| c.digits = 5), Err(Error::Malformed));
+        assert_eq!(check(&|c| c.digits = 9), Err(Error::Malformed));
+        assert_eq!(
             check(&|c| {
                 c.kind = OtpKind::Steam;
                 c.digits = 6;
-            })
-            .is_err()
+            }),
+            Err(Error::Malformed)
         );
-        assert!(check(&|c| c.period = 0).is_err());
-        assert!(check(&|c| c.period = 301).is_err());
+        assert_eq!(check(&|c| c.period = 0), Err(Error::Malformed));
+        assert_eq!(check(&|c| c.period = 301), Err(Error::Malformed));
         assert!(check(&|c| c.period = 300).is_ok());
-        assert!(check(&|c| c.secret = sv(b"")).is_err());
-        assert!(check(&|c| c.secret = sv(&[1; MAX_OTP_SECRET_LEN + 1])).is_err());
+        assert_eq!(check(&|c| c.secret = sv(b"")), Err(Error::Malformed));
+        assert!(check(&|c| c.secret = sv(&[1; MAX_OTP_SECRET_LEN])).is_ok());
+        assert_eq!(
+            check(&|c| c.secret = sv(&[1; MAX_OTP_SECRET_LEN + 1])),
+            Err(Error::Malformed)
+        );
         for bad in [
             &br#"{"secret":"AA","algorithm":"md5","digits":6,"period":30,"kind":"totp"}"#[..],
             br#"{"secret":"AA","algorithm":"sha1","digits":6,"period":30,"kind":"motp"}"#,
@@ -899,19 +905,22 @@ mod tests {
         assert_eq!(back.rp_id.as_str(), "example.com");
         let mut bad = PasskeyCredential::from_value(&p.to_value()).unwrap();
         bad.credential_id = vec![];
-        assert!(bad.validate().is_err());
+        assert_eq!(bad.validate(), Err(Error::Malformed));
         bad.credential_id = vec![0; MAX_CREDENTIAL_ID_LEN + 1];
-        assert!(bad.validate().is_err());
+        assert_eq!(bad.validate(), Err(Error::Malformed));
         bad.credential_id = vec![1];
         bad.user_handle = vec![0; MAX_USER_HANDLE_LEN + 1];
-        assert!(bad.validate().is_err());
+        assert_eq!(bad.validate(), Err(Error::Malformed));
         bad.user_handle = vec![1];
         bad.rp_id = Text::new("");
-        assert!(bad.validate().is_err());
+        assert_eq!(bad.validate(), Err(Error::Malformed));
         bad.rp_id = Text::new("x");
         bad.private_key = sv(b"");
-        assert!(bad.validate().is_err());
-        assert!(PasskeyCredential::from_value(&bad.to_value()).is_err());
+        assert_eq!(bad.validate(), Err(Error::Malformed));
+        assert_eq!(
+            PasskeyCredential::from_value(&bad.to_value()).unwrap_err(),
+            Error::Malformed
+        );
     }
 
     #[test]

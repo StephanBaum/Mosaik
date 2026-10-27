@@ -198,6 +198,38 @@ fn password_history() {
     assert!(item.password_history().is_empty());
 }
 
+/// Regression: the history was trimmed by wall-clock `changed_at`, so an
+/// edit from a device whose clock is behind trimmed the value it had just
+/// moved into the history. Trimming follows the edit order instead.
+#[test]
+fn history_trim_ignores_clock_skew() {
+    let day = 24 * 60 * 60 * 1000;
+    let now = 100 * day;
+    let mut item = login();
+    for i in 0..=MAX_HISTORY {
+        item.edit(dev(1), at(now + i64::try_from(i).unwrap()))
+            .set_secret(SecretField::Password, &format!("p{i}"))
+            .unwrap();
+    }
+    assert_eq!(item.password_history().len(), MAX_HISTORY);
+    let last = format!("p{MAX_HISTORY}");
+    // Another device, its clock ten days behind, changes the password.
+    item.edit(dev(2), at(now - 10 * day))
+        .set_secret(SecretField::Password, "new")
+        .unwrap();
+    let h = item.password_history();
+    assert_eq!(h.len(), MAX_HISTORY);
+    assert!(
+        h.iter().any(|e| e.value.expose_secret() == last),
+        "the replaced password must stay in the history"
+    );
+    // The entry of the oldest edit went instead (`pw-1` from `login` was
+    // already trimmed by the 33rd change).
+    assert!(!h.iter().any(|e| e.value.expose_secret() == "pw-1"));
+    assert!(!h.iter().any(|e| e.value.expose_secret() == "p0"));
+    assert!(h.iter().any(|e| e.value.expose_secret() == "p1"));
+}
+
 #[test]
 fn tags_favorite_trash() {
     let mut item = login();
@@ -551,6 +583,21 @@ fn delete_tombstone_and_concurrent_edit() {
         Tombstone::open(&ct, &vk, &vault, &other).unwrap_err(),
         Error::ItemCorrupted { item_id: other }
     );
+    let other_vault = VaultId::from_bytes([0x0E; 16]).unwrap();
+    assert_eq!(
+        Tombstone::open(&ct, &vk, &other_vault, &id).unwrap_err(),
+        Error::ItemCorrupted { item_id: id }
+    );
+    let same_generation = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+    assert_eq!(
+        Tombstone::open(&ct, &same_generation, &vault, &id).unwrap_err(),
+        Error::ItemCorrupted { item_id: id }
+    );
+    let vk2 = VaultKey::generate(KeyGeneration::new(2).unwrap()).unwrap();
+    assert_eq!(
+        Tombstone::open(&ct, &vk2, &vault, &id).unwrap_err(),
+        Error::KeyGenerationMismatch
+    );
     let as_item = Item::from(back);
     assert_eq!(as_item, deleted);
 
@@ -655,10 +702,46 @@ fn seal_and_open() {
         Item::open(&ct, &vk, &vault, &other).unwrap_err(),
         Error::ItemCorrupted { item_id: other }
     );
+    // Another vault with the same item ID, and another key of the same
+    // generation: both fail authentication and map to ItemCorrupted.
+    let other_vault = VaultId::from_bytes([0x0E; 16]).unwrap();
+    assert_eq!(
+        Item::open(&ct, &vk, &other_vault, &id).unwrap_err(),
+        Error::ItemCorrupted { item_id: id }
+    );
+    let same_generation = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+    assert_eq!(
+        Item::open(&ct, &same_generation, &vault, &id).unwrap_err(),
+        Error::ItemCorrupted { item_id: id }
+    );
     let vk2 = VaultKey::generate(KeyGeneration::new(2).unwrap()).unwrap();
     assert_eq!(
         Item::open(&ct, &vk2, &vault, &id).unwrap_err(),
         Error::KeyGenerationMismatch
+    );
+    // A tombstone's bytes are not an item and an item's are not a
+    // tombstone: the header layouts differ, and the AAD labels differ.
+    let mut gone = login();
+    gone.delete(dev(1), at(101)).unwrap();
+    let tomb = gone.to_tombstone().unwrap().seal(&vk, &vault, &id).unwrap();
+    // A tombstone body is not padded to the item layout.
+    assert_eq!(
+        ItemCiphertext::from_bytes(tomb.as_bytes())
+            .and_then(|c| Item::open(&c, &vk, &vault, &id))
+            .unwrap_err(),
+        Error::Malformed
+    );
+    // Generation 0x0001_0001 makes an item header (schema 1) parse as a
+    // tombstone header of the same generation, so the bytes reach the AEAD
+    // and fail on the tombstone's AAD label.
+    let g = KeyGeneration::new(0x0001_0001).unwrap();
+    let vk_g = VaultKey::generate(g).unwrap();
+    let item_ct = item.seal(&vk_g, &vault, &id).unwrap();
+    let as_tomb = TombstoneCiphertext::from_bytes(item_ct.as_bytes()).unwrap();
+    assert_eq!(as_tomb.key_generation(), g);
+    assert_eq!(
+        Tombstone::open(&as_tomb, &vk_g, &vault, &id).unwrap_err(),
+        Error::ItemCorrupted { item_id: id }
     );
     // A newer schema version in the header is refused before decryption.
     let pt = item.to_json().unwrap();
@@ -1007,6 +1090,21 @@ fn device_id_reuse_is_detected() {
         .collect();
     values.sort_unstable();
     assert_eq!(values, ["from-desktop", "from-ext"]);
+    // Regression: one edit each from the same state leaves the counters
+    // equal, so only the colliding stamp shows the reuse. Either writer
+    // finds out right away when it merges the other's record.
+    assert_eq!(
+        desktop.merge_and_repair(&ext, dev(4)).unwrap_err(),
+        Error::DeviceIdReused
+    );
+    assert_eq!(
+        ext.merge_and_repair(&desktop, dev(4)).unwrap_err(),
+        Error::DeviceIdReused
+    );
+    // After rotating, the merge goes through and keeps both values.
+    let rotated = desktop.merge_and_repair(&ext, dev(5)).unwrap();
+    assert!(rotated.stamp_collision);
+    assert_eq!(rotated.item.conflicts().len(), 1);
     // The writer whose ID was reused finds out on its next merge.
     ext.edit(dev(4), at(2)).set_title("ext again").unwrap();
     assert_eq!(
@@ -1088,4 +1186,107 @@ fn counters_never_go_down_through_conflict_resolution() {
             .unwrap_err(),
         Error::Malformed
     );
+}
+
+/// Review M2, third round (tests): ADR-0009 item 5 at the model level. A
+/// device that trashes and restores (its net edit removes only what it
+/// wrote) does not beat a concurrent delete; one that only trashes does.
+#[test]
+fn a_net_removal_does_not_beat_a_concurrent_delete() {
+    let base = login();
+    let mut undoer = copy(&base);
+    undoer.edit(dev(5), at(10)).trash().unwrap();
+    undoer.edit(dev(5), at(11)).restore_from_trash().unwrap();
+    let mut deleter = copy(&base);
+    deleter
+        .edit(dev(6), at(12))
+        .set_secret(SecretField::Password, "late")
+        .unwrap();
+    deleter.delete(dev(6), at(13)).unwrap();
+
+    let on_undoer = undoer.merge_and_repair(&deleter, dev(5)).unwrap();
+    assert!(on_undoer.item.is_deleted(), "the delete wins");
+    assert_eq!(on_undoer.restored_fields, 0);
+    let on_deleter = deleter.merge_and_repair(&undoer, dev(6)).unwrap();
+    assert!(on_deleter.item.is_deleted());
+    assert_eq!(on_undoer.item, on_deleter.item);
+
+    // Trash without the restore is a write that survives the delete.
+    let mut trasher = copy(&base);
+    trasher.edit(dev(5), at(10)).trash().unwrap();
+    let out = trasher.merge_and_repair(&deleter, dev(5)).unwrap();
+    assert!(!out.item.is_deleted(), "the concurrent write wins");
+    assert!(out.item.trashed_at().is_some());
+    assert!(out.item.deleted_concurrently().is_some());
+    assert!(out.restored_fields > 0);
+}
+
+/// Review M2, fourth round (tests, low): the `conflict_copy_of` member is
+/// validated like the other metadata. A valid item ID is readable and
+/// returned; an integer, a string that is not a UUID and the nil UUID are
+/// listed by `unreadable_fields` and read as no mark. Either way the value
+/// survives a round trip and a merge unchanged (unknown values are kept).
+#[test]
+fn conflict_copy_of_is_validated_and_kept() {
+    let valid = "0e0e0e0e-0e0e-0e0e-0e0e-0e0e0e0e0e0e";
+    let cases: [(serde_json::Value, Option<ItemId>); 5] = [
+        (
+            serde_json::json!(valid),
+            Some(ItemId::from_bytes([0x0E; 16]).unwrap()),
+        ),
+        (serde_json::json!(42), None),
+        (serde_json::json!("not a uuid"), None),
+        (
+            serde_json::json!("00000000-0000-0000-0000-000000000000"),
+            None,
+        ),
+        (
+            serde_json::json!("0E0E0E0E-0E0E-0E0E-0E0E-0E0E0E0E0E0E"),
+            None,
+        ),
+    ];
+    for (value, expected) in cases {
+        let base = login();
+        let mut json: serde_json::Value =
+            serde_json::from_slice(base.to_json().unwrap().expose_secret()).unwrap();
+        // The mark under a stamp of its own (device 8), so a replica of
+        // the base has not seen it.
+        let device = "08080808-0808-0808-0808-080808080808";
+        json["vv"][device] = serde_json::json!(1);
+        json["fields"]["conflict_copy_of"] = serde_json::json!([{
+            "at": 100, "c": 1, "d": device, "v": value,
+        }]);
+        let Ok(item) = Item::from_json(&serde_json::to_vec(&json).unwrap()) else {
+            // A non-canonical spelling may be refused outright, which also
+            // keeps it from being misread.
+            assert_eq!(expected, None, "{value}");
+            continue;
+        };
+        assert_eq!(item.conflict_copy_of(), expected, "{value}");
+        let unreadable = item.unreadable_fields();
+        assert_eq!(
+            unreadable.contains(&"conflict_copy_of"),
+            expected.is_none(),
+            "{value}: {unreadable:?}"
+        );
+        // Round trip and merge keep the value byte for byte.
+        let back = copy(&item);
+        assert_eq!(back, item);
+        let mut other = copy(&base);
+        other.edit(dev(7), at(200)).set_title("elsewhere").unwrap();
+        let merged = item.merge(&other);
+        assert_eq!(
+            merged.value("conflict_copy_of"),
+            item.value("conflict_copy_of"),
+            "{value}"
+        );
+        assert_eq!(merged.conflict_copy_of(), expected);
+        // Dismissing removes it, whatever it held.
+        let mut dismissed = copy(&item);
+        dismissed
+            .edit(dev(7), at(300))
+            .dismiss_conflict_copy()
+            .unwrap();
+        assert_eq!(dismissed.value("conflict_copy_of"), None);
+    }
 }

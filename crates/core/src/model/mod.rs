@@ -60,7 +60,7 @@ pub use clock::{Causality, Stamp, Timestamp, VersionVector};
 pub use doc::{Entry, FieldConflict, MAX_FIELD_KEY_LEN, SCHEMA_VERSION};
 pub use item::{
     DeletionInfo, ElementId, HistoryEntry, Item, ItemEdit, ItemType, MAX_HISTORY, MAX_TAG_LEN,
-    MergeOutcome, SecretField, TextField,
+    MergeOutcome, OversizedSplit, SecretField, TextField,
 };
 pub use tombstone::Tombstone;
 pub use types::{

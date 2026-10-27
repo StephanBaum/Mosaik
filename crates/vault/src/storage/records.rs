@@ -417,11 +417,10 @@ impl Store {
     /// [`Store::records`].
     ///
     /// After [`Store::accept_vault_key`] raises the accepted generation,
-    /// the ones with a pending local change (`outbox_seq` set) must be
-    /// re-sealed under the new key and stored again with
-    /// [`Origin::Local`]: peers that have accepted the new generation
-    /// reject the old ciphertext (§7.1), so the edit would be lost. The
-    /// others are re-encrypted by the vault owner's rotation (§8.3).
+    /// every readable one is re-sealed under the new key and stored again
+    /// with [`Origin::Local`] (ADR-0012 item 7): peers that have accepted
+    /// the new generation reject the old ciphertext (§7.1), so a version
+    /// that only this device holds would otherwise never reach them.
     ///
     /// # Errors
     /// [`Error::Database`].
@@ -438,12 +437,16 @@ impl Store {
 
     /// Records that the server stored the local change at `outbox_seq` as
     /// `server_seq`. The change leaves the outbox only if it is still the
-    /// pending one; if a newer local change was made meanwhile, that one
-    /// stays queued (and `false` is returned). `server_seq` is stored
-    /// either way.
+    /// pending one; if a newer change was queued meanwhile (a local edit,
+    /// or a merge with a version pulled after the upload), that one stays
+    /// queued and `false` is returned. `server_seq` is stored unless the
+    /// row already holds a later one: an acknowledgement that arrives after
+    /// a newer version was pulled never lowers it, and for a superseded
+    /// change it is not an error.
     ///
     /// # Errors
-    /// [`Error::UnknownRecord`], [`Error::StaleServerSeq`],
+    /// [`Error::UnknownRecord`], [`Error::StaleServerSeq`] if the pending
+    /// change itself is acknowledged below the stored sequence number,
     /// [`Error::SeqOutOfRange`].
     pub fn mark_uploaded(
         &mut self,
@@ -456,8 +459,13 @@ impl Store {
         let tx = self.write()?;
         let (stored_server, stored_outbox) =
             sync_columns(&tx, vault_id, record_id)?.ok_or(Error::UnknownRecord)?;
-        check_server_seq(stored_server, server_seq)?;
         let cleared = stored_outbox == Some(outbox_seq.0);
+        if !cleared && stored_server.is_some_and(|stored| stored > server_seq) {
+            // The acknowledged change was superseded by a newer queued one
+            // that already carries a later server version: nothing to do.
+            return Ok(false);
+        }
+        check_server_seq(stored_server, server_seq)?;
         tx.execute(
             "UPDATE records SET server_seq = ?3,
                  outbox_seq = CASE WHEN ?4 THEN NULL ELSE outbox_seq END
@@ -601,6 +609,12 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
         assert!(q3 > q2);
+        // Review M2, third round: the late ack for v2 (uploaded before the
+        // merge pulled seq 6) is for a superseded change. It is no error,
+        // keeps q3 queued and never lowers the stored server_seq.
+        assert!(!s.mark_uploaded(&f.vault, &id, q2, 5).unwrap());
+        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert_eq!((r.server_seq, r.outbox_seq), (Some(6), Some(q3)));
         assert!(matches!(
             s.mark_uploaded(&f.vault, &id, q3, 4),
             Err(Error::StaleServerSeq {

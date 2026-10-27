@@ -123,18 +123,28 @@ proptest! {
             match op {
                 GenOp::Accept(n) => {
                     let r = store.accept_vault_key(&vault, g(n), &wrap(n));
-                    if n < model.highest {
+                    match n.cmp(&model.highest) {
+                    core::cmp::Ordering::Less => {
                         prop_assert!(matches!(
                             r,
                             Err(Error::KeyGenerationRollback { highest_accepted, offered })
                                 if highest_accepted == model.highest && offered == n
                         ), "{:?}", r);
-                    } else {
+                    }
+                    core::cmp::Ordering::Equal => {
+                        // A fresh key for a held generation: refused (ADR-0013).
+                        prop_assert!(matches!(
+                            r,
+                            Err(Error::VaultKeyConflict { generation }) if generation == n
+                        ), "{:?}", r);
+                    }
+                    core::cmp::Ordering::Greater => {
                         let state = r.unwrap();
                         model.highest = n;
                         model.current = model.current.max(n);
                         model.keys.insert(n);
                         prop_assert_eq!(state.highest_accepted_generation, g(n));
+                    }
                     }
                 }
                 GenOp::WriteRecord(i, n) => {
@@ -257,7 +267,8 @@ proptest! {
     /// increasing outbox positions and keep `server_seq`; remote writes set
     /// `server_seq`, never go backwards and never replace a pending local
     /// change; merged writes do both; an upload ack clears only the change
-    /// it acknowledges.
+    /// it acknowledges, and a late ack for a superseded change changes
+    /// nothing.
     #[test]
     fn record_upserts_follow_the_model(ops in proptest::collection::vec(rec_op(), 1..60)) {
         let mut store = Store::open_in_memory().unwrap();
@@ -331,6 +342,11 @@ proptest! {
                     let r = store.mark_uploaded(&vault, &ids[usize::from(i)], token, s);
                     match model.get_mut(&i) {
                         None => prop_assert!(matches!(r, Err(Error::UnknownRecord)), "{r:?}"),
+                        // A late ack for a superseded change: no error,
+                        // nothing changes (review M2, third round).
+                        Some(m) if m.server_seq.is_some_and(|st| st > s) && m.outbox != Some(token) => {
+                            prop_assert_eq!(r.unwrap(), false);
+                        }
                         Some(m) if m.server_seq.is_some_and(|st| st > s) => {
                             prop_assert!(matches!(r, Err(Error::StaleServerSeq { .. })), "{r:?}");
                         }

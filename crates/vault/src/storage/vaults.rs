@@ -268,20 +268,27 @@ impl Store {
         read_floor(&self.conn, vault_id)
     }
 
-    /// Records an accepted wrapped vault key: after a rotation (§8.3), or a
-    /// re-wrap of the highest accepted generation. The caller has unwrapped
-    /// it (with AK, or with TK for a [`VaultKeyWrap::TotpKey`] vault), which
-    /// authenticates the generation in the AAD.
+    /// Records an accepted wrapped vault key after a rotation (§8.3). The
+    /// caller has unwrapped it (with AK, or with TK for a
+    /// [`VaultKeyWrap::TotpKey`] vault), which authenticates the generation
+    /// in the AAD.
     ///
     /// A generation above the highest accepted one raises both the current
     /// and the highest accepted generation to it. The highest accepted
-    /// generation never decreases. Afterwards, re-seal the pending records
-    /// that [`Store::records_below_generation`] lists. To re-wrap a held
-    /// key of a lower generation, use [`Store::rewrap_vault_key`].
+    /// generation never decreases. Afterwards, re-seal the records that
+    /// [`Store::records_below_generation`] lists. Offering the held
+    /// wrapping of the highest accepted generation again is a no-op; any
+    /// other wrapping of a generation that is already held is refused
+    /// ([`Error::VaultKeyConflict`]): this store cannot tell a second
+    /// wrapping of the same key from a different key of the same
+    /// generation, so it never replaces one here. To re-wrap a held key,
+    /// use [`Store::rewrap_vault_key`].
     ///
     /// # Errors
     /// [`Error::UnknownVault`]; [`Error::KeyGenerationRollback`] if
-    /// `generation` is below the highest accepted generation.
+    /// `generation` is below the highest accepted generation;
+    /// [`Error::VaultKeyConflict`] if a different wrapping of `generation`
+    /// is held.
     pub fn accept_vault_key(
         &mut self,
         vault_id: &VaultId,
@@ -295,6 +302,24 @@ impl Store {
                 highest_accepted: state.highest_accepted_generation.get(),
                 offered: generation.get(),
             });
+        }
+        let held: Option<Vec<u8>> = tx
+            .query_row(
+                "SELECT wrapped_vk FROM vault_keys WHERE vault_id = ?1 AND generation = ?2",
+                params![vault_id.as_bytes(), generation.get()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match held {
+            Some(bytes) if bytes.as_slice() == wrapped_vault_key.as_bytes().as_slice() => {
+                return Ok(state);
+            }
+            Some(_) => {
+                return Err(Error::VaultKeyConflict {
+                    generation: generation.get(),
+                });
+            }
+            None => {}
         }
         if generation > state.highest_accepted_generation {
             state.highest_accepted_generation = generation;
@@ -399,6 +424,38 @@ impl Store {
             ))
         })
         .collect()
+    }
+
+    /// Every wrapped vault key held for a vault that decodes, oldest
+    /// generation first, leaving out damaged rows instead of failing like
+    /// [`Store::vault_keys`]. A session loading a vault uses it, so one
+    /// damaged key row does not hide the other generations (records still
+    /// sealed under them stay readable and keep their rollback anchor).
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn readable_vault_keys(
+        &self,
+        vault_id: &VaultId,
+    ) -> Result<Vec<(KeyGeneration, WrappedKey)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT generation, wrapped_vk FROM vault_keys WHERE vault_id = ?1
+             ORDER BY generation",
+        )?;
+        let rows = stmt.query_map([vault_id.as_bytes()], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        let mut keys = Vec::new();
+        for row in rows {
+            let (generation, wrapped) = row?;
+            if let (Ok(generation), Ok(wrapped)) = (
+                generation_from_sql(generation),
+                WrappedKey::from_bytes(&wrapped),
+            ) {
+                keys.push((generation, wrapped));
+            }
+        }
+        Ok(keys)
     }
 
     /// Deletes the wrapped vault keys of every generation below
@@ -753,9 +810,24 @@ pub(crate) mod tests {
                 offered: 2
             })
         ));
-        // Re-wrapping the accepted generation is allowed.
+        // The held wrapping again is a no-op; a different key (or wrapping)
+        // of a held generation is refused and changes nothing (ADR-0013).
+        assert_eq!(s.accept_vault_key(&f.vault, g(3), &w3).unwrap(), st);
         let (_, w3b) = f.key(3);
-        s.accept_vault_key(&f.vault, g(3), &w3b).unwrap();
+        assert!(matches!(
+            s.accept_vault_key(&f.vault, g(3), &w3b),
+            Err(Error::VaultKeyConflict { generation: 3 })
+        ));
+        assert!(matches!(
+            s.accept_vault_key(&f.vault, g(1), &w3b),
+            Err(Error::KeyGenerationRollback {
+                highest_accepted: 3,
+                offered: 1
+            })
+        ));
+        assert_eq!(s.vault_key(&f.vault, g(3)).unwrap(), Some(w3.clone()));
+        // Re-wrapping a held key goes through `rewrap_vault_key`.
+        s.rewrap_vault_key(&f.vault, g(3), &w3b).unwrap();
         assert_eq!(s.vault_key(&f.vault, g(3)).unwrap(), Some(w3b.clone()));
         assert_eq!(s.vault_key(&f.vault, g(2)).unwrap(), None);
         let keys: Vec<_> = s.vault_keys(&f.vault).unwrap();

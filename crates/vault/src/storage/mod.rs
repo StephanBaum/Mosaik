@@ -15,6 +15,7 @@
 //! | `records` | [`ItemCiphertext`] / [`TombstoneCiphertext`], `server_seq`, outbox (§7.2, §10) |
 //! | `sync_cursors` | per-vault pull cursor (§10) |
 //! | `attachments` | routing metadata; the ciphertext is a file named by the attachment ID (§7.3) |
+//! | `local_device` | this install's device ID, which stamps local edits (§10, public per §12) |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
 //! store cannot be handed a plaintext or a key. Every object is decoded
@@ -38,6 +39,14 @@
 //! adds two cheap checks of its own: a record's `server_seq` never
 //! decreases, and a remote write or a delete never silently drops a local
 //! change that is still in the outbox ([`Error::PendingLocalChange`]).
+//!
+//! **One live session per store.** [`Store::open`] takes an exclusive OS
+//! lock on a sidecar file `<path>-lock` and holds it until the store is
+//! dropped or closed; a second open of the same file, from this process or
+//! another one, fails with [`Error::StoreInUse`]. Two sessions on one file
+//! would share one device ID and each edit its own stale copy of the
+//! items, so one would overwrite the other's edit without a conflict
+//! (ADR-0010 item 10).
 //!
 //! Durability: WAL journal, `synchronous = FULL`, foreign keys on,
 //! `secure_delete` on (deleted rows are overwritten), `trusted_schema` off.
@@ -71,12 +80,14 @@
 
 mod account;
 mod attachments;
+mod device;
 mod error;
 mod records;
 mod schema;
 mod vaults;
 
 use std::fmt;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -117,10 +128,16 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Suffix of the attachment directory next to the database file.
 const ATTACHMENT_DIR_SUFFIX: &str = "-attachments";
 
+/// Suffix of the lock file next to the database file.
+const LOCK_FILE_SUFFIX: &str = "-lock";
+
 /// The local store. See the [module documentation](self).
 pub struct Store {
     conn: Connection,
     attachment_dir: Option<PathBuf>,
+    /// The exclusive lock of a file store, held for the store's lifetime
+    /// and released when the file is closed.
+    _lock: Option<File>,
 }
 
 impl fmt::Debug for Store {
@@ -139,7 +156,9 @@ impl Store {
     ///
     /// # Errors
     /// [`Error::InvalidPath`] if `path` has no file name,
-    /// [`Error::NotAMosaicStore`] for another SQLite database,
+    /// [`Error::StoreInUse`] if the store is already open (in this process
+    /// or another one), [`Error::NotAMosaicStore`] for another SQLite
+    /// database,
     /// [`Error::SchemaTooNew`] for a store from a newer build,
     /// [`Error::Database`] / [`Error::Io`] otherwise.
     ///
@@ -147,15 +166,29 @@ impl Store {
     /// written to it. On Unix, the database, its WAL and shared-memory
     /// files and the attachment directory are made owner-only (`0600` /
     /// `0700`), also when they already existed with looser permissions.
+    ///
+    /// `path` is resolved first (symbolic links, `.` and `..`, relative
+    /// paths), and the lock file and the attachment directory are named
+    /// after the resolved path, so every spelling of one database, a
+    /// symbolic link to it included, shares one lock. A hard link to the
+    /// database file is not detectable this way (SQLite has the same
+    /// caveat) and is a residual risk (`THREAT_MODEL` R13).
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
+        attachment_dir_for(path)?;
+        attachments::prepare_db_file(path)?;
+        let resolved = resolve_store_path(path)?;
+        let path = resolved.as_path();
         let attachment_dir = attachment_dir_for(path)?;
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        attachments::prepare_db_file(path)?;
         let conn = Connection::open_with_flags(path, flags)?;
-        let store = Self::init(conn, Some(attachment_dir))?;
+        // Read-only, so a foreign file gets no lock file next to it; the
+        // lock is taken before anything is written.
+        schema::check_compatible(&conn, schema::latest_of(schema::MIGRATIONS))?;
+        let lock = lock_store(path)?;
+        let store = Self::init(conn, Some(attachment_dir), Some(lock))?;
         attachments::restrict_db_files(path)?;
         if let Some(dir) = &store.attachment_dir {
             attachments::create_dir(dir)?;
@@ -170,10 +203,14 @@ impl Store {
     /// # Errors
     /// [`Error::Database`].
     pub fn open_in_memory() -> Result<Self> {
-        Self::init(Connection::open_in_memory()?, None)
+        Self::init(Connection::open_in_memory()?, None, None)
     }
 
-    fn init(mut conn: Connection, attachment_dir: Option<PathBuf>) -> Result<Self> {
+    fn init(
+        mut conn: Connection,
+        attachment_dir: Option<PathBuf>,
+        lock: Option<File>,
+    ) -> Result<Self> {
         // Connection settings only; none of them writes to the file.
         conn.busy_timeout(BUSY_TIMEOUT)?;
         conn.pragma_update(None, "foreign_keys", true)?;
@@ -194,7 +231,15 @@ impl Store {
         Ok(Self {
             conn,
             attachment_dir,
+            _lock: lock,
         })
+    }
+
+    /// The raw connection, so unit tests elsewhere in the crate can damage
+    /// rows the way an outside writer would.
+    #[cfg(test)]
+    pub(crate) const fn conn_for_tests(&self) -> &Connection {
+        &self.conn
     }
 
     /// The schema version of the open store.
@@ -309,6 +354,66 @@ impl Store {
     }
 }
 
+/// Takes the exclusive lock of the store at `path` (an advisory OS lock on
+/// `<path>-lock`, which stays behind empty). Waiting would only hide the
+/// other session, so a held lock fails at once.
+fn lock_store(path: &Path) -> Result<File> {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(LOCK_FILE_SUFFIX);
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(PathBuf::from(name))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(TryLockError::WouldBlock) => Err(Error::StoreInUse),
+        Err(TryLockError::Error(e)) => Err(e.into()),
+    }
+}
+
+/// The absolute path of the store at `path` with every symbolic link,
+/// `.` and `..` resolved. A database that does not exist yet (on systems
+/// where `prepare_db_file` does not create it) is resolved through its
+/// directory.
+fn resolve_store_path(path: &Path) -> Result<PathBuf> {
+    let name = path.file_name().ok_or(Error::InvalidPath)?;
+    let resolved = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let parent = match path.parent() {
+                Some(p) if !p.as_os_str().is_empty() => p,
+                _ => Path::new("."),
+            };
+            std::fs::canonicalize(parent)?.join(name)
+        }
+        Err(e) => return Err(e.into()),
+    };
+    Ok(without_verbatim_prefix(resolved))
+}
+
+/// On Windows `canonicalize` returns `\\?\C:\...`; the plain `C:\...` form
+/// names the same file and is what SQLite and users expect. Other paths
+/// (and every path elsewhere) are returned unchanged.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        let mut components = path.components();
+        if let Some(Component::Prefix(prefix)) = components.next()
+            && let Prefix::VerbatimDisk(drive) = prefix.kind()
+        {
+            let mut plain = PathBuf::from(format!("{}:", char::from(drive)));
+            plain.push(components.as_path());
+            return plain;
+        }
+    }
+    path
+}
+
 fn attachment_dir_for(path: &Path) -> Result<PathBuf> {
     let name = path.file_name().ok_or(Error::InvalidPath)?;
     let mut dir = name.to_os_string();
@@ -404,6 +509,176 @@ mod tests {
         s.close().unwrap();
         let s = Store::open(&path).unwrap();
         assert_eq!(s.schema_version().unwrap(), LATEST_VERSION);
+    }
+
+    /// Two sessions on one file would share a device ID and overwrite each
+    /// other's edits from stale caches (sync review, t1); the second open
+    /// is refused until the first store is closed or dropped.
+    #[test]
+    fn a_store_is_open_only_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.db");
+        let first = Store::open(&path).unwrap();
+        assert!(matches!(Store::open(&path), Err(Error::StoreInUse)));
+        // Another spelling of the same path is the same lock file.
+        let other_spelling = dir.path().join(".").join("vault.db");
+        assert!(matches!(
+            Store::open(&other_spelling),
+            Err(Error::StoreInUse)
+        ));
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let dotted = dir.path().join("sub").join("..").join("vault.db");
+        assert!(matches!(Store::open(&dotted), Err(Error::StoreInUse)));
+        first.close().unwrap();
+        let second = Store::open(&path).unwrap();
+        assert!(matches!(Store::open(&path), Err(Error::StoreInUse)));
+        drop(second);
+        Store::open(&path).unwrap();
+    }
+
+    /// Review M2, third round (tests): a symbolic link to the database used
+    /// to get its own lock file (`alias.db-lock`) and its own attachment
+    /// directory while SQLite followed the link to the same database, so
+    /// two sessions could open one store again.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_an_open_store_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.db");
+        let first = Store::open(&path).unwrap();
+        let alias = dir.path().join("alias.db");
+        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        assert!(matches!(Store::open(&alias), Err(Error::StoreInUse)));
+        // A relative path to the same file shares the lock too.
+        let linked_dir = dir.path().join("linked");
+        std::os::unix::fs::symlink(dir.path(), &linked_dir).unwrap();
+        assert!(matches!(
+            Store::open(linked_dir.join("vault.db")),
+            Err(Error::StoreInUse)
+        ));
+        let dir_of_first = first.attachment_dir().unwrap().to_path_buf();
+        drop(first);
+        let through_alias = Store::open(&alias).unwrap();
+        assert_eq!(through_alias.attachment_dir().unwrap(), dir_of_first);
+        assert!(!dir.path().join("alias.db-lock").exists());
+        assert!(!dir.path().join("alias.db-attachments").exists());
+    }
+
+    /// Review M2, fourth round (tests): the symbolic-link refusal on
+    /// Windows. Creating a symbolic link needs a privilege (or developer
+    /// mode) there; without it the test has nothing to check and returns.
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_symlink_to_an_open_store_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.db");
+        let first = Store::open(&path).unwrap();
+        let alias = dir.path().join("alias.db");
+        if std::os::windows::fs::symlink_file(&path, &alias).is_err() {
+            return;
+        }
+        assert!(matches!(Store::open(&alias), Err(Error::StoreInUse)));
+        let dir_of_first = first.attachment_dir().unwrap().to_path_buf();
+        drop(first);
+        let through_alias = Store::open(&alias).unwrap();
+        assert_eq!(through_alias.attachment_dir().unwrap(), dir_of_first);
+        assert!(!dir.path().join("alias.db-lock").exists());
+    }
+
+    /// Serializes the tests that change the process's current directory.
+    static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Restores the current directory when dropped.
+    struct CwdGuard(PathBuf);
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.0).unwrap();
+        }
+    }
+
+    /// Review M2, fourth round (tests): a bare relative file name whose
+    /// database does not exist yet resolves through the current directory,
+    /// and every spelling of it (bare, `./`, absolute) shares one lock.
+    #[test]
+    fn a_relative_store_name_shares_the_lock_with_every_spelling() {
+        let _serial = CWD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = tempfile::tempdir().unwrap();
+        let _restore = CwdGuard(std::env::current_dir().unwrap());
+        std::env::set_current_dir(dir.path()).unwrap();
+        assert!(!Path::new("relative.db").exists());
+        let cwd = without_verbatim_prefix(std::fs::canonicalize(".").unwrap());
+        assert_eq!(
+            resolve_store_path(Path::new("relative.db")).unwrap(),
+            cwd.join("relative.db")
+        );
+        let first = Store::open("relative.db").unwrap();
+        assert!(matches!(
+            Store::open("./relative.db"),
+            Err(Error::StoreInUse)
+        ));
+        assert!(matches!(
+            Store::open(cwd.join("relative.db")),
+            Err(Error::StoreInUse)
+        ));
+        assert_eq!(
+            first.attachment_dir().unwrap(),
+            cwd.join("relative.db-attachments")
+        );
+    }
+
+    /// Review M2, fourth round (tests): only the verbatim disk prefix is
+    /// removed; a verbatim UNC path and plain paths stay as they are.
+    #[test]
+    fn only_the_verbatim_disk_prefix_is_removed() {
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                without_verbatim_prefix(PathBuf::from(r"\\?\C:\Users\x\vault.db")),
+                PathBuf::from(r"C:\Users\x\vault.db")
+            );
+            for unchanged in [
+                r"\\?\UNC\server\share\vault.db",
+                r"\\server\share\vault.db",
+                r"C:\Users\x\vault.db",
+                r"\\?\GLOBALROOT\Device\vault.db",
+            ] {
+                assert_eq!(
+                    without_verbatim_prefix(PathBuf::from(unchanged)),
+                    PathBuf::from(unchanged),
+                    "{unchanged}"
+                );
+            }
+        }
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from("/srv/vault.db")),
+            PathBuf::from("/srv/vault.db")
+        );
+    }
+
+    #[test]
+    fn a_store_path_is_resolved_to_one_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vault.db");
+        let s = Store::open(&path).unwrap();
+        let resolved = s.attachment_dir().unwrap().to_path_buf();
+        assert!(resolved.is_absolute());
+        assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
+        assert_eq!(
+            resolved.file_name().unwrap(),
+            std::ffi::OsStr::new("vault.db-attachments")
+        );
+        drop(s);
+        assert_eq!(
+            resolve_store_path(&dir.path().join(".").join("vault.db")).unwrap(),
+            resolve_store_path(&path).unwrap()
+        );
+        assert!(matches!(
+            resolve_store_path(Path::new("..")),
+            Err(Error::InvalidPath)
+        ));
     }
 
     #[test]

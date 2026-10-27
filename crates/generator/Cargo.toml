@@ -21,3 +21,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Known-answer test of the vendored data's SHA-256 (data/README.md).
+sha2.workspace = true

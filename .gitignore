@@ -21,8 +21,12 @@ apps/desktop/src-tauri/gen/
 .DS_Store
 Thumbs.db
 
-# Local Claude Code settings (per developer)
+# Local Claude Code settings and workflow worktrees (per developer)
 .claude/settings.local.json
+.claude/worktrees/
+
+# Crash dumps (Git Bash on Windows writes *.stackdump into the cwd)
+*.stackdump
 
 # Never commit secrets or local vaults
 *.env

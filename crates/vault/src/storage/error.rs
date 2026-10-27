@@ -26,6 +26,12 @@ pub enum Error {
     #[error("invalid database path")]
     InvalidPath,
 
+    /// The store is already open, in this process or another one (for
+    /// example the desktop app while the CLI starts). A store has one live
+    /// session at a time; close the other one first.
+    #[error("the store is open in another session")]
+    StoreInUse,
+
     /// The file is an SQLite database, but not a Mosaic store.
     #[error("not a Mosaic store")]
     NotAMosaicStore,
@@ -119,6 +125,18 @@ pub enum Error {
     /// to re-wrap.
     #[error("unknown vault key generation")]
     UnknownVaultKey,
+
+    /// A different wrapped vault key was offered for a generation that is
+    /// already held: two devices rotated the vault concurrently and made
+    /// two keys for one generation (CRYPTO_SPEC §7.1, ADR-0013). Accepting
+    /// it would make every object sealed under the held key unreadable, so
+    /// nothing was changed. Re-wrapping a held key goes through
+    /// [`super::Store::rewrap_vault_key`].
+    #[error("a different vault key of generation {generation} is already held")]
+    VaultKeyConflict {
+        /// The generation offered twice.
+        generation: u32,
+    },
 
     /// The operation needs a vault whose keys are wrapped the other way: a
     /// TK wrapping on a vault under AK, or a §6.6 re-key of a vault key that

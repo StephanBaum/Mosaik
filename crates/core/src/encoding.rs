@@ -69,10 +69,12 @@ pub(crate) mod label {
     pub(crate) const TOMBSTONE: Label = Label::new("tombstone");
     /// AAD of every attachment chunk (§7.3).
     pub(crate) const ATTACHMENT: Label = Label::new("attachment");
+    /// HKDF info of a conflict copy's item ID (§10, ADR-0016).
+    pub(crate) const CONFLICT_COPY_ID: Label = Label::new("conflict-copy-id");
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 11] = [
+    pub(crate) const ALL: [Label; 12] = [
         SECRET_KEY,
         ROOT,
         KEK,
@@ -84,6 +86,7 @@ pub(crate) mod label {
         ITEM,
         TOMBSTONE,
         ATTACHMENT,
+        CONFLICT_COPY_ID,
     ];
 }
 

@@ -4,6 +4,16 @@ updates:
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+  # Each fuzz crate is its own workspace with its own lockfile; keep them
+  # on the same versions as the main lockfile.
+  - package-ecosystem: cargo
+    directories:
+      - /crates/core/fuzz
+      - /crates/vault/fuzz
+      - /crates/totp/fuzz
+      - /crates/generator/fuzz
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }

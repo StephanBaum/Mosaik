@@ -544,10 +544,13 @@ fn space_is_left_out_unless_required() {
     assert!(p.expose_secret().contains(' '));
     assert!(needs_space.is_satisfied_by(p.expose_secret()));
 
+    // A space-only alphabet has one password per length: refused (fourth
+    // M2 review, entropy floor), so the client generates without the rules.
     let only_space = PasswordRules::parse("allowed: [ ]; maxlength: 3");
-    let p = only_space.generate_with(10, &mut rng).unwrap();
-    assert_eq!(p.expose_secret(), "   ");
-    assert_eq!(only_space.entropy(3).unwrap().bits(), 0.0);
+    assert_eq!(
+        only_space.generate_with(10, &mut rng).unwrap_err(),
+        Error::RulesUnsatisfiable
+    );
 }
 
 #[test]
@@ -646,12 +649,13 @@ fn length_shrinks_when_longer_cannot_work() {
         assert!(r.is_satisfied_by(p.expose_secret()));
         assert_eq!(p.expose_secret().len(), policy.length() as usize);
     }
-    // `max-consecutive: 1` over two letters: only "abab…" and "baba…",
-    // which are likely enough only for short strings.
-    let r = PasswordRules::parse("allowed: [ab]; max-consecutive: 1");
+    // `max-consecutive: 1` over four letters: a random string qualifies
+    // with probability (3/4)^(n-1), likely enough only up to 25 characters
+    // (and 4 × 3^24, about 40 bits, is far above the entropy floor).
+    let r = PasswordRules::parse("allowed: [abcd]; max-consecutive: 1");
     let p = r.generate_with(64, &mut rng).unwrap();
     assert!(r.is_satisfied_by(p.expose_secret()));
-    assert!(p.expose_secret().len() <= 11);
+    assert_eq!(p.expose_secret().len(), 25);
 }
 
 /// The preferred length is floored at `MIN_LENGTH`, as in random-character
@@ -668,15 +672,16 @@ fn preferred_length_has_a_floor() {
         r.generate_with(5, &mut rng).unwrap().expose_secret().len(),
         5
     );
-    // The site's maxlength wins over the floor.
-    let short = PasswordRules::parse("allowed: lower; maxlength: 2");
+    // The site's maxlength wins over the length floor (26^3 passwords meet
+    // the entropy floor).
+    let short = PasswordRules::parse("allowed: lower; maxlength: 3");
     assert_eq!(
         short
             .generate_with(0, &mut rng)
             .unwrap()
             .expose_secret()
             .len(),
-        2
+        3
     );
     assert_eq!(
         short
@@ -684,15 +689,122 @@ fn preferred_length_has_a_floor() {
             .unwrap()
             .expose_secret()
             .len(),
-        2
+        3
     );
-    // Below the floor only when nothing at or above it can work: one
-    // character, never twice in a row, so only "a" itself.
+    // 26^2 passwords do not: no exception for a short site maxlength.
+    assert_eq!(
+        PasswordRules::parse("allowed: lower; maxlength: 2")
+            .generate_with(20, &mut rng)
+            .unwrap_err(),
+        Error::ConstraintsTooStrict
+    );
+    // Never below the floor when the site's maxlength is not shorter: one
+    // character, never twice in a row, fits only "a", which is refused.
     let single = PasswordRules::parse("allowed: [a]; max-consecutive: 1");
     assert_eq!(
-        single.generate_with(20, &mut rng).unwrap().expose_secret(),
-        "a"
+        single.generate_with(20, &mut rng).unwrap_err(),
+        Error::RulesUnsatisfiable
     );
+}
+
+/// Regression (M2 review, third round): page-supplied rules that only short
+/// strings can satisfy used to fall back below `MIN_LENGTH`, down to the
+/// site's minlength (1 by default), and produced a one-character password.
+/// They are refused now, so the UI generates without the site's rules.
+#[test]
+fn hostile_rules_never_force_a_password_below_the_floor() {
+    for rule in [
+        "allowed: [ab]; max-consecutive: 1; max-sequential: 1;",
+        "allowed: [ab]; max-repeating: 1",
+        "allowed: [abc]; max-repeating: 1; minlength: 1",
+    ] {
+        let r = PasswordRules::parse(rule);
+        assert_eq!(r.max_length(), None, "{rule}");
+        for preferred in [0, 1, 4, 20, 128] {
+            let err = r
+                .generate_with(preferred, &mut SplitMix64::new(u64::from(preferred)))
+                .unwrap_err();
+            assert!(
+                matches!(err, Error::RulesUnsatisfiable | Error::ConstraintsTooStrict),
+                "{rule}: {err:?}"
+            );
+            assert_eq!(r.entropy(preferred).unwrap_err(), err, "{rule}");
+        }
+    }
+    // A site maxlength below the length floor is still honoured, at
+    // exactly that length, if the entropy floor holds there.
+    let r = PasswordRules::parse("allowed: lower, digit; maxlength: 3");
+    let p = r.generate_with(20, &mut SplitMix64::new(3)).unwrap();
+    assert_eq!(p.expose_secret().len(), 3);
+    assert!(r.is_satisfied_by(p.expose_secret()));
+    // ... and not otherwise (the third-round version of this test accepted
+    // this one: only "aba" and "bab").
+    let r = PasswordRules::parse("allowed: [ab]; max-consecutive: 1; maxlength: 3");
+    assert_eq!(
+        r.generate_with(20, &mut SplitMix64::new(3)).unwrap_err(),
+        Error::ConstraintsTooStrict
+    );
+}
+
+/// Regression (M2 review, fourth round): the length floor alone let a page
+/// shrink the alphabet instead. `allowed: [a]` generated twenty `a`s, and
+/// `allowed: [abcd]; max-repeating: 1` passed the length floor with only
+/// the 24 orderings of `abcd`. Now every length must leave as many
+/// qualifying passwords as a 4-digit PIN.
+#[test]
+fn hostile_rules_never_force_a_password_below_the_entropy_floor() {
+    for (rule, err) in [
+        ("allowed: [a]", Error::RulesUnsatisfiable),
+        ("allowed: [a]; minlength: 30", Error::RulesUnsatisfiable),
+        ("required: [a]; allowed: [a]", Error::RulesUnsatisfiable),
+        ("allowed: [ ]", Error::RulesUnsatisfiable),
+        (
+            "allowed: [abcd]; max-repeating: 1",
+            Error::ConstraintsTooStrict,
+        ),
+        // 3 digits: 1000 passwords.
+        ("allowed: digit; maxlength: 3", Error::ConstraintsTooStrict),
+        // 94^2 = 8836 passwords: the full printable alphabet cannot reach
+        // the floor in 2 characters, and there is no exception for that.
+        ("maxlength: 2", Error::ConstraintsTooStrict),
+        // Only "abab..." and "baba...": 1 bit at any length.
+        (
+            "allowed: [ab]; max-consecutive: 1",
+            Error::ConstraintsTooStrict,
+        ),
+    ] {
+        let r = PasswordRules::parse(rule);
+        for preferred in [0, 4, 20, 128] {
+            assert_eq!(
+                r.generate_with(preferred, &mut SplitMix64::new(u64::from(preferred)))
+                    .unwrap_err(),
+                err,
+                "{rule}"
+            );
+            assert_eq!(r.entropy(preferred).unwrap_err(), err, "{rule}");
+            // Refused up front, before any randomness is drawn.
+            assert_eq!(
+                r.generate_with(preferred, &mut crate::rng::testing::Failing)
+                    .unwrap_err(),
+                err,
+                "{rule}"
+            );
+        }
+    }
+    // Exactly at the floor: a 4-digit PIN (10^4 passwords) is accepted.
+    let pin = PasswordRules::parse("allowed: digit; minlength: 4; maxlength: 4");
+    let p = pin.generate_with(20, &mut SplitMix64::new(4)).unwrap();
+    assert_eq!(p.expose_secret().len(), 4);
+    assert!(p.expose_secret().bytes().all(|b| b.is_ascii_digit()));
+    // Five letters, each at most once: 5! = 120 orderings at length 5, too
+    // few; the alphabet's ten letters give 10·9·8·7·6 = 30 240 at length 5.
+    let few = PasswordRules::parse("allowed: [abcde]; max-repeating: 1");
+    assert_eq!(few.entropy(20).unwrap_err(), Error::ConstraintsTooStrict);
+    let ten = PasswordRules::parse("allowed: [abcdefghij]; max-repeating: 1");
+    assert_eq!(ten.policy(4).unwrap().length(), 5);
+    // `allowed: [abcd]; max-repeating: 4` allows 16 characters: plenty.
+    let r = PasswordRules::parse("allowed: [abcd]; max-repeating: 4");
+    assert!(r.generate_with(20, &mut SplitMix64::new(5)).is_ok());
 }
 
 /// A deliberately correlated rule set: `b` may only sit next to `b` (its
@@ -748,12 +860,30 @@ fn oversized_rules_are_malformed() {
         PasswordRules::parse(&pad(MAX_RULES_LEN + 1)),
         PasswordRules::default()
     );
-    // The bound counts characters, not bytes.
-    let wide = format!(
-        "minlength: 9; allowed: [{}]",
-        "ä".repeat(MAX_RULES_LEN - 30)
+    // The bound counts bytes of UTF-8 (CRYPTO_SPEC section 13), not
+    // characters: multi-byte input of exactly MAX_RULES_LEN bytes is
+    // parsed, one byte more is malformed although it has far fewer
+    // characters.
+    let wide = |bytes: usize| {
+        let head = "minlength: 9; allowed: [";
+        let fill = bytes - head.len() - 1;
+        let s = format!(
+            "{head}{}{}]",
+            "\u{20ac}".repeat(fill / 3),
+            "a".repeat(fill % 3)
+        );
+        assert_eq!(s.len(), bytes);
+        assert!(s.chars().count() < MAX_RULES_LEN / 2);
+        s
+    };
+    assert_eq!(
+        PasswordRules::parse(&wide(MAX_RULES_LEN)).min_length(),
+        Some(9)
     );
-    assert_eq!(PasswordRules::parse(&wide).min_length(), Some(9));
+    assert_eq!(
+        PasswordRules::parse(&wide(MAX_RULES_LEN + 1)),
+        PasswordRules::default()
+    );
 
     // Distinct required sets: MAX_REQUIRED_CLASSES are kept, one more makes
     // the rule set malformed. Repeats do not count.
@@ -903,9 +1033,13 @@ fn chi_squared_uniform_under_rules() {
     }
     assert_eq!(all.len(), 48);
     let mut counts = vec![0u64; all.len()];
+    // 48 strings are below the entropy floor (CRYPTO_SPEC section 13), so
+    // the policy is built without it; the floor only picks the length.
+    assert_eq!(r.policy(3).unwrap_err(), Error::ConstraintsTooStrict);
+    let policy = r.policy_with_floor(3, 0.0).unwrap();
     let mut rng = SplitMix64::new(0x7275_6c65);
     for _ in 0..all.len() * 2_000 {
-        let p = r.generate_with(3, &mut rng).unwrap();
+        let p = policy.generate(&mut rng).unwrap();
         let i = all.iter().position(|s| s == p.expose_secret()).unwrap();
         counts[i] += 1;
     }
@@ -977,6 +1111,142 @@ proptest! {
                 matches!(e, Error::RulesUnsatisfiable | Error::ConstraintsTooStrict | Error::RetryLimit),
                 "{e:?}"
             ),
+        }
+    }
+}
+
+/// The floor checks of [`generated_length_respects_the_floors`] for one
+/// generated password: at least `MIN_LENGTH` characters unless the site's
+/// maxlength is shorter (then exactly that), and at least
+/// `MIN_RULES_BITS`.
+fn check_floors(rules: &PasswordRules, p: &GeneratedPassword) -> core::result::Result<(), String> {
+    let floor = rules.max_length().map_or(MIN_LENGTH, |m| m.min(MIN_LENGTH));
+    let len = u32::try_from(p.expose_secret().chars().count()).map_err(|e| e.to_string())?;
+    if len < floor || (floor < MIN_LENGTH && len != floor) {
+        return Err(format!("{rules} -> {len} characters"));
+    }
+    if p.entropy().bits() < MIN_RULES_BITS - 1e-9 {
+        return Err(format!("{rules} -> {} bits", p.entropy().bits()));
+    }
+    Ok(())
+}
+
+/// CRYPTO_SPEC section 13: whatever the page's rules, a generated password
+/// meets the length and entropy floors, or generation fails. Run with a
+/// counting runner (review M2, fourth round): the property used to pass
+/// without checking anything if most rule sets failed, so at least a
+/// quarter of the cases must generate a password and be checked.
+#[test]
+fn generated_length_respects_the_floors() {
+    use proptest::test_runner::{Config, TestRunner};
+    let mut runner = TestRunner::new_with_rng(
+        Config::with_cases(1024),
+        proptest::test_runner::TestRng::deterministic_rng(
+            proptest::test_runner::RngAlgorithm::ChaCha,
+        ),
+    );
+    let checked = core::cell::Cell::new(0u32);
+    let strategy = (
+        prop::collection::vec(property(), 0..6),
+        0u32..150,
+        any::<u64>(),
+    );
+    runner
+        .run(&strategy, |(props, preferred, seed)| {
+            let rules = PasswordRules::parse(&props.join("; "));
+            if let Ok(p) = rules.generate_with(preferred, &mut SplitMix64::new(seed)) {
+                checked.set(checked.get() + 1);
+                check_floors(&rules, &p).map_err(TestCaseError::fail)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        checked.get() >= 1024 / 4,
+        "only {} of 1024 rule sets generated a password",
+        checked.get()
+    );
+}
+
+/// Small rule sets over at most four characters, for the brute-force
+/// counterpart below.
+fn small_rules() -> impl Strategy<Value = String> {
+    let class = prop::sample::subsequence(vec!['a', 'b', 'c', '0'], 1..=4)
+        .prop_map(|v| format!("[{}]", v.into_iter().collect::<String>()));
+    let rule = prop_oneof![
+        class.clone().prop_map(|c| format!("required: {c}")),
+        (1u32..4).prop_map(|n| format!("max-consecutive: {n}")),
+        (1u32..5).prop_map(|n| format!("max-repeating: {n}")),
+        (2u32..5).prop_map(|n| format!("max-sequential: {n}")),
+        (1u32..9).prop_map(|n| format!("minlength: {n}")),
+        (1u32..9).prop_map(|n| format!("maxlength: {n}")),
+    ];
+    (class, prop::collection::vec(rule, 0..5)).prop_map(|(allowed, rest)| {
+        let mut all = vec![format!("allowed: {allowed}")];
+        all.extend(rest);
+        all.join("; ")
+    })
+}
+
+/// Whether some string over `alphabet` of a length in `lengths` satisfies
+/// `rules`, by enumeration (independent of the estimates).
+fn exists_qualifying(
+    rules: &PasswordRules,
+    alphabet: &[char],
+    lengths: core::ops::RangeInclusive<u32>,
+) -> bool {
+    lengths.into_iter().any(|n| {
+        let n = usize::try_from(n).unwrap();
+        let total = alphabet.len().pow(u32::try_from(n).unwrap());
+        (0..total).any(|mut k| {
+            let mut s = String::with_capacity(n);
+            for _ in 0..n {
+                s.push(alphabet[k % alphabet.len()]);
+                k /= alphabet.len();
+            }
+            rules.is_satisfied_by(&s)
+        })
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// The counterpart of the floor property (review M2, fourth round):
+    /// whenever some length the spec allows (at least `MIN_LENGTH`, or the
+    /// site's shorter maxlength) has a qualifying string, found by brute
+    /// force, generation is never `RulesUnsatisfiable` unless the alphabet
+    /// has a single character. It succeeds, or reports that the rules are
+    /// too strict (`ConstraintsTooStrict`, which includes the entropy
+    /// floor) or too correlated (`RetryLimit`).
+    #[test]
+    fn satisfiable_rules_are_never_reported_unsatisfiable(
+        text in small_rules(),
+        preferred in 0u32..12,
+        seed in any::<u64>(),
+    ) {
+        let rules = PasswordRules::parse(&text);
+        let mut alphabet: Vec<char> = ['a', 'b', 'c', '0']
+            .into_iter()
+            .filter(|&c| rules.allowed().contains(c))
+            .collect();
+        alphabet.sort_unstable();
+        let lo = rules.min_length().unwrap_or(1).max(rules.max_length().map_or(MIN_LENGTH, |m| m.min(MIN_LENGTH)));
+        let hi = rules.max_length().unwrap_or(8).min(8);
+        let satisfiable = lo <= hi && exists_qualifying(&rules, &alphabet, lo..=hi);
+        let result = rules.generate_with(preferred, &mut SplitMix64::new(seed));
+        if satisfiable && alphabet.len() >= 2 {
+            prop_assert!(
+                !matches!(result, Err(Error::RulesUnsatisfiable)),
+                "{} is satisfiable but reported unsatisfiable", text
+            );
+        }
+        if let Ok(p) = &result {
+            prop_assert!(rules.is_satisfied_by(p.expose_secret()));
+            check_floors(&rules, p).map_err(TestCaseError::fail)?;
+        }
+        if alphabet.len() < 2 {
+            prop_assert_eq!(result.unwrap_err(), Error::RulesUnsatisfiable);
         }
     }
 }

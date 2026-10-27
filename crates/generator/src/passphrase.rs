@@ -58,7 +58,11 @@ pub(crate) fn wordlist() -> Result<&'static [&'static str]> {
 }
 
 /// Settings for [`generate_passphrase`].
+///
+/// `#[non_exhaustive]`: start from [`PassphraseOptions::default`] and set
+/// the fields you need, so a later option is not a breaking change.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PassphraseOptions {
     /// Number of words, [`MIN_WORDS`] to [`MAX_WORDS`].
     pub words: u32,
@@ -222,6 +226,26 @@ mod tests {
         assert_eq!(list.first(), Some(&"abacus"));
         assert_eq!(list.last(), Some(&"zoom"));
         assert!(list.iter().all(|w| (3..=9).contains(&w.len())));
+    }
+
+    /// The embedded list is byte-for-byte the file whose SHA-256
+    /// `data/README.md` records (`.gitattributes` keeps LF endings on every
+    /// checkout), so a substituted word cannot slip in.
+    #[test]
+    fn wordlist_matches_the_recorded_sha256() {
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            hex(&Sha256::digest(WORDLIST_TEXT.as_bytes())),
+            "addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e"
+        );
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        use core::fmt::Write as _;
+        bytes.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
     }
 
     #[test]

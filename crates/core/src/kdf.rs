@@ -307,6 +307,49 @@ pub(crate) fn hkdf_sha256(
         .map_err(|_| Error::SizeLimit)
 }
 
+/// The item ID of the conflict copy that holds the value one edit (`counter`
+/// and `device`, its stamp) wrote under `key` in record `item_id`, after an
+/// oversized split (CRYPTO_SPEC §10, ADR-0016):
+///
+/// `UUIDv8(HKDF(VK, "", ctx("conflict-copy-id") || item_id || u32(len(key))
+/// || key || counter:u64 || device_id, 16))`
+///
+/// Every device that holds the vault key and moves the same value out
+/// derives the same ID, so their copies are one record instead of
+/// duplicates; without the key nobody can link a copy to its record (§12).
+/// The UUID version nibble is 8 and the variant is RFC 9562's.
+pub(crate) fn conflict_copy_id(
+    vk: &[u8; 32],
+    item_id: &[u8; 16],
+    key: &[u8],
+    counter: u64,
+    device: &[u8; 16],
+) -> Result<[u8; 16]> {
+    let key_len = u32::try_from(key.len()).map_err(|_| Error::SizeLimit)?;
+    let mut out = [0u8; 16];
+    hkdf_sha256(
+        vk,
+        &[],
+        &[
+            CTX_PREFIX.as_bytes(),
+            label::CONFLICT_COPY_ID.as_bytes(),
+            item_id,
+            &key_len.to_be_bytes(),
+            key,
+            &counter.to_be_bytes(),
+            device,
+        ],
+        &mut out,
+    )?;
+    if let Some(b) = out.get_mut(6) {
+        *b = (*b & 0x0F) | 0x80;
+    }
+    if let Some(b) = out.get_mut(8) {
+        *b = (*b & 0x3F) | 0x80;
+    }
+    Ok(out)
+}
+
 /// `HKDF(ikm, salt, ctx(label), 32)` into a fresh secret.
 fn hkdf_ctx(ikm: &[u8], salt: &[u8], label: Label) -> Result<SecretBytes<32>> {
     let mut out = SecretBytes::<32>::zero();

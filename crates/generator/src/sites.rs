@@ -164,6 +164,24 @@ mod tests {
         assert_eq!(entries().count(), 436);
     }
 
+    /// The embedded quirks file is byte-for-byte the one whose SHA-256
+    /// `data/README.md` records (`.gitattributes` keeps LF endings).
+    #[test]
+    fn rules_match_the_recorded_sha256() {
+        use core::fmt::Write as _;
+        use sha2::{Digest, Sha256};
+        let hex = Sha256::digest(RULES_JSON.as_bytes())
+            .iter()
+            .fold(String::new(), |mut s, b| {
+                let _ = write!(s, "{b:02x}");
+                s
+            });
+        assert_eq!(
+            hex,
+            "d3dc3b25cd879b13af37d3c6bb8e5cc028c2c4a5076fb093a7b3bf0137263531"
+        );
+    }
+
     #[test]
     fn every_key_is_a_normalized_registrable_style_domain() {
         // Common multi-label public suffixes that must never be keys, since

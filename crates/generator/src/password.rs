@@ -55,7 +55,11 @@ pub(crate) fn ascii_mask(s: &str) -> Option<AsciiMask> {
 /// `min` characters from it. Minimums are met by generating uniformly from
 /// the whole alphabet and retrying until they hold, never by forcing
 /// positions, so every qualifying password is equally likely.
+///
+/// `#[non_exhaustive]`: start from [`PasswordOptions::default`] and set the
+/// fields you need, so a later option is not a breaking change.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PasswordOptions {
     /// Length in characters, [`MIN_LENGTH`] to [`MAX_LENGTH`].
     pub length: u32,

@@ -39,7 +39,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Passkeys | ECDSA P-256 (ES256); Ed25519 (EdDSA) | FIPS 186-5, RFC 8032, WebAuthn L3 | `p256`, `ed25519-dalek` |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
-| Randomness | OS CSPRNG | — | `getrandom` (directly in `crates/core`); `rand_core::OsRng` where a `rand` API is needed (generators, §13) |
+| Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no `rand` / `rand_core`, ADR-0011) |
 | Constant-time compare | — | — | `subtle` |
 | Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
@@ -52,7 +52,9 @@ ADR.
 ## 3. Notation and encoding
 
 - `||` is byte concatenation. Integers are unsigned big-endian.
-- `UUID` values are 16 raw bytes (RFC 9562, version 7 for new IDs).
+- `UUID` values are 16 raw bytes (RFC 9562, version 7 for new IDs; the
+  item ID of a conflict copy from an oversized split is version 8, derived
+  as in §10).
 - `HKDF(ikm, salt, info, L)` is HKDF-Extract-then-Expand with SHA-256.
 - `ctx(label)` is the ASCII string `"mosaic/v1/" || label`. Every derived key
   and every AEAD use has a unique label. Labels MUST NOT be reused.
@@ -261,6 +263,25 @@ reject wrapped keys, shares, items and tombstones that carry a lower one.
 Otherwise a server could roll back a rotation, and a removed member could
 inject items under the old key.
 
+A client MUST NOT replace a vault key it holds with a different key of the
+same generation (it compares the unwrapped keys in constant time; the same
+key again is a no-op). A stored wrapping that does not open under AK (a
+damaged row) is not a held key: a received wrapping of that generation
+that opens replaces it (ADR-0012 amendment). Two devices that rotate a vault concurrently create
+two keys for one generation; each keeps its own and refuses the other, so
+nothing it sealed becomes unreadable (ADR-0013). The sync server accepts
+exactly one wrapped key per vault and generation (compare-and-swap on the
+generation, M6), and a device uploads a rotation's wrapped key, and has it
+accepted, before anything sealed under that generation. A device whose
+rotation is refused rotates again to the next generation instead.
+
+A client that accepts a newer generation (its own rotation or a received
+wrapped key) re-seals every object it can read that is still sealed under
+an older one, and queues it for upload. Peers that already accepted the
+newer generation reject the older ciphertext, so a version that only this
+client holds would otherwise never reach them. An interrupted re-seal is
+finished at the next unlock.
+
 A vault's metadata (name, icon, description) is an object type of its own:
 ```
 VaultMeta = header || nonce[24] || AEAD(VK, nonce, pad(meta), aad)
@@ -288,10 +309,10 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   Its plaintext holds the final version vector and the deletion time. It is
   not padded and is at most 64 KiB (ADR-0007).
 
-- **Plaintext** is the canonical serialization of the item (schema in
-  `crates/core`, versioned by `schema_version`). It **includes** the item's
-  revision and version vector, so they are authenticated. Revision metadata the
-  server sees is only a routing hint (rollback handling: §10).
+- **Plaintext** is the canonical serialization of the item (§7.5, versioned
+  by `schema_version`). It **includes** the item's version vector and the
+  stamp of every field value, so they are authenticated. Revision metadata
+  the server sees is only a routing hint (rollback handling: §10).
 - **Padding** `pad(x)`: ISO/IEC 7816-4 (`0x80` then zeros) to the next multiple
   of 256 bytes, with a minimum padded length of 512 bytes. This hides fine
   length information such as password length. The padded plaintext is at
@@ -334,8 +355,12 @@ nonce  = random(24)    -- fresh for every encryption, never derived
 ### 7.4 Password history, trash, TOTP-only vault
 - Password history entries are part of the item plaintext, so they are
   encrypted with it.
-- Trash is a flag inside the plaintext plus a server-side tombstone hint. A
-  hard delete removes the record.
+- Trash is the field `trashed_at` inside the plaintext. The server does not
+  learn it (no server-side hint, ADR-0012). A hard delete ("delete
+  forever") replaces the record with its encrypted tombstone (§7.2), which
+  syncs like any edit and keeps the record's rollback anchor (§10). A
+  record row is purged locally only once the server no longer serves the
+  record either (ADR-0010).
 - **Hardware-protected TOTP vault:** a normal vault whose VK is wrapped *only*
   under a hardware-key wrapping of a separate key, not under AK:
   `TK = random(32)`. For each registered hardware key, TK is wrapped under
@@ -347,6 +372,51 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   the UI: "Codes in this vault need your security key every time, so a stolen
   master password alone is not enough, but losing every registered key loses
   these codes."
+
+### 7.5 Item plaintext encoding (schema_version 1)
+The plaintext of items, vault metadata (§7.1) and tombstones (§7.2) is a
+replicated document, serialized as compact JSON (RFC 8259) with object
+members in a fixed order and no insignificant whitespace (ADR-0009):
+
+```
+item, vault meta = {"schema_version":1,"vv":VV,"fields":{KEY:[ENTRY,...],...}, EXTRA...}
+tombstone        = {"schema_version":1,"vv":VV,"deleted":[ENTRY,...], EXTRA...}
+VV    = {DEVICE_ID:counter,...}           -- counter: u64 >= 1
+ENTRY = {"at":ms,"c":counter,"d":DEVICE_ID,"v":VALUE, EXTRA...}
+```
+
+- `DEVICE_ID` is the lowercase hyphenated UUID of the writer (§10: a
+  fresh writer ID for every unlocked session). `(c, d)` is the Lamport
+  stamp of the edit that wrote the value: `c` is one more than the largest
+  counter in the document's `vv` when the edit starts. `at` is the device's wall clock in Unix milliseconds,
+  shown to the user only and never used to order edits.
+- `KEY` is 1 to 256 bytes of UTF-8 without control characters. Item keys:
+  `type`, `created_at`, `trashed_at`, `title`, `notes`, `favorite`, one key
+  per typed text or secret field (`login.username`, `login.password`,
+  `card.number`, ...), one key per collection element (`url:<id>`,
+  `field:<id>`, `attachment:<uuid>`, `tag:<name>`, `history:<id>`), the
+  structured values `otp`, `passkey`, `ssh.key`, the counters
+  `otp.counter` and `passkey.sign_count`, and `conflict_copy_of` (the item
+  ID of the record a conflict copy was split off from, §10, ADR-0016).
+  Vault metadata keys: `name`, `icon`, `description`. The table in
+  `crates/core/src/model/item.rs` is the reference.
+- A register (`[ENTRY,...]`) holds the values of one key that no replica
+  has superseded yet: normally one, after concurrent edits several.
+- Unknown keys, unknown members of an entry or a structured value, and
+  unknown top-level members (`EXTRA`) are preserved and written back, so
+  an older client never drops what a newer one wrote. New top-level
+  members MUST only ever grow (they merge by the larger value, ADR-0009
+  item 4); anything that can change goes under `fields`.
+- The names `schema_version`, `vv`, `fields` and `deleted` are reserved in
+  both layouts. A decoder MUST reject any of them as an unknown member,
+  and every decoder is strict otherwise: duplicate keys or stamps, wrong
+  types, an empty register, a counter of 0, a stamp not covered by `vv`
+  and nesting deeper than 32 are `Malformed`, and any `schema_version`
+  other than 1 is `UnsupportedVersion`. Fields map keys are serialized in
+  byte order and entry members as shown, so equal documents encode to
+  equal bytes.
+- Strings are held in zeroizing buffers after decoding; secret fields are
+  read into the crate's secret types (§4).
 
 ## 8. Sharing and emergency access
 
@@ -383,10 +453,22 @@ in the threat model.
 
 ### 8.3 Revoking access
 To revoke a member, rotate VK: generate a new VK, re-encrypt every item in the
-vault, re-share the new VK with the remaining members, and increment
-`key_generation`. Until the rotation finishes, the removed member keeps
-whatever they already downloaded. This cannot be avoided and is stated in the
-UI.
+vault, re-seal every attachment of the vault under a fresh `attachment_id`
+and a fresh FK (as for a move, §7.2; the revoking client fetches every
+attachment first and updates the references in the same pass, and the old
+ciphertexts are deleted on the server), re-share the new VK with the
+remaining members, and increment `key_generation`. Until the rotation
+finishes, the removed member keeps whatever they already downloaded. This
+cannot be avoided and is stated in the UI.
+
+The attachment re-seal is required: the FK sits in item plaintext the removed
+member has read, and the attachment AAD carries no key generation, so without
+a fresh FK the removed member and the server together could replace an
+attachment's ciphertext with one that authenticates (ADR-0017). An attachment
+the revoking client cannot fetch is listed in the revoke UI and is not
+protected against the removed member until it is re-sealed. A key rotation
+without a revocation (no other account holds VK, as in M2) MAY keep
+attachments as they are.
 
 ### 8.4 Emergency access
 The grantor seals AK, or selected VKs, to the grantee's `ipk` with HPKE Auth:
@@ -472,19 +554,118 @@ therefore cannot lock the user out.
   per-device monotonic counter. Other devices warn when the checkpoints they receive are
   older than their own state for longer than 24 h.
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
+- **Conflict model** (ADR-0009, encoding §7.5). Every field is a
+  multi-value register; the merge of two replicas is a pure join
+  (commutative, associative, idempotent), so replicas that have seen the
+  same edits hold the same state, whatever the order, duplicates or
+  replays of delivery:
+  - an entry survives the merge if both sides hold it, or one side holds
+    it and the other side's `vv` does not cover its stamp; an entry one
+    side has seen but no longer holds was superseded or removed there;
+  - the displayed value of a field is the entry with the largest stamp
+    (counter, then device ID); concurrent losers stay as **conflict
+    copies**, shown to the user, until a device resolves or dismisses
+    them. Concurrent edits of different fields, URLs, tags or custom
+    fields never conflict;
+  - `type`, `created_at`, `trashed_at`, `favorite` and `history:*` take the
+    largest stamp and are never shown as conflicts; `otp.counter` and
+    `passkey.sign_count` merge by maximum, and no resolution lowers them;
+  - a password change moves the old value into `history:*`, so
+    overwriting a value never loses it silently. A local change leaves at
+    most 32 entries, trimmed by edit order: the stamp of the edit that
+    moved the value there, which the key `history:{counter:016x}.{device}.{seq}`
+    names (a repair that writes an entry back under a fresh stamp keeps its
+    key, so it keeps its place; a key of another form falls back to its
+    winning stamp). A merge of concurrent changes from several devices can
+    hold a few more, and the next change on any device trims back to 32.
 - **Merging** (ADR-0009): a client merges every received record into its
   own latest state of that record with the repairing merge
   (`Item::merge_and_repair` in `crates/core`) and persists only its result,
   never the plain join. A delete that races a concurrent write loses; every
-  replica that had not seen the deletion writes back the fields it held,
-  and the item stays flagged until the user dismisses or deletes again.
-- **Device IDs** are unique per install and per writing process. The
-  desktop app and the browser extension never share one. A restored backup
-  or copied profile takes a new ID. A received record that holds a counter
-  for the client's own ID above the client's stored state for that record
-  means the ID is reused: the client rotates its ID before it edits or
-  merges again (`Error::DeviceIdReused`). Equal stamps with different
-  contents are kept as a conflict and reported to the user.
+  replica that had not seen the deletion writes back every value it held
+  that the deletion removed (conflict copies included, also in a field
+  that survives through a concurrent write; fields the received side holds
+  are left to the merge), and the item stays flagged until the user
+  dismisses or deletes again. Vault metadata merges the same way
+  (`VaultMeta::merge_and_repair`, with the device-ID checks below); it is
+  never deleted.
+- **Oversized merges** (ADR-0016, amended in the fourth M2 review): if the
+  repaired merge of two records that each fit does not fit the item size
+  limit (§7.2), the merge does not fail. The record is the repaired merge
+  reduced as a pure function of that merge, so every device that reaches
+  the same state stores the same record, whichever versions it merged in
+  which order: every content field keeps only the value it shows (its
+  largest stamp), and if the record still does not fit, whole content
+  fields go too, the largest encoded value first (then the larger key).
+  Metadata, `history:*`, the counters, attachment references (their files
+  are bound to the record ID, §7.3) and the `deleted` entries always stay.
+  The vector is the merge's, so the record dominates both inputs. Every
+  value that left the record, other than a repeat of a value the field
+  still shows, becomes a conflict copy: a new item of the vault holding
+  only that value under its key with its original stamp and
+  `conflict_copy_of` (the record's item ID, stamped like the value; left
+  out if the copy would not fit otherwise), with a version vector of
+  exactly that stamp. The copy has no type of its own and is shown with
+  the original's. It is a function of the value alone, because every
+  device that splits the value off builds it: anything taken from the
+  device's record could differ between devices under equal vectors, or
+  carry a device's own stamp that its copy lacks (read as a reused writer
+  ID). Its item ID is
+  `UUIDv8(HKDF(VK, "", ctx("conflict-copy-id") || item_id || u32(len(key)) || key || counter:u64 || device_id, 16))`
+  under the vault's current key, where `(counter, device_id)` is the
+  value's stamp and the UUID version and variant bits are then set. So
+  every device builds the same copy under the same ID, and nobody without
+  `VK` can link a copy to its record (§12). A device stores a copy only if
+  it holds no record of that ID yet. If the record does not fit even
+  without any content field, or a value does not fit a copy of its own,
+  the merge fails with `SizeLimit` and nothing changes.
+- **Applying a received record** (ADR-0012, `mosaic-vault`
+  `UnlockedSession::apply_remote_record`): the record MUST carry exactly
+  the vault's highest accepted `key_generation` (§7.1; a lower one is a
+  rollback, a higher one waits for its wrapped key). It is decrypted with
+  the vault ID and record ID it was filed under. A record the client has
+  no state for is stored as received. A record whose vector the stored one
+  dominates or equals is ignored. Otherwise the repairing merge runs; a
+  result equal to the received record is stored as received, any other
+  result is sealed under the current key and queued for upload. A stored
+  row that cannot be read (damaged, or sealed under a key the client no
+  longer has) gives no rollback anchor: the received version replaces it,
+  and the client reports this so the UI can flag the item. The same holds
+  for vault metadata (`ReplacedUnreadable` from
+  `apply_remote_vault_meta`).
+- **Writer IDs** (the `DEVICE_ID` of stamps, §7.5) are fresh for every
+  unlocked session: the client generates a new one at every unlock and
+  never reads an old one back (ADR-0015). A restored backup or a copied
+  profile therefore never writes under an ID another copy uses, and a local
+  store is open in at most one session at a time (an exclusive lock on its
+  resolved path, ADR-0010 item 10). The desktop app and the browser
+  extension never share a store. Server-side device identity (§12) and the
+  freeze checkpoints above use a stable per-install ID, not the writer ID.
+- **Writer-ID collisions** (forged or corrupted records, or a UUIDv7
+  collision) are handled without losing a value:
+  - A received record that holds a counter for the client's own writer ID
+    above the client's stored state for that record, or one of the
+    client's own stamps with other contents, means the ID is reused: the
+    client rotates its writer ID before it edits or merges again
+    (`Error::DeviceIdReused`). Records the client holds no state for are
+    not checked, because the copy of a moved item keeps the source's
+    version vector (ADR-0012).
+  - After such a rotation the old ID stays suspect for the session. For a
+    record where it collides, the client's entries under it that the
+    received side does not hold are written back under the new ID, and
+    the received side's entries under it are kept although the client's
+    vector covers their counters.
+  - Equal version vectors with different contents are a collision too
+    (honest replicas with equal vectors are equal): every value either
+    side held that the merge dropped is written back.
+  - Equal stamps with different contents are kept as a conflict. A
+    password history key is written by one edit, so two writers under one
+    ID can write the same `history:*` key; a value written back there gets
+    a history key of its own (named after its fresh stamp), because the
+    history shows one value per key.
+  Each case is reported to the user; a value one writer had superseded can
+  come back as a conflict copy. Among written-back values of a field, the
+  one written last by the wall clock is shown.
 - Message parsing on both ends is strict and length-bounded, and is covered by
   fuzz targets.
 
@@ -536,15 +717,41 @@ size buckets), tags, vault names, or attachment names.
 
 ## 13. Randomness, generators, OTP
 
-- Password generator: uniform choice from the character set by rejection
-  sampling (`rand::distr::Uniform` over `OsRng`, unbiased). Passphrases come
-  from the EFF large wordlist (7776 words, 12.9 bits per word). The displayed
-  entropy is `log2(|charset|) × length` (or `12.925 × words`), and is shown as
-  an upper bound whenever site rules constrain the result.
+- Password generator (ADR-0011): every choice draws a 32-bit value from the
+  OS CSPRNG (`getrandom`, read in 256-byte blocks that are wiped as they
+  are used) and maps it to `0..n` by rejection sampling: draws
+  `x < 2^32 mod n` are rejected, then `x mod n` is exactly uniform.
+  Character-class minimums and site rules are met by generating whole
+  candidates and checking them, never by forcing positions, so the output
+  is uniform over the strings that qualify. Settings whose estimated
+  acceptance is below 2^-10 are refused up front; at most 50 000
+  candidates are tried. Passphrases come from the EFF large wordlist
+  (7776 words, 12.9 bits per word); separators are printable ASCII. The
+  displayed entropy is `log2(|charset|) × length` (or `12.925 × words`),
+  and is shown as an upper bound whenever site rules or the separator can
+  constrain the result.
+- Site rules: Apple's `passwordrules` syntax (attribute values from pages,
+  and the vendored Password Manager Resources quirks file, MIT). Input is
+  untrusted: rule text above 4096 bytes of UTF-8 (checked before any of it
+  is parsed) or with more than 32 distinct `required` sets is treated as
+  malformed (no rules), as is any other malformed input. The generated
+  length is at least 4 unless the site's `maxlength` is shorter, and then
+  exactly that `maxlength`. The rules must also leave at least as many
+  equally likely passwords as a 4-digit PIN: an alphabet of fewer than 2
+  characters is refused, and a length `n` is used only if
+  `n × log2(|alphabet|) + log2(p(n)) ≥ log2(10^4)` (about 13.3 bits),
+  where `p(n)` is the estimated share of uniform candidates that satisfy
+  the rules (exact for each kind of constraint, so a binding
+  `max-repeating` counts the exact number of qualifying strings). There is
+  no exception for a short site `maxlength`. Rules that only a shorter or
+  weaker password can satisfy are refused, and the client generates
+  without the site's rules.
 - TOTP/HOTP: RFC 4226 dynamic truncation and RFC 6238 with T0 = 0. SHA-1,
   SHA-256 and SHA-512, 6 to 8 digits, period 1 to 300 s. Steam Guard: 5
-  characters from `23456789BCDFGHJKMNPQRTVWXY`. Secrets are stored inside item
-  plaintext.
+  characters from `23456789BCDFGHJKMNPQRTVWXY`. Secrets are 1 to 128 bytes
+  (1024 bits, the SHA-512 block size; the model refuses longer ones on write
+  and decode, so every stored secret produces codes) and are stored inside
+  item plaintext.
 - OTP verification (account 2FA, §9.3) goes through `mosaic_totp::Otp::verify`:
   a constant-time comparison against every step in a bounded window
   (TOTP ±w steps, HOTP w counters ahead, w ≤ 10, recommended w = 1), and a

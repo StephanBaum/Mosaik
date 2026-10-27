@@ -12,6 +12,10 @@ cargo-fuzz = true
 [workspace]
 members = ["."]
 
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
 libfuzzer-sys = "=0.4.10"

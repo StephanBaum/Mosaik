@@ -330,6 +330,7 @@ dependencies = [
  "getrandom",
  "proptest",
  "serde_json",
+ "sha2",
  "thiserror",
  "zeroize",
 ]
@@ -365,10 +366,12 @@ name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
  "mosaic-core",
+ "mosaic-totp",
  "proptest",
  "rusqlite",
  "tempfile",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

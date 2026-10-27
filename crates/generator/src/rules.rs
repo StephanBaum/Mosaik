@@ -30,10 +30,10 @@
 //!
 //! Unlike the reference, input size is bounded, because a hostile page
 //! supplies the `passwordrules` attribute: a rule string longer than
-//! [`MAX_RULES_LEN`] characters, or one with more than
+//! [`MAX_RULES_LEN`] bytes of UTF-8 (CRYPTO_SPEC section 13), or one with more than
 //! [`MAX_REQUIRED_CLASSES`] distinct `required` sets, is treated as
 //! malformed (no rules). Real rules are far smaller (the longest vendored
-//! one has 204 characters, and none has more than 8 `required` sets). The
+//! one has 204 bytes, and none has more than 8 `required` sets). The
 //! bounds keep parsing, checking and generation linear in the input, and
 //! they are chosen so the canonical display of any accepted rule set is
 //! itself accepted.
@@ -59,8 +59,9 @@ use crate::policy::{
 use crate::rng::{OsRandom, RandomSource};
 use crate::secret::GeneratedPassword;
 
-/// Longest `passwordrules` string [`PasswordRules::parse`] reads, in
-/// characters. Longer input is treated as malformed.
+/// Longest `passwordrules` string [`PasswordRules::parse`] reads, in bytes
+/// of UTF-8. Longer input is treated as malformed before any of it is
+/// parsed.
 pub const MAX_RULES_LEN: usize = 4096;
 
 /// Most distinct `required` sets [`PasswordRules::parse`] accepts. More are
@@ -218,11 +219,11 @@ impl Default for PasswordRules {
 impl PasswordRules {
     /// Parses a `passwordrules` string. Never fails: malformed input
     /// degrades exactly as in Apple's reference parser, and input beyond
-    /// [`MAX_RULES_LEN`] characters or [`MAX_REQUIRED_CLASSES`] distinct
+    /// [`MAX_RULES_LEN`] bytes or [`MAX_REQUIRED_CLASSES`] distinct
     /// `required` sets counts as malformed (see the module documentation).
     #[must_use]
     pub fn parse(input: &str) -> Self {
-        if input.chars().nth(MAX_RULES_LEN).is_some() {
+        if input.len() > MAX_RULES_LEN {
             return Self::default();
         }
         let chars: Vec<char> = input.chars().collect();
@@ -377,12 +378,20 @@ impl PasswordRules {
     /// is `minlength..=maxlength`, at most [`MAX_LENGTH`], at most
     /// `max-repeating × |alphabet|`, and at least [`MIN_LENGTH`] unless the
     /// site's `maxlength` is shorter (so `0` asks for the shortest
-    /// reasonable password, and a site with `maxlength: 2` gets 2
+    /// reasonable password, and a site with `maxlength: 3` gets 3
     /// characters). If the rules are too unlikely to hold at that length
-    /// (estimated acceptance below 1 in 1024), the shortest longer length
-    /// that works is used, else the longest shorter one. The chosen length
-    /// is the length of the result, and its [`Entropy`] reflects it, so a
-    /// short site-imposed length shows up as a weak strength bucket.
+    /// (estimated acceptance below 1 in 1024), or leave too few passwords
+    /// there, the shortest longer length that works is used, else the
+    /// longest shorter one, but never one below [`MIN_LENGTH`] (or the
+    /// site's shorter `maxlength`): rules that only a shorter password could
+    /// satisfy are refused. A length also needs at least
+    /// [`MIN_RULES_BITS`]: `length × log2(|alphabet|)` plus the log2 of the
+    /// estimated acceptance, that is, at least as many qualifying passwords
+    /// as a 4-digit PIN, with no exception for a short site `maxlength`
+    /// (CRYPTO_SPEC section 13), so a page cannot shrink the alphabet
+    /// instead of the length. The chosen length is the
+    /// length of the result, and its [`Entropy`] reflects it, so a short
+    /// site-imposed length shows up as a weak strength bucket.
     ///
     /// Candidates are uniform over the alphabet and are checked and retried
     /// as a whole, so the result is uniform over all passwords of that
@@ -392,10 +401,13 @@ impl PasswordRules {
     ///
     /// # Errors
     /// - [`Error::RulesUnsatisfiable`] if the rules contradict each other
-    ///   (no allowed length can satisfy them) or need more than
-    ///   [`MAX_LENGTH`] characters.
+    ///   (no allowed length can satisfy them), need more than
+    ///   [`MAX_LENGTH`] characters, allow fewer than 2 characters, or allow
+    ///   only passwords shorter than [`MIN_LENGTH`] although the site's
+    ///   `maxlength` is not shorter.
     /// - [`Error::ConstraintsTooStrict`] if too few candidates would pass at
-    ///   every allowed length.
+    ///   every allowed length, or every length that works stays below
+    ///   [`MIN_RULES_BITS`].
     /// - [`Error::RetryLimit`] if no candidate passed. Each kind of
     ///   constraint is estimated exactly, but combinations are estimated
     ///   as if independent, so a few strongly correlated rule sets end here.
@@ -422,6 +434,12 @@ impl PasswordRules {
 
     /// Builds the generation policy (see [`PasswordRules::generate`]).
     pub(crate) fn policy(&self, preferred_length: u32) -> Result<Policy> {
+        self.policy_with_floor(preferred_length, MIN_RULES_BITS)
+    }
+
+    /// [`Self::policy`] with another entropy floor in bits (tests use 0 to
+    /// check uniformity over small, enumerable sets).
+    pub(crate) fn policy_with_floor(&self, preferred_length: u32, min_bits: f64) -> Result<Policy> {
         let allowed = self.allowed.ascii() & PRINTABLE;
         let ascii_required: Vec<AsciiMask> = self
             .required
@@ -460,6 +478,10 @@ impl PasswordRules {
             .collect();
 
         let size = mask_len(alphabet);
+        // A one-character alphabet has one password per length.
+        if size < 2 {
+            return Err(Error::RulesUnsatisfiable);
+        }
         let site_lo = self.min_length.unwrap_or(1).max(1);
         let mut hi = self.max_length.unwrap_or(MAX_LENGTH).min(MAX_LENGTH);
         // No character may occur more than k times: at most k × |alphabet|
@@ -467,12 +489,15 @@ impl PasswordRules {
         if let Some(k) = self.max_repeating {
             hi = hi.min(k.saturating_mul(size));
         }
-        if site_lo > hi {
+        // Never below MIN_LENGTH unless the site's own maxlength is shorter
+        // (CRYPTO_SPEC section 13): the rules come from the page, so a rule
+        // set that only short passwords can satisfy is refused instead of
+        // producing a guessable one.
+        let floor = MIN_LENGTH.min(self.max_length.unwrap_or(MAX_LENGTH));
+        let lo = site_lo.max(floor);
+        if lo > hi {
             return Err(Error::RulesUnsatisfiable);
         }
-        // Prefer at least MIN_LENGTH, as in random-character mode, unless
-        // the site's maxlength is shorter.
-        let lo = site_lo.max(MIN_LENGTH.min(hi));
         let runs = self.runs();
         let required = Overlapping::new(alphabet, &pruned).ok_or(Error::ConstraintsTooStrict)?;
         let mut p_runs =
@@ -489,21 +514,23 @@ impl PasswordRules {
         };
         // The estimates are exact for each kind of constraint; their product
         // is an approximation (see `crate::policy`).
+        let bits_per_char = f64::from(size).log2();
         let mut possible = false;
         let mut likely_enough = |n: u32| {
             let p = required.probability(n)
                 * p_runs.probability(n)
                 * p_repeating.as_deref().map_or(1.0, |p| at(p, n));
             possible |= p > 0.0;
-            p >= MIN_ACCEPTANCE
+            // The entropy floor (CRYPTO_SPEC section 13): the estimated
+            // number of qualifying passwords, |alphabet|^n × p, is at least
+            // that of a 4-digit PIN.
+            p >= MIN_ACCEPTANCE && meets_floor(f64::from(n) * bits_per_char + p.log2(), min_bits)
         };
         // The preferred length if it works, else the shortest longer one,
-        // else the longest shorter one down to MIN_LENGTH, else down to the
-        // site's own minimum.
+        // else the longest shorter one, never below `lo`.
         let start = preferred_length.clamp(lo, hi);
         let length = (start..=hi)
             .chain((lo..start).rev())
-            .chain((site_lo..lo).rev())
             .find(|&n| likely_enough(n));
         let Some(length) = length else {
             // Zero means the rules exclude every length: a contradiction,
@@ -520,6 +547,16 @@ impl PasswordRules {
             .collect();
         Ok(Policy::new(alphabet, length, requirements, runs))
     }
+}
+
+/// The entropy floor for site rules in bits: `log2(10^4)`, the number of
+/// 4-digit PINs (CRYPTO_SPEC section 13, ADR-0011 item 4).
+pub const MIN_RULES_BITS: f64 = 13.287_712_379_549_449;
+
+/// Whether `bits` meets the floor `min_bits`, with slack for rounding so
+/// that a 4-digit PIN (`4 × log2(10)`) meets [`MIN_RULES_BITS`].
+fn meets_floor(bits: f64, min_bits: f64) -> bool {
+    bits >= min_bits - 1e-9
 }
 
 fn min_of(current: Option<u32>, n: u32) -> u32 {

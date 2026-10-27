@@ -184,6 +184,13 @@ impl VersionVector {
         Ok(Stamp { counter, device })
     }
 
+    /// Removes `device`'s entry, so the vector no longer covers any of its
+    /// edits. Only the repair after a device-ID reuse uses it, on a working
+    /// copy that is merged right away (see `Doc::merge_and_repair`).
+    pub(crate) fn forget(&mut self, device: &DeviceId) {
+        self.0.remove(device);
+    }
+
     /// Inserts a decoded entry.
     ///
     /// # Errors

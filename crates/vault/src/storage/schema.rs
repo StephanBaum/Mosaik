@@ -203,6 +203,15 @@ BEGIN SELECT RAISE(ABORT, 'mosaic: record key generation not accepted'); END;
 
 CREATE INDEX records_outbox ON records (outbox_seq) WHERE outbox_seq IS NOT NULL;
 
+-- This install's device ID (CRYPTO_SPEC §10, §12: public). It stamps every
+-- local edit. It is replaced only when the ID turns out to be reused.
+CREATE TABLE local_device (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    device_id   BLOB    NOT NULL
+                CHECK (length(device_id) = 16 AND device_id <> zeroblob(16)),
+    updated_at  INTEGER NOT NULL
+) STRICT;
+
 CREATE TABLE outbox_counter (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
     last    INTEGER NOT NULL CHECK (last >= 0)

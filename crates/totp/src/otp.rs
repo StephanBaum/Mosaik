@@ -192,15 +192,20 @@ impl Default for Period {
 /// or at least [`Code::ct_matches`]. Never compare
 /// [`expose_secret`](Self::expose_secret) with `==`: that is not constant
 /// time and has no replay protection.
+///
+/// The characters live in a heap box that is filled in place, like
+/// `mosaic-core`'s fixed-size secrets: returning a `Code` through the
+/// generation and session layers moves only the pointer, so no unwiped
+/// copy of a live code is left on the stack.
 pub struct Code {
-    buf: [u8; 8],
+    buf: Box<[u8; 8]>,
     len: u8,
 }
 
 impl Code {
     fn new() -> Self {
         Self {
-            buf: [0; 8],
+            buf: Box::new([0; 8]),
             len: 0,
         }
     }
@@ -549,6 +554,28 @@ mod tests {
         OtpSecret::from_bytes(b).unwrap()
     }
 
+    /// A code is returned by value through several frames (here and in
+    /// `mosaic-vault`): its characters must stay at one heap address, so a
+    /// move copies only the pointer and leaves no stack copy of a live code
+    /// (M2 review, third round).
+    #[test]
+    fn a_code_is_boxed_and_moves_without_copying_its_characters() {
+        #[inline(never)]
+        fn pass_on(c: Code) -> Code {
+            c
+        }
+        assert_eq!(
+            core::mem::size_of::<Code>(),
+            core::mem::size_of::<Box<[u8; 8]>>() * 2,
+            "the code characters must not be stored inline"
+        );
+        let code = hotp(&secret(RFC_SHA1), Algorithm::Sha1, Digits::DEFAULT, 0).unwrap();
+        let at = code.buf.as_ptr();
+        let moved = pass_on(code);
+        assert_eq!(moved.buf.as_ptr(), at);
+        assert_eq!(moved.expose_secret(), "755224");
+    }
+
     /// RFC 4226 Appendix D: truncated values and 6-digit HOTP for counters
     /// 0 to 9.
     #[test]
@@ -767,6 +794,28 @@ mod tests {
             o.verify(now.expose_secret(), u64::MAX, 1, None),
             Ok(Some(last))
         );
+    }
+
+    /// Two steps in one window share a code (found by a one-off search over
+    /// `mosaic-verify-NNNNNN` secrets): verify must return the larger step,
+    /// so `last_used` advances past both and neither can be replayed.
+    #[test]
+    fn verify_returns_the_largest_matching_step() {
+        let o = Otp {
+            secret: secret(b"mosaic-verify-004254"),
+            algorithm: Algorithm::Sha1,
+            kind: OtpKind::DEFAULT_TOTP,
+        };
+        let now = 1_000_000_000;
+        assert_eq!(Period::DEFAULT.time_step(now), 33_333_333);
+        let (early, late) = (33_333_331, 33_333_337);
+        assert_eq!(o.code_for_step(early).unwrap().expose_secret(), "245714");
+        assert_eq!(o.code_for_step(late).unwrap().expose_secret(), "245714");
+        assert_eq!(o.verify("245714", now, 10, None), Ok(Some(late)));
+        assert_eq!(o.verify("245714", now, 10, Some(early)), Ok(Some(late)));
+        assert_eq!(o.verify("245714", now, 10, Some(late)), Ok(None));
+        // A window that holds only the earlier step returns that one.
+        assert_eq!(o.verify("245714", now, 3, None), Ok(Some(early)));
     }
 
     #[test]

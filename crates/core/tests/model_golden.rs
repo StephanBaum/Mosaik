@@ -66,8 +66,23 @@ fn secret(s: &str) -> mosaic_core::SecretString {
 }
 
 /// An item with every field kind, written by two devices, with one
-/// concurrent conflict on the title.
+/// concurrent conflict on the title, marked as a conflict copy (review M2,
+/// fourth round: the `conflict_copy_of` member's encoding is pinned too).
 fn golden_item() -> Item {
+    // Only a split writes the mark, and it writes it with the stamp of the
+    // value it moved; here device 2's title edit (counter 6) is reused.
+    let mut json: serde_json::Value =
+        serde_json::from_slice(unmarked_golden_item().to_json().unwrap().expose_secret()).unwrap();
+    json["fields"]["conflict_copy_of"] = serde_json::json!([{
+        "at": 1_761_000_000_006_i64,
+        "c": 6,
+        "d": "02020202-0202-0202-0202-020202020202",
+        "v": "0e0e0e0e-0e0e-0e0e-0e0e-0e0e0e0e0e0e",
+    }]);
+    Item::from_json(&serde_json::to_vec(&json).unwrap()).unwrap()
+}
+
+fn unmarked_golden_item() -> Item {
     let t0 = 1_761_000_000_000;
     let mut item = Item::new(&ItemType::Login, dev(1), at(t0)).unwrap();
     {
@@ -186,6 +201,10 @@ fn item_plaintext() {
     assert!(back.otp().is_some() && back.passkey().is_some() && back.ssh_key().is_some());
     assert!(back.favorite());
     assert_eq!(back.trashed_at(), None);
+    assert_eq!(
+        back.conflict_copy_of(),
+        Some(mosaic_core::ItemId::from_bytes([0x0E; 16]).unwrap())
+    );
     assert_eq!(back.tags(), vec!["Fünf", "work"]);
     assert_eq!(
         back.secret(SecretField::Password)

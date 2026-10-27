@@ -26,6 +26,13 @@
 //! forged or corrupted data) the larger content wins, which keeps the laws;
 //! [`Doc::repair_after_merge`] detects it and adds the other value back.
 //!
+//! Two writers that share a device ID can also make *different* edits under
+//! one stamp in different fields; then each side's vector covers the
+//! other's edit and the pure merge drops both. [`Doc::merge_and_repair`]
+//! catches the cases it can be sure of (equal vectors with different
+//! contents, and IDs the caller knows were reused) and writes every value
+//! the merge dropped back (ADR-0015).
+//!
 //! A deletion is an entry under the reserved key `deleted` in a document
 //! whose other fields were all removed by the same edit. Its vector covers
 //! every edit the deleting device had seen, so merging it with a replica
@@ -43,7 +50,7 @@ use serde::ser::{SerializeMap as _, SerializeSeq as _};
 use serde::{Serialize, Serializer};
 
 use super::clock::{Stamp, Timestamp, VersionVector};
-use super::value::{Object, Text, Value, parse_json};
+use super::value::{Object, Text, Value, parse_json, to_json};
 use crate::error::{Error, Result};
 use crate::ids::DeviceId;
 
@@ -190,6 +197,9 @@ pub(crate) struct Repair {
     pub(crate) restored_fields: usize,
     /// Both replicas held the same stamp with different contents.
     pub(crate) stamp_collision: bool,
+    /// Such a stamp belongs to the repairing device itself: a different
+    /// edit was made under its own ID somewhere else.
+    pub(crate) own_stamp_collision: bool,
 }
 
 /// The replicated state. See the module documentation.
@@ -256,8 +266,10 @@ impl Doc {
     }
 
     /// Writes `value` under `key` with an already ticked `stamp`. With
-    /// `keep_losers`, only the current winner is superseded and conflict
-    /// copies stay; otherwise every value of the field is superseded.
+    /// `keep_losers`, the current winner and every other entry holding the
+    /// same value are superseded (they show as one value, so the editor
+    /// saw them all), and conflict copies with other values stay;
+    /// otherwise every value of the field is superseded.
     ///
     /// # Errors
     /// [`Error::Malformed`] for a key the decoder would reject.
@@ -272,7 +284,18 @@ impl Doc {
         check_key(key)?;
         let reg = self.fields.entry(Text::new(key)).or_default();
         if keep_losers {
-            reg.0.pop_last();
+            let shown: Vec<Stamp> = match reg.winner() {
+                Some(w) => reg
+                    .0
+                    .iter()
+                    .filter(|(_, e)| e.value == w.value)
+                    .map(|(s, _)| *s)
+                    .collect(),
+                None => Vec::new(),
+            };
+            for s in &shown {
+                reg.0.remove(s);
+            }
         } else {
             reg.0.clear();
         }
@@ -307,9 +330,12 @@ impl Doc {
     ///    share a device ID): the merge kept one; the other value is added
     ///    back under a fresh stamp, so both are visible as a conflict.
     /// 2. A delete that lost against a concurrent edit, and `local` had not
-    ///    seen that deletion: every field `local` held that the merge
-    ///    dropped is added back (all its values, conflict copies included)
-    ///    under fresh stamps. The deletion entry stays as the flag.
+    ///    seen that deletion: for every field `received` does not hold,
+    ///    each value of it that `local` held and the merge dropped is added
+    ///    back under a fresh stamp, also when the field survives through a
+    ///    concurrent local write (its conflict copies, review M2 c1); the
+    ///    value `local` showed is written again on top if it survived, so
+    ///    it stays shown. The deletion entry stays as the flag.
     pub(crate) fn repair_after_merge(
         &mut self,
         local: &Self,
@@ -317,6 +343,7 @@ impl Doc {
         device: DeviceId,
     ) -> Result<Repair> {
         let mut repair = Repair::default();
+        let mut losers: Vec<(&Text, &Entry)> = Vec::new();
         for (key, mine) in &local.fields {
             let Some(theirs) = received.fields.get(key.as_str()) else {
                 continue;
@@ -329,16 +356,20 @@ impl Doc {
                     continue;
                 }
                 repair.stamp_collision = true;
+                if s.device() == device {
+                    repair.own_stamp_collision = true;
+                }
                 if a.value != b.value {
                     let loser = if a.payload_cmp(b) == Ordering::Less {
                         a
                     } else {
                         b
                     };
-                    self.readd(key, loser, device)?;
+                    losers.push((key, loser));
                 }
             }
         }
+        self.readd_lost(losers, device)?;
         let missed_a_deletion = !self.is_deleted()
             && self
                 .register(DELETED_KEY)
@@ -347,16 +378,377 @@ impl Doc {
                 .any(|d| !local.vv.covers(&d.stamp));
         if missed_a_deletion {
             for (key, reg) in &local.fields {
-                if key.as_str() == DELETED_KEY || self.fields.contains_key(key.as_str()) {
+                // A key `received` holds was written on its side after or
+                // concurrently with the deletion, and a local entry the
+                // merge dropped there may have been superseded by that
+                // write; only keys the deletion removed are restored.
+                if key.as_str() == DELETED_KEY || received.fields.contains_key(key.as_str()) {
                     continue;
                 }
-                for e in reg.entries() {
+                // Every entry the deletion took away, also when the field
+                // itself survives through a concurrent local write (its
+                // conflict copies are dropped then, review M2 c1).
+                let dropped: Vec<&Entry> = match self.fields.get(key.as_str()) {
+                    Some(kept) => reg
+                        .entries()
+                        .filter(|e| kept.get(&e.stamp).is_none())
+                        .collect(),
+                    None => reg.entries().collect(),
+                };
+                if dropped.is_empty() {
+                    continue;
+                }
+                for e in dropped {
                     self.readd(key, e, device)?;
+                }
+                // Fresh stamps would put a restored copy above the value
+                // this replica showed; if that value survived the merge,
+                // it is written again on top, so it stays the one shown.
+                if let Some(shown) = reg.winner()
+                    && self
+                        .fields
+                        .get(key.as_str())
+                        .is_some_and(|r| r.get(&shown.stamp).is_some())
+                {
+                    self.readd(key, shown, device)?;
                 }
                 repair.restored_fields = repair.restored_fields.saturating_add(1);
             }
         }
         Ok(repair)
+    }
+
+    /// The merge of `self` (this replica) and `received`, repaired as a
+    /// local edit by `device` ([`Doc::repair_after_merge`]), with the
+    /// device-ID collisions it can be sure of written back (ADR-0015,
+    /// CRYPTO_SPEC §10):
+    ///
+    /// - **Equal vectors, different contents.** Equal vectors describe the
+    ///   same set of edits, so honest replicas with equal vectors are
+    ///   equal. Different contents mean a stamp names two edits (writers
+    ///   sharing a device ID, also in different fields, where the pure
+    ///   merge drops both sides' values because each vector covers the
+    ///   other's stamp). Every value either side held that the merge
+    ///   dropped is written back.
+    /// - **`reused`**: device IDs this replica rotated away from because
+    ///   another writer shares them. For one that collides in this record
+    ///   (`received` has a counter for it above `self`'s, or both hold one
+    ///   of its stamps in a field with other contents), `self`'s edits
+    ///   under it that
+    ///   `received` does not hold are taken out before the merge and
+    ///   written back under `device`, and `self`'s vector is made to cover
+    ///   none of its edits, so `received`'s edits under it survive too.
+    ///
+    /// Either way nothing is lost; a value that one writer had superseded
+    /// can come back as a conflict copy, and the result is flagged
+    /// ([`Repair::stamp_collision`]). Written-back values keep their write
+    /// times, and the value written last by the wall clock is shown.
+    pub(crate) fn merge_and_repair(
+        &self,
+        received: &Self,
+        device: DeviceId,
+        reused: &[DeviceId],
+    ) -> Result<(Self, Repair)> {
+        // Top-level members carry no clock (they only grow, ADR-0009 item
+        // 4), so only the fields tell two edits apart.
+        if self.vv == received.vv && self.fields != received.fields {
+            let mut doc = self.merge(received);
+            let mut lost = Self::lost_entries(self, &doc);
+            lost.extend(Self::lost_entries(received, &doc));
+            let own = Self::own_stamp_differs(self, received, device)
+                || Self::own_stamp_differs(received, self, device);
+            doc.readd_lost(lost, device)?;
+            return Ok((
+                doc,
+                Repair {
+                    restored_fields: 0,
+                    stamp_collision: true,
+                    own_stamp_collision: own,
+                },
+            ));
+        }
+        let colliding: Vec<DeviceId> = reused
+            .iter()
+            .copied()
+            .filter(|&x| {
+                x != device
+                    && (received.vv.get(&x) > self.vv.get(&x)
+                        || Self::shared_stamp_differs(self, received, x))
+            })
+            .collect();
+        if colliding.is_empty() {
+            let mut doc = self.merge(received);
+            let repair = doc.repair_after_merge(self, received, device)?;
+            return Ok((doc, repair));
+        }
+        let (base, taken) = self.without_writers(received, &colliding);
+        let mut doc = base.merge(received);
+        let mut repair = doc.repair_after_merge(&base, received, device)?;
+        repair.stamp_collision = true;
+        doc.readd_lost(taken.iter().map(|(k, e)| (k, e)).collect(), device)?;
+        Ok((doc, repair))
+    }
+
+    /// The entries of `side` that `merged` does not hold with the same
+    /// value under the same stamp.
+    fn lost_entries<'a>(side: &'a Self, merged: &Self) -> Vec<(&'a Text, &'a Entry)> {
+        let mut out = Vec::new();
+        for (key, reg) in &side.fields {
+            for e in reg.entries() {
+                let kept = merged
+                    .fields
+                    .get(key.as_str())
+                    .and_then(|r| r.get(&e.stamp))
+                    .is_some_and(|k| k.value == e.value);
+                if !kept {
+                    out.push((key, e));
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether `a` holds an entry stamped by `writer` that `b` does not
+    /// hold with the same contents.
+    fn own_stamp_differs(a: &Self, b: &Self, writer: DeviceId) -> bool {
+        a.fields.iter().any(|(key, reg)| {
+            reg.entries()
+                .filter(|e| e.stamp.device() == writer)
+                .any(|e| {
+                    b.fields
+                        .get(key.as_str())
+                        .and_then(|r| r.get(&e.stamp))
+                        .is_none_or(|o| o.payload_cmp(e) != Ordering::Equal)
+                })
+        })
+    }
+
+    /// Whether `a` and `b` hold one stamp of `writer` in the same field with
+    /// different contents: a certain collision. (An entry only one side
+    /// holds is not: the other side may have superseded it.)
+    fn shared_stamp_differs(a: &Self, b: &Self, writer: DeviceId) -> bool {
+        a.fields.iter().any(|(key, reg)| {
+            reg.entries()
+                .filter(|e| e.stamp.device() == writer)
+                .any(|e| {
+                    b.fields
+                        .get(key.as_str())
+                        .and_then(|r| r.get(&e.stamp))
+                        .is_some_and(|o| o.payload_cmp(e) != Ordering::Equal)
+                })
+        })
+    }
+
+    /// A working copy of `self` without the edits of `writers` that
+    /// `received` does not hold with the same contents, and with a vector
+    /// that covers none of their edits; plus the entries taken out.
+    fn without_writers(&self, received: &Self, writers: &[DeviceId]) -> (Self, Vec<(Text, Entry)>) {
+        let mut base = self.dup();
+        let mut taken = Vec::new();
+        for (key, reg) in &self.fields {
+            for e in reg.entries() {
+                if !writers.contains(&e.stamp.device()) {
+                    continue;
+                }
+                let held = received
+                    .fields
+                    .get(key.as_str())
+                    .and_then(|r| r.get(&e.stamp))
+                    .is_some_and(|o| o.payload_cmp(e) == Ordering::Equal);
+                if !held {
+                    base.remove_entry(key.as_str(), &e.stamp);
+                    taken.push((key.dup(), e.dup()));
+                }
+            }
+        }
+        for w in writers {
+            base.vv.forget(w);
+        }
+        (base, taken)
+    }
+
+    /// Writes `lost` entries back as local edits by `device`, key by key in
+    /// the order they were written (wall clock, then stamp), and then the
+    /// newest value of the key on top again if it was not among them, so
+    /// the most recently written value stays the one shown.
+    fn readd_lost(&mut self, lost: Vec<(&Text, &Entry)>, device: DeviceId) -> Result<()> {
+        let newer = |a: &Entry, b: &Entry| a.at.cmp(&b.at).then_with(|| a.stamp.cmp(&b.stamp));
+        let mut by_key: BTreeMap<&Text, Vec<&Entry>> = BTreeMap::new();
+        for (key, e) in lost {
+            by_key.entry(key).or_default().push(e);
+        }
+        for (key, mut entries) in by_key {
+            entries.sort_by(|a, b| newer(a, b));
+            let newest_kept = self
+                .fields
+                .get(key.as_str())
+                .and_then(|r| r.entries().max_by(|a, b| newer(a, b)))
+                .map(Entry::dup);
+            for e in &entries {
+                self.readd(key, e, device)?;
+            }
+            if let (Some(kept), Some(last)) = (newest_kept, entries.last())
+                && newer(&kept, last) == Ordering::Greater
+            {
+                self.readd(key, &kept, device)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The record kept when `self`, a merge result, is too large to store
+    /// (ADR-0016): every register `movable` selects keeps only its winner.
+    /// Each other entry with a value the winner and the newer entries of
+    /// that register do not already show is returned as a piece for a
+    /// conflict copy (newest first); entries that repeat such a value are
+    /// dropped, since the value stays visible. The vector is unchanged, so
+    /// the result dominates everything `self` dominates. A pure function
+    /// of `self`: every replica with this state reduces it the same way.
+    pub(crate) fn overflow_reduce(
+        &self,
+        movable: impl Fn(&str) -> bool,
+    ) -> (Self, Vec<(Text, Entry)>) {
+        let mut doc = self.dup();
+        let mut pieces = Vec::new();
+        for (key, reg) in &mut doc.fields {
+            if !movable(key.as_str()) || reg.0.len() < 2 {
+                continue;
+            }
+            let Some((_, winner)) = reg.0.pop_last() else {
+                continue;
+            };
+            let mut shown: Vec<Value> = vec![winner.value.dup()];
+            while let Some((_, e)) = reg.0.pop_last() {
+                if !shown.contains(&e.value) {
+                    shown.push(e.value.dup());
+                    pieces.push((key.dup(), e));
+                }
+            }
+            reg.0.insert(winner.stamp, winner);
+        }
+        (doc, pieces)
+    }
+
+    /// Takes the register that `movable` selects whose winner encodes
+    /// largest (then the larger key) out of `self`, and returns its winner,
+    /// or `None` if no such register is left. Used after
+    /// [`Doc::overflow_reduce`] while the record is still too large: the
+    /// field moves to a conflict copy. A pure function of `self`.
+    ///
+    /// # Errors
+    /// [`Error::Allocation`].
+    pub(crate) fn take_largest(
+        &mut self,
+        movable: impl Fn(&str) -> bool,
+    ) -> Result<Option<(Text, Entry)>> {
+        let mut largest: Option<(usize, &Text)> = None;
+        for (key, reg) in &self.fields {
+            if !movable(key.as_str()) {
+                continue;
+            }
+            let Some(w) = reg.winner() else {
+                continue;
+            };
+            let len = match to_json(&w.value, usize::MAX) {
+                Ok(json) => json.expose_secret().len(),
+                Err(Error::SizeLimit) => usize::MAX,
+                Err(e) => return Err(e),
+            };
+            if largest.is_none_or(|(l, k)| (len, key) > (l, k)) {
+                largest = Some((len, key));
+            }
+        }
+        let Some((_, key)) = largest else {
+            return Ok(None);
+        };
+        let key = key.dup();
+        let winner = self
+            .fields
+            .remove(key.as_str())
+            .and_then(|mut reg| reg.0.pop_last())
+            .map(|(_, e)| e);
+        Ok(winner.map(|e| (key, e)))
+    }
+
+    /// A conflict copy that holds `piece` under `key` (ADR-0016) and, with
+    /// `mark`, an entry `(mark_key, value)` stamped like the piece; its
+    /// vector covers exactly that stamp. Nothing else goes in, not even the
+    /// item type or the record's top-level members: those depend on which
+    /// record a device split, and a copy is built by every device that
+    /// splits off the piece, under one ID, so it must be a function of the
+    /// piece alone. Otherwise two copies of one ID could differ under equal
+    /// vectors, or one could carry a stamp of a device's own ID that the
+    /// device's copy lacks, which reads as a reused ID (`DeviceIdReused`).
+    pub(crate) fn conflict_copy(key: &Text, piece: &Entry, mark: Option<(&str, Value)>) -> Self {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            key.dup(),
+            Register(BTreeMap::from([(piece.stamp, piece.dup())])),
+        );
+        if let Some((mark_key, value)) = mark {
+            fields.insert(
+                Text::new(mark_key),
+                Register(BTreeMap::from([(
+                    piece.stamp,
+                    Entry::new(piece.stamp, piece.at, value),
+                )])),
+            );
+        }
+        let mut vv = VersionVector::default();
+        vv.observe(&piece.stamp);
+        Self {
+            vv,
+            fields,
+            extra: Object::new(),
+        }
+    }
+
+    /// Moves every entry of `key` but the winner to a key of its own,
+    /// `rekey(stamp)`, under a fresh stamp of `device` (a local edit, like
+    /// the repair's write-backs); entries with the winner's value are
+    /// dropped, since the value stays. For registers that show only their
+    /// winner (the password history), where a value a collision repair
+    /// wrote back into the same key would otherwise be invisible.
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] for a key the decoder would reject;
+    /// [`Error::ClockOverflow`].
+    pub(crate) fn spread_losers(
+        &mut self,
+        key: &str,
+        device: DeviceId,
+        rekey: impl Fn(Stamp) -> String,
+    ) -> Result<()> {
+        let Some(reg) = self.fields.get_mut(key) else {
+            return Ok(());
+        };
+        let Some((winner_stamp, winner)) = reg.0.pop_last() else {
+            return Ok(());
+        };
+        let losers: Vec<Entry> = core::mem::take(&mut reg.0)
+            .into_values()
+            .filter(|e| e.value != winner.value)
+            .collect();
+        reg.0.insert(winner_stamp, winner);
+        for e in losers {
+            let stamp = self.tick(device)?;
+            let new_key = rekey(stamp);
+            check_key(&new_key)?;
+            self.fields
+                .entry(Text::new(&new_key))
+                .or_default()
+                .0
+                .insert(
+                    stamp,
+                    Entry {
+                        stamp,
+                        at: e.at,
+                        value: e.value,
+                        extra: e.extra,
+                    },
+                );
+        }
+        Ok(())
     }
 
     /// Removes every value of `key`. The caller has ticked the clock.
@@ -1006,10 +1398,31 @@ mod tests {
         let mut repaired = a.merge(&b);
         let found = repaired.repair_after_merge(&a, &b, dev(9)).unwrap();
         assert!(found.stamp_collision);
+        assert!(!found.own_stamp_collision, "dev(1)'s stamp, not dev(9)'s");
         assert_eq!(found.restored_fields, 0);
+        // Repaired by the device whose stamp collided: its own ID is reused.
+        let mut by_owner = a.merge(&b);
+        assert!(
+            by_owner
+                .repair_after_merge(&a, &b, dev(1))
+                .unwrap()
+                .own_stamp_collision
+        );
         assert_eq!(repaired.register("k").unwrap().len(), 2);
         assert_eq!(repaired.value("k").unwrap().as_str(), Some("x"));
         assert_eq!(repaired.conflicts(|_| true).len(), 1);
+        // The other way round (review M2, fourth round): the local value
+        // wins the tie-break, so the received one is the loser written back.
+        let mut other_way = b.merge(&a);
+        assert!(
+            other_way
+                .repair_after_merge(&b, &a, dev(9))
+                .unwrap()
+                .stamp_collision
+        );
+        assert_eq!(other_way.register("k").unwrap().len(), 2);
+        assert_eq!(other_way.value("k").unwrap().as_str(), Some("x"));
+        assert_eq!(other_way, repaired, "the same repair either way");
         // Same stamp, same value, different time: flagged, nothing added.
         let mut left = a.dup();
         let s2 = left.tick(dev(1)).unwrap();
@@ -1073,6 +1486,40 @@ mod tests {
         doc.write(&max, s, at, Value::Null, false).unwrap();
         let json = json(&doc, Format::Document);
         assert_eq!(decode(json.as_bytes(), Format::Document).unwrap(), doc);
+    }
+
+    /// Regression: two replicas set the same value concurrently, so the
+    /// merged register holds two equal entries (no visible conflict). A
+    /// later edit that has seen both supersedes both, instead of leaving
+    /// the second one behind as a spurious conflict copy.
+    #[test]
+    #[allow(clippy::many_single_char_names, reason = "replicas")]
+    fn an_edit_supersedes_every_entry_with_the_shown_value() {
+        let mut a = Doc::default();
+        set(&mut a, 1, "title", "base");
+        let mut b = a.dup();
+        set(&mut a, 1, "title", "X");
+        set(&mut b, 2, "title", "X");
+        let mut m = a.merge(&b);
+        assert_eq!(m.register("title").unwrap().len(), 2);
+        assert!(m.conflicts(|_| true).is_empty());
+        set(&mut m, 1, "title", "Y");
+        assert_eq!(m.register("title").unwrap().len(), 1);
+        assert!(m.conflicts(|_| true).is_empty());
+        assert_eq!(m.value("title").unwrap().as_str(), Some("Y"));
+
+        // A real conflict copy with another value stays.
+        let mut c = a.dup();
+        let mut d = a.dup();
+        set(&mut c, 1, "title", "C");
+        set(&mut d, 2, "title", "D");
+        set(&mut d, 2, "title", "D");
+        let mut cd = c.merge(&d);
+        set(&mut cd, 3, "title", "E");
+        let conflicts = cd.conflicts(|_| true);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].losers.len(), 1);
+        assert_eq!(conflicts[0].winner.value().as_str(), Some("E"));
     }
 
     impl Doc {

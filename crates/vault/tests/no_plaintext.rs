@@ -36,6 +36,10 @@ fn all_files(dir: &Path) -> Vec<(String, Vec<u8>)> {
         let path = entry.unwrap().path();
         if path.is_dir() {
             out.extend(all_files(&path));
+        } else if path.to_string_lossy().ends_with("-lock") {
+            // The store's lock file: always empty, and on Windows not
+            // readable while the store holds its lock.
+            assert_eq!(fs::metadata(&path).unwrap().len(), 0);
         } else {
             out.push((path.display().to_string(), fs::read(&path).unwrap()));
         }

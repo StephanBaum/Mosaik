@@ -80,6 +80,48 @@ impl VaultMeta {
         }
     }
 
+    /// Merges `received` into this local replica like
+    /// [`crate::model::Item::merge_and_repair`] (CRYPTO_SPEC §10); every
+    /// store persists the result instead of the plain [`VaultMeta::merge`].
+    /// Metadata is never deleted, so the only repairs are for device-ID
+    /// collisions (two writers sharing a device ID): one stamp with two
+    /// contents, or equal version vectors with different contents (ADR-0015).
+    /// The values the merge dropped are written back as local edits by
+    /// `device`, so both names show as a conflict, and the returned flag is
+    /// set.
+    ///
+    /// # Errors
+    /// [`Error::DeviceIdReused`] if `received` holds edits by `device` that
+    /// `self` has not seen (a counter for `device` above this replica's,
+    /// or one of `device`'s stamps with different contents); rotate the
+    /// device ID and call [`VaultMeta::merge_and_repair_after_reuse`] with
+    /// the new one. [`Error::ClockOverflow`].
+    pub fn merge_and_repair(&self, received: &Self, device: DeviceId) -> Result<(Self, bool)> {
+        self.merge_and_repair_after_reuse(received, device, &[])
+    }
+
+    /// [`VaultMeta::merge_and_repair`] after this replica rotated away from
+    /// the device IDs in `reused`, as
+    /// [`crate::model::Item::merge_and_repair_after_reuse`].
+    ///
+    /// # Errors
+    /// As [`VaultMeta::merge_and_repair`].
+    pub fn merge_and_repair_after_reuse(
+        &self,
+        received: &Self,
+        device: DeviceId,
+        reused: &[DeviceId],
+    ) -> Result<(Self, bool)> {
+        if received.doc.vv().get(&device) > self.doc.vv().get(&device) {
+            return Err(Error::DeviceIdReused);
+        }
+        let (doc, repair) = self.doc.merge_and_repair(&received.doc, device, reused)?;
+        if repair.own_stamp_collision {
+            return Err(Error::DeviceIdReused);
+        }
+        Ok((Self { doc }, repair.stamp_collision))
+    }
+
     /// The version vector.
     #[must_use]
     pub const fn version(&self) -> &VersionVector {
@@ -269,6 +311,52 @@ mod tests {
         );
         assert!(format!("{resolved:?}").starts_with("VaultMeta"));
         assert!(format!("{:?}", resolved.edit(dev(1), at)).starts_with("VaultMetaEdit"));
+    }
+
+    #[test]
+    fn merge_and_repair_keeps_both_names_of_a_shared_stamp() {
+        // Review M2 (crypto, sync, tests): two writers with one device ID
+        // rename from the same state, so both edits carry the same stamp.
+        let at = Timestamp::from_unix_millis(1);
+        let base = VaultMeta::new("Base", dev(1), at).unwrap();
+        let copy = |m: &VaultMeta| VaultMeta::from_json(m.to_json().unwrap().expose_secret());
+        let (mut a, mut b) = (copy(&base).unwrap(), copy(&base).unwrap());
+        a.edit(dev(4), at).set_name("from A").unwrap();
+        b.edit(dev(4), at).set_name("from B").unwrap();
+        assert_eq!(a.compare(&b), Causality::Equal);
+        // The pure join keeps one name only.
+        assert_eq!(a.merge(&b).conflicts().len(), 0);
+
+        // The sharing writer itself must rotate its ID first.
+        assert_eq!(
+            a.merge_and_repair(&b, dev(4)).unwrap_err(),
+            Error::DeviceIdReused
+        );
+        // Any other device keeps both names as a conflict.
+        let (merged, collision) = a.merge_and_repair(&b, dev(5)).unwrap();
+        assert!(collision);
+        let conflicts = merged.conflicts();
+        assert_eq!(conflicts.len(), 1);
+        let mut names: Vec<&str> = conflicts[0]
+            .losers
+            .iter()
+            .chain([&conflicts[0].winner])
+            .filter_map(|e| e.value().as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, ["from A", "from B"]);
+
+        // A received counter of this device above its own: reuse.
+        let mut ahead = copy(&base).unwrap();
+        ahead.edit(dev(1), at).set_name("not mine").unwrap();
+        assert_eq!(
+            base.merge_and_repair(&ahead, dev(1)).unwrap_err(),
+            Error::DeviceIdReused
+        );
+        // Without a collision the result is the plain merge.
+        let (plain, collision) = base.merge_and_repair(&a, dev(1)).unwrap();
+        assert!(!collision);
+        assert_eq!(plain, base.merge(&a));
     }
 
     #[test]

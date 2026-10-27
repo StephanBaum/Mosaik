@@ -16,6 +16,7 @@
 //! | `otp`, `passkey`, `ssh.key` | an [`OtpConfig`], [`PasskeyCredential`], [`SshKeyMaterial`] |
 //! | `otp.counter`, `passkey.sign_count` | counters, merged by maximum |
 //! | `deleted` | deletion entries (tombstone, or the flag of a delete that lost against a concurrent edit) |
+//! | `conflict_copy_of` | the item ID (lowercase hyphenated UUID) of the record this item was split off from because a merge did not fit (ADR-0016) |
 //!
 //! Collections are one key per element, so concurrent edits of different
 //! URLs, tags or custom fields never conflict. Keys this build does not
@@ -26,6 +27,7 @@ use core::fmt;
 use super::clock::{Causality, Stamp, Timestamp, VersionVector};
 use super::doc::{
     DELETED_KEY, Doc, DocJson, Entry, FieldConflict, Format, SCHEMA_VERSION, check_key, decode,
+    parse_uuid,
 };
 use super::tombstone::Tombstone;
 use super::types::{
@@ -56,6 +58,7 @@ const FIELD_PREFIX: &str = "field:";
 const ATTACHMENT_PREFIX: &str = "attachment:";
 const TAG_PREFIX: &str = "tag:";
 const HISTORY_PREFIX: &str = "history:";
+const CONFLICT_COPY_OF: &str = "conflict_copy_of";
 
 /// Counters: the merged value is the largest one, never a conflict.
 const MAX_KEYS: [&str; 2] = [OTP_COUNTER, PASSKEY_SIGN_COUNT];
@@ -63,7 +66,7 @@ const MAX_KEYS: [&str; 2] = [OTP_COUNTER, PASSKEY_SIGN_COUNT];
 /// Item metadata: concurrent values are resolved by the largest stamp only
 /// and never shown as a conflict ([`Item::conflicts`]). The same holds for
 /// `history:*` entries, `deleted` and the counters.
-const METADATA_KEYS: [&str; 4] = [TYPE, CREATED, TRASHED, FAVORITE];
+const METADATA_KEYS: [&str; 5] = [TYPE, CREATED, TRASHED, FAVORITE, CONFLICT_COPY_OF];
 
 /// Whether concurrent values of `key` are a conflict the user resolves.
 fn is_user_content(key: &str) -> bool {
@@ -370,6 +373,19 @@ pub struct MergeOutcome {
     pub stamp_collision: bool,
 }
 
+/// What [`Item::split_oversized`] returns.
+#[derive(Debug)]
+pub struct OversizedSplit {
+    /// The record to store (the same on every device that reaches the same
+    /// merge result).
+    pub item: Item,
+    /// The values that moved out of the record, each as a new item with its
+    /// derived ID ([`Item::conflict_copy_id`]). Store each one unless a
+    /// record with that ID is already held (another device made the same
+    /// copy, which is identical).
+    pub conflict_copies: Vec<(ItemId, Item)>,
+}
+
 /// A vault item: the replicated state that is encrypted as one record.
 ///
 /// Not `Clone`; `Debug` shows only the version vector and the field count.
@@ -441,8 +457,11 @@ impl Item {
     ///
     /// - **Concurrent delete.** If the merge is flagged
     ///   ([`Item::deleted_concurrently`]) by a deletion this replica had not
-    ///   seen, every field this replica held that the merge dropped is
-    ///   written back with all its values, conflict copies included. A
+    ///   seen, every value this replica held that the deletion took away is
+    ///   written back, conflict copies included, also in a field that
+    ///   survives through a concurrent local write (the value this replica
+    ///   showed stays shown). Fields the received side holds are left to
+    ///   the merge: a value it dropped there may have been superseded. A
     ///   device that edited (or merely held) the item while another device
     ///   deleted it therefore keeps every field it had; the flag stays
     ///   until the user dismisses it or deletes again. This can also bring
@@ -451,26 +470,198 @@ impl Item {
     /// - **Same stamp, different contents** (two writers with one device
     ///   ID): the value the merge dropped is written back, so both show up
     ///   as a conflict, and [`MergeOutcome::stamp_collision`] is set.
+    /// - **Equal version vectors, different contents**: honest replicas
+    ///   with equal vectors are equal, so a stamp names two edits (two
+    ///   writers with one device ID that edited different fields; the pure
+    ///   merge drops both sides' values). Every value either side held
+    ///   that the merge dropped is written back, and
+    ///   [`MergeOutcome::stamp_collision`] is set (ADR-0015).
     ///
-    /// Restored values keep their original write times. Without a repair
+    /// Restored values keep their original write times, and the value
+    /// written last by the wall clock stays the one shown. Without a repair
     /// the result equals `self.merge(received)`.
     ///
     /// # Errors
     /// [`Error::DeviceIdReused`] if `received` holds edits by `device`
     /// that `self` has not seen (another process or install shares the
-    /// ID, or local state came from a backup): rotate the device ID and
-    /// call again with the new one. [`Error::ClockOverflow`].
+    /// ID, or local state came from a backup): a counter for `device`
+    /// above this replica's, or one of `device`'s stamps with different
+    /// contents. Rotate the device ID and call
+    /// [`Item::merge_and_repair_after_reuse`] with the new one and the old
+    /// one as reused; the collision is then kept as a conflict
+    /// ([`MergeOutcome::stamp_collision`]). [`Error::ClockOverflow`].
     pub fn merge_and_repair(&self, received: &Self, device: DeviceId) -> Result<MergeOutcome> {
+        self.merge_and_repair_after_reuse(received, device, &[])
+    }
+
+    /// [`Item::merge_and_repair`] after this replica rotated away from the
+    /// device IDs in `reused` because another writer shares them
+    /// ([`Error::DeviceIdReused`]). For an ID of `reused` that collides in
+    /// this record (`received` has a counter for it above this replica's,
+    /// or both hold one of its stamps in a field with other contents; an
+    /// entry only one side holds may just be superseded), neither writer's
+    /// edits under it are lost: this replica's values under it that `received`
+    /// does not hold are written back under `device`, and `received`'s are
+    /// kept although this replica's vector covers their counters. A value
+    /// that one of the writers had superseded can come back as a conflict
+    /// copy; [`MergeOutcome::stamp_collision`] is set (ADR-0015). IDs that
+    /// do not collide in this record change nothing.
+    ///
+    /// # Errors
+    /// As [`Item::merge_and_repair`].
+    pub fn merge_and_repair_after_reuse(
+        &self,
+        received: &Self,
+        device: DeviceId,
+        reused: &[DeviceId],
+    ) -> Result<MergeOutcome> {
         if received.doc.vv().get(&device) > self.doc.vv().get(&device) {
             return Err(Error::DeviceIdReused);
         }
-        let mut doc = self.doc.merge(&received.doc);
-        let repair = doc.repair_after_merge(&self.doc, &received.doc, device)?;
+        let (mut doc, repair) = self.doc.merge_and_repair(&received.doc, device, reused)?;
+        if repair.own_stamp_collision {
+            // A different edit under one of this device's own stamps: the
+            // ID is shared, even though the counters are equal (two writers
+            // that each made one edit from the same state).
+            return Err(Error::DeviceIdReused);
+        }
+        if repair.stamp_collision {
+            // Two writers under one ID can write the same history key (it
+            // names the edit's stamp) with different passwords. The history
+            // shows one value per key, so a value the repair wrote back
+            // there would be invisible; it gets a key of its own (review
+            // M2, fourth round).
+            let crowded: Vec<String> = doc
+                .registers()
+                .filter(|(k, r)| k.starts_with(HISTORY_PREFIX) && r.len() > 1)
+                .map(|(k, _)| k.to_owned())
+                .collect();
+            for key in crowded {
+                doc.spread_losers(&key, device, |s| {
+                    format!("{HISTORY_PREFIX}{:016x}.{}.0", s.counter(), s.device())
+                })?;
+            }
+        }
         Ok(MergeOutcome {
             item: Self { doc },
             restored_fields: repair.restored_fields,
             stamp_collision: repair.stamp_collision,
         })
+    }
+
+    /// Resolves a merge of this local replica and `received` whose result
+    /// does not fit the item size limit (`merge_and_repair_after_reuse`
+    /// with the same `device` and `reused` succeeded, but the result fails
+    /// to encode with [`Error::SizeLimit`]), so that the merge never fails,
+    /// no value is lost and every device converges (ADR-0016, CRYPTO_SPEC
+    /// §10).
+    ///
+    /// The record ([`OversizedSplit::item`]) is the merge result reduced as
+    /// a pure function of that result, so every device that reaches the same
+    /// state reduces it the same way, whatever pair of versions it merged
+    /// and in which order: every content field keeps only the value it
+    /// shows (its winner), and its other values (the conflict copies of the
+    /// field) move out. If the record still does not fit, whole content
+    /// fields move out too, largest value first. Metadata, the password
+    /// history, counters, attachment references (their files are bound to
+    /// the record ID) and the deletion entries always stay, so a concurrent
+    /// delete keeps its notice. The vector is the merge's, so the record
+    /// dominates both inputs.
+    ///
+    /// Each value that moved out becomes a conflict copy
+    /// ([`OversizedSplit::conflict_copies`]): a new item of the same vault
+    /// that holds the value under its field key with its original stamp,
+    /// and [`Item::conflict_copy_of`] under the same stamp (left out if the
+    /// copy would not fit otherwise); its vector covers exactly that stamp.
+    /// It has no type of its own: show it with the original's type and
+    /// title, through the mark. Its ID is [`Item::conflict_copy_id`]. The
+    /// copy is a function of the value alone, so every device that splits
+    /// it off builds the same copy under the same ID, and copies from
+    /// different devices are one record.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] if the record does not fit even with every
+    /// content field moved out (its history or attachment references alone
+    /// exceed the limit), or a value does not fit a copy of its own;
+    /// [`Error::DeviceIdReused`], [`Error::ClockOverflow`],
+    /// [`Error::Allocation`].
+    pub fn split_oversized(
+        &self,
+        received: &Self,
+        item_id: &ItemId,
+        vault_key: &VaultKey,
+        device: DeviceId,
+        reused: &[DeviceId],
+    ) -> Result<OversizedSplit> {
+        let merged = self
+            .merge_and_repair_after_reuse(received, device, reused)?
+            .item;
+        if fits(&merged)? {
+            // Not oversized after all: nothing to split.
+            return Ok(OversizedSplit {
+                item: merged,
+                conflict_copies: Vec::new(),
+            });
+        }
+        let movable = |k: &str| is_user_content(k) && !k.starts_with(ATTACHMENT_PREFIX);
+        let (mut doc, mut pieces) = merged.doc.overflow_reduce(movable);
+        loop {
+            if fits(&Self { doc: doc.dup() })? {
+                break;
+            }
+            match doc.take_largest(movable)? {
+                Some(piece) => pieces.push(piece),
+                None => return Err(Error::SizeLimit),
+            }
+        }
+        let item = Self { doc };
+        let mut conflict_copies = Vec::with_capacity(pieces.len());
+        for (key, entry) in &pieces {
+            let id = Self::conflict_copy_id(vault_key, item_id, key.as_str(), entry.stamp())?;
+            let mark = Value::text(&item_id.to_string());
+            let marked = Self {
+                doc: Doc::conflict_copy(key, entry, Some((CONFLICT_COPY_OF, mark))),
+            };
+            let copy = if fits(&marked)? {
+                Some(marked)
+            } else {
+                let bare = Self {
+                    doc: Doc::conflict_copy(key, entry, None),
+                };
+                fits(&bare)?.then_some(bare)
+            };
+            conflict_copies.push((id, copy.ok_or(Error::SizeLimit)?));
+        }
+        Ok(OversizedSplit {
+            item,
+            conflict_copies,
+        })
+    }
+
+    /// The ID of the conflict copy that holds the value `stamp` wrote under
+    /// `key` in record `item_id` after a split (CRYPTO_SPEC §10, ADR-0016):
+    /// a `UUIDv8` from `HKDF(VK, "", ctx("conflict-copy-id") || item_id ||
+    /// u32(len(key)) || key || counter:u64 || device_id, 16)`. Every device
+    /// holding `vault_key` derives the same ID for the same value, and the
+    /// server cannot link the copy to the record.
+    ///
+    /// # Errors
+    /// [`Error::InvalidId`] for a nil result (it never is: the version
+    /// nibble is 8); [`Error::SizeLimit`] for a key above 4 GiB.
+    pub fn conflict_copy_id(
+        vault_key: &VaultKey,
+        item_id: &ItemId,
+        key: &str,
+        stamp: Stamp,
+    ) -> Result<ItemId> {
+        let bytes = crate::kdf::conflict_copy_id(
+            vault_key.key.expose_secret(),
+            item_id.as_bytes(),
+            key.as_bytes(),
+            stamp.counter(),
+            stamp.device().as_bytes(),
+        )?;
+        ItemId::from_bytes(bytes)
     }
 
     /// Brings a deleted item (a tombstone) back as a live item of
@@ -574,6 +765,16 @@ impl Item {
     #[must_use]
     pub fn trashed_at(&self) -> Option<Timestamp> {
         self.int(TRASHED).map(Timestamp::from_unix_millis)
+    }
+
+    /// The record this item was split off from because a merge with it did
+    /// not fit the item size limit ([`Item::split_oversized`], ADR-0016).
+    /// Show it to the user next to that item, then
+    /// [`ItemEdit::dismiss_conflict_copy`] or delete the copy.
+    #[must_use]
+    pub fn conflict_copy_of(&self) -> Option<ItemId> {
+        let s = self.doc.value(CONFLICT_COPY_OF)?.as_str()?;
+        ItemId::from_bytes(parse_uuid(s).ok()?).ok()
     }
 
     /// The tags, sorted.
@@ -843,6 +1044,9 @@ fn readable(key: &str, v: &Value) -> bool {
     }
     match key {
         CREATED | TRASHED => v.as_i64().is_some(),
+        CONFLICT_COPY_OF => v
+            .as_str()
+            .is_some_and(|s| parse_uuid(s).is_ok_and(|b| ItemId::from_bytes(b).is_ok())),
         FAVORITE => v.as_bool().is_some(),
         OTP_COUNTER | PASSKEY_SIGN_COUNT => v.as_u64().is_some(),
         OTP => OtpConfig::from_value(v).is_ok(),
@@ -855,6 +1059,39 @@ fn readable(key: &str, v: &Value) -> bool {
         _ if key.starts_with(HISTORY_PREFIX) => HistoryEntry::from_value(v).is_ok(),
         _ => false,
     }
+}
+
+/// Whether `item` fits the item size limit.
+fn fits(item: &Item) -> Result<bool> {
+    match item.to_json() {
+        Ok(_) => Ok(true),
+        Err(Error::SizeLimit) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// The stamp of the edit that wrote a history key
+/// (`history:{counter:016x}.{device}.{seq}`, see `ItemEdit::next_id`), or
+/// `None` if the key does not have that form.
+fn history_stamp(key: &str) -> Option<Stamp> {
+    let mut parts = key.strip_prefix(HISTORY_PREFIX)?.split('.');
+    let counter = parts.next().filter(|c| c.len() == 16)?;
+    let counter = u64::from_str_radix(counter, 16).ok()?;
+    let device = parts.next()?;
+    parts.next()?.parse::<u32>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let hex: Vec<u8> = device.bytes().filter(|&b| b != b'-').collect();
+    if hex.len() != 32 || device.len() != 36 {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for (out, pair) in bytes.iter_mut().zip(hex.as_chunks::<2>().0) {
+        let pair = core::str::from_utf8(pair).ok()?;
+        *out = u8::from_str_radix(pair, 16).ok()?;
+    }
+    Stamp::new(counter, DeviceId::from_bytes(bytes).ok()?).ok()
 }
 
 fn check_tag(name: &str) -> Result<()> {
@@ -945,26 +1182,28 @@ impl ItemEdit<'_> {
         o.insert("value", Value::String(old));
         o.insert("changed_at", Value::int(self.at.as_unix_millis()));
         self.put(&key, Value::Object(o), false)?;
-        let mut keys: Vec<(Timestamp, String)> = self
+        // Trim the oldest entries by the Lamport stamp of the edit that
+        // moved them into the history, never by the wall clock (display
+        // only, and a skewed clock would trim the value this edit just moved
+        // here), and never the entry this edit added. That stamp is the one
+        // encoded in the key: a delete-race repair re-adds restored entries
+        // under fresh stamps of the repairing device, so the register's
+        // winner stamp would make the oldest entry look like the newest
+        // (review M2, fourth round). Keys that do not parse fall back to the
+        // winner stamp.
+        let mut keys: Vec<(Option<Stamp>, String)> = self
             .doc
             .registers()
-            .filter(|(k, _)| k.starts_with(HISTORY_PREFIX))
+            .filter(|(k, _)| k.starts_with(HISTORY_PREFIX) && *k != key.as_str())
             .map(|(k, r)| {
-                let at = r
-                    .winner()
-                    .and_then(|w| w.value().as_object())
-                    .and_then(|o| o.get("changed_at"))
-                    .and_then(Value::as_i64)
-                    .map_or(
-                        Timestamp::from_unix_millis(i64::MIN),
-                        Timestamp::from_unix_millis,
-                    );
-                (at, k.to_owned())
+                let order = history_stamp(k).or_else(|| r.winner().map(Entry::stamp));
+                (order, k.to_owned())
             })
             .collect();
-        if keys.len() > MAX_HISTORY {
+        let limit = MAX_HISTORY.saturating_sub(1);
+        if keys.len() > limit {
             keys.sort();
-            let excess = keys.len() - MAX_HISTORY;
+            let excess = keys.len() - limit;
             for (_, k) in keys.into_iter().take(excess) {
                 self.remove(&k)?;
             }
@@ -1329,6 +1568,14 @@ impl ItemEdit<'_> {
         self.resolve_conflict(key, winner.ok_or(Error::Malformed)?)
     }
 
+    /// Clears the "conflict copy" mark (see [`Item::conflict_copy_of`]).
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn dismiss_conflict_copy(&mut self) -> Result<()> {
+        self.remove(CONFLICT_COPY_OF).map(|_| ())
+    }
+
     /// Clears the "deleted concurrently" flag (see
     /// [`Item::deleted_concurrently`]).
     ///
@@ -1347,4 +1594,39 @@ fn check_custom(field: &CustomField) -> Result<()> {
         c.validate()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "tests")]
+
+    use super::*;
+
+    /// The history key parser behind the trim order (review M2, fourth
+    /// round): exactly the form `ItemEdit::next_id` writes, anything else
+    /// is `None` (the trim then falls back to the winning stamp).
+    #[test]
+    fn history_stamps_parse_only_the_written_form() {
+        let d = DeviceId::from_bytes([0xAB; 16]).unwrap();
+        let good = format!("history:{:016x}.{d}.3", 0x2a_u64);
+        assert_eq!(history_stamp(&good), Some(Stamp::new(0x2a, d).unwrap()));
+        for bad in [
+            String::from("history:"),
+            String::from("history:weird"),
+            format!("history:{:x}.{d}.0", 0x2a_u64),
+            format!("history:{:016x}.{d}", 0x2a_u64),
+            format!("history:{:016x}.{d}.x", 0x2a_u64),
+            format!("history:{:016x}.{d}.0.1", 0x2a_u64),
+            format!("history:{:016x}.abc.0", 0x2a_u64),
+            format!("history:{:016x}.{}.0", 0x2a_u64, "g".repeat(36)),
+            format!(
+                "history:{:016x}.{}.0",
+                0x2a_u64, "00000000-0000-0000-0000-000000000000"
+            ),
+            format!("history:{:016x}.{d}.0", 0_u64),
+            format!("tag:{:016x}.{d}.0", 0x2a_u64),
+        ] {
+            assert_eq!(history_stamp(&bad), None, "{bad}");
+        }
+    }
 }
