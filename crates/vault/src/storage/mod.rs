@@ -489,7 +489,13 @@ mod tests {
         let path = dir.path().join("vault.db");
         let s = Store::open(&path).unwrap();
         let att = s.attachment_dir().unwrap().to_path_buf();
-        assert_eq!(att, dir.path().join("vault.db-attachments"));
+        // The store resolves its path (macOS /var -> /private/var, Windows
+        // 8.3 short names), so compare canonical parents, not raw strings.
+        assert_eq!(att.file_name().unwrap(), "vault.db-attachments");
+        assert_eq!(
+            std::fs::canonicalize(att.parent().unwrap()).unwrap(),
+            std::fs::canonicalize(dir.path()).unwrap()
+        );
         assert!(att.is_dir());
         let mode: String = s
             .conn
