@@ -9,8 +9,8 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 |---|---|
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
-| M2 Vault model + local store | 🔄 tracks merged, session layer integrated, four milestone review rounds fixed and gated locally (fuzzed in Docker); integration not yet committed, CI not yet run |
-| M3 Desktop app | — |
+| M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
+| M3 Desktop app | 🔄 in progress (scaffold, then five parallel tracks: import, insights, SSH agent, Tauri shell, React UI) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
