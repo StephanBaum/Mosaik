@@ -27,6 +27,7 @@ custom-protocol = ["tauri/custom-protocol"]
 [dependencies]
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
+mosaic-insights = { path = "../../../crates/insights" }
 mosaic-vault = { path = "../../../crates/vault" }
 serde = { workspace = true, features = ["derive"] }
 tauri.workspace = true
