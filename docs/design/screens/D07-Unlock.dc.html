@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mosaic · Unlock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#09090B}a:hover{color:#3F3F46}
+button{font-family:inherit}
+.holo{background:#EEEEF2 url(/_blob/4e8ca14c0fa581e99745c3d84ee917d2) 30% 50%/800px 200px;color:#09090B;box-shadow:inset 0 0 0 1px #D4D4D8,inset 0 1px 0 rgba(255,255,255,.35);text-shadow:0 1px 0 rgba(255,255,255,.55)}.holo svg{filter:drop-shadow(0 1px 0 rgba(255,255,255,.55))}.holo:hover{background-position:42% 50%}.holo-d{background-color:#DCDCE2;background-image:url(/_blob/defc8c850e2be0b7c2449f27c18c2273);box-shadow:inset 0 0 0 1px rgba(230,230,235,.75),inset 0 1px 0 rgba(255,255,255,.35)}
+</style>
+</helmet>
+<div style="min-height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: #FFFFFF; color: #09090B; font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px;">
+
+  <header style="display: flex; align-items: center; height: 64px; padding: 0 24px; box-sizing: border-box;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="0" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="0" y="11" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="11" width="9" height="9" rx="2.5" fill="#A1A1AA"></rect></svg>
+      <span style="font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01em;">Mosaic</span>
+    </div>
+  </header>
+
+  <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 32px 16px 96px;">
+    <div style="flex: 1 1 auto; max-width: 440px; min-width: 0; display: flex; flex-direction: column; gap: 40px;">
+
+      <main style="display: flex; flex-direction: column; gap: 32px;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <h1 style="margin: 0; font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -0.025em;">Unlock Mosaic</h1>
+          <span style="color: #71717A;">alex@example.com</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label for="mp" style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Master password</label>
+            <div style="display: flex; align-items: center; height: 40px; box-sizing: border-box; padding-right: 4px; border: 1px solid #09090B; border-radius: 8px; background: #FFFFFF; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #09090B;">
+              <input id="mp" type="password" autocomplete="current-password" value="correct-orbit-lantern" style="flex-grow: 1; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 12px; border: 0; border-radius: 8px; outline: none; background: transparent; color: #09090B; font-family: 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 2px;">
+              <button type="button" aria-label="Show password" aria-pressed="false" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: #3F3F46; cursor: pointer; display: flex; align-items: center; justify-content: center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            </div>
+          </div>
+
+          <a class="holo" href="Main.dc.html" style="display: flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: 9999px; text-decoration: none; font-weight: 600;">Unlock</a>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; line-height: 16px; color: #71717A;" aria-hidden="true"><span style="flex-grow: 1; height: 1px; background: #F4F4F5;"></span><span>or</span><span style="flex-grow: 1; height: 1px; background: #F4F4F5;"></span></div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; font-size: 14px; font-weight: 500; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg>Use Windows Hello</button>
+          <button type="button" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; font-size: 14px; font-weight: 500; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"></path><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>Use security key</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;">
+          <span style="font-size: 12px; line-height: 16px; color: #71717A;">Auto-locks after 10 minutes idle, on sleep and on screen lock.</span>
+          <a href="D02-Welcome.dc.html" style="font-weight: 500; text-decoration: underline; text-underline-offset: 3px;">Switch account</a>
+        </div>
+      </main>
+
+      <p style="margin: 0; padding-top: 24px; border-top: 1px solid #F4F4F5; font-size: 12px; line-height: 18px; color: #71717A;"><span style="font-weight: 600; color: #09090B;">Forgot your master password?</span> Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. If you set up emergency access, a trusted contact can request access to your vault. Otherwise, start a new account.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

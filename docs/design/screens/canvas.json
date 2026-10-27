@@ -1,0 +1,389 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "D02-Welcome.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Onboarding 1 · Create account",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "D03-EmergencyKit.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Onboarding 2 · Emergency Kit",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "D04-VerifyKit.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Onboarding 3 · Confirm Secret Key",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "D05-ImportEnpass.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Onboarding 4 · Import from Enpass",
+      "w": 1280,
+      "x": 0,
+      "y": 920
+    },
+    "D06-InstallExtension.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Onboarding 5 · Install extension",
+      "w": 1280,
+      "x": 1360,
+      "y": 920
+    },
+    "D07-Unlock.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Unlock",
+      "w": 1280,
+      "x": 2720,
+      "y": 920
+    },
+    "D08-VaultDark.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Vault · Dark theme, one-time code",
+      "w": 1280,
+      "x": 1360,
+      "y": 1840
+    },
+    "D09-EmptyVault.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Vault · Empty state",
+      "w": 1280,
+      "x": 2720,
+      "y": 1840
+    },
+    "D10-NewItem.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "New login item",
+      "w": 1280,
+      "x": 0,
+      "y": 2760
+    },
+    "D11-CommandPalette.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Command palette",
+      "w": 1280,
+      "x": 1360,
+      "y": 2760
+    },
+    "D12-Generator.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Password generator",
+      "w": 1280,
+      "x": 2720,
+      "y": 2760
+    },
+    "D13-SecurityDashboard.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Security dashboard",
+      "w": 1280,
+      "x": 1360,
+      "y": 3680
+    },
+    "D14-Rotation.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Rotation queue",
+      "w": 1280,
+      "x": 2720,
+      "y": 3680
+    },
+    "D15-Share.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Share item",
+      "w": 1280,
+      "x": 0,
+      "y": 4600
+    },
+    "D16-EmergencyAccess.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Emergency access",
+      "w": 1280,
+      "x": 1360,
+      "y": 4600
+    },
+    "D17-SettingsSecurity.dc.html": {
+      "expand": "fill",
+      "h": 878,
+      "page": "desktop",
+      "title": "Settings · Security",
+      "w": 1280,
+      "x": 2720,
+      "y": 4600
+    },
+    "D18-SshApproval.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "SSH agent · Approve key use",
+      "w": 1280,
+      "x": 0,
+      "y": 5520
+    },
+    "D19-TrashHistory.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Trash and password history",
+      "w": 1280,
+      "x": 1360,
+      "y": 5520
+    },
+    "D20-SyncOffline.dc.html": {
+      "expand": "fill",
+      "h": 936,
+      "page": "desktop",
+      "title": "Offline and error states",
+      "w": 1280,
+      "x": 2720,
+      "y": 5520
+    },
+    "D21-HardwareTotpVault.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Hardware-protected codes vault",
+      "w": 1280,
+      "x": 0,
+      "y": 3680
+    },
+    "E01-Locked.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Locked",
+      "w": 360,
+      "x": 0,
+      "y": 0
+    },
+    "E02-Matches.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Matches for this site",
+      "w": 360,
+      "x": 440,
+      "y": 0
+    },
+    "E03-Generator.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Generate on signup",
+      "w": 360,
+      "x": 880,
+      "y": 0
+    },
+    "E04-SavePrompt.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Save or update login",
+      "w": 360,
+      "x": 1320,
+      "y": 0
+    },
+    "E05-Warning.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Lookalike domain warning",
+      "w": 360,
+      "x": 1760,
+      "y": 0
+    },
+    "E06-Passkey.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Passkey sign-in",
+      "w": 360,
+      "x": 2200,
+      "y": 0
+    },
+    "E07-Totp.dc.html": {
+      "h": 600,
+      "page": "extension",
+      "title": "Popup · Fill one-time code",
+      "w": 360,
+      "x": 2640,
+      "y": 0
+    },
+    "M01-Unlock.dc.html": {
+      "h": 844,
+      "page": "mobile",
+      "title": "Unlock",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "M02-Vault.dc.html": {
+      "h": 844,
+      "page": "mobile",
+      "title": "Vault list",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "M03-Detail.dc.html": {
+      "h": 844,
+      "page": "mobile",
+      "title": "Item detail",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "M04-Autofill.dc.html": {
+      "h": 844,
+      "page": "mobile",
+      "title": "Autofill sheet",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    },
+    "M05-Passkey.dc.html": {
+      "h": 844,
+      "page": "mobile",
+      "title": "Passkey sheet",
+      "w": 390,
+      "x": 1880,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Vault · Login detail",
+      "w": 1280,
+      "x": 0,
+      "y": 1840
+    },
+    "D09b-EmptyVaultCollapsed.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "desktop",
+      "title": "Vault · Empty state, collapsed sidebar",
+      "w": 1280,
+      "x": 4080,
+      "y": 1840
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-26T06:30:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "page": "desktop",
+    "view": "canvas"
+  },
+  "notes": {
+    "desktopTitle": {
+      "kind": "title1",
+      "maxW": 4000,
+      "page": "desktop",
+      "text": "Mosaic desktop app (M3 · M5 · M6 · M7)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "extensionTitle": {
+      "kind": "title1",
+      "maxW": 3000,
+      "page": "extension",
+      "text": "Browser extension (M4 · M5)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "mobileTitle": {
+      "kind": "title1",
+      "maxW": 2270,
+      "page": "mobile",
+      "text": "Mobile (M10)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    }
+  },
+  "order": [
+    "E01-Locked.dc.html",
+    "E02-Matches.dc.html",
+    "E03-Generator.dc.html",
+    "E04-SavePrompt.dc.html",
+    "E05-Warning.dc.html",
+    "E06-Passkey.dc.html",
+    "E07-Totp.dc.html",
+    "M01-Unlock.dc.html",
+    "M02-Vault.dc.html",
+    "M03-Detail.dc.html",
+    "M04-Autofill.dc.html",
+    "M05-Passkey.dc.html",
+    "Main.dc.html",
+    "D02-Welcome.dc.html",
+    "D03-EmergencyKit.dc.html",
+    "D04-VerifyKit.dc.html",
+    "D05-ImportEnpass.dc.html",
+    "D06-InstallExtension.dc.html",
+    "D07-Unlock.dc.html",
+    "D08-VaultDark.dc.html",
+    "D09-EmptyVault.dc.html",
+    "D09b-EmptyVaultCollapsed.dc.html",
+    "D10-NewItem.dc.html",
+    "D11-CommandPalette.dc.html",
+    "D12-Generator.dc.html",
+    "D21-HardwareTotpVault.dc.html",
+    "D13-SecurityDashboard.dc.html",
+    "D14-Rotation.dc.html",
+    "D15-Share.dc.html",
+    "D16-EmergencyAccess.dc.html",
+    "D17-SettingsSecurity.dc.html",
+    "D18-SshApproval.dc.html",
+    "D19-TrashHistory.dc.html",
+    "D20-SyncOffline.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "desktop",
+      "name": "Desktop app"
+    },
+    {
+      "id": "extension",
+      "name": "Browser extension"
+    },
+    {
+      "id": "mobile",
+      "name": "Mobile"
+    }
+  ],
+  "title": "Mosaic — App Screens"
+}

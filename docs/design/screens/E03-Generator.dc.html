@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mosaic · Extension generator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#09090B}a:hover{color:#3F3F46}
+button{font-family:inherit}
+.holo{background:#EEEEF2 url(/_blob/4e8ca14c0fa581e99745c3d84ee917d2) 30% 50%/800px 200px;color:#09090B;box-shadow:inset 0 0 0 1px #D4D4D8,inset 0 1px 0 rgba(255,255,255,.35);text-shadow:0 1px 0 rgba(255,255,255,.55)}.holo svg{filter:drop-shadow(0 1px 0 rgba(255,255,255,.55))}.holo:hover{background-position:42% 50%}.holo-d{background-color:#DCDCE2;background-image:url(/_blob/defc8c850e2be0b7c2449f27c18c2273);box-shadow:inset 0 0 0 1px rgba(230,230,235,.75),inset 0 1px 0 rgba(255,255,255,.35)}
+</style>
+</helmet>
+<div style="width: 360px; height: 600px; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; background: #FFFFFF; color: #09090B; font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px;">
+
+  <header style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 10px 0 16px; flex-shrink: 0; box-sizing: border-box;">
+    <span style="display: flex; flex-shrink: 0; position: relative;"><svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="0" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="0" y="11" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="11" width="9" height="9" rx="2.5" fill="#A1A1AA"></rect></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;">Mosaic</span></span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 26px; margin-left: 4px; padding: 0 10px 0 8px; border: 1px solid #E4E4E7; border-radius: 9999px; background: #FFFFFF; font-size: 12px; line-height: 16px; font-weight: 500; color: #09090B; box-sizing: border-box; position: relative;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0;"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;">Current site, secure connection (https): </span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">app.netlify.com</span></span>
+    <span style="flex-grow: 1;"></span>
+    <div style="display: flex; gap: 2px;">
+      <a href="E02-Matches.dc.html" aria-label="Search vault" style="display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #3F3F46;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></a>
+      <a href="E03-Generator.dc.html" aria-label="Password generator" aria-current="page" style="display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; background: #F4F4F5; color: #09090B;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="10" width="12" height="12" rx="2"></rect><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"></path><path d="M6 18h.01"></path><path d="M10 14h.01"></path><path d="M15 6h.01"></path><path d="M18 9h.01"></path></svg></a>
+      <a href="E01-Locked.dc.html" aria-label="Lock (Ctrl+Alt+L)" style="display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 6px; color: #3F3F46;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></a>
+    </div>
+  </header>
+
+  <main style="flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 8px 20px 16px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;">
+    <h1 style="margin: 0; font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em;">Generate a password for app.netlify.com</h1>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <output aria-label="Generated password" style="flex-grow: 1; min-width: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 18px; line-height: 28px; font-weight: 500; letter-spacing: 0.02em; word-break: break-all;">t7#Vq9!mR2xL$wp4Kz</output>
+        <button type="button" aria-label="Generate another password" style="display: flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #3F3F46; cursor: pointer; flex-shrink: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: #3F3F46; white-space: nowrap;"><span style="display: inline-flex; gap: 2px;" aria-hidden="true"><span style="width: 10px; height: 4px; border-radius: 2px; background: #09090B;"></span><span style="width: 10px; height: 4px; border-radius: 2px; background: #09090B;"></span><span style="width: 10px; height: 4px; border-radius: 2px; background: #09090B;"></span><span style="width: 10px; height: 4px; border-radius: 2px; background: #09090B;"></span></span>Strong · 118 bits</span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; border: 1px solid #E4E4E7; color: #3F3F46; font-size: 12px; line-height: 16px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Site rules: minlength 12 (passwordrules)</span>
+      </div>
+    </div>
+    <div role="radiogroup" aria-label="Password type" style="display: flex; gap: 2px; padding: 2px; border: 1px solid #E4E4E7; border-radius: 8px; box-sizing: border-box;">
+      <button type="button" role="radio" aria-checked="true" style="flex: 1 1 0; height: 28px; border: 0; border-radius: 6px; background: #F4F4F5; color: #09090B; font-size: 14px; font-weight: 500; cursor: pointer;">Random</button>
+      <button type="button" role="radio" aria-checked="false" style="flex: 1 1 0; height: 28px; border: 0; border-radius: 6px; background: transparent; color: #71717A; font-size: 14px; font-weight: 500; cursor: pointer;">Passphrase</button>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: flex; justify-content: space-between;"><label for="len" style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A;">Length</label><span style="font-size: 12px; line-height: 16px; font-weight: 500; font-variant-numeric: tabular-nums;">18 characters</span></div>
+      <input id="len" type="range" min="12" max="64" value="18" style="width: 100%; height: 24px; margin: 0; accent-color: #09090B;">
+    </div>
+    <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;">
+      <legend style="font-size: 12px; line-height: 16px; font-weight: 500; color: #71717A; padding: 0; margin-bottom: 6px;">Include</legend>
+        <label for="t-up" style="display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer;"><input id="t-up" type="checkbox" checked style="width: 16px; height: 16px; margin: 0; accent-color: #09090B;"><span>Uppercase (A–Z)</span></label>
+        <label for="t-low" style="display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer;"><input id="t-low" type="checkbox" checked style="width: 16px; height: 16px; margin: 0; accent-color: #09090B;"><span>Lowercase (a–z)</span></label>
+        <label for="t-dig" style="display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer;"><input id="t-dig" type="checkbox" checked style="width: 16px; height: 16px; margin: 0; accent-color: #09090B;"><span>Digits (0–9)</span></label>
+        <label for="t-sym" style="display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer;"><input id="t-sym" type="checkbox" checked style="width: 16px; height: 16px; margin: 0; accent-color: #09090B;"><span>Symbols (! # $ …)</span></label>
+        <label for="t-amb" style="display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer;"><input id="t-amb" type="checkbox" style="width: 16px; height: 16px; margin: 0; accent-color: #09090B;"><span>Avoid look-alikes (0 O l 1)</span></label>
+    </fieldset>
+    <div style="display: flex; gap: 8px; margin-top: auto;">
+      <button class="holo" type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 12px; border: 0; border-radius: 9999px; font-size: 14px; font-weight: 600; cursor: pointer; box-sizing: border-box; flex-grow: 1;">Fill and save as new login</button>
+      <button type="button" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; font-size: 14px; font-weight: 500; cursor: pointer; box-sizing: border-box;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>Copy</button>
+    </div>
+  </main>
+
+  <footer style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-top: 1px solid #E4E4E7; background: #FFFFFF; flex-shrink: 0; box-sizing: border-box; font-size: 12px; line-height: 16px;">
+    <a href="Main.dc.html" style="display: inline-flex; align-items: center; gap: 4px; min-height: 24px; font-weight: 500; color: #09090B; text-decoration: none;">Open Mosaic<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></a>
+    <span style="flex-grow: 1;"></span>
+    <span style="width: 6px; height: 6px; border-radius: 9999px; background: #16A34A;" aria-hidden="true"></span>
+    <span style="color: #71717A;">Synced just now</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":360,"height":600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

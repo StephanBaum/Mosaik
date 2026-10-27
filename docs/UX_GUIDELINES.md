@@ -24,10 +24,22 @@ Use tokens only. Never use raw values in components.
 
 - **Spacing scale (px):** 0, 2, 4, 8, 12, 16, 24, 32, 48, 64 (`space.0` …
   `space.9`).
-- **Radius:** 4 (controls), 8 (cards), 12 (dialogs), and full (pills).
+- **Visual direction:** mostly black and white (zinc neutrals, Linear /
+  shadcn style); the logo is strictly black and white. The primary action
+  is near-black (inverted in dark mode). Status colors stay conventional:
+  green for sync and checkmarks, red for notifications and errors, orange
+  for warnings, and soft pastels for vault colors. Focus rings, progress
+  and selection are neutral. The single primary action of a screen is a
+  round holo-foil pill ("angled rainbow stripes", ADR-0014) with a
+  `#09090B` label; nothing else uses the foil. Prototype and assets:
+  `docs/design/holo/`. Reference mockups:
+  `docs/design/` and the "Mosaic — App Screens" canvas.
+- **Radius:** 6 (controls), 12 (cards), 14 (dialogs), and full (pills).
 - **Type scale (px / line height):** 12/16, 14/20 (body), 16/24, 20/28,
-  24/32, 32/40. System UI font stack, plus a monospace stack for secrets and
-  codes.
+  24/32, 32/40. DM Sans for UI text and IBM Plex Mono for secrets and codes
+  (both SIL OFL 1.1, bundled with each app, never loaded from a CDN), with
+  the system stacks as fallback. Headings use weight 600 and -0.01em
+  tracking.
 - **Color:** semantic tokens (`bg`, `bg-subtle`, `surface`, `border`, `text`,
   `text-muted`, `accent`, `accent-text`, `danger`, `warning`, `success`,
   `focus-ring`) for the light and dark themes. Contrast, tested in CI:

@@ -5,7 +5,7 @@
 
 export const space = [0, 2, 4, 8, 12, 16, 24, 32, 48, 64] as const;
 
-export const radius = { control: 4, card: 8, dialog: 12, pill: 9999 } as const;
+export const radius = { control: 6, card: 12, dialog: 14, pill: 9999 } as const;
 
 export const fontSize = {
   xs: { size: 12, lineHeight: 16 },
@@ -16,9 +16,14 @@ export const fontSize = {
   xxl: { size: 32, lineHeight: 40 },
 } as const;
 
+/**
+ * DM Sans (UI) and IBM Plex Mono (secrets, codes; unambiguous 0/O and 1/l/I),
+ * both SIL OFL 1.1. Apps bundle the font files locally; they are never loaded
+ * from a CDN.
+ */
 export const fontFamily = {
-  ui: 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif',
-  mono: 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
+  ui: '"DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif',
+  mono: '"IBM Plex Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
 } as const;
 
 export const motion = {
@@ -37,6 +42,7 @@ export interface ColorScheme {
   borderStrong: string;
   text: string;
   textMuted: string;
+  /** Fill of the single primary action (near-black; inverted in dark mode). */
   accent: string;
   accentText: string;
   danger: string;
@@ -48,35 +54,49 @@ export interface ColorScheme {
 export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
   light: {
     bg: "#FFFFFF",
-    bgSubtle: "#F6F7F9",
+    bgSubtle: "#FAFAFA",
     surface: "#FFFFFF",
-    border: "#E1E4EA",
-    borderStrong: "#7A8599",
-    text: "#1A1D23",
-    textMuted: "#5A6272",
-    accent: "#2F5BD3",
-    accentText: "#FFFFFF",
-    danger: "#B42318",
-    warning: "#8A5A00",
-    success: "#1E7A3D",
-    focusRing: "#2F5BD3",
+    border: "#E4E4E7",
+    borderStrong: "#8A8A93",
+    text: "#09090B",
+    textMuted: "#71717A",
+    accent: "#09090B",
+    accentText: "#FAFAFA",
+    danger: "#DC2626",
+    warning: "#C2410C",
+    success: "#15803D",
+    focusRing: "#09090B",
   },
   dark: {
-    bg: "#0F1115",
-    bgSubtle: "#161A20",
-    surface: "#1C2027",
-    border: "#2C323C",
-    borderStrong: "#6B7586",
-    text: "#E8EAEE",
-    textMuted: "#A3ABB8",
-    accent: "#7DA2FF",
-    accentText: "#0F1115",
-    danger: "#FF8A80",
-    warning: "#F5C26B",
-    success: "#6FD69A",
-    focusRing: "#7DA2FF",
+    bg: "#09090B",
+    bgSubtle: "#0C0C0E",
+    surface: "#18181B",
+    border: "#27272A",
+    borderStrong: "#71717A",
+    text: "#FAFAFA",
+    textMuted: "#A1A1AA",
+    accent: "#FAFAFA",
+    accentText: "#09090B",
+    danger: "#F87171",
+    warning: "#FB923C",
+    success: "#4ADE80",
+    focusRing: "#FAFAFA",
   },
 };
+
+/**
+ * The single primary action of a screen: a round pill or circle in holographic
+ * foil ("angled rainbow stripes"), rendered by the WebGL module prototyped in
+ * docs/design/holo/. See ADR-0014. Without WebGL2 the button uses `fallback`.
+ */
+export const primaryAction = {
+  shape: "pill",
+  texture: "angled-rainbow-stripes",
+  stripePeriodCssPx: 9.1,
+  label: "#09090B",
+  rim: { light: "#D4D4D8", dark: "rgba(230, 230, 235, 0.75)" },
+  fallback: "#E4E4E7",
+} as const;
 
 /** WCAG 2.x relative luminance of a `#RRGGBB` color. */
 export function relativeLuminance(hex: string): number {

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mosaic · Empty vault</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#09090B}a:hover{color:#3F3F46}
+button{font-family:inherit}
+.holo{background:#EEEEF2 url(/_blob/4e8ca14c0fa581e99745c3d84ee917d2) 30% 50%/800px 200px;color:#09090B;box-shadow:inset 0 0 0 1px #D4D4D8,inset 0 1px 0 rgba(255,255,255,.35);text-shadow:0 1px 0 rgba(255,255,255,.55)}.holo svg{filter:drop-shadow(0 1px 0 rgba(255,255,255,.55))}.holo:hover{background-position:42% 50%}.holo-d{background-color:#DCDCE2;background-image:url(/_blob/defc8c850e2be0b7c2449f27c18c2273);box-shadow:inset 0 0 0 1px rgba(230,230,235,.75),inset 0 1px 0 rgba(255,255,255,.35)}
+</style>
+</helmet>
+<div style="min-height: 800px; display: flex; flex-wrap: wrap; align-items: stretch; background: #FFFFFF; color: #09090B; font-family: 'DM Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px;">
+
+  <nav aria-label="Vaults and categories" style="flex: 0 0 248px; box-sizing: border-box; background: #FFFFFF; padding: 20px 12px; display: flex; flex-direction: column; gap: 28px;">
+    <button type="button" aria-label="Switch vault, current vault Personal" style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #09090B; cursor: pointer; text-align: left;">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="0" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="0" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="0" y="11" width="9" height="9" rx="2.5" fill="#09090B"></rect><rect x="11" y="11" width="9" height="9" rx="2.5" fill="#A1A1AA"></rect></svg>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; line-height: 16px;"><span style="font-weight: 600; letter-spacing: -0.01em;">Mosaic</span><span style="font-size: 12px; color: #71717A;">Personal vault</span></span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg>
+    </button>
+
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <a href="#" aria-current="page" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; background: #F4F4F5; color: #09090B; text-decoration: none; font-weight: 500;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg><span style="flex-grow: 1;">All items</span></a>
+    </div>
+
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 1px;">
+      <a href="D13-SecurityDashboard.dc.html" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; color: #3F3F46; text-decoration: none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path></svg><span style="flex-grow: 1;">Security</span></a>
+      <a href="D19-TrashHistory.dc.html" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; color: #3F3F46; text-decoration: none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg><span>Trash</span></a>
+      <a href="D17-SettingsSecurity.dc.html" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; color: #3F3F46; text-decoration: none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg><span style="flex-grow: 1;">Settings</span><kbd style="font-family: inherit; font-size: 12px; color: #71717A;">Ctrl ,</kbd></a>
+      <div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; margin-top: 4px; border-top: 1px solid #E4E4E7; padding-top: 8px; box-sizing: content-box;">
+        <span style="width: 6px; height: 6px; border-radius: 9999px; background: #16A34A;" aria-hidden="true"></span>
+        <span style="flex-grow: 1; font-size: 12px; line-height: 16px; color: #71717A;">Synced just now</span>
+        <a href="D07-Unlock.dc.html" aria-label="Lock (Ctrl Alt L)" style="display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 6px; color: #3F3F46;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column;">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 64px; padding: 14px 24px; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap;"><span style="color: #71717A;">Personal</span><span style="color: #A1A1AA;" aria-hidden="true">/</span><span style="font-weight: 500;">All items</span></div>
+      <a href="D11-CommandPalette.dc.html" style="flex: 1 1 260px; max-width: 520px; margin: 0 auto; display: flex; align-items: center; gap: 8px; height: 38px; box-sizing: border-box; padding: 0 8px 0 12px; border: 1px solid #EDEDF0; border-radius: 10px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(9,9,11,0.04); color: #71717A; text-decoration: none; white-space: nowrap; overflow: hidden;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0;"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis;">Search items or run a command</span>
+        <kbd style="flex-shrink: 0; font-family: inherit; font-size: 12px; line-height: 16px; padding: 1px 6px; border-radius: 4px; background: #F4F4F5; color: #71717A;">Ctrl K</kbd>
+      </a>
+      <a href="D10-NewItem.dc.html" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; text-decoration: none; font-weight: 500; white-space: nowrap;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>New item</a>
+    </header>
+
+    <div style="flex-grow: 1; display: flex; flex-wrap: wrap; align-items: stretch;">
+      <main style="flex: 1 1 420px; min-width: 0; box-sizing: border-box; padding: 24px 56px 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; text-align: center;">
+        <svg width="120" height="120" viewBox="0 0 120 120" fill="none" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true">
+          <rect x="8" y="8" width="48" height="48" rx="12" stroke="#E4E4E7"></rect>
+          <rect x="64" y="8" width="48" height="48" rx="12" stroke="#E4E4E7"></rect>
+          <rect x="8" y="64" width="48" height="48" rx="12" stroke="#E4E4E7" stroke-dasharray="4 5"></rect>
+          <rect x="64" y="64" width="48" height="48" rx="12" fill="#09090B" stroke="#09090B"></rect>
+          <path d="M88 79v18M79 88h18" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"></path>
+        </svg>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-width: 420px;">
+          <h1 style="margin: 0; font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -0.025em;">Your vault is empty</h1>
+          <p style="margin: 0; color: #71717A;">Add a login, a passkey, a card or a note. Everything is encrypted on this device before it syncs.</p>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <a class="holo" href="D10-NewItem.dc.html" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 9999px; text-decoration: none; font-weight: 600; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #09090B;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Add your first item<kbd style="font-family: inherit; font-size: 12px; line-height: 16px; font-weight: 400; padding: 0 5px; border-radius: 4px; background: rgba(9,9,11,0.08); color: #3F3F46;">Ctrl N</kbd></a>
+          <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
+            <a href="D05-ImportEnpass.dc.html" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; text-decoration: none; font-weight: 500;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>Import from Enpass or another manager</a>
+            <a href="D06-InstallExtension.dc.html" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid #E4E4E7; border-radius: 8px; background: #FFFFFF; color: #09090B; text-decoration: none; font-weight: 500;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M2 9h20"></path><path d="M6 6.5h.01"></path><path d="M9 6.5h.01"></path></svg>Install the browser extension</a>
+          </div>
+        </div>
+        <p style="margin: 0; font-size: 12px; line-height: 16px; color: #71717A;">Press <kbd style="font-family: inherit; padding: 1px 6px; border-radius: 4px; background: #F4F4F5; color: #3F3F46;">Ctrl K</kbd> anytime to search or run a command.</p>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

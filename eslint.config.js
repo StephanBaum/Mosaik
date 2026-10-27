@@ -3,7 +3,8 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "target/**"] },
+  // docs/design holds static design references (mockups, the holo prototype), not app code.
+  { ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "target/**", "docs/design/**"] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
