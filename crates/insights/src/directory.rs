@@ -3,7 +3,8 @@
 //! 2factorauth and Contributors and Josh Davis; see `data/README.md` and the
 //! license next to it). The data is embedded at build time; nothing is
 //! fetched at run time. The directory asks for attribution where its data is
-//! visible to users: the dashboard shows `insights.attribution.twoFactor`.
+//! visible to users: the dashboard shows `insights.attribution.twoFactor`
+//! (ADR-0021).
 //!
 //! # Lookup
 //!
@@ -15,10 +16,13 @@
 //! entry wins. A host ending in an all-digit label (an IPv4 address) matches
 //! only exactly.
 //!
-//! Some directory domains are public suffixes, under which unrelated parties
-//! register names (`gov.uk`, `wordpress.com`). Without a Public Suffix List,
-//! such a domain matches only the host itself: [`EXACT_ONLY`] lists them, and
-//! a test checks every two-label domain in the data whose first label is a
+//! Some directory domains are public suffixes or hosting platforms, under
+//! which unrelated parties get their own names (`gov.uk`, `myfritz.net`,
+//! `someblog.substack.com`). Such a domain matches only the host itself and
+//! its `www.` host: [`EXACT_ONLY`] lists them. The list is checked against
+//! the Public Suffix List (ICANN and private sections) whenever the data is
+//! updated (see `data/README.md`); a test checks that every entry is in the
+//! data and every two-label domain in the data whose first label is a
 //! common second-level label (`co`, `com`, `gov`, `ac`, ...).
 
 use std::collections::HashMap;
@@ -28,9 +32,27 @@ use serde_json::Value;
 
 const TOTP_JSON: &str = include_str!("../data/2fa-directory-totp.json");
 
-/// Directory domains under which other parties register names: these match
-/// only exactly, never for a subdomain.
-pub const EXACT_ONLY: &[&str] = &["gov.uk", "wordpress.com"];
+/// Directory domains under which other parties get their own names: these
+/// match only exactly (or with `www.`), never for another subdomain.
+///
+/// - On the Public Suffix List (checked 2026-10-28 with the list in
+///   `tldts` 7.4.19): `carrd.co`, `gov.uk` (ICANN), `myfritz.net`,
+///   `omg.lol`, `pythonanywhere.com`, `square.site` (private section).
+/// - Not on the list, but hosting user sites on subdomains: `squarespace.com`,
+///   `substack.com`, `tumblr.com`, `weebly.com`, `wordpress.com`.
+pub const EXACT_ONLY: &[&str] = &[
+    "carrd.co",
+    "gov.uk",
+    "myfritz.net",
+    "omg.lol",
+    "pythonanywhere.com",
+    "square.site",
+    "squarespace.com",
+    "substack.com",
+    "tumblr.com",
+    "weebly.com",
+    "wordpress.com",
+];
 
 /// Longest host name accepted, per RFC 1035.
 const MAX_HOST_LEN: usize = 253;
@@ -194,7 +216,9 @@ pub fn totp_site(host: &str) -> Option<TotpSite> {
     let mut candidate = host.as_str();
     loop {
         if let Some(&index) = dir.by_domain.get(candidate)
-            && (candidate == host || !EXACT_ONLY.contains(&candidate))
+            && (!EXACT_ONLY.contains(&candidate)
+                || candidate == host
+                || host.strip_prefix("www.") == Some(candidate))
         {
             return dir.site(index);
         }
@@ -339,6 +363,35 @@ mod tests {
             "wordpress.com"
         );
         assert_eq!(totp_site("someblog.wordpress.com"), None);
+        assert_eq!(
+            totp_site("www.wordpress.com").unwrap().domain(),
+            "wordpress.com"
+        );
+        // Regression: user subdomains of hosting platforms mapped to the
+        // platform and produced a misleading "set up 2FA" hint.
+        for host in [
+            "someblog.substack.com",
+            "name.omg.lol",
+            "blog.tumblr.com",
+            "shop.squarespace.com",
+            "site.weebly.com",
+            "fritzbox123.myfritz.net",
+            "me.carrd.co",
+            "user.pythonanywhere.com",
+            "store.square.site",
+        ] {
+            assert_eq!(totp_site(host), None, "{host}");
+        }
+        assert_eq!(totp_site("www.tumblr.com").unwrap().domain(), "tumblr.com");
+        assert_eq!(totp_site("substack.com").unwrap().domain(), "substack.com");
+    }
+
+    #[test]
+    fn every_exact_only_domain_is_in_the_data() {
+        let dir = directory().unwrap();
+        for domain in EXACT_ONLY {
+            assert!(dir.by_domain.contains_key(*domain), "{domain}");
+        }
     }
 
     #[test]

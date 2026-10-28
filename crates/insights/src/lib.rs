@@ -10,10 +10,11 @@
 //!   holds. Nothing leaves the device and nothing is fetched: the 2FA
 //!   Directory data is embedded ([`directory`]). The breach check (Have I
 //!   Been Pwned, k-anonymity) is M7 and lives elsewhere.
-//! - A [`Report`] carries item IDs, finding kinds, severities and action
-//!   keys only, never a password, a hash of one, a strength score or any
-//!   other value derived from a secret beyond the finding itself, so it can
-//!   cross the IPC boundary and be logged.
+//! - A [`Report`] carries item IDs, finding kinds, severities, action keys,
+//!   the 2FA Directory entry of a site and the host of a plain-HTTP URL,
+//!   never a password, a hash of one, a strength score or any other value
+//!   derived from a secret beyond the finding itself, so it can cross the
+//!   IPC boundary. The hosts are vault content: a report is never logged.
 //! - Secrets are read into zeroizing buffers for the duration of
 //!   [`analyze`] and dropped (zeroized) before it returns. Reuse detection
 //!   (below) compares keyed hashes under a per-call random
@@ -31,7 +32,7 @@
 //! | [`FindingKind::Weak`] | logins (password), Wi-Fi (password) | [`estimate_strength`] below the generator's `Fair` bucket (60 bits) | `High` below 36 bits (`VeryWeak`), else `Medium` | change password |
 //! | [`FindingKind::Reused`] | logins, Wi-Fi | the same non-empty password as another checked item (exact, byte for byte) | `High` | change password |
 //! | [`FindingKind::Old`] | logins with a password | the current password was written more than [`Options::max_password_age_days`] (365) days before `now` | `Low` | change password |
-//! | [`FindingKind::MissingTotp`] | logins without a one-time code | a URL's host is a 2FA Directory TOTP site, and no checked item with a one-time code names that site by URL or issuer | `Medium` | set up 2FA |
+//! | [`FindingKind::MissingTotp`] | logins without a one-time code (neither the item's own nor a custom field of the OTP kind) | a URL's host is a 2FA Directory TOTP site, and no checked item with a one-time code (own or custom field) names that site by URL or issuer | `Medium`; `Low` if a checked item holds a passkey for that site (relying party ID) | set up 2FA |
 //! | [`FindingKind::InsecureUrl`] | logins | a URL with the `http` scheme, except loopback hosts | `Medium`; `Low` if every such URL is on a local network ([`url::is_local_network`]) | review URL |
 //!
 //! The password's age comes from the time its current value was written
@@ -40,7 +41,7 @@
 //!
 //! # Reuse
 //!
-//! See the `reuse` module: `HMAC-SHA-256(K, password)` under a key `K` drawn
+//! See the `reuse` module and ADR-0020: `HMAC-SHA-256(K, password)` under a key `K` drawn
 //! from the OS CSPRNG for each call, candidate groups by equal tags, then
 //! exact classes by constant-time comparison. The groups are exactly the
 //! equivalence classes of equal passwords (a property test checks this).
@@ -56,7 +57,7 @@ mod words;
 
 use std::collections::{BTreeMap, HashSet};
 
-use mosaic_core::model::{Item, ItemType, SecretField};
+use mosaic_core::model::{CustomFieldValue, Item, ItemType, OtpConfig, SecretField};
 use mosaic_core::{ItemId, SecretString, Timestamp, VaultId};
 pub use mosaic_generator::Strength;
 
@@ -163,6 +164,7 @@ impl<'c, 'a> Found<'c, 'a> {
             findings: Vec::new(),
             reused_with: Vec::new(),
             totp_site: None,
+            insecure_host: None,
         });
         if !entry.has(kind) {
             entry.findings.push(finding(kind, severity));
@@ -280,7 +282,14 @@ fn check_urls(found: &mut Found<'_, '_>) {
         } else {
             Severity::Medium
         };
-        found.add(index, FindingKind::InsecureUrl, severity);
+        if let Some(entry) = found.add(index, FindingKind::InsecureUrl, severity) {
+            // The host that sets the severity: a public one if any.
+            let shown = http_hosts
+                .iter()
+                .position(|h| !url::is_local_network(h))
+                .unwrap_or(0);
+            entry.insecure_host = http_hosts.into_iter().nth(shown);
+        }
     }
 }
 
@@ -288,16 +297,30 @@ fn check_totp(found: &mut Found<'_, '_>) {
     let covered = totp_coverage(found.checked);
     let checked = found.checked;
     for (index, c) in checked.iter().enumerate() {
-        if !c.is_login() || c.item.otp().is_some() {
+        if !c.is_login() || !otp_configs(c.item).is_empty() {
             continue;
         }
-        let site = hosts(c.item)
+        let uncovered: Vec<TotpSite> = hosts(c.item)
             .iter()
             .filter_map(|p| totp_site(p.host()))
-            .find(|s| !covered.contains(s.domain()));
-        if let Some(site) = site
-            && let Some(entry) = found.add(index, FindingKind::MissingTotp, Severity::Medium)
-        {
+            .filter(|s| !covered.totp.contains(s.domain()))
+            .collect();
+        // A site without a passkey first: a passkey for one site must not
+        // lower the finding for another.
+        let site = uncovered
+            .iter()
+            .find(|s| !covered.passkey.contains(s.domain()))
+            .or_else(|| uncovered.first())
+            .copied();
+        let Some(site) = site else {
+            continue;
+        };
+        let severity = if covered.passkey.contains(site.domain()) {
+            Severity::Low
+        } else {
+            Severity::Medium
+        };
+        if let Some(entry) = found.add(index, FindingKind::MissingTotp, severity) {
             entry.totp_site = Some(site);
         }
     }
@@ -375,22 +398,56 @@ fn hosts(item: &Item) -> Vec<url::UrlParts> {
         .collect()
 }
 
-/// Directory domains that some checked item holds a one-time code for, by
-/// its URLs or its OTP issuer.
-fn totp_coverage(checked: &[Checked<'_>]) -> HashSet<&'static str> {
-    let mut covered = HashSet::new();
+/// Directory domains the vault already protects with a second factor.
+struct Coverage {
+    /// Domains some checked item holds a one-time code for, by its URLs or
+    /// its OTP issuer.
+    totp: HashSet<&'static str>,
+    /// Domains some checked item holds a passkey for, by its relying party
+    /// ID.
+    passkey: HashSet<&'static str>,
+}
+
+/// Every OTP configuration of an item: its own one-time code and any
+/// custom field of the OTP kind (imports often put one there). The
+/// secrets are dropped (zeroized) with the returned values.
+fn otp_configs(item: &Item) -> Vec<OtpConfig> {
+    item.otp()
+        .into_iter()
+        .chain(
+            item.custom_fields()
+                .into_iter()
+                .filter_map(|(_, field)| match field.value {
+                    CustomFieldValue::Otp(config) => Some(config),
+                    _ => None,
+                }),
+        )
+        .collect()
+}
+
+fn totp_coverage(checked: &[Checked<'_>]) -> Coverage {
+    let mut covered = Coverage {
+        totp: HashSet::new(),
+        passkey: HashSet::new(),
+    };
     for c in checked {
-        let Some(otp) = c.item.otp() else {
+        if let Some(passkey) = c.item.passkey()
+            && let Some(site) = totp_site(passkey.rp_id.as_str())
+        {
+            covered.passkey.insert(site.domain());
+        }
+        let configs = otp_configs(c.item);
+        if configs.is_empty() {
             continue;
-        };
-        covered.extend(
+        }
+        covered.totp.extend(
             hosts(c.item)
                 .iter()
                 .filter_map(|p| totp_site(p.host()))
                 .map(|s| s.domain()),
         );
-        if let Some(issuer) = &otp.issuer {
-            covered.extend(
+        for issuer in configs.iter().filter_map(|otp| otp.issuer.as_ref()) {
+            covered.totp.extend(
                 totp_sites_for_issuer(issuer.as_str())
                     .iter()
                     .map(TotpSite::domain),

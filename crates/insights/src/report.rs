@@ -1,7 +1,9 @@
-//! The report: item IDs, finding kinds, severities and action keys. Nothing
+//! The report: item IDs, finding kinds, severities and action keys, plus the
+//! 2FA Directory entry of a site and the host of a plain-HTTP URL. Nothing
 //! in it is a secret or derived from one beyond the finding itself (a weak
 //! password is reported as `Weak`, never with its value, score or hash), so
-//! a report may cross the IPC boundary and be logged.
+//! a report may cross the IPC boundary. The hosts are vault content, like an
+//! item's URLs: never log a report.
 
 use mosaic_core::{ItemId, VaultId};
 
@@ -128,6 +130,10 @@ pub struct ItemFindings {
     /// For [`FindingKind::MissingTotp`]: the directory entry of the site,
     /// for a "how to set up 2FA" link; `None` otherwise.
     pub totp_site: Option<TotpSite>,
+    /// For [`FindingKind::InsecureUrl`]: the host of a plain-HTTP URL that
+    /// caused it (the first one outside the local network, else the first
+    /// one), for the dashboard to name; `None` otherwise.
+    pub insecure_host: Option<String>,
 }
 
 impl ItemFindings {

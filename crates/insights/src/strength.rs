@@ -1,7 +1,7 @@
 //! Password strength estimate: the generator's entropy formula, lowered by
 //! the patterns people actually use.
 //!
-//! # Method (a documented heuristic, in the spirit of zxcvbn)
+//! # Method (a documented heuristic, in the spirit of zxcvbn; ADR-0022)
 //!
 //! Mosaic does not depend on a zxcvbn crate: the Rust ports copy the
 //! password into many ordinary `String`s (lowercased, de-leeted,
@@ -27,8 +27,9 @@
 //!      `log2(start choices) + log2(length)`, plus one bit if descending;
 //!    - a run along one row of a QWERTY or QWERTZ keyboard (`qwert`,
 //!      `asdf`, `!"§$%`): `log2(94) + 1 + log2(length)`;
-//!    - a block repeated two or more times (`aaaa`, `abcabc`): the block's
-//!      own estimate plus `log2(repetitions)`;
+//!    - a block repeated two or more times (`aaaa`, `abcabc`, `ttk9ttk9`;
+//!      every block length that repeats at a position is tried): the
+//!      block's own estimate plus `log2(repetitions)`;
 //!    - a year from 1900 to 2099 (`log2(200)` bits) or a date (day, month
 //!      and year in the usual orders, with or without one separator):
 //!      `log2(31 × 12 × years)`, plus two bits for a separator.
@@ -412,30 +413,47 @@ fn keyboard_matches(lower: &[char], out: &mut Vec<Match>) {
     }
 }
 
+/// Repeated blocks. At each start, every block length whose block is
+/// followed right away by a copy of itself is a candidate (`t` and
+/// `ttk9#Q` in `ttk9#Qttk9#Q`), not only the shortest one, and the dynamic
+/// programming picks the cheapest. A block that is itself a shorter block
+/// repeated (`abab`) is skipped: the shorter block covers the same run.
 fn repeat_matches(text: &Text<'_>, out: &mut Vec<Match>) {
     let n = text.len();
     for start in 0..n {
         let Some(rest) = text.original.get(start..) else {
             continue;
         };
-        let Some(block_len) = (1..=rest.len() / 2).find(|&l| rest.get(..l) == rest.get(l..2 * l))
-        else {
-            continue;
-        };
-        let block = rest.get(..block_len).unwrap_or_default();
-        let repetitions = rest
-            .chunks_exact(block_len)
-            .take_while(|chunk| *chunk == block)
-            .count();
-        let Some(base) = text.slice(start, start + block_len) else {
-            continue;
-        };
-        out.push(Match {
-            start,
-            end: start + block_len * repetitions,
-            bits: min_bits(&base, false) + count_f64(repetitions).log2(),
-        });
+        for block_len in 1..=rest.len() / 2 {
+            let Some(block) = rest.get(..block_len) else {
+                break;
+            };
+            if rest.get(block_len..2 * block_len) != Some(block) || is_repetition(block) {
+                continue;
+            }
+            let repetitions = rest
+                .chunks_exact(block_len)
+                .take_while(|chunk| *chunk == block)
+                .count();
+            let Some(base) = text.slice(start, start + block_len) else {
+                continue;
+            };
+            out.push(Match {
+                start,
+                end: start + block_len * repetitions,
+                bits: min_bits(&base, false) + count_f64(repetitions).log2(),
+            });
+        }
     }
+}
+
+/// Whether `block` is a shorter block repeated two or more times.
+fn is_repetition(block: &[char]) -> bool {
+    let n = block.len();
+    (1..n).filter(|&p| n.is_multiple_of(p)).any(|p| {
+        let unit = block.get(..p);
+        block.chunks_exact(p).all(|chunk| Some(chunk) == unit)
+    })
 }
 
 /// Bits of a four-digit year in 1900..=2099.
@@ -688,6 +706,56 @@ mod tests {
         assert_eq!(step('b', 'a'), Some(-1));
         assert_eq!(step('a', 'c'), None);
         assert_eq!(step('9', 'a'), None);
+    }
+
+    #[test]
+    fn doubled_blocks_starting_with_a_doubled_character_are_repeats() {
+        // Regression: only the shortest block at each start was tried, so
+        // `t` hid `ttk9#Q` and these scored like random 12-character
+        // passwords (64 bits).
+        for (doubled, block) in [
+            ("ttk9#Qttk9#Q", "ttk9#Q"),
+            ("xxQ7!zxxQ7!z", "xxQ7!z"),
+            ("tk9#Qtk9#Q", "tk9#Q"),
+            ("aaB3$kaaB3$kaaB3$k", "aaB3$k"),
+        ] {
+            let e = estimate_strength(doubled);
+            assert!(e.is_weak(), "{doubled}: {} bits", e.bits());
+            assert!(
+                e.bits() <= brute_force_bits(block) + 2.0,
+                "{doubled}: {} bits",
+                e.bits()
+            );
+        }
+        assert!(is_repetition(&['a', 'b', 'a', 'b']));
+        assert!(is_repetition(&['a', 'a']));
+        assert!(!is_repetition(&['a']));
+        assert!(!is_repetition(&['a', 'a', 'b']));
+        assert!(!is_repetition(&['a', 'b', 'a']));
+    }
+
+    proptest::proptest! {
+        // Long inputs are slow in debug builds; the nightly fuzz target
+        // covers far more inputs.
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// The invariants the dashboard relies on: never negative, never
+        /// above the brute-force bound, deterministic, only the first
+        /// `MAX_ANALYZED_CHARS` characters count, and a password made of a
+        /// block written twice costs at most the block plus one bit.
+        #[test]
+        fn strength_invariants(p in "\\PC{0,160}", block in "[a-zA-Z0-9#!$%]{1,64}") {
+            let e = estimate_strength(&p);
+            proptest::prop_assert!(e.bits() >= 0.0);
+            proptest::prop_assert!(e.bits() <= brute_force_bits(&p) + 1e-9);
+            proptest::prop_assert_eq!(e, estimate_strength(&p));
+            let head: String = p.chars().take(MAX_ANALYZED_CHARS).collect();
+            proptest::prop_assert_eq!(e, estimate_strength(&head));
+            let doubled = block.repeat(2);
+            proptest::prop_assert!(
+                estimate_strength(&doubled).bits() <= brute_force_bits(&block) + 1.0 + 1e-9
+            );
+        }
     }
 
     #[test]

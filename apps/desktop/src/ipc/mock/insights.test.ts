@@ -48,7 +48,7 @@ describe("mock security report", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.itemsChecked).toBe(sampleItems().length);
-      expect(result.value.findings.map((f) => f.kinds)).toEqual([["missingTotp"]]);
+      expect(result.value.findings.map((f) => f.issues.map((i) => i.kind))).toEqual([["missingTotp"]]);
     }
   });
 
@@ -66,27 +66,76 @@ describe("mock security report", () => {
 
     const report = mockSecurityReport(state([a, b, old, trashed]));
     expect(report.itemsChecked).toBe(3);
-    expect(report.counts).toEqual({ weak: 2, reused: 2, old: 1, missingTotp: 1, insecureUrl: 1 });
+    expect(report.counts).toEqual({
+      weak: 2,
+      reused: 2,
+      reusedGroups: 1,
+      old: 1,
+      missingTotp: 1,
+      insecureUrl: 1,
+      high: 2,
+      medium: 0,
+      low: 1,
+    });
+    const ref = (item: MockItem) => ({
+      vaultId: item.detail.summary.vaultId,
+      itemId: item.detail.summary.itemId,
+    });
     expect(report.findings).toEqual([
       {
-        vaultId: a.detail.summary.vaultId,
-        itemId: a.detail.summary.itemId,
-        kinds: ["weak", "reused", "insecureUrl"],
-        reusedWith: [b.detail.summary.itemId],
+        ...ref(a),
+        issues: [
+          { kind: "weak", severity: "high", action: "changePassword" },
+          { kind: "reused", severity: "high", action: "changePassword" },
+          { kind: "insecureUrl", severity: "medium", action: "reviewUrl" },
+        ],
+        reusedWith: [ref(b)],
+        totpSite: null,
+        insecureHost: "shop.example",
       },
       {
-        vaultId: b.detail.summary.vaultId,
-        itemId: b.detail.summary.itemId,
-        kinds: ["weak", "reused", "missingTotp"],
-        reusedWith: [a.detail.summary.itemId],
+        ...ref(b),
+        issues: [
+          { kind: "weak", severity: "high", action: "changePassword" },
+          { kind: "reused", severity: "high", action: "changePassword" },
+          { kind: "missingTotp", severity: "medium", action: "setUpTotp" },
+        ],
+        reusedWith: [ref(a)],
+        totpSite: { name: "GitHub", documentation: "https://docs.github.com/en/authentication" },
+        insecureHost: null,
       },
       {
-        vaultId: old.detail.summary.vaultId,
-        itemId: old.detail.summary.itemId,
-        kinds: ["old"],
+        ...ref(old),
+        issues: [{ kind: "old", severity: "low", action: "changePassword" }],
         reusedWith: [],
+        totpSite: null,
+        insecureHost: null,
       },
     ]);
     expect(JSON.stringify(report)).not.toContain("short");
+  });
+
+  it("orders like the Rust report and rates the local network low", () => {
+    const [base] = sampleItems();
+    if (base === undefined) {
+      throw new Error("sample data");
+    }
+    // Severity first, regardless of how many issues an item has.
+    const router = variant(base, "019a2b3c-0000-7000-8000-000000000001", "long-enough-pass", "http://192.168.178.1");
+    router.detail.summary.modifiedAt = NOW - 400 * 86_400_000;
+    const weak = variant(base, "019a2b3c-0000-7000-8000-000000000002", "abc", "https://shop.example");
+    const otpField = variant(base, "019a2b3c-0000-7000-8000-000000000003", "long-enough-pass2", "https://github.com");
+    otpField.detail.customFields = [{ elementId: "f1", label: "2FA", kind: "otp", value: null }];
+
+    const report = mockSecurityReport(state([router, weak, otpField]));
+    expect(report.findings.map((f) => f.itemId)).toEqual([weak.detail.summary.itemId, router.detail.summary.itemId]);
+    expect(report.findings[1]?.issues).toEqual([
+      { kind: "old", severity: "low", action: "changePassword" },
+      { kind: "insecureUrl", severity: "low", action: "reviewUrl" },
+    ]);
+    expect(report.findings[1]?.insecureHost).toBe("192.168.178.1");
+    expect(report.counts.missingTotp).toBe(0);
+    expect(report.counts.low).toBe(1);
+    expect(report.counts.high).toBe(1);
   });
 });

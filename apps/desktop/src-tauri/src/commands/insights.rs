@@ -5,12 +5,15 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_core::Timestamp;
-use mosaic_insights::{Candidate, FindingKind, Options, analyze};
+use mosaic_insights::{Action, Candidate, Finding, FindingKind, Options, Severity, analyze};
 use mosaic_vault::session::ItemFilter;
 use tauri::State;
 
 use crate::contract::errors::{IpcError, IpcResult};
-use crate::contract::insights::{InsightCounts, InsightFinding, InsightKind, SecurityReport};
+use crate::contract::insights::{
+    InsightAction, InsightCounts, InsightFinding, InsightIssue, InsightItemRef, InsightKind,
+    InsightSeverity, SecurityReport, TotpSiteInfo,
+};
 use crate::state::{AppState, Backend};
 
 /// `security_report`.
@@ -51,25 +54,51 @@ fn to_wire(report: &mosaic_insights::Report, now: Timestamp) -> SecurityReport {
         counts: InsightCounts {
             weak: c.weak,
             reused: c.reused,
+            reused_groups: c.reused_groups,
             old: c.old,
             missing_totp: c.missing_totp,
             insecure_url: c.insecure_url,
+            high: c.high,
+            medium: c.medium,
+            low: c.low,
         },
+        // Same order as the report: most severe first, then more findings,
+        // then by vault and item ID (the mock follows it too).
         findings: report
             .items
             .iter()
             .map(|item| InsightFinding {
                 vault_id: item.item.vault_id.into(),
                 item_id: item.item.item_id.into(),
-                kinds: item.findings.iter().filter_map(|f| kind(f.kind)).collect(),
-                reused_with: item.reused_with.iter().map(|k| k.item_id.into()).collect(),
+                issues: item.findings.iter().copied().filter_map(issue).collect(),
+                reused_with: item
+                    .reused_with
+                    .iter()
+                    .map(|k| InsightItemRef {
+                        vault_id: k.vault_id.into(),
+                        item_id: k.item_id.into(),
+                    })
+                    .collect(),
+                totp_site: item.totp_site.map(|site| TotpSiteInfo {
+                    name: site.name().to_owned(),
+                    documentation: site.documentation().map(str::to_owned),
+                }),
+                insecure_host: item.insecure_host.clone(),
             })
             .collect(),
     }
 }
 
-/// The wire kind. `FindingKind` is non-exhaustive: a kind the contract does
-/// not know yet is left out rather than mislabeled.
+/// The wire finding. `FindingKind` and `Action` are non-exhaustive: a value
+/// the contract does not know yet is left out rather than mislabeled.
+fn issue(finding: Finding) -> Option<InsightIssue> {
+    Some(InsightIssue {
+        kind: kind(finding.kind)?,
+        severity: severity(finding.severity),
+        action: action(finding.action)?,
+    })
+}
+
 fn kind(kind: FindingKind) -> Option<InsightKind> {
     match kind {
         FindingKind::Weak => Some(InsightKind::Weak),
@@ -77,6 +106,23 @@ fn kind(kind: FindingKind) -> Option<InsightKind> {
         FindingKind::Old => Some(InsightKind::Old),
         FindingKind::MissingTotp => Some(InsightKind::MissingTotp),
         FindingKind::InsecureUrl => Some(InsightKind::InsecureUrl),
+        _ => None,
+    }
+}
+
+fn severity(severity: Severity) -> InsightSeverity {
+    match severity {
+        Severity::Low => InsightSeverity::Low,
+        Severity::Medium => InsightSeverity::Medium,
+        Severity::High => InsightSeverity::High,
+    }
+}
+
+fn action(action: Action) -> Option<InsightAction> {
+    match action {
+        Action::ChangePassword => Some(InsightAction::ChangePassword),
+        Action::SetUpTotp => Some(InsightAction::SetUpTotp),
+        Action::ReviewUrl => Some(InsightAction::ReviewUrl),
         _ => None,
     }
 }
@@ -149,9 +195,13 @@ mod tests {
             InsightCounts {
                 weak: 2,
                 reused: 2,
+                reused_groups: 1,
                 old: 0,
                 missing_totp: 0,
                 insecure_url: 1,
+                high: 2,
+                medium: 0,
+                low: 0,
             }
         );
         let json = serde_json::to_value(&report).unwrap();
@@ -164,11 +214,47 @@ mod tests {
             .find(|f| f["itemId"] == reused_b.as_str())
             .unwrap();
         assert_eq!(
-            b["kinds"],
-            serde_json::json!(["weak", "reused", "insecureUrl"])
+            b["issues"],
+            serde_json::json!([
+                { "kind": "weak", "severity": "high", "action": "changePassword" },
+                { "kind": "reused", "severity": "high", "action": "changePassword" },
+                { "kind": "insecureUrl", "severity": "medium", "action": "reviewUrl" },
+            ])
         );
-        assert_eq!(b["reusedWith"], serde_json::json!([reused_a]));
+        assert_eq!(
+            b["reusedWith"],
+            serde_json::json!([{ "vaultId": vault.to_string(), "itemId": reused_a }])
+        );
+        assert_eq!(b["insecureHost"], "b.example");
+        assert_eq!(b["totpSite"], serde_json::Value::Null);
+        // Most severe first, then more findings first: b (3) before a (2).
+        assert_eq!(findings[0]["itemId"], reused_b.as_str());
         assert!(!text.contains(&fine));
+    }
+
+    #[test]
+    fn missing_totp_names_the_site() {
+        let (backend, vault) = unlocked();
+        let login = add_login(
+            &backend,
+            vault,
+            "Vw9!rT2#kL5$pM8&nQ4*",
+            "https://github.com",
+        );
+        let report = backend
+            .security_report(Timestamp::from_unix_millis(1_800_000_000_000))
+            .unwrap();
+        let json = serde_json::to_value(&report).unwrap();
+        let f = &json["findings"][0];
+        assert_eq!(f["itemId"], login.as_str());
+        assert_eq!(f["totpSite"]["name"], "GitHub");
+        assert!(
+            f["totpSite"]["documentation"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://")
+        );
+        assert_eq!(report.counts.medium, 1);
     }
 
     #[test]
@@ -189,6 +275,12 @@ mod tests {
         for k in FindingKind::ALL {
             assert!(kind(k).is_some(), "{k:?}");
         }
+        for a in [Action::ChangePassword, Action::SetUpTotp, Action::ReviewUrl] {
+            assert!(action(a).is_some(), "{a:?}");
+        }
+        assert_eq!(severity(Severity::Low), InsightSeverity::Low);
+        assert_eq!(severity(Severity::Medium), InsightSeverity::Medium);
+        assert_eq!(severity(Severity::High), InsightSeverity::High);
         assert!(now().as_unix_millis() > 1_700_000_000_000);
     }
 }

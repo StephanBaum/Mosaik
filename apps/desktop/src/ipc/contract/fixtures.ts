@@ -22,6 +22,8 @@ export interface EnumFixtures {
   theme: string[];
   language: string[];
   insightKind: string[];
+  insightSeverity: string[];
+  insightAction: string[];
   importFormat: string[];
   importWarning: string[];
   sshDecision: string[];

@@ -24,7 +24,7 @@ use super::import::{
     self, ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportFormat,
     ImportPreviewRequest, ImportResult, ImportWarning,
 };
-use super::insights::{self, InsightKind};
+use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
     self, AddItemRequest, CustomFieldKind, ItemKind, ItemRequest, ListItemsRequest,
     MoveItemRequest, MovedItem, OtpScheme, RevealRequest, RevealedSecret, SecretFieldKey,
@@ -350,6 +350,8 @@ fn build() -> Value {
         ("theme", values(Theme::ALL)),
         ("language", values(Language::ALL)),
         ("insightKind", values(InsightKind::ALL)),
+        ("insightSeverity", values(InsightSeverity::ALL)),
+        ("insightAction", values(InsightAction::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
         ("sshDecision", values(SshDecision::ALL)),

@@ -4,9 +4,20 @@ The file is embedded into the crate with `include_str!`. It is kept
 byte-for-byte as downloaded; never edit it by hand. To update it, download it
 again, check the license below, update the SHA-256 and the entry counts here
 and in `src/directory.rs` (test `data_loads_and_matches_the_recorded_sha256`),
-check `EXACT_ONLY` against any new public-suffix domains (test
-`every_public_suffix_like_domain_is_exact_only`), and run
+check `EXACT_ONLY` (`src/directory.rs`), and run
 `cargo test -p mosaic-insights`.
+
+Checking `EXACT_ONLY`: every directory domain (main and additional) that is
+on the Public Suffix List, or under which the list has a rule (ICANN and
+private sections, wildcards included), must be in `EXACT_ONLY`. One way:
+for each domain `d`, ask a current PSL implementation (for example `tldts`,
+`getPublicSuffix("probe." + d, { allowPrivateDomains: true })`) and list `d`
+when the answer is `d` or ends in `.d`. Also review new domains of hosting
+platforms that give users their own subdomains but are not on the list
+(`substack.com`, `tumblr.com`). Record the check date and list version in
+the `EXACT_ONLY` documentation. The tests check that every entry is still in
+the data (`every_exact_only_domain_is_in_the_data`) and catch two-label
+domains such as `co.xx` (`every_public_suffix_like_domain_is_exact_only`).
 
 ## `2fa-directory-totp.json`
 

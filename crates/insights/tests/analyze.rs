@@ -7,7 +7,10 @@
     reason = "integration tests"
 )]
 
-use mosaic_core::model::{Item, ItemType, LoginUrl, OtpConfig, SecretField, Text, TextField};
+use mosaic_core::model::{
+    CustomField, CustomFieldValue, Item, ItemType, LoginUrl, OtpConfig, PasskeyCredential,
+    SecretField, Text, TextField,
+};
 use mosaic_core::{DeviceId, ItemId, SecretVec, Timestamp, VaultId};
 use mosaic_insights::{
     Action, Candidate, Counts, FindingKind, ItemKey, Options, Report, Severity, analyze,
@@ -274,6 +277,11 @@ fn insecure_urls() {
     assert!(r.item(loopback).is_none());
     assert!(r.item(https).is_none());
     assert_eq!(r.counts.insecure_url, 3);
+    // The host the dashboard names: a public one first.
+    let host = |key| r.item(key).unwrap().insecure_host.as_deref();
+    assert_eq!(host(public), Some("shop.example.com"));
+    assert_eq!(host(router), Some("192.168.178.1"));
+    assert_eq!(host(mixed), Some("bank.example.net"));
 }
 
 #[test]
@@ -323,6 +331,97 @@ fn missing_totp() {
     });
     covered_by_url.push(totp);
     assert!(covered_by_url.report().item(login).is_none());
+}
+
+fn otp_field(issuer: Option<&str>) -> CustomField {
+    CustomField::new(Text::new("2FA"), CustomFieldValue::Otp(otp(issuer)))
+}
+
+#[test]
+fn custom_field_one_time_codes_count() {
+    // Regression: only `Item::otp` counted, so an imported login with its
+    // OTP generator in a custom field was flagged.
+    let mut fx = Fixture::new();
+    let login = fx.login(Some(STRONG), &["https://github.com/login"]);
+    fx.edit(login, NOW, |e| {
+        e.add_custom_field(&otp_field(None)).unwrap();
+    });
+    let r = fx.report();
+    assert!(r.item(login).is_none(), "{:?}", r.item(login));
+    assert_eq!(r.counts.missing_totp, 0);
+
+    // A custom-field OTP on another item covers the site by issuer ...
+    let mut by_issuer = Fixture::new();
+    let login = by_issuer.login(Some(STRONG), &["https://github.com"]);
+    let note = by_issuer.make(&ItemType::SecureNote, NOW, |e| {
+        e.add_custom_field(&otp_field(Some("GitHub"))).unwrap();
+    });
+    by_issuer.push(note);
+    assert!(by_issuer.report().item(login).is_none());
+
+    // ... and by URL.
+    let mut by_url = Fixture::new();
+    let login = by_url.login(Some(STRONG), &["https://gist.github.com"]);
+    let other = by_url.login(Some("hT3%nB8@wQ6^zY1&Ab"), &["https://github.com"]);
+    by_url.edit(other, NOW, |e| {
+        e.add_custom_field(&otp_field(None)).unwrap();
+    });
+    let r = by_url.report();
+    assert!(r.item(login).is_none());
+    assert!(r.item(other).is_none());
+
+    // A custom field of another kind does not count.
+    let mut plain = Fixture::new();
+    let login = plain.login(Some(STRONG), &["https://github.com"]);
+    plain.edit(login, NOW, |e| {
+        e.add_custom_field(&CustomField::new(
+            Text::new("note"),
+            CustomFieldValue::Text(Text::new("otpauth://totp/x")),
+        ))
+        .unwrap();
+    });
+    assert_eq!(kinds(&plain.report(), login), [FindingKind::MissingTotp]);
+}
+
+#[test]
+fn a_passkey_for_the_site_lowers_missing_totp_to_low() {
+    let mut fx = Fixture::new();
+    let login = fx.login(Some(STRONG), &["https://github.com/login"]);
+    let elsewhere = fx.login(Some("hT3%nB8@wQ6^zY1&Ab"), &["https://gitlab.com"]);
+    let both = fx.login(
+        Some("Rk7&uP2!xW9#cJ4$Lm"),
+        &["https://github.com", "https://gitlab.com"],
+    );
+    let passkey = fx.make(&ItemType::Passkey, NOW, |e| {
+        e.set_passkey(&PasskeyCredential::new(
+            vec![1, 2, 3],
+            Text::new("github.com"),
+            vec![4, 5, 6],
+            SecretVec::from_slice(&[7u8; 32]).unwrap(),
+            -8,
+            at(NOW),
+        ))
+        .unwrap();
+    });
+    fx.push(passkey);
+    let r = fx.report();
+    // Still reported (the password alone still signs in), but `Low`.
+    let f = r.item(login).unwrap().findings[0];
+    assert_eq!(
+        (f.kind, f.severity),
+        (FindingKind::MissingTotp, Severity::Low)
+    );
+    let f = r.item(elsewhere).unwrap().findings[0];
+    assert_eq!(
+        (f.kind, f.severity),
+        (FindingKind::MissingTotp, Severity::Medium)
+    );
+    // A passkey for one of an item's sites does not lower the finding for
+    // another site of the same item: the unprotected site is named.
+    let entry = r.item(both).unwrap();
+    assert_eq!(entry.findings[0].severity, Severity::Medium);
+    assert_eq!(entry.totp_site.unwrap().domain(), "gitlab.com");
+    assert_eq!(r.counts.missing_totp, 3);
 }
 
 #[test]
