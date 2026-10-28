@@ -1,0 +1,45 @@
+[package]
+name = "mosaic-ssh-agent-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-ssh-agent wire parser and protocol core (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# Builds only with `--cfg fuzzing` (set by `cargo fuzz build` / `cargo fuzz
+# run`); a plain `cargo check` stops with a compile_error! that says so. To
+# check without cargo-fuzz: RUSTFLAGS="--cfg fuzzing" cargo check --bins.
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+mosaic-ssh-agent = { path = ".." }
+# The same versions and features as the main workspace.
+signature = { version = "=3.0.0", default-features = false }
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["std", "ed25519", "p256", "encryption"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["net", "rt", "sync", "time", "io-util"] }
+
+[[bin]]
+name = "wire_messages"
+path = "fuzz_targets/wire_messages.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "agent_session"
+path = "fuzz_targets/agent_session.rs"
+test = false
+doc = false
+bench = false

@@ -11,3 +11,21 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+mosaic-core = { path = "../core" }
+ssh-key.workspace = true
+# Feature unification only: zeroize the Ed25519 signing key (see the root manifest).
+ed25519-dalek.workspace = true
+# Feature unification only: zeroize bcrypt-pbkdf's passphrase hash (see the root manifest).
+bcrypt-pbkdf.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+base64ct = { workspace = true, features = ["alloc"] }
+hex-literal.workspace = true
+p256.workspace = true
+proptest.workspace = true
+signature.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
