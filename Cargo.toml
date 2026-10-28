@@ -48,6 +48,20 @@ tauri = { version = "=2.12.5", default-features = false, features = ["wry", "com
 tauri-build = { version = "=2.7.4", default-features = false, features = ["config-json"] }
 # Focus the running instance instead of opening a second store session.
 tauri-plugin-single-instance = { version = "=2.5.4", default-features = false }
+# M3 import
+# Reading KeePass KDBX 4 files (mosaic-import only, never for Mosaic's own
+# data; ADR draft "KDBX import primitives"): AES-256-CBC outer cipher and
+# AES-KDF, ChaCha20 outer cipher and inner stream, Salsa20 inner stream.
+aes = { version = "=0.9.3", default-features = false, features = ["zeroize"] }
+cbc = { version = "=0.2.1", default-features = false, features = ["block-padding", "zeroize"] }
+chacha20 = { version = "=0.10.2", default-features = false, features = ["cipher", "zeroize"] }
+salsa20 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
+# gzip (KDBX payload) and deflate (1PUX zip entries); already in the tree.
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+# KDBX inner XML; already in the tree (through plist).
+quick-xml = { version = "=0.42.0", default-features = false }
+# 1Password 1PUX archives: deflate only, no encryption, no other codecs.
+zip = { version = "=9.1.2", default-features = false, features = ["deflate-flate2"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

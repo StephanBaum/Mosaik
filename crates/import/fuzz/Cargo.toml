@@ -1,0 +1,70 @@
+[package]
+name = "mosaic-import-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-import parsers (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: not part of the main workspace (nightly-only, libFuzzer).
+# Builds only with `--cfg fuzzing` (set by `cargo fuzz build` / `cargo fuzz
+# run`), which also lowers the KDBX key-derivation limits so a run is not
+# spent in Argon2. To check without cargo-fuzz:
+# RUSTFLAGS="--cfg fuzzing" cargo check --bins.
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+mosaic-import = { path = ".." }
+
+[[bin]]
+name = "enpass_json"
+path = "fuzz_targets/enpass_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bitwarden_json"
+path = "fuzz_targets/bitwarden_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "onepux"
+path = "fuzz_targets/onepux.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "csv"
+path = "fuzz_targets/csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kdbx_file"
+path = "fuzz_targets/kdbx_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kdbx_payload"
+path = "fuzz_targets/kdbx_payload.rs"
+test = false
+doc = false
+bench = false

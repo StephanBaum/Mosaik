@@ -1,0 +1,105 @@
+{
+  "folders": [
+    { "icon": "1008", "parent_uuid": "", "title": "Business", "updated_at": 1700000000, "uuid": "f-business" },
+    { "icon": "1008", "parent_uuid": "f-business", "title": "Clients", "updated_at": 1700000000, "uuid": "f-clients" }
+  ],
+  "items": [
+    {
+      "archived": 0, "auto_submit": 1, "category": "login", "createdAt": 1700000000,
+      "favorite": 1, "folders": ["f-clients", "f-unknown"], "note": "Shared with the team",
+      "subtitle": "alice@example.com", "template_type": "login.default", "title": "Example Mail",
+      "trashed": 0, "updated_at": 1700000000, "uuid": "i-1", "tags": ["mail", { "title": "work" }],
+      "fields": [
+        { "deleted": 0, "label": "Username", "order": 1, "sensitive": 0, "type": "username", "uid": 10, "value": "" },
+        { "deleted": 0, "label": "E-mail", "order": 2, "sensitive": 0, "type": "email", "uid": 11, "value": "alice@example.com" },
+        { "deleted": 0, "label": "Password", "order": 3, "sensitive": 1, "type": "password", "uid": 12, "value": "s3cret pass " },
+        { "deleted": 0, "label": "Website", "order": 4, "sensitive": 0, "type": "url", "uid": 13, "value": "https://mail.example.com" },
+        { "deleted": 0, "label": "One-time code", "order": 5, "sensitive": 1, "type": "totp", "uid": 14, "value": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" },
+        { "deleted": 0, "label": "Additional Details", "order": 6, "sensitive": 0, "type": "section", "uid": 15, "value": "" },
+        { "deleted": 0, "label": "Security question", "order": 7, "sensitive": 1, "type": "text", "uid": 16, "value": "blue" },
+        { "deleted": 0, "label": "Recovery mail", "order": 8, "sensitive": 0, "type": "email", "uid": 17, "value": "backup@example.com" },
+        { "deleted": 1, "label": "Old field", "order": 9, "sensitive": 0, "type": "text", "uid": 18, "value": "removed" },
+        { "deleted": 0, "label": "Phone", "order": 10, "sensitive": 0, "type": "phone", "uid": 19, "value": "+49 30 1234" },
+        { "deleted": 0, "label": "Since", "order": 11, "sensitive": 0, "type": "date", "uid": 20, "value": "2021-05-04" },
+        { "deleted": 0, "label": "Backup code", "order": 12, "sensitive": 1, "type": "totp", "uid": 21, "value": "not a secret!" },
+        { "deleted": 0, "label": "Number field", "order": 13, "sensitive": 0, "type": "numeric", "uid": 22, "value": 42 }
+      ],
+      "attachments": [
+        { "data": "aGVsbG8gYXR0YWNobWVudA==", "kind": "text/plain", "name": "hello.txt", "order": 0, "size": 16, "uuid": "a-1" },
+        { "kind": "image/png", "name": "missing.png", "order": 1, "size": 10, "uuid": "a-2" },
+        { "data": "***", "kind": "image/png", "name": "broken.png", "order": 2, "size": 10, "uuid": "a-3" }
+      ]
+    },
+    {
+      "archived": 1, "category": "password", "favorite": 0, "note": "", "template_type": "password.default",
+      "title": "Router admin", "trashed": 0, "uuid": "i-2",
+      "fields": [
+        { "deleted": 0, "label": "Username", "order": 1, "sensitive": 0, "type": "username", "value": "admin" },
+        { "deleted": 0, "label": "Password", "order": 2, "sensitive": 1, "type": "password", "value": "router-pw" },
+        { "deleted": 0, "label": "Password", "order": 3, "sensitive": 1, "type": "password", "value": "second-pw" }
+      ]
+    },
+    {
+      "category": "creditcard", "template_type": "creditcard.default", "title": "Visa", "uuid": "i-3", "trashed": 1,
+      "fields": [
+        { "label": "Cardholder", "type": "ccName", "value": "Alice Example" },
+        { "label": "Type", "type": "ccType", "value": "Visa" },
+        { "label": "Number", "type": "ccNumber", "sensitive": 1, "value": "4111 1111 1111 1111" },
+        { "label": "CVC", "type": "ccCvc", "sensitive": 1, "value": "123" },
+        { "label": "PIN", "type": "ccPin", "sensitive": 1, "value": "9876" },
+        { "label": "Expiry date", "type": "ccExpiry", "value": "08/29" },
+        { "label": "Valid from", "type": "ccValidFrom", "value": "08/24" },
+        { "label": "Transaction password", "type": "ccTxnpassword", "sensitive": 0, "value": "txn" },
+        { "label": "Bank", "type": "ccBankname", "value": "Example Bank" }
+      ]
+    },
+    {
+      "category": "identity", "template_type": "identity.default", "title": "Me", "uuid": "i-4",
+      "fields": [
+        { "label": "First name", "type": "text", "value": "Alice" },
+        { "label": "Nachname", "type": "text", "value": "Example" },
+        { "label": "E-mail", "type": "email", "value": "alice@example.com" },
+        { "label": "Phone", "type": "phone", "value": "+1 555 0100" },
+        { "label": "Birthday", "type": "date", "value": "1990-02-03" },
+        { "label": "Geburtstag", "type": "date", "value": "03.02.1990" },
+        { "label": "PLZ", "type": "text", "value": "10115" },
+        { "label": "Nickname", "type": "text", "value": "Al" },
+        { "label": "Social security", "type": "text", "sensitive": 1, "value": "078-05-1120" }
+      ]
+    },
+    {
+      "category": "note", "template_type": "note.default", "title": "Recipe", "uuid": "i-5",
+      "note": "Flour, water, salt", "fields": []
+    },
+    {
+      "category": "computer", "template_type": "computer.wifi", "title": "Home Wi-Fi", "uuid": "i-6",
+      "fields": [
+        { "label": "SSID", "type": "text", "value": "example-net" },
+        { "label": "Password", "type": "password", "sensitive": 1, "value": "wifi-pass" },
+        { "label": "Security type", "type": "text", "value": "WPA3" },
+        { "label": "Band", "type": "text", "value": "5 GHz" }
+      ]
+    },
+    {
+      "category": "computer", "template_type": "computer.server", "title": "Build server", "uuid": "i-7",
+      "fields": [
+        { "label": "Username", "type": "username", "value": "deploy" },
+        { "label": "Password", "type": "password", "sensitive": 1, "value": "deploy-pw" },
+        { "label": "Server", "type": "text", "value": "build.example.net" }
+      ]
+    },
+    {
+      "category": "finance", "template_type": "finance.bankaccount", "title": "Checking", "uuid": "i-8",
+      "fields": [
+        { "label": "IBAN", "type": "text", "value": "DE00 0000 0000 0000 0000 00" },
+        { "label": "Online PIN", "type": "pin", "sensitive": 1, "value": "1111" }
+      ]
+    },
+    {
+      "category": "spaceship", "template_type": "spaceship.default", "title": "Unknown kind", "uuid": "i-9",
+      "fields": [ { "label": "Registry", "type": "text", "value": "NCC-1701" } ]
+    },
+    "not an object",
+    { "category": "login", "title": "", "fields": [ { "label": "Username", "type": "username", "value": "  " } ] }
+  ]
+}
