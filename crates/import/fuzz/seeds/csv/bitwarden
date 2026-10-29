@@ -1,0 +1,2 @@
+folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp
+Work,1,login,Jira,,,0,https://jira.example,erin,pw5,

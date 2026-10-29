@@ -1,0 +1,4 @@
+name,url,username,password,note
+GitHub,https://github.com/login,alice,pw1,"multi
+line"
+,https://example.org,bob,pw2,

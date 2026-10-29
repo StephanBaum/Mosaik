@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/insights/fuzz"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/insights/fuzz", "crates/import/fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -70,6 +70,20 @@ windows = { version = "=0.62.2", default-features = false, features = ["std", "F
 # logind and screen-saver signals on Linux (auto-lock on sleep and screen
 # lock); already in the tree through tauri-plugin-single-instance.
 zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+# M3 import
+# Reading KeePass KDBX 4 files (mosaic-import only, never for Mosaic's own
+# data; ADR draft "KDBX import primitives"): AES-256-CBC outer cipher and
+# AES-KDF, ChaCha20 outer cipher and inner stream, Salsa20 inner stream.
+aes = { version = "=0.9.3", default-features = false, features = ["zeroize"] }
+cbc = { version = "=0.2.1", default-features = false, features = ["block-padding", "zeroize"] }
+chacha20 = { version = "=0.10.2", default-features = false, features = ["cipher", "zeroize"] }
+salsa20 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
+# gzip (KDBX payload) and deflate (1PUX zip entries); already in the tree.
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+# KDBX inner XML; already in the tree (through plist).
+quick-xml = { version = "=0.42.0", default-features = false }
+# 1Password 1PUX archives: deflate only, no encryption, no other codecs.
+zip = { version = "=9.1.2", default-features = false, features = ["deflate-flate2"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

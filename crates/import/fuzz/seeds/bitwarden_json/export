@@ -1,0 +1,81 @@
+{
+  "encrypted": false,
+  "folders": [
+    { "id": "fd-1", "name": "Personal" }
+  ],
+  "collections": [
+    { "id": "col-1", "organizationId": "org-1", "name": "Team Shared", "externalId": null }
+  ],
+  "items": [
+    {
+      "id": "it-1", "organizationId": null, "folderId": "fd-1", "type": 1, "reprompt": 0,
+      "name": "Example Shop", "notes": "Customer since 2019", "favorite": true,
+      "fields": [
+        { "name": "Customer number", "value": "C-1001", "type": 0, "linkedId": null },
+        { "name": "Security answer", "value": "pineapple", "type": 1, "linkedId": null },
+        { "name": "Newsletter", "value": "true", "type": 2, "linkedId": null },
+        { "name": "Linked", "value": null, "type": 3, "linkedId": 100 }
+      ],
+      "login": {
+        "uris": [
+          { "match": null, "uri": "https://shop.example.com/login" },
+          { "match": 1, "uri": "https://www.shop.example.com" }
+        ],
+        "username": "alice", "password": "current-pw",
+        "totp": "otpauth://totp/Shop:alice?secret=GEZDGNBVGY3TQOJQ&issuer=Shop",
+        "fido2Credentials": [ { "credentialId": "x" } ]
+      },
+      "passwordHistory": [
+        { "lastUsedDate": "2024-03-01T10:00:00.000Z", "password": "older-pw" },
+        { "lastUsedDate": "2023-01-01T10:00:00.000Z", "password": "oldest-pw" }
+      ],
+      "collectionIds": ["col-1", "col-unknown"],
+      "revisionDate": "2024-05-01T10:00:00.000Z", "creationDate": "2019-01-01T10:00:00.000Z",
+      "deletedDate": null
+    },
+    {
+      "id": "it-2", "type": 2, "name": "Wifi note", "notes": "Router is in the attic",
+      "favorite": false, "secureNote": { "type": 0 }, "folderId": null,
+      "deletedDate": "2024-06-01T00:00:00.000Z"
+    },
+    {
+      "id": "it-3", "type": 3, "name": "Debit card", "favorite": false,
+      "card": {
+        "cardholderName": "Alice Example", "brand": "Mastercard", "number": "5555555555554444",
+        "expMonth": "7", "expYear": "2031", "code": "321"
+      }
+    },
+    {
+      "id": "it-4", "type": 4, "name": "Passport identity", "favorite": false,
+      "identity": {
+        "title": "Ms", "firstName": "Alice", "middleName": "B", "lastName": "Example",
+        "address1": "1 Example Street", "address2": "Apt 2", "address3": "Floor 3",
+        "city": "Berlin", "state": "BE", "postalCode": "10115", "country": "DE",
+        "company": "Example GmbH", "email": "alice@example.com", "phone": "+49 30 1234",
+        "ssn": "123-45-6789", "username": "aexample", "passportNumber": "P1234567",
+        "licenseNumber": "L7654321"
+      }
+    },
+    {
+      "id": "it-5", "type": 5, "name": "Deploy key", "favorite": false,
+      "sshKey": {
+        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic\n-----END OPENSSH PRIVATE KEY-----\n",
+        "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy",
+        "keyFingerprint": "SHA256:synthetic"
+      }
+    },
+    {
+      "id": "it-6", "type": 3, "name": "Card without year", "card": { "expMonth": "5", "number": "4111" }
+    },
+    {
+      "id": "it-7", "type": 3, "name": "Card without month", "card": { "expYear": "2030" }
+    },
+    {
+      "id": "it-8", "type": 9, "name": "Future type", "notes": "kept as a note"
+    },
+    { "id": "it-9", "name": "no type" },
+    {
+      "id": "it-10", "type": 1, "name": "Steam", "login": { "username": "gamer", "totp": "steam://GEZDGNBVGY3TQOJQ" }
+    }
+  ]
+}

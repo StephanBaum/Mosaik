@@ -1,0 +1,2 @@
+﻿Title,URL,Username,Password,Notes,OTPAuth
+Bank,https://bank.example,dave,pw4,,otpauth://totp/Bank:dave?secret=GEZDGNBVGY3TQOJQ
