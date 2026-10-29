@@ -6,8 +6,25 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 repository.workspace = true
+# Embedded data: the 2FA Directory TOTP list (MIT). See data/README.md.
+include = ["src/**", "data/**", "Cargo.toml"]
 
 [lints]
 workspace = true
 
 [dependencies]
+mosaic-core = { path = "../core" }
+# The strength buckets, so the dashboard and the generator agree on "weak".
+mosaic-generator = { path = "../generator" }
+# Reuse detection: HMAC-SHA-256 under a per-call random key (CRYPTO_SPEC §2
+# lists both crates; CRYPTO_SPEC §13, ADR-0020).
+hmac.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+# Parses the vendored 2FA Directory data once, like the generator's quirks.
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

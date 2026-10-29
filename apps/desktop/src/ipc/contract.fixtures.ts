@@ -96,12 +96,22 @@ export const fixtures = {
       "attachmentsSkipped",
       "entriesSkipped"
     ],
+    "insightAction": [
+      "changePassword",
+      "setUpTotp",
+      "reviewUrl"
+    ],
     "insightKind": [
       "weak",
       "reused",
       "old",
       "missingTotp",
       "insecureUrl"
+    ],
+    "insightSeverity": [
+      "low",
+      "medium",
+      "high"
     ],
     "itemKind": [
       "login",
@@ -1256,35 +1266,84 @@ export const fixtures = {
     "security_report": [
       {
         "counts": {
-          "insecureUrl": 0,
-          "missingTotp": 1,
-          "old": 0,
+          "high": 2,
+          "insecureUrl": 1,
+          "low": 0,
+          "medium": 0,
+          "missingTotp": 2,
+          "old": 1,
           "reused": 2,
+          "reusedGroups": 1,
           "weak": 1
         },
         "findings": [
           {
+            "insecureHost": "shop.example.com",
+            "issues": [
+              {
+                "action": "changePassword",
+                "kind": "weak",
+                "severity": "high"
+              },
+              {
+                "action": "changePassword",
+                "kind": "reused",
+                "severity": "high"
+              },
+              {
+                "action": "setUpTotp",
+                "kind": "missingTotp",
+                "severity": "medium"
+              },
+              {
+                "action": "reviewUrl",
+                "kind": "insecureUrl",
+                "severity": "medium"
+              },
+              {
+                "action": "changePassword",
+                "kind": "old",
+                "severity": "low"
+              }
+            ],
             "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
-            "kinds": [
-              "weak",
-              "reused",
-              "old",
-              "missingTotp",
-              "insecureUrl"
-            ],
             "reusedWith": [
-              "019a2b3c-4d5e-7020-8000-000000000002"
+              {
+                "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+                "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+              }
             ],
+            "totpSite": {
+              "documentation": "https://docs.github.com/en/authentication/securing-your-account-with-two-factor-authentication-2fa",
+              "name": "GitHub"
+            },
             "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
           },
           {
+            "insecureHost": null,
+            "issues": [
+              {
+                "action": "changePassword",
+                "kind": "reused",
+                "severity": "high"
+              },
+              {
+                "action": "setUpTotp",
+                "kind": "missingTotp",
+                "severity": "low"
+              }
+            ],
             "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
-            "kinds": [
-              "reused"
-            ],
             "reusedWith": [
-              "019a2b3c-4d5e-7020-8000-000000000001"
+              {
+                "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+                "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+              }
             ],
+            "totpSite": {
+              "documentation": null,
+              "name": "Example"
+            },
             "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
           }
         ],

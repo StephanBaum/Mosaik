@@ -2313,6 +2313,7 @@ dependencies = [
  "keyring",
  "mosaic-core",
  "mosaic-generator",
+ "mosaic-insights",
  "mosaic-totp",
  "mosaic-vault",
  "pdf-writer",
@@ -2351,6 +2352,17 @@ version = "0.0.0"
 [[package]]
 name = "mosaic-insights"
 version = "0.0.0"
+dependencies = [
+ "hmac",
+ "mosaic-core",
+ "mosaic-generator",
+ "proptest",
+ "serde_json",
+ "sha2 0.11.1",
+ "subtle",
+ "thiserror 2.0.21",
+ "zeroize",
+]
 
 [[package]]
 name = "mosaic-passkey"
