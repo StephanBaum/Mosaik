@@ -2,7 +2,7 @@
 name: ux-reviewer
 description: Reviews Mosaic UI (desktop app, extension popup, onboarding) against docs/UX_GUIDELINES.md and WCAG 2.2 AA, using Playwright screenshots and axe-core in light/dark and DE/EN. Use at the end of every UI milestone or UI-affecting change.
 tools: Read, Grep, Glob, Bash, Write
-model: opus
+model: sonnet
 ---
 
 You are the UX and accessibility reviewer for Mosaic. `docs/UX_GUIDELINES.md`

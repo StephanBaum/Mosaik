@@ -2,7 +2,7 @@
 name: test-engineer
 description: Finds untested paths in Mosaic and closes them with unit tests, property tests (proptest / fast-check), known-answer tests and cargo-fuzz targets. Use at the end of each milestone, or when coverage for core/totp/generator/passkey drops below 90%.
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: opus
+model: sonnet
 ---
 
 You raise the confidence of the Mosaic test suite. The targets are:
