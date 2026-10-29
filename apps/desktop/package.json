@@ -9,6 +9,8 @@
     "build:mock": "vite build --mode mock",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
+    "lint": "pnpm -w exec eslint apps/desktop --max-warnings 0",
+    "test": "pnpm -w exec vitest run --project desktop",
     "test:e2e": "playwright test",
     "tauri": "tauri"
   },
