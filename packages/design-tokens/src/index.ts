@@ -45,6 +45,12 @@ export interface ColorScheme {
   borderStrong: string;
   text: string;
   textMuted: string;
+  /** Secondary text that must reach 4.5:1 on selected rows too. */
+  textSecondary: string;
+  bgSelected: string;
+  dangerSubtle: string;
+  warningSubtle: string;
+  successSubtle: string;
   /** Fill of the single primary action (near-black; inverted in dark mode). */
   accent: string;
   accentText: string;
@@ -63,6 +69,11 @@ export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
     borderStrong: "#8A8A93",
     text: "#09090B",
     textMuted: "#71717A",
+    textSecondary: "#3F3F46",
+    bgSelected: "#F4F4F5",
+    dangerSubtle: "#FEF2F2",
+    warningSubtle: "#FFF7ED",
+    successSubtle: "#F0FDF4",
     accent: "#09090B",
     accentText: "#FAFAFA",
     danger: "#DC2626",
@@ -78,6 +89,11 @@ export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
     borderStrong: "#71717A",
     text: "#FAFAFA",
     textMuted: "#A1A1AA",
+    textSecondary: "#D4D4D8",
+    bgSelected: "#27272A",
+    dangerSubtle: "#3B1212",
+    warningSubtle: "#2B1A0E",
+    successSubtle: "#0F2A1A",
     accent: "#FAFAFA",
     accentText: "#09090B",
     danger: "#F87171",
@@ -99,7 +115,27 @@ export const primaryAction = {
   label: "#09090B",
   rim: { light: "#D4D4D8", dark: "rgba(230, 230, 235, 0.75)" },
   fallback: "#E4E4E7",
+  labelShadow: "0 1px 0 rgba(255, 255, 255, 0.55)",
+  iconFilter: "drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55))",
 } as const;
+
+/** Modal scrim (`--color-scrim`). */
+export const overlay = { light: "rgba(9, 9, 11, 0.40)", dark: "rgba(0, 0, 0, 0.60)" } as const;
+
+/** Popover elevation (`--shadow-popover`). */
+export const shadow = {
+  light: "0 8px 24px rgba(9, 9, 11, 0.08), 0 1px 2px rgba(9, 9, 11, 0.04)",
+  dark: "0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.40)",
+} as const;
+
+/** Vault dots (`--vault-color-0..5`). Decorative only; never the sole carrier of meaning. */
+export const vaultColors = ["#FCD34D", "#A5B4FC", "#86EFAC", "#F9A8D4", "#7DD3FC", "#FDBA74"] as const;
+
+/** Print sheet colors (`--print-text`, `--print-bg`, `--print-border`). */
+export const printColors = { text: "#09090B", background: "#FFFFFF", border: "#8A8A93" } as const;
+
+/** Z layers (`--layer-*`, unitless). Dialogs use the native top layer. */
+export const layer = { holoCanvas: 1, holoButton: 2, sticky: 5, popover: 30, toast: 40 } as const;
 
 /** WCAG 2.x relative luminance of a `#RRGGBB` color. */
 export function relativeLuminance(hex: string): number {

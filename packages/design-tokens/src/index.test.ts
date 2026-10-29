@@ -13,6 +13,15 @@ const requirements: Pair[] = [
   // component (1.4.11). A fill that cannot reach 3:1 needs an outline token
   // that does, tested here instead.
   ["accentText", "accent", 4.5],
+  ...(["textSecondary"] as const).flatMap((fg) =>
+    (["bg", "bgSubtle", "surface", "bgSelected"] as const).map((bg): Pair => [fg, bg, 4.5]),
+  ),
+  ...(["bgSelected", "dangerSubtle", "warningSubtle", "successSubtle"] as const).map(
+    (bg): Pair => ["text", bg, 4.5],
+  ),
+  ["danger", "dangerSubtle", 3],
+  ["warning", "warningSubtle", 3],
+  ["success", "successSubtle", 3],
   ...(["focusRing", "borderStrong", "accent"] as const).flatMap((fg) =>
     (["bg", "bgSubtle", "surface"] as const).map((bg): Pair => [fg, bg, 3]),
   ),

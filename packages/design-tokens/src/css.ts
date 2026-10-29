@@ -12,10 +12,15 @@ import {
   colors,
   fontFamily,
   fontSize,
+  layer,
   motion,
+  overlay,
   primaryAction,
+  printColors,
   radius,
+  shadow,
   space,
+  vaultColors,
   type ColorScheme,
 } from "./index.ts";
 
@@ -47,9 +52,16 @@ export function cssVariables(): string {
     // The holo-foil primary action (ADR-0014): its label, and the flat fill without WebGL2.
     `  --primary-action-label: ${primaryAction.label};`,
     `  --primary-action-fallback: ${primaryAction.fallback};`,
+    `  --primary-action-label-shadow: ${primaryAction.labelShadow};`,
+    `  --primary-action-icon-filter: ${primaryAction.iconFilter};`,
+    ...vaultColors.map((value, index) => `  --vault-color-${String(index)}: ${value};`),
+    `  --print-text: ${printColors.text};`,
+    `  --print-bg: ${printColors.background};`,
+    `  --print-border: ${printColors.border};`,
+    ...Object.entries(layer).map(([name, value]) => `  --layer-${kebab(name)}: ${String(value)};`),
   ].join("\n");
-  const light = `${colorDeclarations(colors.light)}\n  --primary-action-rim: ${primaryAction.rim.light};`;
-  const dark = `${colorDeclarations(colors.dark)}\n  --primary-action-rim: ${primaryAction.rim.dark};`;
+  const light = `${colorDeclarations(colors.light)}\n  --color-scrim: ${overlay.light};\n  --shadow-popover: ${shadow.light};\n  --primary-action-rim: ${primaryAction.rim.light};`;
+  const dark = `${colorDeclarations(colors.dark)}\n  --color-scrim: ${overlay.dark};\n  --shadow-popover: ${shadow.dark};\n  --primary-action-rim: ${primaryAction.rim.dark};`;
   return [
     `:root {\n${base}\n}`,
     `:root,\n:root[data-theme="light"] {\n  color-scheme: light;\n${light}\n}`,

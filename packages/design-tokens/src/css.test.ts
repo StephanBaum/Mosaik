@@ -27,6 +27,21 @@ describe("cssVariables", () => {
     expect(darkBlocks).toBe(2);
   });
 
+  it("declares the M3 UI tokens", () => {
+    for (const name of [
+      "--color-text-secondary",
+      "--color-bg-selected",
+      "--color-scrim",
+      "--shadow-popover",
+      "--vault-color-5",
+      "--print-text",
+      "--layer-toast: 40;",
+      "--primary-action-label-shadow",
+    ]) {
+      expect(css).toContain(name);
+    }
+  });
+
   it("turns motion off for reduced motion", () => {
     expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*:root \{\s*--motion-micro: 0ms;/);
   });
