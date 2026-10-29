@@ -13,8 +13,9 @@
 //!   the last `@`) and the port are dropped. IPv6 literals keep their
 //!   address without brackets.
 //! - The host is lowercased (ASCII and Unicode), and one trailing `.` is
-//!   removed. A host is rejected if it is empty, longer than 253 bytes, or
-//!   contains whitespace, control characters or URL delimiters.
+//!   removed. A host is rejected if it is empty, longer than 253 bytes, has
+//!   an empty label (`a..b`, `.a`, `a..`), or contains whitespace, control
+//!   characters or URL delimiters.
 
 /// Longest host name accepted (RFC 1035).
 pub const MAX_HOST_LEN: usize = 253;
@@ -76,7 +77,11 @@ pub fn parse(url: &str) -> Option<UrlParts> {
         host_port.split(':').next().unwrap_or_default()
     };
     let host = host.strip_suffix('.').unwrap_or(host);
-    if host.is_empty() || host.len() > MAX_HOST_LEN || !host.chars().all(is_host_char) {
+    if host.is_empty()
+        || host.len() > MAX_HOST_LEN
+        || host.split('.').any(str::is_empty)
+        || !host.chars().all(is_host_char)
+    {
         return None;
     }
     Some(UrlParts {
@@ -222,6 +227,27 @@ mod tests {
             None
         );
         assert!(parse(&format!("https://{}", "a".repeat(MAX_HOST_LEN))).is_some());
+    }
+
+    /// Fuzz finding (CI, insights `url_host`): "2.." parsed to the host "2.",
+    /// which still ended with a dot. Hosts with an empty label are invalid.
+    #[test]
+    fn rejects_empty_labels() {
+        for url in [
+            "2..",
+            "https://2..",
+            "https://a..b",
+            "https://.a",
+            "https://a...",
+            "a..b.com/x",
+        ] {
+            assert_eq!(parse(url), None, "{url:?}");
+        }
+        assert_eq!(
+            host("https://example.com./x").as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(host("https://[::1]:8080").as_deref(), Some("::1"));
     }
 
     #[test]

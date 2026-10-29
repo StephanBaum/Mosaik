@@ -152,10 +152,10 @@ mod unix {
     impl Drop for Listener {
         fn drop(&mut self) {
             // Remove the socket only if it is still ours.
-            if let Ok(meta) = fs::symlink_metadata(&self.path) {
-                if (meta.dev(), meta.ino()) == self.dev_ino {
-                    let _ = fs::remove_file(&self.path);
-                }
+            if let Ok(meta) = fs::symlink_metadata(&self.path)
+                && (meta.dev(), meta.ino()) == self.dev_ino
+            {
+                let _ = fs::remove_file(&self.path);
             }
         }
     }

@@ -7,7 +7,9 @@
 //! make an iteration slow.
 //!
 //! Input: `[private_len, private..., public_len, public..., passphrase...]`
-//! with one-byte lengths (taken modulo what is left).
+//! with two-byte little-endian lengths (taken modulo what is left), so a
+//! real OpenSSH private key (~400 bytes) fits. Seeds: `seeds/key_material`,
+//! built from `tests/keys`.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -16,14 +18,10 @@ use mosaic_core::{ItemId, SecretString, VaultId};
 use mosaic_ssh_agent::{AgentKey, KeySet};
 
 fn split(data: &[u8]) -> (&[u8], &[u8]) {
-    let Some((&len, rest)) = data.split_first() else {
+    let Some((len, rest)) = data.split_first_chunk::<2>() else {
         return (&[], &[]);
     };
-    let n = if rest.is_empty() {
-        0
-    } else {
-        usize::from(len) % (rest.len() + 1)
-    };
+    let n = usize::from(u16::from_le_bytes(*len)) % (rest.len() + 1);
     rest.split_at(n)
 }
 
