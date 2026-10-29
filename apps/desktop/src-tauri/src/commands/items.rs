@@ -6,6 +6,7 @@ use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
 use tauri::State;
 
+use super::draft;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
@@ -44,25 +45,22 @@ pub async fn reveal_secret(
     state.run(move |b| b.reveal_secret(&request)).await
 }
 
-/// `add_item`: not built yet (vault UI track: apply an `ItemDraft` through
-/// `ItemEdit`).
+/// `add_item`.
 #[tauri::command]
 pub async fn add_item(
     state: State<'_, AppState>,
     request: AddItemRequest,
 ) -> IpcResult<ItemDetail> {
-    let _ = (state, request);
-    Err(IpcError::NOT_IMPLEMENTED)
+    state.run(move |b| b.add_item(request)).await
 }
 
-/// `update_item`: not built yet (vault UI track).
+/// `update_item`.
 #[tauri::command]
 pub async fn update_item(
     state: State<'_, AppState>,
     request: UpdateItemRequest,
 ) -> IpcResult<ItemDetail> {
-    let _ = (state, request);
-    Err(IpcError::NOT_IMPLEMENTED)
+    state.run(move |b| b.update_item(request)).await
 }
 
 /// `set_favorite`.
@@ -308,6 +306,7 @@ impl Backend {
     /// # Errors
     /// `locked`.
     pub fn list_items(&self, request: &ListItemsRequest) -> IpcResult<Vec<ItemSummary>> {
+        self.touch();
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         let query = request.query.as_deref().map(str::trim).unwrap_or_default();
@@ -332,6 +331,7 @@ impl Backend {
     /// # Errors
     /// `locked`, `vaultNotFound`, `itemNotFound`.
     pub fn get_item(&self, request: ItemRequest) -> IpcResult<ItemDetail> {
+        self.touch();
         let slot = self.slot()?;
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
         let item = slot.unlocked()?.item(vault_id, item_id)?;
@@ -346,6 +346,7 @@ impl Backend {
     /// # Errors
     /// `locked`, `itemNotFound`, `fieldEmpty`.
     pub fn reveal_secret(&self, request: &RevealRequest) -> IpcResult<RevealedSecret> {
+        self.touch();
         let slot = self.slot()?;
         let item = slot
             .unlocked()?
@@ -379,6 +380,7 @@ impl Backend {
     /// # Errors
     /// `locked`, `itemNotFound`, or a store error.
     pub fn set_favorite(&self, request: SetFavoriteRequest) -> IpcResult<ItemSummary> {
+        self.touch();
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
@@ -398,6 +400,7 @@ impl Backend {
     where
         F: FnOnce(&mut UnlockedSession, VaultId, ItemId) -> mosaic_vault::session::Result<()>,
     {
+        self.touch();
         let mut slot = self.slot()?;
         operation(
             slot.unlocked_mut()?,
@@ -407,11 +410,56 @@ impl Backend {
         Ok(())
     }
 
+    /// Adds an item from a draft and returns its detail.
+    ///
+    /// # Errors
+    /// `locked`, `invalidInput` (an `unsupported` kind or a draft the model
+    /// refuses), `vaultNotFound`, `vaultUnavailable`.
+    pub fn add_item(&self, request: AddItemRequest) -> IpcResult<ItemDetail> {
+        self.touch();
+        let item_type = request
+            .kind
+            .to_model()
+            .ok_or(IpcError::new(ErrorCode::InvalidInput))?;
+        let prepared = draft::prepare(request.draft)?;
+        let vault_id = request.vault_id.get();
+        let mut slot = self.slot()?;
+        let session = slot.unlocked_mut()?;
+        let item_id = session
+            .add_item(vault_id, &item_type, |edit| prepared.apply(edit, &[]))
+            .map_err(draft::edit_error)?;
+        detail(vault_id, item_id, session.item(vault_id, item_id)?)
+    }
+
+    /// Applies a draft to an item and returns its detail.
+    ///
+    /// # Errors
+    /// `locked`, `invalidInput`, `vaultNotFound`, `itemNotFound`,
+    /// `itemDeleted`, `vaultUnavailable`.
+    pub fn update_item(&self, request: UpdateItemRequest) -> IpcResult<ItemDetail> {
+        self.touch();
+        let prepared = draft::prepare(request.draft)?;
+        let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
+        let mut slot = self.slot()?;
+        let session = slot.unlocked_mut()?;
+        let tags: Vec<String> = session
+            .item(vault_id, item_id)?
+            .tags()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        session
+            .update_item(vault_id, item_id, |edit| prepared.apply(edit, &tags))
+            .map_err(draft::edit_error)?;
+        detail(vault_id, item_id, session.item(vault_id, item_id)?)
+    }
+
     /// Moves an item to another vault (new item ID).
     ///
     /// # Errors
     /// `locked`, `sameVault`, `itemNotFound`, `vaultNotFound`.
     pub fn move_item(&self, request: MoveItemRequest) -> IpcResult<MovedItem> {
+        self.touch();
         let mut slot = self.slot()?;
         let target = request.target_vault_id.get();
         let item_id = slot.unlocked_mut()?.move_item(

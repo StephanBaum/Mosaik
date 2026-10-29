@@ -33,4 +33,4 @@ pub mod totp;
 pub mod vaults;
 
 #[cfg(test)]
-mod fixtures;
+pub(crate) mod fixtures;

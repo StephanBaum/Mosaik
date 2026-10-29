@@ -85,6 +85,7 @@ impl Backend {
     /// # Errors
     /// `invalidInput` for options the generator refuses.
     pub fn generate(&self, request: GenerateRequest) -> IpcResult<Generated> {
+        self.touch();
         let generated = generate(request).map_err(generator_error)?;
         let entropy = generated.entropy();
         let kept = SecretString::from_str_copy(generated.expose_secret())?;

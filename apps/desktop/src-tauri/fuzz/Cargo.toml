@@ -1,0 +1,55 @@
+[package]
+name = "mosaic-desktop-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-desktop shell's parsers (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# The targets include the shell's contract, persist, draft and emergency_kit
+# modules by path and do not use tauri, so no WebKitGTK is needed. To check
+# without cargo-fuzz: cargo check --manifest-path <this file> --bins.
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../../../crates/core" }
+mosaic-vault = { path = "../../../../crates/vault" }
+mosaic-totp = { path = "../../../../crates/totp" }
+mosaic-generator = { path = "../../../../crates/generator" }
+serde = { version = "=1.0.229", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
+pdf-writer = { version = "=0.15.0", default-features = false }
+thiserror = { version = "=2.0.21", default-features = false }
+
+[[bin]]
+name = "state_file"
+path = "fuzz_targets/state_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_requests"
+path = "fuzz_targets/ipc_requests.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kit_render"
+path = "fuzz_targets/kit_render.rs"
+test = false
+doc = false
+bench = false
