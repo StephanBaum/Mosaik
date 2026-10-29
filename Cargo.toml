@@ -133,6 +133,13 @@ unimplemented = "deny"
 indexing_slicing = "warn"
 module_name_repetitions = "allow"
 
+# Debug info: file:line backtraces for our own code, none for dependencies.
+# Full debug info for ~400 dependencies made target/ several GB and slowed linking.
+[profile.dev]
+debug = "line-tables-only"
+[profile.dev.package."*"]
+debug = false
+
 # Crypto primitives are unusably slow without optimization (Argon2id with
 # 128 MiB would take minutes in a debug build). Optimize them in dev/test
 # builds too; this does not change behavior, only speed.
