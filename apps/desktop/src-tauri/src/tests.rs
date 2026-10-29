@@ -307,7 +307,7 @@ fn unregistered_commands_are_refused() {
     let _kdf = crate::test_support::kdf_permit();
     let app = tauri::test::mock_builder()
         .invoke_handler(crate::commands::handler())
-        .build(tauri::generate_context!())
+        .build(crate::context())
         .unwrap();
     tauri::Manager::manage(&app, AppState::new(backend()));
     let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
@@ -369,7 +369,7 @@ fn every_command_is_registered_and_allowed() {
     let _kdf = crate::test_support::kdf_permit();
     let app = tauri::test::mock_builder()
         .invoke_handler(crate::commands::handler())
-        .build(tauri::generate_context!())
+        .build(crate::context())
         .unwrap();
     tauri::Manager::manage(&app, AppState::new(backend()));
     let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
@@ -421,7 +421,7 @@ fn every_request_sample_reaches_its_command() {
     let fixtures = crate::contract::fixtures::build();
     let app = tauri::test::mock_builder()
         .invoke_handler(crate::commands::handler())
-        .build(tauri::generate_context!())
+        .build(crate::context())
         .unwrap();
     tauri::Manager::manage(&app, AppState::new(backend()));
     let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())

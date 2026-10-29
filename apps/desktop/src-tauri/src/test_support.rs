@@ -29,7 +29,9 @@ pub(crate) fn ssh_test_endpoint() -> TestEndpoint {
         }
     } else {
         let dir = tempfile::tempdir().unwrap();
-        let endpoint = mosaic_ssh_agent::Endpoint::platform_default(dir.path());
+        // tempdir() is 0755 under the usual umask, which the agent rightly refuses;
+        // the agent creates this subdirectory itself with mode 0700.
+        let endpoint = mosaic_ssh_agent::Endpoint::platform_default(&dir.path().join("ssh"));
         TestEndpoint {
             endpoint,
             _dir: Some(dir),

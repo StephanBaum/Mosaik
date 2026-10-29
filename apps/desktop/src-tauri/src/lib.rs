@@ -80,6 +80,13 @@ pub fn open_store(dir: &std::path::Path) -> Slot {
 /// The auto-lock monitor, kept alive for the life of the app.
 struct MonitorHandle(Mutex<Monitor>);
 
+/// The app context. Generated in one place: on macOS `generate_context!`
+/// embeds the Info.plist under a fixed symbol, so a second expansion in the
+/// same crate (the tests) fails to link.
+pub(crate) fn context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 /// Runs the app until the last window closes.
 ///
 /// # Errors
@@ -155,7 +162,7 @@ pub fn run() -> tauri::Result<()> {
             }
         })
         .invoke_handler(commands::handler())
-        .build(tauri::generate_context!())?;
+        .build(context())?;
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
             if let Some(monitor) = handle.try_state::<MonitorHandle>()
