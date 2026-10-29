@@ -44,6 +44,8 @@ pub struct StoredState {
     pub settings: Settings,
     /// The account of this install, once known.
     pub account: Option<AccountInfo>,
+    /// The user turned the SSH agent on (it still runs only while unlocked).
+    pub ssh_agent_enabled: bool,
 }
 
 /// The account of this install: its ID and email (not secret).
@@ -55,6 +57,9 @@ pub struct AccountInfo {
     /// The email given at account creation (`None` if this install learned
     /// the account from an unlock after the state file was lost).
     pub email: Option<String>,
+    /// The Emergency Kit check passed for this account (ADR-0026 item 3).
+    #[serde(default)]
+    pub kit_verified: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,15 +68,26 @@ struct StateFile {
     version: u32,
     settings: Settings,
     account: Option<AccountInfo>,
+    #[serde(default)]
+    ssh_agent_enabled: bool,
 }
 
 /// Default idle timeout, minutes (CRYPTO_SPEC §11).
 pub const DEFAULT_AUTO_LOCK_MINUTES: u32 = 10;
 
-/// Whether at least one auto-lock trigger is on (§11: they cannot all be disabled).
+/// Whether this build can detect a locked screen at all (only the Linux
+/// D-Bus source exists; Windows and macOS have none yet).
+pub const SCREEN_LOCK_POSSIBLE: bool = cfg!(target_os = "linux");
+
+/// Whether at least one auto-lock trigger that can fire is on (§11: they
+/// cannot all be disabled). `lock_on_sleep` counts everywhere (the clock-gap
+/// detector covers it); `lock_on_screen_lock` counts only where
+/// `screen_lock_detection` is true.
 #[must_use]
-pub fn has_lock_trigger(s: &Settings) -> bool {
-    s.auto_lock_minutes.is_some() || s.lock_on_sleep || s.lock_on_screen_lock
+pub fn has_lock_trigger(s: &Settings, screen_lock_detection: bool) -> bool {
+    s.auto_lock_minutes.is_some()
+        || s.lock_on_sleep
+        || (s.lock_on_screen_lock && screen_lock_detection)
 }
 
 /// Clamps every setting to its range (`docs/DESKTOP_IPC.md`: values are
@@ -85,7 +101,7 @@ pub fn normalize(mut settings: Settings) -> Settings {
     settings.clipboard_clear_seconds = settings
         .clipboard_clear_seconds
         .map(|s| s.clamp(CLIPBOARD_SECONDS.0, CLIPBOARD_SECONDS.1));
-    if !has_lock_trigger(&settings) {
+    if !has_lock_trigger(&settings, SCREEN_LOCK_POSSIBLE) {
         settings.auto_lock_minutes = Some(DEFAULT_AUTO_LOCK_MINUTES);
     }
     settings
@@ -117,6 +133,7 @@ pub fn parse(bytes: &[u8]) -> Option<StoredState> {
     Some(StoredState {
         settings: normalize(file.settings),
         account,
+        ssh_agent_enabled: file.ssh_agent_enabled,
     })
 }
 
@@ -129,6 +146,7 @@ pub fn render(state: &StoredState) -> IpcResult<Vec<u8>> {
         version: STATE_VERSION,
         settings: state.settings.clone(),
         account: state.account.clone(),
+        ssh_agent_enabled: state.ssh_agent_enabled,
     };
     serde_json::to_vec_pretty(&file).map_err(|_| IpcError::INTERNAL)
 }
@@ -224,7 +242,9 @@ mod tests {
             account: Some(AccountInfo {
                 account_id: ids::account(),
                 email: Some("alex@example.com".into()),
+                kit_verified: true,
             }),
+            ssh_agent_enabled: true,
         }
     }
 
@@ -314,6 +334,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn normalize_counts_screen_lock_only_where_possible() {
+        let n = normalize(Settings {
+            auto_lock_minutes: None,
+            lock_on_sleep: false,
+            lock_on_screen_lock: true,
+            ..Settings::default()
+        });
+        assert_eq!(
+            n.auto_lock_minutes,
+            if SCREEN_LOCK_POSSIBLE {
+                None
+            } else {
+                Some(DEFAULT_AUTO_LOCK_MINUTES)
+            }
+        );
+    }
+
     proptest! {
         #[test]
         fn normalized_values_are_in_range(minutes in any::<Option<u32>>(), seconds in any::<Option<u32>>()) {
@@ -330,7 +368,7 @@ mod tests {
             if let Some(s) = n.clipboard_clear_seconds {
                 prop_assert!((CLIPBOARD_SECONDS.0..=CLIPBOARD_SECONDS.1).contains(&s));
             }
-            prop_assert!(has_lock_trigger(&n));
+            prop_assert!(has_lock_trigger(&n, SCREEN_LOCK_POSSIBLE));
             prop_assert_eq!(normalize(n.clone()), n);
         }
 
@@ -349,8 +387,8 @@ mod tests {
             state.settings.lock_on_sleep = sleep;
             state.settings.lock_on_screen_lock = screen_lock;
             let parsed = parse(&render(&state).unwrap()).unwrap();
-            prop_assert!(has_lock_trigger(&parsed.settings));
-            if minutes.is_none() && !sleep && !screen_lock {
+            prop_assert!(has_lock_trigger(&parsed.settings, SCREEN_LOCK_POSSIBLE));
+            if minutes.is_none() && !sleep && !(screen_lock && SCREEN_LOCK_POSSIBLE) {
                 prop_assert_eq!(parsed.settings.auto_lock_minutes, Some(DEFAULT_AUTO_LOCK_MINUTES));
                 state.settings.auto_lock_minutes = Some(DEFAULT_AUTO_LOCK_MINUTES);
             }

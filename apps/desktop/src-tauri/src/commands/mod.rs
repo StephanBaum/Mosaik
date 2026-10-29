@@ -28,11 +28,13 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
     tauri::generate_handler![
         session::session_state,
         session::create_account,
+        session::save_emergency_kit,
         session::verify_emergency_kit,
         session::unlock,
         session::unlock_quick,
         session::lock,
         session::subscribe_events,
+        session::app_status,
         vaults::list_vaults,
         vaults::create_vault,
         vaults::rename_vault,

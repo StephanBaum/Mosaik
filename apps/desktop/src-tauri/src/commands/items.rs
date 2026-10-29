@@ -402,11 +402,9 @@ impl Backend {
     {
         self.touch();
         let mut slot = self.slot()?;
-        operation(
-            slot.unlocked_mut()?,
-            request.vault_id.get(),
-            request.item_id.get(),
-        )?;
+        let session = slot.unlocked_mut()?;
+        operation(session, request.vault_id.get(), request.item_id.get())?;
+        self.items_changed(session);
         Ok(())
     }
 
@@ -428,6 +426,7 @@ impl Backend {
         let item_id = session
             .add_item(vault_id, &item_type, |edit| prepared.apply(edit, &[]))
             .map_err(draft::edit_error)?;
+        self.items_changed(session);
         detail(vault_id, item_id, session.item(vault_id, item_id)?)
     }
 
@@ -451,6 +450,7 @@ impl Backend {
         session
             .update_item(vault_id, item_id, |edit| prepared.apply(edit, &tags))
             .map_err(draft::edit_error)?;
+        self.items_changed(session);
         detail(vault_id, item_id, session.item(vault_id, item_id)?)
     }
 
@@ -462,11 +462,9 @@ impl Backend {
         self.touch();
         let mut slot = self.slot()?;
         let target = request.target_vault_id.get();
-        let item_id = slot.unlocked_mut()?.move_item(
-            request.vault_id.get(),
-            request.item_id.get(),
-            target,
-        )?;
+        let session = slot.unlocked_mut()?;
+        let item_id = session.move_item(request.vault_id.get(), request.item_id.get(), target)?;
+        self.items_changed(session);
         Ok(MovedItem {
             vault_id: target.into(),
             item_id: item_id.into(),

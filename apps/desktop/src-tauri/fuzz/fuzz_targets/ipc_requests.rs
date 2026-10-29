@@ -1,4 +1,4 @@
-//! The IPC request types: the first byte (minus `A`, modulo 22) picks the
+//! The IPC request types: the first byte (minus `A`, modulo 23) picks the
 //! type, the rest is the JSON body. Deserializing never panics, and
 //! `draft::prepare` refuses a bad draft with `invalidInput` only.
 #![no_main]
@@ -24,7 +24,7 @@ use contract::items::{
     SetFavoriteRequest, UpdateItemRequest,
 };
 use contract::session::{
-    CreateAccountRequest, QuickUnlockRequest, UnlockRequest, VerifyKitRequest,
+    CreateAccountRequest, QuickUnlockRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
 };
 use contract::settings::UpdateSettingsRequest;
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
@@ -38,7 +38,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 22;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 23;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -73,6 +73,7 @@ fuzz_target!(|data: &[u8]| {
         18 => drop(parse::<ImportCommitRequest>(json)),
         19 => drop(parse::<ImportCancelRequest>(json)),
         20 => drop(parse::<SshSetEnabledRequest>(json)),
+        21 => drop(parse::<SaveKitRequest>(json)),
         _ => drop(parse::<SshRespondRequest>(json)),
     }
 });

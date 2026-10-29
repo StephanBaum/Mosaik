@@ -48,17 +48,5 @@ export default tseslint.config(
       "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }],
     },
   },
-  // TEMPORARY (M3): code that predates the limits. The M3 UI track replaces the screen and
-  // mock files; the M3 integration removes this block and fixes whatever still fails.
-  {
-    files: [
-      "apps/desktop/src/screens/VaultScreen.tsx",
-      "apps/desktop/src/screens/OnboardingScreen.tsx",
-      "apps/desktop/src/ipc/mock/generator.ts",
-      "apps/desktop/src/ipc/mock/data.ts",
-      "packages/i18n/src/index.ts",
-    ],
-    rules: { complexity: "off", "max-params": "off", "max-lines-per-function": "off" },
-  },
   { files: ["**/*.js"], ...tseslint.configs.disableTypeChecked },
 );

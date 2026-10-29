@@ -115,6 +115,8 @@ export const primaryAction = {
   label: "#09090B",
   rim: { light: "#D4D4D8", dark: "rgba(230, 230, 235, 0.75)" },
   fallback: "#E4E4E7",
+  /** Lighter stop of the no-WebGL gradient; the label stays at 4.5:1 on both stops, in either theme. */
+  fallbackHighlight: "#F4F4F5",
   labelShadow: "0 1px 0 rgba(255, 255, 255, 0.55)",
   iconFilter: "drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55))",
 } as const;

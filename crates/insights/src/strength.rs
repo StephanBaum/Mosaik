@@ -1,7 +1,7 @@
 //! Password strength estimate: the generator's entropy formula, lowered by
 //! the patterns people actually use.
 //!
-//! # Method (a documented heuristic, in the spirit of zxcvbn; ADR-0022)
+//! # Method (a documented heuristic, in the spirit of zxcvbn; ADR-0024)
 //!
 //! Mosaic does not depend on a zxcvbn crate: the Rust ports copy the
 //! password into many ordinary `String`s (lowercased, de-leeted,

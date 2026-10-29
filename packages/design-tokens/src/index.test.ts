@@ -49,7 +49,10 @@ describe.each(Object.entries(colors))("%s theme", (_name, scheme) => {
 });
 
 describe("primaryAction", () => {
-  it("keeps its label readable on the solid fallback", () => {
-    expect(contrastRatio(primaryAction.label, primaryAction.fallback)).toBeGreaterThanOrEqual(4.5);
-  });
+  it.each([primaryAction.fallback, primaryAction.fallbackHighlight])(
+    "keeps its label readable on the fallback stop %s",
+    (stop) => {
+      expect(contrastRatio(primaryAction.label, stop)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });

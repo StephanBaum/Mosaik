@@ -4,4 +4,5 @@
 *.icns binary
 *.pdf binary
 # Fuzz seeds are raw inputs: never convert line endings.
-crates/core/fuzz/seeds/** binary
+**/fuzz/seeds/** binary
+crates/import/tests/fixtures/** binary

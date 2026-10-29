@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cssVariables } from "./css.ts";
-import { colors, fontSize, radius, space } from "./index.ts";
+import { colors, fontSize, primaryAction, radius, space } from "./index.ts";
 
 describe("cssVariables", () => {
   const css = cssVariables();
@@ -37,6 +37,7 @@ describe("cssVariables", () => {
       "--print-text",
       "--layer-toast: 40;",
       "--primary-action-label-shadow",
+      `--primary-action-fallback-highlight: ${primaryAction.fallbackHighlight};`,
     ]) {
       expect(css).toContain(name);
     }

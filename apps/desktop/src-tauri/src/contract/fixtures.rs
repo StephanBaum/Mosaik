@@ -21,8 +21,8 @@ use super::events::{self, LockReason, SyncStatus};
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
 use super::import::{
-    self, ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportFormat,
-    ImportPreviewRequest, ImportResult, ImportWarning,
+    self, ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportEntryWarning,
+    ImportFormat, ImportPreviewRequest, ImportResult, ImportSkipReason, ImportWarning,
 };
 use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
@@ -32,10 +32,13 @@ use super::items::{
 };
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
-    self, KitVerification, QuickUnlockKind, QuickUnlockRequest, VerifyKitRequest,
+    self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
 };
 use super::settings::{self, Language, Theme, UpdateSettingsRequest};
-use super::ssh::{self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest};
+use super::ssh::{
+    self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest, SshSignFailReason,
+    SshSkipReason,
+};
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
 use crate::commands::names::COMMANDS;
@@ -100,6 +103,17 @@ pub(crate) fn build() -> Value {
         vec![session::samples::created_account()],
     );
     f.command(
+        "save_emergency_kit",
+        vec![
+            session::samples::save_kit_request(),
+            session::SaveKitRequest {
+                password: Some(SecretIn::test("correct horse battery staple")),
+                ..session::samples::save_kit_request()
+            },
+        ],
+        vec![session::KitSaved::Saved, session::KitSaved::Cancelled],
+    );
+    f.command(
         "verify_emergency_kit",
         vec![VerifyKitRequest {
             last_group: SecretIn::test("8VJ2"),
@@ -129,6 +143,7 @@ pub(crate) fn build() -> Value {
         session::samples::states(),
     );
     f.command("lock", vec![()], session::samples::states());
+    f.command("app_status", vec![()], vec![session::samples::app_status()]);
 
     // Vaults
     f.command("list_vaults", vec![()], vec![vaults::samples::summaries()]);
@@ -306,6 +321,9 @@ pub(crate) fn build() -> Value {
         vec![ImportResult {
             imported: 1,
             skipped: 1,
+            failed: 0,
+            attachments: 1,
+            attachments_failed: 0,
         }],
     );
     f.command(
@@ -354,6 +372,11 @@ pub(crate) fn build() -> Value {
         ("insightAction", values(InsightAction::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
+        ("importEntryWarning", values(ImportEntryWarning::ALL)),
+        ("importSkipReason", values(ImportSkipReason::ALL)),
+        ("shortcutState", values(ShortcutState::ALL)),
+        ("sshSkipReason", values(SshSkipReason::ALL)),
+        ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
         ("lockReason", values(LockReason::ALL)),

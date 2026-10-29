@@ -13,7 +13,7 @@ use mosaic_core::{AccountId, Argon2Profile, SecretString};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
 use tauri::ipc::Channel;
 
-use crate::adapters::Adapters;
+use crate::adapters::{Adapters, EventSink};
 use crate::autolock::Activity;
 use crate::clipboard::{BackendFactory, ClipboardService, MemoryClipboard};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
@@ -71,6 +71,9 @@ impl Slot {
 /// How account creation picks the Argon2id profile (CRYPTO_SPEC §5.3). The
 /// app calibrates on the device; tests pass the cheapest profile.
 pub type ProfileChooser = fn() -> mosaic_core::Result<Argon2Profile>;
+
+/// Flags the main window for attention.
+pub type Attention = Arc<dyn Fn() + Send + Sync>;
 
 /// Called after every lock (for example to hide the quick-search window).
 pub type LockHook = Box<dyn Fn(LockReason) + Send + Sync>;
@@ -131,6 +134,11 @@ pub struct Backend {
     pub import_files: Mutex<FileTokens>,
     /// Whether the global shortcut is registered (`None` until tried).
     pub shortcut_status: Mutex<Option<ShortcutStatus>>,
+    /// Asks the OS to flag the window (taskbar attention) when an SSH
+    /// approval arrives. It never focuses the window.
+    attention: Option<Attention>,
+    /// The OS event sources that started (auto-lock on sleep and screen lock).
+    pub os_sources: Mutex<Vec<&'static str>>,
     /// The account whose Emergency Kit was not yet confirmed in this process
     /// (set by `create_account`, cleared by a matching `verify_emergency_kit`
     /// and by every lock). While it matches, the kit saves without the password.
@@ -168,6 +176,8 @@ impl Backend {
             dialogs: Box::new(NoDialogs),
             import_files: Mutex::new(FileTokens::default()),
             shortcut_status: Mutex::new(None),
+            attention: None,
+            os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
         }
@@ -206,6 +216,13 @@ impl Backend {
     #[must_use]
     pub fn with_quick_unlock(mut self, quick_unlock: QuickUnlock) -> Self {
         self.quick_unlock = quick_unlock;
+        self
+    }
+
+    /// Calls `hook` when an SSH approval request arrives.
+    #[must_use]
+    pub fn with_attention(mut self, hook: Attention) -> Self {
+        self.attention = Some(hook);
         self
     }
 
@@ -267,6 +284,31 @@ impl Backend {
             .lock()
             .map(|s| s.settings.clone())
             .unwrap_or_default()
+    }
+
+    /// Everything in the state file.
+    #[must_use]
+    pub fn stored(&self) -> StoredState {
+        self.stored.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Sends events to the webview from background threads (the SSH agent).
+    #[must_use]
+    pub fn event_sink(&self) -> EventSink {
+        let events = self.events.clone();
+        let attention = self.attention.clone();
+        Arc::new(move |event| {
+            if let (AppEvent::SshApprovalRequested { .. }, Some(attention)) = (&event, &attention) {
+                attention();
+            }
+            events.emit(&event);
+        })
+    }
+
+    /// Tells the SSH agent the items changed. Call it after every
+    /// successful item change, while the session is still held.
+    pub(crate) fn items_changed(&self, session: &UnlockedSession) {
+        self.adapters.ssh.keys_changed(session);
     }
 
     /// The account of this install, as recorded in the state file.

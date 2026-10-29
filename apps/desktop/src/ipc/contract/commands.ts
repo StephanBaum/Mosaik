@@ -31,8 +31,11 @@ import type {
 import type {
   CreateAccountRequest,
   CreatedAccount,
+  AppStatus,
+  KitSaved,
   KitVerification,
   QuickUnlockRequest,
+  SaveKitRequest,
   SessionState,
   UnlockRequest,
   VerifyKitRequest,
@@ -51,10 +54,12 @@ export interface Commands {
   // Session
   session_state: Command<null, SessionState>;
   create_account: Command<CreateAccountRequest, CreatedAccount>;
+  save_emergency_kit: Command<SaveKitRequest, KitSaved>;
   verify_emergency_kit: Command<VerifyKitRequest, KitVerification>;
   unlock: Command<UnlockRequest, SessionState>;
   unlock_quick: Command<QuickUnlockRequest, SessionState>;
   lock: Command<null, SessionState>;
+  app_status: Command<null, AppStatus>;
   // Vaults
   list_vaults: Command<null, VaultSummary[]>;
   create_vault: Command<CreateVaultRequest, VaultSummary>;
@@ -103,10 +108,12 @@ export const channelCommands = ["subscribe_events"] as const;
 const commandSet = {
   session_state: true,
   create_account: true,
+  save_emergency_kit: true,
   verify_emergency_kit: true,
   unlock: true,
   unlock_quick: true,
   lock: true,
+  app_status: true,
   list_vaults: true,
   create_vault: true,
   rename_vault: true,

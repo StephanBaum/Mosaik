@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::errors::ErrorCode;
 use super::ids::{UnixMillis, WireItemId, WireVaultId};
 use super::macros::wire_enum;
 
@@ -13,8 +14,8 @@ wire_enum!(
     pub enum SshDecision {
         /// Sign this one request.
         AllowOnce,
-        /// Sign requests for this key from this client until the vault locks.
-        AllowUntilLock,
+        /// Sign requests for this key from this client for 15 minutes.
+        AllowFor15Minutes,
         /// Refuse.
         Deny,
     }
@@ -32,6 +33,50 @@ wire_enum!(
     }
 );
 
+wire_enum!(
+    /// Why an SSH key item is not served.
+    pub enum SshSkipReason {
+        /// The algorithm is not supported (RSA, P-384, ...).
+        Unsupported,
+        /// The key text cannot be read.
+        Malformed,
+        /// Another item serves the same public key.
+        Duplicate,
+    }
+);
+
+wire_enum!(
+    /// Why a sign request failed after it was approved.
+    pub enum SshSignFailReason {
+        /// The key is encrypted and the item has no passphrase.
+        PassphraseRequired,
+        /// The item's passphrase does not unlock the key.
+        WrongPassphrase,
+        /// The private key cannot be read.
+        KeyMalformed,
+        /// The key's passphrase protection uses too many rounds.
+        KdfTooExpensive,
+        /// The private key does not match the public key.
+        PublicKeyMismatch,
+        /// The algorithm is not supported.
+        Unsupported,
+        /// Signing failed for another reason.
+        Internal,
+    }
+);
+
+/// An SSH key item the agent does not serve.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshSkippedKey {
+    /// The item's vault.
+    pub vault_id: WireVaultId,
+    /// The item.
+    pub item_id: WireItemId,
+    /// Why.
+    pub reason: SshSkipReason,
+}
+
 /// The `ssh_agent_status` response.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +90,10 @@ pub struct SshAgentStatus {
     pub endpoint: Option<String>,
     /// SSH key items it serves (0 while locked).
     pub key_count: u32,
+    /// SSH key items it does not serve, and why.
+    pub skipped: Vec<SshSkippedKey>,
+    /// Why the agent could not start (`null` if it could, or was not asked).
+    pub error: Option<ErrorCode>,
 }
 
 /// `ssh_agent_set_enabled`.
@@ -82,8 +131,13 @@ pub struct SshApprovalRequest {
     pub fingerprint: String,
     /// Who asks.
     pub client: SshClient,
+    /// When the request arrived.
+    pub requested_at: UnixMillis,
     /// When it is refused without an answer.
     pub expires_at: UnixMillis,
+    /// Whether "Allow for 15 minutes" is offered (the client's executable is
+    /// known).
+    pub can_remember: bool,
 }
 
 /// `ssh_respond`.
@@ -109,12 +163,20 @@ pub(crate) mod samples {
                 running: true,
                 endpoint: Some(r"\\.\pipe\openssh-ssh-agent".into()),
                 key_count: 2,
+                skipped: vec![SshSkippedKey {
+                    vault_id: ids::vault(1),
+                    item_id: ids::item(4),
+                    reason: SshSkipReason::Unsupported,
+                }],
+                error: None,
             },
             SshAgentStatus {
                 enabled: false,
                 running: false,
                 endpoint: None,
                 key_count: 0,
+                skipped: vec![],
+                error: Some(ErrorCode::SshAgentEndpointInUse),
             },
         ]
     }
@@ -130,7 +192,9 @@ pub(crate) mod samples {
                 process_name: Some("git".into()),
                 pid: Some(4242),
             },
+            requested_at: 1_761_480_035_000,
             expires_at: 1_761_480_060_000,
+            can_remember: true,
         }
     }
 }

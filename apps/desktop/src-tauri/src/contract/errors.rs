@@ -71,10 +71,18 @@ wire_enum!(
         ImportFormatInvalid,
         /// The import preview is gone (cancelled, locked or too old).
         ImportPreviewExpired,
+        /// The import file is too large or too complex.
+        ImportTooLarge,
+        /// The export's format version or cipher is not supported.
+        ImportUnsupported,
+        /// The export is password-protected in a way Mosaic cannot read.
+        ImportEncrypted,
         /// The SSH approval request was already answered or expired.
         SshRequestExpired,
         /// The SSH agent could not start.
         SshAgentUnavailable,
+        /// Another SSH agent already uses the endpoint.
+        SshAgentEndpointInUse,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.
@@ -175,6 +183,119 @@ mod tests {
         assert_eq!(json, r#"{"code":"locked"}"#);
         let json = serde_json::to_string(&IpcError::new(ErrorCode::SecretKeyMistyped)).unwrap();
         assert_eq!(json, r#"{"code":"secretKeyMistyped"}"#);
+    }
+
+    #[test]
+    fn every_code_round_trips_through_its_wire_name() {
+        let mut seen = std::collections::HashSet::new();
+        for &code in ErrorCode::ALL {
+            let json = serde_json::to_string(&IpcError::new(code)).unwrap();
+            let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            let name = value["code"].as_str().unwrap().to_owned();
+            assert_eq!(value.as_object().unwrap().len(), 1, "only a code: {json}");
+            assert!(name.chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
+            assert!(name.starts_with(|c: char| c.is_ascii_lowercase()), "{name}");
+            let back: ErrorCode = serde_json::from_value(value["code"].clone()).unwrap();
+            assert_eq!(back, code);
+            assert!(seen.insert(name), "duplicate wire name for {code:?}");
+        }
+        assert!(serde_json::from_str::<ErrorCode>("\"nonsense\"").is_err());
+    }
+
+    #[test]
+    fn display_names_the_code_and_nothing_secret() {
+        assert_eq!(IpcError::LOCKED.to_string(), "IPC command failed: Locked");
+        assert_eq!(IpcError::from(ErrorCode::Busy).code, ErrorCode::Busy);
+        assert_eq!(IpcError::NOT_IMPLEMENTED.code, ErrorCode::NotImplemented);
+        assert_eq!(IpcError::INTERNAL.code, ErrorCode::Internal);
+    }
+
+    #[test]
+    fn session_errors_map_to_the_codes_the_ui_acts_on() {
+        let cases = [
+            (SessionError::NoAccount, ErrorCode::NoAccount),
+            (SessionError::UnknownVault, ErrorCode::VaultNotFound),
+            (SessionError::VaultUnavailable, ErrorCode::VaultUnavailable),
+            (SessionError::UnknownItem, ErrorCode::ItemNotFound),
+            (SessionError::ItemDeleted, ErrorCode::ItemDeleted),
+            (SessionError::SameVault, ErrorCode::SameVault),
+            (SessionError::NoOtp, ErrorCode::NoOtp),
+            (
+                SessionError::AttachmentTooLarge,
+                ErrorCode::AttachmentTooLarge,
+            ),
+            (SessionError::AttachmentQuota, ErrorCode::AttachmentQuota),
+            (SessionError::UnknownAttachment, ErrorCode::Internal),
+            (
+                SessionError::Core(mosaic_core::Error::Decryption),
+                ErrorCode::Internal,
+            ),
+            (
+                SessionError::Core(mosaic_core::Error::EmptyPassword),
+                ErrorCode::EmptyPassword,
+            ),
+            (
+                SessionError::Store(StoreError::StoreInUse),
+                ErrorCode::StoreInUse,
+            ),
+        ];
+        for (error, code) in cases {
+            let shown = format!("{error:?}");
+            assert_eq!(IpcError::from(error).code, code, "{shown}");
+        }
+    }
+
+    #[test]
+    fn store_errors_map_and_unreadable_files_all_look_alike() {
+        let cases = [
+            (StoreError::StoreInUse, ErrorCode::StoreInUse),
+            (StoreError::AccountExists, ErrorCode::AccountExists),
+            (StoreError::NoAccount, ErrorCode::NoAccount),
+            (StoreError::UnknownVault, ErrorCode::VaultNotFound),
+            (
+                StoreError::AttachmentTooLarge,
+                ErrorCode::AttachmentTooLarge,
+            ),
+            (StoreError::InvalidPath, ErrorCode::StoreUnavailable),
+            (StoreError::NotAMosaicStore, ErrorCode::StoreUnavailable),
+            (StoreError::Corrupt, ErrorCode::StoreUnavailable),
+            (
+                StoreError::SchemaTooNew {
+                    found: 99,
+                    supported: 1,
+                },
+                ErrorCode::StoreUnavailable,
+            ),
+            (
+                StoreError::Io(std::io::Error::other("secret path")),
+                ErrorCode::StoreUnavailable,
+            ),
+            (StoreError::AccountMismatch, ErrorCode::Internal),
+        ];
+        for (error, code) in cases {
+            let shown = format!("{error:?}");
+            assert_eq!(IpcError::from(error).code, code, "{shown}");
+        }
+    }
+
+    #[test]
+    fn core_errors_only_surface_what_the_user_can_fix() {
+        let cases = [
+            (
+                mosaic_core::Error::SecretKeyMalformed,
+                ErrorCode::SecretKeyMalformed,
+            ),
+            (
+                mosaic_core::Error::SecretKeyMistyped,
+                ErrorCode::SecretKeyMistyped,
+            ),
+            (mosaic_core::Error::EmptyPassword, ErrorCode::EmptyPassword),
+            (mosaic_core::Error::Decryption, ErrorCode::Internal),
+            (mosaic_core::Error::Malformed, ErrorCode::Internal),
+        ];
+        for (error, code) in cases {
+            assert_eq!(IpcError::from(error).code, code, "{error}");
+        }
     }
 
     #[test]

@@ -22,17 +22,13 @@
 //! - [`emergency_kit`] and [`dialogs`]: the Emergency Kit PDF, saved where
 //!   the user chooses;
 //! - [`quick_unlock`]: the platform half of quick unlock (Windows Hello);
-//! - [`adapters`]: hooks for import, insights and the SSH agent.
+//! - [`adapters`]: the import and SSH agent services.
 //!
 //! CRYPTO_SPEC §11 floor: the auto-lock triggers (idle, sleep, screen lock)
 //! cannot all be disabled. `update_settings` refuses such a request with
 //! `invalidInput`, and a state file that says so is read as the default idle
 //! timeout ([`persist::DEFAULT_AUTO_LOCK_MINUTES`]).
 //!
-//! The Emergency Kit is saved by [`state::Backend::save_emergency_kit`]. No
-//! Tauri command is registered for it yet: `save_emergency_kit` is an IPC
-//! proposal (`emergency_kit::SaveKitRequest`), and the webview cannot call
-//! it until the integrator adds it to the contract and the capability.
 #![forbid(unsafe_code)]
 
 pub mod adapters;
@@ -55,6 +51,7 @@ use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::Store;
 use tauri::Manager;
 
+use crate::adapters::{Adapters, ImportService, SshAgentService};
 use crate::autolock::{Monitor, TICK, spawn_os_sources};
 use crate::clipboard::SystemClipboard;
 use crate::contract::errors::{ErrorCode, IpcError};
@@ -104,7 +101,23 @@ pub fn run() -> tauri::Result<()> {
             };
             let keystore =
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
+            let local_dir = app.path().app_local_data_dir()?;
             let backend = Backend::new(slot, Box::new(keystore), mosaic_core::kdf::calibrate)
+                .with_adapters(Adapters {
+                    import: ImportService::default(),
+                    ssh: SshAgentService::for_this_os(&local_dir),
+                })
+                .with_attention({
+                    let handle = app.handle().clone();
+                    Arc::new(move || {
+                        if let Some(window) = handle.get_webview_window("main") {
+                            // Best effort; the window is never focused.
+                            let _ = window.request_user_attention(Some(
+                                tauri::UserAttentionType::Informational,
+                            ));
+                        }
+                    })
+                })
                 .with_persistence(persistence)
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
@@ -112,13 +125,16 @@ pub fn run() -> tauri::Result<()> {
             let state = AppState::new(backend);
 
             let weak = state.downgrade();
-            let _ = spawn_os_sources(
+            let sources = spawn_os_sources(
                 &(Arc::new(move |event| {
                     if let Some(backend) = weak.upgrade() {
                         backend.on_os_event(event);
                     }
                 }) as Arc<dyn Fn(autolock::OsEvent) + Send + Sync>),
             );
+            if let Ok(mut slot) = guard(&state.backend().os_sources) {
+                *slot = sources;
+            }
             app.manage(MonitorHandle(Mutex::new(Monitor::spawn(
                 state.downgrade(),
                 TICK,
@@ -150,6 +166,7 @@ pub fn run() -> tauri::Result<()> {
             if let Some(state) = handle.try_state::<AppState>() {
                 // Drop keys and decrypted items, and clear what Mosaic put on
                 // the clipboard, before the process ends.
+                state.backend().adapters.ssh.shutdown();
                 let _ = state.backend().lock(LockReason::Manual);
                 state.backend().clipboard.shutdown();
             }
@@ -158,6 +175,8 @@ pub fn run() -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod flow_tests;
 #[cfg(test)]
 mod handler_tests;
 #[cfg(test)]

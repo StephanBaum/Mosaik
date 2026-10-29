@@ -37,6 +37,15 @@ jobs:
       # Slow-in-debug tests (the 50 MiB attachment round trip at exactly
       # MAX_ATTACHMENT_LEN, the long multi-device sync simulation) run
       # optimized.
+      # The SSH agent's OpenSSH interop test (ignored, run below) needs the Windows
+      # OpenSSH client, which speaks the named pipe the agent serves.
+      - name: Check the OpenSSH client (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Windows\System32\OpenSSH\ssh-keygen.exe')) {
+            Write-Error 'The Windows OpenSSH client is missing'; exit 1
+          }
       - run: cargo test --release --locked --workspace --exclude mosaic-desktop -- --ignored
 
   desktop-rust:
@@ -69,9 +78,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Brief §8: core, totp, generator (passkey joins in M5). The vault
-        # crate holds the M2 session and store and is held to the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault]
+        # Brief §8: core, totp, generator (passkey joins in M5). The vault crate
+        # holds the M2 session and store; import and the SSH agent parse untrusted
+        # input; insights rates vault passwords. All are held to the same bar.
+        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,11 +95,21 @@ jobs:
       - run: cargo llvm-cov --locked -p ${{ matrix.crate }} --summary-only --fail-under-lines 90
 
   fuzz-smoke:
-    name: Fuzz smoke (crates/${{ matrix.crate }}/fuzz, 60 s per target)
+    name: Fuzz smoke (${{ matrix.dir }}, 60 s per target)
     strategy:
       fail-fast: false
       matrix:
-        crate: [core, vault, totp, generator]
+        dir:
+          - crates/core/fuzz
+          - crates/vault/fuzz
+          - crates/totp/fuzz
+          - crates/generator/fuzz
+          - crates/insights/fuzz
+          - crates/import/fuzz
+          - crates/ssh-agent/fuzz
+          # Includes the shell's contract, persist, draft and Emergency Kit modules by
+          # path; no tauri, so no WebKitGTK is needed.
+          - apps/desktop/src-tauri/fuzz
     runs-on: ubuntu-latest
     env:
       # Dated nightly so the job does not break when a new nightly ships.
@@ -104,7 +124,7 @@ jobs:
         with:
           tool: cargo-fuzz@0.13.2
       - name: Run every fuzz target for 60 s
-        working-directory: crates/${{ matrix.crate }}/fuzz
+        working-directory: ${{ matrix.dir }}
         env:
           RUSTFLAGS: ""
         # `seeds/<target>` (committed, minimized inputs built from the golden
@@ -159,6 +179,22 @@ jobs:
         with:
           command: check
           manifest-path: crates/generator/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: crates/insights/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: crates/import/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: crates/ssh-agent/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: apps/desktop/src-tauri/fuzz/Cargo.toml
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-audit@0.22.2
@@ -166,8 +202,9 @@ jobs:
       - name: cargo audit (fuzz lockfiles)
         run: |
           set -euo pipefail
-          for c in core vault totp generator; do
-            cargo audit --deny warnings -f "crates/$c/fuzz/Cargo.lock"
+          for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/generator/fuzz \
+                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz apps/desktop/src-tauri/fuzz; do
+            cargo audit --deny warnings -f "$d/Cargo.lock"
           done
 
   typescript:
@@ -210,4 +247,4 @@ jobs:
       - name: Install Chromium for Playwright
         run: pnpm --filter @mosaic/desktop exec playwright install --with-deps chromium
       # Mock-mode build served with the production CSP; axe in light and dark.
-      - run: pnpm test:e2e
+      - run: pnpm --filter @mosaic/desktop exec playwright test --workers=1

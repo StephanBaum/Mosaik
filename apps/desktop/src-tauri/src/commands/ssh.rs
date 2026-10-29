@@ -1,8 +1,7 @@
-//! SSH agent commands, through the SSH agent adapter
-//! (`adapters::SshAgentAdapter`, `mosaic-ssh-agent`). Approval requests
-//! reach the webview as events; the adapter refuses them on lock.
-
-use std::sync::Arc;
+//! SSH agent commands, through the SSH agent service
+//! (`adapters::SshAgentService`, `mosaic-ssh-agent`). Approval requests
+//! reach the webview as events; the agent refuses them on lock. The setting
+//! is stored on the device; the agent runs only while the vault is unlocked.
 
 use tauri::State;
 
@@ -35,28 +34,34 @@ impl Backend {
     /// The agent's state.
     #[must_use]
     pub fn ssh_agent_status(&self) -> SshAgentStatus {
-        self.adapters.ssh.status(self.is_unlocked())
+        self.adapters.ssh.status(self.stored().ssh_agent_enabled)
     }
 
-    /// Turns the agent on or off.
+    /// Turns the agent on or off and stores the choice. Turning it on needs
+    /// an unlocked vault; turning it off also works while locked.
     ///
     /// # Errors
-    /// The adapter's errors (`sshAgentUnavailable`).
+    /// `locked` (on), `sshAgentUnavailable`, `sshAgentEndpointInUse`.
     pub fn ssh_agent_set_enabled(
         &self,
         request: SshSetEnabledRequest,
     ) -> IpcResult<SshAgentStatus> {
         self.touch();
-        let events = self.events.clone();
-        self.adapters
-            .ssh
-            .set_enabled(request.enabled, Arc::new(move |event| events.emit(&event)))
+        if request.enabled {
+            let slot = self.slot()?;
+            let session = slot.unlocked()?;
+            self.adapters.ssh.start(session, self.event_sink())?;
+        } else {
+            self.adapters.ssh.stop();
+        }
+        self.update_stored(|s| s.ssh_agent_enabled = request.enabled)?;
+        Ok(self.ssh_agent_status())
     }
 
     /// Answers an approval request.
     ///
     /// # Errors
-    /// The adapter's errors (`sshRequestExpired`).
+    /// `sshRequestExpired`.
     pub fn ssh_respond(&self, request: &SshRespondRequest) -> IpcResult<()> {
         self.touch();
         self.adapters.ssh.respond(request)

@@ -25,6 +25,14 @@ describe("catalog parity", () => {
   );
 });
 
+describe("German terminology", () => {
+  it("uses Emergency Kit and Secret Key, not translated variants", () => {
+    for (const [key, value] of Object.entries(catalogs.de)) {
+      expect(value, key).not.toMatch(/Notfall-Kit|Geheime[nrs]? Schlüssel/);
+    }
+  });
+});
+
 describe("icuArguments", () => {
   it("finds simple and plural arguments but not branch selectors", () => {
     expect(icuArguments("Hi {name}")).toEqual(new Set(["name"]));

@@ -40,14 +40,18 @@ function summary(fields: Partial<ItemSummary> & Pick<ItemSummary, "itemId" | "ti
   };
 }
 
-function login(
-  itemId: string,
-  title: string,
-  username: string,
-  url: string,
-  password: string,
-  extra: Partial<ItemSummary> = {},
-): MockItem {
+interface LoginSpec {
+  itemId: string;
+  title: string;
+  username: string;
+  url: string;
+  password: string;
+  extra?: Partial<ItemSummary>;
+}
+
+function login(spec: LoginSpec): MockItem {
+  const { itemId, title, username, url, password } = spec;
+  const extra = spec.extra ?? {};
   return {
     detail: {
       summary: summary({ itemId, title, subtitle: username, host: new URL(url).hostname, ...extra }),
@@ -57,9 +61,10 @@ function login(
       urls: [{ elementId: `${itemId}-url`, url, matchMode: "exactOrigin", allowHttp: false }],
       customFields: [],
       attachments: [],
-      otp: extra.hasOtp === true
-        ? { scheme: "totp", issuer: title, digits: 6, period: 30, hardwareProtected: false }
-        : null,
+      otp:
+        extra.hasOtp === true
+          ? { scheme: "totp", issuer: title, digits: 6, period: 30, hardwareProtected: false }
+          : null,
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
     },
@@ -70,29 +75,29 @@ function login(
 
 export function sampleItems(): MockItem[] {
   return [
-    login(
-      "019a2b3c-4d5e-7020-8000-000000000001",
-      "GitHub",
-      "alex@example.com",
-      "https://github.com/login",
-      "correct-horse-battery-staple",
-      { favorite: true, hasOtp: true, tags: ["dev"] },
-    ),
-    login(
-      "019a2b3c-4d5e-7020-8000-000000000002",
-      "Figma",
-      "alex@example.com",
-      "https://www.figma.com/login",
-      "tulip-orbit-canyon-velvet",
-    ),
-    login(
-      "019a2b3c-4d5e-7020-8000-000000000003",
-      "Jira",
-      "alex@acme.example",
-      "https://acme.atlassian.net",
-      "q7#Vt2!mZp9@Lx4$",
-      { vaultId: work, tags: ["work"] },
-    ),
+    login({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000001",
+      title: "GitHub",
+      username: "alex@example.com",
+      url: "https://github.com/login",
+      password: "correct-horse-battery-staple",
+      extra: { favorite: true, hasOtp: true, tags: ["dev"] },
+    }),
+    login({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000002",
+      title: "Figma",
+      username: "alex@example.com",
+      url: "https://www.figma.com/login",
+      password: "tulip-orbit-canyon-velvet",
+    }),
+    login({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000003",
+      title: "Jira",
+      username: "alex@acme.example",
+      url: "https://acme.atlassian.net",
+      password: "q7#Vt2!mZp9@Lx4$",
+      extra: { vaultId: work, tags: ["work"] },
+    }),
     {
       detail: {
         summary: summary({

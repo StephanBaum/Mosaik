@@ -82,11 +82,15 @@ function isLoopback(host: string): boolean {
   return host === "localhost" || host.startsWith("127.") || host === "[::1]";
 }
 
+function isPrivateIPv4(octets: readonly number[]): boolean {
+  const [a = 0, b = 0] = octets;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
 function isLocalNetwork(host: string): boolean {
   const octets = host.split(".").map(Number);
   if (octets.length === 4 && octets.every((o) => Number.isInteger(o) && o >= 0 && o <= 255)) {
-    const [a = 0, b = 0] = octets;
-    return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+    return isPrivateIPv4(octets);
   }
   return !host.includes(".") || host === "fritz.box" || LOCAL_SUFFIXES.some((s) => host.endsWith(s));
 }
@@ -100,11 +104,12 @@ function maxSeverity(issues: readonly InsightIssue[]): number {
   return Math.max(-1, ...issues.map((i) => SEVERITY_RANK[i.severity]));
 }
 
-export function mockSecurityReport(state: MockState): SecurityReport {
-  const now = state.now();
-  const checked = state.items.filter(
-    (item) => item.detail.summary.trashedAt === null && item.detail.review.conflictCopyOf === null,
-  );
+interface Collector {
+  entries: Map<string, InsightFinding>;
+  mark: (item: MockItem, kind: InsightKind, severity: InsightSeverity) => InsightFinding;
+}
+
+function findingCollector(): Collector {
   const entries = new Map<string, InsightFinding>();
   const entry = (item: MockItem): InsightFinding => {
     const id = item.detail.summary.itemId;
@@ -130,7 +135,13 @@ export function mockSecurityReport(state: MockState): SecurityReport {
     }
     return e;
   };
+  return { entries, mark };
+}
 
+type Mark = Collector["mark"];
+
+/** Weak and reused passwords; returns the number of reuse groups. */
+function markPasswordFindings(checked: readonly MockItem[], mark: Mark): number {
   const byPassword = new Map<string, MockItem[]>();
   for (const item of checked) {
     const secret = secretOf(item);
@@ -155,7 +166,36 @@ export function mockSecurityReport(state: MockState): SecurityReport {
         .sort((a, b) => cmp(a.vaultId, b.vaultId) || cmp(a.itemId, b.itemId));
     }
   }
+  return reusedGroups;
+}
 
+function markMissingTotp(item: MockItem, urls: readonly string[], mark: Mark): void {
+  if (hasOtp(item)) {
+    return;
+  }
+  const site = urls
+    .map(hostOf)
+    .map((h) => (h === null ? null : totpSiteOf(h)))
+    .find((s) => s !== null);
+  if (site !== undefined) {
+    mark(item, "missingTotp", "medium").totpSite = site;
+  }
+}
+
+function markInsecureUrl(item: MockItem, urls: readonly string[], mark: Mark): void {
+  const httpHosts = urls
+    .filter((url) => url.toLowerCase().startsWith("http://"))
+    .map(hostOf)
+    .filter((h): h is string => h !== null && !isLoopback(h));
+  if (httpHosts.length > 0) {
+    const local = httpHosts.every(isLocalNetwork);
+    mark(item, "insecureUrl", local ? "low" : "medium").insecureHost =
+      httpHosts.find((h) => !isLocalNetwork(h)) ?? httpHosts[0] ?? null;
+  }
+}
+
+/** Old, missing 2FA and plain-HTTP findings of the logins. */
+function markLoginFindings(checked: readonly MockItem[], now: number, mark: Mark): void {
   for (const item of checked) {
     if (item.detail.summary.kind !== "login") {
       continue;
@@ -165,26 +205,13 @@ export function mockSecurityReport(state: MockState): SecurityReport {
       mark(item, "old", "low");
     }
     const urls = item.detail.urls.map((u) => u.url.trim());
-    if (!hasOtp(item)) {
-      const site = urls
-        .map(hostOf)
-        .map((h) => (h === null ? null : totpSiteOf(h)))
-        .find((s) => s !== null);
-      if (site !== undefined) {
-        mark(item, "missingTotp", "medium").totpSite = site;
-      }
-    }
-    const httpHosts = urls
-      .filter((url) => url.toLowerCase().startsWith("http://"))
-      .map(hostOf)
-      .filter((h): h is string => h !== null && !isLoopback(h));
-    if (httpHosts.length > 0) {
-      const local = httpHosts.every(isLocalNetwork);
-      mark(item, "insecureUrl", local ? "low" : "medium").insecureHost =
-        httpHosts.find((h) => !isLocalNetwork(h)) ?? httpHosts[0] ?? null;
-    }
+    markMissingTotp(item, urls, mark);
+    markInsecureUrl(item, urls, mark);
   }
+}
 
+/** Sorts each finding's issues and counts them. */
+function tally(findings: readonly InsightFinding[], reusedGroups: number): InsightCounts {
   const counts: InsightCounts = {
     weak: 0,
     reused: 0,
@@ -196,7 +223,6 @@ export function mockSecurityReport(state: MockState): SecurityReport {
     medium: 0,
     low: 0,
   };
-  const findings = [...entries.values()];
   for (const finding of findings) {
     finding.issues.sort(
       (a, b) =>
@@ -211,6 +237,10 @@ export function mockSecurityReport(state: MockState): SecurityReport {
       counts[top.severity] += 1;
     }
   }
+  return counts;
+}
+
+function sortFindings(findings: InsightFinding[]): void {
   findings.sort(
     (a, b) =>
       maxSeverity(b.issues) - maxSeverity(a.issues) ||
@@ -218,7 +248,19 @@ export function mockSecurityReport(state: MockState): SecurityReport {
       cmp(a.vaultId, b.vaultId) ||
       cmp(a.itemId, b.itemId),
   );
+}
 
+export function mockSecurityReport(state: MockState): SecurityReport {
+  const now = state.now();
+  const checked = state.items.filter(
+    (item) => item.detail.summary.trashedAt === null && item.detail.review.conflictCopyOf === null,
+  );
+  const { entries, mark } = findingCollector();
+  const reusedGroups = markPasswordFindings(checked, mark);
+  markLoginFindings(checked, now, mark);
+  const findings = [...entries.values()];
+  const counts = tally(findings, reusedGroups);
+  sortFindings(findings);
   return { generatedAt: now, itemsChecked: checked.length, counts, findings };
 }
 

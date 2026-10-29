@@ -49,6 +49,13 @@ Banned: OpenSSL bindings, `ring`-only APIs outside `rustls`, anything
 unmaintained (enforced in `deny.toml`). Adding a crypto dependency needs an
 ADR.
 
+Interoperability only (these read or serve third-party formats and never protect Mosaic data):
+
+| Purpose | Algorithm | Standard | Rust crate |
+|---|---|---|---|
+| SSH agent (ADR-0025) | Ed25519; ECDSA P-256/SHA-256 with RFC 6979 nonces; OpenSSH key decryption with bcrypt-pbkdf and AES-256-CTR, AES-256-GCM or chacha20-poly1305@openssh.com; SHA-256 fingerprints | draft-miller-ssh-agent, RFC 4251, 4253, 5656, 6979, 8332 (flags), 8709 | `ssh-key` (with `ssh-cipher`, `ssh-encoding`, `bcrypt-pbkdf`, `ed25519-dalek`, `p256`) |
+| KeePass KDBX 4 import, read only (ADR-0021) | AES-256-CBC, ChaCha20, Salsa20 (inner stream), AES-KDF, Argon2d/Argon2id, HMAC-SHA-256 block MACs, SHA-256/512 | KeePass KDBX 4 | `aes`, `cbc`, `chacha20`, `salsa20`, `argon2`, `hmac`, `sha2` |
+
 ## 3. Notation and encoding
 
 - `||` is byte concatenation. Integers are unsigned big-endian.
@@ -119,8 +126,7 @@ rejected. Client UI enforces the strength policy (zxcvbn-style estimate ≥ 3 of
   "Secret Key mistyped", never "wrong password".
 - It is shown once, in the Emergency Kit (PDF with account email, server URL,
   Secret Key and a blank field for the master password), and kept in the OS
-  keystore (Windows Credential Manager/DPAPI, macOS/iOS Keychain, Linux Secret
-  Service, Android Keystore-wrapped).
+  keystore (Windows Credential Manager/DPAPI, macOS/iOS Keychain, the Linux kernel keyring per login session (Secret Service is deferred: its transport crypto is outside §2; ADR-0020), Android Keystore-wrapped). Without a stored key, the user types it from the Emergency Kit.
 
 ### 5.3 Argon2id
 
@@ -200,8 +206,7 @@ platform:
 | Windows | A Windows Hello `KeyCredentialManager` RSA key and a stored random 32-byte `challenge`. `W = HKDF(ikm = Sign(challenge), salt = challenge, info = ctx("hello-unlock"), 32)`. This relies on RSA PKCS#1 v1.5 signatures being deterministic, so enrollment signs twice and fails if the two signatures differ. |
 | Linux | No hardware binding by default. Quick unlock is unavailable unless a FIDO2 key is used (§6.3). |
 
-An M3 ADR pins the exact API calls, and any deviation from this table needs a
-spec change. `method_id` = device ID. Quick unlock expires after a
+ADR-0020 item 7 pins the Windows calls; the macOS calls are pinned when that half is built. Any deviation from this table needs a spec change. Quick unlock is not offered until `mosaic-vault` stores and expires these wrappings. `method_id` = device ID. Quick unlock expires after a
 configurable maximum age (default 14 days) or under the reboot policy. Expiry
 **deletes** both the platform key and the wrapping. Flagging them as expired
 is not enough.
@@ -757,6 +762,11 @@ size buckets), tags, vault names, or attachment names.
   (TOTP ±w steps, HOTP w counters ahead, w ≤ 10, recommended w = 1), and a
   replay guard that rejects any step at or below the last accepted one, which
   the caller stores before it accepts the login (ADR-0008).
+- Security insights, reuse detection (ADR-0022): each login and Wi-Fi password is reduced to
+  `HMAC-SHA-256(K, password)` under a 32-byte key `K` from the OS CSPRNG. `K` is drawn for each
+  analysis and is never stored or derived from account keys. Equal tags form candidate groups,
+  whose members are compared with `subtle::ConstantTimeEq`. Tags live in zeroizing memory for the
+  duration of the call; nothing derived from a password leaves it.
 
 ## 14. Test requirements
 

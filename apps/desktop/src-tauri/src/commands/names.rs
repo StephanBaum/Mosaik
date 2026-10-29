@@ -9,11 +9,13 @@ pub const COMMANDS: &[&str] = &[
     // Session
     "session_state",
     "create_account",
+    "save_emergency_kit",
     "verify_emergency_kit",
     "unlock",
     "unlock_quick",
     "lock",
     "subscribe_events",
+    "app_status",
     // Vaults
     "list_vaults",
     "create_vault",

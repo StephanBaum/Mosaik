@@ -38,6 +38,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::contract::events::LockReason;
+use crate::persist::{DEFAULT_AUTO_LOCK_MINUTES, has_lock_trigger};
 use crate::state::Backend;
 
 /// How often the monitor checks.
@@ -146,7 +147,12 @@ pub fn tick_decision(
     if !backend.is_unlocked() {
         return None;
     }
-    let minutes = settings.auto_lock_minutes?;
+    // Runtime floor: a stored config whose only trigger cannot fire here
+    // (screen lock without detection) still idles out at the default.
+    let minutes = settings.auto_lock_minutes.or_else(|| {
+        (!has_lock_trigger(&settings, backend.screen_lock_detection()))
+            .then_some(DEFAULT_AUTO_LOCK_MINUTES)
+    })?;
     let limit = Duration::from_secs(u64::from(minutes).saturating_mul(60));
     (backend.activity.idle_at(now, wall) >= limit).then_some(LockReason::Idle)
 }

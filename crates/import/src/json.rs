@@ -352,6 +352,45 @@ mod tests {
     }
 
     #[test]
+    fn numbers_as_flags_and_integers_at_the_edges() {
+        for (src, want) in [
+            ("2", Some(true)),
+            ("-1", Some(true)),
+            ("0.0", Some(false)),
+            ("1.0", Some(true)),
+            ("0.5", None),
+            ("18446744073709551615", None),
+            ("[]", None),
+            ("{}", None),
+        ] {
+            assert_eq!(parse(src.as_bytes()).unwrap().as_flag(), want, "{src}");
+        }
+        assert_eq!(
+            parse(b"9223372036854775807").unwrap().as_i64(),
+            Some(i64::MAX)
+        );
+        assert_eq!(
+            parse(b"-9223372036854775808").unwrap().as_i64(),
+            Some(i64::MIN)
+        );
+        assert_eq!(parse(b"9223372036854775808").unwrap().as_i64(), None);
+        assert_eq!(parse(b"1e19").unwrap().as_i64(), None);
+        assert_eq!(parse(b"null").unwrap().as_i64(), None);
+    }
+
+    #[test]
+    fn duplicate_keys_are_malformed_at_any_depth_and_whitespace_is_fine() {
+        assert_eq!(
+            parse(br#"{"a":{"b":1,"b":2}}"#).unwrap_err(),
+            Error::Malformed
+        );
+        assert_eq!(parse(br#"[{"k":1,"k":1}]"#).unwrap_err(), Error::Malformed);
+        assert!(parse(b" \n\t{ \"a\" : [ 1 , 2 ] } \r\n").is_ok());
+        assert_eq!(parse(b"").unwrap_err(), Error::Malformed);
+        assert_eq!(parse(b"   ").unwrap_err(), Error::Malformed);
+    }
+
+    #[test]
     fn rejects_bad_documents() {
         for bad in [
             &b"{\"a\":1,\"a\":2}"[..],

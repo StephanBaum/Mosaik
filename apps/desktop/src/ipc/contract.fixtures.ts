@@ -7,11 +7,13 @@ export const fixtures = {
   "commands": [
     "session_state",
     "create_account",
+    "save_emergency_kit",
     "verify_emergency_kit",
     "unlock",
     "unlock_quick",
     "lock",
     "subscribe_events",
+    "app_status",
     "list_vaults",
     "create_vault",
     "rename_vault",
@@ -79,10 +81,27 @@ export const fixtures = {
       "importFileUnreadable",
       "importFormatInvalid",
       "importPreviewExpired",
+      "importTooLarge",
+      "importUnsupported",
+      "importEncrypted",
       "sshRequestExpired",
       "sshAgentUnavailable",
+      "sshAgentEndpointInUse",
       "busy",
       "internal"
+    ],
+    "importEntryWarning": [
+      "unmappedFields",
+      "otpUnreadable",
+      "attachmentTooLarge",
+      "attachmentMissing",
+      "tagsDropped",
+      "historyTruncated",
+      "passkeysNotImported",
+      "unknownCategory",
+      "fieldsDropped",
+      "archived",
+      "attachmentQuota"
     ],
     "importFormat": [
       "enpass",
@@ -91,10 +110,17 @@ export const fixtures = {
       "onePassword",
       "csv"
     ],
+    "importSkipReason": [
+      "malformed",
+      "empty",
+      "tooLarge"
+    ],
     "importWarning": [
       "unmappedFields",
       "attachmentsSkipped",
-      "entriesSkipped"
+      "entriesSkipped",
+      "otpUnreadable",
+      "passkeysNotImported"
     ],
     "insightAction": [
       "changePassword",
@@ -157,6 +183,11 @@ export const fixtures = {
       "apiKeySecret",
       "wifiPassword"
     ],
+    "shortcutState": [
+      "registered",
+      "conflict",
+      "unavailable"
+    ],
     "sshCloseReason": [
       "answered",
       "expired",
@@ -164,8 +195,22 @@ export const fixtures = {
     ],
     "sshDecision": [
       "allowOnce",
-      "allowUntilLock",
+      "allowFor15Minutes",
       "deny"
+    ],
+    "sshSignFailReason": [
+      "passphraseRequired",
+      "wrongPassphrase",
+      "keyMalformed",
+      "kdfTooExpensive",
+      "publicKeyMismatch",
+      "unsupported",
+      "internal"
+    ],
+    "sshSkipReason": [
+      "unsupported",
+      "malformed",
+      "duplicate"
     ],
     "strength": [
       "veryWeak",
@@ -308,10 +353,22 @@ export const fixtures = {
       "code": "importPreviewExpired"
     },
     {
+      "code": "importTooLarge"
+    },
+    {
+      "code": "importUnsupported"
+    },
+    {
+      "code": "importEncrypted"
+    },
+    {
       "code": "sshRequestExpired"
     },
     {
       "code": "sshAgentUnavailable"
+    },
+    {
+      "code": "sshAgentEndpointInUse"
     },
     {
       "code": "busy"
@@ -346,6 +403,7 @@ export const fixtures = {
     },
     {
       "request": {
+        "canRemember": true,
         "client": {
           "pid": 4242,
           "processName": "git"
@@ -355,6 +413,7 @@ export const fixtures = {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000003",
         "keyTitle": "Deploy key",
         "requestId": "ssh-1",
+        "requestedAt": 1761480035000,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       },
       "type": "sshApprovalRequested"
@@ -363,6 +422,16 @@ export const fixtures = {
       "reason": "expired",
       "requestId": "ssh-1",
       "type": "sshApprovalClosed"
+    },
+    {
+      "itemId": "019a2b3c-4d5e-7020-8000-000000000003",
+      "reason": "wrongPassphrase",
+      "requestId": "ssh-1",
+      "type": "sshSignFailed",
+      "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+    },
+    {
+      "type": "quickSearchRequested"
     }
   ],
   "requests": {
@@ -434,6 +503,9 @@ export const fixtures = {
         "kind": "login",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "app_status": [
+      null
     ],
     "clear_clipboard": [
       null
@@ -665,6 +737,38 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
+    "save_emergency_kit": [
+      {
+        "labels": {
+          "accountId": "Account ID",
+          "email": "Account email",
+          "footer": "Pre-audit software.",
+          "intro": "Keep this page somewhere safe.",
+          "masterPassword": "Master password",
+          "masterPasswordHint": "Write it here by hand.",
+          "secretKey": "Secret Key",
+          "signInUrl": "Sign-in address",
+          "signInUrlValue": "This device only",
+          "title": "Mosaic Emergency Kit"
+        },
+        "password": null
+      },
+      {
+        "labels": {
+          "accountId": "Account ID",
+          "email": "Account email",
+          "footer": "Pre-audit software.",
+          "intro": "Keep this page somewhere safe.",
+          "masterPassword": "Master password",
+          "masterPasswordHint": "Write it here by hand.",
+          "secretKey": "Secret Key",
+          "signInUrl": "Sign-in address",
+          "signInUrlValue": "This device only",
+          "title": "Mosaic Emergency Kit"
+        },
+        "password": "correct horse battery staple"
+      }
+    ],
     "security_report": [
       null
     ],
@@ -692,7 +796,7 @@ export const fixtures = {
         "requestId": "ssh-1"
       },
       {
-        "decision": "allowUntilLock",
+        "decision": "allowFor15Minutes",
         "requestId": "ssh-1"
       },
       {
@@ -969,6 +1073,12 @@ export const fixtures = {
         ]
       }
     ],
+    "app_status": [
+      {
+        "screenLockDetection": false,
+        "shortcut": "conflict"
+      }
+    ],
     "clear_clipboard": [
       null
     ],
@@ -992,6 +1102,7 @@ export const fixtures = {
         "session": {
           "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
           "email": "alex@example.com",
+          "kitVerified": false,
           "state": "unlocked"
         }
       }
@@ -1123,14 +1234,31 @@ export const fixtures = {
     ],
     "import_commit": [
       {
+        "attachments": 1,
+        "attachmentsFailed": 0,
+        "failed": 0,
         "imported": 1,
         "skipped": 1
       }
     ],
     "import_preview": [
       {
+        "attachmentBytes": 2048,
+        "attachments": 1,
+        "counts": [
+          {
+            "count": 1,
+            "kind": "login"
+          },
+          {
+            "count": 1,
+            "kind": "secureNote"
+          }
+        ],
         "entries": [
           {
+            "attachments": 1,
+            "duplicateInFile": null,
             "duplicateOf": {
               "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
               "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
@@ -1138,21 +1266,54 @@ export const fixtures = {
             "index": 0,
             "kind": "login",
             "subtitle": "alex@example.com",
-            "title": "GitHub"
+            "title": "GitHub",
+            "warnings": [
+              "unmappedFields",
+              "otpUnreadable",
+              "attachmentTooLarge",
+              "attachmentMissing",
+              "tagsDropped",
+              "historyTruncated",
+              "passkeysNotImported",
+              "unknownCategory",
+              "fieldsDropped",
+              "archived",
+              "attachmentQuota"
+            ]
           },
           {
+            "attachments": 0,
+            "duplicateInFile": 0,
             "duplicateOf": null,
             "index": 1,
             "kind": "secureNote",
             "subtitle": null,
-            "title": null
+            "title": null,
+            "warnings": []
           }
         ],
+        "format": "enpass",
         "previewId": "p-1",
+        "skipped": [
+          {
+            "index": 2,
+            "reason": "malformed"
+          },
+          {
+            "index": 3,
+            "reason": "empty"
+          },
+          {
+            "index": 4,
+            "reason": "tooLarge"
+          }
+        ],
         "warnings": [
           "unmappedFields",
           "attachmentsSkipped",
-          "entriesSkipped"
+          "entriesSkipped",
+          "otpUnreadable",
+          "passkeysNotImported"
         ]
       }
     ],
@@ -1228,6 +1389,7 @@ export const fixtures = {
       {
         "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
         "email": "alex@example.com",
+        "kitVerified": true,
         "state": "unlocked"
       }
     ],
@@ -1261,6 +1423,14 @@ export const fixtures = {
       {
         "hideAfterSeconds": 60,
         "value": "hunter2"
+      }
+    ],
+    "save_emergency_kit": [
+      {
+        "kind": "saved"
+      },
+      {
+        "kind": "cancelled"
       }
     ],
     "security_report": [
@@ -1373,6 +1543,7 @@ export const fixtures = {
       {
         "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
         "email": "alex@example.com",
+        "kitVerified": true,
         "state": "unlocked"
       }
     ],
@@ -1398,28 +1569,48 @@ export const fixtures = {
       {
         "enabled": true,
         "endpoint": "\\\\.\\pipe\\openssh-ssh-agent",
+        "error": null,
         "keyCount": 2,
-        "running": true
+        "running": true,
+        "skipped": [
+          {
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000004",
+            "reason": "unsupported",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          }
+        ]
       },
       {
         "enabled": false,
         "endpoint": null,
+        "error": "sshAgentEndpointInUse",
         "keyCount": 0,
-        "running": false
+        "running": false,
+        "skipped": []
       }
     ],
     "ssh_agent_status": [
       {
         "enabled": true,
         "endpoint": "\\\\.\\pipe\\openssh-ssh-agent",
+        "error": null,
         "keyCount": 2,
-        "running": true
+        "running": true,
+        "skipped": [
+          {
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000004",
+            "reason": "unsupported",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          }
+        ]
       },
       {
         "enabled": false,
         "endpoint": null,
+        "error": "sshAgentEndpointInUse",
         "keyCount": 0,
-        "running": false
+        "running": false,
+        "skipped": []
       }
     ],
     "ssh_respond": [
@@ -1462,6 +1653,7 @@ export const fixtures = {
       {
         "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
         "email": "alex@example.com",
+        "kitVerified": true,
         "state": "unlocked"
       }
     ],
@@ -1487,6 +1679,7 @@ export const fixtures = {
       {
         "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
         "email": "alex@example.com",
+        "kitVerified": true,
         "state": "unlocked"
       }
     ],

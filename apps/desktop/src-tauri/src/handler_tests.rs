@@ -9,36 +9,30 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use mosaic_core::{AccountId, Argon2Profile, SecretKey, SecretString};
+use mosaic_core::{AccountId, Argon2Profile, SecretKey, SecretString, Timestamp};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
 use mosaic_vault::storage::Store;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::adapters::{
-    Adapters, EventSink, ImportAdapter, InsightsAdapter, NotWired, SshAgentAdapter,
-};
+use crate::adapters::Adapters;
 use crate::autolock::{Monitor, OsEvent, tick_decision};
 use crate::clipboard::MemoryClipboard;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
-use crate::contract::events::{AppEvent, LockReason};
-use crate::contract::ids::UnixMillis;
-use crate::contract::import::{
-    ImportCommitRequest, ImportFileChoice, ImportFormat, ImportPreview, ImportResult,
-};
-use crate::contract::insights::{InsightCounts, SecurityReport};
+use crate::contract::events::LockReason;
+use crate::contract::import::{ImportFileChoice, ImportFormat, ImportPreview};
 use crate::contract::items::{ItemDetail, ItemSummary};
 use crate::contract::secret::SecretIn;
 use crate::contract::session::{CreateAccountRequest, SessionState, UnlockRequest};
+use crate::contract::session::{KitSaved, SaveKitRequest};
 use crate::contract::settings::{Settings, Theme, UpdateSettingsRequest};
-use crate::contract::ssh::{SshAgentStatus, SshCloseReason, SshRespondRequest};
 use crate::dialogs::{Dialogs, FileFilter};
-use crate::emergency_kit::{KitSaved, SaveKitRequest};
 use crate::events::testing::{Log, recording_channel};
 use crate::keystore::{MemoryKeystore, SecretKeyStore};
 use crate::persist::Persistence;
 use crate::state::{AppState, Backend, Slot};
 
+const NOW: Timestamp = Timestamp::from_unix_millis(1_800_000_000_000);
 const PASSWORD: &str = "correct horse battery staple";
 const ITEM_PASSWORD: &str = "It3m-Pa55word!";
 const HIDDEN_VALUE: &str = "8642-hidden-pin";
@@ -455,7 +449,7 @@ fn item_commands_need_an_unlocked_vault() {
         b.update_item(req(with_item(&detail, json!({ "draft": draft })))).unwrap_err(),
         b.totp_code(req(item_req(&detail))).unwrap_err(),
         b.copy_to_clipboard(req(json!({ "source": { "kind": "item", "vaultId": vault, "itemId": detail.summary.item_id.0.to_string(), "field": { "kind": "password" } } }))).unwrap_err(),
-        b.security_report().unwrap_err(),
+        b.security_report(NOW).unwrap_err(),
         b.import_choose_file(req(json!({ "format": "enpass" }))).unwrap_err(),
     ];
     for error in results {
@@ -1083,6 +1077,46 @@ fn every_lock_reason_reaches_the_webview_and_the_hooks() {
 // Auto-lock
 // ---------------------------------------------------------------------------
 
+fn screen_lock_only() -> Settings {
+    Settings {
+        auto_lock_minutes: None,
+        lock_on_sleep: false,
+        lock_on_screen_lock: true,
+        ..Settings::default()
+    }
+}
+
+#[test]
+fn screen_lock_only_is_refused_without_detection() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let b = &h.backend;
+    assert!(!b.app_status().screen_lock_detection);
+    let before = b.settings_snapshot();
+    let err = b
+        .update_settings(UpdateSettingsRequest {
+            settings: screen_lock_only(),
+            password: Some(SecretIn::test(PASSWORD)),
+        })
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput);
+    assert_eq!(b.settings_snapshot(), before);
+}
+
+#[test]
+fn tick_floor_applies_to_a_stored_screen_lock_only_config() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let b = &h.backend;
+    b.update_stored(|s| s.settings = screen_lock_only())
+        .unwrap();
+    b.activity.backdate(Duration::from_mins(11));
+    assert_eq!(
+        tick_decision(b, false, Instant::now(), SystemTime::now()),
+        Some(LockReason::Idle)
+    );
+}
+
 #[test]
 fn idle_sleep_and_screen_lock_decisions() {
     let _kdf = crate::test_support::kdf_permit();
@@ -1105,16 +1139,31 @@ fn idle_sleep_and_screen_lock_decisions() {
         lock_on_screen_lock: true,
         ..Settings::default()
     };
+    assert_eq!(
+        b.update_settings(UpdateSettingsRequest {
+            settings: relaxed,
+            password: Some(SecretIn::test(PASSWORD)),
+        })
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidInput,
+        "screen lock alone is no trigger without detection"
+    );
     b.update_settings(UpdateSettingsRequest {
-        settings: relaxed,
+        settings: Settings {
+            auto_lock_minutes: Some(60),
+            lock_on_sleep: false,
+            lock_on_screen_lock: false,
+            ..Settings::default()
+        },
         password: Some(SecretIn::test(PASSWORD)),
     })
     .unwrap();
-    b.activity.backdate(Duration::from_hours(1));
+    b.activity.backdate(Duration::from_mins(30));
     assert_eq!(
         tick_decision(b, true, Instant::now(), SystemTime::now()),
         None,
-        "idle and sleep off"
+        "idle (60 min) not reached and sleep off"
     );
     b.on_os_event(OsEvent::Sleep);
     assert!(b.is_unlocked(), "the settings say no");
@@ -1207,251 +1256,281 @@ fn the_monitor_locks_an_idle_vault() {
 }
 
 // ---------------------------------------------------------------------------
-// Adapters: import, insights, SSH agent
+// Import and the SSH agent, through the real crates
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
-struct Calls(Mutex<Vec<String>>);
+const ENPASS: &[u8] = include_bytes!("../../../../crates/import/tests/fixtures/enpass.json");
+const KDBX: &[u8] = include_bytes!("../../../../crates/import/tests/fixtures/aes-argon2d.kdbx");
+const ED25519: &str = include_str!("../../../../crates/ssh-agent/tests/keys/ed25519");
+const ED25519_PUB: &str = include_str!("../../../../crates/ssh-agent/tests/keys/ed25519.pub");
 
-impl Calls {
-    fn push(&self, call: &str) {
-        self.0.lock().unwrap().push(call.to_owned());
-    }
-    fn all(&self) -> Vec<String> {
-        self.0.lock().unwrap().clone()
+fn chosen(b: &Backend, format: &str) -> String {
+    match b
+        .import_choose_file(req(json!({ "format": format })))
+        .unwrap()
+    {
+        ImportFileChoice::Chosen { file_token, .. } => file_token,
+        ImportFileChoice::Cancelled => panic!("the dialog was cancelled"),
     }
 }
 
-struct FakeImport(Arc<Calls>);
-
-impl ImportAdapter for FakeImport {
-    fn preview(
-        &self,
-        file: &std::path::Path,
-        format: ImportFormat,
-        password: Option<SecretString>,
-        _: &UnlockedSession,
-    ) -> IpcResult<ImportPreview> {
-        self.0.push(&format!(
-            "preview {} {format:?} {}",
-            file.file_name().unwrap().to_string_lossy(),
-            password.is_some()
-        ));
-        Ok(ImportPreview {
-            preview_id: "p-1".into(),
-            entries: vec![],
-            warnings: vec![],
-        })
-    }
-    fn commit(
-        &self,
-        request: &ImportCommitRequest,
-        session: &mut UnlockedSession,
-    ) -> IpcResult<ImportResult> {
-        self.0.push(&format!("commit {}", request.preview_id));
-        assert_eq!(session.vaults().len(), 1);
-        Ok(ImportResult {
-            imported: 2,
-            skipped: 1,
-        })
-    }
-    fn cancel(&self, preview_id: &str) {
-        self.0.push(&format!("cancel {preview_id}"));
-    }
-    fn on_lock(&self) {
-        self.0.push("import lock");
-    }
-}
-
-struct FakeInsights;
-
-impl InsightsAdapter for FakeInsights {
-    fn report(&self, session: &UnlockedSession, now: UnixMillis) -> IpcResult<SecurityReport> {
-        Ok(SecurityReport {
-            generated_at: now,
-            items_checked: u32::try_from(session.vaults().len()).unwrap(),
-            counts: InsightCounts::default(),
-            findings: vec![],
-        })
-    }
-}
-
-struct FakeSsh(Arc<Calls>, Mutex<Option<EventSink>>);
-
-impl SshAgentAdapter for FakeSsh {
-    fn status(&self, unlocked: bool) -> SshAgentStatus {
-        SshAgentStatus {
-            enabled: true,
-            running: unlocked,
-            endpoint: None,
-            key_count: 0,
-        }
-    }
-    fn set_enabled(&self, enabled: bool, events: EventSink) -> IpcResult<SshAgentStatus> {
-        self.0.push(&format!("enabled {enabled}"));
-        *self.1.lock().unwrap() = Some(events);
-        Ok(self.status(true))
-    }
-    fn respond(&self, request: &SshRespondRequest) -> IpcResult<()> {
-        self.0.push(&format!("respond {}", request.request_id));
-        Err(IpcError::new(ErrorCode::SshRequestExpired))
-    }
-    fn on_lock(&self) {
-        self.0.push("ssh lock");
-        if let Some(events) = self.1.lock().unwrap().as_ref() {
-            events(AppEvent::SshApprovalClosed {
-                request_id: "ssh-1".into(),
-                reason: SshCloseReason::Locked,
-            });
-        }
-    }
+fn preview_of(b: &Backend, token: &str, format: &str, password: Value) -> IpcResult<ImportPreview> {
+    b.import_preview(req(
+        json!({ "fileToken": token, "format": format, "password": password }),
+    ))
 }
 
 #[test]
-fn the_stub_adapters_answer_not_implemented() {
+fn import_enpass_fixture_preview_commit_and_lock() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("export.json");
+    let file = dir.path().join("enpass.json");
+    std::fs::write(&file, ENPASS).unwrap();
     let b = h
         .backend
         .with_dialogs(Box::new(FixedDialog(Some(file), Arc::default())));
+    let vault = vault_id(&b);
+    // The same site and user name as the fixture's first entry.
+    b.add_item(req(json!({
+        "vaultId": vault,
+        "kind": "login",
+        "draft": {
+            "text": [
+                { "field": "title", "value": "Mail" },
+                { "field": "username", "value": "alice@example.com" }
+            ],
+            "secrets": [],
+            "urls": [{ "op": "add", "url": "https://mail.example.com/inbox", "matchMode": "exactOrigin", "allowHttp": false }],
+            "customFields": [],
+            "tags": null,
+            "otp": null
+        }
+    })))
+    .unwrap();
+
+    let token = chosen(&b, "enpass");
+    let preview = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    assert_eq!(preview.format, ImportFormat::Enpass);
+    let flagged: Vec<u32> = preview
+        .entries
+        .iter()
+        .filter(|e| e.duplicate_of.is_some())
+        .map(|e| e.index)
+        .collect();
+    assert_eq!(flagged, [0], "{preview:?}");
+    assert_ne!(preview.skipped.len(), 0);
+
+    let result = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": flagged,
+        })))
+        .unwrap();
+    assert_eq!(result.skipped, 1);
+    assert_eq!(result.imported, 8);
+    assert_eq!(result.failed, 0);
+    // The held import is gone after the commit.
+    let again = b
+        .import_commit(&req(json!({
+            "previewId": preview.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap_err();
+    assert_eq!(code(again), ErrorCode::ImportPreviewExpired);
+
+    // A new preview, then a lock: the preview and the token are gone.
+    let second = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    b.lock(LockReason::Manual).unwrap();
+    let error = b
+        .import_commit(&req(json!({
+            "previewId": second.preview_id,
+            "targetVaultId": vault,
+            "skip": [],
+        })))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
     assert_eq!(
-        code(b.security_report().unwrap_err()),
-        ErrorCode::NotImplemented
+        code(preview_of(&b, &token, "enpass", Value::Null).unwrap_err()),
+        ErrorCode::ImportFileUnreadable
     );
-    let off = b.ssh_agent_status();
-    assert!(!off.enabled && !off.running);
+}
+
+#[test]
+fn a_new_preview_replaces_the_held_one() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("enpass.json");
+    std::fs::write(&file, ENPASS).unwrap();
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file), Arc::default())));
+    let vault = vault_id(&b);
+    let token = chosen(&b, "enpass");
+    let first = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    let second = preview_of(&b, &token, "enpass", Value::Null).unwrap();
+    assert_ne!(first.preview_id, second.preview_id);
+    let old = b
+        .import_commit(&req(
+            json!({ "previewId": first.preview_id, "targetVaultId": vault, "skip": [] }),
+        ))
+        .unwrap_err();
+    assert_eq!(code(old), ErrorCode::ImportPreviewExpired);
+    b.import_cancel(&req(json!({ "previewId": second.preview_id })))
+        .unwrap();
+    let cancelled = b
+        .import_commit(&req(
+            json!({ "previewId": second.preview_id, "targetVaultId": vault, "skip": [] }),
+        ))
+        .unwrap_err();
+    assert_eq!(code(cancelled), ErrorCode::ImportPreviewExpired);
+}
+
+#[test]
+fn import_errors_map_to_codes() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("export");
+    let b = h
+        .backend
+        .with_dialogs(Box::new(FixedDialog(Some(file.clone()), Arc::default())));
+
+    std::fs::write(&file, b"this is not an export").unwrap();
+    let token = chosen(&b, "enpass");
+    assert_eq!(
+        code(preview_of(&b, &token, "enpass", Value::Null).unwrap_err()),
+        ErrorCode::ImportFormatInvalid
+    );
+
+    std::fs::write(&file, KDBX).unwrap();
+    let token = chosen(&b, "keepass");
+    assert_eq!(
+        code(preview_of(&b, &token, "keepass", json!("not the password")).unwrap_err()),
+        ErrorCode::WrongCredentials
+    );
+    assert_eq!(
+        code(preview_of(&b, &token, "keepass", Value::Null).unwrap_err()),
+        ErrorCode::WrongCredentials,
+        "a missing password is not told apart"
+    );
+    assert!(preview_of(&b, &token, "keepass", json!("fixture-password")).is_ok());
+
+    // One byte over the limit is refused from the file's metadata alone.
+    let handle = std::fs::File::create(&file).unwrap();
+    handle
+        .set_len(mosaic_import::MAX_FILE_LEN as u64 + 1)
+        .unwrap();
+    drop(handle);
+    let token = chosen(&b, "csv");
+    assert_eq!(
+        code(preview_of(&b, &token, "csv", Value::Null).unwrap_err()),
+        ErrorCode::ImportTooLarge
+    );
+}
+
+fn add_ssh_key(b: &Backend) -> (mosaic_core::VaultId, mosaic_core::ItemId) {
+    use mosaic_core::model::{ItemType, SshKeyMaterial, Text, TextField};
+    let vault = b.list_vaults().unwrap()[0].vault_id.get();
+    let mut slot = b.slot().unwrap();
+    let session = slot.unlocked_mut().unwrap();
+    let item = session
+        .add_item(vault, &ItemType::SshKey, |e| {
+            e.set_text(TextField::Title, "Deploy key")?;
+            e.set_ssh_key(&SshKeyMaterial::new(
+                SecretString::from_str_copy(ED25519).unwrap(),
+                Text::new(ED25519_PUB.trim()),
+                Text::new("SHA256:ignored"),
+            ))
+        })
+        .unwrap();
+    (vault, item)
+}
+
+#[test]
+fn ssh_agent_lifecycle() {
+    let _kdf = crate::test_support::kdf_permit();
+    let endpoint = crate::test_support::ssh_test_endpoint();
+    let h = unlocked();
+    let b = h.backend.with_adapters(Adapters {
+        import: crate::adapters::ImportService::default(),
+        ssh: crate::adapters::SshAgentService::new(Some(endpoint.endpoint.clone())),
+    });
+    let (vault, item) = add_ssh_key(&b);
+
+    assert!(!b.ssh_agent_status().running);
+    let on = b
+        .ssh_agent_set_enabled(req(json!({ "enabled": true })))
+        .unwrap();
+    assert!(on.enabled && on.running, "{on:?}");
+    assert_eq!(on.key_count, 1);
+    assert!(on.endpoint.is_some() && on.error.is_none());
+
+    b.edit_item(
+        req(json!({ "vaultId": vault.to_string(), "itemId": item.to_string() })),
+        UnlockedSession::trash_item,
+    )
+    .unwrap();
+    assert_eq!(
+        b.ssh_agent_status().key_count,
+        0,
+        "a trashed key is not served"
+    );
+    b.edit_item(
+        req(json!({ "vaultId": vault.to_string(), "itemId": item.to_string() })),
+        UnlockedSession::restore_item,
+    )
+    .unwrap();
+    assert_eq!(b.ssh_agent_status().key_count, 1);
+
+    b.lock(LockReason::Manual).unwrap();
+    let locked = b.ssh_agent_status();
+    assert!(locked.enabled && !locked.running, "stops with the lock");
     assert_eq!(
         code(
             b.ssh_agent_set_enabled(req(json!({ "enabled": true })))
                 .unwrap_err()
         ),
-        ErrorCode::NotImplemented
+        ErrorCode::Locked
     );
+
+    b.unlock(UnlockRequest {
+        password: SecretIn::test(PASSWORD),
+        secret_key: None,
+    })
+    .unwrap();
+    assert!(
+        b.ssh_agent_status().running,
+        "the setting persists across the lock"
+    );
+
+    let off = b
+        .ssh_agent_set_enabled(req(json!({ "enabled": false })))
+        .unwrap();
+    assert!(!off.enabled && !off.running);
     assert_eq!(
         code(
             b.ssh_respond(&req(json!({ "requestId": "x", "decision": "deny" })))
                 .unwrap_err()
         ),
-        ErrorCode::NotImplemented
+        ErrorCode::SshRequestExpired
     );
-    let ImportFileChoice::Chosen {
-        file_token,
-        file_name,
-    } = b
-        .import_choose_file(req(json!({ "format": "csv" })))
-        .unwrap()
-    else {
-        panic!("not chosen");
-    };
-    assert_eq!(file_name, "export.json");
-    let preview = b
-        .import_preview(req(
-            json!({ "fileToken": file_token, "format": "csv", "password": null }),
-        ))
-        .unwrap_err();
-    assert_eq!(code(preview), ErrorCode::NotImplemented);
-    let commit = b
-        .import_commit(&req(
-            json!({ "previewId": "p", "targetVaultId": vault_id(&b), "skip": [] }),
-        ))
-        .unwrap_err();
-    assert_eq!(code(commit), ErrorCode::NotImplemented);
-    b.import_cancel(&req(json!({ "previewId": "p" }))).unwrap();
-    NotWired.cancel("p");
+    drop(endpoint);
 }
 
 #[test]
-fn adapters_are_called_with_the_session_and_told_about_locks() {
+fn the_shortcut_and_screen_lock_report_through_app_status() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();
-    let calls = Arc::new(Calls::default());
-    let dir = tempfile::tempdir().unwrap();
-    let asked = Arc::new(Mutex::new(Vec::new()));
-    let b = h
-        .backend
-        .with_adapters(Adapters {
-            import: Box::new(FakeImport(Arc::clone(&calls))),
-            insights: Box::new(FakeInsights),
-            ssh: Box::new(FakeSsh(Arc::clone(&calls), Mutex::new(None))),
-        })
-        .with_dialogs(Box::new(FixedDialog(
-            Some(dir.path().join("enpass.json")),
-            Arc::clone(&asked),
-        )));
-
-    let ImportFileChoice::Chosen { file_token, .. } = b
-        .import_choose_file(req(json!({ "format": "enpass" })))
-        .unwrap()
-    else {
-        panic!("not chosen");
-    };
-    let preview = b
-        .import_preview(req(
-            json!({ "fileToken": file_token, "format": "enpass", "password": "kdbx-pass" }),
-        ))
-        .unwrap();
-    assert_eq!(preview.preview_id, "p-1");
-    let unknown = b
-        .import_preview(req(
-            json!({ "fileToken": "file-99", "format": "enpass", "password": null }),
-        ))
-        .unwrap_err();
-    assert_eq!(code(unknown), ErrorCode::ImportFileUnreadable);
-    let result = b
-        .import_commit(&req(
-            json!({ "previewId": "p-1", "targetVaultId": vault_id(&b), "skip": [0] }),
-        ))
-        .unwrap();
-    assert_eq!((result.imported, result.skipped), (2, 1));
-    b.import_cancel(&req(json!({ "previewId": "p-1" })))
-        .unwrap();
-    assert_eq!(b.security_report().unwrap().items_checked, 1);
-    assert!(b.ssh_agent_status().running);
-    b.ssh_agent_set_enabled(req(json!({ "enabled": true })))
-        .unwrap();
+    let status = h.backend.app_status();
     assert_eq!(
-        code(
-            b.ssh_respond(&req(
-                json!({ "requestId": "ssh-1", "decision": "allowOnce" })
-            ))
-            .unwrap_err()
-        ),
-        ErrorCode::SshRequestExpired
+        status.shortcut,
+        crate::contract::session::ShortcutState::Unavailable
     );
-
-    b.lock(LockReason::Manual).unwrap();
-    assert!(!b.ssh_agent_status().running);
-    let after = b
-        .import_preview(req(
-            json!({ "fileToken": file_token, "format": "enpass", "password": null }),
-        ))
-        .unwrap_err();
-    assert_eq!(
-        code(after),
-        ErrorCode::ImportFileUnreadable,
-        "tokens are dropped on lock"
-    );
-    assert_eq!(
-        calls.all(),
-        vec![
-            "preview enpass.json Enpass true",
-            "commit p-1",
-            "cancel p-1",
-            "enabled true",
-            "respond ssh-1",
-            "import lock",
-            "ssh lock",
-        ]
-    );
-    assert!(events(&h.events).contains(
-        &json!({ "type": "sshApprovalClosed", "requestId": "ssh-1", "reason": "locked" })
-    ));
-    assert_eq!(*asked.lock().unwrap(), vec!["Enpass JSON"]);
-    for format in crate::contract::import::ImportFormat::ALL {
-        assert_ne!(crate::commands::import::filter(*format).extensions.len(), 0);
-    }
+    assert!(!status.screen_lock_detection);
 }
 
 // ---------------------------------------------------------------------------
@@ -1651,7 +1730,10 @@ fn the_crate_has_no_logging_or_printing() {
     // Secrets are never logged because nothing is: no logger, no prints in
     // non-test code (the workspace lints deny print and dbg as well).
     let sources = [
-        include_str!("adapters.rs"),
+        include_str!("adapters/mod.rs"),
+        include_str!("adapters/import.rs"),
+        include_str!("adapters/ssh.rs"),
+        include_str!("flow_tests.rs"),
         include_str!("autolock.rs"),
         include_str!("clipboard.rs"),
         include_str!("dialogs.rs"),

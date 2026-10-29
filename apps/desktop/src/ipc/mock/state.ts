@@ -32,10 +32,17 @@ export interface MockState {
   account: MockAccount | null;
   secretKeyStored: boolean;
   unlocked: boolean;
+  /** The Emergency Kit check passed. */
+  kitVerified: boolean;
+  sshEnabled: boolean;
+  /** The import preview waiting for a commit. */
+  heldImport: { previewId: string; entries: number[] } | null;
   vaults: VaultSummary[];
   items: MockItem[];
   settings: Settings;
   lastGenerated: string | null;
+  /** Whether the mock agent asks for an approval after unlock (`?sshRequest=1`). */
+  sshRequest: boolean;
   emit: (event: AppEvent) => void;
   now: () => number;
   nextId: () => string;

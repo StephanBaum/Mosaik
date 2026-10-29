@@ -29,6 +29,7 @@
 //! become custom fields. With more than one vault in the export, each
 //! item gets its vault's name as a tag.
 
+use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
@@ -74,10 +75,7 @@ pub fn parse(input: &[u8]) -> Result<Import> {
     };
     let vaults: Vec<&Json> = accounts.iter().flat_map(|a| a.array("vaults")).collect();
     let tag_vaults = vaults.len() > 1;
-    let mut files = Files {
-        zip,
-        budget: AttachmentBudget::new(),
-    };
+    let mut files = Files::new(zip);
     let mut c = Collector::new(Format::OnePassword);
     for vault in vaults {
         let vault_name = vault.get("attrs").and_then(|a| a.str("name"));
@@ -119,29 +117,90 @@ fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) 
     buf::read_limited(reader, limit, hint.min(limit))
 }
 
+/// Members of one document: `(member index, name after files/)`.
+type Bucket = Vec<(usize, Box<[u8]>)>;
+
 /// The attachment files of the archive, looked up by document ID.
 struct Files<'a> {
     zip: ZipArchive<Cursor<&'a [u8]>>,
     budget: AttachmentBudget,
+    /// `files/` members grouped by the document ID part of their name (the
+    /// text before the first `__`), as `(member index, name after files/)` in
+    /// index order. One pass over the central directory builds it, so a
+    /// lookup visits only the members of one document.
+    by_document: HashMap<Box<[u8]>, Bucket>,
+    /// Number of bucket entries visited by `find` (linearity test).
+    #[cfg(test)]
+    probes: core::cell::Cell<usize>,
 }
 
-impl Files<'_> {
-    /// The member `files/<documentId>` or `files/<documentId>__<name>`.
+impl<'a> Files<'a> {
+    fn new(zip: ZipArchive<Cursor<&'a [u8]>>) -> Self {
+        let mut by_document: HashMap<Box<[u8]>, Bucket> = HashMap::new();
+        for (i, raw) in zip.file_names_raw().enumerate() {
+            let Some(rest) = raw.strip_prefix(b"files/") else {
+                continue;
+            };
+            by_document
+                .entry(document_key(rest).into())
+                .or_default()
+                .push((i, rest.into()));
+        }
+        Self {
+            zip,
+            budget: AttachmentBudget::new(),
+            by_document,
+            #[cfg(test)]
+            probes: core::cell::Cell::new(0),
+        }
+    }
+
+    /// The member `files/<documentId>` or `files/<documentId>__<name>`; the
+    /// lowest member index wins.
     fn find(&self, document_id: &str) -> Option<usize> {
-        if document_id.is_empty() {
+        let id = document_id.as_bytes();
+        if id.is_empty() {
             return None;
         }
-        self.zip.file_names_raw().enumerate().find_map(|(i, raw)| {
-            let rest = raw
-                .strip_prefix(b"files/")?
-                .strip_prefix(document_id.as_bytes())?;
-            (rest.is_empty() || rest.starts_with(b"__")).then_some(i)
-        })
+        let key = document_key(id);
+        // An ID ending in `_` with no `__` of its own can match a member
+        // `<id>___x` whose key is one byte shorter.
+        let short = (key.len() == id.len())
+            .then(|| id.strip_suffix(b"_"))
+            .flatten();
+        let mut best: Option<usize> = None;
+        for k in std::iter::once(key).chain(short) {
+            let Some(bucket) = self.by_document.get(k) else {
+                continue;
+            };
+            for (i, rest) in bucket {
+                #[cfg(test)]
+                self.probes.set(self.probes.get() + 1);
+                if &**rest == id
+                    || rest
+                        .strip_prefix(id)
+                        .is_some_and(|tail| tail.starts_with(b"__"))
+                {
+                    best = Some(best.map_or(*i, |b| b.min(*i)));
+                    break;
+                }
+            }
+        }
+        best
     }
 
     fn read(&mut self, index: usize) -> Result<Buf> {
         read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
     }
+}
+
+/// The part of a member name (after `files/`) before the first `__`, or all
+/// of it.
+fn document_key(name: &[u8]) -> &[u8] {
+    name.windows(2)
+        .position(|w| w == b"__")
+        .and_then(|p| name.get(..p))
+        .unwrap_or(name)
 }
 
 fn category(uuid: &str) -> (ItemType, bool) {
@@ -457,5 +516,57 @@ mod tests {
         assert_eq!(category("001"), (ItemType::Login, true));
         assert_eq!(category("109"), (ItemType::Wifi, true));
         assert_eq!(category("999"), (ItemType::SecureNote, false));
+    }
+
+    fn archive(names: &[String]) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for n in names {
+            zip.start_file(n.as_str(), stored).unwrap();
+            zip.write_all(b"x").unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn find_matches_document_id_and_double_underscore_names() {
+        let bytes = archive(&["files/a__b__c".into(), "files/ab".into(), "files/a".into()]);
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        assert_eq!(files.find("a"), Some(0));
+        assert_eq!(files.find("a__b"), Some(0));
+        assert_eq!(files.find("ab"), Some(1));
+        assert_eq!(files.find(""), None);
+        assert_eq!(files.find("zz"), None);
+    }
+
+    #[test]
+    fn find_checks_the_shorter_key_for_ids_ending_in_underscore() {
+        let bytes = archive(&[
+            "files/a___x".into(), // 0: key "a", matches ID "a_" as "a_" + "__x"
+            "files/___y".into(),  // 1: key "",  matches ID "_"  as "_" + "__y"
+            "files/__z".into(),   // 2: key "",  exact match for ID "__z" only
+            "files/a_".into(),    // 3: key "a_", exact match for ID "a_"
+        ]);
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        // Both buckets hit; the lowest index (short bucket) wins.
+        assert_eq!(files.find("a_"), Some(0));
+        // Only the short (empty) bucket can match.
+        assert_eq!(files.find("_"), Some(1));
+        assert_eq!(files.find("__z"), Some(2));
+        assert_eq!(files.find("a"), Some(0));
+        assert_eq!(files.find("b_"), None);
+    }
+
+    #[test]
+    fn find_is_linear_in_lookups() {
+        let names: Vec<String> = (0..10_000).map(|i| format!("files/m{i}__x.bin")).collect();
+        let bytes = archive(&names);
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        for i in 0..10_000 {
+            assert!(files.find(&format!("m{i}")).is_some());
+        }
+        assert_eq!(files.probes.get(), 10_000);
     }
 }

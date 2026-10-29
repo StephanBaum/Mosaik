@@ -46,8 +46,12 @@ export const errorCodes = [
   "importFileUnreadable",
   "importFormatInvalid",
   "importPreviewExpired",
+  "importTooLarge",
+  "importUnsupported",
+  "importEncrypted",
   "sshRequestExpired",
   "sshAgentUnavailable",
+  "sshAgentEndpointInUse",
   "busy",
   "internal",
 ] as const;

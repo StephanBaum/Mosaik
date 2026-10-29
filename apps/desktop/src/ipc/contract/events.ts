@@ -1,6 +1,6 @@
 /** Events contract: mirrors `src-tauri/src/contract/events.rs`. */
-import type { ErrorCode, UnixMillis } from "./common.ts";
-import type { SshApprovalRequest, SshCloseReason } from "./ssh.ts";
+import type { ErrorCode, ItemId, UnixMillis, VaultId } from "./common.ts";
+import type { SshApprovalRequest, SshCloseReason, SshSignFailReason } from "./ssh.ts";
 
 export const lockReasons = ["manual", "idle", "sleep", "screenLock"] as const;
 export type LockReason = (typeof lockReasons)[number];
@@ -19,4 +19,12 @@ export type AppEvent =
   | { type: "syncStateChanged"; state: SyncState }
   | { type: "clipboardCleared" }
   | { type: "sshApprovalRequested"; request: SshApprovalRequest }
-  | { type: "sshApprovalClosed"; requestId: string; reason: SshCloseReason };
+  | { type: "sshApprovalClosed"; requestId: string; reason: SshCloseReason }
+  | {
+      type: "sshSignFailed";
+      requestId: string;
+      vaultId: VaultId;
+      itemId: ItemId;
+      reason: SshSignFailReason;
+    }
+  | { type: "quickSearchRequested" };

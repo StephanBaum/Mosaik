@@ -21,11 +21,10 @@ use std::path::Path;
 
 use mosaic_core::SecretVec;
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str};
-use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize as _, Zeroizing};
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
-use crate::contract::secret::SecretIn;
+use crate::contract::session::KitLabels;
 use crate::persist::MAX_EMAIL_LEN;
 
 /// Longest accepted label, in characters.
@@ -37,58 +36,6 @@ pub const KIT_CAPACITY: usize = 64 * 1024;
 pub const CONTENT_CAPACITY: usize = 32 * 1024;
 /// The file name the save dialog suggests (not translated: a file name).
 pub const SUGGESTED_FILE_NAME: &str = "Mosaic Emergency Kit.pdf";
-
-/// The request of the proposed `save_emergency_kit` command (an IPC
-/// proposal: no command is registered for it yet).
-#[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SaveKitRequest {
-    /// The kit's texts in the user's language.
-    pub labels: KitLabels,
-    /// The master password, needed once the kit was verified in this
-    /// process (UX_GUIDELINES §8: re-authentication before viewing the
-    /// Secret Key). Not needed during onboarding.
-    pub password: Option<SecretIn>,
-}
-
-/// The response of the proposed `save_emergency_kit` command.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum KitSaved {
-    /// Written to the path the user chose.
-    Saved,
-    /// The user cancelled the dialog.
-    Cancelled,
-}
-
-/// The kit's texts, in the user's language.
-#[derive(Clone, Debug, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct KitLabels {
-    /// "Mosaic Emergency Kit".
-    pub title: String,
-    /// What the kit is for and where to keep it.
-    pub intro: String,
-    /// "Account email".
-    pub email: String,
-    /// "Account ID".
-    pub account_id: String,
-    /// "Sign-in address".
-    pub sign_in_url: String,
-    /// The sign-in address itself, or "this device only" before sync (M6).
-    pub sign_in_url_value: String,
-    /// "Secret Key".
-    pub secret_key: String,
-    /// "Master password".
-    pub master_password: String,
-    /// The hint under the blank line ("write it here by hand, or keep it in
-    /// your head").
-    pub master_password_hint: String,
-    /// The footer (pre-audit note, date or similar).
-    pub footer: String,
-}
 
 impl KitLabels {
     /// Every label, for validation.

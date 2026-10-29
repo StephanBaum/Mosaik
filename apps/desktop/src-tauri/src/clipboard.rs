@@ -36,6 +36,15 @@ use crate::events::Events;
 /// (where the monotonic clock may stop) delays the clear by at most this.
 pub const MAX_WAIT: Duration = Duration::from_secs(1);
 
+/// How long the worker waits before retrying a clear that failed.
+const RETRY: Duration = MAX_WAIT;
+
+/// Tries a clear gets at shutdown (a busy clipboard) before the worker gives
+/// up and the value stays (PROGRESS M3-R7).
+const SHUTDOWN_TRIES: u32 = 5;
+/// Pause between those tries.
+const SHUTDOWN_PAUSE: Duration = Duration::from_millis(100);
+
 /// The OS clipboard, as the worker uses it.
 pub trait ClipboardBackend {
     /// Writes `text`, excluded from history and monitoring where supported.
@@ -44,8 +53,14 @@ pub trait ClipboardBackend {
     /// When the clipboard cannot be written.
     fn write(&mut self, text: &str) -> Result<(), ClipboardError>;
 
-    /// The current text, or `None` if the clipboard holds no text.
-    fn read(&mut self) -> Option<SecretString>;
+    /// The current text, or `None` if the clipboard holds no text (or text
+    /// that cannot be ours).
+    ///
+    /// # Errors
+    /// When the clipboard cannot be read right now (for example another
+    /// process holds it): the caller must not assume anything about its
+    /// content.
+    fn read(&mut self) -> Result<Option<SecretString>, ClipboardError>;
 
     /// Empties the clipboard.
     ///
@@ -103,8 +118,14 @@ impl ClipboardBackend for SystemClipboard {
         set.text(text).map_err(|_| ClipboardError)
     }
 
-    fn read(&mut self) -> Option<SecretString> {
-        self.0.get_text().ok().map(SecretString::from)
+    fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
+        match self.0.get_text() {
+            Ok(text) => Ok(Some(SecretString::from(text))),
+            Err(arboard::Error::ContentNotAvailable | arboard::Error::ConversionFailure) => {
+                Ok(None)
+            }
+            Err(_) => Err(ClipboardError),
+        }
     }
 
     fn clear(&mut self) -> Result<(), ClipboardError> {
@@ -150,11 +171,11 @@ impl ClipboardBackend for MemoryClipboard {
         Ok(())
     }
 
-    fn read(&mut self) -> Option<SecretString> {
-        let content = self.0.lock().ok()?;
-        content
+    fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
+        let content = self.0.lock().map_err(|_| ClipboardError)?;
+        Ok(content
             .as_ref()
-            .map(|s| SecretString::from(s.expose_secret().to_owned()))
+            .map(|s| SecretString::from(s.expose_secret().to_owned())))
     }
 
     fn clear(&mut self) -> Result<(), ClipboardError> {
@@ -216,16 +237,33 @@ impl Worker {
         Ok(())
     }
 
-    /// Clears the clipboard if it still holds our value; forgets the value
-    /// either way. Returns whether it cleared.
+    /// Schedules another clear attempt after [`RETRY`] (also for values
+    /// copied without a timeout: once a clear was asked for, it is retried).
+    fn retry_later(held: &mut Option<Held>) {
+        if let Some(h) = held.as_mut() {
+            h.deadline = Instant::now()
+                .checked_add(RETRY)
+                .zip(SystemTime::now().checked_add(RETRY));
+        }
+    }
+
+    /// Clears the clipboard if it still holds our value. The value is
+    /// forgotten once the outcome is known: cleared, or not ours any more.
+    /// If the clipboard cannot be read or cleared, the value is kept and the
+    /// clear is retried after [`RETRY`]. Returns whether it cleared.
     fn clear_if_ours(&mut self) -> Result<bool, ClipboardError> {
-        let Some(held) = self.held.take() else {
+        let (Some(held), Some(backend)) = (self.held.as_ref(), self.backend.as_mut()) else {
+            self.held = None;
             return Ok(false);
         };
-        let Some(backend) = self.backend.as_mut() else {
-            return Ok(false);
+        let current = match backend.read() {
+            Ok(current) => current,
+            Err(e) => {
+                Self::retry_later(&mut self.held);
+                return Err(e);
+            }
         };
-        let ours = backend.read().is_some_and(|current| {
+        let ours = current.is_some_and(|current| {
             bool::from(
                 current
                     .expose_secret()
@@ -233,11 +271,15 @@ impl Worker {
                     .ct_eq(held.value.expose_secret().as_bytes()),
             )
         });
-        drop(held);
         if !ours {
+            self.held = None;
             return Ok(false);
         }
-        backend.clear()?;
+        if let Err(e) = backend.clear() {
+            Self::retry_later(&mut self.held);
+            return Err(e);
+        }
+        self.held = None;
         self.events.emit(&AppEvent::ClipboardCleared);
         Ok(true)
     }
@@ -270,8 +312,8 @@ impl Worker {
             };
             match next {
                 None => {
-                    // The timeout: a failed clear is retried by nobody; the
-                    // value is forgotten so the next copy starts fresh.
+                    // The timeout. A failed clear keeps the value and retries
+                    // every RETRY until it succeeds or the content changed.
                     let _ = self.clear_if_ours();
                 }
                 Some(Command::Copy {
@@ -285,7 +327,14 @@ impl Worker {
                     let _ = reply.send(self.clear_if_ours());
                 }
                 Some(Command::Shutdown) => {
-                    let _ = self.clear_if_ours();
+                    for attempt in 0..SHUTDOWN_TRIES {
+                        if self.clear_if_ours().is_ok() {
+                            break;
+                        }
+                        if attempt + 1 < SHUTDOWN_TRIES {
+                            thread::sleep(SHUTDOWN_PAUSE);
+                        }
+                    }
                     return;
                 }
             }
@@ -380,6 +429,8 @@ impl Drop for ClipboardService {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use crate::events::testing::recording_channel;
 
@@ -483,8 +534,8 @@ mod tests {
         fn write(&mut self, _: &str) -> Result<(), ClipboardError> {
             Err(ClipboardError)
         }
-        fn read(&mut self) -> Option<SecretString> {
-            None
+        fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
+            Ok(None)
         }
         fn clear(&mut self) -> Result<(), ClipboardError> {
             Err(ClipboardError)
@@ -502,5 +553,94 @@ mod tests {
             ErrorCode::ClipboardUnavailable
         );
         assert!(!service.clear_if_ours().unwrap(), "nothing held");
+    }
+
+    /// A clipboard that fails some reads and clears first.
+    struct Flaky {
+        inner: MemoryClipboard,
+        fail_reads: Arc<AtomicUsize>,
+        fail_clears: Arc<AtomicUsize>,
+    }
+
+    fn take_one(n: &AtomicUsize) -> bool {
+        n.try_update(Ordering::SeqCst, Ordering::SeqCst, |v| v.checked_sub(1))
+            .is_ok()
+    }
+
+    impl ClipboardBackend for Flaky {
+        fn write(&mut self, text: &str) -> Result<(), ClipboardError> {
+            self.inner.write(text)
+        }
+        fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
+            if take_one(&self.fail_reads) {
+                return Err(ClipboardError);
+            }
+            self.inner.read()
+        }
+        fn clear(&mut self) -> Result<(), ClipboardError> {
+            if take_one(&self.fail_clears) {
+                return Err(ClipboardError);
+            }
+            self.inner.clear()
+        }
+    }
+
+    fn flaky_service(
+        reads: usize,
+        clears: usize,
+    ) -> (
+        ClipboardService,
+        MemoryClipboard,
+        crate::events::testing::Log,
+        Arc<AtomicUsize>,
+    ) {
+        let events = Events::default();
+        let (channel, log) = recording_channel();
+        events.subscribe(channel).unwrap();
+        let clipboard = MemoryClipboard::default();
+        let fail_reads = Arc::new(AtomicUsize::new(reads));
+        let backend = Flaky {
+            inner: clipboard.clone(),
+            fail_reads: Arc::clone(&fail_reads),
+            fail_clears: Arc::new(AtomicUsize::new(clears)),
+        };
+        let service = ClipboardService::spawn(
+            Box::new(move || Some(Box::new(backend) as Box<dyn ClipboardBackend>)),
+            events,
+        );
+        (service, clipboard, log, fail_reads)
+    }
+
+    #[test]
+    fn a_busy_clipboard_is_cleared_on_retry() {
+        let (service, clipboard, log, _) = flaky_service(2, 1);
+        service
+            .copy(secret("pw"), Some(Duration::from_millis(10)))
+            .unwrap();
+        wait_until(|| clipboard.content().is_none());
+        wait_until(|| !log.lock().unwrap().is_empty());
+        assert_eq!(*log.lock().unwrap(), vec![r#"{"type":"clipboardCleared"}"#]);
+    }
+
+    #[test]
+    fn a_failed_lock_clear_keeps_retrying() {
+        let (service, clipboard, _log, _) = flaky_service(1, 0);
+        service.copy(secret("pw"), None).unwrap();
+        assert!(service.clear_if_ours().is_err());
+        wait_until(|| clipboard.content().is_none());
+    }
+
+    #[test]
+    fn content_changed_during_retry_is_left_alone() {
+        let (service, clipboard, log, reads) = flaky_service(1, 0);
+        service
+            .copy(secret("pw"), Some(Duration::from_millis(10)))
+            .unwrap();
+        wait_until(|| reads.load(Ordering::SeqCst) == 0);
+        clipboard.put("mine");
+        thread::sleep(Duration::from_millis(1_500));
+        assert_eq!(clipboard.content().as_deref(), Some("mine"));
+        assert!(log.lock().unwrap().is_empty());
+        drop(service);
     }
 }

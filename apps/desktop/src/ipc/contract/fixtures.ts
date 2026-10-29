@@ -26,6 +26,11 @@ export interface EnumFixtures {
   insightAction: string[];
   importFormat: string[];
   importWarning: string[];
+  importEntryWarning: string[];
+  importSkipReason: string[];
+  shortcutState: string[];
+  sshSkipReason: string[];
+  sshSignFailReason: string[];
   sshDecision: string[];
   sshCloseReason: string[];
   lockReason: string[];

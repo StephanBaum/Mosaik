@@ -300,7 +300,7 @@ fn tauri_config_keeps_the_security_baseline() {
     );
 }
 
-/// A proposed command that no handler registers is refused by the IPC
+/// A command that no handler registers is refused by the IPC
 /// layer and touches nothing.
 #[test]
 fn unregistered_commands_are_refused() {
@@ -316,7 +316,7 @@ fn unregistered_commands_are_refused() {
     let error = tauri::test::get_ipc_response(
         &webview,
         tauri::webview::InvokeRequest {
-            cmd: "save_emergency_kit".into(),
+            cmd: "export_vault".into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
             url: if cfg!(windows) {
@@ -326,7 +326,7 @@ fn unregistered_commands_are_refused() {
             }
             .parse()
             .unwrap(),
-            body: tauri::ipc::InvokeBody::Json(json!({ "request": { "labels": {} } })),
+            body: tauri::ipc::InvokeBody::Json(json!({ "request": {} })),
             headers: tauri::http::HeaderMap::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_owned(),
         },

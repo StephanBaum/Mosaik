@@ -16,7 +16,8 @@ mod emergency_kit;
 mod persist;
 
 use contract::errors::ErrorCode;
-use emergency_kit::{KIT_CAPACITY, KitLabels, KitValues};
+use contract::session::KitLabels;
+use emergency_kit::{KIT_CAPACITY, KitValues};
 
 const FORBIDDEN: [&str; 4] = ["/URI", "/JavaScript", "/Launch", "/EmbeddedFile"];
 

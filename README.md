@@ -9,7 +9,9 @@ crypto core. Your master password and a 128-bit Secret Key, which never leaves
 your devices, together unlock your vault. The sync server only ever stores
 ciphertext.
 
-**Status:** foundations (M0). There is nothing usable yet. See
+**Status:** M3 desktop app in progress. Onboarding with the Emergency Kit, the vault,
+the generator, one-time codes, import, the offline security report and the SSH agent run
+in the desktop app; quick unlock, the browser extension and sync are not built yet. See
 [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Documents

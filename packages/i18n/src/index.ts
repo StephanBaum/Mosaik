@@ -83,54 +83,78 @@ function parseMessage(s: string, i: number, names: Set<string>, nested: boolean)
   return i;
 }
 
-// Parses `name[, type[, style | branches]]}` starting after "{"; returns the index after "}".
-function parseArgument(s: string, i: number, names: Set<string>): number {
-  const header = /^\s*([A-Za-z_]\w*)\s*(?:,\s*(\w+)\s*)?([,}])/.exec(s.slice(i));
-  if (!header) {
+const headerPattern = /^\s*([A-Za-z_]\w*)\s*(?:,\s*(\w+)\s*)?([,}])/;
+
+interface ArgumentHeader {
+  name: string;
+  type: string | undefined;
+  terminator: string;
+  length: number;
+}
+
+function parseHeader(s: string, i: number): ArgumentHeader {
+  const match = headerPattern.exec(s.slice(i));
+  if (!match) {
     throw new Error(`Unbalanced or malformed "{" in message: ${s}`);
   }
-  const [matched, name, type, terminator] = header as unknown as [
+  const [matched, name, type, terminator] = match as unknown as [
     string,
     string,
     string | undefined,
     string,
   ];
-  names.add(name);
-  i += matched.length;
-  if (terminator === "}") {
-    return i;
+  return { name, type, terminator, length: matched.length };
+}
+
+function skipSpace(s: string, i: number): number {
+  let j = i;
+  while (j < s.length && /\s/.test(s[j] ?? "")) {
+    j++;
   }
-  if (type !== undefined && branchingTypes.has(type)) {
-    // Branches: selector {message} … until the closing "}".
-    for (;;) {
-      while (i < s.length && /\s/.test(s[i] ?? "")) {
-        i++;
-      }
-      if (i >= s.length) {
-        throw new Error(`Unbalanced "{" in message: ${s}`);
-      }
-      if (s[i] === "}") {
-        return i + 1;
-      }
-      const selector = /^[^\s{}]+/.exec(s.slice(i));
-      if (!selector) {
-        throw new Error(`Malformed branch in message: ${s}`);
-      }
-      i += selector[0].length;
-      while (i < s.length && /\s/.test(s[i] ?? "")) {
-        i++;
-      }
-      if (selector[0].includes(":")) {
-        continue; // e.g. offset:1
-      }
-      if (s[i] !== "{") {
-        throw new Error(`Expected "{" after branch selector in message: ${s}`);
-      }
-      i = parseMessage(s, i + 1, names, true) + 1;
-    }
+  return j;
+}
+
+// Parses one `selector {message}` (or `offset:n`) at `i`; returns the index after it.
+function parseBranch(s: string, i: number, names: Set<string>): number {
+  if (i >= s.length) {
+    throw new Error(`Unbalanced "{" in message: ${s}`);
+  }
+  const selector = /^[^\s{}]+/.exec(s.slice(i));
+  if (!selector) {
+    throw new Error(`Malformed branch in message: ${s}`);
+  }
+  const next = skipSpace(s, i + selector[0].length);
+  if (selector[0].includes(":")) {
+    return next; // e.g. offset:1
+  }
+  if (s[next] !== "{") {
+    throw new Error(`Expected "{" after branch selector in message: ${s}`);
+  }
+  return parseMessage(s, next + 1, names, true) + 1;
+}
+
+// Branches until the closing "}"; returns the index after it.
+function parseBranches(s: string, start: number, names: Set<string>): number {
+  let i = skipSpace(s, start);
+  while (s[i] !== "}") {
+    i = skipSpace(s, parseBranch(s, i, names));
+  }
+  return i + 1;
+}
+
+// Parses `name[, type[, style | branches]]}` starting after "{"; returns the index after "}".
+function parseArgument(s: string, i: number, names: Set<string>): number {
+  const header = parseHeader(s, i);
+  names.add(header.name);
+  const next = i + header.length;
+  if (header.terminator === "}") {
+    return next;
+  }
+  if (header.type !== undefined && branchingTypes.has(header.type)) {
+    return parseBranches(s, next, names);
   }
   // Simple style such as `{d, date, short}`: skip to the closing "}".
-  const close = s.indexOf("}", i);
+  const close = s.indexOf("}", next);
   if (close === -1) {
     throw new Error(`Unbalanced "{" in message: ${s}`);
   }

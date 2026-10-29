@@ -41,7 +41,7 @@
 //!
 //! # Reuse
 //!
-//! See the `reuse` module and ADR-0020: `HMAC-SHA-256(K, password)` under a key `K` drawn
+//! See the `reuse` module and ADR-0022: `HMAC-SHA-256(K, password)` under a key `K` drawn
 //! from the OS CSPRNG for each call, candidate groups by equal tags, then
 //! exact classes by constant-time comparison. The groups are exactly the
 //! equivalence classes of equal passwords (a property test checks this).

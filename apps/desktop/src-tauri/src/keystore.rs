@@ -14,9 +14,14 @@
 //!     session and is left for an ADR (`docs/PROGRESS.md`). Without an
 //!     entry, the unlock screen asks for the key from the Emergency Kit.
 //! - [`MemoryKeystore`]: process memory only (zeroized on drop).
-//! - [`LayeredKeystore`]: memory in front of the OS store. Reads try memory
-//!   first, writes go to both, and an OS keystore failure is never fatal:
-//!   the key stays usable for this process, and the next start asks for it.
+//! - [`LayeredKeystore`]: the OS store with a memory fallback. Writes go to
+//!   the OS store first; only when that write fails is the key kept in the
+//!   memory layer (for the life of the process, so the Emergency Kit can
+//!   still be saved after a lock), and the next start asks for it. OS reads
+//!   are not cached: a key read from the OS store is handed to the caller
+//!   and dropped. `is_stored` answers "is there a key?" from a cached
+//!   boolean (or one read whose key is zeroized at once). An OS keystore
+//!   failure is never fatal.
 //!
 //! Residual exposure: `keyring` passes the display string to the OS API in
 //! buffers Mosaic cannot zeroize, and the OS keeps the entry as long as the
@@ -54,6 +59,12 @@ pub trait SecretKeyStore: Send + Sync {
     /// # Errors
     /// `internal` if the keystore cannot be written.
     fn delete(&self, account: AccountId) -> IpcResult<()>;
+
+    /// Whether a key is stored for `account`. The default reads the key and
+    /// drops it (zeroized); stores override it to avoid keeping a copy.
+    fn is_stored(&self, account: AccountId) -> bool {
+        self.load(account).ok().flatten().is_some()
+    }
 }
 
 /// Keeps the Secret Key in process memory only (zeroized on drop).
@@ -139,19 +150,29 @@ impl SecretKeyStore for OsKeystore {
     }
 }
 
-/// Memory in front of a persistent store (see the module documentation).
+/// The OS store with a memory fallback (see the module documentation).
 pub struct LayeredKeystore {
+    /// Holds a key only when the persistent write failed.
     memory: MemoryKeystore,
     persistent: Box<dyn SecretKeyStore>,
+    /// Whether the persistent store holds a key: `(account, present)`.
+    present: Mutex<Option<(AccountId, bool)>>,
 }
 
 impl LayeredKeystore {
-    /// Memory in front of `persistent`.
+    /// The fallback memory layer in front of `persistent`.
     #[must_use]
     pub fn new(persistent: Box<dyn SecretKeyStore>) -> Self {
         Self {
             memory: MemoryKeystore::default(),
             persistent,
+            present: Mutex::new(None),
+        }
+    }
+
+    fn remember(&self, account: AccountId, present: bool) {
+        if let Ok(mut cached) = self.present.lock() {
+            *cached = Some((account, present));
         }
     }
 }
@@ -162,23 +183,44 @@ impl SecretKeyStore for LayeredKeystore {
             return Ok(Some(key));
         }
         // An unreadable OS keystore is the same as no entry: ask the user.
-        let Ok(Some(key)) = self.persistent.load(account) else {
-            return Ok(None);
-        };
-        self.memory.save(account, &key)?;
-        Ok(Some(key))
+        // The key is returned, not cached.
+        let found = self.persistent.load(account).ok().flatten();
+        self.remember(account, found.is_some());
+        Ok(found)
     }
 
     fn save(&self, account: AccountId, key: &SecretKey) -> IpcResult<()> {
-        self.memory.save(account, key)?;
-        // Best effort: without the OS entry the next start asks for the key.
-        let _ = self.persistent.save(account, key);
+        // Without the OS entry the next start asks for the key; until then
+        // the memory layer keeps it so the kit can still be saved.
+        if self.persistent.save(account, key).is_ok() {
+            self.memory.delete(account)?;
+        } else {
+            self.memory.save(account, key)?;
+        }
+        self.remember(account, true);
         Ok(())
     }
 
     fn delete(&self, account: AccountId) -> IpcResult<()> {
+        self.remember(account, false);
         self.memory.delete(account)?;
         self.persistent.delete(account)
+    }
+
+    fn is_stored(&self, account: AccountId) -> bool {
+        if self.memory.is_stored(account) {
+            return true;
+        }
+        if let Ok(cached) = self.present.lock()
+            && let Some((cached_account, present)) = *cached
+            && cached_account == account
+        {
+            return present;
+        }
+        // One read; the key is dropped (zeroized) at once, only the bool stays.
+        let present = self.persistent.load(account).ok().flatten().is_some();
+        self.remember(account, present);
+        present
     }
 }
 
@@ -247,14 +289,53 @@ mod tests {
         assert!(store.load(account).unwrap().is_none());
     }
 
+    /// A persistent store the test can also reach directly.
+    struct Shared(std::sync::Arc<MemoryKeystore>);
+    impl SecretKeyStore for Shared {
+        fn load(&self, a: AccountId) -> IpcResult<Option<SecretKey>> {
+            self.0.load(a)
+        }
+        fn save(&self, a: AccountId, k: &SecretKey) -> IpcResult<()> {
+            self.0.save(a, k)
+        }
+        fn delete(&self, a: AccountId) -> IpcResult<()> {
+            self.0.delete(a)
+        }
+    }
+
     #[test]
-    fn layered_keystore_reads_through_and_caches() {
-        let persistent = MemoryKeystore::default();
+    fn layered_keystore_does_not_cache_os_reads() {
+        let persistent = std::sync::Arc::new(MemoryKeystore::default());
+        let layered = LayeredKeystore::new(Box::new(Shared(persistent.clone())));
         let a = AccountId::new_v7().unwrap();
         let k = key();
-        persistent.save(a, &k).unwrap();
-        let store = LayeredKeystore::new(Box::new(persistent));
-        assert!(same(&store.load(a).unwrap().unwrap(), &k));
-        assert!(same(&store.memory.load(a).unwrap().unwrap(), &k), "cached");
+        layered.save(a, &k).unwrap();
+        assert!(layered.memory.load(a).unwrap().is_none(), "not in memory");
+        assert!(same(&layered.load(a).unwrap().unwrap(), &k));
+        assert!(layered.memory.load(a).unwrap().is_none(), "read not cached");
+        persistent.delete(a).unwrap();
+        assert!(layered.load(a).unwrap().is_none(), "gone from the OS store");
+    }
+
+    #[test]
+    fn layered_keystore_keeps_a_copy_only_when_the_os_write_fails() {
+        let layered = LayeredKeystore::new(Box::new(Failing));
+        let a = AccountId::new_v7().unwrap();
+        let k = key();
+        layered.save(a, &k).unwrap();
+        assert!(same(&layered.load(a).unwrap().unwrap(), &k));
+        assert!(layered.memory.load(a).unwrap().is_some());
+    }
+
+    #[test]
+    fn is_stored_keeps_no_key() {
+        let persistent = std::sync::Arc::new(MemoryKeystore::default());
+        let layered = LayeredKeystore::new(Box::new(Shared(persistent.clone())));
+        let a = AccountId::new_v7().unwrap();
+        assert!(!layered.is_stored(a));
+        persistent.save(a, &key()).unwrap();
+        let fresh = LayeredKeystore::new(Box::new(Shared(persistent)));
+        assert!(fresh.is_stored(a));
+        assert!(fresh.memory.load(a).unwrap().is_none());
     }
 }

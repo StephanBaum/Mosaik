@@ -1,5 +1,6 @@
 /** Unlock with the master password (and the Secret Key on a device that lacks it). */
 import { useState, type SyntheticEvent } from "react";
+import { useEvents } from "../app/EventsProvider.tsx";
 import { Button } from "../components/Button.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
 import { TextField } from "../components/TextField.tsx";
@@ -18,6 +19,7 @@ export function UnlockScreen({
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
+  const { lockReason, clearLockReason } = useEvents();
   const [password, setPassword] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,6 +37,7 @@ export function UnlockScreen({
     setPassword("");
     if (result.ok) {
       setSecretKey("");
+      clearLockReason();
       onUnlocked(result.value);
     } else {
       setError(result.error);
@@ -46,6 +49,11 @@ export function UnlockScreen({
       <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
         <h1 className="title">{t("lock.unlockTitle")}</h1>
         {session.email !== null && <p className="body muted">{session.email}</p>}
+        {lockReason !== null && (
+          <p className="body" role="status">
+            {t(`lock.reason.${lockReason}`)}
+          </p>
+        )}
         <TextField
           label={t("lock.masterPassword")}
           type="password"

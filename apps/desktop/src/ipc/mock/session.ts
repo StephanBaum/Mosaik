@@ -1,6 +1,7 @@
 /** Mock session commands: the same state machine as `src-tauri/src/commands/session.rs`. */
 import type { SessionState } from "../contract/index.ts";
-import { fail, randomIndex, type MockHandlers, type MockState } from "./state.ts";
+import { startAgent } from "./ssh.ts";
+import { fail, randomIndex, requireUnlocked, type MockHandlers, type MockState } from "./state.ts";
 
 const SECRET_KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTVWXYZ";
 
@@ -29,7 +30,12 @@ export function sessionState(state: MockState): SessionState {
       quickUnlock: [],
     };
   }
-  return { state: "unlocked", accountId: state.account.accountId, email: state.account.email };
+  return {
+    state: "unlocked",
+    accountId: state.account.accountId,
+    email: state.account.email,
+    kitVerified: state.kitVerified,
+  };
 }
 
 export const sessionHandlers: MockHandlers = {
@@ -54,6 +60,7 @@ export const sessionHandlers: MockHandlers = {
     };
     state.secretKeyStored = true;
     state.unlocked = true;
+    state.kitVerified = false;
     state.vaults = [
       { vaultId: state.nextId(), name: request.defaultVaultName.trim(), itemCount: 0, available: true },
     ];
@@ -68,12 +75,22 @@ export const sessionHandlers: MockHandlers = {
     };
   },
 
+  save_emergency_kit: (state, request) => {
+    requireUnlocked(state);
+    if (state.kitVerified && request.password !== state.account?.password) {
+      fail(request.password === null ? "reauthRequired" : "wrongCredentials");
+    }
+    return { kind: "saved" };
+  },
+
   verify_emergency_kit: (state, request) => {
     if (state.account === null || !state.secretKeyStored) {
       fail("secretKeyRequired");
     }
     const lastGroup = state.account.secretKey.split("-").at(-1) ?? "";
-    return { matches: normalizeKey(request.lastGroup) === lastGroup };
+    const matches = normalizeKey(request.lastGroup) === lastGroup;
+    state.kitVerified = state.kitVerified || matches;
+    return { matches };
   },
 
   unlock: (state, request) => {
@@ -98,6 +115,7 @@ export const sessionHandlers: MockHandlers = {
     }
     state.unlocked = true;
     state.secretKeyStored = true;
+    startAgent(state);
     return sessionState(state);
   },
 
@@ -107,6 +125,7 @@ export const sessionHandlers: MockHandlers = {
     if (state.unlocked) {
       state.unlocked = false;
       state.lastGenerated = null;
+      state.heldImport = null;
       state.emit({ type: "locked", reason: "manual" });
     }
     return sessionState(state);

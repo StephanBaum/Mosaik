@@ -5,14 +5,15 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use salsa20::Salsa20;
 use sha2::{Digest, Sha256, Sha512};
-use zeroize::Zeroizing;
+use std::borrow::Cow;
+use zeroize::{Zeroize, Zeroizing};
 
 use aes::cipher::{KeyIvInit, StreamCipher};
 use mosaic_core::model::{ItemType, SecretField, TextField};
 
 use super::Cursor;
 use crate::Format;
-use crate::buf::{self, Str};
+use crate::buf::{self, Buf, Str};
 use crate::draft::{AttachmentBudget, Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import};
 use crate::error::{Error, Result};
@@ -215,8 +216,11 @@ fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
     let mut entry: Option<RawEntry> = None;
     let mut history_entry: Option<Option<Str>> = None;
     let mut pair: Option<Pair> = None;
-    // Text of the innermost element, while it is a leaf we read.
-    let mut text: Option<Str> = None;
+    // Text of the innermost element, while it is a leaf we read. Collected as
+    // bytes in a `Buf` that grows by wipe-and-move (`buf::append`), so no
+    // reallocation leaves an unwiped copy of a secret behind; it is checked
+    // as UTF-8 once, at the end tag.
+    let mut text: Option<Buf> = None;
     let mut value_protected = false;
     loop {
         let ev = reader.read_event().map_err(|_| Error::Malformed)?;
@@ -267,14 +271,14 @@ fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
                             p.reference = r.trim().parse().ok();
                         }
                     }
-                    text = Some(Str::default());
+                    text = Some(Buf::default());
                 }
                 Tag::Key
                 | Tag::Name
                 | Tag::Uuid
                 | Tag::Tags
                 | Tag::RecycleBinUuid
-                | Tag::RecycleBinEnabled => text = Some(Str::default()),
+                | Tag::RecycleBinEnabled => text = Some(Buf::default()),
                 _ => {}
             }
             if !empty {
@@ -284,19 +288,26 @@ fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
         let end = match &ev {
             Event::End(_) | Event::Empty(_) => true,
             Event::Text(t) => {
-                if let Some(buf) = text.as_mut() {
-                    buf.push_str(&t.xml10_content());
+                if let Some(b) = text.as_mut() {
+                    // The normalised value is allocated once at its final
+                    // size, so wiping the owned value leaves nothing behind.
+                    let c = t.xml10_content();
+                    let appended = buf::append(b, c.as_bytes(), xml.len());
+                    if let Cow::Owned(mut owned) = c {
+                        owned.zeroize();
+                    }
+                    appended?;
                 }
                 false
             }
             Event::CData(t) => {
-                if let Some(buf) = text.as_mut() {
-                    buf.push_str(t);
+                if let Some(b) = text.as_mut() {
+                    buf::append(b, t.as_bytes(), xml.len())?;
                 }
                 false
             }
             Event::GeneralRef(r) => {
-                if let Some(buf) = text.as_mut() {
+                if let Some(b) = text.as_mut() {
                     let c = match r.resolve_char_ref() {
                         Ok(Some(c)) => c,
                         Ok(None) => match &**r {
@@ -309,7 +320,10 @@ fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
                         },
                         Err(_) => return Err(Error::Malformed),
                     };
-                    buf.push(c);
+                    let mut tmp = [0u8; 4];
+                    let appended = buf::append(b, c.encode_utf8(&mut tmp).as_bytes(), xml.len());
+                    tmp.zeroize();
+                    appended?;
                 }
                 false
             }
@@ -321,7 +335,7 @@ fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
         }
         let tag = path.pop().ok_or(Error::Malformed)?;
         let parent = path.last().copied();
-        let value = text.take();
+        let value: Option<Str> = text.take().map(buf::into_string).transpose()?;
         match (tag, parent) {
             (Tag::Value, _) => {
                 let mut v = value.unwrap_or_default();

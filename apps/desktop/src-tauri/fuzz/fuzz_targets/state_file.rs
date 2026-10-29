@@ -13,7 +13,7 @@ mod persist;
 
 fuzz_target!(|data: &[u8]| {
     if let Some(s) = persist::parse(data) {
-        assert!(persist::has_lock_trigger(&s.settings));
+        assert!(persist::has_lock_trigger(&s.settings, persist::SCREEN_LOCK_POSSIBLE));
         assert_eq!(persist::normalize(s.settings.clone()), s.settings);
         let rendered = persist::render(&s).expect("render");
         assert_eq!(persist::parse(&rendered), Some(s));

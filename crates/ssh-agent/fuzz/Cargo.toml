@@ -43,3 +43,10 @@ path = "fuzz_targets/agent_session.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "key_material"
+path = "fuzz_targets/key_material.rs"
+test = false
+doc = false
+bench = false

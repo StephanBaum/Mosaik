@@ -35,6 +35,50 @@ wire_enum!(
         AttachmentsSkipped,
         /// Some entries could not be read and are left out.
         EntriesSkipped,
+        /// Some one-time-password settings could not be read.
+        OtpUnreadable,
+        /// Passkeys are left out (they come with M5).
+        PasskeysNotImported,
+    }
+);
+
+wire_enum!(
+    /// Something the user should know about one entry.
+    pub enum ImportEntryWarning {
+        /// Fields without a Mosaic equivalent became custom fields.
+        UnmappedFields,
+        /// The one-time-password setting could not be read.
+        OtpUnreadable,
+        /// An attachment is over the size limit and is left out.
+        AttachmentTooLarge,
+        /// An attachment's data is missing from the file.
+        AttachmentMissing,
+        /// Tags were dropped.
+        TagsDropped,
+        /// Older versions were dropped.
+        HistoryTruncated,
+        /// A passkey is left out.
+        PasskeysNotImported,
+        /// The category is unknown; the entry became a secure note.
+        UnknownCategory,
+        /// Some fields were over a limit and are left out.
+        FieldsDropped,
+        /// The entry was archived; it carries the tag `archived`.
+        Archived,
+        /// An attachment would exceed the import quota and is left out.
+        AttachmentQuota,
+    }
+);
+
+wire_enum!(
+    /// Why an entry of the file is not imported.
+    pub enum ImportSkipReason {
+        /// The entry is not well-formed.
+        Malformed,
+        /// The entry holds no data.
+        Empty,
+        /// The entry is over the item size limit.
+        TooLarge,
     }
 );
 
@@ -94,6 +138,32 @@ pub struct ImportEntry {
     /// An existing item that looks the same (same type, title, user name and
     /// URL), suggested for skipping.
     pub duplicate_of: Option<ImportDuplicate>,
+    /// An earlier entry of the same file that looks the same.
+    pub duplicate_in_file: Option<u32>,
+    /// Attachment files it carries.
+    pub attachments: u32,
+    /// What the user should know about this entry.
+    pub warnings: Vec<ImportEntryWarning>,
+}
+
+/// An entry of the file that is left out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSkipped {
+    /// Position in the file.
+    pub index: u32,
+    /// Why.
+    pub reason: ImportSkipReason,
+}
+
+/// How many entries become a type.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportCount {
+    /// The type.
+    pub kind: ItemKind,
+    /// How many.
+    pub count: u32,
 }
 
 /// An existing item an entry duplicates.
@@ -112,8 +182,18 @@ pub struct ImportDuplicate {
 pub struct ImportPreview {
     /// Handle for `import_commit` and `import_cancel`.
     pub preview_id: String,
-    /// Every entry.
+    /// The file's format.
+    pub format: ImportFormat,
+    /// Every entry that becomes an item.
     pub entries: Vec<ImportEntry>,
+    /// Entries of the file that are left out.
+    pub skipped: Vec<ImportSkipped>,
+    /// Entries per type.
+    pub counts: Vec<ImportCount>,
+    /// Attachment files in all.
+    pub attachments: u32,
+    /// Their size in bytes.
+    pub attachment_bytes: u64,
     /// Warnings to show above the list.
     pub warnings: Vec<ImportWarning>,
 }
@@ -148,6 +228,12 @@ pub struct ImportResult {
     pub imported: u32,
     /// Entries left out.
     pub skipped: u32,
+    /// Entries the vault refused.
+    pub failed: u32,
+    /// Attachment files added.
+    pub attachments: u32,
+    /// Attachment files the vault refused.
+    pub attachments_failed: u32,
 }
 
 #[cfg(test)]
@@ -168,6 +254,7 @@ pub(crate) mod samples {
     pub(crate) fn preview() -> ImportPreview {
         ImportPreview {
             preview_id: "p-1".into(),
+            format: ImportFormat::Enpass,
             entries: vec![
                 ImportEntry {
                     index: 0,
@@ -178,6 +265,9 @@ pub(crate) mod samples {
                         vault_id: ids::vault(1),
                         item_id: ids::item(1),
                     }),
+                    duplicate_in_file: None,
+                    attachments: 1,
+                    warnings: ImportEntryWarning::ALL.to_vec(),
                 },
                 ImportEntry {
                     index: 1,
@@ -185,8 +275,28 @@ pub(crate) mod samples {
                     title: None,
                     subtitle: None,
                     duplicate_of: None,
+                    duplicate_in_file: Some(0),
+                    attachments: 0,
+                    warnings: vec![],
                 },
             ],
+            skipped: ImportSkipReason::ALL
+                .iter()
+                .zip(2_u32..)
+                .map(|(&reason, index)| ImportSkipped { index, reason })
+                .collect(),
+            counts: vec![
+                ImportCount {
+                    kind: ItemKind::Login,
+                    count: 1,
+                },
+                ImportCount {
+                    kind: ItemKind::SecureNote,
+                    count: 1,
+                },
+            ],
+            attachments: 1,
+            attachment_bytes: 2048,
             warnings: ImportWarning::ALL.to_vec(),
         }
     }

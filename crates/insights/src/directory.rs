@@ -4,7 +4,7 @@
 //! license next to it). The data is embedded at build time; nothing is
 //! fetched at run time. The directory asks for attribution where its data is
 //! visible to users: the dashboard shows `insights.attribution.twoFactor`
-//! (ADR-0021).
+//! (ADR-0023).
 //!
 //! # Lookup
 //!

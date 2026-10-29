@@ -508,13 +508,19 @@ fn i18n_keys() {
         Action::ReviewUrl.i18n_key(),
     ];
     // Every key exists in both catalogs of packages/i18n.
-    let en = include_str!("../../../packages/i18n/src/en.ts");
-    let de = include_str!("../../../packages/i18n/src/de.ts");
+    let en = include_str!("../../../packages/i18n/src/catalog/en/insights.ts");
+    let de = include_str!("../../../packages/i18n/src/catalog/de/insights.ts");
     for key in keys {
         assert!(key.starts_with("insights."), "{key}");
         let quoted = format!("\"{key}\":");
-        assert!(en.contains(&quoted), "{key} missing in en.ts");
-        assert!(de.contains(&quoted), "{key} missing in de.ts");
+        assert!(
+            en.contains(&quoted),
+            "{key} missing in catalog/en/insights.ts"
+        );
+        assert!(
+            de.contains(&quoted),
+            "{key} missing in catalog/de/insights.ts"
+        );
     }
 }
 

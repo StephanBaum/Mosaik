@@ -18,6 +18,28 @@ wire_enum!(
     }
 );
 
+wire_enum!(
+    /// Whether the global shortcut is ours.
+    pub enum ShortcutState {
+        /// Registered; pressing it reaches Mosaic.
+        Registered,
+        /// Another program holds the combination.
+        Conflict,
+        /// The hotkey manager could not start on this system.
+        Unavailable,
+    }
+);
+
+/// The `app_status` response: what this system can and cannot do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStatus {
+    /// The global shortcut.
+    pub shortcut: ShortcutState,
+    /// Whether the app is told when the screen locks (CRYPTO_SPEC section 11 gap).
+    pub screen_lock_detection: bool,
+}
+
 /// Where the session is. Every session command returns the new state.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(
@@ -44,6 +66,9 @@ pub enum SessionState {
         account_id: WireAccountId,
         /// The account email (`null` if unknown).
         email: Option<String>,
+        /// The Emergency Kit check passed (while `false` the UI shows the kit
+        /// step again).
+        kit_verified: bool,
     },
 }
 
@@ -121,6 +146,58 @@ pub struct QuickUnlockRequest {
     pub method: QuickUnlockKind,
 }
 
+/// `save_emergency_kit`: Rust shows the save dialog, then renders the
+/// Emergency Kit PDF from the Secret Key in the keystore.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveKitRequest {
+    /// The kit's texts in the user's language.
+    pub labels: KitLabels,
+    /// The master password, needed once the kit was verified in this
+    /// process (UX_GUIDELINES §8: re-authentication before viewing the
+    /// Secret Key). Not needed during onboarding.
+    pub password: Option<SecretIn>,
+}
+
+/// The `save_emergency_kit` response.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum KitSaved {
+    /// Written to the path the user chose.
+    Saved,
+    /// The user cancelled the dialog.
+    Cancelled,
+}
+
+/// The kit's texts, in the user's language.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KitLabels {
+    /// "Mosaic Emergency Kit".
+    pub title: String,
+    /// What the kit is for and where to keep it.
+    pub intro: String,
+    /// "Account email".
+    pub email: String,
+    /// "Account ID".
+    pub account_id: String,
+    /// "Sign-in address".
+    pub sign_in_url: String,
+    /// The sign-in address itself, or "this device only" before sync (M6).
+    pub sign_in_url_value: String,
+    /// "Secret Key".
+    pub secret_key: String,
+    /// "Master password".
+    pub master_password: String,
+    /// The hint under the blank line ("write it here by hand, or keep it in
+    /// your head").
+    pub master_password_hint: String,
+    /// The footer (pre-audit note, date or similar).
+    pub footer: String,
+}
+
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
@@ -142,6 +219,7 @@ pub(crate) mod samples {
             SessionState::Unlocked {
                 account_id: ids::account(),
                 email: Some("alex@example.com".into()),
+                kit_verified: true,
             },
         ];
         for state in &all {
@@ -155,6 +233,31 @@ pub(crate) mod samples {
         all
     }
 
+    pub(crate) fn app_status() -> AppStatus {
+        AppStatus {
+            shortcut: ShortcutState::Conflict,
+            screen_lock_detection: false,
+        }
+    }
+
+    pub(crate) fn save_kit_request() -> SaveKitRequest {
+        SaveKitRequest {
+            labels: KitLabels {
+                title: "Mosaic Emergency Kit".into(),
+                intro: "Keep this page somewhere safe.".into(),
+                email: "Account email".into(),
+                account_id: "Account ID".into(),
+                sign_in_url: "Sign-in address".into(),
+                sign_in_url_value: "This device only".into(),
+                secret_key: "Secret Key".into(),
+                master_password: "Master password".into(),
+                master_password_hint: "Write it here by hand.".into(),
+                footer: "Pre-audit software.".into(),
+            },
+            password: None,
+        }
+    }
+
     pub(crate) fn created_account() -> CreatedAccount {
         CreatedAccount {
             emergency_kit: EmergencyKit {
@@ -165,6 +268,7 @@ pub(crate) mod samples {
             session: SessionState::Unlocked {
                 account_id: ids::account(),
                 email: Some("alex@example.com".into()),
+                kit_verified: false,
             },
         }
     }

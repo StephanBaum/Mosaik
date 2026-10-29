@@ -50,34 +50,34 @@ Mosaic is pre-audit. Nothing here has been externally reviewed.
 
 `SessionState` is `{ state: "noAccount" }`,
 `{ state: "locked", email, secretKeyStored, quickUnlock }` or
-`{ state: "unlocked", accountId, email }`. Every session command returns the new state.
+`{ state: "unlocked", accountId, email, kitVerified }`. Every session command returns the new state.
+`quickUnlock` is empty until `mosaic-vault` stores quick-unlock wrappings (ADR-0020 item 7).
 The store can also be unavailable, for example when another process holds it. In that
 case every command fails with `storeInUse` or `storeUnavailable`, and the UI shows that
 sentence.
 
 Account creation returns the Emergency Kit data once. The UI keeps the vault UI hidden
 until the user has typed back the last group of the Secret Key (`verify_emergency_kit`,
-UX_GUIDELINES §8). The Secret Key lives in a `SecretKeyStore`: the OS keystore (unlock
-track), and in memory only until then. Without a stored key, the locked state reports
+UX_GUIDELINES §8). The Secret Key lives in the OS keystore (ADR-0020 item 1), behind an in-memory layer. `kitVerified` is stored per account; while it is `false` the UI shows the kit step again. Without a stored key, the locked state reports
 `secretKeyStored: false`, and `unlock` takes the key as typed from the kit. A typed key
 that unlocks is stored.
 
 ## 3. Commands
 
-Status: **live** means wired to `mosaic-vault` now. **stub** means the contract is fixed
-and the command fails with `notImplemented` until its track lands (track in brackets).
-The mock implements most commands for UI work (§7).
+Status: **live** means wired now. `unlock_quick` is the only stub.
 
 | Command | Request → response | Errors besides `locked` / `internal` | Status |
 |---|---|---|---|
 | **Session** | | | |
 | `session_state` | `null` → `SessionState` | `storeInUse`, `storeUnavailable` | live |
 | `create_account` | `{ email, password, defaultVaultName }` → `{ emergencyKit: { accountId, email, secretKey }, session }` | `accountExists`, `invalidInput`, `emptyPassword` | live (Argon2 calibrated on the device) |
-| `verify_emergency_kit` | `{ lastGroup }` → `{ matches }` | `secretKeyRequired` | live |
+| `save_emergency_kit` | `{ labels: { title, intro, email, accountId, signInUrl, signInUrlValue, secretKey, masterPassword, masterPasswordHint, footer }, password \| null }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `reauthRequired`, `wrongCredentials` (the vault locks), `secretKeyRequired`, `invalidInput` | live (Rust shows the save dialog, then renders and writes the PDF; no password needed from `create_account` until the kit is verified or the vault locks) |
+| `verify_emergency_kit` | `{ lastGroup }` → `{ matches }` | `secretKeyRequired` | live (needs unlocked; a match sets `kitVerified`) |
 | `unlock` | `{ password, secretKey \| null }` → `SessionState` | `wrongCredentials` (never says which secret), `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`, `alreadyUnlocked`, `noAccount` | live |
-| `unlock_quick` | `{ method: "biometric" \| "hardwareKey" }` → `SessionState` | `quickUnlockUnavailable` | stub (unlock) |
+| `unlock_quick` | `{ method: "biometric" \| "hardwareKey" }` → `SessionState` | `quickUnlockUnavailable` | stub (no OS prompt; PROGRESS M3-R6) |
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
+| `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection }` | none | live |
 | **Vaults** | | | |
 | `list_vaults` | `null` → `VaultSummary[]` (`vaultId`, `name \| null`, `itemCount`, `available`) | | live |
 | `create_vault` | `{ name }` → `VaultSummary` | `invalidInput` | live |
@@ -86,31 +86,31 @@ The mock implements most commands for UI work (§7).
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
 | `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live |
 | `reveal_secret` | `{ vaultId, itemId, secret: SecretRef }` → `{ value, hideAfterSeconds }` | `itemNotFound`, `fieldEmpty` | live |
-| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `vaultUnavailable` | stub (vault UI) |
-| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound` | stub (vault UI) |
+| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `vaultUnavailable` | live (at most 512 entries per draft list) |
+| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound` | live |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound` | live |
 | **Clipboard** | | | |
-| `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable` | stub (vault UI) |
-| `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | stub (vault UI) |
+| `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable` | live |
+| `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | live |
 | **Generator, codes** | | | |
 | `generate_password` | `{ kind: "password", length, lowercase, uppercase, digits, symbols, excludeAmbiguous } \| { kind: "passphrase", words, separator, capitalize, appendDigit } \| { kind: "forSite", host }` → `{ value, entropyBits, strength }` | `invalidInput` | live (works while locked) |
-| `totp_code` | `{ vaultId, itemId }` → `{ code, secondsRemaining \| null, period \| null }` | `noOtp`, `vaultUnavailable` | stub (TOTP) |
+| `totp_code` | `{ vaultId, itemId }` → `{ code, secondsRemaining \| null, period \| null }` | `noOtp`, `vaultUnavailable` | live |
 | **Settings** | | | |
-| `get_settings` | `null` → `Settings` | | live (in memory) |
-| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning auto-lock or clipboard clearing off), `invalidInput` | stub (settings) |
+| `get_settings` | `null` → `Settings` | | live (stored in `settings.json` in the app data directory) |
+| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing), `wrongCredentials` (the vault locks), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`) | live |
 | **Security insights** | | | |
-| `security_report` | `null` → `{ generatedAt, itemsChecked, counts, findings: { vaultId, itemId, kinds, reusedWith }[] }` | | stub (insights) |
+| `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
-| `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | stub (import) |
-| `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, entries, warnings }` | `importFileUnreadable`, `importFormatInvalid`, `wrongCredentials` | stub (import) |
-| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped }` | `importPreviewExpired`, `vaultNotFound` | stub (import) |
-| `import_cancel` | `{ previewId }` → `null` | | stub (import) |
+| `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | live |
+| `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, format, entries: { index, kind, title \| null, subtitle \| null, duplicateOf: { vaultId, itemId } \| null, duplicateInFile \| null, attachments, warnings: ImportEntryWarning[] }[], skipped: { index, reason: "malformed" \| "empty" \| "tooLarge" }[], counts: { kind, count }[], attachments, attachmentBytes, warnings: ImportWarning[] }` | `importFileUnreadable`, `importFormatInvalid`, `importTooLarge`, `importUnsupported`, `importEncrypted`, `wrongCredentials` | live (mosaic-import, ADR-0021) |
+| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed }` | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
+| `import_cancel` | `{ previewId }` → `null` | | live |
 | **SSH agent** | | | |
-| `ssh_agent_status` | `null` → `{ enabled, running, endpoint \| null, keyCount }` | | live (reports "off") |
-| `ssh_agent_set_enabled` | `{ enabled }` → `SshAgentStatus` | `sshAgentUnavailable` | stub (SSH agent) |
-| `ssh_respond` | `{ requestId, decision: "allowOnce" \| "allowUntilLock" \| "deny" }` → `null` | `sshRequestExpired` | stub (SSH agent) |
+| `ssh_agent_status` | `null` → `{ enabled, running, endpoint \| null, keyCount, skipped: { vaultId, itemId, reason: "unsupported" \| "malformed" \| "duplicate" }[], error \| null }` | | live |
+| `ssh_agent_set_enabled` | `{ enabled }` → `SshAgentStatus` | `sshAgentUnavailable`, `sshAgentEndpointInUse`; turning it on needs unlocked | live (mosaic-ssh-agent, ADR-0025; off by default) |
+| `ssh_respond` | `{ requestId, decision: "allowOnce" \| "allowFor15Minutes" \| "deny" }` → `null` | `sshRequestExpired` | live |
 
 Notes per area:
 
@@ -140,10 +140,23 @@ Notes per area:
   an opaque `fileToken`, a preview with titles and duplicate hints, and the commit
   result. It never sees the export's plaintext. Parsed data is dropped on commit,
   cancel or lock. No dialog or fs permission is granted to the webview.
-- **SSH agent.** Each sign request arrives as `sshApprovalRequested`, carrying the key
-  item, its fingerprint, the client process and an expiry. The UI answers with
-  `ssh_respond`. An unanswered request is refused on expiry or lock
-  (`sshApprovalClosed`).
+  Rust reads the file into a zeroizing buffer (refused above 256 MiB before reading) and parses it
+  without holding the session. A new preview, commit, cancel or lock drops the parsed data. Entries
+  with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
+  `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
+  `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
+  `attachmentQuota`. `ImportWarning` is `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`,
+  `otpUnreadable` or `passkeysNotImported`.
+- **SSH agent.** Off by default, and it runs only while unlocked. Each sign request arrives as
+  `sshApprovalRequested`, carrying:
+  - the key item and its fingerprint;
+  - the client process (`processName` and `pid`: both `null` on Windows, `pid` only on macOS);
+  - `requestedAt` and `expiresAt`;
+  - `canRemember`: when it is `false`, the UI hides "Allow for 15 minutes".
+
+  The UI answers with `ssh_respond`. An unanswered request is refused on expiry, on lock, or when
+  4 prompts are already open (`sshApprovalClosed`). A request that fails after approval arrives as
+  `sshSignFailed`. `SSH_AUTH_SOCK` is `endpoint`.
 
 ## 4. Events (`AppEvent`, tag `type`)
 
@@ -154,6 +167,8 @@ Notes per area:
 | `clipboardCleared` | none | Rust cleared what Mosaic copied. |
 | `sshApprovalRequested` | `{ request: SshApprovalRequest }` | Show the approval dialog (D18). |
 | `sshApprovalClosed` | `{ requestId, reason: "answered" \| "expired" \| "locked" }` | Close it. |
+| `sshSignFailed` | `{ requestId, vaultId, itemId, reason: "passphraseRequired" \| "wrongPassphrase" \| "keyMalformed" \| "kdfTooExpensive" \| "publicKeyMismatch" \| "unsupported" \| "internal" }` | A sign request failed after approval; show `ssh.signFailed.<reason>`. No secret. |
+| `quickSearchRequested` | none | The global shortcut was pressed while unlocked; open the command palette. |
 
 The latest `subscribe_events` call wins (one main window). After subscribing, the
 webview re-reads `session_state`, since events are notifications and not a log.
@@ -166,8 +181,9 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `sameVault`,
 `noOtp`, `fieldEmpty`, `invalidInput`, `reauthRequired`, `attachmentTooLarge`,
 `attachmentQuota`, `clipboardUnavailable`, `importFileUnreadable`,
-`importFormatInvalid`, `importPreviewExpired`, `sshRequestExpired`,
-`sshAgentUnavailable`, `busy`, `internal`.
+`importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
+`importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `busy`,
+`internal`.
 
 The UI message for each code is `error.<code>` in `packages/i18n`. Rust maps
 `mosaic-vault` and `mosaic-core` errors to codes in `contract/errors.rs`. Anything
@@ -177,7 +193,7 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the KeePass file password, the re-authentication password in `update_settings` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code` |
 
 `SecretOut` is the only contract type that serializes a secret, and a fixture test fails
@@ -225,3 +241,6 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
 5. Update this file. Adding a field, variant or command is fine without an ADR.
    Removing or renaming one is a contract change for every track and needs a note in
    PROGRESS.md.
+6. The desktop fuzz crate includes `src/contract/` by path. Contract modules must not import the
+   feature crates (`mosaic-import`, `mosaic-insights`, `mosaic-ssh-agent`). A new request type also
+   goes into `fuzz/fuzz_targets/ipc_requests.rs`, with a seed.

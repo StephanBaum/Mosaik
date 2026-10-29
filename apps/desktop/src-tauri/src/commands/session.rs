@@ -11,11 +11,13 @@ use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::secret::{SecretIn, SecretOut};
 use crate::contract::session::{
-    CreateAccountRequest, CreatedAccount, EmergencyKit, KitVerification, QuickUnlockRequest,
-    SessionState, UnlockRequest, VerifyKitRequest,
+    AppStatus, CreateAccountRequest, CreatedAccount, EmergencyKit, KitSaved, KitVerification,
+    QuickUnlockRequest, SaveKitRequest, SessionState, ShortcutState, UnlockRequest,
+    VerifyKitRequest,
 };
-use crate::emergency_kit::{self, KitSaved, KitValues, SaveKitRequest};
+use crate::emergency_kit::{self, KitValues};
 use crate::persist::{AccountInfo, valid_email};
+use crate::shortcut::ShortcutStatus;
 use crate::state::{AppState, Backend, Slot, guard};
 
 /// Longest accepted vault name, in bytes.
@@ -34,6 +36,21 @@ pub async fn create_account(
     request: CreateAccountRequest,
 ) -> IpcResult<CreatedAccount> {
     state.run(move |b| b.create_account(request)).await
+}
+
+/// `save_emergency_kit`.
+#[tauri::command]
+pub async fn save_emergency_kit(
+    state: State<'_, AppState>,
+    request: SaveKitRequest,
+) -> IpcResult<KitSaved> {
+    state.run(move |b| b.save_emergency_kit(request)).await
+}
+
+/// `app_status`.
+#[tauri::command]
+pub async fn app_status(state: State<'_, AppState>) -> IpcResult<AppStatus> {
+    Ok(state.backend().app_status())
 }
 
 /// `verify_emergency_kit`.
@@ -117,7 +134,7 @@ impl Backend {
                     Ok(SessionState::Locked {
                         email,
                         secret_key_stored: account
-                            .is_some_and(|a| self.secret_key_of(a.account_id.get()).is_some()),
+                            .is_some_and(|a| self.secret_keys.is_stored(a.account_id.get())),
                         quick_unlock: self.quick_unlock.offered(),
                     })
                 } else {
@@ -127,8 +144,43 @@ impl Backend {
             Slot::Unlocked(session) => Ok(SessionState::Unlocked {
                 account_id: session.account_id().into(),
                 email,
+                kit_verified: account.is_some_and(|a| a.kit_verified),
             }),
         }
+    }
+
+    /// Starts the SSH agent after an unlock if the user turned it on. A
+    /// failure shows up as `error` in `ssh_agent_status`.
+    fn start_ssh_if_enabled(&self, slot: &Slot) {
+        if self.stored().ssh_agent_enabled
+            && let Ok(session) = slot.unlocked()
+        {
+            let _ = self.adapters.ssh.start(session, self.event_sink());
+        }
+    }
+
+    /// What this system can and cannot do.
+    #[must_use]
+    pub fn app_status(&self) -> AppStatus {
+        let shortcut = match self.shortcut_status.lock().ok().and_then(|s| *s) {
+            Some(ShortcutStatus::Registered) => ShortcutState::Registered,
+            Some(ShortcutStatus::Conflict) => ShortcutState::Conflict,
+            Some(ShortcutStatus::Unavailable) | None => ShortcutState::Unavailable,
+        };
+        AppStatus {
+            shortcut,
+            screen_lock_detection: self.screen_lock_detection(),
+        }
+    }
+
+    /// Whether a locked screen can be detected on this system right now.
+    #[must_use]
+    pub fn screen_lock_detection(&self) -> bool {
+        cfg!(target_os = "linux")
+            && self
+                .os_sources
+                .lock()
+                .is_ok_and(|sources| sources.iter().any(|s| s.contains("Session.Lock")))
     }
 
     /// Records the unlocked account in the state file (best effort: a file
@@ -140,9 +192,14 @@ impl Backend {
                 .as_ref()
                 .filter(|a| a.account_id.get() == account_id)
                 .and_then(|a| a.email.clone());
+            let kit_verified = stored
+                .account
+                .as_ref()
+                .is_some_and(|a| a.account_id.get() == account_id && a.kit_verified);
             stored.account = Some(AccountInfo {
                 account_id: account_id.into(),
                 email: email.or(keep),
+                kit_verified,
             });
         });
     }
@@ -201,6 +258,7 @@ impl Backend {
         *slot = Slot::Unlocked(Box::new(session));
         self.secret_keys.save(account_id, &created.secret_key)?;
         self.remember_account(account_id, Some(email.clone()));
+        self.start_ssh_if_enabled(&slot);
         // The kit is unconfirmed until `verify_emergency_kit` matches.
         *guard(&self.kit_pending)? = Some(account_id);
         self.touch();
@@ -231,6 +289,11 @@ impl Backend {
         let matches = key.matches_last_group(request.last_group.expose_secret());
         if matches {
             *guard(&self.kit_pending)? = None;
+            self.update_stored(|s| {
+                if let Some(account) = s.account.as_mut() {
+                    account.kit_verified = true;
+                }
+            })?;
         }
         Ok(KitVerification { matches })
     }
@@ -262,6 +325,7 @@ impl Backend {
                     self.secret_keys.save(account_id, &secret_key)?;
                 }
                 self.remember_account(account_id, None);
+                self.start_ssh_if_enabled(&slot);
                 self.touch();
                 self.state_of(&slot)
             }
@@ -273,8 +337,8 @@ impl Backend {
     }
 
     /// Quick unlock (CRYPTO_SPEC §6.2). Answers `quickUnlockUnavailable`
-    /// until `mosaic-vault` can unlock with a quick-unlock wrapping (see
-    /// `quick_unlock`).
+    /// without any OS prompt until `mosaic-vault` can unlock with a
+    /// quick-unlock wrapping (ADR-0020 item 7, PROGRESS M3-R6).
     ///
     /// # Errors
     /// `alreadyUnlocked`, `quickUnlockUnavailable`, the store's code.
@@ -288,9 +352,11 @@ impl Backend {
                 Slot::Locked(_) => {}
             }
         }
-        self.quick_unlock.platform(request.method)?;
-        // With vault support: release the platform secret (the OS prompt),
-        // derive W in mosaic-core, and unlock with the method-0x02 wrapping.
+        // With vault support: release the platform secret
+        // (`self.quick_unlock.platform(method)`, the OS prompt), derive W in
+        // mosaic-core, and unlock with the method-0x02 wrapping. Until then
+        // no OS call is made.
+        let _ = request.method;
         Err(IpcError::new(ErrorCode::QuickUnlockUnavailable))
     }
 
@@ -330,8 +396,8 @@ impl Backend {
         if let Ok(mut files) = self.import_files.lock() {
             files.clear();
         }
-        self.adapters.import.on_lock();
-        self.adapters.ssh.on_lock();
+        self.adapters.import.clear();
+        self.adapters.ssh.stop();
         let _ = self.clipboard.clear_if_ours();
         self.run_lock_hooks(reason);
         self.emit(&AppEvent::Locked { reason });

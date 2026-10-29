@@ -17,7 +17,7 @@ mosaic-core = { path = "../core" }
 # The strength buckets, so the dashboard and the generator agree on "weak".
 mosaic-generator = { path = "../generator" }
 # Reuse detection: HMAC-SHA-256 under a per-call random key (CRYPTO_SPEC §2
-# lists both crates; CRYPTO_SPEC §13, ADR-0020).
+# lists both crates; CRYPTO_SPEC §13, ADR-0022).
 hmac.workspace = true
 sha2.workspace = true
 subtle.workspace = true

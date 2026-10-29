@@ -5,18 +5,21 @@
  *
  * URL options in mock mode: `?mock=noAccount|locked|unlocked` picks the start state
  * (default `noAccount`; the sample account's master password is `mosaic`), and
- * `&latency=<ms>` delays every response to show loading states.
+ * `&latency=<ms>` delays every response to show loading states, and `&sshRequest=1` makes
+ * the mock agent ask for an approval 500 ms after unlock.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import type { CommandName, IpcResult, RequestOf, ResponseOf } from "./contract/index.ts";
+import { appHandlers } from "./mock/app.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
 import { sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
+import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
 import { itemHandlers } from "./mock/items.ts";
 import { sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
-import { sshHandlers } from "./mock/ssh.ts";
+import { sshHandlers, startAgent } from "./mock/ssh.ts";
 import { MockFailure, type MockHandlers, type MockState } from "./mock/state.ts";
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultHandlers } from "./mock/vaults.ts";
@@ -26,12 +29,20 @@ export type MockStart = "noAccount" | "locked" | "unlocked";
 export interface MockOptions {
   start?: MockStart;
   latencyMs?: number;
+  /** Emit an SSH approval request 500 ms after unlock. */
+  sshRequest?: boolean;
+  /** Start with an unconfirmed Emergency Kit (`?kit=unverified`). */
+  kitUnverified?: boolean;
+  /** Start with vaults but no items (first run without an import). */
+  emptyVault?: boolean;
   now?: () => number;
 }
 
-/** One handler set per contract area; import commands are not mocked yet. */
+/** One handler set per contract area. */
 const handlers: MockHandlers = {
   ...sessionHandlers,
+  ...appHandlers,
+  ...importHandlers,
   ...vaultHandlers,
   ...itemHandlers,
   ...clipboardHandlers,
@@ -49,6 +60,8 @@ export function mockOptionsFromUrl(search: string): MockOptions {
   return {
     ...(start === "locked" || start === "unlocked" || start === "noAccount" ? { start } : {}),
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
+    ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
+    ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
   };
 }
 
@@ -60,8 +73,11 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     account: start === "noAccount" ? null : { ...sampleAccount },
     secretKeyStored: start !== "noAccount",
     unlocked: start === "unlocked",
+    kitVerified: start !== "noAccount" && options.kitUnverified !== true,
+    sshEnabled: false,
+    heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
-    items: start === "noAccount" ? [] : sampleItems(),
+    items: start === "noAccount" || options.emptyVault === true ? [] : sampleItems(),
     settings: { ...defaultSettings },
     lastGenerated: null,
     emit: (event) => {
@@ -69,12 +85,17 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
         listener(event);
       }
     },
+    sshRequest: options.sshRequest === true,
     now: options.now ?? (() => Date.now()),
     nextId: () => {
       counter += 1;
       return `019a2b3c-0000-7000-8000-${counter.toString(16).padStart(12, "0")}`;
     },
   };
+
+  if (start === "unlocked") {
+    startAgent(state);
+  }
 
   async function call<K extends CommandName>(
     command: K,

@@ -840,3 +840,24 @@ fn hotp_and_steam_attributes() {
     let (c, _) = i.entries[1].draft.otp.as_ref().unwrap();
     assert_eq!(c.kind, OtpKind::Steam);
 }
+
+/// Leaf text is collected in a wiping buffer (`buf::append` moves, never
+/// reallocates in place), so no growth step leaves an unwiped copy.
+#[test]
+fn leaf_text_joins_entities_cdata_and_crlf() {
+    let none = Spec {
+        stream_id: 0,
+        ..Spec::default()
+    };
+    let xml = "<KeePassFile><Root><Group><Entry><String><Key>Password</Key>\
+               <Value>a&amp;b\r\nc&#x41;<![CDATA[x]]></Value></String></Entry></Group></Root></KeePassFile>";
+    let i = super::parse_payload(&payload_of(&none, xml)).unwrap();
+    assert_eq!(
+        i.entries[0]
+            .draft
+            .secret(SecretField::Password)
+            .unwrap()
+            .expose_secret(),
+        "a&b\ncAx"
+    );
+}

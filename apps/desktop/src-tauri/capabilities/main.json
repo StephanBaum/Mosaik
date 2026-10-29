@@ -8,11 +8,13 @@
   "permissions": [
     "allow-session-state",
     "allow-create-account",
+    "allow-save-emergency-kit",
     "allow-verify-emergency-kit",
     "allow-unlock",
     "allow-unlock-quick",
     "allow-lock",
     "allow-subscribe-events",
+    "allow-app-status",
     "allow-list-vaults",
     "allow-create-vault",
     "allow-rename-vault",

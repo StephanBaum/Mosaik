@@ -52,6 +52,7 @@ export function cssVariables(): string {
     // The holo-foil primary action (ADR-0014): its label, and the flat fill without WebGL2.
     `  --primary-action-label: ${primaryAction.label};`,
     `  --primary-action-fallback: ${primaryAction.fallback};`,
+    `  --primary-action-fallback-highlight: ${primaryAction.fallbackHighlight};`,
     `  --primary-action-label-shadow: ${primaryAction.labelShadow};`,
     `  --primary-action-icon-filter: ${primaryAction.iconFilter};`,
     ...vaultColors.map((value, index) => `  --vault-color-${String(index)}: ${value};`),

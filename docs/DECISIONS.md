@@ -1583,3 +1583,362 @@ needs its permission in the capability (a test enforces it). The
 Linux-only advisories stay until upstream moves. Tracks that need native
 dialogs or the clipboard add Rust-only crates with a justification, and an ADR
 if a crate is security-relevant (the OS keystore crate, an SSH crate).
+
+## ADR-0020: Desktop shell OS integration (Secret Key store, clipboard, auto-lock, shortcut, dialogs, Emergency Kit)
+
+- Status: accepted
+- Date: 2026-10-29
+- Milestone: M3
+
+### Context
+M3 needs the Secret Key kept on the device (CRYPTO_SPEC §5.2, CORE_API), a
+clipboard that clears itself and stays out of clipboard history (UX_GUIDELINES
+§8), auto-lock on idle, sleep and screen lock (CRYPTO_SPEC §11), a global
+shortcut (UX_GUIDELINES §4) and an Emergency Kit PDF, all under
+`forbid(unsafe_code)` and without webview plugin APIs (ADR-0019).
+
+### Decision
+1. **Secret Key store:** `keyring =3.6.3` (`windows-native`, `apple-native`,
+   `linux-native`): Windows Credential Manager (DPAPI, per user), the macOS
+   login Keychain, the Linux kernel keyring (keyutils; per login session, lost
+   at logout or reboot, after which the unlock screen asks for the key). Secret
+   Service is not used: keyring's backends for it need DH and AES transport
+   crypto outside CRYPTO_SPEC §2. An in-memory layer sits in front, so a
+   keystore failure is never fatal: the user types the key from the kit.
+   Amendment: the in-memory layer holds the Secret Key only when the OS
+   keystore write failed (kept for the process lifetime so the kit can still
+   be saved); OS reads are not cached; `secret_key_stored` caches only a
+   boolean.
+2. **Clipboard:** `arboard =3.7.0`, written from Rust only. Windows:
+   `ExcludeClipboardContentFromMonitorProcessing`,
+   `CanIncludeInClipboardHistory = 0`, `CanUploadToCloudClipboard = 0`; macOS:
+   `org.nspasteboard.ConcealedType`; Linux X11/XWayland:
+   `x-kde-passwordManagerHint`. It clears after the configured time on the
+   monotonic or the wall clock, whichever comes first, only if the clipboard
+   still holds Mosaic's value (constant-time compare with `subtle`), and on
+   lock and quit. License exception BSL-1.0 for `clipboard-win` and
+   `error-code` (deny.toml).
+3. **Auto-lock:** idle is `max(monotonic, wall)` since the last command or
+   window focus; a resume is detected by a clock gap (tick 2 s, gap 30 s);
+   Linux also uses logind `PrepareForSleep` and the screen-saver
+   `ActiveChanged` signal through `zbus =5.19.0` (already in the tree). Windows
+   and macOS sleep, screen-lock and user-switch notifications are not used:
+   they need unsafe FFI. The triggers cannot all be turned off (§11):
+   `update_settings` refuses it and a state file that says so is read as the
+   default idle timeout. `app_status` reports whether screen-lock detection
+   exists, and the settings screen says so.
+   Amendment: a trigger counts only if this system can deliver it: screen lock
+   counts only where `screenLockDetection` is true (today Linux with the D-Bus
+   source running); sleep counts everywhere (clock-gap detector). The idle
+   tick applies the same floor at runtime.
+4. **Global shortcut:** `tauri-plugin-global-shortcut =2.4.1`, registered
+   from Rust during setup (a failure is reported as `conflict` or
+   `unavailable`, never fatal), with no JavaScript permission. It focuses the
+   main window and, while unlocked, emits `quickSearchRequested`. No second
+   webview.
+5. **Dialogs:** `rfd =0.16.1` (`gtk3`) called from Rust, without Common
+   Controls v6 (ADR-0019).
+6. **Emergency Kit:** `pdf-writer =0.15.0`, A4, base-14 Helvetica and Courier
+   (WinAnsi), no embedded or external objects. Rendered only after the save
+   dialog returned a path, into preallocated buffers that are zeroized after
+   writing; a half-written file is removed. The Secret Key comes from the
+   keystore inside Rust; the webview sends only the labels. Outside onboarding
+   (from account creation until the kit is verified or the vault locks),
+   saving needs the master password.
+7. **Quick unlock, Windows calls (pins CRYPTO_SPEC §6.2):**
+   `KeyCredentialManager.IsSupportedAsync`,
+   `RequestCreateAsync("Mosaic quick unlock {account_id}", ReplaceExisting)`,
+   `OpenAsync(name)`, `KeyCredential.RequestSignAsync(challenge)` with a
+   32-byte challenge from `SecretBytes::random` (enrollment signs twice and
+   compares in constant time), `DeleteAsync(name)`, through `windows =0.62.2`
+   WinRT projections (no unsafe). `W` is derived in `mosaic-core`. Quick unlock
+   is **not offered in M3**: `mosaic-vault` has no session methods for the
+   method-0x02 wrapping yet, so `unlock_quick` answers `quickUnlockUnavailable`
+   without any OS prompt.
+8. **Screen capture:** `contentProtected` on the main window (Windows
+   `WDA_EXCLUDEFROMCAPTURE`, macOS `NSWindowSharingNone`; no effect on Linux).
+
+### Alternatives considered
+- `tauri-plugin-dialog`: forces Common Controls v6, which breaks `cargo test`
+  on Windows.
+- `tauri-plugin-clipboard-manager`: no exclusion formats, and a JavaScript API.
+- keyring's Secret Service backends: transport crypto outside §2.
+- A quick-search second window: more surface, and it needs secret commands in
+  a second capability.
+- Unsafe FFI for the Windows and macOS sleep and lock notifications:
+  forbidden; M9 may revisit it with a reviewed exception.
+
+### Consequences
+PROGRESS M3-R1 is partly resolved (Linux keeps the key per session only).
+The gaps are PROGRESS M3-R5 and M3-R7 to M3-R11 and THREAT_MODEL R21.
+CRYPTO_SPEC §5.2 names the Linux kernel keyring.
+
+## ADR-0021: Import parsers and the read-only KDBX primitives
+
+- Status: accepted, pending the M3 crypto-reviewer pass over `crates/import/src/kdbx/`
+- Date: 2026-10-29
+- Milestone: M3
+
+### Context
+Brief §5 requires importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4,
+1Password 1PUX and CSV. These files are untrusted input. KDBX is encrypted
+with primitives Mosaic does not use for its own data, and 1PUX is a zip
+archive.
+
+### Decision
+1. **KDBX 4, read only:** `aes =0.9.3` and `cbc =0.2.1` (AES-256-CBC outer
+   cipher, AES-KDF), `chacha20 =0.10.2` (outer cipher, inner stream),
+   `salsa20 =0.11.0` (inner stream), plus `argon2`, `hmac` and `sha2` from §2
+   for Argon2d/Argon2id, the block HMACs and the header hashes, all with
+   `zeroize`. They only read the user's file and never protect Mosaic data, so
+   CRYPTO_SPEC §2 lists them as interoperability-only. Password only (no key
+   files); Twofish and KDBX 3.1 are refused. Limits are checked before any
+   derivation runs: Argon2 at most 1 GiB of memory, 64 GiB of total work and
+   256 lanes; AES-KDF at most 2·10⁹ rounds. Every HMAC block is verified before
+   anything is decrypted. A wrong password and a modified file give the same
+   error.
+2. **Archives and XML:** `zip =9.1.2` (deflate only, no encryption),
+   `flate2 =1.1.10` (`rust_backend`) and `quick-xml =0.42.0`, the last two
+   already in the tree. Limits: file 256 MiB (checked on the file's metadata
+   before reading), 100,000 entries, bounded zip member count, decompressed
+   payload and 1PUX `export.data` size, JSON and folder depth, fields and
+   attachments per entry, and attachments at most 1 GiB per import.
+3. **Mapping:** unknown categories become secure notes with a warning;
+   archived items get the tag `archived`; passkeys are left out with a warning
+   (M5). Duplicates (same site and user name, or same type, title and user
+   name) are only suggested; nothing is skipped without the user's choice.
+4. **Desktop:** Rust opens the file through the native dialog, reads it into a
+   zeroizing buffer and parses it outside the session lock. The webview sees
+   counts, titles, subtitles, warnings and duplicate hints. The parsed data is
+   dropped on commit, cancel, a new preview or lock.
+
+### Alternatives considered
+- The `keepass` crate: it decrypts everything into plain `String`s and pulls
+  in more crypto.
+- Unbounded parsers checked only by fuzzing: rejected in favor of explicit
+  limits.
+
+### Consequences
+`serde_json`, `quick-xml` and `zip` keep unwiped scratch copies (THREAT_MODEL
+R22). The import limits are listed in PROGRESS M3-R19. Six fuzz targets run
+in the CI fuzz smoke.
+
+## ADR-0022: Reuse detection by a keyed hash under a per-call key
+
+- Status: accepted, pending the M3 crypto-reviewer pass over `crates/insights/src/reuse.rs`
+- Date: 2026-10-29
+- Milestone: M3
+
+### Context
+Finding equal passwords without comparing every pair needs a value derived
+from each password. A plain SHA-256 kept in memory would be a ready-made
+dictionary target if memory leaked (a crash dump, swap). A map keyed by the
+password copies passwords into keys that are not zeroized.
+
+### Decision
+1. Each login and Wi-Fi password becomes `HMAC-SHA-256(K, password)`, with a
+   32-byte `K` from `SecretBytes::random` drawn once per `analyze` call. `K` is
+   never stored, never derived from account keys, and is zeroized on return.
+   There is no domain-separation label, because `K` has no other use.
+2. Indices are sorted by tag. Within a group of equal tags, passwords are
+   compared with `subtle::ConstantTimeEq`, so the groups are exact even under a
+   tag collision. Empty passwords never form a group.
+3. Tags live in a zeroizing buffer allocated at its final size. The result is
+   indices only.
+4. No new dependency: `hmac`, `sha2`, `subtle` and `zeroize` are already in §2.
+
+### Alternatives considered
+- Pairwise constant-time comparison: 12.5 million comparisons for 5,000 items.
+- Plain SHA-256, or a map keyed by the password.
+- A key derived from the account key: stable tags that nothing needs, tied to
+  a long-lived secret.
+
+### Consequences
+Sorting leaks the tag order through timing, which reveals nothing without
+`K`. `ct_eq` leaks a length difference only on a tag collision. One stack
+copy of each tag is made before it moves into the zeroizing buffer. Not
+externally reviewed (pre-audit).
+
+## ADR-0023: Shipping the 2FA Directory data, and what counts as 2FA
+
+- Status: accepted
+- Date: 2026-10-29
+- Milestone: M3
+
+### Decision
+1. **Data and license:** the 2FA Directory API v3 TOTP list (downloaded
+   2026-10-27; its SHA-256 is recorded in `crates/insights/data/README.md` and
+   checked by a test), embedded with `include_str!`. The MIT license
+   (2factorauth and Contributors; Josh Davis) ships unchanged next to it and is
+   kept in the package by `include`. The dashboard shows
+   `insights.attribution.twoFactor` (DE and EN). Updates come only with
+   releases; nothing is fetched at run time.
+2. **Matching:** a host matches its own entry or its closest listed parent,
+   down to two labels; IPv4 hosts match only exactly. Domains in `EXACT_ONLY`
+   match only exactly or with `www.`: carrd.co, gov.uk, myfritz.net, omg.lol,
+   pythonanywhere.com and square.site (on the Public Suffix List, checked
+   2026-10-28), plus squarespace.com, substack.com, tumblr.com, weebly.com and
+   wordpress.com (hosting platforms that give users subdomains). The check is
+   repeated on every data update; no Public Suffix List is shipped.
+3. **What counts as 2FA:** an item's own OTP or an OTP custom field. Such an
+   item covers its URLs and every OTP issuer it holds. A passkey for the same
+   site lowers the finding from Medium to Low and does not hide it, because
+   the password alone still signs in.
+4. **Severity:** Medium at most, because the data is crowdsourced and can be
+   out of date. Documentation links are shown as text; the app opens no
+   external link.
+
+### Alternatives considered
+- Fetching the directory at run time: a network request that reveals that
+  someone uses Mosaic, plus a remote input to trust.
+- Shipping the Public Suffix List: about 230 KB under MPL-2.0, for 11 domains.
+- Letting a passkey hide the finding.
+
+### Consequences
+New platforms in future data need a manual review. Users see a Low hint for
+sites where they use a passkey.
+
+## ADR-0024: A hand-written strength estimate instead of zxcvbn
+
+- Status: accepted
+- Date: 2026-10-29
+- Milestone: M3
+
+### Context
+The Rust zxcvbn ports copy the password into many ordinary `String`s that
+nobody zeroizes, and they embed large lists.
+
+### Decision
+1. A documented heuristic: the generator's brute-force bound, lowered by
+   matches against a short word list (with reversal and common
+   substitutions), sequences, QWERTY and QWERTZ keyboard runs, repeated blocks
+   of every length, and years and dates, combined by dynamic programming.
+   Every copy of the password is a zeroizing buffer. Only the first 128
+   characters are analyzed.
+2. Weak means below 60 bits (the generator's Fair bucket). Severity is High
+   below 36 bits.
+3. Accepted limit: dictionary passwords outside the list score as brute force
+   (`Tr0ub4dor&3` scores 72.3 bits, where zxcvbn gives about 28). A larger,
+   licensed list is follow-up work in M7, together with the breach check.
+4. Checks: unit tests, an invariant proptest (never negative, never above the
+   brute-force bound, deterministic, only 128 characters, a doubled block
+   costs at most the block plus 1 bit) and two fuzz targets in the CI fuzz
+   smoke.
+5. Cost: about 1 to 6 ms per 128-character password in a release build, up to
+   about 25 ms for adversarial periodic strings. The analysis runs under the
+   session lock. This is accepted for M3; it moves off the lock if the
+   dashboard ever blocks other commands noticeably.
+
+### Consequences
+The dashboard under-reports dictionary passwords outside the list (PROGRESS
+M3-R16). The README stays labeled pre-audit.
+
+## ADR-0025: SSH agent crates, algorithms and approval model
+
+- Status: accepted, pending the M3 crypto-reviewer pass over `crates/ssh-agent/src/keys.rs` and `core.rs`
+- Date: 2026-10-29
+- Milestone: M3
+
+### Context
+Brief §5 asks for an SSH agent with approval for every use. CRYPTO_SPEC §2
+had no SSH row.
+
+### Decision
+1. **Crate:** `ssh-key =0.7.0-rc.11` (RustCrypto), with `std`, `ed25519`,
+   `p256` and `encryption`. Move to 0.7.0 when it is released; the stable
+   0.6.7 is blocked by RUSTSEC-2026-0387 (crypto-bigint 0.5). Feature
+   unification turns on `zeroize` in `ed25519-dalek =3.0.0` and
+   `bcrypt-pbkdf =0.11.0`. `tokio =1.54.1` (already in the tree through Tauri)
+   provides the listener, timers and channels.
+2. **Algorithms:** Ed25519 (RFC 8709) and ecdsa-sha2-nistp256 (RFC 5656,
+   RFC 6979 nonces) only. RSA is refused: the `rsa` crate has the unpatched
+   RUSTSEC-2023-0071, and signing time is observable by the server and by
+   local clients. The RFC 8332 flag rule is implemented for later. P-384,
+   P-521, DSA, `sk-*` keys and certificates are refused.
+3. **Keys:** OpenSSH private keys are decrypted (bcrypt-pbkdf with at most
+   1024 rounds; aes256-ctr, aes256-gcm or chacha20-poly1305@openssh.com) once
+   per approved request, off the async executor, and wiped afterwards. Nothing
+   is cached. The passphrase is the item's `login.password`
+   (`SecretField::Password`).
+4. **Approval:** allow once, allow for 15 minutes (ceiling configurable,
+   default 15 min), or deny. A request is denied after 25 s, and at most 4
+   prompts are open at once. Grants are bound to the public key and the client
+   executable path, only where the executable is known (Linux). Grants are
+   dropped on lock and when the key leaves the set. Listing identities needs
+   no approval (as with ssh-agent). Add, remove, lock, unlock, smartcard
+   requests and every extension, including `session-bind@openssh.com`, get
+   `SSH_AGENT_FAILURE`.
+5. **Endpoints:**
+   - Unix: a socket with mode 0600 in a private 0700 directory, with a peer UID
+     check. `$XDG_RUNTIME_DIR/mosaic/agent.sock` (Linux), else
+     `<app local data>/ssh/agent.sock`.
+   - Windows: `\\.\pipe\openssh-ssh-agent`, first instance only, remote
+     clients rejected, default DACL. An explicit SDDL needs unsafe and is
+     deferred.
+   - Limits: 32 connections, 256 KiB per message, a 10 s body timeout.
+6. **Desktop:** off by default. Turning it on needs an unlocked vault, and the
+   choice is stored on the device. The agent runs only while unlocked: it
+   starts after unlock and stops before the `locked` event and at quit. The
+   key set is rebuilt after every item change. The approval dialog gives Deny
+   the initial focus (Esc, expiry and lock also deny), enables the allow
+   buttons 1 s after it appears or after the window regains focus, and never
+   takes focus itself (it only asks for taskbar attention).
+
+### Alternatives considered
+- `ssh-key 0.6.7`: carries the advisory.
+- `russh-keys`: a larger surface and the `rsa` crate.
+- Serving RSA: the advisory.
+- Granting until lock: a longer window than needed.
+
+### Consequences
+On Windows and macOS the client process is unknown (PID only on macOS), so
+there are no grants and the prompt shows the client as unknown. The agent
+cannot start while the Windows OpenSSH Authentication Agent service runs
+(`sshAgentEndpointInUse`). THREAT_MODEL R20; PROGRESS M3-R12 to M3-R15 and
+M3-R18.
+
+## ADR-0026: M3 integration: services, contract changes and UI rules
+
+- Status: accepted
+- Date: 2026-10-29
+- Milestone: M3
+
+### Decision
+1. **Concrete services instead of adapter traits.** `adapters::ImportService`
+   (`mosaic-import`) and `adapters::SshAgentService` (`mosaic-ssh-agent`) are
+   concrete types, and `security_report` calls `mosaic-insights` directly. No
+   command answers `notImplemented` any more. `unlock_quick` answers
+   `quickUnlockUnavailable` (ADR-0020 item 7).
+2. **Import outside the lock.** Import parsing (including the KDBX key
+   derivation) runs without the session lock. The duplicate pass and the
+   commit run under it. One preview is held at a time.
+3. **The Emergency Kit check is stored per account (`kitVerified`).** An
+   unlocked account without it is shown the kit step again: save the kit again
+   with the master password, then type its last group.
+4. **Contract changes:**
+   - New commands: `save_emergency_kit` and `app_status`.
+   - New events: `sshSignFailed` and `quickSearchRequested`.
+   - New error codes: `importTooLarge`, `importUnsupported`, `importEncrypted`
+     and `sshAgentEndpointInUse`.
+   - Richer import preview and result.
+   - SSH: `canRemember`, `requestedAt`, `skipped` and `error`.
+   - Renamed: `SshDecision.allowUntilLock` becomes `allowFor15Minutes`.
+   - `security_report` findings changed from `kinds` to `issues`, and
+     `reusedWith` now carries `{ vaultId, itemId }`.
+5. **The webview opens no external link.** 2FA documentation URLs are shown as
+   text; no opener plugin is granted.
+6. **No new JavaScript dependencies.** Icons are vendored from Lucide (ISC),
+   with the notice shipped as `licenses/lucide-ISC.txt`.
+7. **i18n catalogs are split per area** (`packages/i18n/src/catalog/{en,de}/*.ts`),
+   with parity checked per module at compile time and by the parity test.
+
+### Alternatives considered
+- Keeping the adapter traits: one implementation each, and the fakes tested
+  the shell rather than the crates.
+- Starting the SSH agent whenever an SSH key item exists: it would expose keys
+  without the user choosing to.
+- A webview file picker: it needs the dialog and fs permissions.
+
+### Consequences
+`DESKTOP_IPC.md` marks every command live except `unlock_quick`. PROGRESS
+records the renames.

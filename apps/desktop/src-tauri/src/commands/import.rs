@@ -1,8 +1,8 @@
 //! Import commands. The shell opens the native file dialog and keeps the
 //! chosen path behind an opaque token, so no dialog or fs permission is
 //! granted to the webview; parsing, preview and commit are the import
-//! adapter's (`adapters::ImportAdapter`, `mosaic-import`). Tokens and
-//! previews are dropped on lock.
+//! service's (`adapters::ImportService`, `mosaic-import`). Parsing runs
+//! without the session lock. Tokens and previews are dropped on lock.
 
 use tauri::State;
 
@@ -103,38 +103,46 @@ impl Backend {
         })
     }
 
-    /// Parses the chosen file through the import adapter.
+    /// Parses the chosen file (outside the session lock) and previews it
+    /// against the unlocked vault.
     ///
     /// # Errors
-    /// `locked`, `importFileUnreadable` (unknown token), the adapter's
-    /// errors.
+    /// `locked`, `importFileUnreadable` (unknown token), `importTooLarge`,
+    /// `importFormatInvalid`, `importUnsupported`, `importEncrypted`,
+    /// `wrongCredentials`.
     pub fn import_preview(&self, request: ImportPreviewRequest) -> IpcResult<ImportPreview> {
         self.touch();
         let path = guard(&self.import_files)?
             .get(&request.file_token)
             .cloned()
             .ok_or(IpcError::new(ErrorCode::ImportFileUnreadable))?;
+        // Fail fast; the guard is dropped before the parse starts.
+        self.slot()?.unlocked()?;
+        let password = request
+            .password
+            .map(crate::contract::secret::SecretIn::into_secret);
+        let import = self
+            .adapters
+            .import
+            .parse(&path, request.format, password.as_ref())?;
+        // If the vault locked meanwhile this is `locked`, and the parsed
+        // import is dropped (wiped) here.
         let slot = self.slot()?;
         let session = slot.unlocked()?;
-        self.adapters.import.preview(
-            &path,
-            request.format,
-            request
-                .password
-                .map(crate::contract::secret::SecretIn::into_secret),
-            session,
-        )
+        self.adapters.import.hold(import, session)
     }
 
-    /// Commits a preview through the import adapter.
+    /// Commits a preview.
     ///
     /// # Errors
-    /// `locked`, the adapter's errors.
+    /// `locked`, `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable`.
     pub fn import_commit(&self, request: &ImportCommitRequest) -> IpcResult<ImportResult> {
         self.touch();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
-        self.adapters.import.commit(request, session)
+        let result = self.adapters.import.commit(request, session)?;
+        self.items_changed(session);
+        Ok(result)
     }
 
     /// Drops a preview.

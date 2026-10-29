@@ -6,9 +6,8 @@
 //!
 //! The shortcut shows and focuses the main window (there is no second
 //! webview, so no second capability that could hand out secrets). When the
-//! vault is locked the main window shows the unlock screen. A
-//! `quickSearchRequested` event that opens the palette when unlocked is an
-//! IPC proposal; [`on_pressed`] is where it would be emitted.
+//! vault is locked the main window shows the unlock screen. When unlocked,
+//! [`on_pressed`] also emits `quickSearchRequested`, which opens the palette.
 //!
 //! The plugin is installed in `setup` through [`install`], so a failure to
 //! start the hotkey manager (pure Wayland without X, for example) leaves
@@ -28,6 +27,7 @@ use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt as _, Modifiers, Shortcut, ShortcutState,
 };
 
+use crate::contract::events::AppEvent;
 use crate::state::AppState;
 
 /// Whether the shortcut is ours.
@@ -81,6 +81,7 @@ pub fn on_pressed<R: Runtime>(app: &AppHandle<R>) {
         && state.backend().is_unlocked()
     {
         state.backend().touch();
+        state.backend().emit(&AppEvent::QuickSearchRequested);
     }
 }
 

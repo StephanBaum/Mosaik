@@ -41,12 +41,12 @@ impl Backend {
     /// needs `password`, checked against the vault.
     ///
     /// # Errors
-    /// `invalidInput` when every lock trigger is off (CRYPTO_SPEC §11); `reauthRequired` without a password for a weakening change; `locked`
+    /// `invalidInput` when no lock trigger this system can deliver is on (CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`); `reauthRequired` without a password for a weakening change; `locked`
     /// for a weakening change while locked; `wrongCredentials` (the vault is
     /// then locked, see [`Backend::reauthenticate`]); `storeUnavailable` if
     /// the file cannot be written (the settings apply anyway).
     pub fn update_settings(&self, request: UpdateSettingsRequest) -> IpcResult<Settings> {
-        if !has_lock_trigger(&request.settings) {
+        if !has_lock_trigger(&request.settings, self.screen_lock_detection()) {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
         let new = normalize(request.settings);

@@ -7,8 +7,9 @@ use serde::Serialize;
 
 use super::errors::ErrorCode;
 use super::ids::UnixMillis;
+use super::ids::{WireItemId, WireVaultId};
 use super::macros::wire_enum;
-use super::ssh::{SshApprovalRequest, SshCloseReason};
+use super::ssh::{SshApprovalRequest, SshCloseReason, SshSignFailReason};
 
 wire_enum!(
     /// Why the vault locked.
@@ -85,11 +86,25 @@ pub enum AppEvent {
         /// Why.
         reason: SshCloseReason,
     },
+    /// A sign request failed after it was approved.
+    SshSignFailed {
+        /// The request.
+        request_id: String,
+        /// The key's vault.
+        vault_id: WireVaultId,
+        /// The key's item.
+        item_id: WireItemId,
+        /// Why.
+        reason: SshSignFailReason,
+    },
+    /// The global shortcut was pressed while unlocked: open the palette.
+    QuickSearchRequested,
 }
 
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
+    use crate::contract::ids::samples as ids;
     use crate::contract::ssh::samples as ssh;
 
     pub(crate) fn events() -> Vec<AppEvent> {
@@ -119,6 +134,13 @@ pub(crate) mod samples {
                 request_id: "ssh-1".into(),
                 reason: SshCloseReason::Expired,
             },
+            AppEvent::SshSignFailed {
+                request_id: "ssh-1".into(),
+                vault_id: ids::vault(1),
+                item_id: ids::item(3),
+                reason: SshSignFailReason::WrongPassphrase,
+            },
+            AppEvent::QuickSearchRequested,
         ];
         for event in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -127,7 +149,9 @@ pub(crate) mod samples {
                 | AppEvent::SyncStateChanged { .. }
                 | AppEvent::ClipboardCleared
                 | AppEvent::SshApprovalRequested { .. }
-                | AppEvent::SshApprovalClosed { .. } => {}
+                | AppEvent::SshApprovalClosed { .. }
+                | AppEvent::SshSignFailed { .. }
+                | AppEvent::QuickSearchRequested => {}
             }
         }
         all

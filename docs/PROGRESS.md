@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (skeleton committed; next: five parallel tracks: import, insights, SSH agent, Tauri shell, React UI) |
+| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; open: quick unlock, WebGL holo + virtual list, coverage run, extension-attacker review, CI green on all three OSes) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -905,27 +905,100 @@ Run it:
 - `MOSAIC_UPDATE_FIXTURES=1 cargo test -p mosaic-desktop contract_fixtures`
   after a contract change.
 
-Next steps for M3 (tracks, each in its own worktree):
+## M3 Desktop app — integration (2026-10-29)
 
-1. **Tauri shell:**
-   - OS keystore (keyring crate, ADR) and quick unlock (§6.2, §6.3)
-   - clipboard in Rust with auto-clear and history exclusion
-   - auto-lock on idle, sleep and screen lock
-   - settings persistence with re-auth
-   - TOTP codes, `add_item` / `update_item`
-   - screen-capture protection
-2. **React UI:**
-   - the screens D02–D21, the command palette and keyboard map
-   - the holo-foil primary button (port of `docs/design/holo/`)
-   - reveal and auto-hide, toasts with live regions
-   - Emergency Kit PDF; axe on every screen
-3. **Import:** `mosaic-import` (Enpass first) and the `import_*` commands.
-4. **Insights:** `mosaic-insights` and `security_report`.
-5. **SSH agent:** `mosaic-ssh-agent` (crate choice with an ADR), the
-   approval flow and the `ssh_*` commands.
+The five tracks are merged on `m3/integration` and wired end to end (merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`).
+M3 is **not done**: see "Left for M3" below.
 
-Then the milestone review (crypto-reviewer, extension-attacker for the IPC
-surface, ux-reviewer, test-engineer) and CI on all three OSes.
+What is in:
+
+- **Shell** (ADR-0020):
+  - the Secret Key in the OS keystore
+  - the clipboard from Rust, with auto-clear and history exclusion
+  - auto-lock on idle and resume (plus logind and screen saver on Linux)
+  - settings persisted with re-authentication and the CRYPTO_SPEC §11 floor
+  - the global shortcut (focus plus `quickSearchRequested`)
+  - the Emergency Kit PDF saved through the native dialog, with `kitVerified`
+    stored per account
+  - `contentProtected`
+  - `add_item`, `update_item` and `totp_code` live
+- **Import** (`mosaic-import`, ADR-0021):
+  - Enpass, Bitwarden, KeePass KDBX 4, 1PUX and CSV
+  - parsed outside the session lock
+  - preview with dedupe; commit and cancel
+- **Insights** (`mosaic-insights`, ADR-0022 to ADR-0024):
+  - weak, reused, old, missing-2FA and plain-HTTP findings, offline
+  - the 2FA Directory data is bundled
+- **SSH agent** (`mosaic-ssh-agent`, ADR-0025):
+  - Ed25519 and ECDSA P-256
+  - approval per use
+  - off by default; runs only while unlocked
+- **UI:**
+  - screens D02–D05, D07–D13, D17–D19
+  - the command palette (Ctrl+K and the global shortcut)
+  - the primary action as the static holo gradient (the WebGL foil renderer from
+    `docs/design/holo/` is not ported yet; the static gradient is its fallback)
+  - item lists render 200 rows plus "show more" (no virtual scrolling yet)
+  - reveal with auto-hide, toasts with live regions
+  - DE and EN, with i18n catalogs split per area
+- **Contract changes** (ADR-0026, `docs/DESKTOP_IPC.md`):
+  - new commands: `save_emergency_kit`, `app_status`
+  - new events: `sshSignFailed`, `quickSearchRequested`
+  - four new error codes
+  - richer import, SSH and insights payloads
+  - **renamed:** `SshDecision.allowUntilLock` → `allowFor15Minutes`;
+    `security_report` findings `kinds` → `issues`, and `reusedWith` now carries
+    `{ vaultId, itemId }`
+- **Tests:**
+  - the command-layer flow test `flow_tests::full_flow_create_unlock_add_copy_clear_lock`
+  - Vitest flows against the mock, Playwright with axe in light and dark for
+    each screen
+  - static UI guards
+- **Fuzz:** 13 new targets (insights 2, import 6, ssh-agent 2, desktop shell 3).
+  Locally they were only compiled (`--cfg fuzzing` `cargo check` on Windows).
+  The 60 s smoke for them ran only in CI.
+- **CI:**
+  - coverage for `mosaic-insights`, `mosaic-import` and `mosaic-ssh-agent`
+  - fuzz smoke, cargo-deny and cargo-audit for the four new fuzz crates
+  - an OpenSSH client check on Windows for the interop test
+
+Review and fixes (2026-10-29): crypto-reviewer over all M3 code (3 medium, 2 low)
+and ux-reviewer (2 high, 7 medium, 5 low), then two fix rounds, each checked by an
+independent final review. The 1PUX attachment lookup was quadratic in archive
+members × items (a crafted export could stall the import); it now uses a per-document
+index, with a test that counts lookups.
+
+Gate at the integration commit, run once on Windows: fmt, clippy, cargo test, deny,
+audit, pnpm install, lint, typecheck, test and audit all pass; Playwright 13 passed
+(axe in light and dark). `cargo build -p mosaic-desktop` and `pnpm --filter
+@mosaic/desktop build` succeeded; release `--ignored` tests passed for `mosaic-core`,
+`mosaic-vault`, `mosaic-ssh-agent` and `mosaic-desktop`. Coverage was not run.
+
+Left for M3:
+
+1. Quick unlock (biometrics, hardware key; M3-R6) and TK unlock of
+   hardware-protected TOTP vaults (M2-R6). Both need the CORE_API additions, an
+   ADR and a crypto-reviewer pass.
+2. The rest of the milestone review: extension-attacker for the IPC surface
+   (crypto-reviewer, ux-reviewer and test-engineer ran on 2026-10-29, see above).
+3. CI green on Windows, macOS and Linux. The Linux and macOS shell code
+   (zbus, the macOS clipboard) has only been compiled in CI.
+4. Manual keyboard-only and screen-reader walkthroughs of the real app on
+   each OS.
+5. Onboarding step D06 (install the extension) comes with M4.
+6. Port the WebGL holo foil (`docs/design/holo/holo-button.js`, ADR-0014) and add
+   virtual scrolling for item lists past 200 rows.
+7. One coverage run for the new crates and the frontend (≥ 90 % lines on library
+   crates).
+8. Agreed follow-ups after the integration commit: a slimmer dev profile (no
+   debug info for dependencies) plus one `cargo clean`; one integration-test
+   binary per crate; the code-audit simplifications (KDBX `read_xml`, 1PUX
+   `section_field`, one shared host normalizer, insights per-item caching, and
+   extractions in core, vault, totp and generator); and the Rust lints
+   `allow_attributes_without_reason`, `allow_attributes`, `excessive_nesting`,
+   `cognitive_complexity`.
+
+- D20 (sync offline / server error) is deferred to M6 with the sync server: M3 has no network sync, so neither state can occur. The `sync.offline` string stays in the catalog, unused, until then.
 
 ## Open risks / findings
 
@@ -955,12 +1028,30 @@ surface, ux-reviewer, test-engineer) and CI on all three OSes.
 | M2-R18 | info | Fresh writer IDs add one version-vector entry (about 44 bytes) per session that edits a record; an HOTP item grows by one per session that shows a code. Collision repairs can bring back superseded values as conflict copies. An oversized split leaves one conflict-copy item per value that left the record (copies have no type of their own; the UI shows the original's through `conflict_copy_of`); devices at different key generations derive different copy IDs and can leave a duplicate | accepted (ADR-0015, ADR-0016 and its amendment); vector pruning is a future format change |
 | M2-R19 | low | Writer-ID reuse is detected only where it shows (equal vectors with different contents, a counter above the replica's own, one stamp with two contents in a field). An honest device that merges two colliding versions showing none of these before the writers meet drops both writers' values (`reuse_that_shows_nowhere_is_not_detected`). Needs a forged or corrupted record or a UUIDv7 collision, since writer IDs are fresh per unlock | accepted (ADR-0015 amendment); the randomized test covers the case where the writers meet first |
 | M2-R20 | low | An oversized merge whose record does not fit even without every content field (its password history or attachment references alone exceed 1 MiB), or a value that does not fit a copy of its own, fails with `SizeLimit` and stays unmerged until the user shrinks the item | accepted (ADR-0016 amendment item 4); needs thousands of attachments or history entries near the limit |
-| M3-R1 | medium | The Secret Key is kept in process memory only (`MemoryKeystore`): after a restart the user types it from the Emergency Kit. Not a leak, but not the OS-keystore storage CORE_API asks for | open, M3 Tauri shell track (keystore crate with an ADR) |
+| M3-R1 | low | Secret Key storage: Windows Credential Manager and the macOS Keychain keep it; the Linux kernel keyring keeps it for the login session only, so Linux users type it from the Emergency Kit after a reboot | partly resolved (ADR-0020); Secret Service in M9 if its transport crypto is accepted |
 | M3-R2 | low | Tauri isolation pattern not used (THREAT_MODEL §4.2); the closed command set, typed Rust-side validation and the strict CSP stand in | accepted until M9 (ADR-0019 item 4) |
 | M3-R3 | low | Linux-only advisories in Tauri's stack: gtk-rs 0.18 (`proc-macro-error` unmaintained, `glib::VariantStrIter` unsound, not called) and zbus 5 parts folded into zbus 6 | accepted (ADR-0019 item 9, deny.toml, .cargo/audit.toml); revisit with Tauri's gtk4 / zbus 6 move |
 | M3-R4 | info | Typed secrets, revealed values, generated passwords and one-time codes live in the webview heap, and the parsed IPC body is not zeroized | accepted, THREAT_MODEL R19 |
+| M3-R5 | medium | Windows and macOS: no pre-sleep, screen-lock or user-switch signal (needs unsafe FFI). The vault locks on idle and on resume (up to 2 s after it), not when the screen locks; the settings screen says so (CRYPTO_SPEC §11 gap) | accepted for M3 (ADR-0020 item 3), THREAT_MODEL R21; M9 |
+| M3-R6 | medium | Quick unlock (biometrics, hardware key) is not available: `mosaic-vault` has no session methods for the §6.2/§6.3 wrappings. The Windows Hello platform half exists; macOS and FIDO2 are not built. Brief M3 "unlock (password, biometrics, hardware key)" is only partly met | open, M3 |
+| M3-R7 | low | Clipboard exclusion depends on clipboard managers honoring the hints; Linux covers X11/XWayland only; a clipboard still busy after 5 tries at quit keeps the value | accepted (ADR-0020), R21 |
+| M3-R8 | low | Re-authentication re-derives the keys (lock, then unlock): one new writer ID per re-authentication, and a wrong password locks the vault, until `mosaic-vault` has `verify_master_password` | accepted; CORE_API addition together with M3-R6 |
+| M3-R9 | info | keyring, arboard and OS clipboard buffers are not zeroized; a same-user attacker can edit `settings.json` (the §11 floor still applies when it is read) | accepted, R21 |
+| M3-R10 | low | Global shortcut: no effect on Wayland; a conflict on macOS is not reported; not remappable yet (UX_GUIDELINES §4) | open, M9 |
+| M3-R11 | info | `contentProtected` has no effect on Linux | accepted, R21 |
+| M3-R12 | low | SSH agent: no client identity on Windows and PID only on macOS, so "Allow for 15 minutes" is not offered there and the prompt shows an unknown client | accepted (ADR-0025), R20 |
+| M3-R13 | low | `ssh-key 0.7.0-rc.11` (a release candidate) is pinned; 0.6.7 carries RUSTSEC-2026-0387 | open: move to 0.7.0 when it is released |
+| M3-R14 | info | RSA SSH keys are not served (RUSTSEC-2023-0071) | accepted (ADR-0025) |
+| M3-R15 | low | Unwiped upstream copies: the PEM decoder line buffer, bcrypt-pbkdf temporaries and ssh-key intermediates; serde_json, quick-xml and zip buffers during import | accepted, R20 and R22; revisit with R5 in M9 |
+| M3-R16 | low | Strength estimate: dictionary passwords outside the short word list score as brute force (`Tr0ub4dor&3` 72 bits); the bundled 2FA Directory data changes only with releases | accepted (ADR-0024, ADR-0023); a larger list with HIBP in M7 |
+| M3-R17 | low | The security report and the import commit run under the session lock; a large vault or import blocks other commands while they run | accepted (ADR-0024 item 5) |
+| M3-R18 | low | Windows: the agent pipe keeps the default DACL, so another local account can occupy the 32 connection slots; the agent cannot start while the OpenSSH Authentication Agent service runs | accepted (ADR-0025), R20 |
+| M3-R19 | info | Import: no KeePass key files, no Twofish or KDBX 3.1, no password-protected Bitwarden exports, passkeys left out (M5), no custom CSV column mapping in the UI | accepted (ADR-0021) |
+| M3-R20 | medium | `mosaic-core` proptest `model_sync::password_history_trim_by_edit_order` failed repeatedly on one saved input during the shell track (`replica_count = 3, offsets_days = [0, 0, 0]`; the steps were not kept) | open; no fix commit, not reproduced (the integration run with PROPTEST_CASES=4096 passed; the saved input was lost) |
+| M3-R21 | info | The fuzz smoke of the 13 new targets ran only in CI; locally they were only compiled (fuzzing does not run on Windows MSVC, M1-R4) | accepted |
+| M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
-| M2-R6 | info | Hardware-protected TOTP vaults (§7.4) are listed as unavailable: TK unlock and acting on `OtpConfig::hardware_protected` are M3 | open, M3 |
+| M2-R6 | info | Hardware-protected TOTP vaults (§7.4) are listed as unavailable: TK unlock and acting on `OtpConfig::hardware_protected` are M3 | open, M3 (with M3-R6) |
 
 See the THREAT_MODEL §5 residual-risk register.
 
@@ -977,3 +1068,5 @@ See the THREAT_MODEL §5 residual-risk register.
 - **Signing**: Apple Developer ID, Windows code-signing certificate, extension
   store accounts (Chrome Web Store, Edge Add-ons, AMO). Needed from M3/M4 and
   for releases in M9.
+- **Code signing and notarization**: a Windows code-signing certificate, an Apple Developer ID and macOS notarization for the desktop app (needed before any M3 build is shared).
+- **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

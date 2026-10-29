@@ -1,239 +1,33 @@
+/** German UI strings, informal "du", assembled from `catalog/de/`. */
+import { app } from "./catalog/de/app.ts";
+import { errors } from "./catalog/de/errors.ts";
+import { onboarding } from "./catalog/de/onboarding.ts";
+import { unlock } from "./catalog/de/unlock.ts";
+import { vault } from "./catalog/de/vault.ts";
+import { items } from "./catalog/de/items.ts";
+import { generator } from "./catalog/de/generator.ts";
+import { clipboard } from "./catalog/de/clipboard.ts";
+import { insights } from "./catalog/de/insights.ts";
+import { importMessages } from "./catalog/de/import.ts";
+import { ssh } from "./catalog/de/ssh.ts";
+import { settings } from "./catalog/de/settings.ts";
+import { palette } from "./catalog/de/palette.ts";
+import { shell } from "./catalog/de/shell.ts";
 import type { MessageKey } from "./en.ts";
 
-/** German UI strings. Informal "du", see docs/UX_GUIDELINES.md §5. */
 export const de: Readonly<Record<MessageKey, string>> = {
-  "app.name": "Mosaic",
-  "app.preAudit":
-    "Software vor dem Audit: noch nicht von einem externen Sicherheitsprüfer begutachtet.",
-
-  "action.cancel": "Abbrechen",
-  "action.continue": "Weiter",
-  "action.retry": "Erneut versuchen",
-  "action.copy": "Kopieren",
-  "action.reveal": "Anzeigen",
-  "action.hide": "Verbergen",
-  "action.lock": "Sperren",
-  "action.details": "Details",
-
-  "lock.unlockTitle": "Mosaic entsperren",
-  "lock.masterPassword": "Master-Passwort",
-  "lock.wrongPassword":
-    "Dieses Master-Passwort hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es erneut.",
-  "lock.locked": "Mosaic ist gesperrt.",
-
-  "onboarding.secretKey.title": "Dein Secret Key",
-  "onboarding.secretKey.body":
-    "Dein Secret Key und dein Master-Passwort entsperren gemeinsam deinen Tresor. Wir können keins von beiden wiederherstellen. Sichere jetzt dein Emergency Kit.",
-  "onboarding.secretKey.verify":
-    "Gib die letzte Gruppe deines Secret Keys ein, um zu bestätigen, dass du ihn gesichert hast.",
-  "onboarding.secretKey.mistyped":
-    "Das stimmt nicht überein. Prüfe die letzte Gruppe in deinem Emergency Kit.",
-
-  "clipboard.copied":
-    "Kopiert. Wird in {seconds, plural, one {# Sekunde} other {# Sekunden}} geleert.",
-  "clipboard.cleared": "Zwischenablage geleert.",
-
-  "sync.offline":
-    "Dein Sync-Server ist nicht erreichbar. Deine Änderungen sind auf diesem Gerät gespeichert und werden synchronisiert, sobald du wieder online bist.",
-
-  "vault.itemCount":
-    "{count, plural, =0 {Keine Einträge} one {# Eintrag} other {# Einträge}}",
-  "vault.deleteConfirm":
-    "„{title}“ löschen? Du kannst den Eintrag 30 Tage lang aus dem Papierkorb wiederherstellen.",
-
-  "app.loading": "Mosaic wird geöffnet …",
-  "app.skipToContent": "Zum Inhalt springen",
-
-  "onboarding.step": "Schritt {current} von {total}",
-  "onboarding.create.title": "Erstelle dein Konto",
-  "onboarding.create.body":
-    "Dein Master-Passwort und ein Secret Key, den wir auf diesem Gerät erzeugen, entsperren gemeinsam deinen Tresor. Keins von beiden wird jemals an den Server gesendet.",
-  "onboarding.create.email": "E-Mail",
-  "onboarding.create.password": "Master-Passwort",
-  "onboarding.create.passwordHint":
-    "Vier Wörter ohne Zusammenhang funktionieren gut. Nutze es nur für Mosaic.",
-  "onboarding.create.confirm": "Master-Passwort bestätigen",
-  "onboarding.create.mismatch":
-    "Die beiden Passwörter stimmen nicht überein. Gib in beiden Feldern dasselbe Master-Passwort ein.",
-  "onboarding.create.submit": "Konto erstellen",
-  "onboarding.create.working": "Dein Konto wird erstellt. Das dauert ein paar Sekunden.",
-  "onboarding.kit.accountId": "Konto-ID",
-  "onboarding.kit.secretKey": "Secret Key",
-  "onboarding.kit.lastGroup": "Letzte Gruppe deines Secret Keys",
-  "onboarding.kit.confirm": "Bestätigen",
-
-  "lock.secretKey": "Secret Key",
-  "lock.secretKeyHint":
-    "Dieses Gerät kennt deinen Secret Key noch nicht. Gib ihn aus deinem Emergency Kit ein, dann merkt Mosaic ihn sich auf diesem Gerät.",
-  "lock.submit": "Entsperren",
-  "lock.working": "Wird entsperrt …",
-
-  "vault.defaultName": "Persönlich",
-  "vault.unnamed": "Unbenannter Tresor",
-  "vault.vaults": "Tresore",
-  "vault.allItems": "Alle Einträge",
-  "vault.items": "Einträge",
-  "vault.search": "Tresor durchsuchen",
-  "vault.untitled": "Ohne Titel",
-  "vault.empty":
-    "Dein Tresor ist leer. Lege deinen ersten Login an oder importiere aus einem anderen Passwortmanager.",
-  "vault.noResults":
-    "Nichts passt zu „{query}“. Prüfe die Schreibweise oder suche stattdessen nach einer Website.",
-
-  "error.notImplemented":
-    "Das ist noch nicht verfügbar. Es kommt in einer späteren Version von Mosaic.",
-  "error.noAccount":
-    "Auf diesem Gerät gibt es noch kein Konto. Erstelle eins oder melde dich mit deinem Emergency Kit an.",
-  "error.accountExists":
-    "Auf diesem Gerät gibt es schon ein Mosaic-Konto. Entsperre es stattdessen.",
-  "error.locked": "Mosaic ist gesperrt. Entsperre es, um weiterzumachen.",
-  "error.alreadyUnlocked": "Mosaic ist bereits entsperrt. Du kannst direkt weitermachen.",
-  "error.wrongCredentials":
-    "Das Master-Passwort oder der Secret Key hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es noch einmal.",
-  "error.secretKeyRequired":
-    "Dieses Gerät kennt deinen Secret Key nicht. Gib ihn aus deinem Emergency Kit ein.",
-  "error.secretKeyMalformed":
-    "Das ist kein Secret Key. Deiner beginnt mit „M1-“ und steht in deinem Emergency Kit.",
-  "error.secretKeyMistyped":
-    "Der Secret Key enthält einen Tippfehler. Vergleiche ihn Zeichen für Zeichen mit deinem Emergency Kit.",
-  "error.emptyPassword": "Das Master-Passwort ist leer. Gib es ein, um weiterzumachen.",
-  "error.quickUnlockUnavailable":
-    "Schnelles Entsperren ist auf diesem Gerät nicht eingerichtet. Entsperre mit deinem Master-Passwort.",
-  "error.storeInUse":
-    "Mosaic ist auf diesem Computer schon geöffnet. Schließe das andere Fenster und versuche es dann noch einmal.",
-  "error.storeUnavailable":
-    "Mosaic konnte deine Tresordatei auf diesem Gerät nicht öffnen. Prüfe, ob das Laufwerk verfügbar ist und freien Speicher hat, und starte Mosaic dann neu.",
-  "error.vaultNotFound":
-    "Diesen Tresor gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät gelöscht.",
-  "error.vaultUnavailable":
-    "Dieser Tresor lässt sich in dieser Sitzung nicht öffnen. Entsperre ihn mit seinem Hardware-Schlüssel oder synchronisiere und versuche es dann noch einmal.",
-  "error.itemNotFound":
-    "Diesen Eintrag gibt es nicht mehr. Vielleicht wurde er auf einem anderen Gerät verschoben oder gelöscht.",
-  "error.itemDeleted":
-    "Dieser Eintrag wurde endgültig gelöscht und lässt sich nicht mehr öffnen. Wähle einen anderen Eintrag.",
-  "error.sameVault": "Der Eintrag liegt schon in diesem Tresor. Wähle einen anderen Tresor.",
-  "error.noOtp":
-    "Dieser Eintrag hat keinen Einmalcode. Bearbeite den Eintrag, um einen hinzuzufügen.",
-  "error.fieldEmpty":
-    "Dieses Feld ist leer, es gibt also nichts zu kopieren oder anzuzeigen. Bearbeite den Eintrag, um es auszufüllen.",
-  "error.invalidInput":
-    "Etwas in diesem Formular ist ungültig. Prüfe die markierten Felder und versuche es noch einmal.",
-  "error.reauthRequired":
-    "Diese Änderung braucht dein Master-Passwort. Gib es zur Bestätigung ein.",
-  "error.attachmentTooLarge": "Diese Datei ist größer als 50 MiB. Wähle eine kleinere Datei.",
-  "error.attachmentQuota":
-    "Deine Dateien würden mehr als die verfügbaren 1 GiB belegen. Entferne einige Anhänge und versuche es dann noch einmal.",
-  "error.clipboardUnavailable":
-    "Mosaic konnte die Zwischenablage nicht verwenden. Schließe Apps, die sie blockieren könnten, und versuche es dann noch einmal.",
-  "error.importFileUnreadable":
-    "Mosaic konnte die Datei nicht lesen. Prüfe, ob sie noch existiert und nicht in einer anderen App geöffnet ist, und versuche es dann noch einmal.",
-  "error.importFormatInvalid":
-    "Die Datei hat nicht das gewählte Format. Wähle das passende Format oder exportiere die Datei noch einmal.",
-  "error.importPreviewExpired":
-    "Dieser Import wurde abgebrochen. Wähle die Datei noch einmal aus, um neu zu beginnen.",
-  "error.sshRequestExpired":
-    "Diese SSH-Anfrage ist schon beendet. Führe den Befehl noch einmal aus, wenn du ihn noch brauchst.",
-  "error.sshAgentUnavailable":
-    "Der SSH-Agent konnte nicht starten. Prüfe, dass kein anderer SSH-Agent läuft, und schalte ihn dann wieder ein.",
-  "error.busy":
-    "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
-  "error.internal":
-    "Etwas Unerwartetes hat diese Aktion gestoppt. Versuche es noch einmal und starte Mosaic neu, wenn es wieder passiert.",
-  "shell.emergencyKit.title": "Mosaic Emergency Kit",
-  "shell.emergencyKit.intro":
-    "Bewahre dieses Blatt sicher auf, zum Beispiel in einer abschließbaren Schublade. Dein Secret Key und dein Master-Passwort entsperren gemeinsam deinen Tresor auf einem neuen Gerät. Niemand, auch nicht Mosaic, kann eins von beiden für dich wiederherstellen.",
-  "shell.emergencyKit.email": "E-Mail des Kontos",
-  "shell.emergencyKit.accountId": "Konto-ID",
-  "shell.emergencyKit.signInUrl": "Anmeldeadresse",
-  "shell.emergencyKit.signInUrlLocal": "Nur dieses Gerät (noch kein Sync-Server eingerichtet)",
-  "shell.emergencyKit.secretKey": "Secret Key",
-  "shell.emergencyKit.masterPassword": "Master-Passwort",
-  "shell.emergencyKit.masterPasswordHint":
-    "Schreib es nur dann von Hand auf die Linie, wenn dieses Blatt sicher aufbewahrt bleibt. Sonst behalte es im Kopf.",
-  "shell.emergencyKit.footer":
-    "Mosaic ist Pre-Audit-Software: Sie wurde noch nicht von einem externen Sicherheitsprüfer begutachtet.",
-  "shell.shortcut.conflict":
-    "Eine andere App nutzt {shortcut} schon. Schließ diese App oder ändere ihr Tastenkürzel und starte Mosaic dann neu, um die Schnellsuche zu nutzen.",
-  "insights.title": "Sicherheit",
-  "insights.intro":
-    "Die Prüfungen laufen auf diesem Gerät. Zuletzt geprüft am {checkedAt, date, medium} um {checkedAt, time, short}, {count, plural, one {# Eintrag} other {# Einträge}}.",
-  "insights.checkAgain": "Erneut prüfen",
-  "insights.summary": "Übersicht",
-  "insights.fixFirst": "Das zuerst beheben",
-  "insights.showAll": "Alle {count, plural, one {# Befund} other {# Befunde}} anzeigen",
-  "insights.empty": "Keine Probleme gefunden. Mosaic prüft erneut, wenn du diese Seite öffnest.",
-  "insights.kind.weak": "Schwach",
-  "insights.kind.weak.description": "Leicht zu erraten",
-  "insights.kind.reused": "Mehrfach verwendet",
-  "insights.kind.reused.description": "{groups, plural, one {# Gruppe} other {# Gruppen}}",
-  "insights.kind.old": "Alt (über 1 Jahr)",
-  "insights.kind.old.description": "Seit über einem Jahr nicht geändert",
-  "insights.kind.missingTotp": "2FA fehlt",
-  "insights.kind.missingTotp.description":
-    "Die Seite unterstützt es, aber du hast es noch nicht eingerichtet",
-  "insights.kind.insecureUrl": "Unverschlüsseltes HTTP",
-  "insights.kind.insecureUrl.description": "Sendet dein Passwort unverschlüsselt",
-  "insights.finding.weak": "Leicht zu erraten. Ersetze es durch ein generiertes Passwort.",
-  "insights.finding.reused":
-    "Auch in {count, plural, one {# anderen Eintrag} other {# anderen Einträgen}} verwendet. Gib jeder Seite ein eigenes Passwort.",
-  "insights.finding.old":
-    "Seit über einem Jahr nicht geändert. Ändere es, wenn du das Konto noch nutzt.",
-  "insights.finding.missingTotp":
-    "{site} bietet Zwei-Faktor-Codes an. Schalte sie dort ein und speichere den Code in Mosaic.",
-  "insights.finding.insecureUrl":
-    "Nutzt unverschlüsseltes HTTP: {url}. Wechsle zu https://, wenn die Seite es unterstützt.",
-  "insights.severity.high": "Hoch",
-  "insights.severity.medium": "Mittel",
-  "insights.severity.low": "Niedrig",
-  "insights.action.changePassword": "Passwort ändern",
-  "insights.action.setUpTotp": "2FA einrichten",
-  "insights.action.reviewUrl": "Prüfen",
-  "insights.attribution.twoFactor": "2FA-Daten: 2FA Directory (2fa.directory), MIT-Lizenz.",
-
-  "import.format.enpass": "Enpass (.json)",
-  "import.format.bitwarden": "Bitwarden (.json, unverschlüsselt)",
-  "import.format.keepass": "KeePass (.kdbx)",
-  "import.format.onePassword": "1Password (.1pux)",
-  "import.format.csv": "CSV-Datei (.csv)",
-  "import.keepassPassword": "Passwort der KeePass-Datenbank",
-  "import.preview.ready":
-    "{count, plural, one {# Eintrag ist bereit für den Import.} other {# Einträge sind bereit für den Import.}}",
-  "import.preview.attachments": "{count, plural, one {# Anhang} other {# Anhänge}}",
-  "import.preview.duplicate":
-    "Du hast schon einen Eintrag wie diesen. Er ist abgewählt, damit er nicht doppelt importiert wird.",
-  "import.preview.duplicateInFile":
-    "Diese Datei enthält denselben Eintrag zweimal. Die Kopie ist abgewählt.",
-  "import.warning.unmappedFields":
-    "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
-  "import.warning.attachmentsSkipped":
-    "Manche Anhänge sind größer als 50 MiB, passen nicht mehr in deinen Anhang-Speicher von 1 GiB oder fehlen im Export. Füge sie nach dem Import von Hand hinzu.",
-  "import.warning.entriesSkipped":
-    "Manche Einträge konnten nicht gelesen werden und werden ausgelassen. Prüfe sie in deinem alten Passwortmanager.",
-  "import.warning.otpUnreadable":
-    "Manche Einstellungen für Einmalcodes wurden nicht erkannt. Sie wurden als verborgene Felder übernommen; richte den Code damit neu ein.",
-  "import.warning.passkeysNotImported":
-    "Passkeys lassen sich noch nicht importieren. Der Rest dieser Einträge wird importiert; behalte deine alte App, bis du die Passkeys umgezogen hast.",
-  "import.entry.unmappedFields":
-    "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
-  "import.entry.otpUnreadable":
-    "Die Einstellung für den Einmalcode wurde nicht erkannt. Sie wurde als verborgenes Feld übernommen; richte den Code damit neu ein.",
-  "import.entry.attachmentTooLarge":
-    "Ein Anhang ist größer als 50 MiB und wurde ausgelassen. Füge ihn nach dem Import von Hand hinzu.",
-  "import.entry.attachmentMissing":
-    "Ein Anhang fehlt im Export. Füge ihn nach dem Import von Hand hinzu.",
-  "import.entry.attachmentQuota":
-    "Ein Anhang passt nicht mehr in deinen Anhang-Speicher von 1 GiB und wurde ausgelassen.",
-  "import.entry.passkeysNotImported":
-    "Der Passkey dieses Eintrags lässt sich noch nicht importieren. Behalte deine alte App, bis du ihn umgezogen hast.",
-  "import.entry.historyTruncated": "Nur die 32 neuesten alten Passwörter wurden übernommen.",
-  "import.entry.tagsDropped": "Leere oder zu lange Tags wurden ausgelassen.",
-  "import.entry.archived": "In deiner alten App archiviert. Der Eintrag bekommt den Tag „archived“.",
-  "import.entry.unknownCategory": "Unbekannter Eintragstyp. Er wird als sichere Notiz importiert.",
-  "import.entry.fieldsDropped":
-    "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
-  "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",
-  "import.skip.empty": "Dieser Eintrag ist leer.",
-  "import.skip.tooLarge": "Dieser Eintrag ist größer als 1 MiB, das Maximum für einen Eintrag.",
-  "import.result":
-    "{imported, plural, one {# Eintrag importiert.} other {# Einträge importiert.}} {skipped, plural, =0 {} one {# ausgelassen.} other {# ausgelassen.}}",
+  ...app,
+  ...errors,
+  ...onboarding,
+  ...unlock,
+  ...vault,
+  ...items,
+  ...generator,
+  ...clipboard,
+  ...insights,
+  ...importMessages,
+  ...ssh,
+  ...settings,
+  ...palette,
+  ...shell,
 };

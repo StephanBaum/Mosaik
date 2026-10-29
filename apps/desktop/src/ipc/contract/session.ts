@@ -14,7 +14,13 @@ export type SessionState =
       secretKeyStored: boolean;
       quickUnlock: QuickUnlockKind[];
     }
-  | { state: "unlocked"; accountId: AccountId; email: string | null };
+  | {
+      state: "unlocked";
+      accountId: AccountId;
+      email: string | null;
+      /** The Emergency Kit check passed; while false the UI shows the kit step again. */
+      kitVerified: boolean;
+    };
 
 export interface CreateAccountRequest {
   email: string;
@@ -46,6 +52,38 @@ export interface UnlockRequest {
   password: string;
   /** The Secret Key from the Emergency Kit, or `null` to use the one stored on this device. */
   secretKey: string | null;
+}
+
+/** The kit's texts in the user's language (`shell.emergencyKit.*`). */
+export interface KitLabels {
+  title: string;
+  intro: string;
+  email: string;
+  accountId: string;
+  signInUrl: string;
+  signInUrlValue: string;
+  secretKey: string;
+  masterPassword: string;
+  masterPasswordHint: string;
+  footer: string;
+}
+
+/** `save_emergency_kit`: Rust shows the save dialog and writes the PDF. */
+export interface SaveKitRequest {
+  labels: KitLabels;
+  /** Needed once the kit was verified or the vault locked since account creation. */
+  password: string | null;
+}
+
+export type KitSaved = { kind: "saved" } | { kind: "cancelled" };
+
+export const shortcutStates = ["registered", "conflict", "unavailable"] as const;
+export type ShortcutState = (typeof shortcutStates)[number];
+
+export interface AppStatus {
+  shortcut: ShortcutState;
+  /** Whether the app is told when the screen locks (CRYPTO_SPEC section 11 gap). */
+  screenLockDetection: boolean;
 }
 
 export interface QuickUnlockRequest {
