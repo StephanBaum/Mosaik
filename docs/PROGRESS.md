@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; open: quick unlock, WebGL holo + virtual list, coverage run, extension-attacker review, CI green on all three OSes) |
+| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; open: quick unlock, WebGL holo + virtual list, coverage run, extension-attacker review) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -981,8 +981,12 @@ Left for M3:
    ADR and a crypto-reviewer pass.
 2. The rest of the milestone review: extension-attacker for the IPC surface
    (crypto-reviewer, ux-reviewer and test-engineer ran on 2026-10-29, see above).
-3. CI green on Windows, macOS and Linux. The Linux and macOS shell code
-   (zbus, the macOS clipboard) has only been compiled in CI.
+3. ~~CI green on Windows, macOS and Linux~~: done at `3c1ea16` (2026-10-29).
+   The first CI run found Unix-only clippy errors, an empty-host-label bug in
+   insights (from the fuzz smoke), missing ssh-agent fuzz seeds, a 0755 test
+   socket directory and a duplicate `generate_context!` on macOS; all fixed.
+   The Linux and macOS shell code (zbus, the macOS clipboard) is compiled and
+   tested only in CI.
 4. Manual keyboard-only and screen-reader walkthroughs of the real app on
    each OS.
 5. Onboarding step D06 (install the extension) comes with M4.
