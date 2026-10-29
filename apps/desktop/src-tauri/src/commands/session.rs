@@ -1,7 +1,8 @@
 //! Session commands: state, account creation, Emergency Kit check, unlock,
-//! quick unlock, lock, and the event subscription.
+//! quick unlock, lock, and the event subscription. Also the Emergency Kit
+//! PDF and re-authentication, which the other commands use.
 
-use mosaic_core::{MasterPassword, SecretKey};
+use mosaic_core::{AccountId, MasterPassword, SecretKey};
 use mosaic_vault::session::{LockedSession, UnlockError};
 use tauri::State;
 use tauri::ipc::Channel;
@@ -13,10 +14,10 @@ use crate::contract::session::{
     CreateAccountRequest, CreatedAccount, EmergencyKit, KitVerification, QuickUnlockRequest,
     SessionState, UnlockRequest, VerifyKitRequest,
 };
+use crate::emergency_kit::{self, KitSaved, KitValues, SaveKitRequest};
+use crate::persist::{AccountInfo, valid_email};
 use crate::state::{AppState, Backend, Slot, guard};
 
-/// Longest accepted account email (RFC 5321 path limit).
-const MAX_EMAIL_LEN: usize = 254;
 /// Longest accepted vault name, in bytes.
 pub(crate) const MAX_VAULT_NAME_LEN: usize = 256;
 
@@ -50,15 +51,13 @@ pub async fn unlock(state: State<'_, AppState>, request: UnlockRequest) -> IpcRe
     state.run(move |b| b.unlock(request)).await
 }
 
-/// `unlock_quick`: not built yet (unlock track: OS keystore, biometrics,
-/// FIDO2, CRYPTO_SPEC §6.2 and §6.3).
+/// `unlock_quick`.
 #[tauri::command]
 pub async fn unlock_quick(
     state: State<'_, AppState>,
     request: QuickUnlockRequest,
 ) -> IpcResult<SessionState> {
-    let _ = (state, request.method);
-    Err(IpcError::new(ErrorCode::QuickUnlockUnavailable))
+    state.run(move |b| b.unlock_quick(&request)).await
 }
 
 /// `lock`.
@@ -103,8 +102,13 @@ impl Backend {
         self.state_of(&slot)
     }
 
+    fn secret_key_of(&self, account: AccountId) -> Option<SecretKey> {
+        self.secret_keys.load(account).ok().flatten()
+    }
+
     fn state_of(&self, slot: &Slot) -> IpcResult<SessionState> {
-        let email = guard(&self.email)?.clone();
+        let account = self.account();
+        let email = account.as_ref().and_then(|a| a.email.clone());
         match slot {
             Slot::Unavailable(code) => Err(IpcError::new(*code)),
             Slot::Taken => Err(IpcError::new(ErrorCode::Busy)),
@@ -112,8 +116,9 @@ impl Backend {
                 if locked.has_account()? {
                     Ok(SessionState::Locked {
                         email,
-                        secret_key_stored: self.secret_keys.load()?.is_some(),
-                        quick_unlock: Vec::new(),
+                        secret_key_stored: account
+                            .is_some_and(|a| self.secret_key_of(a.account_id.get()).is_some()),
+                        quick_unlock: self.quick_unlock.offered(),
                     })
                 } else {
                     Ok(SessionState::NoAccount)
@@ -126,6 +131,22 @@ impl Backend {
         }
     }
 
+    /// Records the unlocked account in the state file (best effort: a file
+    /// that cannot be written keeps the state in memory).
+    fn remember_account(&self, account_id: AccountId, email: Option<String>) {
+        let _ = self.update_stored(|stored| {
+            let keep = stored
+                .account
+                .as_ref()
+                .filter(|a| a.account_id.get() == account_id)
+                .and_then(|a| a.email.clone());
+            stored.account = Some(AccountInfo {
+                account_id: account_id.into(),
+                email: email.or(keep),
+            });
+        });
+    }
+
     /// Creates the account and its first vault, stores the Secret Key and
     /// returns the Emergency Kit.
     ///
@@ -133,8 +154,8 @@ impl Backend {
     /// `accountExists`, `alreadyUnlocked`, `invalidInput` (email or vault
     /// name), `emptyPassword`, or a store error.
     pub fn create_account(&self, request: CreateAccountRequest) -> IpcResult<CreatedAccount> {
-        let email = validate_text(&request.email, MAX_EMAIL_LEN)?.to_owned();
-        if !email.contains('@') {
+        let email = request.email.trim().to_owned();
+        if !valid_email(&email) {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
         let vault_name = validate_text(&request.default_vault_name, MAX_VAULT_NAME_LEN)?.to_owned();
@@ -174,13 +195,16 @@ impl Backend {
             }
         };
         // The account exists from here on; failures below leave it unlocked
-        // so the user can retry the vault or the keystore from the app.
+        // so the user can retry the vault from the app.
         let vault = session.create_vault(&vault_name);
         let account_id = session.account_id();
         *slot = Slot::Unlocked(Box::new(session));
+        self.secret_keys.save(account_id, &created.secret_key)?;
+        self.remember_account(account_id, Some(email.clone()));
+        // The kit is unconfirmed until `verify_emergency_kit` matches.
+        *guard(&self.kit_pending)? = Some(account_id);
+        self.touch();
         vault?;
-        self.secret_keys.save(&created.secret_key)?;
-        *guard(&self.email)? = Some(email.clone());
         let session = self.state_of(&slot)?;
         Ok(CreatedAccount {
             emergency_kit: EmergencyKit {
@@ -192,18 +216,23 @@ impl Backend {
         })
     }
 
-    /// Whether `request.last_group` matches the stored Secret Key.
+    /// Whether `request.last_group` matches the stored Secret Key. Needs an
+    /// unlocked vault (otherwise it would be an unauthenticated oracle on
+    /// the key's last group). A match ends the onboarding window in which
+    /// the kit can be saved without the password.
     ///
     /// # Errors
-    /// `secretKeyRequired` if this device holds no Secret Key.
+    /// `locked`; `secretKeyRequired` if this device holds no Secret Key.
     pub fn verify_emergency_kit(&self, request: &VerifyKitRequest) -> IpcResult<KitVerification> {
+        let account = self.slot()?.unlocked()?.account_id();
         let key = self
-            .secret_keys
-            .load()?
+            .secret_key_of(account)
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
-        Ok(KitVerification {
-            matches: key.matches_last_group(request.last_group.expose_secret()),
-        })
+        let matches = key.matches_last_group(request.last_group.expose_secret());
+        if matches {
+            *guard(&self.kit_pending)? = None;
+        }
+        Ok(KitVerification { matches })
     }
 
     /// Unlocks with the master password and the stored or typed Secret Key.
@@ -217,8 +246,8 @@ impl Backend {
         let secret_key = match request.secret_key {
             Some(typed) => SecretKey::parse(typed.expose_secret())?,
             None => self
-                .secret_keys
-                .load()?
+                .account()
+                .and_then(|a| self.secret_key_of(a.account_id.get()))
                 .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?,
         };
         let password = master_password(request.password);
@@ -227,10 +256,13 @@ impl Backend {
         let locked = take_locked(&mut slot)?;
         match locked.unlock(&password, &secret_key) {
             Ok(session) => {
+                let account_id = session.account_id();
                 *slot = Slot::Unlocked(Box::new(session));
                 if typed {
-                    self.secret_keys.save(&secret_key)?;
+                    self.secret_keys.save(account_id, &secret_key)?;
                 }
+                self.remember_account(account_id, None);
+                self.touch();
                 self.state_of(&slot)
             }
             Err(UnlockError { session, error }) => {
@@ -240,22 +272,159 @@ impl Backend {
         }
     }
 
-    /// Locks: drops every key and decrypted item (they zeroize), the last
-    /// generated password, and tells the webview. Locking a locked vault is
-    /// a no-op.
+    /// Quick unlock (CRYPTO_SPEC §6.2). Answers `quickUnlockUnavailable`
+    /// until `mosaic-vault` can unlock with a quick-unlock wrapping (see
+    /// `quick_unlock`).
+    ///
+    /// # Errors
+    /// `alreadyUnlocked`, `quickUnlockUnavailable`, the store's code.
+    pub fn unlock_quick(&self, request: &QuickUnlockRequest) -> IpcResult<SessionState> {
+        {
+            let slot = self.slot()?;
+            match &*slot {
+                Slot::Unlocked(_) => return Err(IpcError::new(ErrorCode::AlreadyUnlocked)),
+                Slot::Unavailable(code) => return Err(IpcError::new(*code)),
+                Slot::Taken => return Err(IpcError::new(ErrorCode::Busy)),
+                Slot::Locked(_) => {}
+            }
+        }
+        self.quick_unlock.platform(request.method)?;
+        // With vault support: release the platform secret (the OS prompt),
+        // derive W in mosaic-core, and unlock with the method-0x02 wrapping.
+        Err(IpcError::new(ErrorCode::QuickUnlockUnavailable))
+    }
+
+    /// Locks: drops every key and decrypted item (they zeroize), then
+    /// [`Backend::after_lock`]. Locking a locked vault is a no-op.
     ///
     /// # Errors
     /// The store's code when it is unavailable.
     pub fn lock(&self, reason: LockReason) -> IpcResult<SessionState> {
         let mut slot = self.slot()?;
+        let mut locked_now = false;
         if matches!(*slot, Slot::Unlocked(_))
             && let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken)
         {
             *slot = Slot::Locked(session.lock());
-            *guard(&self.last_generated)? = None;
-            self.emit(&AppEvent::Locked { reason });
+            locked_now = true;
         }
-        self.state_of(&slot)
+        let state = self.state_of(&slot);
+        drop(slot);
+        if locked_now {
+            self.after_lock(reason);
+        }
+        state
+    }
+
+    /// What follows every lock: the last generated password, import files
+    /// and adapter state are dropped, the clipboard is cleared if it still
+    /// holds what Mosaic copied, the lock hooks run (the onboarding kit window
+    /// closes) and the webview is told.
+    pub fn after_lock(&self, reason: LockReason) {
+        if let Ok(mut pending) = self.kit_pending.lock() {
+            *pending = None;
+        }
+        if let Ok(mut generated) = self.last_generated.lock() {
+            *generated = None;
+        }
+        if let Ok(mut files) = self.import_files.lock() {
+            files.clear();
+        }
+        self.adapters.import.on_lock();
+        self.adapters.ssh.on_lock();
+        let _ = self.clipboard.clear_if_ours();
+        self.run_lock_hooks(reason);
+        self.emit(&AppEvent::Locked { reason });
+    }
+
+    /// Checks the master password while unlocked (UX_GUIDELINES §8: turning
+    /// a protection off needs it again).
+    ///
+    /// `mosaic-vault` has no verify method yet, so this re-derives the keys
+    /// the only way the frozen API allows: lock, then unlock with
+    /// `password` and the stored Secret Key. A wrong password therefore
+    /// leaves the vault **locked** (`wrongCredentials` plus the `locked`
+    /// event), which is the conservative outcome; a session method
+    /// `verify_master_password` is proposed to keep it unlocked instead.
+    ///
+    /// # Errors
+    /// `locked`, `secretKeyRequired`, `wrongCredentials`, `emptyPassword`.
+    pub fn reauthenticate(&self, password: SecretIn) -> IpcResult<()> {
+        let password = master_password(password);
+        let mut slot = self.slot()?;
+        let account = slot.unlocked()?.account_id();
+        let key = self
+            .secret_key_of(account)
+            .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
+        let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken) else {
+            return Err(IpcError::INTERNAL);
+        };
+        match session.lock().unlock(&password, &key) {
+            Ok(session) => {
+                *slot = Slot::Unlocked(Box::new(session));
+                Ok(())
+            }
+            Err(UnlockError { session, error }) => {
+                *slot = Slot::Locked(session);
+                drop(slot);
+                self.after_lock(LockReason::Manual);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Writes the Emergency Kit PDF to a path the user picks.
+    ///
+    /// The password is required once the kit was verified (or the vault
+    /// locked) since account creation; during onboarding it is not. Nothing
+    /// is rendered until the user has chosen a path, and the PDF lives in a
+    /// zeroizing buffer.
+    ///
+    /// # Errors
+    /// `locked`, `reauthRequired` (no or empty password), `wrongCredentials`
+    /// (the vault is then locked), `secretKeyRequired`, `invalidInput`
+    /// (labels, or a path that cannot be written), `internal` if no dialog
+    /// can be shown.
+    pub fn save_emergency_kit(&self, request: SaveKitRequest) -> IpcResult<KitSaved> {
+        request.labels.validate()?;
+        let account = self.slot()?.unlocked()?.account_id();
+        if *guard(&self.kit_pending)? != Some(account) {
+            let password = request
+                .password
+                .ok_or(IpcError::new(ErrorCode::ReauthRequired))?;
+            if password.expose_secret().is_empty() {
+                return Err(IpcError::new(ErrorCode::ReauthRequired));
+            }
+            self.reauthenticate(password)?;
+        }
+        self.touch();
+        let Some(path) = self
+            .dialogs
+            .save_file(emergency_kit::SUGGESTED_FILE_NAME, crate::dialogs::PDF)?
+        else {
+            return Ok(KitSaved::Cancelled);
+        };
+        let kit = {
+            let slot = self.slot()?;
+            if slot.unlocked()?.account_id() != account {
+                return Err(IpcError::LOCKED);
+            }
+            let key = self
+                .secret_key_of(account)
+                .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
+            let display = key.to_display()?;
+            let email = self.account().and_then(|a| a.email).unwrap_or_default();
+            emergency_kit::render(
+                &request.labels,
+                &KitValues {
+                    email: &email,
+                    account_id: &account.to_string(),
+                    secret_key: display.expose_secret(),
+                },
+            )?
+        };
+        emergency_kit::write(&path, &kit)?;
+        Ok(KitSaved::Saved)
     }
 }
 

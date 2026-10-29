@@ -82,7 +82,7 @@ fn values<T: Serialize>(all: &[T]) -> Value {
 }
 
 #[allow(clippy::too_many_lines)]
-fn build() -> Value {
+pub(crate) fn build() -> Value {
     let mut f = Fixtures {
         requests: Map::new(),
         responses: Map::new(),

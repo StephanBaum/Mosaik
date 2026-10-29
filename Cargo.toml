@@ -48,6 +48,28 @@ tauri = { version = "=2.12.5", default-features = false, features = ["wry", "com
 tauri-build = { version = "=2.7.4", default-features = false, features = ["config-json"] }
 # Focus the running instance instead of opening a second store session.
 tauri-plugin-single-instance = { version = "=2.5.4", default-features = false }
+# M3 shell
+# Clipboard written from Rust, with the OS history/monitoring exclusions on
+# Windows, macOS and Linux (maintained by 1Password); text only, no images.
+arboard = { version = "=3.7.0", default-features = false }
+# The Secret Key in the OS keystore (Windows Credential Manager, macOS
+# Keychain, Linux kernel keyring); no Secret Service transport crypto.
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native", "apple-native", "linux-native"] }
+# Global shortcut for the quick-search window, registered from Rust only
+# (no JavaScript permission is granted).
+tauri-plugin-global-shortcut = { version = "=2.4.1", default-features = false }
+# Native save dialog for the Emergency Kit, opened from Rust. The backend of
+# tauri-plugin-dialog, used directly: the plugin forces Common Controls v6,
+# which breaks `cargo test` on Windows (ADR-0019).
+rfd = { version = "=0.16.1", default-features = false, features = ["gtk3"] }
+# Emergency Kit PDF: a small low-level PDF writer (typst), base-14 fonts only.
+pdf-writer = { version = "=0.15.0", default-features = false }
+# Windows Hello (KeyCredentialManager) for quick unlock; the version Tauri's
+# tree already carries, WinRT projections only.
+windows = { version = "=0.62.2", default-features = false, features = ["std", "Foundation", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }
+# logind and screen-saver signals on Linux (auto-lock on sleep and screen
+# lock); already in the tree through tauri-plugin-single-instance.
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

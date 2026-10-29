@@ -8,6 +8,7 @@
 #![allow(clippy::missing_errors_doc)]
 
 pub mod clipboard;
+pub mod draft;
 pub mod generator;
 pub mod import;
 pub mod insights;

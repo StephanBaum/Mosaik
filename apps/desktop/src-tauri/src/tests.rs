@@ -52,6 +52,7 @@ fn unlock_request(password: &str, secret_key: Option<&str>) -> UnlockRequest {
 
 #[test]
 fn account_lifecycle() {
+    let _kdf = crate::test_support::kdf_permit();
     let backend = backend();
     assert_eq!(backend.session_state().unwrap(), SessionState::NoAccount);
     assert_eq!(
@@ -133,6 +134,7 @@ fn account_lifecycle() {
 
 #[test]
 fn a_second_account_is_refused() {
+    let _kdf = crate::test_support::kdf_permit();
     let backend = backend();
     create(&backend);
     backend.lock(LockReason::Manual).unwrap();
@@ -152,6 +154,7 @@ fn a_second_account_is_refused() {
 
 #[test]
 fn account_input_is_validated() {
+    let _kdf = crate::test_support::kdf_permit();
     let backend = backend();
     for (email, password, vault) in [
         ("not-an-email", "pw", "Personal"),
@@ -178,6 +181,7 @@ fn account_input_is_validated() {
 
 #[test]
 fn a_typed_secret_key_unlocks_and_is_stored() {
+    let _kdf = crate::test_support::kdf_permit();
     let first = backend();
     let secret_key = create(&first);
     // A fresh backend over the same store, with an empty keystore: what a
@@ -216,6 +220,7 @@ fn a_typed_secret_key_unlocks_and_is_stored() {
 
 #[test]
 fn generator_works_locked_and_rejects_bad_options() {
+    let _kdf = crate::test_support::kdf_permit();
     let backend = backend();
     let generated = backend
         .generate(GenerateRequest::Passphrase {
@@ -281,6 +286,12 @@ fn tauri_config_keeps_the_security_baseline() {
         assert!(!sources.contains(forbidden), "CSP allows {forbidden}");
     }
     assert_eq!(security["freezePrototype"], json!(true));
+    assert_eq!(security["capabilities"], json!(["main"]));
+    assert_eq!(
+        config["app"]["windows"][0]["contentProtected"],
+        json!(true),
+        "the main window is excluded from screen capture"
+    );
     assert_eq!(config["app"]["withGlobalTauri"], json!(false));
     assert!(
         config
@@ -289,10 +300,73 @@ fn tauri_config_keeps_the_security_baseline() {
     );
 }
 
+/// A proposed command that no handler registers is refused by the IPC
+/// layer and touches nothing.
+#[test]
+fn unregistered_commands_are_refused() {
+    let _kdf = crate::test_support::kdf_permit();
+    let app = tauri::test::mock_builder()
+        .invoke_handler(crate::commands::handler())
+        .build(tauri::generate_context!())
+        .unwrap();
+    tauri::Manager::manage(&app, AppState::new(backend()));
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
+        .build()
+        .unwrap();
+    let error = tauri::test::get_ipc_response(
+        &webview,
+        tauri::webview::InvokeRequest {
+            cmd: "save_emergency_kit".into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: if cfg!(windows) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
+            body: tauri::ipc::InvokeBody::Json(json!({ "request": { "labels": {} } })),
+            headers: tauri::http::HeaderMap::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("not found") || error.contains("not allowed"),
+        "{error}"
+    );
+    let state = tauri::Manager::state::<AppState>(&app);
+    assert!(state.backend().kit_pending.lock().unwrap().is_none());
+    assert!(
+        state
+            .backend()
+            .import_files
+            .lock()
+            .unwrap()
+            .get("file-1")
+            .is_none()
+    );
+}
+
+#[test]
+fn the_global_shortcut_is_the_documented_one() {
+    use tauri_plugin_global_shortcut::{Code, Modifiers};
+    let shortcut = crate::shortcut::shortcut();
+    let expected = if cfg!(target_os = "macos") {
+        Modifiers::ALT | Modifiers::SUPER
+    } else {
+        Modifiers::CONTROL | Modifiers::SHIFT
+    };
+    assert!(shortcut.matches(expected, Code::Space));
+}
+
 /// Every command in `COMMANDS` is registered in the handler and granted by
 /// the capability (the real `tauri.conf.json` and ACL, mock runtime).
 #[test]
 fn every_command_is_registered_and_allowed() {
+    let _kdf = crate::test_support::kdf_permit();
     let app = tauri::test::mock_builder()
         .invoke_handler(crate::commands::handler())
         .build(tauri::generate_context!())
@@ -335,4 +409,77 @@ fn every_command_is_registered_and_allowed() {
         unknown.contains("not found") || unknown.contains("not allowed"),
         "{unknown}"
     );
+}
+
+/// Every command's request samples (the contract fixtures, as the webview
+/// sends them) go through the real IPC layer and the command wrappers, on
+/// a vault without an account and on an unlocked one: each answer is a
+/// value or a contract error, never a Tauri deserialization error.
+#[test]
+fn every_request_sample_reaches_its_command() {
+    let _kdf = crate::test_support::kdf_permit();
+    let fixtures = crate::contract::fixtures::build();
+    let app = tauri::test::mock_builder()
+        .invoke_handler(crate::commands::handler())
+        .build(tauri::generate_context!())
+        .unwrap();
+    tauri::Manager::manage(&app, AppState::new(backend()));
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
+        .build()
+        .unwrap();
+    let call = |cmd: &str, body: Value| {
+        tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: cmd.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(windows) {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::Json(body),
+                headers: tauri::http::HeaderMap::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+            },
+        )
+    };
+    let run_all = |round: &str| {
+        for &cmd in COMMANDS {
+            let Some(samples) = fixtures["requests"][cmd].as_array() else {
+                continue;
+            };
+            for sample in samples {
+                let body = if sample.is_null() {
+                    json!({})
+                } else {
+                    json!({ "request": sample })
+                };
+                if let Err(error) = call(cmd, body) {
+                    assert!(
+                        error.get("code").and_then(Value::as_str).is_some(),
+                        "{round} {cmd}: {error}"
+                    );
+                }
+            }
+        }
+    };
+    // The first round creates the account with the `create_account`
+    // sample (and leaves it unlocked until the `lock` sample); the next
+    // rounds run against it.
+    run_all("no account");
+    let state = tauri::Manager::state::<AppState>(&app);
+    assert_ne!(
+        state.backend().session_state().unwrap(),
+        crate::contract::session::SessionState::NoAccount
+    );
+    state
+        .backend()
+        .unlock(unlock_request("correct horse battery staple", None))
+        .unwrap();
+    run_all("unlocked");
+    run_all("locked");
 }

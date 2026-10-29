@@ -74,6 +74,7 @@ impl Backend {
     /// # Errors
     /// `locked`, `invalidInput`, or a store error.
     pub fn create_vault(&self, request: &CreateVaultRequest) -> IpcResult<VaultSummary> {
+        self.touch();
         let name = vault_name(&request.name)?;
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
@@ -86,6 +87,7 @@ impl Backend {
     /// # Errors
     /// `locked`, `invalidInput`, `vaultNotFound`, `vaultUnavailable`.
     pub fn rename_vault(&self, request: &RenameVaultRequest) -> IpcResult<VaultSummary> {
+        self.touch();
         let name = vault_name(&request.name)?;
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "settings": {
+    "autoLockMinutes": 10,
+    "lockOnSleep": true,
+    "lockOnScreenLock": true,
+    "clipboardClearSeconds": 30,
+    "theme": "system",
+    "language": "system"
+  },
+  "account": null
+}

@@ -16,9 +16,9 @@ unmaintained = "all"
 ignore = [
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained: build-time proc-macro of glib-macros (gtk-rs 0.18, Linux only); ADR-0019" },
     { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsound: no crate in the tree calls it (checked tao, wry, muda, tauri, webkit2gtk); Linux only; ADR-0019" },
-    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
-    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
-    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux; ADR-0019" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
 ]
 
 [licenses]
@@ -52,6 +52,10 @@ exceptions = [
     { crate = "dtoa-short", allow = ["MPL-2.0"] },
     { crate = "selectors", allow = ["MPL-2.0"] },
     { crate = "option-ext", allow = ["MPL-2.0"] },
+    # BSL-1.0 (Boost; permissive, OSI-approved, no notice needed in binaries): the
+    # Windows clipboard backend of arboard (M3 shell, clipboard written from Rust).
+    { crate = "clipboard-win", allow = ["BSL-1.0"] },
+    { crate = "error-code", allow = ["BSL-1.0"] },
 ]
 
 [licenses.private]
