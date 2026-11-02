@@ -16,6 +16,8 @@ import {
   type HoloProgram,
 } from "./gl.ts";
 import { newState, update, type FoilState } from "./motion.ts";
+import { DEFAULT_SEED } from "./shader.ts";
+import { SurfaceSet } from "./surfaces.ts";
 
 export interface RendererDeps {
   createCanvas?: () => HTMLCanvasElement;
@@ -36,6 +38,11 @@ export interface RegisterOptions {
 export interface HoloRenderer {
   /** Starts painting `foil` for `button`; returns the unregister function. No-op when not live. */
   register(button: HTMLButtonElement, foil: HTMLCanvasElement, options?: RegisterOptions): () => void;
+  /**
+   * Paints a static foil into `canvas` (sized by CSS) and keeps it painted (ADR-0027). The
+   * canvas gets `holo-surface--live` while painted. No-op when not live.
+   */
+  registerSurface(canvas: HTMLCanvasElement): () => void;
   setDark(dark: boolean): void;
   readonly live: boolean;
   dispose(): void;
@@ -56,6 +63,8 @@ const GRACE_MS = 2500;
 const SLOW_FRAME_MS = 24;
 const STALL_MS = 500;
 const SLOW_FRAMES = 3;
+/** Reference size (device px per button height) and half-aspect of a bare foil, as in the study stills. */
+const SURFACE_UNIT = [176, 1.36] as const;
 const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
 
 class FoilRenderer implements HoloRenderer {
@@ -74,6 +83,12 @@ class FoilRenderer implements HoloRenderer {
   private raf = 0;
   private last = 0;
   private reducedQuery: MediaQueryList | null = null;
+  private readonly surfaces = new SurfaceSet({
+    live: () => this.live,
+    dark: () => this.dark,
+    dpr: () => this.dpr(),
+    draw: (width, height) => this.drawSurface(width, height),
+  });
 
   constructor(deps: RendererDeps) {
     this.deps = {
@@ -125,17 +140,24 @@ class FoilRenderer implements HoloRenderer {
     };
   }
 
+  registerSurface(canvas: HTMLCanvasElement): () => void {
+    this.init();
+    return this.surfaces.register(canvas);
+  }
+
   setDark(dark: boolean): void {
     this.dark = dark;
     for (const entry of this.entries) {
       entry.state.dark = dark ? 1 : 0;
       entry.state.dirty = true;
     }
+    this.surfaces.repaintAll();
     this.kick();
   }
 
   dispose(): void {
     this.stop();
+    this.surfaces.dispose();
     for (const entry of this.entries) {
       entry.release();
     }
@@ -189,6 +211,7 @@ class FoilRenderer implements HoloRenderer {
     event.preventDefault();
     this.live = false;
     this.stop();
+    this.surfaces.dropLive();
     for (const entry of this.entries) {
       entry.button.classList.remove(LIVE);
     }
@@ -298,6 +321,36 @@ class FoilRenderer implements HoloRenderer {
     } else if (elapsed <= SLOW_FRAME_MS) {
       this.slowCount = 0;
     }
+  }
+
+  /** One bare foil (no pill, no motion) at the bottom-left of the GL canvas; the surface set copies it out. */
+  private drawSurface(width: number, height: number): HTMLCanvasElement | null {
+    const { gl, program, glCanvas } = this;
+    if (!this.live || gl === null || program === null || glCanvas === null) {
+      return null;
+    }
+    if (glCanvas.width < width) {
+      glCanvas.width = width;
+    }
+    if (glCanvas.height < height) {
+      glCanvas.height = height;
+    }
+    drawFoil(gl, program, {
+      width,
+      height,
+      dpr: this.dpr(),
+      mouse: { x: 0, y: 0.3 },
+      time: 2,
+      hover: 0,
+      press: 0,
+      focus: 0,
+      dark: this.dark ? 1 : 0,
+      seed: DEFAULT_SEED,
+      mask: 0,
+      stripeK: 1,
+      unit: SURFACE_UNIT,
+    });
+    return glCanvas;
   }
 
   private paint(entry: Entry): void {

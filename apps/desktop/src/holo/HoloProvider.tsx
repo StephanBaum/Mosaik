@@ -7,9 +7,11 @@ import { createHoloRenderer, type HoloRenderer, type RegisterOptions } from "./r
 
 export interface HoloApi {
   register(button: HTMLButtonElement, foil: HTMLCanvasElement, options?: RegisterOptions): () => void;
+  /** Paints a static decorative foil (ADR-0027) into `canvas`. */
+  registerSurface(canvas: HTMLCanvasElement): () => void;
 }
 
-const FALLBACK: HoloApi = { register: () => () => undefined };
+const FALLBACK: HoloApi = { register: () => () => undefined, registerSurface: () => () => undefined };
 
 const HoloContext = createContext<HoloApi>(FALLBACK);
 
@@ -22,18 +24,19 @@ export function HoloProvider({ dark, children }: { dark: boolean; children: Reac
   const renderer = useRef<HoloRenderer | null>(null);
   const darkRef = useRef(dark);
 
-  const api = useMemo<HoloApi>(
-    () => ({
-      register: (button, foil, options) => {
-        if (renderer.current === null) {
-          renderer.current = createHoloRenderer();
-          renderer.current.setDark(darkRef.current);
-        }
-        return renderer.current.register(button, foil, options);
-      },
-    }),
-    [],
-  );
+  const api = useMemo<HoloApi>(() => {
+    const shared = (): HoloRenderer => {
+      if (renderer.current === null) {
+        renderer.current = createHoloRenderer();
+        renderer.current.setDark(darkRef.current);
+      }
+      return renderer.current;
+    };
+    return {
+      register: (button, foil, options) => shared().register(button, foil, options),
+      registerSurface: (canvas) => shared().registerSurface(canvas),
+    };
+  }, []);
 
   useEffect(() => {
     darkRef.current = dark;

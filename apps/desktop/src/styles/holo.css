@@ -79,3 +79,99 @@
     transform: none;
   }
 }
+
+/* Static foil accents (ADR-0027, components/HoloSurface.tsx). Decorative only: the canvas
+   sits over the parent's flat fill and fades in once painted. Without WebGL2, after a lost
+   context, or with reduced transparency the flat fill stays. */
+
+.holo-surface {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo-surface.holo-surface--live {
+  opacity: 1;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .holo-surface.holo-surface--live {
+    opacity: 0;
+  }
+}
+
+/* Logo: the fourth tile (11/20 of the mark from the top left, 9/20 wide, corner radius 2.5/9). */
+.logo-mark-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.logo-mark__foil {
+  top: 55%;
+  left: 55%;
+  width: 45%;
+  height: 45%;
+  border-radius: 28%;
+}
+
+.logo-mark__foil.holo-surface--live ~ .logo-mark .logo-mark__tile--accent {
+  fill: none;
+}
+
+/* Active navigation item: a 3 px bar at the left edge; the neutral selected state stays. */
+.nav-item {
+  position: relative;
+}
+
+.nav-item__bar {
+  top: 25%;
+  left: 0;
+  width: calc(var(--space-1) - var(--border-width-hairline));
+  height: 50%;
+  border-radius: var(--radius-pill);
+  background: var(--color-faint);
+}
+
+.nav-item__bar.holo-surface--live {
+  background: none;
+}
+
+/* Completed setup progress segments. */
+.progress__seg--done {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress__foil {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Empty-state tile: the solid tile at (64, 64), 48 x 48, radius 12 in the 120 x 120 drawing. */
+.illu-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.illu__foil {
+  top: calc(64 / 120 * 100%);
+  left: calc(64 / 120 * 100%);
+  width: 40%;
+  height: 40%;
+  border-radius: 25%;
+}
+
+.illu__foil.holo-surface--live ~ .illu .illu__tile--solid {
+  fill: none;
+  stroke: none;
+}
+
+.illu-wrap .illu {
+  position: relative;
+}

@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { Brand } from "./Brand.tsx";
+import { HoloSurface } from "./HoloSurface.tsx";
 
 export interface AuthProgress {
   step: number;
@@ -26,12 +27,15 @@ function Progress({ step, total, label }: AuthProgress) {
       aria-valuetext={t("onboarding.step", { current: step, total })}
     >
       <div className="progress__bar" aria-hidden="true">
-        {Array.from({ length: total }, (_, index) => (
-          <span
-            key={index}
-            className={index < step ? "progress__seg progress__seg--done" : "progress__seg"}
-          />
-        ))}
+        {Array.from({ length: total }, (_, index) =>
+          index < step ? (
+            <span key={index} className="progress__seg progress__seg--done">
+              <HoloSurface className="progress__foil" />
+            </span>
+          ) : (
+            <span key={index} className="progress__seg" />
+          ),
+        )}
       </div>
       <div className="progress__caption caption" aria-hidden="true">
         <span className="tabular">{t("onboarding.step", { current: step, total })}</span>

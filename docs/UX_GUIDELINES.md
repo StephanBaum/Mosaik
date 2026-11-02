@@ -25,13 +25,18 @@ Use tokens only. Never use raw values in components.
 - **Spacing scale (px):** 0, 2, 4, 8, 12, 16, 24, 32, 48, 64 (`space.0` …
   `space.9`).
 - **Visual direction:** mostly black and white (zinc neutrals, Linear /
-  shadcn style); the logo is strictly black and white. The primary action
+  shadcn style); the logo is black and white, except that its fourth tile may
+  be a static foil (ADR-0027). The primary action
   is near-black (inverted in dark mode). Status colors stay conventional:
   green for sync and checkmarks, red for notifications and errors, orange
   for warnings, and soft pastels for vault colors. Focus rings, progress
   and selection are neutral. The single primary action of a screen is a
   round holo-foil pill ("angled rainbow stripes", ADR-0014) with a
-  `#09090B` label; nothing else uses the foil. Prototype and assets:
+  `#09090B` label. Beyond that, only four static, decorative foil accents are
+  allowed (ADR-0027): the logo's fourth tile, a 3 px bar on the active sidebar
+  item, the completed setup-progress segments and the empty-vault "+" tile.
+  They are `aria-hidden`, never the only carrier of meaning, flat without
+  WebGL2, and never the surface of any other control. Prototype and assets:
   `docs/design/holo/`. Reference mockups:
   `docs/design/` and the "Mosaic — App Screens" canvas.
 - **Radius:** 4 (kbd), 6 (icon buttons, nav rows), 8 (fields, buttons, rows,

@@ -1948,3 +1948,50 @@ M3-R18.
 ### Consequences
 `DESKTOP_IPC.md` marks every command live except `unlock_quick`. PROGRESS
 records the renames.
+
+## ADR-0027: Holo foil accents
+
+- Status: accepted
+- Date: 2026-11-02
+- Decided by: the owner
+- Amends: ADR-0014 decision 2 ("Nothing else uses the foil")
+- Milestone: M3 (desktop UI fidelity)
+
+### Context
+The owner compared the app with the approved mockups and asked for a few small
+foil accents beyond the primary action, so the signature look carries through
+the interface. ADR-0014 and UX_GUIDELINES §2 forbid this today (the logo is
+strictly black and white; progress and selection are neutral).
+
+### Decision
+Four static accents may use the foil: (1) the fourth tile of the logo mark,
+(2) a 3 px bar at the left edge of the active sidebar item, (3) the completed
+segments of the setup progress bar, (4) the "+" tile of the empty-vault
+illustration. Rules for every accent:
+1. **Static only.** No hover, no animation, no ambient sheen. One frame,
+   painted once and cached per size and theme.
+2. **Decorative.** The canvas is `aria-hidden` and carries no text.
+3. **Never the surface of an interactive control** other than the primary
+   action. The nav bar is a mark inside the item, which keeps its neutral
+   selected background.
+4. **Never the only carrier of meaning.** Selection and progress stay shown by
+   the neutral styling and the text (`aria-current`, "Step 2 of 5").
+5. **Flat fallback.** Without WebGL2, after a lost context, without a
+   provider or with `prefers-reduced-transparency`, the parent's flat fill
+   shows (`--color-faint`, or `--color-accent` for progress).
+6. **One WebGL2 context.** Accents render through `components/HoloSurface.tsx`
+   and the shared renderer (`holo/renderer.ts`), the same context and program
+   as the primary action. Nothing is loaded remotely.
+
+The primary action itself also gains a press ripple and keyboard-focus waves
+(still the same foil, still cosmetic), and the shader floors its sheen so the
+foil never turns grey. Reduced motion shows still frames.
+
+### Alternatives considered
+- Foil on the success badge and toasts: rejected, status colours stay
+  conventional (UX §2).
+- Only one or two accents: the owner chose all four.
+
+### Consequences
+UX_GUIDELINES §2 names the four accents. Any further foil use needs another
+ADR.

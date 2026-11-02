@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import type { MessageKey } from "@mosaic/i18n";
 import { useEvents } from "../../app/EventsProvider.tsx";
+import { HoloSurface } from "../../components/HoloSurface.tsx";
 import { Icon, type IconName } from "../../components/icons.tsx";
 import { IconButton } from "../../components/IconButton.tsx";
 import { Kbd } from "../../components/Kbd.tsx";
@@ -74,6 +75,7 @@ function Categories(props: SidebarProps) {
                 props.onCategory(category);
               }}
             >
+              {props.view === "vault" && props.category === category && <HoloSurface className="nav-item__bar" />}
               <Icon name={CATEGORY_ICONS[category]} />
               <span className="nav-item__label">
                 {t(category === "all" ? "vault.allItems" : `vault.category.${category}`)}
@@ -104,6 +106,9 @@ function Vaults(props: SidebarProps) {
             props.onVault(vault.vaultId);
           }}
         >
+          {props.vaultId === vault.vaultId && props.view === "vault" && (
+            <HoloSurface className="nav-item__bar" />
+          )}
           <span className="nav-item__slot">
             <span className={`vault-dot vault-dot--${String(index % VAULT_COLORS)}`} aria-hidden="true" />
           </span>
@@ -128,6 +133,7 @@ function BottomGroup({ view, findingCount, onView }: SidebarProps) {
         onView(target);
       }}
     >
+      {view === target && <HoloSurface className="nav-item__bar" />}
       <Icon name={icon} />
       <span className="nav-item__label">{label}</span>
       {extra}
