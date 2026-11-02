@@ -22,4 +22,13 @@ export const vault = {
   "vault.favorite": "Favorit",
   "vault.unfavorite": "Aus Favoriten entfernen",
   "vault.moveTo": "In Tresor verschieben",
+  "vault.allVaults": "Alle Tresore",
+  "vault.category.favorites": "Favoriten",
+  "vault.category.logins": "Logins",
+  "vault.category.passkeys": "Passkeys",
+  "vault.category.codes": "Einmalcodes",
+  "vault.category.cards": "Karten",
+  "vault.category.notes": "Sichere Notizen",
+  "vault.category.ssh": "SSH-Schlüssel",
+  "vault.flag.otp": "2FA",
 } satisfies Record<keyof typeof en, string>;

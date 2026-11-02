@@ -9,7 +9,7 @@ describe("security dashboard", () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
     await screen.findByText("GitHub");
-    await user.click(screen.getByRole("button", { name: "Security" }));
+    await user.click(screen.getByRole("button", { name: /^Security/ }));
 
     await screen.findByRole("heading", { name: "Security" });
     expect(await screen.findByText("Missing 2FA")).toBeTruthy();
@@ -24,7 +24,7 @@ describe("security dashboard", () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
     await screen.findByText("GitHub");
-    await user.click(screen.getByRole("button", { name: "Security" }));
+    await user.click(screen.getByRole("button", { name: /^Security/ }));
     await user.click(await screen.findByRole("button", { name: /Show all/ }));
     await user.click(await screen.findByRole("button", { name: "Open Figma" }));
     expect(await screen.findByRole("article", { name: "Figma" })).toBeTruthy();

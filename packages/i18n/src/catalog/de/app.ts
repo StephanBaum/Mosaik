@@ -36,4 +36,12 @@ export const app = {
   "nav.generator": "Generator",
   "nav.settings": "Einstellungen",
   "nav.trash": "Papierkorb",
+  "nav.breadcrumb": "Pfad",
+  "nav.securityCount":
+    "{count, plural, one {# Befund zu prüfen} other {# Befunde zu prüfen}}",
+  "sync.status.local": "Auf diesem Gerät gespeichert",
+  "sync.status.upToDate": "Synchronisiert",
+  "sync.status.syncing": "Synchronisiere…",
+  "sync.status.offline": "Offline",
+  "sync.status.error": "Synchronisierung fehlgeschlagen",
 } satisfies Record<keyof typeof en, string>;

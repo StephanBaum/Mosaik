@@ -11,4 +11,5 @@ export const palette = {
   "palette.cmd.settings": "Open settings",
   "palette.cmd.import": "Import from another app",
   "palette.cmd.lock": "Lock Mosaic",
+  "palette.open": "Open command palette",
 } as const satisfies Record<string, string>;

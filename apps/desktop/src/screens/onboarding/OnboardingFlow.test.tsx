@@ -47,7 +47,7 @@ describe("onboarding", () => {
     await user.click(await screen.findByRole("button", { name: "Open my vault" }));
 
     const nav = await screen.findByRole("navigation", { name: "Vaults" });
-    expect(within(nav).getByRole("button", { name: "Personal" })).toBeTruthy();
+    expect(await within(nav).findByRole("button", { name: /^Personal/ })).toBeTruthy();
     expect(screen.getByText(/Your vault is empty/)).toBeTruthy();
   });
 

@@ -1,10 +1,20 @@
 /** The item list: searched with a 150 ms debounce, rendered progressively past 200 rows. */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Avatar } from "../../components/Avatar.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
+import { Icon } from "../../components/icons.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
-import type { IpcError, ItemRequest, ItemSummary, VaultId } from "../../ipc/contract/index.ts";
+import type {
+  InsightFinding,
+  InsightKind,
+  IpcError,
+  ItemRequest,
+  ItemSummary,
+  VaultId,
+} from "../../ipc/contract/index.ts";
+import { matchesCategory, type Category } from "./useVaultData.ts";
 
 export const SEARCH_DEBOUNCE_MS = 150;
 const PAGE = 200;
@@ -13,10 +23,11 @@ interface Query {
   vaultId: VaultId | null;
   trash: boolean;
   query: string;
+  category: Category;
   reloadKey: number;
 }
 
-function useItems({ vaultId, trash, query, reloadKey }: Query, onLoaded?: (count: number) => void) {
+function useItems({ vaultId, trash, query, category, reloadKey }: Query, onLoaded?: (count: number) => void) {
   const ipc = useIpc();
   const [items, setItems] = useState<ItemSummary[] | null>(null);
   const [error, setError] = useState<IpcError | null>(null);
@@ -37,8 +48,9 @@ function useItems({ vaultId, trash, query, reloadKey }: Query, onLoaded?: (count
             }
             setError(result.ok ? null : result.error);
             if (result.ok) {
-              setItems(result.value);
-              onLoaded?.(result.value.length);
+              const shown = result.value.filter((item) => matchesCategory(item, category));
+              setItems(shown);
+              onLoaded?.(shown.length);
             }
           });
       },
@@ -48,14 +60,67 @@ function useItems({ vaultId, trash, query, reloadKey }: Query, onLoaded?: (count
       current = false;
       clearTimeout(timer);
     };
-  }, [ipc, vaultId, trash, query, reloadKey, onLoaded]);
+  }, [ipc, vaultId, trash, query, category, reloadKey, onLoaded]);
   return { items, error };
+}
+
+const FLAGGED: readonly InsightKind[] = ["reused", "weak"];
+
+/** The first reused or weak issue per item, for the row flag. */
+function flagsOf(findings: readonly InsightFinding[]): Map<string, InsightKind> {
+  const flags = new Map<string, InsightKind>();
+  for (const finding of findings) {
+    const issue = finding.issues.find((candidate) => FLAGGED.includes(candidate.kind));
+    if (issue !== undefined) {
+      flags.set(`${finding.vaultId}/${finding.itemId}`, issue.kind);
+    }
+  }
+  return flags;
+}
+
+function ItemRow({
+  item,
+  selected,
+  flag,
+  onSelect,
+}: {
+  item: ItemSummary;
+  selected: boolean;
+  flag: InsightKind | undefined;
+  onSelect: () => void;
+}) {
+  const { t } = useI18n();
+  const title = item.title ?? t("vault.untitled");
+  return (
+    <button
+      type="button"
+      className="item-row"
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+    >
+      <Avatar title={title} selected={selected} />
+      <span className="item-row__text">
+        <span className="item-row__title">{title}</span>
+        <span className="item-row__subtitle">{item.subtitle ?? t(`item.kind.${item.kind}`)}</span>
+      </span>
+      {flag !== undefined ? (
+        <span className="item-row__flag">
+          <Icon name="alert" size="sm" />
+          {t(`insights.kind.${flag}`)}
+        </span>
+      ) : (
+        item.hasOtp && <span className="item-row__meta">{t("vault.flag.otp")}</span>
+      )}
+    </button>
+  );
 }
 
 export function ItemList({
   vaultId,
   trash,
   query,
+  category,
+  findings,
   selected,
   reloadKey,
   onSelect,
@@ -64,6 +129,8 @@ export function ItemList({
   vaultId: VaultId | null;
   trash: boolean;
   query: string;
+  category: Category;
+  findings: readonly InsightFinding[];
   selected: ItemRequest | null;
   /** Changes when something was added, edited or removed. */
   reloadKey: number;
@@ -71,8 +138,9 @@ export function ItemList({
   onLoaded?: (count: number) => void;
 }) {
   const { t } = useI18n();
-  const { items, error } = useItems({ vaultId, trash, query, reloadKey }, onLoaded);
+  const { items, error } = useItems({ vaultId, trash, query, category, reloadKey }, onLoaded);
   const [shown, setShown] = useState(PAGE);
+  const flags = useMemo(() => flagsOf(findings), [findings]);
 
   return (
     <div className="list-pane">
@@ -83,29 +151,25 @@ export function ItemList({
         </p>
       )}
       {items !== null && items.length > 0 && (
-        <ul className="item-list" aria-label={t("vault.itemCount", { count: items.length })}>
-          {items.slice(0, shown).map((item) => {
-            const isSelected =
-              selected?.vaultId === item.vaultId && selected.itemId === item.itemId;
-            return (
+        <>
+          <div className="list-pane__header">
+            <span>{t("vault.itemCount", { count: items.length })}</span>
+          </div>
+          <ul className="item-list" aria-label={t("vault.itemCount", { count: items.length })}>
+            {items.slice(0, shown).map((item) => (
               <li key={`${item.vaultId}/${item.itemId}`}>
-                <button
-                  type="button"
-                  className="item-list__item"
-                  aria-current={isSelected ? "true" : undefined}
-                  onClick={() => {
+                <ItemRow
+                  item={item}
+                  selected={selected?.vaultId === item.vaultId && selected.itemId === item.itemId}
+                  flag={flags.get(`${item.vaultId}/${item.itemId}`)}
+                  onSelect={() => {
                     onSelect({ vaultId: item.vaultId, itemId: item.itemId });
                   }}
-                >
-                  <span className="item-list__title">{item.title ?? t("vault.untitled")}</span>
-                  <span className="item-list__subtitle muted">
-                    {item.subtitle ?? t(`item.kind.${item.kind}`)}
-                  </span>
-                </button>
+                />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        </>
       )}
       {items !== null && items.length > shown && (
         <Button

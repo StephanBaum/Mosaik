@@ -7,7 +7,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { useToast } from "../components/ToastProvider.tsx";
 import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
-import type { AppEvent, LockReason, SshApprovalRequest } from "../ipc/contract/index.ts";
+import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
 import { useSecrets } from "./SecretsContext.tsx";
 
 interface EventsContextValue {
@@ -19,6 +19,8 @@ interface EventsContextValue {
   /** Why the vault locked last, until the next unlock. */
   lockReason: LockReason | null;
   clearLockReason: () => void;
+  /** The last sync state Rust reported; `null` until the first event. */
+  sync: SyncState | null;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -36,6 +38,7 @@ export function EventsProvider({
   const [ssh, setSsh] = useState<SshApprovalRequest[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
+  const [sync, setSync] = useState<SyncState | null>(null);
 
   useIpcEvent((event: AppEvent) => {
     switch (event.type) {
@@ -62,6 +65,7 @@ export function EventsProvider({
         setPaletteOpen(true);
         break;
       case "syncStateChanged":
+        setSync(event.state);
         break;
     }
   });
@@ -78,8 +82,9 @@ export function EventsProvider({
       clearLockReason: () => {
         setLockReason(null);
       },
+      sync,
     }),
-    [ssh, paletteOpen, lockReason],
+    [ssh, paletteOpen, lockReason, sync],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

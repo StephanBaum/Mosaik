@@ -9,6 +9,7 @@ import "@fontsource/ibm-plex-mono/600.css";
 import "virtual:mosaic-tokens.css";
 import "./styles/app.css";
 import "./styles/components.css";
+import "./styles/shell.css";
 import "./styles/holo.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

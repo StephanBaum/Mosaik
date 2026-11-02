@@ -33,4 +33,12 @@ export const app = {
   "nav.generator": "Generator",
   "nav.settings": "Settings",
   "nav.trash": "Trash",
+  "nav.breadcrumb": "Breadcrumb",
+  "nav.securityCount":
+    "{count, plural, one {# finding to review} other {# findings to review}}",
+  "sync.status.local": "Stored on this device",
+  "sync.status.upToDate": "Synced",
+  "sync.status.syncing": "Syncing…",
+  "sync.status.offline": "Offline",
+  "sync.status.error": "Sync failed",
 } as const satisfies Record<string, string>;

@@ -19,4 +19,13 @@ export const vault = {
   "vault.favorite": "Favorite",
   "vault.unfavorite": "Remove from favorites",
   "vault.moveTo": "Move to vault",
+  "vault.allVaults": "All vaults",
+  "vault.category.favorites": "Favorites",
+  "vault.category.logins": "Logins",
+  "vault.category.passkeys": "Passkeys",
+  "vault.category.codes": "One-time codes",
+  "vault.category.cards": "Cards",
+  "vault.category.notes": "Secure notes",
+  "vault.category.ssh": "SSH keys",
+  "vault.flag.otp": "2FA",
 } as const satisfies Record<string, string>;

@@ -13,4 +13,5 @@ export const palette = {
   "palette.cmd.settings": "Einstellungen öffnen",
   "palette.cmd.import": "Aus einer anderen App importieren",
   "palette.cmd.lock": "Mosaic sperren",
+  "palette.open": "Befehlspalette öffnen",
 } satisfies Record<keyof typeof en, string>;
