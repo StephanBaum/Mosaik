@@ -1,5 +1,8 @@
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+// findBy*/waitFor default to 1 s, which the full parallel suite (30 jsdom workers) exceeds on slow machines.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom lacks these; the app uses them, so tests get minimal stand-ins.
 if (typeof HTMLDialogElement !== "undefined") {
