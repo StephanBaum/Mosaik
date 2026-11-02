@@ -5,7 +5,41 @@
 
 export const space = [0, 2, 4, 8, 12, 16, 24, 32, 48, 64] as const;
 
-export const radius = { control: 6, card: 12, dialog: 14, pill: 9999 } as const;
+export const radius = {
+  tag: 4,
+  control: 6,
+  field: 8,
+  panel: 10,
+  card: 12,
+  dialog: 14,
+  pill: 9999,
+} as const;
+
+/** Component sizes (px) from the approved mockups (docs/design/screens). */
+export const size = {
+  iconSm: 12,
+  icon: 16,
+  iconLg: 20,
+  controlSm: 28,
+  control: 32,
+  controlMd: 34,
+  input: 36,
+  controlLg: 40,
+  inputXl: 56,
+  avatar: 32,
+  avatarLg: 52,
+  rail: 64,
+  header: 64,
+  sidebar: 248,
+  listPane: 320,
+  column: 440,
+  dialog: 480,
+  dialogWide: 540,
+  form: 600,
+  palette: 640,
+  settings: 880,
+  illustration: 120,
+} as const;
 
 /** Stroke widths (px): hairline borders and the focus ring (UX_GUIDELINES §7: ≥ 2 px). */
 export const borderWidth = { hairline: 1, focus: 2 } as const;
@@ -58,6 +92,12 @@ export interface ColorScheme {
   warning: string;
   success: string;
   focusRing: string;
+  /** Hairline row separators. Decorative only. */
+  divider: string;
+  /** Logo accent tile, breadcrumb "/", dashed outlines, ring track. Decorative only; never text that carries meaning. */
+  faint: string;
+  /** Warning callout border. Decorative only. */
+  warningBorder: string;
 }
 
 export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
@@ -80,6 +120,9 @@ export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
     warning: "#C2410C",
     success: "#15803D",
     focusRing: "#09090B",
+    divider: "#F4F4F5",
+    faint: "#A1A1AA",
+    warningBorder: "#FED7AA",
   },
   dark: {
     bg: "#09090B",
@@ -100,6 +143,9 @@ export const colors: Readonly<Record<"light" | "dark", ColorScheme>> = {
     warning: "#FB923C",
     success: "#4ADE80",
     focusRing: "#FAFAFA",
+    divider: "#18181B",
+    faint: "#52525B",
+    warningBorder: "#7C2D12",
   },
 };
 
@@ -130,6 +176,12 @@ export const shadow = {
   dark: "0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.40)",
 } as const;
 
+/** Subtle elevation for cards and the search trigger (`--shadow-subtle`). */
+export const shadowSubtle = {
+  light: "0 1px 2px rgba(9, 9, 11, 0.04)",
+  dark: "0 1px 2px rgba(0, 0, 0, 0.40)",
+} as const;
+
 /** Vault dots (`--vault-color-0..5`). Decorative only; never the sole carrier of meaning. */
 export const vaultColors = ["#FCD34D", "#A5B4FC", "#86EFAC", "#F9A8D4", "#7DD3FC", "#FDBA74"] as const;
 
@@ -137,7 +189,7 @@ export const vaultColors = ["#FCD34D", "#A5B4FC", "#86EFAC", "#F9A8D4", "#7DD3FC
 export const printColors = { text: "#09090B", background: "#FFFFFF", border: "#8A8A93" } as const;
 
 /** Z layers (`--layer-*`, unitless). Dialogs use the native top layer. */
-export const layer = { holoCanvas: 1, holoButton: 2, sticky: 5, popover: 30, toast: 40 } as const;
+export const layer = { sticky: 5, popover: 30, menu: 35, toast: 40 } as const;
 
 /** WCAG 2.x relative luminance of a `#RRGGBB` color. */
 export function relativeLuminance(hex: string): number {

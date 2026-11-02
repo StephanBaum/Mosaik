@@ -4,6 +4,9 @@ import { colors, contrastRatio, primaryAction, type ColorScheme } from "./index.
 type Pair = [fg: keyof ColorScheme, bg: keyof ColorScheme, min: number];
 
 // WCAG 2.2 AA: 1.4.3 text ≥ 4.5:1, 1.4.11 UI components and focus ≥ 3:1.
+// `divider`, `faint` and `warningBorder` are decorative only (never the sole
+// boundary of a control, never text that carries meaning), so they have no
+// contrast requirement here.
 const requirements: Pair[] = [
   ...(["text", "textMuted", "danger", "warning", "success"] as const).flatMap(
     (fg) => (["bg", "bgSubtle", "surface"] as const).map((bg): Pair => [fg, bg, 4.5]),

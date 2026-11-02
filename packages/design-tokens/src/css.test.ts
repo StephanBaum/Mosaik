@@ -36,6 +36,12 @@ describe("cssVariables", () => {
       "--vault-color-5",
       "--print-text",
       "--layer-toast: 40;",
+      "--size-sidebar: 248px;",
+      "--radius-field: 8px;",
+      "--color-divider",
+      "--color-faint",
+      "--color-warning-border",
+      "--shadow-subtle",
       "--primary-action-label-shadow",
       `--primary-action-fallback-highlight: ${primaryAction.fallbackHighlight};`,
     ]) {

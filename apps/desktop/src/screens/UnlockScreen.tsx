@@ -47,7 +47,7 @@ export function UnlockScreen({
   return (
     <main id="main" className="screen screen--centered">
       <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
-        <h1 className="title">{t("lock.unlockTitle")}</h1>
+        <h1 className="display">{t("lock.unlockTitle")}</h1>
         {session.email !== null && <p className="body muted">{session.email}</p>}
         {lockReason !== null && (
           <p className="body" role="status">

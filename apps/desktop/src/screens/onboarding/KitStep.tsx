@@ -32,7 +32,7 @@ export function KitStep({ kit, onContinue }: { kit: EmergencyKit; onContinue: ()
     <main id="main" className="screen screen--centered">
       <div className="panel">
         <p className="eyebrow">{t("onboarding.step", { current: 2, total: TOTAL_STEPS })}</p>
-        <h1 className="title">{t("kit.title")}</h1>
+        <h1 className="display">{t("kit.title")}</h1>
         <p className="body muted">{t("kit.body")}</p>
         <dl className="kit">
           <dt>{t("onboarding.create.email")}</dt>

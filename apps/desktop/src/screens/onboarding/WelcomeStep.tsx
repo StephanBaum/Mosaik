@@ -51,7 +51,7 @@ export function WelcomeStep({ onCreated }: { onCreated: (created: CreatedAccount
     <main id="main" className="screen screen--centered">
       <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
         <p className="eyebrow">{t("onboarding.step", { current: 1, total: TOTAL_STEPS })}</p>
-        <h1 className="title">{t("onboarding.create.title")}</h1>
+        <h1 className="display">{t("onboarding.create.title")}</h1>
         <p className="body muted">{t("onboarding.create.body")}</p>
         <TextField
           label={t("onboarding.create.email")}

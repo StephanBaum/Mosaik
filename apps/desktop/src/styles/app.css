@@ -57,12 +57,36 @@ body {
 
 /* Typography */
 
+.display {
+  margin: 0;
+  font-size: var(--font-size-xxl);
+  line-height: var(--line-height-xxl);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
 .title {
   margin: 0;
-  font-size: var(--font-size-xl);
-  line-height: var(--line-height-xl);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-lg);
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.caption {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  color: var(--color-text-muted);
+}
+
+.lede {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 .eyebrow,
@@ -338,6 +362,7 @@ body {
   font-size: var(--font-size-md);
   line-height: var(--line-height-md);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 /* Holo primary action: the static token gradient (the WebGL2 renderer is not ported yet) */

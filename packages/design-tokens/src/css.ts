@@ -19,6 +19,8 @@ import {
   printColors,
   radius,
   shadow,
+  shadowSubtle,
+  size,
   space,
   vaultColors,
   type ColorScheme,
@@ -37,6 +39,7 @@ export function cssVariables(): string {
   const base = [
     ...space.map((value, index) => `  --space-${String(index)}: ${String(value)}px;`),
     ...Object.entries(radius).map(([name, value]) => `  --radius-${name}: ${String(value)}px;`),
+    ...Object.entries(size).map(([name, value]) => `  --size-${kebab(name)}: ${String(value)}px;`),
     ...Object.entries(borderWidth).map(
       ([name, value]) => `  --border-width-${name}: ${String(value)}px;`,
     ),
@@ -61,8 +64,10 @@ export function cssVariables(): string {
     `  --print-border: ${printColors.border};`,
     ...Object.entries(layer).map(([name, value]) => `  --layer-${kebab(name)}: ${String(value)};`),
   ].join("\n");
-  const light = `${colorDeclarations(colors.light)}\n  --color-scrim: ${overlay.light};\n  --shadow-popover: ${shadow.light};\n  --primary-action-rim: ${primaryAction.rim.light};`;
-  const dark = `${colorDeclarations(colors.dark)}\n  --color-scrim: ${overlay.dark};\n  --shadow-popover: ${shadow.dark};\n  --primary-action-rim: ${primaryAction.rim.dark};`;
+  const light = `${colorDeclarations(colors.light)}\n  --color-scrim: ${overlay.light};\n  --shadow-popover: ${shadow.light};
+  --shadow-subtle: ${shadowSubtle.light};\n  --primary-action-rim: ${primaryAction.rim.light};`;
+  const dark = `${colorDeclarations(colors.dark)}\n  --color-scrim: ${overlay.dark};\n  --shadow-popover: ${shadow.dark};
+  --shadow-subtle: ${shadowSubtle.dark};\n  --primary-action-rim: ${primaryAction.rim.dark};`;
   return [
     `:root {\n${base}\n}`,
     `:root,\n:root[data-theme="light"] {\n  color-scheme: light;\n${light}\n}`,

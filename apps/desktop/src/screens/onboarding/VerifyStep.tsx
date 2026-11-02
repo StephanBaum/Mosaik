@@ -39,7 +39,7 @@ export function VerifyStep({
     <main id="main" className="screen screen--centered">
       <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
         <p className="eyebrow">{t("onboarding.step", { current: step, total: TOTAL_STEPS })}</p>
-        <h1 className="title">{t("onboarding.secretKey.title")}</h1>
+        <h1 className="display">{t("onboarding.secretKey.title")}</h1>
         <p className="body muted">{t("onboarding.secretKey.body")}</p>
         <p className="body">{t("onboarding.secretKey.verify")}</p>
         <TextField

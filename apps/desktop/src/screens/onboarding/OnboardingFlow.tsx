@@ -75,7 +75,7 @@ function ImportOffer({ onImport, onSkip }: { onImport: () => void; onSkip: () =>
     <main id="main" className="screen screen--centered">
       <div className="panel">
         <p className="eyebrow">{t("onboarding.step", { current: 4, total: TOTAL_STEPS })}</p>
-        <h1 className="title">{t("onboarding.import.title")}</h1>
+        <h1 className="display">{t("onboarding.import.title")}</h1>
         <p className="body muted">{t("onboarding.import.body")}</p>
         <HoloButton onClick={onImport}>{t("onboarding.import.start")}</HoloButton>
         <Button onClick={onSkip}>{t("onboarding.import.skip")}</Button>
@@ -90,7 +90,7 @@ function Done({ onOpen }: { onOpen: () => void }) {
     <main id="main" className="screen screen--centered">
       <div className="panel">
         <p className="eyebrow">{t("onboarding.step", { current: 5, total: TOTAL_STEPS })}</p>
-        <h1 className="title">{t("onboarding.done.title")}</h1>
+        <h1 className="display">{t("onboarding.done.title")}</h1>
         <p className="body muted">{t("onboarding.done.body")}</p>
         <HoloButton onClick={onOpen}>{t("onboarding.done.open")}</HoloButton>
       </div>

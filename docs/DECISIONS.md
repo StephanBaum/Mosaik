@@ -1140,6 +1140,12 @@ snapshot in `docs/design/`) over several rounds. They chose:
 - An accessibility review must confirm the label contrast over the brightest
   part of the foil, at least 4.5:1, in both themes.
 
+### Amendment (UI fidelity, 2026-11-02)
+The radii 4, 8 and 10 (alongside 6, 12 and 14) and the weight 700 for page
+titles come from the approved mockups in `docs/design/screens`. They are
+tokens in `packages/design-tokens` (`radius`, `size`). This changes no rule
+about the foil.
+
 ## ADR-0015: Fresh writer IDs per unlock, and merges that survive an ID reuse
 
 - Status: accepted

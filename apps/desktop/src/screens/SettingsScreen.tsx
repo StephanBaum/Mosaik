@@ -297,7 +297,7 @@ export function SettingsScreen() {
   }
   return (
     <section className="stack" aria-label={t("settings.title")}>
-      <h1 className="title">{t("settings.title")}</h1>
+      <h1 className="display">{t("settings.title")}</h1>
       <ErrorAlert error={error} />
       <SecuritySettings
         settings={settings}

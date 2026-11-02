@@ -223,7 +223,7 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
 
   const body = (
     <div className={embedded ? "stack" : "panel panel--wide"}>
-      <h1 className="title">{t("import.flow.title")}</h1>
+      <h1 className="display">{t("import.flow.title")}</h1>
       {step.name === "format" && (
         <FormatStep format={format} onFormat={setFormat} onChoose={() => void choose()} />
       )}

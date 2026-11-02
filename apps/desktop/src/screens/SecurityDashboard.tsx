@@ -127,7 +127,7 @@ export function SecurityDashboard({ onOpenItem }: { onOpenItem: (item: ItemReque
   const listed = showAll ? findings : urgent;
   return (
     <section className="stack" aria-label={t("insights.title")}>
-      <h1 className="title">{t("insights.title")}</h1>
+      <h1 className="display">{t("insights.title")}</h1>
       <ErrorAlert error={error} />
       {report !== null && (
         <>

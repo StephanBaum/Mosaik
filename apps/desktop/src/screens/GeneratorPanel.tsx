@@ -121,7 +121,7 @@ export function GeneratorPanel() {
 
   return (
     <section className="stack" aria-label={t("generator.title")}>
-      <h1 className="title">{t("generator.title")}</h1>
+      <h1 className="display">{t("generator.title")}</h1>
       <Select
         label={t("generator.mode")}
         value={mode}

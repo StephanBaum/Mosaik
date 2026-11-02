@@ -45,7 +45,7 @@ export function KitRecoveryFlow({ onDone }: { onDone: (session: SessionState) =>
   return (
     <main id="main" className="screen screen--centered">
       <div className="panel">
-        <h1 className="title">{t("kit.recover.title")}</h1>
+        <h1 className="display">{t("kit.recover.title")}</h1>
         <p className="body muted">{t("kit.recover.body")}</p>
         <HoloButton
           onClick={() => {

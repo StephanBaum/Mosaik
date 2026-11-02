@@ -34,12 +34,16 @@ Use tokens only. Never use raw values in components.
   `#09090B` label; nothing else uses the foil. Prototype and assets:
   `docs/design/holo/`. Reference mockups:
   `docs/design/` and the "Mosaic — App Screens" canvas.
-- **Radius:** 6 (controls), 12 (cards), 14 (dialogs), and full (pills).
+- **Radius:** 4 (kbd), 6 (icon buttons, nav rows), 8 (fields, buttons, rows,
+  avatars), 10 (search, callouts, toasts), 12 (cards), 14 (dialogs), and full
+  (pills). Component sizes (control heights, avatar, sidebar and dialog
+  widths) are `size` tokens in `packages/design-tokens`.
 - **Type scale (px / line height):** 12/16, 14/20 (body), 16/24, 20/28,
   24/32, 32/40. DM Sans for UI text and IBM Plex Mono for secrets and codes
   (both SIL OFL 1.1, bundled with each app, never loaded from a CDN), with
-  the system stacks as fallback. Headings use weight 600 and -0.01em
-  tracking.
+  the system stacks as fallback. Page titles are 32/40 weight 700 with
+  -0.025em tracking; section headings are 16/24 or 20/28 weight 600 with
+  -0.01em tracking; field labels are 12/16 weight 500 in the muted color.
 - **Color:** semantic tokens (`bg`, `bg-subtle`, `surface`, `border`, `text`,
   `text-muted`, `accent`, `accent-text`, `danger`, `warning`, `success`,
   `focus-ring`) for the light and dark themes. Contrast, tested in CI:
