@@ -267,7 +267,7 @@ select.field__input {
   transition: background-color var(--motion-micro) var(--motion-easing);
 }
 
-.button:hover {
+.button:hover:not(.holo) {
   background: var(--color-bg-selected);
 }
 
@@ -305,7 +305,7 @@ select.field__input {
   color: var(--color-bg);
 }
 
-.button:disabled {
+.button:disabled:not(.holo) {
   cursor: not-allowed;
   opacity: 1;
   color: var(--color-text-muted);

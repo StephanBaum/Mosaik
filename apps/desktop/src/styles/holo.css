@@ -1,0 +1,75 @@
+/* Holo-foil primary action (ADR-0014). The static fallback gradient is the `.holo` block in app.css. */
+
+.button.holo {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--primary-action-rim);
+  border-radius: var(--radius-pill);
+  color: var(--primary-action-label);
+  font-weight: 600;
+  padding: 0 var(--space-5);
+  transition: transform var(--motion-micro) var(--motion-easing);
+}
+
+.holo__foil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.holo .icon {
+  filter: var(--primary-action-icon-filter);
+}
+
+/* The canvas paints above the button background and below the label. The flat fill stays
+   under it so the label contrast is measured against a solid color, not the page. */
+.holo.holo--live {
+  background: var(--primary-action-fallback);
+  border-color: transparent;
+}
+
+.holo.holo--live .holo__foil {
+  opacity: 1;
+}
+
+.holo.holo--pressed {
+  transform: scale(0.975);
+}
+
+.holo:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 var(--border-width-focus) var(--color-bg),
+    0 0 0 calc(var(--border-width-focus) * 2) var(--color-focus-ring);
+}
+
+.holo:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  color: var(--primary-action-label);
+}
+
+.holo .kbd {
+  background: transparent;
+  color: inherit;
+  border: var(--border-width-hairline) solid currentcolor;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo.holo--pressed {
+    transform: none;
+  }
+}

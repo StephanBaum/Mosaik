@@ -7,7 +7,9 @@ import { EventsProvider } from "./app/EventsProvider.tsx";
 import { SecretsProvider } from "./app/SecretsContext.tsx";
 import { SettingsProvider, useSettings } from "./app/SettingsProvider.tsx";
 import { ErrorAlert } from "./components/ErrorAlert.tsx";
+import { HoloProvider } from "./holo/HoloProvider.tsx";
 import { ToastProvider } from "./components/ToastProvider.tsx";
+import { useEffectiveTheme } from "./hooks/useEffectiveTheme.ts";
 import { I18nProvider, resolveLocale, useI18n } from "./i18n/I18nProvider.tsx";
 import type { MosaicIpc } from "./ipc/client.ts";
 import { IpcProvider, useIpc } from "./ipc/IpcProvider.tsx";
@@ -31,16 +33,19 @@ export function App({ ipc, languages = navigator.languages }: { ipc: MosaicIpc; 
 function Localized({ languages }: { languages: readonly string[] }) {
   const { settings } = useSettings();
   const theme = settings?.theme ?? "system";
+  const dark = useEffectiveTheme(theme) === "dark";
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
   return (
     <I18nProvider locale={resolveLocale(settings?.language ?? "system", languages)}>
-      <ToastProvider>
-        <SecretsProvider>
-          <SessionRoot />
-        </SecretsProvider>
-      </ToastProvider>
+      <HoloProvider dark={dark}>
+        <ToastProvider>
+          <SecretsProvider>
+            <SessionRoot />
+          </SecretsProvider>
+        </ToastProvider>
+      </HoloProvider>
     </I18nProvider>
   );
 }
