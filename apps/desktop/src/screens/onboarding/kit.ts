@@ -16,3 +16,6 @@ export function kitLabels(t: (key: MessageKey, values?: MessageValues) => string
     footer: t("shell.emergencyKit.footer"),
   };
 }
+
+/** The Secret Key's format (CRYPTO_SPEC §5.2) with every group but the last masked. */
+export const MASKED_KEY_PREFIX = `M1-${"••••-".repeat(6)}`;

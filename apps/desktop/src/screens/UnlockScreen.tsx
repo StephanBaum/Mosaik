@@ -1,14 +1,103 @@
 /** Unlock with the master password (and the Secret Key on a device that lacks it). */
 import { useState, type SyntheticEvent } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
-import { HoloButton } from "../components/HoloButton.tsx";
+import { useSettings } from "../app/SettingsProvider.tsx";
+import { AuthShell } from "../components/AuthShell.tsx";
+import { Button } from "../components/Button.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
+import { HoloButton } from "../components/HoloButton.tsx";
+import { Icon } from "../components/icons.tsx";
+import { PasswordField } from "../components/PasswordField.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
-import type { IpcError, SessionState } from "../ipc/contract/index.ts";
+import type { IpcError, IpcResult, QuickUnlockKind, SessionState } from "../ipc/contract/index.ts";
+import { usePlatform, type Platform } from "../platform/platform.ts";
 
 type Locked = Extract<SessionState, { state: "locked" }>;
+
+const BIOMETRIC_LABEL = {
+  windows: "lock.quick.biometricWindows",
+  mac: "lock.quick.biometricMac",
+  linux: "lock.quick.biometricLinux",
+} as const satisfies Record<Platform, string>;
+
+function useUnlock(session: Locked, onUnlocked: (session: SessionState) => void) {
+  const ipc = useIpc();
+  const { clearLockReason } = useEvents();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<IpcError | null>(null);
+
+  async function run(call: () => Promise<IpcResult<SessionState>>): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    const result = await call();
+    setBusy(false);
+    if (result.ok) {
+      clearLockReason();
+      onUnlocked(result.value);
+    } else {
+      setError(result.error);
+    }
+    return result.ok;
+  }
+
+  const unlock = (password: string, secretKey: string) =>
+    run(() => ipc.call("unlock", { password, secretKey: session.secretKeyStored ? null : secretKey }));
+  const quick = (method: QuickUnlockKind) => run(() => ipc.call("unlock_quick", { method }));
+  return { busy, error, unlock, quick };
+}
+
+function QuickUnlock({
+  methods,
+  busy,
+  onQuick,
+}: {
+  methods: readonly QuickUnlockKind[];
+  busy: boolean;
+  onQuick: (method: QuickUnlockKind) => void;
+}) {
+  const { t } = useI18n();
+  const platform = usePlatform();
+  if (methods.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <div className="divider-or">{t("lock.or")}</div>
+      {methods.map((method) => (
+        <Button
+          key={method}
+          size="lg"
+          block
+          disabled={busy}
+          onClick={() => {
+            onQuick(method);
+          }}
+        >
+          <Icon name={method === "biometric" ? "passkey" : "securityKey"} />
+          {method === "biometric" ? t(BIOMETRIC_LABEL[platform]) : t("lock.quick.hardwareKey")}
+        </Button>
+      ))}
+    </>
+  );
+}
+
+function UnlockIntro({ email }: { email: string | null }) {
+  const { t } = useI18n();
+  const { lockReason } = useEvents();
+  return (
+    <div className="auth__intro">
+      <h1 className="display">{t("lock.unlockTitle")}</h1>
+      {email !== null && <p className="lede">{email}</p>}
+      {lockReason !== null && (
+        <p className="caption" role="status">
+          {t(`lock.reason.${lockReason}`)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function UnlockScreen({
   session,
@@ -18,76 +107,73 @@ export function UnlockScreen({
   onUnlocked: (session: SessionState) => void;
 }) {
   const { t } = useI18n();
-  const ipc = useIpc();
-  const { lockReason, clearLockReason } = useEvents();
+  const { settings } = useSettings();
   const [password, setPassword] = useState("");
   const [secretKey, setSecretKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<IpcError | null>(null);
+  const { busy, error, unlock, quick } = useUnlock(session, onUnlocked);
+  const minutes = settings?.autoLockMinutes ?? null;
 
   async function submit(event: SyntheticEvent) {
     event.preventDefault();
-    setBusy(true);
-    setError(null);
-    const result = await ipc.call("unlock", {
-      password,
-      secretKey: session.secretKeyStored ? null : secretKey,
-    });
-    setBusy(false);
+    const submitted = password;
     setPassword("");
-    if (result.ok) {
+    if (await unlock(submitted, secretKey)) {
       setSecretKey("");
-      clearLockReason();
-      onUnlocked(result.value);
-    } else {
-      setError(result.error);
     }
   }
 
   return (
-    <main id="main" className="screen screen--centered">
-      <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
-        <h1 className="display">{t("lock.unlockTitle")}</h1>
-        {session.email !== null && <p className="body muted">{session.email}</p>}
-        {lockReason !== null && (
-          <p className="body" role="status">
-            {t(`lock.reason.${lockReason}`)}
-          </p>
-        )}
-        <TextField
-          label={t("lock.masterPassword")}
-          type="password"
-          autoComplete="current-password"
-          // The one field on this screen: focus it like a native unlock prompt.
-          autoFocus
-          required
-          value={password}
-          onChange={(event) => {
-            setPassword(event.target.value);
-          }}
-        />
-        {!session.secretKeyStored && (
-          <TextField
-            label={t("lock.secretKey")}
-            hint={t("lock.secretKeyHint")}
-            mono
-            autoComplete="off"
-            spellCheck={false}
+    <AuthShell center>
+      <div className="auth__main">
+        <UnlockIntro email={session.email} />
+        <form className="form-stack" onSubmit={(event) => void submit(event)} noValidate>
+          <PasswordField
+            size="lg"
+            label={t("lock.masterPassword")}
+            autoComplete="current-password"
+            // The one field on this screen: focus it like a native unlock prompt.
+            autoFocus
             required
-            value={secretKey}
+            value={password}
             onChange={(event) => {
-              setSecretKey(event.target.value);
+              setPassword(event.target.value);
             }}
           />
-        )}
-        <ErrorAlert error={error} />
-        <p className="status" aria-live="polite">
-          {busy ? t("lock.working") : ""}
-        </p>
-        <HoloButton type="submit" disabled={busy} ambient>
-          {t("lock.submit")}
-        </HoloButton>
-      </form>
-    </main>
+          {!session.secretKeyStored && (
+            <TextField
+              size="lg"
+              label={t("lock.secretKey")}
+              hint={t("lock.secretKeyHint")}
+              mono
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={secretKey}
+              onChange={(event) => {
+                setSecretKey(event.target.value);
+              }}
+            />
+          )}
+          <ErrorAlert error={error} />
+          <p className="status" aria-live="polite">
+            {busy ? t("lock.working") : ""}
+          </p>
+          <HoloButton type="submit" size="lg" block ambient disabled={busy}>
+            {t("lock.submit")}
+          </HoloButton>
+          <QuickUnlock
+            methods={session.quickUnlock}
+            busy={busy}
+            onQuick={(method) => {
+              void quick(method);
+            }}
+          />
+        </form>
+        {minutes !== null && <p className="caption auth__note">{t("lock.autoLockInfo", { minutes })}</p>}
+      </div>
+      <p className="auth__footnote">
+        <strong>{t("lock.forgot.title")}</strong> {t("lock.forgot.body")}
+      </p>
+    </AuthShell>
   );
 }

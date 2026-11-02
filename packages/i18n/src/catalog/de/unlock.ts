@@ -16,4 +16,12 @@ export const unlock = {
   "lock.reason.idle": "Mosaic hat sich nach einer Weile ohne Aktivität selbst gesperrt.",
   "lock.reason.sleep": "Mosaic wurde beim Ruhezustand des Computers gesperrt.",
   "lock.reason.screenLock": "Mosaic wurde zusammen mit deinem Bildschirm gesperrt.",
+  "lock.or": "oder",
+  "lock.quick.biometricWindows": "Windows Hello verwenden",
+  "lock.quick.biometricMac": "Touch ID verwenden",
+  "lock.quick.biometricLinux": "Biometrie verwenden",
+  "lock.quick.hardwareKey": "Sicherheitsschlüssel verwenden",
+  "lock.autoLockInfo": "Sperrt nach {minutes, plural, one {# Minute} other {# Minuten}} Inaktivität.",
+  "lock.forgot.title": "Master-Passwort vergessen?",
+  "lock.forgot.body": "Mosaic kann es nicht zurücksetzen, weil nur du es kennst. Prüfe, ob du es auf deinem Emergency Kit notiert hast. Sonst lege ein neues Konto an.",
 } satisfies Record<keyof typeof en, string>;

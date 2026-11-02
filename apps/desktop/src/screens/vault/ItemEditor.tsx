@@ -282,7 +282,7 @@ export function ItemEditor({
   };
   const heading =
     editing === null
-      ? t("editor.newTitle", { kind: t(`item.kind.${form.kind}`) })
+      ? t("editor.newTitle", { kind: form.kind })
       : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
   return (
     <form

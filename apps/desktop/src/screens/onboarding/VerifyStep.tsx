@@ -1,12 +1,14 @@
 /** Step 3 (D04): type the last group of the Secret Key to confirm the kit was saved. */
 import { useState, type SyntheticEvent } from "react";
+import { Callout } from "../../components/Callout.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type { IpcError } from "../../ipc/contract/index.ts";
-import { TOTAL_STEPS } from "./WelcomeStep.tsx";
+import { MASKED_KEY_PREFIX } from "./kit.ts";
+import { OnboardingShell } from "./OnboardingShell.tsx";
 
 export function VerifyStep({
   step = 3,
@@ -36,32 +38,43 @@ export function VerifyStep({
   }
 
   return (
-    <main id="main" className="screen screen--centered">
-      <form className="panel" onSubmit={(event) => void submit(event)} noValidate>
-        <p className="eyebrow">{t("onboarding.step", { current: step, total: TOTAL_STEPS })}</p>
-        <h1 className="display">{t("onboarding.secretKey.title")}</h1>
-        <p className="body muted">{t("onboarding.secretKey.body")}</p>
-        <p className="body">{t("onboarding.secretKey.verify")}</p>
-        <TextField
-          label={t("onboarding.kit.lastGroup")}
-          mono
-          autoComplete="off"
-          spellCheck={false}
-          aria-invalid={mistyped}
-          value={lastGroup}
-          onChange={(event) => {
-            setLastGroup(event.target.value);
-            setMistyped(false);
-          }}
-        />
-        {mistyped && (
-          <p className="alert" role="alert">
-            {t("onboarding.secretKey.mistyped")}
+    <OnboardingShell step={step}>
+      <div className="auth__main">
+        <div className="auth__intro">
+          <h1 className="display">{t("onboarding.secretKey.title")}</h1>
+          <p className="lede">{t("onboarding.secretKey.body")}</p>
+        </div>
+        <div className="auth__intro">
+          <span className="row__label">{t("kit.secretKey")}</span>
+          <p className="masked-key" aria-hidden="true">
+            <span className="muted">{MASKED_KEY_PREFIX}</span>
+            <span className="masked-key__slot">____</span>
           </p>
-        )}
-        <ErrorAlert error={error} />
-        <HoloButton type="submit">{t("onboarding.kit.confirm")}</HoloButton>
-      </form>
-    </main>
+        </div>
+        <form className="form-stack" onSubmit={(event) => void submit(event)} noValidate>
+          <TextField
+            size="lg"
+            label={t("onboarding.kit.lastGroup")}
+            className="field__input--code"
+            mono
+            maxLength={4}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            error={mistyped ? t("onboarding.secretKey.mistyped") : undefined}
+            value={lastGroup}
+            onChange={(event) => {
+              setLastGroup(event.target.value);
+              setMistyped(false);
+            }}
+          />
+          <Callout tone="info">{t("onboarding.secretKey.verify")}</Callout>
+          <ErrorAlert error={error} />
+          <HoloButton type="submit" size="lg" block>
+            {t("onboarding.kit.confirm")}
+          </HoloButton>
+        </form>
+      </div>
+    </OnboardingShell>
   );
 }

@@ -14,4 +14,12 @@ export const unlock = {
   "lock.reason.idle": "Mosaic locked itself after a while without activity.",
   "lock.reason.sleep": "Mosaic locked when the computer went to sleep.",
   "lock.reason.screenLock": "Mosaic locked together with your screen.",
+  "lock.or": "or",
+  "lock.quick.biometricWindows": "Use Windows Hello",
+  "lock.quick.biometricMac": "Use Touch ID",
+  "lock.quick.biometricLinux": "Use biometrics",
+  "lock.quick.hardwareKey": "Use security key",
+  "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
+  "lock.forgot.title": "Forgot your master password?",
+  "lock.forgot.body": "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
 } as const satisfies Record<string, string>;

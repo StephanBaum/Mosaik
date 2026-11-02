@@ -55,7 +55,7 @@ export const items = {
   "item.copy": "Copy {field}",
   "item.back": "Back to the list",
   "item.review": "This item has a sync conflict. Review it before you change it.",
-  "editor.newTitle": "New {kind}",
+  "editor.newTitle": "New {kind, select, login {login} passkey {passkey} totp {one-time code} secureNote {secure note} creditCard {payment card} identity {identity} sshKey {SSH key} apiKey {API key} wifi {Wi-Fi} document {document} unsupported {item} other {item}}",
   "editor.editTitle": "Edit {title}",
   "editor.discard.title": "Discard your changes?",
   "editor.discard.body": "Your edits to this item aren't saved.",

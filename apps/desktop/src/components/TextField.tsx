@@ -9,7 +9,7 @@ export function describedBy(...ids: (string | undefined)[]): string | undefined 
 
 export function FieldError({ id, message }: { id: string; message: string }) {
   return (
-    <p id={id} className="field__error">
+    <p id={id} className="field__error" role="alert">
       <Icon name="alert" size="sm" />
       {message}
     </p>
@@ -22,6 +22,7 @@ export function TextField({
   error,
   mono = false,
   size = "md",
+  className,
   ...input
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   label: string;
@@ -40,7 +41,7 @@ export function TextField({
       </label>
       <input
         id={id}
-        className={mono ? "field__input field__input--mono" : "field__input"}
+        className={["field__input", mono ? "field__input--mono" : "", className].filter(Boolean).join(" ")}
         aria-describedby={describedBy(
           hint === undefined ? undefined : hintId,
           error === undefined ? undefined : errorId,

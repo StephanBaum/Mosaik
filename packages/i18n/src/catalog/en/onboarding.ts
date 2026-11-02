@@ -41,4 +41,13 @@ export const onboarding = {
   "onboarding.done.title": "You're all set",
   "onboarding.done.body": "Your vault is ready. Lock it any time with the Lock button.",
   "onboarding.done.open": "Open my vault",
+  "onboarding.progress": "Setup progress",
+  "onboarding.stepName.create": "Create account",
+  "onboarding.stepName.kit": "Emergency Kit",
+  "onboarding.stepName.verify": "Confirm your kit",
+  "onboarding.stepName.import": "Import (optional)",
+  "onboarding.stepName.done": "Ready",
+  "kit.preview": "Emergency Kit preview",
+  "kit.continueHint": "Save the kit to continue.",
+  "kit.warning": "Without this kit and your master password, nobody can recover your vault, not even us.",
 } as const satisfies Record<string, string>;

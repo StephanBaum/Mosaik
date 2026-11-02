@@ -6,13 +6,15 @@
 import { useReducer } from "react";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Button } from "../../components/Button.tsx";
+import { Icon } from "../../components/icons.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { SessionState } from "../../ipc/contract/index.ts";
 import { ImportFlow } from "../import/ImportFlow.tsx";
 import { flowReducer, initialFlow } from "./flow.ts";
 import { KitStep } from "./KitStep.tsx";
 import { VerifyStep } from "./VerifyStep.tsx";
-import { TOTAL_STEPS, WelcomeStep } from "./WelcomeStep.tsx";
+import { OnboardingShell } from "./OnboardingShell.tsx";
+import { WelcomeStep } from "./WelcomeStep.tsx";
 
 export function OnboardingFlow({ onDone }: { onDone: (session: SessionState) => void }) {
   const [state, dispatch] = useReducer(flowReducer, initialFlow);
@@ -72,29 +74,40 @@ export function OnboardingFlow({ onDone }: { onDone: (session: SessionState) => 
 function ImportOffer({ onImport, onSkip }: { onImport: () => void; onSkip: () => void }) {
   const { t } = useI18n();
   return (
-    <main id="main" className="screen screen--centered">
-      <div className="panel">
-        <p className="eyebrow">{t("onboarding.step", { current: 4, total: TOTAL_STEPS })}</p>
-        <h1 className="display">{t("onboarding.import.title")}</h1>
-        <p className="body muted">{t("onboarding.import.body")}</p>
-        <HoloButton onClick={onImport}>{t("onboarding.import.start")}</HoloButton>
-        <Button onClick={onSkip}>{t("onboarding.import.skip")}</Button>
+    <OnboardingShell step={4}>
+      <div className="auth__main">
+        <div className="auth__intro">
+          <h1 className="display">{t("onboarding.import.title")}</h1>
+          <p className="lede">{t("onboarding.import.body")}</p>
+        </div>
+        <div className="auth__actions">
+          <HoloButton size="lg" block onClick={onImport}>
+            <Icon name="download" />
+            {t("onboarding.import.start")}
+          </HoloButton>
+          <Button variant="ghost" size="lg" block className="button--muted" onClick={onSkip}>
+            {t("onboarding.import.skip")}
+          </Button>
+        </div>
       </div>
-    </main>
+    </OnboardingShell>
   );
 }
 
 function Done({ onOpen }: { onOpen: () => void }) {
   const { t } = useI18n();
   return (
-    <main id="main" className="screen screen--centered">
-      <div className="panel">
-        <p className="eyebrow">{t("onboarding.step", { current: 5, total: TOTAL_STEPS })}</p>
-        <h1 className="display">{t("onboarding.done.title")}</h1>
-        <p className="body muted">{t("onboarding.done.body")}</p>
-        <HoloButton onClick={onOpen}>{t("onboarding.done.open")}</HoloButton>
+    <OnboardingShell step={5}>
+      <div className="auth__main">
+        <div className="auth__intro">
+          <h1 className="display">{t("onboarding.done.title")}</h1>
+          <p className="lede">{t("onboarding.done.body")}</p>
+        </div>
+        <HoloButton size="lg" block onClick={onOpen}>
+          {t("onboarding.done.open")}
+        </HoloButton>
       </div>
-    </main>
+    </OnboardingShell>
   );
 }
 

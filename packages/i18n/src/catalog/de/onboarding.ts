@@ -46,4 +46,13 @@ export const onboarding = {
   "onboarding.done.body":
     "Dein Tresor ist bereit. Sperre ihn jederzeit mit der Schaltfläche „Sperren“.",
   "onboarding.done.open": "Meinen Tresor öffnen",
+  "onboarding.progress": "Einrichtungsfortschritt",
+  "onboarding.stepName.create": "Konto erstellen",
+  "onboarding.stepName.kit": "Emergency Kit",
+  "onboarding.stepName.verify": "Kit bestätigen",
+  "onboarding.stepName.import": "Import (optional)",
+  "onboarding.stepName.done": "Fertig",
+  "kit.preview": "Vorschau des Emergency Kit",
+  "kit.continueHint": "Speichere das Kit, um fortzufahren.",
+  "kit.warning": "Ohne dieses Kit und dein Master-Passwort kann niemand deinen Tresor wiederherstellen, auch wir nicht.",
 } satisfies Record<keyof typeof en, string>;

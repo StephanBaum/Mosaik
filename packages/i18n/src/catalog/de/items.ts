@@ -57,7 +57,7 @@ export const items = {
   "item.copy": "{field} kopieren",
   "item.back": "Zurück zur Liste",
   "item.review": "Dieser Eintrag hat einen Sync-Konflikt. Prüfe ihn, bevor du ihn änderst.",
-  "editor.newTitle": "Neu: {kind}",
+  "editor.newTitle": "Neu: {kind, select, login {Zugangsdaten} passkey {Passkey} totp {Einmalcode} secureNote {Sichere Notiz} creditCard {Zahlungskarte} identity {Identität} sshKey {SSH-Schlüssel} apiKey {API-Schlüssel} wifi {WLAN} document {Dokument} unsupported {Eintrag} other {Eintrag}}",
   "editor.editTitle": "{title} bearbeiten",
   "editor.discard.title": "Änderungen verwerfen?",
   "editor.discard.body": "Deine Änderungen an diesem Eintrag sind nicht gespeichert.",

@@ -68,4 +68,5 @@ export const importMessages = {
     "{failed, plural, =0 {} one {# Eintrag konnte nicht gespeichert werden.} other {# Einträge konnten nicht gespeichert werden.}}",
   "import.flow.deleteReminder":
     "Lösche die Exportdatei jetzt. Sie enthält deine Passwörter im Klartext.",
+  "import.flow.dropHint": "Wähle deine Exportdatei. Alles wird auf diesem Gerät gelesen und verschlüsselt.",
 } satisfies Record<keyof typeof en, string>;

@@ -64,4 +64,5 @@ export const importMessages = {
     "{failed, plural, =0 {} one {# item could not be saved.} other {# items could not be saved.}}",
   "import.flow.deleteReminder":
     "Delete the export file now. It holds your passwords in plain text.",
+  "import.flow.dropHint": "Choose your export file. Everything is read and encrypted on this device.",
 } as const satisfies Record<string, string>;

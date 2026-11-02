@@ -4,8 +4,10 @@
  * confirm the last group of the Secret Key.
  */
 import { useState } from "react";
+import { AuthShell } from "../components/AuthShell.tsx";
 import { Button } from "../components/Button.tsx";
 import { HoloButton } from "../components/HoloButton.tsx";
+import { Icon } from "../components/icons.tsx";
 import { ReauthDialog } from "../components/ReauthDialog.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
@@ -43,24 +45,35 @@ export function KitRecoveryFlow({ onDone }: { onDone: (session: SessionState) =>
     );
   }
   return (
-    <main id="main" className="screen screen--centered">
-      <div className="panel">
-        <h1 className="display">{t("kit.recover.title")}</h1>
-        <p className="body muted">{t("kit.recover.body")}</p>
-        <HoloButton
-          onClick={() => {
-            setAsking(true);
-          }}
-        >
-          {t("kit.save")}
-        </HoloButton>
-        <Button
-          onClick={() => {
-            setSaved(true);
-          }}
-        >
-          {t("kit.recover.alreadySaved")}
-        </Button>
+    <AuthShell>
+      <div className="auth__main">
+        <div className="auth__intro">
+          <h1 className="display">{t("kit.recover.title")}</h1>
+          <p className="lede">{t("kit.recover.body")}</p>
+        </div>
+        <div className="auth__actions">
+          <HoloButton
+            size="lg"
+            block
+            onClick={() => {
+              setAsking(true);
+            }}
+          >
+            <Icon name="download" />
+            {t("kit.save")}
+          </HoloButton>
+          <Button
+            variant="ghost"
+            size="lg"
+            block
+            className="button--muted"
+            onClick={() => {
+              setSaved(true);
+            }}
+          >
+            {t("kit.recover.alreadySaved")}
+          </Button>
+        </div>
       </div>
       {asking && (
         <ReauthDialog
@@ -71,6 +84,6 @@ export function KitRecoveryFlow({ onDone }: { onDone: (session: SessionState) =>
           }}
         />
       )}
-    </main>
+    </AuthShell>
   );
 }

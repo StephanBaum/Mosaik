@@ -5,8 +5,10 @@
  */
 import { useEffect, useState } from "react";
 import { Button } from "../../components/Button.tsx";
+import { Callout } from "../../components/Callout.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
+import { Icon } from "../../components/icons.tsx";
 import { Select } from "../../components/Select.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
@@ -19,6 +21,7 @@ import {
   type IpcError,
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
+import { OnboardingShell } from "../onboarding/OnboardingShell.tsx";
 import { PreviewList } from "./PreviewList.tsx";
 
 type Step =
@@ -47,7 +50,11 @@ function FormatStep({
           onFormat(importFormats.find((each) => each === event.target.value) ?? "enpass");
         }}
       />
-      <HoloButton onClick={onChoose}>{t("import.flow.chooseFile")}</HoloButton>
+      <div className="dropzone">
+        <Icon name="upload" size="lg" className="muted" />
+        <p className="dropzone__text">{t("import.flow.dropHint")}</p>
+        <HoloButton onClick={onChoose}>{t("import.flow.chooseFile")}</HoloButton>
+      </div>
     </>
   );
 }
@@ -67,7 +74,14 @@ function FileStep({
   const [password, setPassword] = useState("");
   return (
     <>
-      <p className="body">{t("import.flow.fileChosen", { name: fileName })}</p>
+      <ul className="rows rows--closed">
+        <li className="row">
+          <span className="row__status">
+            <Icon name="check" />
+            {t("import.flow.fileChosen", { name: fileName })}
+          </span>
+        </li>
+      </ul>
       {keepass && (
         <TextField
           label={t("import.flow.password")}
@@ -150,7 +164,7 @@ function ResultStep({ result, onDone }: { result: ImportResult; onDone: () => vo
         {t("import.result", { imported: result.imported, skipped: result.skipped })}{" "}
         {t("import.flow.resultFailed", { failed: result.failed })}
       </p>
-      <p className="body muted">{t("import.flow.deleteReminder")}</p>
+      <Callout tone="warning">{t("import.flow.deleteReminder")}</Callout>
       <HoloButton onClick={onDone}>{t("action.done")}</HoloButton>
     </>
   );
@@ -222,7 +236,7 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
   }
 
   const body = (
-    <div className={embedded ? "stack" : "panel panel--wide"}>
+    <div className="stack">
       <h1 className="display">{t("import.flow.title")}</h1>
       {step.name === "format" && (
         <FormatStep format={format} onFormat={setFormat} onChoose={() => void choose()} />
@@ -244,7 +258,11 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
       )}
       {step.name === "result" && <ResultStep result={step.result} onDone={onClose} />}
       <ErrorAlert error={error} />
-      {step.name !== "result" && <Button onClick={() => void cancel()}>{t("import.flow.cancel")}</Button>}
+      {step.name !== "result" && (
+        <Button variant="ghost" onClick={() => void cancel()}>
+          {t("import.flow.cancel")}
+        </Button>
+      )}
     </div>
   );
   return <Frame embedded={embedded}>{body}</Frame>;
@@ -253,10 +271,10 @@ export function ImportFlow({ onClose, embedded = false }: { onClose: () => void;
 function Frame({ embedded, children }: { embedded: boolean; children: React.ReactNode }) {
   const { t } = useI18n();
   return embedded ? (
-    <section aria-label={t("import.flow.title")}>{children}</section>
-  ) : (
-    <main id="main" className="screen screen--centered">
+    <section className="import-embedded" aria-label={t("import.flow.title")}>
       {children}
-    </main>
+    </section>
+  ) : (
+    <OnboardingShell step={4}>{children}</OnboardingShell>
   );
 }

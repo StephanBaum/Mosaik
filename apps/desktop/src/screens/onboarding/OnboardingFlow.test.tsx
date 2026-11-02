@@ -29,7 +29,10 @@ describe("onboarding", () => {
     expect((next as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Save Emergency Kit (PDF)" }));
     await screen.findByText("Saved. Keep the file somewhere safe.");
-    await user.click(next);
+    const enabled = screen.getByRole("button", { name: "Continue" });
+    expect((enabled as HTMLButtonElement).disabled).toBe(false);
+    expect(document.querySelectorAll(".holo")).toHaveLength(1);
+    await user.click(enabled);
 
     await screen.findByRole("heading", { name: "Your Secret Key" });
     const lastGroup = screen.getByLabelText("Last group of your Secret Key");

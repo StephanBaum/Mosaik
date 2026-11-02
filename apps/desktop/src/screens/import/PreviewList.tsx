@@ -1,4 +1,6 @@
 /** The import preview: warnings, a tick list of entries and the entries that are left out. */
+import { Chip } from "../../components/Chip.tsx";
+import { Icon } from "../../components/icons.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { ImportEntry, ImportPreview } from "../../ipc/contract/index.ts";
@@ -14,8 +16,8 @@ function EntryRow({
 }) {
   const { t } = useI18n();
   return (
-    <li className="entries__item">
-      <label className="entries__label">
+    <li className="row entries__item">
+      <label className="check entries__label">
         <input
           type="checkbox"
           checked={checked}
@@ -38,6 +40,39 @@ function EntryRow({
         </p>
       ))}
     </li>
+  );
+}
+
+function Summary({ preview }: { preview: ImportPreview }) {
+  const { t } = useI18n();
+  const kinds = new Map<ImportEntry["kind"], number>();
+  for (const entry of preview.entries) {
+    kinds.set(entry.kind, (kinds.get(entry.kind) ?? 0) + 1);
+  }
+  return (
+    <>
+      <p className="body">
+        {t("import.preview.ready", { count: preview.entries.length })}{" "}
+        <span className="muted">{t("import.preview.attachments", { count: preview.attachments })}</span>
+      </p>
+      <div className="import-summary">
+        {[...kinds].map(([kind, count]) => (
+          <Chip key={kind}>
+            {t(`item.kind.${kind}`)} {count}
+          </Chip>
+        ))}
+      </div>
+      {preview.warnings.length > 0 && (
+        <ul className="rows rows--closed">
+          {preview.warnings.map((warning) => (
+            <li key={warning} className="row row--warning">
+              <Icon name="alert" />
+              <span className="row__warning-title">{t(`import.warning.${warning}`)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -65,17 +100,7 @@ export function PreviewList({
 
   return (
     <div className="stack">
-      <p className="body">
-        {t("import.preview.ready", { count: preview.entries.length })}{" "}
-        <span className="muted">{t("import.preview.attachments", { count: preview.attachments })}</span>
-      </p>
-      {preview.warnings.length > 0 && (
-        <ul className="notes">
-          {preview.warnings.map((warning) => (
-            <li key={warning}>{t(`import.warning.${warning}`)}</li>
-          ))}
-        </ul>
-      )}
+      <Summary preview={preview} />
       <Switch
         label={t("import.flow.selectAll")}
         checked={all}
@@ -83,7 +108,7 @@ export function PreviewList({
           onChange(event.target.checked ? new Set(preview.entries.map((e) => e.index)) : new Set());
         }}
       />
-      <ul className="entries" aria-label={t("import.flow.entries")}>
+      <ul className="rows rows--closed entries" aria-label={t("import.flow.entries")}>
         {preview.entries.map((entry) => (
           <EntryRow
             key={entry.index}
@@ -98,9 +123,11 @@ export function PreviewList({
       {preview.skipped.length > 0 && (
         <>
           <h2 className="subtitle">{t("import.flow.skipped")}</h2>
-          <ul className="notes">
+          <ul className="rows rows--closed">
             {preview.skipped.map((entry) => (
-              <li key={entry.index}>{t(`import.skip.${entry.reason}`)}</li>
+              <li key={entry.index} className="row">
+                {t(`import.skip.${entry.reason}`)}
+              </li>
             ))}
           </ul>
         </>
