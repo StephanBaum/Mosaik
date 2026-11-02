@@ -78,7 +78,9 @@ function Categories(props: SidebarProps) {
               <span className="nav-item__label">
                 {t(category === "all" ? "vault.allItems" : `vault.category.${category}`)}
               </span>
-              <span className="nav-item__count tabular">{props.counts[category]}</span>
+              {props.counts[category] > 0 && (
+                <span className="nav-item__count tabular">{props.counts[category]}</span>
+              )}
             </button>
           </li>
         ),
@@ -106,7 +108,7 @@ function Vaults(props: SidebarProps) {
             <span className={`vault-dot vault-dot--${String(index % VAULT_COLORS)}`} aria-hidden="true" />
           </span>
           <span className="nav-item__label">{vault.name ?? t("vault.unnamed")}</span>
-          <span className="nav-item__count tabular">{vault.itemCount}</span>
+          {vault.itemCount > 0 && <span className="nav-item__count tabular">{vault.itemCount}</span>}
         </button>
       ))}
     </div>

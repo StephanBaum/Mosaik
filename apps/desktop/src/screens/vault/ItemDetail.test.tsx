@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App.tsx";
 import { createMockIpc } from "../../ipc/mock.ts";
+import { groupCode } from "./TotpCode.tsx";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -57,5 +58,31 @@ describe("item detail", () => {
     await openGitHub(user);
     await user.click(screen.getByRole("button", { name: "Copy Password" }));
     expect(await screen.findByText("Copied. Clears in 30 seconds.")).toBeTruthy();
+  });
+
+  it("moves an item to Trash from the more-actions menu", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await openGitHub(user);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to Trash" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("article", { name: "GitHub" })).toBeNull();
+    });
+  });
+
+  it("shows the changed date in the footer", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await openGitHub(user);
+    const article = screen.getByRole("article", { name: "GitHub" });
+    expect(within(article).getByText(/^Changed /)).toBeTruthy();
+  });
+});
+
+describe("groupCode", () => {
+  it("splits six digits 3 + 3 and leaves other lengths alone", () => {
+    expect(groupCode("123456")).toBe("123 456");
+    expect(groupCode("12345678")).toBe("12345678");
   });
 });

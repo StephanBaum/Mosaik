@@ -72,4 +72,11 @@ export const items = {
   "totp.expires": "Valid for {seconds, plural, one {# second} other {# seconds}}",
   "totp.show": "Show code",
   "totp.hide": "Hide code",
+  "item.urlMatch.exactOrigin": "Exact host",
+  "item.urlMatch.etld1": "Base domain",
+  "item.urlMatch.http": "HTTP allowed",
+  "item.changedAt": "Changed {at, date, medium}",
+  "item.createdAt": "Created {at, date, medium}",
+  "item.historyCount": "Password history ({count})",
+  "totp.secondsShort": "{seconds} s",
 } as const satisfies Record<string, string>;

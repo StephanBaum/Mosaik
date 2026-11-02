@@ -1,6 +1,4 @@
 /** The vault and trash views: the list pane beside the detail or editor, or the empty state. */
-import { Button } from "../../components/Button.tsx";
-import { HoloButton } from "../../components/HoloButton.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type {
   InsightFinding,
@@ -8,24 +6,12 @@ import type {
   VaultId,
   VaultSummary,
 } from "../../ipc/contract/index.ts";
+import { EmptyVault } from "./EmptyVault.tsx";
 import { ItemDetail } from "./ItemDetail.tsx";
 import { ItemEditor } from "./ItemEditor.tsx";
 import { ItemList } from "./ItemList.tsx";
 import type { Category } from "./useVaultData.ts";
 import type { Editor } from "./VaultLayout.tsx";
-
-function EmptyVault({ onNew, onImport }: { onNew: () => void; onImport: () => void }) {
-  const { t } = useI18n();
-  return (
-    <div className="empty-vault">
-      <p className="body muted">{t("vault.empty")}</p>
-      <div className="actions">
-        <HoloButton onClick={onNew}>{t("vault.new")}</HoloButton>
-        <Button onClick={onImport}>{t("palette.cmd.import")}</Button>
-      </div>
-    </div>
-  );
-}
 
 export interface ListViewProps {
   vaults: readonly VaultSummary[];

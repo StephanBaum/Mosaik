@@ -9,26 +9,28 @@ describe("App with the mock IPC", () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked", emptyVault: true })} languages={["en"]} />);
 
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "New item" })).toHaveLength(2);
-    });
-    const buttons = screen.getAllByRole("button", { name: "New item" });
+    // The empty state owns the holo; the header's "New item" is a plain button.
+    const cta = await screen.findByRole("button", { name: "Add your first item" });
+    expect(cta.classList.contains("holo")).toBe(true);
+    expect(screen.getByRole("button", { name: "New item" }).classList.contains("holo")).toBe(false);
     expect(document.querySelectorAll(".holo")).toHaveLength(1);
 
-    const cta = buttons.find((b) => b.classList.contains("holo"));
-    expect(cta).toBeDefined();
-    if (cta !== undefined) {
-      await user.click(cta);
-    }
+    await user.click(cta);
 
     expect(await screen.findByRole("heading", { name: /^New / })).toBeTruthy();
     expect(document.querySelectorAll(".holo")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Save" }).classList.contains("holo")).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "New item" })).toHaveLength(2);
-    });
+    await screen.findByRole("button", { name: "Add your first item" });
+    expect(document.querySelectorAll(".holo")).toHaveLength(1);
+  });
+
+  it("makes the header's New item the holo once the vault has items", async () => {
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await screen.findByText("GitHub");
+    const header = screen.getByRole("button", { name: "New item" });
+    expect(header.classList.contains("holo")).toBe(true);
     expect(document.querySelectorAll(".holo")).toHaveLength(1);
   });
 

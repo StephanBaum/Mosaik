@@ -1,9 +1,11 @@
 /** Create or edit an item (D10): title, user name, password (the generator can fill it), website, notes, tags. */
-import { useState, type SyntheticEvent } from "react";
+import { useState, type Dispatch, type SetStateAction, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
+import { Icon } from "../../components/icons.tsx";
+import { PasswordField } from "../../components/PasswordField.tsx";
 import { Select } from "../../components/Select.tsx";
 import { TextArea } from "../../components/TextArea.tsx";
 import { TextField } from "../../components/TextField.tsx";
@@ -111,46 +113,57 @@ function useSave(editing: ItemDetail | null, onSaved: (item: ItemRequest) => voi
 
 function KindAndVault({
   form,
+  creating,
   vaults,
   onChange,
 }: {
   form: Form;
+  creating: boolean;
   vaults: readonly VaultSummary[];
   onChange: (patch: Partial<Form>) => void;
 }) {
   const { t } = useI18n();
   return (
-    <>
-      <Select
-        label={t("editor.kind")}
-        value={form.kind}
-        options={CREATABLE.map((each) => ({ value: each, label: t(`item.kind.${each}`) }))}
-        onChange={(event) => {
-          onChange({ kind: event.target.value as ItemKind });
-        }}
-      />
-      <Select
-        label={t("editor.vault")}
-        value={form.vault}
-        options={vaults.map((each) => ({ value: each.vaultId, label: each.name ?? t("vault.unnamed") }))}
-        onChange={(event) => {
-          onChange({ vault: event.target.value });
-        }}
-      />
-    </>
+    <div className="editor__pickers">
+      {creating && (
+        <div className="editor__picker">
+          <Select
+            label={t("editor.kind")}
+            value={form.kind}
+            options={CREATABLE.map((each) => ({ value: each, label: t(`item.kind.${each}`) }))}
+            onChange={(event) => {
+              onChange({ kind: event.target.value as ItemKind });
+            }}
+          />
+        </div>
+      )}
+      {creating && (
+        <div className="editor__picker">
+          <Select
+            label={t("editor.vault")}
+            value={form.vault}
+            options={vaults.map((each) => ({
+              value: each.vaultId,
+              label: each.name ?? t("vault.unnamed"),
+            }))}
+            onChange={(event) => {
+              onChange({ vault: event.target.value });
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
 function FormFields({
   form,
   creating,
-  vaults,
   onChange,
   onFill,
 }: {
   form: Form;
   creating: boolean;
-  vaults: readonly VaultSummary[];
   onChange: (patch: Partial<Form>) => void;
   onFill: () => void;
 }) {
@@ -169,21 +182,23 @@ function FormFields({
   );
   return (
     <>
-      {creating && <KindAndVault form={form} vaults={vaults} onChange={onChange} />}
       {text("title", t("item.field.title"))}
       {text("username", t("item.field.username"))}
-      <TextField
-        label={t("item.field.password")}
-        hint={creating ? undefined : t("editor.keepSecret")}
-        mono
-        type="password"
-        autoComplete="new-password"
-        value={form.password}
-        onChange={(event) => {
-          onChange({ password: event.target.value });
-        }}
-      />
-      <Button onClick={onFill}>{t("editor.fillGenerated")}</Button>
+      <div className="editor__password">
+        <PasswordField
+          label={t("item.field.password")}
+          hint={creating ? undefined : t("editor.keepSecret")}
+          autoComplete="new-password"
+          value={form.password}
+          onChange={(event) => {
+            onChange({ password: event.target.value });
+          }}
+        />
+        <Button onClick={onFill}>
+          <Icon name="refresh" />
+          {t("action.generate")}
+        </Button>
+      </div>
       {creating && (
         <TextField
           label={t("editor.url")}
@@ -197,6 +212,7 @@ function FormFields({
       <TextArea
         label={t("item.field.notes")}
         value={form.notes}
+        rows={2}
         autoComplete="off"
         onChange={(event) => {
           onChange({ notes: event.target.value });
@@ -205,6 +221,23 @@ function FormFields({
       {text("tags", t("editor.tags"))}
     </>
   );
+}
+
+/** Asks the generator for a password and puts it in the form. */
+function useFillGenerated(
+  setForm: Dispatch<SetStateAction<Form>>,
+  setError: (error: IpcError | null) => void,
+): () => void {
+  const ipc = useIpc();
+  return () => {
+    void ipc.call("generate_password", GENERATED_PASSWORD).then((result) => {
+      if (result.ok) {
+        setForm((current) => ({ ...current, password: result.value.value }));
+      } else {
+        setError(result.error);
+      }
+    });
+  };
 }
 
 function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: () => void }) {
@@ -237,29 +270,23 @@ export function ItemEditor({
   onCancel: () => void;
 }) {
   const { t } = useI18n();
-  const ipc = useIpc();
   const [initial] = useState(() => initialForm(editing, vaults, vaultId));
   const [form, setForm] = useState(initial);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const { error, setError, save } = useSave(editing, onSaved);
 
-  async function fillGenerated() {
-    const result = await ipc.call("generate_password", GENERATED_PASSWORD);
-    if (result.ok) {
-      setForm((current) => ({ ...current, password: result.value.value }));
-    } else {
-      setError(result.error);
-    }
-  }
-
+  const fillGenerated = useFillGenerated(setForm, setError);
+  const change = (patch: Partial<Form>) => {
+    setForm((current) => ({ ...current, ...patch }));
+  };
   const heading =
     editing === null
       ? t("editor.newTitle", { kind: t(`item.kind.${form.kind}`) })
       : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
   return (
     <form
-      className="editor stack"
+      className="editor"
       onSubmit={(event: SyntheticEvent) => {
         event.preventDefault();
         void save(form);
@@ -277,15 +304,20 @@ export function ItemEditor({
         }
       }}
     >
-      <h2 className="detail__title">{heading}</h2>
+      <div className="editor__header">
+        <h2 className="display">{heading}</h2>
+        <KindAndVault
+          form={form}
+          creating={editing === null}
+          vaults={vaults}
+          onChange={change}
+        />
+      </div>
       <FormFields
         form={form}
         creating={editing === null}
-        vaults={vaults}
-        onChange={(patch) => {
-          setForm((current) => ({ ...current, ...patch }));
-        }}
-        onFill={() => void fillGenerated()}
+        onChange={change}
+        onFill={fillGenerated}
       />
       <ErrorAlert error={error} />
       <div className="form-footer">

@@ -12,8 +12,6 @@ export const vault = {
   "vault.items": "Einträge",
   "vault.search": "Tresor durchsuchen",
   "vault.untitled": "Ohne Titel",
-  "vault.empty":
-    "Dein Tresor ist leer. Lege deinen ersten Login an oder importiere aus einem anderen Passwortmanager.",
   "vault.noResults":
     "Nichts passt zu „{query}“. Prüfe die Schreibweise oder suche stattdessen nach einer Website.",
   "vault.new": "Neuer Eintrag",
@@ -31,4 +29,11 @@ export const vault = {
   "vault.category.notes": "Sichere Notizen",
   "vault.category.ssh": "SSH-Schlüssel",
   "vault.flag.otp": "2FA",
+  "vault.moveToNamed": "Nach {name} verschieben",
+  "vault.emptyTitle": "Dein Tresor ist leer",
+  "vault.emptyBody":
+    "Füge ein Login, einen Passkey, eine Karte oder eine Notiz hinzu. Alles wird auf diesem Gerät verschlüsselt, bevor es synchronisiert wird.",
+  "vault.addFirst": "Ersten Eintrag hinzufügen",
+  "vault.paletteTip.before": "Drücke",
+  "vault.paletteTip.after": "jederzeit, um zu suchen oder einen Befehl auszuführen.",
 } satisfies Record<keyof typeof en, string>;

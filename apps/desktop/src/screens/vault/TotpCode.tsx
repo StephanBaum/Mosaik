@@ -1,12 +1,41 @@
 /** A live one-time code: refetched when it expires, hidden on blur and on lock. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSecrets } from "../../app/SecretsContext.tsx";
-import { Button } from "../../components/Button.tsx";
 import { CopyButton } from "../../components/CopyButton.tsx";
+import { CountdownRing } from "../../components/CountdownRing.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
+import { IconButton } from "../../components/IconButton.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type { IpcError, ItemRequest, TotpCode as Code } from "../../ipc/contract/index.ts";
+
+const MASKED = "••• •••";
+const DEFAULT_PERIOD = 30;
+
+/** Six digits read as 3 + 3; other lengths stay as they are (display only). */
+export function groupCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
+/** Counts whole seconds while a code with an expiry is shown. */
+function useElapsed(running: boolean, reset: unknown): number {
+  const [state, setState] = useState({ reset, seconds: 0 });
+  useEffect(() => {
+    if (!running) {
+      return undefined;
+    }
+    const tick = setInterval(() => {
+      setState((current) => ({
+        reset,
+        seconds: current.reset === reset ? current.seconds + 1 : 1,
+      }));
+    }, 1000);
+    return () => {
+      clearInterval(tick);
+    };
+  }, [running, reset]);
+  return state.reset === reset ? state.seconds : 0;
+}
 
 export function TotpCode({ item }: { item: ItemRequest }) {
   const { t } = useI18n();
@@ -17,6 +46,8 @@ export function TotpCode({ item }: { item: ItemRequest }) {
   const [code, setCode] = useState<Code | null>(null);
   const [error, setError] = useState<IpcError | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const elapsed = useElapsed(code?.secondsRemaining != null, code);
+  const left = code?.secondsRemaining == null ? null : Math.max(code.secondsRemaining - elapsed, 0);
 
   const hide = useCallback(() => {
     clearTimeout(timer.current);
@@ -57,30 +88,32 @@ export function TotpCode({ item }: { item: ItemRequest }) {
   }, [ipc, item, shown, round]);
 
   return (
-    <div className="secret">
-      <span className="secret__label">{t("totp.code")}</span>
-      <div className="secret__row">
-        <span className="secret__value mono">{code === null ? "••• •••" : code.code}</span>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            if (shown) {
-              hide();
-            } else {
-              setShown(true);
-            }
-          }}
-        >
-          {t(shown ? "totp.hide" : "totp.show")}
-        </Button>
-        <CopyButton
-          source={{ kind: "item", vaultId: item.vaultId, itemId: item.itemId, field: { kind: "totp" } }}
-          field={t("totp.code")}
-        />
+    <div className="row">
+      <div className="row__main">
+        <span className="row__label">{t("totp.code")}</span>
+        <span className="row__value otp-code">{code === null ? MASKED : groupCode(code.code)}</span>
       </div>
-      {code?.secondsRemaining != null && (
-        <p className="field__hint">{t("totp.expires", { seconds: code.secondsRemaining })}</p>
+      {code !== null && left !== null && (
+        <span className="row__meta">
+          <CountdownRing remaining={left} total={code.period ?? DEFAULT_PERIOD} />
+          {t("totp.secondsShort", { seconds: left })}
+        </span>
       )}
+      <IconButton
+        icon={shown ? "eyeOff" : "eye"}
+        label={t(shown ? "totp.hide" : "totp.show")}
+        onClick={() => {
+          if (shown) {
+            hide();
+          } else {
+            setShown(true);
+          }
+        }}
+      />
+      <CopyButton
+        source={{ kind: "item", vaultId: item.vaultId, itemId: item.itemId, field: { kind: "totp" } }}
+        field={t("totp.code")}
+      />
       <ErrorAlert error={error} />
     </div>
   );

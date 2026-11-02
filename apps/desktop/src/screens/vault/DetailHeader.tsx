@@ -1,0 +1,117 @@
+/** The item header: avatar, title, meta line and the actions (Main, D08, D19). */
+import { Avatar } from "../../components/Avatar.tsx";
+import { Button } from "../../components/Button.tsx";
+import { Chip } from "../../components/Chip.tsx";
+import { Icon } from "../../components/icons.tsx";
+import { IconButton } from "../../components/IconButton.tsx";
+import { MenuButton, type MenuItem } from "../../components/Menu.tsx";
+import { useI18n } from "../../i18n/I18nProvider.tsx";
+import type { ItemDetail as Detail, VaultSummary } from "../../ipc/contract/index.ts";
+
+export type ItemCommand = "trash_item" | "restore_item" | "purge_item";
+
+export interface HeaderActions {
+  onRun: (command: ItemCommand) => void;
+  onFavorite: (favorite: boolean) => void;
+  onMove: (vaultId: string) => void;
+  onEdit: () => void;
+}
+
+function Actions({
+  detail,
+  trash,
+  vaults,
+  actions,
+}: {
+  detail: Detail;
+  trash: boolean;
+  vaults: readonly VaultSummary[];
+  actions: HeaderActions;
+}) {
+  const { t } = useI18n();
+  const summary = detail.summary;
+  if (trash) {
+    return (
+      <div className="detail__actions">
+        <Button
+          onClick={() => {
+            actions.onRun("restore_item");
+          }}
+        >
+          <Icon name="restore" />
+          {t("action.restore")}
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            actions.onRun("purge_item");
+          }}
+        >
+          {t("action.purge")}
+        </Button>
+      </div>
+    );
+  }
+  const items: MenuItem[] = [
+    { label: t("action.delete"), tone: "danger", onSelect: () => { actions.onRun("trash_item"); } },
+    ...vaults
+      .filter((vault) => vault.vaultId !== summary.vaultId)
+      .map((vault) => ({
+        label: t("vault.moveToNamed", { name: vault.name ?? t("vault.unnamed") }),
+        onSelect: () => {
+          actions.onMove(vault.vaultId);
+        },
+      })),
+  ];
+  return (
+    <div className="detail__actions">
+      <IconButton
+        icon="star"
+        variant="outline"
+        filled={summary.favorite}
+        pressed={summary.favorite}
+        label={t(summary.favorite ? "vault.unfavorite" : "vault.favorite")}
+        onClick={() => {
+          actions.onFavorite(!summary.favorite);
+        }}
+      />
+      <Button onClick={actions.onEdit}>{t("action.edit")}</Button>
+      <MenuButton label={t("action.moreActions")} items={items} />
+    </div>
+  );
+}
+
+export function DetailHeader({
+  detail,
+  trash,
+  vaults,
+  actions,
+}: {
+  detail: Detail;
+  trash: boolean;
+  vaults: readonly VaultSummary[];
+  actions: HeaderActions;
+}) {
+  const { t } = useI18n();
+  const summary = detail.summary;
+  const title = summary.title ?? t("vault.untitled");
+  const vaultName = vaults.find((vault) => vault.vaultId === summary.vaultId)?.name;
+  return (
+    <div className="detail__header">
+      <Avatar size="lg" title={title} />
+      <div className="detail__heading">
+        <h2 className="display">{title}</h2>
+        <div className="caption detail__meta">
+          <span>
+            {t(`item.kind.${summary.kind}`)}
+            {vaultName != null && ` · ${vaultName}`}
+          </span>
+          {summary.tags.map((tag) => (
+            <Chip key={tag}>{tag}</Chip>
+          ))}
+        </div>
+      </div>
+      <Actions detail={detail} trash={trash} vaults={vaults} actions={actions} />
+    </div>
+  );
+}

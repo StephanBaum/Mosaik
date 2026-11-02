@@ -9,8 +9,6 @@ export const vault = {
   "vault.items": "Items",
   "vault.search": "Search your vault",
   "vault.untitled": "Untitled",
-  "vault.empty":
-    "Your vault is empty. Add your first login, or import from another password manager.",
   "vault.noResults":
     "Nothing matches “{query}”. Check the spelling, or search for a website instead.",
   "vault.new": "New item",
@@ -28,4 +26,11 @@ export const vault = {
   "vault.category.notes": "Secure notes",
   "vault.category.ssh": "SSH keys",
   "vault.flag.otp": "2FA",
+  "vault.moveToNamed": "Move to {name}",
+  "vault.emptyTitle": "Your vault is empty",
+  "vault.emptyBody":
+    "Add a login, a passkey, a card or a note. Everything is encrypted on this device before it syncs.",
+  "vault.addFirst": "Add your first item",
+  "vault.paletteTip.before": "Press",
+  "vault.paletteTip.after": "anytime to search or run a command.",
 } as const satisfies Record<string, string>;

@@ -2,12 +2,12 @@
  * A secret that stays hidden until the user asks (UX_GUIDELINES §8). Revealing asks Rust
  * for the value; it is hidden again after `hideAfterSeconds`, on blur and on lock.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useSecrets } from "../app/SecretsContext.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { IpcError, IpcResult, RevealedSecret } from "../ipc/contract/index.ts";
-import { Button } from "./Button.tsx";
 import { ErrorAlert } from "./ErrorAlert.tsx";
+import { IconButton } from "./IconButton.tsx";
 
 export function SecretField({
   label,
@@ -17,7 +17,7 @@ export function SecretField({
   label: string;
   reveal: () => Promise<IpcResult<RevealedSecret>>;
   /** Extra controls next to the reveal button, for example a copy button. */
-  actions?: React.ReactNode;
+  actions?: ReactNode;
 }) {
   const { t } = useI18n();
   const secrets = useSecrets();
@@ -53,33 +53,31 @@ export function SecretField({
   }
 
   return (
-    <div className="secret">
-      <span className="secret__label">{label}</span>
-      <div className="secret__row">
+    <div className="row">
+      <div className="row__main">
+        <span className="row__label">{label}</span>
         {value === null ? (
-          <span className="secret__value mono" role="img" aria-label={t("item.secret.hiddenLabel")}>
-            ••••••••••••
+          <span className="row__value secret-mask" role="img" aria-label={t("item.secret.hiddenLabel")}>
+            ••••••••••••••••
           </span>
         ) : (
-          <span className="secret__value mono">{value}</span>
+          <span className="row__value mono">{value}</span>
         )}
-        <Button
-          variant="ghost"
-          aria-label={t(value === null ? "item.secret.revealAction" : "item.secret.hideAction", {
-            field: label,
-          })}
-          onClick={() => {
-            if (value === null) {
-              void show();
-            } else {
-              hide();
-            }
-          }}
-        >
-          {t(value === null ? "action.reveal" : "action.hide")}
-        </Button>
-        {actions}
       </div>
+      <IconButton
+        icon={value === null ? "eye" : "eyeOff"}
+        label={t(value === null ? "item.secret.revealAction" : "item.secret.hideAction", {
+          field: label,
+        })}
+        onClick={() => {
+          if (value === null) {
+            void show();
+          } else {
+            hide();
+          }
+        }}
+      />
+      {actions}
       <p className="visually-hidden" role="status">
         {value === null ? "" : t("item.secret.revealed", { field: label, seconds })}
       </p>

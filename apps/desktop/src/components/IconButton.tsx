@@ -6,6 +6,7 @@ export function IconButton({
   icon,
   label,
   pressed,
+  filled = false,
   size = "md",
   variant = "ghost",
   className,
@@ -16,6 +17,8 @@ export function IconButton({
   icon: IconName;
   label: string;
   pressed?: boolean;
+  /** Fills the icon (an active star). */
+  filled?: boolean;
   size?: "sm" | "md";
   variant?: "ghost" | "outline";
   ref?: Ref<HTMLButtonElement>;
@@ -33,7 +36,7 @@ export function IconButton({
       aria-pressed={pressed}
       {...rest}
     >
-      <Icon name={icon} />
+      <Icon name={icon} filled={filled} />
     </button>
   );
 }

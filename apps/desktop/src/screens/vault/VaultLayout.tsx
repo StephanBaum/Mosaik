@@ -90,17 +90,21 @@ function MainArea({
           onLoaded={shell.setItemCount}
         />
       )}
-      {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
-      {view === "generator" && <GeneratorPanel />}
-      {view === "settings" && <SettingsScreen />}
-      {view === "import" && (
-        <ImportFlow
-          embedded
-          onClose={() => {
-            shell.changed();
-            shell.go("vault");
-          }}
-        />
+      {!listing && (
+        <div className="page">
+          {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
+          {view === "generator" && <GeneratorPanel />}
+          {view === "settings" && <SettingsScreen />}
+          {view === "import" && (
+            <ImportFlow
+              embedded
+              onClose={() => {
+                shell.changed();
+                shell.go("vault");
+              }}
+            />
+          )}
+        </div>
       )}
     </main>
   );

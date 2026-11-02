@@ -41,4 +41,5 @@ export const app = {
   "sync.status.syncing": "Syncing…",
   "sync.status.offline": "Offline",
   "sync.status.error": "Sync failed",
+  "action.moreActions": "More actions",
 } as const satisfies Record<string, string>;
