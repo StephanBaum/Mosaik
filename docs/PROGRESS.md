@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; open: quick unlock, WebGL holo + virtual list, coverage run, extension-attacker review) |
+| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); open: unlock reveal port, quick unlock, virtual list, coverage run, extension-attacker review) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -1003,6 +1003,54 @@ Left for M3:
    `cognitive_complexity`.
 
 - D20 (sync offline / server error) is deferred to M6 with the sync server: M3 has no network sync, so neither state can occur. The `sync.offline` string stays in the catalog, unused, until then.
+
+## M3 Desktop app — UI fidelity and holo foil (2026-11-03)
+
+The owner judged the integrated UI "very barebones" against the mockups. An Opus
+side-by-side review (every screen, light and dark) produced a spec; Sonnet
+implemented it in 10 work packages on `m3/ui-fidelity`; a final Opus review
+fixed the remaining gaps. Fast-forwarded onto `main` (`754cff4`..`235e903`).
+
+- **Look:** new tokens (radii 4/8/10, sizes, divider/faint colours, display
+  type, 700 headings; ADR-0014 amended), ~35 line icons, logo mark, avatars,
+  chips, callouts, countdown ring, restyled buttons/fields/switch/dialog/toast.
+- **Screens:** mockup app shell (sidebar with categories, counts, vault dots,
+  sync footer; top bar with breadcrumb, search, `Ctrl+K`), item list/detail,
+  empty vault, editor, unlock and onboarding without cards (progress bar, kit
+  preview, quick-unlock buttons), import, security cards, palette, generator,
+  two-column settings, trash with days left and a purge confirmation, SSH
+  dialog with key tile and countdown, a 64 px rail below 900 px.
+- **Holo:** the WebGL2 foil ("angled rainbow stripes") is ported to
+  `apps/desktop/src/holo/` (painted inside each button from one shared
+  context; fallback = the static gradient). Press ripple and keyboard focus
+  waves use the owner's tuned values. Foil accents on the logo tile, active
+  nav, onboarding progress and the empty-state tile (ADR-0027). Two foil bugs
+  fixed everywhere: the sheen now has a floor (it drifted to grey), and the
+  colour drift over time is bounded (an unbounded time term times the
+  per-pixel angle turned the foil into speckle after ~1 min).
+- **Bugs fixed:** editor Save bar over Notes, empty "Fix these first"
+  heading, "Delete forever" without confirmation, mock generator entropy
+  (64-word list, bits from the list size).
+- **Design studies** (`docs/design/holo/`): `effect-studies.html` (button
+  press/focus effects with tuning sliders) and `reveal-studies.html` (unlock
+  transitions; the owner shortlisted liquid glass and energy shockwave, a
+  refinement pass is running). The chosen reveal is ported to the app next.
+- **Supply chain:** `minimatch` overridden to 11.0.4 (GHSA-g3hv-75wg-m249,
+  via eslint 10).
+- **Gate:** TypeScript half run once on the branch (install, lint,
+  typecheck, test, audit) plus all 6 Playwright specs (axe light/dark, CSP);
+  no Rust files changed, so cargo clippy/test/deny/audit were not re-run
+  (`cargo fmt --check` passes).
+- **Out of scope, needs IPC changes** (from the spec): strength of stored
+  passwords, inline OTP on the detail, passkey details, open website, share,
+  breach checks, switch account, password history dates, SSH process/host
+  rows, "delete export file", settings sub-pages.
+- **Owner direction recorded the same day:** the browser vault is the
+  extension itself (no hosted web vault; a standalone WASM extension vault
+  is a later option with its own ADR); the website is a landing page with
+  verifiable signed downloads (M9); M6 offers the Mosaic server or the
+  user's own cloud folder, including Dropbox Business team folders; Mosaic
+  targets business clients too.
 
 ## Open risks / findings
 

@@ -58,7 +58,7 @@ void main(){
   n=normalize(n+vec3(g*kk*kk*1.2,0.0));
   vec3 V=normalize(vec3(-tilt*0.6,1.0));
   float cosT=clamp(dot(n,V),0.0,1.0);
-  float thick=0.45+0.30*warp+0.10*rid*3.5+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+uTime*0.05+uSeed*0.1;
+  float thick=0.45+0.30*warp+0.10*rid*3.5+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+0.1+0.5*sin((uTime-2.0)*0.1)+uSeed*0.1;
   vec3 irid=thinFilm(2.2*thick*cosT);
   irid=mix(vec3(dot(irid,vec3(0.3333))),irid,0.72);
   vec3 Lk=normalize(vec3(-0.35,0.6,1.0));
