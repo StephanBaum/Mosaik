@@ -1987,6 +1987,13 @@ The primary action itself also gains a press ripple and keyboard-focus waves
 (still the same foil, still cosmetic), and the shader floors its sheen so the
 foil never turns grey. Reduced motion shows still frames.
 
+Amendment (2026-11-03, final mockup review): at a few pixels the button foil
+averages out to near-white, so the small accents read as grey on a light page.
+Static surfaces therefore render with more iridescence and a saturation lift
+that scales with size: full on the logo tile, nav bar and progress segments,
+close to the button foil on the 48 px empty-state tile. Same shader and
+palette, still static and decorative.
+
 ### Alternatives considered
 - Foil on the success badge and toasts: rejected, status colours stay
   conventional (UX §2).

@@ -11,7 +11,9 @@ void main(){float x=gl_VertexID==1?3.0:-1.0;float y=gl_VertexID==2?3.0:-1.0;gl_P
 /**
  * Fragment shader. `uMask = 1` paints a pill (buttons); `uMask = 0` paints the bare
  * surface (stills). `uUnit.x > 0` overrides the unit size (device px per button height)
- * and `uUnit.y` the half-aspect, for stills.
+ * and `uUnit.y` the half-aspect, for stills. Stills get more iridescence and a saturation
+ * lift, strongest on the smallest surfaces, so the static accents (ADR-0027) read as foil
+ * and not as grey on a white page.
  */
 export const FRAG = `#version 300 es
 precision highp float;
@@ -49,7 +51,7 @@ vec3 foil(vec2 p, vec2 B, float PX, vec2 tilt, float e, float extra, vec2 nb, fl
   n=normalize(n+vec3(g*kk*kk*1.2,0.0));
   vec3 V=normalize(vec3(-tilt*0.6,1.0));
   float cosT=clamp(dot(n,V),0.0,1.0);
-  float thick=0.45+0.30*warp+0.10*rid*3.5+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+uTime*0.05+uSeed*0.1+extra;
+  float thick=0.45+0.30*warp+0.10*rid*3.5+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+0.1+0.5*sin((uTime-2.0)*0.1)+uSeed*0.1+extra;
   vec3 irid=thinFilm(2.2*thick*cosT);
   irid=mix(vec3(dot(irid,vec3(0.3333))),irid,0.72+0.28*vib);
   vec3 Lk=normalize(vec3(-0.35,0.6,1.0));
@@ -96,8 +98,15 @@ void main(){
   vec2 fp=p-wr.yz*uRipQ.x-wf.yz*uFocQ.x;
   vec2 nb=-(wr.yz+wf.yz)*0.04;
   float vib=clamp(abs(wr.x)*uRipQ.y*6.0+abs(wf.x)*uFocQ.y*6.0,0.0,1.0);
+  float small=1.0-smoothstep(10.0,40.0,min(uRect.z,uRect.w)/max(uDPR,1.0));
+  if(uMask<0.5){ vib=mix(0.5,1.0,small); }
   float extra=0.55*(wr.x+wf.x);
   vec3 col=foil(fp,B,PX,tilt,e,extra,nb,vib);
+  if(uMask<0.5){
+    float lift=mix(1.05,1.6,small);
+    float l=dot(col,vec3(0.2126,0.7152,0.0722));
+    col=mix(vec3(l),col,lift)*mix(0.9,1.0,uDark);
+  }
   if(uMask>0.5){
     float ep=e/PX; float rw=max(1.0,uDPR);
     float rimM=1.0-smoothstep(rw-0.5,rw+0.5,ep);

@@ -125,8 +125,17 @@
   color: var(--color-text-muted);
 }
 
+/* Shortcut hints in the sidebar are plain text, like the counts (Main). */
+.nav-item .kbd {
+  padding-inline: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
 .nav-item:hover .nav-item__count,
-.nav-item[aria-current="page"] .nav-item__count {
+.nav-item[aria-current="page"] .nav-item__count,
+.nav-item:hover .kbd,
+.nav-item[aria-current="page"] .kbd {
   color: var(--color-text-secondary);
 }
 
@@ -423,8 +432,8 @@
     padding: 0 var(--space-4);
   }
 
-  .split {
-    grid-template-columns: 1fr;
+  .split__detail {
+    padding: var(--space-6) var(--space-6) calc(var(--space-8) * 2);
   }
 }
 

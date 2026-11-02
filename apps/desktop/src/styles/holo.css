@@ -68,10 +68,10 @@
 }
 
 .holo .kbd {
-  background: transparent;
+  border: 0;
+  background: color-mix(in srgb, var(--primary-action-label) 7%, transparent);
   color: inherit;
-  border: var(--border-width-hairline) solid currentcolor;
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -129,7 +129,7 @@
 .nav-item__bar {
   top: 25%;
   left: 0;
-  width: calc(var(--space-1) - var(--border-width-hairline));
+  width: calc(var(--space-1) + var(--border-width-hairline));
   height: 50%;
   border-radius: var(--radius-pill);
   background: var(--color-faint);
@@ -170,6 +170,11 @@
 .illu__foil.holo-surface--live ~ .illu .illu__tile--solid {
   fill: none;
   stroke: none;
+}
+
+/* On the foil the plus takes the primary-action label colour, as on a holo button. */
+.illu__foil.holo-surface--live ~ .illu .illu__plus {
+  stroke: var(--primary-action-label);
 }
 
 .illu-wrap .illu {

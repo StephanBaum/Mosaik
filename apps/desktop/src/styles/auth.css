@@ -273,7 +273,24 @@
   color: var(--color-warning);
 }
 
+.row--warning {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.row--warning .icon {
+  flex-shrink: 0;
+  margin-top: calc((var(--line-height-sm) - var(--size-icon)) / 2);
+}
+
 .row__warning-title {
-  font-weight: 600;
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 500;
   color: var(--color-warning);
+}
+
+/* In the vault page the import column is left aligned, so its cancel action is too. */
+.import-embedded .stack > .button--ghost {
+  align-self: flex-start;
 }

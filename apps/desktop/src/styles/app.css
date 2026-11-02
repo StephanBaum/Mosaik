@@ -420,14 +420,26 @@ input[type="checkbox"]:not([role="switch"]) {
   color: var(--color-text-secondary);
 }
 
-.entries__item {
+/* Import preview entries: the checkbox and title on one line, the notes indented under the
+   title. Scoped by .entries so it wins over the generic .row (components.css loads later). */
+.entries .entries__item {
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
+  align-items: stretch;
+  gap: var(--space-1);
 }
 
-.entries__label {
+.entries .entries__label {
   align-items: flex-start;
+  color: var(--color-text);
+}
+
+.entries .entries__label input {
+  margin-top: calc((var(--line-height-sm) - var(--size-icon)) / 2);
+}
+
+.entries .entries__item .field__hint {
+  margin: 0;
+  padding-inline-start: calc(var(--size-icon) + var(--space-3));
 }
 
 /* Dialog, palette, toasts */
@@ -441,6 +453,14 @@ input[type="checkbox"]:not([role="switch"]) {
   background: var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-popover);
+}
+
+/* On a raised surface the dark divider would equal the surface; one step up keeps the
+   hairlines visible (light: unchanged, both are the selected-row grey). */
+.dialog,
+.card,
+.kit-card {
+  --color-divider: var(--color-bg-selected);
 }
 
 .dialog--wide {

@@ -96,7 +96,7 @@ export function ListView(props: ListViewProps) {
             query={query}
             category={category}
             findings={findings}
-            selected={selected}
+            selected={props.editor.mode === "new" ? null : selected}
             reloadKey={reloadKey}
             onSelect={(item) => {
               onEditor({ mode: "closed" });

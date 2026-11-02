@@ -60,7 +60,8 @@ Use tokens only. Never use raw values in components.
 ## 3. Layout
 
 - Desktop: sidebar (vaults, categories, tags), item list, and detail pane.
-  Below 900 px it collapses to two panes. Minimum window size: 720 × 480.
+  Below 900 px the sidebar collapses to a 64 px icon rail and the list and
+  detail stay side by side. Minimum window size: 720 × 480.
 - Extension popup: 360 × 600 maximum. It shows the matching items for the
   current site first.
 - Lists use virtual scrolling past 200 rows.

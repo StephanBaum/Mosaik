@@ -31,9 +31,10 @@
   gap: var(--space-4);
 }
 
+/* Five summary cards: three across, then two wider ones (no lone full-width card). */
 .stat-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: var(--space-5);
   margin: 0;
   padding: 0;
@@ -42,8 +43,13 @@
 
 .stat-grid__item {
   display: flex;
-  flex: 1 1 calc(var(--space-9) * 3 - var(--space-3) * 1.5);
+  grid-column: span 2;
   min-width: 0;
+}
+
+.stat-grid__item:nth-child(4):nth-last-child(2),
+.stat-grid__item:nth-child(5):nth-last-child(1) {
+  grid-column: span 3;
 }
 
 .stat {
@@ -240,10 +246,7 @@
 .segmented {
   display: inline-flex;
   align-self: flex-start;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  border: var(--border-width-hairline) solid var(--color-border);
-  border-radius: var(--radius-pill);
+  gap: var(--space-2);
 }
 
 .segmented__tab {
@@ -252,9 +255,13 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   font: inherit;
   cursor: pointer;
+}
+
+.segmented__tab:hover {
+  color: var(--color-text);
 }
 
 .segmented__tab[aria-selected="true"] {
@@ -471,6 +478,11 @@
 
 .dialog__icon {
   margin-bottom: var(--space-4);
+}
+
+/* The description sits right under the title (D18). */
+.dialog__header:has(+ .ssh-prompt) {
+  margin-bottom: var(--space-2);
 }
 
 .key-tile {

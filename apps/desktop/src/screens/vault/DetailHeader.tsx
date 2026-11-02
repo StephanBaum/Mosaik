@@ -143,15 +143,25 @@ export function DetailHeader({
       <div className="detail__heading">
         <h2 className="display">{title}</h2>
         <div className="caption detail__meta">
-          <span>
-            {trash && summary.trashedAt !== null
-              ? t("trash.detailMeta", {
-                  kind: t(`item.kind.${summary.kind}`),
-                  vault: vaultName ?? t("vault.unnamed"),
-                  deletedAt: new Date(summary.trashedAt),
-                })
-              : t(`item.kind.${summary.kind}`) + (vaultName != null ? ` · ${vaultName}` : "")}
-          </span>
+          {trash && summary.trashedAt !== null ? (
+            <span>
+              {t("trash.detailMeta", {
+                kind: t(`item.kind.${summary.kind}`),
+                vault: vaultName ?? t("vault.unnamed"),
+                deletedAt: new Date(summary.trashedAt),
+              })}
+            </span>
+          ) : (
+            <>
+              <span>{t(`item.kind.${summary.kind}`)}</span>
+              {vaultName != null && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{vaultName}</span>
+                </>
+              )}
+            </>
+          )}
           {summary.tags.map((tag) => (
             <Chip key={tag}>{tag}</Chip>
           ))}

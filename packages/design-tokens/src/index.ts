@@ -31,7 +31,7 @@ export const size = {
   rail: 64,
   header: 64,
   sidebar: 248,
-  listPane: 320,
+  listPane: 280,
   column: 440,
   dialog: 480,
   dialogWide: 540,
