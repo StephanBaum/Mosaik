@@ -89,13 +89,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.eyebrow,
-.footnote {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-xs);
-}
-
 .body {
   margin: 0;
 }
@@ -426,74 +419,6 @@ input[type="checkbox"]:not([role="switch"]) {
   color: var(--color-text-secondary);
 }
 
-/* Strength, generator, counts */
-
-.strength__bar {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.strength__step {
-  flex: 1;
-  height: var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--color-bg-selected);
-}
-
-.strength__step.is-on {
-  background: var(--color-text);
-}
-
-.generated__value {
-  margin: 0;
-  padding: var(--space-4);
-  border-radius: var(--radius-card);
-  background: var(--color-bg-subtle);
-  overflow-wrap: anywhere;
-}
-
-.counts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-9) * 3), 1fr));
-  gap: var(--space-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.counts__item {
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-4);
-  border: var(--border-width-hairline) solid var(--color-border);
-  border-radius: var(--radius-card);
-}
-
-.counts__number {
-  font-size: var(--font-size-xl);
-  line-height: var(--line-height-xl);
-  font-weight: 600;
-}
-
-.findings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.findings__item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border: var(--border-width-hairline) solid var(--color-border);
-  border-radius: var(--radius-card);
-}
-
 .entries__item {
   flex-direction: column;
   align-items: flex-start;
@@ -555,34 +480,6 @@ input[type="checkbox"]:not([role="switch"]) {
   justify-content: flex-end;
   gap: var(--space-3);
   margin-top: var(--space-6);
-}
-
-.palette__list {
-  margin: var(--space-4) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.palette__option {
-  display: flex;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
-  cursor: pointer;
-}
-
-.palette__option[aria-selected="true"] {
-  background: var(--color-bg-selected);
-}
-
-.palette__option[aria-selected="true"] .muted {
-  color: var(--color-text-secondary);
-}
-
-.palette__shortcut {
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: var(--font-size-xs);
 }
 
 .toasts {

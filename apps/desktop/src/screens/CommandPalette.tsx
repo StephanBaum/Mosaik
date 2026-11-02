@@ -1,18 +1,23 @@
 /** The command palette (D11): Ctrl+K / ⌘K or the global shortcut. Items and every command. */
 import { useEffect, useId, useMemo, useState } from "react";
+import { Avatar } from "../components/Avatar.tsx";
 import { Dialog } from "../components/Dialog.tsx";
+import { Icon, type IconName } from "../components/icons.tsx";
+import { Kbd } from "../components/Kbd.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import type { ItemRequest, ItemSummary } from "../ipc/contract/index.ts";
 import { SEARCH_DEBOUNCE_MS } from "./vault/ItemList.tsx";
 import { usePlatform } from "../platform/platform.ts";
-import { ariaKeyshortcuts, format, SHORTCUTS, type ShortcutName } from "../platform/shortcuts.ts";
+import { ariaKeyshortcuts, SHORTCUTS, type ShortcutName } from "../platform/shortcuts.ts";
 import type { View } from "./vault/VaultLayout.tsx";
 
 interface Entry {
   id: string;
+  group: "items" | "commands";
   label: string;
   hint?: string;
+  icon?: IconName;
   /** The in-app shortcut, shown at the end of the row. */
   shortcut?: ShortcutName;
   run: () => void;
@@ -63,19 +68,24 @@ function useEntries(query: string, actions: Actions): Entry[] {
       action();
     };
     const go = (view: View) => done(() => { onNavigate(view); });
+    const command = (spec: Omit<Entry, "group">): Entry => ({ ...spec, group: "commands" });
     const all: Entry[] = [
-      { id: "new", label: t("palette.cmd.newItem"), shortcut: "newItem", run: done(onNewItem) },
-      { id: "generator", label: t("palette.cmd.generator"), run: go("generator") },
-      { id: "security", label: t("palette.cmd.security"), run: go("security") },
-      { id: "settings", label: t("palette.cmd.settings"), shortcut: "settings", run: go("settings") },
-      { id: "import", label: t("palette.cmd.import"), run: go("import") },
-      { id: "lock", label: t("palette.cmd.lock"), shortcut: "lock", run: done(onLock) },
+      command({ id: "new", label: t("palette.cmd.newItem"), icon: "plus", run: done(onNewItem), shortcut: "newItem" }),
+      command({ id: "generator", label: t("palette.cmd.generator"), icon: "refresh", run: go("generator") }),
+      command({ id: "security", label: t("palette.cmd.security"), icon: "shield", run: go("security") }),
+      command({ id: "settings", label: t("palette.cmd.settings"), icon: "sliders", run: go("settings"), shortcut: "settings" }),
+      command({ id: "import", label: t("palette.cmd.import"), icon: "download", run: go("import") }),
+      command({ id: "lock", label: t("palette.cmd.lock"), icon: "lock", run: done(onLock), shortcut: "lock" }),
     ];
     const commands = all.filter((entry) => entry.label.toLowerCase().includes(query.trim().toLowerCase()));
     const found: Entry[] = items.map((item) => ({
       id: `item-${item.itemId}`,
+      group: "items",
       label: item.title ?? t("vault.untitled"),
-      hint: item.subtitle ?? t(`item.kind.${item.kind}`),
+      hint:
+        item.subtitle === null
+          ? t(`item.kind.${item.kind}`)
+          : `${t(`item.kind.${item.kind}`)} · ${item.subtitle}`,
       run: done(() => {
         onOpenItem({ vaultId: item.vaultId, itemId: item.itemId });
       }),
@@ -84,38 +94,116 @@ function useEntries(query: string, actions: Actions): Entry[] {
   }, [items, query, t, onClose, onNewItem, onNavigate, onLock, onOpenItem]);
 }
 
-function Options({ id, entries, current, onHover }: {
+/** The label with the first occurrence of the query marked (plain string search). */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const needle = query.trim();
+  const at = needle === "" ? -1 : text.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) {
+    return <>{text}</>;
+  }
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="palette__match">{text.slice(at, at + needle.length)}</mark>
+      {text.slice(at + needle.length)}
+    </>
+  );
+}
+
+function Option({
+  id,
+  entry,
+  query,
+  selected,
+  onHover,
+}: {
   id: string;
-  entries: readonly Entry[];
-  current: number;
-  onHover: (index: number) => void;
+  entry: Entry;
+  query: string;
+  selected: boolean;
+  onHover: () => void;
 }) {
   const { t } = useI18n();
   const platform = usePlatform();
   return (
+    <li
+      id={id}
+      role="option"
+      aria-selected={selected}
+      aria-keyshortcuts={
+        entry.shortcut === undefined ? undefined : ariaKeyshortcuts(SHORTCUTS[entry.shortcut], platform)
+      }
+      className="palette__option"
+      onMouseEnter={onHover}
+      onClick={entry.run}
+    >
+      {entry.group === "items" ? (
+        <Avatar title={entry.label} size="sm" selected={selected} />
+      ) : (
+        <span className="palette__icon">
+          <Icon name={entry.icon ?? "plus"} />
+        </span>
+      )}
+      <span className="palette__text">
+        <span className="palette__label">
+          {entry.group === "items" ? <Highlight text={entry.label} query={query} /> : entry.label}
+        </span>
+        {entry.hint !== undefined && <span className="caption">{entry.hint}</span>}
+      </span>
+      {entry.shortcut !== undefined && <Kbd shortcut={entry.shortcut} hidden />}
+      {entry.group === "items" && selected && (
+        <Kbd hidden className="kbd--on-selected">
+          {t("keys.enter")}
+        </Kbd>
+      )}
+    </li>
+  );
+}
+
+function Options({
+  id,
+  entries,
+  query,
+  current,
+  onHover,
+}: {
+  id: string;
+  entries: readonly Entry[];
+  query: string;
+  current: number;
+  onHover: (index: number) => void;
+}) {
+  const { t } = useI18n();
+  const groups = [
+    { name: "items", label: t("palette.items") },
+    { name: "commands", label: t("palette.commands") },
+  ] as const;
+  return (
     <ul id={id} role="listbox" aria-label={t("palette.title")} className="palette__list">
-      {entries.map((entry, index) => (
-        <li
-          key={entry.id}
-          id={`${id}-${entry.id}`}
-          role="option"
-          aria-selected={index === current}
-          aria-keyshortcuts={
-            entry.shortcut === undefined ? undefined : ariaKeyshortcuts(SHORTCUTS[entry.shortcut], platform)
-          }
-          className="palette__option"
-          onMouseEnter={() => {
-            onHover(index);
-          }}
-          onClick={entry.run}
-        >
-          <span>{entry.label}</span>
-          {entry.hint !== undefined && <span className="muted">{entry.hint}</span>}
-          {entry.shortcut !== undefined && (
-            <kbd className="palette__shortcut">{format(SHORTCUTS[entry.shortcut], platform, t)}</kbd>
-          )}
-        </li>
-      ))}
+      {groups.map(({ name, label }) => {
+        const inGroup = entries.map((entry, index) => ({ entry, index })).filter((e) => e.entry.group === name);
+        return inGroup.length === 0 ? null : (
+          <li key={name} role="presentation">
+            <div id={`${id}-${name}`} className="palette__group">
+              {label}
+            </div>
+            <ul role="group" aria-labelledby={`${id}-${name}`} className="palette__options">
+              {inGroup.map(({ entry, index }) => (
+                <Option
+                  key={entry.id}
+                  id={`${id}-${entry.id}`}
+                  entry={entry}
+                  query={query}
+                  selected={index === current}
+                  onHover={() => {
+                    onHover(index);
+                  }}
+                />
+              ))}
+            </ul>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -147,29 +235,44 @@ export function CommandPalette(actions: Actions) {
   }
 
   return (
-    <Dialog title={t("palette.title")} onClose={actions.onClose}>
-      <input
-        className="field__input search"
-        type="text"
-        role="combobox"
-        aria-expanded={entries.length > 0}
-        aria-controls={entries.length > 0 ? listId : undefined}
-        aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
-        aria-label={t("palette.search")}
-        placeholder={t("palette.search")}
-        autoFocus
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setActive(0);
-        }}
-        onKeyDown={onKeyDown}
-      />
+    <Dialog title={t("palette.title")} onClose={actions.onClose} size="palette" hideTitle>
+      <div className="palette__search">
+        <Icon name="search" size="lg" className="muted" />
+        <input
+          className="palette__input"
+          type="text"
+          role="combobox"
+          aria-expanded={entries.length > 0}
+          aria-controls={entries.length > 0 ? listId : undefined}
+          aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
+          aria-label={t("palette.search")}
+          placeholder={t("palette.search")}
+          autoFocus
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActive(0);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <Kbd hidden>{t("keys.esc")}</Kbd>
+      </div>
       {entries.length === 0 ? (
-        <p className="empty muted">{t("palette.empty")}</p>
+        <p className="caption palette__empty">{t("palette.empty")}</p>
       ) : (
-        <Options id={listId} entries={entries} current={current} onHover={setActive} />
+        <Options id={listId} entries={entries} query={query} current={current} onHover={setActive} />
       )}
+      <div className="palette__footer caption" aria-hidden="true">
+        <span>
+          <Kbd>↑↓</Kbd> {t("palette.hint.move")}
+        </span>
+        <span>
+          <Kbd>{t("keys.enter")}</Kbd> {t("palette.hint.open")}
+        </span>
+        <span className="palette__footer-end">
+          <Kbd>{t("keys.esc")}</Kbd> {t("palette.hint.close")}
+        </span>
+      </div>
     </Dialog>
   );
 }

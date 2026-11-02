@@ -12,4 +12,7 @@ export const palette = {
   "palette.cmd.import": "Import from another app",
   "palette.cmd.lock": "Lock Mosaic",
   "palette.open": "Open command palette",
+  "palette.hint.move": "to move",
+  "palette.hint.open": "to open",
+  "palette.hint.close": "to close",
 } as const satisfies Record<string, string>;

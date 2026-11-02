@@ -21,4 +21,9 @@ export const generator = {
   "generator.strength.strong": "Strong",
   "generator.strength.veryStrong": "Very strong",
   "generator.strengthLabel": "Strength: {strength}",
+  "generator.strengthShort": "{strength} · {bits} bits",
+  "generator.minorHint": "Digits and symbols in grey",
+  "generator.lengthValue": "{length} characters",
+  "generator.wordsValue": "{length} words",
+  "generator.characters": "Characters",
 } as const satisfies Record<string, string>;

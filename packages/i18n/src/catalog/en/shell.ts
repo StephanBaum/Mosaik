@@ -19,4 +19,6 @@ export const shell = {
   "keys.shift": "Shift",
   "keys.alt": "Alt",
   "keys.space": "Space",
+  "keys.esc": "Esc",
+  "keys.enter": "Enter",
 } as const satisfies Record<string, string>;

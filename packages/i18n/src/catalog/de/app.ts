@@ -45,4 +45,5 @@ export const app = {
   "sync.status.offline": "Offline",
   "sync.status.error": "Synchronisierung fehlgeschlagen",
   "action.moreActions": "Weitere Aktionen",
+  "action.regenerate": "Neu erzeugen",
 } satisfies Record<keyof typeof en, string>;

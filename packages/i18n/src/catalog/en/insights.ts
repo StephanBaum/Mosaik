@@ -35,5 +35,5 @@ export const insights = {
   "insights.attribution.twoFactor": "2FA data: 2FA Directory (2fa.directory), MIT license.",
   "insights.counts": "{count, plural, =0 {No issues} one {# issue} other {# issues}}",
   "insights.documentation": "How to turn it on: {url}",
-  "insights.openItem": "Open {title}",
+  "insights.actionFor": "{action}: {title}",
 } as const satisfies Record<string, string>;

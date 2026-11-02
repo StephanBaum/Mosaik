@@ -21,4 +21,6 @@ export const shell = {
   "keys.shift": "Umschalt",
   "keys.alt": "Alt",
   "keys.space": "Leertaste",
+  "keys.esc": "Esc",
+  "keys.enter": "Eingabe",
 } satisfies Record<keyof typeof en, string>;

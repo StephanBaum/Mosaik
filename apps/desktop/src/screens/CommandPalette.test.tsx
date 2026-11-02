@@ -45,6 +45,16 @@ describe("command palette", () => {
     expect(row.getAttribute("aria-keyshortcuts")).toBe("Control+N");
   });
 
+  it("groups items and commands and marks the match in the item title", async () => {
+    const user = userEvent.setup();
+    renderPalette();
+    await user.type(screen.getByRole("combobox"), "git");
+    const option = await screen.findByRole("option", { name: /GitHub/ });
+    expect(option.querySelector("mark")?.textContent.toLowerCase()).toBe("git");
+    expect(screen.getByText("Items")).toBeTruthy();
+    expect(screen.getAllByRole("group").length).toBeGreaterThan(0);
+  });
+
   it("closes with one Esc, whatever the query", async () => {
     const user = userEvent.setup();
     const { onClose } = renderPalette();

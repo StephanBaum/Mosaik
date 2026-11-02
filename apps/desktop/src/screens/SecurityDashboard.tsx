@@ -2,89 +2,20 @@
  * The security report (D13): counts per kind, the findings to fix first, and the
  * attribution for the 2FA data. Everything is computed on this device.
  */
-import type { MessageKey, MessageValues } from "@mosaic/i18n";
 import { useEffect, useState } from "react";
 import { Button } from "../components/Button.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
+import { Icon } from "../components/icons.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import {
-  insightKinds,
   type InsightFinding,
-  type InsightIssue,
+  type InsightKind,
   type IpcError,
   type ItemRequest,
   type SecurityReport,
 } from "../ipc/contract/index.ts";
-
-type Translate = (key: MessageKey, values?: MessageValues) => string;
-
-function messageOf(t: Translate, finding: InsightFinding, issue: InsightIssue): string {
-  switch (issue.kind) {
-    case "weak":
-    case "old":
-      return t(`insights.finding.${issue.kind}`);
-    case "reused":
-      return t("insights.finding.reused", { count: finding.reusedWith.length });
-    case "missingTotp":
-      return t("insights.finding.missingTotp", { site: finding.totpSite?.name ?? "" });
-    case "insecureUrl":
-      return t("insights.finding.insecureUrl", { url: finding.insecureHost ?? "" });
-  }
-}
-
-function Counts({ report }: { report: SecurityReport }) {
-  const { t } = useI18n();
-  return (
-    <ul className="counts">
-      {insightKinds.map((kind) => (
-        <li key={kind} className="counts__item">
-          <span className="counts__number">{report.counts[kind]}</span>
-          <span>{t(`insights.kind.${kind}`)}</span>
-          <span className="muted">
-            {kind === "reused"
-              ? t("insights.kind.reused.description", { groups: report.counts.reusedGroups })
-              : t(`insights.kind.${kind}.description`)}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function FindingRow({
-  finding,
-  title,
-  onOpen,
-}: {
-  finding: InsightFinding;
-  title: string;
-  onOpen: () => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <li className="findings__item">
-      <strong>{title}</strong>
-      <ul>
-        {finding.issues.map((issue) => (
-          <li key={issue.kind}>
-            <span className="chip">{t(`insights.severity.${issue.severity}`)}</span>{" "}
-            {messageOf(t, finding, issue)}
-            {issue.kind === "missingTotp" && finding.totpSite?.documentation != null && (
-              <span className="muted">
-                {" "}
-                {t("insights.documentation", { url: finding.totpSite.documentation })}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-      <Button aria-label={t("insights.openItem", { title })} onClick={onOpen}>
-        {t(`insights.action.${finding.issues[0]?.action ?? "reviewUrl"}`)}
-      </Button>
-    </li>
-  );
-}
+import { Counts, FindingRow } from "./SecurityParts.tsx";
 
 function useReport(round: number) {
   const ipc = useIpc();
@@ -116,39 +47,62 @@ function useReport(round: number) {
   return { report, titles, error };
 }
 
+/** The findings to list: the kind filter first, then high severity, else the first five. */
+export function listFindings(
+  findings: readonly InsightFinding[],
+  filter: InsightKind | null,
+  showAll: boolean,
+): { listed: readonly InsightFinding[]; total: number } {
+  const base = filter === null ? findings : findings.filter((f) => f.issues.some((i) => i.kind === filter));
+  const urgent = base.filter((f) => f.issues.some((issue) => issue.severity === "high"));
+  const listed = showAll ? base : urgent.length > 0 ? urgent : base.slice(0, 5);
+  return { listed, total: base.length };
+}
+
 export function SecurityDashboard({ onOpenItem }: { onOpenItem: (item: ItemRequest) => void }) {
   const { t } = useI18n();
   const [round, setRound] = useState(0);
   const [showAll, setShowAll] = useState(false);
+  const [filter, setFilter] = useState<InsightKind | null>(null);
   const { report, titles, error } = useReport(round);
 
   const findings = report?.findings ?? [];
-  const urgent = findings.filter((f) => f.issues.some((issue) => issue.severity === "high"));
-  const listed = showAll ? findings : urgent;
+  const { listed, total } = listFindings(findings, filter, showAll);
   return (
-    <section className="stack" aria-label={t("insights.title")}>
-      <h1 className="display">{t("insights.title")}</h1>
-      <ErrorAlert error={error} />
-      {report !== null && (
-        <>
-          <p className="body muted">
-            {t("insights.intro", { checkedAt: report.generatedAt, count: report.itemsChecked })}
-          </p>
+    <section className="security" aria-label={t("insights.title")}>
+      <div className="page__header">
+        <div className="page__heading">
+          <h1 className="display">{t("insights.title")}</h1>
+          {report !== null && (
+            <p className="lede">
+              {t("insights.intro", { checkedAt: report.generatedAt, count: report.itemsChecked })}
+            </p>
+          )}
+        </div>
+        {report !== null && (
           <Button
             onClick={() => {
               setRound((n) => n + 1);
             }}
           >
+            <Icon name="refresh" />
             {t("insights.checkAgain")}
           </Button>
-          <h2 className="subtitle">{t("insights.summary")}</h2>
-          <Counts report={report} />
+        )}
+      </div>
+      <ErrorAlert error={error} />
+      {report !== null && (
+        <>
+          <section className="security__section">
+            <h2 className="subtitle">{t("insights.summary")}</h2>
+            <Counts report={report} filter={filter} onFilter={setFilter} />
+          </section>
           {findings.length === 0 ? (
-            <p className="body muted">{t("insights.empty")}</p>
+            <p className="lede">{t("insights.empty")}</p>
           ) : (
-            <>
+            <section className="security__section">
               <h2 className="subtitle">{t("insights.fixFirst")}</h2>
-              <ul className="findings">
+              <ol className="rows rows--closed">
                 {listed.map((finding) => (
                   <FindingRow
                     key={finding.itemId}
@@ -159,19 +113,22 @@ export function SecurityDashboard({ onOpenItem }: { onOpenItem: (item: ItemReque
                     }}
                   />
                 ))}
-              </ul>
-              {!showAll && findings.length > urgent.length && (
-                <Button
-                  onClick={() => {
-                    setShowAll(true);
-                  }}
-                >
-                  {t("insights.showAll", { count: findings.length })}
-                </Button>
+              </ol>
+              {listed.length === 0 && <p className="caption">{t("insights.empty")}</p>}
+              {!showAll && total > listed.length && (
+                <div>
+                  <Button
+                    onClick={() => {
+                      setShowAll(true);
+                    }}
+                  >
+                    {t("insights.showAll", { count: total })}
+                  </Button>
+                </div>
               )}
-            </>
+            </section>
           )}
-          <p className="footnote muted">{t("insights.attribution.twoFactor")}</p>
+          <p className="caption">{t("insights.attribution.twoFactor")}</p>
         </>
       )}
     </section>
