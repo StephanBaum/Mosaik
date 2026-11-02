@@ -1,5 +1,5 @@
 /** Pointer, keyboard and focus tracking of one foil button (port of the prototype's event wiring). */
-import type { FoilState } from "./motion.ts";
+import { startFocusWaves, startRipple, type FoilState } from "./motion.ts";
 
 export interface EventHooks {
   /** Requests a repaint (marks the state dirty and queues a frame). */
@@ -18,7 +18,7 @@ interface Wiring {
     type: K,
     handler: (event: HTMLElementEventMap[K]) => void,
   ) => void;
-  pressStart: () => void;
+  pressStart: (x: number, y: number) => void;
   pressEnd: () => void;
 }
 
@@ -63,7 +63,7 @@ function wirePointer({ button, s, hooks, on, pressStart, pressEnd }: Wiring): vo
   on("pointerdown", (event) => {
     if (event.button === 0) {
       local(event);
-      pressStart();
+      pressStart(s.mxT, s.myT);
     }
   });
   on("pointerup", pressEnd);
@@ -79,7 +79,7 @@ function wireKeyboardAndFocus({ button, s, hooks, on, pressStart, pressEnd }: Wi
     if (isAction(event) && !event.repeat) {
       s.mxT = 0;
       s.myT = 0.15;
-      pressStart();
+      pressStart(0, 0);
     }
   });
   on("keyup", (event) => {
@@ -88,7 +88,11 @@ function wireKeyboardAndFocus({ button, s, hooks, on, pressStart, pressEnd }: Wi
     }
   });
   on("focus", () => {
-    s.focusT = focusVisible(button) ? 1 : 0;
+    const visible = focusVisible(button);
+    s.focusT = visible ? 1 : 0;
+    if (visible) {
+      startFocusWaves(s, hooks.reduced());
+    }
     hooks.poke();
   });
   on("blur", () => {
@@ -107,8 +111,9 @@ export function attachEvents(button: HTMLButtonElement, s: FoilState, hooks: Eve
       button.removeEventListener(type, handler);
     });
   };
-  const pressStart = (): void => {
+  const pressStart = (x: number, y: number): void => {
     s.pressT = 1;
+    startRipple(s, x, y, hooks.reduced());
     button.classList.add(PRESSED);
     hooks.poke();
   };

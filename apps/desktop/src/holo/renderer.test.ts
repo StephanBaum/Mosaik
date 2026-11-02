@@ -113,8 +113,9 @@ describe("holo renderer", () => {
     harness.flush();
     expect(harness.gl["drawArrays"]).toHaveBeenCalledOnce();
     expect(harness.context.drawImage).toHaveBeenCalledOnce();
-    expect(foil.width).toBe(200);
-    expect(foil.height).toBe(68);
+    // 100 x 34 CSS px plus the 8 px margin on each side, at dpr 2.
+    expect(foil.width).toBe(232);
+    expect(foil.height).toBe(100);
     expect(harness.queue).toHaveLength(0);
   });
 
@@ -147,6 +148,45 @@ describe("holo renderer", () => {
     const calls = harness.gl["uniform1f"]?.mock.calls ?? [];
     const last = calls.filter(([loc]) => (loc as { name: string }).name === "uDark").at(-1);
     expect(last?.[1]).toBe(1);
+  });
+});
+
+function rippleCalls(gl: Record<string, Mock>): number[][] {
+  return (gl["uniform4f"]?.mock.calls ?? [])
+    .filter(([loc]) => (loc as { name: string }).name === "uRipple")
+    .map(([, ...rest]) => rest as number[]);
+}
+
+describe("holo renderer effects", () => {
+  beforeEach(() => {
+    harness = setup();
+  });
+
+  it("paints a press ripple from the pointer and keeps a frame queued while it runs", () => {
+    const { button, foil } = harness.makeButton();
+    harness.renderer.register(button, foil);
+    harness.flush();
+    button.getBoundingClientRect = () => new DOMRect(0, 0, 100, 34);
+    button.dispatchEvent(new MouseEvent("pointerdown", { button: 0, clientX: 80, clientY: 17 }));
+    harness.flush();
+    harness.flush();
+    const live = rippleCalls(harness.gl).filter(([, , , weight]) => (weight ?? 0) > 0);
+    expect(live.length).toBeGreaterThan(0);
+    expect(live[0]?.[0]).toBeCloseTo((80 - 50) / 34, 5);
+    expect(live[0]?.[1]).toBeCloseTo(0, 5);
+    expect(harness.queue.length).toBeGreaterThan(0);
+  });
+
+  it("starts no ripple under reduced motion", () => {
+    harness.renderer.dispose();
+    harness = setup({ reduced: true });
+    const { button, foil } = harness.makeButton();
+    harness.renderer.register(button, foil);
+    harness.flush();
+    button.dispatchEvent(new MouseEvent("pointerdown", { button: 0 }));
+    harness.flush();
+    const weights = rippleCalls(harness.gl).map(([, , , weight]) => weight);
+    expect(weights.every((weight) => weight === 0)).toBe(true);
   });
 });
 

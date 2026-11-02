@@ -3,7 +3,6 @@
 .button.holo {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
   border: var(--border-width-hairline) solid var(--primary-action-rim);
   border-radius: var(--radius-pill);
   color: var(--primary-action-label);
@@ -12,13 +11,20 @@
   transition: transform var(--motion-micro) var(--motion-easing);
 }
 
+/* The canvas bleeds past the button on every side (FOIL_MARGIN in holo/effects.ts, 8 px =
+   --space-3) so the outline can deform during the press ripple and focus waves. The button
+   does not clip (no overflow), the canvas is transparent outside the pill, and the label is
+   a separate element, so nothing shifts. The border is 1 px, hence the extra hairline. */
+.holo {
+  --holo-bleed: calc(var(--space-3) + var(--border-width-hairline));
+}
+
 .holo__foil {
   position: absolute;
-  inset: 0;
+  inset: calc(-1 * var(--holo-bleed));
   z-index: -1;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
+  width: calc(100% + 2 * var(--holo-bleed));
+  height: calc(100% + 2 * var(--holo-bleed));
   opacity: 0;
   pointer-events: none;
 }

@@ -6,6 +6,7 @@
  * Cosmetic only: no secret ever reaches this module.
  */
 import { drawFoil } from "./draw.ts";
+import { FOIL_MARGIN } from "./effects.ts";
 import { attachEvents } from "./events.ts";
 import {
   createContext,
@@ -217,11 +218,14 @@ class FoilRenderer implements HoloRenderer {
     return this.slow ? 1 : Math.min(this.deps.dpr(), MAX_DPR);
   }
 
-  /** Sizes the foil canvas to the button in device px (offset size, so the press scale does not matter). */
+  /**
+   * Sizes the foil canvas to the button plus its margin in device px (offset size, so the
+   * press scale does not matter). The margin lets the outline deform past the button box.
+   */
   private resize(entry: Entry): void {
     const dpr = this.dpr();
-    const width = Math.round(entry.button.offsetWidth * dpr);
-    const height = Math.round(entry.button.offsetHeight * dpr);
+    const width = Math.round((entry.button.offsetWidth + 2 * FOIL_MARGIN) * dpr);
+    const height = Math.round((entry.button.offsetHeight + 2 * FOIL_MARGIN) * dpr);
     if (entry.foil.width !== width) {
       entry.foil.width = width;
     }
@@ -323,6 +327,9 @@ class FoilRenderer implements HoloRenderer {
       mask: 1,
       stripeK: 1,
       unit: [0, 0],
+      margin: Math.round(FOIL_MARGIN * this.dpr()),
+      ripple: { x: s.ripX, y: s.ripY, age: s.ripAge },
+      focusAge: s.focusAge,
     });
     entry.context ??= entry.foil.getContext("2d");
     entry.context?.clearRect(0, 0, width, height);

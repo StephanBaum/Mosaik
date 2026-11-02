@@ -2,6 +2,7 @@
  * Foil animation state: a pure port of the prototype's per-button easing
  * (docs/design/holo/holo-button.js `update`). No DOM, no GL.
  */
+import { EFFECT_IDLE, focusRunning, rippleRunning } from "./effects.ts";
 import { DEFAULT_SEED } from "./shader.ts";
 
 export interface FoilState {
@@ -29,6 +30,14 @@ export interface FoilState {
   seed: number;
   /** Needs a repaint even when nothing animates. */
   dirty: boolean;
+  /** Press ripple: origin in button heights from the centre (y up) and age in seconds. */
+  ripX: number;
+  ripY: number;
+  ripAge: number;
+  /** Seconds since keyboard focus arrived (focus waves). */
+  focusAge: number;
+  /** A ripple or focus wave was running on the last update. */
+  fxRunning: boolean;
 }
 
 export interface MotionEnv {
@@ -63,7 +72,28 @@ export function newState(
     ambient: options.ambient === true,
     seed: options.seed ?? DEFAULT_SEED,
     dirty: true,
+    ripX: 0,
+    ripY: 0,
+    ripAge: EFFECT_IDLE,
+    focusAge: EFFECT_IDLE,
+    fxRunning: false,
   };
+}
+
+/** Starts the press ripple at `(x, y)` (button heights from the centre). Nothing under reduced motion. */
+export function startRipple(s: FoilState, x: number, y: number, reduced: boolean): void {
+  if (!reduced) {
+    s.ripX = x;
+    s.ripY = y;
+    s.ripAge = 0;
+  }
+}
+
+/** Starts the focus waves and swell. Only call for keyboard focus; nothing under reduced motion. */
+export function startFocusWaves(s: FoilState, reduced: boolean): void {
+  if (!reduced) {
+    s.focusAge = 0;
+  }
 }
 
 /** Exponential approach to `target`; jumps straight there under reduced motion. */
@@ -99,6 +129,36 @@ function setPointerTarget(s: FoilState): void {
   s.myT = idle.y;
 }
 
+/** Ages the ripple and focus waves; returns whether one is still running. */
+function stepEffects(s: FoilState, dt: number, reduced: boolean): boolean {
+  let running = false;
+  if (reduced) {
+    s.ripAge = EFFECT_IDLE;
+    s.focusAge = EFFECT_IDLE;
+  } else {
+    s.ripAge += dt;
+    s.focusAge += dt;
+    running = rippleRunning(s.ripAge) || focusRunning(s.focusAge);
+  }
+  if (s.fxRunning && !running) {
+    s.dirty = true;
+  }
+  s.fxRunning = running;
+  return running;
+}
+
+/** Pointer, press or an easing value still moving (a focused button only animates its waves). */
+function isBusy(s: FoilState, now: number, hoverTarget: number): boolean {
+  return (
+    s.inside ||
+    s.pressT > 0 ||
+    now - s.leaveAt < LEAVE_WINDOW_MS ||
+    Math.abs(s.hover - hoverTarget) > SETTLE ||
+    Math.abs(s.press - s.pressT) > SETTLE ||
+    Math.abs(s.focus - s.focusT) > SETTLE
+  );
+}
+
 /** Advances `s` by `dt` seconds at clock time `now` (ms). */
 export function update(s: FoilState, dt: number, now: number, env: MotionEnv): void {
   const { reduced } = env;
@@ -112,15 +172,8 @@ export function update(s: FoilState, dt: number, now: number, env: MotionEnv): v
   const pointerStep = step(s.inside ? 24 : 7);
   s.mx = approach(s.mx, s.mxT, pointerStep);
   s.my = approach(s.my, s.myT, pointerStep);
-  s.active =
-    !reduced &&
-    (ambient ||
-      s.inside ||
-      s.focusT > 0 ||
-      s.pressT > 0 ||
-      now - s.leaveAt < LEAVE_WINDOW_MS ||
-      Math.abs(s.hover - hoverTarget) > SETTLE ||
-      Math.abs(s.press - s.pressT) > SETTLE);
+  const fx = stepEffects(s, dt, reduced);
+  s.active = !reduced && (ambient || fx || isBusy(s, now, hoverTarget));
   if (s.active) {
     s.time += dt;
   } else {
