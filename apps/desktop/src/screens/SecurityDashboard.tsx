@@ -68,7 +68,7 @@ function FindingRow({
       <ul>
         {finding.issues.map((issue) => (
           <li key={issue.kind}>
-            <span className="badge">{t(`insights.severity.${issue.severity}`)}</span>{" "}
+            <span className="chip">{t(`insights.severity.${issue.severity}`)}</span>{" "}
             {messageOf(t, finding, issue)}
             {issue.kind === "missingTotp" && finding.totpSite?.documentation != null && (
               <span className="muted">

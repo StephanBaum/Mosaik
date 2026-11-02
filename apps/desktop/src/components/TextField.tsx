@@ -1,27 +1,51 @@
-/** A labelled input with an optional hint, wired for screen readers. */
+/** A labelled input with an optional hint and error, wired for screen readers. */
 import { useId, type InputHTMLAttributes } from "react";
+import { Icon } from "./icons.tsx";
+
+export function describedBy(...ids: (string | undefined)[]): string | undefined {
+  const joined = ids.filter(Boolean).join(" ");
+  return joined === "" ? undefined : joined;
+}
+
+export function FieldError({ id, message }: { id: string; message: string }) {
+  return (
+    <p id={id} className="field__error">
+      <Icon name="alert" size="sm" />
+      {message}
+    </p>
+  );
+}
 
 export function TextField({
   label,
   hint,
+  error,
   mono = false,
+  size = "md",
   ...input
-}: InputHTMLAttributes<HTMLInputElement> & {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   label: string;
   hint?: string | undefined;
+  error?: string | undefined;
   mono?: boolean;
+  size?: "md" | "lg";
 }) {
   const id = useId();
   const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
   return (
-    <div className="field">
+    <div className={size === "lg" ? "field field--lg" : "field"}>
       <label className="field__label" htmlFor={id}>
         {label}
       </label>
       <input
         id={id}
         className={mono ? "field__input field__input--mono" : "field__input"}
-        aria-describedby={hint === undefined ? undefined : hintId}
+        aria-describedby={describedBy(
+          hint === undefined ? undefined : hintId,
+          error === undefined ? undefined : errorId,
+        )}
+        aria-invalid={error === undefined ? undefined : true}
         {...input}
       />
       {hint !== undefined && (
@@ -29,6 +53,7 @@ export function TextField({
           {hint}
         </p>
       )}
+      {error !== undefined && <FieldError id={errorId} message={error} />}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useState, type SyntheticEvent } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { IpcError } from "../ipc/contract/index.ts";
 import { Button } from "./Button.tsx";
+import { HoloButton } from "./HoloButton.tsx";
 import { Dialog } from "./Dialog.tsx";
 import { ErrorAlert } from "./ErrorAlert.tsx";
 import { TextField } from "./TextField.tsx";
@@ -50,11 +51,11 @@ export function ReauthDialog({
           }}
         />
         <ErrorAlert error={error} />
-        <div className="actions">
+        <div className="dialog__actions">
           <Button onClick={onClose}>{t("action.cancel")}</Button>
-          <Button variant="primary" type="submit" disabled={busy}>
+          <HoloButton type="submit" disabled={busy}>
             {t("reauth.submit")}
-          </Button>
+          </HoloButton>
         </div>
       </form>
     </Dialog>

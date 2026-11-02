@@ -17,7 +17,15 @@ export function useCopy(): (source: CopySource) => Promise<void> {
     } else if (result.value.clearAfterSeconds === null) {
       toast(t("toast.copiedKept"));
     } else {
-      toast(t("toast.copied", { seconds: result.value.clearAfterSeconds }));
+      toast(t("toast.copied", { seconds: result.value.clearAfterSeconds }), {
+        tone: "success",
+        action: {
+          label: t("clipboard.clearNow"),
+          run: () => {
+            void ipc.call("clear_clipboard", null);
+          },
+        },
+      });
     }
   };
 }

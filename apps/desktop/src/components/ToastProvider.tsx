@@ -1,15 +1,25 @@
 /** Toasts in one polite live region (UX_GUIDELINES §7). */
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
+import { Button } from "./Button.tsx";
+import { Icon } from "./icons.tsx";
+import { IconButton } from "./IconButton.tsx";
 
-interface Toast {
+export interface ToastOptions {
+  tone?: "success" | "info";
+  action?: { label: string; run: () => void };
+}
+
+interface Toast extends ToastOptions {
   id: number;
   message: string;
 }
 
 const TOAST_MS = 6000;
 
-const ToastContext = createContext<((message: string) => void) | null>(null);
+type Show = (message: string, options?: ToastOptions) => void;
+
+const ToastContext = createContext<Show | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n();
@@ -19,11 +29,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
-  const show = useCallback(
-    (message: string) => {
+  const show = useCallback<Show>(
+    (message, options = {}) => {
       next.current += 1;
       const id = next.current;
-      setToasts((current) => [...current, { id, message }]);
+      setToasts((current) => [...current, { id, message, ...options }]);
       setTimeout(() => {
         dismiss(id);
       }, TOAST_MS);
@@ -37,19 +47,33 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toasts" role="status" aria-live="polite" aria-label={t("toast.region")}>
         {toasts.map((toast) => (
-          <p key={toast.id} className="toast">
-            <span>{toast.message}</span>
-            <button
-              type="button"
-              className="toast__close"
-              aria-label={t("toast.dismiss")}
+          <div key={toast.id} className="toast">
+            {toast.tone === "success" && (
+              <span className="toast__badge">
+                <Icon name="check" size="sm" />
+              </span>
+            )}
+            <span className="toast__message">{toast.message}</span>
+            {toast.action !== undefined && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  toast.action?.run();
+                  dismiss(toast.id);
+                }}
+              >
+                {toast.action.label}
+              </Button>
+            )}
+            <IconButton
+              icon="x"
+              size="sm"
+              label={t("toast.dismiss")}
               onClick={() => {
                 dismiss(toast.id);
               }}
-            >
-              {t("action.close")}
-            </button>
-          </p>
+            />
+          </div>
         ))}
       </div>
     </ToastContext>
@@ -57,7 +81,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 /** Shows a message in the toast region. */
-export function useToast(): (message: string) => void {
+export function useToast(): Show {
   const context = useContext(ToastContext);
   if (context === null) {
     throw new Error("useToast needs a ToastProvider");

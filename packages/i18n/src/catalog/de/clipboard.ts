@@ -13,6 +13,7 @@ export const clipboard = {
   "toast.trashed": "In den Papierkorb verschoben.",
   "toast.restored": "Wiederhergestellt.",
   "toast.purged": "Endgültig gelöscht.",
+  "clipboard.clearNow": "Jetzt leeren",
   "toast.dismiss": "Ausblenden",
   "toast.region": "Hinweise",
 } satisfies Record<keyof typeof en, string>;

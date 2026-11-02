@@ -1,7 +1,7 @@
 /** Unlock with the master password (and the Secret Key on a device that lacks it). */
 import { useState, type SyntheticEvent } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
-import { Button } from "../components/Button.tsx";
+import { HoloButton } from "../components/HoloButton.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
@@ -84,9 +84,9 @@ export function UnlockScreen({
         <p className="status" aria-live="polite">
           {busy ? t("lock.working") : ""}
         </p>
-        <Button variant="primary" type="submit" disabled={busy}>
+        <HoloButton type="submit" disabled={busy} ambient>
           {t("lock.submit")}
-        </Button>
+        </HoloButton>
       </form>
     </main>
   );

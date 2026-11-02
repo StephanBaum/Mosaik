@@ -8,6 +8,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 import "virtual:mosaic-tokens.css";
 import "./styles/app.css";
+import "./styles/components.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";

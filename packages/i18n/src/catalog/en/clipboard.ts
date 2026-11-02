@@ -9,6 +9,7 @@ export const clipboard = {
   "toast.trashed": "Moved to Trash.",
   "toast.restored": "Restored.",
   "toast.purged": "Deleted for good.",
+  "clipboard.clearNow": "Clear now",
   "toast.dismiss": "Dismiss",
   "toast.region": "Notifications",
 } as const satisfies Record<string, string>;

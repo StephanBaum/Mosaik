@@ -9,6 +9,16 @@ export function Switch({
   const id = useId();
   return (
     <div className="switch">
+      <div className="switch__text">
+        <label htmlFor={id} className="switch__label">
+          {label}
+        </label>
+        {hint !== undefined && (
+          <p id={`${id}-hint`} className="field__hint">
+            {hint}
+          </p>
+        )}
+      </div>
       <input
         id={id}
         type="checkbox"
@@ -17,14 +27,6 @@ export function Switch({
         aria-describedby={hint === undefined ? undefined : `${id}-hint`}
         {...input}
       />
-      <label htmlFor={id} className="switch__label">
-        {label}
-      </label>
-      {hint !== undefined && (
-        <p id={`${id}-hint`} className="field__hint">
-          {hint}
-        </p>
-      )}
     </div>
   );
 }

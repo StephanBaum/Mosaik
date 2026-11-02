@@ -212,7 +212,7 @@ function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: (
   return (
     <Dialog title={t("editor.discard.title")} onClose={onKeep}>
       <p>{t("editor.discard.body")}</p>
-      <div className="actions">
+      <div className="dialog__actions">
         <Button autoFocus onClick={onKeep}>
           {t("editor.discard.keep")}
         </Button>
@@ -288,7 +288,7 @@ export function ItemEditor({
         onFill={() => void fillGenerated()}
       />
       <ErrorAlert error={error} />
-      <div className="actions">
+      <div className="form-footer">
         <Button onClick={onCancel}>{t("action.cancel")}</Button>
         <HoloButton type="submit">{t("action.save")}</HoloButton>
       </div>

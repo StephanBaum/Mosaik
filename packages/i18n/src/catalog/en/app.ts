@@ -16,6 +16,8 @@ export const app = {
   "app.skipToContent": "Skip to content",
   "action.save": "Save",
   "action.close": "Close",
+  "action.showPassword": "Show password",
+  "action.hidePassword": "Hide password",
   "action.back": "Back",
   "action.confirm": "Confirm",
   "action.edit": "Edit",

@@ -19,6 +19,8 @@ export const app = {
   "app.skipToContent": "Zum Inhalt springen",
   "action.save": "Speichern",
   "action.close": "Schließen",
+  "action.showPassword": "Passwort anzeigen",
+  "action.hidePassword": "Passwort verbergen",
   "action.back": "Zurück",
   "action.confirm": "Bestätigen",
   "action.edit": "Bearbeiten",

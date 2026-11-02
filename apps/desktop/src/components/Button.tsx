@@ -1,18 +1,26 @@
 /**
- * Buttons. `primary` is the screen's single primary action (ADR-0014): a round pill that
- * the UI track renders in holo foil (WebGL2, ported from docs/design/holo/); until then,
- * and whenever WebGL2 is unavailable, it uses the flat fallback fill.
+ * Buttons. The screen's single primary action is a `HoloButton` (ADR-0014); everything
+ * else is one of these variants.
  */
 import type { ButtonHTMLAttributes } from "react";
 
-type Variant = "primary" | "secondary" | "ghost";
+export type ButtonVariant = "secondary" | "ghost" | "danger" | "dangerSolid";
+export type ButtonSize = "sm" | "md" | "lg";
 
 export function Button({
   variant = "secondary",
+  size = "md",
+  block = false,
   className,
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
-  const classes = ["button", `button--${variant}`, className].filter(Boolean).join(" ");
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  block?: boolean;
+}) {
+  const classes = ["button", `button--${variant}`, `button--${size}`, block ? "button--block" : "", className]
+    .filter(Boolean)
+    .join(" ");
   return <button type={type} className={classes} {...props} />;
 }

@@ -114,7 +114,7 @@ function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: nu
       </p>
       {waiting > 0 && <p className="status">{t("ssh.queue", { count: waiting })}</p>}
       <ErrorAlert error={error} />
-      <div className="actions">
+      <div className="dialog__actions">
         <Button
           autoFocus
           onClick={() => {
