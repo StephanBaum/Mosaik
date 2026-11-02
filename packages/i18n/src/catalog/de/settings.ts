@@ -43,4 +43,12 @@ export const settings = {
     "Dein Secret Key wird gleich in eine Datei geschrieben, daher braucht Mosaic dein Master-Passwort.",
   "reauth.password": "Master-Passwort",
   "reauth.submit": "Bestätigen",
+  "settings.intro": "Wie Mosaic sperrt, Geheimnisse löscht und deine Schlüssel auf diesem Gerät schützt.",
+  "settings.section.autoLock": "Automatisch sperren",
+  "settings.section.autoLock.body": "Wann sich Mosaic selbst sperrt, ohne dass du es verlangst.",
+  "settings.section.clipboard": "Zwischenablage",
+  "settings.section.clipboard.body": "Kopierte Geheimnisse werden nach dieser Zeit gelöscht.",
+  "settings.appearance.body": "Das Erscheinungsbild und die Sprache von Mosaic.",
+  "settings.ssh.body": "Lass Programme sich mit SSH-Schlüsseln aus deinem Tresor anmelden. Du bestätigst jede Nutzung.",
+  "settings.kit.body": "Speichere eine neue Kopie deines Emergency Kit. Dafür brauchst du dein Master-Passwort.",
 } satisfies Record<keyof typeof en, string>;

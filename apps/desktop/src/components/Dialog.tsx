@@ -15,6 +15,7 @@ export function Dialog({
   size = "md",
   hideTitle = false,
   closeButton = false,
+  icon,
 }: {
   title: string;
   onClose: () => void;
@@ -26,6 +27,8 @@ export function Dialog({
   hideTitle?: boolean;
   /** Adds a close button at the top right. */
   closeButton?: boolean;
+  /** A decorative tile above the title. */
+  icon?: ReactNode;
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
@@ -47,6 +50,11 @@ export function Dialog({
         onClose();
       }}
     >
+      {icon !== undefined && (
+        <div className="dialog__icon" aria-hidden="true">
+          {icon}
+        </div>
+      )}
       <div className={hideTitle && !closeButton ? "visually-hidden" : "dialog__header"}>
         <h2 className={hideTitle ? "visually-hidden" : "dialog__title"}>{title}</h2>
         {closeButton && (

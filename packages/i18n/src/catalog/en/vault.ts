@@ -33,4 +33,9 @@ export const vault = {
   "vault.addFirst": "Add your first item",
   "vault.paletteTip.before": "Press",
   "vault.paletteTip.after": "anytime to search or run a command.",
+  "trash.retention": "Deleted items are kept for 30 days.",
+  "trash.rowMeta": "Deleted {deletedAt, date, medium} · {days, plural, one {# day} other {# days}} left",
+  "trash.detailMeta": "{kind} · {vault} · Deleted {deletedAt, date, medium}",
+  "trash.purgeConfirm.title": "Delete \"{title}\" forever?",
+  "trash.purgeConfirm.body": "You can't undo this.",
 } as const satisfies Record<string, string>;

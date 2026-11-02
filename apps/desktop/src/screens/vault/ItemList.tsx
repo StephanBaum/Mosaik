@@ -14,6 +14,7 @@ import type {
   ItemSummary,
   VaultId,
 } from "../../ipc/contract/index.ts";
+import { daysLeft, TRASH_URGENT_DAYS } from "../../time/trash.ts";
 import { matchesCategory, type Category } from "./useVaultData.ts";
 
 export const SEARCH_DEBOUNCE_MS = 150;
@@ -82,15 +83,19 @@ function ItemRow({
   item,
   selected,
   flag,
+  now,
   onSelect,
 }: {
   item: ItemSummary;
   selected: boolean;
   flag: InsightKind | undefined;
+  /** Set in the trash view: the row then shows the deletion date and the days left. */
+  now: number | null;
   onSelect: () => void;
 }) {
   const { t } = useI18n();
   const title = item.title ?? t("vault.untitled");
+  const trashed = now !== null && item.trashedAt !== null ? daysLeft(item.trashedAt, now) : null;
   return (
     <button
       type="button"
@@ -101,7 +106,20 @@ function ItemRow({
       <Avatar title={title} selected={selected} />
       <span className="item-row__text">
         <span className="item-row__title">{title}</span>
-        <span className="item-row__subtitle">{item.subtitle ?? t(`item.kind.${item.kind}`)}</span>
+        {trashed !== null && item.trashedAt !== null ? (
+          <span
+            className={
+              trashed <= TRASH_URGENT_DAYS
+                ? "item-row__subtitle item-row__subtitle--urgent"
+                : "item-row__subtitle"
+            }
+          >
+            {trashed <= TRASH_URGENT_DAYS && <Icon name="clock" size="sm" />}
+            {t("trash.rowMeta", { deletedAt: new Date(item.trashedAt), days: trashed })}
+          </span>
+        ) : (
+          <span className="item-row__subtitle">{item.subtitle ?? t(`item.kind.${item.kind}`)}</span>
+        )}
       </span>
       {flag !== undefined ? (
         <span className="item-row__flag">
@@ -141,10 +159,18 @@ export function ItemList({
   const { items, error } = useItems({ vaultId, trash, query, category, reloadKey }, onLoaded);
   const [shown, setShown] = useState(PAGE);
   const flags = useMemo(() => flagsOf(findings), [findings]);
+  // Read once per mount: whole days left do not need a ticking clock.
+  const [now] = useState(() => Date.now());
 
   return (
     <div className="list-pane">
       <ErrorAlert error={error} />
+      {trash && (
+        <div className="list-pane__title">
+          <h2 className="subtitle">{t("nav.trash")}</h2>
+          <p className="caption">{t("trash.retention")}</p>
+        </div>
+      )}
       {items !== null && items.length === 0 && (query.trim() !== "" || trash) && (
         <p className="empty muted">
           {query.trim() !== "" ? t("vault.noResults", { query }) : t("vault.trashEmpty")}
@@ -162,6 +188,7 @@ export function ItemList({
                   item={item}
                   selected={selected?.vaultId === item.vaultId && selected.itemId === item.itemId}
                   flag={flags.get(`${item.vaultId}/${item.itemId}`)}
+                  now={trash ? now : null}
                   onSelect={() => {
                     onSelect({ vaultId: item.vaultId, itemId: item.itemId });
                   }}

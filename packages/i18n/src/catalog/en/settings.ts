@@ -40,4 +40,12 @@ export const settings = {
     "Your Secret Key is about to be shown in a file, so Mosaic needs your master password.",
   "reauth.password": "Master password",
   "reauth.submit": "Confirm",
+  "settings.intro": "How Mosaic locks, clears secrets and protects your keys on this device.",
+  "settings.section.autoLock": "Auto-lock",
+  "settings.section.autoLock.body": "When Mosaic locks itself without you asking.",
+  "settings.section.clipboard": "Clipboard",
+  "settings.section.clipboard.body": "Copied secrets are cleared after this time.",
+  "settings.appearance.body": "The theme and the language of Mosaic.",
+  "settings.ssh.body": "Let programs sign in with SSH keys from your vault. You approve each use.",
+  "settings.kit.body": "Save a fresh copy of your Emergency Kit. This needs your master password.",
 } as const satisfies Record<string, string>;

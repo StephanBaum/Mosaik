@@ -29,4 +29,6 @@ export const ssh = {
     "Wird nicht angeboten: Mosaic signiert nur mit Ed25519- und ECDSA-P-256-Schlüsseln.",
   "ssh.skip.malformed": "Wird nicht angeboten: Der Schlüssel ist nicht lesbar.",
   "ssh.skip.duplicate": "Wird nicht angeboten: Ein anderer Eintrag hat denselben Schlüssel.",
+  "ssh.description": "Eine App hat den Mosaic-SSH-Agenten gebeten, sich mit diesem Schlüssel anzumelden.",
+  "ssh.escDenies": "zum Ablehnen",
 } satisfies Record<keyof typeof en, string>;

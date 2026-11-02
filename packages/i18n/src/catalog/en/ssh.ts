@@ -25,4 +25,6 @@ export const ssh = {
   "ssh.skip.unsupported": "Not served: Mosaic signs only with Ed25519 and ECDSA P-256 keys.",
   "ssh.skip.malformed": "Not served: the key can't be read.",
   "ssh.skip.duplicate": "Not served: another item has the same key.",
+  "ssh.description": "An app asked the Mosaic SSH agent to sign in with this key.",
+  "ssh.escDenies": "to deny",
 } as const satisfies Record<string, string>;

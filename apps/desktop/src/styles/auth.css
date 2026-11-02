@@ -251,7 +251,6 @@
 
 .import-embedded {
   max-width: var(--size-form);
-  padding: var(--space-6) calc(var(--space-8) + var(--space-3));
 }
 
 .import-summary {

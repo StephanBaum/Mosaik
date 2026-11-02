@@ -382,13 +382,14 @@ select.field__input {
 .switch__input {
   appearance: none;
   flex-shrink: 0;
-  width: calc(var(--space-7) + var(--space-2));
-  height: calc(var(--space-5) + var(--space-2));
+  /* 24 px high: the WCAG 2.2 minimum target size. */
+  width: calc(var(--space-7) + var(--space-3));
+  height: var(--space-6);
   margin: 0;
   border-radius: var(--radius-pill);
   background:
     radial-gradient(circle closest-side, var(--color-bg) 72%, transparent 78%) left center /
-      calc(var(--space-5) + var(--space-2)) 100% no-repeat,
+      var(--space-6) 100% no-repeat,
     var(--color-border-strong);
   cursor: pointer;
   transition: background-position var(--motion-micro) var(--motion-easing);

@@ -51,13 +51,15 @@ export function KitStep({ kit, onContinue }: { kit: EmergencyKit; onContinue: ()
           <p className="lede">{t("kit.body")}</p>
         </div>
         <KitCard kit={kit} />
-        <Callout tone="warning">{t("kit.warning")}</Callout>
         <div className="auth__actions">
           {saveButton}
           <p className="caption" role="status">
             {saved === "saved" ? t("kit.saved") : saved === "cancelled" ? t("kit.cancelled") : ""}
           </p>
           <ErrorAlert error={error} />
+        </div>
+        <Callout tone="warning">{t("kit.warning")}</Callout>
+        <div className="auth__actions">
           {isSaved ? (
             <HoloButton size="lg" block onClick={onContinue}>
               {t("action.continue")}

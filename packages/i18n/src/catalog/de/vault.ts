@@ -36,4 +36,9 @@ export const vault = {
   "vault.addFirst": "Ersten Eintrag hinzufügen",
   "vault.paletteTip.before": "Drücke",
   "vault.paletteTip.after": "jederzeit, um zu suchen oder einen Befehl auszuführen.",
+  "trash.retention": "Gelöschte Einträge bleiben 30 Tage erhalten.",
+  "trash.rowMeta": "Gelöscht am {deletedAt, date, medium} · noch {days, plural, one {# Tag} other {# Tage}}",
+  "trash.detailMeta": "{kind} · {vault} · Gelöscht am {deletedAt, date, medium}",
+  "trash.purgeConfirm.title": "\"{title}\" endgültig löschen?",
+  "trash.purgeConfirm.body": "Das lässt sich nicht rückgängig machen.",
 } satisfies Record<keyof typeof en, string>;

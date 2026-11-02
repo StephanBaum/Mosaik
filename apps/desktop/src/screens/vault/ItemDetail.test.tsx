@@ -71,6 +71,37 @@ describe("item detail", () => {
     });
   });
 
+  it("asks before deleting forever and only purges on confirm", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await openGitHub(user);
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move to Trash" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("article", { name: "GitHub" })).toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: /^Trash/ }));
+    await user.click(await screen.findByRole("button", { name: /GitHub/ }));
+    const article = await screen.findByRole("article", { name: "GitHub" });
+    expect(screen.getByText(/days? left/)).toBeTruthy();
+
+    await user.click(within(article).getByRole("button", { name: "Delete forever" }));
+    const dialog = await screen.findByRole("dialog", { name: /Delete "GitHub" forever?/ });
+    expect(within(dialog).getByText("You can't undo this.")).toBeTruthy();
+    // Cancel keeps the item.
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("article", { name: "GitHub" })).toBeTruthy();
+
+    await user.click(within(screen.getByRole("article", { name: "GitHub" })).getByRole("button", { name: "Delete forever" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete forever" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("article", { name: "GitHub" })).toBeNull();
+    });
+    expect(await screen.findByText("Deleted for good.")).toBeTruthy();
+  });
+
   it("shows the changed date in the footer", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);

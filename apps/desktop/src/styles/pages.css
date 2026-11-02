@@ -180,7 +180,8 @@
 .palette__text {
   display: flex;
   flex: 1;
-  flex-direction: column;
+  align-items: baseline;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -379,4 +380,142 @@
   display: flex;
   flex-wrap: wrap;
   gap: calc(var(--space-3) + var(--space-1)) var(--space-6);
+}
+
+/* Settings (D17) */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--size-settings);
+}
+
+.settings__intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-7);
+}
+
+.settings-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5) var(--space-8);
+  padding: var(--space-7) 0;
+  border-top: var(--border-width-hairline) solid var(--color-divider);
+}
+
+.settings-section__intro {
+  display: flex;
+  flex: 1 1 calc(var(--space-9) * 3 + var(--space-5) - var(--space-2));
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: calc(var(--space-9) * 4 + var(--space-6));
+}
+
+.settings-section__body {
+  display: flex;
+  flex: 1 1 calc(var(--space-9) * 5 + var(--space-6));
+  flex-direction: column;
+  min-width: 0;
+}
+
+.setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: calc(var(--space-4) + var(--space-1)) 0;
+  border-bottom: var(--border-width-hairline) solid var(--color-divider);
+}
+
+.setting-row:last-child {
+  border-bottom: 0;
+}
+
+.setting-row .switch {
+  flex: 1 1 100%;
+}
+
+.setting-row__label {
+  flex: 1 1 calc(var(--space-9) * 2 + var(--space-4));
+}
+
+.setting-row__control {
+  flex: 0 1 calc(var(--space-9) * 3);
+}
+
+.setting-row__control.field__input {
+  width: 100%;
+}
+
+.setting-row .field__hint,
+.setting-row .alert {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.setting-row__code {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* SSH approval (D18) */
+
+.ssh-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.dialog__icon {
+  margin-bottom: var(--space-4);
+}
+
+.key-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-lg);
+  height: var(--size-control-lg);
+  border-radius: var(--radius-panel);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.ssh-prompt .row {
+  padding: var(--space-4) 0;
+}
+
+.ssh-prompt .row__label {
+  flex: 0 0 calc(var(--space-9) * 2 - var(--space-3));
+}
+
+.ssh-prompt .row__value {
+  flex: 1 1 0;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.ssh-prompt__expiry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ssh-prompt__expiry-text {
+  flex: 1;
+  margin: 0;
+}
+
+.ssh-prompt .dialog__actions {
+  margin-top: 0;
+}
+
+.settings-section__intro .caption {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
 }

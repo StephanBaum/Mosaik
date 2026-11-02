@@ -9,15 +9,25 @@ export interface Option {
 export function Select({
   label,
   options,
+  inline = false,
   ...select
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string; options: readonly Option[] }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  options: readonly Option[];
+  /** Label and select on one settings row. */
+  inline?: boolean;
+}) {
   const id = useId();
   return (
-    <div className="field">
-      <label className="field__label" htmlFor={id}>
+    <div className={inline ? "setting-row" : "field"}>
+      <label className={inline ? "setting-row__label" : "field__label"} htmlFor={id}>
         {label}
       </label>
-      <select id={id} className="field__input" {...select}>
+      <select
+        id={id}
+        className={inline ? "field__input setting-row__control" : "field__input"}
+        {...select}
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

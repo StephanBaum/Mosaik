@@ -1,7 +1,9 @@
 /** The item header: avatar, title, meta line and the actions (Main, D08, D19). */
+import { useState } from "react";
 import { Avatar } from "../../components/Avatar.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Chip } from "../../components/Chip.tsx";
+import { Dialog } from "../../components/Dialog.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { IconButton } from "../../components/IconButton.tsx";
 import { MenuButton, type MenuItem } from "../../components/Menu.tsx";
@@ -17,6 +19,32 @@ export interface HeaderActions {
   onEdit: () => void;
 }
 
+/** Deleting for good cannot be undone: ask first, with Cancel focused. */
+function PurgeDialog({
+  title,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Dialog title={t("trash.purgeConfirm.title", { title })} onClose={onCancel}>
+      <p className="lede">{t("trash.purgeConfirm.body")}</p>
+      <div className="dialog__actions">
+        <Button autoFocus onClick={onCancel}>
+          {t("action.cancel")}
+        </Button>
+        <Button variant="dangerSolid" onClick={onConfirm}>
+          {t("action.purge")}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
 function Actions({
   detail,
   trash,
@@ -29,6 +57,7 @@ function Actions({
   actions: HeaderActions;
 }) {
   const { t } = useI18n();
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const summary = detail.summary;
   if (trash) {
     return (
@@ -44,11 +73,23 @@ function Actions({
         <Button
           variant="danger"
           onClick={() => {
-            actions.onRun("purge_item");
+            setConfirmPurge(true);
           }}
         >
           {t("action.purge")}
         </Button>
+        {confirmPurge && (
+          <PurgeDialog
+            title={summary.title ?? t("vault.untitled")}
+            onCancel={() => {
+              setConfirmPurge(false);
+            }}
+            onConfirm={() => {
+              setConfirmPurge(false);
+              actions.onRun("purge_item");
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -103,8 +144,13 @@ export function DetailHeader({
         <h2 className="display">{title}</h2>
         <div className="caption detail__meta">
           <span>
-            {t(`item.kind.${summary.kind}`)}
-            {vaultName != null && ` · ${vaultName}`}
+            {trash && summary.trashedAt !== null
+              ? t("trash.detailMeta", {
+                  kind: t(`item.kind.${summary.kind}`),
+                  vault: vaultName ?? t("vault.unnamed"),
+                  deletedAt: new Date(summary.trashedAt),
+                })
+              : t(`item.kind.${summary.kind}`) + (vaultName != null ? ` · ${vaultName}` : "")}
           </span>
           {summary.tags.map((tag) => (
             <Chip key={tag}>{tag}</Chip>

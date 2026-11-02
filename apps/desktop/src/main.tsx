@@ -11,6 +11,7 @@ import "./styles/app.css";
 import "./styles/components.css";
 import "./styles/shell.css";
 import "./styles/auth.css";
+import "./styles/pages.css";
 import "./styles/detail.css";
 import "./styles/holo.css";
 import { StrictMode } from "react";

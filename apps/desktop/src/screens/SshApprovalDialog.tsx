@@ -3,11 +3,15 @@
  * buttons stay disabled for 1 s after the dialog opens and after the window regains focus,
  * so a keystroke meant for another window cannot approve a signature.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
 import { Button } from "../components/Button.tsx";
+import { CountdownRing } from "../components/CountdownRing.tsx";
 import { Dialog } from "../components/Dialog.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
+import { HoloButton } from "../components/HoloButton.tsx";
+import { Icon } from "../components/icons.tsx";
+import { Kbd } from "../components/Kbd.tsx";
 import { useWindowFocused } from "../hooks/useWindowFocused.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
@@ -68,12 +72,36 @@ function useCountdownAnnouncement(seconds: number): string {
   return announcement;
 }
 
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="row">
+      <dt className="row__label">{label}</dt>
+      <dd className="row__value">{children}</dd>
+    </div>
+  );
+}
+
+function Expiry({ seconds, total }: { seconds: number; total: number }) {
+  const { t } = useI18n();
+  return (
+    <div className="ssh-prompt__expiry caption">
+      <CountdownRing remaining={seconds} total={total} />
+      <p className="ssh-prompt__expiry-text">{t("ssh.expires", { seconds })}</p>
+      <span>
+        <Kbd>{t("keys.esc")}</Kbd> {t("ssh.escDenies")}
+      </span>
+    </div>
+  );
+}
+
 function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: number }) {
   const { t } = useI18n();
   const ipc = useIpc();
   const { removeSsh } = useEvents();
   const { now, locked } = useAllowGuard();
   const [error, setError] = useState<IpcError | null>(null);
+  // The first countdown value is the ring's full circle.
+  const [total] = useState(() => Math.max(1, Math.ceil((request.expiresAt - Date.now()) / 1000)));
 
   async function answer(decision: SshDecision) {
     const result = await ipc.call("ssh_respond", { requestId: request.requestId, decision });
@@ -90,57 +118,61 @@ function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: nu
   return (
     <Dialog
       title={t("ssh.title")}
+      icon={
+        <span className="key-tile">
+          <Icon name="key" size="lg" />
+        </span>
+      }
       onClose={() => {
         void answer("deny");
       }}
     >
-      <dl className="fields">
-        <div className="fields__row">
-          <dt>{t("ssh.key")}</dt>
-          <dd>{request.keyTitle ?? t("vault.untitled")}</dd>
+      <div className="ssh-prompt">
+        <div className="ssh-prompt__head">
+          <p className="lede">{t("ssh.description")}</p>
         </div>
-        <div className="fields__row">
-          <dt>{t("ssh.fingerprint")}</dt>
-          <dd className="mono">{request.fingerprint}</dd>
-        </div>
-        <div className="fields__row">
-          <dt>{t("ssh.client")}</dt>
-          <dd>{request.client.pid === null ? client : `${client} (${String(request.client.pid)})`}</dd>
-        </div>
-      </dl>
-      <p className="status">{t("ssh.expires", { seconds })}</p>
-      <p role="status" className="visually-hidden">
-        {announcement}
-      </p>
-      {waiting > 0 && <p className="status">{t("ssh.queue", { count: waiting })}</p>}
-      <ErrorAlert error={error} />
-      <div className="dialog__actions">
-        <Button
-          autoFocus
-          onClick={() => {
-            void answer("deny");
-          }}
-        >
-          {t("ssh.deny")}
-        </Button>
-        <Button
-          disabled={locked}
-          onClick={() => {
-            void answer("allowOnce");
-          }}
-        >
-          {t("ssh.allowOnce")}
-        </Button>
-        {request.canRemember && (
+        <dl className="rows rows--closed">
+          <Row label={t("ssh.key")}>{request.keyTitle ?? t("vault.untitled")}</Row>
+          <Row label={t("ssh.fingerprint")}>{request.fingerprint}</Row>
+          <Row label={t("ssh.client")}>
+            {request.client.pid === null ? client : `${client} (${String(request.client.pid)})`}
+          </Row>
+        </dl>
+        <Expiry seconds={seconds} total={total} />
+        <p role="status" className="visually-hidden">
+          {announcement}
+        </p>
+        {waiting > 0 && <p className="status">{t("ssh.queue", { count: waiting })}</p>}
+        <ErrorAlert error={error} />
+        <div className="dialog__actions">
           <Button
-            disabled={locked}
+            autoFocus
             onClick={() => {
-              void answer("allowFor15Minutes");
+              void answer("deny");
             }}
           >
-            {t("ssh.allowFor15Minutes")}
+            {t("ssh.deny")}
           </Button>
-        )}
+          {request.canRemember && (
+            <Button
+              disabled={locked}
+              onClick={() => {
+                void answer("allowFor15Minutes");
+              }}
+            >
+              {t("ssh.allowFor15Minutes")}
+            </Button>
+          )}
+          {/* The foil only changes emphasis (approved D18); Deny keeps the focus and the 1 s guard stays. */}
+          <HoloButton
+            disabled={locked}
+            onClick={() => {
+              void answer("allowOnce");
+            }}
+          >
+            {t("ssh.allowOnce")}
+          </HoloButton>
+        </div>
       </div>
     </Dialog>
   );
