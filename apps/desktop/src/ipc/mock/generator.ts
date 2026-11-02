@@ -1,4 +1,4 @@
-/** Mock generator: uniform choices from `crypto.getRandomValues`, small wordlist. */
+/** Mock generator: uniform choices from `crypto.getRandomValues`, a 64-word sample list; entropy is computed from the list actually used. */
 import type { GenerateRequest, Strength } from "../contract/index.ts";
 import { fail, randomIndex, type MockHandlers } from "./state.ts";
 
@@ -6,9 +6,72 @@ const LOWER = "abcdefghijklmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DIGITS = "0123456789";
 const SYMBOLS = "!#$%&*+-=?@^_";
-const WORDS = ["orbit", "tulip", "canyon", "velvet", "meadow", "lantern", "quiet", "harbor"];
-/** Bits per word of the real EFF large wordlist, so the UI shows realistic figures. */
-const EFF_BITS_PER_WORD = 12.9;
+export const WORDS = [
+  "orbit",
+  "tulip",
+  "canyon",
+  "velvet",
+  "meadow",
+  "lantern",
+  "quiet",
+  "harbor",
+  "amber",
+  "birch",
+  "cobalt",
+  "dune",
+  "ember",
+  "fjord",
+  "glacier",
+  "hazel",
+  "island",
+  "jasper",
+  "kettle",
+  "lagoon",
+  "maple",
+  "nectar",
+  "opal",
+  "pebble",
+  "quartz",
+  "raven",
+  "saffron",
+  "thistle",
+  "umber",
+  "valley",
+  "willow",
+  "yarrow",
+  "zephyr",
+  "anchor",
+  "beacon",
+  "cedar",
+  "delta",
+  "falcon",
+  "garnet",
+  "heron",
+  "indigo",
+  "juniper",
+  "kelp",
+  "lilac",
+  "marble",
+  "nova",
+  "olive",
+  "prairie",
+  "quill",
+  "ripple",
+  "sierra",
+  "timber",
+  "violet",
+  "walnut",
+  "cinder",
+  "tundra",
+  "basil",
+  "comet",
+  "drift",
+  "fable",
+  "grove",
+  "hollow",
+  "ivory",
+  "meteor",
+] as const;
 
 interface Draw {
   value: string;
@@ -28,7 +91,9 @@ function generatePassphrase(request: Extract<GenerateRequest, { kind: "passphras
   const digit = request.appendDigit ? DIGITS.charAt(randomIndex(DIGITS.length)) : "";
   return {
     value: words.join(request.separator) + digit,
-    entropyBits: request.words * EFF_BITS_PER_WORD,
+    entropyBits:
+      request.words * Math.log2(WORDS.length) +
+      (request.appendDigit ? Math.log2(DIGITS.length) : 0),
   };
 }
 
