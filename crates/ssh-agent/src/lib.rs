@@ -64,7 +64,7 @@ pub mod wire;
 
 pub use approval::{
     ApprovalEvent, ApprovalPrompts, ApprovalRequest, Approver, ClientInfo, CloseReason,
-    DEFAULT_GRANT, Decision, InvalidRequestId, RequestExpired, RequestId, SignFailed,
+    DEFAULT_GRANT, Decision, InvalidRequestId, RequestId, RespondError, SignFailed,
 };
 pub use core::{AgentConfig, AgentCore};
 pub use error::Error;

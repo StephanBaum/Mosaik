@@ -11,7 +11,7 @@ use ssh_key::PublicKey;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
 use super::*;
-use crate::approval::{ApprovalEvent, ApprovalPrompts, RequestExpired};
+use crate::approval::{ApprovalEvent, ApprovalPrompts, RespondError};
 use crate::keys::KeyAlgorithm;
 use crate::keys::SignFailure;
 use crate::testkeys::{fixture, ids, key, material, openssh, s, strings};
@@ -554,12 +554,15 @@ fn approval_prompts_bridge_events_and_answers() {
         let events: Arc<Mutex<Vec<ApprovalEvent>>> = Arc::default();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = Arc::clone(&events);
-        let prompts = Arc::new(ApprovalPrompts::new(move |e: ApprovalEvent| {
-            if let ApprovalEvent::Requested(r) = &e {
-                let _ = tx.send(r.id);
-            }
-            sink.lock().unwrap().push(e);
-        }));
+        let prompts = Arc::new(
+            ApprovalPrompts::new(move |e: ApprovalEvent| {
+                if let ApprovalEvent::Requested(r) = &e {
+                    let _ = tx.send(r.id);
+                }
+                sink.lock().unwrap().push(e);
+            })
+            .with_min_allow_delay(Duration::ZERO),
+        );
         let config = AgentConfig {
             approval_timeout: Duration::from_millis(200),
             ..AgentConfig::default()
@@ -584,7 +587,7 @@ fn approval_prompts_bridge_events_and_answers() {
         assert_eq!(prompts.open_requests(), 0);
         assert_eq!(
             prompts.respond(id, Decision::AllowOnce),
-            Err(RequestExpired),
+            Err(RespondError::Expired),
             "answered already"
         );
         // Expired: a late answer is refused.
@@ -593,7 +596,7 @@ fn approval_prompts_bridge_events_and_answers() {
         let late = rx.recv().await.unwrap();
         assert_eq!(
             prompts.respond(late, Decision::AllowOnce),
-            Err(RequestExpired)
+            Err(RespondError::Expired)
         );
         assert_eq!(prompts.open_requests(), 0);
         let log = events.lock().unwrap().clone();

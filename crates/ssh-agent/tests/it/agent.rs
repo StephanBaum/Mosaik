@@ -145,7 +145,9 @@ fn prompts() -> (Prompts, Events, Requests) {
         }
         sink.lock().unwrap().push(e);
     });
-    (Arc::new(ApprovalPrompts::new(notify)), events, rx)
+    // These tests answer at once; the one-second guard has its own test.
+    let prompts = ApprovalPrompts::new(notify).with_min_allow_delay(Duration::ZERO);
+    (Arc::new(prompts), events, rx)
 }
 
 #[test]
@@ -250,7 +252,7 @@ fn stopping_closes_open_approvals_and_connections() {
         assert!(pending.await.unwrap().is_err(), "closed without a response");
         assert_eq!(
             prompts.respond(id, Decision::AllowOnce),
-            Err(mosaic_ssh_agent::RequestExpired)
+            Err(mosaic_ssh_agent::RespondError::Expired)
         );
         assert_eq!(
             events.lock().unwrap().last(),
