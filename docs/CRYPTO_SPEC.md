@@ -100,6 +100,7 @@ Interoperability only (these read or serve third-party formats and never protect
 | Security-key PRF output | 256 bit | on the security key | until `W` or `W_hw` is derived |
 | `W_hw` (§7.4) | 256 bit | never stored | until `TK` is wrapped or unwrapped |
 | Hardware-vault key `TK` | 256 bit | wrapped per security key (§7.4) | while the hardware-protected vault is open, at most 5 minutes |
+| Settings MAC key `K_settings` (§11.1) | 256 bit | never stored | while unlocked |
 
 Rules for every secret type in code:
 
@@ -772,23 +773,43 @@ therefore cannot lock the user out.
 `settings.json` is plaintext, so the protection settings in it carry a MAC.
 
 - `K_settings = HKDF(AK, "", ctx("settings-mac"), 32)`.
-- `mac = HMAC-SHA-256(K_settings, canonical(settings))`, stored as 64
-  lowercase hex characters in the top-level field `mac`. A verifier compares
-  in constant time.
+- `settings_nonce = random(16)`. It is stored in the vault store in a
+  local-only row (`settings_nonce`, never part of the outbox or of sync) and
+  is replaced by a fresh `random(16)` in the same step as every MAC'd write
+  of `settings.json`. A counter is not used.
+- `mac = HMAC-SHA-256(K_settings, account_id[16] || settings_nonce[16] || canonical(settings))`,
+  stored as 64 lowercase hex characters in the top-level field `mac`. A
+  verifier compares in constant time. The nonce makes a restored older file
+  (rollback) fail: its MAC was made under a nonce the store no longer holds.
 - `canonical(settings)` is the UTF-8 JSON object
-  `{"autoLockMinutes":A,"clipboardClearSeconds":C,"language":L,"lockOnScreenLock":S,"lockOnSleep":P,"quickUnlockMaxAgeDays":Q,"theme":T}`:
+  `{"autoLockMinutes":A,"clipboardClearSeconds":C,"email":E,"kitVerified":K,"language":L,"lockOnScreenLock":S,"lockOnSleep":P,"quickUnlockMaxAgeDays":Q,"sshAgentEnabled":B,"theme":T}`:
   exactly these keys in this (ascending byte) order, no whitespace, `A` and `C`
-  an unsigned decimal integer or `null`, `Q` an unsigned decimal integer, `S`
-  and `P` `true` or `false`, `L` one of `"system"`, `"en"`, `"de"`, `T` one of
-  `"system"`, `"light"`, `"dark"`. It is computed over the values as written
-  to the file (before range clamping on read).
+  an unsigned decimal integer or `null`, `Q` an unsigned decimal integer, `S`,
+  `P`, `K` and `B` `true` or `false`, `E` the account email as a JSON string
+  (RFC 8259: `"` and `\` escaped, U+0000 to U+001F as `\b \t \n \f \r` or
+  `\u00xx` in lowercase hex, everything else as raw UTF-8) or `null` when
+  the file has no email, `K` the `kitVerified` flag of the account block
+  (`false` without an account block), `L` one of `"system"`, `"en"`, `"de"`,
+  `T` one of `"system"`, `"light"`, `"dark"`. `B` is the `sshAgentEnabled`
+  flag. It is computed over the values as written to the file (before range
+  clamping on read).
 - While locked, the app uses for each protection setting the stricter of the
   file value and the default (10 min, 30 s, 14 days, both lock-on switches
-  on). After the first unlock of a run it verifies the MAC: valid applies the
-  file; missing or invalid keeps the stricter values, rewrites the file with
-  a fresh MAC and tells the user once.
+  on), `sshAgentEnabled` reads `false`, and the quick-unlock expiry at the
+  start of the app uses only the 30-day cap (§6.2).
+- After the first unlock of a run it verifies the MAC against the store's
+  `settings_nonce`. Valid applies the file. Missing or invalid (including a
+  missing nonce) keeps the stricter values, sets `sshAgentEnabled` to
+  `false` (before the SSH agent starts), clears `email` and `kitVerified`,
+  and always rewrites the file with a fresh nonce and MAC. The user is told
+  once (`settingsReset`) only if a protection field of the file differed from
+  the stricter values or the file had `sshAgentEnabled: true`. The quick-unlock
+  age the user chose applies from the reconcile after that unlock.
 - `K_settings` lives in a zeroizing container while unlocked and is dropped
   on lock.
+- Residual: a joint rollback of the store and `settings.json` to an earlier
+  consistent pair still verifies. The full fix is to keep the settings as a
+  synced record under §10 (planned with M6; THREAT_MODEL R28).
 
 ## 12. Metadata visible to the server
 

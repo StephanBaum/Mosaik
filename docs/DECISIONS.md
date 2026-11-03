@@ -2178,11 +2178,12 @@ held.
    `hkdf`; `mosaic-core` now depends on it directly. `mosaic-core` offers
    `AccountKey::settings_mac_key()`, a zeroizing `SettingsMacKey` with `tag`
    and a constant-time `verify`.
-2. **Canonical form** (CRYPTO_SPEC §11.1): the seven settings fields as one
+2. **Canonical form** (CRYPTO_SPEC §11.1): the seven settings fields plus
+   `sshAgentEnabled` and the account block's `email` and `kitVerified` as one
    JSON object, keys in ascending byte order, no whitespace, integers in
-   decimal, `null`, `true`/`false`, enum values as their wire strings. The
-   file's own `version`, `account`, `sshAgentEnabled` and `mac` are not part
-   of it.
+   decimal, `null`, `true`/`false`, enum values as their wire strings, the
+   email as an RFC 8259 string. The file's own `version`, the account ID and
+   `mac` are not part of it (the account ID is part of the MAC message).
 3. **Locked: only stricter values apply.** The key exists only while the vault
    is unlocked. From the file, a locked app uses per field the stricter of the
    file value and the default (auto-lock: the smaller minutes, `null` becomes
@@ -2206,6 +2207,32 @@ held.
    the next unlock), so a locked write never invalidates a good MAC.
 6. **Key lifetime.** `K_settings` is derived once per unlock, held in a
    zeroizing container in the backend and dropped on every lock.
+7. **Rollback binding (amendment).** The MAC'd message is
+   `account_id[16] || settings_nonce[16] || canonical(settings)`, where
+   `settings_nonce = random(16)` lives in a local-only row of the vault store
+   (never in the outbox, never synced) and is replaced by a fresh random value
+   in the same step as every MAC'd write of the file. A restored older file
+   carries a MAC under an older nonce and fails: strict values, rewrite,
+   notice. A random nonce, not a counter, so the value reveals nothing about
+   how often settings changed and cannot be predicted. The store gets one
+   additive table (schema version 2).
+8. **SSH flag and account fields (amendment).** `sshAgentEnabled`, `email` and
+   `kitVerified` are inside the MAC. Locked, `sshAgentEnabled` reads `false`.
+   After an unlock whose MAC is invalid it is `false` before the agent starts,
+   `email` is cleared and `kitVerified` is `false`. Without this, a local
+   writer could switch the agent on at the next unlock: any process that can
+   reach its endpoint could then list the public keys without approval (each
+   signature still needs the user's approval, listing does not), or flip the
+   kit flag to skip the re-check.
+9. **Rewrite and notice (amendment).** An invalid MAC always rewrites the file,
+   even when the values equal the strict ones, so a stale or forged MAC does
+   not survive. The notice is shown only if a protection field differed or the
+   file had `sshAgentEnabled: true`.
+10. **Start-up expiry (amendment).** At the start of the app, before any
+    unlock, the quick-unlock expiry deletion runs only against the 30-day
+    spec cap (§6.2); the verified age applies at the reconcile after the
+    unlock, so an unverified file cannot make the start-up check stricter or
+    weaker than the spec allows.
 
 ### Alternatives considered
 - Signing with a key from the OS keystore: ties settings to one OS API and
@@ -2220,8 +2247,11 @@ held.
   and the locked window (THREAT_MODEL R28).
 - While locked, a user with a longer quick-unlock age than the default gets
   the default age enforced until the first unlock after each start (R28).
-- `sshAgentEnabled` and the account block are outside the MAC; flipping
-  `sshAgentEnabled` only starts the agent after a password or quick unlock,
-  where every signature still needs an approval.
+- A joint rollback of the store and `settings.json` to an earlier consistent
+  pair still verifies (R28). The full fix is to keep the settings as a synced
+  record under CRYPTO_SPEC §10 in M6.
+- A crash between replacing the nonce and writing the file leaves a file the
+  MAC rejects: the next unlock resets to the strict values and tells the user
+  (fail safe, not fail open).
 - The SSH approval prompt names only the client process where the OS gives a
   name (THREAT_MODEL R29, unchanged by this ADR).
