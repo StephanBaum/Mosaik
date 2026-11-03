@@ -1,7 +1,6 @@
 //! `analyze` over real `mosaic_core` items.
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::indexing_slicing,
     clippy::many_single_char_names,
     clippy::assert_is_empty,
     reason = "integration tests"

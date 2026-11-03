@@ -4,7 +4,11 @@
 //! preallocated buffer and holds no active content; every refusal is
 //! `invalidInput`.
 #![no_main]
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "the target includes the app modules and uses a subset"
+)]
 
 use libfuzzer_sys::fuzz_target;
 

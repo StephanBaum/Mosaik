@@ -840,7 +840,6 @@ fn history_stamp(key: &str) -> Option<Stamp> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

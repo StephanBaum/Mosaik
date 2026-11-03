@@ -27,13 +27,10 @@
 //!   attachment file it holds;
 //! - the merged state survives a lock and unlock, which queues nothing.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::too_many_lines,
     clippy::indexing_slicing,
     clippy::panic,
-    clippy::cast_possible_truncation,
     reason = "integration tests"
 )]
 
@@ -372,32 +369,37 @@ impl Sim {
                 return;
             }
             for &d in &order {
-                let mut batch: Vec<Delivery> = self
-                    .rng
-                    .deliveries(&self.server.log[self.cursors[d]..])
-                    .into_iter()
-                    .map(Delivery::Record)
-                    .collect();
-                // Old versions arrive again now and then (replays).
-                for _ in 0..2 {
-                    if self.cursors[d] > 0 {
-                        let old = self.rng.below(self.cursors[d]);
-                        batch.push(Delivery::Record(self.server.log[old].clone()));
-                    }
-                }
-                // New keys arrive at a random point among the records.
-                for (v, g, wrapped) in &self.keys[self.key_cursors[d]..] {
-                    let at = self.rng.below(batch.len() + 1);
-                    batch.insert(at, Delivery::Key(*v, *g, wrapped.clone()));
-                }
-                for delivery in batch {
-                    self.deliver(d, delivery);
-                }
-                self.cursors[d] = self.server.log.len();
-                self.key_cursors[d] = self.keys.len();
+                self.deliver_pending(d);
             }
         }
         panic!("no convergence after 20 sync rounds");
+    }
+
+    /// Delivers everything device `d` has not seen yet, in a random order.
+    fn deliver_pending(&mut self, d: usize) {
+        let mut batch: Vec<Delivery> = self
+            .rng
+            .deliveries(&self.server.log[self.cursors[d]..])
+            .into_iter()
+            .map(Delivery::Record)
+            .collect();
+        // Old versions arrive again now and then (replays).
+        for _ in 0..2 {
+            if self.cursors[d] > 0 {
+                let old = self.rng.below(self.cursors[d]);
+                batch.push(Delivery::Record(self.server.log[old].clone()));
+            }
+        }
+        // New keys arrive at a random point among the records.
+        for (v, g, wrapped) in &self.keys[self.key_cursors[d]..] {
+            let at = self.rng.below(batch.len() + 1);
+            batch.insert(at, Delivery::Key(*v, *g, wrapped.clone()));
+        }
+        for delivery in batch {
+            self.deliver(d, delivery);
+        }
+        self.cursors[d] = self.server.log.len();
+        self.key_cursors[d] = self.keys.len();
     }
 
     /// Every record ID the server has seen, with its vault.
@@ -448,50 +450,12 @@ impl Sim {
                 assert_eq!(meta.key_generation(), v.key_generation);
             }
         }
-        // Device 0 can open every attachment file it holds.
-        for r in reference.items(&everything()) {
-            for a in r.item.attachments() {
-                if reference
-                    .store()
-                    .attachment_info(&a.attachment_id)
-                    .unwrap()
-                    .is_some()
-                {
-                    let plain = reference
-                        .attachment(r.vault_id, r.item_id, a.attachment_id)
-                        .unwrap();
-                    assert!(plain.expose_secret().starts_with(b"attachment "));
-                }
-            }
-        }
+        assert_attachments_open(reference);
         // Review M2, third round (tests): every attachment device 0 stores
         // is referenced by a live item, and every file has its row. The
         // usage check above counts references only, so orphaned ciphertext
         // left by a missing prune would go unnoticed.
-        let mut rows = 0usize;
-        for v in reference.vaults() {
-            for r in reference.store().records(&v.vault_id).unwrap() {
-                let id = r.unwrap().record_id;
-                let referenced: Vec<AttachmentId> = match reference.item(v.vault_id, id) {
-                    Ok(item) if !item.is_deleted() => {
-                        item.attachments().iter().map(|a| a.attachment_id).collect()
-                    }
-                    _ => Vec::new(),
-                };
-                for info in reference
-                    .store()
-                    .attachments_for_record(&v.vault_id, &id)
-                    .unwrap()
-                {
-                    assert!(
-                        referenced.contains(&info.attachment_id),
-                        "orphaned attachment {:?} of {id:?}",
-                        info.attachment_id
-                    );
-                    rows += 1;
-                }
-            }
-        }
+        let rows = count_referenced_attachment_rows(reference);
         let files = std::fs::read_dir(reference.store().attachment_dir().unwrap())
             .unwrap()
             .count();
@@ -514,6 +478,64 @@ impl Sim {
             .iter()
             .any(|r| pred(r.item))
     }
+}
+
+/// Device 0 can open every attachment file it holds.
+fn assert_attachments_open(reference: &UnlockedSession) {
+    for r in reference.items(&everything()) {
+        for a in r.item.attachments() {
+            if reference
+                .store()
+                .attachment_info(&a.attachment_id)
+                .unwrap()
+                .is_some()
+            {
+                let plain = reference
+                    .attachment(r.vault_id, r.item_id, a.attachment_id)
+                    .unwrap();
+                assert!(plain.expose_secret().starts_with(b"attachment "));
+            }
+        }
+    }
+}
+
+/// The attachment IDs a live item of the record references.
+fn referenced_attachments(
+    reference: &UnlockedSession,
+    vault_id: VaultId,
+    id: ItemId,
+) -> Vec<AttachmentId> {
+    match reference.item(vault_id, id) {
+        Ok(item) if !item.is_deleted() => {
+            item.attachments().iter().map(|a| a.attachment_id).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Counts the attachment rows of device 0 and asserts that every one is
+/// referenced by a live item.
+fn count_referenced_attachment_rows(reference: &UnlockedSession) -> usize {
+    let mut rows = 0usize;
+    for v in reference.vaults() {
+        for r in reference.store().records(&v.vault_id).unwrap() {
+            let id = r.unwrap().record_id;
+            let referenced = referenced_attachments(reference, v.vault_id, id);
+            for info in reference
+                .store()
+                .attachments_for_record(&v.vault_id, &id)
+                .unwrap()
+            {
+                assert!(
+                    referenced.contains(&info.attachment_id),
+                    "orphaned attachment {:?} of {id:?}",
+                    info.attachment_id
+                );
+                rows += 1;
+            }
+        }
+    }
+    rows
 }
 
 /// Whether `value` is the item's password, a conflict copy of it, or in

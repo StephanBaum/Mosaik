@@ -16,7 +16,7 @@ pub(super) const TMP_SUFFIX: &str = ".tmp";
 /// default. A no-op elsewhere and for an existing file.
 #[cfg_attr(
     not(unix),
-    allow(clippy::unnecessary_wraps, reason = "fallible on Unix")
+    expect(clippy::unnecessary_wraps, reason = "fallible on Unix")
 )]
 pub(super) fn prepare_db_file(path: &Path) -> Result<()> {
     #[cfg(unix)]
@@ -46,7 +46,7 @@ pub(super) fn prepare_db_file(path: &Path) -> Result<()> {
 /// elsewhere.
 #[cfg_attr(
     not(unix),
-    allow(clippy::unnecessary_wraps, reason = "fallible on Unix")
+    expect(clippy::unnecessary_wraps, reason = "fallible on Unix")
 )]
 pub(super) fn restrict_db_files(path: &Path) -> Result<()> {
     #[cfg(unix)]
@@ -85,7 +85,7 @@ pub(super) fn create_dir(dir: &Path) -> Result<()> {
 /// the standard library on Windows; NTFS journals the rename itself.
 #[cfg_attr(
     not(unix),
-    allow(clippy::unnecessary_wraps, reason = "fallible on Unix")
+    expect(clippy::unnecessary_wraps, reason = "fallible on Unix")
 )]
 fn sync_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]

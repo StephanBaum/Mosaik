@@ -207,7 +207,6 @@ fn decode_hex(v: &str) -> Option<Buf> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

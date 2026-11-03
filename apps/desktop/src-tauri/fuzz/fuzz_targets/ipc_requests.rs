@@ -2,7 +2,11 @@
 //! type, the rest is the JSON body. Deserializing never panics, and
 //! `draft::prepare` refuses a bad draft with `invalidInput` only.
 #![no_main]
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "the target includes the app modules and uses a subset"
+)]
 
 use libfuzzer_sys::fuzz_target;
 

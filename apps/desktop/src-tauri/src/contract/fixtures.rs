@@ -55,7 +55,10 @@ struct Fixtures {
 impl Fixtures {
     /// Adds a command's request and response samples. Each request sample
     /// must deserialize back into the request type, as the command will.
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the samples are consumed by value at every call site"
+    )]
     fn command<Req, Res>(&mut self, name: &str, requests: Vec<Req>, responses: Vec<Res>)
     where
         Req: Serialize + DeserializeOwned,
@@ -85,18 +88,8 @@ fn values<T: Serialize>(all: &[T]) -> Value {
     serde_json::to_value(all).unwrap()
 }
 
-#[allow(clippy::too_many_lines)]
-pub(crate) fn build() -> Value {
-    let mut f = Fixtures {
-        requests: Map::new(),
-        responses: Map::new(),
-    };
-    let item_request = ItemRequest {
-        vault_id: ids::vault(1),
-        item_id: ids::item(1),
-    };
-
-    // Session
+/// The session commands.
+fn session_commands(f: &mut Fixtures) {
     f.command("session_state", vec![()], session::samples::states());
     f.command(
         "create_account",
@@ -144,8 +137,10 @@ pub(crate) fn build() -> Value {
         vec![()],
     );
     f.command("app_status", vec![()], vec![session::samples::app_status()]);
+}
 
-    // Quick unlock
+/// The quick-unlock commands.
+fn quick_unlock_commands(f: &mut Fixtures) {
     f.command(
         "unlock_quick",
         QuickUnlockKind::ALL
@@ -186,8 +181,10 @@ pub(crate) fn build() -> Value {
         quick_unlock::samples::statuses(),
     );
     f.command("hardware_key_cancel", vec![()], vec![()]);
+}
 
-    // Vaults
+/// The vault commands.
+fn vault_commands(f: &mut Fixtures) {
     f.command("list_vaults", vec![()], vec![vaults::samples::summaries()]);
     f.command(
         "create_vault",
@@ -245,8 +242,10 @@ pub(crate) fn build() -> Value {
         }],
         quick_unlock::samples::key_summaries(),
     );
+}
 
-    // Items
+/// The item commands.
+fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "list_items",
         vec![
@@ -333,8 +332,10 @@ pub(crate) fn build() -> Value {
             item_id: ids::item(9),
         }],
     );
+}
 
-    // Clipboard
+/// Clipboard, generator and one-time codes, settings and insights.
+fn tool_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "copy_to_clipboard",
         clipboard::samples::requests(),
@@ -342,7 +343,6 @@ pub(crate) fn build() -> Value {
     );
     f.command("clear_clipboard", vec![()], vec![()]);
 
-    // Generator and one-time codes
     f.command(
         "generate_password",
         generator::samples::requests(),
@@ -350,7 +350,6 @@ pub(crate) fn build() -> Value {
     );
     f.command("totp_code", vec![item_request], totp::samples::codes());
 
-    // Settings
     f.command("get_settings", vec![()], settings::samples::settings());
     f.command(
         "update_settings",
@@ -362,14 +361,15 @@ pub(crate) fn build() -> Value {
         settings::samples::settings(),
     );
 
-    // Security insights
     f.command(
         "security_report",
         vec![()],
         vec![insights::samples::report()],
     );
+}
 
-    // Import
+/// The import commands.
+fn import_commands(f: &mut Fixtures) {
     f.command(
         "import_choose_file",
         ImportFormat::ALL
@@ -416,8 +416,10 @@ pub(crate) fn build() -> Value {
         }],
         vec![()],
     );
+}
 
-    // SSH agent
+/// The SSH agent commands.
+fn ssh_commands(f: &mut Fixtures) {
     f.command("ssh_agent_status", vec![()], ssh::samples::statuses());
     f.command(
         "ssh_agent_set_enabled",
@@ -435,7 +437,10 @@ pub(crate) fn build() -> Value {
             .collect(),
         vec![()],
     );
+}
 
+/// Every string enum of the contract, by name.
+fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
     for (name, all) in [
         ("errorCode", values(ErrorCode::ALL)),
@@ -469,6 +474,26 @@ pub(crate) fn build() -> Value {
     ] {
         enums.insert(name.to_owned(), all);
     }
+    enums
+}
+
+pub(crate) fn build() -> Value {
+    let mut f = Fixtures {
+        requests: Map::new(),
+        responses: Map::new(),
+    };
+    let item_request = ItemRequest {
+        vault_id: ids::vault(1),
+        item_id: ids::item(1),
+    };
+    session_commands(&mut f);
+    quick_unlock_commands(&mut f);
+    vault_commands(&mut f);
+    item_commands(&mut f, item_request);
+    tool_commands(&mut f, item_request);
+    import_commands(&mut f);
+    ssh_commands(&mut f);
+    let enums = enums();
 
     let listed: BTreeSet<&str> = f
         .requests

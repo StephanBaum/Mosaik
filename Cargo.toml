@@ -136,6 +136,12 @@ todo = "deny"
 unimplemented = "deny"
 indexing_slicing = "warn"
 module_name_repetitions = "allow"
+# Suppressions are #[expect(..., reason = "...")], so a stale one is reported.
+allow_attributes_without_reason = "deny"
+allow_attributes = "warn"
+# Size and shape of functions (thresholds in clippy.toml).
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
 
 # Debug info: file:line backtraces for our own code, none for dependencies.
 # Full debug info for ~400 dependencies made target/ several GB and slowed linking.

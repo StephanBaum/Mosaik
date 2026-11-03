@@ -99,7 +99,6 @@ pub(crate) fn into_string(mut buf: Buf) -> Result<Str> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

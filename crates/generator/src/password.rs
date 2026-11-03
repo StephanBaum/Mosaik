@@ -192,11 +192,7 @@ pub(crate) fn generate_password_with<R: RandomSource + ?Sized>(
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    reason = "test statistics"
-)]
+#[expect(clippy::cast_possible_truncation, reason = "test statistics")]
 mod tests {
     use super::*;
     use crate::rng::SplitMix64;

@@ -566,102 +566,130 @@ pub(crate) mod tests {
         assert_eq!(OutboxSeq(3).get(), 3);
     }
 
-    #[test]
-    #[allow(clippy::too_many_lines, reason = "one scenario, step by step")]
-    fn local_remote_merged_and_upload() {
-        let (mut s, f, vk) = store_with_vault();
-        let id = ItemId::new_v7().unwrap();
-        let v1 = item(&f, &vk, &id, b"v1");
-        assert_eq!(s.record(&f.vault, &id).unwrap(), None);
-
+    fn check_local_writes_queue(
+        s: &mut Store,
+        f: &Fixture,
+        vk: &VaultKey,
+        id: &ItemId,
+    ) -> (OutboxSeq, OutboxSeq) {
         // Local write: queued.
+        let v1 = item(f, vk, id, b"v1");
         let q1 = s
-            .upsert_record(&f.vault, &id, &v1, Origin::Local)
+            .upsert_record(&f.vault, id, &v1, Origin::Local)
             .unwrap()
             .unwrap();
-        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        let r = s.record(&f.vault, id).unwrap().unwrap();
         assert_eq!(r.body, v1);
         assert_eq!(r.server_seq, None);
         assert_eq!(r.outbox_seq, Some(q1));
         assert_eq!(s.outbox(10).unwrap(), vec![Ok(r)]);
 
         // A newer local edit before the upload finished.
-        let v2 = item(&f, &vk, &id, b"v2");
+        let v2 = item(f, vk, id, b"v2");
         let q2 = s
-            .upsert_record(&f.vault, &id, &v2, Origin::Local)
+            .upsert_record(&f.vault, id, &v2, Origin::Local)
             .unwrap()
             .unwrap();
         assert!(q2 > q1);
+        (q1, q2)
+    }
+
+    fn check_merge_and_late_acks(
+        s: &mut Store,
+        f: &Fixture,
+        vk: &VaultKey,
+        id: &ItemId,
+        queued: (OutboxSeq, OutboxSeq),
+    ) -> RecordBody {
+        let (q1, q2) = queued;
         // The ack for v1 does not clear v2.
-        assert!(!s.mark_uploaded(&f.vault, &id, q1, 5).unwrap());
-        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert!(!s.mark_uploaded(&f.vault, id, q1, 5).unwrap());
+        let r = s.record(&f.vault, id).unwrap().unwrap();
         assert_eq!((r.server_seq, r.outbox_seq), (Some(5), Some(q2)));
         // A remote version cannot overwrite the pending local change.
-        let remote = item(&f, &vk, &id, b"remote");
+        let remote = item(f, vk, id, b"remote");
         assert!(matches!(
-            s.upsert_record(&f.vault, &id, &remote, Origin::Remote { server_seq: 6 }),
+            s.upsert_record(&f.vault, id, &remote, Origin::Remote { server_seq: 6 }),
             Err(Error::PendingLocalChange)
         ));
         // Merged resolution keeps it queued and records the remote seq.
-        let merged = item(&f, &vk, &id, b"merged");
+        let merged = item(f, vk, id, b"merged");
         let q3 = s
-            .upsert_record(&f.vault, &id, &merged, Origin::Merged { server_seq: 6 })
+            .upsert_record(&f.vault, id, &merged, Origin::Merged { server_seq: 6 })
             .unwrap()
             .unwrap();
         assert!(q3 > q2);
         // Review M2, third round: the late ack for v2 (uploaded before the
         // merge pulled seq 6) is for a superseded change. It is no error,
         // keeps q3 queued and never lowers the stored server_seq.
-        assert!(!s.mark_uploaded(&f.vault, &id, q2, 5).unwrap());
-        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert!(!s.mark_uploaded(&f.vault, id, q2, 5).unwrap());
+        let r = s.record(&f.vault, id).unwrap().unwrap();
         assert_eq!((r.server_seq, r.outbox_seq), (Some(6), Some(q3)));
         assert!(matches!(
-            s.mark_uploaded(&f.vault, &id, q3, 4),
+            s.mark_uploaded(&f.vault, id, q3, 4),
             Err(Error::StaleServerSeq {
                 stored: 6,
                 offered: 4
             })
         ));
-        assert!(s.mark_uploaded(&f.vault, &id, q3, 7).unwrap());
-        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert!(s.mark_uploaded(&f.vault, id, q3, 7).unwrap());
+        let r = s.record(&f.vault, id).unwrap().unwrap();
         assert_eq!((r.server_seq, r.outbox_seq), (Some(7), None));
         assert_eq!(s.outbox(10).unwrap().len(), 0);
+        remote
+    }
 
+    fn check_remote_apply(
+        s: &mut Store,
+        f: &Fixture,
+        vk: &VaultKey,
+        id: &ItemId,
+        remote: &RecordBody,
+    ) -> RecordBody {
         // Remote apply: stale seq refused, equal and newer accepted.
         assert!(matches!(
-            s.upsert_record(&f.vault, &id, &remote, Origin::Remote { server_seq: 6 }),
+            s.upsert_record(&f.vault, id, remote, Origin::Remote { server_seq: 6 }),
             Err(Error::StaleServerSeq { .. })
         ));
         assert!(matches!(
-            s.upsert_record(&f.vault, &id, &remote, Origin::Merged { server_seq: 6 }),
+            s.upsert_record(&f.vault, id, remote, Origin::Merged { server_seq: 6 }),
             Err(Error::StaleServerSeq { .. })
         ));
         assert_eq!(
-            s.upsert_record(&f.vault, &id, &remote, Origin::Remote { server_seq: 7 })
+            s.upsert_record(&f.vault, id, remote, Origin::Remote { server_seq: 7 })
                 .unwrap(),
             None
         );
-        let t = tombstone(&f, &vk, &id);
-        s.upsert_record(&f.vault, &id, &t, Origin::Remote { server_seq: 9 })
+        let t = tombstone(f, vk, id);
+        s.upsert_record(&f.vault, id, &t, Origin::Remote { server_seq: 9 })
             .unwrap();
-        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        let r = s.record(&f.vault, id).unwrap().unwrap();
         assert_eq!(r.body.kind(), RecordKind::Tombstone);
         assert_eq!(r.server_seq, Some(9));
         assert!(r.updated_at_ms > 0);
+        t
+    }
 
+    fn check_range_errors_and_delete(
+        s: &mut Store,
+        f: &Fixture,
+        id: &ItemId,
+        q1: OutboxSeq,
+        t: &RecordBody,
+    ) {
         assert!(matches!(
             s.mark_uploaded(&f.vault, &ItemId::new_v7().unwrap(), q1, 1),
             Err(Error::UnknownRecord)
         ));
         assert!(matches!(
-            s.mark_uploaded(&f.vault, &id, q1, u64::MAX),
+            s.mark_uploaded(&f.vault, id, q1, u64::MAX),
             Err(Error::SeqOutOfRange)
         ));
         assert!(matches!(
             s.upsert_record(
                 &f.vault,
-                &id,
-                &t,
+                id,
+                t,
                 Origin::Remote {
                     server_seq: u64::MAX
                 }
@@ -670,14 +698,26 @@ pub(crate) mod tests {
         ));
 
         assert!(
-            s.delete_record(&f.vault, &id, PendingPolicy::Refuse)
+            s.delete_record(&f.vault, id, PendingPolicy::Refuse)
                 .unwrap()
         );
         assert!(
-            !s.delete_record(&f.vault, &id, PendingPolicy::Refuse)
+            !s.delete_record(&f.vault, id, PendingPolicy::Refuse)
                 .unwrap()
         );
+        assert_eq!(s.record(&f.vault, id).unwrap(), None);
+    }
+
+    #[test]
+    fn local_remote_merged_and_upload() {
+        let (mut s, f, vk) = store_with_vault();
+        let id = ItemId::new_v7().unwrap();
         assert_eq!(s.record(&f.vault, &id).unwrap(), None);
+
+        let (q1, q2) = check_local_writes_queue(&mut s, &f, &vk, &id);
+        let remote = check_merge_and_late_acks(&mut s, &f, &vk, &id, (q1, q2));
+        let t = check_remote_apply(&mut s, &f, &vk, &id, &remote);
+        check_range_errors_and_delete(&mut s, &f, &id, q1, &t);
     }
 
     /// BRIEF §5 "never silently lose data": a delete refuses to drop a

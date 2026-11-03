@@ -158,7 +158,6 @@ fn fits(draft: &ItemDraft) -> core::result::Result<(), SkipReason> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use mosaic_core::model::{ItemType, SecretField};
 

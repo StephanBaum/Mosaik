@@ -439,7 +439,7 @@ mod tests {
     use super::super::PendingPolicy;
     use super::super::records::Origin;
     use super::super::records::tests::{item, store_with_vault};
-    use super::super::vaults::tests::{fixture, g};
+    use super::super::vaults::tests::{Fixture, fixture, g};
     use super::*;
     use mosaic_core::{AttachmentKey, open_attachment, seal_attachment};
 
@@ -546,6 +546,101 @@ mod tests {
         assert!(!s.delete_attachment(&id).unwrap());
     }
 
+    fn check_put_and_read_back(
+        s: &mut Store,
+        f: &Fixture,
+        vk: &mosaic_core::VaultKey,
+        rid: &ItemId,
+        aid: &AttachmentId,
+        fk: &AttachmentKey,
+        ct: &[u8],
+    ) {
+        assert!(matches!(
+            s.put_attachment(&f.vault, rid, aid, ct, true),
+            Err(Error::UnknownRecord)
+        ));
+        s.upsert_record(&f.vault, rid, &item(f, vk, rid, b"x"), Origin::Local)
+            .unwrap();
+        assert!(matches!(
+            s.put_attachment(&f.vault, rid, aid, b"plaintext", true),
+            Err(Error::AttachmentMalformed)
+        ));
+        assert!(matches!(s.attachment(aid), Err(Error::UnknownAttachment)));
+        s.put_attachment(&f.vault, rid, aid, ct, true).unwrap();
+        assert!(matches!(
+            s.put_attachment(&f.vault, rid, aid, ct, true),
+            Err(Error::AttachmentExists)
+        ));
+        let back = s.attachment(aid).unwrap();
+        assert_eq!(back, ct);
+        let pt = open_attachment(fk, &f.vault, rid, aid, &back).unwrap();
+        assert_eq!(pt.len(), CHUNK_LEN + 5);
+    }
+
+    fn check_info_and_upload_state(
+        s: &mut Store,
+        f: &Fixture,
+        rid: &ItemId,
+        aid: &AttachmentId,
+        ct: &[u8],
+    ) {
+        let info = s.attachment_info(aid).unwrap().unwrap();
+        assert_eq!(info.size, ct.len() as u64);
+        assert!(info.upload_pending);
+        assert_eq!((info.vault_id, info.record_id), (f.vault, *rid));
+        assert_eq!(s.attachments_for_record(&f.vault, rid).unwrap(), vec![info]);
+        assert_eq!(s.pending_attachment_uploads().unwrap(), vec![info]);
+        assert!(s.mark_attachment_uploaded(aid).unwrap());
+        assert!(!s.mark_attachment_uploaded(aid).unwrap());
+        assert_eq!(s.pending_attachment_uploads().unwrap().len(), 0);
+        assert_eq!(s.integrity_check().unwrap().len(), 0);
+    }
+
+    fn check_damage_detected(s: &mut Store, aid: &AttachmentId, ct: &[u8]) -> std::path::PathBuf {
+        // No temporary files remain after a write.
+        let att_dir = s.attachment_dir().unwrap().to_path_buf();
+        let names: Vec<_> = fs::read_dir(&att_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec![file_name(aid)]);
+
+        // Damage is detected on read and by the integrity check.
+        let path = att_dir.join(file_name(aid));
+        fs::write(&path, &ct[..ct.len() - 1]).unwrap();
+        assert!(matches!(s.attachment(aid), Err(Error::Corrupt)));
+        assert!(s.integrity_check().unwrap()[0].contains("size mismatch"));
+        fs::write(&path, vec![0; ct.len()]).unwrap();
+        assert!(matches!(s.attachment(aid), Err(Error::Corrupt)));
+        fs::remove_file(&path).unwrap();
+        assert!(matches!(s.attachment(aid), Err(Error::Corrupt)));
+        assert!(s.integrity_check().unwrap()[0].contains("file missing"));
+        fs::write(&path, ct).unwrap();
+        path
+    }
+
+    fn check_delete_record_removes_attachments(
+        s: &mut Store,
+        f: &Fixture,
+        rid: &ItemId,
+        aid: &AttachmentId,
+        path: &std::path::Path,
+    ) {
+        // The record is still in the outbox: no silent delete.
+        assert!(matches!(
+            s.delete_record(&f.vault, rid, PendingPolicy::Refuse),
+            Err(Error::PendingLocalChange)
+        ));
+        assert!(path.exists());
+        // Deleting the record removes its attachments (row and file).
+        assert!(
+            s.delete_record(&f.vault, rid, PendingPolicy::Discard)
+                .unwrap()
+        );
+        assert_eq!(s.attachment_info(aid).unwrap(), None);
+        assert!(!path.exists());
+    }
+
     #[test]
     fn attachment_lifecycle_on_disk() {
         let dir = tempfile::tempdir().unwrap();
@@ -558,74 +653,10 @@ mod tests {
         let fk = AttachmentKey::generate().unwrap();
         let ct = seal_attachment(&fk, &f.vault, &rid, &aid, &vec![7; CHUNK_LEN + 5]).unwrap();
 
-        assert!(matches!(
-            s.put_attachment(&f.vault, &rid, &aid, &ct, true),
-            Err(Error::UnknownRecord)
-        ));
-        s.upsert_record(&f.vault, &rid, &item(&f, &vk, &rid, b"x"), Origin::Local)
-            .unwrap();
-        assert!(matches!(
-            s.put_attachment(&f.vault, &rid, &aid, b"plaintext", true),
-            Err(Error::AttachmentMalformed)
-        ));
-        assert!(matches!(s.attachment(&aid), Err(Error::UnknownAttachment)));
-        s.put_attachment(&f.vault, &rid, &aid, &ct, true).unwrap();
-        assert!(matches!(
-            s.put_attachment(&f.vault, &rid, &aid, &ct, true),
-            Err(Error::AttachmentExists)
-        ));
-        let back = s.attachment(&aid).unwrap();
-        assert_eq!(back, ct);
-        let pt = open_attachment(&fk, &f.vault, &rid, &aid, &back).unwrap();
-        assert_eq!(pt.len(), CHUNK_LEN + 5);
-
-        let info = s.attachment_info(&aid).unwrap().unwrap();
-        assert_eq!(info.size, ct.len() as u64);
-        assert!(info.upload_pending);
-        assert_eq!((info.vault_id, info.record_id), (f.vault, rid));
-        assert_eq!(
-            s.attachments_for_record(&f.vault, &rid).unwrap(),
-            vec![info]
-        );
-        assert_eq!(s.pending_attachment_uploads().unwrap(), vec![info]);
-        assert!(s.mark_attachment_uploaded(&aid).unwrap());
-        assert!(!s.mark_attachment_uploaded(&aid).unwrap());
-        assert_eq!(s.pending_attachment_uploads().unwrap().len(), 0);
-        assert_eq!(s.integrity_check().unwrap().len(), 0);
-
-        // No temporary files remain after a write.
-        let att_dir = s.attachment_dir().unwrap().to_path_buf();
-        let names: Vec<_> = fs::read_dir(&att_dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        assert_eq!(names, vec![file_name(&aid)]);
-
-        // Damage is detected on read and by the integrity check.
-        let path = att_dir.join(file_name(&aid));
-        fs::write(&path, &ct[..ct.len() - 1]).unwrap();
-        assert!(matches!(s.attachment(&aid), Err(Error::Corrupt)));
-        assert!(s.integrity_check().unwrap()[0].contains("size mismatch"));
-        fs::write(&path, vec![0; ct.len()]).unwrap();
-        assert!(matches!(s.attachment(&aid), Err(Error::Corrupt)));
-        fs::remove_file(&path).unwrap();
-        assert!(matches!(s.attachment(&aid), Err(Error::Corrupt)));
-        assert!(s.integrity_check().unwrap()[0].contains("file missing"));
-        fs::write(&path, &ct).unwrap();
-
-        // The record is still in the outbox: no silent delete.
-        assert!(matches!(
-            s.delete_record(&f.vault, &rid, PendingPolicy::Refuse),
-            Err(Error::PendingLocalChange)
-        ));
-        assert!(path.exists());
-        // Deleting the record removes its attachments (row and file).
-        assert!(
-            s.delete_record(&f.vault, &rid, PendingPolicy::Discard)
-                .unwrap()
-        );
-        assert_eq!(s.attachment_info(&aid).unwrap(), None);
-        assert!(!path.exists());
+        check_put_and_read_back(&mut s, &f, &vk, &rid, &aid, &fk, &ct);
+        check_info_and_upload_state(&mut s, &f, &rid, &aid, &ct);
+        let path = check_damage_detected(&mut s, &aid, &ct);
+        check_delete_record_removes_attachments(&mut s, &f, &rid, &aid, &path);
     }
 
     /// An attachment not yet uploaded is a pending local change too.

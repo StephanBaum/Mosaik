@@ -3,7 +3,10 @@
 //! recording event channel. The last tests check that no secret shows up in
 //! an error, an event, a non-secret response or a debug print.
 // Requests are built inline as JSON values and handed over by value.
-#![allow(clippy::needless_pass_by_value)]
+#![expect(
+    clippy::needless_pass_by_value,
+    reason = "test helpers take their arguments by value"
+)]
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -325,30 +328,25 @@ fn malformed_drafts_are_invalid_input() {
     assert_eq!(code(unknown), ErrorCode::ItemNotFound);
 }
 
-#[test]
-fn list_get_reveal_favorite_trash_restore_purge_and_move() {
-    let _kdf = crate::test_support::kdf_permit();
-    let h = unlocked();
-    let b = &h.backend;
-    let vault = vault_id(b);
-    let detail = add_login(b, &vault);
-    let all = |trash: &str| -> Vec<ItemSummary> {
-        b.list_items(&req(
-            json!({ "vaultId": null, "trash": trash, "favoritesOnly": false, "query": null }),
-        ))
-        .unwrap()
-    };
-    assert_eq!(all("exclude").len(), 1);
+fn list_items_in(b: &Backend, trash: &str) -> Vec<ItemSummary> {
+    b.list_items(&req(
+        json!({ "vaultId": null, "trash": trash, "favoritesOnly": false, "query": null }),
+    ))
+    .unwrap()
+}
+
+fn check_list_get_and_reveal(b: &Backend, vault: &str, detail: &ItemDetail) {
+    assert_eq!(list_items_in(b, "exclude").len(), 1);
     let found = b
         .list_items(&req(
             json!({ "vaultId": vault, "trash": "exclude", "favoritesOnly": false, "query": "git" }),
         ))
         .unwrap();
     assert_eq!(found.len(), 1);
-    assert_eq!(b.get_item(req(item_req(&detail))).unwrap(), detail);
+    assert_eq!(b.get_item(req(item_req(detail))).unwrap(), *detail);
 
     let reveal =
-        |secret: Value| b.reveal_secret(&req(with_item(&detail, json!({ "secret": secret }))));
+        |secret: Value| b.reveal_secret(&req(with_item(detail, json!({ "secret": secret }))));
     let password = reveal(json!({ "kind": "field", "field": "password" })).unwrap();
     let password = serde_json::to_value(&password).unwrap();
     assert_eq!(
@@ -356,7 +354,7 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         json!({ "value": ITEM_PASSWORD, "hideAfterSeconds": 60 })
     );
     let pin =
-        reveal(json!({ "kind": "customField", "elementId": element_of(&detail, "PIN") })).unwrap();
+        reveal(json!({ "kind": "customField", "elementId": element_of(detail, "PIN") })).unwrap();
     assert_eq!(
         serde_json::to_value(&pin).unwrap()["value"],
         json!(HIDDEN_VALUE)
@@ -369,9 +367,11 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         code(reveal(json!({ "kind": "history", "index": 5 })).unwrap_err()),
         ErrorCode::FieldEmpty
     );
+}
 
+fn check_favorite_trash_and_restore(b: &Backend, detail: &ItemDetail) {
     let starred = b
-        .set_favorite(req(with_item(&detail, json!({ "favorite": true }))))
+        .set_favorite(req(with_item(detail, json!({ "favorite": true }))))
         .unwrap();
     assert!(starred.favorite);
     let favorites = b
@@ -381,19 +381,21 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         .unwrap();
     assert_eq!(favorites.len(), 1);
 
-    b.edit_item(req(item_req(&detail)), UnlockedSession::trash_item)
+    b.edit_item(req(item_req(detail)), UnlockedSession::trash_item)
         .unwrap();
-    assert_eq!(all("exclude").len(), 0);
-    assert_eq!(all("only").len(), 1);
-    assert_eq!(all("include").len(), 1);
-    b.edit_item(req(item_req(&detail)), UnlockedSession::restore_item)
+    assert_eq!(list_items_in(b, "exclude").len(), 0);
+    assert_eq!(list_items_in(b, "only").len(), 1);
+    assert_eq!(list_items_in(b, "include").len(), 1);
+    b.edit_item(req(item_req(detail)), UnlockedSession::restore_item)
         .unwrap();
-    assert_eq!(all("exclude").len(), 1);
+    assert_eq!(list_items_in(b, "exclude").len(), 1);
+}
 
+fn check_move_purge_and_rename(b: &Backend, detail: &ItemDetail) {
     let other = b.create_vault(&req(json!({ "name": "Work" }))).unwrap();
     let moved = b
         .move_item(req(with_item(
-            &detail,
+            detail,
             json!({ "targetVaultId": other.vault_id.0.to_string() }),
         )))
         .unwrap();
@@ -403,7 +405,7 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         "a move makes a new ID"
     );
     assert_eq!(
-        code(b.get_item(req(item_req(&detail))).unwrap_err()),
+        code(b.get_item(req(item_req(detail))).unwrap_err()),
         ErrorCode::ItemDeleted
     );
     let moved_req =
@@ -418,7 +420,7 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         code(b.get_item(req(moved_req)).unwrap_err()),
         ErrorCode::ItemDeleted
     );
-    assert_eq!(all("include").len(), 0);
+    assert_eq!(list_items_in(b, "include").len(), 0);
 
     let renamed = b
         .rename_vault(&req(
@@ -430,6 +432,18 @@ fn list_get_reveal_favorite_trash_restore_purge_and_move() {
         code(b.create_vault(&req(json!({ "name": " " }))).unwrap_err()),
         ErrorCode::InvalidInput
     );
+}
+
+#[test]
+fn list_get_reveal_favorite_trash_restore_purge_and_move() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let b = &h.backend;
+    let vault = vault_id(b);
+    let detail = add_login(b, &vault);
+    check_list_get_and_reveal(b, &vault, &detail);
+    check_favorite_trash_and_restore(b, &detail);
+    check_move_purge_and_rename(b, &detail);
 }
 
 #[test]
@@ -692,7 +706,7 @@ fn totp_codes_for_time_and_counter_based_items() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, reason = "one scenario, step by step")]
 fn settings_persist_clamp_and_need_reauth_to_weaken() {
     let _kdf = crate::test_support::kdf_permit();
     let dir = tempfile::tempdir().unwrap();
@@ -1628,7 +1642,7 @@ fn a_file_chosen_after_the_vault_locked_gets_no_token() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, reason = "one scenario, step by step")]
 fn no_secret_leaks_into_errors_events_or_debug_output() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();

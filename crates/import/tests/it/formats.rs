@@ -3,10 +3,9 @@
 //! implementation, check the KDBX reader against more than this crate's
 //! own writer.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::too_many_lines,
-    clippy::format_push_string,
+    clippy::indexing_slicing,
     clippy::assert_is_empty,
     reason = "tests"
 )]
@@ -60,26 +59,8 @@ fn history(d: &ItemDraft) -> Vec<&str> {
         .collect()
 }
 
-#[test]
-fn enpass_export() {
-    let import = parse(Format::Enpass, &fixture("enpass.json"), None).unwrap();
-    assert_eq!(import.format, Format::Enpass);
-    assert_eq!(
-        import.skipped,
-        [
-            SkippedEntry {
-                index: 9,
-                reason: SkipReason::Malformed
-            },
-            SkippedEntry {
-                index: 10,
-                reason: SkipReason::Empty
-            }
-        ]
-    );
-    assert_eq!(import.entries.len(), 9);
-
-    let e = entry(&import, 0);
+fn enpass_check_mail_entry(import: &Import) {
+    let e = entry(import, 0);
     let d = &e.draft;
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.title(), Some("Example Mail"));
@@ -124,19 +105,23 @@ fn enpass_export() {
             EntryWarning::AttachmentMissing
         ]
     );
+}
 
-    let d = draft(&import, 1);
+fn enpass_check_router_card_identity(import: &Import) {
+    let d = draft(import, 1);
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.text(TextField::Username), Some("admin"));
     assert_eq!(secret(d, SecretField::Password), "router-pw");
     assert_eq!(labels(d), ["Password"]);
     assert_eq!(tags(d), ["archived"]);
     assert_eq!(
-        entry(&import, 1).warnings,
+        entry(import, 1).warnings,
         [EntryWarning::UnmappedFields, EntryWarning::Archived]
     );
+}
 
-    let d = draft(&import, 2);
+fn enpass_check_card_entry(import: &Import) {
+    let d = draft(import, 2);
     assert_eq!(d.item_type, ItemType::CreditCard);
     assert!(d.trashed);
     assert_eq!(d.text(TextField::CardholderName), Some("Alice Example"));
@@ -150,8 +135,10 @@ fn enpass_export() {
         d.custom_fields[1].value,
         CustomFieldValue::Hidden(_)
     ));
+}
 
-    let d = draft(&import, 3);
+fn enpass_check_identity_entry(import: &Import) {
+    let d = draft(import, 3);
     assert_eq!(d.item_type, ItemType::Identity);
     assert_eq!(d.text(TextField::FirstName), Some("Alice"));
     assert_eq!(d.text(TextField::LastName), Some("Example"));
@@ -164,12 +151,14 @@ fn enpass_export() {
         d.custom_fields[2].value,
         CustomFieldValue::Hidden(_)
     ));
+}
 
-    let d = draft(&import, 4);
+fn enpass_check_note_wifi_and_rest(import: &Import) {
+    let d = draft(import, 4);
     assert_eq!(d.item_type, ItemType::SecureNote);
     assert_eq!(d.text(TextField::Notes), Some("Flour, water, salt"));
 
-    let d = draft(&import, 5);
+    let d = draft(import, 5);
     assert_eq!(d.item_type, ItemType::Wifi);
     assert_eq!(d.text(TextField::WifiSsid), Some("example-net"));
     assert_eq!(d.text(TextField::WifiSecurity), Some("WPA3"));
@@ -177,19 +166,21 @@ fn enpass_export() {
     assert_eq!(d.subtitle(), Some("example-net"));
     assert_eq!(labels(d), ["Band"]);
 
-    let d = draft(&import, 6);
+    let d = draft(import, 6);
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(labels(d), ["Server"]);
 
-    let e = entry(&import, 7);
+    let e = entry(import, 7);
     assert_eq!(e.draft.item_type, ItemType::SecureNote);
     assert_eq!(labels(&e.draft), ["IBAN", "Online PIN"]);
     assert!(e.warnings.is_empty());
 
-    let e = entry(&import, 8);
+    let e = entry(import, 8);
     assert_eq!(e.draft.item_type, ItemType::SecureNote);
     assert_eq!(e.warnings, [EntryWarning::UnknownCategory]);
+}
 
+fn enpass_check_preview(import: &Import) {
     let p = import.preview(&[]);
     assert_eq!(
         p.counts,
@@ -223,6 +214,33 @@ fn enpass_export() {
 }
 
 #[test]
+fn enpass_export() {
+    let import = parse(Format::Enpass, &fixture("enpass.json"), None).unwrap();
+    assert_eq!(import.format, Format::Enpass);
+    assert_eq!(
+        import.skipped,
+        [
+            SkippedEntry {
+                index: 9,
+                reason: SkipReason::Malformed
+            },
+            SkippedEntry {
+                index: 10,
+                reason: SkipReason::Empty
+            }
+        ]
+    );
+    assert_eq!(import.entries.len(), 9);
+
+    enpass_check_mail_entry(&import);
+    enpass_check_router_card_identity(&import);
+    enpass_check_card_entry(&import);
+    enpass_check_identity_entry(&import);
+    enpass_check_note_wifi_and_rest(&import);
+    enpass_check_preview(&import);
+}
+
+#[test]
 fn enpass_errors() {
     for bad in [&b"[]"[..], b"{\"items\":{}}", b"{", b"{\"folders\":[]}"] {
         assert_eq!(
@@ -234,17 +252,8 @@ fn enpass_errors() {
     assert!(empty.entries.is_empty() && empty.skipped.is_empty());
 }
 
-#[test]
-fn bitwarden_export() {
-    let import = parse(Format::Bitwarden, &fixture("bitwarden.json"), None).unwrap();
-    assert_eq!(
-        import.skipped,
-        [SkippedEntry {
-            index: 8,
-            reason: SkipReason::Malformed
-        }]
-    );
-    let e = entry(&import, 0);
+fn bitwarden_check_login_entry(import: &Import) {
+    let e = entry(import, 0);
     let d = &e.draft;
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.title(), Some("Example Shop"));
@@ -271,18 +280,20 @@ fn bitwarden_export() {
     assert_eq!(tags(d), ["Personal", "Team Shared"]);
     assert!(d.favorite);
     assert_eq!(e.warnings, [EntryWarning::PasskeysNotImported]);
+}
 
-    let d = draft(&import, 1);
+fn bitwarden_check_other_entries(import: &Import) {
+    let d = draft(import, 1);
     assert_eq!(d.item_type, ItemType::SecureNote);
     assert!(d.trashed);
 
-    let d = draft(&import, 2);
+    let d = draft(import, 2);
     assert_eq!(d.item_type, ItemType::CreditCard);
     assert_eq!(d.text(TextField::CardExpiry), Some("07/2031"));
     assert_eq!(d.text(TextField::CardBrand), Some("Mastercard"));
     assert_eq!(secret(d, SecretField::CardVerificationCode), "321");
 
-    let d = draft(&import, 3);
+    let d = draft(import, 3);
     assert_eq!(d.item_type, ItemType::Identity);
     assert_eq!(d.text(TextField::MiddleName), Some("B"));
     assert_eq!(d.text(TextField::Region), Some("BE"));
@@ -291,16 +302,30 @@ fn bitwarden_export() {
     assert_eq!(secret(d, SecretField::LicenseNumber), "L7654321");
     assert_eq!(labels(d), ["Title", "Address 3", "Username"]);
 
-    let d = draft(&import, 4);
+    let d = draft(import, 4);
     assert_eq!(d.item_type, ItemType::SshKey);
     let key = d.ssh_key.as_ref().unwrap();
     assert_eq!(key.fingerprint.as_str(), "SHA256:synthetic");
 
-    assert_eq!(labels(draft(&import, 5)), ["Expiry month"]);
-    assert_eq!(labels(draft(&import, 6)), ["Expiry year"]);
-    assert_eq!(entry(&import, 7).warnings, [EntryWarning::UnknownCategory]);
-    let (steam, _) = draft(&import, 9).otp.as_ref().unwrap();
+    assert_eq!(labels(draft(import, 5)), ["Expiry month"]);
+    assert_eq!(labels(draft(import, 6)), ["Expiry year"]);
+    assert_eq!(entry(import, 7).warnings, [EntryWarning::UnknownCategory]);
+    let (steam, _) = draft(import, 9).otp.as_ref().unwrap();
     assert_eq!(steam.kind, OtpKind::Steam);
+}
+
+#[test]
+fn bitwarden_export() {
+    let import = parse(Format::Bitwarden, &fixture("bitwarden.json"), None).unwrap();
+    assert_eq!(
+        import.skipped,
+        [SkippedEntry {
+            index: 8,
+            reason: SkipReason::Malformed
+        }]
+    );
+    bitwarden_check_login_entry(&import);
+    bitwarden_check_other_entries(&import);
 }
 
 #[test]
@@ -347,26 +372,8 @@ fn onepux(extra: &[(&str, &[u8])], data: Option<&[u8]>) -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-#[test]
-fn onepassword_export() {
-    let data = fixture("1pux-export.data.json");
-    let file = onepux(
-        &[
-            ("files/doc-manual__manual.pdf", b"manual bytes"),
-            ("files/doc-scan__scan.png", b"pngbytes"),
-        ],
-        Some(&data),
-    );
-    let import = parse(Format::OnePassword, &file, None).unwrap();
-    assert_eq!(
-        import.skipped,
-        [SkippedEntry {
-            index: 12,
-            reason: SkipReason::Malformed
-        }]
-    );
-
-    let e = entry(&import, 0);
+fn onepassword_check_login_entry(import: &Import) {
+    let e = entry(import, 0);
     let d = &e.draft;
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.title(), Some("Example Login"));
@@ -404,6 +411,11 @@ fn onepassword_export() {
     assert_eq!(text(6), "12/2025");
     assert_eq!(text(10), "1 Main St, 12345, Springfield, IL, us");
     assert_eq!(text(12), "7");
+}
+
+fn onepassword_check_login_extras(import: &Import) {
+    let e = entry(import, 0);
+    let d = &e.draft;
     assert_eq!(history(d), ["oldest-pw", "newer-old-pw"]);
     assert_eq!(tags(d), ["web", "important", "Private"]);
     assert!(d.favorite);
@@ -418,12 +430,14 @@ fn onepassword_export() {
             EntryWarning::AttachmentMissing
         ]
     );
+}
 
-    let d = draft(&import, 1);
+fn onepassword_check_cards_and_identity(import: &Import) {
+    let d = draft(import, 1);
     assert_eq!(secret(d, SecretField::Password), "only-a-password");
     assert_eq!(tags(d), ["archived", "Private"]);
 
-    let d = draft(&import, 2);
+    let d = draft(import, 2);
     assert_eq!(d.item_type, ItemType::CreditCard);
     assert_eq!(d.text(TextField::CardholderName), Some("Alice Example"));
     assert_eq!(d.text(TextField::CardBrand), Some("visa"));
@@ -432,7 +446,7 @@ fn onepassword_export() {
     assert_eq!(secret(d, SecretField::CardVerificationCode), "999");
     assert_eq!(secret(d, SecretField::CardPin), "1234");
 
-    let d = draft(&import, 3);
+    let d = draft(import, 3);
     assert_eq!(d.item_type, ItemType::Identity);
     assert_eq!(d.text(TextField::MiddleName), Some("B"));
     assert_eq!(d.text(TextField::BirthDate), Some("1990-01-01"));
@@ -441,46 +455,73 @@ fn onepassword_export() {
     assert_eq!(d.text(TextField::Phone), Some("+49 30 1"));
     assert_eq!(labels(d), ["job"]);
 
-    let d = draft(&import, 4);
+    let d = draft(import, 4);
     assert_eq!(secret(d, SecretField::PassportNumber), "C01X00T47");
     assert_eq!(d.text(TextField::FirstName), Some("Alice Example"));
+}
 
-    let d = draft(&import, 5);
+fn onepassword_check_remaining_entries(import: &Import) {
+    let d = draft(import, 5);
     assert_eq!(d.item_type, ItemType::Wifi);
     assert_eq!(d.text(TextField::WifiSecurity), Some("WPA2"));
     assert_eq!(secret(d, SecretField::WifiPassword), "wifi-secret");
 
-    let d = draft(&import, 6);
+    let d = draft(import, 6);
     assert_eq!(d.item_type, ItemType::ApiKey);
     assert_eq!(d.text(TextField::ApiKeyId), Some("client-1"));
     assert_eq!(d.text(TextField::ApiKeyHost), Some("api.example.com"));
     assert_eq!(secret(d, SecretField::ApiKeySecret), "api-secret");
 
-    let d = draft(&import, 7);
+    let d = draft(import, 7);
     assert_eq!(d.item_type, ItemType::SshKey);
     assert_eq!(
         d.ssh_key.as_ref().unwrap().public_key.as_str(),
         "ssh-ed25519 AAAAexample"
     );
 
-    let d = draft(&import, 8);
+    let d = draft(import, 8);
     assert_eq!(d.item_type, ItemType::Document);
     assert_eq!(d.attachments[0].data.expose_secret(), b"pngbytes");
 
-    let e = entry(&import, 9);
+    let e = entry(import, 9);
     assert_eq!(urls(&e.draft), ["ssh://server.example.com"]);
     assert_eq!(secret(&e.draft, SecretField::Password), "server-pw");
     assert_eq!(e.warnings, [EntryWarning::PasskeysNotImported]);
 
-    let e = entry(&import, 10);
+    let e = entry(import, 10);
     assert!(e.warnings.is_empty());
     assert_eq!(labels(&e.draft), ["extra"]);
 
-    let e = entry(&import, 11);
+    let e = entry(import, 11);
     assert!(e.draft.trashed);
     assert_eq!(e.warnings, [EntryWarning::UnknownCategory]);
 
-    assert_eq!(tags(draft(&import, 13)), ["Shared"]);
+    assert_eq!(tags(draft(import, 13)), ["Shared"]);
+}
+
+#[test]
+fn onepassword_export() {
+    let data = fixture("1pux-export.data.json");
+    let file = onepux(
+        &[
+            ("files/doc-manual__manual.pdf", b"manual bytes"),
+            ("files/doc-scan__scan.png", b"pngbytes"),
+        ],
+        Some(&data),
+    );
+    let import = parse(Format::OnePassword, &file, None).unwrap();
+    assert_eq!(
+        import.skipped,
+        [SkippedEntry {
+            index: 12,
+            reason: SkipReason::Malformed
+        }]
+    );
+
+    onepassword_check_login_entry(&import);
+    onepassword_check_login_extras(&import);
+    onepassword_check_cards_and_identity(&import);
+    onepassword_check_remaining_entries(&import);
 }
 
 #[test]

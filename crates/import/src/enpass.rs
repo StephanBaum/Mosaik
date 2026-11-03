@@ -288,7 +288,6 @@ fn field(b: &mut Builder, f: &Json) -> Option<(Str, Str)> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

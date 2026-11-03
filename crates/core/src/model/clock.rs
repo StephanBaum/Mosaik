@@ -210,7 +210,7 @@ impl fmt::Debug for VersionVector {
 }
 
 #[cfg(test)]
-#[allow(clippy::many_single_char_names, reason = "short test names")]
+#[expect(clippy::many_single_char_names, reason = "short test names")]
 mod tests {
     use super::*;
 

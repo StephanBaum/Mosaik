@@ -4,8 +4,7 @@
 //! Files written by another implementation (pykeepass) are checked in
 //! `tests/formats.rs`.
 
-#![allow(
-    clippy::unwrap_used,
+#![expect(
     clippy::too_many_lines,
     clippy::format_push_string,
     clippy::assert_is_empty,
@@ -370,7 +369,12 @@ fn check_sample(import: &crate::entries::Import) {
             reason: SkipReason::Empty
         }]
     );
-    let e = &import.entries[0];
+    check_login_entry(&import.entries[0]);
+    check_login_entry_extras(&import.entries[0]);
+    check_other_entries(import);
+}
+
+fn check_login_entry(e: &crate::entries::ImportEntry) {
     let d = &e.draft;
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.title(), Some("Mail & more A"));
@@ -387,6 +391,10 @@ fn check_sample(import: &crate::entries::Import) {
     );
     let (otp, _) = d.otp.as_ref().unwrap();
     assert_eq!(otp.digits, 8);
+}
+
+fn check_login_entry_extras(e: &crate::entries::ImportEntry) {
+    let d = &e.draft;
     let fields: Vec<(&str, bool)> = d
         .custom_fields
         .iter()
@@ -419,7 +427,9 @@ fn check_sample(import: &crate::entries::Import) {
             EntryWarning::PasskeysNotImported
         ]
     );
+}
 
+fn check_other_entries(import: &crate::entries::Import) {
     let note = &import.entries[1].draft;
     assert_eq!(note.item_type, ItemType::SecureNote);
     assert!(note.tags.is_empty());

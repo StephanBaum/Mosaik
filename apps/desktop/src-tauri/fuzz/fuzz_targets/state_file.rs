@@ -3,7 +3,11 @@
 //! (CRYPTO_SPEC §11) and is never weaker than the defaults (§11.1); the
 //! file's own values and MAC survive a render and parse round trip.
 #![no_main]
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "the target includes the app modules and uses a subset"
+)]
 
 use libfuzzer_sys::fuzz_target;
 

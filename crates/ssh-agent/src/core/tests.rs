@@ -727,24 +727,24 @@ fn the_default_grant_is_15_minutes() {
     });
 }
 
+/// Writes a framed request and reads the complete framed response.
+async fn exchange(c: &mut DuplexStream, body: &[u8]) -> Vec<u8> {
+    c.write_all(&wire::frame(body).unwrap()).await.unwrap();
+    let mut prefix = [0u8; 4];
+    c.read_exact(&mut prefix).await.unwrap();
+    let mut rest = vec![0u8; wire::body_len(prefix).unwrap()];
+    c.read_exact(&mut rest).await.unwrap();
+    [prefix.as_slice(), &rest].concat()
+}
+fn framed(body: &[u8]) -> Vec<u8> {
+    wire::frame(body).unwrap()
+}
+
 #[test]
 fn rfc_vectors_through_the_agent() {
     use hex_literal::hex;
     use p256::elliptic_curve::sec1::ToSec1Point as _;
     use ssh_key::private::{EcdsaKeypair, Ed25519Keypair};
-
-    /// Writes a framed request and reads the complete framed response.
-    async fn exchange(c: &mut DuplexStream, body: &[u8]) -> Vec<u8> {
-        c.write_all(&wire::frame(body).unwrap()).await.unwrap();
-        let mut prefix = [0u8; 4];
-        c.read_exact(&mut prefix).await.unwrap();
-        let mut rest = vec![0u8; wire::body_len(prefix).unwrap()];
-        c.read_exact(&mut rest).await.unwrap();
-        [prefix.as_slice(), &rest].concat()
-    }
-    fn framed(body: &[u8]) -> Vec<u8> {
-        wire::frame(body).unwrap()
-    }
 
     // Ed25519: RFC 8032 section 7.1, test 2.
     let seed = hex!("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");

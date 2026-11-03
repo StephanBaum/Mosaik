@@ -9,7 +9,6 @@
 //! the observable effects of the lock: the slot, the clipboard, the cached
 //! generated password, the pending kit state, every secret command, the
 //! agent, and the absence of secrets in events and errors.
-#![allow(clippy::needless_pass_by_value)]
 
 use std::time::{Duration, Instant};
 
@@ -65,28 +64,7 @@ fn unlock(b: &Backend, password: &str) -> Result<SessionState, IpcError> {
     })
 }
 
-#[test]
-#[allow(clippy::too_many_lines)]
-fn full_flow_create_unlock_add_copy_clear_lock() {
-    let _kdf = crate::test_support::kdf_permit();
-    let endpoint = crate::test_support::ssh_test_endpoint();
-    let clip = MemoryClipboard::default();
-    let (channel, log) = recording_channel();
-    let b = Backend::new(
-        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
-        Box::new(MemoryKeystore::default()),
-        || Ok(Argon2Profile::Baseline),
-    )
-    .with_clipboard(clip.factory())
-    .with_adapters(Adapters {
-        import: ImportService::default(),
-        ssh: SshAgentService::new(Some(endpoint.endpoint.clone())),
-    });
-    b.subscribe(channel).unwrap();
-
-    // 1. A fresh install has no account.
-    assert_eq!(b.session_state().unwrap(), SessionState::NoAccount);
-
+fn create_account_and_verify_kit(b: &Backend) -> String {
     // 2. Create the account: unlocked, the kit still unverified.
     let created = b
         .create_account(CreateAccountRequest {
@@ -123,7 +101,10 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
             ..
         }
     ));
+    secret_key_text
+}
 
+fn check_lock_and_unlock(b: &Backend, log: &Log) {
     // 4. Lock: the device keeps the Secret Key, and the webview is told.
     let state = b.lock(LockReason::Manual).unwrap();
     assert!(matches!(
@@ -134,13 +115,13 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         }
     ));
     assert!(log_has(
-        &log,
+        log,
         &json!({ "type": "locked", "reason": "manual" })
     ));
 
     // 5. Unlock: a wrong password fails and stays locked, the right one works.
     assert_eq!(
-        code(unlock(&b, "wrong").unwrap_err()),
+        code(unlock(b, "wrong").unwrap_err()),
         ErrorCode::WrongCredentials
     );
     assert!(matches!(
@@ -148,10 +129,12 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         SessionState::Locked { .. }
     ));
     assert!(matches!(
-        unlock(&b, PASSWORD).unwrap(),
+        unlock(b, PASSWORD).unwrap(),
         SessionState::Unlocked { .. }
     ));
+}
 
+fn add_login(b: &Backend) -> (String, String) {
     // 6. Add a login. The detail names the secret field but never holds it.
     let vault = b.list_vaults().unwrap()[0].vault_id.0.to_string();
     let detail = b
@@ -177,19 +160,24 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
     );
     assert!(!serde_json::to_string(&detail).unwrap().contains(SECRET));
     let item = detail.summary.item_id.0.to_string();
-    let copy_request = || {
-        req(
-            json!({ "source": { "kind": "item", "vaultId": vault, "itemId": item,
-                                 "field": { "kind": "password" } } }),
-        )
-    };
+    (vault, item)
+}
 
+fn copy_request<T: DeserializeOwned>(vault: &str, item: &str) -> T {
+    req(
+        json!({ "source": { "kind": "item", "vaultId": vault, "itemId": item,
+                             "field": { "kind": "password" } } }),
+    )
+}
+
+fn check_copy_and_timed_clear(b: &Backend, clip: &MemoryClipboard, log: &Log, ids: (&str, &str)) {
+    let (vault, item) = ids;
     // 7. A one-second clipboard timeout (test only: this bypasses `normalize`).
     b.update_stored(|s| s.settings.clipboard_clear_seconds = Some(1))
         .unwrap();
 
     // 8. Copy: the clipboard holds the password and a clear is scheduled.
-    let receipt = b.copy_to_clipboard(copy_request()).unwrap();
+    let receipt = b.copy_to_clipboard(copy_request(vault, item)).unwrap();
     assert_eq!(receipt.clear_after_seconds, Some(1));
     assert!(receipt.clears_at.is_some());
     assert_eq!(clip.content().as_deref(), Some(SECRET));
@@ -199,14 +187,17 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         .content()
         .is_none()));
     assert!(wait_until(Duration::from_secs(5), || log_has(
-        &log,
+        log,
         &json!({ "type": "clipboardCleared" })
     )));
+}
 
+fn check_reveal_generate_and_agent(b: &Backend, clip: &MemoryClipboard, ids: (&str, &str)) {
+    let (vault, item) = ids;
     // 10. With clearing off: copy again, reveal, generate, start the agent.
     b.update_stored(|s| s.settings.clipboard_clear_seconds = None)
         .unwrap();
-    b.copy_to_clipboard(copy_request()).unwrap();
+    b.copy_to_clipboard(copy_request(vault, item)).unwrap();
     assert_eq!(clip.content().as_deref(), Some(SECRET));
     let revealed = b
         .reveal_secret(&req(json!({
@@ -225,13 +216,10 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         .ssh_agent_set_enabled(req(json!({ "enabled": true })))
         .unwrap();
     assert!(agent.running);
+}
 
-    // 11. Lock: everything is gone.
-    b.lock(LockReason::Manual).unwrap();
-    assert!(matches!(*b.slot().unwrap(), Slot::Locked(_)));
-    assert!(clip.content().is_none(), "the clipboard held our value");
-    assert!(b.last_generated.lock().unwrap().is_none());
-    assert!(b.kit_pending.lock().unwrap().is_none());
+fn check_locked_commands_refuse(b: &Backend, ids: (&str, &str)) {
+    let (vault, item) = ids;
     let locked = ErrorCode::Locked;
     assert_eq!(
         code(
@@ -266,7 +254,7 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         locked
     );
     assert_eq!(
-        code(b.copy_to_clipboard(copy_request()).unwrap_err()),
+        code(b.copy_to_clipboard(copy_request(vault, item)).unwrap_err()),
         locked
     );
     assert_eq!(
@@ -276,6 +264,15 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         ),
         locked
     );
+}
+
+fn check_locked_leaves_no_secrets(
+    b: &Backend,
+    log: &Log,
+    ids: (&str, &str),
+    secret_key_text: &str,
+) {
+    let (vault, item) = ids;
     assert!(!b.ssh_agent_status().running);
     let events: Vec<Value> = log
         .lock()
@@ -288,12 +285,50 @@ fn full_flow_create_unlock_add_copy_clear_lock() {
         &json!({ "type": "locked", "reason": "manual" })
     );
     let text = serde_json::to_string(&events).unwrap();
-    assert!(!text.contains(SECRET) && !text.contains(&secret_key_text));
+    assert!(!text.contains(SECRET) && !text.contains(secret_key_text));
     let error_text = format!(
         "{:?}",
         b.get_item(req(json!({ "vaultId": vault, "itemId": item })))
     );
-    assert!(!error_text.contains(SECRET) && !error_text.contains(&secret_key_text));
+    assert!(!error_text.contains(SECRET) && !error_text.contains(secret_key_text));
+}
+
+#[test]
+fn full_flow_create_unlock_add_copy_clear_lock() {
+    let _kdf = crate::test_support::kdf_permit();
+    let endpoint = crate::test_support::ssh_test_endpoint();
+    let clip = MemoryClipboard::default();
+    let (channel, log) = recording_channel();
+    let b = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    )
+    .with_clipboard(clip.factory())
+    .with_adapters(Adapters {
+        import: ImportService::default(),
+        ssh: SshAgentService::new(Some(endpoint.endpoint.clone())),
+    });
+    b.subscribe(channel).unwrap();
+
+    // 1. A fresh install has no account.
+    assert_eq!(b.session_state().unwrap(), SessionState::NoAccount);
+
+    let secret_key_text = create_account_and_verify_kit(&b);
+    check_lock_and_unlock(&b, &log);
+    let (vault, item) = add_login(&b);
+    let ids = (vault.as_str(), item.as_str());
+    check_copy_and_timed_clear(&b, &clip, &log, ids);
+    check_reveal_generate_and_agent(&b, &clip, ids);
+
+    // 11. Lock: everything is gone.
+    b.lock(LockReason::Manual).unwrap();
+    assert!(matches!(*b.slot().unwrap(), Slot::Locked(_)));
+    assert!(clip.content().is_none(), "the clipboard held our value");
+    assert!(b.last_generated.lock().unwrap().is_none());
+    assert!(b.kit_pending.lock().unwrap().is_none());
+    check_locked_commands_refuse(&b, ids);
+    check_locked_leaves_no_secrets(&b, &log, ids, &secret_key_text);
 
     // 12. Unlock again: the item survived the lock.
     unlock(&b, PASSWORD).unwrap();

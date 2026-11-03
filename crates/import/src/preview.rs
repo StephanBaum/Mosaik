@@ -260,7 +260,7 @@ impl Import {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::too_many_lines, reason = "tests")]
+    #![expect(clippy::too_many_lines, reason = "tests")]
 
     use mosaic_core::model::LoginUrl;
     use mosaic_core::{DeviceId, Timestamp};

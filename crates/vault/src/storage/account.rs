@@ -678,7 +678,7 @@ mod tests {
     /// leaves the store exactly as it was, so a failure (or crash) half-way
     /// can never strand vault keys under the old AK.
     #[test]
-    #[allow(clippy::too_many_lines, reason = "one scenario, step by step")]
+    #[expect(clippy::too_many_lines, reason = "one scenario, step by step")]
     fn rekey_is_complete_and_atomic() {
         use super::super::{PendingPolicy, VaultKeyWrap};
         use mosaic_core::{KeyGeneration, VaultId, VaultKey};

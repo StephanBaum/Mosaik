@@ -714,7 +714,6 @@ pub(crate) fn guess_mime(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use mosaic_core::model::OtpKind;
 
@@ -762,6 +761,30 @@ mod tests {
         b.trashed(false);
         b.archived();
         let (d, w) = b.finish().unwrap();
+        check_draft_fields(&d);
+        check_draft_custom_fields(&d);
+        assert_eq!(
+            w,
+            [
+                EntryWarning::UnmappedFields,
+                EntryWarning::OtpUnreadable,
+                EntryWarning::TagsDropped,
+                EntryWarning::Archived
+            ]
+        );
+        let dbg = format!("{d:?}");
+        assert!(!dbg.contains("alice") && !dbg.contains("pw"));
+
+        let item = d.to_item(device(), Timestamp::from_unix_millis(1)).unwrap();
+        assert_eq!(item.title(), Some("GitHub"));
+        assert!(item.favorite());
+        assert_eq!(item.urls().len(), 1);
+        assert_eq!(item.custom_fields().len(), 12);
+        assert_eq!(item.tags().len(), 3);
+        assert_eq!(item.otp().unwrap().kind, OtpKind::Totp);
+    }
+
+    fn check_draft_fields(d: &ItemDraft) {
         assert_eq!(d.title(), Some("GitHub"));
         assert_eq!(d.subtitle(), Some("alice"));
         assert_eq!(
@@ -774,6 +797,9 @@ mod tests {
         assert_eq!(d.tags.len(), 3);
         assert_eq!(d.tags[1].as_str().len(), 128);
         assert!(d.favorite && !d.trashed);
+    }
+
+    fn check_draft_custom_fields(d: &ItemDraft) {
         let labels: Vec<&str> = d.custom_fields.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -805,25 +831,6 @@ mod tests {
             d.custom_fields[4].value,
             CustomFieldValue::Hidden(_)
         ));
-        assert_eq!(
-            w,
-            [
-                EntryWarning::UnmappedFields,
-                EntryWarning::OtpUnreadable,
-                EntryWarning::TagsDropped,
-                EntryWarning::Archived
-            ]
-        );
-        let dbg = format!("{d:?}");
-        assert!(!dbg.contains("alice") && !dbg.contains("pw"));
-
-        let item = d.to_item(device(), Timestamp::from_unix_millis(1)).unwrap();
-        assert_eq!(item.title(), Some("GitHub"));
-        assert!(item.favorite());
-        assert_eq!(item.urls().len(), 1);
-        assert_eq!(item.custom_fields().len(), 12);
-        assert_eq!(item.tags().len(), 3);
-        assert_eq!(item.otp().unwrap().kind, OtpKind::Totp);
     }
 
     #[test]

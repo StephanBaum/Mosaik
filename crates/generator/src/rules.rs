@@ -166,27 +166,32 @@ impl fmt::Display for CharacterClass {
             }
         }
         if rest != 0 {
-            let mut custom = String::from("[");
-            let mut push = |b: u8| custom.push(char::from(b));
-            if mask_contains(rest, b'-') {
-                push(b'-');
-            }
-            let ordered = [UPPER, LOWER, DIGITS, SPECIAL];
-            for class in ordered {
-                for b in 0x20u8..=0x7E {
-                    if b != b'-' && b != b']' && mask_contains(rest & class, b) {
-                        push(b);
-                    }
-                }
-            }
-            if mask_contains(rest, b']') {
-                push(b']');
-            }
-            custom.push(']');
-            parts.push(custom);
+            parts.push(custom_set(rest));
         }
         f.write_str(&parts.join(", "))
     }
+}
+
+/// The canonical `[...]` spelling of the characters `rest` that no named
+/// class covers: `-` first, `]` last, the rest grouped by class.
+fn custom_set(rest: AsciiMask) -> String {
+    let mut custom = String::from("[");
+    let mut push = |b: u8| custom.push(char::from(b));
+    if mask_contains(rest, b'-') {
+        push(b'-');
+    }
+    for class in [UPPER, LOWER, DIGITS, SPECIAL] {
+        for b in 0x20u8..=0x7E {
+            if b != b'-' && b != b']' && mask_contains(rest & class, b) {
+                push(b);
+            }
+        }
+    }
+    if mask_contains(rest, b']') {
+        push(b']');
+    }
+    custom.push(']');
+    custom
 }
 
 /// A parsed, canonicalized `passwordrules` rule set.
@@ -217,6 +222,21 @@ impl Default for PasswordRules {
 }
 
 impl PasswordRules {
+    /// Adds a required set. An empty required set constrains nothing (the
+    /// reference keeps it as `required: ` with no value) and a repeated set
+    /// adds nothing either. The list stays at most `MAX_REQUIRED_CLASSES` long,
+    /// so `contains` is cheap. `false` if the set would be one too many.
+    fn add_required(&mut self, class: CharacterClass) -> bool {
+        if class.is_empty() || self.required.contains(&class) {
+            return true;
+        }
+        if self.required.len() == MAX_REQUIRED_CLASSES {
+            return false;
+        }
+        self.required.push(class);
+        true
+    }
+
     /// Parses a `passwordrules` string. Never fails: malformed input
     /// degrades exactly as in Apple's reference parser, and input beyond
     /// [`MAX_RULES_LEN`] bytes or [`MAX_REQUIRED_CLASSES`] distinct
@@ -237,15 +257,8 @@ impl PasswordRules {
                 RawRule::Required(values) => {
                     let class = canonical_class(&values);
                     rules.allowed = rules.allowed.union(class);
-                    // An empty required set constrains nothing; the
-                    // reference keeps it as `required: ` with no value. A
-                    // repeated set adds nothing either. The list stays at
-                    // most MAX_REQUIRED_CLASSES long, so `contains` is cheap.
-                    if !class.is_empty() && !rules.required.contains(&class) {
-                        if rules.required.len() == MAX_REQUIRED_CLASSES {
-                            return Self::default();
-                        }
-                        rules.required.push(class);
+                    if !rules.add_required(class) {
+                        return Self::default();
                     }
                 }
                 RawRule::Allowed(values) => {

@@ -7,12 +7,9 @@
 //! The tools are taken from `MOSAIC_OPENSSH_BIN` if set, else from
 //! `C:\Windows\System32\OpenSSH` on Windows and from `PATH` elsewhere.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::expect_used,
     clippy::too_many_lines,
-    clippy::indexing_slicing,
-    clippy::panic,
     reason = "integration tests"
 )]
 

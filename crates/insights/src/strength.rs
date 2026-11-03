@@ -729,9 +729,20 @@ mod tests {
         assert!((choose(5, 2) - 10.0).abs() < 1e-9);
     }
 
+    fn date_of(s: &str) -> Option<f64> {
+        date_bits(&s.chars().collect::<Vec<_>>())
+    }
+
     #[test]
     fn dates() {
-        let c = |s: &str| date_bits(&s.chars().collect::<Vec<_>>());
+        check_date_formats_accepted();
+        check_date_formats_rejected();
+        let c = date_of;
+        assert!(c("1.2.90").unwrap() > c("1290").unwrap_or(0.0));
+    }
+
+    fn check_date_formats_accepted() {
+        let c = date_of;
         assert_eq!(c("1990"), Some(YEAR_BITS));
         assert_eq!(c("1899"), None);
         assert_eq!(c("2100"), None);
@@ -749,6 +760,10 @@ mod tests {
         assert!(c("1990-12-31").is_some());
         assert!(c("12_31_90").is_some());
         assert!(c("31 12 90").is_some());
+    }
+
+    fn check_date_formats_rejected() {
+        let c = date_of;
         assert_eq!(c("1990-13-31"), None);
         assert_eq!(c("32.13.90"), None);
         assert_eq!(c("1.2.3"), None);
@@ -757,7 +772,6 @@ mod tests {
         assert_eq!(c("1:2:90"), None);
         assert_eq!(c("123.1.90"), None);
         assert_eq!(c("1.2.1800"), None);
-        assert!(c("1.2.90").unwrap() > c("1290").unwrap_or(0.0));
     }
 
     #[test]

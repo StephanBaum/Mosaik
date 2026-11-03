@@ -345,7 +345,7 @@ fn reference_canonicalizing_character_classes() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines, reason = "one table of reference cases")]
+#[expect(clippy::too_many_lines, reason = "one table of reference cases")]
 fn reference_parsing_password_rules() {
     for (input, expected) in [
         ("", "allowed: ascii-printable"),

@@ -288,58 +288,73 @@ impl Worker {
         self.held.as_ref().and_then(|h| h.deadline)
     }
 
+    /// Waits for the next command, or for the held value's deadline. `None`:
+    /// woke up early, nothing is due yet.
+    fn wait(&self, commands: &Receiver<Command>) -> Option<Wake> {
+        let Some(deadline) = self.deadline() else {
+            return Some(Wake::Command(commands.recv().unwrap_or(Command::Shutdown)));
+        };
+        let wait = deadline
+            .0
+            .saturating_duration_since(Instant::now())
+            .min(MAX_WAIT);
+        match commands.recv_timeout(wait) {
+            Ok(command) => Some(Wake::Command(command)),
+            Err(RecvTimeoutError::Timeout) => {
+                due(deadline, Instant::now(), SystemTime::now()).then_some(Wake::Timeout)
+            }
+            Err(RecvTimeoutError::Disconnected) => Some(Wake::Command(Command::Shutdown)),
+        }
+    }
+
+    /// Clears our value before the worker ends, with a few retries.
+    fn shutdown(&mut self) {
+        for attempt in 0..SHUTDOWN_TRIES {
+            if self.clear_if_ours().is_ok() {
+                break;
+            }
+            if attempt + 1 < SHUTDOWN_TRIES {
+                thread::sleep(SHUTDOWN_PAUSE);
+            }
+        }
+    }
+
     fn run(mut self, commands: &Receiver<Command>) {
         loop {
-            let next = match self.deadline() {
-                Some(deadline) => {
-                    let wait = deadline
-                        .0
-                        .saturating_duration_since(Instant::now())
-                        .min(MAX_WAIT);
-                    match commands.recv_timeout(wait) {
-                        Ok(command) => Some(command),
-                        Err(RecvTimeoutError::Timeout) => {
-                            if due(deadline, Instant::now(), SystemTime::now()) {
-                                None
-                            } else {
-                                continue;
-                            }
-                        }
-                        Err(RecvTimeoutError::Disconnected) => Some(Command::Shutdown),
-                    }
-                }
-                None => Some(commands.recv().unwrap_or(Command::Shutdown)),
+            let Some(wake) = self.wait(commands) else {
+                continue;
             };
-            match next {
-                None => {
-                    // The timeout. A failed clear keeps the value and retries
-                    // every RETRY until it succeeds or the content changed.
+            match wake {
+                Wake::Timeout => {
+                    // A failed clear keeps the value and retries every RETRY
+                    // until it succeeds or the content changed.
                     let _ = self.clear_if_ours();
                 }
-                Some(Command::Copy {
+                Wake::Command(Command::Copy {
                     value,
                     clear_after,
                     reply,
                 }) => {
                     let _ = reply.send(self.copy(value, clear_after));
                 }
-                Some(Command::ClearIfOurs { reply }) => {
+                Wake::Command(Command::ClearIfOurs { reply }) => {
                     let _ = reply.send(self.clear_if_ours());
                 }
-                Some(Command::Shutdown) => {
-                    for attempt in 0..SHUTDOWN_TRIES {
-                        if self.clear_if_ours().is_ok() {
-                            break;
-                        }
-                        if attempt + 1 < SHUTDOWN_TRIES {
-                            thread::sleep(SHUTDOWN_PAUSE);
-                        }
-                    }
+                Wake::Command(Command::Shutdown) => {
+                    self.shutdown();
                     return;
                 }
             }
         }
     }
+}
+
+/// What woke the worker.
+enum Wake {
+    /// A command arrived.
+    Command(Command),
+    /// The held value's deadline passed.
+    Timeout,
 }
 
 /// The clipboard worker's handle.

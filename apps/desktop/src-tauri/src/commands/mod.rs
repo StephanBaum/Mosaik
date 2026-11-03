@@ -5,7 +5,10 @@
 //!
 //! The wrappers' errors are the `Backend` methods' (each has an `# Errors`
 //! section) and are listed per command in `docs/DESKTOP_IPC.md`.
-#![allow(clippy::missing_errors_doc)]
+#![expect(
+    clippy::missing_errors_doc,
+    reason = "errors are documented on the Backend methods and in DESKTOP_IPC.md"
+)]
 
 pub mod clipboard;
 pub mod draft;

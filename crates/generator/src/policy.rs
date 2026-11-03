@@ -75,7 +75,7 @@ pub(crate) struct Requirement {
 
 /// Run-length constraints from site rules.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[allow(
+#[expect(
     clippy::struct_field_names,
     reason = "the names mirror the passwordrules properties"
 )]
@@ -690,7 +690,7 @@ mod tests {
 
     /// Brute force: the fraction of all strings over `alphabet` of length
     /// `n` that `policy` accepts.
-    #[allow(
+    #[expect(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         reason = "small test sizes"
@@ -853,6 +853,28 @@ mod tests {
         assert!(Overlapping::new(alphabet, &too_many).is_none());
     }
 
+    /// Checks the run estimate for `runs` against enumeration at every
+    /// length up to `max_len`.
+    fn assert_runs_exact(what: &str, mask: AsciiMask, runs: Runs, max_len: u32) {
+        let p = runs_vec(mask, runs.max_consecutive, runs.max_sequential, max_len);
+        assert_eq!(p.len(), max_len as usize + 1);
+        for n in 1..=max_len {
+            let exact = brute_force(&Policy::new(mask, n, vec![], runs));
+            let got = p[n as usize];
+            assert!((got - exact).abs() < 1e-9, "{what} n={n}: {got} vs {exact}");
+        }
+        assert_eq!(p[0], 1.0);
+    }
+
+    /// The exact acceptance of `runs` at length `n` by enumeration.
+    fn exact_acceptance(mask: AsciiMask, runs: Runs, n: u32) -> f64 {
+        if n == 0 {
+            1.0
+        } else {
+            brute_force(&Policy::new(mask, n, vec![], runs))
+        }
+    }
+
     /// The run estimate is exact for `max-consecutive`, `max-sequential` and
     /// both together, at every length, over alphabets with and without
     /// neighbouring code points.
@@ -864,22 +886,13 @@ mod tests {
             let max_len = if alphabet.len() > 4 { 5 } else { 6 };
             for &max_consecutive in &limits {
                 for &max_sequential in &limits {
-                    let p = runs_vec(mask, max_consecutive, max_sequential, max_len);
-                    assert_eq!(p.len(), max_len as usize + 1);
                     let runs = Runs {
                         max_consecutive,
                         max_sequential,
                         ..Runs::default()
                     };
-                    for n in 1..=max_len {
-                        let exact = brute_force(&Policy::new(mask, n, vec![], runs));
-                        let got = p[n as usize];
-                        assert!(
-                            (got - exact).abs() < 1e-9,
-                            "{alphabet} c={max_consecutive:?} s={max_sequential:?} n={n}: {got} vs {exact}"
-                        );
-                    }
-                    assert_eq!(p[0], 1.0);
+                    let what = format!("{alphabet} c={max_consecutive:?} s={max_sequential:?}");
+                    assert_runs_exact(&what, mask, runs, max_len);
                 }
             }
         }
@@ -908,11 +921,7 @@ mod tests {
                     ..Runs::default()
                 };
                 for n in 0..=6u32 {
-                    let exact = if n == 0 {
-                        1.0
-                    } else {
-                        brute_force(&Policy::new(mask, n, vec![], runs))
-                    };
+                    let exact = exact_acceptance(mask, runs, n);
                     let got = p[n as usize];
                     assert!(
                         (got - exact).abs() < 1e-9,
@@ -934,7 +943,6 @@ mod tests {
     /// alphabets it stays within a factor of 2 either way, well inside the
     /// margin between [`MIN_ACCEPTANCE`] and [`MAX_ATTEMPTS`].
     #[test]
-    #[allow(clippy::cast_possible_truncation, reason = "small test sizes")]
     fn combined_estimate_is_close() {
         let alphabet = mask_of("abc01");
         for (sets, runs, n) in [

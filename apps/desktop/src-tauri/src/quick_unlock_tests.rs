@@ -1,7 +1,6 @@
 //! Tests of the quick-unlock flows (CRYPTO_SPEC §6.2; ADR-0028) over fake
 //! platforms: no OS prompt, no device. Each test that creates an account or
 //! checks a password runs Argon2id, so they hold the KDF permit.
-#![allow(clippy::needless_pass_by_value)]
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -1001,25 +1000,8 @@ fn find_vault(b: &Backend, vault: &str) -> crate::contract::vaults::VaultSummary
         .unwrap()
 }
 
-#[test]
-#[allow(clippy::too_many_lines)]
-fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
-    let _kdf = crate::test_support::kdf_permit();
-    let r = hw_rig(2);
+fn check_only_totp_items_live_in_it(r: &HwRig, vault: &str) -> Value {
     let b = &r.backend;
-    let summary = b
-        .create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
-        .unwrap();
-    let vault = summary.vault_id.0.to_string();
-    assert_eq!(summary.protection, VaultProtection::HardwareKey);
-    assert!(summary.available);
-    let until = summary.open_until.expect("open until");
-    let now = system_now_ms();
-    assert!(
-        until > now + 290_000 && until <= now + 300_000,
-        "{until} vs {now}"
-    );
-
     // Only one-time-code items live in it.
     let added = b
         .add_item(typed(
@@ -1040,7 +1022,11 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         ErrorCode::ItemTypeNotAllowed
     );
     assert_eq!(b.totp_code(typed(item.clone())).unwrap().period, Some(30));
+    item
+}
 
+fn check_expiry_closes_the_vault(r: &HwRig, vault: &str, item: &Value) -> String {
+    let b = &r.backend;
     // Five minutes later the tick closes it and tells the webview.
     b.close_expired_hardware_vaults(
         Instant::now() + Duration::from_secs(301),
@@ -1053,7 +1039,7 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         code(b.totp_code(typed(item.clone())).unwrap_err()),
         ErrorCode::VaultUnavailable
     );
-    let listed = find_vault(b, &vault);
+    let listed = find_vault(b, vault);
     assert!(!listed.available && listed.open_until.is_none());
     assert_eq!(listed.protection, VaultProtection::HardwareKey);
     let keys = b
@@ -1069,7 +1055,11 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         ErrorCode::VaultUnavailable,
         "managing keys needs the vault open"
     );
+    first_id
+}
 
+fn check_only_the_right_key_reopens(r: &HwRig, vault: &str, item: &Value) {
+    let b = &r.backend;
     // Another physical key cannot open it; the right one can.
     r.key.plug(Some(1));
     assert_eq!(
@@ -1079,14 +1069,17 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         ),
         ErrorCode::HardwareKeyNotRecognized
     );
-    assert!(!find_vault(b, &vault).available, "it stays closed");
+    assert!(!find_vault(b, vault).available, "it stays closed");
     r.key.plug(Some(0));
     let reopened = b
         .open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
     assert!(reopened.available && reopened.open_until.is_some());
     assert!(b.totp_code(typed(item.clone())).is_ok());
+}
 
+fn check_add_and_remove_keys(r: &HwRig, vault: &str, first_id: &str) {
+    let b = &r.backend;
     // A second key, then the first can go; the last one cannot. Adding a key
     // needs a right password within two minutes (L6).
     assert_eq!(
@@ -1121,7 +1114,10 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         ),
         ErrorCode::HardwareKeyLast
     );
+}
 
+fn check_manual_close_and_plain_vault(r: &HwRig, vault: &str, item: &Value) {
+    let b = &r.backend;
     // A manual close sends no event; the account-key vault refuses these
     // commands.
     let before = events(&r.events).len();
@@ -1148,18 +1144,47 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     ] {
         assert_eq!(code(error), ErrorCode::InvalidInput);
     }
+}
 
+fn check_lock_closes_the_vault(r: &HwRig, vault: &str, item: Value) {
+    let b = &r.backend;
     // A lock closes it too: after the next unlock it is closed.
     b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
     b.lock(LockReason::Manual).unwrap();
     unlock_with_password(b);
-    let listed = find_vault(b, &vault);
+    let listed = find_vault(b, vault);
     assert!(!listed.available && listed.open_until.is_none());
     assert_eq!(
         code(b.totp_code(typed(item)).unwrap_err()),
         ErrorCode::VaultUnavailable
     );
+}
+
+#[test]
+fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(2);
+    let summary = r
+        .backend
+        .create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
+        .unwrap();
+    let vault = summary.vault_id.0.to_string();
+    assert_eq!(summary.protection, VaultProtection::HardwareKey);
+    assert!(summary.available);
+    let until = summary.open_until.expect("open until");
+    let now = system_now_ms();
+    assert!(
+        until > now + 290_000 && until <= now + 300_000,
+        "{until} vs {now}"
+    );
+
+    let item = check_only_totp_items_live_in_it(&r, &vault);
+    let first_id = check_expiry_closes_the_vault(&r, &vault, &item);
+    check_only_the_right_key_reopens(&r, &vault, &item);
+    check_add_and_remove_keys(&r, &vault, &first_id);
+    check_manual_close_and_plain_vault(&r, &vault, &item);
+    check_lock_closes_the_vault(&r, &vault, item);
 }
 
 // ---------------------------------------------------------------------------

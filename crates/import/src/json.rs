@@ -301,7 +301,6 @@ impl Visitor<'_> for KeyVisitor {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

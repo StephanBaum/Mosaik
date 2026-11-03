@@ -2,11 +2,9 @@
 //! monotonic key generations (CRYPTO_SPEC §7.1) and record upsert / outbox
 //! semantics (§10).
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::panic,
-    clippy::indexing_slicing,
-    clippy::too_many_lines,
     reason = "test helpers outside #[test] functions"
 )]
 

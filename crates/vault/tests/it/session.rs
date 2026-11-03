@@ -2,9 +2,8 @@
 //! items, search, attachments, moves, key generations, OTP codes and
 //! applying received records.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::expect_used,
     clippy::too_many_lines,
     clippy::indexing_slicing,
     clippy::panic,
@@ -190,18 +189,7 @@ fn multiple_vaults_and_rename() {
     assert!(matches!(s.vault_meta(unknown), Err(Error::UnknownVault)));
 }
 
-#[test]
-fn item_lifecycle_history_favorite_trash_purge() {
-    let (mut s, created) = new_account();
-    let vault = s.create_vault("Personal").unwrap();
-    let item = login(&mut s, vault, "Example", "first");
-    let note = s
-        .add_item(vault, &ItemType::SecureNote, |e| {
-            e.set_title("Note")?;
-            e.set_text(TextField::Notes, "remember the milk")
-        })
-        .unwrap();
-
+fn check_password_history(s: &mut UnlockedSession, vault: mosaic_core::VaultId, item: ItemId) {
     // A password change pushes the old value into the history.
     s.update_item(vault, item, |e| {
         e.set_secret(SecretField::Password, "second")
@@ -211,7 +199,7 @@ fn item_lifecycle_history_favorite_trash_purge() {
         e.set_secret(SecretField::Password, "third")
     })
     .unwrap();
-    assert_eq!(password_of(&s, vault, item), "third");
+    assert_eq!(password_of(s, vault, item), "third");
     let history: Vec<String> = s
         .item(vault, item)
         .unwrap()
@@ -221,7 +209,9 @@ fn item_lifecycle_history_favorite_trash_purge() {
         .collect();
     assert!(history.contains(&"first".to_owned()));
     assert!(history.contains(&"second".to_owned()));
+}
 
+fn check_noop_and_failed_edits(s: &mut UnlockedSession, vault: mosaic_core::VaultId, item: ItemId) {
     // An edit that changes nothing is not a new version.
     let outbox_before = s.pending_uploads(usize::MAX).unwrap().len();
     s.update_item(vault, item, |_| Ok(())).unwrap();
@@ -238,7 +228,9 @@ fn item_lifecycle_history_favorite_trash_purge() {
     ));
     assert_eq!(s.item(vault, item).unwrap().version(), &before);
     assert_eq!(s.item(vault, item).unwrap().title(), Some("Example"));
+}
 
+fn check_favorites(s: &mut UnlockedSession, vault: mosaic_core::VaultId, note: ItemId) {
     // Favorites.
     s.set_favorite(vault, note, true).unwrap();
     let mut favorites = ItemFilter::default();
@@ -246,7 +238,9 @@ fn item_lifecycle_history_favorite_trash_purge() {
     let favs = s.items(&favorites);
     assert_eq!(favs.len(), 1);
     assert_eq!(favs[0].item_id, note);
+}
 
+fn check_trash_and_restore(s: &mut UnlockedSession, vault: mosaic_core::VaultId, item: ItemId) {
     // Trash and restore.
     s.trash_item(vault, item).unwrap();
     assert!(s.item(vault, item).unwrap().trashed_at().is_some());
@@ -267,7 +261,9 @@ fn item_lifecycle_history_favorite_trash_purge() {
     s.restore_item(vault, item).unwrap();
     assert!(s.item(vault, item).unwrap().trashed_at().is_none());
     assert_eq!(s.search("example").len(), 1);
+}
 
+fn check_purge(s: &mut UnlockedSession, vault: mosaic_core::VaultId, item: ItemId) {
     // Purge: a tombstone that syncs, not a missing row.
     s.purge_item(vault, item).unwrap();
     assert!(s.item(vault, item).unwrap().is_deleted());
@@ -286,6 +282,25 @@ fn item_lifecycle_history_favorite_trash_purge() {
         s.update_item(vault, ItemId::new_v7().unwrap(), |e| e.set_title("x")),
         Err(Error::UnknownItem)
     ));
+}
+
+#[test]
+fn item_lifecycle_history_favorite_trash_purge() {
+    let (mut s, created) = new_account();
+    let vault = s.create_vault("Personal").unwrap();
+    let item = login(&mut s, vault, "Example", "first");
+    let note = s
+        .add_item(vault, &ItemType::SecureNote, |e| {
+            e.set_title("Note")?;
+            e.set_text(TextField::Notes, "remember the milk")
+        })
+        .unwrap();
+
+    check_password_history(&mut s, vault, item);
+    check_noop_and_failed_edits(&mut s, vault, item);
+    check_favorites(&mut s, vault, note);
+    check_trash_and_restore(&mut s, vault, item);
+    check_purge(&mut s, vault, item);
 
     // Everything survives a relock: the tombstone stays a tombstone.
     let s = s.lock().unlock(&pw(PASSWORD), &created.secret_key).unwrap();

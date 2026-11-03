@@ -377,14 +377,15 @@ impl Doc {
                 if s.device() == device {
                     repair.own_stamp_collision = true;
                 }
-                if a.value != b.value {
-                    let loser = if a.payload_cmp(b) == Ordering::Less {
-                        a
-                    } else {
-                        b
-                    };
-                    losers.push((key, loser));
+                if a.value == b.value {
+                    continue;
                 }
+                let loser = if a.payload_cmp(b) == Ordering::Less {
+                    a
+                } else {
+                    b
+                };
+                losers.push((key, loser));
             }
         }
         losers
@@ -1202,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines, reason = "one table of cases")]
+    #[expect(clippy::too_many_lines, reason = "one table of cases")]
     fn decode_rejects() {
         let ok = format!(r#"{{"schema_version":1,"vv":{{"{D1}":2}},"fields":{{}}}}"#);
         assert!(decode(ok.as_bytes(), Format::Document).is_ok());
@@ -1530,7 +1531,7 @@ mod tests {
     /// later edit that has seen both supersedes both, instead of leaving
     /// the second one behind as a spurious conflict copy.
     #[test]
-    #[allow(clippy::many_single_char_names, reason = "replicas")]
+    #[expect(clippy::many_single_char_names, reason = "replicas")]
     fn an_edit_supersedes_every_entry_with_the_shown_value() {
         let mut a = Doc::default();
         set(&mut a, 1, "title", "base");
