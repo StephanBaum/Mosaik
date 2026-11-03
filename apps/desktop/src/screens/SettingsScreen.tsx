@@ -21,6 +21,7 @@ import {
 } from "../ipc/contract/index.ts";
 import { usePlatform } from "../platform/platform.ts";
 import { format, GLOBAL_PALETTE } from "../platform/shortcuts.ts";
+import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { SshSettings } from "./SshSettings.tsx";
@@ -260,6 +261,13 @@ export function SettingsScreen() {
         onChange={(next) => {
           void change(next);
         }}
+      />
+      <QuickUnlockSettings
+        settings={settings}
+        onChange={(next) => {
+          void change(next);
+        }}
+        onError={setError}
       />
       <SshSettings onError={setError} />
       <KitSettings />

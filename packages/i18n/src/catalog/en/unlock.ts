@@ -22,4 +22,10 @@ export const unlock = {
   "lock.autoLockInfo": "Auto-locks after {minutes, plural, one {# minute} other {# minutes}} idle.",
   "lock.forgot.title": "Forgot your master password?",
   "lock.forgot.body": "Mosaic can't reset it, because only you know it. Check whether you wrote it on your Emergency Kit. Otherwise, start a new account.",
+  "lock.quick.waitingWindows": "Waiting for Windows Hello…",
+  "lock.quick.waitingMac": "Waiting for Touch ID…",
+  "lock.quick.touchKey": "Insert your key and touch it when it blinks.",
+  "lock.quick.pin": "Security key PIN",
+  "lock.quick.pinSubmit": "Continue",
+  "lock.quick.cancel": "Cancel",
 } as const satisfies Record<string, string>;

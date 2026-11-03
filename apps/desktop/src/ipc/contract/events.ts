@@ -27,4 +27,6 @@ export type AppEvent =
       itemId: ItemId;
       reason: SshSignFailReason;
     }
-  | { type: "quickSearchRequested" };
+  | { type: "quickSearchRequested" }
+  /** A hardware vault closed itself (timer or lock): drop revealed codes. */
+  | { type: "hardwareVaultClosed"; vaultId: VaultId };

@@ -60,4 +60,25 @@ export const errors = {
     "This export is password-protected. Export again without encryption, import it, then delete the file.",
   "error.sshAgentEndpointInUse":
     "Another SSH agent is already running (on Windows, the OpenSSH Authentication Agent service). Stop it, then turn on Mosaic's SSH agent again.",
+  "error.cancelled": "Cancelled. Nothing changed.",
+  "error.quickUnlockExpired":
+    "Quick unlock expired. Unlock with your master password, then turn it on again in Settings.",
+  "error.quickUnlockInvalidated":
+    "Quick unlock stopped working on this device and was turned off. Unlock with your master password.",
+  "error.passwordRequired":
+    "Enter your master password this time. Quick unlock works again after that.",
+  "error.hardwareKeyUnsupported": "This security key or system can't be used with Mosaic.",
+  "error.hardwareKeyNotFound": "No security key found. Insert it and try again.",
+  "error.hardwareKeyTimeout": "The key wasn't touched in time. Try again.",
+  "error.hardwareKeyPinRequired": "Enter your security key's PIN.",
+  "error.hardwareKeyPinInvalid": "Wrong PIN. After several wrong tries the key locks itself.",
+  "error.hardwareKeyPinBlocked":
+    "This key is locked after too many wrong PINs. Reset it with its maker's tool; its registrations are then lost.",
+  "error.hardwareKeyNoPin": "Set a PIN on this key first, with its maker's tool.",
+  "error.hardwareKeyNotRecognized":
+    "This key isn't registered here. Try another key or your master password.",
+  "error.hardwareKeyLimit": "You've registered the most keys allowed (8). Remove one first.",
+  "error.hardwareKeyLast":
+    "This is the vault's only key. Register another one before you remove it.",
+  "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
 } as const satisfies Record<string, string>;

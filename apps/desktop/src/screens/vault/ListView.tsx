@@ -9,6 +9,7 @@ import type {
 import { EmptyVault } from "./EmptyVault.tsx";
 import { ItemDetail } from "./ItemDetail.tsx";
 import { ItemEditor } from "./ItemEditor.tsx";
+import { HardwareVaultBar, HardwareVaultPanel } from "./HardwareVaultPanel.tsx";
 import { ItemList } from "./ItemList.tsx";
 import type { Category } from "./useVaultData.ts";
 import type { Editor } from "./VaultLayout.tsx";
@@ -38,7 +39,8 @@ function Detail(props: ListViewProps) {
   if (editor.mode !== "closed") {
     return (
       <ItemEditor
-        vaults={vaults}
+        // New items go to vaults that hold any item type; hardware vaults hold codes only.
+        vaults={editor.mode === "new" ? vaults.filter((vault) => vault.protection === "accountKey") : vaults}
         vaultId={vaultId}
         editing={editor.mode === "edit" ? editor.detail : null}
         onSaved={(item) => {
@@ -75,6 +77,23 @@ function Detail(props: ListViewProps) {
 }
 
 export function ListView(props: ListViewProps) {
+  const { vaultId, trash, vaults } = props;
+  const hardware = vaults.find((vault) => vault.vaultId === vaultId && vault.protection === "hardwareKey");
+  if (hardware !== undefined && !trash) {
+    // A closed hardware vault shows no items; an open one shows them under its own bar.
+    return hardware.available ? (
+      <div className="hw-open">
+        <HardwareVaultBar vault={hardware} onClosed={props.onChanged} />
+        <Split {...props} />
+      </div>
+    ) : (
+      <HardwareVaultPanel vault={hardware} onOpened={props.onChanged} />
+    );
+  }
+  return <Split {...props} />;
+}
+
+function Split(props: ListViewProps) {
   const { t } = useI18n();
   const { vaultId, trash, query, category, findings, selected, reloadKey, onSelect, onEditor } = props;
   return (

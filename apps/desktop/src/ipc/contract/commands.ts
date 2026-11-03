@@ -16,6 +16,13 @@ import type {
 } from "./import.ts";
 import type { SecurityReport } from "./insights.ts";
 import type {
+  EnrollBiometricRequest,
+  EnrollHardwareKeyRequest,
+  HardwareVaultKeys,
+  QuickUnlockStatus,
+  RemoveHardwareKeyRequest,
+} from "./quickUnlock.ts";
+import type {
   AddItemRequest,
   ItemDetail,
   ItemRequest,
@@ -43,7 +50,15 @@ import type {
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
 import type { SshAgentStatus, SshRespondRequest, SshSetEnabledRequest } from "./ssh.ts";
 import type { TotpCode } from "./totp.ts";
-import type { CreateVaultRequest, RenameVaultRequest, VaultSummary } from "./vaults.ts";
+import type {
+  CreateHardwareVaultRequest,
+  CreateVaultRequest,
+  HardwareVaultKeyRequest,
+  HardwareVaultRequest,
+  RenameVaultRequest,
+  VaultRequest,
+  VaultSummary,
+} from "./vaults.ts";
 
 interface Command<Req, Res> {
   request: Req;
@@ -60,10 +75,23 @@ export interface Commands {
   unlock_quick: Command<QuickUnlockRequest, SessionState>;
   lock: Command<null, SessionState>;
   app_status: Command<null, AppStatus>;
+  // Quick unlock
+  quick_unlock_status: Command<null, QuickUnlockStatus>;
+  enroll_biometric: Command<EnrollBiometricRequest, QuickUnlockStatus>;
+  remove_biometric: Command<null, QuickUnlockStatus>;
+  enroll_hardware_key: Command<EnrollHardwareKeyRequest, QuickUnlockStatus>;
+  remove_hardware_key: Command<RemoveHardwareKeyRequest, QuickUnlockStatus>;
+  hardware_key_cancel: Command<null, null>;
   // Vaults
   list_vaults: Command<null, VaultSummary[]>;
   create_vault: Command<CreateVaultRequest, VaultSummary>;
   rename_vault: Command<RenameVaultRequest, VaultSummary>;
+  create_hardware_vault: Command<CreateHardwareVaultRequest, VaultSummary>;
+  open_hardware_vault: Command<HardwareVaultRequest, VaultSummary>;
+  close_hardware_vault: Command<VaultRequest, null>;
+  hardware_vault_keys: Command<VaultRequest, HardwareVaultKeys>;
+  add_hardware_vault_key: Command<HardwareVaultRequest, HardwareVaultKeys>;
+  remove_hardware_vault_key: Command<HardwareVaultKeyRequest, HardwareVaultKeys>;
   // Items
   list_items: Command<ListItemsRequest, ItemSummary[]>;
   get_item: Command<ItemRequest, ItemDetail>;
@@ -114,9 +142,21 @@ const commandSet = {
   unlock_quick: true,
   lock: true,
   app_status: true,
+  quick_unlock_status: true,
+  enroll_biometric: true,
+  remove_biometric: true,
+  enroll_hardware_key: true,
+  remove_hardware_key: true,
+  hardware_key_cancel: true,
   list_vaults: true,
   create_vault: true,
   rename_vault: true,
+  create_hardware_vault: true,
+  open_hardware_vault: true,
+  close_hardware_vault: true,
+  hardware_vault_keys: true,
+  add_hardware_vault_key: true,
+  remove_hardware_vault_key: true,
   list_items: true,
   get_item: true,
   reveal_secret: true,

@@ -69,4 +69,30 @@ export const errors = {
     "Dieser Export ist mit einem Passwort geschützt. Exportiere noch einmal ohne Verschlüsselung, importiere die Datei und lösche sie danach.",
   "error.sshAgentEndpointInUse":
     "Ein anderer SSH-Agent läuft bereits (unter Windows der Dienst „OpenSSH Authentication Agent“). Beende ihn und schalte dann den SSH-Agent von Mosaic wieder ein.",
+  "error.cancelled": "Abgebrochen. Es wurde nichts geändert.",
+  "error.quickUnlockExpired":
+    "Die Schnellentsperrung ist abgelaufen. Entsperre mit deinem Master-Passwort und schalte sie in den Einstellungen wieder ein.",
+  "error.quickUnlockInvalidated":
+    "Die Schnellentsperrung funktioniert auf diesem Gerät nicht mehr und wurde ausgeschaltet. Entsperre mit deinem Master-Passwort.",
+  "error.passwordRequired":
+    "Gib diesmal dein Master-Passwort ein. Danach funktioniert die Schnellentsperrung wieder.",
+  "error.hardwareKeyUnsupported":
+    "Dieser Sicherheitsschlüssel oder dieses System kann mit Mosaic nicht verwendet werden.",
+  "error.hardwareKeyNotFound":
+    "Kein Sicherheitsschlüssel gefunden. Stecke ihn ein und versuche es erneut.",
+  "error.hardwareKeyTimeout": "Der Schlüssel wurde nicht rechtzeitig berührt. Versuche es erneut.",
+  "error.hardwareKeyPinRequired": "Gib die PIN deines Sicherheitsschlüssels ein.",
+  "error.hardwareKeyPinInvalid":
+    "Falsche PIN. Nach mehreren Fehlversuchen sperrt sich der Schlüssel selbst.",
+  "error.hardwareKeyPinBlocked":
+    "Dieser Schlüssel ist nach zu vielen falschen PINs gesperrt. Setze ihn mit dem Werkzeug des Herstellers zurück; seine Registrierungen gehen dabei verloren.",
+  "error.hardwareKeyNoPin":
+    "Lege zuerst mit dem Werkzeug des Herstellers eine PIN für diesen Schlüssel fest.",
+  "error.hardwareKeyNotRecognized":
+    "Dieser Schlüssel ist hier nicht registriert. Versuche einen anderen Schlüssel oder dein Master-Passwort.",
+  "error.hardwareKeyLimit":
+    "Du hast die Höchstzahl von 8 Schlüsseln registriert. Entferne zuerst einen.",
+  "error.hardwareKeyLast":
+    "Das ist der einzige Schlüssel dieses Tresors. Registriere zuerst einen weiteren.",
+  "error.itemTypeNotAllowed": "Dieser Tresor enthält nur Einmalcodes.",
 } satisfies Record<keyof typeof en, string>;

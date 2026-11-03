@@ -9,6 +9,7 @@ import type { AppEvent } from "./events.ts";
 
 /** String enums whose value lists the parity test compares in both directions. */
 export interface EnumFixtures {
+  biometricPlatformKind: string[];
   errorCode: string[];
   quickUnlockKind: string[];
   itemKind: string[];
@@ -35,6 +36,7 @@ export interface EnumFixtures {
   sshCloseReason: string[];
   lockReason: string[];
   syncStatus: string[];
+  vaultProtection: string[];
 }
 
 export interface ContractFixtures {

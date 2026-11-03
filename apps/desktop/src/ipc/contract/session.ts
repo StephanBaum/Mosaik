@@ -88,4 +88,6 @@ export interface AppStatus {
 
 export interface QuickUnlockRequest {
   method: QuickUnlockKind;
+  /** The security key's PIN (`hardwareKey` only); a secret, never logged or persisted. */
+  pin: string | null;
 }

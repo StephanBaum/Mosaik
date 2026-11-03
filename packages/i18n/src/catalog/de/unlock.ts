@@ -24,4 +24,10 @@ export const unlock = {
   "lock.autoLockInfo": "Sperrt nach {minutes, plural, one {# Minute} other {# Minuten}} Inaktivität.",
   "lock.forgot.title": "Master-Passwort vergessen?",
   "lock.forgot.body": "Mosaic kann es nicht zurücksetzen, weil nur du es kennst. Prüfe, ob du es auf deinem Emergency Kit notiert hast. Sonst lege ein neues Konto an.",
+  "lock.quick.waitingWindows": "Warte auf Windows Hello …",
+  "lock.quick.waitingMac": "Warte auf Touch ID …",
+  "lock.quick.touchKey": "Stecke deinen Schlüssel ein und berühre ihn, wenn er blinkt.",
+  "lock.quick.pin": "PIN des Sicherheitsschlüssels",
+  "lock.quick.pinSubmit": "Weiter",
+  "lock.quick.cancel": "Abbrechen",
 } satisfies Record<keyof typeof en, string>;

@@ -58,6 +58,8 @@ export interface SidebarProps {
   onVault: (vaultId: VaultId) => void;
   onView: (view: View) => void;
   onLock: () => void;
+  /** Opens the new-vault dialog. */
+  onNewVault: () => void;
 }
 
 function Categories(props: SidebarProps) {
@@ -91,11 +93,22 @@ function Categories(props: SidebarProps) {
   );
 }
 
+/** A closed hardware vault has no readable name: show the placeholder, not "Unnamed". */
+export function vaultLabel(vault: VaultSummary, t: (key: MessageKey) => string): string {
+  if (vault.name !== null) {
+    return vault.name;
+  }
+  return t(vault.protection === "hardwareKey" ? "vault.hardware.placeholderName" : "vault.unnamed");
+}
+
 function Vaults(props: SidebarProps) {
   const { t } = useI18n();
   return (
     <div className="nav-group">
-      <h2 className="nav-group__title">{t("vault.vaults")}</h2>
+      <div className="nav-group__head">
+        <h2 className="nav-group__title">{t("vault.vaults")}</h2>
+        <IconButton icon="plus" size="sm" label={t("vault.create")} onClick={props.onNewVault} />
+      </div>
       {props.vaults.map((vault, index) => (
         <button
           key={vault.vaultId}
@@ -110,9 +123,13 @@ function Vaults(props: SidebarProps) {
             <HoloSurface className="nav-item__bar" />
           )}
           <span className="nav-item__slot">
-            <span className={`vault-dot vault-dot--${String(index % VAULT_COLORS)}`} aria-hidden="true" />
+            {vault.protection === "hardwareKey" ? (
+              <Icon name="lock" size="sm" />
+            ) : (
+              <span className={`vault-dot vault-dot--${String(index % VAULT_COLORS)}`} aria-hidden="true" />
+            )}
           </span>
-          <span className="nav-item__label">{vault.name ?? t("vault.unnamed")}</span>
+          <span className="nav-item__label">{vaultLabel(vault, t)}</span>
           {vault.itemCount > 0 && <span className="nav-item__count tabular">{vault.itemCount}</span>}
         </button>
       ))}

@@ -1,5 +1,5 @@
 /** Mock settings, with the re-authentication rule for weakening changes. */
-import type { Settings } from "../contract/index.ts";
+import { quickUnlockMaxAgeChoices, type Settings } from "../contract/index.ts";
 import { SCREEN_LOCK_DETECTION } from "./app.ts";
 import { fail, type MockHandlers } from "./state.ts";
 
@@ -10,6 +10,7 @@ export const defaultSettings: Settings = {
   clipboardClearSeconds: 30,
   theme: "system",
   language: "system",
+  quickUnlockMaxAgeDays: 14,
 };
 
 /** Like Rust `has_lock_trigger`: screen lock counts only where the system detects it. */
@@ -23,7 +24,8 @@ function weakens(old: Settings, next: Settings): boolean {
     (next.autoLockMinutes === null && old.autoLockMinutes !== null) ||
     (next.clipboardClearSeconds === null && old.clipboardClearSeconds !== null) ||
     (!next.lockOnSleep && old.lockOnSleep) ||
-    (!next.lockOnScreenLock && old.lockOnScreenLock)
+    (!next.lockOnScreenLock && old.lockOnScreenLock) ||
+    next.quickUnlockMaxAgeDays > old.quickUnlockMaxAgeDays
   );
 }
 
@@ -32,7 +34,7 @@ export const settingsHandlers: MockHandlers = {
 
   update_settings: (state, request) => {
     const next = request.settings;
-    if (!hasLockTrigger(next)) {
+    if (!hasLockTrigger(next) || !quickUnlockMaxAgeChoices.some((days) => days === next.quickUnlockMaxAgeDays)) {
       fail("invalidInput");
     }
     if (weakens(state.settings, next) && request.password !== state.account?.password) {

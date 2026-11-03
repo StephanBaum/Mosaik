@@ -79,6 +79,13 @@
   color: var(--color-text-muted);
 }
 
+.nav-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -449,4 +456,80 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+/* Hardware-protected vault (D21): the closed panel and the bar above an open vault */
+
+.hw-panel {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: var(--space-8);
+}
+
+.hw-panel__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: min(100%, calc(var(--space-9) * 6));
+  text-align: center;
+}
+
+.hw-panel__inner .field {
+  text-align: start;
+}
+
+.hw-panel__icon {
+  display: inline-flex;
+  align-self: center;
+  color: var(--color-text-secondary);
+}
+
+.hw-panel__actions {
+  justify-content: center;
+}
+
+.hw-open {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.hw-open > .split {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hw-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: var(--border-width-hairline) solid var(--color-divider);
+}
+
+.hw-bar__title {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.hw-bar__time {
+  color: var(--color-text-muted);
+}
+
+.hw-backup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: var(--border-width-hairline) solid var(--color-divider);
+}
+
+.hw-backup .caption {
+  margin: 0;
 }

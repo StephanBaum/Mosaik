@@ -48,4 +48,31 @@ export const settings = {
   "settings.appearance.body": "The theme and the language of Mosaic.",
   "settings.ssh.body": "Let programs sign in with SSH keys from your vault. You approve each use.",
   "settings.kit.body": "Save a fresh copy of your Emergency Kit. This needs your master password.",
+  "settings.quick": "Quick unlock",
+  "settings.quick.body": "Faster ways back in, on top of your master password.",
+  "settings.quick.windowsHello": "Windows Hello",
+  "settings.quick.touchId": "Touch ID",
+  "settings.quick.biometric.body":
+    "Unlock with your face, fingerprint or PIN. Your master password is still needed after a restart.",
+  "settings.quick.biometric.bodyMac":
+    "Unlock with your fingerprint. Your master password is still needed after a restart.",
+  "settings.quick.expires": "Asks for your master password again on {date, date, medium}.",
+  "settings.quick.maxAge": "Ask for the master password at least every",
+  "settings.quick.maxAgeDays": "{days, plural, one {# day} other {# days}}",
+  "settings.quick.biometricLinux": "Biometric unlock isn't available on Linux.",
+  "settings.quick.biometricUnavailable": "Not set up on this device.",
+  "settings.quick.keys": "Security keys",
+  "settings.quick.keysCount":
+    "{count, plural, =0 {None registered} one {# registered} other {# registered}}",
+  "settings.quick.keysUnsupported": "Security keys aren't supported on this system yet.",
+  "settings.quick.keyRow": "Security key · {tag} · added {addedAt, date, medium}",
+  "settings.quick.addKey": "Add security key",
+  "settings.quick.addKeyBody":
+    "Insert the key you want to add and enter its PIN. Then touch it when it blinks.",
+  "settings.quick.manageKeys": "Manage",
+  "settings.quick.removeKey": "Remove",
+  "settings.quick.removeKeyNamed": "Remove security key {tag}",
+  "settings.quick.keyRisk":
+    "Anyone with this key and its PIN can open your vault without your master password.",
+  "reauth.bodyQuick": "This makes it easier to get into Mosaic, so it needs your master password.",
 } as const satisfies Record<string, string>;

@@ -1,4 +1,5 @@
 /** Mock one-time codes: a fixed code with a real countdown. */
+import { vaultReadable } from "./vaults.ts";
 import { fail, requireUnlocked, type MockHandlers } from "./state.ts";
 
 export const totpHandlers: MockHandlers = {
@@ -10,6 +11,9 @@ export const totpHandlers: MockHandlers = {
           each.detail.summary.vaultId === request.vaultId &&
           each.detail.summary.itemId === request.itemId,
       ) ?? fail("itemNotFound");
+    if (!vaultReadable(state, request.vaultId)) {
+      fail("vaultUnavailable");
+    }
     const otp = item.detail.otp ?? fail("noOtp");
     if (otp.scheme === "hotp" || otp.period === null) {
       return { code: "755224", secondsRemaining: null, period: null };

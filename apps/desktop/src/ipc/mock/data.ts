@@ -3,7 +3,7 @@
  * design mockups (docs/design/README.md), the master password is `mosaic`.
  */
 import type { ItemSummary, VaultSummary } from "../contract/index.ts";
-import type { MockAccount, MockItem } from "./state.ts";
+import type { MockAccount, MockHardwareVault, MockItem } from "./state.ts";
 
 export const MOCK_PASSWORD = "mosaic";
 
@@ -19,8 +19,8 @@ const work = "019a2b3c-4d5e-7010-8000-000000000002";
 
 export function sampleVaults(): VaultSummary[] {
   return [
-    { vaultId: personal, name: "Personal", itemCount: 0, available: true },
-    { vaultId: work, name: "Work", itemCount: 0, available: true },
+    { vaultId: personal, name: "Personal", itemCount: 0, available: true, protection: "accountKey", openUntil: null },
+    { vaultId: work, name: "Work", itemCount: 0, available: true, protection: "accountKey", openUntil: null },
   ];
 }
 
@@ -123,4 +123,67 @@ export function sampleItems(): MockItem[] {
       history: [],
     },
   ];
+}
+
+export const HARDWARE_VAULT_ID = "019a2b3c-4d5e-7010-8000-000000000003";
+
+/** The key the mock device seeds (`?quick=hardwareKey`): a stable 32-hex method id. */
+export function sampleKey(addedAt: number): { methodId: string; addedAt: number } {
+  return { methodId: "0123456789abcdef0123456789abcdef", addedAt };
+}
+
+function codeItem(itemId: string, title: string, issuer: string): MockItem {
+  return {
+    detail: {
+      summary: summary({
+        itemId,
+        vaultId: HARDWARE_VAULT_ID,
+        title,
+        kind: "totp",
+        subtitle: issuer,
+        hasOtp: true,
+      }),
+      createdAt: 1_761_400_000_000,
+      text: [],
+      secrets: [],
+      urls: [],
+      customFields: [],
+      attachments: [],
+      otp: { scheme: "totp", issuer, digits: 6, period: 30, hardwareProtected: true },
+      historyCount: 0,
+      review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+    },
+    secrets: {},
+    history: [],
+  };
+}
+
+/** A hardware-protected vault with two one-time codes, closed at the start. */
+export function sampleHardwareVault(addedAt: number): {
+  vault: VaultSummary;
+  items: MockItem[];
+  hardware: MockHardwareVault;
+} {
+  return {
+    vault: {
+      vaultId: HARDWARE_VAULT_ID,
+      name: "Codes (security key)",
+      itemCount: 0,
+      available: false,
+      protection: "hardwareKey",
+      openUntil: null,
+    },
+    items: [
+      codeItem("019a2b3c-4d5e-7020-8000-000000000011", "Bank", "Example Bank"),
+      codeItem("019a2b3c-4d5e-7020-8000-000000000012", "Cloud console", "Acme Cloud"),
+    ],
+    hardware: {
+      vaultId: HARDWARE_VAULT_ID,
+      name: "Codes (security key)",
+      open: false,
+      openUntil: null,
+      keys: [sampleKey(addedAt)],
+      timer: undefined,
+    },
+  };
 }
