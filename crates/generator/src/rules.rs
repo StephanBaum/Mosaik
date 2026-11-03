@@ -440,64 +440,13 @@ impl PasswordRules {
     /// [`Self::policy`] with another entropy floor in bits (tests use 0 to
     /// check uniformity over small, enumerable sets).
     pub(crate) fn policy_with_floor(&self, preferred_length: u32, min_bits: f64) -> Result<Policy> {
-        let allowed = self.allowed.ascii() & PRINTABLE;
-        let ascii_required: Vec<AsciiMask> = self
-            .required
-            .iter()
-            .filter(|r| !r.is_unicode())
-            .map(|r| r.ascii() & allowed)
-            .collect();
-        // Leave out the space (sites often trim it) unless that would make
-        // the alphabet or a required set empty.
-        let without_space = allowed & !SPACE_BIT;
-        let alphabet =
-            if without_space != 0 && ascii_required.iter().all(|&r| r & without_space != 0) {
-                without_space
-            } else {
-                allowed
-            };
-        if alphabet == 0 {
-            return Err(Error::RulesUnsatisfiable);
-        }
-
-        let mut sets: Vec<AsciiMask> = Vec::new();
-        for r in ascii_required {
-            let r = r & alphabet;
-            if r == 0 {
-                return Err(Error::RulesUnsatisfiable);
-            }
-            if r != alphabet && !sets.contains(&r) {
-                sets.push(r);
-            }
-        }
-        // A set that contains another set is implied by it.
-        let pruned: Vec<AsciiMask> = sets
-            .iter()
-            .copied()
-            .filter(|&s| !sets.iter().any(|&t| t != s && t & s == t))
-            .collect();
-
+        let (alphabet, pruned) = self.generation_sets()?;
         let size = mask_len(alphabet);
         // A one-character alphabet has one password per length.
         if size < 2 {
             return Err(Error::RulesUnsatisfiable);
         }
-        let site_lo = self.min_length.unwrap_or(1).max(1);
-        let mut hi = self.max_length.unwrap_or(MAX_LENGTH).min(MAX_LENGTH);
-        // No character may occur more than k times: at most k × |alphabet|
-        // characters fit.
-        if let Some(k) = self.max_repeating {
-            hi = hi.min(k.saturating_mul(size));
-        }
-        // Never below MIN_LENGTH unless the site's own maxlength is shorter
-        // (CRYPTO_SPEC section 13): the rules come from the page, so a rule
-        // set that only short passwords can satisfy is refused instead of
-        // producing a guessable one.
-        let floor = MIN_LENGTH.min(self.max_length.unwrap_or(MAX_LENGTH));
-        let lo = site_lo.max(floor);
-        if lo > hi {
-            return Err(Error::RulesUnsatisfiable);
-        }
+        let (lo, hi) = self.length_range(size)?;
         let runs = self.runs();
         let required = Overlapping::new(alphabet, &pruned).ok_or(Error::ConstraintsTooStrict)?;
         let mut p_runs =
@@ -546,6 +495,70 @@ impl PasswordRules {
             .map(|members| Requirement { members, min: 1 })
             .collect();
         Ok(Policy::new(alphabet, length, requirements, runs))
+    }
+
+    /// The alphabet and the required character sets that remain once sets
+    /// implied by others are pruned.
+    fn generation_sets(&self) -> Result<(AsciiMask, Vec<AsciiMask>)> {
+        let allowed = self.allowed.ascii() & PRINTABLE;
+        let ascii_required: Vec<AsciiMask> = self
+            .required
+            .iter()
+            .filter(|r| !r.is_unicode())
+            .map(|r| r.ascii() & allowed)
+            .collect();
+        // Leave out the space (sites often trim it) unless that would make
+        // the alphabet or a required set empty.
+        let without_space = allowed & !SPACE_BIT;
+        let alphabet =
+            if without_space != 0 && ascii_required.iter().all(|&r| r & without_space != 0) {
+                without_space
+            } else {
+                allowed
+            };
+        if alphabet == 0 {
+            return Err(Error::RulesUnsatisfiable);
+        }
+
+        let mut sets: Vec<AsciiMask> = Vec::new();
+        for r in ascii_required {
+            let r = r & alphabet;
+            if r == 0 {
+                return Err(Error::RulesUnsatisfiable);
+            }
+            if r != alphabet && !sets.contains(&r) {
+                sets.push(r);
+            }
+        }
+        // A set that contains another set is implied by it.
+        let pruned: Vec<AsciiMask> = sets
+            .iter()
+            .copied()
+            .filter(|&s| !sets.iter().any(|&t| t != s && t & s == t))
+            .collect();
+        Ok((alphabet, pruned))
+    }
+
+    /// The shortest and longest length the rules allow for an alphabet of
+    /// `size` characters.
+    fn length_range(&self, size: u32) -> Result<(u32, u32)> {
+        let site_lo = self.min_length.unwrap_or(1).max(1);
+        let mut hi = self.max_length.unwrap_or(MAX_LENGTH).min(MAX_LENGTH);
+        // No character may occur more than k times: at most k × |alphabet|
+        // characters fit.
+        if let Some(k) = self.max_repeating {
+            hi = hi.min(k.saturating_mul(size));
+        }
+        // Never below MIN_LENGTH unless the site's own maxlength is shorter
+        // (CRYPTO_SPEC section 13): the rules come from the page, so a rule
+        // set that only short passwords can satisfy is refused instead of
+        // producing a guessable one.
+        let floor = MIN_LENGTH.min(self.max_length.unwrap_or(MAX_LENGTH));
+        let lo = site_lo.max(floor);
+        if lo > hi {
+            return Err(Error::RulesUnsatisfiable);
+        }
+        Ok((lo, hi))
     }
 }
 

@@ -318,6 +318,70 @@ fn parse_secret(raw: &[u8]) -> Result<OtpSecret> {
     secret
 }
 
+/// Checks the issuer and account name of a label: each must be valid text,
+/// and without an issuer a `:` in the account name would read as an issuer
+/// separator when formatted (possible only after a blank label prefix).
+fn validate_label(issuer: Option<&str>, account: &str) -> Result<()> {
+    if let Some(i) = issuer {
+        validate_text(i)?;
+    }
+    validate_text(account)?;
+    if issuer.is_none() && account.contains(':') {
+        return Err(Error::InvalidLabel);
+    }
+    Ok(())
+}
+
+/// Whether the `encoder` parameter asks for Steam codes; any other encoder
+/// is unsupported.
+fn parse_encoder(raw: Option<&[u8]>) -> Result<bool> {
+    match raw {
+        Some(v)
+            if decode_text(v, true)?
+                .expose_secret()
+                .eq_ignore_ascii_case("steam") =>
+        {
+            Ok(true)
+        }
+        Some(_) => Err(Error::UnsupportedEncoder),
+        None => Ok(false),
+    }
+}
+
+/// The code kind from the URI type and its parameters. A TOTP URI is a
+/// Steam one when the type is `steam`, the encoder is `steam`, or the
+/// issuer is Steam and no digits are given.
+fn parse_kind(
+    ty: UriType,
+    encoder_steam: bool,
+    issuer_is_steam: bool,
+    params: &RawParams<'_>,
+) -> Result<OtpKind> {
+    let steam =
+        ty == UriType::Steam || encoder_steam || (issuer_is_steam && params.digits.is_none());
+    match (ty, steam) {
+        (UriType::Hotp, _) if encoder_steam => Err(Error::UnsupportedEncoder),
+        (UriType::Hotp, _) => Ok(OtpKind::Hotp {
+            digits: parse_digits(params.digits)?,
+            counter: decode_number(params.counter.ok_or(Error::MissingCounter)?)?,
+        }),
+        (UriType::Steam | UriType::Totp, true) => {
+            if let Some(v) = params.digits
+                && decode_number(v)? != 5
+            {
+                return Err(Error::InvalidDigits);
+            }
+            Ok(OtpKind::Steam {
+                period: parse_period(params.period)?,
+            })
+        }
+        (UriType::Steam | UriType::Totp, false) => Ok(OtpKind::Totp {
+            digits: parse_digits(params.digits)?,
+            period: parse_period(params.period)?,
+        }),
+    }
+}
+
 fn parse(uri: &str) -> Result<OtpAuth> {
     let bytes = uri.trim_ascii().as_bytes();
     if bytes.len() > MAX_URI_LEN {
@@ -353,60 +417,20 @@ fn parse(uri: &str) -> Result<OtpAuth> {
     };
     let (issuer, account_name) = split_label(label.expose_secret(), issuer_param);
     drop(label);
-    if let Some(i) = &issuer {
-        validate_text(i.expose_secret())?;
-    }
-    validate_text(account_name.expose_secret())?;
-    // Without an issuer a `:` in the account name would read as an issuer
-    // separator when formatted (possible only after a blank label prefix).
-    if issuer.is_none() && account_name.expose_secret().contains(':') {
-        return Err(Error::InvalidLabel);
-    }
+    validate_label(
+        issuer.as_ref().map(SecretText::expose_secret),
+        account_name.expose_secret(),
+    )?;
 
     let algorithm = match params.algorithm {
         Some(v) => Algorithm::parse(decode_text(v, true)?.expose_secret())?,
         None => Algorithm::default(),
     };
-    let encoder_steam = match params.encoder {
-        Some(v)
-            if decode_text(v, true)?
-                .expose_secret()
-                .eq_ignore_ascii_case("steam") =>
-        {
-            true
-        }
-        Some(_) => return Err(Error::UnsupportedEncoder),
-        None => false,
-    };
-
+    let encoder_steam = parse_encoder(params.encoder)?;
     let issuer_is_steam = issuer
         .as_ref()
         .is_some_and(|i| i.expose_secret().eq_ignore_ascii_case("steam"));
-    let kind = match ty {
-        UriType::Hotp if encoder_steam => return Err(Error::UnsupportedEncoder),
-        UriType::Hotp => OtpKind::Hotp {
-            digits: parse_digits(params.digits)?,
-            counter: decode_number(params.counter.ok_or(Error::MissingCounter)?)?,
-        },
-        UriType::Steam | UriType::Totp
-            if ty == UriType::Steam
-                || encoder_steam
-                || (issuer_is_steam && params.digits.is_none()) =>
-        {
-            if let Some(v) = params.digits
-                && decode_number(v)? != 5
-            {
-                return Err(Error::InvalidDigits);
-            }
-            OtpKind::Steam {
-                period: parse_period(params.period)?,
-            }
-        }
-        UriType::Steam | UriType::Totp => OtpKind::Totp {
-            digits: parse_digits(params.digits)?,
-            period: parse_period(params.period)?,
-        },
-    };
+    let kind = parse_kind(ty, encoder_steam, issuer_is_steam, &params)?;
 
     Ok(OtpAuth {
         otp: Otp {
@@ -474,16 +498,10 @@ impl OtpAuth {
     pub fn to_uri(&self) -> Result<SecretText> {
         let issuer = self.issuer.as_ref().map(SecretText::expose_secret);
         let account = self.account_name.expose_secret();
-        if let Some(i) = issuer {
-            if i.is_empty() {
-                return Err(Error::InvalidLabel);
-            }
-            validate_text(i)?;
-        }
-        validate_text(account)?;
-        if issuer.is_none() && account.contains(':') {
+        if issuer.is_some_and(str::is_empty) {
             return Err(Error::InvalidLabel);
         }
+        validate_label(issuer, account)?;
 
         // The label is item content: both parts are built in zeroizing
         // buffers reserved at their worst-case size (every byte
