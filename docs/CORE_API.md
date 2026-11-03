@@ -107,7 +107,9 @@ Contracts the apps must keep:
 `config_from_otp(&Otp, issuer, label)` and `config_from_otp_auth(&OtpAuth)`
 → `(OtpConfig, counter)`, `otp_auth_from_config(&OtpConfig, counter)` →
 `OtpAuth` (for `otpauth://` export). Store the counter with
-`ItemEdit::set_otp_counter`.
+`ItemEdit::set_otp_counter`. `ItemEdit::otp()` (added in M3, ADR-0028) reads the
+configuration inside an edit so the session can keep `hardware_protected` in
+step with the vault in the same sync event.
 
 ### `storage` (restricted: `session`, the M6 sync client, migrations, tests)
 

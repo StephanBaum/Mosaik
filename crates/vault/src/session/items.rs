@@ -7,7 +7,7 @@ use mosaic_totp::Code;
 
 use super::{Error, Result, UnlockedSession, dup_item, now};
 use crate::otp::otp_from_config;
-use crate::storage::Origin;
+use crate::storage::{Origin, VaultKeyWrap};
 
 /// Which items a listing includes with respect to the trash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,6 +55,19 @@ pub struct OtpCode {
     pub code: Code,
     /// Seconds until a time-based code changes; `None` for HOTP.
     pub seconds_remaining: Option<u32>,
+}
+
+/// Keeps `hardware_protected` of an OTP configuration in step with the vault
+/// it lives in (CRYPTO_SPEC 7.4): true inside a hardware-protected vault,
+/// false outside. It runs in the caller's edit, so it is the same sync event.
+fn align_otp(e: &mut ItemEdit<'_>, in_hardware_vault: bool) -> mosaic_core::Result<()> {
+    if let Some(mut config) = e.otp()
+        && config.hardware_protected != in_hardware_vault
+    {
+        config.hardware_protected = in_hardware_vault;
+        e.set_otp(&config)?;
+    }
+    Ok(())
 }
 
 impl ItemFilter {
@@ -140,8 +153,11 @@ impl UnlockedSession {
     /// ```
     ///
     /// # Errors
-    /// [`Error::UnknownVault`], [`Error::VaultUnavailable`], [`Error::Core`]
-    /// from `edit` or sealing (nothing is stored then), [`Error::Store`].
+    /// [`Error::UnknownVault`], [`Error::VaultUnavailable`],
+    /// [`Error::ItemTypeNotAllowed`] for anything but a TOTP item in a
+    /// hardware-protected vault (checked before `edit` runs),
+    /// [`Error::Core`] from `edit` or sealing (nothing is stored then),
+    /// [`Error::Store`].
     pub fn add_item<F>(
         &mut self,
         vault_id: VaultId,
@@ -151,10 +167,19 @@ impl UnlockedSession {
     where
         F: FnOnce(&mut ItemEdit<'_>) -> mosaic_core::Result<()>,
     {
-        self.vault(vault_id)?.current_key()?;
+        let ov = self.vault(vault_id)?;
+        ov.current_key()?;
+        let in_hw = ov.protection == VaultKeyWrap::TotpKey;
+        if in_hw && *item_type != ItemType::Totp {
+            return Err(Error::ItemTypeNotAllowed);
+        }
         let at = now();
         let mut item = Item::new(item_type, self.device, at)?;
-        edit(&mut item.edit(self.device, at))?;
+        {
+            let mut e = item.edit(self.device, at);
+            edit(&mut e)?;
+            align_otp(&mut e, in_hw)?;
+        }
         let item_id = ItemId::new_v7()?;
         self.put_item(vault_id, item_id, item, Origin::Local)?;
         Ok(item_id)
@@ -174,9 +199,14 @@ impl UnlockedSession {
     {
         let ov = self.vault(vault_id)?;
         ov.current_key()?;
+        let in_hw = ov.protection == VaultKeyWrap::TotpKey;
         let current = ov.live_item(item_id)?;
         let mut copy = dup_item(current)?;
-        edit(&mut copy.edit(self.device, now()))?;
+        {
+            let mut e = copy.edit(self.device, now());
+            edit(&mut e)?;
+            align_otp(&mut e, in_hw)?;
+        }
         if copy.version() == current.version() {
             return Ok(());
         }
@@ -247,15 +277,26 @@ impl UnlockedSession {
     ///
     /// # Errors
     /// [`Error::SameVault`], [`Error::UnknownVault`],
-    /// [`Error::VaultUnavailable`], [`Error::UnknownItem`],
-    /// [`Error::ItemDeleted`], [`Error::Store`] (for example a missing
+    /// [`Error::VaultUnavailable`] (also a closed hardware-protected source
+    /// or target), [`Error::UnknownItem`], [`Error::ItemDeleted`],
+    /// [`Error::ItemTypeNotAllowed`] for anything but a TOTP item moved into
+    /// a hardware-protected vault, [`Error::Store`] (for example a missing
     /// attachment file), [`Error::Core`].
     pub fn move_item(&mut self, from: VaultId, item_id: ItemId, to: VaultId) -> Result<ItemId> {
         if from == to {
             return Err(Error::SameVault);
         }
-        self.vault(to)?.current_key()?;
-        let source = self.vault(from)?.live_item(item_id)?;
+        let to_ov = self.vault(to)?;
+        to_ov.current_key()?;
+        let to_hw = to_ov.protection == VaultKeyWrap::TotpKey;
+        let from_ov = self.vault(from)?;
+        if from_ov.protection == VaultKeyWrap::TotpKey {
+            from_ov.current_key()?;
+        }
+        let source = from_ov.live_item(item_id)?;
+        if to_hw && source.item_type() != Some(ItemType::Totp) {
+            return Err(Error::ItemTypeNotAllowed);
+        }
         let new_id = ItemId::new_v7()?;
 
         // Prepare everything that can fail before the first write.
@@ -280,11 +321,12 @@ impl UnlockedSession {
             resealed.push((old.attachment_id, new_ref, new_ct));
         }
         let mut moved = dup_item(source)?;
-        if !resealed.is_empty() {
+        {
             let mut e = moved.edit(self.device, now());
             for (old_id, _, _) in &resealed {
                 e.remove_attachment(old_id)?;
             }
+            align_otp(&mut e, to_hw)?;
         }
 
         // 1. The copy, without attachment references, in the target vault.

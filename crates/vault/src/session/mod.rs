@@ -62,6 +62,7 @@
 
 mod attachments;
 mod error;
+mod hardware_vaults;
 mod items;
 mod search;
 mod sync;
@@ -76,7 +77,7 @@ use mosaic_core::model::{Item, Timestamp, Tombstone, VaultMeta};
 use mosaic_core::{
     AccountId, AccountKey, Argon2Profile, DeviceId, ItemId, KeyGeneration, MasterPassword,
     OpaquePassword, PasswordParams, SecretKey, SecretString, UnlockMethod, VaultId, VaultKey,
-    WrappedKey,
+    WrappedKey, unlock::TotpVaultKey,
 };
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
@@ -217,6 +218,12 @@ struct OpenVault {
     items: BTreeMap<ItemId, Item>,
     /// Records that failed to decrypt or decode.
     corrupt: BTreeSet<ItemId>,
+    /// What the vault keys are wrapped under (fixed at creation).
+    protection: VaultKeyWrap,
+    /// `TK` of a hardware-protected vault while it is open (CRYPTO_SPEC
+    /// 7.4). Dropped, and so zeroized, when the vault closes or the session
+    /// locks.
+    tk: Option<TotpVaultKey>,
 }
 
 impl OpenVault {
@@ -228,6 +235,8 @@ impl OpenVault {
             meta_unreadable: false,
             items: BTreeMap::new(),
             corrupt: BTreeSet::new(),
+            protection: VaultKeyWrap::AccountKey,
+            tk: None,
         }
     }
 
@@ -491,6 +500,8 @@ fn open_record(
 }
 
 /// Loads one vault: unwraps its keys, decrypts its metadata and records.
+/// A hardware-protected vault (CRYPTO_SPEC 7.4) stays closed: it needs its
+/// TK, not AK ([`UnlockedSession::open_hardware_vault`]).
 fn load_vault(
     store: &Store,
     ak: &AccountKey,
@@ -498,9 +509,9 @@ fn load_vault(
     state: &VaultState,
 ) -> Result<OpenVault> {
     let vault_id = state.vault_id;
-    let mut ov = OpenVault::new(state.highest_accepted_generation);
     if state.key_wrap != VaultKeyWrap::AccountKey {
-        // A hardware-protected TOTP vault (§7.4) needs its TK, not AK.
+        let mut ov = OpenVault::new(state.highest_accepted_generation);
+        ov.protection = state.key_wrap;
         return Ok(ov);
     }
     // A damaged key row is left out, and only that generation is lost:
@@ -508,18 +519,32 @@ fn load_vault(
     // on (ADR-0010 item 9) until a wrapping that opens arrives
     // (`apply_remote_vault_key`); records under the other generations stay
     // readable.
+    let mut keys = BTreeMap::new();
     for (generation, wrapped) in store.readable_vault_keys(&vault_id)? {
         // A wrapping that does not open is skipped; without the current
         // generation the vault is unavailable rather than the unlock failing.
         if let Ok(vk) = wrapped.unwrap_vault_key(ak, account_id, &vault_id, generation) {
-            ov.keys.insert(generation, vk);
+            keys.insert(generation, vk);
         }
     }
+    load_vault_with(store, state, keys)
+}
+
+/// The metadata and records half of [`load_vault`], for the keys the caller
+/// unwrapped (under AK, or under TK for an open hardware-protected vault).
+fn load_vault_with(
+    store: &Store,
+    state: &VaultState,
+    keys: BTreeMap<KeyGeneration, VaultKey>,
+) -> Result<OpenVault> {
+    let vault_id = state.vault_id;
+    let mut ov = OpenVault::new(state.highest_accepted_generation);
+    ov.protection = state.key_wrap;
+    ov.keys = keys;
     if !ov.available() {
         return Ok(ov);
     }
     let meta = match store.vault_meta(&vault_id) {
-        Ok(meta) => meta,
         // Damaged metadata reads as absent, like metadata that does not
         // decrypt, but is remembered as unreadable.
         Err(crate::storage::Error::Corrupt) => {
@@ -527,6 +552,7 @@ fn load_vault(
             None
         }
         Err(e) => return Err(e.into()),
+        Ok(meta) => meta,
     };
     if let Some(ct) = meta {
         ov.meta = ov
@@ -796,6 +822,8 @@ impl UnlockedSession {
     }
 }
 
+#[cfg(test)]
+mod hardware_vaults_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -8,6 +8,7 @@ use mosaic_core::{DeviceId, KeyGeneration, VaultId, VaultKey};
 
 use super::sync::key_acceptance_error;
 use super::{Error, OpenVault, Result, UnlockedSession, now, reseal_below_current};
+use crate::storage::VaultKeyWrap;
 
 /// A vault as listed by [`UnlockedSession::vaults`]. `Debug` does not show
 /// the name (user content, CRYPTO_SPEC §12), only whether there is one.
@@ -122,7 +123,8 @@ impl UnlockedSession {
     }
 
     /// Rotates a vault's key (CRYPTO_SPEC §8.3): a new key one generation
-    /// up, wrapped under the account key and accepted (the store raises the
+    /// up, wrapped under the account key (under TK for an open
+    /// hardware-protected vault, which must be open) and accepted (the store raises the
     /// anti-rollback mark, §7.1), then every readable record and the
     /// metadata re-encrypted under it and queued for upload. Older keys
     /// stay held for records that could not be re-encrypted. If the
@@ -149,7 +151,13 @@ impl UnlockedSession {
         ov.current_key()?;
         let next = ov.generation.next()?;
         let vk = VaultKey::generate(next)?;
-        let wrapped = vk.wrap(&self.account_key, &self.account_id, &vault_id)?;
+        // A hardware-protected vault (CRYPTO_SPEC 7.4) needs to be open: its
+        // new key goes under TK, never under AK.
+        let wrapped = match (&ov.tk, ov.protection) {
+            (Some(tk), VaultKeyWrap::TotpKey) => vk.wrap_under_tk(tk, &vault_id)?,
+            (None, VaultKeyWrap::TotpKey) => return Err(Error::VaultUnavailable),
+            _ => vk.wrap(&self.account_key, &self.account_id, &vault_id)?,
+        };
         self.store
             .accept_vault_key(&vault_id, next, &wrapped)
             .map_err(key_acceptance_error)?;
