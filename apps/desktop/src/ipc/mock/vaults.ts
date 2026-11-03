@@ -2,6 +2,7 @@
 import type { HardwareVaultKeys, VaultSummary } from "../contract/index.ts";
 import {
   closeHardwareVault,
+  requireFreshReauth,
   newKey,
   verifyPin,
   verifyTouch,
@@ -174,6 +175,7 @@ export const vaultAsyncHandlers: MockAsyncHandlers = {
     requireUnlocked(state);
     const hardware = hardwareVault(state, request.vaultId);
     requireOpen(hardware);
+    requireFreshReauth(state, true);
     if (hardware.keys.length >= MAX_VAULT_KEYS) {
       fail("hardwareKeyLimit");
     }

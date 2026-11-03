@@ -33,7 +33,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message, options = {}) => {
       next.current += 1;
       const id = next.current;
-      setToasts((current) => [...current, { id, message, ...options }]);
+      // The same message again (a run of "Settings saved.") replaces the one on screen.
+      setToasts((current) => [
+        ...current.filter((toast) => toast.message !== message || toast.action !== undefined),
+        { id, message, ...options },
+      ]);
       setTimeout(() => {
         dismiss(id);
       }, TOAST_MS);

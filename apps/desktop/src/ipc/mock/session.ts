@@ -1,6 +1,11 @@
 /** Mock session commands: the same state machine as `src-tauri/src/commands/session.rs`. */
 import type { SessionState } from "../contract/index.ts";
-import { closeHardwareVault, quickMethods, verifyQuickUnlock } from "./quickUnlock.ts";
+import {
+  closeHardwareVault,
+  MOCK_REAUTH_MS,
+  quickMethods,
+  verifyQuickUnlock,
+} from "./quickUnlock.ts";
 import { startAgent } from "./ssh.ts";
 import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
   type MockHandlers,
@@ -131,9 +136,19 @@ export const sessionHandlers: MockHandlers = {
     return sessionState(state);
   },
 
+  reauthenticate: (state, request) => {
+    requireUnlocked(state);
+    if (request.password !== state.account?.password) {
+      fail("wrongCredentials");
+    }
+    state.quick.reauthUntil = state.now() + MOCK_REAUTH_MS;
+    return null;
+  },
+
   lock: (state) => {
     if (state.unlocked) {
       state.unlocked = false;
+      state.quick.reauthUntil = 0;
       for (const vault of state.hardwareVaults) {
         closeHardwareVault(state, vault, "lock");
       }

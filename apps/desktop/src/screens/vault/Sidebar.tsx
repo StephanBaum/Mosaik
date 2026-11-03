@@ -7,10 +7,11 @@ import { Icon, type IconName } from "../../components/icons.tsx";
 import { IconButton } from "../../components/IconButton.tsx";
 import { Kbd } from "../../components/Kbd.tsx";
 import { LogoMark } from "../../components/LogoMark.tsx";
+import { useRail } from "../../hooks/useRail.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { SyncState, SyncStatus as SyncStatusName, VaultId, VaultSummary } from "../../ipc/contract/index.ts";
 import { usePlatform } from "../../platform/platform.ts";
-import { ariaKeyshortcuts, SHORTCUTS } from "../../platform/shortcuts.ts";
+import { ariaKeyshortcuts, format, SHORTCUTS } from "../../platform/shortcuts.ts";
 import { CATEGORIES, type Category } from "./useVaultData.ts";
 import type { View } from "./VaultLayout.tsx";
 
@@ -64,6 +65,7 @@ export interface SidebarProps {
 
 function Categories(props: SidebarProps) {
   const { t } = useI18n();
+  const rail = useRail();
   return (
     <ul className="nav-group">
       {CATEGORIES.filter((category) => category === "all" || props.counts[category] > 0).map(
@@ -72,6 +74,7 @@ function Categories(props: SidebarProps) {
             <button
               type="button"
               className="nav-item"
+              title={rail ? t(category === "all" ? "vault.allItems" : `vault.category.${category}`) : undefined}
               aria-current={props.view === "vault" && props.category === category ? "page" : undefined}
               onClick={() => {
                 props.onCategory(category);
@@ -114,6 +117,8 @@ function Vaults(props: SidebarProps) {
           key={vault.vaultId}
           type="button"
           className="nav-item"
+          // Names are cut off in the list: the full one is always on hover.
+          title={vaultLabel(vault, t)}
           aria-current={props.vaultId === vault.vaultId && props.view === "vault" ? "page" : undefined}
           onClick={() => {
             props.onVault(vault.vaultId);
@@ -140,10 +145,14 @@ function Vaults(props: SidebarProps) {
 function BottomGroup({ view, findingCount, onView }: SidebarProps) {
   const { t } = useI18n();
   const platform = usePlatform();
+  const rail = useRail();
+  const tip = (target: View, label: string) =>
+    !rail ? undefined : target === "settings" ? `${label} (${format(SHORTCUTS.settings, platform, t)})` : label;
   const entry = (target: View, icon: IconName, label: string, extra?: ReactNode) => (
     <button
       type="button"
       className="nav-item"
+      title={tip(target, label)}
       aria-current={view === target ? "page" : undefined}
       aria-keyshortcuts={target === "settings" ? ariaKeyshortcuts(SHORTCUTS.settings, platform) : undefined}
       onClick={() => {
@@ -188,7 +197,9 @@ export function Sidebar(props: SidebarProps) {
         <LogoMark />
         <span className="sidebar__brand-text">
           <span className="sidebar__brand-name">{t("app.name")}</span>
-          <span className="sidebar__brand-vault">{props.vaultName}</span>
+          <span className="sidebar__brand-vault" title={props.vaultName}>
+            {props.vaultName}
+          </span>
         </span>
       </div>
       <Categories {...props} />
@@ -199,6 +210,7 @@ export function Sidebar(props: SidebarProps) {
         <IconButton
           icon="lock"
           label={t("action.lock")}
+          title={`${t("action.lock")} (${format(SHORTCUTS.lock, platform, t)})`}
           aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.lock, platform)}
           onClick={props.onLock}
         />

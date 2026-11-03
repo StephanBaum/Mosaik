@@ -239,6 +239,54 @@ select.field__input {
   color: var(--color-text-muted);
 }
 
+.status.caption {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+}
+
+/* An indeterminate bar while a device answers; still when motion is reduced. */
+.progress {
+  position: relative;
+  display: block;
+  height: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-subtle);
+}
+
+.progress::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--color-text-muted);
+  animation: progress-slide calc(var(--motion-panel) * 6) var(--motion-easing) infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress::after {
+    width: 100%;
+    animation: none;
+  }
+}
+
+.button--busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 /* Buttons */
 
 .button {

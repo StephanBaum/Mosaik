@@ -59,7 +59,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expectAccessible(page);
       await dialog.getByLabel("Master password", { exact: true }).fill("mosaic");
       await dialog.getByRole("button", { name: "Confirm" }).click();
-      await expect(page.getByText(/Asks for your master password again on/)).toBeVisible();
+      await expect(page.getByText(/Mosaic asks for your master password again on/)).toBeVisible();
 
       await page.getByLabel("Ask for the master password at least every").selectOption("7");
       await expect(page.getByText("Settings saved.").last()).toBeVisible();
@@ -69,6 +69,9 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(keys.getByText(/Security key · 01234567 · added/)).toBeVisible();
       await expectAccessible(page);
       await keys.getByRole("button", { name: "Remove security key 01234567" }).click();
+      await expect(keys.getByText("Remove security key 01234567?")).toBeVisible();
+      await expectAccessible(page);
+      await keys.getByRole("button", { name: "Remove", exact: true }).click();
       await expect(keys.getByText("None registered")).toBeVisible();
       guard.expectClean();
     });
@@ -90,5 +93,69 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.getByText("Bank", { exact: true })).toHaveCount(0);
       guard.expectClean();
     });
+
+    test("hardware vault: a backup key needs the master password, asked for in place", async ({ page }) => {
+      const guard = watch(page);
+      await page.goto("/?mock=unlocked&quick=hardwareKey");
+      await openCodesVault(page);
+      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByRole("button", { name: "Use security key" }).click();
+      await expect(page.getByRole("button", { name: "Lock this vault" })).toBeFocused();
+
+      const card = page.getByRole("region", { name: "Register a backup key" });
+      await card.getByRole("button", { name: "Add security key" }).click();
+      const add = page.getByRole("dialog", { name: "Add security key" });
+      await add.getByLabel("Security key PIN").fill("1234");
+      await add.getByRole("button", { name: "Add security key" }).click();
+
+      const reauth = page.getByRole("dialog", { name: "Confirm with your master password" });
+      await expect(reauth).toBeVisible();
+      await expectAccessible(page);
+      await reauth.getByLabel("Master password").fill("mosaic");
+      await reauth.getByRole("button", { name: "Confirm" }).click();
+      await expect(card).toHaveCount(0);
+      guard.expectClean();
+    });
+
+    test("hardware vault: warns before it locks, then says it locked itself", async ({ page }) => {
+      await page.goto("/?mock=unlocked&quick=hardwareKey&hwOpenSeconds=3");
+      await openCodesVault(page);
+      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByRole("button", { name: "Use security key" }).click();
+      await expect(page.getByText(/locks in less than 30 seconds/)).toBeVisible();
+      await expectAccessible(page);
+
+      const notice = page.getByText("This vault locked itself. Use your security key to open it again.");
+      await expect(notice).toBeVisible({ timeout: 8000 });
+      await expect(page.getByLabel("Security key PIN")).toBeFocused();
+      await expectAccessible(page);
+    });
+
+    test("unlock: a deliberate cancel of the key touch says nothing", async ({ page }) => {
+      await page.goto("/?mock=locked&quick=hardwareKey&touchMs=60000");
+      await page.getByRole("button", { name: "Use security key" }).click();
+      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByText("Insert your key and touch it when it blinks.")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
+      await expectAccessible(page);
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await expect(page.getByRole("button", { name: "Use security key" })).toBeFocused();
+      await expect(page.getByText(/Cancelled/)).toHaveCount(0);
+    });
   });
 }
+
+test.describe("icon rail", () => {
+  test.use({ viewport: { width: 860, height: 700 }, locale: "en-US" });
+
+  test("every rail item has a tooltip with its label and shortcut", async ({ page }) => {
+    await page.goto("/?mock=unlocked");
+    await expect(page.getByText("GitHub")).toBeVisible();
+    const settings = page.getByRole("button", { name: "Settings" });
+    await expect(settings).toHaveAttribute("title", /^Settings \(.+\)$/);
+    await expect(page.getByRole("button", { name: "Trash" })).toHaveAttribute("title", "Trash");
+    await expect(page.getByRole("button", { name: /^All items/ })).toHaveAttribute("title", "All items");
+    await expectAccessible(page);
+  });
+});

@@ -56,7 +56,7 @@ export const settings = {
     "Unlock with your face, fingerprint or PIN. Your master password is still needed after a restart.",
   "settings.quick.biometric.bodyMac":
     "Unlock with your fingerprint. Your master password is still needed after a restart.",
-  "settings.quick.expires": "Asks for your master password again on {date, date, medium}.",
+  "settings.quick.expires": "Mosaic asks for your master password again on {date, date, medium}.",
   "settings.quick.maxAge": "Ask for the master password at least every",
   "settings.quick.maxAgeDays": "{days, plural, one {# day} other {# days}}",
   "settings.quick.biometricLinux": "Biometric unlock isn't available on Linux.",
@@ -72,7 +72,10 @@ export const settings = {
   "settings.quick.manageKeys": "Manage",
   "settings.quick.removeKey": "Remove",
   "settings.quick.removeKeyNamed": "Remove security key {tag}",
+  "settings.quick.removeKeyConfirm": "Remove security key {tag}?",
   "settings.quick.keyRisk":
     "Anyone with this key and its PIN can open your vault without your master password.",
   "reauth.bodyQuick": "This makes it easier to get into Mosaic, so it needs your master password.",
+  "reauth.bodyKey": "Adding a key to this vault needs your master password.",
+  "reauth.bodyMove": "Moving an item out of a vault protected by a security key needs your master password.",
 } as const satisfies Record<string, string>;

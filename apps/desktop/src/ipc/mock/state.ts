@@ -52,6 +52,8 @@ export interface MockQuick {
   /** Seconds a hardware vault stays open. */
   hwOpenSeconds: number;
   pendingTouch: PendingTouch | null;
+  /** The master-password proof of `reauthenticate` is valid until this time (0: none). */
+  reauthUntil: number;
 }
 
 /** The mock's hardware-protected vault: closed until opened with a key and the PIN. */

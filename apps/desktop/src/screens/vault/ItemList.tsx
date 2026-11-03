@@ -1,9 +1,10 @@
 /** The item list: searched with a 150 ms debounce, rendered progressively past 200 rows. */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Avatar } from "../../components/Avatar.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { Icon } from "../../components/icons.tsx";
+import { useLatest } from "../../hooks/useLatest.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
@@ -133,6 +134,37 @@ function ItemRow({
   );
 }
 
+/**
+ * When the open item leaves the list (trashed, moved, purged) the button that was focused
+ * is gone: continue at the row that took its place, or at "New item".
+ */
+function useFocusAfterRemoval(
+  items: readonly ItemSummary[] | null,
+  selected: ItemRequest | null,
+  list: RefObject<HTMLUListElement | null>,
+) {
+  const open = useLatest(selected);
+  const index = useRef<number | null>(null);
+  useEffect(() => {
+    if (selected !== null && items !== null) {
+      const at = items.findIndex((item) => item.vaultId === selected.vaultId && item.itemId === selected.itemId);
+      index.current = at >= 0 ? at : index.current;
+    }
+  }, [items, selected]);
+  useEffect(() => {
+    const last = index.current;
+    if (items === null || open.current !== null || last === null) {
+      return;
+    }
+    index.current = null;
+    if (document.activeElement === null || document.activeElement === document.body) {
+      const rows = list.current?.querySelectorAll<HTMLElement>(".item-row");
+      const row = rows?.[Math.min(last, rows.length - 1)];
+      (row ?? document.querySelector<HTMLElement>("[data-new-item]"))?.focus();
+    }
+  }, [items, open, list]);
+}
+
 export function ItemList({
   vaultId,
   trash,
@@ -159,6 +191,8 @@ export function ItemList({
   const { items, error } = useItems({ vaultId, trash, query, category, reloadKey }, onLoaded);
   const [shown, setShown] = useState(PAGE);
   const flags = useMemo(() => flagsOf(findings), [findings]);
+  const list = useRef<HTMLUListElement>(null);
+  useFocusAfterRemoval(items, selected, list);
   // Read once per mount: whole days left do not need a ticking clock.
   const [now] = useState(() => Date.now());
 
@@ -181,7 +215,7 @@ export function ItemList({
           <div className="list-pane__header">
             <span>{t("vault.itemCount", { count: items.length })}</span>
           </div>
-          <ul className="item-list" aria-label={t("vault.itemCount", { count: items.length })}>
+          <ul ref={list} className="item-list" aria-label={t("vault.itemCount", { count: items.length })}>
             {items.slice(0, shown).map((item) => (
               <li key={`${item.vaultId}/${item.itemId}`}>
                 <ItemRow

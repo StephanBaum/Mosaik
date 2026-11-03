@@ -10,12 +10,9 @@ import { TextField } from "../components/TextField.tsx";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import type { IpcError, IpcResult, QuickUnlockKind, SessionState } from "../ipc/contract/index.ts";
-import { QuickUnlockPanel } from "./QuickUnlockPanel.tsx";
+import { QuickUnlockPanel, REREAD_CODES } from "./QuickUnlockPanel.tsx";
 
 type Locked = Extract<SessionState, { state: "locked" }>;
-
-/** After these the buttons are gone: read the session again and ask for the password. */
-const REREAD_CODES: readonly string[] = ["quickUnlockExpired", "quickUnlockInvalidated", "passwordRequired"];
 
 function useUnlock(
   session: Locked,
@@ -51,14 +48,16 @@ function useUnlock(
       onUnlocked(result.value);
       return null;
     }
-    setError(result.error);
     if (REREAD_CODES.includes(result.error.code)) {
+      // The password is what the user needs now: say so in the password form.
+      setError(result.error);
       const state = await ipc.call("session_state", null);
       if (state.ok) {
         onUnlocked(state.value);
       }
       onReread();
     }
+    // Every other failure is shown by the quick-unlock panel, next to its own controls.
     return result.error;
   }
   return { busy, error, unlock, quick };
@@ -91,6 +90,8 @@ export function UnlockScreen({
   const { settings } = useSettings();
   const [password, setPassword] = useState("");
   const [secretKey, setSecretKey] = useState("");
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [attempts, setAttempts] = useState(0);
   const form = useRef<HTMLFormElement>(null);
   const { busy, error, unlock, quick } = useUnlock(session, onUnlocked, () => {
     form.current?.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')?.focus();
@@ -101,6 +102,7 @@ export function UnlockScreen({
     event.preventDefault();
     const submitted = password;
     setPassword("");
+    setAttempts((count) => count + 1);
     if (await unlock(submitted, secretKey)) {
       setSecretKey("");
     }
@@ -142,11 +144,16 @@ export function UnlockScreen({
           <p className="status" aria-live="polite">
             {busy ? t("lock.working") : ""}
           </p>
-          <HoloButton type="submit" size="lg" block ambient disabled={busy}>
+          <HoloButton type="submit" size="lg" block ambient disabled={busy || quickBusy}>
             {t("lock.submit")}
           </HoloButton>
         </form>
-        <QuickUnlockPanel methods={session.quickUnlock} quick={quick} />
+        <QuickUnlockPanel
+          methods={session.quickUnlock}
+          quick={quick}
+          clearSignal={attempts}
+          onPrompting={setQuickBusy}
+        />
         {minutes !== null && <p className="caption auth__note">{t("lock.autoLockInfo", { minutes })}</p>}
       </div>
       <p className="auth__footnote">

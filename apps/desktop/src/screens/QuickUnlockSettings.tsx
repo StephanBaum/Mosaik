@@ -188,21 +188,30 @@ export function QuickUnlockSettings({
 }) {
   const { t } = useI18n();
   const [status, setStatus] = useQuickStatus(settings.quickUnlockMaxAgeDays);
+  // "How often" means nothing while no quick method exists on this system.
+  const anyMethod =
+    status !== null &&
+    (status.biometric.available ||
+      status.biometric.enrolled ||
+      status.hardwareKeys.supported ||
+      status.hardwareKeys.keys.length > 0);
   return (
     <SettingsSection title={t("settings.quick")} body={t("settings.quick.body")}>
       {status !== null && <BiometricRow status={status.biometric} onStatus={setStatus} onError={onError} />}
-      <Select
-        inline
-        label={t("settings.quick.maxAge")}
-        value={String(settings.quickUnlockMaxAgeDays)}
-        options={quickUnlockMaxAgeChoices.map((days) => ({
-          value: String(days),
-          label: t("settings.quick.maxAgeDays", { days }),
-        }))}
-        onChange={(event) => {
-          onChange({ ...settings, quickUnlockMaxAgeDays: Number(event.target.value) });
-        }}
-      />
+      {anyMethod && (
+        <Select
+          inline
+          label={t("settings.quick.maxAge")}
+          value={String(settings.quickUnlockMaxAgeDays)}
+          options={quickUnlockMaxAgeChoices.map((days) => ({
+            value: String(days),
+            label: t("settings.quick.maxAgeDays", { days }),
+          }))}
+          onChange={(event) => {
+            onChange({ ...settings, quickUnlockMaxAgeDays: Number(event.target.value) });
+          }}
+        />
+      )}
       {status !== null && <KeysRow status={status.hardwareKeys} onStatus={setStatus} />}
     </SettingsSection>
   );

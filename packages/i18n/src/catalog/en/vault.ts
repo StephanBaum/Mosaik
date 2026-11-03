@@ -59,6 +59,10 @@ export const vault = {
   "vault.hardware.pinBody":
     "Enter your key's PIN if it has one, then touch the key when it blinks.",
   "vault.hardware.keys": "Keys",
+  "vault.hardware.keysLabel": "Keys for this vault",
+  "vault.hardware.eyebrow": "Hardware-protected codes",
+  "vault.hardware.selfLocked": "This vault locked itself. Use your security key to open it again.",
+  "vault.hardware.closingSoon": "This vault locks in less than 30 seconds. Use your security key to open it again afterwards.",
   "vault.hardware.keysTitle": "Keys for this vault",
   "vault.hardware.codesOnly": "One-time codes only",
   "vault.create": "New vault",

@@ -1,6 +1,7 @@
 /** Mock item commands. `add_item` and `update_item` belong to the vault UI track. */
 import type { ItemRequest, ListItemsRequest } from "../contract/index.ts";
-import { vaultReadable } from "./vaults.ts";
+import { requireFreshReauth } from "./quickUnlock.ts";
+import { hardwareVaultOf, vaultReadable } from "./vaults.ts";
 import { fail, requireUnlocked, type MockHandlers, type MockItem, type MockState } from "./state.ts";
 
 function find(state: MockState, request: ItemRequest): MockItem {
@@ -101,6 +102,9 @@ export const itemHandlers: MockHandlers = {
       fail("vaultNotFound");
     }
     const item = find(state, request);
+    if (hardwareVaultOf(state, request.vaultId) !== undefined) {
+      requireFreshReauth(state, false);
+    }
     const itemId = state.nextId();
     item.detail.summary = { ...item.detail.summary, vaultId: request.targetVaultId, itemId };
     return { vaultId: request.targetVaultId, itemId };

@@ -62,6 +62,11 @@ export const vault = {
   "vault.hardware.pinBody":
     "Gib die PIN deines Schlüssels ein, falls er eine hat, und berühre ihn dann, wenn er blinkt.",
   "vault.hardware.keys": "Schlüssel",
+  "vault.hardware.keysLabel": "Schlüssel dieses Tresors",
+  "vault.hardware.eyebrow": "Hardwaregeschützte Codes",
+  "vault.hardware.selfLocked": "Dieser Tresor hat sich selbst gesperrt. Öffne ihn mit deinem Sicherheitsschlüssel wieder.",
+  "vault.hardware.closingSoon":
+    "Dieser Tresor sperrt sich in weniger als 30 Sekunden. Öffne ihn danach mit deinem Sicherheitsschlüssel wieder.",
   "vault.hardware.keysTitle": "Schlüssel für diesen Tresor",
   "vault.hardware.codesOnly": "Nur Einmalcodes",
   "vault.create": "Neuer Tresor",

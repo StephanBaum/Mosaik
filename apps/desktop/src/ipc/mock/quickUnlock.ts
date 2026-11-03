@@ -82,6 +82,7 @@ export function defaultQuick(): MockQuick {
     touchMs: 0,
     hwOpenSeconds: 300,
     pendingTouch: null,
+    reauthUntil: 0,
   };
 }
 
@@ -118,9 +119,22 @@ export function newKey(state: MockState): HardwareKeySummary {
   return { methodId: hex, addedAt: state.now() };
 }
 
+export const MOCK_REAUTH_MS = 120_000;
+
+/** `reauthRequired` unless the two-minute proof of `reauthenticate` is fresh; `consume` uses it up. */
+export function requireFreshReauth(state: MockState, consume: boolean): void {
+  if (state.quick.reauthUntil < state.now() || state.quick.reauthUntil === 0) {
+    fail("reauthRequired");
+  }
+  if (consume) {
+    state.quick.reauthUntil = 0;
+  }
+}
+
 function checkPassword(state: MockState, password: string | null): void {
   if (password === null) {
-    fail("reauthRequired");
+    requireFreshReauth(state, true);
+    return;
   }
   if (password !== state.account?.password) {
     fail("wrongCredentials");
