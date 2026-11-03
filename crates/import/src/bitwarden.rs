@@ -28,7 +28,6 @@ use mosaic_core::model::{ItemType, SecretField, TextField};
 
 use crate::Format;
 use crate::draft::{Builder, EntryWarning, Kind};
-use crate::enpass::expiry;
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
 use crate::json::{self, Json};
@@ -188,7 +187,7 @@ fn card(b: &mut Builder, card: Option<&Json>) {
         "Security code",
     );
     match (c.text("expMonth"), c.text("expYear")) {
-        (Some(m), Some(y)) => expiry(b, &format!("{}/{}", m.as_str(), y.as_str()), "Expiry"),
+        (Some(m), Some(y)) => b.expiry(&format!("{}/{}", m.as_str(), y.as_str()), "Expiry"),
         (Some(m), None) => b.fallback("Expiry month", Kind::Text, &m),
         (None, Some(y)) => b.fallback("Expiry year", Kind::Text, &y),
         (None, None) => {}

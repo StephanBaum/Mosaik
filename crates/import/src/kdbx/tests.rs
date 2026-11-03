@@ -841,6 +841,39 @@ fn hotp_and_steam_attributes() {
     assert_eq!(c.kind, OtpKind::Steam);
 }
 
+/// A protected value inside `History` advances the stream like any other, so a
+/// protected value in a later entry still decrypts correctly.
+#[test]
+fn protected_history_value_keeps_stream_aligned() {
+    let spec = Spec::default();
+    let mut x = Xml {
+        out: String::new(),
+        stream: Protector::new(spec.stream_id, &STREAM_KEY),
+    };
+    x.raw("<KeePassFile><Root><Group><Entry>");
+    x.string("Title", "first", false)
+        .string("Password", "current", true)
+        .raw("<History><Entry>");
+    x.string("Password", "old-pw", true)
+        .raw("</Entry></History></Entry><Entry>");
+    x.string("Title", "second", false)
+        .string("Password", "later-pw", true)
+        .raw("</Entry></Group></Root></KeePassFile>");
+    let i = super::parse_payload(&payload_of(&spec, &x.out)).unwrap();
+    assert_eq!(i.entries.len(), 2);
+    let secret = |n: usize| {
+        i.entries[n]
+            .draft
+            .secret(SecretField::Password)
+            .unwrap()
+            .expose_secret()
+            .to_owned()
+    };
+    assert_eq!(secret(0), "current");
+    assert_eq!(secret(1), "later-pw");
+    assert_eq!(i.entries[0].draft.password_history.len(), 1);
+}
+
 /// Leaf text is collected in a wiping buffer (`buf::append` moves, never
 /// reallocates in place), so no growth step leaves an unwiped copy.
 #[test]

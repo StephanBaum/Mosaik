@@ -511,6 +511,25 @@ impl Builder {
         }
     }
 
+    /// Adds a field of a note-like item as one of its contents (a custom
+    /// field), and a field of any other item as an unmapped one.
+    pub(crate) fn content(&mut self, label: &str, kind: Kind, value: &str) {
+        if self.draft.item_type == ItemType::SecureNote {
+            self.custom(label, kind, value);
+        } else {
+            self.fallback(label, kind, value);
+        }
+    }
+
+    /// Sets the card expiry, or keeps an unrecognized value as an unmapped
+    /// custom field.
+    pub(crate) fn expiry(&mut self, value: &str, label: &str) {
+        match card_expiry(value) {
+            Some(e) => self.text(TextField::CardExpiry, &e, label),
+            None => self.fallback(label, Kind::Text, value),
+        }
+    }
+
     /// Adds a tag after cleanup: control characters become spaces, the
     /// result is trimmed and cut to [`MAX_TAG_LEN`] bytes at a character
     /// boundary. Blank tags are dropped ([`EntryWarning::TagsDropped`]).
@@ -631,6 +650,28 @@ fn label_or<'a>(label: &'a str, default: &'a str) -> &'a str {
     } else {
         label
     }
+}
+
+/// `MM/YYYY` from `MM/YY`, `MM/YYYY`, `MM-YYYY` or `YYYY-MM`.
+fn card_expiry(value: &str) -> Option<String> {
+    let v = value.trim();
+    let (a, b) = v.split_once(['/', '-', '.'])?;
+    let (a, b) = (a.trim(), b.trim());
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
+    if !digits(a) || !digits(b) {
+        return None;
+    }
+    let (month, year) = if a.len() == 4 { (b, a) } else { (a, b) };
+    let m: u32 = month.parse().ok()?;
+    if !(1..=12).contains(&m) {
+        return None;
+    }
+    let year = match year.len() {
+        2 => format!("20{year}"),
+        4 => year.to_owned(),
+        _ => return None,
+    };
+    Some(format!("{m:02}/{year}"))
 }
 
 /// `YYYY-MM-DD` with a plausible month and day.
@@ -958,5 +999,22 @@ mod tests {
         let (d, w) = b.finish().unwrap();
         assert_eq!(d.title(), None, "nothing left of it");
         assert_eq!(w, [EntryWarning::TitleCleaned]);
+    }
+
+    #[test]
+    fn expiry_formats() {
+        for (v, want) in [
+            ("12/25", Some("12/2025")),
+            ("1/2030", Some("01/2030")),
+            ("2031-07", Some("07/2031")),
+            (" 03 - 27 ", Some("03/2027")),
+            ("13/25", None),
+            ("12/123", None),
+            ("ab/cd", None),
+            ("1225", None),
+            ("/25", None),
+        ] {
+            assert_eq!(card_expiry(v).as_deref(), want, "{v}");
+        }
     }
 }
