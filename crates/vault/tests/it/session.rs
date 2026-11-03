@@ -11,9 +11,7 @@
     reason = "integration tests"
 )]
 
-mod common;
-
-use common::{PASSWORD, Server, join, new_account, new_account_in, pw};
+use crate::common::{PASSWORD, Server, join, new_account, new_account_in, pw};
 use mosaic_core::model::{
     AttachmentRef, ItemType, LoginUrl, OtpConfig, OtpKind, SecretField, Text, TextField, VaultMeta,
 };

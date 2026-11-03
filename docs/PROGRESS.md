@@ -101,7 +101,7 @@ fixed or accepted (see below). Committed as `c43d93c` (CI fix `51ba5b2`).
   typos (exhaustive single-substitution detection ≥ 99 %). Golden files in
   `crates/core/tests/golden/` (regenerate with `MOSAIC_BLESS=1`, review the
   diff). A password-change test shows that item ciphertexts are byte-for-byte
-  unchanged. Only `tests/baseline_profile.rs` runs a real profile; everything
+  unchanged. Only `tests/it/baseline_profile.rs` runs a real profile; everything
   else uses 64 KiB test parameters. The 50 MiB attachment round trip is
   `#[ignore]` (slow in debug builds); run it with
   `cargo test --release -p mosaic-core -- --ignored`.
@@ -286,7 +286,7 @@ What M2 contains:
   - The store gained a `local_device` table in schema v1 (still
     unreleased, so no migration), holding the device ID. Schema v1 is final
     with the integration commit; later changes are migrations (ADR-0010).
-- Integration tests in `crates/vault/tests/`: `session.rs` (26 end-to-end
+- Integration tests in `crates/vault/tests/it/`: `session.rs` (26 end-to-end
   tests), `session_no_plaintext.rs` (scans the database, WAL and attachment
   files for a marker, the master password and the Secret Key while open and
   after close), `sync_sim.rs` (three devices editing two vaults offline,

@@ -1,0 +1,8 @@
+//! Integration tests of `mosaic-core`, built as one binary.
+
+mod baseline_profile;
+mod model_golden;
+mod model_items;
+mod model_sync;
+mod properties;
+mod secret_key;

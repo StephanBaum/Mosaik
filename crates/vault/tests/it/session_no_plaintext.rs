@@ -7,12 +7,10 @@
 
 #![allow(clippy::unwrap_used, reason = "integration test")]
 
-mod common;
-
 use std::fs;
 use std::path::Path;
 
-use common::{PASSWORD, new_account_in, pw};
+use crate::common::{PASSWORD, new_account_in, pw};
 use mosaic_core::SecretVec;
 use mosaic_core::model::{ItemType, LoginUrl, OtpConfig, SecretField, TextField};
 use mosaic_vault::session::LockedSession;

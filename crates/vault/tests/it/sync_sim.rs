@@ -37,11 +37,9 @@
     reason = "integration tests"
 )]
 
-mod common;
-
 use std::collections::{BTreeMap, BTreeSet};
 
-use common::{PASSWORD, Server, Shuffler, join, new_account_in, pw};
+use crate::common::{PASSWORD, Server, Shuffler, join, new_account_in, pw};
 use mosaic_core::model::{ItemType, SecretField, Value};
 use mosaic_core::{AttachmentId, Item, ItemId, KeyGeneration, SecretKey, VaultId, WrappedKey};
 use mosaic_vault::session::{Error, ItemFilter, RemoteRecord, TrashFilter, UnlockedSession};

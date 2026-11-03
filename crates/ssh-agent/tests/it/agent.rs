@@ -27,12 +27,12 @@ use ssh_key::PublicKey;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const ED25519: (&str, &str) = (
-    include_str!("keys/ed25519"),
-    include_str!("keys/ed25519.pub"),
+    include_str!("../keys/ed25519"),
+    include_str!("../keys/ed25519.pub"),
 );
 const P256_ENCRYPTED: (&str, &str) = (
-    include_str!("keys/ecdsa_p256_encrypted"),
-    include_str!("keys/ecdsa_p256_encrypted.pub"),
+    include_str!("../keys/ecdsa_p256_encrypted"),
+    include_str!("../keys/ecdsa_p256_encrypted.pub"),
 );
 
 fn rt() -> tokio::runtime::Runtime {

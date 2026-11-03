@@ -30,14 +30,14 @@ use ssh_key::{PublicKey, SshSig};
 const KEYS: [(&str, &str, &str, Option<&str>); 2] = [
     (
         "ed25519",
-        include_str!("keys/ed25519"),
-        include_str!("keys/ed25519.pub"),
+        include_str!("../keys/ed25519"),
+        include_str!("../keys/ed25519.pub"),
         None,
     ),
     (
         "ecdsa_p256_encrypted",
-        include_str!("keys/ecdsa_p256_encrypted"),
-        include_str!("keys/ecdsa_p256_encrypted.pub"),
+        include_str!("../keys/ecdsa_p256_encrypted"),
+        include_str!("../keys/ecdsa_p256_encrypted.pub"),
         Some("correct horse battery staple"),
     ),
 ];
