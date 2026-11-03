@@ -12,6 +12,8 @@ use mosaic_core::model::{Item, TextField};
 use mosaic_core::{ItemId, VaultId};
 use zeroize::Zeroizing;
 
+use super::OpenVault;
+
 /// The searchable text of one item. The title comes first.
 struct Entry {
     title: Zeroizing<String>,
@@ -48,6 +50,13 @@ pub(super) struct SearchIndex {
 }
 
 impl SearchIndex {
+    /// Indexes every item of `vault`.
+    pub(super) fn update_vault(&mut self, vault_id: VaultId, vault: &OpenVault) {
+        for (item_id, item) in &vault.items {
+            self.update(vault_id, *item_id, item);
+        }
+    }
+
     /// Indexes `item` (or drops it from the index if it is deleted).
     pub(super) fn update(&mut self, vault_id: VaultId, item_id: ItemId, item: &Item) {
         if item.is_deleted() {

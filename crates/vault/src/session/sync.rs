@@ -11,8 +11,21 @@ use super::{
     Error, OpenVault, Result, UnlockedSession, load_vault, open_record, reseal_below_current,
 };
 use crate::storage::{
-    Error as StorageError, Origin, OutboxSeq, RecordBody, RecordEntry, VaultKeyWrap,
+    Error as StorageError, Origin, OutboxSeq, RecordBody, RecordEntry, StoredRecord, VaultKeyWrap,
 };
+
+/// What this device holds for a record that arrives from the server.
+struct LocalAnchor {
+    /// The stored row, if there is a readable one.
+    stored: Option<StoredRecord>,
+    /// A row exists but fails the store's own checks.
+    damaged_row: bool,
+    /// A local change is waiting for upload (or the row is damaged, so it
+    /// may be).
+    pending: bool,
+    /// The server sequence number to store: never behind the stored one.
+    server_seq: u64,
+}
 
 /// A record as received from the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,21 +162,13 @@ impl UnlockedSession {
         ov.current_key()?;
         check_generation(ov.generation, record.body.key_generation())?;
         let received = open_record(&record.body, &ov.keys, &vault_id, &item_id)?;
-        let (stored, damaged_row) = match self.store.record(&vault_id, &item_id) {
-            Ok(stored) => (stored, false),
-            // A row that fails the store's own checks: it has no readable
-            // state and may be in the outbox; the received version replaces
-            // it (and stays queued, so no local change is dropped).
-            Err(StorageError::Corrupt) => (None, true),
-            Err(e) => return Err(e.into()),
-        };
-        let pending = damaged_row || stored.as_ref().is_some_and(|s| s.outbox_seq.is_some());
-        // A version vector only grows, but the server's order of versions
-        // need not match it; never move the stored sequence number back.
-        let server_seq = stored
-            .as_ref()
-            .and_then(|s| s.server_seq)
-            .map_or(record.server_seq, |s| s.max(record.server_seq));
+        let anchor = self.local_anchor(vault_id, item_id, record.server_seq)?;
+        let LocalAnchor {
+            damaged_row,
+            pending,
+            server_seq,
+            ..
+        } = anchor;
 
         let Some(local) = ov.items.get(&item_id) else {
             // No reuse check here: a record this device never stored can
@@ -190,17 +195,7 @@ impl UnlockedSession {
             Causality::Equal if *local == received => {
                 // The same version re-encrypted under a newer generation
                 // (a rotation) replaces the older ciphertext.
-                if let Some(s) = &stored
-                    && !pending
-                    && s.body.key_generation() < record.body.key_generation()
-                {
-                    self.store.upsert_record(
-                        &vault_id,
-                        &item_id,
-                        &record.body,
-                        Origin::Remote { server_seq },
-                    )?;
-                }
+                self.replace_if_newer_generation(vault_id, item_id, record, &anchor)?;
                 return Ok(ApplyOutcome::Ignored);
             }
             Causality::Equal | Causality::DominatedBy | Causality::Concurrent => {}
@@ -244,6 +239,62 @@ impl UnlockedSession {
             restored_fields,
             stamp_collision,
         })
+    }
+
+    /// What this device holds for a record (read after the received version
+    /// authenticated, before anything is compared).
+    fn local_anchor(
+        &self,
+        vault_id: VaultId,
+        item_id: ItemId,
+        remote_seq: u64,
+    ) -> Result<LocalAnchor> {
+        let (stored, damaged_row) = match self.store.record(&vault_id, &item_id) {
+            Ok(stored) => (stored, false),
+            // A row that fails the store's own checks: it has no readable
+            // state and may be in the outbox; the received version replaces
+            // it (and stays queued, so no local change is dropped).
+            Err(StorageError::Corrupt) => (None, true),
+            Err(e) => return Err(e.into()),
+        };
+        let pending = damaged_row || stored.as_ref().is_some_and(|s| s.outbox_seq.is_some());
+        // A version vector only grows, but the server's order of versions
+        // need not match it; never move the stored sequence number back.
+        let server_seq = stored
+            .as_ref()
+            .and_then(|s| s.server_seq)
+            .map_or(remote_seq, |s| s.max(remote_seq));
+        Ok(LocalAnchor {
+            stored,
+            damaged_row,
+            pending,
+            server_seq,
+        })
+    }
+
+    /// The same version re-encrypted under a newer generation (a rotation)
+    /// replaces the older ciphertext, unless a local change is pending.
+    fn replace_if_newer_generation(
+        &mut self,
+        vault_id: VaultId,
+        item_id: ItemId,
+        record: &RemoteRecord,
+        anchor: &LocalAnchor,
+    ) -> Result<()> {
+        if let Some(s) = &anchor.stored
+            && !anchor.pending
+            && s.body.key_generation() < record.body.key_generation()
+        {
+            self.store.upsert_record(
+                &vault_id,
+                &item_id,
+                &record.body,
+                Origin::Remote {
+                    server_seq: anchor.server_seq,
+                },
+            )?;
+        }
+        Ok(())
     }
 
     /// [`Self::apply_remote_record`] for a merge that does not fit the item
@@ -400,35 +451,7 @@ impl UnlockedSession {
                 });
             }
             Ordering::Equal => {
-                let held = match self.store.vault_key(&vault_id, generation) {
-                    Ok(held) => held,
-                    Err(StorageError::Corrupt) => None,
-                    Err(e) => return Err(e.into()),
-                };
-                let readable = held.and_then(|w| {
-                    w.unwrap_vault_key(&self.account_key, &self.account_id, &vault_id, generation)
-                        .ok()
-                });
-                match readable {
-                    // Not reached while the current key opens (the vault is
-                    // then available), but a readable key is never replaced.
-                    Some(held) if held == *vk => {}
-                    Some(_) => {
-                        return Err(Error::VaultKeyConflict {
-                            generation: generation.get(),
-                        });
-                    }
-                    None => match self.store.rewrap_vault_key(&vault_id, generation, wrapped) {
-                        Ok(()) => {}
-                        // No row at all: add it at the accepted generation.
-                        Err(StorageError::UnknownVaultKey) => {
-                            self.store
-                                .accept_vault_key(&vault_id, generation, wrapped)
-                                .map_err(key_acceptance_error)?;
-                        }
-                        Err(e) => return Err(e.into()),
-                    },
-                }
+                self.replace_unreadable_current_key(vault_id, generation, wrapped, vk)?;
             }
             Ordering::Greater => {
                 self.store
@@ -441,11 +464,47 @@ impl UnlockedSession {
         if ov.available() {
             reseal_below_current(&mut self.store, vault_id, &ov)?;
         }
-        for (item_id, item) in &ov.items {
-            self.index.update(vault_id, *item_id, item);
-        }
+        self.index.update_vault(vault_id, &ov);
         self.vaults.insert(vault_id, ov);
         Ok(())
+    }
+
+    /// [`Self::repair_vault_key`] for the current generation: a readable
+    /// key is never replaced, an unreadable or missing one is.
+    fn replace_unreadable_current_key(
+        &mut self,
+        vault_id: VaultId,
+        generation: KeyGeneration,
+        wrapped: &WrappedKey,
+        vk: &VaultKey,
+    ) -> Result<()> {
+        let held = match self.store.vault_key(&vault_id, generation) {
+            Ok(held) => held,
+            Err(StorageError::Corrupt) => None,
+            Err(e) => return Err(e.into()),
+        };
+        let readable = held.and_then(|w| {
+            w.unwrap_vault_key(&self.account_key, &self.account_id, &vault_id, generation)
+                .ok()
+        });
+        match readable {
+            // Not reached while the current key opens (the vault is
+            // then available), but a readable key is never replaced.
+            Some(held) if held == *vk => Ok(()),
+            Some(_) => Err(Error::VaultKeyConflict {
+                generation: generation.get(),
+            }),
+            None => match self.store.rewrap_vault_key(&vault_id, generation, wrapped) {
+                Ok(()) => Ok(()),
+                // No row at all: add it at the accepted generation.
+                Err(StorageError::UnknownVaultKey) => self
+                    .store
+                    .accept_vault_key(&vault_id, generation, wrapped)
+                    .map(|_| ())
+                    .map_err(key_acceptance_error),
+                Err(e) => Err(e.into()),
+            },
+        }
     }
 
     /// Applies vault metadata received from the server: merged with the
