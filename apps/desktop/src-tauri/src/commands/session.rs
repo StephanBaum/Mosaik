@@ -196,8 +196,13 @@ impl Backend {
 
     /// Records the unlocked account in the state file (best effort: a file
     /// that cannot be written keeps the state in memory).
-    pub(crate) fn remember_account(&self, account_id: AccountId, email: Option<String>) {
-        let _ = self.update_stored(|stored| {
+    pub(crate) fn remember_account(
+        &self,
+        slot: &mut Slot,
+        account_id: AccountId,
+        email: Option<String>,
+    ) {
+        let _ = self.update_stored_in(slot, |stored| {
             let keep = stored
                 .account
                 .as_ref()
@@ -268,8 +273,10 @@ impl Backend {
         let account_id = session.account_id();
         *slot = Slot::Unlocked(Box::new(session));
         self.secret_keys.save(account_id, &created.secret_key)?;
-        self.remember_account(account_id, Some(email.clone()));
-        self.settings_unlocked(&slot);
+        // The settings check first (it can clear the account block of a
+        // file that does not verify), then the account is recorded.
+        self.settings_unlocked(&mut slot);
+        self.remember_account(&mut slot, account_id, Some(email.clone()));
         self.start_ssh_if_enabled(&slot);
         // The kit is unconfirmed until `verify_emergency_kit` matches.
         *guard(&self.kit_pending)? = Some(account_id);
@@ -296,8 +303,14 @@ impl Backend {
     /// `tooManyAttempts` on the fifth wrong answer since the last unlock (the
     /// vault locks and the next unlock needs the master password).
     pub fn verify_emergency_kit(&self, request: &VerifyKitRequest) -> IpcResult<KitVerification> {
-        let account = self.slot()?.unlocked()?.account_id();
-        if *guard(&self.kit_wrong)? >= MAX_WRONG_KIT_ANSWERS {
+        // The slot is held from the unlocked check to the write, and the
+        // wrong-answer counter from the cap check to the increment: parallel
+        // guesses cannot pass the cap together, and the flag is only
+        // written to the account that is still unlocked.
+        let mut slot = self.slot()?;
+        let account = slot.unlocked()?.account_id();
+        let mut wrong = guard(&self.kit_wrong)?;
+        if *wrong >= MAX_WRONG_KIT_ANSWERS {
             return Err(IpcError::new(ErrorCode::TooManyAttempts));
         }
         let key = self
@@ -307,25 +320,24 @@ impl Backend {
         if !matches {
             // The answer is only four characters: after five wrong ones the
             // vault locks and the next unlock needs the master password.
-            let wrong = {
-                let mut wrong = guard(&self.kit_wrong)?;
-                *wrong = wrong.saturating_add(1);
-                *wrong
-            };
-            if wrong >= MAX_WRONG_KIT_ANSWERS {
+            *wrong = wrong.saturating_add(1);
+            let reached = *wrong >= MAX_WRONG_KIT_ANSWERS;
+            drop(wrong);
+            drop(slot);
+            if reached {
                 let _ = self.lock_with(LockReason::Manual, true);
                 return Err(IpcError::new(ErrorCode::TooManyAttempts));
             }
+            return Ok(KitVerification { matches });
         }
-        if matches {
-            *guard(&self.kit_wrong)? = 0;
-            *guard(&self.kit_pending)? = None;
-            self.update_stored(|s| {
-                if let Some(account) = s.account.as_mut() {
-                    account.kit_verified = true;
-                }
-            })?;
-        }
+        *wrong = 0;
+        drop(wrong);
+        *guard(&self.kit_pending)? = None;
+        self.update_stored_in(&mut slot, |s| {
+            if let Some(account) = s.account.as_mut() {
+                account.kit_verified = true;
+            }
+        })?;
         Ok(KitVerification { matches })
     }
 
@@ -338,6 +350,11 @@ impl Backend {
     /// else), `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`,
     /// `alreadyUnlocked`, `noAccount`, or a store error.
     pub fn unlock(&self, request: UnlockRequest) -> IpcResult<SessionState> {
+        // The slot first: concurrent attempts queue here, and each reads the
+        // clock and the backoff only once the one before it has finished and
+        // recorded its failure. Checked before anything else runs (no key
+        // parsing, no derivation).
+        let mut slot = self.slot()?;
         let now = (self.unlock_clock)();
         guard(&self.unlock_throttle)?
             .check(now)
@@ -352,7 +369,6 @@ impl Backend {
         };
         let password = master_password(request.password);
 
-        let mut slot = self.slot()?;
         let locked = take_locked(&mut slot)?;
         match locked.unlock(&password, &secret_key) {
             Ok(session) => {
@@ -362,8 +378,8 @@ impl Backend {
                     self.secret_keys.save(account_id, &secret_key)?;
                 }
                 guard(&self.unlock_throttle)?.succeeded();
-                self.remember_account(account_id, None);
-                self.settings_unlocked(&slot);
+                self.settings_unlocked(&mut slot);
+                self.remember_account(&mut slot, account_id, None);
                 self.start_ssh_if_enabled(&slot);
                 self.touch();
                 self.reconcile_slot(&mut slot);
@@ -489,6 +505,19 @@ impl Backend {
             _ if self.quick_unlock.reauth_granted() => Ok(()),
             _ => Err(IpcError::new(ErrorCode::ReauthRequired)),
         }
+    }
+
+    /// Takes the re-authentication grant for one action that spends it
+    /// (leaving a hardware-protected vault, adding a security key): the
+    /// atomic version of [`Backend::require_reauth`] with no password.
+    ///
+    /// # Errors
+    /// `reauthRequired` without a grant within two minutes (or when a
+    /// parallel command took it).
+    pub(crate) fn take_reauth_grant(&self) -> IpcResult<crate::quick_unlock::Grant> {
+        self.quick_unlock
+            .take_reauth()
+            .ok_or(IpcError::new(ErrorCode::ReauthRequired))
     }
 
     /// Writes the Emergency Kit PDF to a path the user picks.

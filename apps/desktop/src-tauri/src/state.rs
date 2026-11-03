@@ -335,17 +335,33 @@ impl Backend {
         self.stored.lock().ok().and_then(|s| s.account.clone())
     }
 
-    /// Changes and saves the stored state.
+    /// Changes and saves the stored state. Takes the session slot itself:
+    /// callers that already hold it use [`Backend::update_stored_in`].
     ///
     /// # Errors
     /// `internal` on a poisoned mutex; `storeUnavailable` if the file cannot
     /// be written (the change stays in memory).
     pub fn update_stored<F: FnOnce(&mut StoredState)>(&self, change: F) -> IpcResult<StoredState> {
+        let mut slot = self.slot()?;
+        self.update_stored_in(&mut slot, change)
+    }
+
+    /// [`Backend::update_stored`] for a caller that holds the slot. The MAC'd
+    /// write replaces the settings nonce in the store, which needs the
+    /// session, and holding the slot also serializes concurrent saves.
+    ///
+    /// # Errors
+    /// As [`Backend::update_stored`].
+    pub(crate) fn update_stored_in<F: FnOnce(&mut StoredState)>(
+        &self,
+        slot: &mut Slot,
+        change: F,
+    ) -> IpcResult<StoredState> {
         let mut stored = guard(&self.stored)?;
         change(&mut stored);
         let snapshot = stored.clone();
         drop(stored);
-        self.save_state(&snapshot)?;
+        self.save_state(slot, &snapshot)?;
         Ok(snapshot)
     }
 }

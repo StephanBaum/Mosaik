@@ -179,7 +179,18 @@ impl Backend {
             return;
         };
         let payload = &enrollment.platform_params;
-        let stale = enrollment.is_expired(&self.quick_unlock_policy(), self.quick_unlock.now_ms())
+        // Before the settings are verified (the start of the app, a locked
+        // settings change) only the spec cap deletes: the file's age is not
+        // trusted yet and the strict stand-in (14 days) would drop an
+        // enrollment the user's verified age still allows (ADR-0030 item 10).
+        let policy = if self.settings_key_available() {
+            self.quick_unlock_policy()
+        } else {
+            QuickUnlockPolicy::new(Duration::from_secs(
+                u64::from(crate::persist::QUICK_UNLOCK_DAYS.1) * 86_400,
+            ))
+        };
+        let stale = enrollment.is_expired(&policy, self.quick_unlock.now_ms())
             || crate::quick_unlock::params::platform_of(payload) != Some(platform.kind())
             || !platform.key_exists(payload);
         if stale {
@@ -406,8 +417,8 @@ impl Backend {
     ) -> IpcResult<SessionState> {
         let account_id = session.account_id();
         *slot = Slot::Unlocked(Box::new(session));
-        self.remember_account(account_id, None);
         self.settings_unlocked(slot);
+        self.remember_account(slot, account_id, None);
         self.start_ssh_if_enabled(slot);
         self.touch();
         self.reconcile_slot(slot);

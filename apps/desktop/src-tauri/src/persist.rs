@@ -136,12 +136,13 @@ struct StateFile {
 /// Length of the settings MAC in bytes.
 pub const MAC_LEN: usize = mosaic_core::SETTINGS_MAC_LEN;
 
-/// The settings section of the file, as the file holds it, and its MAC:
-/// what the first unlock checks (ADR-0030).
+/// The protected part of the file as the file holds it (settings, SSH flag
+/// and account block, all unclamped and unfiltered: the MAC covers them as
+/// written), and its MAC: what the first unlock checks (ADR-0030).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FileSettings {
-    /// The values as read, not clamped (the MAC covers them as written).
-    pub settings: Settings,
+    /// The values as read.
+    pub state: StoredState,
     /// The MAC, if the file has a well-formed one.
     pub mac: Option<[u8; MAC_LEN]>,
 }
@@ -235,9 +236,10 @@ pub fn stricter_than_default(settings: &Settings) -> Settings {
 }
 
 /// The canonical bytes the settings MAC covers (CRYPTO_SPEC §11.1): one JSON
-/// object, keys in ascending byte order, no whitespace.
+/// object, keys in ascending byte order, no whitespace. Besides the settings
+/// it holds the SSH flag and the account block's email and kit flag.
 #[must_use]
-pub fn canonical_settings(settings: &Settings) -> Vec<u8> {
+pub fn canonical_settings(state: &StoredState) -> Vec<u8> {
     fn number(value: Option<u32>) -> String {
         value.map_or_else(|| "null".to_owned(), |v| v.to_string())
     }
@@ -245,14 +247,27 @@ pub fn canonical_settings(settings: &Settings) -> Vec<u8> {
         // The wire enums serialize to a plain string such as `"system"`.
         serde_json::to_string(value).unwrap_or_default()
     }
+    let settings = &state.settings;
+    let email = state
+        .account
+        .as_ref()
+        .and_then(|a| a.email.as_deref())
+        .map_or_else(
+            || "null".to_owned(),
+            |e| serde_json::to_string(e).unwrap_or_default(),
+        );
+    let kit_verified = state.account.as_ref().is_some_and(|a| a.kit_verified);
     format!(
-        "{{\"autoLockMinutes\":{},\"clipboardClearSeconds\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"theme\":{}}}",
+        "{{\"autoLockMinutes\":{},\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
         number(settings.auto_lock_minutes),
         number(settings.clipboard_clear_seconds),
+        email,
+        kit_verified,
         word(&settings.language),
         settings.lock_on_screen_lock,
         settings.lock_on_sleep,
         settings.quick_unlock_max_age_days,
+        state.ssh_agent_enabled,
         word(&settings.theme),
     )
     .into_bytes()
@@ -285,25 +300,29 @@ pub fn parse(bytes: &[u8]) -> Option<StoredState> {
     parse_checked(bytes).map(|(state, _)| state)
 }
 
-/// [`parse`], plus the file's settings and MAC for the check after unlock.
+/// [`parse`], plus the file's own values and MAC for the check after unlock.
 #[must_use]
 pub fn parse_checked(bytes: &[u8]) -> Option<(StoredState, FileSettings)> {
     let file: StateFile = serde_json::from_slice(bytes).ok()?;
     if file.version != STATE_VERSION {
         return None;
     }
-    let account = file.account.map(|mut a| {
-        a.email = a.email.filter(|e| valid_email(e));
-        a
-    });
-    let raw: Settings = file.settings.into();
-    let state = StoredState {
-        settings: stricter_than_default(&raw),
-        account,
+    let raw = StoredState {
+        settings: file.settings.into(),
+        account: file.account,
         ssh_agent_enabled: file.ssh_agent_enabled,
     };
+    // Locked: the strict settings, the SSH agent off (CRYPTO_SPEC §11.1).
+    let state = StoredState {
+        settings: stricter_than_default(&raw.settings),
+        account: raw.account.clone().map(|mut a| {
+            a.email = a.email.filter(|e| valid_email(e));
+            a
+        }),
+        ssh_agent_enabled: false,
+    };
     let checked = FileSettings {
-        settings: raw,
+        state: raw,
         mac: file.mac.as_deref().and_then(mac_from_hex),
     };
     Some((state, checked))
@@ -437,11 +456,24 @@ mod tests {
         let persistence = Persistence::in_dir(dir.path());
         assert_eq!(persistence.load(), StoredState::default(), "no file yet");
         persistence.save(&sample(), None).unwrap();
-        assert_eq!(persistence.load(), sample());
+        // Locked, the SSH agent reads off whatever the file says.
+        let locked = |mut state: StoredState| {
+            state.ssh_agent_enabled = false;
+            state
+        };
+        assert_eq!(persistence.load(), locked(sample()));
+        assert!(
+            persistence
+                .load_checked()
+                .1
+                .unwrap()
+                .state
+                .ssh_agent_enabled
+        );
         let mut changed = sample();
         changed.settings.theme = Theme::Light;
         persistence.save(&changed, None).unwrap();
-        assert_eq!(persistence.load(), changed, "replaced in place");
+        assert_eq!(persistence.load(), locked(changed), "replaced in place");
         assert!(!dir.path().join("settings.json.tmp").exists());
     }
 
@@ -576,7 +608,7 @@ mod tests {
         };
         assert_eq!(state.settings, wanted, "defaults, but theme and language");
         assert_eq!(
-            file.settings.auto_lock_minutes, None,
+            file.state.settings.auto_lock_minutes, None,
             "the file's own value"
         );
         assert_eq!(file.mac, None);
@@ -611,40 +643,72 @@ mod tests {
         assert_eq!(stricter_than_default(&strict), strict);
     }
 
+    fn with_settings(settings: Settings) -> StoredState {
+        StoredState {
+            settings,
+            account: None,
+            ssh_agent_enabled: false,
+        }
+    }
+
     /// The canonical form is fixed by CRYPTO_SPEC §11.1 (and the same bytes
     /// are the golden message of `mosaic-core`).
     #[test]
     fn canonical_form_is_the_specified_bytes() {
         assert_eq!(
-            String::from_utf8(canonical_settings(&Settings::default())).unwrap(),
-            r#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}"#
+            String::from_utf8(canonical_settings(&with_settings(Settings::default()))).unwrap(),
+            r#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"email":null,"kitVerified":false,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}"#
         );
-        let other = Settings {
-            auto_lock_minutes: None,
-            clipboard_clear_seconds: None,
-            lock_on_sleep: false,
-            lock_on_screen_lock: false,
-            theme: Theme::Light,
-            language: Language::De,
-            quick_unlock_max_age_days: 30,
+        let other = StoredState {
+            settings: Settings {
+                auto_lock_minutes: None,
+                clipboard_clear_seconds: None,
+                lock_on_sleep: false,
+                lock_on_screen_lock: false,
+                theme: Theme::Light,
+                language: Language::De,
+                quick_unlock_max_age_days: 30,
+            },
+            account: Some(AccountInfo {
+                account_id: ids::account(),
+                email: Some("a\"b\\c@example.com".into()),
+                kit_verified: true,
+            }),
+            ssh_agent_enabled: true,
         };
         assert_eq!(
             String::from_utf8(canonical_settings(&other)).unwrap(),
-            r#"{"autoLockMinutes":null,"clipboardClearSeconds":null,"language":"de","lockOnScreenLock":false,"lockOnSleep":false,"quickUnlockMaxAgeDays":30,"theme":"light"}"#
+            r#"{"autoLockMinutes":null,"clipboardClearSeconds":null,"email":"a\"b\\c@example.com","kitVerified":true,"language":"de","lockOnScreenLock":false,"lockOnSleep":false,"quickUnlockMaxAgeDays":30,"sshAgentEnabled":true,"theme":"light"}"#
+        );
+        // The golden vector's message in mosaic-core.
+        let golden = StoredState {
+            account: Some(AccountInfo {
+                account_id: ids::account(),
+                email: Some("a@example.com".into()),
+                kit_verified: true,
+            }),
+            ..with_settings(Settings::default())
+        };
+        assert_eq!(
+            String::from_utf8(canonical_settings(&golden)).unwrap(),
+            r#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"email":"a@example.com","kitVerified":true,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}"#
         );
     }
 
     #[test]
     fn every_field_changes_the_canonical_bytes() {
-        let base = Settings::default();
-        let edits: [fn(&mut Settings); 7] = [
-            |s| s.auto_lock_minutes = Some(11),
-            |s| s.lock_on_sleep = false,
-            |s| s.lock_on_screen_lock = false,
-            |s| s.clipboard_clear_seconds = None,
-            |s| s.theme = Theme::Dark,
-            |s| s.language = Language::En,
-            |s| s.quick_unlock_max_age_days = 15,
+        let base = sample();
+        let edits: [fn(&mut StoredState); 10] = [
+            |s| s.settings.auto_lock_minutes = Some(11),
+            |s| s.settings.lock_on_sleep = false,
+            |s| s.settings.lock_on_screen_lock = false,
+            |s| s.settings.clipboard_clear_seconds = None,
+            |s| s.settings.theme = Theme::Light,
+            |s| s.settings.language = Language::En,
+            |s| s.settings.quick_unlock_max_age_days = 15,
+            |s| s.ssh_agent_enabled = false,
+            |s| s.account.as_mut().unwrap().email = None,
+            |s| s.account.as_mut().unwrap().kit_verified = false,
         ];
         for change in edits {
             let mut changed = base.clone();
@@ -714,6 +778,7 @@ mod tests {
             prop_assert!(has_lock_trigger(&parsed.settings, SCREEN_LOCK_POSSIBLE));
             // Locked, only values at least as strict as the defaults count.
             state.settings = stricter_than_default(&state.settings);
+            state.ssh_agent_enabled = false;
             prop_assert_eq!(parsed, state);
         }
     }

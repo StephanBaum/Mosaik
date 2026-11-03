@@ -318,3 +318,188 @@ fn a_mac_from_another_account_does_not_verify() {
     assert_eq!(resets(&log2), 1);
     assert_eq!(resets(&log), 0);
 }
+
+/// Creates the account in `d` and returns its Secret Key.
+fn new_account(d: &Path) -> String {
+    let (b, _) = start(d);
+    let created = b
+        .create_account(CreateAccountRequest {
+            email: "alex@example.com".into(),
+            password: SecretIn::test(PASSWORD),
+            default_vault_name: "Personal".into(),
+        })
+        .unwrap();
+    serde_json::to_value(&created).unwrap()["emergencyKit"]["secretKey"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn a_restored_older_file_fails_the_check_with_a_notice() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    {
+        let (b, _) = start(d);
+        unlock(&b, &secret_key);
+        update(&b, weak());
+    }
+    let older = std::fs::read(d.join(STATE_FILE)).unwrap();
+    // The user tightens everything: the file gets the MAC of a newer nonce.
+    {
+        let (b, _) = start(d);
+        unlock(&b, &secret_key);
+        update(&b, Settings::default());
+    }
+    let tightened = std::fs::read(d.join(STATE_FILE)).unwrap();
+    assert_ne!(older, tightened);
+
+    // Control: the current file is accepted without a notice.
+    {
+        let (b, log) = start(d);
+        unlock(&b, &secret_key);
+        assert_eq!(b.settings_snapshot(), Settings::default());
+        assert_eq!(resets(&log), 0);
+    }
+
+    // Malware restores the earlier, once valid file: its MAC verifies under
+    // the key but not under the store's current nonce.
+    std::fs::write(d.join(STATE_FILE), &older).unwrap();
+    let (b, log) = start(d);
+    assert_eq!(b.settings_snapshot(), strict_dark(), "locked: strict");
+    unlock(&b, &secret_key);
+    assert_eq!(b.settings_snapshot(), strict_dark(), "not weak()");
+    assert_eq!(resets(&log), 1, "the user is told");
+    let rewritten = read_file(d);
+    assert_eq!(rewritten["settings"]["autoLockMinutes"], 10);
+    let old_mac = serde_json::from_slice::<Value>(&older).unwrap()["mac"].clone();
+    assert_ne!(rewritten["mac"], old_mac, "a fresh MAC");
+    drop(b);
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    assert_eq!(resets(&log), 0, "the rewritten file verifies");
+}
+
+#[test]
+fn every_mac_write_replaces_the_nonce() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    let (b, _) = start(d);
+    unlock(&b, &secret_key);
+    let nonce = |b: &Backend| {
+        b.slot()
+            .unwrap()
+            .unlocked()
+            .unwrap()
+            .settings_nonce()
+            .unwrap()
+    };
+    let first = nonce(&b).expect("written with the first MAC");
+    let mac = read_file(d)["mac"].clone();
+    update(&b, Settings::default());
+    let second = nonce(&b).unwrap();
+    assert_ne!(first, second);
+    assert_ne!(read_file(d)["mac"], mac);
+}
+
+#[test]
+fn the_ssh_flag_is_inside_the_mac_and_off_until_it_verifies() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    {
+        let (b, _) = start(d);
+        unlock(&b, &secret_key);
+        b.update_stored(|s| s.ssh_agent_enabled = true).unwrap();
+    }
+    assert_eq!(read_file(d)["sshAgentEnabled"], true);
+    {
+        let (b, log) = start(d);
+        assert!(!b.stored().ssh_agent_enabled, "locked: reads off");
+        unlock(&b, &secret_key);
+        assert!(b.stored().ssh_agent_enabled, "verified: on");
+        assert_eq!(resets(&log), 0);
+        b.update_stored(|s| s.ssh_agent_enabled = false).unwrap();
+    }
+    // Malware turns the agent on in the file.
+    let mut file = read_file(d);
+    file["sshAgentEnabled"] = json!(true);
+    write_file(d, &file);
+    let (b, log) = start(d);
+    assert!(!b.stored().ssh_agent_enabled);
+    unlock(&b, &secret_key);
+    assert!(!b.stored().ssh_agent_enabled, "invalid MAC: stays off");
+    assert_eq!(resets(&log), 1, "the user is told");
+    assert_eq!(read_file(d)["sshAgentEnabled"], false);
+    drop(b);
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    assert!(!b.stored().ssh_agent_enabled);
+    assert_eq!(resets(&log), 0);
+}
+
+#[test]
+fn the_account_email_and_kit_flag_are_inside_the_mac() {
+    let _kdf = crate::test_support::kdf_permit();
+    for (field, value) in [
+        ("email", json!("evil@example.com")),
+        ("kitVerified", json!(false)),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let secret_key = new_account(d);
+        {
+            let (b, _) = start(d);
+            unlock(&b, &secret_key);
+            b.update_stored(|s| {
+                if let Some(a) = s.account.as_mut() {
+                    a.kit_verified = true;
+                }
+            })
+            .unwrap();
+        }
+        // Control: untouched, both survive.
+        {
+            let (b, log) = start(d);
+            unlock(&b, &secret_key);
+            let account = b.account().unwrap();
+            assert_eq!(account.email.as_deref(), Some("alex@example.com"));
+            assert!(account.kit_verified);
+            assert_eq!(resets(&log), 0);
+        }
+        let mut file = read_file(d);
+        file["account"][field] = value;
+        write_file(d, &file);
+        let (b, log) = start(d);
+        unlock(&b, &secret_key);
+        let account = b.account().unwrap();
+        assert_eq!(account.email, None, "{field}: forgotten");
+        assert!(!account.kit_verified, "{field}: not trusted");
+        assert_eq!(resets(&log), 0, "{field}: no protection differed");
+    }
+}
+
+#[test]
+fn an_invalid_mac_is_replaced_even_when_the_values_are_the_strict_ones() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let secret_key = new_account(d);
+    let forged = "ab".repeat(32);
+    let mut file = read_file(d);
+    file["mac"] = json!(forged);
+    write_file(d, &file);
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    assert_eq!(resets(&log), 0, "nothing weaker was asked for: no notice");
+    assert_ne!(read_file(d)["mac"], json!(forged), "the forged MAC is gone");
+    drop(b);
+    let (b, log) = start(d);
+    unlock(&b, &secret_key);
+    assert_eq!(resets(&log), 0);
+}

@@ -784,7 +784,11 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         (Theme::Dark, Some(480))
     );
     let (_, file) = Persistence::in_dir(dir.path()).load_checked();
-    assert_eq!(file.unwrap().settings, stored_dark, "saved, with a MAC");
+    assert_eq!(
+        file.unwrap().state.settings,
+        stored_dark,
+        "saved, with a MAC"
+    );
 
     let wrong = b
         .update_settings(UpdateSettingsRequest {
@@ -818,7 +822,7 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
     })
     .unwrap();
     let (_, file) = Persistence::in_dir(dir.path()).load_checked();
-    assert_eq!(file.unwrap().settings, dark);
+    assert_eq!(file.unwrap().state.settings, dark);
 }
 
 // ---------------------------------------------------------------------------
