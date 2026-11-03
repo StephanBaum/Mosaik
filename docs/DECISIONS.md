@@ -2233,6 +2233,15 @@ held.
     spec cap (§6.2); the verified age applies at the reconcile after the
     unlock, so an unverified file cannot make the start-up check stricter or
     weaker than the spec allows.
+11. **Look-alike names (amendment).** Vault names and item titles refuse the
+    Unicode format characters (Cf) and default-ignorable code points
+    (`mosaic_core::is_spoofing_char`, one table of ranges, no dependency):
+    soft hyphen, U+034F, Hangul fillers, U+180E, U+200B to U+200F, U+202A to
+    U+202E, U+2060 to U+206F, U+3164, variation selectors U+FE00 to U+FE0F,
+    BOM, U+FFF9 to U+FFFB and the tag block. Imports strip them from titles
+    and report `titleCleaned` on the entry, so a file is never refused for it.
+    The UI shows typed text in a bidirectional isolate (`<bdi>`). Cost: an
+    emoji sequence that needs U+200D or U+FE0F cannot be typed in a name.
 
 ### Alternatives considered
 - Signing with a key from the OS keystore: ties settings to one OS API and

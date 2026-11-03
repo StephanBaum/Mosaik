@@ -16,6 +16,7 @@ import { useWindowFocused } from "../hooks/useWindowFocused.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import type { IpcError, SshApprovalRequest, SshDecision } from "../ipc/contract/index.ts";
+import { UserText } from "../components/UserText.tsx";
 
 export const ALLOW_GUARD_MS = 1000;
 const TICK_MS = 250;
@@ -81,6 +82,23 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** The key and the client, each in its own bidi isolate (a title or process name is typed text). */
+function Details({ request, client }: { request: SshApprovalRequest; client: string }) {
+  const { t } = useI18n();
+  const clientText = request.client.pid === null ? client : `${client} (${String(request.client.pid)})`;
+  return (
+    <dl className="rows rows--closed">
+      <Row label={t("ssh.key")}>
+        <UserText>{request.keyTitle ?? t("vault.untitled")}</UserText>
+      </Row>
+      <Row label={t("ssh.fingerprint")}>{request.fingerprint}</Row>
+      <Row label={t("ssh.client")}>
+        <UserText>{clientText}</UserText>
+      </Row>
+    </dl>
+  );
+}
+
 function Expiry({ seconds, total }: { seconds: number; total: number }) {
   const { t } = useI18n();
   return (
@@ -131,13 +149,7 @@ function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: nu
         <div className="ssh-prompt__head">
           <p className="lede">{t("ssh.description")}</p>
         </div>
-        <dl className="rows rows--closed">
-          <Row label={t("ssh.key")}>{request.keyTitle ?? t("vault.untitled")}</Row>
-          <Row label={t("ssh.fingerprint")}>{request.fingerprint}</Row>
-          <Row label={t("ssh.client")}>
-            {request.client.pid === null ? client : `${client} (${String(request.client.pid)})`}
-          </Row>
-        </dl>
+        <Details request={request} client={client} />
         <Expiry seconds={seconds} total={total} />
         <p role="status" className="visually-hidden">
           {announcement}

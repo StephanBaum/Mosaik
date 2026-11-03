@@ -136,7 +136,8 @@ export const fixtures = {
       "unknownCategory",
       "fieldsDropped",
       "archived",
-      "attachmentQuota"
+      "attachmentQuota",
+      "titleCleaned"
     ],
     "importFormat": [
       "enpass",
@@ -1603,7 +1604,8 @@ export const fixtures = {
               "unknownCategory",
               "fieldsDropped",
               "archived",
-              "attachmentQuota"
+              "attachmentQuota",
+              "titleCleaned"
             ]
           },
           {

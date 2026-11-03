@@ -22,21 +22,13 @@ pub mod ssh;
 pub mod totp;
 pub mod vaults;
 
-/// Whether `c` can make a name look like another one: Unicode bidirectional
-/// controls (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) and
-/// zero-width characters (U+200B to U+200D, U+FEFF). Names that contain one
-/// are refused (`invalidInput`); they could reorder or hide text in a vault
-/// list or a prompt.
+/// Whether `c` can make a name look like another one: the Unicode format
+/// characters (Cf) and default-ignorable code points, which hide or reorder
+/// text (`mosaic_core::is_spoofing_char`). Names and titles that contain one
+/// are refused (`invalidInput`).
 #[must_use]
 pub(crate) const fn is_spoofing_char(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2066}'..='\u{2069}'
-            | '\u{FEFF}'
-    )
+    mosaic_core::is_spoofing_char(c)
 }
 
 /// The invoke handler with every command of [`names::COMMANDS`], in the

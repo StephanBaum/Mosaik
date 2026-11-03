@@ -102,7 +102,8 @@ pub struct Prepared {
 ///
 /// # Errors
 /// `invalidInput` for a list with more than [`MAX_DRAFT_ENTRIES`] entries,
-/// a malformed element ID, URL, label or `otpauth://` URI.
+/// a malformed element ID, URL, label or `otpauth://` URI, or a title with
+/// invisible or direction-changing characters.
 pub fn prepare(draft: ItemDraft) -> IpcResult<Prepared> {
     if draft.text.len() > MAX_DRAFT_ENTRIES
         || draft.secrets.len() > MAX_DRAFT_ENTRIES
@@ -115,14 +116,18 @@ pub fn prepare(draft: ItemDraft) -> IpcResult<Prepared> {
     {
         return Err(invalid());
     }
-    let text = draft
-        .text
-        .into_iter()
-        .map(|change| {
-            let value = change.value.filter(|v| !v.is_empty());
-            (change.field.to_model(), value)
-        })
-        .collect();
+    let mut text = Vec::with_capacity(draft.text.len());
+    for change in draft.text {
+        let field = change.field.to_model();
+        let value = change.value.filter(|v| !v.is_empty());
+        // A title that hides or reorders text could pass for another item in
+        // a list, the quick-search palette or an approval prompt.
+        if field == TextField::Title && value.as_deref().is_some_and(mosaic_core::has_spoofing_char)
+        {
+            return Err(invalid());
+        }
+        text.push((field, value));
+    }
     let mut secrets = Vec::with_capacity(draft.secrets.len());
     for change in draft.secrets {
         let value = change

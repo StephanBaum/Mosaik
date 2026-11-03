@@ -26,6 +26,7 @@ export const importEntryWarnings = [
   "fieldsDropped",
   "archived",
   "attachmentQuota",
+  "titleCleaned",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 

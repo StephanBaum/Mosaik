@@ -16,8 +16,8 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
 use crate::encoding::label;
-use crate::ids::AccountId;
 use crate::error::{Error, Result};
+use crate::ids::AccountId;
 use crate::kdf::hkdf_ctx;
 use crate::secret::{AccountKey, SettingsMacKey};
 
@@ -74,7 +74,11 @@ impl SettingsMacKey {
         nonce: &[u8; SETTINGS_NONCE_LEN],
         canonical: &[u8],
     ) -> Result<[u8; SETTINGS_MAC_LEN]> {
-        Ok(self.mac(account, nonce, canonical)?.finalize().into_bytes().into())
+        Ok(self
+            .mac(account, nonce, canonical)?
+            .finalize()
+            .into_bytes()
+            .into())
     }
 
     /// Whether `tag` is the MAC of the message, compared in constant time.
@@ -119,9 +123,18 @@ mod tests {
         flipped[0] ^= 1;
         assert!(!key.verify(&a, &n, b"settings", &flipped));
         let other = ak(2).settings_mac_key().unwrap();
-        assert!(!other.verify(&a, &n, b"settings", &tag), "another account's key");
-        assert!(!key.verify(&id(8), &n, b"settings", &tag), "another account ID");
-        assert!(!key.verify(&a, &[4u8; 16], b"settings", &tag), "another nonce");
+        assert!(
+            !other.verify(&a, &n, b"settings", &tag),
+            "another account's key"
+        );
+        assert!(
+            !key.verify(&id(8), &n, b"settings", &tag),
+            "another account ID"
+        );
+        assert!(
+            !key.verify(&a, &[4u8; 16], b"settings", &tag),
+            "another nonce"
+        );
     }
 
     #[test]

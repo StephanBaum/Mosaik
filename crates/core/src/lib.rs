@@ -57,6 +57,7 @@ mod rng;
 mod secret;
 mod secret_key;
 mod settings_mac;
+mod spoofing;
 pub mod unlock;
 
 #[cfg(test)]
@@ -82,3 +83,4 @@ pub use secret::{
     SecretString, SecretVec, SettingsMacKey, VaultKey,
 };
 pub use settings_mac::{SETTINGS_MAC_LEN, SETTINGS_NONCE_LEN, new_settings_nonce};
+pub use spoofing::{has_spoofing_char, is_spoofing_char, strip_spoofing};

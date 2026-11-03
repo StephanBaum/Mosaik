@@ -346,3 +346,8 @@
 .toast__message {
   flex: 1;
 }
+
+/* Typed text (vault names, titles) in its own bidi isolate; see UserText. */
+.user-text {
+  unicode-bidi: isolate;
+}

@@ -168,7 +168,7 @@ Notes per area:
   with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
   `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
   `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
-  `attachmentQuota`. `ImportWarning` is `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`,
+  `attachmentQuota`, `titleCleaned`. `ImportWarning` is `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`,
   `otpUnreadable` or `passkeysNotImported`.
 - **SSH agent.** Off by default, and it runs only while unlocked. Each sign request arrives as
   `sshApprovalRequested`, carrying:

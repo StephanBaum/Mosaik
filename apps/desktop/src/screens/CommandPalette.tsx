@@ -11,6 +11,7 @@ import { SEARCH_DEBOUNCE_MS } from "./vault/ItemList.tsx";
 import { usePlatform } from "../platform/platform.ts";
 import { ariaKeyshortcuts, SHORTCUTS, type ShortcutName } from "../platform/shortcuts.ts";
 import type { View } from "./vault/VaultLayout.tsx";
+import { UserText } from "../components/UserText.tsx";
 
 interface Entry {
   id: string;
@@ -146,9 +147,19 @@ function Option({
       )}
       <span className="palette__text">
         <span className="palette__label">
-          {entry.group === "items" ? <Highlight text={entry.label} query={query} /> : entry.label}
+          {entry.group === "items" ? (
+            <UserText>
+              <Highlight text={entry.label} query={query} />
+            </UserText>
+          ) : (
+            entry.label
+          )}
         </span>
-        {entry.hint !== undefined && <span className="caption">{entry.hint}</span>}
+        {entry.hint !== undefined && (
+          <span className="caption">
+            <UserText>{entry.hint}</UserText>
+          </span>
+        )}
       </span>
       {entry.shortcut !== undefined && <Kbd shortcut={entry.shortcut} hidden />}
       {entry.group === "items" && selected && (

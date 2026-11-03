@@ -14,6 +14,7 @@ import { usePlatform } from "../../platform/platform.ts";
 import { ariaKeyshortcuts, format, SHORTCUTS } from "../../platform/shortcuts.ts";
 import { CATEGORIES, type Category } from "./useVaultData.ts";
 import type { View } from "./VaultLayout.tsx";
+import { UserText } from "../../components/UserText.tsx";
 
 const CATEGORY_ICONS: Record<Category, IconName> = {
   all: "layers",
@@ -134,7 +135,9 @@ function Vaults(props: SidebarProps) {
               <span className={`vault-dot vault-dot--${String(index % VAULT_COLORS)}`} aria-hidden="true" />
             )}
           </span>
-          <span className="nav-item__label">{vaultLabel(vault, t)}</span>
+          <span className="nav-item__label">
+            <UserText>{vaultLabel(vault, t)}</UserText>
+          </span>
           {vault.itemCount > 0 && <span className="nav-item__count tabular">{vault.itemCount}</span>}
         </button>
       ))}
@@ -198,7 +201,7 @@ export function Sidebar(props: SidebarProps) {
         <span className="sidebar__brand-text">
           <span className="sidebar__brand-name">{t("app.name")}</span>
           <span className="sidebar__brand-vault" title={props.vaultName}>
-            {props.vaultName}
+            <UserText>{props.vaultName}</UserText>
           </span>
         </span>
       </div>

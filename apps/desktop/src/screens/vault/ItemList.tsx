@@ -17,6 +17,7 @@ import type {
 } from "../../ipc/contract/index.ts";
 import { daysLeft, TRASH_URGENT_DAYS } from "../../time/trash.ts";
 import { matchesCategory, type Category } from "./useVaultData.ts";
+import { UserText } from "../../components/UserText.tsx";
 
 export const SEARCH_DEBOUNCE_MS = 150;
 const PAGE = 200;
@@ -106,7 +107,9 @@ function ItemRow({
     >
       <Avatar title={title} selected={selected} />
       <span className="item-row__text">
-        <span className="item-row__title">{title}</span>
+        <span className="item-row__title">
+          <UserText>{title}</UserText>
+        </span>
         {trashed !== null && item.trashedAt !== null ? (
           <span
             className={
@@ -119,7 +122,9 @@ function ItemRow({
             {t("trash.rowMeta", { deletedAt: new Date(item.trashedAt), days: trashed })}
           </span>
         ) : (
-          <span className="item-row__subtitle">{item.subtitle ?? t(`item.kind.${item.kind}`)}</span>
+          <span className="item-row__subtitle">
+            <UserText>{item.subtitle ?? t(`item.kind.${item.kind}`)}</UserText>
+          </span>
         )}
       </span>
       {flag !== undefined ? (
