@@ -133,24 +133,11 @@ fn non_empty(text: Option<&str>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty()).map(str::to_owned)
 }
 
-/// The host of a URL as entered, without scheme, user info, port, path,
-/// query or fragment. Display only; autofill matching is the extension's
-/// (brief §4) and never uses this.
+/// The host of a URL as entered (lowercase, without scheme, user info, port,
+/// path, query or fragment). Display only; autofill matching is the
+/// extension's (brief §4) and never uses this.
 fn host_of(url: &str) -> Option<String> {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host_port = authority
-        .rsplit_once('@')
-        .map_or(authority, |(_, host)| host);
-    let host = if host_port.starts_with('[') {
-        host_port
-            .split_once(']')
-            .map_or(host_port, |(h, _)| h)
-            .trim_start_matches('[')
-    } else {
-        host_port.split(':').next().unwrap_or_default()
-    };
-    non_empty(Some(host)).map(|h| h.to_ascii_lowercase())
+    mosaic_insights::url::parse(url).map(|p| p.host().to_owned())
 }
 
 fn subtitle(kind: ItemKind, item: &Item) -> Option<String> {
