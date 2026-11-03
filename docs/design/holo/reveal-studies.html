@@ -1,0 +1,980 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mosaic · Unlock transition studies</title>
+<style>
+:root{
+  --bg:#F4F4F5;--card:#FFFFFF;--line:#E4E4E7;--text:#09090B;--muted:#71717A;--soft:#3F3F46;--field:#FFFFFF;
+  --stage:#FFFFFF;--chip:#F4F4F5;--ok:#16A34A;--okbg:#DCFCE7;--err:#DC2626;
+  font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:20px;color:var(--text);
+}
+:root[data-theme=dark]{
+  --bg:#050507;--card:#0F0F12;--line:#27272A;--text:#FAFAFA;--muted:#A1A1AA;--soft:#D4D4D8;--field:#18181B;
+  --stage:#09090B;--chip:#18181B;--ok:#4ADE80;--okbg:#14532D;--err:#F87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text)}
+header.top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:24px;padding:16px 32px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header.top h1{margin:0;font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.01em}
+header.top p{margin:0;color:var(--muted);font-size:13px}
+.toolbar{margin-left:auto;display:flex;gap:16px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.seg button{border:0;background:transparent;color:var(--soft);padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--text);color:var(--bg)}
+.seg-label{font-size:12px;color:var(--muted);margin-right:6px}
+.variants{display:flex;align-items:center;gap:12px;margin:12px 16px 0;flex-wrap:wrap}
+main{padding:32px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.card.wide{grid-column:1/-1}
+.card .head{padding:16px 20px 0;display:flex;align-items:baseline;gap:10px}
+.card .num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--muted)}
+.card h2{margin:0;font-size:16px;line-height:24px;font-weight:700}
+.card .desc{margin:4px 20px 0;color:var(--muted);font-size:13px;line-height:19px}
+.card .desc b{color:var(--soft)}
+.card ul.desc{padding-left:18px;margin-bottom:16px}
+.card ul.desc li{margin:2px 0}
+.replay{border:1px solid var(--line);background:var(--card);color:var(--soft);border-radius:8px;height:30px;padding:0 12px;font:inherit;font-size:13px;cursor:pointer}
+.fxnote{margin:10px 20px 18px;color:var(--muted);font-size:13px;line-height:19px;min-height:38px}
+.fxnote b{color:var(--text)}
+
+/* holo button (v5 / texture 10) */
+.holo{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;min-width:200px;padding:0 28px;border:0;border-radius:999px;background:#18181B;color:#09090B;font:inherit;font-weight:600;font-size:15px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform 140ms cubic-bezier(.2,0,0,1);outline:none;isolation:isolate}
+.holo.live{background:transparent}
+.holo canvas{position:absolute;left:-8px;top:-8px;width:calc(100% + 16px);height:calc(100% + 16px);pointer-events:none;z-index:0}
+.holo .label{position:relative;z-index:1;text-shadow:0 1px 0 rgba(255,255,255,.55);display:inline-flex;align-items:center;gap:8px}
+.holo:not(.live) .label{color:#FAFAFA;text-shadow:none}
+.holo.pressed{transform:scale(.975)}
+.holo:focus-visible::after{content:"";position:absolute;inset:-4px;border-radius:999px;box-shadow:0 0 0 2px var(--text);z-index:2}
+.holo.lg{height:48px;min-width:320px}
+
+/* stage */
+.stage{position:relative;margin:16px 16px 0;border-radius:10px;background:var(--stage);border:1px solid var(--line);overflow:hidden;height:600px}
+.stage canvas.fx{position:absolute;inset:0;width:100%;height:100%;z-index:4;display:none;pointer-events:none}
+.stage canvas.fx.on{display:block}
+.unlock{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--stage)}
+.unlock h3{margin:0;font-size:28px;line-height:34px;font-weight:700;letter-spacing:-.02em}
+.unlock .who{color:var(--muted);margin-top:-8px}
+.unlock.away{visibility:hidden}
+.field{width:320px;display:flex;flex-direction:column;gap:6px}
+.field label{font-size:12px;color:var(--muted);line-height:16px}
+.field input{height:40px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--text);padding:0 12px;font:inherit;font-size:15px;letter-spacing:.08em}
+.field input:focus{outline:2px solid var(--text);outline-offset:1px}
+.err{font-size:12px;color:var(--err);min-height:16px}
+
+/* vault */
+.vault{position:absolute;inset:0;z-index:2;display:grid;grid-template-columns:232px 1fr;background:var(--stage)}
+.vault.off{visibility:hidden}
+.vault aside{border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:2px}
+.vault .brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px}
+.vault .brand .bt{display:flex;flex-direction:column;line-height:16px}
+.vault .brand b{font-weight:700;letter-spacing:-.01em}
+.vault .brand small{font-size:12px;color:var(--muted)}
+.vault .nav{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;border-radius:6px;color:var(--soft)}
+.vault .nav .grow{flex:1}
+.vault .nav.on{background:var(--chip);color:var(--text);font-weight:600}
+.vault .nav .cnt{color:var(--muted);font-size:12px;font-weight:400}
+.vault section{padding:22px 28px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.vault .bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.vault .bar h4{margin:0;font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.01em}
+.vault .bar small{color:var(--muted);font-size:12px}
+.vault .row{display:flex;align-items:center;gap:12px;padding:8px;border-radius:8px;cursor:pointer}
+.vault .row.sel{background:var(--chip)}
+.vault .row .rt{flex:1;display:flex;flex-direction:column;line-height:18px}
+.vault .row b{font-weight:600}.vault .row small{color:var(--muted);font-size:12px}
+.vault .row .meta{color:var(--muted);font-size:12px}
+.av{width:34px;height:34px;border-radius:9px;background:var(--chip);border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.lockbtn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;height:32px;padding:0 12px;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+
+/* logo: four tiles, the fourth is foil */
+.logo{position:relative;display:inline-grid;grid-template-columns:9px 9px;gap:2px;flex:none}
+.logo i{width:9px;height:9px;border-radius:2.5px;background:var(--text);display:block}
+.logo canvas{width:9px;height:9px;border-radius:2.5px;display:block;background:var(--muted)}
+.logo canvas.live{background:transparent}
+.logo.big{grid-template-columns:44px 44px;gap:10px}
+.logo.big i,.logo.big canvas{width:44px;height:44px;border-radius:12px}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;letter-spacing:.04em}
+footer{padding:8px 32px 40px;max-width:1200px;margin:0 auto;color:var(--muted);font-size:12px}
+.tune{margin:0 16px 16px;border:1px solid var(--line,#E4E4E7);border-radius:10px;padding:8px 12px}
+.tune summary{cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
+.tune-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px;margin-top:8px}
+.tune-row{display:grid;grid-template-columns:210px 1fr 52px;align-items:center;gap:8px;font-size:12px}
+.tune-row output{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;opacity:.7;text-align:right}
+.tune-row input{width:100%}
+.tune-foot{display:flex;gap:8px;align-items:center;margin-top:8px}
+.tune-foot pre{margin:0;font-size:11px;opacity:.7;white-space:pre-wrap;word-break:break-all;flex:1}
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Mosaic · Unlock transition studies</h1>
+    <p>Liquid glass over the live app: the real screens stay on screen and clickable throughout. Unlock, then Lock to see it close.</p>
+  </div>
+  <div class="toolbar">
+    <span><span class="seg-label">Theme</span><span class="seg" data-opt="theme"><button aria-pressed="true" data-v="light">Light</button><button aria-pressed="false" data-v="dark">Dark</button></span></span>
+    <span><span class="seg-label">Speed</span><span class="seg" data-opt="speed"><button aria-pressed="true" data-v="1">1×</button><button aria-pressed="false" data-v="0.25">¼×</button></span></span>
+    <span><span class="seg-label">Reduce motion</span><span class="seg" data-opt="reduced"><button aria-pressed="true" data-v="0">Off</button><button aria-pressed="false" data-v="1">On</button></span></span>
+  </div>
+</header>
+
+<main>
+  <article class="card wide">
+    <div class="head"><span class="num">01</span><h2>Liquid glass: unlock and lock</h2></div>
+    <p class="desc">While the password is checked (simulated 1.1 s) a light band sweeps the button. On success a thick glass lens grows out of the point you clicked. The vault is the real DOM, revealed through a <span class="mono">clip-path</span> polygon that follows the lens outline exactly, so it is clickable from the moment it appears; outside the lens you still click the unlock screen. WebGL paints only the glass band (refraction, six-tap dispersion, Fresnel film, specular, rim line). <b>Lock</b> (top right of the vault) closes the lens into the point you clicked. Any password other than <b class="mono">mosaic</b> shows the drain and jitter.</p>
+    <div class="variants"><button class="replay" id="replay">Replay unlock</button></div>
+    <div class="stage" id="stage">
+      <div class="vault" aria-hidden="true">
+        <aside>
+          <div class="brand" data-anim><span class="logo" data-foil-logo><i></i><i></i><i></i><canvas></canvas></span><span class="bt"><b>Mosaic</b><small>Personal vault</small></span></div>
+          <div class="nav on" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg><span class="grow">All items</span><span class="cnt">128</span></div>
+          <div class="nav" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg><span class="grow">Logins</span><span class="cnt">96</span></div>
+          <div class="nav" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/></svg><span class="grow">One-time codes</span><span class="cnt">23</span></div>
+          <div class="nav" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg><span class="grow">Cards</span><span class="cnt">4</span></div>
+          <div class="nav" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg><span class="grow">Secure notes</span><span class="cnt">17</span></div>
+          <div class="nav" data-anim><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span class="grow">Security</span><span class="cnt">3</span></div>
+        </aside>
+        <section>
+          <div class="bar"><div data-anim><h4>All items</h4><small>128 items · synced just now</small></div><button class="lockbtn" id="lock" tabindex="-1" data-anim><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Lock</button></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">G</span><span class="rt"><b>GitHub</b><small>alex@example.com</small></span><span class="meta">2 h ago</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">B</span><span class="rt"><b>Bank of Example</b><small>alex.m</small></span><span class="meta">Yesterday</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">D</span><span class="rt"><b>Dropbox Business</b><small>alex@company.example</small></span><span class="meta">3 d ago</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">V</span><span class="rt"><b>Visa ending 4242</b><small>Card</small></span><span class="meta">1 w ago</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">W</span><span class="rt"><b>Home Wi-Fi</b><small>Secure note</small></span><span class="meta">2 w ago</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">A</span><span class="rt"><b>AWS root account</b><small>ops@company.example</small></span><span class="meta">1 mo ago</span></div>
+          <div class="row" data-anim><span class="av" data-anim="pop">N</span><span class="rt"><b>Notion</b><small>alex@example.com</small></span><span class="meta">2 mo ago</span></div>
+        </section>
+      </div>
+      <canvas class="fx" aria-hidden="true"></canvas>
+      <div class="unlock">
+        <span class="logo big" data-foil-logo><i></i><i></i><i></i><canvas></canvas></span>
+        <h3>Unlock Mosaic</h3>
+        <div class="who">alex@example.com</div>
+        <div class="field"><label for="pw">Master password</label><input id="pw" type="password" value="mosaic" autocomplete="off"><div class="err" id="pwerr" role="alert"></div></div>
+        <button class="holo lg" id="unlock" data-fx="ripple"><span class="label">Unlock</span></button>
+      </div>
+    </div>
+    <p class="fxnote" id="fxnote"><b>Liquid glass.</b> The lens grows with a hard push and an irregular, gently wobbling outline. Its bevel bends the vault beneath it, with spectral dispersion along the slope, while the unlock screen ends cleanly at the rim; refraction fades out before the bevel's inner edge, where the glass meets the live vault without a seam. Vault elements fade in just ahead of the rim. On Lock the clicked button dissolves at once, the rim closes over the vault and the glass thins out as it collapses into the click point.</p>
+    <details class="tune" open><summary>Tune liquid glass</summary><div class="tune-grid" id="gtune"></div>
+    <div class="tune-foot"><button class="replay" id="gt-replay">Replay</button><button class="replay" id="gt-reset">Reset</button><button class="replay" id="gt-copy">Copy values</button><pre id="gt-out"></pre></div></details>
+  </article>
+
+  <article class="card wide">
+    <div class="head"><span class="num">Notes</span><h2>How it is built, and what the app port needs</h2></div>
+    <ul class="desc">
+      <li><b>DOM first.</b> The unlock screen is underneath, the vault on top. The vault is shown through <span class="mono">clip-path: polygon()</span> with 120 vertices on the lens outline. Clip-path also clips hit testing, so clicks inside the lens reach the vault and clicks outside reach the unlock screen, during the whole transition. Nothing is swapped at the end: the clip is simply removed.</li>
+      <li><b>One outline, two implementations.</b> Radius curve, irregular shape and wobble are sums of sines (no noise), written once in GLSL for the band and once in JS for the polygon, so both compute the identical shape.</li>
+      <li><b>The band.</b> The WebGL canvas has <span class="mono">pointer-events: none</span> and is transparent except for the bevel band and the rim line. Inside the band it samples a snapshot of the vault (never the unlock screen, so the Unlock button is never repeated inside the glass); the refraction offset falls to zero before the band's inner edge, where the band fades into the live DOM. When the transition ends the canvas is empty.</li>
+      <li><b>Snapshots.</b> No html2canvas, no foreignObject. A small painter walks the DOM and draws backgrounds, borders, text runs, SVG icons (Path2D) and the foil canvases (clipped to their corner radius) into a 2D canvas. The vault is one sprite per animated element, recomposed each frame with the same poses the DOM has.</li>
+      <li><b>Review hook.</b> <span class="mono">?t=0..1&amp;dir=unlock|lock&amp;ox=&amp;oy=&amp;theme=dark</span> freezes one frame with the lens origin at (ox, oy) in stage px; <span class="mono">?te=-0.1</span> / <span class="mono">?te=0.3</span> freezes relative to the end.</li>
+      <li><b>Fallbacks.</b> Without WebGL2: the clip-path lens alone. Reduce motion (toggle or OS setting): a 250 ms crossfade, no glass.</li>
+    </ul>
+  </article>
+</main>
+<footer>Offline study page: no network requests, no libraries. The energy shockwave study was retired with the switch to a DOM-first transition. Foil: angled rainbow stripes (v5, texture 10) with the never-grey sheen floor.</footer>
+
+<script type="module">
+// =====================================================================================
+// 1. Holo foil (from effect-studies.html: FRAG + Foil, v5 / texture 10, sheen floor 0.55)
+// =====================================================================================
+const VERT = `#version 300 es
+void main(){float x=gl_VertexID==1?3.0:-1.0;float y=gl_VertexID==2?3.0:-1.0;gl_Position=vec4(x,y,0.0,1.0);}`;
+const FOIL_COMMON = `
+float hash12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+float vnoise(vec2 p){ vec2 i=floor(p); vec2 f=fract(p); vec2 u=f*f*(3.0-2.0*f); return mix(mix(hash12(i),hash12(i+vec2(1.0,0.0)),u.x),mix(hash12(i+vec2(0.0,1.0)),hash12(i+vec2(1.0,1.0)),u.x),u.y); }
+float fbm3(vec2 p){ float s=0.0; float a=0.5; for(int i=0;i<3;i++){ s+=a*vnoise(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s/0.875; }
+vec3 thinFilm(float t){ return 0.5+0.5*cos(6.2831853*(t+vec3(0.0,0.33,0.67))); }
+`;
+const FRAG = `#version 300 es
+precision highp float;
+uniform vec4 uRect; uniform vec2 uMouse;
+uniform float uTime,uHover,uPress,uFocus,uDark,uSeed,uDPR,uScrPer,uRadius;
+uniform vec4 uRipple; uniform vec2 uFocusR;
+uniform vec4 uRipP; uniform vec2 uRipQ;
+uniform vec4 uFocP; uniform vec4 uFocQ;
+uniform float uChroma,uScan,uScanPos,uDrain,uJitter,uFlash;
+out vec4 fragColor;
+${FOIL_COMMON}
+float boxK(float w){ float h=0.5*w; return h<1e-3?1.0:max(sin(h)/h,0.0); }
+void stripe(float ph, vec2 gp, float PXv, float wvv, out float r, out vec2 tt, out float am){
+  float w=length(gp)*PXv; am=1.0-smoothstep(1.3,2.5,w);
+  float sn=sin(ph); float cs=cos(ph); float kp=0.8;
+  float bk=boxK(w); sn*=bk; cs*=bk; kp=mix(0.8,1.6,smoothstep(1.4,2.2,w));
+  r=mix(0.5,smoothstep(-kp,kp,sn-wvv),am);
+  tt=-0.55*cs*(gp/max(length(gp),1e-4))*am*0.75;
+}
+vec3 foil(vec2 p, vec2 B, float PX, vec2 tilt, float e, float extra, vec2 nb, float vib){
+  float K=6.2831853/(uScrPer*PX);
+  float warp=fbm3(p*2.0+vec2(3.7,1.3));
+  float wv=0.40*(vnoise(p*4.0+11.0)-0.5);
+  float rid; vec2 t; float amp;
+  vec2 dg=normalize(vec2(1.0,0.7)); float Ks=K*0.33;
+  stripe(Ks*dot(p,dg)+0.6*(warp-0.5),Ks*dg,PX,wv,rid,t,amp);
+  vec3 n=normalize(vec3(t*0.8+nb,1.0));
+  vec2 g=normalize(vec2(p.x-clamp(p.x,-(B.x-uRadius),B.x-uRadius),p.y-clamp(p.y,-(B.y-uRadius),B.y-uRadius))+1e-6);
+  float kk=clamp(1.0-e/0.06,0.0,1.0);
+  n=normalize(n+vec3(g*kk*kk*1.2,0.0));
+  vec3 V=normalize(vec3(-tilt*0.6,1.0));
+  float cosT=clamp(dot(n,V),0.0,1.0);
+  float thick=0.45+0.30*warp+0.35*rid+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+0.1+0.5*sin((uTime-2.0)*0.1)+uSeed*0.1+extra;
+  vec3 irid=thinFilm(2.2*thick*cosT);
+  irid=mix(vec3(dot(irid,vec3(0.3333))),irid,0.72+0.28*vib);
+  vec3 Lk=normalize(vec3(-0.35,0.6,1.0));
+  float base=0.72+0.22*dot(n,Lk);
+  vec2 dir=normalize(vec2(1.0,0.55));
+  float band=exp(-pow(dot(p,dir)-tilt.x*B.x*0.8,2.0)*2.2);
+  float amb=exp(-pow(dot(p,dir)-mix(-B.x-1.0,B.x+1.0,fract(uTime*0.08+uSeed*0.07)),2.0)*3.0);
+  float sheen=(0.20+0.38*band+0.32*amb)*(0.8+0.3*uHover)*(0.75+0.35*(1.0-rid)*amp)+0.75*vib;
+  vec3 col=vec3(base)*vec3(0.985,0.99,1.0);
+  col=mix(col,col*(0.58+0.85*irid),clamp(max(sheen,0.55)+0.35*extra,0.0,1.0));
+  vec3 L=normalize(vec3(uMouse,0.8)-vec3(p,0.0));
+  float sp=pow(max(dot(n,normalize(L+V)),0.0),70.0);
+  col+=sp*(0.08+0.22*uHover);
+  return col;
+}
+vec3 wavelet(vec2 q, vec2 c, float R, float k, float w){
+  vec2 dv=q-c; float r=length(dv)+1e-5; float x=r-R;
+  float env=exp(-x*x/(w*w)); float sn=sin(k*x); float cs=cos(k*x);
+  return vec3(sn*env, (k*cs-2.0*x/(w*w)*sn)*env*dv/r);
+}
+void main(){
+  float H=uRect.w; float PX=1.0/H; vec2 B=vec2(0.5*uRect.z/H,0.5);
+  vec2 p=(gl_FragCoord.xy-(uRect.xy+uRect.zw*0.5))/H;
+  float shake=sin(uTime*83.0)*0.035*uJitter;
+  vec2 ps=p-vec2(shake,0.0);
+  vec3 wr=vec3(0.0), wf=vec3(0.0); float grow=0.0;
+  if(uRipple.w>0.0){ wr=uRipple.w*wavelet(ps,uRipple.xy,uRipple.z*uRipP.x,uRipP.y,uRipP.z); }
+  if(uFocusR.y>0.0){
+    vec3 w1=wavelet(ps,vec2(0.0),uFocusR.x*uFocP.x,uFocP.y,uFocP.z);
+    vec3 w2=wavelet(ps,vec2(0.0),max(uFocusR.x-uFocQ.w,0.0)*uFocP.x,uFocP.y,uFocP.z)*step(uFocQ.w,uFocusR.x);
+    wf=uFocusR.y*(w1+0.75*w2);
+    grow=uFocusR.y*sin(3.14159*clamp(uFocusR.x/0.6,0.0,1.0))*uFocQ.z;
+  }
+  vec3 wv=wr+wf;
+  vec2 q0=abs(ps)-(B+grow)+uRadius; float d=length(max(q0,0.0))+min(max(q0.x,q0.y),0.0)-uRadius;
+  d-=uRipP.w*wr.x+uFocP.w*wf.x;
+  float a=clamp(0.5-d/PX,0.0,1.0);
+  if(a<=0.0){ fragColor=vec4(0.0); return; }
+  float e=max(-d,0.0);
+  float slice=floor((ps.y+0.5)*7.0);
+  float jt=(hash12(vec2(slice,floor(uTime*40.0)))-0.5)*0.30*uJitter;
+  vec2 q=ps+vec2(jt,0.0);
+  vec2 tilt=clamp(uMouse/vec2(B.x*0.75+0.2,0.6),-1.2,1.2);
+  vec2 fp=q-wr.yz*uRipQ.x-wf.yz*uFocQ.x;
+  vec2 nb=-(wr.yz+wf.yz)*0.04;
+  float vib=clamp(abs(wr.x)*uRipQ.y*6.0+abs(wf.x)*uFocQ.y*6.0,0.0,1.0);
+  float extra=0.55*wv.x+0.5*uFlash;
+  vec3 col;
+  if(abs(uChroma)>0.002){
+    vec2 o=vec2(uChroma*0.065,uChroma*0.012);
+    col=vec3(foil(fp+o,B,PX,tilt,e,extra,nb,vib).r, foil(fp,B,PX,tilt,e,extra,nb,vib).g, foil(fp-o,B,PX,tilt,e,extra,nb,vib).b);
+  } else {
+    col=foil(fp,B,PX,tilt,e,extra,nb,vib);
+  }
+  if(uScan>0.0){
+    vec2 dir=normalize(vec2(1.0,0.55));
+    float x=dot(q,dir)-uScanPos;
+    float sb=exp(-x*x*10.0);
+    float halo=exp(-x*x*1.6);
+    col=mix(col,col*(0.6+0.9*thinFilm(x*1.8+0.3)),halo*0.35*uScan);
+    col=mix(col,vec3(1.0),sb*0.62*uScan);
+  }
+  col=mix(col,vec3(1.0),uFlash*0.5);
+  float lum=dot(col,vec3(0.299,0.587,0.114));
+  col=mix(col,vec3(lum*0.94+0.02),uDrain*0.92);
+  float ep=e/PX; float rw=max(1.0,uDPR);
+  float rimM=1.0-smoothstep(rw-0.5,rw+0.5,ep);
+  float hl=(smoothstep(rw-0.5,rw+0.5,ep)-smoothstep(2.0*rw-0.5,2.0*rw+0.5,ep))*smoothstep(0.05,0.45,p.y);
+  col=mix(col,vec3(1.0),hl*0.35);
+  col=mix(col,mix(vec3(0.831,0.831,0.847),vec3(0.90,0.90,0.92),uDark),rimM*mix(1.0,0.75,uDark));
+  col*=mix(1.0,0.94,uDark)*(1.0-0.06*uPress)*(1.0+0.03*uFocus);
+  col+=(hash12(gl_FragCoord.xy+fract(uTime))-0.5)/255.0;
+  col=clamp(col,0.0,1.0);
+  fragColor=vec4(col*a,a);
+}`;
+
+const opts = { dark: false, speed: 1, reduced: false };
+const TUNE = {
+  ripple: { speed: 4.7, wavelength: 1.3, runout: 0.7, duration: 1.4, outline: 0.05, refraction: 0.032, shading: 0.25 },
+  focus: { speed: 4.7, wavelength: 1.3, runout: 0.7, duration: 1.8, outline: 0.05, refraction: 0.032, shading: 0.25, grow: 0.03, gap: 0.5 },
+};
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+
+function program(gl, vs, fs) {
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + "\n" + src.split("\n").map((l, i) => i + 1 + ": " + l).join("\n").slice(0, 400)); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const cache = {};
+  return { p, loc: (k) => (k in cache ? cache[k] : (cache[k] = gl.getUniformLocation(p, k))) };
+}
+const approach = (cur, t, rate, dt) => (opts.reduced ? t : cur + (t - cur) * (1 - Math.exp(-rate * dt)));
+const SEED = ((7 * 0.6180339) % 1) * 10 + 1;
+
+const surfaces = [];
+class Foil {
+  constructor(host, canvas, { margin = 8, radius = 0.5, interactive = true, seed = SEED } = {}) {
+    Object.assign(this, { host, cv: canvas, margin, radius, seed });
+    // preserveDrawingBuffer: the transition rasteriser copies these canvases into its textures.
+    this.gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true });
+    try { if (this.gl) { const P = program(this.gl, VERT, FRAG); this.gl.useProgram(P.p); this.gl.bindVertexArray(this.gl.createVertexArray()); this.L = new Proxy({}, { get: (_, k) => P.loc(k) }); } } catch (e) { this.L = null; console.error(e); }
+    this.ok = !!this.L;
+    if (this.ok) host.classList.add("live");
+    this.s = { time: 2, hover: 0, hoverT: 0, press: 0, pressT: 0, focus: 0, focusT: 0, mx: 0, my: 0.3, mxT: 0, myT: 0.3, inside: false,
+      rip: { x: 0, y: 0, age: 9 }, focusAge: 9, chroma: 0, chromaV: 0, chromaT: 0, scan: 0, scanT: 0, phase: 0,
+      glintAge: 9, drain: 0, drainT: 0, jitterAge: 9, flashAge: 9 };
+    this.fx = new Set((host.dataset.fx || "").split(/\s+/).filter(Boolean));
+    if (interactive) this.listen();
+    surfaces.push(this);
+  }
+  local(e) { const r = this.host.getBoundingClientRect(); return [(e.clientX - (r.left + r.width / 2)) / r.height, -(e.clientY - (r.top + r.height / 2)) / r.height]; }
+  listen() {
+    const h = this.host, s = this.s;
+    h.addEventListener("pointerenter", () => { s.inside = true; s.hoverT = 1; });
+    h.addEventListener("pointerleave", () => { s.inside = false; s.hoverT = 0; this.release(); });
+    h.addEventListener("pointermove", (e) => { [s.mxT, s.myT] = this.local(e); });
+    h.addEventListener("pointerdown", (e) => { this.pressAt(...this.local(e)); });
+    h.addEventListener("pointerup", () => this.release());
+    h.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) this.pressAt(0, 0); });
+    h.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") this.release(); });
+    h.addEventListener("focus", () => { if (h.matches(":focus-visible")) s.focusT = 1; });
+    h.addEventListener("blur", () => { s.focusT = 0; });
+  }
+  pressAt(x, y) { const s = this.s; s.pressT = 1; this.host.classList.add("pressed"); if (this.fx.has("ripple")) s.rip = { x, y, age: 0 }; }
+  release() { this.s.pressT = 0; this.s.chromaT = 0; this.host.classList.remove("pressed"); }
+  setScan(on) { this.s.scanT = on ? 1 : 0; if (on) this.s.phase = 0; }
+  flash() { this.s.flashAge = 0; }
+  fail() { this.s.drainT = 1; this.s.jitterAge = 0; setTimeout(() => { this.s.drainT = 0; }, 950 / opts.speed); }
+  step(dt) {
+    const s = this.s, r = this.host.getBoundingClientRect();
+    const bx = r.width / Math.max(r.height, 1) / 2;
+    s.time += dt;
+    if (!s.inside) { s.mxT = Math.sin(s.time * 0.7 + this.seed) * bx * 0.55; s.myT = 0.3 + 0.12 * Math.sin(s.time * 0.98 + this.seed * 2); }
+    s.mx = approach(s.mx, s.mxT, 7, dt); s.my = approach(s.my, s.myT, 7, dt);
+    s.hover = approach(s.hover, s.hoverT, 10, dt); s.press = approach(s.press, s.pressT, 24, dt); s.focus = approach(s.focus, s.focusT, 10, dt);
+    s.scan = approach(s.scan, s.scanT, 9, dt); s.phase += dt * 0.85;
+    s.drain = approach(s.drain, s.drainT, s.drainT ? 16 : 5, dt);
+    s.rip.age += dt; s.focusAge += dt; s.glintAge += dt; s.jitterAge += dt; s.flashAge += dt;
+    this.bx = bx;
+  }
+  draw() {
+    if (!this.ok) return;
+    const { gl, L, s } = this, cv = this.cv;
+    const rect = cv.getBoundingClientRect();
+    if (rect.width < 1) return;
+    const w = Math.round(rect.width * DPR), h = Math.round(rect.height * DPR);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, w, h);
+    const hr = this.host.getBoundingClientRect();
+    gl.uniform4f(L.uRect, (hr.left - rect.left) * DPR, (rect.bottom - hr.bottom) * DPR, hr.width * DPR, hr.height * DPR);
+    gl.uniform2f(L.uMouse, s.mx, s.my);
+    gl.uniform1f(L.uTime, s.time); gl.uniform1f(L.uHover, s.hover); gl.uniform1f(L.uPress, s.press); gl.uniform1f(L.uFocus, s.focus);
+    gl.uniform1f(L.uDark, opts.dark ? 1 : 0); gl.uniform1f(L.uSeed, this.seed); gl.uniform1f(L.uDPR, DPR);
+    gl.uniform1f(L.uScrPer, 6 * (DPR >= 2 ? 1 : 0.75)); gl.uniform1f(L.uRadius, this.radius);
+    const R = opts.reduced, tr = TUNE.ripple, tf = TUNE.focus, TAU = 2 * Math.PI;
+    gl.uniform4f(L.uRipP, tr.speed, TAU / tr.wavelength, tr.runout, tr.outline); gl.uniform2f(L.uRipQ, tr.refraction, tr.shading);
+    gl.uniform4f(L.uFocP, tf.speed, TAU / tf.wavelength, tf.runout, tf.outline); gl.uniform4f(L.uFocQ, tf.refraction, tf.shading, tf.grow, tf.gap);
+    const ripW = !R && s.rip.age < tr.duration ? Math.pow(1 - s.rip.age / tr.duration, 1.6) : 0;
+    gl.uniform4f(L.uRipple, s.rip.x, s.rip.y, s.rip.age, ripW);
+    gl.uniform2f(L.uFocusR, s.focusAge, 0);
+    gl.uniform1f(L.uChroma, 0);
+    const span = this.bx + 1.1;
+    let scan = s.scan, pos = -span + 2 * span * (s.phase % 1);
+    if (R) pos = 0, scan *= 0.6;
+    if (s.glintAge < 0.55) { scan = Math.max(scan, 1); pos = -span + 2 * span * (s.glintAge / 0.55); if (R) { pos = 0; scan = 0.6 * (1 - s.glintAge / 0.55); } }
+    gl.uniform1f(L.uScan, scan); gl.uniform1f(L.uScanPos, pos);
+    gl.uniform1f(L.uDrain, s.drain);
+    gl.uniform1f(L.uJitter, !R && s.jitterAge < 0.24 ? 1 - s.jitterAge / 0.24 : 0);
+    gl.uniform1f(L.uFlash, s.flashAge < 0.4 ? Math.pow(1 - s.flashAge / 0.4, 2) : 0);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+}
+
+const stage = document.getElementById("stage");
+const vaultEl = stage.querySelector(".vault"), unlockEl = stage.querySelector(".unlock"), fxCv = stage.querySelector("canvas.fx");
+const unlockBtn = document.getElementById("unlock"), lockBtn = document.getElementById("lock");
+const pw = document.getElementById("pw"), pwerr = document.getElementById("pwerr");
+const qs = new URLSearchParams(location.search);
+// Review stills (?t= / ?te=) stop every clock so two loads of the same frame are pixel-identical.
+const frozenClock = qs.has("t") || qs.has("te");
+const foilOf = new Map();
+{ const cv = document.createElement("canvas"); cv.setAttribute("aria-hidden", "true"); unlockBtn.prepend(cv); foilOf.set(unlockBtn, new Foil(unlockBtn, cv)); }
+for (const l of document.querySelectorAll("[data-foil-logo] canvas")) foilOf.set(l, new Foil(l, l, { margin: 0, radius: 0.28, interactive: false, seed: 4.26 }));
+const unlockFoil = foilOf.get(unlockBtn);
+const vaultLogoFoil = foilOf.get(vaultEl.querySelector("[data-foil-logo] canvas"));
+
+// =====================================================================================
+// 2. Snapshot painter for the glass band (no html2canvas, no foreignObject)
+//    Display lists from the live DOM layout, painted into 2D canvases. Canvases (the foil
+//    logo tile, the holo button) are drawn live every frame with their own corner radius.
+// =====================================================================================
+const isClear = (c) => !c || c === "transparent" || /rgba\([^)]*,\s*0\)$/.test(c);
+function rectIn(el, base) { const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }; }
+function fontOf(cs) { return `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`; }
+function shadowOf(cs) {
+  const s = cs.textShadow; if (!s || s === "none") return null;
+  const m = s.match(/(rgba?\([^)]*\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/); return m ? { c: m[1], x: +m[2], y: +m[3], b: +m[4] } : null;
+}
+function collect(root, base, groups) {
+  const out = { base: [], groups: [], live: [] };
+  const walk = (el, g, alpha, isRoot) => {
+    const cs = getComputedStyle(el);
+    if (cs.display === "none") return;
+    const anim = groups && el.dataset && el.dataset.anim !== undefined;
+    const a = alpha * (anim || isRoot ? 1 : +cs.opacity);
+    if (anim) { out.groups.push({ el, parent: g, rect: rectIn(el, base), ops: [], kind: el.dataset.anim || "item" }); g = out.groups.length - 1; }
+    const ops = g < 0 ? out.base : out.groups[g].ops;
+    const r = rectIn(el, base);
+    const rad = Math.min(parseFloat(cs.borderTopLeftRadius) || 0, r.w / 2, r.h / 2);
+    if (!isClear(cs.backgroundColor)) ops.push({ k: "fill", r, rad, c: cs.backgroundColor, a });
+    if (el.tagName === "CANVAS") { out.live.push({ el, r, rad, a, g }); return; }
+    const bw = ["Top", "Right", "Bottom", "Left"].map((s) => parseFloat(cs[`border${s}Width`]) || 0);
+    if (bw.some((w) => w > 0) && !isClear(cs.borderTopColor) || bw[1] > 0 && !isClear(cs.borderRightColor)) {
+      if (bw.every((w) => w === bw[0])) ops.push({ k: "stroke", r, rad, w: bw[0], c: cs.borderTopColor, a });
+      else {
+        if (bw[0]) ops.push({ k: "rect", r: { x: r.x, y: r.y, w: r.w, h: bw[0] }, c: cs.borderTopColor, a });
+        if (bw[1]) ops.push({ k: "rect", r: { x: r.x + r.w - bw[1], y: r.y, w: bw[1], h: r.h }, c: cs.borderRightColor, a });
+        if (bw[2]) ops.push({ k: "rect", r: { x: r.x, y: r.y + r.h - bw[2], w: r.w, h: bw[2] }, c: cs.borderBottomColor, a });
+        if (bw[3]) ops.push({ k: "rect", r: { x: r.x, y: r.y, w: bw[3], h: r.h }, c: cs.borderLeftColor, a });
+      }
+    }
+    if (el.tagName === "INPUT") {
+      const v = el.type === "password" ? "•".repeat(el.value.length) : el.value;
+      ops.push({ k: "input", r, text: v, font: fontOf(cs), c: cs.color, ls: cs.letterSpacing, pl: (parseFloat(cs.paddingLeft) || 0) + bw[3], a });
+      return;
+    }
+    if (el.tagName.toLowerCase() === "svg") {
+      const vb = el.viewBox.baseVal, items = [];
+      for (const c of el.querySelectorAll("path,rect,circle,line")) {
+        const p = new Path2D(), at = (n) => +c.getAttribute(n) || 0;
+        if (c.tagName === "path") p.addPath(new Path2D(c.getAttribute("d")));
+        else if (c.tagName === "rect") p.roundRect(at("x"), at("y"), at("width"), at("height"), at("rx"));
+        else if (c.tagName === "circle") p.arc(at("cx"), at("cy"), at("r"), 0, Math.PI * 2);
+        else { p.moveTo(at("x1"), at("y1")); p.lineTo(at("x2"), at("y2")); }
+        items.push(p);
+      }
+      ops.push({ k: "svg", r, vb: [vb.x, vb.y, vb.width, vb.height], items, c: cs.color, lw: +el.getAttribute("stroke-width") || 1, a });
+      return;
+    }
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3) {
+        const t = n.textContent, i0 = t.search(/\S/); if (i0 < 0) continue;
+        const i1 = t.length - (t.length - t.trimEnd().length);
+        const rg = document.createRange(); rg.setStart(n, i0); rg.setEnd(n, i1);
+        const rr = rg.getBoundingClientRect();
+        ops.push({ k: "text", text: t.slice(i0, i1).replace(/\s+/g, " "), x: rr.left - base.left, y: rr.top - base.top, h: rr.height, font: fontOf(cs), c: cs.color, ls: cs.letterSpacing, sh: shadowOf(cs), a });
+      } else if (n.nodeType === 1) walk(n, g, a, false);
+    }
+  };
+  walk(root, -1, 1, true);
+  return out;
+}
+function drawOps(ctx, ops, ox = 0, oy = 0) {
+  for (const o of ops) {
+    ctx.globalAlpha = o.a;
+    if (o.k === "fill") { ctx.fillStyle = o.c; ctx.beginPath(); ctx.roundRect(o.r.x - ox, o.r.y - oy, o.r.w, o.r.h, o.rad); ctx.fill(); }
+    else if (o.k === "rect") { ctx.fillStyle = o.c; ctx.fillRect(o.r.x - ox, o.r.y - oy, o.r.w, o.r.h); }
+    else if (o.k === "stroke") { ctx.strokeStyle = o.c; ctx.lineWidth = o.w; ctx.beginPath(); ctx.roundRect(o.r.x - ox + o.w / 2, o.r.y - oy + o.w / 2, o.r.w - o.w, o.r.h - o.w, Math.max(0, o.rad - o.w / 2)); ctx.stroke(); }
+    else if (o.k === "text" || o.k === "input") {
+      ctx.font = o.font; ctx.letterSpacing = o.ls === "normal" ? "0px" : o.ls; ctx.fillStyle = o.c; ctx.textBaseline = "alphabetic";
+      const m = ctx.measureText(o.text || "x"), asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+      let x, y;
+      if (o.k === "text") { x = o.x - ox; y = o.y - oy + (o.h - (asc + desc)) / 2 + asc; }
+      else { x = o.r.x - ox + o.pl; y = o.r.y - oy + o.r.h / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2; }
+      if (o.sh) { ctx.save(); ctx.fillStyle = o.sh.c; ctx.fillText(o.text, x + o.sh.x, y + o.sh.y); ctx.restore(); ctx.fillStyle = o.c; ctx.globalAlpha = o.a; }
+      ctx.fillText(o.text, x, y);
+    } else if (o.k === "svg") {
+      ctx.save(); ctx.translate(o.r.x - ox, o.r.y - oy); ctx.scale(o.r.w / o.vb[2], o.r.h / o.vb[3]); ctx.translate(-o.vb[0], -o.vb[1]);
+      ctx.lineWidth = o.lw; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = o.c;
+      for (const p of o.items) ctx.stroke(p); ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+const newCanvas = (w, h) => Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.ceil(w)), height: Math.max(1, Math.ceil(h)) });
+const BLUR_MAX = 4;
+// One screen as a static base plus (for the vault) one sprite per [data-anim] element, so the band
+// can show exactly the poses the DOM has this frame.
+function buildDisplay(root, S, groups) {
+  const anims = groups ? [...root.querySelectorAll("[data-anim]")] : [];
+  const saved = anims.map((el) => [el.style.transform, el.style.filter]);
+  for (const el of anims) { el.style.transform = ""; el.style.filter = ""; }
+  const base = stage.getBoundingClientRect();
+  const d = collect(root, base, groups);
+  anims.forEach((el, i) => { el.style.transform = saved[i][0]; el.style.filter = saved[i][1]; });
+  const W = base.width, H = base.height;
+  d.baseCv = newCanvas(W * S, H * S);
+  const bctx = d.baseCv.getContext("2d"); bctx.setTransform(S, 0, 0, S, 0, 0);
+  bctx.fillStyle = getComputedStyle(stage).backgroundColor; bctx.fillRect(0, 0, W, H);
+  drawOps(bctx, d.base);
+  for (const g of d.groups) {
+    const pad = 12; g.b = { x: g.rect.x - pad, y: g.rect.y - pad, w: g.rect.w + 2 * pad, h: g.rect.h + 2 * pad };
+    g.cv = newCanvas(g.b.w * S, g.b.h * S);
+    const c = g.cv.getContext("2d"); c.setTransform(S, 0, 0, S, 0, 0); drawOps(c, g.ops, g.b.x, g.b.y);
+    g.cvB = newCanvas(g.cv.width, g.cv.height);
+    const cb = g.cvB.getContext("2d"); cb.filter = `blur(${(BLUR_MAX * S).toFixed(1)}px)`; cb.drawImage(g.cv, 0, 0);
+    g.cx = g.rect.x + g.rect.w / 2; g.cy = g.rect.y + g.rect.h / 2;
+  }
+  d.cv = newCanvas(W * S, H * S); d.S = S; d.W = W; d.H = H;
+  return d;
+}
+function compose(d, poses) {
+  const ctx = d.cv.getContext("2d"), S = d.S;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  ctx.drawImage(d.baseCv, 0, 0);
+  const M = [];
+  d.groups.forEach((g, i) => {
+    const p = poses[i], par = g.parent >= 0 ? M[g.parent] : { k: 1, ox: 0, oy: 0, a: 1, blur: 0 };
+    const ocx = g.cx * (1 - p.s) + p.tx, ocy = g.cy * (1 - p.s) + p.ty;
+    const m = { k: par.k * p.s, ox: par.k * ocx + par.ox, oy: par.k * ocy + par.oy, a: par.a * p.o, blur: Math.hypot(par.blur, p.blur) };
+    M[i] = m;
+    if (m.a <= 0.004) return;
+    const kb = clamp(m.blur / BLUR_MAX), dx = (m.k * g.b.x + m.ox) * S, dy = (m.k * g.b.y + m.oy) * S, dw = g.b.w * m.k * S, dh = g.b.h * m.k * S;
+    if (kb < 0.98) { ctx.globalAlpha = m.a * (1 - kb); ctx.drawImage(g.cv, dx, dy, dw, dh); }
+    if (kb > 0.02) { ctx.globalAlpha = m.a * Math.min(1, kb * 1.15); ctx.drawImage(g.cvB, dx, dy, dw, dh); }
+  });
+  for (const l of d.live) {
+    const m = l.g >= 0 ? M[l.g] : { k: 1, ox: 0, oy: 0, a: 1 };
+    if (m.a <= 0.004 || !l.el.width) continue;
+    ctx.globalAlpha = m.a * l.a;
+    const x = (m.k * l.r.x + m.ox) * S, y = (m.k * l.r.y + m.oy) * S, w = l.r.w * m.k * S, h = l.r.h * m.k * S;
+    if (l.rad > 0) { ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, l.rad * m.k * S); ctx.clip(); ctx.drawImage(l.el, x, y, w, h); ctx.restore(); }
+    else ctx.drawImage(l.el, x, y, w, h);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// =====================================================================================
+// 3. The lens outline. ONE definition, written twice: GLSL for the band, JS for the
+//    clip-path polygon. Only sums of sines (no noise), so both compute the same shape.
+// =====================================================================================
+const LENS_GLSL = `
+float edgeR(float a){
+  float n1=0.6*sin(a+2.1+1.3*uT)+0.4*sin(2.0*a-0.4-1.1*uT);
+  float wob=uWob*(0.65*n1+0.35*sin(3.0*a+5.0*uT));
+  float n2=0.7*sin(a+3.1+0.15*uT)+0.3*sin(2.0*a+1.7-0.1*uT);
+  float irr=uShape*uR*(0.55*n2+0.30*sin(2.0*a+1.3+0.4*uT)+0.15*sin(3.0*a-0.7));
+  return max(uR+wob+irr,0.0);
+}
+float lensD(vec2 p){ vec2 q=p-uO; float r=length(q); return r-edgeR(r<1e-4?0.0:atan(q.y,q.x)); }`;
+function edgeR(a, L) {
+  const t = L.t, S = Math.sin;
+  const n1 = 0.6 * S(a + 2.1 + 1.3 * t) + 0.4 * S(2 * a - 0.4 - 1.1 * t);
+  const wob = L.wob * (0.65 * n1 + 0.35 * S(3 * a + 5 * t));
+  const n2 = 0.7 * S(a + 3.1 + 0.15 * t) + 0.3 * S(2 * a + 1.7 - 0.1 * t);
+  const irr = L.shape * L.R * (0.55 * n2 + 0.3 * S(2 * a + 1.3 + 0.4 * t) + 0.15 * S(3 * a - 0.7));
+  return Math.max(L.R + wob + irr, 0);
+}
+const LENS_N = 120;
+function lensClip(L, o) {
+  const pts = [];
+  for (let i = 0; i < LENS_N; i++) {
+    const a = -Math.PI + (i / LENS_N) * 2 * Math.PI, e = edgeR(a, L);
+    pts.push(`${(o[0] + e * Math.cos(a)).toFixed(2)}px ${(o[1] + e * Math.sin(a)).toFixed(2)}px`);
+  }
+  return `polygon(${pts.join(",")})`;
+}
+
+// =====================================================================================
+// 4. The glass band (WebGL2). Paints only the bevel band and the rim line; alpha 0 elsewhere.
+//    Refraction falls to zero before the band's inner edge, where it fades into the live DOM.
+// =====================================================================================
+const FS_VERT = `#version 300 es
+out vec2 vUv;
+void main(){ vec2 p=vec2(gl_VertexID==1?3.0:-1.0, gl_VertexID==2?3.0:-1.0); vUv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }`;
+const FS_BAND = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 oCol;
+uniform vec2 uSize, uO;
+uniform float uT, uR, uWob, uShape, uH, uPres, uDark, uRefr, uBevelK, uBevelMax, uSpread, uFilm, uMag;
+uniform sampler2D uVault;
+vec3 thinFilm(float t){ return 0.5+0.5*cos(6.2831853*(t+vec3(0.0,0.33,0.67))); }
+vec3 foilPal(float t){ vec3 c=thinFilm(t); return pow(c,vec3(1.45))*1.08+0.015; }
+vec3 V(vec2 p){ return texture(uVault,p/uSize).rgb; }
+${LENS_GLSL}
+void main(){
+  vec2 p=vec2(vUv.x,1.0-vUv.y)*uSize;
+  float w=clamp(uR*uBevelK,10.0,uBevelMax);
+  float d0=lensD(p);
+  if(uPres<=0.0||d0>4.0||d0<-w-4.0){ oCol=vec4(0.0); return; }
+  vec2 g=vec2(lensD(p+vec2(0.5,0.0))-lensD(p-vec2(0.5,0.0)), lensD(p+vec2(0.0,0.5))-lensD(p-vec2(0.0,0.5)));
+  float gl=max(length(g),1e-4); vec2 gd=g/gl; float d=d0/gl;
+  float x=clamp(-d/w,0.0,1.0);
+  float prof=sqrt(max(1.0-(1.0-x)*(1.0-x),0.0));
+  float slope=(1.0-x)/max(prof,0.10);
+  float inside=step(d,0.0);
+  float kd=1.0-smoothstep(0.62,0.97,x);                 // refraction is gone before the inner edge
+  float h=uH*prof*inside;
+  vec3 n=normalize(vec3(gd*(uH/w)*slope*inside*kd,1.0));
+  const vec3 S0=vec3(0.95,0.04,0.12), S1=vec3(0.80,0.45,0.0), S2=vec3(0.22,0.92,0.05), S3=vec3(0.0,0.70,0.62), S4=vec3(0.05,0.25,1.0), S5=vec3(0.50,0.0,0.85);
+  vec3 SP[6]=vec3[6](S0,S1,S2,S3,S4,S5);
+  vec3 acc=vec3(0.0), wsum=vec3(0.0);
+  float mag=1.0+uMag*0.001*h*kd;
+  for(int i=0;i<6;i++){
+    float eta=1.0/(1.40+uSpread*float(i));
+    vec3 tr=refract(vec3(0.0,0.0,-1.0),n,eta);
+    vec2 disp=tr.xy/max(-tr.z,0.22)*(h+10.0)*uRefr;
+    vec2 sp=uO+(p-uO)/mag+disp;
+    acc+=V(sp)*SP[i]; wsum+=SP[i];          // only the vault: the unlock screen simply ends at the rim
+  }
+  vec3 ins=acc/wsum;
+  float lum=dot(ins,vec3(0.2126,0.7152,0.0722));
+  ins=mix(vec3(lum),ins,1.0+0.25*kd);                    // undo the pale spectral average (not at the seam)
+  float cosT=n.z;
+  float F=0.04+0.96*pow(1.0-cosT,5.0);
+  float band=pow(1.0-x,1.5)*inside;
+  float ft=0.2+1.7*(1.0-cosT)+0.0018*dot(p,vec2(1.0,0.7))+0.18*sin(dot(p,vec2(0.0042,0.0031))*6.2831853+uT*0.5)+uT*0.3;
+  vec3 film=foilPal(ft);
+  float irw=clamp((F*1.6-0.07)+band*0.16,0.0,0.75)*uFilm*step(0.5,uH);
+  ins=mix(ins,film*mix(0.95,1.05,uDark),irw);
+  vec3 L1=normalize(vec3(-0.55,-0.7,0.6)), L2=normalize(vec3(0.65,0.55,0.5));
+  float s1=pow(max(dot(n,normalize(L1+vec3(0,0,1))),0.0),120.0);
+  float s2=pow(max(dot(n,normalize(L2+vec3(0,0,1))),0.0),60.0);
+  vec3 spec=vec3(1.0)*s1*1.8+film*s2*0.9;
+  float hk=clamp(uH/20.0,0.0,1.0);
+  float el=exp(-pow((-d-1.8)/1.3,2.0))*hk;                // crisp foil line just inside the glass edge
+  spec+=film*el*mix(0.9,1.3,uDark);
+  ins*=1.0-0.28*pow(1.0-x,4.0)*inside*(1.0-uDark)*hk;     // glass edge reads darker on white
+  float e1=exp(-pow(d/1.2,2.0));
+  float face=dot(gd,L1.xy)/length(L1.xy);
+  ins=mix(ins,ins*0.35,e1*clamp(-face,0.0,1.0)*0.85*hk);
+  spec+=film*e1*clamp(face*1.4+0.3,0.0,1.0)*1.3*hk;
+  vec3 col=clamp(ins+spec,0.0,1.0);
+  float aIn=(1.0-smoothstep(-0.7,0.7,d))*(1.0-smoothstep(0.82,1.0,x));
+  // thin rim line just outside the edge
+  float lA=exp(-pow((d-0.6)/0.8,2.0))*step(0.0,d)*0.55*hk;
+  vec3 lC=mix(film*0.55,film*1.1,uDark);
+  vec4 o=vec4(col*aIn,aIn);
+  o=vec4(lC*lA,lA)+o*(1.0-lA);
+  oCol=o*uPres;
+}`;
+function createBand(cv) {
+  const gl = cv.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+  if (!gl) return null;
+  let P;
+  try { P = program(gl, FS_VERT, FS_BAND); } catch (e) { console.error(e); return null; }
+  const mk = () => {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  };
+  const vao = gl.createVertexArray();
+  const B = { gl, texV: mk(), W: 1, H: 1 };
+  B.resize = (W, H) => { if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; } B.W = W; B.H = H; };
+  B.upload = (t, canvas) => {
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    if (t._w !== canvas.width || t._h !== canvas.height) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, canvas); t._w = canvas.width; t._h = canvas.height; }
+    else gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  };
+  B.draw = (u) => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, B.W, B.H); gl.disable(gl.BLEND);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(P.p); gl.bindVertexArray(vao);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, B.texV); gl.uniform1i(P.loc("uVault"), 0);
+    for (const k in u) { const v = u[k], l = P.loc(k); if (l === null) continue; if (typeof v === "number") gl.uniform1f(l, v); else gl.uniform2fv(l, v); }
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
+  B.clear = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); };
+  return B;
+}
+const band = createBand(fxCv);
+
+// =====================================================================================
+// 5. Timeline. Every frame is a pure function of the run time u.
+// =====================================================================================
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const GT_DEFAULTS = { duration: 1.9, push: 3.8, bevel: 0.57, bevelMax: 110, height: 50, magnify: 0, refraction: 6.8,
+  dispersion: 0.235, film: 0.15, shape: 0.1, wobble: 4, lead: 130 };
+const GT = { ...GT_DEFAULTS };
+const GT_SLIDERS = [
+  ["duration", "Duration (s)", 0.8, 3, 0.05], ["push", "Push at start (ease-out power)", 1, 6, 0.1],
+  ["bevel", "Bevel width (share of radius)", 0.1, 1, 0.01], ["bevelMax", "Bevel width max (px)", 30, 300, 1],
+  ["height", "Glass thickness", 10, 120, 1], ["magnify", "Zoom inside the bevel", 0, 3, 0.05],
+  ["refraction", "Refraction", 0, 8, 0.1], ["dispersion", "Dispersion (rainbow spread)", 0, 0.3, 0.005], ["film", "Rainbow film inside glass", 0, 1, 0.05],
+  ["shape", "Irregular shape (share of radius)", 0, 0.3, 0.005], ["wobble", "Rim wobble (px)", 0, 20, 0.5], ["lead", "Vault elements start ahead of rim (px)", -60, 300, 5],
+];
+// Radius at which even the band's inner edge has left the stage.
+const Rfull = (s) => (s.maxD + GT.bevelMax + GT.wobble + 24) / Math.max(0.5, 1 - GT.shape);
+const growT = () => 0.9 * GT.duration;
+const unlockR = (u, s) => Rfull(s) * (1 - Math.pow(1 - clamp(u / growT()), GT.push));
+const lockDur = () => GT.duration * 0.75;
+const lockR = (u, s) => (Rfull(s) + 60) * (1 - easeOutCubic(u / lockDur())) - 60;
+function lensAt(r, s) {
+  const u = r.u;
+  if (r.mode === "unlock") {
+    const R = unlockR(u, s);
+    return { R, t: u, shape: GT.shape, wob: GT.wobble * Math.sin(Math.PI * clamp(u / growT())) * clamp(R / 60),
+      H: GT.height * easeOutCubic(u / (0.3 * GT.duration / 1.6)), pres: smooth(0, 24, R) };
+  }
+  const R = lockR(u, s);
+  return { R, t: u, shape: GT.shape, wob: GT.wobble * clamp(R / 60),
+    H: GT.height * smooth(0, 90, R), pres: smooth(0, 24, R) };
+}
+// Vault choreography: finite eases, so every element is exactly at rest when it settles (no overshoot).
+function enterPose(u, kind, dir) {
+  if (kind === "pop") {
+    if (u <= 0) return { o: 0, tx: 0, ty: 0, s: 0.45, blur: 0 };
+    return { o: clamp(u / 0.1), tx: 0, ty: 0, s: 0.45 + 0.55 * easeOutCubic(u / 0.4), blur: 0 };
+  }
+  if (u <= 0) return { o: 0, tx: -dir[0] * 16, ty: -dir[1] * 16, s: 0.985, blur: 4 };
+  const e = easeOutCubic(u / 0.5), k = 16 * (1 - e);
+  return { o: easeOutCubic(u / 0.24), tx: -dir[0] * k, ty: -dir[1] * k, s: 0.985 + 0.015 * e, blur: 4 * (1 - easeOutCubic(u / 0.24)) };
+}
+function exitPose(u, kind, dir) {
+  const v = clamp(u / 0.17), e = v * v;
+  if (kind === "pop") return { o: 1 - e, tx: 0, ty: 0, s: 1 - 0.5 * e, blur: 0 };
+  return { o: 1 - e, tx: dir[0] * 10 * e, ty: dir[1] * 10 * e, s: 1 - 0.02 * e, blur: 5 * e };
+}
+const restPose = { o: 1, tx: 0, ty: 0, s: 1, blur: 0 }, hiddenPose = { o: 0, tx: 0, ty: 0, s: 1, blur: 0 };
+function applyPoses(d, poses) {
+  d.groups.forEach((g, i) => {
+    const p = poses[i], st = g.el.style;
+    st.opacity = p.o >= 0.999 ? "" : p.o.toFixed(3);
+    st.transform = Math.abs(p.tx) + Math.abs(p.ty) > 0.01 || Math.abs(p.s - 1) > 0.0005 ? `translate(${p.tx.toFixed(2)}px,${p.ty.toFixed(2)}px) scale(${p.s.toFixed(4)})` : "";
+    st.filter = p.blur > 0.05 ? `blur(${p.blur.toFixed(2)}px)` : "";
+  });
+}
+
+// =====================================================================================
+// 6. Controller. The DOM is always the picture: the vault sits on top of the unlock screen and
+//    is shown through clip-path (which also clips hit testing); WebGL only adds the glass band.
+// =====================================================================================
+const opts2 = opts;
+let scene = null, run = null, vaultDisp = null;
+let unlocked = false, busy = false, frozen = false;
+const clickAt = { unlock: null, lock: null };
+function geometry(mode) {
+  const el = mode === "lock" ? lockBtn : unlockBtn;
+  const sr = stage.getBoundingClientRect(), br = el.getBoundingClientRect();
+  const w = sr.width, h = sr.height;
+  const c = [br.left + br.width / 2 - sr.left, br.top + br.height / 2 - sr.top];
+  const o = clickAt[mode] || c; clickAt[mode] = null;
+  const maxD = Math.max(Math.hypot(o[0], o[1]), Math.hypot(w - o[0], o[1]), Math.hypot(o[0], h - o[1]), Math.hypot(w - o[0], h - o[1]));
+  const S = Math.min(DPR, Math.sqrt(2.1e6 / (w * h)));
+  return { mode, w, h, o, maxD, S };
+}
+const firstU = (pred, end) => { for (let u = 0; u <= end; u += 0.004) if (pred(u)) return u; return end; };
+function startRun(mode, viaKey = false) {
+  const s = scene = geometry(mode);
+  const reduced = opts2.reduced, useGL = !!band && !reduced;
+  vaultEl.style.opacity = ""; unlockEl.style.opacity = "";
+  vaultDisp = buildDisplay(vaultEl, s.S, true);
+  if (useGL) band.resize(Math.round(s.w * s.S), Math.round(s.h * s.S));
+  const d = vaultDisp;
+  const groups = d.groups.map((g) => {
+    const dx = g.cx - s.o[0], dy = g.cy - s.o[1], dl = Math.hypot(dx, dy) || 1;
+    return { dist: dl, dir: [dx / dl, dy / dl] };
+  });
+  let starts = groups.map(() => 0), exits = groups.map(() => 0), total;
+  if (mode === "unlock") {
+    if (!reduced) starts = groups.map((g) => firstU((u) => unlockR(u, s) >= g.dist - GT.lead, GT.duration));
+    d.groups.forEach((g, i) => { if (g.kind === "pop" && g.parent >= 0) starts[i] = starts[g.parent] + 0.07; });
+    total = reduced ? 0.3 : Math.max(GT.duration, Math.max(...starts) + 0.55);
+  } else {
+    // the clicked Lock button dissolves at once; everything else as the closing rim passes it
+    if (!reduced) exits = groups.map((g, i) => (d.groups[i].el.contains(lockBtn) ? 0 : firstU((u) => lockR(u, s) <= g.dist + 20, lockDur())));
+    const cross = firstU((u) => lockR(u, s) <= 0, lockDur());
+    total = reduced ? 0.3 : Math.max(cross + 0.15, Math.max(...exits) + 0.2);
+  }
+  // Focus moves when the transition starts, so nothing changes when it ends.
+  if (mode === "unlock") {
+    vaultEl.classList.remove("off"); vaultEl.inert = false; vaultEl.removeAttribute("aria-hidden"); lockBtn.tabIndex = 0;
+    lockBtn.focus({ preventScroll: true, focusVisible: viaKey });
+  } else {
+    unlockEl.classList.remove("away"); unlockEl.inert = false; unlockEl.removeAttribute("aria-hidden");
+    vaultEl.inert = true; vaultEl.setAttribute("aria-hidden", "true"); lockBtn.tabIndex = -1;
+    pw.focus({ preventScroll: true, focusVisible: viaKey });
+  }
+  const brand = d.groups.findIndex((g) => g.el.classList.contains("brand"));
+  run = { mode, reduced, useGL, u: 0, total, starts, exits, groups, poseKey: "", glint: mode === "unlock" && brand >= 0 ? starts[brand] + 0.28 : 9 };
+  if (useGL) fxCv.classList.add("on");
+  tick(0);
+}
+function posesFor(r) {
+  return vaultDisp.groups.map((g, i) => {
+    if (r.reduced) return restPose;
+    const gi = r.groups[i];
+    if (r.mode === "unlock") return enterPose(r.u - r.starts[i], g.kind, gi.dir);
+    // the clicked Lock button: already a faint blur on the click frame, gone 80 ms later
+    if (g.el === lockBtn) { const v = clamp(r.u / 0.08); return { o: 0.35 * (1 - v), tx: 0, ty: 0, s: 0.97, blur: 3 }; }
+    const pu = g.kind === "pop" && g.parent >= 0 ? r.u - r.exits[g.parent] + 0.04 : r.u - r.exits[i];
+    return pu <= 0 ? restPose : exitPose(pu, g.kind, gi.dir);
+  });
+}
+function tick(dt) {
+  const r = run; if (!r) return;
+  if (!frozen) r.u += dt;
+  const s = scene;
+  const poses = posesFor(r);
+  applyPoses(vaultDisp, poses);
+  if (r.reduced) {
+    const k = clamp(r.u / 0.25);
+    vaultEl.style.opacity = String(r.mode === "unlock" ? k : 1 - k);
+  } else {
+    const L = lensAt(r, s);
+    // Once the end state is visually reached, apply it to the DOM right away, so finishing changes nothing.
+    const inner = L.R * (1 - GT.shape) - L.wob;
+    const covered = r.mode === "unlock" && inner >= s.maxD + 2, gone = r.mode === "lock" && L.R <= 0;
+    const bandOut = covered && inner - Math.min(Math.max(L.R * GT.bevel, 10), GT.bevelMax) >= s.maxD + 2;
+    if (covered) { vaultEl.style.clipPath = ""; unlockEl.classList.add("away"); unlockEl.inert = true; unlockEl.setAttribute("aria-hidden", "true"); }
+    else if (gone) { vaultEl.classList.add("off"); vaultEl.style.clipPath = ""; }
+    else vaultEl.style.clipPath = lensClip(L, s.o);
+    if (r.useGL && (bandOut || gone)) { band.clear(); fxCv.classList.remove("on"); }
+    else if (r.useGL) {
+      const key = poses.map((p) => `${p.o.toFixed(3)},${p.tx.toFixed(1)},${p.ty.toFixed(1)},${p.s.toFixed(3)},${p.blur.toFixed(1)}`).join("|");
+      if (key !== r.poseKey || vaultDisp.live.length) { compose(vaultDisp, poses); band.upload(band.texV, vaultDisp.cv); r.poseKey = key; }
+      band.draw({ uSize: [s.w, s.h], uO: s.o, uT: L.t, uR: L.R, uWob: L.wob, uShape: L.shape, uH: L.H, uPres: L.pres,
+        uDark: opts2.dark ? 1 : 0, uRefr: GT.refraction, uBevelK: GT.bevel, uBevelMax: GT.bevelMax, uSpread: GT.dispersion, uFilm: GT.film, uMag: GT.magnify });
+    }
+  }
+  if (r.u >= r.total) finish();
+}
+function finish() {
+  const r = run; run = null;
+  if (band) band.clear();
+  fxCv.classList.remove("on");
+  if (r.mode === "unlock") {
+    applyPoses(vaultDisp, vaultDisp.groups.map(() => restPose));
+    unlockEl.classList.add("away"); unlockEl.inert = true; unlockEl.setAttribute("aria-hidden", "true");
+    unlocked = true;
+  } else {
+    vaultEl.classList.add("off");
+    applyPoses(vaultDisp, vaultDisp.groups.map(() => hiddenPose));
+    unlocked = false;
+  }
+  vaultEl.style.clipPath = ""; vaultEl.style.opacity = "";
+  busy = false;
+}
+function snapLocked() {
+  run = null; if (band) band.clear(); fxCv.classList.remove("on");
+  vaultEl.classList.add("off"); vaultEl.inert = true; vaultEl.setAttribute("aria-hidden", "true"); vaultEl.style.clipPath = ""; vaultEl.style.opacity = "";
+  applyPoses(vaultDisp, vaultDisp.groups.map(() => hiddenPose));
+  unlockEl.classList.remove("away"); unlockEl.inert = false; unlockEl.removeAttribute("aria-hidden");
+  unlocked = false; lockBtn.tabIndex = -1;
+}
+function snapUnlocked() {
+  vaultEl.classList.remove("off"); vaultEl.inert = false; vaultEl.removeAttribute("aria-hidden"); vaultEl.style.clipPath = "";
+  applyPoses(vaultDisp, vaultDisp.groups.map(() => restPose));
+  unlockEl.classList.add("away"); unlockEl.inert = true; unlockEl.setAttribute("aria-hidden", "true");
+  unlocked = true; lockBtn.tabIndex = 0;
+}
+const wait = (ms) => new Promise((res) => setTimeout(res, ms / opts2.speed));
+const nextFrame = () => new Promise((res) => requestAnimationFrame(() => res()));
+async function check(foil, labelEl, ms) {
+  const old = labelEl.textContent; labelEl.textContent = "Checking…"; foil.setScan(true);
+  await wait(ms); foil.setScan(false); labelEl.textContent = old;
+}
+pw.addEventListener("keydown", (e) => { if (e.key === "Enter") unlockBtn.click(); });
+for (const [mode, el] of [["unlock", unlockBtn], ["lock", lockBtn]]) {
+  el.addEventListener("pointerdown", (e) => { const sr = stage.getBoundingClientRect(); clickAt[mode] = [e.clientX - sr.left, e.clientY - sr.top]; });
+}
+unlockBtn.addEventListener("click", async (e) => {
+  if (busy || unlocked) return; busy = true; pwerr.textContent = "";
+  const viaKey = e.detail === 0; if (viaKey) clickAt.unlock = null;    // keyboard: grow from the button centre
+  await check(unlockFoil, unlockBtn.querySelector(".label"), 1100);
+  if (pw.value !== "mosaic") { unlockFoil.fail(); pwerr.textContent = "Wrong master password. Check Caps Lock and try again."; busy = false; return; }
+  await nextFrame();
+  startRun("unlock", viaKey);
+});
+lockBtn.addEventListener("click", (e) => {
+  if (busy || !unlocked) return; busy = true;
+  const viaKey = e.detail === 0; if (viaKey) clickAt.lock = null;
+  startRun("lock", viaKey);
+});
+// Vault rows are live from the moment they appear: selecting one works mid-transition.
+for (const row of vaultEl.querySelectorAll(".row")) row.addEventListener("click", () => {
+  for (const x of vaultEl.querySelectorAll(".row")) x.classList.toggle("sel", x === row);
+  row.dataset.clicks = String((+row.dataset.clicks || 0) + 1);
+});
+document.getElementById("replay").addEventListener("click", async () => {
+  if (busy) return;
+  if (unlocked) { snapLocked(); await nextFrame(); }
+  pw.value = "mosaic"; unlockBtn.click();
+});
+
+// ---- toolbar ---------------------------------------------------------------------------------
+for (const seg of document.querySelectorAll(".seg[data-opt]")) {
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    for (const x of seg.querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+    const k = seg.dataset.opt, v = b.dataset.v;
+    if (k === "theme") { opts2.dark = v === "dark"; document.documentElement.dataset.theme = v; }
+    if (k === "speed") opts2.speed = +v;
+    if (k === "reduced") opts2.reduced = v === "1";
+  });
+}
+if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.querySelector('[data-opt=reduced] [data-v="1"]').click();
+if (qs.get("theme") === "dark") document.querySelector('[data-opt=theme] [data-v="dark"]').click();
+
+// ---- loop ------------------------------------------------------------------------------------
+let last = performance.now(), halted = false;
+function frame(now) {
+  if (halted) return;
+  const dt = frozenClock ? 0 : Math.min((now - last) / 1000, 0.05) * opts2.speed; last = now;
+  for (const f of surfaces) {
+    f.step(dt);
+    if (f === vaultLogoFoil) f.s.glintAge = run && run.mode === "unlock" && run.u >= run.glint ? run.u - run.glint : 9;
+    f.draw();
+  }
+  if (run) tick(dt);
+  requestAnimationFrame(frame);
+}
+vaultDisp = buildDisplay(vaultEl, 1, true);
+snapLocked();
+// ---- review hook: ?t=0..1 (or ?te=<s from the end>) &dir=unlock|lock &ox=&oy= (stage px) &theme=dark
+requestAnimationFrame(async (t) => {
+  last = t; requestAnimationFrame(frame);
+  if (!frozenClock) return;
+  await nextFrame(); await nextFrame(); await nextFrame();
+  const dir = qs.get("dir") === "lock" ? "lock" : "unlock";
+  if (dir === "lock") snapUnlocked();
+  if (qs.has("ox")) clickAt[dir] = [+qs.get("ox"), +qs.get("oy")];
+  frozen = true;
+  startRun(dir);
+  const r = run;
+  r.u = qs.has("te") ? r.total + +qs.get("te") : +qs.get("t") * r.total;
+  document.body.dataset.u = r.u.toFixed(3); document.body.dataset.total = r.total.toFixed(3);
+  tick(0);
+  await nextFrame(); await nextFrame(); await nextFrame();
+  halted = true;   // review stills: stop the loop so the frozen frame stays on screen
+  document.body.dataset.ready = "1";
+});
+// Warm-up: ANGLE compiles lazily at the first draw, so draw the band once while idle.
+(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => {
+  if (!band || run || frozenClock) return;
+  band.resize(2, 2);
+  band.draw({ uSize: [2, 2], uO: [1, 1], uT: 0, uR: 1, uWob: 0, uShape: 0, uH: 1, uPres: 1, uDark: 0, uRefr: 1, uBevelK: 0.5, uBevelMax: 10, uSpread: 0.1, uFilm: 0.1, uMag: 0 });
+  band.gl.finish(); band.clear();
+});
+window.__glass = { GT, get run() { return run; }, get scene() { return scene; }, edgeR, lensAt };
+
+// ---- liquid-glass tuning panel ----
+{
+  const grid = document.getElementById("gtune"), out = document.getElementById("gt-out");
+  const show = () => { out.textContent = JSON.stringify(GT); };
+  const inputs = [];
+  for (const [key, label, min, max, step] of GT_SLIDERS) {
+    const row = document.createElement("label"); row.className = "tune-row";
+    const name = document.createElement("span"); name.textContent = label;
+    const input = Object.assign(document.createElement("input"), { type: "range", min, max, step, value: GT[key] });
+    const val = document.createElement("output"); val.textContent = GT[key];
+    input.addEventListener("input", () => { GT[key] = +input.value; val.textContent = input.value; show(); });
+    row.append(name, input, val); grid.append(row); inputs.push([key, input, val]);
+  }
+  document.getElementById("gt-reset").addEventListener("click", () => {
+    Object.assign(GT, GT_DEFAULTS); for (const [k, i, v] of inputs) { i.value = GT[k]; v.textContent = GT[k]; } show();
+  });
+  document.getElementById("gt-copy").addEventListener("click", () => navigator.clipboard?.writeText(JSON.stringify(GT)));
+  document.getElementById("gt-replay").addEventListener("click", () => document.getElementById("replay").click());
+  show();
+}
+</script>
+</body>
+</html>
