@@ -1,6 +1,6 @@
 //! Quick-unlock commands (CRYPTO_SPEC §6.2, §6.3; ADR-0028): unlocking with
-//! Windows Hello or Touch ID (`unlock_quick`), the status of the methods,
-//! and enrolling or removing the biometric method.
+//! Windows Hello, Touch ID or a security key (`unlock_quick`), the status of
+//! the methods, and enrolling or removing them.
 //!
 //! Every flow that prompts the user or talks to a device does so **without**
 //! the session locked: it reads what it needs under the guard, drops it,
@@ -13,21 +13,24 @@ use std::sync::TryLockError;
 use std::time::Duration;
 
 use mosaic_core::AccountId;
+use mosaic_core::unlock::new_prf_salt;
 use mosaic_vault::session::{
-    Error as SessionError, MAX_HARDWARE_KEYS, QuickMethod, QuickUnlockEnrollment,
-    QuickUnlockPolicy, UnlockError, UnlockedSession,
+    DEFAULT_RP_ID, Error as SessionError, HardwareKeyEnrollment, MAX_HARDWARE_KEYS, NewHardwareKey,
+    QuickMethod, QuickUnlockEnrollment, QuickUnlockPolicy, UnlockError, UnlockedSession,
 };
 use tauri::State;
 
 use super::session::take_locked;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::quick_unlock::{
-    BiometricStatus, EnrollBiometricRequest, HardwareKeyStatus, HardwareKeySummary,
-    QuickUnlockStatus,
+    BiometricStatus, EnrollBiometricRequest, EnrollHardwareKeyRequest, HardwareKeyStatus,
+    HardwareKeySummary, QuickUnlockStatus, RemoveHardwareKeyRequest,
 };
 use crate::contract::secret::SecretIn;
 use crate::contract::session::{QuickUnlockKind, QuickUnlockRequest, SessionState};
-use crate::quick_unlock::{BiometricPlatform, HardwareCandidate, HardwareKeyError, PlatformError};
+use crate::quick_unlock::{
+    BiometricPlatform, CancelFlag, HardwareCandidate, HardwareKeyError, PlatformError,
+};
 use crate::state::{AppState, Backend, Slot};
 
 /// `unlock_quick`.
@@ -60,6 +63,24 @@ pub async fn remove_biometric(state: State<'_, AppState>) -> IpcResult<QuickUnlo
     state.run(Backend::remove_biometric).await
 }
 
+/// `enroll_hardware_key`.
+#[tauri::command]
+pub async fn enroll_hardware_key(
+    state: State<'_, AppState>,
+    request: EnrollHardwareKeyRequest,
+) -> IpcResult<QuickUnlockStatus> {
+    state.run(move |b| b.enroll_hardware_key(request)).await
+}
+
+/// `remove_hardware_key`.
+#[tauri::command]
+pub async fn remove_hardware_key(
+    state: State<'_, AppState>,
+    request: RemoveHardwareKeyRequest,
+) -> IpcResult<QuickUnlockStatus> {
+    state.run(move |b| b.remove_hardware_key(&request)).await
+}
+
 /// `hardware_key_cancel`.
 #[tauri::command]
 pub async fn hardware_key_cancel(state: State<'_, AppState>) -> IpcResult<()> {
@@ -78,9 +99,7 @@ pub(crate) fn method_id_hex(method_id: &[u8; 16]) -> String {
         })
 }
 
-/// A method ID from exactly 32 lowercase hex digits (the hardware-key
-/// commands).
-#[allow(dead_code)]
+/// A method ID from exactly 32 lowercase hex digits.
 pub(crate) fn parse_method_id(text: &str) -> Option<[u8; 16]> {
     if text.len() != 32 {
         return None;
@@ -108,15 +127,24 @@ fn not_locked(slot: &Slot) -> IpcError {
     }
 }
 
-fn hardware_summaries(session: &UnlockedSession) -> Result<Vec<HardwareKeySummary>, SessionError> {
-    Ok(session
-        .hardware_keys()?
-        .iter()
+/// The error for a slot that is not the unlocked session of the account a
+/// flow started with, after a prompt or a device call: it locked meanwhile.
+pub(crate) fn changed_while_waiting(slot: &Slot) -> IpcError {
+    match slot {
+        Slot::Unlocked(_) | Slot::Locked(_) => IpcError::LOCKED,
+        Slot::Unavailable(code) => IpcError::new(*code),
+        Slot::Taken => IpcError::new(ErrorCode::Busy),
+    }
+}
+
+/// The wire form of registered keys.
+pub(crate) fn summaries(keys: &[HardwareKeyEnrollment]) -> Vec<HardwareKeySummary> {
+    keys.iter()
         .map(|key| HardwareKeySummary {
             method_id: method_id_hex(&key.method_id),
             added_at: key.added_at_ms,
         })
-        .collect())
+        .collect()
 }
 
 impl Backend {
@@ -226,7 +254,7 @@ impl Backend {
             },
             hardware_keys: HardwareKeyStatus {
                 supported: self.quick_unlock.hardware().is_supported(),
-                keys: hardware_summaries(session)?,
+                keys: summaries(&session.hardware_keys()?),
                 max_keys: u32::try_from(MAX_HARDWARE_KEYS).unwrap_or(u32::MAX),
             },
             max_age_days: u32::try_from(policy.max_age().as_secs() / 86_400).unwrap_or(30),
@@ -339,14 +367,6 @@ impl Backend {
             keys
         };
 
-        // One device operation at a time; the session is not held.
-        let op = match self.quick_unlock.hardware_op.try_lock() {
-            Ok(op) => op,
-            Err(TryLockError::WouldBlock) => return Err(IpcError::new(ErrorCode::Busy)),
-            Err(TryLockError::Poisoned(_)) => return Err(IpcError::INTERNAL),
-        };
-        let cancel = self.quick_unlock.cancel_flag();
-        cancel.reset();
         let candidates: Vec<HardwareCandidate<'_>> = keys
             .iter()
             .map(|key| HardwareCandidate {
@@ -356,8 +376,7 @@ impl Backend {
             })
             .collect();
         let pin = request.pin.as_ref().map(SecretIn::as_secret);
-        let evaluated = hardware.evaluate(&candidates, pin, cancel);
-        drop(op);
+        let evaluated = self.device_op(|cancel| hardware.evaluate(&candidates, pin, cancel))?;
         let (index, prf) = match evaluated {
             Ok(done) => done,
             Err(error) => {
@@ -384,6 +403,26 @@ impl Backend {
                 Err(error.into())
             }
         }
+    }
+
+    /// Runs one security-key operation: one at a time (a second caller gets
+    /// `busy`), with the cancel flag cleared first. The session is never
+    /// held while this runs. The outer error is `busy`; the inner one is the
+    /// device's.
+    pub(crate) fn device_op<T>(
+        &self,
+        op: impl FnOnce(&CancelFlag) -> Result<T, HardwareKeyError>,
+    ) -> IpcResult<Result<T, HardwareKeyError>> {
+        let guard = match self.quick_unlock.hardware_op.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return Err(IpcError::new(ErrorCode::Busy)),
+            Err(TryLockError::Poisoned(_)) => return Err(IpcError::INTERNAL),
+        };
+        let cancel = self.quick_unlock.cancel_flag();
+        cancel.reset();
+        let result = op(cancel);
+        drop(guard);
+        Ok(result)
     }
 
     /// The end of every successful quick unlock: like a password unlock.
@@ -426,11 +465,7 @@ impl Backend {
         let session = match &mut *slot {
             Slot::Unlocked(session) if session.account_id() == account => session,
             other => {
-                let error = match other {
-                    Slot::Unlocked(_) | Slot::Locked(_) => IpcError::LOCKED,
-                    Slot::Unavailable(code) => IpcError::new(*code),
-                    Slot::Taken => IpcError::new(ErrorCode::Busy),
-                };
+                let error = changed_while_waiting(other);
                 let _ = platform.remove(account);
                 return Err(error);
             }
@@ -484,6 +519,72 @@ impl Backend {
         {
             let _ = platform.remove(account);
         }
+    }
+
+    /// Registers a security key for unlock: the key is created and asked
+    /// once (touch, PIN), then the vault wraps the account key under the
+    /// PRF output.
+    ///
+    /// # Errors
+    /// `locked`, `hardwareKeyUnsupported`, `reauthRequired`,
+    /// `wrongCredentials` (the vault locks after five in a row),
+    /// `hardwareKeyLimit`, `busy`, `cancelled`, the device codes, or a store
+    /// error.
+    pub fn enroll_hardware_key(
+        &self,
+        request: EnrollHardwareKeyRequest,
+    ) -> IpcResult<QuickUnlockStatus> {
+        self.touch();
+        let account = self.slot()?.unlocked()?.account_id();
+        let hardware = self.quick_unlock.hardware();
+        if !hardware.is_supported() {
+            return Err(IpcError::new(ErrorCode::HardwareKeyUnsupported));
+        }
+        self.require_reauth(request.password)?;
+        if self.slot()?.unlocked()?.hardware_keys()?.len() >= MAX_HARDWARE_KEYS {
+            return Err(IpcError::new(ErrorCode::HardwareKeyLimit));
+        }
+        let salt = new_prf_salt()?;
+        let pin = request.pin.as_ref().map(SecretIn::as_secret);
+        let (credential_id, prf) =
+            self.device_op(|cancel| hardware.register(DEFAULT_RP_ID, &salt, pin, cancel))??;
+        let key = NewHardwareKey::new(credential_id, DEFAULT_RP_ID.to_owned(), salt)?;
+
+        let mut slot = self.slot()?;
+        let session = match &mut *slot {
+            Slot::Unlocked(session) if session.account_id() == account => session,
+            other => return Err(changed_while_waiting(other)),
+        };
+        let enrolled = self
+            .quick_unlock
+            .with_reauth(|proof| session.enroll_hardware_key(&key, &prf, proof));
+        match enrolled {
+            Some(Ok(_)) => {}
+            Some(Err(error)) => return Err(error.into()),
+            None => return Err(IpcError::new(ErrorCode::ReauthRequired)),
+        }
+        self.status_of(slot.unlocked()?)
+    }
+
+    /// Removes a registered security key. No re-authentication: removing
+    /// only narrows access.
+    ///
+    /// # Errors
+    /// `locked`, `invalidInput` (not 32 lowercase hex digits),
+    /// `hardwareKeyNotRecognized` (not registered), or a store error.
+    pub fn remove_hardware_key(
+        &self,
+        request: &RemoveHardwareKeyRequest,
+    ) -> IpcResult<QuickUnlockStatus> {
+        self.touch();
+        let method_id =
+            parse_method_id(&request.method_id).ok_or(IpcError::new(ErrorCode::InvalidInput))?;
+        let mut slot = self.slot()?;
+        let session = slot.unlocked_mut()?;
+        if !session.remove_hardware_key(&method_id)? {
+            return Err(IpcError::new(ErrorCode::HardwareKeyNotRecognized));
+        }
+        self.status_of(slot.unlocked()?)
     }
 
     /// Cancels a running security-key operation (no-op when idle).

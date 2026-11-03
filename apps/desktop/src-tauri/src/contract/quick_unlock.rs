@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ids::UnixMillis;
+use super::ids::{UnixMillis, WireVaultId};
 use super::macros::wire_enum;
 use super::secret::SecretIn;
 
@@ -79,9 +79,71 @@ pub struct EnrollBiometricRequest {
     pub password: Option<SecretIn>,
 }
 
+/// `enroll_hardware_key`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EnrollHardwareKeyRequest {
+    /// The master password, or `null` within two minutes of a right one.
+    pub password: Option<SecretIn>,
+    /// The key's PIN, if it has one set.
+    pub pin: Option<SecretIn>,
+}
+
+/// `remove_hardware_key`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoveHardwareKeyRequest {
+    /// The key (32 lowercase hex digits).
+    pub method_id: String,
+}
+
+/// `create_hardware_vault`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateHardwareVaultRequest {
+    /// The vault's name.
+    pub name: String,
+    /// The key's PIN, if it has one set.
+    pub pin: Option<SecretIn>,
+}
+
+/// `open_hardware_vault` and `add_hardware_vault_key`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HardwareVaultRequest {
+    /// The vault.
+    pub vault_id: WireVaultId,
+    /// The key's PIN, if it has one set.
+    pub pin: Option<SecretIn>,
+}
+
+/// `remove_hardware_vault_key`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HardwareVaultKeyRequest {
+    /// The vault.
+    pub vault_id: WireVaultId,
+    /// The key (32 lowercase hex digits).
+    pub method_id: String,
+}
+
+/// The keys of a hardware-protected vault.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareVaultKeys {
+    /// The registered keys.
+    pub keys: Vec<HardwareKeySummary>,
+}
+
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
+    use crate::contract::ids::samples as ids;
 
     pub(crate) fn statuses() -> Vec<QuickUnlockStatus> {
         vec![
@@ -121,6 +183,19 @@ pub(crate) mod samples {
         ]
     }
 
+    pub(crate) fn enroll_hardware_key() -> Vec<EnrollHardwareKeyRequest> {
+        vec![
+            EnrollHardwareKeyRequest {
+                password: None,
+                pin: None,
+            },
+            EnrollHardwareKeyRequest {
+                password: Some(SecretIn::test("correct horse battery staple")),
+                pin: Some(SecretIn::test("246810")),
+            },
+        ]
+    }
+
     pub(crate) fn enroll_biometric() -> Vec<EnrollBiometricRequest> {
         vec![
             EnrollBiometricRequest { password: None },
@@ -128,5 +203,21 @@ pub(crate) mod samples {
                 password: Some(SecretIn::test("correct horse battery staple")),
             },
         ]
+    }
+
+    pub(crate) fn key_summaries() -> Vec<HardwareVaultKeys> {
+        vec![
+            HardwareVaultKeys { keys: vec![] },
+            HardwareVaultKeys {
+                keys: statuses()[0].hardware_keys.keys.clone(),
+            },
+        ]
+    }
+
+    pub(crate) fn vault_request() -> HardwareVaultRequest {
+        HardwareVaultRequest {
+            vault_id: ids::vault(1),
+            pin: None,
+        }
     }
 }

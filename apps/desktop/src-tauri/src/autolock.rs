@@ -10,7 +10,8 @@
 //! | macOS | yes | yes | not detected (needs unsafe FFI) | not detected (needs unsafe FFI) |
 //!
 //! On resume, up to one [`TICK`] (2 s) passes before the lock. App quit
-//! locks through `RunEvent::Exit`.
+//! locks through `RunEvent::Exit`. The same tick closes hardware-protected
+//! vaults whose five minutes are up (CRYPTO_SPEC section 7.4).
 //!
 //! - **Idle** is measured inside Mosaic: the time since the last user action
 //!   the Rust side sees (a command the user caused, such as a search, a
@@ -184,6 +185,7 @@ impl Monitor {
                     if let Some(reason) = tick_decision(&backend, slept, now, SystemTime::now()) {
                         let _ = backend.lock(reason);
                     }
+                    backend.close_expired_hardware_vaults(now);
                 }
             })
             .ok();

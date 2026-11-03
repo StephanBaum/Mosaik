@@ -4,7 +4,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
 use mosaic_core::{AccountId, Argon2Profile, MasterPassword, SecretKey};
 use mosaic_vault::session::LockedSession;
@@ -14,7 +15,7 @@ use serde_json::{Value, json};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::LockReason;
 use crate::contract::quick_unlock::{
-    BiometricPlatformKind, EnrollBiometricRequest, QuickUnlockStatus,
+    BiometricPlatformKind, EnrollBiometricRequest, EnrollHardwareKeyRequest, QuickUnlockStatus,
 };
 use crate::contract::secret::SecretIn;
 use crate::contract::session::{
@@ -22,10 +23,11 @@ use crate::contract::session::{
     UnlockRequest,
 };
 use crate::contract::settings::{Settings, UpdateSettingsRequest};
+use crate::contract::vaults::VaultProtection;
 use crate::events::testing::{Log, recording_channel};
 use crate::keystore::{MemoryKeystore, SecretKeyStore};
 use crate::persist::Persistence;
-use crate::quick_unlock::fakes::FakeBiometric;
+use crate::quick_unlock::fakes::{FAKE_PIN, FakeBiometric, FakeHardwareKey};
 use crate::quick_unlock::{NoHardwareKeys, PlatformError, QuickUnlockService, system_now_ms};
 use crate::state::{Backend, Slot};
 
@@ -679,4 +681,449 @@ fn hardware_keys_are_unsupported_by_default_and_answer_without_a_device() {
         ErrorCode::HardwareKeyUnsupported
     );
     assert_eq!(methods(b), vec![QuickUnlockKind::Biometric]);
+}
+
+// ---------------------------------------------------------------------------
+// Security keys and hardware-protected vaults
+// ---------------------------------------------------------------------------
+
+struct HwRig {
+    backend: Backend,
+    key: Arc<FakeHardwareKey>,
+    events: Log,
+}
+
+/// A fresh unlocked account with `physical` security keys (key 0 plugged in)
+/// and no biometric platform.
+fn hw_rig(physical: usize) -> HwRig {
+    let key = FakeHardwareKey::new(physical);
+    let service = QuickUnlockService::new(None, Box::new(Arc::clone(&key)));
+    let backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    )
+    .with_quick_unlock(service);
+    let (channel, events) = recording_channel();
+    backend.subscribe(channel).unwrap();
+    create(&backend);
+    HwRig {
+        backend,
+        key,
+        events,
+    }
+}
+
+fn enroll_key(
+    b: &Backend,
+    password: Option<&str>,
+    pin: Option<&str>,
+) -> IpcResult<QuickUnlockStatus> {
+    b.enroll_hardware_key(EnrollHardwareKeyRequest {
+        password: password.map(SecretIn::test),
+        pin: pin.map(SecretIn::test),
+    })
+}
+
+fn pin_request(pin: Option<&str>) -> QuickUnlockRequest {
+    QuickUnlockRequest {
+        method: QuickUnlockKind::HardwareKey,
+        pin: pin.map(SecretIn::test),
+    }
+}
+
+fn typed<T: serde::de::DeserializeOwned>(value: Value) -> T {
+    serde_json::from_value(value).unwrap()
+}
+
+#[test]
+fn unsupported_security_keys_answer_without_touching_a_device() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let b = &r.backend;
+    r.key.supported.store(false, Ordering::SeqCst);
+    let vault = b.list_vaults().unwrap()[0].vault_id.0.to_string();
+    let unsupported = ErrorCode::HardwareKeyUnsupported;
+    assert_eq!(
+        code(enroll_key(b, Some(PASSWORD), None).unwrap_err()),
+        unsupported
+    );
+    assert_eq!(
+        code(
+            b.create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+                .unwrap_err()
+        ),
+        unsupported
+    );
+    assert_eq!(
+        code(
+            b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        unsupported
+    );
+    assert_eq!(
+        code(
+            b.add_hardware_vault_key(&typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        unsupported
+    );
+    let status = b.quick_unlock_status().unwrap();
+    assert!(!status.hardware_keys.supported);
+    assert_eq!(status.hardware_keys.keys, vec![]);
+    assert_eq!(status.hardware_keys.max_keys, 8);
+    b.lock(LockReason::Manual).unwrap();
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        unsupported
+    );
+    assert_eq!(methods(b), vec![]);
+    assert_eq!(r.key.calls(), 0, "no device was touched");
+
+    // Removing needs no device and validates its input.
+    unlock_with_password(b);
+    assert_eq!(
+        code(
+            b.remove_hardware_key(&typed(json!({ "methodId": "xyz" })))
+                .unwrap_err()
+        ),
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(
+        code(
+            b.remove_hardware_key(&typed(
+                json!({ "methodId": "00112233445566778899aabbccddeeff" })
+            ))
+            .unwrap_err()
+        ),
+        ErrorCode::HardwareKeyNotRecognized
+    );
+}
+
+#[test]
+fn a_security_key_unlocks_without_the_password_after_a_start() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let b = &r.backend;
+    let status = enroll_key(b, Some(PASSWORD), None).unwrap();
+    assert!(status.hardware_keys.supported);
+    assert_eq!(status.hardware_keys.keys.len(), 1);
+    assert_eq!(status.hardware_keys.keys[0].method_id.len(), 32);
+    assert_eq!(r.key.calls(), 1);
+    assert_eq!(r.key.salts.lock().unwrap().len(), 1, "the raw PRF salt");
+
+    b.lock(LockReason::Manual).unwrap();
+    assert_eq!(methods(b), vec![QuickUnlockKind::HardwareKey]);
+    let state = b.unlock_quick(&pin_request(None)).unwrap();
+    assert!(matches!(state, SessionState::Unlocked { .. }));
+    assert_eq!(r.key.calls(), 2);
+    assert_eq!(b.quick_unlock_status().unwrap().hardware_keys.keys.len(), 1);
+}
+
+#[test]
+fn the_pin_is_checked_by_the_key_and_five_failures_need_the_password() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let b = &r.backend;
+    r.key.needs_pin.store(true, Ordering::SeqCst);
+    assert_eq!(
+        code(enroll_key(b, Some(PASSWORD), None).unwrap_err()),
+        ErrorCode::HardwareKeyPinRequired
+    );
+    assert_eq!(
+        code(enroll_key(b, None, Some("000000")).unwrap_err()),
+        ErrorCode::HardwareKeyPinInvalid,
+        "the grant of the right password still holds"
+    );
+    enroll_key(b, None, Some(FAKE_PIN)).unwrap();
+    b.lock(LockReason::Manual).unwrap();
+
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        ErrorCode::HardwareKeyPinRequired,
+        "a missing PIN is not a failed attempt"
+    );
+    for _ in 0..5 {
+        assert_eq!(
+            code(b.unlock_quick(&pin_request(Some("000000"))).unwrap_err()),
+            ErrorCode::HardwareKeyPinInvalid
+        );
+    }
+    let calls = r.key.calls();
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(Some(FAKE_PIN))).unwrap_err()),
+        ErrorCode::PasswordRequired,
+        "even the right PIN needs the password now"
+    );
+    assert_eq!(r.key.calls(), calls, "refused before the device");
+    assert_eq!(methods(b), vec![]);
+
+    unlock_with_password(b);
+    b.lock(LockReason::Manual).unwrap();
+    assert_eq!(methods(b), vec![QuickUnlockKind::HardwareKey]);
+    b.unlock_quick(&pin_request(Some(FAKE_PIN))).unwrap();
+}
+
+#[test]
+fn a_wrong_key_or_answer_is_not_recognized() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(2);
+    let b = &r.backend;
+    enroll_key(b, Some(PASSWORD), None).unwrap();
+    b.lock(LockReason::Manual).unwrap();
+
+    r.key.plug(Some(1));
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        ErrorCode::HardwareKeyNotRecognized,
+        "another physical key"
+    );
+    r.key.plug(None);
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        ErrorCode::HardwareKeyNotFound
+    );
+    r.key.plug(Some(0));
+    r.key.corrupt_prf.store(true, Ordering::SeqCst);
+    for _ in 0..5 {
+        assert_eq!(
+            code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+            ErrorCode::HardwareKeyNotRecognized,
+            "the vault rejects the answer"
+        );
+    }
+    r.key.corrupt_prf.store(false, Ordering::SeqCst);
+    assert_eq!(
+        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        ErrorCode::PasswordRequired
+    );
+    assert!(!b.is_unlocked());
+}
+
+#[test]
+fn locking_cancels_a_running_device_call_and_only_one_runs_at_a_time() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let key = Arc::clone(&r.key);
+    let b = Arc::new(r.backend);
+    let cell: Arc<OnceLock<Weak<Backend>>> = Arc::default();
+    cell.set(Arc::downgrade(&b)).ok();
+
+    // A second device operation while one runs answers busy.
+    let inner: Arc<Mutex<Option<ErrorCode>>> = Arc::default();
+    let (weak, seen) = (Arc::clone(&cell), Arc::clone(&inner));
+    *key.on_call.lock().unwrap() = Some(Box::new(move || {
+        if let Some(b) = weak.get().and_then(Weak::upgrade) {
+            let error = b
+                .create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+                .unwrap_err();
+            *seen.lock().unwrap() = Some(error.code);
+        }
+    }));
+    enroll_key(&b, Some(PASSWORD), None).unwrap();
+    assert_eq!(*inner.lock().unwrap(), Some(ErrorCode::Busy));
+
+    // A lock during the touch cancels it.
+    let weak = Arc::clone(&cell);
+    *key.on_call.lock().unwrap() = Some(Box::new(move || {
+        if let Some(b) = weak.get().and_then(Weak::upgrade) {
+            b.lock(LockReason::Manual).unwrap();
+        }
+    }));
+    assert_eq!(
+        code(enroll_key(&b, None, None).unwrap_err()),
+        ErrorCode::Cancelled
+    );
+    assert!(!b.is_unlocked());
+
+    // The cancel command sets the flag (nothing runs, nothing breaks).
+    b.hardware_key_cancel();
+    assert!(b.quick_unlock.cancel_flag().is_cancelled());
+    unlock_with_password(&b);
+    assert_eq!(b.quick_unlock_status().unwrap().hardware_keys.keys.len(), 1);
+}
+
+#[test]
+fn at_most_eight_security_keys_can_be_registered() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let b = &r.backend;
+    enroll_key(b, Some(PASSWORD), None).unwrap();
+    for _ in 1..8 {
+        enroll_key(b, None, None).unwrap();
+    }
+    let calls = r.key.calls();
+    assert_eq!(
+        code(enroll_key(b, None, None).unwrap_err()),
+        ErrorCode::HardwareKeyLimit
+    );
+    assert_eq!(r.key.calls(), calls, "refused before the device");
+    let keys = b.quick_unlock_status().unwrap().hardware_keys.keys;
+    assert_eq!(keys.len(), 8);
+    let after = b
+        .remove_hardware_key(&typed(json!({ "methodId": keys[0].method_id })))
+        .unwrap();
+    assert_eq!(after.hardware_keys.keys.len(), 7);
+    enroll_key(b, None, None).unwrap();
+}
+
+fn totp_draft(title: &str) -> Value {
+    json!({
+        "text": [{ "field": "title", "value": title }],
+        "secrets": [],
+        "urls": [],
+        "customFields": [],
+        "tags": null,
+        "otp": { "op": "set", "uri": "otpauth://totp/Bank:alex?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Bank" }
+    })
+}
+
+fn find_vault(b: &Backend, vault: &str) -> crate::contract::vaults::VaultSummary {
+    b.list_vaults()
+        .unwrap()
+        .into_iter()
+        .find(|v| v.vault_id.0.to_string() == vault)
+        .unwrap()
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(2);
+    let b = &r.backend;
+    let summary = b
+        .create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+        .unwrap();
+    let vault = summary.vault_id.0.to_string();
+    assert_eq!(summary.protection, VaultProtection::HardwareKey);
+    assert!(summary.available);
+    let until = summary.open_until.expect("open until");
+    let now = system_now_ms();
+    assert!(
+        until > now + 290_000 && until <= now + 300_000,
+        "{until} vs {now}"
+    );
+
+    // Only one-time-code items live in it.
+    let added = b
+        .add_item(typed(
+            json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft("Bank") }),
+        ))
+        .unwrap();
+    let item = json!({
+        "vaultId": added.summary.vault_id.0.to_string(),
+        "itemId": added.summary.item_id.0.to_string(),
+    });
+    assert_eq!(
+        code(
+            b.add_item(typed(
+                json!({ "vaultId": vault, "kind": "login", "draft": totp_draft("Nope") })
+            ))
+            .unwrap_err()
+        ),
+        ErrorCode::ItemTypeNotAllowed
+    );
+    assert_eq!(b.totp_code(typed(item.clone())).unwrap().period, Some(30));
+
+    // Five minutes later the tick closes it and tells the webview.
+    b.close_expired_hardware_vaults(Instant::now() + Duration::from_secs(301));
+    let closed = json!({ "type": "hardwareVaultClosed", "vaultId": vault });
+    assert!(events(&r.events).contains(&closed));
+    assert_eq!(
+        code(b.totp_code(typed(item.clone())).unwrap_err()),
+        ErrorCode::VaultUnavailable
+    );
+    let listed = find_vault(b, &vault);
+    assert!(!listed.available && listed.open_until.is_none());
+    assert_eq!(listed.protection, VaultProtection::HardwareKey);
+    let keys = b
+        .hardware_vault_keys(&typed(json!({ "vaultId": vault })))
+        .unwrap();
+    assert_eq!(keys.keys.len(), 1, "the keys can be listed while closed");
+    let first_id = keys.keys[0].method_id.clone();
+    assert_eq!(
+        code(
+            b.remove_hardware_vault_key(&typed(json!({ "vaultId": vault, "methodId": first_id })))
+                .unwrap_err()
+        ),
+        ErrorCode::VaultUnavailable,
+        "managing keys needs the vault open"
+    );
+
+    // Another physical key cannot open it; the right one can.
+    r.key.plug(Some(1));
+    assert_eq!(
+        code(
+            b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        ErrorCode::HardwareKeyNotRecognized
+    );
+    assert!(!find_vault(b, &vault).available, "it stays closed");
+    r.key.plug(Some(0));
+    let reopened = b
+        .open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+        .unwrap();
+    assert!(reopened.available && reopened.open_until.is_some());
+    assert!(b.totp_code(typed(item.clone())).is_ok());
+
+    // A second key, then the first can go; the last one cannot.
+    let second = b
+        .add_hardware_vault_key(&typed(json!({ "vaultId": vault, "pin": null })))
+        .unwrap();
+    assert_eq!(second.keys.len(), 2);
+    let after = b
+        .remove_hardware_vault_key(&typed(json!({ "vaultId": vault, "methodId": first_id })))
+        .unwrap();
+    assert_eq!(after.keys.len(), 1);
+    assert_eq!(
+        code(
+            b.remove_hardware_vault_key(&typed(json!({ "vaultId": vault, "methodId": first_id })))
+                .unwrap_err()
+        ),
+        ErrorCode::HardwareKeyNotRecognized
+    );
+    assert_eq!(
+        code(
+            b.remove_hardware_vault_key(&typed(
+                json!({ "vaultId": vault, "methodId": after.keys[0].method_id })
+            ))
+            .unwrap_err()
+        ),
+        ErrorCode::HardwareKeyLast
+    );
+
+    // A manual close sends no event; the account-key vault refuses these
+    // commands.
+    let before = events(&r.events).len();
+    b.close_hardware_vault(&typed(json!({ "vaultId": vault })))
+        .unwrap();
+    assert_eq!(events(&r.events).len(), before);
+    assert_eq!(
+        code(b.totp_code(typed(item.clone())).unwrap_err()),
+        ErrorCode::VaultUnavailable
+    );
+    let plain = b.list_vaults().unwrap()[0].vault_id.0.to_string();
+    for error in [
+        b.close_hardware_vault(&typed(json!({ "vaultId": plain })))
+            .unwrap_err(),
+        b.hardware_vault_keys(&typed(json!({ "vaultId": plain })))
+            .unwrap_err(),
+    ] {
+        assert_eq!(code(error), ErrorCode::InvalidInput);
+    }
+
+    // A lock closes it too: after the next unlock it is closed.
+    b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+        .unwrap();
+    b.lock(LockReason::Manual).unwrap();
+    unlock_with_password(b);
+    let listed = find_vault(b, &vault);
+    assert!(!listed.available && listed.open_until.is_none());
+    assert_eq!(
+        code(b.totp_code(typed(item)).unwrap_err()),
+        ErrorCode::VaultUnavailable
+    );
 }

@@ -166,6 +166,18 @@ pub(crate) fn build() -> Value {
         vec![()],
         quick_unlock::samples::statuses(),
     );
+    f.command(
+        "enroll_hardware_key",
+        quick_unlock::samples::enroll_hardware_key(),
+        quick_unlock::samples::statuses(),
+    );
+    f.command(
+        "remove_hardware_key",
+        vec![quick_unlock::RemoveHardwareKeyRequest {
+            method_id: "0123456789abcdef0123456789abcdef".into(),
+        }],
+        quick_unlock::samples::statuses(),
+    );
     f.command("hardware_key_cancel", vec![()], vec![()]);
 
     // Vaults
@@ -184,6 +196,47 @@ pub(crate) fn build() -> Value {
             name: "Family".into(),
         }],
         vaults::samples::summaries(),
+    );
+
+    f.command(
+        "create_hardware_vault",
+        vec![quick_unlock::CreateHardwareVaultRequest {
+            name: "Authenticators".into(),
+            pin: Some(SecretIn::test("246810")),
+        }],
+        vaults::samples::summaries(),
+    );
+    f.command(
+        "open_hardware_vault",
+        vec![quick_unlock::samples::vault_request()],
+        vaults::samples::summaries(),
+    );
+    f.command(
+        "close_hardware_vault",
+        vec![vaults::VaultRequest {
+            vault_id: ids::vault(3),
+        }],
+        vec![()],
+    );
+    f.command(
+        "hardware_vault_keys",
+        vec![vaults::VaultRequest {
+            vault_id: ids::vault(3),
+        }],
+        quick_unlock::samples::key_summaries(),
+    );
+    f.command(
+        "add_hardware_vault_key",
+        vec![quick_unlock::samples::vault_request()],
+        quick_unlock::samples::key_summaries(),
+    );
+    f.command(
+        "remove_hardware_vault_key",
+        vec![quick_unlock::HardwareVaultKeyRequest {
+            vault_id: ids::vault(3),
+            method_id: "0123456789abcdef0123456789abcdef".into(),
+        }],
+        quick_unlock::samples::key_summaries(),
     );
 
     // Items
@@ -380,6 +433,7 @@ pub(crate) fn build() -> Value {
     for (name, all) in [
         ("errorCode", values(ErrorCode::ALL)),
         ("quickUnlockKind", values(QuickUnlockKind::ALL)),
+        ("vaultProtection", values(vaults::VaultProtection::ALL)),
         ("biometricPlatformKind", values(BiometricPlatformKind::ALL)),
         ("itemKind", values(ItemKind::ALL)),
         ("textFieldKey", values(TextFieldKey::ALL)),

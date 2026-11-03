@@ -99,6 +99,12 @@ pub enum AppEvent {
     },
     /// The global shortcut was pressed while unlocked: open the palette.
     QuickSearchRequested,
+    /// A hardware-protected vault closed by itself after its five minutes
+    /// (a manual close and a lock do not send it).
+    HardwareVaultClosed {
+        /// The vault.
+        vault_id: WireVaultId,
+    },
 }
 
 #[cfg(test)]
@@ -141,6 +147,9 @@ pub(crate) mod samples {
                 reason: SshSignFailReason::WrongPassphrase,
             },
             AppEvent::QuickSearchRequested,
+            AppEvent::HardwareVaultClosed {
+                vault_id: ids::vault(3),
+            },
         ];
         for event in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -151,7 +160,8 @@ pub(crate) mod samples {
                 | AppEvent::SshApprovalRequested { .. }
                 | AppEvent::SshApprovalClosed { .. }
                 | AppEvent::SshSignFailed { .. }
-                | AppEvent::QuickSearchRequested => {}
+                | AppEvent::QuickSearchRequested
+                | AppEvent::HardwareVaultClosed { .. } => {}
             }
         }
         all

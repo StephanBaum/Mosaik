@@ -1,13 +1,17 @@
 //! Fake platforms for the command tests: no OS prompt, no device, and
 //! counters and hooks to observe and disturb the flows.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mosaic_core::{AccountId, Kek, SecretBytes};
+use mosaic_core::unlock::PrfOutput;
+use mosaic_core::{AccountId, Kek, SecretBytes, SecretString};
 
-use super::{BiometricPlatform, PlatformError, params};
+use super::{
+    BiometricPlatform, CancelFlag, HardwareCandidate, HardwareKeyError, HardwareKeyPlatform,
+    PlatformError, params,
+};
 use crate::contract::quick_unlock::BiometricPlatformKind;
 
 /// A hook that runs inside a platform call, without any lock of the
@@ -144,5 +148,166 @@ impl BiometricPlatform for Arc<FakeBiometric> {
         self.removals.fetch_add(1, Ordering::SeqCst);
         self.lose_key();
         Ok(())
+    }
+}
+
+/// The credentials on one physical key: credential ID, PRF salt, output.
+type Credentials = HashMap<Vec<u8>, HashMap<[u8; 32], [u8; 32]>>;
+
+/// A security key (or several) that keeps its credentials in memory.
+pub(crate) struct FakeHardwareKey {
+    /// What `is_supported` answers.
+    pub(crate) supported: AtomicBool,
+    /// Whether the keys have a PIN set (`PIN`).
+    pub(crate) needs_pin: AtomicBool,
+    /// Every credential on every physical key: key index, credential ID,
+    /// PRF salt, PRF output.
+    keys: Mutex<Vec<Credentials>>,
+    /// The physical key that is plugged in.
+    plugged: Mutex<Option<usize>>,
+    /// Calls into `register` and `evaluate`.
+    pub(crate) calls: AtomicUsize,
+    /// The raw PRF salts the fake was asked to evaluate (the real transport
+    /// hashes them with `prf_salt_input`).
+    pub(crate) salts: Mutex<Vec<[u8; 32]>>,
+    /// Answer `evaluate` with an output that opens nothing.
+    pub(crate) corrupt_prf: AtomicBool,
+    /// Runs inside `register` and `evaluate`, before the checks.
+    pub(crate) on_call: Mutex<Option<Hook>>,
+}
+
+/// The PIN of a fake key that has one.
+pub(crate) const FAKE_PIN: &str = "135790";
+
+impl FakeHardwareKey {
+    /// `keys` physical keys; key 0 is plugged in.
+    pub(crate) fn new(keys: usize) -> Arc<Self> {
+        Arc::new(Self {
+            supported: AtomicBool::new(true),
+            needs_pin: AtomicBool::new(false),
+            keys: Mutex::new(vec![HashMap::new(); keys]),
+            plugged: Mutex::new(Some(0)),
+            calls: AtomicUsize::new(0),
+            salts: Mutex::new(Vec::new()),
+            corrupt_prf: AtomicBool::new(false),
+            on_call: Mutex::new(None),
+        })
+    }
+
+    pub(crate) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    /// Plugs in physical key `index`, or none.
+    pub(crate) fn plug(&self, index: Option<usize>) {
+        if let Ok(mut plugged) = self.plugged.lock() {
+            *plugged = index;
+        }
+    }
+
+    fn random() -> Result<[u8; 32], HardwareKeyError> {
+        SecretBytes::<32>::random()
+            .map(|b| *b.expose_secret())
+            .map_err(|_| HardwareKeyError::Failed)
+    }
+
+    fn prf(bytes: &[u8; 32]) -> Result<PrfOutput, HardwareKeyError> {
+        SecretBytes::<32>::from_slice(bytes)
+            .map(PrfOutput::from_secret)
+            .map_err(|_| HardwareKeyError::Failed)
+    }
+
+    /// The common start of both operations: counts, runs the hook, checks
+    /// support, cancel, device and PIN. Returns the plugged key's index.
+    fn begin(
+        &self,
+        pin: Option<&SecretString>,
+        cancel: &CancelFlag,
+    ) -> Result<usize, HardwareKeyError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let hook = self.on_call.lock().ok().and_then(|mut h| h.take());
+        if let Some(hook) = hook {
+            hook();
+        }
+        if !self.supported.load(Ordering::SeqCst) {
+            return Err(HardwareKeyError::Unsupported);
+        }
+        if cancel.is_cancelled() {
+            return Err(HardwareKeyError::Cancelled);
+        }
+        let plugged = (*self.plugged.lock().map_err(|_| HardwareKeyError::Failed)?)
+            .ok_or(HardwareKeyError::NoDevice)?;
+        if self.needs_pin.load(Ordering::SeqCst) {
+            match pin.map(SecretString::expose_secret) {
+                None => return Err(HardwareKeyError::PinRequired),
+                Some(given) if given != FAKE_PIN => return Err(HardwareKeyError::PinInvalid),
+                Some(_) => {}
+            }
+        }
+        Ok(plugged)
+    }
+}
+
+impl HardwareKeyPlatform for Arc<FakeHardwareKey> {
+    fn is_supported(&self) -> bool {
+        self.supported.load(Ordering::SeqCst)
+    }
+
+    fn register(
+        &self,
+        _rp_id: &str,
+        prf_salt: &[u8; 32],
+        pin: Option<&SecretString>,
+        cancel: &CancelFlag,
+    ) -> Result<(Vec<u8>, PrfOutput), HardwareKeyError> {
+        let plugged = self.begin(pin, cancel)?;
+        let credential = FakeHardwareKey::random()?.to_vec();
+        let output = FakeHardwareKey::random()?;
+        self.salts
+            .lock()
+            .map_err(|_| HardwareKeyError::Failed)?
+            .push(*prf_salt);
+        self.keys
+            .lock()
+            .map_err(|_| HardwareKeyError::Failed)?
+            .get_mut(plugged)
+            .ok_or(HardwareKeyError::Failed)?
+            .insert(credential.clone(), HashMap::from([(*prf_salt, output)]));
+        Ok((credential, FakeHardwareKey::prf(&output)?))
+    }
+
+    fn evaluate(
+        &self,
+        candidates: &[HardwareCandidate<'_>],
+        pin: Option<&SecretString>,
+        cancel: &CancelFlag,
+    ) -> Result<(usize, PrfOutput), HardwareKeyError> {
+        let plugged = self.begin(pin, cancel)?;
+        let mut keys = self.keys.lock().map_err(|_| HardwareKeyError::Failed)?;
+        let device = keys.get_mut(plugged).ok_or(HardwareKeyError::Failed)?;
+        let (index, candidate) = candidates
+            .iter()
+            .enumerate()
+            .find(|(_, c)| device.contains_key(c.credential_id))
+            .ok_or(HardwareKeyError::NotRecognized)?;
+        self.salts
+            .lock()
+            .map_err(|_| HardwareKeyError::Failed)?
+            .push(*candidate.prf_salt);
+        let output = if self.corrupt_prf.load(Ordering::SeqCst) {
+            FakeHardwareKey::random()?
+        } else {
+            let salts = device
+                .get_mut(candidate.credential_id)
+                .ok_or(HardwareKeyError::Failed)?;
+            if let Some(output) = salts.get(candidate.prf_salt) {
+                *output
+            } else {
+                let output = FakeHardwareKey::random()?;
+                salts.insert(*candidate.prf_salt, output);
+                output
+            }
+        };
+        Ok((index, FakeHardwareKey::prf(&output)?))
     }
 }

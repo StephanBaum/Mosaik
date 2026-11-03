@@ -32,11 +32,12 @@ pub mod windows_hello;
 #[cfg(test)]
 pub(crate) mod fakes;
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mosaic_core::{AccountId, Kek};
+use mosaic_core::{AccountId, Kek, VaultId};
 use mosaic_vault::session::{
     LockedSession, QuickMethod, QuickUnlockPolicy, REAUTH_GRANT as VAULT_REAUTH_GRANT,
     Reauthenticated,
@@ -55,6 +56,9 @@ pub const REAUTH_GRANT: Duration = VAULT_REAUTH_GRANT;
 /// Wrong re-authentications in a row, in one unlocked session, before the
 /// vault locks (ADR-0028 item 8).
 pub const MAX_FAILED_REAUTH: u8 = 5;
+/// How long a hardware-protected vault stays open after its key was used
+/// (CRYPTO_SPEC section 7.4). Viewing a code does not extend it.
+pub const HARDWARE_VAULT_OPEN_FOR: Duration = Duration::from_secs(300);
 
 /// Why a platform operation failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,6 +145,8 @@ pub struct QuickUnlockService {
     /// answer `reauthRequired` before it prompts.
     reauth: Mutex<Option<Grant>>,
     failed_reauth: AtomicU8,
+    /// When each open hardware-protected vault closes (monotonic clock).
+    open_vaults: Mutex<BTreeMap<VaultId, Instant>>,
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
@@ -165,6 +171,7 @@ impl QuickUnlockService {
             cancel: CancelFlag::default(),
             reauth: Mutex::new(None),
             failed_reauth: AtomicU8::new(0),
+            open_vaults: Mutex::new(BTreeMap::new()),
             clock: Box::new(system_now_ms),
         }
     }
@@ -292,14 +299,53 @@ impl QuickUnlockService {
             .saturating_add(1)
     }
 
+    /// Records that `vault` was opened (or its key used again) at `now`.
+    pub(crate) fn note_vault_open(&self, vault: VaultId, now: Instant) {
+        if let Ok(mut open) = self.open_vaults.lock() {
+            open.insert(vault, now + HARDWARE_VAULT_OPEN_FOR);
+        }
+    }
+
+    /// Forgets the deadline of `vault` (it closed).
+    pub(crate) fn note_vault_closed(&self, vault: VaultId) {
+        if let Ok(mut open) = self.open_vaults.lock() {
+            open.remove(&vault);
+        }
+    }
+
+    /// When `vault` closes by itself, if it is open.
+    pub(crate) fn vault_deadline(&self, vault: VaultId) -> Option<Instant> {
+        self.open_vaults.lock().ok()?.get(&vault).copied()
+    }
+
+    /// Removes and returns the vaults whose deadline passed at `now`.
+    pub(crate) fn take_expired_vaults(&self, now: Instant) -> Vec<VaultId> {
+        let Ok(mut open) = self.open_vaults.lock() else {
+            return Vec::new();
+        };
+        let expired: Vec<VaultId> = open
+            .iter()
+            .filter(|(_, deadline)| **deadline <= now)
+            .map(|(vault, _)| *vault)
+            .collect();
+        for vault in &expired {
+            open.remove(vault);
+        }
+        expired
+    }
+
     /// What follows every lock: a running device operation is cancelled and
-    /// the grant and the failure count are dropped.
+    /// the grant, the failure count and the deadlines of open vaults are
+    /// dropped.
     pub(crate) fn on_lock(&self) {
         self.cancel.cancel();
         if let Some(mut grant) = self.grant() {
             *grant = None;
         }
         self.failed_reauth.store(0, Ordering::SeqCst);
+        if let Ok(mut open) = self.open_vaults.lock() {
+            open.clear();
+        }
     }
 }
 
@@ -331,7 +377,23 @@ mod tests {
         assert!(service.with_reauth(|_| ()).is_none());
         assert_eq!(service.reauth_failed(), 1);
         assert_eq!(service.reauth_failed(), 2);
+        let vault = VaultId::from_bytes([
+            0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1,
+        ])
+        .unwrap();
+        let now = Instant::now();
+        service.note_vault_open(vault, now);
+        assert_eq!(
+            service.vault_deadline(vault),
+            Some(now + HARDWARE_VAULT_OPEN_FOR)
+        );
+        assert_eq!(service.take_expired_vaults(now), Vec::new());
+        let later = now + HARDWARE_VAULT_OPEN_FOR + Duration::from_secs(1);
+        assert_eq!(service.take_expired_vaults(later), vec![vault]);
+        assert_eq!(service.vault_deadline(vault), None, "taken once");
+        service.note_vault_open(vault, now);
         service.on_lock();
+        assert_eq!(service.vault_deadline(vault), None, "a lock clears them");
         assert_eq!(service.reauth_failed(), 1, "a lock resets the count");
         assert!(service.cancel_flag().is_cancelled(), "a lock cancels");
     }
