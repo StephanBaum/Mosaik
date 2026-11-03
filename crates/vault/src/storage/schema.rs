@@ -247,14 +247,31 @@ CREATE TABLE attachments (
 CREATE INDEX attachments_record ON attachments (vault_id, record_id);
 ";
 
+/// Version 2: the local-only settings nonce (CRYPTO_SPEC §11.1, ADR-0030).
+/// Additive: one new table, nothing else changes. It is not a record and
+/// never enters the outbox.
+const V2: &str = r"
+CREATE TABLE settings_nonce (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    nonce       BLOB    NOT NULL CHECK (length(nonce) = 16),
+    updated_at  INTEGER NOT NULL
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
-pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: V1,
-}];
+pub(crate) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: V1,
+    },
+    Migration {
+        version: 2,
+        sql: V2,
+    },
+];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 1;
+pub const LATEST_VERSION: u32 = 2;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -347,7 +364,7 @@ mod tests {
         assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
     }
 
-    const V2_TEST: &str = "
+    const V3_TEST: &str = "
         ALTER TABLE vaults ADD COLUMN test_flag INTEGER NOT NULL DEFAULT 7;
         CREATE TABLE test_v2 (x INTEGER) STRICT;
     ";
@@ -372,10 +389,14 @@ mod tests {
             },
             Migration {
                 version: 2,
-                sql: V2_TEST,
+                sql: V2,
+            },
+            Migration {
+                version: 3,
+                sql: V3_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 2);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 3);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -389,11 +410,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 2,
-                supported: 1
+                found: 3,
+                supported: 2
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 2);
+        assert_eq!(user_version(&c).unwrap(), 3);
     }
 
     #[test]
@@ -407,11 +428,15 @@ mod tests {
             },
             Migration {
                 version: 2,
+                sql: V2,
+            },
+            Migration {
+                version: 3,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 1);
+        assert_eq!(user_version(&c).unwrap(), 2);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -427,7 +452,7 @@ mod tests {
         let mut c = conn();
         let gappy = [Migration {
             version: 2,
-            sql: V2_TEST,
+            sql: V3_TEST,
         }];
         assert!(matches!(migrate(&mut c, &gappy), Err(Error::Corrupt)));
         assert_eq!(user_version(&c).unwrap(), 0);

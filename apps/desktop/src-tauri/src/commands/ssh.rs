@@ -47,14 +47,15 @@ impl Backend {
         request: SshSetEnabledRequest,
     ) -> IpcResult<SshAgentStatus> {
         self.touch();
+        let mut slot = self.slot()?;
         if request.enabled {
-            let slot = self.slot()?;
             let session = slot.unlocked()?;
             self.adapters.ssh.start(session, self.event_sink())?;
         } else {
             self.adapters.ssh.stop();
+            self.note_ssh_off();
         }
-        self.update_stored(|s| s.ssh_agent_enabled = request.enabled)?;
+        self.update_stored_in(&mut slot, |s| s.ssh_agent_enabled = request.enabled)?;
         Ok(self.ssh_agent_status())
     }
 

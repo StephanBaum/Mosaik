@@ -669,3 +669,33 @@ fn golden_derived_keys() {
         &both,
     );
 }
+
+#[test]
+fn golden_settings_mac_key() {
+    let ak = AccountKey(SecretBytes::from_array(&mut [0x20; 32]));
+    let key = ak.settings_mac_key().unwrap();
+    check(
+        "settings_mac_key",
+        "K_settings = HKDF(ikm = AK, salt = \"\", info = ctx(\"settings-mac\"), 32) (CRYPTO_SPEC 11.1)
+         AK = 20*32",
+        key.0.expose_secret(),
+    );
+}
+
+#[test]
+fn golden_settings_mac() {
+    let ak = AccountKey(SecretBytes::from_array(&mut [0x20; 32]));
+    let key = ak.settings_mac_key().unwrap();
+    let account = AccountId::from_bytes(ACCOUNT).unwrap();
+    let nonce = [0x30u8; 16];
+    let canonical = br#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"email":"a@example.com","kitVerified":true,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}"#;
+    let tag = key.tag(&account, &nonce, canonical).unwrap();
+    check(
+        "settings_mac",
+        "mac = HMAC-SHA-256(K_settings, account_id[16] || settings_nonce[16] || canonical) (CRYPTO_SPEC 11.1)
+         AK = 20*32, account_id = 0a*16, settings_nonce = 30*16, canonical =
+         {\"autoLockMinutes\":10,\"clipboardClearSeconds\":30,\"email\":\"a@example.com\",\"kitVerified\":true,\"language\":\"system\",\"lockOnScreenLock\":true,\"lockOnSleep\":true,\"quickUnlockMaxAgeDays\":14,\"sshAgentEnabled\":false,\"theme\":\"system\"}",
+        &tag,
+    );
+    assert!(key.verify(&account, &nonce, canonical, &tag));
+}

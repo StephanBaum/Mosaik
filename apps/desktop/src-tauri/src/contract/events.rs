@@ -105,6 +105,10 @@ pub enum AppEvent {
         /// The vault.
         vault_id: WireVaultId,
     },
+    /// The settings file did not carry a valid integrity check (it was
+    /// edited outside Mosaic, or is from an older version) and weaker
+    /// protection settings in it were reset to safe defaults (ADR-0030).
+    SettingsReset,
 }
 
 #[cfg(test)]
@@ -150,6 +154,7 @@ pub(crate) mod samples {
             AppEvent::HardwareVaultClosed {
                 vault_id: ids::vault(3),
             },
+            AppEvent::SettingsReset,
         ];
         for event in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -161,7 +166,8 @@ pub(crate) mod samples {
                 | AppEvent::SshApprovalClosed { .. }
                 | AppEvent::SshSignFailed { .. }
                 | AppEvent::QuickSearchRequested
-                | AppEvent::HardwareVaultClosed { .. } => {}
+                | AppEvent::HardwareVaultClosed { .. }
+                | AppEvent::SettingsReset => {}
             }
         }
         all

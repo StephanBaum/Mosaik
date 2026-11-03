@@ -460,7 +460,8 @@ impl Backend {
     /// password within the last two minutes (`reauthenticate` first).
     ///
     /// # Errors
-    /// `locked`, `reauthRequired` (leaving a hardware-protected vault),
+    /// `locked`, `reauthRequired` (leaving a hardware-protected vault; a success uses the
+    /// re-authentication up),
     /// `sameVault`, `itemNotFound`, `vaultNotFound`.
     pub fn move_item(&self, request: MoveItemRequest) -> IpcResult<MovedItem> {
         self.touch();
@@ -470,9 +471,24 @@ impl Backend {
                 .vault_protection(request.vault_id.get()),
             Ok(mosaic_vault::session::VaultProtection::HardwareKey { .. })
         );
-        if leaves_hardware_vault {
-            self.require_reauth(None)?;
+        // Leaving a hardware-protected vault takes the grant (atomically:
+        // of two parallel moves one gets it) and spends it on success; a
+        // failed move hands it back.
+        let grant = if leaves_hardware_vault {
+            Some(self.take_reauth_grant()?)
+        } else {
+            None
+        };
+        let moved = self.move_item_now(&request);
+        if moved.is_err()
+            && let Some(grant) = grant
+        {
+            self.quick_unlock.restore_reauth(grant);
         }
+        moved
+    }
+
+    fn move_item_now(&self, request: &MoveItemRequest) -> IpcResult<MovedItem> {
         let mut slot = self.slot()?;
         let target = request.target_vault_id.get();
         let session = slot.unlocked_mut()?;

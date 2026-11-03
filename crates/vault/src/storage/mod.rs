@@ -16,6 +16,7 @@
 //! | `sync_cursors` | per-vault pull cursor (§10) |
 //! | `attachments` | routing metadata; the ciphertext is a file named by the attachment ID (§7.3) |
 //! | `local_device` | this install's device ID, which stamps local edits (§10, public per §12) |
+//! | `settings_nonce` | local-only random nonce bound into the settings-file MAC (§11.1); never in the outbox, never synced |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
 //! store cannot be handed a plaintext or a key. Every object is decoded
@@ -84,6 +85,7 @@ mod device;
 mod error;
 mod records;
 mod schema;
+mod settings_nonce;
 mod vaults;
 
 use std::fmt;

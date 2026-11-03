@@ -692,6 +692,7 @@ fn totp_codes_for_time_and_counter_based_items() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn settings_persist_clamp_and_need_reauth_to_weaken() {
     let _kdf = crate::test_support::kdf_permit();
     let dir = tempfile::tempdir().unwrap();
@@ -702,27 +703,41 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
     );
     let b = &backend;
     assert_eq!(b.settings_snapshot(), Settings::default());
-    // Harmless changes work while locked, without a password.
-    let dark = b
+    // Theme and language change while locked, without a password; a
+    // protection setting needs the unlocked vault (it is written with a MAC).
+    let themed = b
         .update_settings(UpdateSettingsRequest {
             settings: Settings {
                 theme: Theme::Dark,
-                auto_lock_minutes: Some(100_000),
                 ..Settings::default()
             },
             password: None,
         })
         .unwrap();
+    assert_eq!(themed.theme, Theme::Dark);
     assert_eq!(
-        (dark.theme, dark.auto_lock_minutes),
-        (Theme::Dark, Some(480))
+        code(
+            b.update_settings(UpdateSettingsRequest {
+                settings: Settings {
+                    auto_lock_minutes: Some(100_000),
+                    ..themed.clone()
+                },
+                password: None,
+            })
+            .unwrap_err()
+        ),
+        ErrorCode::Locked
     );
     assert_eq!(
-        Persistence::in_dir(dir.path()).load().settings,
-        dark,
+        Persistence::in_dir(dir.path()).load().settings.theme,
+        Theme::Dark,
         "saved"
     );
-
+    let dark = Settings {
+        theme: Theme::Dark,
+        auto_lock_minutes: Some(480),
+        ..Settings::default()
+    };
     let off = Settings {
         auto_lock_minutes: None,
         ..dark.clone()
@@ -753,7 +768,28 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         "weakening needs an unlocked vault"
     );
 
+    // Harmless protection changes work unlocked, clamped, without a password.
     create(b);
+    let stored_dark = b
+        .update_settings(UpdateSettingsRequest {
+            settings: Settings {
+                auto_lock_minutes: Some(100_000),
+                ..themed
+            },
+            password: None,
+        })
+        .unwrap();
+    assert_eq!(
+        (stored_dark.theme, stored_dark.auto_lock_minutes),
+        (Theme::Dark, Some(480))
+    );
+    let (_, file) = Persistence::in_dir(dir.path()).load_checked();
+    assert_eq!(
+        file.unwrap().state.settings,
+        stored_dark,
+        "saved, with a MAC"
+    );
+
     let wrong = b
         .update_settings(UpdateSettingsRequest {
             settings: off.clone(),
@@ -780,13 +816,13 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         "still unlocked"
     );
     // Turning it back on needs nothing.
-    b.lock(LockReason::Manual).unwrap();
     b.update_settings(UpdateSettingsRequest {
         settings: dark.clone(),
         password: None,
     })
     .unwrap();
-    assert_eq!(Persistence::in_dir(dir.path()).load().settings, dark);
+    let (_, file) = Persistence::in_dir(dir.path()).load_checked();
+    assert_eq!(file.unwrap().state.settings, dark);
 }
 
 // ---------------------------------------------------------------------------

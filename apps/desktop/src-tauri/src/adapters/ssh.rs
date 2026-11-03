@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_ssh_agent::{
     AgentConfig, AgentHandle, ApprovalEvent, ApprovalPrompts, CloseReason, DEFAULT_GRANT, Decision,
-    Endpoint, KeyError, KeySet, RequestId, SignFailure, SkipReason,
+    Endpoint, KeyError, KeySet, RequestId, RespondError, SignFailure, SkipReason,
 };
 use mosaic_vault::session::{ItemFilter, UnlockedSession};
 
@@ -146,7 +146,9 @@ impl SshAgentService {
     /// The user's answer to an approval request.
     ///
     /// # Errors
-    /// `sshRequestExpired` (unknown or closed request, or no agent).
+    /// `sshRequestExpired` (unknown or closed request, or no agent);
+    /// `sshAllowTooSoon` (an allow within a second of the prompt appearing;
+    /// the request stays open).
     pub fn respond(&self, request: &SshRespondRequest) -> IpcResult<()> {
         let expired = || IpcError::new(ErrorCode::SshRequestExpired);
         let id = RequestId::from_str(&request.request_id).map_err(|_| expired())?;
@@ -155,7 +157,10 @@ impl SshAgentService {
         running
             .prompts
             .respond(id, decision(request.decision))
-            .map_err(|_| expired())
+            .map_err(|error| match error {
+                RespondError::Expired => expired(),
+                RespondError::TooSoon => IpcError::new(ErrorCode::SshAllowTooSoon),
+            })
     }
 
     /// Stops the agent: keys, grants and open requests are dropped now

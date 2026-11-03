@@ -1077,6 +1077,37 @@ Spec by Opus (ADR-0028), implemented in WP0–WP6 on `m3/quick-unlock`, PR #13.
   L5/L11/L12. M3-R20 (history proptest) was a test-oracle gap, fixed.
 - **CI:** all checks green on Linux, macOS and Windows for the branch.
 
+## M3 red-team (2026-11-03)
+
+Branch `test/m3-redteam`. Attacked: the IPC command set from a compromised
+webview (hostile bodies, wrong-field references, secret leaks), the
+re-authentication grant, the five-try limits, hardware-vault commands, and
+the state file `settings.json` as a local writer (P5) would edit it.
+
+- **Held:** hostile bodies never panic, unlock or return a secret; reveal and
+  copy return no secret they were not asked for; the grant dies with its
+  session; wrong passwords from every path share one limit; hardware-vault
+  commands refuse other vaults before the device; the CRYPTO_SPEC §11 floor
+  and the 30-day cap held for a tampered file.
+- **Fixed (ADR-0030 and amendment):** `settings.json` carries a MAC under a
+  key from AK (`HMAC(K_settings, account_id || settings_nonce ||
+  canonical)`); the nonce is a random local-only row of the vault store
+  (schema v2) replaced with every write, so a restored older file fails;
+  `sshAgentEnabled`, the account email and `kitVerified` are inside the MAC
+  (agent off until the MAC verifies); an invalid MAC always rewrites the
+  file; the start-up quick-unlock expiry uses only the 30-day cap.
+- **Fixed (races):** the unlock backoff is checked inside the session lock
+  (parallel guesses cannot all pass it), the kit-answer cap holds the counter
+  across check and increment, and the one-use re-authentication grant is taken
+  atomically and handed back only on failure and only within the same session.
+- **Fixed (spoofing):** vault names and item titles refuse the Unicode Cf and
+  default-ignorable characters (`mosaic_core::is_spoofing_char`), imports strip
+  them from titles with a `titleCleaned` entry warning, and the UI shows typed
+  text in a `<bdi>` isolate (`UserText`). The SSH prompt's 1 s Allow wait now
+  starts after the first commit. CRYPTO_SPEC §4 lists `K_settings`.
+- **Left:** a joint rollback of store and file (M3-R23); emoji written with
+  U+FE0F are refused in names (M3-R24).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -1113,7 +1144,7 @@ Spec by Opus (ADR-0028), implemented in WP0–WP6 on `m3/quick-unlock`, PR #13.
 | M3-R6 | medium | Quick unlock: Windows Hello (TPM-backed) and Touch ID are built (ADR-0028, 2026-11-03), Linux has no biometrics. Security-key unlock and keys for hardware vaults are implemented in `mosaic-vault` and the desktop commands, but have no CTAP transport: it needs an owner decision ("Needs owner", WP7), so keys report unsupported and their UI is hidden. Windows gets no security keys in M3 (only `webauthn.dll`, which needs unsafe FFI). Touch ID and Hello still need the manual hardware checks | partly resolved (biometrics); security keys open (owner) |
 | M3-R7 | low | Clipboard exclusion depends on clipboard managers honoring the hints; Linux covers X11/XWayland only; a clipboard still busy after 5 tries at quit keeps the value | accepted (ADR-0020), R21 |
 | M3-R8 | low | Re-authentication re-derives the keys (lock, then unlock) | resolved 2026-11-03: `verify_master_password` returns a short-lived proof; a wrong password no longer locks, five in a row lock and require the password (`lock_requiring_password`) |
-| M3-R9 | info | keyring, arboard and OS clipboard buffers are not zeroized; a same-user attacker can edit `settings.json` (the §11 floor still applies when it is read) | accepted, R21 |
+| M3-R9 | info | keyring, arboard and OS clipboard buffers are not zeroized; a same-user attacker can edit `settings.json` (the protection settings carry a MAC since ADR-0030; see M3-R23) | accepted, R21 |
 | M3-R10 | low | Global shortcut: no effect on Wayland; a conflict on macOS is not reported; not remappable yet (UX_GUIDELINES §4) | open, M9 |
 | M3-R11 | info | `contentProtected` has no effect on Linux | accepted, R21 |
 | M3-R12 | low | SSH agent: no client identity on Windows and PID only on macOS, so "Allow for 15 minutes" is not offered there and the prompt shows an unknown client | accepted (ADR-0025), R20 |
@@ -1127,6 +1158,8 @@ Spec by Opus (ADR-0028), implemented in WP0–WP6 on `m3/quick-unlock`, PR #13.
 | M3-R20 | medium | `mosaic-core` proptest `model_sync::password_history_trim_by_edit_order` failed repeatedly on one saved input during the shell track (`replica_count = 3, offsets_days = [0, 0, 0]`; the steps were not kept) | resolved in `61a407e`: a test-oracle bug, not a core bug. Reproduced from CI seed `cc f4c785eb…` (now in `proptest-regressions/model_sync.txt`); minimal case: C changes the password, A syncs, B deletes, C repairs, A deletes and then applies C's repair, so A holds the item without a password and a change there rightly adds no history entry. The oracle now requires an unchanged history when nothing was replaced and, otherwise, one new entry under this edit's stamp holding the replaced value; deterministic test `a_password_set_after_the_own_delete_lost_the_race_replaces_nothing` |
 | M3-R21 | info | The fuzz smoke of the 13 new targets ran only in CI; locally they were only compiled (fuzzing does not run on Windows MSVC, M1-R4) | accepted |
 | M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |
+| M3-R23 | medium | Settings integrity (ADR-0030): a joint rollback of the vault store and `settings.json` to an earlier consistent pair still verifies (the nonce rolls back with the file). Needs the same local write access as the attack it would undo | accepted until M6: settings as a synced record under CRYPTO_SPEC §10; THREAT_MODEL R28 |
+| M3-R24 | info | Names and titles refuse variation selectors (U+FE00 to U+FE0F) and ZWJ (U+200D), so an emoji sequence that needs them (for example a heart with U+FE0F) cannot be typed; imports strip them from titles | accepted (ADR-0030 red-team follow-up); revisit if users report it |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 

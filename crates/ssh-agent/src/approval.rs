@@ -179,11 +179,23 @@ pub struct SignFailed {
     pub failure: SignFailure,
 }
 
-/// [`ApprovalPrompts::respond`] found no request with that ID: it expired,
-/// was answered already, or the agent stopped.
+/// The earliest an "allow" answer is taken after the request was shown
+/// (ADR-0025, red-team finding): an instant click or a scripted answer to a
+/// prompt nobody could have read is refused. A deny is always taken.
+pub const MIN_ALLOW_DELAY: Duration = Duration::from_secs(1);
+
+/// Why [`ApprovalPrompts::respond`] did not take an answer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Error)]
-#[error("the SSH approval request is no longer open")]
-pub struct RequestExpired;
+pub enum RespondError {
+    /// No request with that ID is open: it expired, was answered already, or
+    /// the agent stopped.
+    #[error("the SSH approval request is no longer open")]
+    Expired,
+    /// An allow arrived less than [`MIN_ALLOW_DELAY`] after the request was
+    /// shown. The request stays open.
+    #[error("the SSH approval was answered too soon")]
+    TooSoon,
+}
 
 /// What [`ApprovalPrompts`] reports to the app.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -206,7 +218,14 @@ pub enum ApprovalEvent {
 /// IPC (`sshApprovalRequested` event, `ssh_respond` command).
 pub struct ApprovalPrompts<F> {
     notify: F,
-    open: Mutex<HashMap<RequestId, oneshot::Sender<Decision>>>,
+    min_allow_delay: Duration,
+    open: Mutex<HashMap<RequestId, OpenRequest>>,
+}
+
+struct OpenRequest {
+    answer: oneshot::Sender<Decision>,
+    /// When the request was shown (monotonic clock).
+    shown: Instant,
 }
 
 impl<F: Fn(ApprovalEvent) + Send + Sync + 'static> ApprovalPrompts<F> {
@@ -216,17 +235,37 @@ impl<F: Fn(ApprovalEvent) + Send + Sync + 'static> ApprovalPrompts<F> {
     pub fn new(notify: F) -> Self {
         Self {
             notify,
+            min_allow_delay: MIN_ALLOW_DELAY,
             open: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Answers an open request.
+    /// Changes how soon after a request is shown an allow is taken (default
+    /// [`MIN_ALLOW_DELAY`]). For tests that answer at once.
+    #[must_use]
+    pub const fn with_min_allow_delay(mut self, delay: Duration) -> Self {
+        self.min_allow_delay = delay;
+        self
+    }
+
+    /// Answers an open request. An allow earlier than the minimum delay after
+    /// the request was shown is refused and the request stays open.
     ///
     /// # Errors
-    /// [`RequestExpired`] if no request with this ID is open.
-    pub fn respond(&self, id: RequestId, decision: Decision) -> Result<(), RequestExpired> {
-        let sender = self.lock().remove(&id).ok_or(RequestExpired)?;
-        sender.send(decision).map_err(|_| RequestExpired)
+    /// [`RespondError::Expired`] if no request with this ID is open;
+    /// [`RespondError::TooSoon`] for an allow within the first second.
+    pub fn respond(&self, id: RequestId, decision: Decision) -> Result<(), RespondError> {
+        let mut open = self.lock();
+        let request = open.get(&id).ok_or(RespondError::Expired)?;
+        if decision != Decision::Deny && request.shown.elapsed() < self.min_allow_delay {
+            return Err(RespondError::TooSoon);
+        }
+        let request = open.remove(&id).ok_or(RespondError::Expired)?;
+        drop(open);
+        request
+            .answer
+            .send(decision)
+            .map_err(|_| RespondError::Expired)
     }
 
     /// Number of open requests.
@@ -235,7 +274,7 @@ impl<F: Fn(ApprovalEvent) + Send + Sync + 'static> ApprovalPrompts<F> {
         self.lock().len()
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<RequestId, oneshot::Sender<Decision>>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<RequestId, OpenRequest>> {
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -245,7 +284,13 @@ impl<F: Fn(ApprovalEvent) + Send + Sync + 'static> Approver for ApprovalPrompts<
         let (tx, rx) = oneshot::channel();
         // Registered before the app hears of it, so an immediate answer
         // finds it.
-        self.lock().insert(request.id, tx);
+        self.lock().insert(
+            request.id,
+            OpenRequest {
+                answer: tx,
+                shown: Instant::now(),
+            },
+        );
         (self.notify)(ApprovalEvent::Requested(request));
         async move { rx.await.unwrap_or(Decision::Deny) }
     }
@@ -324,6 +369,63 @@ mod tests {
             process_name: Some("ssh".into()),
             executable: exe.map(PathBuf::from),
         }
+    }
+
+    fn request(id: RequestId) -> ApprovalRequest {
+        ApprovalRequest {
+            id,
+            vault: VaultId::new_v7().unwrap(),
+            item: ItemId::new_v7().unwrap(),
+            key_title: None,
+            fingerprint: "SHA256:x".into(),
+            algorithm: KeyAlgorithm::Ed25519,
+            client: client(None),
+            requested_at: SystemTime::now(),
+            expires_at: SystemTime::now() + Duration::from_mins(1),
+            can_remember: false,
+        }
+    }
+
+    /// An allow in the first second is refused and leaves the request open;
+    /// a deny is always taken.
+    #[test]
+    fn an_allow_before_the_minimum_delay_is_refused() {
+        for allow in [Decision::AllowOnce, Decision::AllowFor(DEFAULT_GRANT)] {
+            let prompts = ApprovalPrompts::new(|_| {});
+            let id = RequestId::next();
+            let _answer = prompts.approve(request(id));
+            assert_eq!(prompts.respond(id, allow), Err(RespondError::TooSoon));
+            assert_eq!(prompts.open_requests(), 1, "still open");
+            assert_eq!(prompts.respond(id, Decision::Deny), Ok(()), "deny is taken");
+            assert_eq!(prompts.open_requests(), 0);
+        }
+    }
+
+    #[test]
+    fn an_allow_after_the_minimum_delay_is_taken() {
+        let prompts = ApprovalPrompts::new(|_| {}).with_min_allow_delay(Duration::from_millis(30));
+        let id = RequestId::next();
+        let answer = prompts.approve(request(id));
+        assert_eq!(
+            prompts.respond(id, Decision::AllowOnce),
+            Err(RespondError::TooSoon)
+        );
+        std::thread::sleep(Duration::from_millis(60));
+        assert_eq!(prompts.respond(id, Decision::AllowOnce), Ok(()));
+        let decision = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(answer);
+        assert_eq!(decision, Decision::AllowOnce);
+        assert_eq!(
+            prompts.respond(id, Decision::AllowOnce),
+            Err(RespondError::Expired)
+        );
+    }
+
+    #[test]
+    fn the_default_minimum_delay_is_one_second() {
+        assert_eq!(MIN_ALLOW_DELAY, Duration::from_secs(1));
     }
 
     #[test]

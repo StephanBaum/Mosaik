@@ -83,9 +83,12 @@ pub(crate) mod label {
     /// AAD of a vault key wrapped under TK (§7.4).
     pub(crate) const WRAP_VAULT_UNDER_TK: Label = Label::new("wrap/vault-under-tk");
 
+    /// HKDF info of the settings MAC key (§11.1).
+    pub(crate) const SETTINGS_MAC: Label = Label::new("settings-mac");
+
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 17] = [
+    pub(crate) const ALL: [Label; 18] = [
         SECRET_KEY,
         ROOT,
         KEK,
@@ -103,6 +106,7 @@ pub(crate) mod label {
         PRF_HW_VAULT,
         WRAP_HW_VAULT,
         WRAP_VAULT_UNDER_TK,
+        SETTINGS_MAC,
     ];
 }
 

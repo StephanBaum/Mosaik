@@ -33,7 +33,7 @@ pub mod windows_hello;
 pub(crate) mod fakes;
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -133,9 +133,12 @@ pub(crate) fn system_now_ms() -> i64 {
 }
 
 /// What the re-authentication grant remembers.
-struct Grant {
+pub(crate) struct Grant {
     proof: Reauthenticated,
     at: Instant,
+    /// The lock count when it was earned: a grant taken out before a lock is
+    /// not put back after it.
+    epoch: u64,
 }
 
 /// Quick unlock as the backend sees it.
@@ -152,6 +155,8 @@ pub struct QuickUnlockService {
     /// answer `reauthRequired` before it prompts.
     reauth: Mutex<Option<Grant>>,
     failed_reauth: AtomicU8,
+    /// Counts locks (see [`Grant`]).
+    lock_epoch: AtomicU64,
     /// When each open hardware-protected vault closes: the monotonic and
     /// the wall-clock reading, and the vault closes when **either** passed
     /// (like `Activity::idle_at`, so a suspend that stops the monotonic
@@ -182,6 +187,7 @@ impl QuickUnlockService {
             cancel: CancelFlag::default(),
             reauth: Mutex::new(None),
             failed_reauth: AtomicU8::new(0),
+            lock_epoch: AtomicU64::new(0),
             open_vaults: Mutex::new(BTreeMap::new()),
             clock: Box::new(system_now_ms),
         }
@@ -282,6 +288,7 @@ impl QuickUnlockService {
             *grant = Some(Grant {
                 proof,
                 at: Instant::now(),
+                epoch: self.lock_epoch.load(Ordering::SeqCst),
             });
         }
         self.failed_reauth.store(0, Ordering::SeqCst);
@@ -309,6 +316,29 @@ impl QuickUnlockService {
             *grant = None;
         }
         Some(result)
+    }
+
+    /// Takes the held grant out, atomically: of two concurrent commands that
+    /// need one grant, only one gets it. `None` without a grant or when it
+    /// is older than [`REAUTH_GRANT`]. A command that fails after taking it
+    /// hands it back with [`QuickUnlockService::restore_reauth`]; one that
+    /// succeeds simply drops it (the grant is spent).
+    pub(crate) fn take_reauth(&self) -> Option<Grant> {
+        self.grant()?
+            .take()
+            .filter(|g| g.at.elapsed() <= REAUTH_GRANT)
+    }
+
+    /// Puts a grant taken by [`QuickUnlockService::take_reauth`] back after
+    /// the command failed, unless the vault locked meanwhile or a newer
+    /// grant was earned.
+    pub(crate) fn restore_reauth(&self, grant: Grant) {
+        if let Some(mut slot) = self.grant()
+            && slot.is_none()
+            && grant.epoch == self.lock_epoch.load(Ordering::SeqCst)
+        {
+            *slot = Some(grant);
+        }
     }
 
     /// Counts one wrong re-authentication and returns the count.
@@ -380,7 +410,10 @@ impl QuickUnlockService {
     /// dropped.
     pub(crate) fn on_lock(&self) {
         self.cancel.cancel();
+        // The epoch moves under the grant's lock, so a grant that is out
+        // with a command cannot be put back after this lock.
         if let Some(mut grant) = self.grant() {
+            self.lock_epoch.fetch_add(1, Ordering::SeqCst);
             *grant = None;
         }
         self.failed_reauth.store(0, Ordering::SeqCst);

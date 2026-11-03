@@ -4,6 +4,7 @@ import { Icon } from "../../components/icons.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { ImportEntry, ImportPreview } from "../../ipc/contract/index.ts";
+import { UserText } from "../../components/UserText.tsx";
 
 function EntryRow({
   entry,
@@ -26,7 +27,9 @@ function EntryRow({
           }}
         />
         <span>
-          <strong>{entry.title ?? t("vault.untitled")}</strong>{" "}
+          <strong>
+            <UserText>{entry.title ?? t("vault.untitled")}</UserText>
+          </strong>{" "}
           <span className="muted">{entry.subtitle ?? t(`item.kind.${entry.kind}`)}</span>
         </span>
       </label>

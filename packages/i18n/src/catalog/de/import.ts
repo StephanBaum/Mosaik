@@ -39,6 +39,8 @@ export const importMessages = {
     "Der Passkey dieses Eintrags lässt sich noch nicht importieren. Behalte deine alte App, bis du ihn umgezogen hast.",
   "import.entry.historyTruncated": "Nur die 32 neuesten alten Passwörter wurden übernommen.",
   "import.entry.tagsDropped": "Leere oder zu lange Tags wurden ausgelassen.",
+  "import.entry.titleCleaned":
+    "Der Titel enthielt unsichtbare oder textumkehrende Zeichen. Sie wurden entfernt.",
   "import.entry.archived":
     "In deiner alten App archiviert. Der Eintrag bekommt den Tag „archived“.",
   "import.entry.unknownCategory": "Unbekannter Eintragstyp. Er wird als sichere Notiz importiert.",

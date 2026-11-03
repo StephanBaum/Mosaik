@@ -2557,6 +2557,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex-literal",
  "hkdf",
+ "hmac",
  "proptest",
  "serde",
  "serde_json",

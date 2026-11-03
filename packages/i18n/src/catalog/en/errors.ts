@@ -49,6 +49,12 @@ export const errors = {
     "That SSH request has already ended. Run the command again if you still need it.",
   "error.sshAgentUnavailable":
     "The SSH agent couldn't start. Check that no other SSH agent is running, then turn it on again.",
+  "error.unlockDelayed":
+    "Too many wrong attempts in a row. Wait a few seconds, then try again.",
+  "error.tooManyAttempts":
+    "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
+  "error.sshAllowTooSoon":
+    "That was too quick to read the request. Check the key and the program, then choose Allow again.",
   "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
   "error.internal":
     "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",

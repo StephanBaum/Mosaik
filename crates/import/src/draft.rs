@@ -87,6 +87,9 @@ pub enum EntryWarning {
     /// The import's attachments exceed [`MAX_IMPORT_ATTACHMENT_BYTES`];
     /// this entry's attachment was left out.
     AttachmentQuota,
+    /// The title had invisible or direction-changing characters (Unicode Cf
+    /// and default-ignorable code points); they were removed.
+    TitleCleaned,
 }
 
 /// An attachment file of an entry.
@@ -367,7 +370,13 @@ impl Builder {
 
     /// Sets the title (a second title becomes a custom field).
     pub(crate) fn title(&mut self, value: &str) {
-        self.text(TextField::Title, value.trim(), "Title");
+        // Invisible and direction-changing characters could make the title
+        // pass for another item; they are removed, and the entry says so.
+        let (clean, removed) = mosaic_core::strip_spoofing(value.trim());
+        if removed > 0 {
+            self.warn(EntryWarning::TitleCleaned);
+        }
+        self.text(TextField::Title, clean.trim(), "Title");
     }
 
     /// Adds notes; several notes are joined by a blank line.
@@ -926,5 +935,28 @@ mod tests {
         ] {
             assert_eq!(guess_mime(n), m);
         }
+    }
+
+    #[test]
+    fn a_title_loses_invisible_characters_and_the_entry_says_so() {
+        let mut b = Builder::new(ItemType::Login);
+        b.title("  Ba\u{202E}nk\u{200B}\u{FE0F}  ");
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.title(), Some("Bank"));
+        assert_eq!(w, [EntryWarning::TitleCleaned]);
+
+        // A clean title and a title that is only such characters.
+        let mut b = Builder::new(ItemType::Login);
+        b.title("Caf\u{e9} \u{1F510}");
+        b.url("x", "https://example.com");
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.title(), Some("Caf\u{e9} \u{1F510}"));
+        assert_eq!(w.len(), 0);
+        let mut b = Builder::new(ItemType::Login);
+        b.title("\u{200B}\u{202E}");
+        b.url("x", "https://example.com");
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(d.title(), None, "nothing left of it");
+        assert_eq!(w, [EntryWarning::TitleCleaned]);
     }
 }

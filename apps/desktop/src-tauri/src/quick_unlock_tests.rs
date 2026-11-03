@@ -1359,3 +1359,64 @@ fn l6_moving_an_item_out_of_a_hardware_vault_needs_a_fresh_password() {
     b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
     b.move_item(typed(mv)).unwrap();
 }
+
+#[test]
+fn the_start_up_expiry_check_uses_only_the_spec_cap() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let store_path = dir.path().join("vault.sqlite3");
+    let keystore = SharedKeystore::default();
+    let fake = FakeBiometric::new(true);
+    let skew = Arc::new(AtomicI64::new(0));
+    let (first, _log) = backend_over(
+        Store::open(&store_path).unwrap(),
+        keystore.clone(),
+        Persistence::in_dir(dir.path()),
+        &fake,
+        &skew,
+    );
+    create(&first);
+    first
+        .update_settings(UpdateSettingsRequest {
+            settings: Settings {
+                quick_unlock_max_age_days: 30,
+                ..Settings::default()
+            },
+            password: Some(SecretIn::test(PASSWORD)),
+        })
+        .unwrap();
+    enroll(&first, Some(PASSWORD)).unwrap();
+    first.lock(LockReason::Manual).unwrap();
+    drop(first);
+
+    // 20 days later: older than the unverified stand-in (14 days), younger
+    // than the verified 30.
+    skew.fetch_add(20 * DAY_MS, Ordering::SeqCst);
+    let (second, _log) = backend_over(
+        Store::open(&store_path).unwrap(),
+        keystore.clone(),
+        Persistence::in_dir(dir.path()),
+        &fake,
+        &skew,
+    );
+    assert_eq!(second.settings_snapshot().quick_unlock_max_age_days, 14);
+    second.reconcile_quick_unlock();
+    assert!(fake.has_key(), "the start-up check did not use the 14 days");
+    unlock_with_password(&second);
+    assert_eq!(second.settings_snapshot().quick_unlock_max_age_days, 30);
+    assert!(second.quick_unlock_status().unwrap().biometric.enrolled);
+    second.lock(LockReason::Manual).unwrap();
+    drop(second);
+
+    // Past the 30-day cap the start-up check does delete it.
+    skew.fetch_add(11 * DAY_MS, Ordering::SeqCst);
+    let (third, _log) = backend_over(
+        Store::open(&store_path).unwrap(),
+        keystore,
+        Persistence::in_dir(dir.path()),
+        &fake,
+        &skew,
+    );
+    third.reconcile_quick_unlock();
+    assert!(!fake.has_key());
+}

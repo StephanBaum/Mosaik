@@ -84,4 +84,6 @@ export const settings = {
   "reauth.bodyKey": "Um einen Schlüssel zu diesem Tresor hinzuzufügen, brauchst du dein Master-Passwort.",
   "reauth.bodyMove":
     "Um einen Eintrag aus einem Tresor mit Sicherheitsschlüssel zu verschieben, brauchst du dein Master-Passwort.",
+  "toast.settingsReset":
+    "Deine Sicherheitseinstellungen wurden außerhalb von Mosaic geändert und auf sichere Standardwerte zurückgesetzt.",
 } satisfies Record<keyof typeof en, string>;

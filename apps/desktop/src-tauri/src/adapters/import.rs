@@ -185,6 +185,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::FieldsDropped => ImportEntryWarning::FieldsDropped,
         EntryWarning::Archived => ImportEntryWarning::Archived,
         EntryWarning::AttachmentQuota => ImportEntryWarning::AttachmentQuota,
+        EntryWarning::TitleCleaned => ImportEntryWarning::TitleCleaned,
         _ => return None,
     })
 }

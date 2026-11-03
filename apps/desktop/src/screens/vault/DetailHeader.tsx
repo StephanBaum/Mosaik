@@ -9,6 +9,7 @@ import { IconButton } from "../../components/IconButton.tsx";
 import { MenuButton, type MenuItem } from "../../components/Menu.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { ItemDetail as Detail, VaultSummary } from "../../ipc/contract/index.ts";
+import { UserText } from "../../components/UserText.tsx";
 
 export type ItemCommand = "trash_item" | "restore_item" | "purge_item";
 
@@ -141,7 +142,9 @@ export function DetailHeader({
     <div className="detail__header">
       <Avatar size="lg" title={title} />
       <div className="detail__heading">
-        <h2 className="display">{title}</h2>
+        <h2 className="display">
+          <UserText>{title}</UserText>
+        </h2>
         <div className="caption detail__meta">
           {trash && summary.trashedAt !== null ? (
             <span>
@@ -157,7 +160,9 @@ export function DetailHeader({
               {vaultName != null && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span>{vaultName}</span>
+                  <span>
+                    <UserText>{vaultName}</UserText>
+                  </span>
                 </>
               )}
             </>

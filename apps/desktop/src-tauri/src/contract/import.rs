@@ -67,6 +67,9 @@ wire_enum!(
         Archived,
         /// An attachment would exceed the import quota and is left out.
         AttachmentQuota,
+        /// Invisible or direction-changing characters were removed from the
+        /// title.
+        TitleCleaned,
     }
 );
 

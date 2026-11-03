@@ -2151,3 +2151,116 @@ when a user moves an existing TOTP secret into a hardware-protected vault, say
 that earlier copies (the old item, its history, backups, exports) are not
 protected, and recommend re-issuing the secret at the provider (THREAT_MODEL
 R26). The strings go through `packages/i18n` in DE and EN.
+
+## ADR-0030: Settings integrity (a MAC under a key derived from AK)
+
+- Status: accepted
+- Date: 2026-11-03
+- Milestone: M3 (red-team findings)
+- Amends: CRYPTO_SPEC §2, §11 (new §11.1); THREAT_MODEL §4.2, R28, R29
+- Note: ADR-0029 stays reserved for the FIDO2 transport (ADR-0028 item 9).
+
+### Context
+`settings.json` is plaintext and was parsed with only range clamps. A local
+process that can write the file (P5) could set `clipboardClearSeconds: null`,
+`autoLockMinutes: null` or the longest quick-unlock age without the master
+password, which `update_settings` demands for the same change in the app. The
+red-team suite showed that only the CRYPTO_SPEC §11 floor and the 30-day cap
+held.
+
+### Decision
+1. **A MAC over the settings.** `settings.json` gets a top-level `mac`
+   (64 lowercase hex characters):
+   `HMAC-SHA-256(K_settings, canonical(settings))` with
+   `K_settings = HKDF-SHA-256(ikm = AK, salt = "", info = ctx("settings-mac"), 32)`.
+   No new primitive: HMAC-SHA-256 is in the spec (§2, OTP row), and the `hmac`
+   crate is already a workspace dependency (OTP) and in the tree through
+   `hkdf`; `mosaic-core` now depends on it directly. `mosaic-core` offers
+   `AccountKey::settings_mac_key()`, a zeroizing `SettingsMacKey` with `tag`
+   and a constant-time `verify`.
+2. **Canonical form** (CRYPTO_SPEC §11.1): the seven settings fields plus
+   `sshAgentEnabled` and the account block's `email` and `kitVerified` as one
+   JSON object, keys in ascending byte order, no whitespace, integers in
+   decimal, `null`, `true`/`false`, enum values as their wire strings, the
+   email as an RFC 8259 string. The file's own `version`, the account ID and
+   `mac` are not part of it (the account ID is part of the MAC message).
+3. **Locked: only stricter values apply.** The key exists only while the vault
+   is unlocked. From the file, a locked app uses per field the stricter of the
+   file value and the default (auto-lock: the smaller minutes, `null` becomes
+   the default; clipboard: the smaller seconds, `null` becomes the default;
+   quick-unlock age: the smaller days; lock on sleep and on screen lock:
+   always on). Theme and language come from the file. A weaker file value
+   therefore never reaches a decision made before the first unlock, notably
+   the quick-unlock expiry check.
+4. **First unlock after the start: verify.** A valid MAC (constant-time
+   compare) applies the file as it is. A missing or invalid MAC keeps the
+   stricter-than-default values from item 3, rewrites the file with a fresh
+   MAC and, if a weakening field differed, emits the event `settingsReset`
+   once so the UI shows "Your security settings were changed outside Mosaic
+   and were reset to safe defaults." Theme and language survive either way.
+   A file without `mac` (written before this ADR) is handled the same way; a
+   user who had chosen weaker values sees the notice once and sets them again
+   (the cost of not trusting an unauthenticated file).
+5. **Writes.** Every save while unlocked writes the MAC of the settings being
+   written. While locked, a save keeps the settings section and MAC of the
+   file as they are (a new theme or language stays in memory and is written at
+   the next unlock), so a locked write never invalidates a good MAC.
+6. **Key lifetime.** `K_settings` is derived once per unlock, held in a
+   zeroizing container in the backend and dropped on every lock.
+7. **Rollback binding (amendment).** The MAC'd message is
+   `account_id[16] || settings_nonce[16] || canonical(settings)`, where
+   `settings_nonce = random(16)` lives in a local-only row of the vault store
+   (never in the outbox, never synced) and is replaced by a fresh random value
+   in the same step as every MAC'd write of the file. A restored older file
+   carries a MAC under an older nonce and fails: strict values, rewrite,
+   notice. A random nonce, not a counter, so the value reveals nothing about
+   how often settings changed and cannot be predicted. The store gets one
+   additive table (schema version 2).
+8. **SSH flag and account fields (amendment).** `sshAgentEnabled`, `email` and
+   `kitVerified` are inside the MAC. Locked, `sshAgentEnabled` reads `false`.
+   After an unlock whose MAC is invalid it is `false` before the agent starts,
+   `email` is cleared and `kitVerified` is `false`. Without this, a local
+   writer could switch the agent on at the next unlock: any process that can
+   reach its endpoint could then list the public keys without approval (each
+   signature still needs the user's approval, listing does not), or flip the
+   kit flag to skip the re-check.
+9. **Rewrite and notice (amendment).** An invalid MAC always rewrites the file,
+   even when the values equal the strict ones, so a stale or forged MAC does
+   not survive. The notice is shown only if a protection field differed or the
+   file had `sshAgentEnabled: true`.
+10. **Start-up expiry (amendment).** At the start of the app, before any
+    unlock, the quick-unlock expiry deletion runs only against the 30-day
+    spec cap (§6.2); the verified age applies at the reconcile after the
+    unlock, so an unverified file cannot make the start-up check stricter or
+    weaker than the spec allows.
+11. **Look-alike names (amendment).** Vault names and item titles refuse the
+    Unicode format characters (Cf) and default-ignorable code points
+    (`mosaic_core::is_spoofing_char`, one table of ranges, no dependency):
+    soft hyphen, U+034F, Hangul fillers, U+180E, U+200B to U+200F, U+202A to
+    U+202E, U+2060 to U+206F, U+3164, variation selectors U+FE00 to U+FE0F,
+    BOM, U+FFF9 to U+FFFB and the tag block. Imports strip them from titles
+    and report `titleCleaned` on the entry, so a file is never refused for it.
+    The UI shows typed text in a bidirectional isolate (`<bdi>`). Cost: an
+    emoji sequence that needs U+200D or U+FE0F cannot be typed in a name.
+
+### Alternatives considered
+- Signing with a key from the OS keystore: ties settings to one OS API and
+  does not exist for the CLI; the MAC works with the AK every build has.
+- Refusing a bad file outright: it would also throw away theme and language;
+  resetting only the weakening fields is the more useful conservative reading.
+- Encrypting the settings: they are not secret; integrity is the goal.
+
+### Consequences
+- Malware that runs while the vault is unlocked can still change settings
+  through the app or by reading memory (R1); the MAC defends the file at rest
+  and the locked window (THREAT_MODEL R28).
+- While locked, a user with a longer quick-unlock age than the default gets
+  the default age enforced until the first unlock after each start (R28).
+- A joint rollback of the store and `settings.json` to an earlier consistent
+  pair still verifies (R28). The full fix is to keep the settings as a synced
+  record under CRYPTO_SPEC §10 in M6.
+- A crash between replacing the nonce and writing the file leaves a file the
+  MAC rejects: the next unlock resets to the strict values and tells the user
+  (fail safe, not fail open).
+- The SSH approval prompt names only the client process where the OS gives a
+  name (THREAT_MODEL R29, unchanged by this ADR).

@@ -38,6 +38,8 @@ export const importMessages = {
   "import.entry.tagsDropped": "Empty or overlong tags were left out.",
   "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",
   "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
+  "import.entry.titleCleaned":
+    "The title had invisible or text-reversing characters. They were removed.",
   "import.entry.fieldsDropped":
     "This item has more fields than Mosaic keeps. The extra fields are left out.",
   "import.skip.malformed": "This entry is damaged and can't be read.",

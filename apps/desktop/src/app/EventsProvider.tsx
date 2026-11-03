@@ -1,6 +1,6 @@
 /**
  * The one subscription to Rust events, fanned out to the app: lock (hide secrets, reload
- * the session), clipboard cleared (toast), SSH approvals (a queue) and the quick-search
+ * the session), clipboard cleared and settings reset (toasts), SSH approvals (a queue) and the quick-search
  * shortcut (opens the palette).
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
@@ -51,6 +51,9 @@ export function EventsProvider({
         break;
       case "clipboardCleared":
         toast(t("toast.clipboardCleared"));
+        break;
+      case "settingsReset":
+        toast(t("toast.settingsReset"));
         break;
       case "sshApprovalRequested":
         setSsh((queue) => [...queue, event.request]);

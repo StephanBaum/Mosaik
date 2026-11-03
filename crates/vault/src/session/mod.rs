@@ -745,6 +745,38 @@ impl UnlockedSession {
         self.account_id
     }
 
+    /// `K_settings`, the key of the settings MAC (CRYPTO_SPEC §11.1,
+    /// ADR-0030), derived from the account key. The caller keeps it only
+    /// while this session is unlocked.
+    ///
+    /// # Errors
+    /// [`Error::Core`] if the derivation fails (it cannot for 32 bytes).
+    pub fn settings_mac_key(&self) -> Result<mosaic_core::SettingsMacKey> {
+        Ok(self.account_key.settings_mac_key()?)
+    }
+
+    /// The settings nonce of the store (CRYPTO_SPEC §11.1), or `None`.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn settings_nonce(&self) -> Result<Option<[u8; mosaic_core::SETTINGS_NONCE_LEN]>> {
+        Ok(self.store.settings_nonce()?)
+    }
+
+    /// Replaces the settings nonce with `nonce` (a fresh
+    /// [`mosaic_core::new_settings_nonce`] for every MAC'd write of the
+    /// settings file; also used to put the previous value back when the
+    /// write failed). Local-only: it never enters the outbox.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_settings_nonce(
+        &mut self,
+        nonce: &[u8; mosaic_core::SETTINGS_NONCE_LEN],
+    ) -> Result<()> {
+        Ok(self.store.replace_settings_nonce(nonce)?)
+    }
+
     /// This session's writer ID, which stamps every local edit. It is new
     /// for every unlock (ADR-0015).
     #[must_use]

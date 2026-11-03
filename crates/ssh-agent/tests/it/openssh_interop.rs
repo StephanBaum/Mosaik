@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Arc;
+use std::time::Duration;
 
 use mosaic_core::model::{SshKeyMaterial, Text};
 use mosaic_core::{ItemId, SecretString, VaultId};
@@ -103,11 +104,14 @@ fn openssh_lists_and_signs_through_the_agent() {
     }
     // Approve everything (the user clicking "Allow once").
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let prompts = Arc::new(ApprovalPrompts::new(move |e: ApprovalEvent| {
-        if let ApprovalEvent::Requested(r) = e {
-            let _ = tx.send(r.id);
-        }
-    }));
+    let prompts = Arc::new(
+        ApprovalPrompts::new(move |e: ApprovalEvent| {
+            if let ApprovalEvent::Requested(r) = e {
+                let _ = tx.send(r.id);
+            }
+        })
+        .with_min_allow_delay(Duration::ZERO),
+    );
     let _guard = rt.enter();
     let agent = AgentHandle::start(
         endpoint.clone(),

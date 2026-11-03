@@ -22,6 +22,15 @@ pub mod ssh;
 pub mod totp;
 pub mod vaults;
 
+/// Whether `c` can make a name look like another one: the Unicode format
+/// characters (Cf) and default-ignorable code points, which hide or reorder
+/// text (`mosaic_core::is_spoofing_char`). Names and titles that contain one
+/// are refused (`invalidInput`).
+#[must_use]
+pub(crate) const fn is_spoofing_char(c: char) -> bool {
+    mosaic_core::is_spoofing_char(c)
+}
+
 /// The invoke handler with every command of [`names::COMMANDS`], in the
 /// same order. `tests::every_command_is_registered` checks the two agree.
 pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
