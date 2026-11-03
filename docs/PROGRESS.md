@@ -1121,4 +1121,5 @@ See the THREAT_MODEL §5 residual-risk register.
   store accounts (Chrome Web Store, Edge Add-ons, AMO). Needed from M3/M4 and
   for releases in M9.
 - **Code signing and notarization**: a Windows code-signing certificate, an Apple Developer ID and macOS notarization for the desktop app (needed before any M3 build is shared).
+- **Manual hardware checks for quick unlock (crypto review M3, L4)**: (a) Windows: does a second, unsigned executable of the same user open and sign with Mosaic's Hello key (`Mosaic quick unlock <nonce>`)? If yes, THREAT_MODEL R23's residual is real until MSIX package identity (M9). (b) macOS: Touch ID enroll, unlock and a fingerprint change on a Developer ID signed build (the macOS code only compiles in CI; nothing ran on a Mac), including the cancel mapping of `decrypt`.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

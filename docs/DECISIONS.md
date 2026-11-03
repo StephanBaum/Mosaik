@@ -2005,7 +2005,7 @@ ADR.
 
 ## ADR-0028: Quick unlock, hardware-key unlock and hardware-protected TOTP vaults
 
-- Status: accepted, pending the crypto-reviewer pass over the M3 quick-unlock work
+- Status: accepted; amended after the crypto-reviewer pass (items 3, 4, 8, 10, 11)
 - Date: 2026-11-03
 - Milestone: M3
 - Amends: ADR-0020 item 7 (Windows calls), CRYPTO_SPEC §6.2, §6.3, §7.4, §11, §12
@@ -2040,9 +2040,33 @@ unlock (M3-R8). Writer IDs are per session (ADR-0015), so §6.2's
 3. **Windows (pins ADR-0020 item 7, adds one call):** after
    `RequestCreateAsync`, `KeyCredential.GetAttestationAsync()` must report
    `Success` or `TemporaryFailure`; `NotSupported` or `UnknownError` (no TPM,
-   a software key) deletes the key and refuses enrollment.
+   a software key) deletes the key and refuses enrollment. Enrollment signs
+   with the `KeyCredential` object `RequestCreateAsync` returned, never with
+   one re-opened by name, so the attested key is the signing key. At unlock
+   the key is opened by name and not attested again (that is a network call);
+   a key swapped in under the name signs differently, so `W` differs and the
+   unwrap fails (a swap can deny an unlock, not grant one). **Key name:** the
+   platform key is named `Mosaic quick unlock {key_nonce_hex}`, where
+   `key_nonce` is 16 random bytes drawn per enrollment and stored in the
+   platform parameters (version `0x02`: `0x02 || platform || key_nonce[16] ||
+   body`). The name is per store and enrollment, not per account: a copied
+   store never shares or deletes another store's key, and the name cannot be
+   predicted from the account ID. Version `0x01` (named by account) never
+   shipped and no longer decodes; such an enrollment counts as stale and the
+   user enrolls again. A key that lost its enrollment (a crash between the
+   two steps) cannot be found by name any more; every failure path deletes
+   its own key, so only that window leaves one. **Residual (THREAT_MODEL
+   R23):** for an unpackaged Win32 app Windows may not isolate Hello keys
+   per app, and the key name is not secret. A process of the same user that
+   gets one Hello gesture (or the Hello PIN, for example by keylogging) could
+   sign the plaintext challenge from the store, derive `W` and unwrap the
+   account key offline with a copy of the store. MSIX package identity (M9)
+   is the tracked mitigation; until then the manual hardware check in
+   PROGRESS ("Needs owner") must show whether a second unsigned executable
+   can open and sign with Mosaic's key.
 4. **macOS:** a Secure Enclave P-256 key (`kSecAttrTokenIDSecureEnclave`,
-   data-protection keychain, label `Mosaic quick unlock {account_id}`) with
+   data-protection keychain, label `Mosaic quick unlock {key_nonce_hex}`, see
+   item 3) with
    access control `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and flags
    `kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet`
    (Touch ID only; a fingerprint change invalidates it). `W = random(32)` is
@@ -2073,12 +2097,31 @@ unlock (M3-R8). Writer IDs are per session (ADR-0015), so §6.2's
    open with a registered key for at most 5 minutes, and close on lock. The
    last key cannot be removed; removing a key does not rotate TK.
 8. **Re-authentication** uses `UnlockedSession::verify_master_password`; a
-   wrong password no longer locks, five in a row do.
+   wrong password no longer locks, five in a row do. That lock uses
+   `UnlockedSession::lock_requiring_password`, which sets the failed-attempt
+   counter to `MAX_FAILED_QUICK_ATTEMPTS` so no quick method is offered or
+   accepted until the next password unlock; a plain `lock` resets the counter
+   and would let the next Hello prompt reopen the guessing. The proof of a
+   right password is **consumed** by a successful enrollment (kept after a
+   failed one), so the next enrollment asks again.
 9. **Transport.** The FIDO2 transport is a separate decision (ADR-0029):
    until it lands the app reports hardware keys as unsupported and shows no
    hardware-key control. On Windows, FIDO devices are reachable without
    administrator rights only through `webauthn.dll`, which needs `unsafe` FFI;
    Windows has no hardware-key unlock in M3.
+10. **Hardware-vault lifetime.** The 5-minute deadline of an open
+    hardware-protected vault is kept as a monotonic and a wall-clock reading
+    and the vault closes when either passed; every open hardware vault closes
+    when the tick sees a suspend, whatever the lock-on-sleep setting says; an
+    open vault without a deadline closes at the next tick; a deadline is
+    forgotten only after the close succeeded.
+11. **Reauthentication for key and secret exits.** `add_hardware_vault_key`
+    and moving an item out of a hardware-protected vault need a right
+    master password within the last 2 minutes (the commands do not take a
+    password: the UI calls `reauthenticate` first). The transport MUST check
+    the UV flag of every assertion (`HardwareKeyPlatform` docs). Secrets
+    (`W`, PRF output, PIN) are dropped right after their last use, not at
+    the end of the command.
 
 ### Alternatives considered
 - `method_id` = the stored device ID: it changes with every unlock (ADR-0015).

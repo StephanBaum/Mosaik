@@ -214,6 +214,9 @@ platform:
 | Windows | A Windows Hello `KeyCredentialManager` RSA key and a stored random 32-byte `challenge`. `W = HKDF(ikm = Sign(challenge), salt = challenge, info = ctx("hello-unlock"), 32)`. This relies on RSA PKCS#1 v1.5 signatures being deterministic, so enrollment signs twice and fails if the two signatures differ. Enrollment also requires `GetAttestationAsync` to report `Success` or `TemporaryFailure` (a TPM-backed key). |
 | Linux | No hardware binding by default. Quick unlock is unavailable unless a FIDO2 key is used (§6.3). |
 
+The platform key is named by a random 16-byte `key_nonce` drawn per
+enrollment and stored with the public parameters
+(`0x02 || platform:u8 || key_nonce[16] || body`), never by the account ID.
 ADR-0020 item 7 and ADR-0028 pin the Windows and macOS calls. Any deviation
 from this table needs a spec change. `method_id` is an **enrollment ID**: a
 fresh UUIDv7 drawn at enrollment. Its 48-bit timestamp is the enrollment
