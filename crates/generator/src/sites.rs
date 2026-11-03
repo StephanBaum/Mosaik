@@ -28,6 +28,7 @@ use std::sync::OnceLock;
 
 use serde_json::{Map, Value};
 
+use crate::host;
 use crate::rules::PasswordRules;
 
 const RULES_JSON: &str = include_str!("../data/password-rules.json");
@@ -60,22 +61,10 @@ fn entry<'t>(table: &'t Map<String, Value>, domain: &str) -> Option<(&'t str, &'
 /// The most specific entry of `table` for the normalized `host`:
 /// `(key, rule string)`.
 fn lookup<'t>(table: &'t Map<String, Value>, host: &str) -> Option<(&'t str, &'t str)> {
-    let mut candidate = host;
-    loop {
-        if let Some((key, rules, exact_only)) = entry(table, candidate)
-            && (!exact_only || candidate == host)
-        {
-            return Some((key, rules));
-        }
-        if is_numeric(host) {
-            return None;
-        }
-        let (_, parent) = candidate.split_once('.')?;
-        if !parent.contains('.') {
-            return None;
-        }
-        candidate = parent;
-    }
+    host::candidates(host).find_map(|candidate| {
+        let (key, rules, exact_only) = entry(table, candidate)?;
+        (!exact_only || candidate == host).then_some((key, rules))
+    })
 }
 
 /// Every `(domain, rule string)` pair in the embedded data.
@@ -85,33 +74,6 @@ pub(crate) fn entries() -> impl Iterator<Item = (&'static str, &'static str)> {
         let rules = value.get("password-rules")?.as_str()?;
         Some((domain.as_str(), rules))
     })
-}
-
-/// The longest host name accepted, per RFC 1035.
-const MAX_HOST_LEN: usize = 253;
-
-/// Lowercases and validates `host`; `None` if it is not a DNS name.
-fn normalize(host: &str) -> Option<String> {
-    let host = host.strip_suffix('.').unwrap_or(host);
-    if host.is_empty() || host.len() > MAX_HOST_LEN {
-        return None;
-    }
-    let host = host.to_ascii_lowercase();
-    let valid = host.split('.').all(|label| {
-        !label.is_empty()
-            && label
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    });
-    valid.then_some(host)
-}
-
-/// Whether `host` ends in an all-digit label, as IPv4 addresses do. Such a
-/// host has no parent domains.
-fn is_numeric(host: &str) -> bool {
-    host.rsplit('.')
-        .next()
-        .is_some_and(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The rules that apply to a site, and the quirks key they came from.
@@ -145,7 +107,7 @@ impl SiteRules {
 /// documentation for normalization and the fallback to parent domains).
 #[must_use]
 pub fn rules_for_domain(host: &str) -> Option<SiteRules> {
-    let host = normalize(host)?;
+    let host = host::normalize(host)?;
     let (domain, rules) = lookup(table()?, &host)?;
     Some(SiteRules {
         domain,
@@ -205,7 +167,7 @@ mod tests {
             "herokuapp.com",
         ];
         for (domain, _) in entries() {
-            assert_eq!(normalize(domain).as_deref(), Some(domain), "{domain}");
+            assert_eq!(host::normalize(domain).as_deref(), Some(domain), "{domain}");
             assert!(domain.contains('.'), "{domain} has one label");
             assert!(!public_suffixes.contains(&domain), "{domain}");
         }
@@ -272,11 +234,6 @@ mod tests {
 
     #[test]
     fn ip_addresses_match_only_exactly() {
-        assert!(is_numeric("10.0.0.1"));
-        assert!(is_numeric("10.0.0"));
-        assert!(!is_numeric("1.0.0.a"));
-        assert!(!is_numeric("163.com"));
-        assert!(!is_numeric(""));
         assert!(rules_for_domain("10.0.163.com").is_some(), "not an IP");
         assert!(rules_for_domain("192.168.0.1").is_none());
     }

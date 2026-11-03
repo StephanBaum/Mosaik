@@ -280,8 +280,10 @@ the option and limit constants (`MIN_LENGTH`, `MAX_LENGTH`,
 `WORDLIST_LEN`, `BITS_PER_WORD`, `MAX_RULES_LEN`, `MAX_REQUIRED_CLASSES`,
 and `MIN_RULES_BITS`, the site-rules entropy floor, added in the fourth M2
 integration review, ADR-0011 amendment),
-`Error`, `Result`. Randomness is the OS CSPRNG only; callers cannot inject
-an RNG (ADR-0011). Internal: the `fuzzing` module.
+`Error`, `Result`. The `host` module (added in the code audit, additive) holds
+the shared host-name helpers `MAX_HOST_LEN`, `normalize`, `is_numeric` and
+`candidates`, also used by `mosaic-insights`. Randomness is the OS CSPRNG only;
+callers cannot inject an RNG (ADR-0011). Internal: the `fuzzing` module.
 
 ## Expected additions (pre-approved as additive)
 
