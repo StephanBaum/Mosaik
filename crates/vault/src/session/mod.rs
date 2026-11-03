@@ -745,6 +745,16 @@ impl UnlockedSession {
         self.account_id
     }
 
+    /// `K_settings`, the key of the settings MAC (CRYPTO_SPEC §11.1,
+    /// ADR-0030), derived from the account key. The caller keeps it only
+    /// while this session is unlocked.
+    ///
+    /// # Errors
+    /// [`Error::Core`] if the derivation fails (it cannot for 32 bytes).
+    pub fn settings_mac_key(&self) -> Result<mosaic_core::SettingsMacKey> {
+        Ok(self.account_key.settings_mac_key()?)
+    }
+
     /// This session's writer ID, which stamps every local edit. It is new
     /// for every unlock (ADR-0015).
     #[must_use]

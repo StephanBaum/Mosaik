@@ -370,6 +370,13 @@ key_newtype!(
 );
 
 key_newtype!(
+    /// The settings MAC key `K_settings` (CRYPTO_SPEC §11.1), derived from
+    /// `AK` with [`AccountKey::settings_mac_key`].
+    SettingsMacKey,
+    32
+);
+
+key_newtype!(
     /// The key `TK` of a hardware-protected TOTP vault (CRYPTO_SPEC §7.4).
     TotpVaultKey,
     32

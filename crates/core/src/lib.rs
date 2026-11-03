@@ -56,6 +56,7 @@ pub mod model;
 mod rng;
 mod secret;
 mod secret_key;
+mod settings_mac;
 pub mod unlock;
 
 #[cfg(test)]
@@ -78,5 +79,6 @@ pub use model::{
 };
 pub use secret::{
     AccountKey, AttachmentKey, Kek, MasterPassword, OpaquePassword, SecretBytes, SecretKey,
-    SecretString, SecretVec, VaultKey,
+    SecretString, SecretVec, SettingsMacKey, VaultKey,
 };
+pub use settings_mac::SETTINGS_MAC_LEN;

@@ -669,3 +669,31 @@ fn golden_derived_keys() {
         &both,
     );
 }
+
+#[test]
+fn golden_settings_mac_key() {
+    let ak = AccountKey(SecretBytes::from_array(&mut [0x20; 32]));
+    let key = ak.settings_mac_key().unwrap();
+    check(
+        "settings_mac_key",
+        "K_settings = HKDF(ikm = AK, salt = \"\", info = ctx(\"settings-mac\"), 32) (CRYPTO_SPEC 11.1)
+         AK = 20*32",
+        key.0.expose_secret(),
+    );
+}
+
+#[test]
+fn golden_settings_mac() {
+    let ak = AccountKey(SecretBytes::from_array(&mut [0x20; 32]));
+    let key = ak.settings_mac_key().unwrap();
+    let canonical = br#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}"#;
+    let tag = key.tag(canonical).unwrap();
+    check(
+        "settings_mac",
+        "mac = HMAC-SHA-256(K_settings, canonical(settings)) (CRYPTO_SPEC 11.1)
+         AK = 20*32, canonical = the default settings:
+         {\"autoLockMinutes\":10,\"clipboardClearSeconds\":30,\"language\":\"system\",\"lockOnScreenLock\":true,\"lockOnSleep\":true,\"quickUnlockMaxAgeDays\":14,\"theme\":\"system\"}",
+        &tag,
+    );
+    assert!(key.verify(canonical, &tag));
+}

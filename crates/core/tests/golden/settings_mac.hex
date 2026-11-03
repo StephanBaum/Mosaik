@@ -1,0 +1,4 @@
+# mac = HMAC-SHA-256(K_settings, canonical(settings)) (CRYPTO_SPEC 11.1)
+#          AK = 20*32, canonical = the default settings:
+#          {"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}
+2fc6d877536474293fcfedccdf75eb8ea5dfe9cfbe01e1f84f9b939c66f20e87
