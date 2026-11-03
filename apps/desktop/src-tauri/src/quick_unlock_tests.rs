@@ -1132,7 +1132,14 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         code(b.totp_code(typed(item.clone())).unwrap_err()),
         ErrorCode::VaultUnavailable
     );
-    let plain = b.list_vaults().unwrap()[0].vault_id.0.to_string();
+    // Any vault but the hardware one (the list order is not specified).
+    let plain = b
+        .list_vaults()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.vault_id.0.to_string())
+        .find(|id| *id != vault)
+        .unwrap();
     for error in [
         b.close_hardware_vault(&typed(json!({ "vaultId": plain })))
             .unwrap_err(),
@@ -1327,7 +1334,14 @@ fn l6_moving_an_item_out_of_a_hardware_vault_needs_a_fresh_password() {
     let r = hw_rig(1);
     let b = &r.backend;
     let (vault, _) = open_hw_vault(&r);
-    let plain = b.list_vaults().unwrap()[0].vault_id.0.to_string();
+    // Any vault but the hardware one (the list order is not specified).
+    let plain = b
+        .list_vaults()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.vault_id.0.to_string())
+        .find(|id| *id != vault)
+        .unwrap();
     let added = b
         .add_item(typed(
             json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft("Bank") }),
