@@ -1175,6 +1175,9 @@ proptest! {
     /// delete the item (review M2, fourth round): the repairing merges of
     /// the other replicas then write the history back under fresh stamps,
     /// and the trim must still go by the edit that moved each value there.
+    /// A change on a replica that holds no password (its own delete lost
+    /// the race to a repair) replaces nothing and leaves the history as it
+    /// was (M3-R20).
     #[test]
     fn password_history_trim_by_edit_order(
         replica_count in 2usize..=3,
@@ -1225,16 +1228,36 @@ proptest! {
                 .set_secret(SecretField::Password, &format!("pw {d} {n}"))
                 .unwrap();
             let after = history(item);
+            // A replica whose own delete lost the race to a concurrent
+            // repair holds the item without a password (M3-R20, see
+            // `a_password_set_after_the_own_delete_lost_the_race_replaces_nothing`).
+            // A password set there replaces nothing, so the history must
+            // stay exactly as it was: no entry added, none trimmed.
+            let Some(shown) = shown else {
+                prop_assert_eq!(&after, &before, "nothing replaced, history untouched");
+                continue;
+            };
             prop_assert!(after.len() <= MAX_HISTORY);
             prop_assert!(item.password_history().len() <= MAX_HISTORY);
-            if let Some(shown) = shown {
-                prop_assert!(
-                    item.password_history().iter().any(|h| h.value.expose_secret() == shown),
-                    "the replaced value is in the history"
-                );
-            }
+            prop_assert!(
+                item.password_history().iter().any(|h| h.value.expose_secret() == shown),
+                "the replaced value is in the history"
+            );
             let added: Vec<&String> = after.keys().filter(|k| !before.contains_key(*k)).collect();
             prop_assert_eq!(added.len(), 1);
+            // The new entry is this edit's: its key names this device's
+            // fresh stamp, newer than every entry already there, and it
+            // holds the replaced value.
+            let new_stamp = after[added[0]];
+            prop_assert_eq!(new_stamp.device(), dev(d + 1));
+            prop_assert!(before.values().all(|s| *s < new_stamp));
+            let new_value = item
+                .entries(added[0])
+                .next()
+                .and_then(|e| e.value().as_object())
+                .and_then(|o| o.get("value"))
+                .and_then(|v| v.as_str().map(str::to_owned));
+            prop_assert_eq!(new_value.as_deref(), Some(shown.as_str()));
             let gone: BTreeSet<(String, Stamp)> = before
                 .iter()
                 .filter(|(k, _)| !after.contains_key(*k))
@@ -1306,6 +1329,78 @@ fn a_restored_history_is_trimmed_by_the_original_edit_order() {
     assert!(kept.contains("pB1"), "the value this edit replaced");
     assert!(kept.contains("p31"), "the newest older value");
     assert!(!kept.contains("p0"), "the oldest value is the one trimmed");
+}
+
+fn history_values(item: &Item) -> BTreeSet<String> {
+    item.password_history()
+        .iter()
+        .map(|h| h.value.expose_secret().to_owned())
+        .collect()
+}
+
+/// M3-R20: the minimal input of a `password_history_trim_by_edit_order`
+/// failure. C changes the password (`initial` moves into the history) and
+/// A syncs it. B, which never saw that change, deletes; C applies the
+/// tombstone and writes back what B's deletion took (the metadata; B never
+/// held C's password and history entry, so they survive the merge as they
+/// are). A deletes too, having seen C's change, and then applies C's
+/// repair: the repair's metadata writes race A's deletion and survive, the
+/// password and history entry are covered by it and go. A's item is alive
+/// and has no password, so a password set there replaces nothing and
+/// rightly adds no history entry (the oracle expected one per change). The
+/// history is not lost: C, which had not seen A's deletion, writes it back,
+/// and every replica converges with `initial` in the history. Whether `pC`
+/// comes back too depends on the delivery order (accepted risk M2-R7 /
+/// M2-R13, `THREAT_MODEL` R15, see
+/// `characterization_delete_race_restore_depends_on_delivery_order`): if
+/// C receives A's tombstone before `pA` it writes `pC` back as a conflict
+/// copy; if it receives `pA` first, A holds the password field, the repair
+/// leaves that field to the merge, and `pC` stays removed by A's delete.
+#[test]
+fn a_password_set_after_the_own_delete_lost_the_race_replaces_nothing() {
+    let at = Timestamp::from_unix_millis;
+    let (a, b, c) = (dev(1), dev(2), dev(3));
+    let mut base = Item::new(&ItemType::Login, dev(0), at(0)).unwrap();
+    base.edit(dev(0), at(0))
+        .set_secret(SecretField::Password, "initial")
+        .unwrap();
+    let (mut on_a, mut on_b, mut on_c) = (copy(&base), copy(&base), copy(&base));
+    on_c.edit(c, at(3))
+        .set_secret(SecretField::Password, "pC")
+        .unwrap();
+    on_a = on_a.merge_and_repair(&on_c, a).unwrap().item;
+    on_b.delete(b, at(5)).unwrap();
+    on_c = on_c.merge_and_repair(&on_b, c).unwrap().item;
+    assert_eq!(password(&on_c).as_deref(), Some("pC"));
+    on_a.delete(a, at(7)).unwrap();
+    let tombstone = copy(&on_a);
+    on_a = on_a.merge_and_repair(&on_c, a).unwrap().item;
+    assert!(!on_a.is_deleted());
+    assert_eq!(password(&on_a), None);
+    assert!(on_a.password_history().is_empty());
+    on_a.edit(a, at(9))
+        .set_secret(SecretField::Password, "pA")
+        .unwrap();
+    assert!(on_a.password_history().is_empty(), "nothing was replaced");
+    let passwords = |item: &Item| -> BTreeSet<String> {
+        item.entries(SecretField::Password.key())
+            .filter_map(|e| e.value().as_str().map(str::to_owned))
+            .collect()
+    };
+    let pw = |v: &[&str]| -> BTreeSet<String> { v.iter().map(|s| (*s).to_owned()).collect() };
+    // The tombstone first: C writes `pC` and the history back.
+    let early = on_c.merge_and_repair(&tombstone, c).unwrap().item;
+    let early = early.merge_and_repair(&on_a, c).unwrap().item;
+    assert_eq!(history_values(&early), pw(&["initial"]));
+    assert_eq!(passwords(&early), pw(&["pA", "pC"]));
+    // `pA` first: the history comes back, `pC` stays removed (M2-R7).
+    on_c = on_c.merge_and_repair(&on_a, c).unwrap().item;
+    on_a = on_a.merge_and_repair(&on_c, a).unwrap().item;
+    on_b = on_b.merge_and_repair(&on_c, b).unwrap().item;
+    assert_eq!(on_a, on_c);
+    assert_eq!(on_b, on_c);
+    assert_eq!(history_values(&on_c), pw(&["initial"]));
+    assert_eq!(passwords(&on_c), pw(&["pA"]));
 }
 
 /// Review M2, third round (sync): the history bound is per edit. With a
