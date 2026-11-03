@@ -193,6 +193,8 @@ mod handler_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]
+mod redteam_tests;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod tests;

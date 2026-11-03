@@ -1,4 +1,4 @@
-//! The IPC request types: the first byte (minus `A`, modulo 30) picks the
+//! The IPC request types: the first byte (minus `A`, modulo 31) picks the
 //! type, the rest is the JSON body. Deserializing never panics, and
 //! `draft::prepare` refuses a bad draft with `invalidInput` only.
 #![no_main]

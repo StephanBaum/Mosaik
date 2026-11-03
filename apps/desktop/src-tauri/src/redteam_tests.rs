@@ -1,0 +1,922 @@
+//! M3 IPC red-team suite: what a compromised webview (XSS-equivalent) can do
+//! with the command set, run through the real IPC layer (mock runtime, real
+//! capability) and the `Backend` methods with fake platforms.
+//!
+//! Each test names the attack it tries; all of them must hold:
+//! - hostile request bodies never panic, never unlock and never return a secret;
+//! - references that point at the wrong field, item or vault return no secret;
+//! - the re-authentication grant dies with the session that earned it;
+//! - wrong passwords from every path that takes one share the five-try limit;
+//! - hardware-vault commands refuse other vaults before touching a device, and a
+//!   vault that closes during the touch gets no new key;
+//! - a tampered state file stays within the §11 floor and the 30-day cap.
+#![allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+
+use std::sync::{Arc, OnceLock, Weak};
+use std::time::Duration;
+
+use mosaic_core::Argon2Profile;
+use mosaic_vault::session::LockedSession;
+use mosaic_vault::storage::Store;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+
+use crate::clipboard::MemoryClipboard;
+use crate::commands::names::COMMANDS;
+use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
+use crate::contract::events::LockReason;
+use crate::contract::items::ItemDetail;
+use crate::contract::quick_unlock::{
+    EnrollBiometricRequest, EnrollHardwareKeyRequest, QuickUnlockStatus,
+};
+use crate::contract::secret::SecretIn;
+use crate::contract::session::{
+    CreateAccountRequest, QuickUnlockKind, QuickUnlockRequest, SaveKitRequest, SessionState,
+    UnlockRequest,
+};
+use crate::contract::settings::{Settings, UpdateSettingsRequest};
+use crate::keystore::MemoryKeystore;
+use crate::persist::Persistence;
+use crate::quick_unlock::fakes::{FakeBiometric, FakeHardwareKey};
+use crate::quick_unlock::{NoHardwareKeys, QuickUnlockService};
+use crate::state::{AppState, Backend, Slot};
+
+/// Not the contract fixtures' password, so a fixture request never unlocks.
+const PASSWORD: &str = "red-team master password \u{2206}";
+const WRONG: &str = "not the password";
+const ITEM_PASSWORD: &str = "Rt-It3m-Pa55word!";
+const HIDDEN_VALUE: &str = "rt-hidden-4711";
+/// RFC 6238 test secret; it must never reach the webview.
+const OTP_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+fn typed<T: DeserializeOwned>(value: Value) -> T {
+    serde_json::from_value(value).unwrap()
+}
+
+fn code(error: IpcError) -> ErrorCode {
+    error.code
+}
+
+fn create(b: &Backend) -> String {
+    let created = b
+        .create_account(CreateAccountRequest {
+            email: "red@example.com".into(),
+            password: SecretIn::test(PASSWORD),
+            default_vault_name: "Personal".into(),
+        })
+        .unwrap();
+    serde_json::to_value(&created).unwrap()["emergencyKit"]["secretKey"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn unlock_with_password(b: &Backend) {
+    b.unlock(UnlockRequest {
+        password: SecretIn::test(PASSWORD),
+        secret_key: None,
+    })
+    .unwrap();
+}
+
+fn first_vault(b: &Backend) -> String {
+    b.list_vaults().unwrap()[0].vault_id.0.to_string()
+}
+
+fn login_draft() -> Value {
+    json!({
+        "text": [
+            { "field": "title", "value": "Bank" },
+            { "field": "username", "value": "red" }
+        ],
+        "secrets": [{ "field": "password", "value": ITEM_PASSWORD }],
+        "urls": [{ "op": "add", "url": "https://bank.example/login", "matchMode": "exactOrigin", "allowHttp": false }],
+        "customFields": [
+            { "op": "add", "label": "PIN", "kind": "hidden", "value": HIDDEN_VALUE },
+            { "op": "add", "label": "Mail", "kind": "email", "value": "r@example.org" },
+            { "op": "add", "label": "Backup", "kind": "otp", "value": format!("otpauth://totp/Bank:red?secret={OTP_SECRET}") }
+        ],
+        "tags": null,
+        "otp": { "op": "set", "uri": format!("otpauth://totp/Bank:red?secret={OTP_SECRET}&issuer=Bank") }
+    })
+}
+
+fn add_login(b: &Backend, vault: &str) -> ItemDetail {
+    b.add_item(typed(
+        json!({ "vaultId": vault, "kind": "login", "draft": login_draft() }),
+    ))
+    .unwrap()
+}
+
+fn totp_draft() -> Value {
+    json!({
+        "text": [{ "field": "title", "value": "Codes" }],
+        "secrets": [], "urls": [], "customFields": [], "tags": null,
+        "otp": { "op": "set", "uri": format!("otpauth://totp/Bank:red?secret={OTP_SECRET}&issuer=Bank") }
+    })
+}
+
+fn ids(detail: &ItemDetail) -> (String, String) {
+    (
+        detail.summary.vault_id.0.to_string(),
+        detail.summary.item_id.0.to_string(),
+    )
+}
+
+fn element_of(detail: &ItemDetail, label: &str) -> String {
+    detail
+        .custom_fields
+        .iter()
+        .find(|f| f.label == label)
+        .unwrap()
+        .element_id
+        .clone()
+}
+
+/// A random, well-formed vault ID that no vault has.
+fn unknown_vault() -> String {
+    mosaic_core::VaultId::new_v7().unwrap().to_string()
+}
+
+// ---------------------------------------------------------------------------
+// 1. Hostile bodies through the real IPC layer
+// ---------------------------------------------------------------------------
+
+/// Values of the wrong type for any field (none deserializes as a secret).
+fn type_breakers() -> Vec<Value> {
+    let mut deep = json!([]);
+    for _ in 0..100 {
+        deep = json!([deep]);
+    }
+    vec![
+        Value::Null,
+        json!(true),
+        json!(-1),
+        json!(1.5),
+        json!(u64::MAX),
+        json!(i64::MIN),
+        json!(f64::MAX),
+        json!([]),
+        json!({}),
+        deep,
+        json!({ "__proto__": { "polluted": true }, "constructor": { "prototype": { "polluted": true } } }),
+    ]
+}
+
+/// Strings meant to confuse IDs, names and lookups. Only sent to commands
+/// that do not run Argon2id on a string field, so the run stays fast and no
+/// wrong-password counter moves.
+fn string_breakers() -> Vec<Value> {
+    vec![
+        json!(""),
+        json!("\u{0}"),
+        json!("\u{202e}gpj.exe"),
+        json!("A".repeat(64 * 1024)),
+        json!("019A2B3C-4D5E-7001-8000-000000000001"),
+        json!("{019a2b3c-4d5e-7001-8000-000000000001}"),
+        json!("00000000-0000-0000-0000-000000000000"),
+        json!("../../../../etc/passwd"),
+        json!("ssh-1"),
+        json!("file-1"),
+    ]
+}
+
+/// Commands whose requests carry a password that a valid body checks with
+/// Argon2id.
+const KDF_COMMANDS: &[&str] = &[
+    "create_account",
+    "unlock",
+    "reauthenticate",
+    "update_settings",
+    "save_emergency_kit",
+    "enroll_biometric",
+    "enroll_hardware_key",
+    "import_preview",
+];
+
+/// Commands that may answer `internal` for a valid request in this rig (no
+/// native dialog can be shown).
+const DIALOG_COMMANDS: &[&str] = &["save_emergency_kit", "import_choose_file"];
+
+/// Every hostile body for `cmd`: bare hostile requests, and each top-level
+/// field of every contract sample replaced by a hostile value or joined by
+/// an unknown one.
+fn hostile_bodies(cmd: &str, samples: &[Value]) -> Vec<Value> {
+    let mut breakers = type_breakers();
+    if !KDF_COMMANDS.contains(&cmd) {
+        breakers.extend(string_breakers());
+    }
+    let mut bodies = vec![json!({}), json!({ "request": {} }), json!({ "req": null })];
+    bodies.extend(breakers.iter().map(|b| json!({ "request": b })));
+    for sample in samples {
+        let Some(object) = sample.as_object() else {
+            continue;
+        };
+        for key in object.keys() {
+            for breaker in &breakers {
+                let mut mutated = object.clone();
+                mutated.insert(key.clone(), breaker.clone());
+                bodies.push(json!({ "request": mutated }));
+            }
+        }
+        for extra in ["__proto__", "constructor", "isAdmin"] {
+            let mut mutated = object.clone();
+            mutated.insert(extra.into(), json!({ "polluted": true }));
+            bodies.push(json!({ "request": mutated }));
+        }
+    }
+    bodies
+}
+
+#[test]
+fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
+    let _kdf = crate::test_support::kdf_permit();
+    let backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    let secret_key = create(&backend);
+    let vault = first_vault(&backend);
+    add_login(&backend, &vault);
+    backend.lock(LockReason::Manual).unwrap();
+
+    let fixtures = crate::contract::fixtures::build();
+    let app = tauri::test::mock_builder()
+        .invoke_handler(crate::commands::handler())
+        .build(crate::context())
+        .unwrap();
+    tauri::Manager::manage(&app, AppState::new(backend));
+    let webview = tauri::WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
+        .build()
+        .unwrap();
+    let call = |cmd: &str, body: Value| {
+        tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: cmd.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(windows) {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::Json(body),
+                headers: tauri::http::HeaderMap::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_owned(),
+            },
+        )
+    };
+    let state = tauri::Manager::state::<AppState>(&app);
+    let secrets = [
+        PASSWORD,
+        ITEM_PASSWORD,
+        HIDDEN_VALUE,
+        OTP_SECRET,
+        secret_key.as_str(),
+    ];
+
+    let run = |round: &str, skip: &[&str]| {
+        let mut calls = 0usize;
+        for &cmd in COMMANDS {
+            if skip.contains(&cmd) {
+                continue;
+            }
+            let samples = fixtures["requests"][cmd]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for body in hostile_bodies(cmd, &samples) {
+                calls += 1;
+                let shown = body.to_string();
+                let shown = shown.get(..200).unwrap_or(&shown);
+                let answer = match call(cmd, body) {
+                    Ok(body) => {
+                        serde_json::to_string(&body.deserialize::<Value>().unwrap()).unwrap()
+                    }
+                    Err(error) => {
+                        // A contract error, or Tauri refusing the arguments.
+                        match error.get("code").and_then(Value::as_str) {
+                            Some("internal") => assert!(
+                                DIALOG_COMMANDS.contains(&cmd),
+                                "{round} {cmd}: internal (a panic or a poisoned lock?) for {shown}"
+                            ),
+                            Some(_) => {}
+                            None => assert!(
+                                error.is_string(),
+                                "{round} {cmd}: unexpected error shape {error} for {shown}"
+                            ),
+                        }
+                        error.to_string()
+                    }
+                };
+                for secret in secrets {
+                    assert!(
+                        !answer.contains(secret),
+                        "{round} {cmd}: a secret in the answer to {shown}"
+                    );
+                }
+            }
+        }
+        assert!(calls > 1000, "{round}: only {calls} hostile calls");
+        // Nothing panicked while holding the session (a poisoned mutex
+        // answers `internal` from here on).
+        state.backend().session_state().unwrap()
+    };
+
+    // Locked: no hostile body reaches an unlocked state.
+    let after = run("locked", &[]);
+    assert!(matches!(after, SessionState::Locked { .. }), "{after:?}");
+    assert!(!state.backend().is_unlocked());
+
+    // Unlocked: deeper validation; `lock` is left out so the round stays
+    // unlocked, and the vault keeps its item.
+    unlock_with_password(state.backend());
+    let after = run("unlocked", &["lock"]);
+    assert!(matches!(after, SessionState::Unlocked { .. }), "{after:?}");
+    assert_eq!(
+        state
+            .backend()
+            .list_items(&typed(
+                json!({ "vaultId": null, "trash": "include", "favoritesOnly": false, "query": null })
+            ))
+            .unwrap()
+            .len(),
+        1,
+        "no hostile body added, purged or moved an item"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 2. Secret references that point elsewhere
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reveal_and_copy_never_return_a_secret_they_were_not_asked_for() {
+    let _kdf = crate::test_support::kdf_permit();
+    let clipboard = MemoryClipboard::default();
+    let b = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    )
+    .with_clipboard(clipboard.factory());
+    create(&b);
+    let vault = first_vault(&b);
+    let other = b
+        .create_vault(&typed(json!({ "name": "Other" })))
+        .unwrap()
+        .vault_id
+        .0
+        .to_string();
+    let detail = add_login(&b, &vault);
+    let (vault_id, item_id) = ids(&detail);
+    let reveal = |vault: &str, item: &str, secret: Value| {
+        b.reveal_secret(&typed(
+            json!({ "vaultId": vault, "itemId": item, "secret": secret }),
+        ))
+    };
+    let mut answers: Vec<String> = Vec::new();
+    let mut refused = |result: IpcResult<crate::contract::items::RevealedSecret>,
+                       expected: ErrorCode,
+                       what: &str| {
+        match result {
+            Ok(value) => panic!(
+                "{what}: revealed {}",
+                serde_json::to_string(&value).unwrap()
+            ),
+            Err(error) => {
+                assert_eq!(error.code, expected, "{what}");
+                answers.push(serde_json::to_string(&error).unwrap());
+            }
+        }
+    };
+
+    // Elements that are not hidden fields, and positions past the history.
+    for (label, what) in [("Mail", "an email field"), ("Backup", "an OTP field")] {
+        refused(
+            reveal(
+                &vault_id,
+                &item_id,
+                json!({ "kind": "customField", "elementId": element_of(&detail, label) }),
+            ),
+            ErrorCode::FieldEmpty,
+            what,
+        );
+    }
+    for element in ["", "0-0", "\u{202e}", &"9".repeat(4096)] {
+        refused(
+            reveal(
+                &vault_id,
+                &item_id,
+                json!({ "kind": "customField", "elementId": element }),
+            ),
+            ErrorCode::FieldEmpty,
+            "an unknown element",
+        );
+    }
+    for index in [0, 1, u32::MAX] {
+        refused(
+            reveal(
+                &vault_id,
+                &item_id,
+                json!({ "kind": "history", "index": index }),
+            ),
+            ErrorCode::FieldEmpty,
+            "a history entry that does not exist",
+        );
+    }
+    refused(
+        reveal(
+            &vault_id,
+            &item_id,
+            json!({ "kind": "field", "field": "cardPin" }),
+        ),
+        ErrorCode::FieldEmpty,
+        "a secret field the item does not have",
+    );
+    // The right item under the wrong vault, and an unknown vault.
+    refused(
+        reveal(
+            &other,
+            &item_id,
+            json!({ "kind": "field", "field": "password" }),
+        ),
+        ErrorCode::ItemNotFound,
+        "the item through another vault",
+    );
+    refused(
+        reveal(
+            &unknown_vault(),
+            &item_id,
+            json!({ "kind": "field", "field": "password" }),
+        ),
+        ErrorCode::VaultNotFound,
+        "the item through an unknown vault",
+    );
+
+    // An OTP custom field copies its code, never its seed or URI.
+    let copy = |field: Value| {
+        b.copy_to_clipboard(typed(json!({ "source": {
+            "kind": "item", "vaultId": vault_id, "itemId": item_id, "field": field
+        }})))
+    };
+    copy(json!({ "kind": "customField", "elementId": element_of(&detail, "Backup") })).unwrap();
+    let copied = clipboard.content().unwrap();
+    assert!(
+        copied.len() == 6 && copied.chars().all(|c| c.is_ascii_digit()),
+        "an OTP field copies a code"
+    );
+
+    // Deleted forever: neither reveal nor copy brings the secret back.
+    b.edit_item(
+        typed(json!({ "vaultId": vault_id, "itemId": item_id })),
+        mosaic_vault::session::UnlockedSession::purge_item,
+    )
+    .unwrap();
+    match reveal(
+        &vault_id,
+        &item_id,
+        json!({ "kind": "field", "field": "password" }),
+    ) {
+        Ok(value) => panic!(
+            "a purged item revealed {}",
+            serde_json::to_string(&value).unwrap()
+        ),
+        Err(error) => answers.push(serde_json::to_string(&error).unwrap()),
+    }
+    assert!(
+        copy(json!({ "kind": "password" })).is_err(),
+        "a purged item copies nothing"
+    );
+    assert!(
+        !clipboard
+            .content()
+            .unwrap_or_default()
+            .contains(ITEM_PASSWORD)
+    );
+    for answer in &answers {
+        for secret in [ITEM_PASSWORD, HIDDEN_VALUE, OTP_SECRET] {
+            assert!(!answer.contains(secret), "{answer}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rigs with fake platforms
+// ---------------------------------------------------------------------------
+
+struct Rig {
+    backend: Backend,
+    bio: Arc<FakeBiometric>,
+    key: Arc<FakeHardwareKey>,
+}
+
+/// An unlocked account with an available biometric platform and `physical`
+/// fake security keys (key 0 plugged in).
+fn rig(physical: usize) -> Rig {
+    let bio = FakeBiometric::new(true);
+    let key = FakeHardwareKey::new(physical);
+    let service =
+        QuickUnlockService::new(Some(Box::new(Arc::clone(&bio))), Box::new(Arc::clone(&key)));
+    let backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    )
+    .with_quick_unlock(service);
+    create(&backend);
+    Rig { backend, bio, key }
+}
+
+fn enroll_bio(b: &Backend, password: Option<&str>) -> IpcResult<QuickUnlockStatus> {
+    b.enroll_biometric(EnrollBiometricRequest {
+        password: password.map(SecretIn::test),
+    })
+}
+
+fn enroll_key(b: &Backend, password: Option<&str>) -> IpcResult<QuickUnlockStatus> {
+    b.enroll_hardware_key(EnrollHardwareKeyRequest {
+        password: password.map(SecretIn::test),
+        pin: None,
+    })
+}
+
+fn offered(b: &Backend) -> Vec<QuickUnlockKind> {
+    match b.session_state().unwrap() {
+        SessionState::Locked { quick_unlock, .. } => quick_unlock,
+        other => panic!("not locked: {other:?}"),
+    }
+}
+
+fn hw_vault(b: &Backend) -> String {
+    b.create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
+        .unwrap()
+        .vault_id
+        .0
+        .to_string()
+}
+
+/// Any vault but `not` (the list order is not specified).
+fn plain_vault(b: &Backend, not: &str) -> String {
+    b.list_vaults()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.vault_id.0.to_string())
+        .find(|id| id != not)
+        .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// 3. The re-authentication grant
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_reauth_grant_dies_with_its_session_even_during_a_prompt() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = Arc::new(r.backend);
+    let cell: Arc<OnceLock<Weak<Backend>>> = Arc::default();
+    cell.set(Arc::downgrade(&b)).ok();
+
+    // The OS prompt is open while the vault locks and the password unlocks
+    // it again: the new session never earned the grant.
+    let weak = Arc::clone(&cell);
+    *r.bio.on_enroll.lock().unwrap() = Some(Box::new(move || {
+        if let Some(b) = weak.get().and_then(Weak::upgrade) {
+            b.lock(LockReason::Manual).unwrap();
+            unlock_with_password(&b);
+        }
+    }));
+    assert_eq!(
+        code(enroll_bio(&b, Some(PASSWORD)).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+    assert!(!r.bio.has_key(), "the key made during the prompt is gone");
+    assert!(!b.quick_unlock_status().unwrap().biometric.enrolled);
+    *r.bio.on_enroll.lock().unwrap() = None;
+
+    // A grant from before a lock opens nothing after the next unlock.
+    let vault = hw_vault(&b);
+    let item = b
+        .add_item(typed(
+            json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft() }),
+        ))
+        .unwrap();
+    let plain = plain_vault(&b, &vault);
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.lock(LockReason::Manual).unwrap();
+    unlock_with_password(&b);
+    b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
+        .unwrap();
+    let calls = r.key.calls();
+    assert_eq!(
+        code(
+            b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(r.key.calls(), calls, "refused before the device");
+    assert_eq!(
+        code(
+            b.move_item(typed(json!({
+                "vaultId": vault,
+                "itemId": item.summary.item_id.0.to_string(),
+                "targetVaultId": plain,
+            })))
+            .unwrap_err()
+        ),
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(
+        code(enroll_bio(&b, None).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(
+        code(enroll_key(&b, None).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+    // An empty password is not a password, and does not count as a try.
+    for empty in [Some(""), None] {
+        assert_eq!(
+            code(enroll_key(&b, empty).unwrap_err()),
+            ErrorCode::ReauthRequired
+        );
+    }
+    assert!(b.is_unlocked());
+}
+
+// ---------------------------------------------------------------------------
+// 4. One limit for wrong passwords, whatever command carries them
+// ---------------------------------------------------------------------------
+
+/// One command that carries a wrong password.
+type Attempt<'a> = Box<dyn Fn(&Backend) -> IpcError + 'a>;
+
+#[test]
+fn wrong_passwords_from_every_command_share_one_limit_and_disable_quick_unlock() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = &r.backend;
+    enroll_bio(b, Some(PASSWORD)).unwrap();
+    enroll_key(b, Some(PASSWORD)).unwrap();
+    *b.kit_pending.lock().unwrap() = None;
+
+    let weakening = Settings {
+        clipboard_clear_seconds: None,
+        ..Settings::default()
+    };
+    let attempts: [Attempt<'_>; 5] = [
+        Box::new(|b| {
+            b.update_settings(UpdateSettingsRequest {
+                settings: weakening.clone(),
+                password: Some(SecretIn::test(WRONG)),
+            })
+            .unwrap_err()
+        }),
+        Box::new(|b| {
+            b.save_emergency_kit(SaveKitRequest {
+                labels: crate::emergency_kit::tests::labels(),
+                password: Some(SecretIn::test(WRONG)),
+            })
+            .unwrap_err()
+        }),
+        Box::new(|b| enroll_bio(b, Some(WRONG)).unwrap_err()),
+        Box::new(|b| enroll_key(b, Some(WRONG)).unwrap_err()),
+        Box::new(|b| b.reauthenticate(SecretIn::test(WRONG)).unwrap_err()),
+    ];
+    let (prompts, calls) = (r.bio.prompts(), r.key.calls());
+    for (n, attempt) in attempts.iter().enumerate() {
+        assert_eq!(code(attempt(b)), ErrorCode::WrongCredentials, "try {n}");
+        assert_eq!(b.is_unlocked(), n < 4, "try {n}");
+    }
+    assert_eq!(
+        r.bio.prompts(),
+        prompts,
+        "no wrong password reached a prompt"
+    );
+    assert_eq!(r.key.calls(), calls, "or a device");
+    assert_eq!(
+        b.settings_snapshot().clipboard_clear_seconds,
+        Settings::default().clipboard_clear_seconds
+    );
+
+    // Both quick methods are enrolled, but neither opens before the
+    // password: the guessing cannot continue behind a Hello prompt.
+    assert_eq!(offered(b), vec![]);
+    for method in [QuickUnlockKind::Biometric, QuickUnlockKind::HardwareKey] {
+        assert_eq!(
+            code(
+                b.unlock_quick(&mut QuickUnlockRequest { method, pin: None })
+                    .unwrap_err()
+            ),
+            ErrorCode::PasswordRequired
+        );
+    }
+    assert_eq!(r.bio.prompts(), prompts);
+    assert_eq!(r.key.calls(), calls);
+    unlock_with_password(b);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Hardware-vault commands on the wrong vault, and a close during the touch
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hardware_vault_commands_refuse_other_vaults_before_the_device() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = &r.backend;
+    let vault = hw_vault(b);
+    let plain = plain_vault(b, &vault);
+    let unknown = unknown_vault();
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let calls = r.key.calls();
+    let method = "00112233445566778899aabbccddeeff";
+
+    for (target, expected) in [
+        (&plain, ErrorCode::InvalidInput),
+        (&unknown, ErrorCode::VaultNotFound),
+    ] {
+        let open = b
+            .open_hardware_vault(&mut typed(json!({ "vaultId": target, "pin": null })))
+            .unwrap_err();
+        let add = b
+            .add_hardware_vault_key(&mut typed(json!({ "vaultId": target, "pin": null })))
+            .unwrap_err();
+        let remove = b
+            .remove_hardware_vault_key(&typed(json!({ "vaultId": target, "methodId": method })))
+            .unwrap_err();
+        let close = b
+            .close_hardware_vault(&typed(json!({ "vaultId": target })))
+            .unwrap_err();
+        let keys = b
+            .hardware_vault_keys(&typed(json!({ "vaultId": target })))
+            .unwrap_err();
+        for (what, error) in [
+            ("open", open),
+            ("add", add),
+            ("remove", remove),
+            ("close", close),
+            ("keys", keys),
+        ] {
+            assert_eq!(error.code, expected, "{what} on {target}");
+        }
+    }
+    for name in ["", "   ", "a\u{0}b", "line\nbreak", &"n".repeat(257)] {
+        assert_eq!(
+            code(
+                b.create_hardware_vault(&mut typed(json!({ "name": name, "pin": null })))
+                    .unwrap_err()
+            ),
+            ErrorCode::InvalidInput,
+            "{name:?}"
+        );
+    }
+    assert_eq!(r.key.calls(), calls, "no device call for any of them");
+
+    // Only TOTP items get in, by add and by move; a closed vault takes none.
+    let login = add_login(b, &plain);
+    let (_, login_id) = ids(&login);
+    assert_eq!(
+        code(
+            b.move_item(typed(
+                json!({ "vaultId": plain, "itemId": login_id, "targetVaultId": vault })
+            ))
+            .unwrap_err()
+        ),
+        ErrorCode::ItemTypeNotAllowed
+    );
+    let codes = b
+        .add_item(typed(
+            json!({ "vaultId": plain, "kind": "totp", "draft": totp_draft() }),
+        ))
+        .unwrap();
+    b.close_hardware_vault(&typed(json!({ "vaultId": vault })))
+        .unwrap();
+    assert_eq!(
+        code(
+            b.move_item(typed(json!({
+                "vaultId": plain,
+                "itemId": codes.summary.item_id.0.to_string(),
+                "targetVaultId": vault,
+            })))
+            .unwrap_err()
+        ),
+        ErrorCode::VaultUnavailable
+    );
+    assert_eq!(
+        b.list_items(&typed(
+            json!({ "vaultId": vault, "trash": "include", "favoritesOnly": false, "query": null })
+        ))
+        .unwrap()
+        .len(),
+        0
+    );
+}
+
+#[test]
+fn a_hardware_vault_that_closes_during_the_touch_gets_no_key_and_eight_is_the_cap() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = Arc::new(r.backend);
+    let vault = hw_vault(&b);
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let cell: Arc<OnceLock<Weak<Backend>>> = Arc::default();
+    cell.set(Arc::downgrade(&b)).ok();
+
+    // The 5-minute tick (or the user) closes the vault while the key blinks.
+    let (weak, id) = (Arc::clone(&cell), vault.clone());
+    *r.key.on_call.lock().unwrap() = Some(Box::new(move || {
+        if let Some(b) = weak.get().and_then(Weak::upgrade) {
+            b.close_hardware_vault(&typed(json!({ "vaultId": id })))
+                .unwrap();
+        }
+    }));
+    assert_eq!(
+        code(
+            b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        ErrorCode::VaultUnavailable
+    );
+    *r.key.on_call.lock().unwrap() = None;
+    b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
+        .unwrap();
+    let keys = |b: &Backend| {
+        b.hardware_vault_keys(&typed(json!({ "vaultId": vault })))
+            .unwrap()
+            .keys
+            .len()
+    };
+    assert_eq!(keys(&b), 1, "nothing was added");
+
+    // At most eight keys; the ninth is refused before the device.
+    let add = |b: &Backend| {
+        let mut result =
+            b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })));
+        if matches!(&result, Err(e) if e.code == ErrorCode::ReauthRequired) {
+            b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+            result = b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })));
+        }
+        result
+    };
+    while keys(&b) < 8 {
+        add(&b).unwrap();
+    }
+    let calls = r.key.calls();
+    assert_eq!(code(add(&b).unwrap_err()), ErrorCode::HardwareKeyLimit);
+    assert_eq!(r.key.calls(), calls);
+    assert_eq!(keys(&b), 8);
+}
+
+// ---------------------------------------------------------------------------
+// 6. Local malware edits the state file
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_tampered_state_file_stays_within_the_floor_and_the_thirty_day_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    for settings in [
+        json!({
+            "autoLockMinutes": null, "lockOnSleep": false, "lockOnScreenLock": false,
+            "clipboardClearSeconds": 0, "theme": "dark", "language": "de",
+            "quickUnlockMaxAgeDays": u32::MAX
+        }),
+        json!({
+            "autoLockMinutes": u32::MAX, "lockOnSleep": true, "lockOnScreenLock": true,
+            "clipboardClearSeconds": u32::MAX, "theme": "system", "language": "system",
+            "quickUnlockMaxAgeDays": 0
+        }),
+    ] {
+        let file = json!({ "version": 1, "settings": settings, "account": null });
+        std::fs::write(
+            dir.path().join(crate::persist::STATE_FILE),
+            serde_json::to_vec(&file).unwrap(),
+        )
+        .unwrap();
+        let b = Backend::new(
+            Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+            Box::new(MemoryKeystore::default()),
+            || Ok(Argon2Profile::Baseline),
+        )
+        .with_persistence(Persistence::in_dir(dir.path()))
+        .with_quick_unlock(QuickUnlockService::new(None, Box::new(NoHardwareKeys)));
+        let s = b.settings_snapshot();
+        assert!(
+            crate::persist::has_lock_trigger(&s, crate::persist::SCREEN_LOCK_POSSIBLE),
+            "{s:?}"
+        );
+        assert!(s.auto_lock_minutes.is_none_or(|m| (1..=480).contains(&m)));
+        assert!(
+            s.clipboard_clear_seconds
+                .is_none_or(|c| (10..=300).contains(&c))
+        );
+        assert!((1..=30).contains(&s.quick_unlock_max_age_days));
+        assert!(b.quick_unlock_policy().max_age() <= Duration::from_hours(30 * 24));
+    }
+}
