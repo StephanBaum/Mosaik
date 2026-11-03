@@ -23,7 +23,7 @@ use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
 use crate::keystore::SecretKeyStore;
 use crate::persist::{AccountInfo, Persistence, StoredState};
-use crate::quick_unlock::QuickUnlock;
+use crate::quick_unlock::QuickUnlockService;
 use crate::shortcut::ShortcutStatus;
 
 /// Where the vault session is.
@@ -124,8 +124,9 @@ pub struct Backend {
     pub activity: Activity,
     /// Argon2id profile choice for new accounts.
     pub choose_profile: ProfileChooser,
-    /// Quick-unlock methods (CRYPTO_SPEC §6.2).
-    pub quick_unlock: QuickUnlock,
+    /// Quick-unlock platforms and the re-authentication grant (CRYPTO_SPEC
+    /// §6.2, §6.3).
+    pub quick_unlock: QuickUnlockService,
     /// Import, insights and SSH agent hooks.
     pub adapters: Adapters,
     /// Native file dialogs.
@@ -171,7 +172,7 @@ impl Backend {
             events,
             activity: Activity::default(),
             choose_profile,
-            quick_unlock: QuickUnlock::default(),
+            quick_unlock: QuickUnlockService::default(),
             adapters: Adapters::default(),
             dialogs: Box::new(NoDialogs),
             import_files: Mutex::new(FileTokens::default()),
@@ -212,9 +213,9 @@ impl Backend {
         self
     }
 
-    /// Uses these quick-unlock methods.
+    /// Uses these quick-unlock platforms.
     #[must_use]
-    pub fn with_quick_unlock(mut self, quick_unlock: QuickUnlock) -> Self {
+    pub fn with_quick_unlock(mut self, quick_unlock: QuickUnlockService) -> Self {
         self.quick_unlock = quick_unlock;
         self
     }

@@ -2583,6 +2583,8 @@ dependencies = [
  "pdf-writer",
  "proptest",
  "rfd",
+ "security-framework 3.7.0",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "subtle",

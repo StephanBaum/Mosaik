@@ -30,6 +30,7 @@ use super::items::{
     MoveItemRequest, MovedItem, OtpScheme, RevealRequest, RevealedSecret, SecretFieldKey,
     SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
 };
+use super::quick_unlock::{self, BiometricPlatformKind};
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
@@ -134,16 +135,38 @@ pub(crate) fn build() -> Value {
         ],
         session::samples::states(),
     );
+    f.command("lock", vec![()], session::samples::states());
+    f.command("app_status", vec![()], vec![session::samples::app_status()]);
+
+    // Quick unlock
     f.command(
         "unlock_quick",
         QuickUnlockKind::ALL
             .iter()
-            .map(|&method| QuickUnlockRequest { method })
+            .map(|&method| QuickUnlockRequest { method, pin: None })
+            .chain([QuickUnlockRequest {
+                method: QuickUnlockKind::HardwareKey,
+                pin: Some(SecretIn::test("246810")),
+            }])
             .collect(),
         session::samples::states(),
     );
-    f.command("lock", vec![()], session::samples::states());
-    f.command("app_status", vec![()], vec![session::samples::app_status()]);
+    f.command(
+        "quick_unlock_status",
+        vec![()],
+        quick_unlock::samples::statuses(),
+    );
+    f.command(
+        "enroll_biometric",
+        quick_unlock::samples::enroll_biometric(),
+        quick_unlock::samples::statuses(),
+    );
+    f.command(
+        "remove_biometric",
+        vec![()],
+        quick_unlock::samples::statuses(),
+    );
+    f.command("hardware_key_cancel", vec![()], vec![()]);
 
     // Vaults
     f.command("list_vaults", vec![()], vec![vaults::samples::summaries()]);
@@ -357,6 +380,7 @@ pub(crate) fn build() -> Value {
     for (name, all) in [
         ("errorCode", values(ErrorCode::ALL)),
         ("quickUnlockKind", values(QuickUnlockKind::ALL)),
+        ("biometricPlatformKind", values(BiometricPlatformKind::ALL)),
         ("itemKind", values(ItemKind::ALL)),
         ("textFieldKey", values(TextFieldKey::ALL)),
         ("secretFieldKey", values(SecretFieldKey::ALL)),

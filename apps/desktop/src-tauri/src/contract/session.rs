@@ -10,8 +10,8 @@ use super::secret::{SecretIn, SecretOut};
 wire_enum!(
     /// One-gesture unlock methods (CRYPTO_SPEC §6.2, §6.3).
     pub enum QuickUnlockKind {
-        /// The OS biometric prompt (Windows Hello, Touch ID, Linux fprintd)
-        /// releasing a key from the OS keystore.
+        /// The OS biometric prompt (Windows Hello, Touch ID) releasing a key
+        /// from the OS keystore. Linux has none.
         Biometric,
         /// A FIDO2 security key with the hmac-secret / PRF extension.
         HardwareKey,
@@ -144,6 +144,9 @@ pub struct UnlockRequest {
 pub struct QuickUnlockRequest {
     /// Which method the user chose.
     pub method: QuickUnlockKind,
+    /// The security key's PIN, if it has one set (`hardwareKey` only; any
+    /// value with `biometric` is `invalidInput`).
+    pub pin: Option<SecretIn>,
 }
 
 /// `save_emergency_kit`: Rust shows the save dialog, then renders the

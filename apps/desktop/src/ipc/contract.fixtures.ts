@@ -10,10 +10,14 @@ export const fixtures = {
     "save_emergency_kit",
     "verify_emergency_kit",
     "unlock",
-    "unlock_quick",
     "lock",
     "subscribe_events",
     "app_status",
+    "unlock_quick",
+    "quick_unlock_status",
+    "enroll_biometric",
+    "remove_biometric",
+    "hardware_key_cancel",
     "list_vaults",
     "create_vault",
     "rename_vault",
@@ -43,6 +47,10 @@ export const fixtures = {
     "ssh_respond"
   ],
   "enums": {
+    "biometricPlatformKind": [
+      "windowsHello",
+      "touchId"
+    ],
     "customFieldKind": [
       "text",
       "hidden",
@@ -64,6 +72,21 @@ export const fixtures = {
       "secretKeyMistyped",
       "emptyPassword",
       "quickUnlockUnavailable",
+      "cancelled",
+      "quickUnlockExpired",
+      "quickUnlockInvalidated",
+      "passwordRequired",
+      "hardwareKeyUnsupported",
+      "hardwareKeyNotFound",
+      "hardwareKeyTimeout",
+      "hardwareKeyPinRequired",
+      "hardwareKeyPinInvalid",
+      "hardwareKeyPinBlocked",
+      "hardwareKeyNoPin",
+      "hardwareKeyNotRecognized",
+      "hardwareKeyLimit",
+      "hardwareKeyLast",
+      "itemTypeNotAllowed",
       "storeInUse",
       "storeUnavailable",
       "vaultNotFound",
@@ -300,6 +323,51 @@ export const fixtures = {
     },
     {
       "code": "quickUnlockUnavailable"
+    },
+    {
+      "code": "cancelled"
+    },
+    {
+      "code": "quickUnlockExpired"
+    },
+    {
+      "code": "quickUnlockInvalidated"
+    },
+    {
+      "code": "passwordRequired"
+    },
+    {
+      "code": "hardwareKeyUnsupported"
+    },
+    {
+      "code": "hardwareKeyNotFound"
+    },
+    {
+      "code": "hardwareKeyTimeout"
+    },
+    {
+      "code": "hardwareKeyPinRequired"
+    },
+    {
+      "code": "hardwareKeyPinInvalid"
+    },
+    {
+      "code": "hardwareKeyPinBlocked"
+    },
+    {
+      "code": "hardwareKeyNoPin"
+    },
+    {
+      "code": "hardwareKeyNotRecognized"
+    },
+    {
+      "code": "hardwareKeyLimit"
+    },
+    {
+      "code": "hardwareKeyLast"
+    },
+    {
+      "code": "itemTypeNotAllowed"
     },
     {
       "code": "storeInUse"
@@ -592,6 +660,14 @@ export const fixtures = {
         "name": "Work"
       }
     ],
+    "enroll_biometric": [
+      {
+        "password": null
+      },
+      {
+        "password": "correct horse battery staple"
+      }
+    ],
     "generate_password": [
       {
         "digits": true,
@@ -621,6 +697,9 @@ export const fixtures = {
       }
     ],
     "get_settings": [
+      null
+    ],
+    "hardware_key_cancel": [
       null
     ],
     "import_cancel": [
@@ -698,6 +777,12 @@ export const fixtures = {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "quick_unlock_status": [
+      null
+    ],
+    "remove_biometric": [
+      null
     ],
     "rename_vault": [
       {
@@ -828,10 +913,16 @@ export const fixtures = {
     ],
     "unlock_quick": [
       {
-        "method": "biometric"
+        "method": "biometric",
+        "pin": null
       },
       {
-        "method": "hardwareKey"
+        "method": "hardwareKey",
+        "pin": null
+      },
+      {
+        "method": "hardwareKey",
+        "pin": "246810"
       }
     ],
     "update_item": [
@@ -978,6 +1069,7 @@ export const fixtures = {
           "language": "system",
           "lockOnScreenLock": true,
           "lockOnSleep": true,
+          "quickUnlockMaxAgeDays": 14,
           "theme": "system"
         }
       },
@@ -989,6 +1081,7 @@ export const fixtures = {
           "language": "de",
           "lockOnScreenLock": false,
           "lockOnSleep": false,
+          "quickUnlockMaxAgeDays": 30,
           "theme": "dark"
         }
       }
@@ -1121,6 +1214,43 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000002"
       }
     ],
+    "enroll_biometric": [
+      {
+        "biometric": {
+          "available": true,
+          "enrolled": true,
+          "enrolledAt": 1761480000000,
+          "expiresAt": 1762689600000,
+          "platform": "windowsHello"
+        },
+        "hardwareKeys": {
+          "keys": [
+            {
+              "addedAt": 1761480000000,
+              "methodId": "0123456789abcdef0123456789abcdef"
+            }
+          ],
+          "maxKeys": 8,
+          "supported": true
+        },
+        "maxAgeDays": 14
+      },
+      {
+        "biometric": {
+          "available": false,
+          "enrolled": false,
+          "enrolledAt": null,
+          "expiresAt": null,
+          "platform": null
+        },
+        "hardwareKeys": {
+          "keys": [],
+          "maxKeys": 8,
+          "supported": false
+        },
+        "maxAgeDays": 30
+      }
+    ],
     "generate_password": [
       {
         "entropyBits": 131.1,
@@ -1208,6 +1338,7 @@ export const fixtures = {
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
+        "quickUnlockMaxAgeDays": 14,
         "theme": "system"
       },
       {
@@ -1216,8 +1347,12 @@ export const fixtures = {
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
+        "quickUnlockMaxAgeDays": 30,
         "theme": "dark"
       }
+    ],
+    "hardware_key_cancel": [
+      null
     ],
     "import_cancel": [
       null
@@ -1401,6 +1536,80 @@ export const fixtures = {
     ],
     "purge_item": [
       null
+    ],
+    "quick_unlock_status": [
+      {
+        "biometric": {
+          "available": true,
+          "enrolled": true,
+          "enrolledAt": 1761480000000,
+          "expiresAt": 1762689600000,
+          "platform": "windowsHello"
+        },
+        "hardwareKeys": {
+          "keys": [
+            {
+              "addedAt": 1761480000000,
+              "methodId": "0123456789abcdef0123456789abcdef"
+            }
+          ],
+          "maxKeys": 8,
+          "supported": true
+        },
+        "maxAgeDays": 14
+      },
+      {
+        "biometric": {
+          "available": false,
+          "enrolled": false,
+          "enrolledAt": null,
+          "expiresAt": null,
+          "platform": null
+        },
+        "hardwareKeys": {
+          "keys": [],
+          "maxKeys": 8,
+          "supported": false
+        },
+        "maxAgeDays": 30
+      }
+    ],
+    "remove_biometric": [
+      {
+        "biometric": {
+          "available": true,
+          "enrolled": true,
+          "enrolledAt": 1761480000000,
+          "expiresAt": 1762689600000,
+          "platform": "windowsHello"
+        },
+        "hardwareKeys": {
+          "keys": [
+            {
+              "addedAt": 1761480000000,
+              "methodId": "0123456789abcdef0123456789abcdef"
+            }
+          ],
+          "maxKeys": 8,
+          "supported": true
+        },
+        "maxAgeDays": 14
+      },
+      {
+        "biometric": {
+          "available": false,
+          "enrolled": false,
+          "enrolledAt": null,
+          "expiresAt": null,
+          "platform": null
+        },
+        "hardwareKeys": {
+          "keys": [],
+          "maxKeys": 8,
+          "supported": false
+        },
+        "maxAgeDays": 30
+      }
     ],
     "rename_vault": [
       {
@@ -1763,6 +1972,7 @@ export const fixtures = {
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
+        "quickUnlockMaxAgeDays": 14,
         "theme": "system"
       },
       {
@@ -1771,6 +1981,7 @@ export const fixtures = {
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
+        "quickUnlockMaxAgeDays": 30,
         "theme": "dark"
       }
     ],

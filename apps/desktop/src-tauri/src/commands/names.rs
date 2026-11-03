@@ -12,10 +12,15 @@ pub const COMMANDS: &[&str] = &[
     "save_emergency_kit",
     "verify_emergency_kit",
     "unlock",
-    "unlock_quick",
     "lock",
     "subscribe_events",
     "app_status",
+    // Quick unlock
+    "unlock_quick",
+    "quick_unlock_status",
+    "enroll_biometric",
+    "remove_biometric",
+    "hardware_key_cancel",
     // Vaults
     "list_vaults",
     "create_vault",
