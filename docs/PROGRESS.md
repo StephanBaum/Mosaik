@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); open: unlock reveal port, quick unlock, virtual list, coverage run, extension-attacker review) |
+| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); open: security-key transport (owner, WP7), unlock reveal port, virtual list, coverage run, extension-attacker review, manual hardware checks) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -1052,6 +1052,31 @@ fixed the remaining gaps. Fast-forwarded onto `main` (`754cff4`..`235e903`).
   user's own cloud folder, including Dropbox Business team folders; Mosaic
   targets business clients too.
 
+## M3 Desktop app — quick unlock (2026-11-03)
+
+Spec by Opus (ADR-0028), implemented in WP0–WP6 on `m3/quick-unlock`, PR #13.
+
+- **Core/vault:** quick-unlock and WebAuthn-PRF derivations (HKDF, existing
+  `WrappedKey` format, new labels; goldens checked against an independent
+  Python HKDF). `verify_master_password` returns a `Reauthenticated` proof
+  (120 s, per session) that enrollment requires. Quick unlock: 14 days by
+  default, 30-day hard cap, password once per app start, expiry bound into
+  the AAD, removed on password change. Hardware-key wrappings (max 8, PIN or
+  UV required), hardware-protected code vaults under TK (open ≤ 5 min).
+- **Desktop:** Windows Hello (TPM-attested key, per-store key-name nonce),
+  Touch ID (Secure Enclave, biometry only; compiled and tested in CI only),
+  Linux hides biometrics. Re-authentication no longer locks; five wrong in a
+  row lock and require the password. New `reauthenticate` IPC command; 13 new
+  commands, 15 error codes, `hardwareVaultClosed` event.
+- **UI:** unlock screen methods with PIN step, Settings → Quick unlock,
+  hardware-vault panel (D21) with a 30 s warning before it locks itself,
+  create-vault dialog, re-auth retry flow, focus restore in every dialog.
+- **Reviews:** two crypto-reviewer passes (core/vault: 0 high, 3 medium, 7
+  low; desktop: 0 high, 3 medium, 9 low), all fixed except the manual
+  hardware checks; ux-reviewer (1 high, 7 medium, 12 low), fixed except
+  L5/L11/L12. M3-R20 (history proptest) was a test-oracle gap, fixed.
+- **CI:** all checks green on Linux, macOS and Windows for the branch.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -1085,9 +1110,9 @@ fixed the remaining gaps. Fast-forwarded onto `main` (`754cff4`..`235e903`).
 | M3-R3 | low | Linux-only advisories in Tauri's stack: gtk-rs 0.18 (`proc-macro-error` unmaintained, `glib::VariantStrIter` unsound, not called) and zbus 5 parts folded into zbus 6 | accepted (ADR-0019 item 9, deny.toml, .cargo/audit.toml); revisit with Tauri's gtk4 / zbus 6 move |
 | M3-R4 | info | Typed secrets, revealed values, generated passwords and one-time codes live in the webview heap, and the parsed IPC body is not zeroized | accepted, THREAT_MODEL R19 |
 | M3-R5 | medium | Windows and macOS: no pre-sleep, screen-lock or user-switch signal (needs unsafe FFI). The vault locks on idle and on resume (up to 2 s after it), not when the screen locks; the settings screen says so (CRYPTO_SPEC §11 gap) | accepted for M3 (ADR-0020 item 3), THREAT_MODEL R21; M9 |
-| M3-R6 | medium | Quick unlock (biometrics, hardware key) is not available: `mosaic-vault` has no session methods for the §6.2/§6.3 wrappings. The Windows Hello platform half exists; macOS and FIDO2 are not built. Brief M3 "unlock (password, biometrics, hardware key)" is only partly met | open, M3 |
+| M3-R6 | medium | Quick unlock: Windows Hello (TPM-backed) and Touch ID are built (ADR-0028, 2026-11-03), Linux has no biometrics. Security-key unlock and keys for hardware vaults are implemented in `mosaic-vault` and the desktop commands, but have no CTAP transport: it needs an owner decision ("Needs owner", WP7), so keys report unsupported and their UI is hidden. Windows gets no security keys in M3 (only `webauthn.dll`, which needs unsafe FFI). Touch ID and Hello still need the manual hardware checks | partly resolved (biometrics); security keys open (owner) |
 | M3-R7 | low | Clipboard exclusion depends on clipboard managers honoring the hints; Linux covers X11/XWayland only; a clipboard still busy after 5 tries at quit keeps the value | accepted (ADR-0020), R21 |
-| M3-R8 | low | Re-authentication re-derives the keys (lock, then unlock): one new writer ID per re-authentication, and a wrong password locks the vault, until `mosaic-vault` has `verify_master_password` | accepted; CORE_API addition together with M3-R6 |
+| M3-R8 | low | Re-authentication re-derives the keys (lock, then unlock) | resolved 2026-11-03: `verify_master_password` returns a short-lived proof; a wrong password no longer locks, five in a row lock and require the password (`lock_requiring_password`) |
 | M3-R9 | info | keyring, arboard and OS clipboard buffers are not zeroized; a same-user attacker can edit `settings.json` (the §11 floor still applies when it is read) | accepted, R21 |
 | M3-R10 | low | Global shortcut: no effect on Wayland; a conflict on macOS is not reported; not remappable yet (UX_GUIDELINES §4) | open, M9 |
 | M3-R11 | info | `contentProtected` has no effect on Linux | accepted, R21 |
@@ -1103,7 +1128,7 @@ fixed the remaining gaps. Fast-forwarded onto `main` (`754cff4`..`235e903`).
 | M3-R21 | info | The fuzz smoke of the 13 new targets ran only in CI; locally they were only compiled (fuzzing does not run on Windows MSVC, M1-R4) | accepted |
 | M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
-| M2-R6 | info | Hardware-protected TOTP vaults (§7.4) are listed as unavailable: TK unlock and acting on `OtpConfig::hardware_protected` are M3 | open, M3 (with M3-R6) |
+| M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 
 See the THREAT_MODEL §5 residual-risk register.
 
