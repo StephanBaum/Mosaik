@@ -2029,7 +2029,14 @@ unlock (M3-R8). Writer IDs are per session (ADR-0015), so §6.2's
    only after the master password unlocked once since the store was opened
    (once per app start). Expiry, a wrapping that does not open, a master
    password change and a Secret Key rotation delete the wrapping (and the app
-   deletes the platform key). Enrolling needs the master password.
+   deletes the platform key). Enrolling needs the master password, and the
+   vault API enforces it: `verify_master_password` returns a
+   `Reauthenticated` proof (not `Clone`, bound to the session, with its
+   creation `Instant`), and `enroll_quick_unlock` and `enroll_hardware_key`
+   take it and refuse one older than `REAUTH_GRANT` (120 s) or from another
+   session. A previous enrollment is replaced in one transaction. The
+   session API does not offer Secret Key rotation yet; when it does it must
+   delete the quick-unlock wrapping like a password change.
 3. **Windows (pins ADR-0020 item 7, adds one call):** after
    `RequestCreateAsync`, `KeyCredential.GetAttestationAsync()` must report
    `Success` or `TemporaryFailure`; `NotSupported` or `UnknownError` (no TPM,
@@ -2056,7 +2063,12 @@ unlock (M3-R8). Writer IDs are per session (ADR-0015), so §6.2's
    every operation (also the assertion at registration) and the UV flag
    checked in the returned authenticator data. At most 8 keys for unlock and
    8 per hardware-protected vault. Five rejected hardware-key unlocks in a row
-   require the master password.
+   (counted per app run; PIN failures the vault cannot see are reported with
+   `note_failed_hardware_attempt`) require the master password; the
+   authenticator's PIN retry counter is the brute-force limit. A `prf_salt`
+   must be new for its credential (no reuse across the unlock wrapping and
+   any TK wrapping). `mosaic.invalid` only works through raw CTAP clients,
+   not browser or mobile WebAuthn.
 7. **Hardware-protected TOTP vaults (§7.4)** hold `ItemType::Totp` items only,
    open with a registered key for at most 5 minutes, and close on lock. The
    last key cannot be removed; removing a key does not rotate TK.
@@ -2087,3 +2099,12 @@ PROGRESS M3-R6 is closed for Windows Hello and Touch ID once WP1–WP6 land and
 manual hardware checks pass; hardware keys stay open until ADR-0029 (owner).
 M3-R8 and M2-R6 (API side) close. THREAT_MODEL R8 is updated and R23–R25 are
 added. The M6 sync client must never upload method `0x02` rows.
+
+Notes for the later work packages. WP4 (desktop commands): call
+`verify_master_password`, keep the returned `Reauthenticated` only for the
+enrollment that follows (it expires after 120 s), and call
+`LockedSession::note_failed_hardware_attempt` on every PIN failure. WP6 (UI):
+when a user moves an existing TOTP secret into a hardware-protected vault, say
+that earlier copies (the old item, its history, backups, exports) are not
+protected, and recommend re-issuing the secret at the provider (THREAT_MODEL
+R26). The strings go through `packages/i18n` in DE and EN.

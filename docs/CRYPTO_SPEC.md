@@ -92,9 +92,13 @@ Interoperability only (these read or serve third-party formats and never protect
 | Root key `R` | 256 bit | never stored | until derivation finishes |
 | Key-encryption key `KEK` | 256 bit | never stored | until AK is unwrapped |
 | Account key `AK` | 256 bit | wrapped (§6) | while unlocked |
-| Vault key `VK` | 256 bit | wrapped by AK (§7) | while unlocked |
+| Vault key `VK` | 256 bit | wrapped by AK (§7); in a hardware-protected vault by `TK` (§7.4) | while unlocked; in a hardware-protected vault only while it is open |
 | Identity key pair `(isk, ipk)` | X25519 | `isk` wrapped by AK | while unlocked |
 | Attachment key `FK` | 256 bit | inside its item's plaintext | while the file is processed |
+| Quick-unlock `W` | 256 bit | released by the platform key (§6.2), never stored in the clear | until AK is wrapped (enrollment) or unwrapped (unlock) |
+| Security-key PRF output | 256 bit | on the security key | until `W` or `W_hw` is derived |
+| `W_hw` (§7.4) | 256 bit | never stored | until `TK` is wrapped or unwrapped |
+| Hardware-vault key `TK` | 256 bit | wrapped per security key (§7.4) | while the hardware-protected vault is open, at most 5 minutes |
 
 Rules for every secret type in code:
 
@@ -222,8 +226,15 @@ configurable from 1 to 30 days; implementations MUST NOT accept more than
 30 days). An enrollment time more than 5 minutes in the future counts as
 expired. Expiry, a `W` that does not open the wrapping, a master password
 change (§6.4) and a Secret Key rotation (§6.5) **delete** both the platform
-key and the wrapping. Flagging them as expired is not enough. Enrolling
-requires the master password. This wrapping is never synced.
+key and the wrapping. Flagging them as expired is not enough. The session API
+does not offer Secret Key rotation yet; when it does, it MUST delete every
+quick-unlock wrapping in the same transaction, like a password change.
+Enrolling requires the master password, and the vault API enforces it: the
+enrollment call takes a proof (`Reauthenticated`) that only a successful
+master-password and Secret Key check of the same unlocked session creates,
+and refuses one older than 120 seconds (`REAUTH_GRANT`) or from another
+session. The previous enrollment is replaced in one transaction. This
+wrapping is never synced.
 
 ### 6.3 Hardware-key unlock (`method = 0x03`)
 Uses the WebAuthn PRF extension (CTAP2 `hmac-secret`):
@@ -244,9 +255,22 @@ whose `method_id` is not `SHA-256(credential_id)[..16]`. Every assertion,
 including the one at registration, MUST use user verification and the
 client MUST check the UV flag of the returned authenticator data
 (hmac-secret outputs differ with and without UV). At most 8 hardware keys
-per account. After 5 rejected hardware-key unlocks in a row the client
-requires the master password.
-This wrapping MAY be synced, so the hardware key can unlock any device.
+per account. Enrolling needs the master password, enforced by the vault API
+as in §6.2 (a proof of the same session, at most 120 seconds old). A
+`prf_salt` (and a `prf_salt_hw`, §7.4) MUST be new for its credential: the
+vault refuses one that equals any stored salt of the same credential, in the
+unlock wrapping or in any TK wrapping, so one PRF output never serves two
+wrappings. After 5 rejected hardware-key unlocks in a row the client requires
+the master password. This counter lives for one app run (a restart resets
+it); the authenticator's own PIN retry counter is the actual brute-force
+limit. The client reports PIN failures that never reach the vault through
+`note_failed_hardware_attempt`.
+This wrapping MAY be synced, so the hardware key can unlock any device that
+can reach the key with the stored RP ID. `mosaic.invalid` is not a web
+origin, so browser and mobile WebAuthn refuse it: it works only through raw
+CTAP clients (the desktop app). A synced wrapping therefore unlocks another
+device only if that device also speaks raw CTAP; web and mobile clients need
+an enrollment of their own under a real RP ID.
 Residual risk: someone holding the key, its PIN and a copy of the wrapping
 can unlock (THREAT_MODEL R8).
 
