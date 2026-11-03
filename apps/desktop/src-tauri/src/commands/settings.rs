@@ -42,11 +42,18 @@ impl Backend {
     /// Stores new settings (clamped). A change that turns a protection off
     /// needs `password`, checked against the vault.
     ///
+    /// A weakening change is turning a protection off or raising
+    /// `quickUnlockMaxAgeDays`.
+    ///
     /// # Errors
-    /// `invalidInput` when no lock trigger this system can deliver is on (CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`); `reauthRequired` without a password for a weakening change; `locked`
-    /// for a weakening change while locked; `wrongCredentials` (the vault is
-    /// locks after five in a row, see [`Backend::reauthenticate`]); `storeUnavailable` if
-    /// the file cannot be written (the settings apply anyway).
+    /// `invalidInput` when no lock trigger this system can deliver is on
+    /// (CRYPTO_SPEC §11; screen lock counts only where
+    /// `screenLockDetection`); `reauthRequired` without a password for a
+    /// weakening change; `locked` for a weakening change while locked;
+    /// `wrongCredentials` (the fifth one in a row locks the vault and
+    /// requires the password for the next unlock, see
+    /// [`Backend::reauthenticate`]); `storeUnavailable` if the file cannot
+    /// be written (the settings apply anyway).
     pub fn update_settings(&self, request: UpdateSettingsRequest) -> IpcResult<Settings> {
         if !has_lock_trigger(&request.settings, self.screen_lock_detection()) {
             return Err(IpcError::new(ErrorCode::InvalidInput));

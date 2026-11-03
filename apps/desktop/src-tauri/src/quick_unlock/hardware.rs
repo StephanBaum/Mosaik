@@ -100,6 +100,12 @@ pub trait HardwareKeyPlatform: Send + Sync {
     /// `prf_salt_input(prf_salt)`. Returns the credential ID and the PRF
     /// output.
     ///
+    /// The transport **must check the UV flag** (bit 2) in the
+    /// authenticator data of the `getAssertion` response (CRYPTO_SPEC §6.3)
+    /// and fail with [`HardwareKeyError::Failed`] if it is not set: a PRF
+    /// output obtained without user verification must never reach the
+    /// vault.
+    ///
     /// # Errors
     /// [`HardwareKeyError`].
     fn register(
@@ -113,7 +119,8 @@ pub trait HardwareKeyPlatform: Send + Sync {
     /// A silent preflight (`up = false`) over `candidates` to find the
     /// credential the plugged-in key holds, then one `getAssertion` with
     /// user verification and that candidate's salt. Returns the candidate's
-    /// index and the PRF output.
+    /// index and the PRF output. The UV-flag check of
+    /// [`HardwareKeyPlatform::register`] applies here too.
     ///
     /// # Errors
     /// [`HardwareKeyError`].

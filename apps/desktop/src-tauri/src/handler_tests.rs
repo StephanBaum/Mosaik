@@ -885,9 +885,9 @@ fn a_restart_remembers_the_account_and_finds_the_key() {
 fn quick_unlock_is_unavailable_without_a_platform() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();
-    let request = req(json!({ "method": "biometric" }));
+    let mut request = req(json!({ "method": "biometric" }));
     assert_eq!(
-        code(h.backend.unlock_quick(&request).unwrap_err()),
+        code(h.backend.unlock_quick(&mut request).unwrap_err()),
         ErrorCode::AlreadyUnlocked
     );
     h.backend.lock(LockReason::Manual).unwrap();
@@ -898,7 +898,7 @@ fn quick_unlock_is_unavailable_without_a_platform() {
     ] {
         let error = h
             .backend
-            .unlock_quick(&req(json!({ "method": method })))
+            .unlock_quick(&mut req(json!({ "method": method })))
             .unwrap_err();
         assert_eq!(code(error), wanted);
     }
@@ -908,7 +908,7 @@ fn quick_unlock_is_unavailable_without_a_platform() {
         || Ok(Argon2Profile::Baseline),
     );
     assert_eq!(
-        code(unavailable.unlock_quick(&request).unwrap_err()),
+        code(unavailable.unlock_quick(&mut request).unwrap_err()),
         ErrorCode::StoreInUse
     );
     assert_eq!(

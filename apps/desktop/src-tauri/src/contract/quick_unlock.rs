@@ -140,6 +140,35 @@ pub struct HardwareVaultKeys {
     pub keys: Vec<HardwareKeySummary>,
 }
 
+/// Lowercase hex of a method ID.
+pub(crate) fn method_id_hex(method_id: &[u8; 16]) -> String {
+    use std::fmt::Write as _;
+    method_id
+        .iter()
+        .fold(String::with_capacity(32), |mut out, b| {
+            let _ = write!(out, "{b:02x}");
+            out
+        })
+}
+
+/// A method ID from exactly 32 lowercase hex digits.
+pub(crate) fn parse_method_id(text: &str) -> Option<[u8; 16]> {
+    if text.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    let digit = |c: u8| match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        _ => None,
+    };
+    let (pairs, _) = text.as_bytes().as_chunks::<2>();
+    for (byte, [high, low]) in out.iter_mut().zip(pairs) {
+        *byte = (digit(*high)? << 4) | digit(*low)?;
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;

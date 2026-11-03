@@ -12,7 +12,6 @@
 use std::sync::TryLockError;
 use std::time::Duration;
 
-use mosaic_core::AccountId;
 use mosaic_core::unlock::new_prf_salt;
 use mosaic_vault::session::{
     DEFAULT_RP_ID, Error as SessionError, HardwareKeyEnrollment, MAX_HARDWARE_KEYS, NewHardwareKey,
@@ -39,7 +38,12 @@ pub async fn unlock_quick(
     state: State<'_, AppState>,
     request: QuickUnlockRequest,
 ) -> IpcResult<SessionState> {
-    state.run(move |b| b.unlock_quick(&request)).await
+    state
+        .run(move |b| {
+            let mut request = request;
+            b.unlock_quick(&mut request)
+        })
+        .await
 }
 
 /// `quick_unlock_status`.
@@ -88,34 +92,7 @@ pub async fn hardware_key_cancel(state: State<'_, AppState>) -> IpcResult<()> {
     Ok(())
 }
 
-/// Lowercase hex of a method ID.
-pub(crate) fn method_id_hex(method_id: &[u8; 16]) -> String {
-    use std::fmt::Write as _;
-    method_id
-        .iter()
-        .fold(String::with_capacity(32), |mut out, b| {
-            let _ = write!(out, "{b:02x}");
-            out
-        })
-}
-
-/// A method ID from exactly 32 lowercase hex digits.
-pub(crate) fn parse_method_id(text: &str) -> Option<[u8; 16]> {
-    if text.len() != 32 {
-        return None;
-    }
-    let mut out = [0u8; 16];
-    let digit = |c: u8| match c {
-        b'0'..=b'9' => Some(c - b'0'),
-        b'a'..=b'f' => Some(c - b'a' + 10),
-        _ => None,
-    };
-    let (pairs, _) = text.as_bytes().as_chunks::<2>();
-    for (byte, [high, low]) in out.iter_mut().zip(pairs) {
-        *byte = (digit(*high)? << 4) | digit(*low)?;
-    }
-    Some(out)
-}
+pub(crate) use crate::contract::quick_unlock::{method_id_hex, parse_method_id};
 
 /// The error for a slot that is not `Locked`.
 fn not_locked(slot: &Slot) -> IpcError {
@@ -174,7 +151,7 @@ impl Backend {
     /// an enrollment is removed. Runs at start, after every unlock and after
     /// a settings change. Errors are swallowed: it is housekeeping, and
     /// nothing in it is shown.
-    pub(crate) fn reconcile_slot(&self, slot: &mut Slot, account: AccountId) {
+    pub(crate) fn reconcile_slot(&self, slot: &mut Slot) {
         let Some(platform) = self.quick_unlock.biometric() else {
             // No platform here: an enrollment (a copied store) cannot be used.
             if matches!(slot, Slot::Locked(_) | Slot::Unlocked(_)) {
@@ -194,38 +171,28 @@ impl Backend {
             Slot::Unlocked(session) => session.quick_unlock_enrollment(),
             Slot::Unavailable(_) | Slot::Taken => return,
         };
-        let Ok(enrollment) = enrollment else {
+        // No enrollment: nothing to do. A platform key is named by the
+        // nonce in the enrollment, so one that lost its enrollment (a crash
+        // between the two steps) cannot be found again; the flows delete
+        // theirs on every failure path, which leaves only that window.
+        let Ok(Some(enrollment)) = enrollment else {
             return;
         };
-        let key_exists = platform.key_exists(account);
-        match enrollment {
-            Some(enrollment) => {
-                let stale = enrollment
-                    .is_expired(&self.quick_unlock_policy(), self.quick_unlock.now_ms())
-                    || !key_exists
-                    || crate::quick_unlock::params::platform_of(&enrollment.platform_params)
-                        != Some(platform.kind());
-                if stale {
-                    Self::remove_enrollment(slot);
-                    let _ = platform.remove(account);
-                }
-            }
-            None => {
-                if key_exists {
-                    let _ = platform.remove(account);
-                }
-            }
+        let payload = &enrollment.platform_params;
+        let stale = enrollment.is_expired(&self.quick_unlock_policy(), self.quick_unlock.now_ms())
+            || crate::quick_unlock::params::platform_of(payload) != Some(platform.kind())
+            || !platform.key_exists(payload);
+        if stale {
+            Self::remove_enrollment(slot);
+            let _ = platform.remove(payload);
         }
     }
 
-    /// [`Backend::reconcile_slot`] for the stored account, taking the
-    /// session itself. Does nothing while a command owns the session.
+    /// [`Backend::reconcile_slot`], taking the session itself. Does nothing
+    /// while a command owns the session.
     pub fn reconcile_quick_unlock(&self) {
-        let Some(account) = self.account().map(|a| a.account_id.get()) else {
-            return;
-        };
         if let Ok(mut slot) = self.slot() {
-            self.reconcile_slot(&mut slot, account);
+            self.reconcile_slot(&mut slot);
         }
     }
 
@@ -270,7 +237,7 @@ impl Backend {
     /// `quickUnlockInvalidated`, `passwordRequired`, `cancelled`, `busy`,
     /// `invalidInput` (a PIN with `biometric`), the hardware-key codes, or
     /// the store's code.
-    pub fn unlock_quick(&self, request: &QuickUnlockRequest) -> IpcResult<SessionState> {
+    pub fn unlock_quick(&self, request: &mut QuickUnlockRequest) -> IpcResult<SessionState> {
         match request.method {
             QuickUnlockKind::Biometric => self.unlock_biometric(request),
             QuickUnlockKind::HardwareKey => self.unlock_hardware(request),
@@ -279,7 +246,7 @@ impl Backend {
 
     fn unlock_biometric(&self, request: &QuickUnlockRequest) -> IpcResult<SessionState> {
         let policy = self.quick_unlock_policy();
-        let (account, payload) = {
+        let payload = {
             let mut slot = self.slot()?;
             let locked = match &mut *slot {
                 Slot::Locked(locked) => locked,
@@ -288,10 +255,6 @@ impl Backend {
             if request.pin.is_some() {
                 return Err(IpcError::new(ErrorCode::InvalidInput));
             }
-            let account = self
-                .account()
-                .map(|a| a.account_id.get())
-                .ok_or(IpcError::new(ErrorCode::QuickUnlockUnavailable))?;
             let platform = self
                 .quick_unlock
                 .available_biometric()
@@ -301,13 +264,13 @@ impl Backend {
                 .ok_or(IpcError::new(ErrorCode::QuickUnlockUnavailable))?;
             if enrollment.is_expired(&policy, self.quick_unlock.now_ms()) {
                 locked.remove_quick_unlock()?;
-                let _ = platform.remove(account);
+                let _ = platform.remove(&enrollment.platform_params);
                 return Err(IpcError::new(ErrorCode::QuickUnlockExpired));
             }
             if locked.password_required(QuickMethod::Biometric) {
                 return Err(IpcError::new(ErrorCode::PasswordRequired));
             }
-            (account, enrollment.platform_params)
+            enrollment.platform_params
         };
 
         let platform = self
@@ -315,7 +278,7 @@ impl Backend {
             .biometric()
             .ok_or(IpcError::new(ErrorCode::QuickUnlockUnavailable))?;
         // The OS prompt: nothing is held.
-        let w = match platform.release(account, &payload) {
+        let w = match platform.release(&payload) {
             Ok(w) => w,
             Err(PlatformError::Unavailable) => {
                 // The key is gone or the payload is not ours: the enrollment
@@ -323,7 +286,7 @@ impl Backend {
                 if let Ok(mut slot) = self.slot() {
                     Self::remove_enrollment(&mut slot);
                 }
-                let _ = platform.remove(account);
+                let _ = platform.remove(&payload);
                 return Err(IpcError::new(ErrorCode::QuickUnlockUnavailable));
             }
             Err(error) => return Err(error.into()),
@@ -331,7 +294,11 @@ impl Backend {
 
         let mut slot = self.slot()?;
         let locked = take_locked(&mut slot)?;
-        match locked.unlock_quick(&w, &policy, self.quick_unlock.now_ms()) {
+        let unlocked = locked.unlock_quick(&w, &policy, self.quick_unlock.now_ms());
+        // `W` is not needed past the vault's check: zeroize it now, not at
+        // the end of the flow.
+        drop(w);
+        match unlocked {
             Ok(session) => self.finish_quick_unlock(&mut slot, session),
             Err(UnlockError { session, error }) => {
                 *slot = Slot::Locked(session);
@@ -339,14 +306,14 @@ impl Backend {
                     error,
                     SessionError::QuickUnlockInvalidated | SessionError::QuickUnlockExpired
                 ) {
-                    let _ = platform.remove(account);
+                    let _ = platform.remove(&payload);
                 }
                 Err(error.into())
             }
         }
     }
 
-    fn unlock_hardware(&self, request: &QuickUnlockRequest) -> IpcResult<SessionState> {
+    fn unlock_hardware(&self, request: &mut QuickUnlockRequest) -> IpcResult<SessionState> {
         let hardware = self.quick_unlock.hardware();
         let keys = {
             let mut slot = self.slot()?;
@@ -375,9 +342,13 @@ impl Backend {
                 prf_salt: &key.prf_salt,
             })
             .collect();
-        let pin = request.pin.as_ref().map(SecretIn::as_secret);
-        let evaluated = self.device_op(|cancel| hardware.evaluate(&candidates, pin, cancel))?;
-        let (index, prf) = match evaluated {
+        // The PIN is dropped (zeroized) as soon as the device call is over.
+        let pin = request.pin.take();
+        let evaluated = self.device_op(|cancel| {
+            hardware.evaluate(&candidates, pin.as_ref().map(SecretIn::as_secret), cancel)
+        });
+        drop(pin);
+        let (index, prf) = match evaluated? {
             Ok(done) => done,
             Err(error) => {
                 if error == HardwareKeyError::PinInvalid
@@ -396,7 +367,9 @@ impl Backend {
 
         let mut slot = self.slot()?;
         let locked = take_locked(&mut slot)?;
-        match locked.unlock_with_hardware_key(credential, &prf) {
+        let unlocked = locked.unlock_with_hardware_key(credential, &prf);
+        drop(prf);
+        match unlocked {
             Ok(session) => self.finish_quick_unlock(&mut slot, session),
             Err(UnlockError { session, error }) => {
                 *slot = Slot::Locked(session);
@@ -436,22 +409,30 @@ impl Backend {
         self.remember_account(account_id, None);
         self.start_ssh_if_enabled(slot);
         self.touch();
-        self.reconcile_slot(slot, account_id);
+        self.reconcile_slot(slot);
         self.state_of(slot)
     }
 
-    /// Sets up the biometric method (Windows Hello or Touch ID).
+    /// Sets up the biometric method (Windows Hello or Touch ID). One at a
+    /// time: a second call while one runs answers `busy` before it asks
+    /// for anything. A success uses up the re-authentication grant; a
+    /// failure keeps it.
     ///
     /// # Errors
-    /// `locked`, `reauthRequired`, `wrongCredentials` (the vault locks after
-    /// five in a row), `quickUnlockUnavailable`, `cancelled`, or a store
-    /// error.
+    /// `locked`, `busy`, `reauthRequired`, `wrongCredentials` (the vault
+    /// locks after five in a row), `quickUnlockUnavailable`, `cancelled`,
+    /// or a store error.
     pub fn enroll_biometric(
         &self,
         request: EnrollBiometricRequest,
     ) -> IpcResult<QuickUnlockStatus> {
         self.touch();
         let account = self.slot()?.unlocked()?.account_id();
+        let _one_at_a_time = match self.quick_unlock.biometric_op.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => return Err(IpcError::new(ErrorCode::Busy)),
+            Err(TryLockError::Poisoned(_)) => return Err(IpcError::INTERNAL),
+        };
         self.require_reauth(request.password)?;
         let platform = self
             .quick_unlock
@@ -459,28 +440,39 @@ impl Backend {
             .ok_or(IpcError::new(ErrorCode::QuickUnlockUnavailable))?;
 
         // The OS prompts (create the key, prove it opens): nothing is held.
-        let (payload, w) = platform.enroll(account)?;
+        let (payload, w) = platform.enroll()?;
 
         let mut slot = self.slot()?;
         let session = match &mut *slot {
             Slot::Unlocked(session) if session.account_id() == account => session,
             other => {
                 let error = changed_while_waiting(other);
-                let _ = platform.remove(account);
+                let _ = platform.remove(&payload);
                 return Err(error);
             }
         };
+        // The key of the enrollment this one replaces.
+        let previous = session
+            .quick_unlock_enrollment()
+            .ok()
+            .flatten()
+            .map(|e| e.platform_params);
         let enrolled = self
             .quick_unlock
-            .with_reauth(|proof| session.enroll_quick_unlock(&w, &payload, proof));
+            .consume_reauth(|proof| session.enroll_quick_unlock(&w, &payload, proof));
+        drop(w);
         match enrolled {
-            Some(Ok(_)) => {}
+            Some(Ok(_)) => {
+                if let Some(previous) = previous.filter(|p| *p != payload) {
+                    let _ = platform.remove(&previous);
+                }
+            }
             Some(Err(error)) => {
-                let _ = platform.remove(account);
+                let _ = platform.remove(&payload);
                 return Err(error.into());
             }
             None => {
-                let _ = platform.remove(account);
+                let _ = platform.remove(&payload);
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
         }
@@ -496,28 +488,22 @@ impl Backend {
         self.touch();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
-        let account = session.account_id();
+        let enrollment = session.quick_unlock_enrollment()?;
         session.remove_quick_unlock()?;
-        if let Some(platform) = self.quick_unlock.biometric() {
+        if let (Some(platform), Some(enrollment)) = (self.quick_unlock.biometric(), enrollment) {
             // An already missing key is fine.
-            let _ = platform.remove(account);
+            let _ = platform.remove(&enrollment.platform_params);
         }
         self.status_of(slot.unlocked()?)
     }
 
-    /// Deletes the platform key of `account` after the vault removed its
+    /// Deletes the platform key of `removed` after the vault removed its
     /// quick-unlock enrollment on its own (a master password change, a
     /// Secret Key rotation or a re-key: `PasswordChanged::removed_quick_unlock`).
     /// Best effort.
-    pub fn platform_key_after_removal(
-        &self,
-        account: AccountId,
-        removed: Option<&QuickUnlockEnrollment>,
-    ) {
-        if removed.is_some()
-            && let Some(platform) = self.quick_unlock.biometric()
-        {
-            let _ = platform.remove(account);
+    pub fn platform_key_after_removal(&self, removed: Option<&QuickUnlockEnrollment>) {
+        if let (Some(removed), Some(platform)) = (removed, self.quick_unlock.biometric()) {
+            let _ = platform.remove(&removed.platform_params);
         }
     }
 
@@ -532,7 +518,7 @@ impl Backend {
     /// error.
     pub fn enroll_hardware_key(
         &self,
-        request: EnrollHardwareKeyRequest,
+        mut request: EnrollHardwareKeyRequest,
     ) -> IpcResult<QuickUnlockStatus> {
         self.touch();
         let account = self.slot()?.unlocked()?.account_id();
@@ -540,14 +526,22 @@ impl Backend {
         if !hardware.is_supported() {
             return Err(IpcError::new(ErrorCode::HardwareKeyUnsupported));
         }
-        self.require_reauth(request.password)?;
+        self.require_reauth(request.password.take())?;
         if self.slot()?.unlocked()?.hardware_keys()?.len() >= MAX_HARDWARE_KEYS {
             return Err(IpcError::new(ErrorCode::HardwareKeyLimit));
         }
         let salt = new_prf_salt()?;
-        let pin = request.pin.as_ref().map(SecretIn::as_secret);
-        let (credential_id, prf) =
-            self.device_op(|cancel| hardware.register(DEFAULT_RP_ID, &salt, pin, cancel))??;
+        let pin = request.pin.take();
+        let registered = self.device_op(|cancel| {
+            hardware.register(
+                DEFAULT_RP_ID,
+                &salt,
+                pin.as_ref().map(SecretIn::as_secret),
+                cancel,
+            )
+        });
+        drop(pin);
+        let (credential_id, prf) = registered??;
         let key = NewHardwareKey::new(credential_id, DEFAULT_RP_ID.to_owned(), salt)?;
 
         let mut slot = self.slot()?;
@@ -557,7 +551,8 @@ impl Backend {
         };
         let enrolled = self
             .quick_unlock
-            .with_reauth(|proof| session.enroll_hardware_key(&key, &prf, proof));
+            .consume_reauth(|proof| session.enroll_hardware_key(&key, &prf, proof));
+        drop(prf);
         match enrolled {
             Some(Ok(_)) => {}
             Some(Err(error)) => return Err(error.into()),

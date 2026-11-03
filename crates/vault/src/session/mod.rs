@@ -719,6 +719,26 @@ impl UnlockedSession {
         }
     }
 
+    /// Locks and refuses every quick-unlock method until the next password
+    /// unlock (the failed-attempt counter is set to its limit). Used when
+    /// the re-authentication limit was hit, so a guesser at an unlocked
+    /// machine cannot reset the limit by locking (ADR-0028 item 8).
+    #[must_use]
+    pub fn lock_requiring_password(self) -> LockedSession {
+        let Self {
+            store,
+            password_unlocked,
+            ..
+        } = self;
+        LockedSession {
+            store,
+            quick: QuickState {
+                password_unlocked,
+                failed_quick: MAX_FAILED_QUICK_ATTEMPTS,
+            },
+        }
+    }
+
     /// The account.
     #[must_use]
     pub const fn account_id(&self) -> AccountId {

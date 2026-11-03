@@ -38,6 +38,13 @@ fn parse<'a, T: serde::Deserialize<'a>>(json: &'a [u8]) -> Option<T> {
     serde_json::from_slice(json).ok()
 }
 
+/// `parse_method_id` never panics and accepts only the canonical form.
+fn check_method_id(text: &str) {
+    if let Some(id) = contract::quick_unlock::parse_method_id(text) {
+        assert_eq!(contract::quick_unlock::method_id_hex(&id), text);
+    }
+}
+
 fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
@@ -80,10 +87,18 @@ fuzz_target!(|data: &[u8]| {
         21 => drop(parse::<SaveKitRequest>(json)),
         22 => drop(parse::<EnrollBiometricRequest>(json)),
         23 => drop(parse::<EnrollHardwareKeyRequest>(json)),
-        24 => drop(parse::<RemoveHardwareKeyRequest>(json)),
+        24 => {
+            if let Some(r) = parse::<RemoveHardwareKeyRequest>(json) {
+                check_method_id(&r.method_id);
+            }
+        }
         25 => drop(parse::<CreateHardwareVaultRequest>(json)),
         26 => drop(parse::<HardwareVaultRequest>(json)),
-        27 => drop(parse::<HardwareVaultKeyRequest>(json)),
+        27 => {
+            if let Some(r) = parse::<HardwareVaultKeyRequest>(json) {
+                check_method_id(&r.method_id);
+            }
+        }
         28 => drop(parse::<VaultRequest>(json)),
         _ => drop(parse::<SshRespondRequest>(json)),
     }

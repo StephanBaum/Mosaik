@@ -185,7 +185,7 @@ impl Monitor {
                     if let Some(reason) = tick_decision(&backend, slept, now, SystemTime::now()) {
                         let _ = backend.lock(reason);
                     }
-                    backend.close_expired_hardware_vaults(now);
+                    backend.close_expired_hardware_vaults(now, SystemTime::now(), slept);
                 }
             })
             .ok();

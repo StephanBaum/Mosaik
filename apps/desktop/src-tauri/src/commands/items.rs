@@ -454,12 +454,25 @@ impl Backend {
         detail(vault_id, item_id, session.item(vault_id, item_id)?)
     }
 
-    /// Moves an item to another vault (new item ID).
+    /// Moves an item to another vault (new item ID). Moving an item **out
+    /// of** a hardware-protected vault copies a one-time-code secret out of
+    /// the vault that needs a security key, so it needs a right master
+    /// password within the last two minutes (`reauthenticate` first).
     ///
     /// # Errors
-    /// `locked`, `sameVault`, `itemNotFound`, `vaultNotFound`.
+    /// `locked`, `reauthRequired` (leaving a hardware-protected vault),
+    /// `sameVault`, `itemNotFound`, `vaultNotFound`.
     pub fn move_item(&self, request: MoveItemRequest) -> IpcResult<MovedItem> {
         self.touch();
+        let leaves_hardware_vault = matches!(
+            self.slot()?
+                .unlocked()?
+                .vault_protection(request.vault_id.get()),
+            Ok(mosaic_vault::session::VaultProtection::HardwareKey { .. })
+        );
+        if leaves_hardware_vault {
+            self.require_reauth(None)?;
+        }
         let mut slot = self.slot()?;
         let target = request.target_vault_id.get();
         let session = slot.unlocked_mut()?;

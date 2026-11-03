@@ -321,7 +321,7 @@ impl Backend {
                 self.remember_account(account_id, None);
                 self.start_ssh_if_enabled(&slot);
                 self.touch();
-                self.reconcile_slot(&mut slot, account_id);
+                self.reconcile_slot(&mut slot);
                 self.state_of(&slot)
             }
             Err(UnlockError { session, error }) => {
@@ -337,12 +337,25 @@ impl Backend {
     /// # Errors
     /// The store's code when it is unavailable.
     pub fn lock(&self, reason: LockReason) -> IpcResult<SessionState> {
+        self.lock_with(reason, false)
+    }
+
+    /// [`Backend::lock`] that also refuses every quick-unlock method until
+    /// the next password unlock (the reauth-limit lock, ADR-0028 item 8):
+    /// a plain lock resets the failed-attempt count, so locking after five
+    /// wrong passwords would otherwise let the next Hello prompt reopen the
+    /// guessing.
+    fn lock_with(&self, reason: LockReason, require_password: bool) -> IpcResult<SessionState> {
         let mut slot = self.slot()?;
         let mut locked_now = false;
         if matches!(*slot, Slot::Unlocked(_))
             && let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken)
         {
-            *slot = Slot::Locked(session.lock());
+            *slot = Slot::Locked(if require_password {
+                session.lock_requiring_password()
+            } else {
+                session.lock()
+            });
             locked_now = true;
         }
         let state = self.state_of(&slot);
@@ -382,7 +395,9 @@ impl Backend {
     /// the vault stays open on a wrong password. A right password keeps the
     /// vault's `Reauthenticated` proof for two minutes (the enroll commands
     /// take `password: null` within that time); the fifth wrong one in a row
-    /// locks the vault. Any lock resets the count and drops the proof.
+    /// locks the vault **and** requires the password for the next unlock
+    /// (no quick method is offered until then). Any lock resets the count
+    /// and drops the proof.
     ///
     /// # Errors
     /// `locked`, `secretKeyRequired`, `wrongCredentials`, `emptyPassword`.
@@ -401,7 +416,7 @@ impl Backend {
             Err(SessionError::UnlockFailed) => {
                 drop(slot);
                 if self.quick_unlock.reauth_failed() >= MAX_FAILED_REAUTH {
-                    let _ = self.lock(LockReason::Manual);
+                    let _ = self.lock_with(LockReason::Manual, true);
                 }
                 Err(IpcError::new(ErrorCode::WrongCredentials))
             }

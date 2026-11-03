@@ -806,3 +806,21 @@ proptest! {
         let _ = decode_hw_params(&method_id, &bytes);
     }
 }
+
+#[test]
+fn lock_requiring_password_refuses_quick_unlock_until_a_password_unlock() {
+    let (mut s, sk) = account();
+    s.enroll_hardware_key(&hw_key(1), &prf(2), &ra(&s)).unwrap();
+    // A plain lock resets the counter; the strict one does not.
+    let locked = s.lock_requiring_password();
+    assert!(locked.password_required(QuickMethod::HardwareKey));
+    assert!(locked.password_required(QuickMethod::Biometric));
+    let err = locked
+        .unlock_with_hardware_key(&[1; 32], &prf(2))
+        .unwrap_err();
+    assert!(matches!(err.error, Error::PasswordRequired));
+    assert_eq!(err.session.hardware_keys().unwrap().len(), 1, "kept");
+    let s = err.session.unlock(&pw(), &sk).unwrap();
+    let locked = s.lock();
+    assert!(!locked.password_required(QuickMethod::HardwareKey));
+}

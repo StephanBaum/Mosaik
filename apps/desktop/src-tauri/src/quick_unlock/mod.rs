@@ -37,7 +37,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mosaic_core::{AccountId, Kek, VaultId};
+use mosaic_core::{Kek, VaultId};
 use mosaic_vault::session::{
     LockedSession, QuickMethod, QuickUnlockPolicy, REAUTH_GRANT as VAULT_REAUTH_GRANT,
     Reauthenticated,
@@ -92,16 +92,19 @@ pub trait BiometricPlatform: Send + Sync {
     /// with the same access control can be created.
     fn is_available(&self) -> bool;
 
-    /// Whether the platform key of `account` exists. Never prompts.
-    fn key_exists(&self, account: AccountId) -> bool;
+    /// Whether the platform key named by `payload` exists. Never prompts.
+    /// `false` for a payload that is not well-formed for this platform.
+    fn key_exists(&self, payload: &[u8]) -> bool;
 
-    /// Creates (or replaces) the platform key of `account`. Returns the
-    /// platform payload (the parameters of the wrapping, see
-    /// [`params`]) and `W`. May prompt.
+    /// Creates a new platform key under a fresh random name (the key nonce
+    /// in the payload, see [`params`]; it is per enrollment, never per
+    /// account). Returns the platform payload (the parameters of the
+    /// wrapping) and `W`. May prompt. The caller deletes the key of the
+    /// enrollment it replaces with [`BiometricPlatform::remove`].
     ///
     /// # Errors
     /// [`PlatformError`].
-    fn enroll(&self, account: AccountId) -> Result<(Vec<u8>, Kek), PlatformError>;
+    fn enroll(&self) -> Result<(Vec<u8>, Kek), PlatformError>;
 
     /// One user prompt; returns `W` for the stored `payload`.
     ///
@@ -109,13 +112,15 @@ pub trait BiometricPlatform: Send + Sync {
     /// [`PlatformError::Cancelled`] if the user dismisses the prompt;
     /// [`PlatformError::Unavailable`] if the key is gone or the payload is
     /// for another platform.
-    fn release(&self, account: AccountId, payload: &[u8]) -> Result<Kek, PlatformError>;
+    fn release(&self, payload: &[u8]) -> Result<Kek, PlatformError>;
 
-    /// Deletes the platform key of `account`.
+    /// Deletes the platform key named by `payload`. A key that is already
+    /// gone is fine.
     ///
     /// # Errors
-    /// [`PlatformError`].
-    fn remove(&self, account: AccountId) -> Result<(), PlatformError>;
+    /// [`PlatformError::Unavailable`] for a payload that is not well-formed
+    /// for this platform, else [`PlatformError::Failed`].
+    fn remove(&self, payload: &[u8]) -> Result<(), PlatformError>;
 }
 
 /// The wall clock in Unix milliseconds.
@@ -139,14 +144,19 @@ pub struct QuickUnlockService {
     hardware: Box<dyn HardwareKeyPlatform>,
     /// One device operation at a time; a second one answers `busy`.
     pub(crate) hardware_op: Mutex<()>,
+    /// One biometric enrollment at a time; a second one answers `busy`.
+    pub(crate) biometric_op: Mutex<()>,
     cancel: CancelFlag,
     /// The proof of a right master password, valid for [`REAUTH_GRANT`] and
     /// cleared on lock. The vault enforces the limit; `at` lets the app
     /// answer `reauthRequired` before it prompts.
     reauth: Mutex<Option<Grant>>,
     failed_reauth: AtomicU8,
-    /// When each open hardware-protected vault closes (monotonic clock).
-    open_vaults: Mutex<BTreeMap<VaultId, Instant>>,
+    /// When each open hardware-protected vault closes: the monotonic and
+    /// the wall-clock reading, and the vault closes when **either** passed
+    /// (like `Activity::idle_at`, so a suspend that stops the monotonic
+    /// clock does not keep it open).
+    open_vaults: Mutex<BTreeMap<VaultId, (Instant, SystemTime)>>,
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
 }
 
@@ -168,6 +178,7 @@ impl QuickUnlockService {
             biometric,
             hardware,
             hardware_op: Mutex::new(()),
+            biometric_op: Mutex::new(()),
             cancel: CancelFlag::default(),
             reauth: Mutex::new(None),
             failed_reauth: AtomicU8::new(0),
@@ -285,11 +296,19 @@ impl QuickUnlockService {
         })
     }
 
-    /// Runs `f` with the held proof (the vault checks that it is still
-    /// valid for the session). `None` without a grant.
-    pub(crate) fn with_reauth<R>(&self, f: impl FnOnce(&Reauthenticated) -> R) -> Option<R> {
-        let grant = self.grant()?;
-        grant.as_ref().map(|g| f(&g.proof))
+    /// Runs `f` with the held proof and **consumes** it when `f` succeeds
+    /// (an enrollment uses the grant up: the next one asks again). A failed
+    /// `f` keeps it. `None` without a grant.
+    pub(crate) fn consume_reauth<T, E>(
+        &self,
+        f: impl FnOnce(&Reauthenticated) -> Result<T, E>,
+    ) -> Option<Result<T, E>> {
+        let mut grant = self.grant()?;
+        let result = f(&grant.as_ref()?.proof);
+        if result.is_ok() {
+            *grant = None;
+        }
+        Some(result)
     }
 
     /// Counts one wrong re-authentication and returns the count.
@@ -299,10 +318,17 @@ impl QuickUnlockService {
             .saturating_add(1)
     }
 
-    /// Records that `vault` was opened (or its key used again) at `now`.
-    pub(crate) fn note_vault_open(&self, vault: VaultId, now: Instant) {
+    /// Records that `vault` was opened (or its key used again) at `now` /
+    /// `wall`.
+    pub(crate) fn note_vault_open(&self, vault: VaultId, now: Instant, wall: SystemTime) {
         if let Ok(mut open) = self.open_vaults.lock() {
-            open.insert(vault, now + HARDWARE_VAULT_OPEN_FOR);
+            open.insert(
+                vault,
+                (
+                    now + HARDWARE_VAULT_OPEN_FOR,
+                    wall + HARDWARE_VAULT_OPEN_FOR,
+                ),
+            );
         }
     }
 
@@ -313,25 +339,40 @@ impl QuickUnlockService {
         }
     }
 
-    /// When `vault` closes by itself, if it is open.
-    pub(crate) fn vault_deadline(&self, vault: VaultId) -> Option<Instant> {
-        self.open_vaults.lock().ok()?.get(&vault).copied()
+    /// How long `vault` stays open, if it is tracked: the shorter of the
+    /// two clocks' remainders.
+    pub(crate) fn vault_left(
+        &self,
+        vault: VaultId,
+        now: Instant,
+        wall: SystemTime,
+    ) -> Option<Duration> {
+        let open = self.open_vaults.lock().ok()?;
+        let (mono, wall_deadline) = open.get(&vault)?;
+        Some(
+            mono.saturating_duration_since(now)
+                .min(wall_deadline.duration_since(wall).unwrap_or(Duration::ZERO)),
+        )
     }
 
-    /// Removes and returns the vaults whose deadline passed at `now`.
-    pub(crate) fn take_expired_vaults(&self, now: Instant) -> Vec<VaultId> {
-        let Ok(mut open) = self.open_vaults.lock() else {
+    /// Whether `vault` has a deadline.
+    pub(crate) fn vault_tracked(&self, vault: VaultId) -> bool {
+        self.open_vaults
+            .lock()
+            .is_ok_and(|open| open.contains_key(&vault))
+    }
+
+    /// The tracked vaults whose deadline passed on either clock at `now` /
+    /// `wall`. Nothing is removed: the caller forgets a vault with
+    /// [`Self::note_vault_closed`] once it really closed.
+    pub(crate) fn expired_vaults(&self, now: Instant, wall: SystemTime) -> Vec<VaultId> {
+        let Ok(open) = self.open_vaults.lock() else {
             return Vec::new();
         };
-        let expired: Vec<VaultId> = open
-            .iter()
-            .filter(|(_, deadline)| **deadline <= now)
+        open.iter()
+            .filter(|(_, (mono, wall_deadline))| *mono <= now || *wall_deadline <= wall)
             .map(|(vault, _)| *vault)
-            .collect();
-        for vault in &expired {
-            open.remove(vault);
-        }
-        expired
+            .collect()
     }
 
     /// What follows every lock: a running device operation is cancelled and
@@ -374,27 +415,48 @@ mod tests {
         assert!(service.available_biometric().is_none());
         assert!(!service.hardware().is_supported());
         assert!(!service.reauth_granted());
-        assert!(service.with_reauth(|_| ()).is_none());
+        assert!(service.consume_reauth(|_| Ok::<(), ()>(())).is_none());
         assert_eq!(service.reauth_failed(), 1);
         assert_eq!(service.reauth_failed(), 2);
         let vault = VaultId::from_bytes([
             0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1,
         ])
         .unwrap();
-        let now = Instant::now();
-        service.note_vault_open(vault, now);
+        let (now, wall) = (Instant::now(), SystemTime::now());
+        service.note_vault_open(vault, now, wall);
+        assert!(service.vault_tracked(vault));
         assert_eq!(
-            service.vault_deadline(vault),
-            Some(now + HARDWARE_VAULT_OPEN_FOR)
+            service.vault_left(vault, now, wall),
+            Some(HARDWARE_VAULT_OPEN_FOR)
         );
-        assert_eq!(service.take_expired_vaults(now), Vec::new());
-        let later = now + HARDWARE_VAULT_OPEN_FOR + Duration::from_secs(1);
-        assert_eq!(service.take_expired_vaults(later), vec![vault]);
-        assert_eq!(service.vault_deadline(vault), None, "taken once");
-        service.note_vault_open(vault, now);
+        assert_eq!(service.expired_vaults(now, wall), Vec::new());
+        let step = HARDWARE_VAULT_OPEN_FOR + Duration::from_secs(1);
+        // Either clock passing is enough (a suspend stops one of them).
+        assert_eq!(service.expired_vaults(now + step, wall), vec![vault]);
+        assert_eq!(service.expired_vaults(now, wall + step), vec![vault]);
+        assert_eq!(
+            service.vault_left(vault, now + step, wall),
+            Some(Duration::ZERO)
+        );
+        assert_eq!(
+            service.expired_vaults(now + step, wall),
+            vec![vault],
+            "nothing is removed until the close succeeded"
+        );
+        service.note_vault_closed(vault);
+        assert!(!service.vault_tracked(vault));
+        assert_eq!(service.vault_left(vault, now, wall), None);
+        service.note_vault_open(vault, now, wall);
         service.on_lock();
-        assert_eq!(service.vault_deadline(vault), None, "a lock clears them");
+        assert!(!service.vault_tracked(vault), "a lock clears them");
         assert_eq!(service.reauth_failed(), 1, "a lock resets the count");
         assert!(service.cancel_flag().is_cancelled(), "a lock cancels");
+    }
+
+    #[test]
+    fn without_a_grant_nothing_runs() {
+        let service = QuickUnlockService::default();
+        // No grant: nothing runs.
+        assert!(service.consume_reauth(|_| Ok::<(), ()>(())).is_none());
     }
 }

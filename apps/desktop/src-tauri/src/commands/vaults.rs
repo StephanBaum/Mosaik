@@ -7,7 +7,7 @@
 //! monotonic `Instant` in the quick-unlock service, and the auto-lock tick
 //! closes the vault when it passes.
 
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use mosaic_core::unlock::new_prf_salt;
 use mosaic_core::{AccountId, VaultId};
@@ -60,7 +60,12 @@ pub async fn create_hardware_vault(
     state: State<'_, AppState>,
     request: CreateHardwareVaultRequest,
 ) -> IpcResult<VaultSummary> {
-    state.run(move |b| b.create_hardware_vault(&request)).await
+    state
+        .run(move |b| {
+            let mut request = request;
+            b.create_hardware_vault(&mut request)
+        })
+        .await
 }
 
 /// `open_hardware_vault`.
@@ -69,7 +74,12 @@ pub async fn open_hardware_vault(
     state: State<'_, AppState>,
     request: HardwareVaultRequest,
 ) -> IpcResult<VaultSummary> {
-    state.run(move |b| b.open_hardware_vault(&request)).await
+    state
+        .run(move |b| {
+            let mut request = request;
+            b.open_hardware_vault(&mut request)
+        })
+        .await
 }
 
 /// `close_hardware_vault`.
@@ -96,7 +106,12 @@ pub async fn add_hardware_vault_key(
     state: State<'_, AppState>,
     request: HardwareVaultRequest,
 ) -> IpcResult<HardwareVaultKeys> {
-    state.run(move |b| b.add_hardware_vault_key(&request)).await
+    state
+        .run(move |b| {
+            let mut request = request;
+            b.add_hardware_vault_key(&mut request)
+        })
+        .await
 }
 
 /// `remove_hardware_vault_key`.
@@ -128,7 +143,7 @@ impl Backend {
     ) -> VaultSummary {
         let hardware = self
             .quick_unlock
-            .vault_deadline(vault.vault_id)
+            .vault_left(vault.vault_id, Instant::now(), SystemTime::now())
             .filter(|_| vault.available);
         let account_key = session
             .vault_protection(vault.vault_id)
@@ -143,8 +158,7 @@ impl Backend {
             } else {
                 VaultProtection::HardwareKey
             },
-            open_until: hardware.map(|deadline| {
-                let left = deadline.saturating_duration_since(Instant::now());
+            open_until: hardware.map(|left| {
                 self.quick_unlock
                     .now_ms()
                     .saturating_add(i64::try_from(left.as_millis()).unwrap_or(i64::MAX))
@@ -213,6 +227,26 @@ impl Backend {
         slot.unlocked_mut()
     }
 
+    /// Registers a key on the device, dropping (zeroizing) the PIN as soon
+    /// as the call is over.
+    fn register_with_pin(
+        &self,
+        hardware: &dyn crate::quick_unlock::HardwareKeyPlatform,
+        salt: &[u8; 32],
+        pin: Option<SecretIn>,
+    ) -> IpcResult<(Vec<u8>, mosaic_core::unlock::PrfOutput)> {
+        let registered = self.device_op(|cancel| {
+            hardware.register(
+                DEFAULT_RP_ID,
+                salt,
+                pin.as_ref().map(SecretIn::as_secret),
+                cancel,
+            )
+        });
+        drop(pin);
+        Ok(registered??)
+    }
+
     fn require_hardware(&self) -> IpcResult<()> {
         if self.quick_unlock.hardware().is_supported() {
             Ok(())
@@ -230,23 +264,24 @@ impl Backend {
     /// `busy`, `cancelled`, the device codes, or a store error.
     pub fn create_hardware_vault(
         &self,
-        request: &CreateHardwareVaultRequest,
+        request: &mut CreateHardwareVaultRequest,
     ) -> IpcResult<VaultSummary> {
         self.touch();
         let name = vault_name(&request.name)?;
         let account = self.slot()?.unlocked()?.account_id();
         self.require_hardware()?;
         let salt = new_prf_salt()?;
-        let pin = request.pin.as_ref().map(SecretIn::as_secret);
         let hardware = self.quick_unlock.hardware();
-        let (credential_id, prf) =
-            self.device_op(|cancel| hardware.register(DEFAULT_RP_ID, &salt, pin, cancel))??;
+        let (credential_id, prf) = self.register_with_pin(hardware, &salt, request.pin.take())?;
         let key = NewHardwareKey::new(credential_id, DEFAULT_RP_ID.to_owned(), salt)?;
 
         let mut slot = self.slot()?;
         let session = Self::session_after_device(&mut slot, account)?;
-        let vault_id = session.create_hardware_vault(name, &key, &prf)?;
-        self.quick_unlock.note_vault_open(vault_id, Instant::now());
+        let created = session.create_hardware_vault(name, &key, &prf);
+        drop(prf);
+        let vault_id = created?;
+        self.quick_unlock
+            .note_vault_open(vault_id, Instant::now(), SystemTime::now());
         self.summary(session, vault_id)
     }
 
@@ -257,7 +292,10 @@ impl Backend {
     /// `locked`, `hardwareKeyUnsupported`, `vaultNotFound`, `invalidInput`
     /// (not a hardware-protected vault), `hardwareKeyNotRecognized`, `busy`,
     /// `cancelled`, the device codes, or a store error.
-    pub fn open_hardware_vault(&self, request: &HardwareVaultRequest) -> IpcResult<VaultSummary> {
+    pub fn open_hardware_vault(
+        &self,
+        request: &mut HardwareVaultRequest,
+    ) -> IpcResult<VaultSummary> {
         self.touch();
         let vault_id = request.vault_id.get();
         let account = self.slot()?.unlocked()?.account_id();
@@ -271,10 +309,14 @@ impl Backend {
                 prf_salt: &key.prf_salt,
             })
             .collect();
-        let pin = request.pin.as_ref().map(SecretIn::as_secret);
         let hardware = self.quick_unlock.hardware();
-        let (index, prf) =
-            self.device_op(|cancel| hardware.evaluate(&candidates, pin, cancel))??;
+        // The PIN is dropped (zeroized) as soon as the device call is over.
+        let pin = request.pin.take();
+        let evaluated = self.device_op(|cancel| {
+            hardware.evaluate(&candidates, pin.as_ref().map(SecretIn::as_secret), cancel)
+        });
+        drop(pin);
+        let (index, prf) = evaluated??;
         let credential = keys
             .get(index)
             .map(|key| key.credential_id.as_slice())
@@ -282,8 +324,11 @@ impl Backend {
 
         let mut slot = self.slot()?;
         let session = Self::session_after_device(&mut slot, account)?;
-        session.open_hardware_vault(vault_id, credential, &prf)?;
-        self.quick_unlock.note_vault_open(vault_id, Instant::now());
+        let opened = session.open_hardware_vault(vault_id, credential, &prf);
+        drop(prf);
+        opened?;
+        self.quick_unlock
+            .note_vault_open(vault_id, Instant::now(), SystemTime::now());
         self.summary(session, vault_id)
     }
 
@@ -320,17 +365,22 @@ impl Backend {
     /// Registers another security key for an open hardware-protected vault.
     ///
     /// # Errors
-    /// `locked`, `hardwareKeyUnsupported`, `vaultNotFound`, `invalidInput`,
-    /// `vaultUnavailable` (the vault is closed), `hardwareKeyLimit`, `busy`,
+    /// `locked`, `hardwareKeyUnsupported`, `reauthRequired` (no right
+    /// `reauthenticate` in the last two minutes), `vaultNotFound`,
+    /// `invalidInput`, `vaultUnavailable` (the vault is closed),
+    /// `hardwareKeyLimit`, `busy`,
     /// `cancelled`, the device codes, or a store error.
     pub fn add_hardware_vault_key(
         &self,
-        request: &HardwareVaultRequest,
+        request: &mut HardwareVaultRequest,
     ) -> IpcResult<HardwareVaultKeys> {
         self.touch();
         let vault_id = request.vault_id.get();
         self.slot()?.unlocked()?;
         self.require_hardware()?;
+        // A new key opens the vault later: like enrolling one, it needs a
+        // right master password within the last two minutes.
+        self.require_reauth(None)?;
         let account = {
             let slot = self.slot()?;
             let session = slot.unlocked()?;
@@ -346,15 +396,15 @@ impl Backend {
             session.account_id()
         };
         let salt = new_prf_salt()?;
-        let pin = request.pin.as_ref().map(SecretIn::as_secret);
         let hardware = self.quick_unlock.hardware();
-        let (credential_id, prf) =
-            self.device_op(|cancel| hardware.register(DEFAULT_RP_ID, &salt, pin, cancel))??;
+        let (credential_id, prf) = self.register_with_pin(hardware, &salt, request.pin.take())?;
         let key = NewHardwareKey::new(credential_id, DEFAULT_RP_ID.to_owned(), salt)?;
 
         let mut slot = self.slot()?;
         let session = Self::session_after_device(&mut slot, account)?;
-        session.add_hardware_vault_key(vault_id, &key, &prf)?;
+        let added = session.add_hardware_vault_key(vault_id, &key, &prf);
+        drop(prf);
+        added?;
         Ok(HardwareVaultKeys {
             keys: summaries(&session.hardware_vault_keys(vault_id)?),
         })
@@ -385,21 +435,43 @@ impl Backend {
         })
     }
 
-    /// Closes the hardware-protected vaults whose five minutes are up and
-    /// tells the webview (`hardwareVaultClosed`). Called by the auto-lock
-    /// tick; `now` is the monotonic clock.
-    pub fn close_expired_hardware_vaults(&self, now: Instant) {
-        let expired = self.quick_unlock.take_expired_vaults(now);
-        if expired.is_empty() {
-            return;
-        }
+    /// Closes the hardware-protected vaults that are open past their five
+    /// minutes and tells the webview (`hardwareVaultClosed`). Called by the
+    /// auto-lock tick with the monotonic clock and the wall clock; a vault
+    /// is due when **either** deadline passed. After a suspend (`slept`)
+    /// every open hardware vault closes, whatever the lock-on-sleep
+    /// setting says. An open vault without a deadline (it should not exist)
+    /// closes too. A deadline is forgotten only after the close succeeded,
+    /// so a failed close is retried on the next tick.
+    pub fn close_expired_hardware_vaults(&self, now: Instant, wall: SystemTime, slept: bool) {
         let mut closed = Vec::new();
         if let Ok(mut slot) = self.slot()
             && let Slot::Unlocked(session) = &mut *slot
         {
-            for vault_id in expired {
-                if session.close_hardware_vault(vault_id).is_ok() {
-                    closed.push(vault_id);
+            let due = self.quick_unlock.expired_vaults(now, wall);
+            let open: Vec<VaultId> = session
+                .vaults()
+                .iter()
+                .map(|v| v.vault_id)
+                .filter(|id| {
+                    matches!(
+                        session.vault_protection(*id),
+                        Ok(SessionProtection::HardwareKey { open: true })
+                    )
+                })
+                .collect();
+            for vault_id in &open {
+                if (slept || due.contains(vault_id) || !self.quick_unlock.vault_tracked(*vault_id))
+                    && session.close_hardware_vault(*vault_id).is_ok()
+                {
+                    self.quick_unlock.note_vault_closed(*vault_id);
+                    closed.push(*vault_id);
+                }
+            }
+            // A due deadline of a vault that is not open any more is stale.
+            for vault_id in due {
+                if !open.contains(&vault_id) {
+                    self.quick_unlock.note_vault_closed(vault_id);
                 }
             }
         }

@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::{AccountId, Argon2Profile, MasterPassword, SecretKey};
 use mosaic_vault::session::LockedSession;
@@ -184,7 +184,9 @@ fn biometric_unlock_happy_path_prompts_once() {
     assert_eq!(methods(b), vec![QuickUnlockKind::Biometric]);
     assert_eq!(r.fake.prompts(), 1, "listing the methods never prompts");
 
-    let state = b.unlock_quick(&quick(QuickUnlockKind::Biometric)).unwrap();
+    let state = b
+        .unlock_quick(&mut quick(QuickUnlockKind::Biometric))
+        .unwrap();
     assert!(matches!(state, SessionState::Unlocked { .. }));
     assert_eq!(r.fake.prompts(), 2, "exactly one prompt per unlock");
     assert!(b.is_unlocked());
@@ -212,7 +214,7 @@ fn no_prompt_when_unavailable_or_not_enrolled() {
     assert_eq!(
         code(
             off.backend
-                .unlock_quick(&quick(QuickUnlockKind::Biometric))
+                .unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockUnavailable
@@ -226,7 +228,7 @@ fn no_prompt_when_unavailable_or_not_enrolled() {
     assert_eq!(
         code(
             on.backend
-                .unlock_quick(&quick(QuickUnlockKind::Biometric))
+                .unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockUnavailable
@@ -235,12 +237,12 @@ fn no_prompt_when_unavailable_or_not_enrolled() {
 
     // A PIN belongs to security keys only.
     enroll_then_lock(&on);
-    let with_pin = QuickUnlockRequest {
+    let mut with_pin = QuickUnlockRequest {
         method: QuickUnlockKind::Biometric,
         pin: Some(SecretIn::test("1234")),
     };
     assert_eq!(
-        code(on.backend.unlock_quick(&with_pin).unwrap_err()),
+        code(on.backend.unlock_quick(&mut with_pin).unwrap_err()),
         ErrorCode::InvalidInput
     );
     assert_eq!(on.fake.prompts(), 1, "only the enrollment prompted");
@@ -307,7 +309,7 @@ fn a_restart_requires_the_password_once() {
     assert_eq!(
         code(
             second
-                .unlock_quick(&quick(QuickUnlockKind::Biometric))
+                .unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::PasswordRequired
@@ -319,7 +321,7 @@ fn a_restart_requires_the_password_once() {
     second.lock(LockReason::Manual).unwrap();
     assert_eq!(methods(&second), vec![QuickUnlockKind::Biometric]);
     second
-        .unlock_quick(&quick(QuickUnlockKind::Biometric))
+        .unlock_quick(&mut quick(QuickUnlockKind::Biometric))
         .unwrap();
     assert!(second.is_unlocked());
 }
@@ -347,7 +349,7 @@ fn an_expired_enrollment_is_removed_with_its_platform_key() {
     assert!(r.fake.has_key(), "listing never writes");
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockExpired
@@ -357,7 +359,7 @@ fn an_expired_enrollment_is_removed_with_its_platform_key() {
     assert_eq!(r.fake.prompts(), 1, "no prompt for an expired enrollment");
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockUnavailable,
@@ -366,7 +368,7 @@ fn an_expired_enrollment_is_removed_with_its_platform_key() {
 }
 
 #[test]
-fn reconcile_removes_what_expired_or_lost_its_key_or_has_no_enrollment() {
+fn reconcile_removes_what_expired_or_lost_its_key() {
     let _kdf = crate::test_support::kdf_permit();
     let r = rig(true);
     let b = &r.backend;
@@ -377,14 +379,8 @@ fn reconcile_removes_what_expired_or_lost_its_key_or_has_no_enrollment() {
     b.reconcile_quick_unlock();
     assert!(!b.quick_unlock_status().unwrap().biometric.enrolled);
 
-    // A platform key without an enrollment.
-    r.fake.plant_key();
-    assert!(r.fake.has_key());
-    b.reconcile_quick_unlock();
-    assert!(!r.fake.has_key());
-
     // Expired: a shorter maximum age takes effect at once.
-    enroll(b, None).unwrap();
+    enroll(b, Some(PASSWORD)).unwrap();
     b.update_settings(UpdateSettingsRequest {
         settings: Settings {
             quick_unlock_max_age_days: 1,
@@ -417,7 +413,7 @@ fn a_cancelled_prompt_keeps_the_enrollment() {
     r.fake.fail_next(PlatformError::Cancelled);
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::Cancelled
@@ -427,12 +423,13 @@ fn a_cancelled_prompt_keeps_the_enrollment() {
     r.fake.fail_next(PlatformError::Failed);
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::Internal
     );
-    b.unlock_quick(&quick(QuickUnlockKind::Biometric)).unwrap();
+    b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
+        .unwrap();
     assert!(b.is_unlocked());
 }
 
@@ -445,7 +442,7 @@ fn a_changed_platform_key_invalidates_and_deletes_the_enrollment() {
     r.fake.rotate_key();
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockInvalidated
@@ -469,7 +466,7 @@ fn a_key_that_vanished_is_unavailable_and_the_enrollment_goes() {
     r.fake.lose_key();
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockUnavailable
@@ -477,7 +474,7 @@ fn a_key_that_vanished_is_unavailable_and_the_enrollment_goes() {
     assert_eq!(methods(b), vec![]);
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::QuickUnlockUnavailable
@@ -507,11 +504,22 @@ fn enrolling_needs_the_password_and_a_right_one_opens_a_two_minute_grant() {
     assert!(!events(&r.events).contains(&locked_event()));
     assert_eq!(r.fake.prompts(), 0);
 
-    enroll(b, Some(PASSWORD)).unwrap();
-    // Within the grant a null password passes (a re-enrollment replaces).
-    let again = enroll(b, None).unwrap();
+    // A right password opens the grant for one enrollment.
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let first = enroll(b, None).unwrap();
+    assert!(first.biometric.enrolled);
+    assert_eq!(r.fake.prompts(), 1);
+    // The success used the grant up.
+    assert_eq!(
+        code(enroll(b, None).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(r.fake.prompts(), 1, "no prompt without a grant");
+    // A re-enrollment replaces the enrollment and deletes the old key.
+    let again = enroll(b, Some(PASSWORD)).unwrap();
     assert!(again.biometric.enrolled);
     assert_eq!(r.fake.prompts(), 2);
+    assert_eq!(r.fake.key_count(), 1, "the replaced key is gone");
 
     // A lock drops the grant.
     b.lock(LockReason::Manual).unwrap();
@@ -597,7 +605,7 @@ fn removing_and_a_password_change_delete_the_platform_key() {
 
     // The vault deletes the enrollment on a master password change and
     // reports it; the app deletes the platform key.
-    enroll(b, None).unwrap();
+    enroll(b, Some(PASSWORD)).unwrap();
     assert!(r.fake.has_key());
     let account = b.account().unwrap().account_id.get();
     let secret_key = b.secret_keys.load(account).unwrap().unwrap();
@@ -614,7 +622,7 @@ fn removing_and_a_password_change_delete_the_platform_key() {
         .unwrap();
     assert!(changed.removed_quick_unlock.is_some());
     assert!(!b.quick_unlock_status().unwrap().biometric.enrolled);
-    b.platform_key_after_removal(account, changed.removed_quick_unlock.as_ref());
+    b.platform_key_after_removal(changed.removed_quick_unlock.as_ref());
     assert!(!r.fake.has_key());
 }
 
@@ -659,7 +667,7 @@ fn a_session_that_changes_during_a_prompt_ends_the_flow_cleanly() {
     }));
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::Biometric))
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
                 .unwrap_err()
         ),
         ErrorCode::AlreadyUnlocked
@@ -675,7 +683,7 @@ fn hardware_keys_are_unsupported_by_default_and_answer_without_a_device() {
     enroll_then_lock(&r);
     assert_eq!(
         code(
-            b.unlock_quick(&quick(QuickUnlockKind::HardwareKey))
+            b.unlock_quick(&mut quick(QuickUnlockKind::HardwareKey))
                 .unwrap_err()
         ),
         ErrorCode::HardwareKeyUnsupported
@@ -750,21 +758,21 @@ fn unsupported_security_keys_answer_without_touching_a_device() {
     );
     assert_eq!(
         code(
-            b.create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+            b.create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
                 .unwrap_err()
         ),
         unsupported
     );
     assert_eq!(
         code(
-            b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+            b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
                 .unwrap_err()
         ),
         unsupported
     );
     assert_eq!(
         code(
-            b.add_hardware_vault_key(&typed(json!({ "vaultId": vault, "pin": null })))
+            b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
                 .unwrap_err()
         ),
         unsupported
@@ -775,7 +783,7 @@ fn unsupported_security_keys_answer_without_touching_a_device() {
     assert_eq!(status.hardware_keys.max_keys, 8);
     b.lock(LockReason::Manual).unwrap();
     assert_eq!(
-        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
         unsupported
     );
     assert_eq!(methods(b), vec![]);
@@ -815,7 +823,7 @@ fn a_security_key_unlocks_without_the_password_after_a_start() {
 
     b.lock(LockReason::Manual).unwrap();
     assert_eq!(methods(b), vec![QuickUnlockKind::HardwareKey]);
-    let state = b.unlock_quick(&pin_request(None)).unwrap();
+    let state = b.unlock_quick(&mut pin_request(None)).unwrap();
     assert!(matches!(state, SessionState::Unlocked { .. }));
     assert_eq!(r.key.calls(), 2);
     assert_eq!(b.quick_unlock_status().unwrap().hardware_keys.keys.len(), 1);
@@ -840,19 +848,25 @@ fn the_pin_is_checked_by_the_key_and_five_failures_need_the_password() {
     b.lock(LockReason::Manual).unwrap();
 
     assert_eq!(
-        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
         ErrorCode::HardwareKeyPinRequired,
         "a missing PIN is not a failed attempt"
     );
     for _ in 0..5 {
         assert_eq!(
-            code(b.unlock_quick(&pin_request(Some("000000"))).unwrap_err()),
+            code(
+                b.unlock_quick(&mut pin_request(Some("000000")))
+                    .unwrap_err()
+            ),
             ErrorCode::HardwareKeyPinInvalid
         );
     }
     let calls = r.key.calls();
     assert_eq!(
-        code(b.unlock_quick(&pin_request(Some(FAKE_PIN))).unwrap_err()),
+        code(
+            b.unlock_quick(&mut pin_request(Some(FAKE_PIN)))
+                .unwrap_err()
+        ),
         ErrorCode::PasswordRequired,
         "even the right PIN needs the password now"
     );
@@ -862,7 +876,7 @@ fn the_pin_is_checked_by_the_key_and_five_failures_need_the_password() {
     unlock_with_password(b);
     b.lock(LockReason::Manual).unwrap();
     assert_eq!(methods(b), vec![QuickUnlockKind::HardwareKey]);
-    b.unlock_quick(&pin_request(Some(FAKE_PIN))).unwrap();
+    b.unlock_quick(&mut pin_request(Some(FAKE_PIN))).unwrap();
 }
 
 #[test]
@@ -875,27 +889,27 @@ fn a_wrong_key_or_answer_is_not_recognized() {
 
     r.key.plug(Some(1));
     assert_eq!(
-        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
         ErrorCode::HardwareKeyNotRecognized,
         "another physical key"
     );
     r.key.plug(None);
     assert_eq!(
-        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
         ErrorCode::HardwareKeyNotFound
     );
     r.key.plug(Some(0));
     r.key.corrupt_prf.store(true, Ordering::SeqCst);
     for _ in 0..5 {
         assert_eq!(
-            code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+            code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
             ErrorCode::HardwareKeyNotRecognized,
             "the vault rejects the answer"
         );
     }
     r.key.corrupt_prf.store(false, Ordering::SeqCst);
     assert_eq!(
-        code(b.unlock_quick(&pin_request(None)).unwrap_err()),
+        code(b.unlock_quick(&mut pin_request(None)).unwrap_err()),
         ErrorCode::PasswordRequired
     );
     assert!(!b.is_unlocked());
@@ -916,7 +930,7 @@ fn locking_cancels_a_running_device_call_and_only_one_runs_at_a_time() {
     *key.on_call.lock().unwrap() = Some(Box::new(move || {
         if let Some(b) = weak.get().and_then(Weak::upgrade) {
             let error = b
-                .create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+                .create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
                 .unwrap_err();
             *seen.lock().unwrap() = Some(error.code);
         }
@@ -932,7 +946,7 @@ fn locking_cancels_a_running_device_call_and_only_one_runs_at_a_time() {
         }
     }));
     assert_eq!(
-        code(enroll_key(&b, None, None).unwrap_err()),
+        code(enroll_key(&b, Some(PASSWORD), None).unwrap_err()),
         ErrorCode::Cancelled
     );
     assert!(!b.is_unlocked());
@@ -951,11 +965,11 @@ fn at_most_eight_security_keys_can_be_registered() {
     let b = &r.backend;
     enroll_key(b, Some(PASSWORD), None).unwrap();
     for _ in 1..8 {
-        enroll_key(b, None, None).unwrap();
+        enroll_key(b, Some(PASSWORD), None).unwrap();
     }
     let calls = r.key.calls();
     assert_eq!(
-        code(enroll_key(b, None, None).unwrap_err()),
+        code(enroll_key(b, Some(PASSWORD), None).unwrap_err()),
         ErrorCode::HardwareKeyLimit
     );
     assert_eq!(r.key.calls(), calls, "refused before the device");
@@ -965,7 +979,7 @@ fn at_most_eight_security_keys_can_be_registered() {
         .remove_hardware_key(&typed(json!({ "methodId": keys[0].method_id })))
         .unwrap();
     assert_eq!(after.hardware_keys.keys.len(), 7);
-    enroll_key(b, None, None).unwrap();
+    enroll_key(b, Some(PASSWORD), None).unwrap();
 }
 
 fn totp_draft(title: &str) -> Value {
@@ -994,7 +1008,7 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     let r = hw_rig(2);
     let b = &r.backend;
     let summary = b
-        .create_hardware_vault(&typed(json!({ "name": "Codes", "pin": null })))
+        .create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
         .unwrap();
     let vault = summary.vault_id.0.to_string();
     assert_eq!(summary.protection, VaultProtection::HardwareKey);
@@ -1028,7 +1042,11 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     assert_eq!(b.totp_code(typed(item.clone())).unwrap().period, Some(30));
 
     // Five minutes later the tick closes it and tells the webview.
-    b.close_expired_hardware_vaults(Instant::now() + Duration::from_secs(301));
+    b.close_expired_hardware_vaults(
+        Instant::now() + Duration::from_secs(301),
+        SystemTime::now(),
+        false,
+    );
     let closed = json!({ "type": "hardwareVaultClosed", "vaultId": vault });
     assert!(events(&r.events).contains(&closed));
     assert_eq!(
@@ -1056,7 +1074,7 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     r.key.plug(Some(1));
     assert_eq!(
         code(
-            b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+            b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
                 .unwrap_err()
         ),
         ErrorCode::HardwareKeyNotRecognized
@@ -1064,14 +1082,23 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     assert!(!find_vault(b, &vault).available, "it stays closed");
     r.key.plug(Some(0));
     let reopened = b
-        .open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+        .open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
     assert!(reopened.available && reopened.open_until.is_some());
     assert!(b.totp_code(typed(item.clone())).is_ok());
 
-    // A second key, then the first can go; the last one cannot.
+    // A second key, then the first can go; the last one cannot. Adding a key
+    // needs a right password within two minutes (L6).
+    assert_eq!(
+        code(
+            b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
+                .unwrap_err()
+        ),
+        ErrorCode::ReauthRequired
+    );
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
     let second = b
-        .add_hardware_vault_key(&typed(json!({ "vaultId": vault, "pin": null })))
+        .add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
     assert_eq!(second.keys.len(), 2);
     let after = b
@@ -1116,7 +1143,7 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
     }
 
     // A lock closes it too: after the next unlock it is closed.
-    b.open_hardware_vault(&typed(json!({ "vaultId": vault, "pin": null })))
+    b.open_hardware_vault(&mut typed(json!({ "vaultId": vault, "pin": null })))
         .unwrap();
     b.lock(LockReason::Manual).unwrap();
     unlock_with_password(b);
@@ -1126,4 +1153,195 @@ fn a_hardware_vault_opens_for_five_minutes_and_serves_codes_only_while_open() {
         code(b.totp_code(typed(item)).unwrap_err()),
         ErrorCode::VaultUnavailable
     );
+}
+
+// ---------------------------------------------------------------------------
+// Crypto-review fixes (M1, M2, L2, L5, L6, L9)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m1_five_wrong_reauthentications_lock_and_need_the_password_afterwards() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(true);
+    let b = &r.backend;
+    enroll(b, Some(PASSWORD)).unwrap();
+    *b.kit_pending.lock().unwrap() = None;
+    for _ in 0..5 {
+        let error = b
+            .save_emergency_kit(SaveKitRequest {
+                labels: crate::emergency_kit::tests::labels(),
+                password: Some(SecretIn::test("not the password")),
+            })
+            .unwrap_err();
+        assert_eq!(code(error), ErrorCode::WrongCredentials);
+    }
+    assert!(!b.is_unlocked());
+    assert_eq!(methods(b), Vec::new(), "no quick method is offered");
+    let prompts = r.fake.prompts();
+    assert_eq!(
+        code(
+            b.unlock_quick(&mut quick(QuickUnlockKind::Biometric))
+                .unwrap_err()
+        ),
+        ErrorCode::PasswordRequired
+    );
+    assert_eq!(r.fake.prompts(), prompts, "no Hello prompt");
+    // A password unlock restores quick unlock for the next lock.
+    unlock_with_password(b);
+    b.lock(LockReason::Manual).unwrap();
+    assert_eq!(methods(b), vec![QuickUnlockKind::Biometric]);
+}
+
+#[test]
+fn l2_a_failed_enrollment_keeps_the_grant_and_a_success_uses_it_up() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(true);
+    let b = &r.backend;
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    r.fake.fail_next(PlatformError::Failed);
+    assert_eq!(code(enroll(b, None).unwrap_err()), ErrorCode::Internal);
+    assert!(!r.fake.has_key());
+    enroll(b, None).unwrap();
+    assert_eq!(
+        code(enroll(b, None).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+}
+
+#[test]
+fn l5_every_enrollment_gets_its_own_key_and_the_replaced_one_goes() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(true);
+    let b = &r.backend;
+    enroll(b, Some(PASSWORD)).unwrap();
+    let nonce_of = || {
+        let slot = b.slot().unwrap();
+        let params = slot
+            .unlocked()
+            .unwrap()
+            .quick_unlock_enrollment()
+            .unwrap()
+            .unwrap()
+            .platform_params;
+        crate::quick_unlock::params::nonce_of(&params).unwrap()
+    };
+    let first = nonce_of();
+    enroll(b, Some(PASSWORD)).unwrap();
+    assert_ne!(first, nonce_of(), "a new key name per enrollment");
+    assert_eq!(r.fake.key_count(), 1);
+}
+
+#[test]
+fn l9_a_second_enrollment_while_one_prompts_is_busy() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(true);
+    let fake = Arc::clone(&r.fake);
+    let b = Arc::new(r.backend);
+    let seen: Arc<Mutex<Option<ErrorCode>>> = Arc::default();
+    let (weak, out) = (Arc::downgrade(&b), Arc::clone(&seen));
+    *fake.on_enroll.lock().unwrap() = Some(Box::new(move || {
+        if let Some(b) = weak.upgrade() {
+            // Same thread, the mutex is held by the outer call: busy.
+            let error = enroll(&b, Some(PASSWORD)).unwrap_err();
+            *out.lock().unwrap() = Some(error.code);
+        }
+    }));
+    enroll(&b, Some(PASSWORD)).unwrap();
+    assert_eq!(*seen.lock().unwrap(), Some(ErrorCode::Busy));
+    assert_eq!(fake.prompts(), 1, "the busy call never prompted");
+}
+
+/// Creates (and so opens) a hardware vault in a fresh rig.
+fn open_hw_vault(r: &HwRig) -> (String, mosaic_core::VaultId) {
+    let summary = r
+        .backend
+        .create_hardware_vault(&mut typed(json!({ "name": "Codes", "pin": null })))
+        .unwrap();
+    (summary.vault_id.0.to_string(), summary.vault_id.get())
+}
+
+#[test]
+fn m2_a_hardware_vault_closes_when_either_clock_passed_or_after_a_sleep() {
+    let _kdf = crate::test_support::kdf_permit();
+    let long = Duration::from_secs(301);
+    // The monotonic clock stood still (a suspend), the wall clock moved on.
+    let r = hw_rig(1);
+    let (vault, _) = open_hw_vault(&r);
+    r.backend
+        .close_expired_hardware_vaults(Instant::now(), SystemTime::now(), false);
+    assert!(find_vault(&r.backend, &vault).available, "not due yet");
+    r.backend
+        .close_expired_hardware_vaults(Instant::now(), SystemTime::now() + long, false);
+    assert!(!find_vault(&r.backend, &vault).available, "wall clock");
+
+    // The wall clock jumped back, the monotonic clock passed.
+    let r = hw_rig(1);
+    let (vault, _) = open_hw_vault(&r);
+    r.backend
+        .close_expired_hardware_vaults(Instant::now() + long, SystemTime::now(), false);
+    assert!(!find_vault(&r.backend, &vault).available, "monotonic clock");
+
+    // A sleep closes every hardware vault at once.
+    let r = hw_rig(1);
+    let (vault, _) = open_hw_vault(&r);
+    r.backend
+        .close_expired_hardware_vaults(Instant::now(), SystemTime::now(), true);
+    assert!(!find_vault(&r.backend, &vault).available, "sleep");
+    let closed = json!({ "type": "hardwareVaultClosed", "vaultId": vault });
+    assert!(events(&r.events).contains(&closed));
+}
+
+#[test]
+fn m2_an_open_hardware_vault_without_a_deadline_closes_on_the_next_tick() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let (vault, id) = open_hw_vault(&r);
+    r.backend.quick_unlock.note_vault_closed(id);
+    assert!(find_vault(&r.backend, &vault).available);
+    r.backend
+        .close_expired_hardware_vaults(Instant::now(), SystemTime::now(), false);
+    assert!(!find_vault(&r.backend, &vault).available);
+}
+
+#[test]
+fn m2_a_deadline_is_forgotten_only_after_the_close() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let (_, id) = open_hw_vault(&r);
+    let q = &r.backend.quick_unlock;
+    assert!(q.vault_tracked(id));
+    r.backend
+        .close_expired_hardware_vaults(Instant::now(), SystemTime::now(), false);
+    assert!(q.vault_tracked(id), "not due: kept");
+    r.backend.close_expired_hardware_vaults(
+        Instant::now() + Duration::from_secs(301),
+        SystemTime::now(),
+        false,
+    );
+    assert!(!q.vault_tracked(id), "closed: forgotten");
+}
+
+#[test]
+fn l6_moving_an_item_out_of_a_hardware_vault_needs_a_fresh_password() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = hw_rig(1);
+    let b = &r.backend;
+    let (vault, _) = open_hw_vault(&r);
+    let plain = b.list_vaults().unwrap()[0].vault_id.0.to_string();
+    let added = b
+        .add_item(typed(
+            json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft("Bank") }),
+        ))
+        .unwrap();
+    let mv = json!({
+        "vaultId": vault,
+        "itemId": added.summary.item_id.0.to_string(),
+        "targetVaultId": plain,
+    });
+    assert_eq!(
+        code(b.move_item(typed(mv.clone())).unwrap_err()),
+        ErrorCode::ReauthRequired
+    );
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.move_item(typed(mv)).unwrap();
 }

@@ -16,7 +16,7 @@
 //! unsigned build fails to create it (-34018) and reports Touch ID as
 //! unavailable.
 
-use mosaic_core::{AccountId, Kek, SecretBytes};
+use mosaic_core::{Kek, SecretBytes};
 use security_framework::access_control::{ProtectionMode, SecAccessControl};
 use security_framework::item::{
     ItemClass, ItemSearchOptions, KeyClass, Location, Reference, SearchResult,
@@ -35,19 +35,13 @@ pub struct TouchId;
 
 /// `errSecItemNotFound`.
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
-/// `errSecUserCanceled` (OSStatus domain).
+/// `errSecUserCanceled` (`OSStatus` domain).
 const ERR_SEC_USER_CANCELED: isize = -128;
 /// `LAErrorUserCancel`, `LAErrorSystemCancel`, `LAErrorAppCancel`.
 const LA_CANCEL_CODES: [isize; 3] = [-2, -4, -9];
 const LA_DOMAIN: &str = "com.apple.LocalAuthentication";
 
 const ALGORITHM: Algorithm = Algorithm::ECIESEncryptionCofactorX963SHA256AESGCM;
-
-/// The key's label for an account.
-#[must_use]
-pub fn key_label(account: AccountId) -> String {
-    format!("Mosaic quick unlock {account}")
-}
 
 fn access_control() -> Result<SecAccessControl, PlatformError> {
     SecAccessControl::create_with_protection(
@@ -105,7 +99,7 @@ fn delete_keys(label: &str) -> Result<(), PlatformError> {
 fn decrypt(key: &SecKey, ciphertext: &[u8]) -> Result<Kek, PlatformError> {
     let mut plain = key.decrypt_data(ALGORITHM, ciphertext).map_err(|error| {
         let code = error.code();
-        let cancelled = if error.domain().to_string() == LA_DOMAIN {
+        let cancelled = if error.domain() == LA_DOMAIN {
             LA_CANCEL_CODES.contains(&code)
         } else {
             code == ERR_SEC_USER_CANCELED
@@ -130,13 +124,16 @@ impl BiometricPlatform for TouchId {
         probe_options().is_ok_and(|options| SecKey::new(&options).is_ok())
     }
 
-    fn key_exists(&self, account: AccountId) -> bool {
-        find_private_key(&key_label(account)).is_ok_and(|key| key.is_some())
+    fn key_exists(&self, payload: &[u8]) -> bool {
+        params::nonce_of(payload).is_some_and(|nonce| {
+            find_private_key(&params::key_name(&nonce)).is_ok_and(|key| key.is_some())
+        })
     }
 
-    fn enroll(&self, account: AccountId) -> Result<(Vec<u8>, Kek), PlatformError> {
-        let label = key_label(account);
-        delete_keys(&label)?;
+    fn enroll(&self) -> Result<(Vec<u8>, Kek), PlatformError> {
+        // A fresh random label per enrollment (never per account).
+        let nonce = params::new_key_nonce().ok_or(PlatformError::Failed)?;
+        let label = params::key_name(&nonce);
         let mut options = probe_options()?;
         options
             .set_label(label.clone())
@@ -149,7 +146,7 @@ impl BiometricPlatform for TouchId {
             let ciphertext = public
                 .encrypt_data(ALGORITHM, w.expose_secret())
                 .map_err(|_| PlatformError::Failed)?;
-            let payload = params::encode(BiometricPlatformKind::TouchId, &ciphertext)
+            let payload = params::encode(BiometricPlatformKind::TouchId, &nonce, &ciphertext)
                 .ok_or(PlatformError::Failed)?;
             // One prompt now proves that the stored ciphertext opens to W.
             let opened = decrypt(&private, &ciphertext)?;
@@ -165,15 +162,16 @@ impl BiometricPlatform for TouchId {
         result
     }
 
-    fn release(&self, account: AccountId, payload: &[u8]) -> Result<Kek, PlatformError> {
-        let ciphertext = params::body_for(BiometricPlatformKind::TouchId, payload)
+    fn release(&self, payload: &[u8]) -> Result<Kek, PlatformError> {
+        let (nonce, ciphertext) = params::body_for(BiometricPlatformKind::TouchId, payload)
             .ok_or(PlatformError::Unavailable)?;
-        let key = find_private_key(&key_label(account))?.ok_or(PlatformError::Unavailable)?;
+        let key = find_private_key(&params::key_name(&nonce))?.ok_or(PlatformError::Unavailable)?;
         decrypt(&key, ciphertext)
     }
 
-    fn remove(&self, account: AccountId) -> Result<(), PlatformError> {
-        delete_keys(&key_label(account))
+    fn remove(&self, payload: &[u8]) -> Result<(), PlatformError> {
+        let nonce = params::nonce_of(payload).ok_or(PlatformError::Unavailable)?;
+        delete_keys(&params::key_name(&nonce))
     }
 }
 
@@ -183,30 +181,13 @@ mod tests {
 
     #[test]
     fn a_payload_for_another_platform_is_unavailable() {
-        let hello = params::encode(BiometricPlatformKind::WindowsHello, &[0; 32]).unwrap();
-        let account = AccountId::from_bytes([
-            0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1,
-        ])
-        .unwrap();
+        let hello =
+            params::encode(BiometricPlatformKind::WindowsHello, &[1; 16], &[0; 32]).unwrap();
         assert_eq!(
-            TouchId.release(account, &hello).err(),
+            TouchId.release(&hello).err(),
             Some(PlatformError::Unavailable)
         );
-        assert_eq!(
-            TouchId.release(account, &[]).err(),
-            Some(PlatformError::Unavailable)
-        );
-    }
-
-    #[test]
-    fn the_label_is_per_account() {
-        let account = AccountId::from_bytes([
-            0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 1, 0x80, 0, 0, 0, 0, 0, 0, 1,
-        ])
-        .unwrap();
-        assert_eq!(
-            key_label(account),
-            "Mosaic quick unlock 019a2b3c-4d5e-7001-8000-000000000001"
-        );
+        assert_eq!(TouchId.release(&[]).err(), Some(PlatformError::Unavailable));
+        assert!(!TouchId.key_exists(&[]));
     }
 }

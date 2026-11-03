@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mosaic_core::unlock::PrfOutput;
-use mosaic_core::{AccountId, Kek, SecretBytes, SecretString};
+use mosaic_core::{Kek, SecretBytes, SecretString};
 
 use super::{
     BiometricPlatform, CancelFlag, HardwareCandidate, HardwareKeyError, HardwareKeyPlatform,
@@ -22,8 +22,8 @@ pub(crate) type Hook = Box<dyn Fn() + Send + Sync>;
 pub(crate) struct FakeBiometric {
     /// What `is_available` answers.
     pub(crate) available: AtomicBool,
-    /// The platform key's `W`; `None` when the key does not exist.
-    w: Mutex<Option<[u8; 32]>>,
+    /// The platform keys: `W` by key nonce (empty when no key exists).
+    w: Mutex<HashMap<[u8; 16], [u8; 32]>>,
     /// Errors the next `enroll` and `release` calls return, in order.
     pub(crate) next: Mutex<VecDeque<PlatformError>>,
     /// User prompts so far (`enroll` and `release`).
@@ -40,7 +40,7 @@ impl FakeBiometric {
     pub(crate) fn new(available: bool) -> Arc<Self> {
         Arc::new(Self {
             available: AtomicBool::new(available),
-            w: Mutex::new(None),
+            w: Mutex::new(HashMap::new()),
             next: Mutex::default(),
             prompts: AtomicUsize::new(0),
             removals: AtomicUsize::new(0),
@@ -58,7 +58,7 @@ impl FakeBiometric {
     }
 
     pub(crate) fn has_key(&self) -> bool {
-        self.w.lock().is_ok_and(|w| w.is_some())
+        self.w.lock().is_ok_and(|w| !w.is_empty())
     }
 
     /// The next prompt answers `error`.
@@ -71,21 +71,25 @@ impl FakeBiometric {
     /// The platform key now produces another `W` (a changed fingerprint
     /// set, a reset Hello).
     pub(crate) fn rotate_key(&self) {
-        if let (Ok(mut w), Ok(other)) = (self.w.lock(), Kek::generate()) {
-            *w = Some(*other.expose_secret());
+        if let Ok(mut w) = self.w.lock() {
+            for value in w.values_mut() {
+                if let Ok(other) = Kek::generate() {
+                    *value = *other.expose_secret();
+                }
+            }
         }
     }
 
     /// Deletes the platform key behind the service's back.
     pub(crate) fn lose_key(&self) {
         if let Ok(mut w) = self.w.lock() {
-            *w = None;
+            w.clear();
         }
     }
 
-    /// Creates a platform key behind the service's back (an orphan).
-    pub(crate) fn plant_key(&self) {
-        self.rotate_key();
+    /// How many platform keys exist.
+    pub(crate) fn key_count(&self) -> usize {
+        self.w.lock().map_or(0, |w| w.len())
     }
 
     fn run_hook(hook: &Mutex<Option<Hook>>) {
@@ -121,32 +125,42 @@ impl BiometricPlatform for Arc<FakeBiometric> {
         self.available.load(Ordering::SeqCst)
     }
 
-    fn key_exists(&self, _account: AccountId) -> bool {
-        self.has_key()
+    fn key_exists(&self, payload: &[u8]) -> bool {
+        params::body_for(BiometricPlatformKind::WindowsHello, payload)
+            .is_some_and(|(nonce, _)| self.w.lock().is_ok_and(|w| w.contains_key(&nonce)))
     }
 
-    fn enroll(&self, _account: AccountId) -> Result<(Vec<u8>, Kek), PlatformError> {
+    fn enroll(&self) -> Result<(Vec<u8>, Kek), PlatformError> {
         self.prompt(&self.on_enroll)?;
         let w = Kek::generate().map_err(|_| PlatformError::Failed)?;
-        *self.w.lock().map_err(|_| PlatformError::Failed)? = Some(*w.expose_secret());
-        let payload = params::encode(BiometricPlatformKind::WindowsHello, &[7; 32])
+        let nonce = params::new_key_nonce().ok_or(PlatformError::Failed)?;
+        self.w
+            .lock()
+            .map_err(|_| PlatformError::Failed)?
+            .insert(nonce, *w.expose_secret());
+        let payload = params::encode(BiometricPlatformKind::WindowsHello, &nonce, &[7; 32])
             .ok_or(PlatformError::Failed)?;
         Ok((payload, w))
     }
 
-    fn release(&self, _account: AccountId, payload: &[u8]) -> Result<Kek, PlatformError> {
+    fn release(&self, payload: &[u8]) -> Result<Kek, PlatformError> {
         self.prompt(&self.on_release)?;
-        if params::body_for(BiometricPlatformKind::WindowsHello, payload).is_none() {
-            return Err(PlatformError::Unavailable);
-        }
+        let (nonce, _) = params::body_for(BiometricPlatformKind::WindowsHello, payload)
+            .ok_or(PlatformError::Unavailable)?;
         let w = self.w.lock().map_err(|_| PlatformError::Failed)?;
-        (*w).as_ref()
+        w.get(&nonce)
             .map_or(Err(PlatformError::Unavailable), FakeBiometric::kek)
     }
 
-    fn remove(&self, _account: AccountId) -> Result<(), PlatformError> {
+    fn remove(&self, payload: &[u8]) -> Result<(), PlatformError> {
         self.removals.fetch_add(1, Ordering::SeqCst);
-        self.lose_key();
+        // A payload that is not well-formed still counts as a call.
+        if let Some((nonce, _)) = params::body_for(BiometricPlatformKind::WindowsHello, payload) {
+            self.w
+                .lock()
+                .map_err(|_| PlatformError::Failed)?
+                .remove(&nonce);
+        }
         Ok(())
     }
 }
