@@ -76,7 +76,8 @@ pub fn parse(url: &str) -> Option<UrlParts> {
     } else {
         host_port.split(':').next().unwrap_or_default()
     };
-    let host = host.strip_suffix('.').unwrap_or(host);
+    // Lowercase before the checks: some letters grow when lowercased (`Ⱦ` is 2 bytes, `ⱦ` 3).
+    let host = host.strip_suffix('.').unwrap_or(host).to_lowercase();
     if host.is_empty()
         || host.len() > MAX_HOST_LEN
         || host.split('.').any(str::is_empty)
@@ -84,10 +85,7 @@ pub fn parse(url: &str) -> Option<UrlParts> {
     {
         return None;
     }
-    Some(UrlParts {
-        scheme,
-        host: host.to_lowercase(),
-    })
+    Some(UrlParts { scheme, host })
 }
 
 /// RFC 3986 `scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`.
@@ -227,6 +225,8 @@ mod tests {
             None
         );
         assert!(parse(&format!("https://{}", "a".repeat(MAX_HOST_LEN))).is_some());
+        // 126 × U+023E is 252 bytes, but 378 once lowercased.
+        assert_eq!(parse(&format!("https://{}", "\u{23e}".repeat(126))), None);
     }
 
     /// Fuzz finding (CI, insights `url_host`): "2.." parsed to the host "2.",
