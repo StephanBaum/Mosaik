@@ -25,8 +25,11 @@ export function SecretField({
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<IpcError | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Bumped by every hide, so an answer that arrives after a hide is dropped. */
+  const generation = useRef(0);
 
   const hide = useCallback(() => {
+    generation.current += 1;
     clearTimeout(timer.current);
     setValue(null);
   }, []);
@@ -41,7 +44,12 @@ export function SecretField({
 
   async function show() {
     setError(null);
+    const asked = generation.current;
     const result = await reveal();
+    // Hidden while the answer was on its way (blur, lock, timeout): never paint it.
+    if (generation.current !== asked) {
+      return;
+    }
     if (!result.ok) {
       setError(result.error);
       return;
