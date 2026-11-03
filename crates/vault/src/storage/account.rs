@@ -372,6 +372,61 @@ impl Store {
         self.scrub_wal()
     }
 
+    /// Stores one quick-unlock or hardware-key wrapping and deletes the
+    /// given other methods in ONE transaction, then scrubs the WAL once
+    /// (the enrollment of a quick-unlock wrapping replaces the previous
+    /// one: either both happen or neither). Returns the rows that were
+    /// deleted, so the caller can delete the platform keys that belong to
+    /// them. Methods in `remove` that are not stored, or that equal the
+    /// stored one, are skipped.
+    ///
+    /// # Errors
+    /// As for [`Store::put_unlock_method`], plus
+    /// [`Error::PasswordMethodReserved`] if `remove` holds the password
+    /// method (checked before anything is written).
+    pub fn replace_unlock_methods(
+        &mut self,
+        put: (&UnlockMethod, &WrappedKey, &[u8]),
+        remove: &[UnlockMethod],
+    ) -> Result<Vec<StoredUnlockMethod>> {
+        let (method, wrapped_account_key, method_params) = put;
+        check_other_method(method, method_params)?;
+        if remove.iter().any(|m| matches!(m, UnlockMethod::Password)) {
+            return Err(Error::PasswordMethodReserved);
+        }
+        let tx = self.write()?;
+        let account = read_account(&tx)?.ok_or(Error::NoAccount)?;
+        let mut removed = Vec::new();
+        for old in remove.iter().filter(|m| *m != method) {
+            let key = (old.id(), old.method_id(&account.account_id));
+            let row: Option<UnlockRow> = tx
+                .query_row(
+                    "SELECT method, method_id, wrapped_ak, params, updated_at FROM unlock_methods
+                     WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .optional()?;
+            if let Some(row) = row {
+                removed.push(decode_unlock(&account.account_id, row)?);
+                tx.execute(
+                    "DELETE FROM unlock_methods WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                )?;
+            }
+        }
+        upsert_unlock(
+            &tx,
+            &account.account_id,
+            method,
+            wrapped_account_key,
+            method_params,
+        )?;
+        tx.commit()?;
+        self.scrub_wal()?;
+        Ok(removed)
+    }
+
     /// The stored wrapping for `method`, if any.
     ///
     /// # Errors

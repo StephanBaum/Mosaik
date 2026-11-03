@@ -260,11 +260,17 @@ impl Store {
 
     /// Creates a hardware-protected vault (§7.4) with its first vault key
     /// (wrapped under TK) and its first TK wrapping in ONE transaction, so
-    /// a crash can never leave a TK vault without a way to open it.
+    /// a crash can never leave a TK vault without a way to open it. The
+    /// vault's sealed metadata `meta` (sealed under `generation`) is stored
+    /// in the same transaction.
     ///
     /// # Errors
     /// As [`Store::create_vault_with`] and [`Store::put_tk_wrapping`]
     /// ([`Error::UnlockParamsTooLarge`]).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one transaction needs the vault, its key, its first TK wrapping and its metadata"
+    )]
     pub fn create_tk_vault(
         &mut self,
         vault_id: &VaultId,
@@ -273,10 +279,12 @@ impl Store {
         method_id: &[u8; 16],
         wrapped_tk: &WrappedKey,
         tk_params: &[u8],
+        meta: &VaultMetaCiphertext,
     ) -> Result<VaultState> {
         if tk_params.len() > MAX_UNLOCK_PARAMS_LEN {
             return Err(Error::UnlockParamsTooLarge);
         }
+        check_generation(generation, meta.key_generation())?;
         let tx = self.write()?;
         if read_vault(&tx, vault_id)?.is_some() {
             return Err(Error::VaultExists);
@@ -291,13 +299,16 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO vaults (vault_id, key_wrap, current_generation,
-                                 highest_accepted_generation, updated_at)
-             VALUES (?1, ?2, ?3, ?3, ?4)",
+                                 highest_accepted_generation, updated_at,
+                                 meta, meta_generation)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6)",
             params![
                 vault_id.as_bytes(),
                 VaultKeyWrap::TotpKey.code(),
                 generation.get(),
-                now_ms()
+                now_ms(),
+                meta.as_bytes(),
+                meta.key_generation().get()
             ],
         )?;
         upsert_key(&tx, vault_id, generation, wrapped_vault_key)?;

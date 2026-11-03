@@ -90,7 +90,7 @@ use unlock_methods::QuickState;
 pub use unlock_methods::{
     DEFAULT_RP_ID, HardwareKeyEnrollment, MAX_FAILED_QUICK_ATTEMPTS, MAX_HARDWARE_KEYS,
     NewHardwareKey, QUICK_UNLOCK_FUTURE_SKEW, QuickMethod, QuickUnlockEnrollment,
-    QuickUnlockPolicy, VaultProtection,
+    QuickUnlockPolicy, REAUTH_GRANT, Reauthenticated, VaultProtection,
 };
 pub use vaults::VaultSummary;
 
@@ -103,6 +103,15 @@ pub mod fuzzing {
 
     use super::{UnlockError, UnlockedSession};
     use crate::storage::Store;
+
+    /// Runs the strict hardware-key parameter decoder (CRYPTO_SPEC §6.3)
+    /// on arbitrary bytes. Returns the canonical re-encoding of what
+    /// decoded (it must equal the input), or `None` if they did not decode.
+    #[must_use]
+    pub fn decode_hw_params(method_id: &[u8; 16], bytes: &[u8]) -> Option<Vec<u8>> {
+        let key = super::unlock_methods::decode_hw_params(method_id, bytes).ok()?;
+        super::unlock_methods::encode_hw_params(&key).ok()
+    }
 
     /// An unlocked session over `store` with an account key the caller
     /// already holds, skipping Argon2id, so a fuzz target can build fresh
@@ -272,6 +281,10 @@ pub struct UnlockedSession {
     /// either writer's edits (ADR-0015).
     retired: Vec<DeviceId>,
     account_key: AccountKey,
+    /// A random ID of this unlocked session (not the writer ID, which can
+    /// rotate): binds a [`Reauthenticated`] proof to the session that made
+    /// it.
+    proof_id: DeviceId,
     /// Whether the master password unlocked since the store was opened.
     password_unlocked: bool,
     vaults: BTreeMap<VaultId, OpenVault>,
@@ -651,6 +664,15 @@ impl UnlockedSession {
         account_key: AccountKey,
         quick: QuickState,
     ) -> core::result::Result<Self, UnlockError> {
+        let proof_id = match DeviceId::new_v7() {
+            Ok(id) => id,
+            Err(e) => {
+                return Err(UnlockError {
+                    session: LockedSession { store, quick },
+                    error: e.into(),
+                });
+            }
+        };
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
                 let mut index = search::SearchIndex::default();
@@ -665,6 +687,7 @@ impl UnlockedSession {
                     device,
                     retired: Vec::new(),
                     account_key,
+                    proof_id,
                     password_unlocked: quick.password_unlocked,
                     vaults,
                     index,
@@ -734,8 +757,10 @@ impl UnlockedSession {
     /// it is deleted in the same transaction (§6.2) and returned in
     /// [`PasswordChanged::removed_quick_unlock`], so the app deletes the
     /// platform key. Hardware-key wrappings stay valid (AK is unchanged).
-    /// Passing a different `secret_key` rotates the Secret Key (§6.5) along
-    /// the same path. Vault keys and items are not touched. The result
+    /// The session API does not offer Secret Key rotation (§6.5) yet:
+    /// `secret_key` must be the account's current one. When rotation is
+    /// added it MUST also delete every quick-unlock wrapping (§6.2), like
+    /// this method does. Vault keys and items are not touched. The result
     /// carries what the server needs (M6: OPAQUE re-registration under
     /// §9.4).
     ///
@@ -748,7 +773,7 @@ impl UnlockedSession {
         new_password: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<PasswordChanged> {
-        self.verify_master_password(current, secret_key)?;
+        drop(self.verify_master_password(current, secret_key)?);
         let params = self.store.account()?.ok_or(Error::NoAccount)?;
         let change = mosaic_core::change_master_password(
             &self.account_key,

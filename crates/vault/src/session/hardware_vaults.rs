@@ -15,7 +15,8 @@ use mosaic_core::unlock::{PrfOutput, TotpVaultKey, credential_id_hash, prf_hw_va
 use mosaic_core::{KeyGeneration, UnlockMethod, VaultId, VaultKey};
 
 use super::unlock_methods::{
-    HardwareKeyEnrollment, MAX_HARDWARE_KEYS, NewHardwareKey, VaultProtection, encode_hw_params,
+    HardwareKeyEnrollment, MAX_HARDWARE_KEYS, NewHardwareKey, VaultProtection, check_salt_unused,
+    encode_hw_params,
 };
 use super::{
     Error, OpenVault, Result, UnlockedSession, load_vault_with, now, reseal_below_current,
@@ -60,8 +61,9 @@ impl UnlockedSession {
     /// first vault key (generation 1) under `TK`, `TK` wrapped under
     /// `W_hw` from `prf_hw` (the PRF output for `key.prf_salt`, which must
     /// be a salt of its own, never the §6.3 one), and the metadata with
-    /// `name`. The vault and its first TK wrapping are stored in one
-    /// transaction. The vault is open afterwards.
+    /// `name`. The vault, its metadata and its first TK wrapping are stored
+    /// in one transaction. `key.prf_salt` must not equal any stored salt of
+    /// the same credential ([`Error::InvalidHardwareKey`]). The vault is open afterwards.
     ///
     /// # Errors
     /// [`Error::InvalidHardwareKey`], [`Error::Store`], [`Error::Core`].
@@ -74,6 +76,7 @@ impl UnlockedSession {
         key.check()?;
         let method_id = method_id_of(&key.credential_id)?;
         let params = encode_hw_params(key)?;
+        check_salt_unused(&self.store, &method_id, &key.prf_salt, false, None)?;
         let vault_id = VaultId::new_v7()?;
         let tk = TotpVaultKey::generate()?;
         let vk = VaultKey::generate(KeyGeneration::FIRST)?;
@@ -91,8 +94,8 @@ impl UnlockedSession {
             &method_id,
             &tk_wrapping,
             &params,
+            &meta_ct,
         )?;
-        self.store.set_vault_meta(&vault_id, &meta_ct)?;
         let mut ov = OpenVault::new(KeyGeneration::FIRST);
         ov.protection = VaultKeyWrap::TotpKey;
         ov.keys.insert(KeyGeneration::FIRST, vk);
@@ -228,6 +231,13 @@ impl UnlockedSession {
         key.check()?;
         let method_id = method_id_of(&key.credential_id)?;
         let params = encode_hw_params(key)?;
+        check_salt_unused(
+            &self.store,
+            &method_id,
+            &key.prf_salt,
+            false,
+            Some(vault_id),
+        )?;
         let rows = self.store.tk_wrappings(&vault_id)?;
         let replaces = rows.iter().any(|r| r.method_id == method_id);
         if !replaces && rows.len() >= MAX_HARDWARE_KEYS {

@@ -123,6 +123,13 @@ pub enum Error {
     #[error("master password required")]
     PasswordRequired,
 
+    /// Enrolling a quick-unlock or hardware-key method needs a fresh proof
+    /// of the master password from this session
+    /// ([`super::UnlockedSession::verify_master_password`]): the proof is
+    /// older than [`super::REAUTH_GRANT`] or comes from another session.
+    #[error("master password re-authentication required")]
+    ReauthenticationRequired,
+
     /// The credential is not registered (for unlock, or for this vault).
     #[error("unknown hardware key")]
     UnknownHardwareKey,

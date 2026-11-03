@@ -15,7 +15,7 @@ use super::unlock_methods::{decode_hw_params, encode_hw_params};
 use super::{
     DEFAULT_RP_ID, Error, LockedSession, MAX_FAILED_QUICK_ATTEMPTS, MAX_HARDWARE_KEYS,
     NewHardwareKey, QUICK_UNLOCK_FUTURE_SKEW, QuickMethod, QuickUnlockEnrollment,
-    QuickUnlockPolicy, UnlockedSession,
+    QuickUnlockPolicy, REAUTH_GRANT, Reauthenticated, UnlockedSession,
 };
 use crate::storage::{Error as StorageError, Store};
 
@@ -39,6 +39,11 @@ fn file_account(path: &Path) -> (UnlockedSession, SecretKey) {
     (s, created.secret_key)
 }
 
+/// A fresh proof for `s` without the Argon2 round trip.
+fn ra(s: &UnlockedSession) -> Reauthenticated {
+    Reauthenticated::for_test(s.proof_id)
+}
+
 fn prf(fill: u8) -> PrfOutput {
     PrfOutput::from_secret(SecretBytes::from_array(&mut [fill; 32]))
 }
@@ -60,7 +65,7 @@ fn quick_rows(store: &Store) -> usize {
 fn verify_master_password_ok_and_wrong() {
     let (mut s, sk) = account();
     let vault = s.create_vault("v").unwrap();
-    s.verify_master_password(&pw(), &sk).unwrap();
+    drop(s.verify_master_password(&pw(), &sk).unwrap());
     let other = MasterPassword::new("not the password".to_owned());
     assert!(matches!(
         s.verify_master_password(&other, &sk),
@@ -88,7 +93,7 @@ fn quick_unlock_round_trip() {
         .add_item(vault, &ItemType::Login, |e| e.set_title("kept"))
         .unwrap();
     let w = Kek::generate().unwrap();
-    let (enrolled, replaced) = s.enroll_quick_unlock(&w, &[1, 2, 3]).unwrap();
+    let (enrolled, replaced) = s.enroll_quick_unlock(&w, &[1, 2, 3], &ra(&s)).unwrap();
     assert!(replaced.is_none());
     assert_eq!(enrolled.platform_params, [1, 2, 3]);
     assert_eq!(s.quick_unlock_enrollment().unwrap(), Some(enrolled.clone()));
@@ -116,7 +121,7 @@ fn quick_unlock_needs_password_after_open() {
     let path = dir.path().join("vault.db");
     let (mut s, sk) = file_account(&path);
     let w = Kek::generate().unwrap();
-    let (enrolled, _) = s.enroll_quick_unlock(&w, &[]).unwrap();
+    let (enrolled, _) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     drop(s.lock().into_store());
 
     let locked = LockedSession::open(Store::open(&path).unwrap());
@@ -143,7 +148,7 @@ fn quick_unlock_needs_password_after_open() {
 fn quick_unlock_wrong_w_deletes_enrollment() {
     let (mut s, _) = account();
     let w = Kek::generate().unwrap();
-    s.enroll_quick_unlock(&w, &[]).unwrap();
+    s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     let at = s.quick_unlock_enrollment().unwrap().unwrap().enrolled_at_ms;
     let other = Kek::generate().unwrap();
     let err = s
@@ -182,11 +187,11 @@ fn quick_unlock_expiry() {
     assert!(e.is_expired(&policy, at - skew - 1));
     // The policy clamps to 1..=30 days.
     assert_eq!(
-        QuickUnlockPolicy::new(Duration::from_hours(60 * 24)).max_age,
+        QuickUnlockPolicy::new(Duration::from_hours(60 * 24)).max_age(),
         QuickUnlockPolicy::MAX_MAX_AGE
     );
     assert_eq!(
-        QuickUnlockPolicy::new(Duration::from_secs(60)).max_age,
+        QuickUnlockPolicy::new(Duration::from_secs(60)).max_age(),
         QuickUnlockPolicy::MIN_MAX_AGE
     );
     let long = QuickUnlockPolicy::new(Duration::from_hours(60 * 24));
@@ -206,7 +211,7 @@ fn quick_unlock_expiry() {
 fn quick_unlock_expiry_deletes_the_enrollment() {
     let (mut s, _) = account();
     let w = Kek::generate().unwrap();
-    let (e, _) = s.enroll_quick_unlock(&w, &[]).unwrap();
+    let (e, _) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     let policy = QuickUnlockPolicy::default();
     let s = s
         .lock()
@@ -214,7 +219,7 @@ fn quick_unlock_expiry_deletes_the_enrollment() {
         .unwrap();
     // Enrolled again, then found expired while locked.
     let mut s = s;
-    let (e2, replaced) = s.enroll_quick_unlock(&w, &[]).unwrap();
+    let (e2, replaced) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     assert_eq!(replaced.map(|r| r.enrollment_id), Some(e.enrollment_id));
     let err = s
         .lock()
@@ -227,7 +232,7 @@ fn quick_unlock_expiry_deletes_the_enrollment() {
 
     // An enrollment dated in the future (beyond the skew) is expired too.
     let (mut s, _) = account();
-    s.enroll_quick_unlock(&w, &[]).unwrap();
+    s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     let at = s.quick_unlock_enrollment().unwrap().unwrap().enrolled_at_ms;
     let err = s
         .lock()
@@ -243,7 +248,7 @@ fn enrollment_time_is_authenticated() {
     let path = dir.path().join("vault.db");
     let (mut s, _) = file_account(&path);
     let w = Kek::generate().unwrap();
-    let (e, _) = s.enroll_quick_unlock(&w, &[]).unwrap();
+    let (e, _) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     let locked = s.lock();
 
     // Rewrite the row's method_id to a newer UUIDv7 (extends the expiry).
@@ -276,9 +281,9 @@ fn re_enroll_replaces() {
     let (mut s, _) = account();
     let w1 = Kek::generate().unwrap();
     let w2 = Kek::generate().unwrap();
-    let (first, none) = s.enroll_quick_unlock(&w1, &[1]).unwrap();
+    let (first, none) = s.enroll_quick_unlock(&w1, &[1], &ra(&s)).unwrap();
     assert!(none.is_none());
-    let (second, replaced) = s.enroll_quick_unlock(&w2, &[2]).unwrap();
+    let (second, replaced) = s.enroll_quick_unlock(&w2, &[2], &ra(&s)).unwrap();
     assert_eq!(replaced, Some(first.clone()));
     assert_ne!(first.enrollment_id, second.enrollment_id);
     assert_eq!(quick_rows(s.store()), 1);
@@ -292,7 +297,7 @@ fn re_enroll_replaces() {
     assert!(matches!(err.error, Error::QuickUnlockInvalidated));
     // Removing returns the enrollment.
     let (mut s, _) = account();
-    let (e, _) = s.enroll_quick_unlock(&w1, &[]).unwrap();
+    let (e, _) = s.enroll_quick_unlock(&w1, &[], &ra(&s)).unwrap();
     assert_eq!(s.remove_quick_unlock().unwrap(), Some(e));
     assert_eq!(s.remove_quick_unlock().unwrap(), None);
     let mut locked = s.lock();
@@ -303,8 +308,8 @@ fn re_enroll_replaces() {
 fn password_change_removes_quick_unlock() {
     let (mut s, sk) = account();
     let w = Kek::generate().unwrap();
-    let (e, _) = s.enroll_quick_unlock(&w, &[9]).unwrap();
-    s.enroll_hardware_key(&hw_key(3), &prf(4)).unwrap();
+    let (e, _) = s.enroll_quick_unlock(&w, &[9], &ra(&s)).unwrap();
+    s.enroll_hardware_key(&hw_key(3), &prf(4), &ra(&s)).unwrap();
     let new_pw = MasterPassword::new("a new password".to_owned());
     let changed = s.change_master_password(&pw(), &new_pw, &sk).unwrap();
     assert_eq!(changed.removed_quick_unlock, Some(e));
@@ -326,7 +331,7 @@ fn password_change_removes_quick_unlock() {
 #[test]
 fn failed_attempt_limit() {
     let (mut s, sk) = account();
-    s.enroll_hardware_key(&hw_key(1), &prf(2)).unwrap();
+    s.enroll_hardware_key(&hw_key(1), &prf(2), &ra(&s)).unwrap();
     let mut locked = s.lock();
     for _ in 0..MAX_FAILED_QUICK_ATTEMPTS {
         assert!(!locked.password_required(QuickMethod::HardwareKey));
@@ -355,7 +360,7 @@ fn failed_attempt_limit() {
 fn failed_quick_unlocks_count_too() {
     let (mut s, _) = account();
     let w = Kek::generate().unwrap();
-    s.enroll_quick_unlock(&w, &[]).unwrap();
+    s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
     let at = s.quick_unlock_enrollment().unwrap().unwrap().enrolled_at_ms;
     let policy = QuickUnlockPolicy::default();
     let err = s
@@ -372,7 +377,7 @@ fn hardware_key_round_trip() {
     let (mut s, _) = account();
     let vault = s.create_vault("v").unwrap();
     let key = hw_key(1);
-    let enrolled = s.enroll_hardware_key(&key, &prf(2)).unwrap();
+    let enrolled = s.enroll_hardware_key(&key, &prf(2), &ra(&s)).unwrap();
     assert_eq!(enrolled.credential_id, key.credential_id);
     assert_eq!(enrolled.rp_id, DEFAULT_RP_ID);
     assert_eq!(enrolled.prf_salt, key.prf_salt);
@@ -407,17 +412,17 @@ fn hardware_key_round_trip() {
 
     // Eight keys at most; replacing one does not count.
     for i in 2..=u8::try_from(MAX_HARDWARE_KEYS).unwrap() {
-        s.enroll_hardware_key(&hw_key(i), &prf(i)).unwrap();
+        s.enroll_hardware_key(&hw_key(i), &prf(i), &ra(&s)).unwrap();
     }
     assert_eq!(s.hardware_keys().unwrap().len(), MAX_HARDWARE_KEYS);
     assert!(matches!(
-        s.enroll_hardware_key(&hw_key(9), &prf(9)),
+        s.enroll_hardware_key(&hw_key(9), &prf(9), &ra(&s)),
         Err(Error::HardwareKeyLimit)
     ));
-    s.enroll_hardware_key(&hw_key(2), &prf(2)).unwrap();
+    s.enroll_hardware_key(&hw_key(2), &prf(2), &ra(&s)).unwrap();
     assert!(s.remove_hardware_key(&enrolled.method_id).unwrap());
     assert!(!s.remove_hardware_key(&enrolled.method_id).unwrap());
-    s.enroll_hardware_key(&hw_key(9), &prf(9)).unwrap();
+    s.enroll_hardware_key(&hw_key(9), &prf(9), &ra(&s)).unwrap();
 }
 
 #[test]
@@ -459,8 +464,9 @@ fn no_plaintext_persisted() {
     let path = dir.path().join("vault.db");
     let (mut s, _) = file_account(&path);
     let w = Kek::generate().unwrap();
-    s.enroll_quick_unlock(&w, &[1, 2, 3]).unwrap();
-    s.enroll_hardware_key(&hw_key(1), &prf(0xC3)).unwrap();
+    s.enroll_quick_unlock(&w, &[1, 2, 3], &ra(&s)).unwrap();
+    s.enroll_hardware_key(&hw_key(1), &prf(0xC3), &ra(&s))
+        .unwrap();
     let w_bytes = *w.expose_secret();
     let hw_w = prf_unlock_key(&prf(0xC3), &[1; 32]).unwrap();
     let hw_w_bytes = *hw_w.expose_secret();
@@ -478,6 +484,234 @@ fn no_plaintext_persisted() {
         assert!(!contains(bytes, &[0xC3; 32]), "PRF output on disk");
     }
     drop(locked);
+}
+
+#[test]
+fn removed_and_expired_wrappings_are_scrubbed_from_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.db");
+    let (mut s, sk) = file_account(&path);
+    let w = Kek::generate().unwrap();
+    s.enroll_quick_unlock(&w, &[1], &ra(&s)).unwrap();
+    let wrapping = |s: &UnlockedSession| quick_wrapping(s.store());
+    let first = wrapping(&s);
+    let mut wal = path.clone().into_os_string();
+    wal.push("-wal");
+    let on_disk = |needle: &[u8]| {
+        let mut files = vec![std::fs::read(&path).unwrap()];
+        if let Ok(bytes) = std::fs::read(&wal) {
+            files.push(bytes);
+        }
+        files
+            .iter()
+            .any(|f| f.windows(needle.len()).any(|w| w == needle))
+    };
+    assert!(on_disk(&first), "the test must see the wrapping on disk");
+    // Removed while unlocked.
+    assert!(s.remove_quick_unlock().unwrap().is_some());
+    assert!(!on_disk(&first), "removed wrapping left on disk");
+
+    // Expired while locked.
+    s.enroll_quick_unlock(&w, &[2], &ra(&s)).unwrap();
+    let second = wrapping(&s);
+    assert!(on_disk(&second));
+    let enrolled = s.quick_unlock_enrollment().unwrap().unwrap();
+    let policy = QuickUnlockPolicy::default();
+    let late = enrolled.expires_at_ms(&policy) + 1;
+    let locked = s.lock();
+    let err = locked.unlock_quick(&w, &policy, late).unwrap_err();
+    assert!(matches!(err.error, Error::QuickUnlockExpired));
+    assert!(!on_disk(&second), "expired wrapping left on disk");
+    drop(err.session.unlock(&pw(), &sk).unwrap());
+}
+
+fn quick_wrapping(store: &Store) -> Vec<u8> {
+    store
+        .unlock_methods()
+        .unwrap()
+        .into_iter()
+        .find(|r| matches!(r.method, UnlockMethod::QuickUnlock(_)))
+        .unwrap()
+        .wrapped_account_key
+        .as_bytes()
+        .to_vec()
+}
+
+// ---------------------------------------------------------------------------
+// Crypto-review fixes (M1, M2, L1-L3, L7, I3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m1_policy_never_exceeds_thirty_days() {
+    // The field is private; every constructor clamps.
+    for age in [Duration::ZERO, Duration::from_hours(48), Duration::MAX] {
+        let p = QuickUnlockPolicy::new(age);
+        assert!(p.max_age() >= QuickUnlockPolicy::MIN_MAX_AGE);
+        assert!(p.max_age() <= QuickUnlockPolicy::MAX_MAX_AGE);
+        // An enrollment 31 days old is expired under every policy.
+        let (mut s, _) = account();
+        let w = Kek::generate().unwrap();
+        let (e, _) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
+        assert!(e.is_expired(&p, e.enrolled_at_ms + 31 * DAY_MS));
+        let max_ms = i64::try_from(p.max_age().as_millis()).unwrap();
+        assert!(!e.is_expired(&p, e.enrolled_at_ms + max_ms));
+    }
+}
+
+#[test]
+fn i3_expiry_ignores_the_enrolled_at_field() {
+    let (mut s, _) = account();
+    let w = Kek::generate().unwrap();
+    let (mut e, _) = s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
+    let real = e.enrolled_at_ms;
+    e.enrolled_at_ms = real + 100 * DAY_MS;
+    let policy = QuickUnlockPolicy::default();
+    assert_eq!(e.expires_at_ms(&policy), real + 14 * DAY_MS);
+    assert!(e.is_expired(&policy, real + 15 * DAY_MS));
+    e.enrolled_at_ms = real - 100 * DAY_MS;
+    assert!(!e.is_expired(&policy, real + DAY_MS));
+}
+
+#[test]
+fn m2_enrollment_needs_a_fresh_proof_of_this_session() {
+    let (mut s, sk) = account();
+    let w = Kek::generate().unwrap();
+    // A real proof works, also just inside the grant.
+    let proof = s.verify_master_password(&pw(), &sk).unwrap();
+    s.enroll_quick_unlock(&w, &[], &proof).unwrap();
+    let almost = ra(&s).aged(REAUTH_GRANT.checked_sub(Duration::from_secs(5)).unwrap());
+    s.enroll_hardware_key(&hw_key(1), &prf(1), &almost).unwrap();
+    // Expired.
+    let old = ra(&s).aged(REAUTH_GRANT + Duration::from_secs(5));
+    assert!(matches!(
+        s.enroll_quick_unlock(&w, &[], &old),
+        Err(Error::ReauthenticationRequired)
+    ));
+    assert!(matches!(
+        s.enroll_hardware_key(&hw_key(2), &prf(2), &old),
+        Err(Error::ReauthenticationRequired)
+    ));
+    // From another session of the same account.
+    let (other, other_sk) = account();
+    let foreign = other.verify_master_password(&pw(), &other_sk).unwrap();
+    assert!(matches!(
+        s.enroll_quick_unlock(&w, &[], &foreign),
+        Err(Error::ReauthenticationRequired)
+    ));
+    assert!(matches!(
+        s.enroll_hardware_key(&hw_key(2), &prf(2), &foreign),
+        Err(Error::ReauthenticationRequired)
+    ));
+    // After lock and unlock the old session's proof is foreign too.
+    let stale = s.verify_master_password(&pw(), &sk).unwrap();
+    let mut s = s.lock().unlock(&pw(), &sk).unwrap();
+    assert!(matches!(
+        s.enroll_quick_unlock(&w, &[], &stale),
+        Err(Error::ReauthenticationRequired)
+    ));
+    // Nothing was written by the refusals.
+    assert_eq!(s.hardware_keys().unwrap().len(), 1);
+}
+
+#[test]
+fn l1_noted_hardware_failures_count_toward_the_limit() {
+    let (mut s, sk) = account();
+    s.enroll_hardware_key(&hw_key(1), &prf(2), &ra(&s)).unwrap();
+    let mut locked = s.lock();
+    for _ in 0..MAX_FAILED_QUICK_ATTEMPTS - 1 {
+        locked.note_failed_hardware_attempt();
+        assert!(!locked.password_required(QuickMethod::HardwareKey));
+    }
+    locked.note_failed_hardware_attempt();
+    assert!(locked.password_required(QuickMethod::HardwareKey));
+    assert!(locked.password_required(QuickMethod::Biometric));
+    let err = locked
+        .unlock_with_hardware_key(&[1; 32], &prf(2))
+        .unwrap_err();
+    assert!(matches!(err.error, Error::PasswordRequired));
+    // The password resets it.
+    drop(err.session.unlock(&pw(), &sk).unwrap());
+}
+
+#[test]
+fn l2_failed_quick_enrollment_keeps_the_previous_one() {
+    let (mut s, _) = account();
+    let w = Kek::generate().unwrap();
+    let (first, _) = s.enroll_quick_unlock(&w, &[1], &ra(&s)).unwrap();
+    let big = vec![0u8; crate::storage::MAX_UNLOCK_PARAMS_LEN + 1];
+    assert!(s.enroll_quick_unlock(&w, &big, &ra(&s)).is_err());
+    assert_eq!(s.quick_unlock_enrollment().unwrap(), Some(first.clone()));
+    assert_eq!(quick_rows(s.store()), 1);
+    // A good one replaces it in one step and reports it.
+    let (second, replaced) = s.enroll_quick_unlock(&w, &[2], &ra(&s)).unwrap();
+    assert_eq!(replaced, Some(first));
+    assert_eq!(quick_rows(s.store()), 1);
+    assert_eq!(s.quick_unlock_enrollment().unwrap(), Some(second));
+}
+
+#[test]
+fn l3_prf_salt_is_never_reused_across_wrappings() {
+    let (mut s, _) = account();
+    let same_salt = |fill: u8, salt: [u8; 32]| {
+        NewHardwareKey::new(vec![fill; 32], DEFAULT_RP_ID.to_owned(), salt).unwrap()
+    };
+    // Unlock first, then a vault wrapping with the same salt: refused.
+    s.enroll_hardware_key(&same_salt(1, [7; 32]), &prf(1), &ra(&s))
+        .unwrap();
+    assert!(matches!(
+        s.create_hardware_vault("v", &same_salt(1, [7; 32]), &prf(2)),
+        Err(Error::InvalidHardwareKey)
+    ));
+    // A salt of its own works, and so does another credential's salt.
+    let v = s
+        .create_hardware_vault("v", &same_salt(1, [8; 32]), &prf(2))
+        .unwrap();
+    assert!(
+        s.create_hardware_vault("w", &same_salt(2, [7; 32]), &prf(3))
+            .is_ok()
+    );
+    // Vault first, then unlock with the vault's salt: refused.
+    assert!(matches!(
+        s.enroll_hardware_key(&same_salt(1, [8; 32]), &prf(4), &ra(&s)),
+        Err(Error::InvalidHardwareKey)
+    ));
+    // Adding a key to a vault: reusing the unlock salt, or another vault's.
+    assert!(matches!(
+        s.add_hardware_vault_key(v, &same_salt(1, [7; 32]), &prf(5)),
+        Err(Error::InvalidHardwareKey)
+    ));
+    // Re-registering the same credential with the salt it replaces is fine.
+    s.enroll_hardware_key(&same_salt(1, [7; 32]), &prf(1), &ra(&s))
+        .unwrap();
+    s.add_hardware_vault_key(v, &same_salt(1, [8; 32]), &prf(2))
+        .unwrap();
+}
+
+#[test]
+fn l7_downgrade_invariant_hardware_unlock_does_not_enable_biometrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.db");
+    let (mut s, sk) = file_account(&path);
+    let w = Kek::generate().unwrap();
+    s.enroll_quick_unlock(&w, &[], &ra(&s)).unwrap();
+    s.enroll_hardware_key(&hw_key(1), &prf(2), &ra(&s)).unwrap();
+    // Open the store afresh: no password unlock in this app run.
+    drop(s.lock().into_store());
+    let locked = LockedSession::open(Store::open(&path).unwrap());
+    assert!(locked.password_required(QuickMethod::Biometric));
+    let s = locked.unlock_with_hardware_key(&[1; 32], &prf(2)).unwrap();
+    // Locking again keeps "password still required" for biometrics.
+    let locked = s.lock();
+    assert!(locked.password_required(QuickMethod::Biometric));
+    let err = locked
+        .unlock_quick(&w, &QuickUnlockPolicy::default(), i64::MAX / 2)
+        .unwrap_err();
+    assert!(matches!(err.error, Error::PasswordRequired));
+    // The enrollment survived the refusal (it is not deleted).
+    assert!(err.session.quick_unlock_enrollment().unwrap().is_some());
+    // The password unlock enables it.
+    let s = err.session.unlock(&pw(), &sk).unwrap();
+    assert!(!s.lock().password_required(QuickMethod::Biometric));
 }
 
 #[test]
@@ -504,7 +738,7 @@ fn invalid_hardware_key_inputs() {
     let mut key = hw_key(1);
     key.credential_id.truncate(4);
     assert!(matches!(
-        s.enroll_hardware_key(&key, &prf(1)),
+        s.enroll_hardware_key(&key, &prf(1), &ra(&s)),
         Err(Error::InvalidHardwareKey)
     ));
 }
@@ -515,7 +749,7 @@ fn oversized_platform_params_are_refused() {
     let w = Kek::generate().unwrap();
     let big = vec![0u8; crate::storage::MAX_UNLOCK_PARAMS_LEN + 1];
     assert!(matches!(
-        s.enroll_quick_unlock(&w, &big),
+        s.enroll_quick_unlock(&w, &big, &ra(&s)),
         Err(Error::Store(StorageError::UnlockParamsTooLarge))
     ));
     assert_eq!(s.quick_unlock_enrollment().unwrap(), None);

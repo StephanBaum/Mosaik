@@ -5,6 +5,9 @@
 //! output of a security key) and the vault does the rest: derive, wrap,
 //! store, unwrap, expire and count failures.
 //!
+//! - **Enrolling** a quick-unlock or hardware-key wrapping needs a
+//!   [`Reauthenticated`] proof from [`UnlockedSession::verify_master_password`],
+//!   at most [`REAUTH_GRANT`] old and from the same session.
 //! - **Quick unlock** needs the master password once since the store was
 //!   opened ([`LockedSession::password_required`]), expires after the
 //!   policy's maximum age, and is deleted (wrapping and WAL frames) on
@@ -16,11 +19,12 @@
 //!   master password.
 
 use core::time::Duration;
+use std::time::Instant;
 
 use mosaic_core::unlock::{
     MAX_CREDENTIAL_ID_LEN, MIN_CREDENTIAL_ID_LEN, PrfOutput, credential_id_hash, prf_unlock_key,
 };
-use mosaic_core::{DeviceId, Kek, MasterPassword, SecretKey, UnlockMethod};
+use mosaic_core::{DeviceId, Kek, MasterPassword, SecretKey, UnlockMethod, VaultId};
 
 use super::{Error, LockedSession, Result, UnlockError, UnlockedSession, unlock_account_key};
 use crate::storage::{Error as StorageError, StoredUnlockMethod};
@@ -29,8 +33,7 @@ use crate::storage::{Error as StorageError, StoredUnlockMethod};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct QuickUnlockPolicy {
-    /// The maximum age of an enrollment.
-    pub max_age: Duration,
+    max_age: Duration,
 }
 
 impl QuickUnlockPolicy {
@@ -49,6 +52,13 @@ impl QuickUnlockPolicy {
             max_age: max_age.clamp(Self::MIN_MAX_AGE, Self::MAX_MAX_AGE),
         }
     }
+
+    /// The maximum age of an enrollment (within [`Self::MIN_MAX_AGE`] ..=
+    /// [`Self::MAX_MAX_AGE`]).
+    #[must_use]
+    pub const fn max_age(&self) -> Duration {
+        self.max_age
+    }
 }
 
 impl Default for QuickUnlockPolicy {
@@ -56,6 +66,49 @@ impl Default for QuickUnlockPolicy {
         Self {
             max_age: Self::DEFAULT_MAX_AGE,
         }
+    }
+}
+
+/// How long a master-password proof ([`Reauthenticated`]) stays valid for
+/// enrolling a quick-unlock or hardware-key method (CRYPTO_SPEC §6.2).
+pub const REAUTH_GRANT: Duration = Duration::from_secs(120);
+
+/// Proof that the master password and Secret Key were checked in this
+/// unlocked session a moment ago. Only
+/// [`UnlockedSession::verify_master_password`] creates one. It is bound to
+/// the session that made it, expires after [`REAUTH_GRANT`], and cannot be
+/// cloned or copied. Enrolling a quick-unlock or hardware-key method takes
+/// one, so the vault API itself enforces "enrolling requires the master
+/// password" (§6.2, §6.3).
+#[derive(Debug)]
+#[must_use]
+pub struct Reauthenticated {
+    session: DeviceId,
+    at: Instant,
+}
+
+impl Reauthenticated {
+    /// Whether this proof came from the session `session` and is at most
+    /// [`REAUTH_GRANT`] old at `now`.
+    fn valid_for(&self, session: &DeviceId, now: Instant) -> bool {
+        self.session == *session && now.saturating_duration_since(self.at) <= REAUTH_GRANT
+    }
+
+    /// A proof for `session` made now, without a password check (tests
+    /// only; the real path is `verify_master_password`).
+    #[cfg(test)]
+    pub(super) fn for_test(session: DeviceId) -> Self {
+        Self {
+            session,
+            at: Instant::now(),
+        }
+    }
+
+    /// The same proof, `by` older (tests only).
+    #[cfg(test)]
+    pub(super) fn aged(mut self, by: Duration) -> Self {
+        self.at = self.at.checked_sub(by).unwrap_or(self.at);
+        self
     }
 }
 
@@ -88,11 +141,13 @@ fn uuid_v7_millis(id: &DeviceId) -> Option<i64> {
 
 /// A quick-unlock enrollment as stored (public data only).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct QuickUnlockEnrollment {
     /// The enrollment ID (`method_id`, UUIDv7).
     pub enrollment_id: DeviceId,
     /// Its timestamp, ms since the Unix epoch (from the UUIDv7,
-    /// authenticated by the AAD).
+    /// authenticated by the AAD). For display: expiry is always derived
+    /// from `enrollment_id`, never from this field.
     pub enrolled_at_ms: i64,
     /// The app's platform parameters (opaque to the vault, at most
     /// `MAX_UNLOCK_PARAMS_LEN`).
@@ -115,11 +170,16 @@ impl QuickUnlockEnrollment {
         }
     }
 
-    /// `enrolled_at + max_age`, in ms.
+    /// `enrolled_at + max_age`, in ms. The enrollment time comes from the
+    /// ID (0 for an ID that is not a UUIDv7) and the age is capped at
+    /// [`QuickUnlockPolicy::MAX_MAX_AGE`] whatever the policy says.
     #[must_use]
     pub fn expires_at_ms(&self, policy: &QuickUnlockPolicy) -> i64 {
-        self.enrolled_at_ms
-            .saturating_add(duration_ms(policy.max_age))
+        uuid_v7_millis(&self.enrollment_id)
+            .unwrap_or(0)
+            .saturating_add(duration_ms(
+                policy.max_age().min(QuickUnlockPolicy::MAX_MAX_AGE),
+            ))
     }
 
     /// Whether the enrollment is expired at `now_ms`: past its maximum age,
@@ -127,10 +187,10 @@ impl QuickUnlockEnrollment {
     /// ID is not a UUIDv7 (so it carries no enrollment time).
     #[must_use]
     pub fn is_expired(&self, policy: &QuickUnlockPolicy, now_ms: i64) -> bool {
-        if uuid_v7_millis(&self.enrollment_id).is_none() {
+        let Some(enrolled_at_ms) = uuid_v7_millis(&self.enrollment_id) else {
             return true;
-        }
-        if self.enrolled_at_ms > now_ms.saturating_add(duration_ms(QUICK_UNLOCK_FUTURE_SKEW)) {
+        };
+        if enrolled_at_ms > now_ms.saturating_add(duration_ms(QUICK_UNLOCK_FUTURE_SKEW)) {
             return true;
         }
         now_ms > self.expires_at_ms(policy)
@@ -354,6 +414,41 @@ fn hw_enrollments(rows: Vec<StoredUnlockMethod>) -> Result<Vec<HardwareKeyEnroll
         .collect()
 }
 
+/// L3: a `prf_salt` must be new for its credential. Rejects it
+/// ([`Error::InvalidHardwareKey`]) if any stored wrapping of the same
+/// credential (`method_id`) already uses it: the unlock wrapping and the TK
+/// wrapping of every hardware-protected vault. The wrapping being replaced
+/// (the unlock row if `replacing_unlock`, the TK row of `replacing_tk`) is
+/// skipped, because it disappears.
+pub(super) fn check_salt_unused(
+    store: &crate::storage::Store,
+    method_id: &[u8; 16],
+    salt: &[u8; 32],
+    replacing_unlock: bool,
+    replacing_tk: Option<VaultId>,
+) -> Result<()> {
+    if !replacing_unlock {
+        for row in hw_rows(store.unlock_methods()?) {
+            if row.method == UnlockMethod::HardwareKey(*method_id)
+                && decode_hw_params(method_id, &row.params)?.prf_salt == *salt
+            {
+                return Err(Error::InvalidHardwareKey);
+            }
+        }
+    }
+    for vault in store.vaults()? {
+        if replacing_tk == Some(vault.vault_id) {
+            continue;
+        }
+        if let Some(row) = store.tk_wrapping(&vault.vault_id, method_id)?
+            && decode_hw_params(method_id, &row.params)?.prf_salt == *salt
+        {
+            return Err(Error::InvalidHardwareKey);
+        }
+    }
+    Ok(())
+}
+
 /// Deletes every quick-unlock row (wrapping and WAL frames) and returns the
 /// newest one.
 fn delete_quick(store: &mut crate::storage::Store) -> Result<Option<QuickUnlockEnrollment>> {
@@ -379,6 +474,16 @@ impl LockedSession {
     pub fn password_required(&self, method: QuickMethod) -> bool {
         self.quick.failed_quick >= MAX_FAILED_QUICK_ATTEMPTS
             || (method == QuickMethod::Biometric && !self.quick.password_unlocked)
+    }
+
+    /// Counts one rejected hardware-key attempt that the vault could not see
+    /// itself (the authenticator refused the PIN, so no PRF output reached
+    /// [`Self::unlock_with_hardware_key`]) toward the same limit
+    /// ([`MAX_FAILED_QUICK_ATTEMPTS`]). The counter lives for this app run;
+    /// the authenticator's own PIN retry counter is the brute-force limit
+    /// (THREAT_MODEL R8).
+    pub fn note_failed_hardware_attempt(&mut self) {
+        self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
     }
 
     /// The stored quick-unlock enrollment, if any (no side effects).
@@ -541,7 +646,10 @@ impl UnlockedSession {
     /// Checks the master password and Secret Key against the stored password
     /// wrapping; the account key it opens must equal the one this session
     /// holds (constant time). Nothing changes, so a wrong password does not
-    /// lock (M3-R8); the app counts failures and locks after five.
+    /// lock (M3-R8); the app counts failures and locks after five. On
+    /// success it returns the [`Reauthenticated`] proof that
+    /// [`Self::enroll_quick_unlock`] and [`Self::enroll_hardware_key`]
+    /// require.
     ///
     /// # Errors
     /// [`Error::UnlockFailed`], [`Error::NoAccount`], [`Error::Core`]
@@ -550,10 +658,13 @@ impl UnlockedSession {
         &self,
         password: &MasterPassword,
         secret_key: &SecretKey,
-    ) -> Result<()> {
+    ) -> Result<Reauthenticated> {
         let (_, check) = unlock_account_key(&self.store, password, secret_key)?;
         if check == self.account_key {
-            Ok(())
+            Ok(Reauthenticated {
+                session: self.proof_id,
+                at: Instant::now(),
+            })
         } else {
             Err(Error::UnlockFailed)
         }
@@ -572,30 +683,34 @@ impl UnlockedSession {
 
     /// Enrolls quick unlock (§6.2): a new enrollment ID (UUIDv7), AK wrapped
     /// under `w`, the previous enrollment deleted. The new wrapping is stored
-    /// first, then the old rows are removed (each removal scrubs the WAL).
+    /// and the old rows are removed in one transaction with one WAL scrub.
     /// Returns the new enrollment and the one it replaced, whose platform key
     /// the app must delete.
     ///
-    /// The caller proves the master password first
-    /// ([`Self::verify_master_password`]); this method does not.
+    /// `reauth` is the proof from [`Self::verify_master_password`] of this
+    /// session, at most [`REAUTH_GRANT`] old.
     ///
     /// # Errors
-    /// [`Error::Store`] (`UnlockParamsTooLarge`), [`Error::Core`].
+    /// [`Error::ReauthenticationRequired`], [`Error::Store`]
+    /// (`UnlockParamsTooLarge`), [`Error::Core`].
     pub fn enroll_quick_unlock(
         &mut self,
         w: &Kek,
         platform_params: &[u8],
+        reauth: &Reauthenticated,
     ) -> Result<(QuickUnlockEnrollment, Option<QuickUnlockEnrollment>)> {
+        self.check_reauth(reauth)?;
         let id = DeviceId::new_v7()?;
         let method = UnlockMethod::QuickUnlock(id);
         let wrapped = self.account_key.wrap(w, &self.account_id, &method)?;
-        let old = quick_rows(self.store.unlock_methods()?);
-        self.store
-            .put_unlock_method(&method, &wrapped, platform_params)?;
-        for row in &old {
-            self.store.remove_unlock_method(&row.method)?;
-        }
-        let replaced = old
+        let old: Vec<UnlockMethod> = quick_rows(self.store.unlock_methods()?)
+            .into_iter()
+            .map(|r| r.method)
+            .collect();
+        let removed = self
+            .store
+            .replace_unlock_methods((&method, &wrapped, platform_params), &old)?;
+        let replaced = quick_rows(removed)
             .into_iter()
             .next()
             .and_then(QuickUnlockEnrollment::from_row);
@@ -603,6 +718,14 @@ impl UnlockedSession {
             QuickUnlockEnrollment::from_id(id, platform_params.to_vec()),
             replaced,
         ))
+    }
+
+    fn check_reauth(&self, reauth: &Reauthenticated) -> Result<()> {
+        if reauth.valid_for(&self.proof_id, Instant::now()) {
+            Ok(())
+        } else {
+            Err(Error::ReauthenticationRequired)
+        }
     }
 
     /// Deletes the quick-unlock enrollment and returns it, so the app
@@ -617,15 +740,21 @@ impl UnlockedSession {
     /// Registers a security key for unlock (§6.3): derives `W` from the PRF
     /// output, wraps AK, stores the public parameters. Replacing a
     /// registered credential does not count against [`MAX_HARDWARE_KEYS`].
+    /// `key.prf_salt` must be new for the credential: one that any stored
+    /// wrapping of it (unlock or hardware-protected vault) already uses is
+    /// [`Error::InvalidHardwareKey`]. `reauth` is as for
+    /// [`Self::enroll_quick_unlock`].
     ///
     /// # Errors
-    /// [`Error::InvalidHardwareKey`], [`Error::HardwareKeyLimit`],
-    /// [`Error::Store`], [`Error::Core`].
+    /// [`Error::ReauthenticationRequired`], [`Error::InvalidHardwareKey`],
+    /// [`Error::HardwareKeyLimit`], [`Error::Store`], [`Error::Core`].
     pub fn enroll_hardware_key(
         &mut self,
         key: &NewHardwareKey,
         prf: &PrfOutput,
+        reauth: &Reauthenticated,
     ) -> Result<HardwareKeyEnrollment> {
+        self.check_reauth(reauth)?;
         let method = key.method()?;
         let params = encode_hw_params(key)?;
         let rows = hw_rows(self.store.unlock_methods()?);
@@ -633,6 +762,10 @@ impl UnlockedSession {
         if !replaces && rows.len() >= MAX_HARDWARE_KEYS {
             return Err(Error::HardwareKeyLimit);
         }
+        let UnlockMethod::HardwareKey(method_id) = method else {
+            return Err(Error::InvalidHardwareKey);
+        };
+        check_salt_unused(&self.store, &method_id, &key.prf_salt, true, None)?;
         let w = prf_unlock_key(prf, &key.credential_id).map_err(|_| Error::InvalidHardwareKey)?;
         let wrapped = self.account_key.wrap(&w, &self.account_id, &method)?;
         self.store.put_unlock_method(&method, &wrapped, &params)?;
@@ -640,9 +773,6 @@ impl UnlockedSession {
             .store
             .unlock_method(&method)?
             .ok_or(Error::Store(StorageError::Corrupt))?;
-        let UnlockMethod::HardwareKey(method_id) = method else {
-            return Err(Error::InvalidHardwareKey);
-        };
         HardwareKeyEnrollment::from_params(method_id, &row.params, row.updated_at_ms)
     }
 

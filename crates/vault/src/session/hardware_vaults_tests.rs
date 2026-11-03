@@ -9,8 +9,8 @@ use mosaic_core::{
 };
 
 use super::{
-    DEFAULT_RP_ID, Error, LockedSession, MAX_HARDWARE_KEYS, NewHardwareKey, UnlockedSession,
-    VaultProtection,
+    DEFAULT_RP_ID, Error, LockedSession, MAX_HARDWARE_KEYS, NewHardwareKey, Reauthenticated,
+    UnlockedSession, VaultProtection,
 };
 use crate::storage::{Error as StorageError, Store, VaultKeyWrap};
 
@@ -23,6 +23,11 @@ fn account() -> (UnlockedSession, SecretKey) {
         .create_account(&pw(), Argon2Profile::Baseline)
         .unwrap();
     (s, created.secret_key)
+}
+
+/// A fresh proof for `s` without the Argon2 round trip.
+fn ra(s: &UnlockedSession) -> Reauthenticated {
+    Reauthenticated::for_test(s.proof_id)
 }
 
 fn prf(fill: u8) -> PrfOutput {
@@ -142,7 +147,10 @@ fn hardware_vault_wrong_key() {
     );
     // Registering the same key for unlock (own salt and label) leaves the
     // vault wrapping alone.
-    s.enroll_hardware_key(&key(1), &prf(0xA1)).unwrap();
+    let unlock_key =
+        NewHardwareKey::new(vec![1; 32], DEFAULT_RP_ID.to_owned(), [0x77; 32]).unwrap();
+    s.enroll_hardware_key(&unlock_key, &prf(0xA1), &ra(&s))
+        .unwrap();
     s.open_hardware_vault(v, &[1; 32], &prf(0xA1)).unwrap();
 
     // Operations on a vault with the other protection.
@@ -390,6 +398,8 @@ fn create_tk_vault_is_atomic() {
     let vk_wrapping = vk.wrap_under_tk(&tk, &v).unwrap();
     let w = mosaic_core::unlock::prf_hw_vault_key(&prf(1), &[1; 32]).unwrap();
     let tk_wrapping_ct = tk.wrap(&w, &s.account_id, &v, &method_id(1)).unwrap();
+    let meta = mosaic_core::model::VaultMeta::new("n", s.device, super::now()).unwrap();
+    let meta_ct = meta.seal(&vk, &v).unwrap();
     let too_big = vec![0u8; crate::storage::MAX_UNLOCK_PARAMS_LEN + 1];
     assert!(matches!(
         s.store.create_tk_vault(
@@ -398,7 +408,8 @@ fn create_tk_vault_is_atomic() {
             &vk_wrapping,
             &method_id(1),
             &tk_wrapping_ct,
-            &too_big
+            &too_big,
+            &meta_ct,
         ),
         Err(StorageError::UnlockParamsTooLarge)
     ));
@@ -411,9 +422,12 @@ fn create_tk_vault_is_atomic() {
             &method_id(1),
             &tk_wrapping_ct,
             &[1],
+            &meta_ct,
         )
         .unwrap();
     assert_eq!(s.store.tk_wrappings(&v).unwrap().len(), 1);
+    // The metadata is stored by the same transaction.
+    assert!(s.store.vault_meta(&v).unwrap().is_some());
     assert!(matches!(
         s.store.create_tk_vault(
             &v,
@@ -422,6 +436,7 @@ fn create_tk_vault_is_atomic() {
             &method_id(1),
             &tk_wrapping_ct,
             &[1],
+            &meta_ct,
         ),
         Err(StorageError::VaultExists)
     ));
