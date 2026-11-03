@@ -1,0 +1,4 @@
+# Effective AAD of a vault key under TK (CRYPTO_SPEC 7.4): 01 01 || ctx("wrap/vault-under-tk") || 00 || vault_id || key_generation:u32
+#          vault_id = 0b*16, key_generation = 2
+01016d6f736169632f76312f777261702f7661756c742d756e6465722d746b00
+0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b00000002

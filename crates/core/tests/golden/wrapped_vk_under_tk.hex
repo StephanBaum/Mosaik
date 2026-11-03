@@ -1,0 +1,6 @@
+# WrappedKey (CRYPTO_SPEC 7.4), label wrap/vault-under-tk
+#          TK = 55*32, VK = 30*32, key_generation = 2, vault_id = 0b*16, nonce = 50..67
+#          layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]
+0101505152535455565758595a5b5c5d5e5f6061626364656667139259ba7d85
+4ab146fc38841c5d4fa9fe1edcdce6c77bb4fd3b31fe40e92189fa80f10284e3
+be416ec770f71774fd4a

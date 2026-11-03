@@ -1,0 +1,3 @@
+# SHA-256("WebAuthn PRF" || 00 || prf_salt) (CRYPTO_SPEC 3)
+#          prf_salt = 22*32
+f1ad91dca0b7640f09c3bf9f7a762378dbe8ab8bb7a591a5248c7a9ed0bb3cd6

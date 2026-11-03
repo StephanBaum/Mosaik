@@ -10,6 +10,8 @@
 //! |---|---|---|---|
 //! | [`WrappedKey`] (AK) | `01 01` | `wrap/ak` | `account_id, method:u8, method_id[16]` |
 //! | [`WrappedKey`] (VK) | `01 01` | `wrap/vault` | `account_id, vault_id, key_generation:u32` |
+//! | [`WrappedKey`] (TK) | `01 01` | `wrap/hw-vault` | `account_id, vault_id, method_id[16]` |
+//! | [`WrappedKey`] (VK under TK) | `01 01` | `wrap/vault-under-tk` | `vault_id, key_generation:u32` |
 //! | [`VaultMetaCiphertext`] | `01 01 key_generation:u32` | `vault-meta` | `vault_id, key_generation:u32` |
 //! | [`ItemCiphertext`] | `01 01 schema_version:u16 key_generation:u32` | `item` | `vault_id, item_id, schema_version:u16, key_generation:u32` |
 //! | [`TombstoneCiphertext`] | `01 01 key_generation:u32` | `tombstone` | `vault_id, item_id, key_generation:u32` |
@@ -160,8 +162,10 @@ impl UnlockMethod {
 /// `version:u8 (0x01) || alg:u8 (0x01) || nonce[24] || AEAD(W, nonce, key, aad)`.
 ///
 /// The same format wraps the account key under an unlock method's `W`
-/// (label `wrap/ak`) and a vault key under the account key (label
-/// `wrap/vault`). Always exactly [`WrappedKey::LEN`] bytes.
+/// (label `wrap/ak`), a vault key under the account key (label
+/// `wrap/vault`), the key `TK` of a hardware-protected vault under a
+/// hardware key's `W_hw` (label `wrap/hw-vault`) and a vault key under `TK`
+/// (label `wrap/vault-under-tk`). Always exactly [`WrappedKey::LEN`] bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WrappedKey([u8; WrappedKey::LEN]);
 
@@ -201,6 +205,21 @@ impl WrappedKey {
     ) -> Aad {
         Aad::with_header(&Self::HEADER, label::WRAP_VAULT)
             .fixed(account_id.as_bytes())
+            .fixed(vault_id.as_bytes())
+            .u32(generation.get())
+    }
+
+    /// §7.4: `01 01 || aad("wrap/hw-vault", account_id, vault_id, method_id[16])`.
+    pub(crate) fn tk_aad(account_id: &AccountId, vault_id: &VaultId, method_id: &[u8; 16]) -> Aad {
+        Aad::with_header(&Self::HEADER, label::WRAP_HW_VAULT)
+            .fixed(account_id.as_bytes())
+            .fixed(vault_id.as_bytes())
+            .fixed(method_id)
+    }
+
+    /// §7.4: `01 01 || aad("wrap/vault-under-tk", vault_id, key_generation:u32)`.
+    pub(crate) fn vault_under_tk_aad(vault_id: &VaultId, generation: KeyGeneration) -> Aad {
+        Aad::with_header(&Self::HEADER, label::WRAP_VAULT_UNDER_TK)
             .fixed(vault_id.as_bytes())
             .u32(generation.get())
     }

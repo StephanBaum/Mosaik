@@ -1,0 +1,5 @@
+# Effective AAD of a TK wrapping (CRYPTO_SPEC 7.4): 01 01 || ctx("wrap/hw-vault") || 00 || account_id || vault_id || method_id
+#          account_id = 0a*16, vault_id = 0b*16, method_id = SHA-256(44*32)[..16]
+01016d6f736169632f76312f777261702f68772d7661756c74000a0a0a0a0a0a
+0a0a0a0a0a0a0a0a0a0a0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0bbb391415c05e
+39d77ca17381d3be3f7d

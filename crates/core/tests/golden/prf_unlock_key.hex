@@ -1,0 +1,3 @@
+# W = HKDF(ikm = PRF output, salt = SHA-256(credential_id), info = ctx("prf-unlock"), 32) (CRYPTO_SPEC 6.3)
+#          PRF output = 33*32, credential_id = 44*32
+c7c116b71e82dae6189aece8ee1fdbd3bab5cad710b23e6cb4e9ced9a678eeaa

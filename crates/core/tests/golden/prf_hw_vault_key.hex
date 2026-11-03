@@ -1,0 +1,3 @@
+# W_hw = HKDF(ikm = PRF output, salt = SHA-256(credential_id), info = ctx("prf-hw-vault"), 32) (CRYPTO_SPEC 7.4)
+#          PRF output = 33*32, credential_id = 44*32
+865fa825a12f831744a18c3d6ff43a02751b2bdf998a0832585b0f192d39bf5a
