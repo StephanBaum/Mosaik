@@ -12,6 +12,7 @@
     "allow-verify-emergency-kit",
     "allow-unlock",
     "allow-lock",
+    "allow-reauthenticate",
     "allow-subscribe-events",
     "allow-app-status",
     "allow-unlock-quick",

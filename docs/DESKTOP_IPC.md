@@ -85,6 +85,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `unlock` | `{ password, secretKey \| null }` → `SessionState` | `wrongCredentials` (never says which secret), `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`, `alreadyUnlocked`, `noAccount` | live |
 | `unlock_quick` | `{ method: "biometric" \| "hardwareKey", pin \| null }` → `SessionState` | `quickUnlockUnavailable`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`, `cancelled`, `alreadyUnlocked`, `busy`, `hardwareKey*` codes | live (OS prompt; `pin` only for `hardwareKey`; without it a key that needs one fails with `hardwareKeyPinRequired`) |
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
+| `reauthenticate` | `{ password }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window in which `enroll_*`, `add_hardware_vault_key` and `move_item` out of a hardware vault accept `password: null`; the UI sends those first without a password and calls this on `reauthRequired`, then retries) |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
 | `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection }` | none | live |
 | **Quick unlock** | | | |
@@ -102,7 +103,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `open_hardware_vault` | `{ vaultId, pin \| null }` → `VaultSummary` | `vaultNotFound`, `invalidInput`, `hardwareKeyNotRecognized`, device codes | live |
 | `close_hardware_vault` | `{ vaultId }` → `null` | `vaultNotFound`, `invalidInput` | live |
 | `hardware_vault_keys` | `{ vaultId }` → `{ keys }` | `vaultNotFound`, `invalidInput` | live |
-| `add_hardware_vault_key` | `{ vaultId, pin \| null }` → `{ keys }` | `vaultUnavailable`, `hardwareKeyLimit`, device codes | live |
+| `add_hardware_vault_key` | `{ vaultId, pin \| null }` → `{ keys }` | `reauthRequired` (no `reauthenticate` in the last two minutes), `vaultUnavailable`, `hardwareKeyLimit`, device codes | live |
 | `remove_hardware_vault_key` | `{ vaultId, methodId }` → `{ keys }` | `vaultUnavailable`, `hardwareKeyLast`, `hardwareKeyNotRecognized` | live |
 | **Items** | | | |
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
@@ -112,7 +113,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound` | live |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
-| `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound` | live |
+| `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`) | live |
 | **Clipboard** | | | |
 | `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable` | live |
 | `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | live |

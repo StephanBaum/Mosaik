@@ -137,6 +137,17 @@ pub struct UnlockRequest {
     pub secret_key: Option<SecretIn>,
 }
 
+/// `reauthenticate`: the master password again, to unlock the two-minute
+/// window in which `enroll_*`, `add_hardware_vault_key` and moving an item
+/// out of a hardware vault may be sent with `password: null`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReauthenticateRequest {
+    /// The master password.
+    pub password: SecretIn,
+}
+
 /// `unlock_quick`.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]

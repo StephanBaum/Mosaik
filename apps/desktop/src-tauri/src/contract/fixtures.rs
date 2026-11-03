@@ -136,6 +136,13 @@ pub(crate) fn build() -> Value {
         session::samples::states(),
     );
     f.command("lock", vec![()], session::samples::states());
+    f.command(
+        "reauthenticate",
+        vec![session::ReauthenticateRequest {
+            password: SecretIn::test("correct horse battery staple"),
+        }],
+        vec![()],
+    );
     f.command("app_status", vec![()], vec![session::samples::app_status()]);
 
     // Quick unlock

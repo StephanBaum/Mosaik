@@ -48,6 +48,11 @@ export interface KitVerification {
   matches: boolean;
 }
 
+/** `reauthenticate`: the master password again; opens a two-minute window for the commands that answer `reauthRequired`. */
+export interface ReauthenticateRequest {
+  password: string;
+}
+
 export interface UnlockRequest {
   password: string;
   /** The Secret Key from the Emergency Kit, or `null` to use the one stored on this device. */

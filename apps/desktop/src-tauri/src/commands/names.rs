@@ -13,6 +13,7 @@ pub const COMMANDS: &[&str] = &[
     "verify_emergency_kit",
     "unlock",
     "lock",
+    "reauthenticate",
     "subscribe_events",
     "app_status",
     // Quick unlock

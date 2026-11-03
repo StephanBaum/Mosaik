@@ -33,6 +33,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         session::verify_emergency_kit,
         session::unlock,
         session::lock,
+        session::reauthenticate,
         session::subscribe_events,
         session::app_status,
         quick_unlock::unlock_quick,

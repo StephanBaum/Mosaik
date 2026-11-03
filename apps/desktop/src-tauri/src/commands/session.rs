@@ -13,7 +13,8 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::secret::{SecretIn, SecretOut};
 use crate::contract::session::{
     AppStatus, CreateAccountRequest, CreatedAccount, EmergencyKit, KitSaved, KitVerification,
-    SaveKitRequest, SessionState, ShortcutState, UnlockRequest, VerifyKitRequest,
+    ReauthenticateRequest, SaveKitRequest, SessionState, ShortcutState, UnlockRequest,
+    VerifyKitRequest,
 };
 use crate::emergency_kit::{self, KitValues};
 use crate::persist::{AccountInfo, valid_email};
@@ -73,6 +74,15 @@ pub async fn unlock(state: State<'_, AppState>, request: UnlockRequest) -> IpcRe
 #[tauri::command]
 pub async fn lock(state: State<'_, AppState>) -> IpcResult<SessionState> {
     state.run(|b| b.lock(LockReason::Manual)).await
+}
+
+/// `reauthenticate`.
+#[tauri::command]
+pub async fn reauthenticate(
+    state: State<'_, AppState>,
+    request: ReauthenticateRequest,
+) -> IpcResult<()> {
+    state.run(move |b| b.reauthenticate(request.password)).await
 }
 
 /// `subscribe_events`: the webview hands over a channel for [`AppEvent`]s.

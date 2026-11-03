@@ -11,6 +11,7 @@ export const fixtures = {
     "verify_emergency_kit",
     "unlock",
     "lock",
+    "reauthenticate",
     "subscribe_events",
     "app_status",
     "unlock_quick",
@@ -834,6 +835,11 @@ export const fixtures = {
     ],
     "quick_unlock_status": [
       null
+    ],
+    "reauthenticate": [
+      {
+        "password": "correct horse battery staple"
+      }
     ],
     "remove_biometric": [
       null
@@ -1780,6 +1786,9 @@ export const fixtures = {
         },
         "maxAgeDays": 30
       }
+    ],
+    "reauthenticate": [
+      null
     ],
     "remove_biometric": [
       {

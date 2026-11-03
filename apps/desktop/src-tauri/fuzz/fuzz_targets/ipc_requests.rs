@@ -28,7 +28,7 @@ use contract::quick_unlock::{
     HardwareVaultKeyRequest, HardwareVaultRequest, RemoveHardwareKeyRequest,
 };
 use contract::session::{
-    CreateAccountRequest, QuickUnlockRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
+    CreateAccountRequest, QuickUnlockRequest, ReauthenticateRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
 };
 use contract::settings::UpdateSettingsRequest;
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
@@ -49,7 +49,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 30;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 31;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -100,6 +100,7 @@ fuzz_target!(|data: &[u8]| {
             }
         }
         28 => drop(parse::<VaultRequest>(json)),
+        29 => drop(parse::<ReauthenticateRequest>(json)),
         _ => drop(parse::<SshRespondRequest>(json)),
     }
 });

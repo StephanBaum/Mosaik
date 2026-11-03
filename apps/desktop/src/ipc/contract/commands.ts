@@ -42,6 +42,7 @@ import type {
   KitSaved,
   KitVerification,
   QuickUnlockRequest,
+  ReauthenticateRequest,
   SaveKitRequest,
   SessionState,
   UnlockRequest,
@@ -74,6 +75,7 @@ export interface Commands {
   unlock: Command<UnlockRequest, SessionState>;
   unlock_quick: Command<QuickUnlockRequest, SessionState>;
   lock: Command<null, SessionState>;
+  reauthenticate: Command<ReauthenticateRequest, null>;
   app_status: Command<null, AppStatus>;
   // Quick unlock
   quick_unlock_status: Command<null, QuickUnlockStatus>;
@@ -141,6 +143,7 @@ const commandSet = {
   unlock: true,
   unlock_quick: true,
   lock: true,
+  reauthenticate: true,
   app_status: true,
   quick_unlock_status: true,
   enroll_biometric: true,
