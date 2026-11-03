@@ -686,14 +686,16 @@ fn golden_settings_mac_key() {
 fn golden_settings_mac() {
     let ak = AccountKey(SecretBytes::from_array(&mut [0x20; 32]));
     let key = ak.settings_mac_key().unwrap();
-    let canonical = br#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}"#;
-    let tag = key.tag(canonical).unwrap();
+    let account = AccountId::from_bytes(ACCOUNT).unwrap();
+    let nonce = [0x30u8; 16];
+    let canonical = br#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"email":"a@example.com","kitVerified":true,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}"#;
+    let tag = key.tag(&account, &nonce, canonical).unwrap();
     check(
         "settings_mac",
-        "mac = HMAC-SHA-256(K_settings, canonical(settings)) (CRYPTO_SPEC 11.1)
-         AK = 20*32, canonical = the default settings:
-         {\"autoLockMinutes\":10,\"clipboardClearSeconds\":30,\"language\":\"system\",\"lockOnScreenLock\":true,\"lockOnSleep\":true,\"quickUnlockMaxAgeDays\":14,\"theme\":\"system\"}",
+        "mac = HMAC-SHA-256(K_settings, account_id[16] || settings_nonce[16] || canonical) (CRYPTO_SPEC 11.1)
+         AK = 20*32, account_id = 0a*16, settings_nonce = 30*16, canonical =
+         {\"autoLockMinutes\":10,\"clipboardClearSeconds\":30,\"email\":\"a@example.com\",\"kitVerified\":true,\"language\":\"system\",\"lockOnScreenLock\":true,\"lockOnSleep\":true,\"quickUnlockMaxAgeDays\":14,\"sshAgentEnabled\":false,\"theme\":\"system\"}",
         &tag,
     );
-    assert!(key.verify(canonical, &tag));
+    assert!(key.verify(&account, &nonce, canonical, &tag));
 }

@@ -1,4 +1,4 @@
-# mac = HMAC-SHA-256(K_settings, canonical(settings)) (CRYPTO_SPEC 11.1)
-#          AK = 20*32, canonical = the default settings:
-#          {"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}
-2fc6d877536474293fcfedccdf75eb8ea5dfe9cfbe01e1f84f9b939c66f20e87
+# mac = HMAC-SHA-256(K_settings, account_id[16] || settings_nonce[16] || canonical) (CRYPTO_SPEC 11.1)
+#          AK = 20*32, account_id = 0a*16, settings_nonce = 30*16, canonical =
+#          {"autoLockMinutes":10,"clipboardClearSeconds":30,"email":"a@example.com","kitVerified":true,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"sshAgentEnabled":false,"theme":"system"}
+00f08cfeeb35844d929e87ff859b95f98e5d6aebcef94e71b4e8b06a40bc35d9

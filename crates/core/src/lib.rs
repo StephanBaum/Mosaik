@@ -81,4 +81,4 @@ pub use secret::{
     AccountKey, AttachmentKey, Kek, MasterPassword, OpaquePassword, SecretBytes, SecretKey,
     SecretString, SecretVec, SettingsMacKey, VaultKey,
 };
-pub use settings_mac::SETTINGS_MAC_LEN;
+pub use settings_mac::{SETTINGS_MAC_LEN, SETTINGS_NONCE_LEN, new_settings_nonce};
