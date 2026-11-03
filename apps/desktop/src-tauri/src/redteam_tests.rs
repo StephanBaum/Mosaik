@@ -10,7 +10,10 @@
 //! - hardware-vault commands refuse other vaults before touching a device, and a
 //!   vault that closes during the touch gets no new key;
 //! - a tampered state file stays within the §11 floor and the 30-day cap.
-#![allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+#![expect(
+    clippy::too_many_lines,
+    reason = "test helpers take their arguments by value; each attack is one scenario"
+)]
 
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
@@ -228,6 +231,21 @@ fn hostile_bodies(cmd: &str, samples: &[Value]) -> Vec<Value> {
     bodies
 }
 
+/// A contract error, or Tauri refusing the arguments.
+fn assert_error_shape(round: &str, cmd: &str, shown: &str, error: &Value) {
+    match error.get("code").and_then(Value::as_str) {
+        Some("internal") => assert!(
+            DIALOG_COMMANDS.contains(&cmd),
+            "{round} {cmd}: internal (a panic or a poisoned lock?) for {shown}"
+        ),
+        Some(_) => {}
+        None => assert!(
+            error.is_string(),
+            "{round} {cmd}: unexpected error shape {error} for {shown}"
+        ),
+    }
+}
+
 #[test]
 fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
     let _kdf = crate::test_support::kdf_permit();
@@ -298,18 +316,7 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
                         serde_json::to_string(&body.deserialize::<Value>().unwrap()).unwrap()
                     }
                     Err(error) => {
-                        // A contract error, or Tauri refusing the arguments.
-                        match error.get("code").and_then(Value::as_str) {
-                            Some("internal") => assert!(
-                                DIALOG_COMMANDS.contains(&cmd),
-                                "{round} {cmd}: internal (a panic or a poisoned lock?) for {shown}"
-                            ),
-                            Some(_) => {}
-                            None => assert!(
-                                error.is_string(),
-                                "{round} {cmd}: unexpected error shape {error} for {shown}"
-                            ),
-                        }
+                        assert_error_shape(round, cmd, shown, &error);
                         error.to_string()
                     }
                 };

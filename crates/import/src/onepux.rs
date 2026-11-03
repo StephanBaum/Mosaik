@@ -39,7 +39,6 @@ use zip::result::ZipError;
 use crate::Format;
 use crate::buf::{self, Buf};
 use crate::draft::{AttachmentBudget, Builder, EntryWarning, Kind};
-use crate::enpass::expiry;
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
 use crate::json::{self, Json};
@@ -316,10 +315,6 @@ fn date(unix: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one table of 1Password's field kinds and IDs"
-)]
 fn section_field(b: &mut Builder, cat: &str, f: &Json, files: &mut Files<'_>) -> Result<()> {
     let label = f.str("title").unwrap_or_default();
     let id = f.str("id").unwrap_or_default();
@@ -327,38 +322,21 @@ fn section_field(b: &mut Builder, cat: &str, f: &Json, files: &mut Files<'_>) ->
         return Ok(());
     };
     let ty = b.item_type().clone();
+    let text = v.as_str().unwrap_or_default();
     match kind.as_str() {
-        "totp" => b.otp_text(v.as_str().unwrap_or_default(), label),
-        "concealed" => {
-            let s = v.as_str().unwrap_or_default();
-            match (id, &ty) {
-                ("password", ItemType::Login) => b.secret(SecretField::Password, s, label),
-                ("wireless_password" | "password", ItemType::Wifi) => {
-                    b.secret(SecretField::WifiPassword, s, label);
-                }
-                ("credential", ItemType::ApiKey) => b.secret(SecretField::ApiKeySecret, s, label),
-                ("cvv", ItemType::CreditCard) => {
-                    b.secret(SecretField::CardVerificationCode, s, label);
-                }
-                ("pin", ItemType::CreditCard) => b.secret(SecretField::CardPin, s, label),
-                _ => b.fallback(label, Kind::Hidden, s),
-            }
-        }
+        "totp" => b.otp_text(text, label),
+        "concealed" => concealed(b, &ty, id, label, text),
         "creditCardNumber" if ty == ItemType::CreditCard => {
-            b.secret(
-                SecretField::CardNumber,
-                v.as_str().unwrap_or_default(),
-                label,
-            );
+            b.secret(SecretField::CardNumber, text, label);
         }
         "creditCardType" if ty == ItemType::CreditCard => {
-            b.text(TextField::CardBrand, v.as_str().unwrap_or_default(), label);
+            b.text(TextField::CardBrand, text, label);
         }
         "monthYear" => {
             let my = v.as_i64().unwrap_or(0);
             let text = format!("{:02}/{:04}", my % 100, my / 100);
             if id == "expiry" && ty == ItemType::CreditCard {
-                expiry(b, &text, label);
+                b.expiry(&text, label);
             } else {
                 b.fallback(label, Kind::Text, &text);
             }
@@ -372,56 +350,13 @@ fn section_field(b: &mut Builder, cat: &str, f: &Json, files: &mut Files<'_>) ->
             }
         }
         "email" => {
-            let e = v
-                .str("email_address")
-                .or_else(|| v.as_str())
-                .unwrap_or_default();
-            if ty == ItemType::Identity {
-                b.text(TextField::Email, e, label);
-            } else {
-                b.fallback(label, Kind::Email, e);
-            }
+            let e = v.str("email_address").unwrap_or(text);
+            identity_or(b, &ty, TextField::Email, Kind::Email, label, e);
         }
-        "phone" => {
-            let p = v.as_str().unwrap_or_default();
-            if ty == ItemType::Identity {
-                b.text(TextField::Phone, p, label);
-            } else {
-                b.fallback(label, Kind::Phone, p);
-            }
-        }
-        "url" => b.fallback(label, Kind::Url, v.as_str().unwrap_or_default()),
-        "address" => {
-            if ty == ItemType::Identity {
-                for (key, field) in [
-                    ("street", TextField::AddressLine1),
-                    ("city", TextField::City),
-                    ("state", TextField::Region),
-                    ("zip", TextField::PostalCode),
-                    ("country", TextField::Country),
-                ] {
-                    b.text(field, v.str(key).unwrap_or_default(), key);
-                }
-            } else {
-                let parts: Vec<&str> = ["street", "zip", "city", "state", "country"]
-                    .iter()
-                    .filter_map(|k| v.str(k))
-                    .filter(|s| !s.trim().is_empty())
-                    .collect();
-                b.fallback(label, Kind::Text, &parts.join(", "));
-            }
-        }
-        "sshKey" => {
-            let meta = v.get("metadata");
-            let private = v.str("privateKey").unwrap_or_default();
-            let public = meta.and_then(|m| m.str("publicKey")).unwrap_or_default();
-            let fp = meta.and_then(|m| m.str("fingerprint")).unwrap_or_default();
-            if ty == ItemType::SshKey {
-                b.ssh_key(private, public, fp);
-            } else {
-                b.fallback(label, Kind::Hidden, private);
-            }
-        }
+        "phone" => identity_or(b, &ty, TextField::Phone, Kind::Phone, label, text),
+        "url" => b.fallback(label, Kind::Url, text),
+        "address" => address(b, &ty, label, v),
+        "sshKey" => ssh_key(b, &ty, label, v),
         "file" => attachment(b, v, files)?,
         "reference" => {}
         _ => {
@@ -433,6 +368,74 @@ fn section_field(b: &mut Builder, cat: &str, f: &Json, files: &mut Files<'_>) ->
         }
     }
     Ok(())
+}
+
+/// A concealed section field, by ID and item type.
+fn concealed(b: &mut Builder, ty: &ItemType, id: &str, label: &str, s: &str) {
+    match (id, ty) {
+        ("password", ItemType::Login) => b.secret(SecretField::Password, s, label),
+        ("wireless_password" | "password", ItemType::Wifi) => {
+            b.secret(SecretField::WifiPassword, s, label);
+        }
+        ("credential", ItemType::ApiKey) => b.secret(SecretField::ApiKeySecret, s, label),
+        ("cvv", ItemType::CreditCard) => b.secret(SecretField::CardVerificationCode, s, label),
+        ("pin", ItemType::CreditCard) => b.secret(SecretField::CardPin, s, label),
+        _ => b.fallback(label, Kind::Hidden, s),
+    }
+}
+
+/// A field that has a text field on identities and is a custom field of
+/// `kind` on every other item.
+fn identity_or(
+    b: &mut Builder,
+    ty: &ItemType,
+    field: TextField,
+    kind: Kind,
+    label: &str,
+    value: &str,
+) {
+    if *ty == ItemType::Identity {
+        b.text(field, value, label);
+    } else {
+        b.fallback(label, kind, value);
+    }
+}
+
+/// An address: the parts are identity fields, or one joined custom field on
+/// other items.
+fn address(b: &mut Builder, ty: &ItemType, label: &str, v: &Json) {
+    if *ty == ItemType::Identity {
+        for (key, field) in [
+            ("street", TextField::AddressLine1),
+            ("city", TextField::City),
+            ("state", TextField::Region),
+            ("zip", TextField::PostalCode),
+            ("country", TextField::Country),
+        ] {
+            b.text(field, v.str(key).unwrap_or_default(), key);
+        }
+    } else {
+        let parts: Vec<&str> = ["street", "zip", "city", "state", "country"]
+            .iter()
+            .filter_map(|k| v.str(k))
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        b.fallback(label, Kind::Text, &parts.join(", "));
+    }
+}
+
+/// An SSH key: the key material of an SSH key item, a hidden custom field
+/// (the private key) on other items.
+fn ssh_key(b: &mut Builder, ty: &ItemType, label: &str, v: &Json) {
+    let meta = v.get("metadata");
+    let private = v.str("privateKey").unwrap_or_default();
+    let public = meta.and_then(|m| m.str("publicKey")).unwrap_or_default();
+    let fp = meta.and_then(|m| m.str("fingerprint")).unwrap_or_default();
+    if *ty == ItemType::SshKey {
+        b.ssh_key(private, public, fp);
+    } else {
+        b.fallback(label, Kind::Hidden, private);
+    }
 }
 
 /// A plain string section field, by ID.
@@ -465,8 +468,7 @@ fn string_field(b: &mut Builder, cat: &str, ty: &ItemType, id: &str, label: &str
             };
             b.secret(field, s, label);
         }
-        _ if *ty == ItemType::SecureNote => b.custom(label, Kind::Text, s),
-        _ => b.fallback(label, Kind::Text, s),
+        _ => b.content(label, Kind::Text, s),
     }
 }
 

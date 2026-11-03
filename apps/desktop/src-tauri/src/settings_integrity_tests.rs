@@ -3,7 +3,6 @@
 //!
 //! Every phase "restarts" the app: a new `Backend` over the same state file
 //! and store file, with the first one dropped.
-#![allow(clippy::too_many_lines)]
 
 use std::path::Path;
 
@@ -97,32 +96,26 @@ fn strict_dark() -> Settings {
     }
 }
 
-#[test]
-fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
-    let _kdf = crate::test_support::kdf_permit();
-    let dir = tempfile::tempdir().unwrap();
-    let d = dir.path();
+fn create_account_with_weak_settings(d: &Path) -> String {
+    let (b, log) = start(d);
+    let created = b
+        .create_account(CreateAccountRequest {
+            email: "alex@example.com".into(),
+            password: SecretIn::test(PASSWORD),
+            default_vault_name: "Personal".into(),
+        })
+        .unwrap();
+    let key = serde_json::to_value(&created).unwrap()["emergencyKit"]["secretKey"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(update(&b, weak()), weak());
+    assert_eq!(resets(&log), 0);
+    assert!(read_file(d)["mac"].as_str().is_some_and(|m| m.len() == 64));
+    key
+}
 
-    // Phase 0: a user with weak, legitimately chosen settings.
-    let secret_key = {
-        let (b, log) = start(d);
-        let created = b
-            .create_account(CreateAccountRequest {
-                email: "alex@example.com".into(),
-                password: SecretIn::test(PASSWORD),
-                default_vault_name: "Personal".into(),
-            })
-            .unwrap();
-        let key = serde_json::to_value(&created).unwrap()["emergencyKit"]["secretKey"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        assert_eq!(update(&b, weak()), weak());
-        assert_eq!(resets(&log), 0);
-        assert!(read_file(d)["mac"].as_str().is_some_and(|m| m.len() == 64));
-        key
-    };
-
+fn check_valid_mac_is_accepted(d: &Path, secret_key: &str) {
     // Phase 1: a valid MAC is accepted. Locked, only the strict values
     // count; a theme change while locked is kept and written at unlock.
     {
@@ -156,7 +149,7 @@ fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
             ErrorCode::Locked,
             "a protection setting does not change while locked"
         );
-        unlock(&b, &secret_key);
+        unlock(&b, secret_key);
         let expected = Settings {
             theme: Theme::Light,
             ..weak()
@@ -175,59 +168,55 @@ fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
         );
     }
     assert_eq!(read_file(d)["settings"]["theme"], "light");
+}
 
-    // Phase 2: malware sets a protection to its weakest, MAC left as it was.
-    for (field, value) in [
-        ("autoLockMinutes", Value::Null),
-        ("clipboardClearSeconds", json!(300)),
-        ("quickUnlockMaxAgeDays", json!(29)),
-        ("lockOnSleep", json!(true)),
-    ] {
-        let mut file = read_file(d);
-        file["settings"][field] = value;
-        write_file(d, &file);
-        let (b, log) = start(d);
-        assert_eq!(
-            b.settings_snapshot(),
-            Settings {
-                theme: Theme::Light,
-                ..strict_dark()
-            },
-            "{field}: locked, strict values"
-        );
-        unlock(&b, &secret_key);
-        assert_eq!(
-            b.settings_snapshot(),
-            Settings {
-                theme: Theme::Light,
-                ..strict_dark()
-            },
-            "{field}: reset after unlock, the theme stays"
-        );
-        assert_eq!(resets(&log), 1, "{field}: the user is told once");
-        let rewritten = read_file(d);
-        assert_eq!(rewritten["settings"]["autoLockMinutes"], 10);
-        assert_eq!(rewritten["settings"]["clipboardClearSeconds"], 30);
-        // A second run over the rewritten file is clean.
-        drop(b);
-        let (b, log) = start(d);
-        unlock(&b, &secret_key);
-        assert_eq!(
-            resets(&log),
-            0,
-            "{field}: the rewritten file has a valid MAC"
-        );
-        assert_eq!(b.settings_snapshot().auto_lock_minutes, Some(10));
-        // Put the weak (but valid) settings back for the next case.
-        update(
-            &b,
-            Settings {
-                theme: Theme::Light,
-                ..weak()
-            },
-        );
-    }
+fn check_weakened_field_is_reset(d: &Path, secret_key: &str, field: &str, value: Value) {
+    let mut file = read_file(d);
+    file["settings"][field] = value;
+    write_file(d, &file);
+    let (b, log) = start(d);
+    assert_eq!(
+        b.settings_snapshot(),
+        Settings {
+            theme: Theme::Light,
+            ..strict_dark()
+        },
+        "{field}: locked, strict values"
+    );
+    unlock(&b, secret_key);
+    assert_eq!(
+        b.settings_snapshot(),
+        Settings {
+            theme: Theme::Light,
+            ..strict_dark()
+        },
+        "{field}: reset after unlock, the theme stays"
+    );
+    assert_eq!(resets(&log), 1, "{field}: the user is told once");
+    let rewritten = read_file(d);
+    assert_eq!(rewritten["settings"]["autoLockMinutes"], 10);
+    assert_eq!(rewritten["settings"]["clipboardClearSeconds"], 30);
+    // A second run over the rewritten file is clean.
+    drop(b);
+    let (b, log) = start(d);
+    unlock(&b, secret_key);
+    assert_eq!(
+        resets(&log),
+        0,
+        "{field}: the rewritten file has a valid MAC"
+    );
+    assert_eq!(b.settings_snapshot().auto_lock_minutes, Some(10));
+    // Put the weak (but valid) settings back for the next case.
+    update(
+        &b,
+        Settings {
+            theme: Theme::Light,
+            ..weak()
+        },
+    );
+}
 
+fn check_missing_or_garbled_mac(d: &Path, secret_key: &str) {
     // Phase 3: a file from before the MAC (no `mac`): weakening fields reset
     // with a notice, theme and language kept.
     {
@@ -236,7 +225,7 @@ fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
         file.as_object_mut().unwrap().remove("mac");
         write_file(d, &file);
         let (b, log) = start(d);
-        unlock(&b, &secret_key);
+        unlock(&b, secret_key);
         assert_eq!(
             b.settings_snapshot(),
             Settings {
@@ -256,7 +245,7 @@ fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
         file.as_object_mut().unwrap().remove("mac");
         write_file(d, &file);
         let (b, log) = start(d);
-        unlock(&b, &secret_key);
+        unlock(&b, secret_key);
         assert_eq!(b.settings_snapshot().theme, Theme::System);
         assert_eq!(resets(&log), 0);
     }
@@ -268,10 +257,35 @@ fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
         file["settings"]["clipboardClearSeconds"] = json!(300);
         write_file(d, &file);
         let (b, log) = start(d);
-        unlock(&b, &secret_key);
+        unlock(&b, secret_key);
         assert_eq!(b.settings_snapshot().clipboard_clear_seconds, Some(30));
         assert_eq!(resets(&log), 1);
     }
+}
+
+#[test]
+fn a_tampered_file_is_ignored_locked_and_reset_after_unlock() {
+    let _kdf = crate::test_support::kdf_permit();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+
+    // Phase 0: a user with weak, legitimately chosen settings.
+    let secret_key = create_account_with_weak_settings(d);
+
+    check_valid_mac_is_accepted(d, &secret_key);
+    assert_eq!(read_file(d)["settings"]["theme"], "light");
+
+    // Phase 2: malware sets a protection to its weakest, MAC left as it was.
+    for (field, value) in [
+        ("autoLockMinutes", Value::Null),
+        ("clipboardClearSeconds", json!(300)),
+        ("quickUnlockMaxAgeDays", json!(29)),
+        ("lockOnSleep", json!(true)),
+    ] {
+        check_weakened_field_is_reset(d, &secret_key, field, value);
+    }
+
+    check_missing_or_garbled_mac(d, &secret_key);
 }
 
 #[test]

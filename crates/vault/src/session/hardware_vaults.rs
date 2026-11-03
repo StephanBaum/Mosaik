@@ -178,9 +178,7 @@ impl UnlockedSession {
             // was re-sealed (ADR-0012 item 7), like an unlock does.
             reseal_below_current(&mut self.store, vault_id, &ov)?;
         }
-        for (item_id, item) in &ov.items {
-            self.index.update(vault_id, *item_id, item);
-        }
+        self.index.update_vault(vault_id, &ov);
         self.vaults.insert(vault_id, ov);
         Ok(())
     }

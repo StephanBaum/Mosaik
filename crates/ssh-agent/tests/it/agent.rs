@@ -2,14 +2,7 @@
 //! elsewhere): list the keys, sign a challenge after approval, verify the
 //! signature with ssh-key, and the endpoint rules.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::too_many_lines,
-    clippy::indexing_slicing,
-    clippy::panic,
-    reason = "integration tests"
-)]
+#![expect(clippy::unwrap_used, reason = "integration tests")]
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -99,7 +92,7 @@ fn test_endpoint() -> TestEndpoint {
 }
 
 #[cfg(windows)]
-#[allow(clippy::unused_async, reason = "same signature as the Unix version")]
+#[expect(clippy::unused_async, reason = "same signature as the Unix version")]
 async fn connect(
     endpoint: &Endpoint,
 ) -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {

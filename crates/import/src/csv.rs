@@ -281,16 +281,7 @@ impl Rows<'_> {
         let mut end = self.rest.len();
         while let Some((i, c)) = chars.next() {
             if quoted {
-                if c == '"' {
-                    if chars.peek().is_some_and(|&(_, n)| n == '"') {
-                        chars.next();
-                        field.push('"');
-                    } else {
-                        quoted = false;
-                    }
-                } else {
-                    field.push(c);
-                }
+                quoted = quoted_char(c, &mut chars, &mut field);
                 continue;
             }
             match c {
@@ -322,6 +313,26 @@ impl Rows<'_> {
     }
 }
 
+/// One character inside a quoted field: a doubled quote is a literal quote,
+/// a single one ends the quoting. Returns whether the field is still quoted.
+fn quoted_char(
+    c: char,
+    chars: &mut core::iter::Peekable<core::str::CharIndices<'_>>,
+    field: &mut Str,
+) -> bool {
+    if c != '"' {
+        field.push(c);
+        return true;
+    }
+    if chars.peek().is_some_and(|&(_, n)| n == '"') {
+        chars.next();
+        field.push('"');
+        true
+    } else {
+        false
+    }
+}
+
 fn push_field(row: &mut Vec<Str>, field: &mut Str) -> Result<()> {
     if row.len() >= MAX_COLUMNS {
         return Err(Error::Malformed);
@@ -332,7 +343,6 @@ fn push_field(row: &mut Vec<Str>, field: &mut Str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
 

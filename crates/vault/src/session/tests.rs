@@ -3,8 +3,6 @@
 //! hardware-protected vaults, interrupted re-seals, the generation rule,
 //! search ranking).
 
-#![allow(clippy::unwrap_used, reason = "tests")]
-
 use mosaic_core::model::{Item, ItemType, SecretField, TextField, VaultMeta};
 use mosaic_core::{
     AccountKey, Argon2Profile, DeviceId, ItemCiphertext, ItemId, KeyGeneration, MasterPassword,

@@ -3,10 +3,9 @@
 //! opening under any other context (IDs, schema version, key generation,
 //! unlock method) fails.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::indexing_slicing,
-    clippy::too_many_lines,
     reason = "test helpers outside #[test] functions"
 )]
 
@@ -548,13 +547,7 @@ fn decoder_input_reaches_open() {
     assert!(hits.iter().all(|&h| h >= 20), "decoder coverage {hits:?}");
 }
 
-#[test]
-fn decoders_are_strict() {
-    let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
-    let vault_id = VaultId::new_v7().unwrap();
-    let item_id = ItemId::new_v7().unwrap();
-    let ct = ItemCiphertext::seal(&vk, &vault_id, &item_id, 1, b"x").unwrap();
-    let b = ct.as_bytes();
+fn check_item_header_and_lengths(b: &[u8]) {
     // Version and algorithm.
     let mut v = b.to_vec();
     v[0] = 0x02;
@@ -586,10 +579,13 @@ fn decoders_are_strict() {
     assert_eq!(ItemCiphertext::from_bytes(&b[..1]), Err(Error::Malformed));
     assert_eq!(ItemCiphertext::from_bytes(&b[..31]), Err(Error::Malformed));
     assert_eq!(ItemCiphertext::from_bytes(&[]), Err(Error::Malformed));
+}
+
+fn check_item_size_limits(vk: &VaultKey, vault_id: &VaultId, item_id: &ItemId, b: &[u8]) {
     // Size limit.
     let big = vec![0u8; mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN + 1];
     assert_eq!(
-        ItemCiphertext::seal(&vk, &vault_id, &item_id, 1, &big),
+        ItemCiphertext::seal(vk, vault_id, item_id, 1, &big),
         Err(Error::SizeLimit)
     );
     let mut huge = b[..32].to_vec();
@@ -599,17 +595,14 @@ fn decoders_are_strict() {
     );
     assert_eq!(ItemCiphertext::from_bytes(&huge), Err(Error::SizeLimit));
     let max = vec![0u8; mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN];
-    let ct = ItemCiphertext::seal(&vk, &vault_id, &item_id, 1, &max).unwrap();
+    let ct = ItemCiphertext::seal(vk, vault_id, item_id, 1, &max).unwrap();
     let back = ItemCiphertext::from_bytes(ct.as_bytes()).unwrap();
-    assert_eq!(
-        back.open(&vk, &vault_id, &item_id).unwrap().len(),
-        max.len()
-    );
+    assert_eq!(back.open(vk, vault_id, item_id).unwrap().len(), max.len());
     // Exactly at the limit decodes; the zero body then fails the tag.
     let mut at_limit = b[..32].to_vec();
     at_limit.resize(32 + mosaic_core::envelope::MAX_ITEM_PADDED_LEN + 16, 0);
     let c = ItemCiphertext::from_bytes(&at_limit).unwrap();
-    assert_eq!(c.open(&vk, &vault_id, &item_id), Err(Error::Decryption));
+    assert_eq!(c.open(vk, vault_id, item_id), Err(Error::Decryption));
     // Padded-body structure: a 256-byte block below the 512 minimum, one
     // byte past a block boundary, and a body shorter than a tag.
     for body in [256 + 16, 512 + 16 + 1, 15] {
@@ -621,7 +614,9 @@ fn decoders_are_strict() {
             "{body}"
         );
     }
+}
 
+fn check_wrapped_key_decoder() {
     // Wrapped keys are exactly 74 bytes.
     let ak = AccountKey::generate().unwrap();
     let account = AccountId::new_v7().unwrap();
@@ -646,10 +641,9 @@ fn decoders_are_strict() {
         w.unwrap_account_key(&kek(), &account, &UnlockMethod::Password),
         Err(Error::Decryption)
     );
+}
 
-    // Vault metadata and tombstones.
-    let meta = VaultMetaCiphertext::seal(&vk, &vault_id, b"m").unwrap();
-    let mb = meta.as_bytes();
+fn check_vault_meta_lengths(vk: &VaultKey, vault_id: &VaultId, mb: &[u8]) {
     assert_eq!(
         VaultMetaCiphertext::from_bytes(&mb[..mb.len() - 1]),
         Err(Error::Malformed)
@@ -669,53 +663,55 @@ fn decoders_are_strict() {
         0,
     );
     let c = VaultMetaCiphertext::from_bytes(&at_limit).unwrap();
-    assert_eq!(c.open(&vk, &vault_id), Err(Error::Decryption));
-    // Header checks for both 6-byte-header types.
-    let tomb = TombstoneCiphertext::seal(&vk, &vault_id, &item_id, b"t").unwrap();
-    for bytes in [mb, tomb.as_bytes()] {
-        let mut v = bytes.to_vec();
-        v[0] = 2;
-        assert_eq!(
-            VaultMetaCiphertext::from_bytes(&v),
-            Err(Error::UnsupportedVersion)
-        );
-        assert_eq!(
-            TombstoneCiphertext::from_bytes(&v),
-            Err(Error::UnsupportedVersion)
-        );
-        let mut v = bytes.to_vec();
-        v[1] = 2;
-        assert_eq!(
-            VaultMetaCiphertext::from_bytes(&v),
-            Err(Error::UnsupportedAlgorithm)
-        );
-        assert_eq!(
-            TombstoneCiphertext::from_bytes(&v),
-            Err(Error::UnsupportedAlgorithm)
-        );
-        let mut v = bytes.to_vec();
-        v[2..6].copy_from_slice(&[0; 4]);
-        // The generation is checked before the body structure.
-        assert_eq!(
-            VaultMetaCiphertext::from_bytes(&v),
-            Err(Error::InvalidKeyGeneration)
-        );
-        assert_eq!(
-            TombstoneCiphertext::from_bytes(&v),
-            Err(Error::InvalidKeyGeneration)
-        );
-        assert_eq!(
-            TombstoneCiphertext::from_bytes(&v[..1]),
-            Err(Error::Malformed)
-        );
-        assert_eq!(
-            VaultMetaCiphertext::from_bytes(&v[..1]),
-            Err(Error::Malformed)
-        );
-    }
+    assert_eq!(c.open(vk, vault_id), Err(Error::Decryption));
+}
+
+fn check_six_byte_header_variants(bytes: &[u8]) {
+    let mut v = bytes.to_vec();
+    v[0] = 2;
+    assert_eq!(
+        VaultMetaCiphertext::from_bytes(&v),
+        Err(Error::UnsupportedVersion)
+    );
+    assert_eq!(
+        TombstoneCiphertext::from_bytes(&v),
+        Err(Error::UnsupportedVersion)
+    );
+    let mut v = bytes.to_vec();
+    v[1] = 2;
+    assert_eq!(
+        VaultMetaCiphertext::from_bytes(&v),
+        Err(Error::UnsupportedAlgorithm)
+    );
+    assert_eq!(
+        TombstoneCiphertext::from_bytes(&v),
+        Err(Error::UnsupportedAlgorithm)
+    );
+    let mut v = bytes.to_vec();
+    v[2..6].copy_from_slice(&[0; 4]);
+    // The generation is checked before the body structure.
+    assert_eq!(
+        VaultMetaCiphertext::from_bytes(&v),
+        Err(Error::InvalidKeyGeneration)
+    );
+    assert_eq!(
+        TombstoneCiphertext::from_bytes(&v),
+        Err(Error::InvalidKeyGeneration)
+    );
+    assert_eq!(
+        TombstoneCiphertext::from_bytes(&v[..1]),
+        Err(Error::Malformed)
+    );
+    assert_eq!(
+        VaultMetaCiphertext::from_bytes(&v[..1]),
+        Err(Error::Malformed)
+    );
+}
+
+fn check_vault_meta_size_limits(vk: &VaultKey, vault_id: &VaultId, mb: &[u8]) {
     let big = vec![0u8; mosaic_core::envelope::MAX_VAULT_META_PLAINTEXT_LEN + 1];
     assert_eq!(
-        VaultMetaCiphertext::seal(&vk, &vault_id, &big),
+        VaultMetaCiphertext::seal(vk, vault_id, &big),
         Err(Error::SizeLimit)
     );
     let mut huge = mb[..30].to_vec();
@@ -727,7 +723,10 @@ fn decoders_are_strict() {
         VaultMetaCiphertext::from_bytes(&huge),
         Err(Error::SizeLimit)
     );
-    let tomb = TombstoneCiphertext::seal(&vk, &vault_id, &item_id, b"").unwrap();
+}
+
+fn check_tombstone_decoder(vk: &VaultKey, vault_id: &VaultId, item_id: &ItemId) {
+    let tomb = TombstoneCiphertext::seal(vk, vault_id, item_id, b"").unwrap();
     let tb = tomb.as_bytes();
     assert_eq!(tb.len(), 46);
     assert_eq!(
@@ -736,7 +735,7 @@ fn decoders_are_strict() {
     );
     let big = vec![0u8; mosaic_core::envelope::MAX_TOMBSTONE_PLAINTEXT_LEN + 1];
     assert_eq!(
-        TombstoneCiphertext::seal(&vk, &vault_id, &item_id, &big),
+        TombstoneCiphertext::seal(vk, vault_id, item_id, &big),
         Err(Error::SizeLimit)
     );
     let mut huge = tb[..30].to_vec();
@@ -748,6 +747,29 @@ fn decoders_are_strict() {
         TombstoneCiphertext::from_bytes(&huge),
         Err(Error::SizeLimit)
     );
+}
+
+#[test]
+fn decoders_are_strict() {
+    let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+    let vault_id = VaultId::new_v7().unwrap();
+    let item_id = ItemId::new_v7().unwrap();
+    let ct = ItemCiphertext::seal(&vk, &vault_id, &item_id, 1, b"x").unwrap();
+    let b = ct.as_bytes();
+    check_item_header_and_lengths(b);
+    check_item_size_limits(&vk, &vault_id, &item_id, b);
+    check_wrapped_key_decoder();
+    // Vault metadata and tombstones.
+    let meta = VaultMetaCiphertext::seal(&vk, &vault_id, b"m").unwrap();
+    let mb = meta.as_bytes();
+    check_vault_meta_lengths(&vk, &vault_id, mb);
+    // Header checks for both 6-byte-header types.
+    let tomb = TombstoneCiphertext::seal(&vk, &vault_id, &item_id, b"t").unwrap();
+    for bytes in [mb, tomb.as_bytes()] {
+        check_six_byte_header_variants(bytes);
+    }
+    check_vault_meta_size_limits(&vk, &vault_id, mb);
+    check_tombstone_decoder(&vk, &vault_id, &item_id);
 }
 
 /// Two seals of the same input under the same key and context must use

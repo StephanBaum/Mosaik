@@ -471,7 +471,7 @@ ENTRY = {"at":ms,"c":counter,"d":DEVICE_ID,"v":VALUE, EXTRA...}
   `otp.counter` and `passkey.sign_count`, and `conflict_copy_of` (the item
   ID of the record a conflict copy was split off from, §10, ADR-0016).
   Vault metadata keys: `name`, `icon`, `description`. The table in
-  `crates/core/src/model/item.rs` is the reference.
+  `crates/core/src/model/item/` is the reference.
 - A register (`[ENTRY,...]`) holds the values of one key that no replica
   has superseded yet: normally one, after concurrent edits several.
 - Unknown keys, unknown members of an entry or a structured value, and

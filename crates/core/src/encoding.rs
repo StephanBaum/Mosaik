@@ -397,6 +397,26 @@ mod tests {
         Ok(marker)
     }
 
+    /// A zero buffer of `len` bytes with `marker` at `pos`, `before` just
+    /// ahead of it and `after` in the last byte.
+    fn marked_padding(
+        len: usize,
+        pos: usize,
+        marker: u8,
+        before: u8,
+        after: Option<u8>,
+    ) -> Vec<u8> {
+        let mut p = vec![0u8; len];
+        p[pos] = marker;
+        if pos > 0 {
+            p[pos - 1] = before;
+        }
+        if let (Some(a), true) = (after, pos + 1 < len) {
+            p[len - 1] = a;
+        }
+        p
+    }
+
     /// Every marker position in the first two block sizes, with a zero or
     /// non-zero byte before it and a stray byte after it.
     #[test]
@@ -410,14 +430,7 @@ mod tests {
                     (0x01, 0x80, None),
                     (0x80, 0x00, Some(0x01)),
                 ] {
-                    let mut p = vec![0u8; len];
-                    p[pos] = marker;
-                    if pos > 0 {
-                        p[pos - 1] = before;
-                    }
-                    if let (Some(a), true) = (after, pos + 1 < len) {
-                        p[len - 1] = a;
-                    }
+                    let p = marked_padding(len, pos, marker, before, after);
                     assert_eq!(
                         unpadded_len(&p),
                         reference_unpadded_len(&p),

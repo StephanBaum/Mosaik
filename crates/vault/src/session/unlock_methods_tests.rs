@@ -1,8 +1,6 @@
 //! Tests of quick unlock, hardware-key wrappings and re-authentication
 //! (CRYPTO_SPEC §6.2, §6.3, ADR-0028).
 
-#![allow(clippy::unwrap_used, clippy::indexing_slicing, reason = "tests")]
-
 use core::time::Duration;
 use std::path::Path;
 

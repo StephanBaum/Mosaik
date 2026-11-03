@@ -994,13 +994,18 @@ Left for M3:
    virtual scrolling for item lists past 200 rows.
 7. One coverage run for the new crates and the frontend (≥ 90 % lines on library
    crates).
-8. Agreed follow-ups after the integration commit: a slimmer dev profile (no
-   debug info for dependencies) plus one `cargo clean`; one integration-test
-   binary per crate; the code-audit simplifications (KDBX `read_xml`, 1PUX
-   `section_field`, one shared host normalizer, insights per-item caching, and
-   extractions in core, vault, totp and generator); and the Rust lints
-   `allow_attributes_without_reason`, `allow_attributes`, `excessive_nesting`,
-   `cognitive_complexity`.
+8. ~~Agreed follow-ups after the integration commit~~: done on `refactor/m3-audit`.
+   The slimmer dev profile (`571d890`) and one integration-test binary per crate
+   were done earlier. The code-audit items P1 to P16 (P2 earlier): `fe487c6`
+   (import: KDBX `XmlState`, 1PUX `section_field`), `fe1ce06` (generator and
+   insights: shared `host` module, per-item caching, strength speedups),
+   `b375006` (core: `repair_after_merge`, `model/item/` split), `af131a7`
+   (vault), `9530534` (totp, generator), `39d54c3` (desktop `host_of`). P10
+   (i18n `icuArguments`) is not part of this series. Lints: the chore(lint)
+   commit after these (`allow_attributes_without_reason` deny,
+   `allow_attributes` warn, `cognitive_complexity`, `excessive_nesting`;
+   thresholds 90 lines, complexity 25, nesting 5 in `clippy.toml`; every
+   `#[allow]` is now a `#[expect]` with a reason, except in the fuzz crates).
 
 - D20 (sync offline / server error) is deferred to M6 with the sync server: M3 has no network sync, so neither state can occur. The `sync.offline` string stays in the catalog, unused, until then.
 

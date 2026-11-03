@@ -1,7 +1,7 @@
 //! The decrypted KDBX 4 payload: inner header, protected-value stream and
 //! the XML document.
 
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::{BytesRef, BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use salsa20::Salsa20;
 use sha2::{Digest, Sha256, Sha512};
@@ -200,229 +200,286 @@ struct Document {
     recycle_bin_enabled: bool,
 }
 
-/// Reads the XML, decrypting protected values in document order.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one streaming state machine over the KeePass XML"
-)]
-fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
-    let mut reader = Reader::from_str(xml);
-    let mut doc = Document {
-        recycle_bin_enabled: true,
-        ..Document::default()
-    };
-    let mut path: Vec<Tag> = Vec::new();
-    let mut group_stack: Vec<usize> = Vec::new();
-    let mut entry: Option<RawEntry> = None;
-    let mut history_entry: Option<Option<Str>> = None;
-    let mut pair: Option<Pair> = None;
-    // Text of the innermost element, while it is a leaf we read. Collected as
-    // bytes in a `Buf` that grows by wipe-and-move (`buf::append`), so no
-    // reallocation leaves an unwiped copy of a secret behind; it is checked
-    // as UTF-8 once, at the end tag.
-    let mut text: Option<Buf> = None;
-    let mut value_protected = false;
-    loop {
-        let ev = reader.read_event().map_err(|_| Error::Malformed)?;
-        let (start, empty) = match &ev {
-            Event::Start(e) => (Some(e), false),
-            Event::Empty(e) => (Some(e), true),
-            _ => (None, false),
-        };
-        if let Some(e) = start {
-            let tag = Tag::of(e);
-            let parent = path.last().copied();
-            if path.len() >= MAX_XML_DEPTH {
-                return Err(Error::LimitExceeded);
-            }
-            path.push(tag);
-            match tag {
-                Tag::Group if matches!(parent, Some(Tag::Root | Tag::Group)) => {
-                    if doc.groups.len() >= MAX_GROUPS {
-                        return Err(Error::LimitExceeded);
-                    }
-                    doc.groups.push(Group {
-                        name: Str::default(),
-                        uuid: Str::default(),
-                        parent: group_stack.last().copied(),
-                    });
-                    group_stack.push(doc.groups.len().saturating_sub(1));
-                }
-                Tag::Entry if parent == Some(Tag::Group) && entry.is_none() => {
-                    entry = Some(RawEntry {
-                        group: group_stack.last().copied(),
-                        ..RawEntry::default()
-                    });
-                }
-                Tag::Entry if parent == Some(Tag::History) && entry.is_some() => {
-                    history_entry = Some(None);
-                }
-                Tag::String | Tag::Binary if parent == Some(Tag::Entry) => {
-                    pair = Some(Pair::default());
-                }
-                Tag::Value => {
-                    // Every protected value consumes the stream, wherever it
-                    // is, so later values stay aligned.
-                    value_protected =
-                        attr(e, "Protected").is_some_and(|v| v.eq_ignore_ascii_case("true"));
-                    if let Some(p) = pair.as_mut() {
-                        p.protected = value_protected;
-                        if let Some(r) = attr(e, "Ref") {
-                            p.reference = r.trim().parse().ok();
-                        }
-                    }
-                    text = Some(Buf::default());
-                }
-                Tag::Key
-                | Tag::Name
-                | Tag::Uuid
-                | Tag::Tags
-                | Tag::RecycleBinUuid
-                | Tag::RecycleBinEnabled => text = Some(Buf::default()),
-                _ => {}
-            }
-            if !empty {
-                continue;
-            }
+/// A `History` entry being read; only its password is kept.
+#[derive(Default)]
+struct HistoryEntry {
+    password: Option<Str>,
+}
+
+/// The state of the streaming XML reader. Events are fed in document order,
+/// so protected values are decrypted in document order too.
+struct XmlState {
+    doc: Document,
+    path: Vec<Tag>,
+    group_stack: Vec<usize>,
+    entry: Option<RawEntry>,
+    history_entry: Option<HistoryEntry>,
+    pair: Option<Pair>,
+    /// Text of the innermost element, while it is a leaf we read. Collected as
+    /// bytes in a `Buf` that grows by wipe-and-move (`buf::append`), so no
+    /// reallocation leaves an unwiped copy of a secret behind; it is checked
+    /// as UTF-8 once, at the end tag.
+    text: Option<Buf>,
+    value_protected: bool,
+    /// Longest text a leaf may hold (the XML size).
+    limit: usize,
+}
+
+impl XmlState {
+    fn new(limit: usize) -> Self {
+        Self {
+            doc: Document {
+                recycle_bin_enabled: true,
+                ..Document::default()
+            },
+            path: Vec::new(),
+            group_stack: Vec::new(),
+            entry: None,
+            history_entry: None,
+            pair: None,
+            text: None,
+            value_protected: false,
+            limit,
         }
-        let end = match &ev {
-            Event::End(_) | Event::Empty(_) => true,
+    }
+
+    /// A start tag (or the start half of an empty element).
+    fn start(&mut self, e: &BytesStart<'_>) -> Result<()> {
+        let tag = Tag::of(e);
+        let parent = self.path.last().copied();
+        if self.path.len() >= MAX_XML_DEPTH {
+            return Err(Error::LimitExceeded);
+        }
+        self.path.push(tag);
+        match tag {
+            Tag::Group if matches!(parent, Some(Tag::Root | Tag::Group)) => {
+                if self.doc.groups.len() >= MAX_GROUPS {
+                    return Err(Error::LimitExceeded);
+                }
+                self.doc.groups.push(Group {
+                    name: Str::default(),
+                    uuid: Str::default(),
+                    parent: self.group_stack.last().copied(),
+                });
+                self.group_stack
+                    .push(self.doc.groups.len().saturating_sub(1));
+            }
+            Tag::Entry if parent == Some(Tag::Group) && self.entry.is_none() => {
+                self.entry = Some(RawEntry {
+                    group: self.group_stack.last().copied(),
+                    ..RawEntry::default()
+                });
+            }
+            Tag::Entry if parent == Some(Tag::History) && self.entry.is_some() => {
+                self.history_entry = Some(HistoryEntry::default());
+            }
+            Tag::String | Tag::Binary if parent == Some(Tag::Entry) => {
+                self.pair = Some(Pair::default());
+            }
+            Tag::Value => {
+                // Every protected value consumes the stream, wherever it
+                // is, so later values stay aligned.
+                self.value_protected =
+                    attr(e, "Protected").is_some_and(|v| v.eq_ignore_ascii_case("true"));
+                if let Some(p) = self.pair.as_mut() {
+                    p.protected = self.value_protected;
+                    if let Some(r) = attr(e, "Ref") {
+                        p.reference = r.trim().parse().ok();
+                    }
+                }
+                self.text = Some(Buf::default());
+            }
+            Tag::Key
+            | Tag::Name
+            | Tag::Uuid
+            | Tag::Tags
+            | Tag::RecycleBinUuid
+            | Tag::RecycleBinEnabled => self.text = Some(Buf::default()),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Text, CDATA and entity events; appended while a leaf is being read.
+    fn push_text(&mut self, ev: &Event<'_>) -> Result<()> {
+        let Some(b) = self.text.as_mut() else {
+            return Ok(());
+        };
+        match ev {
             Event::Text(t) => {
-                if let Some(b) = text.as_mut() {
-                    // The normalised value is allocated once at its final
-                    // size, so wiping the owned value leaves nothing behind.
-                    let c = t.xml10_content();
-                    let appended = buf::append(b, c.as_bytes(), xml.len());
-                    if let Cow::Owned(mut owned) = c {
-                        owned.zeroize();
-                    }
-                    appended?;
+                // The normalised value is allocated once at its final
+                // size, so wiping the owned value leaves nothing behind.
+                let c = t.xml10_content();
+                let appended = buf::append(b, c.as_bytes(), self.limit);
+                if let Cow::Owned(mut owned) = c {
+                    owned.zeroize();
                 }
-                false
+                appended
             }
-            Event::CData(t) => {
-                if let Some(b) = text.as_mut() {
-                    buf::append(b, t.as_bytes(), xml.len())?;
-                }
-                false
-            }
+            Event::CData(t) => buf::append(b, t.as_bytes(), self.limit),
             Event::GeneralRef(r) => {
-                if let Some(b) = text.as_mut() {
-                    let c = match r.resolve_char_ref() {
-                        Ok(Some(c)) => c,
-                        Ok(None) => match &**r {
-                            "amp" => '&',
-                            "lt" => '<',
-                            "gt" => '>',
-                            "quot" => '"',
-                            "apos" => '\'',
-                            _ => return Err(Error::Malformed),
-                        },
-                        Err(_) => return Err(Error::Malformed),
-                    };
-                    let mut tmp = [0u8; 4];
-                    let appended = buf::append(b, c.encode_utf8(&mut tmp).as_bytes(), xml.len());
-                    tmp.zeroize();
-                    appended?;
-                }
-                false
+                let c = entity_char(r)?;
+                let mut tmp = [0u8; 4];
+                let appended = buf::append(b, c.encode_utf8(&mut tmp).as_bytes(), self.limit);
+                tmp.zeroize();
+                appended
             }
-            Event::Eof => break,
-            _ => false,
-        };
-        if !end {
-            continue;
+            _ => Ok(()),
         }
-        let tag = path.pop().ok_or(Error::Malformed)?;
-        let parent = path.last().copied();
-        let value: Option<Str> = text.take().map(buf::into_string).transpose()?;
+    }
+
+    /// An end tag (or the end half of an empty element).
+    fn end(&mut self, stream: &mut Stream) -> Result<()> {
+        let tag = self.path.pop().ok_or(Error::Malformed)?;
+        let parent = self.path.last().copied();
+        let value: Option<Str> = self.text.take().map(buf::into_string).transpose()?;
         match (tag, parent) {
-            (Tag::Value, _) => {
-                let mut v = value.unwrap_or_default();
-                if core::mem::take(&mut value_protected) {
-                    let mut bytes = buf::base64_decode(&v)?;
-                    stream.apply(&mut bytes)?;
-                    v = buf::into_string(bytes)?;
-                }
-                if let Some(p) = pair.as_mut() {
-                    p.value = Some(v);
-                }
-            }
+            (Tag::Value, _) => self.end_value(value, stream)?,
             (Tag::Key, Some(Tag::String | Tag::Binary)) => {
-                if let Some(p) = pair.as_mut() {
+                if let Some(p) = self.pair.as_mut() {
                     p.key = value;
                 }
             }
-            (Tag::String, Some(Tag::Entry)) => {
-                let Some(p) = pair.take() else { continue };
-                let key = p.key.unwrap_or_default();
-                let value = p.value.unwrap_or_default();
-                match (history_entry.as_mut(), entry.as_mut()) {
-                    (Some(h), _) => {
-                        if key.as_str() == "Password" {
-                            *h = Some(value);
-                        }
-                    }
-                    (None, Some(e)) => e.fields.push(Field {
-                        key,
-                        value,
-                        protected: p.protected,
-                    }),
-                    (None, None) => {}
-                }
-            }
-            (Tag::Binary, Some(Tag::Entry)) => {
-                let Some(p) = pair.take() else { continue };
-                if history_entry.is_none()
-                    && let Some(e) = entry.as_mut()
-                {
-                    e.binaries.push((p.key.unwrap_or_default(), p.reference));
-                }
-            }
+            (Tag::String, Some(Tag::Entry)) => self.end_string(),
+            (Tag::Binary, Some(Tag::Entry)) => self.end_binary(),
             (Tag::Tags, Some(Tag::Entry)) => {
-                if history_entry.is_none()
-                    && let Some(e) = entry.as_mut()
+                if self.history_entry.is_none()
+                    && let Some(e) = self.entry.as_mut()
                 {
                     e.tags = value.unwrap_or_default();
                 }
             }
             (Tag::Entry, Some(Tag::History)) => {
-                if let (Some(Some(pw)), Some(e)) = (history_entry.take(), entry.as_mut())
+                if let (Some(HistoryEntry { password: Some(pw) }), Some(e)) =
+                    (self.history_entry.take(), self.entry.as_mut())
                     && e.history.len() < MAX_HISTORY_READ
                 {
                     e.history.push(pw);
                 }
             }
             (Tag::Entry, Some(Tag::Group)) => {
-                if let Some(e) = entry.take() {
-                    doc.entries.push(e);
+                if let Some(e) = self.entry.take() {
+                    self.doc.entries.push(e);
                 }
             }
             (Tag::Name, Some(Tag::Group)) => {
-                if let Some(g) = group_stack.last().and_then(|&i| doc.groups.get_mut(i)) {
+                if let Some(g) = self.current_group() {
                     g.name = value.unwrap_or_default();
                 }
             }
             (Tag::Uuid, Some(Tag::Group)) => {
-                if let Some(g) = group_stack.last().and_then(|&i| doc.groups.get_mut(i)) {
+                if let Some(g) = self.current_group() {
                     g.uuid = value.unwrap_or_default();
                 }
             }
             (Tag::Group, Some(Tag::Root | Tag::Group)) => {
-                group_stack.pop();
+                self.group_stack.pop();
             }
-            (Tag::RecycleBinUuid, Some(Tag::Meta)) => doc.recycle_bin = value,
+            (Tag::RecycleBinUuid, Some(Tag::Meta)) => self.doc.recycle_bin = value,
             (Tag::RecycleBinEnabled, Some(Tag::Meta)) => {
-                doc.recycle_bin_enabled =
+                self.doc.recycle_bin_enabled =
                     value.is_none_or(|v| !v.trim().eq_ignore_ascii_case("false"));
             }
             _ => {}
         }
+        Ok(())
     }
-    if !path.is_empty() {
-        return Err(Error::Malformed);
+
+    /// The innermost open group.
+    fn current_group(&mut self) -> Option<&mut Group> {
+        let i = *self.group_stack.last()?;
+        self.doc.groups.get_mut(i)
     }
-    Ok(doc)
+
+    /// A `Value` element: decrypts it when protected, and hands it to the
+    /// open key/value pair.
+    fn end_value(&mut self, value: Option<Str>, stream: &mut Stream) -> Result<()> {
+        let mut v = value.unwrap_or_default();
+        if core::mem::take(&mut self.value_protected) {
+            let mut bytes = buf::base64_decode(&v)?;
+            stream.apply(&mut bytes)?;
+            v = buf::into_string(bytes)?;
+        }
+        if let Some(p) = self.pair.as_mut() {
+            p.value = Some(v);
+        }
+        Ok(())
+    }
+
+    /// A `String` element of an entry: a field, or the password of a history
+    /// entry.
+    fn end_string(&mut self) {
+        let Some(p) = self.pair.take() else { return };
+        let key = p.key.unwrap_or_default();
+        let value = p.value.unwrap_or_default();
+        match (self.history_entry.as_mut(), self.entry.as_mut()) {
+            (Some(h), _) => {
+                if key.as_str() == "Password" {
+                    h.password = Some(value);
+                }
+            }
+            (None, Some(e)) => e.fields.push(Field {
+                key,
+                value,
+                protected: p.protected,
+            }),
+            (None, None) => {}
+        }
+    }
+
+    /// A `Binary` element of an entry (history entries' attachments are
+    /// dropped).
+    fn end_binary(&mut self) {
+        let Some(p) = self.pair.take() else { return };
+        if self.history_entry.is_none()
+            && let Some(e) = self.entry.as_mut()
+        {
+            e.binaries.push((p.key.unwrap_or_default(), p.reference));
+        }
+    }
+
+    fn finish(self) -> Result<Document> {
+        if self.path.is_empty() {
+            Ok(self.doc)
+        } else {
+            Err(Error::Malformed)
+        }
+    }
+}
+
+/// The character of an entity or character reference.
+fn entity_char(r: &BytesRef<'_>) -> Result<char> {
+    match r.resolve_char_ref() {
+        Ok(Some(c)) => Ok(c),
+        Ok(None) => match &**r {
+            "amp" => Ok('&'),
+            "lt" => Ok('<'),
+            "gt" => Ok('>'),
+            "quot" => Ok('"'),
+            "apos" => Ok('\''),
+            _ => Err(Error::Malformed),
+        },
+        Err(_) => Err(Error::Malformed),
+    }
+}
+
+/// Reads the XML, decrypting protected values in document order.
+fn read_xml(xml: &str, stream: &mut Stream) -> Result<Document> {
+    let mut reader = Reader::from_str(xml);
+    let mut st = XmlState::new(xml.len());
+    loop {
+        match reader.read_event().map_err(|_| Error::Malformed)? {
+            Event::Start(e) => st.start(&e)?,
+            Event::Empty(e) => {
+                st.start(&e)?;
+                st.end(stream)?;
+            }
+            Event::End(_) => st.end(stream)?,
+            Event::Eof => break,
+            other => st.push_text(&other)?,
+        }
+    }
+    st.finish()
 }
 
 /// The unescaped value of attribute `name`.

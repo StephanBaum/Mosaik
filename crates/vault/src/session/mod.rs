@@ -677,9 +677,7 @@ impl UnlockedSession {
             Ok((device, vaults)) => {
                 let mut index = search::SearchIndex::default();
                 for (vault_id, ov) in &vaults {
-                    for (item_id, item) in &ov.items {
-                        index.update(*vault_id, *item_id, item);
-                    }
+                    index.update_vault(*vault_id, ov);
                 }
                 Ok(Self {
                     store,

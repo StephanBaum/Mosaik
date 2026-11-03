@@ -18,10 +18,9 @@
 //! adds fresh entries of the receiving device; and without a concurrent
 //! delete the result is exactly the pure merge.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::indexing_slicing,
-    clippy::too_many_lines,
     clippy::panic,
     clippy::similar_names,
     reason = "test helpers outside #[test] functions"
@@ -30,8 +29,8 @@
 use std::collections::BTreeSet;
 
 use mosaic_core::model::{
-    AttachmentRef, Causality, Item, ItemType, LoginUrl, MAX_HISTORY, SecretField, Stamp, Text,
-    TextField, Timestamp,
+    AttachmentRef, Causality, Item, ItemType, LoginUrl, MAX_HISTORY, OversizedSplit, SecretField,
+    Stamp, Text, TextField, Timestamp,
 };
 use mosaic_core::{AttachmentId, AttachmentKey, DeviceId, ItemId, KeyGeneration, VaultKey};
 use proptest::prelude::*;
@@ -560,7 +559,7 @@ fn password(item: &Item) -> Option<String> {
 /// with different contents are a certain collision: every value either
 /// side held comes back, on a third device and on the writers themselves.
 #[test]
-#[allow(clippy::many_single_char_names, reason = "writers and devices")]
+#[expect(clippy::many_single_char_names, reason = "writers and devices")]
 fn reused_device_id_edits_of_different_fields_lose_nothing() {
     let at = Timestamp::from_unix_millis;
     let x = dev(0);
@@ -740,6 +739,105 @@ fn values_with_copies(record: &Item, copies: &[(ItemId, Item)], key: &str) -> Ve
     out
 }
 
+fn check_split_agrees_on_every_device(on_a: &OversizedSplit, others: [&OversizedSplit; 2]) {
+    for other in others {
+        assert_eq!(on_a.item, other.item);
+        assert_eq!(on_a.conflict_copies.len(), other.conflict_copies.len());
+        for (x, y) in on_a.conflict_copies.iter().zip(&other.conflict_copies) {
+            assert_eq!(x.0, y.0);
+            assert_eq!(x.1, y.1);
+        }
+    }
+}
+
+fn check_split_record(
+    on_a: &OversizedSplit,
+    inputs: (&Item, &Item),
+    merged: &Item,
+    new_attachments: (&AttachmentRef, &AttachmentRef),
+) {
+    let (a, b) = inputs;
+    let (on_a_att, on_b_att) = new_attachments;
+    // The record dominates both inputs, fits, and shows the winner.
+    assert_eq!(on_a.item.compare(a), Causality::Dominates);
+    assert_eq!(on_a.item.compare(b), Causality::Dominates);
+    assert!(fits(&on_a.item));
+    assert_eq!(
+        on_a.item.text(TextField::Notes),
+        merged.text(TextField::Notes)
+    );
+    assert_eq!(on_a.item.title(), Some("Large"));
+    assert!(on_a.item.conflicts().is_empty());
+    // The attachment references of both sides are merged: both new ones,
+    // and not the one A removed.
+    assert_eq!(
+        attachment_ids(&on_a.item),
+        BTreeSet::from([on_a_att.attachment_id, on_b_att.attachment_id])
+    );
+}
+
+fn check_split_conflict_copy(
+    on_a: &OversizedSplit,
+    vk: &VaultKey,
+    id: &ItemId,
+    merged: &Item,
+    notes: (&str, &str),
+) {
+    let at = Timestamp::from_unix_millis;
+    let (note_a, note_b) = notes;
+    // The other note is the one conflict copy, under its derived ID.
+    assert_eq!(on_a.conflict_copies.len(), 1);
+    let (copy_id, c) = &on_a.conflict_copies[0];
+    let lost = if on_a.item.text(TextField::Notes) == Some(note_a) {
+        note_b
+    } else {
+        note_a
+    };
+    let lost_stamp = stamp_of(merged, "notes", lost);
+    assert_eq!(
+        *copy_id,
+        Item::conflict_copy_id(vk, id, "notes", lost_stamp).unwrap()
+    );
+    assert_ne!(copy_id, id);
+    // The ID depends on the vault key, the record, the field and the value.
+    assert_ne!(
+        *copy_id,
+        Item::conflict_copy_id(&vault_key(), id, "notes", lost_stamp).unwrap()
+    );
+    let other_record = mosaic_core::ItemId::new_v7().unwrap();
+    assert_ne!(
+        *copy_id,
+        Item::conflict_copy_id(vk, &other_record, "notes", lost_stamp).unwrap()
+    );
+    assert_ne!(
+        *copy_id,
+        Item::conflict_copy_id(vk, id, "title", lost_stamp).unwrap()
+    );
+    assert_eq!(c.text(TextField::Notes), Some(lost));
+    // The copy is a function of the value alone: the value and the mark,
+    // both under the value's stamp, and a vector of exactly that stamp.
+    assert_eq!(c.item_type(), None, "shown with the original's type");
+    assert_eq!(c.keys().collect::<Vec<_>>(), ["conflict_copy_of", "notes"]);
+    assert_eq!(
+        c.version().iter().collect::<Vec<_>>(),
+        [(&lost_stamp.device(), lost_stamp.counter())]
+    );
+    assert_eq!(c.conflict_copy_of(), Some(*id));
+    assert!(!has_attachment_key(c), "the copy holds no attachment key");
+    assert!(fits(c));
+    assert!(c.conflicts().is_empty());
+    assert_eq!(
+        values_with_copies(&on_a.item, &on_a.conflict_copies, "notes"),
+        [note_a, note_b]
+    );
+    let mut dismissed = copy(c);
+    dismissed
+        .edit(dev(5), at(5))
+        .dismiss_conflict_copy()
+        .unwrap();
+    assert_eq!(dismissed.conflict_copy_of(), None);
+}
+
 /// Review M2, third round (sync, medium): two concurrent edits of a large
 /// note each fit the 1 MiB item limit, but their merge does not. The merge
 /// itself succeeds; sealing it fails with `SizeLimit`, and without a rule
@@ -789,81 +887,9 @@ fn an_oversized_merge_is_split_deterministically() {
     // A third device, merging the other way round, computes the same.
     let third = b.split_oversized(&a, &id, &vk, dev(3), &[]).unwrap();
     // Every device stores the same record and the same copies.
-    for other in [&on_b, &third] {
-        assert_eq!(on_a.item, other.item);
-        assert_eq!(on_a.conflict_copies.len(), other.conflict_copies.len());
-        for (x, y) in on_a.conflict_copies.iter().zip(&other.conflict_copies) {
-            assert_eq!(x.0, y.0);
-            assert_eq!(x.1, y.1);
-        }
-    }
-    // The record dominates both inputs, fits, and shows the winner.
-    assert_eq!(on_a.item.compare(&a), Causality::Dominates);
-    assert_eq!(on_a.item.compare(&b), Causality::Dominates);
-    assert!(fits(&on_a.item));
-    assert_eq!(
-        on_a.item.text(TextField::Notes),
-        merged.text(TextField::Notes)
-    );
-    assert_eq!(on_a.item.title(), Some("Large"));
-    assert!(on_a.item.conflicts().is_empty());
-    // The attachment references of both sides are merged: both new ones,
-    // and not the one A removed.
-    assert_eq!(
-        attachment_ids(&on_a.item),
-        BTreeSet::from([on_a_att.attachment_id, on_b_att.attachment_id])
-    );
-    // The other note is the one conflict copy, under its derived ID.
-    assert_eq!(on_a.conflict_copies.len(), 1);
-    let (copy_id, c) = &on_a.conflict_copies[0];
-    let lost = if on_a.item.text(TextField::Notes) == Some(note_a.as_str()) {
-        &note_b
-    } else {
-        &note_a
-    };
-    let lost_stamp = stamp_of(&merged, "notes", lost);
-    assert_eq!(
-        *copy_id,
-        Item::conflict_copy_id(&vk, &id, "notes", lost_stamp).unwrap()
-    );
-    assert_ne!(*copy_id, id);
-    // The ID depends on the vault key, the record, the field and the value.
-    assert_ne!(
-        *copy_id,
-        Item::conflict_copy_id(&vault_key(), &id, "notes", lost_stamp).unwrap()
-    );
-    let other_record = mosaic_core::ItemId::new_v7().unwrap();
-    assert_ne!(
-        *copy_id,
-        Item::conflict_copy_id(&vk, &other_record, "notes", lost_stamp).unwrap()
-    );
-    assert_ne!(
-        *copy_id,
-        Item::conflict_copy_id(&vk, &id, "title", lost_stamp).unwrap()
-    );
-    assert_eq!(c.text(TextField::Notes), Some(lost.as_str()));
-    // The copy is a function of the value alone: the value and the mark,
-    // both under the value's stamp, and a vector of exactly that stamp.
-    assert_eq!(c.item_type(), None, "shown with the original's type");
-    assert_eq!(c.keys().collect::<Vec<_>>(), ["conflict_copy_of", "notes"]);
-    assert_eq!(
-        c.version().iter().collect::<Vec<_>>(),
-        [(&lost_stamp.device(), lost_stamp.counter())]
-    );
-    assert_eq!(c.conflict_copy_of(), Some(id));
-    assert!(!has_attachment_key(c), "the copy holds no attachment key");
-    assert!(fits(c));
-    assert!(c.conflicts().is_empty());
-    assert_eq!(
-        values_with_copies(&on_a.item, &on_a.conflict_copies, "notes"),
-        [note_a, note_b]
-    );
-    let mut dismissed = copy(c);
-    dismissed
-        .edit(dev(5), at(5))
-        .dismiss_conflict_copy()
-        .unwrap();
-    assert_eq!(dismissed.conflict_copy_of(), None);
+    check_split_agrees_on_every_device(&on_a, [&on_b, &third]);
+    check_split_record(&on_a, (&a, &b), &merged, (&on_a_att, &on_b_att));
+    check_split_conflict_copy(&on_a, &vk, &id, &merged, (&note_a, &note_b));
 }
 
 /// Review M2, fourth round (sync, high): the split lost a committed edit

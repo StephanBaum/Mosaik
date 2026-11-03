@@ -482,11 +482,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn triggers_block_rollbacks_even_through_raw_sql() {
-        let mut c = conn();
-        migrate(&mut c, MIGRATIONS).unwrap();
-        let v = [9u8; 16];
+    fn check_generation_triggers(c: &Connection, v: [u8; 16]) {
         c.execute(
             "INSERT INTO vaults (vault_id, key_wrap, current_generation,
                                  highest_accepted_generation, updated_at)
@@ -529,7 +525,9 @@ mod tests {
             [v],
         )
         .unwrap();
+    }
 
+    fn check_floor_triggers(c: &Connection, v: [u8; 16]) {
         // The floor: recorded, then the vault can go, and it can only come
         // back at the floor or above. Floors never drop or disappear.
         c.execute(
@@ -567,6 +565,9 @@ mod tests {
             .execute("UPDATE tk_wrappings SET method_id = zeroblob(16)", [])
             .unwrap_err();
         assert!(e.to_string().contains("mosaic:"), "{e}");
+    }
+
+    fn check_account_and_cursor_triggers(c: &Connection, v: [u8; 16]) {
         c.execute(
             "INSERT INTO account (id, account_id, salt, profile, updated_at)
              VALUES (1, ?1, zeroblob(16), 2, 0)",
@@ -589,5 +590,15 @@ mod tests {
             .execute("UPDATE sync_cursors SET server_seq = 9", [])
             .unwrap_err();
         assert!(e.to_string().contains("mosaic:"), "{e}");
+    }
+
+    #[test]
+    fn triggers_block_rollbacks_even_through_raw_sql() {
+        let mut c = conn();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        let v = [9u8; 16];
+        check_generation_triggers(&c, v);
+        check_floor_triggers(&c, v);
+        check_account_and_cursor_triggers(&c, v);
     }
 }

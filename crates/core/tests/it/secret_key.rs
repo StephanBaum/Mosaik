@@ -1,6 +1,6 @@
 //! Secret Key display format properties (CRYPTO_SPEC §5.2).
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::indexing_slicing,
     reason = "test helpers outside #[test] functions"

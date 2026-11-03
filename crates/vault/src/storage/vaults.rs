@@ -267,7 +267,7 @@ impl Store {
     /// # Errors
     /// As [`Store::create_vault_with`] and [`Store::put_tk_wrapping`]
     /// ([`Error::UnlockParamsTooLarge`]).
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "one transaction needs the vault, its key, its first TK wrapping and its metadata"
     )]
@@ -847,30 +847,11 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn vault_lifecycle_and_generations() {
-        let mut s = Store::open_in_memory().unwrap();
-        let f = fixture();
-        let (vk1, w1) = f.key(1);
-        assert_eq!(s.vault(&f.vault).unwrap(), None);
-        assert!(matches!(
-            s.accept_vault_key(&f.vault, g(1), &w1),
-            Err(Error::UnknownVault)
-        ));
-        let st = s.create_vault(&f.vault, g(1), &w1).unwrap();
-        assert_eq!(st.current_generation, g(1));
-        assert!(matches!(
-            s.create_vault(&f.vault, g(1), &w1),
-            Err(Error::VaultExists)
-        ));
-        let back = s
-            .vault_key(&f.vault, g(1))
-            .unwrap()
-            .unwrap()
-            .unwrap_vault_key(&f.ak, &f.account, &f.vault, g(1))
-            .unwrap();
-        assert_eq!(back, vk1);
-
+    fn check_accept_and_rewrap_vault_keys(
+        s: &mut Store,
+        f: &Fixture,
+        w1: &WrappedKey,
+    ) -> (VaultState, WrappedKey) {
         let (_, w3) = f.key(3);
         let st = s.accept_vault_key(&f.vault, g(3), &w3).unwrap();
         assert_eq!(st.highest_accepted_generation, g(3));
@@ -905,10 +886,19 @@ pub(crate) mod tests {
         assert_eq!(s.vault_key(&f.vault, g(3)).unwrap(), Some(w3b.clone()));
         assert_eq!(s.vault_key(&f.vault, g(2)).unwrap(), None);
         let keys: Vec<_> = s.vault_keys(&f.vault).unwrap();
-        assert_eq!(keys, vec![(g(1), w1), (g(3), w3b.clone())]);
+        assert_eq!(keys, vec![(g(1), w1.clone()), (g(3), w3b.clone())]);
         assert_eq!(s.vaults().unwrap(), vec![st]);
         assert_eq!(s.integrity_check().unwrap().len(), 0);
+        (st, w2)
+    }
 
+    fn check_rewrap_below_the_mark(
+        s: &mut Store,
+        f: &Fixture,
+        vk1: &VaultKey,
+        w2: &WrappedKey,
+        st: VaultState,
+    ) {
         // A held key below the mark can be re-wrapped in place (for a §6.6
         // re-key), but no key is ever added below it.
         let w1b = vk1.wrap(&f.ak, &f.account, &f.vault).unwrap();
@@ -919,11 +909,11 @@ pub(crate) mod tests {
                 .unwrap()
                 .unwrap_vault_key(&f.ak, &f.account, &f.vault, g(1))
                 .unwrap(),
-            vk1
+            *vk1
         );
         assert_eq!(s.vault_key(&f.vault, g(1)).unwrap(), Some(w1b.clone()));
         assert!(matches!(
-            s.rewrap_vault_key(&f.vault, g(2), &w2),
+            s.rewrap_vault_key(&f.vault, g(2), w2),
             Err(Error::UnknownVaultKey)
         ));
         assert_eq!(s.vault_key(&f.vault, g(2)).unwrap(), None);
@@ -932,7 +922,9 @@ pub(crate) mod tests {
             Err(Error::UnknownVault)
         ));
         assert_eq!(s.vault(&f.vault).unwrap(), Some(st));
+    }
 
+    fn check_prune_and_delete_vault(s: &mut Store, f: &Fixture) {
         // Pruning: never the current key; old keys go once unused.
         assert!(matches!(
             s.prune_vault_keys(&f.vault, g(4)),
@@ -949,6 +941,35 @@ pub(crate) mod tests {
         assert!(s.delete_vault(&f.vault, PendingPolicy::Refuse).unwrap());
         assert!(!s.delete_vault(&f.vault, PendingPolicy::Refuse).unwrap());
         assert_eq!(s.vault_keys(&f.vault).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn vault_lifecycle_and_generations() {
+        let mut s = Store::open_in_memory().unwrap();
+        let f = fixture();
+        let (vk1, w1) = f.key(1);
+        assert_eq!(s.vault(&f.vault).unwrap(), None);
+        assert!(matches!(
+            s.accept_vault_key(&f.vault, g(1), &w1),
+            Err(Error::UnknownVault)
+        ));
+        let st = s.create_vault(&f.vault, g(1), &w1).unwrap();
+        assert_eq!(st.current_generation, g(1));
+        assert!(matches!(
+            s.create_vault(&f.vault, g(1), &w1),
+            Err(Error::VaultExists)
+        ));
+        let back = s
+            .vault_key(&f.vault, g(1))
+            .unwrap()
+            .unwrap()
+            .unwrap_vault_key(&f.ak, &f.account, &f.vault, g(1))
+            .unwrap();
+        assert_eq!(back, vk1);
+
+        let (st, w2) = check_accept_and_rewrap_vault_keys(&mut s, &f, &w1);
+        check_rewrap_below_the_mark(&mut s, &f, &vk1, &w2, st);
+        check_prune_and_delete_vault(&mut s, &f);
     }
 
     /// §7.1: deleting a vault keeps its anti-rollback mark, so a server
@@ -994,6 +1015,108 @@ pub(crate) mod tests {
 
     /// §7.4: a hardware-protected TOTP vault's TK wrappings live apart
     /// from the AK wrappings, so the same hardware key can hold both.
+    fn check_tk_wrapping_rules(
+        s: &mut Store,
+        f: &Fixture,
+        hw_id: &[u8; 16],
+    ) -> (VaultId, WrappedKey, WrappedKey) {
+        // A normal vault takes no TK wrapping.
+        let (_, w1) = f.key(1);
+        s.create_vault(&f.vault, g(1), &w1).unwrap();
+        assert_eq!(
+            s.vault(&f.vault).unwrap().unwrap().key_wrap,
+            VaultKeyWrap::AccountKey
+        );
+        // The bytes are opaque to the store; any wrapped key will do.
+        let (_, tk_wrapping) = f.key(1);
+        assert!(matches!(
+            s.put_tk_wrapping(&f.vault, hw_id, &tk_wrapping, &[0xB2; 32]),
+            Err(Error::KeyWrapMismatch)
+        ));
+        assert!(matches!(
+            s.put_tk_wrapping(&VaultId::new_v7().unwrap(), hw_id, &tk_wrapping, &[]),
+            Err(Error::UnknownVault)
+        ));
+
+        let totp = VaultId::new_v7().unwrap();
+        let (_, vk_under_tk) = f.key(1);
+        let st = s
+            .create_vault_with(&totp, g(1), VaultKeyWrap::TotpKey, &vk_under_tk)
+            .unwrap();
+        assert_eq!(st.key_wrap, VaultKeyWrap::TotpKey);
+        assert_eq!(s.vault(&totp).unwrap(), Some(st));
+        assert!(s.vaults().unwrap().contains(&st));
+        s.put_tk_wrapping(&totp, hw_id, &tk_wrapping, &[0xB2; 32])
+            .unwrap();
+        assert!(matches!(
+            s.put_tk_wrapping(&totp, hw_id, &tk_wrapping, &[0; MAX_UNLOCK_PARAMS_LEN + 1]),
+            Err(Error::UnlockParamsTooLarge)
+        ));
+        (totp, tk_wrapping, w1)
+    }
+
+    fn check_tk_wrappings_live_apart(
+        s: &mut Store,
+        f: &Fixture,
+        hw: &mosaic_core::UnlockMethod,
+        hw_id: &[u8; 16],
+        ak_wrapping: &WrappedKey,
+        totp: &VaultId,
+        tk_wrapping: &WrappedKey,
+    ) {
+        // The same hardware key's AK wrapping is untouched.
+        let stored = s.unlock_method(hw).unwrap().unwrap();
+        assert_eq!(stored.wrapped_account_key, *ak_wrapping);
+        assert_eq!(stored.params, [0xA1; 32]);
+        let tk = s.tk_wrapping(totp, hw_id).unwrap().unwrap();
+        assert_eq!(tk.method_id, *hw_id);
+        assert_eq!(tk.wrapped_tk, *tk_wrapping);
+        assert_eq!(tk.params, [0xB2; 32]);
+        assert_eq!(s.tk_wrapping(&f.vault, hw_id).unwrap(), None);
+    }
+
+    fn check_last_wrapping_and_corrupt_rows(
+        s: &mut Store,
+        hw: &mosaic_core::UnlockMethod,
+        hw_id: [u8; 16],
+        totp: &VaultId,
+        w1: &WrappedKey,
+    ) {
+        let stored = s.unlock_method(hw).unwrap().unwrap();
+        // The last wrapping cannot be removed; with a second key it can.
+        assert!(matches!(
+            s.remove_tk_wrapping(totp, &hw_id),
+            Err(Error::LastTkWrapping)
+        ));
+        let second = [0x22; 16];
+        s.put_tk_wrapping(totp, &second, w1, &[]).unwrap();
+        let all = s.tk_wrappings(totp).unwrap();
+        let mut expected = vec![second, hw_id];
+        expected.sort_unstable();
+        assert_eq!(
+            all.iter().map(|t| t.method_id).collect::<Vec<_>>(),
+            expected
+        );
+        assert!(s.remove_tk_wrapping(totp, &hw_id).unwrap());
+        assert!(!s.remove_tk_wrapping(totp, &hw_id).unwrap());
+        assert_eq!(s.tk_wrappings(totp).unwrap().len(), 1);
+        assert_eq!(s.unlock_method(hw).unwrap().unwrap(), stored);
+
+        // Corrupt rows are reported.
+        s.conn
+            .execute("UPDATE tk_wrappings SET wrapped_tk = zeroblob(74)", [])
+            .unwrap();
+        assert!(matches!(s.tk_wrappings(totp), Err(Error::Corrupt)));
+        assert!(s.delete_vault(totp, PendingPolicy::Refuse).unwrap());
+        assert_eq!(s.tk_wrappings(totp).unwrap().len(), 0);
+        assert!(matches!(
+            decode_vault((vec![1; 16], 3, 1, 1)),
+            Err(Error::Corrupt)
+        ));
+        assert_eq!(VaultKeyWrap::from_code(0), None);
+        assert_eq!(VaultKeyWrap::TotpKey.code(), 2);
+    }
+
     #[test]
     fn totp_vault_and_tk_wrappings() {
         use mosaic_core::{
@@ -1020,81 +1143,9 @@ pub(crate) mod tests {
         let ak_wrapping = f.ak.wrap(&kek, &f.account, &hw).unwrap();
         s.put_unlock_method(&hw, &ak_wrapping, &[0xA1; 32]).unwrap();
 
-        // A normal vault takes no TK wrapping.
-        let (_, w1) = f.key(1);
-        s.create_vault(&f.vault, g(1), &w1).unwrap();
-        assert_eq!(
-            s.vault(&f.vault).unwrap().unwrap().key_wrap,
-            VaultKeyWrap::AccountKey
-        );
-        // The bytes are opaque to the store; any wrapped key will do.
-        let (_, tk_wrapping) = f.key(1);
-        assert!(matches!(
-            s.put_tk_wrapping(&f.vault, &hw_id, &tk_wrapping, &[0xB2; 32]),
-            Err(Error::KeyWrapMismatch)
-        ));
-        assert!(matches!(
-            s.put_tk_wrapping(&VaultId::new_v7().unwrap(), &hw_id, &tk_wrapping, &[]),
-            Err(Error::UnknownVault)
-        ));
-
-        let totp = VaultId::new_v7().unwrap();
-        let (_, vk_under_tk) = f.key(1);
-        let st = s
-            .create_vault_with(&totp, g(1), VaultKeyWrap::TotpKey, &vk_under_tk)
-            .unwrap();
-        assert_eq!(st.key_wrap, VaultKeyWrap::TotpKey);
-        assert_eq!(s.vault(&totp).unwrap(), Some(st));
-        assert!(s.vaults().unwrap().contains(&st));
-        s.put_tk_wrapping(&totp, &hw_id, &tk_wrapping, &[0xB2; 32])
-            .unwrap();
-        assert!(matches!(
-            s.put_tk_wrapping(&totp, &hw_id, &tk_wrapping, &[0; MAX_UNLOCK_PARAMS_LEN + 1]),
-            Err(Error::UnlockParamsTooLarge)
-        ));
-
-        // The same hardware key's AK wrapping is untouched.
-        let stored = s.unlock_method(&hw).unwrap().unwrap();
-        assert_eq!(stored.wrapped_account_key, ak_wrapping);
-        assert_eq!(stored.params, [0xA1; 32]);
-        let tk = s.tk_wrapping(&totp, &hw_id).unwrap().unwrap();
-        assert_eq!(tk.method_id, hw_id);
-        assert_eq!(tk.wrapped_tk, tk_wrapping);
-        assert_eq!(tk.params, [0xB2; 32]);
-        assert_eq!(s.tk_wrapping(&f.vault, &hw_id).unwrap(), None);
-
-        // The last wrapping cannot be removed; with a second key it can.
-        assert!(matches!(
-            s.remove_tk_wrapping(&totp, &hw_id),
-            Err(Error::LastTkWrapping)
-        ));
-        let second = [0x22; 16];
-        s.put_tk_wrapping(&totp, &second, &w1, &[]).unwrap();
-        let all = s.tk_wrappings(&totp).unwrap();
-        let mut expected = vec![second, hw_id];
-        expected.sort_unstable();
-        assert_eq!(
-            all.iter().map(|t| t.method_id).collect::<Vec<_>>(),
-            expected
-        );
-        assert!(s.remove_tk_wrapping(&totp, &hw_id).unwrap());
-        assert!(!s.remove_tk_wrapping(&totp, &hw_id).unwrap());
-        assert_eq!(s.tk_wrappings(&totp).unwrap().len(), 1);
-        assert_eq!(s.unlock_method(&hw).unwrap().unwrap(), stored);
-
-        // Corrupt rows are reported.
-        s.conn
-            .execute("UPDATE tk_wrappings SET wrapped_tk = zeroblob(74)", [])
-            .unwrap();
-        assert!(matches!(s.tk_wrappings(&totp), Err(Error::Corrupt)));
-        assert!(s.delete_vault(&totp, PendingPolicy::Refuse).unwrap());
-        assert_eq!(s.tk_wrappings(&totp).unwrap().len(), 0);
-        assert!(matches!(
-            decode_vault((vec![1; 16], 3, 1, 1)),
-            Err(Error::Corrupt)
-        ));
-        assert_eq!(VaultKeyWrap::from_code(0), None);
-        assert_eq!(VaultKeyWrap::TotpKey.code(), 2);
+        let (totp, tk_wrapping, w1) = check_tk_wrapping_rules(&mut s, &f, &hw_id);
+        check_tk_wrappings_live_apart(&mut s, &f, &hw, &hw_id, &ak_wrapping, &totp, &tk_wrapping);
+        check_last_wrapping_and_corrupt_rows(&mut s, &hw, hw_id, &totp, &w1);
     }
 
     #[test]

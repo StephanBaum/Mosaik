@@ -105,6 +105,13 @@ struct Checked<'a> {
     item_type: Option<ItemType>,
     /// The login or Wi-Fi password, if non-empty. Zeroized on drop.
     secret: Option<SecretString>,
+    /// The parsed URLs of the item.
+    hosts: Vec<url::UrlParts>,
+    /// Whether the item holds a one-time code (its own or a custom field).
+    has_otp: bool,
+    /// The issuers of its one-time codes. The OTP secrets themselves are
+    /// dropped (zeroized) while the item is collected.
+    otp_issuers: Vec<String>,
 }
 
 impl Checked<'_> {
@@ -269,8 +276,9 @@ fn check_urls(found: &mut Found<'_, '_>) {
         if !c.is_login() {
             continue;
         }
-        let http_hosts: Vec<String> = hosts(c.item)
-            .into_iter()
+        let http_hosts: Vec<String> = c
+            .hosts
+            .iter()
             .filter(|p| p.is_http() && !url::is_loopback(p.host()))
             .map(|p| p.host().to_owned())
             .collect();
@@ -297,10 +305,11 @@ fn check_totp(found: &mut Found<'_, '_>) {
     let covered = totp_coverage(found.checked);
     let checked = found.checked;
     for (index, c) in checked.iter().enumerate() {
-        if !c.is_login() || !otp_configs(c.item).is_empty() {
+        if !c.is_login() || c.has_otp {
             continue;
         }
-        let uncovered: Vec<TotpSite> = hosts(c.item)
+        let uncovered: Vec<TotpSite> = c
+            .hosts
             .iter()
             .filter_map(|p| totp_site(p.host()))
             .filter(|s| !covered.totp.contains(s.domain()))
@@ -363,6 +372,14 @@ where
                 .filter(|s| !s.expose_secret().is_empty()),
             None => None,
         };
+        let configs = otp_configs(item);
+        let has_otp = !configs.is_empty();
+        let otp_issuers = configs
+            .iter()
+            .filter_map(|otp| otp.issuer.as_ref())
+            .map(|issuer| issuer.as_str().to_owned())
+            .collect();
+        drop(configs);
         out.push(Checked {
             key: ItemKey {
                 vault_id: c.vault_id,
@@ -371,6 +388,9 @@ where
             item,
             item_type,
             secret,
+            hosts: hosts(item),
+            has_otp,
+            otp_issuers,
         });
     }
     Ok(out)
@@ -436,22 +456,19 @@ fn totp_coverage(checked: &[Checked<'_>]) -> Coverage {
         {
             covered.passkey.insert(site.domain());
         }
-        let configs = otp_configs(c.item);
-        if configs.is_empty() {
+        if !c.has_otp {
             continue;
         }
         covered.totp.extend(
-            hosts(c.item)
+            c.hosts
                 .iter()
                 .filter_map(|p| totp_site(p.host()))
                 .map(|s| s.domain()),
         );
-        for issuer in configs.iter().filter_map(|otp| otp.issuer.as_ref()) {
-            covered.totp.extend(
-                totp_sites_for_issuer(issuer.as_str())
-                    .iter()
-                    .map(TotpSite::domain),
-            );
+        for issuer in &c.otp_issuers {
+            covered
+                .totp
+                .extend(totp_sites_for_issuer(issuer).iter().map(TotpSite::domain));
         }
     }
     covered

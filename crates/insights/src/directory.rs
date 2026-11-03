@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use mosaic_generator::host::{candidates, normalize};
 use serde_json::Value;
 
 const TOTP_JSON: &str = include_str!("../data/2fa-directory-totp.json");
@@ -53,9 +54,6 @@ pub const EXACT_ONLY: &[&str] = &[
     "weebly.com",
     "wordpress.com",
 ];
-
-/// Longest host name accepted, per RFC 1035.
-const MAX_HOST_LEN: usize = 253;
 
 /// One directory entry: a service that supports TOTP. A cheap handle into
 /// the embedded directory.
@@ -107,6 +105,9 @@ struct Directory {
     by_domain: HashMap<String, usize>,
     /// Lowercase service names → index into `sites`.
     by_name: HashMap<String, usize>,
+    /// First label of each entry's main domain (`github` for `github.com`)
+    /// → indexes into `sites`, in order.
+    by_label: HashMap<String, Vec<usize>>,
 }
 
 impl Directory {
@@ -133,6 +134,7 @@ fn parse(json: &str) -> Option<Directory> {
     let mut sites = Vec::with_capacity(entries.len());
     let mut by_domain = HashMap::new();
     let mut by_name = HashMap::new();
+    let mut by_label: HashMap<String, Vec<usize>> = HashMap::new();
     for entry in &entries {
         let Some((name, fields)) = entry.as_array().and_then(|e| match e.as_slice() {
             [Value::String(name), Value::Object(fields)] => Some((name, fields)),
@@ -167,6 +169,9 @@ fn parse(json: &str) -> Option<Directory> {
             by_domain.entry(d.clone()).or_insert(index);
         }
         by_name.entry(name.to_lowercase()).or_insert(index);
+        if let Some(label) = domain.split('.').next() {
+            by_label.entry(label.to_owned()).or_default().push(index);
+        }
         sites.push(Entry {
             name: name.clone(),
             domain,
@@ -182,29 +187,8 @@ fn parse(json: &str) -> Option<Directory> {
         sites,
         by_domain,
         by_name,
+        by_label,
     })
-}
-
-/// Lowercases and validates `host`; `None` if it is not a DNS name.
-fn normalize(host: &str) -> Option<String> {
-    let host = host.strip_suffix('.').unwrap_or(host);
-    if host.is_empty() || host.len() > MAX_HOST_LEN {
-        return None;
-    }
-    let host = host.to_ascii_lowercase();
-    let valid = host.split('.').all(|label| {
-        !label.is_empty()
-            && label
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    });
-    valid.then_some(host)
-}
-
-fn is_numeric(host: &str) -> bool {
-    host.rsplit('.')
-        .next()
-        .is_some_and(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The directory entry for `host` or its closest listed parent domain (see
@@ -213,24 +197,15 @@ fn is_numeric(host: &str) -> bool {
 pub fn totp_site(host: &str) -> Option<TotpSite> {
     let dir = directory()?;
     let host = normalize(host)?;
-    let mut candidate = host.as_str();
-    loop {
-        if let Some(&index) = dir.by_domain.get(candidate)
-            && (!EXACT_ONLY.contains(&candidate)
+    candidates(&host)
+        .find_map(|candidate| {
+            let index = *dir.by_domain.get(candidate)?;
+            (!EXACT_ONLY.contains(&candidate)
                 || candidate == host
                 || host.strip_prefix("www.") == Some(candidate))
-        {
-            return dir.site(index);
-        }
-        if is_numeric(&host) {
-            return None;
-        }
-        let (_, parent) = candidate.split_once('.')?;
-        if !parent.contains('.') {
-            return None;
-        }
-        candidate = parent;
-    }
+            .then_some(index)
+        })
+        .and_then(|index| dir.site(index))
 }
 
 /// The directory entries an OTP issuer names, compared case-insensitively:
@@ -255,13 +230,13 @@ pub fn totp_sites_for_issuer(issuer: &str) -> Vec<TotpSite> {
         .into_iter()
         .chain(totp_site(&issuer))
         .collect();
-    for (index, entry) in dir.sites.iter().enumerate() {
-        if entry.domain.split('.').next() == Some(issuer.as_str())
-            && let Some(site) = dir.site(index)
-        {
-            out.push(site);
-        }
-    }
+    out.extend(
+        dir.by_label
+            .get(&issuer)
+            .into_iter()
+            .flatten()
+            .filter_map(|&index| dir.site(index)),
+    );
     out.sort_by_key(TotpSite::domain);
     out.dedup();
     out
@@ -346,7 +321,10 @@ mod tests {
         ] {
             assert_eq!(totp_site(host), None, "{host:?}");
         }
-        assert_eq!(totp_site(&"a".repeat(MAX_HOST_LEN + 1)), None);
+        assert_eq!(
+            totp_site(&"a".repeat(mosaic_generator::host::MAX_HOST_LEN + 1)),
+            None
+        );
     }
 
     #[test]

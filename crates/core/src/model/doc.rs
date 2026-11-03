@@ -343,6 +343,24 @@ impl Doc {
         device: DeviceId,
     ) -> Result<Repair> {
         let mut repair = Repair::default();
+        let losers = Self::stamp_collisions(local, received, device, &mut repair);
+        self.readd_lost(losers, device)?;
+        if self.missed_deletion(local) {
+            repair.restored_fields = self.restore_deleted_fields(local, received, device)?;
+        }
+        Ok(repair)
+    }
+
+    /// The entries to bring back after stamps that name different contents
+    /// in `local` and `received` (repair step 1): the lower-ordered value of
+    /// each such stamp, when the values differ. Flags the collision in
+    /// `repair`.
+    fn stamp_collisions<'a>(
+        local: &'a Self,
+        received: &'a Self,
+        device: DeviceId,
+        repair: &mut Repair,
+    ) -> Vec<(&'a Text, &'a Entry)> {
         let mut losers: Vec<(&Text, &Entry)> = Vec::new();
         for (key, mine) in &local.fields {
             let Some(theirs) = received.fields.get(key.as_str()) else {
@@ -359,63 +377,83 @@ impl Doc {
                 if s.device() == device {
                     repair.own_stamp_collision = true;
                 }
-                if a.value != b.value {
-                    let loser = if a.payload_cmp(b) == Ordering::Less {
-                        a
-                    } else {
-                        b
-                    };
-                    losers.push((key, loser));
+                if a.value == b.value {
+                    continue;
                 }
+                let loser = if a.payload_cmp(b) == Ordering::Less {
+                    a
+                } else {
+                    b
+                };
+                losers.push((key, loser));
             }
         }
-        self.readd_lost(losers, device)?;
-        let missed_a_deletion = !self.is_deleted()
+        losers
+    }
+
+    /// Whether `self` (the merge) shows no deletion while `local` had not
+    /// seen one of the deletions it holds (repair step 2).
+    fn missed_deletion(&self, local: &Self) -> bool {
+        !self.is_deleted()
             && self
                 .register(DELETED_KEY)
                 .into_iter()
                 .flat_map(Register::entries)
-                .any(|d| !local.vv.covers(&d.stamp));
-        if missed_a_deletion {
-            for (key, reg) in &local.fields {
-                // A key `received` holds was written on its side after or
-                // concurrently with the deletion, and a local entry the
-                // merge dropped there may have been superseded by that
-                // write; only keys the deletion removed are restored.
-                if key.as_str() == DELETED_KEY || received.fields.contains_key(key.as_str()) {
-                    continue;
-                }
-                // Every entry the deletion took away, also when the field
-                // itself survives through a concurrent local write (its
-                // conflict copies are dropped then, review M2 c1).
-                let dropped: Vec<&Entry> = match self.fields.get(key.as_str()) {
-                    Some(kept) => reg
-                        .entries()
-                        .filter(|e| kept.get(&e.stamp).is_none())
-                        .collect(),
-                    None => reg.entries().collect(),
-                };
-                if dropped.is_empty() {
-                    continue;
-                }
-                for e in dropped {
-                    self.readd(key, e, device)?;
-                }
-                // Fresh stamps would put a restored copy above the value
-                // this replica showed; if that value survived the merge,
-                // it is written again on top, so it stays the one shown.
-                if let Some(shown) = reg.winner()
-                    && self
-                        .fields
-                        .get(key.as_str())
-                        .is_some_and(|r| r.get(&shown.stamp).is_some())
-                {
-                    self.readd(key, shown, device)?;
-                }
-                repair.restored_fields = repair.restored_fields.saturating_add(1);
+                .any(|d| !local.vv.covers(&d.stamp))
+    }
+
+    /// Brings back, for every field `received` does not hold, the entries
+    /// of `local` the deletion took away (repair step 2). Returns how many
+    /// fields were restored.
+    fn restore_deleted_fields(
+        &mut self,
+        local: &Self,
+        received: &Self,
+        device: DeviceId,
+    ) -> Result<usize> {
+        let mut restored = 0usize;
+        for (key, reg) in &local.fields {
+            // A key `received` holds was written on its side after or
+            // concurrently with the deletion, and a local entry the
+            // merge dropped there may have been superseded by that
+            // write; only keys the deletion removed are restored.
+            if key.as_str() == DELETED_KEY || received.fields.contains_key(key.as_str()) {
+                continue;
             }
+            let dropped = self.dropped(key, reg);
+            if dropped.is_empty() {
+                continue;
+            }
+            for e in dropped {
+                self.readd(key, e, device)?;
+            }
+            // Fresh stamps would put a restored copy above the value
+            // this replica showed; if that value survived the merge,
+            // it is written again on top, so it stays the one shown.
+            if let Some(shown) = reg.winner()
+                && self
+                    .fields
+                    .get(key.as_str())
+                    .is_some_and(|r| r.get(&shown.stamp).is_some())
+            {
+                self.readd(key, shown, device)?;
+            }
+            restored = restored.saturating_add(1);
         }
-        Ok(repair)
+        Ok(restored)
+    }
+
+    /// Every entry of `reg` (the local register of `key`) the merge took
+    /// away, also when the field itself survives through a concurrent local
+    /// write (its conflict copies are dropped then, review M2 c1).
+    fn dropped<'a>(&self, key: &Text, reg: &'a Register) -> Vec<&'a Entry> {
+        match self.fields.get(key.as_str()) {
+            Some(kept) => reg
+                .entries()
+                .filter(|e| kept.get(&e.stamp).is_none())
+                .collect(),
+            None => reg.entries().collect(),
+        }
     }
 
     /// The merge of `self` (this replica) and `received`, repaired as a
@@ -1165,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines, reason = "one table of cases")]
+    #[expect(clippy::too_many_lines, reason = "one table of cases")]
     fn decode_rejects() {
         let ok = format!(r#"{{"schema_version":1,"vv":{{"{D1}":2}},"fields":{{}}}}"#);
         assert!(decode(ok.as_bytes(), Format::Document).is_ok());
@@ -1493,7 +1531,7 @@ mod tests {
     /// later edit that has seen both supersedes both, instead of leaving
     /// the second one behind as a spurious conflict copy.
     #[test]
-    #[allow(clippy::many_single_char_names, reason = "replicas")]
+    #[expect(clippy::many_single_char_names, reason = "replicas")]
     fn an_edit_supersedes_every_entry_with_the_shown_value() {
         let mut a = Doc::default();
         set(&mut a, 1, "title", "base");

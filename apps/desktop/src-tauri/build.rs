@@ -16,7 +16,10 @@ fn main() {
     if let Err(error) = tauri_build::try_build(attributes) {
         // A build script reports failure through cargo's protocol; there is
         // no secret anywhere near this code.
-        #[allow(clippy::print_stderr)]
+        #[expect(
+            clippy::print_stderr,
+            reason = "a build script reports failure on stderr"
+        )]
         {
             eprintln!("tauri-build failed: {error:#}");
         }

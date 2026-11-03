@@ -4,8 +4,7 @@
 //! Files written by another implementation (pykeepass) are checked in
 //! `tests/formats.rs`.
 
-#![allow(
-    clippy::unwrap_used,
+#![expect(
     clippy::too_many_lines,
     clippy::format_push_string,
     clippy::assert_is_empty,
@@ -370,7 +369,12 @@ fn check_sample(import: &crate::entries::Import) {
             reason: SkipReason::Empty
         }]
     );
-    let e = &import.entries[0];
+    check_login_entry(&import.entries[0]);
+    check_login_entry_extras(&import.entries[0]);
+    check_other_entries(import);
+}
+
+fn check_login_entry(e: &crate::entries::ImportEntry) {
     let d = &e.draft;
     assert_eq!(d.item_type, ItemType::Login);
     assert_eq!(d.title(), Some("Mail & more A"));
@@ -387,6 +391,10 @@ fn check_sample(import: &crate::entries::Import) {
     );
     let (otp, _) = d.otp.as_ref().unwrap();
     assert_eq!(otp.digits, 8);
+}
+
+fn check_login_entry_extras(e: &crate::entries::ImportEntry) {
+    let d = &e.draft;
     let fields: Vec<(&str, bool)> = d
         .custom_fields
         .iter()
@@ -419,7 +427,9 @@ fn check_sample(import: &crate::entries::Import) {
             EntryWarning::PasskeysNotImported
         ]
     );
+}
 
+fn check_other_entries(import: &crate::entries::Import) {
     let note = &import.entries[1].draft;
     assert_eq!(note.item_type, ItemType::SecureNote);
     assert!(note.tags.is_empty());
@@ -839,6 +849,39 @@ fn hotp_and_steam_attributes() {
     assert_eq!((c.kind, *n), (OtpKind::Hotp, 4));
     let (c, _) = i.entries[1].draft.otp.as_ref().unwrap();
     assert_eq!(c.kind, OtpKind::Steam);
+}
+
+/// A protected value inside `History` advances the stream like any other, so a
+/// protected value in a later entry still decrypts correctly.
+#[test]
+fn protected_history_value_keeps_stream_aligned() {
+    let spec = Spec::default();
+    let mut x = Xml {
+        out: String::new(),
+        stream: Protector::new(spec.stream_id, &STREAM_KEY),
+    };
+    x.raw("<KeePassFile><Root><Group><Entry>");
+    x.string("Title", "first", false)
+        .string("Password", "current", true)
+        .raw("<History><Entry>");
+    x.string("Password", "old-pw", true)
+        .raw("</Entry></History></Entry><Entry>");
+    x.string("Title", "second", false)
+        .string("Password", "later-pw", true)
+        .raw("</Entry></Group></Root></KeePassFile>");
+    let i = super::parse_payload(&payload_of(&spec, &x.out)).unwrap();
+    assert_eq!(i.entries.len(), 2);
+    let secret = |n: usize| {
+        i.entries[n]
+            .draft
+            .secret(SecretField::Password)
+            .unwrap()
+            .expose_secret()
+            .to_owned()
+    };
+    assert_eq!(secret(0), "current");
+    assert_eq!(secret(1), "later-pw");
+    assert_eq!(i.entries[0].draft.password_history.len(), 1);
 }
 
 /// Leaf text is collected in a wiping buffer (`buf::append` moves, never

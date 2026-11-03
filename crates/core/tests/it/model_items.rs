@@ -2,9 +2,8 @@
 //! password history, collections, conflicts and their resolution,
 //! deletion, forward compatibility, and the encryption glue.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::indexing_slicing,
     clippy::too_many_lines,
     clippy::many_single_char_names,
     reason = "test helpers outside #[test] functions"
@@ -558,17 +557,12 @@ fn concurrent_edit_conflict_and_resolution() {
     assert_eq!(xy.entries("title").count(), 2);
 }
 
-#[test]
-fn delete_tombstone_and_concurrent_edit() {
+fn check_tombstone_seal(deleted: &Item) -> Item {
     let vault = VaultId::from_bytes([0x0B; 16]).unwrap();
     let id = ItemId::from_bytes([0x0C; 16]).unwrap();
     let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
-    let base = login();
-    let mut deleted = copy(&base);
-    deleted.delete(dev(2), at(50)).unwrap();
     assert!(deleted.is_deleted());
     assert!(deleted.deleted_concurrently().is_none());
-    assert!(base.to_tombstone().is_none());
     let tomb = deleted.to_tombstone().unwrap();
     assert_eq!(tomb.deleted_at(), at(50));
     assert_eq!(tomb.deleted_by(), vec![dev(2)]);
@@ -599,20 +593,24 @@ fn delete_tombstone_and_concurrent_edit() {
         Error::KeyGenerationMismatch
     );
     let as_item = Item::from(back);
-    assert_eq!(as_item, deleted);
+    assert_eq!(as_item, *deleted);
 
+    as_item
+}
+
+fn check_stale_and_concurrent_edit(base: &Item, as_item: &Item) -> (Item, Item) {
     // Stale replicas do not resurrect a deleted item.
-    assert!(as_item.merge(&base).is_deleted());
-    assert_eq!(as_item.compare(&base), Causality::Dominates);
+    assert!(as_item.merge(base).is_deleted());
+    assert_eq!(as_item.compare(base), Causality::Dominates);
 
     // A concurrent edit survives and the item is flagged.
-    let mut editor = copy(&base);
+    let mut editor = copy(base);
     editor
         .edit(dev(3), at(40))
         .set_secret(SecretField::Password, "changed offline")
         .unwrap();
     let m = as_item.merge(&editor);
-    assert_eq!(m, editor.merge(&as_item));
+    assert_eq!(m, editor.merge(as_item));
     assert!(!m.is_deleted());
     let info = m.deleted_concurrently().unwrap();
     assert_eq!(info.deleted_at, at(50));
@@ -620,9 +618,12 @@ fn delete_tombstone_and_concurrent_edit() {
     assert_eq!(password(&m), "changed offline");
     assert_eq!(m.title(), None, "fields the deleter had seen are removed");
     assert!(m.to_tombstone().is_none());
+    (editor, m)
+}
 
+fn check_repair_after_concurrent_delete(editor: &Item, as_item: &Item, m: &Item) {
     // The editing device merges with repair and keeps every field it had.
-    let out = editor.merge_and_repair(&as_item, dev(3)).unwrap();
+    let out = editor.merge_and_repair(as_item, dev(3)).unwrap();
     assert_eq!(out.restored_fields, 4, "type, created_at, title, username");
     assert!(!out.stamp_collision);
     let mut restored = out.item;
@@ -634,18 +635,20 @@ fn delete_tombstone_and_concurrent_edit() {
     assert_eq!(password(&restored), "changed offline");
     assert!(restored.deleted_concurrently().is_none());
     // Dismissal propagates.
-    assert!(restored.merge(&m).deleted_concurrently().is_none());
+    assert!(restored.merge(m).deleted_concurrently().is_none());
+}
 
+fn check_redelete_and_concurrent_deletes(base: &Item, m: &Item) {
     // Deleting again wins over the flagged state.
-    let mut again = copy(&m);
+    let mut again = copy(m);
     again.delete(dev(3), at(70)).unwrap();
-    assert!(again.merge(&m).is_deleted());
+    assert!(again.merge(m).is_deleted());
     again.delete(dev(3), at(71)).unwrap();
     assert_eq!(again.to_tombstone().unwrap().deleted_at(), at(70));
 
     // Concurrent deletes merge into one tombstone with both deletions.
-    let mut d1 = copy(&base);
-    let mut d2 = copy(&base);
+    let mut d1 = copy(base);
+    let mut d2 = copy(base);
     d1.delete(dev(2), at(1)).unwrap();
     d2.delete(dev(3), at(2)).unwrap();
     let both = d1.merge(&d2);
@@ -653,9 +656,11 @@ fn delete_tombstone_and_concurrent_edit() {
     let t = both.to_tombstone().unwrap();
     assert_eq!(t.deleted_by(), vec![dev(2), dev(3)]);
     assert_eq!(t.deleted_at(), at(2));
+}
 
+fn check_undelete(deleted: &Item) {
     // A deleted item takes no edits; undelete brings it back with a type.
-    let mut undo = copy(&deleted);
+    let mut undo = copy(deleted);
     let v = undo.version().clone();
     assert_eq!(
         undo.edit(dev(2), at(80)).set_title("back").unwrap_err(),
@@ -679,12 +684,25 @@ fn delete_tombstone_and_concurrent_edit() {
     undo.undelete(&ItemType::Wifi, dev(2), at(81)).unwrap();
     assert_eq!(undo.version(), &v, "undelete of a live item is a no-op");
     // The undelete wins over the tombstone it saw.
-    assert!(!undo.merge(&deleted).is_deleted());
+    assert!(!undo.merge(deleted).is_deleted());
     // Dismissing on a deleted item does nothing.
-    let mut still = copy(&deleted);
+    let mut still = copy(deleted);
     let v = still.version().clone();
     still.edit(dev(2), at(81)).dismiss_deletion().unwrap();
     assert_eq!(still.version(), &v);
+}
+
+#[test]
+fn delete_tombstone_and_concurrent_edit() {
+    let base = login();
+    let mut deleted = copy(&base);
+    deleted.delete(dev(2), at(50)).unwrap();
+    assert!(base.to_tombstone().is_none());
+    let as_item = check_tombstone_seal(&deleted);
+    let (editor, m) = check_stale_and_concurrent_edit(&base, &as_item);
+    check_repair_after_concurrent_delete(&editor, &as_item, &m);
+    check_redelete_and_concurrent_deletes(&base, &m);
+    check_undelete(&deleted);
 }
 
 #[test]
@@ -972,6 +990,50 @@ fn edit_api_only_writes_keys_that_decode() {
     assert_eq!(copy(&item), item, "every key the edit API wrote decodes");
 }
 
+fn check_third_device_and_stale_delete(
+    base: &Item,
+    tomb: &Item,
+    husk: &Item,
+    repaired: &Item,
+    at_a: &Item,
+) {
+    // A third device that held the item but had not seen the deletion
+    // repairs too; its values equal B's, so nothing conflicts.
+    let c = copy(base);
+    let at_c = c.merge_and_repair(husk, dev(4)).unwrap();
+    assert_eq!(at_c.restored_fields, 5);
+    let all = at_c.item.merge(repaired).merge(at_a);
+    assert!(all.conflicts().is_empty());
+    assert_eq!(all.title(), Some("GitHub"));
+    assert_eq!(all.text(TextField::Notes), Some("note"));
+
+    // Without a concurrent edit the delete wins: nothing is repaired.
+    let stale = c.merge_and_repair(tomb, dev(4)).unwrap();
+    assert!(stale.item.is_deleted());
+    assert_eq!(stale.restored_fields, 0);
+}
+
+fn check_conflict_copies_survive_repair(base: &Item) {
+    // Conflict copies come back too.
+    let mut x = copy(base);
+    let mut y = copy(base);
+    x.edit(dev(5), at(1)).set_title("from-x").unwrap();
+    y.edit(dev(6), at(1)).set_title("from-y").unwrap();
+    let conflicted = x.merge(&y);
+    let mut deleter = copy(&conflicted);
+    deleter.delete(dev(7), at(2)).unwrap();
+    let mut editor = copy(&conflicted);
+    editor
+        .edit(dev(5), at(3))
+        .set_text(TextField::Notes, "n")
+        .unwrap();
+    let fixed = editor.merge_and_repair(&deleter, dev(5)).unwrap().item;
+    let c = fixed.conflicts();
+    assert_eq!(c.len(), 1);
+    assert_eq!(c.first().unwrap().key, "title");
+    assert_eq!(fixed.title(), Some("from-y"), "the winner stays the winner");
+}
+
 #[test]
 fn delete_vs_concurrent_edit_keeps_every_field_after_repair() {
     // Review M2 probe: base item with title, username and password; device
@@ -1022,40 +1084,8 @@ fn delete_vs_concurrent_edit_keeps_every_field_after_repair() {
     let at_a = at_a.item.merge_and_repair(&repaired, dev(2)).unwrap();
     assert_eq!(at_a.item.title(), Some("GitHub"));
     assert_eq!(at_a.item.item_type(), Some(ItemType::Login));
-
-    // A third device that held the item but had not seen the deletion
-    // repairs too; its values equal B's, so nothing conflicts.
-    let c = copy(&base);
-    let at_c = c.merge_and_repair(&husk, dev(4)).unwrap();
-    assert_eq!(at_c.restored_fields, 5);
-    let all = at_c.item.merge(&repaired).merge(&at_a.item);
-    assert!(all.conflicts().is_empty());
-    assert_eq!(all.title(), Some("GitHub"));
-    assert_eq!(all.text(TextField::Notes), Some("note"));
-
-    // Without a concurrent edit the delete wins: nothing is repaired.
-    let stale = c.merge_and_repair(&tomb, dev(4)).unwrap();
-    assert!(stale.item.is_deleted());
-    assert_eq!(stale.restored_fields, 0);
-
-    // Conflict copies come back too.
-    let mut x = copy(&base);
-    let mut y = copy(&base);
-    x.edit(dev(5), at(1)).set_title("from-x").unwrap();
-    y.edit(dev(6), at(1)).set_title("from-y").unwrap();
-    let conflicted = x.merge(&y);
-    let mut deleter = copy(&conflicted);
-    deleter.delete(dev(7), at(2)).unwrap();
-    let mut editor = copy(&conflicted);
-    editor
-        .edit(dev(5), at(3))
-        .set_text(TextField::Notes, "n")
-        .unwrap();
-    let fixed = editor.merge_and_repair(&deleter, dev(5)).unwrap().item;
-    let c = fixed.conflicts();
-    assert_eq!(c.len(), 1);
-    assert_eq!(c[0].key, "title");
-    assert_eq!(fixed.title(), Some("from-y"), "the winner stays the winner");
+    check_third_device_and_stale_delete(&base, &tomb, &husk, &repaired, &at_a.item);
+    check_conflict_copies_survive_repair(&base);
 }
 
 #[test]

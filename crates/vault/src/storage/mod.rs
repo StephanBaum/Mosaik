@@ -83,6 +83,7 @@ mod account;
 mod attachments;
 mod device;
 mod error;
+mod fs;
 mod records;
 mod schema;
 mod settings_nonce;
@@ -178,7 +179,7 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         attachment_dir_for(path)?;
-        attachments::prepare_db_file(path)?;
+        fs::prepare_db_file(path)?;
         let resolved = resolve_store_path(path)?;
         let path = resolved.as_path();
         let attachment_dir = attachment_dir_for(path)?;
@@ -191,9 +192,9 @@ impl Store {
         schema::check_compatible(&conn, schema::latest_of(schema::MIGRATIONS))?;
         let lock = lock_store(path)?;
         let store = Self::init(conn, Some(attachment_dir), Some(lock))?;
-        attachments::restrict_db_files(path)?;
+        fs::restrict_db_files(path)?;
         if let Some(dir) = &store.attachment_dir {
-            attachments::create_dir(dir)?;
+            fs::create_dir(dir)?;
         }
         Ok(store)
     }

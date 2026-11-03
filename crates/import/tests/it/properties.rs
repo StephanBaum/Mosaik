@@ -2,13 +2,7 @@
 //! input, CSV values survive RFC 4180 quoting, and every accepted entry
 //! makes a valid item.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    clippy::format_push_string,
-    clippy::assert_is_empty,
-    reason = "tests"
-)]
+#![expect(clippy::unwrap_used, clippy::format_push_string, reason = "tests")]
 
 use mosaic_core::model::{SecretField, TextField};
 use mosaic_core::{DeviceId, SecretString, Timestamp};

@@ -156,36 +156,6 @@ fn wifi_field(label: &str) -> Option<TextField> {
     })
 }
 
-/// `MM/YYYY` from `MM/YY`, `MM/YYYY`, `MM-YYYY` or `YYYY-MM`.
-pub(crate) fn card_expiry(value: &str) -> Option<String> {
-    let v = value.trim();
-    let (a, b) = v.split_once(['/', '-', '.'])?;
-    let (a, b) = (a.trim(), b.trim());
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
-    if !digits(a) || !digits(b) {
-        return None;
-    }
-    let (month, year) = if a.len() == 4 { (b, a) } else { (a, b) };
-    let m: u32 = month.parse().ok()?;
-    if !(1..=12).contains(&m) {
-        return None;
-    }
-    let year = match year.len() {
-        2 => format!("20{year}"),
-        4 => year.to_owned(),
-        _ => return None,
-    };
-    Some(format!("{m:02}/{year}"))
-}
-
-/// Sets the card expiry, or keeps an unrecognized value as a custom field.
-pub(crate) fn expiry(b: &mut Builder, value: &str, label: &str) {
-    match card_expiry(value) {
-        Some(e) => b.text(TextField::CardExpiry, &e, label),
-        None => b.fallback(label, Kind::Text, value),
-    }
-}
-
 fn entry(item: &Json, folders: &HashMap<String, Str>, budget: &mut AttachmentBudget) -> Builder {
     let category = item.str("category").unwrap_or_default();
     let template = item.str("template_type").unwrap_or_default();
@@ -288,7 +258,7 @@ fn field(b: &mut Builder, f: &Json) -> Option<(Str, Str)> {
             b.secret(SecretField::CardVerificationCode, value, label);
         }
         ("ccPin" | "pin", ItemType::CreditCard) => b.secret(SecretField::CardPin, value, label),
-        ("ccExpiry", ItemType::CreditCard) => expiry(b, value, label),
+        ("ccExpiry", ItemType::CreditCard) => b.expiry(value, label),
         ("ccType", ItemType::CreditCard) => b.text(TextField::CardBrand, value, label),
         (_, ItemType::Identity) if !sensitive && identity_field(&lower).is_some() => {
             if let Some(tf) = identity_field(&lower) {
@@ -310,12 +280,7 @@ fn field(b: &mut Builder, f: &Json) -> Option<(Str, Str)> {
             } else {
                 Kind::Text
             };
-            if b.item_type() == &ItemType::SecureNote {
-                // The fields of a note-like category are its content.
-                b.custom(label, kind, value);
-            } else {
-                b.fallback(label, kind, value);
-            }
+            b.content(label, kind, value);
         }
     }
     None
@@ -323,26 +288,8 @@ fn field(b: &mut Builder, f: &Json) -> Option<(Str, Str)> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, reason = "tests")]
 
     use super::*;
-
-    #[test]
-    fn expiry_formats() {
-        for (v, want) in [
-            ("12/25", Some("12/2025")),
-            ("1/2030", Some("01/2030")),
-            ("2031-07", Some("07/2031")),
-            (" 03 - 27 ", Some("03/2027")),
-            ("13/25", None),
-            ("12/123", None),
-            ("ab/cd", None),
-            ("1225", None),
-            ("/25", None),
-        ] {
-            assert_eq!(card_expiry(v).as_deref(), want, "{v}");
-        }
-    }
 
     #[test]
     fn folder_paths_follow_parents_and_stop_on_cycles() {

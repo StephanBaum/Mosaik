@@ -5,7 +5,7 @@
 //! move, rotate and lock, then scan every file the store wrote for the
 //! marker, the master password and the Secret Key.
 
-#![allow(clippy::unwrap_used, reason = "integration test")]
+#![expect(clippy::unwrap_used, reason = "integration test")]
 
 use std::fs;
 use std::path::Path;

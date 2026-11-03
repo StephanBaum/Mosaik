@@ -1,6 +1,6 @@
 //! Preview and commit against a real vault session.
 
-#![allow(clippy::unwrap_used, reason = "tests")]
+#![expect(clippy::unwrap_used, reason = "tests")]
 
 use mosaic_core::model::{ItemType, LoginUrl, SecretField, Text, TextField};
 use mosaic_core::{Argon2Profile, MasterPassword, VaultId};

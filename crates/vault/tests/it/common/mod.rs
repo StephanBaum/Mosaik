@@ -2,8 +2,7 @@
 //! profile (the cheapest real one, 128 MiB) and a minimal in-memory
 //! "server" that only orders and replays ciphertext records.
 
-#![allow(
-    dead_code,
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "test helpers shared by several test crates"

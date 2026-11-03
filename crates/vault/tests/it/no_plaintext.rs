@@ -4,7 +4,7 @@
 //! (database, WAL, shared memory, attachment directory) for the marker and
 //! for the raw bytes of the keys whose values the test knows.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::too_many_lines,
     reason = "test helpers outside #[test] functions"

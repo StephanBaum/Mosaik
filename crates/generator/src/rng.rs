@@ -138,7 +138,7 @@ impl RandomSource for SplitMix64 {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_precision_loss, reason = "test statistics")]
+#[expect(clippy::cast_precision_loss, reason = "test statistics")]
 pub(crate) mod testing {
     //! Test helpers: scripted sources and a chi-squared check.
 

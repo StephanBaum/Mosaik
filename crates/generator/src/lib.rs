@@ -42,6 +42,7 @@
 
 mod entropy;
 mod error;
+pub mod host;
 mod passphrase;
 mod password;
 mod policy;

@@ -212,12 +212,18 @@ fn min_bits(text: &Text<'_>, with_repeats: bool) -> f64 {
         repeat_matches(text, &mut matches);
     }
 
+    // Sorted once by end, so each position takes the matches that end there
+    // from the front instead of scanning all of them.
+    matches.sort_by_key(|m| m.end);
+    let mut pending = matches.iter().peekable();
     let mut best: Vec<f64> = Vec::with_capacity(n.saturating_add(1));
     best.push(0.0);
     for end in 1..=n {
         let mut cost = best.last().copied().unwrap_or(0.0) + per_char;
-        for m in matches.iter().filter(|m| m.end == end) {
-            if let Some(before) = best.get(m.start) {
+        while let Some(m) = pending.next_if(|m| m.end <= end) {
+            if m.end == end
+                && let Some(before) = best.get(m.start)
+            {
                 cost = cost.min(before + m.bits);
             }
         }
@@ -285,13 +291,16 @@ fn dictionary_matches(text: &Text<'_>, out: &mut Vec<Match>) {
                 let Some(span) = variant.get(start..end) else {
                     continue;
                 };
-                let substituted = span.iter().zip(lower).filter(|(a, b)| a != b).count();
+                // Characters changed by the substitution; only counted for a
+                // match, which is rare.
+                let substituted =
+                    || count_f64(span.iter().zip(lower).filter(|(a, b)| a != b).count());
                 if span.iter().copied().eq(word.chars()) {
-                    let bits = base + count_f64(substituted);
+                    let bits = base + substituted();
                     cheapest = Some(cheapest.map_or(bits, |c| c.min(bits)));
                 }
                 if span.iter().rev().copied().eq(word.chars()) {
-                    let bits = base + count_f64(substituted) + 1.0;
+                    let bits = base + substituted() + 1.0;
                     cheapest = Some(cheapest.map_or(bits, |c| c.min(bits)));
                 }
             }
@@ -565,6 +574,66 @@ mod tests {
         estimate_strength(p).bits()
     }
 
+    /// The 20 passwords whose estimates are pinned exactly.
+    const PINNED: [&str; 20] = [
+        "",
+        "a",
+        "password",
+        "P@ssw0rd!",
+        "Tr0ub4dor&3",
+        "correcthorsebatterystaple",
+        "qwertyuiop",
+        "abcdef123456",
+        "9876543210",
+        "aaaaaaaaaa",
+        "abcabcabcabc",
+        "ttk9#Qttk9#Q",
+        "1990-05-17",
+        "15.03.2001",
+        "dr0wss@p",
+        "Monkey!Dragon2024",
+        "x7$Kq9!mZ2#vL5@w",
+        "Zürich-Bücher-ÄÖÜ",
+        "iloveyou1234567",
+        "The quick brown fox jumps over the lazy dog",
+    ];
+
+    /// The estimates, exactly (recorded before the matching was optimized;
+    /// the optimizations must not change a single bit).
+    const PINNED_BITS: [f64; 20] = [
+        0.0,
+        4.700_439_718_141_092,
+        1.0,
+        10.569_855_608_330_947,
+        72.268_411_691_640_44,
+        110.110_113_517_245_17,
+        10.876_516_946_565,
+        9.169_925_001_442_312,
+        6.321_928_094_887_362,
+        8.022_367_813_028_454,
+        5.584_962_500_721_156,
+        40.419_133_649_985_69,
+        18.183_015_000_882_754,
+        18.183_015_000_882_754,
+        4.0,
+        23.499_114_016_967_923,
+        105.117_689_733_295_21,
+        91.015_121_067_121_75,
+        8.614_709_844_115_207,
+        264.012_262_066_051_6,
+    ];
+
+    #[test]
+    fn estimates_are_pinned_exactly() {
+        for (p, want) in PINNED.iter().zip(PINNED_BITS) {
+            assert!(
+                bits(p).to_bits() == want.to_bits(),
+                "{p:?}: {} != {want}",
+                bits(p)
+            );
+        }
+    }
+
     fn strength(p: &str) -> Strength {
         estimate_strength(p).strength()
     }
@@ -660,9 +729,20 @@ mod tests {
         assert!((choose(5, 2) - 10.0).abs() < 1e-9);
     }
 
+    fn date_of(s: &str) -> Option<f64> {
+        date_bits(&s.chars().collect::<Vec<_>>())
+    }
+
     #[test]
     fn dates() {
-        let c = |s: &str| date_bits(&s.chars().collect::<Vec<_>>());
+        check_date_formats_accepted();
+        check_date_formats_rejected();
+        let c = date_of;
+        assert!(c("1.2.90").unwrap() > c("1290").unwrap_or(0.0));
+    }
+
+    fn check_date_formats_accepted() {
+        let c = date_of;
         assert_eq!(c("1990"), Some(YEAR_BITS));
         assert_eq!(c("1899"), None);
         assert_eq!(c("2100"), None);
@@ -680,6 +760,10 @@ mod tests {
         assert!(c("1990-12-31").is_some());
         assert!(c("12_31_90").is_some());
         assert!(c("31 12 90").is_some());
+    }
+
+    fn check_date_formats_rejected() {
+        let c = date_of;
         assert_eq!(c("1990-13-31"), None);
         assert_eq!(c("32.13.90"), None);
         assert_eq!(c("1.2.3"), None);
@@ -688,7 +772,6 @@ mod tests {
         assert_eq!(c("1:2:90"), None);
         assert_eq!(c("123.1.90"), None);
         assert_eq!(c("1.2.1800"), None);
-        assert!(c("1.2.90").unwrap() > c("1290").unwrap_or(0.0));
     }
 
     #[test]

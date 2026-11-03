@@ -73,6 +73,39 @@ struct Checked {
     notice: bool,
 }
 
+/// Puts the file's protection values into `stored` when its MAC `valid`ated
+/// (the theme and language of this run stay), and the strict ones when not.
+fn adopt_file(stored: &mut StoredState, file: StoredState, valid: bool, ssh_off: bool) -> Checked {
+    if valid {
+        let wanted = crate::persist::normalize(file.settings);
+        stored.settings = Settings {
+            theme: stored.settings.theme,
+            language: stored.settings.language,
+            ..wanted
+        };
+        stored.ssh_agent_enabled = file.ssh_agent_enabled && !ssh_off;
+        return Checked {
+            invalid: false,
+            notice: false,
+        };
+    }
+    // The strict values are in place already; tell the user if the file
+    // asked for something weaker or for the SSH agent.
+    let strict = stricter_than_default(&stored.settings);
+    let notice = !same_protection(&crate::persist::normalize(file.settings), &strict)
+        || file.ssh_agent_enabled;
+    stored.settings = strict;
+    stored.ssh_agent_enabled = false;
+    if let Some(account) = stored.account.as_mut() {
+        account.email = None;
+        account.kit_verified = false;
+    }
+    Checked {
+        invalid: true,
+        notice,
+    }
+}
+
 impl Backend {
     /// Whether the settings MAC key is available, that is, the vault is
     /// unlocked.
@@ -129,32 +162,7 @@ impl Backend {
                     key.verify(&account_id, &nonce, &canonical_settings(&file), &mac)
                 });
                 let mut stored = guard(&self.stored)?;
-                if valid {
-                    // Apply the file's protection values; the theme and
-                    // language of this run stay.
-                    let wanted = crate::persist::normalize(file.settings);
-                    stored.settings = Settings {
-                        theme: stored.settings.theme,
-                        language: stored.settings.language,
-                        ..wanted
-                    };
-                    stored.ssh_agent_enabled = file.ssh_agent_enabled && !ssh_off;
-                } else {
-                    checked.invalid = true;
-                    // The strict values are in place already; tell the user
-                    // if the file asked for something weaker or for the SSH
-                    // agent.
-                    let strict = stricter_than_default(&stored.settings);
-                    checked.notice =
-                        !same_protection(&crate::persist::normalize(file.settings), &strict)
-                            || file.ssh_agent_enabled;
-                    stored.settings = strict;
-                    stored.ssh_agent_enabled = false;
-                    if let Some(account) = stored.account.as_mut() {
-                        account.email = None;
-                        account.kit_verified = false;
-                    }
-                }
+                checked = adopt_file(&mut stored, file, valid, ssh_off);
             }
             let stored = guard(&self.stored)?;
             let current = g.on_disk.as_ref() == Some(&*stored) && g.mac.is_some();

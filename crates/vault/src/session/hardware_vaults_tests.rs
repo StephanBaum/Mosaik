@@ -1,7 +1,5 @@
 //! Tests of hardware-protected TOTP vaults (CRYPTO_SPEC §7.4, ADR-0028).
 
-#![allow(clippy::unwrap_used, reason = "tests")]
-
 use mosaic_core::model::{ItemType, OtpConfig};
 use mosaic_core::unlock::PrfOutput;
 use mosaic_core::{

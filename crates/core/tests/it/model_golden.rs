@@ -12,7 +12,7 @@
 //! The files are also the seeds of the `item_plaintext` and `item_merge`
 //! fuzz targets.
 
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::indexing_slicing,
     reason = "test helpers outside #[test] functions"
@@ -21,8 +21,8 @@
 use std::path::PathBuf;
 
 use mosaic_core::model::{
-    AttachmentRef, CustomField, CustomFieldValue, Item, ItemType, LoginUrl, OtpConfig, OtpKind,
-    PasskeyCredential, SecretField, SshKeyMaterial, Text, TextField, Timestamp, Tombstone,
+    AttachmentRef, CustomField, CustomFieldValue, Item, ItemEdit, ItemType, LoginUrl, OtpConfig,
+    OtpKind, PasskeyCredential, SecretField, SshKeyMaterial, Text, TextField, Timestamp, Tombstone,
     UrlMatch, VaultMeta,
 };
 use mosaic_core::{AttachmentId, AttachmentKey, DeviceId, SecretBytes, SecretVec};
@@ -82,6 +82,84 @@ fn golden_item() -> Item {
     Item::from_json(&serde_json::to_vec(&json).unwrap()).unwrap()
 }
 
+fn add_login_extras(e: &mut ItemEdit<'_>) {
+    e.set_favorite(true).unwrap();
+    e.add_tag("work").unwrap();
+    e.add_tag("Fünf").unwrap();
+    e.add_url(&LoginUrl::new("https://github.com")).unwrap();
+    let mut u = LoginUrl::new("http://intranet.example:8080/login");
+    u.match_mode = UrlMatch::Etld1;
+    u.allow_http = true;
+    e.add_url(&u).unwrap();
+}
+
+fn add_custom_fields(e: &mut ItemEdit<'_>) {
+    e.add_custom_field(&CustomField::new(
+        Text::new("Recovery code"),
+        CustomFieldValue::Hidden(secret("abcd-efgh")),
+    ))
+    .unwrap();
+    for (label, value) in [
+        ("Note", CustomFieldValue::Text(Text::new("text"))),
+        (
+            "Site",
+            CustomFieldValue::Url(Text::new("https://x.example")),
+        ),
+        ("Mail", CustomFieldValue::Email(Text::new("a@x.example"))),
+        ("Phone", CustomFieldValue::Phone(Text::new("+49 30 1234"))),
+        ("Born", CustomFieldValue::Date(Text::new("1990-01-31"))),
+    ] {
+        e.add_custom_field(&CustomField::new(Text::new(label), value))
+            .unwrap();
+    }
+}
+
+fn add_otp_and_attachment(e: &mut ItemEdit<'_>) {
+    let mut otp = OtpConfig::totp(SecretVec::from_slice(b"12345678901234567890").unwrap());
+    otp.issuer = Some(Text::new("GitHub"));
+    otp.label = Some(Text::new("octocat"));
+    e.set_otp(&otp).unwrap();
+    let mut steam = OtpConfig::totp(SecretVec::from_slice(b"steam-secret").unwrap());
+    steam.kind = OtpKind::Steam;
+    steam.digits = 5;
+    steam.hardware_protected = true;
+    e.add_custom_field(&CustomField::new(
+        Text::new("Steam"),
+        CustomFieldValue::Otp(steam),
+    ))
+    .unwrap();
+    e.set_otp_counter(3).unwrap();
+    e.set_attachment(&AttachmentRef::new(
+        AttachmentId::from_bytes([0x0D; 16]).unwrap(),
+        Text::new("recovery.pdf"),
+        Text::new("application/pdf"),
+        12_345,
+        AttachmentKey::from_secret(SecretBytes::from_array(&mut [0x40; 32])),
+    ))
+    .unwrap();
+}
+
+fn add_passkey_and_ssh(e: &mut ItemEdit<'_>, t0: i64) {
+    let mut pk = PasskeyCredential::new(
+        vec![0xC1; 16],
+        Text::new("github.com"),
+        vec![0xA5; 32],
+        SecretVec::from_slice(&[0x77; 32]).unwrap(),
+        -7,
+        at(t0),
+    );
+    pk.user_name = Text::new("octocat");
+    pk.user_display_name = Text::new("The Octocat");
+    e.set_passkey(&pk).unwrap();
+    e.set_passkey_sign_count(42).unwrap();
+    e.set_ssh_key(&SshKeyMaterial::new(
+        secret("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n-----END OPENSSH PRIVATE KEY-----\n"),
+        Text::new("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA octocat"),
+        Text::new("SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"),
+    ))
+    .unwrap();
+}
+
 fn unmarked_golden_item() -> Item {
     let t0 = 1_761_000_000_000;
     let mut item = Item::new(&ItemType::Login, dev(1), at(t0)).unwrap();
@@ -95,72 +173,10 @@ fn unmarked_golden_item() -> Item {
         }
         e.set_secret(SecretField::Password, "correct horse battery staple")
             .unwrap();
-        e.set_favorite(true).unwrap();
-        e.add_tag("work").unwrap();
-        e.add_tag("Fünf").unwrap();
-        e.add_url(&LoginUrl::new("https://github.com")).unwrap();
-        let mut u = LoginUrl::new("http://intranet.example:8080/login");
-        u.match_mode = UrlMatch::Etld1;
-        u.allow_http = true;
-        e.add_url(&u).unwrap();
-        e.add_custom_field(&CustomField::new(
-            Text::new("Recovery code"),
-            CustomFieldValue::Hidden(secret("abcd-efgh")),
-        ))
-        .unwrap();
-        for (label, value) in [
-            ("Note", CustomFieldValue::Text(Text::new("text"))),
-            (
-                "Site",
-                CustomFieldValue::Url(Text::new("https://x.example")),
-            ),
-            ("Mail", CustomFieldValue::Email(Text::new("a@x.example"))),
-            ("Phone", CustomFieldValue::Phone(Text::new("+49 30 1234"))),
-            ("Born", CustomFieldValue::Date(Text::new("1990-01-31"))),
-        ] {
-            e.add_custom_field(&CustomField::new(Text::new(label), value))
-                .unwrap();
-        }
-        let mut otp = OtpConfig::totp(SecretVec::from_slice(b"12345678901234567890").unwrap());
-        otp.issuer = Some(Text::new("GitHub"));
-        otp.label = Some(Text::new("octocat"));
-        e.set_otp(&otp).unwrap();
-        let mut steam = OtpConfig::totp(SecretVec::from_slice(b"steam-secret").unwrap());
-        steam.kind = OtpKind::Steam;
-        steam.digits = 5;
-        steam.hardware_protected = true;
-        e.add_custom_field(&CustomField::new(
-            Text::new("Steam"),
-            CustomFieldValue::Otp(steam),
-        ))
-        .unwrap();
-        e.set_otp_counter(3).unwrap();
-        e.set_attachment(&AttachmentRef::new(
-            AttachmentId::from_bytes([0x0D; 16]).unwrap(),
-            Text::new("recovery.pdf"),
-            Text::new("application/pdf"),
-            12_345,
-            AttachmentKey::from_secret(SecretBytes::from_array(&mut [0x40; 32])),
-        ))
-        .unwrap();
-        let mut pk = PasskeyCredential::new(
-            vec![0xC1; 16],
-            Text::new("github.com"),
-            vec![0xA5; 32],
-            SecretVec::from_slice(&[0x77; 32]).unwrap(),
-            -7,
-            at(t0),
-        );
-        pk.user_name = Text::new("octocat");
-        pk.user_display_name = Text::new("The Octocat");
-        e.set_passkey(&pk).unwrap();
-        e.set_passkey_sign_count(42).unwrap();
-        e.set_ssh_key(&SshKeyMaterial::new(
-            secret("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n-----END OPENSSH PRIVATE KEY-----\n"),
-            Text::new("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA octocat"),
-            Text::new("SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"),
-        ))
-        .unwrap();
+        add_login_extras(&mut e);
+        add_custom_fields(&mut e);
+        add_otp_and_attachment(&mut e);
+        add_passkey_and_ssh(&mut e, t0);
     }
     item.edit(dev(1), at(t0 + 2))
         .set_secret(SecretField::Password, "Tr0ub4dor&3 \"quoted\" \\ \u{1F511}")
