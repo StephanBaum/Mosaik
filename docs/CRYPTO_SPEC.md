@@ -77,6 +77,10 @@ Interoperability only (these read or serve third-party formats and never protect
   attachment or account ID.
 - `random(n)` is `n` bytes from the OS CSPRNG. If the CSPRNG fails, the
   operation MUST fail. There is no fallback.
+- `credential_id_hash = SHA-256(credential_id)` (32 bytes) for a WebAuthn
+  credential ID. `PRF(x)` is the WebAuthn PRF extension: the CTAP 2.1
+  `hmac-secret` output for the salt `SHA-256("WebAuthn PRF" || 0x00 || x)`
+  (WebAuthn Level 3 §10.1.4), evaluated with user verification.
 
 ## 4. Secrets and their lifetimes
 
@@ -201,15 +205,25 @@ platform:
 
 | Platform | Mechanism |
 |---|---|
-| macOS / iOS | A Secure Enclave P-256 key with a biometry-or-passcode access control. `W` is encrypted with `SecKeyCreateEncryptedData` (`eciesEncryptionCofactorX963SHA256AESGCM`) and the result is stored in the Keychain. |
+| macOS / iOS | A Secure Enclave P-256 key created with access control `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet` (biometry only; a change of enrolled fingers or faces invalidates it). `W` is encrypted with `SecKeyCreateEncryptedData` (`eciesEncryptionCofactorX963SHA256AESGCM`); the 113-byte result is stored as the wrapping's public parameters in the local store. |
 | Android | A Keystore AES-256-GCM key (StrongBox when available) created with `setUserAuthenticationRequired(true)` and invalidated when biometric enrollment changes. It encrypts `W`. |
-| Windows | A Windows Hello `KeyCredentialManager` RSA key and a stored random 32-byte `challenge`. `W = HKDF(ikm = Sign(challenge), salt = challenge, info = ctx("hello-unlock"), 32)`. This relies on RSA PKCS#1 v1.5 signatures being deterministic, so enrollment signs twice and fails if the two signatures differ. |
+| Windows | A Windows Hello `KeyCredentialManager` RSA key and a stored random 32-byte `challenge`. `W = HKDF(ikm = Sign(challenge), salt = challenge, info = ctx("hello-unlock"), 32)`. This relies on RSA PKCS#1 v1.5 signatures being deterministic, so enrollment signs twice and fails if the two signatures differ. Enrollment also requires `GetAttestationAsync` to report `Success` or `TemporaryFailure` (a TPM-backed key). |
 | Linux | No hardware binding by default. Quick unlock is unavailable unless a FIDO2 key is used (§6.3). |
 
-ADR-0020 item 7 pins the Windows calls; the macOS calls are pinned when that half is built. Any deviation from this table needs a spec change. Quick unlock is not offered until `mosaic-vault` stores and expires these wrappings. `method_id` = device ID. Quick unlock expires after a
-configurable maximum age (default 14 days) or under the reboot policy. Expiry
-**deletes** both the platform key and the wrapping. Flagging them as expired
-is not enough.
+ADR-0020 item 7 and ADR-0028 pin the Windows and macOS calls. Any deviation
+from this table needs a spec change. `method_id` is an **enrollment ID**: a
+fresh UUIDv7 drawn at enrollment. Its 48-bit timestamp is the enrollment
+time; it is bound into the AAD, so the enrollment time cannot be changed
+without breaking the wrapping. A store holds at most one quick-unlock
+wrapping. Quick unlock is used only after the master password unlocked
+once since the store was opened (once per app start; this is the reboot
+policy), and only before the wrapping's maximum age (default 14 days,
+configurable from 1 to 30 days; implementations MUST NOT accept more than
+30 days). An enrollment time more than 5 minutes in the future counts as
+expired. Expiry, a `W` that does not open the wrapping, a master password
+change (§6.4) and a Secret Key rotation (§6.5) **delete** both the platform
+key and the wrapping. Flagging them as expired is not enough. Enrolling
+requires the master password. This wrapping is never synced.
 
 ### 6.3 Hardware-key unlock (`method = 0x03`)
 Uses the WebAuthn PRF extension (CTAP2 `hmac-secret`):
@@ -220,6 +234,18 @@ W = HKDF(ikm = PRF(prf_salt), salt = credential_id_hash, info = ctx("prf-unlock"
 `method_id` = first 16 bytes of `SHA-256(credential_id)`. Assertions MUST use
 `userVerification = "required"` (PIN or biometric on the key). Without it, a
 stolen key plus a stolen locked device would unlock with neither MP nor SK.
+The credential is non-discoverable (`rk = false`) and created for the RP ID
+stored with the wrapping (`mosaic.invalid` for desktop enrollments; a
+reserved name that no web origin can claim). The public parameters are
+`0x01 || prf_salt[32] || rp_id_len:u8 || rp_id || credential_id_len:u16 ||
+credential_id`, with `rp_id` 1–253 bytes of printable ASCII without spaces
+and `credential_id` 16–1023 bytes; decoders are strict and reject a row
+whose `method_id` is not `SHA-256(credential_id)[..16]`. Every assertion,
+including the one at registration, MUST use user verification and the
+client MUST check the UV flag of the returned authenticator data
+(hmac-secret outputs differ with and without UV). At most 8 hardware keys
+per account. After 5 rejected hardware-key unlocks in a row the client
+requires the master password.
 This wrapping MAY be synced, so the hardware key can unlock any device.
 Residual risk: someone holding the key, its PIN and a copy of the wrapping
 can unlock (THREAT_MODEL R8).
@@ -367,13 +393,25 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   record row is purged locally only once the server no longer serves the
   record either (ADR-0010).
 - **Hardware-protected TOTP vault:** a normal vault whose VK is wrapped *only*
-  under a hardware-key wrapping of a separate key, not under AK:
-  `TK = random(32)`. For each registered hardware key, TK is wrapped under
-  `W_hw = HKDF(ikm = PRF(prf_salt_hw), salt = credential_id_hash, info = ctx("prf-hw-vault"), 32)`.
-  It uses its **own** `prf_salt_hw = random(32)`, never the §6.3 salt, with
-  `aad("wrap/hw-vault", account_id, vault_id, method_id)`. The vault's VK is
-  wrapped under TK with `aad("wrap/vault-under-tk", vault_id, key_generation:u32)`.
-  `userVerification = "required"` applies here too. Trade-off shown in
+  under a hardware-key wrapping of a separate key, not under AK. It uses its
+  **own** `prf_salt_hw = random(32)`, never the §6.3 salt:
+  ```
+  TK            = random(32)
+  W_hw          = HKDF(ikm = PRF(prf_salt_hw), salt = credential_id_hash, info = ctx("prf-hw-vault"), 32)
+  WrappedTK     = WrappedKey with W = W_hw,
+                  aad = aad("wrap/hw-vault", account_id, vault_id, method_id[16])
+  WrappedVK     = WrappedKey with W = TK,
+                  aad = aad("wrap/vault-under-tk", vault_id, key_generation:u32)
+  ```
+  `method_id = SHA-256(credential_id)[..16]`; the TK wrapping's parameters use
+  the §6.3 encoding with `prf_salt_hw`. `userVerification = "required"` applies
+  here too. A hardware-protected vault holds only items of type `totp`; every
+  OTP configuration in it has `hardware_protected = true`, and outside it
+  `false`. Opening it unwraps TK and its vault keys for at most 5 minutes;
+  locking the app or closing the vault drops them. At most 8 keys per vault;
+  the last one cannot be removed. Removing a key deletes its TK wrapping but
+  does not change TK: anyone who kept that key, its PIN and a copy of the old
+  wrapping can still open the vault (THREAT_MODEL R24). Trade-off shown in
   the UI: "Codes in this vault need your security key every time, so a stolen
   master password alone is not enough, but losing every registered key loses
   these codes."
@@ -686,8 +724,9 @@ therefore cannot lock the user out.
   generations, sizes and sequence numbers. The highest accepted
   `key_generation` of a vault (§7.1) outlives the vault's deletion from the
   local store (ADR-0010).
-- A removed or replaced wrapped key (quick-unlock expiry §6.2, password
-  change §6.4, re-key §6.6) is erased from the database file and its
+- A removed or replaced wrapped key (quick-unlock
+  expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
+  hardware key or TK wrapping) is erased from the database file and its
   write-ahead log before the call returns. Copies that the file system or
   the storage device keeps outside the database are out of reach
   (THREAT_MODEL R12).
@@ -708,7 +747,7 @@ therefore cannot lock the user out.
 | `account_id`, `account_salt`, Argon2 parameters | new-device derivation |
 | OPAQUE registration record | login |
 | identity public key `ipk` | sharing |
-| wrapped AK (password and PRF methods), wrapped VKs, HPKE share seals | multi-device unlock, sharing |
+| wrapped AK (password and PRF methods, with the PRF methods' public parameters: PRF salt, RP ID, credential ID), TK wrappings of hardware-protected vaults with their public parameters, wrapped VKs, HPKE share seals | multi-device unlock, sharing |
 | vault IDs, membership (`account_id` → `vault_id`, role) | access control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
 | attachment IDs and ciphertext sizes | storage quotas |
@@ -716,6 +755,8 @@ therefore cannot lock the user out.
 | IP addresses (short retention, default 7 days) | rate limiting, abuse defense |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
 | audit events (type, time, device — no content) | user-visible security log |
+
+Quick-unlock wrappings (§6.2) never leave the device.
 
 The server **cannot** see item titles, URLs, usernames, item types (beyond
 size buckets), tags, vault names, or attachment names.

@@ -2002,3 +2002,88 @@ palette, still static and decorative.
 ### Consequences
 UX_GUIDELINES §2 names the four accents. Any further foil use needs another
 ADR.
+
+## ADR-0028: Quick unlock, hardware-key unlock and hardware-protected TOTP vaults
+
+- Status: accepted, pending the crypto-reviewer pass over the M3 quick-unlock work
+- Date: 2026-11-03
+- Milestone: M3
+- Amends: ADR-0020 item 7 (Windows calls), CRYPTO_SPEC §6.2, §6.3, §7.4, §11, §12
+
+### Context
+Brief M3 asks for unlock by password, biometrics and hardware key. CRYPTO_SPEC
+§6.2, §6.3 and §7.4 describe the wrappings, `mosaic-vault` stores them
+(`unlock_methods`, `tk_wrappings`) but had no session methods, so quick unlock
+was not offered (PROGRESS M3-R6, M2-R6), and re-authentication had to lock and
+unlock (M3-R8). Writer IDs are per session (ADR-0015), so §6.2's
+"`method_id` = device ID" has no stable ID to use.
+
+### Decision
+1. **Derivations live in `mosaic-core`** (`unlock` module), all HKDF-SHA-256
+   with new labels `hello-unlock`, `prf-unlock`, `prf-hw-vault` and AAD labels
+   `wrap/hw-vault`, `wrap/vault-under-tk`. No new primitive.
+2. **Quick unlock (§6.2).** `method_id` is a fresh UUIDv7 per enrollment; its
+   timestamp is the enrollment time. At most one quick-unlock wrapping per
+   store. It expires after the configured maximum age (default 14 days,
+   1 to 30 days; `mosaic-vault` never accepts more than 30), and it is used
+   only after the master password unlocked once since the store was opened
+   (once per app start). Expiry, a wrapping that does not open, a master
+   password change and a Secret Key rotation delete the wrapping (and the app
+   deletes the platform key). Enrolling needs the master password.
+3. **Windows (pins ADR-0020 item 7, adds one call):** after
+   `RequestCreateAsync`, `KeyCredential.GetAttestationAsync()` must report
+   `Success` or `TemporaryFailure`; `NotSupported` or `UnknownError` (no TPM,
+   a software key) deletes the key and refuses enrollment.
+4. **macOS:** a Secure Enclave P-256 key (`kSecAttrTokenIDSecureEnclave`,
+   data-protection keychain, label `Mosaic quick unlock {account_id}`) with
+   access control `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and flags
+   `kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet`
+   (Touch ID only; a fingerprint change invalidates it). `W = random(32)` is
+   encrypted to the key's public key with
+   `kSecKeyAlgorithmECIESEncryptionCofactorX963SHA256AESGCM` and the
+   113-byte result is stored as the wrapping's parameters. Enrollment
+   decrypts once (one Touch ID prompt) and compares in constant time. Calls
+   go through `security-framework =3.7.0` (feature `OSX_10_15`) and the
+   constants of `security-framework-sys =2.17.0`, both already in the tree
+   through `keyring`; no `unsafe` in Mosaic's crates. Needs Developer ID
+   signing with an application-identifier and keychain-access-groups
+   entitlement; unsigned builds report Touch ID as unavailable.
+5. **Linux:** no biometric quick unlock.
+6. **Hardware keys (§6.3, §7.4).** WebAuthn PRF semantics: the CTAP
+   hmac-secret salt is `SHA-256("WebAuthn PRF" || 0x00 || prf_salt)`;
+   `credential_id_hash = SHA-256(credential_id)`. Non-discoverable
+   credentials (`rk = false`), RP ID `mosaic.invalid`, user verification on
+   every operation (also the assertion at registration) and the UV flag
+   checked in the returned authenticator data. At most 8 keys for unlock and
+   8 per hardware-protected vault. Five rejected hardware-key unlocks in a row
+   require the master password.
+7. **Hardware-protected TOTP vaults (§7.4)** hold `ItemType::Totp` items only,
+   open with a registered key for at most 5 minutes, and close on lock. The
+   last key cannot be removed; removing a key does not rotate TK.
+8. **Re-authentication** uses `UnlockedSession::verify_master_password`; a
+   wrong password no longer locks, five in a row do.
+9. **Transport.** The FIDO2 transport is a separate decision (ADR-0029):
+   until it lands the app reports hardware keys as unsupported and shows no
+   hardware-key control. On Windows, FIDO devices are reachable without
+   administrator rights only through `webauthn.dll`, which needs `unsafe` FFI;
+   Windows has no hardware-key unlock in M3.
+
+### Alternatives considered
+- `method_id` = the stored device ID: it changes with every unlock (ADR-0015).
+- Expiry from the row's `updated_at`: cleartext, editable.
+- macOS biometry-or-passcode (`kSecAccessControlUserPresence`): the login
+  password then unlocks Mosaic, weaker than the brief's "biometrics".
+- Keeping the ECIES ciphertext in its own Keychain item: two places to delete.
+- `authenticator 0.5` (Mozilla): unmaintained `serde_cbor` (RUSTSEC-2021-0127),
+  MPL-2.0, `libudev`, old RustCrypto majors, raw HID on Windows needs admin.
+- `ctap-hid-fido2 3.6`: needs `ring` or `aws-lc-rs` for ECDH (banned outside
+  rustls / C crypto), raw HID on Windows.
+- `webauthn-authenticator-rs`: OpenSSL (banned).
+- WebAuthn inside the webview: no WebAuthn in WebKitGTK, entitlements on
+  macOS, and the PRF output would sit in the JavaScript heap.
+
+### Consequences
+PROGRESS M3-R6 is closed for Windows Hello and Touch ID once WP1–WP6 land and
+manual hardware checks pass; hardware keys stay open until ADR-0029 (owner).
+M3-R8 and M2-R6 (API side) close. THREAT_MODEL R8 is updated and R23–R25 are
+added. The M6 sync client must never upload method `0x02` rows.
