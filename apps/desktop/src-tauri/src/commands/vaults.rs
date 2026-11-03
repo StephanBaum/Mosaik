@@ -127,7 +127,12 @@ pub async fn remove_hardware_vault_key(
 
 fn vault_name(name: &str) -> IpcResult<&str> {
     let name = name.trim();
-    if name.is_empty() || name.len() > MAX_VAULT_NAME_LEN || name.chars().any(char::is_control) {
+    if name.is_empty()
+        || name.len() > MAX_VAULT_NAME_LEN
+        || name
+            .chars()
+            .any(|c| c.is_control() || super::is_spoofing_char(c))
+    {
         return Err(IpcError::new(ErrorCode::InvalidInput));
     }
     Ok(name)
@@ -405,6 +410,8 @@ impl Backend {
         let added = session.add_hardware_vault_key(vault_id, &key, &prf);
         drop(prf);
         added?;
+        // One re-authentication, one new key (ADR-0028 item 8).
+        self.quick_unlock.spend_reauth();
         Ok(HardwareVaultKeys {
             keys: summaries(&session.hardware_vault_keys(vault_id)?),
         })

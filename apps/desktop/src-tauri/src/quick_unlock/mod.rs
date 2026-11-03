@@ -311,6 +311,15 @@ impl QuickUnlockService {
         Some(result)
     }
 
+    /// Uses the held grant up after an action that needed it succeeded (the
+    /// commands without a proof argument: moving out of a hardware vault,
+    /// adding a security key). A failed action does not call this.
+    pub(crate) fn spend_reauth(&self) {
+        if let Some(mut grant) = self.grant() {
+            *grant = None;
+        }
+    }
+
     /// Counts one wrong re-authentication and returns the count.
     pub(crate) fn reauth_failed(&self) -> u8 {
         self.failed_reauth

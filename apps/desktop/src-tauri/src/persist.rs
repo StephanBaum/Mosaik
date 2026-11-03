@@ -10,6 +10,12 @@
 //! the secure ones (auto-lock and clipboard clearing on), and is replaced on
 //! the next save.
 //!
+//! The protection settings also carry a MAC (CRYPTO_SPEC §11.1, ADR-0030)
+//! that only an unlocked app can check. Until then the file's values count
+//! only where they are at least as strict as the defaults
+//! ([`stricter_than_default`]); [`Persistence::load_checked`] hands the
+//! file's own values and MAC on, for the check after the first unlock.
+//!
 //! Writes are atomic: the new content goes to a temporary file in the same
 //! directory, which then replaces the old one.
 
@@ -122,6 +128,22 @@ struct StateFile {
     account: Option<AccountInfo>,
     #[serde(default)]
     ssh_agent_enabled: bool,
+    /// Hex of the settings MAC (CRYPTO_SPEC §11.1); absent in older files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mac: Option<String>,
+}
+
+/// Length of the settings MAC in bytes.
+pub const MAC_LEN: usize = mosaic_core::SETTINGS_MAC_LEN;
+
+/// The settings section of the file, as the file holds it, and its MAC:
+/// what the first unlock checks (ADR-0030).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FileSettings {
+    /// The values as read, not clamped (the MAC covers them as written).
+    pub settings: Settings,
+    /// The MAC, if the file has a well-formed one.
+    pub mac: Option<[u8; MAC_LEN]>,
 }
 
 /// Default idle timeout, minutes (CRYPTO_SPEC §11).
@@ -174,9 +196,98 @@ pub fn valid_email(email: &str) -> bool {
         && !email.chars().any(char::is_control)
 }
 
-/// Parses the state file's bytes. Anything unexpected gives `None`.
+/// Whether two settings agree on every protection field (everything but
+/// theme and language).
+#[must_use]
+pub fn same_protection(a: &Settings, b: &Settings) -> bool {
+    a.auto_lock_minutes == b.auto_lock_minutes
+        && a.lock_on_sleep == b.lock_on_sleep
+        && a.lock_on_screen_lock == b.lock_on_screen_lock
+        && a.clipboard_clear_seconds == b.clipboard_clear_seconds
+        && a.quick_unlock_max_age_days == b.quick_unlock_max_age_days
+}
+
+/// Per protection field, the stricter of `settings` and the defaults: the
+/// shorter auto-lock and clipboard time (`null` becomes the default), the
+/// shorter quick-unlock age, both lock-on switches on. Theme and language
+/// are kept. This is all an unverified file may set (ADR-0030).
+#[must_use]
+pub fn stricter_than_default(settings: &Settings) -> Settings {
+    let default = Settings::default();
+    let shorter = |value: Option<u32>, limit: Option<u32>| match (value, limit) {
+        (Some(v), Some(l)) => Some(v.min(l)),
+        (_, limit) => limit,
+    };
+    normalize(Settings {
+        auto_lock_minutes: shorter(settings.auto_lock_minutes, default.auto_lock_minutes),
+        lock_on_sleep: settings.lock_on_sleep || default.lock_on_sleep,
+        lock_on_screen_lock: settings.lock_on_screen_lock || default.lock_on_screen_lock,
+        clipboard_clear_seconds: shorter(
+            settings.clipboard_clear_seconds,
+            default.clipboard_clear_seconds,
+        ),
+        theme: settings.theme,
+        language: settings.language,
+        quick_unlock_max_age_days: settings
+            .quick_unlock_max_age_days
+            .min(default.quick_unlock_max_age_days),
+    })
+}
+
+/// The canonical bytes the settings MAC covers (CRYPTO_SPEC §11.1): one JSON
+/// object, keys in ascending byte order, no whitespace.
+#[must_use]
+pub fn canonical_settings(settings: &Settings) -> Vec<u8> {
+    fn number(value: Option<u32>) -> String {
+        value.map_or_else(|| "null".to_owned(), |v| v.to_string())
+    }
+    fn word<T: Serialize>(value: &T) -> String {
+        // The wire enums serialize to a plain string such as `"system"`.
+        serde_json::to_string(value).unwrap_or_default()
+    }
+    format!(
+        "{{\"autoLockMinutes\":{},\"clipboardClearSeconds\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"theme\":{}}}",
+        number(settings.auto_lock_minutes),
+        number(settings.clipboard_clear_seconds),
+        word(&settings.language),
+        settings.lock_on_screen_lock,
+        settings.lock_on_sleep,
+        settings.quick_unlock_max_age_days,
+        word(&settings.theme),
+    )
+    .into_bytes()
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
+
+fn mac_from_hex(text: &str) -> Option<[u8; MAC_LEN]> {
+    if text.len() != MAC_LEN * 2 || !text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return None;
+    }
+    let mut out = [0u8; MAC_LEN];
+    for (byte, pair) in out.iter_mut().zip(text.as_bytes().chunks(2)) {
+        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// Parses the state file's bytes. Anything unexpected gives `None`. The
+/// settings in the state are the ones that count while locked
+/// ([`stricter_than_default`]); [`parse_checked`] also returns the file's own.
 #[must_use]
 pub fn parse(bytes: &[u8]) -> Option<StoredState> {
+    parse_checked(bytes).map(|(state, _)| state)
+}
+
+/// [`parse`], plus the file's settings and MAC for the check after unlock.
+#[must_use]
+pub fn parse_checked(bytes: &[u8]) -> Option<(StoredState, FileSettings)> {
     let file: StateFile = serde_json::from_slice(bytes).ok()?;
     if file.version != STATE_VERSION {
         return None;
@@ -185,23 +296,30 @@ pub fn parse(bytes: &[u8]) -> Option<StoredState> {
         a.email = a.email.filter(|e| valid_email(e));
         a
     });
-    Some(StoredState {
-        settings: normalize(file.settings.into()),
+    let raw: Settings = file.settings.into();
+    let state = StoredState {
+        settings: stricter_than_default(&raw),
         account,
         ssh_agent_enabled: file.ssh_agent_enabled,
-    })
+    };
+    let checked = FileSettings {
+        settings: raw,
+        mac: file.mac.as_deref().and_then(mac_from_hex),
+    };
+    Some((state, checked))
 }
 
-/// Serializes the state for the file.
+/// Serializes the state for the file, with the MAC of its settings if given.
 ///
 /// # Errors
 /// `internal` if serialization fails (it cannot for these types).
-pub fn render(state: &StoredState) -> IpcResult<Vec<u8>> {
+pub fn render(state: &StoredState, mac: Option<&[u8; MAC_LEN]>) -> IpcResult<Vec<u8>> {
     let file = StateFile {
         version: STATE_VERSION,
         settings: PersistedSettings::from(&state.settings),
         account: state.account.clone(),
         ssh_agent_enabled: state.ssh_agent_enabled,
+        mac: mac.map(|m| to_hex(m)),
     };
     serde_json::to_vec_pretty(&file).map_err(|_| IpcError::INTERNAL)
 }
@@ -228,25 +346,36 @@ impl Persistence {
         Self { path: None }
     }
 
-    /// Reads the state; defaults when there is no usable file.
+    /// Reads the state; defaults when there is no usable file. The settings
+    /// are the ones that count while locked ([`stricter_than_default`]).
     #[must_use]
     pub fn load(&self) -> StoredState {
+        self.load_checked().0
+    }
+
+    /// [`Persistence::load`], plus the file's own settings and MAC (`None`
+    /// when there is no usable file).
+    #[must_use]
+    pub fn load_checked(&self) -> (StoredState, Option<FileSettings>) {
         self.path
             .as_deref()
             .and_then(read_capped)
-            .and_then(|bytes| parse(&bytes))
-            .unwrap_or_default()
+            .and_then(|bytes| parse_checked(&bytes))
+            .map_or_else(
+                || (StoredState::default(), None),
+                |(state, file)| (state, Some(file)),
+            )
     }
 
-    /// Writes the state atomically.
+    /// Writes the state atomically, with the MAC of its settings.
     ///
     /// # Errors
     /// `storeUnavailable` if the file cannot be written.
-    pub fn save(&self, state: &StoredState) -> IpcResult<()> {
+    pub fn save(&self, state: &StoredState, mac: Option<&[u8; MAC_LEN]>) -> IpcResult<()> {
         let Some(path) = self.path.as_deref() else {
             return Ok(());
         };
-        let bytes = render(state)?;
+        let bytes = render(state, mac)?;
         write_atomic(path, &bytes)
             .map_err(|_| IpcError::new(crate::contract::errors::ErrorCode::StoreUnavailable))
     }
@@ -287,11 +416,11 @@ mod tests {
             settings: Settings {
                 auto_lock_minutes: Some(5),
                 lock_on_sleep: true,
-                lock_on_screen_lock: false,
-                clipboard_clear_seconds: None,
+                lock_on_screen_lock: true,
+                clipboard_clear_seconds: Some(20),
                 theme: Theme::Dark,
                 language: Language::De,
-                quick_unlock_max_age_days: 21,
+                quick_unlock_max_age_days: 7,
             },
             account: Some(AccountInfo {
                 account_id: ids::account(),
@@ -307,11 +436,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let persistence = Persistence::in_dir(dir.path());
         assert_eq!(persistence.load(), StoredState::default(), "no file yet");
-        persistence.save(&sample()).unwrap();
+        persistence.save(&sample(), None).unwrap();
         assert_eq!(persistence.load(), sample());
         let mut changed = sample();
         changed.settings.theme = Theme::Light;
-        persistence.save(&changed).unwrap();
+        persistence.save(&changed, None).unwrap();
         assert_eq!(persistence.load(), changed, "replaced in place");
         assert!(!dir.path().join("settings.json.tmp").exists());
     }
@@ -319,7 +448,7 @@ mod tests {
     #[test]
     fn memory_persistence_keeps_nothing() {
         let persistence = Persistence::memory();
-        persistence.save(&sample()).unwrap();
+        persistence.save(&sample(), None).unwrap();
         assert_eq!(persistence.load(), StoredState::default());
     }
 
@@ -328,7 +457,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(STATE_FILE);
         let persistence = Persistence::in_dir(dir.path());
-        let good = String::from_utf8(render(&sample()).unwrap()).unwrap();
+        let good = String::from_utf8(render(&sample(), None).unwrap()).unwrap();
         let cases = [
             "not json".to_owned(),
             good.replace("\"version\": 1", "\"version\": 2"),
@@ -348,7 +477,7 @@ mod tests {
         if let Some(account) = state.account.as_mut() {
             account.email = Some("no-at-sign".into());
         }
-        let parsed = parse(&render(&state).unwrap()).unwrap();
+        let parsed = parse(&render(&state, None).unwrap()).unwrap();
         assert_eq!(parsed.account.unwrap().email, None);
         assert_eq!(parsed.settings, sample().settings);
     }
@@ -374,8 +503,8 @@ mod tests {
 
     #[test]
     fn a_file_from_before_the_quick_unlock_age_reads_the_default() {
-        let good = String::from_utf8(render(&sample()).unwrap()).unwrap();
-        let old = good.replace(",\n    \"quickUnlockMaxAgeDays\": 21", "");
+        let good = String::from_utf8(render(&sample(), None).unwrap()).unwrap();
+        let old = good.replace(",\n    \"quickUnlockMaxAgeDays\": 7", "");
         assert!(!old.contains("quickUnlockMaxAge"), "{old}");
         let parsed = parse(old.as_bytes()).unwrap();
         assert_eq!(
@@ -390,7 +519,7 @@ mod tests {
         state.settings.auto_lock_minutes = None;
         state.settings.lock_on_sleep = false;
         state.settings.lock_on_screen_lock = false;
-        let text = String::from_utf8(render(&state).unwrap()).unwrap();
+        let text = String::from_utf8(render(&state, None).unwrap()).unwrap();
         assert!(
             text.contains("\"autoLockMinutes\": null"),
             "file really says null"
@@ -423,6 +552,128 @@ mod tests {
                 Some(DEFAULT_AUTO_LOCK_MINUTES)
             }
         );
+    }
+
+    fn tampered(settings: &serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "version": 1, "settings": settings, "account": null
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn locked_a_weaker_file_value_falls_back_to_the_default() {
+        let weak = tampered(&serde_json::json!({
+            "autoLockMinutes": null, "lockOnSleep": false, "lockOnScreenLock": false,
+            "clipboardClearSeconds": null, "theme": "dark", "language": "de",
+            "quickUnlockMaxAgeDays": 30
+        }));
+        let (state, file) = parse_checked(&weak).unwrap();
+        let wanted = Settings {
+            theme: Theme::Dark,
+            language: Language::De,
+            ..Settings::default()
+        };
+        assert_eq!(state.settings, wanted, "defaults, but theme and language");
+        assert_eq!(
+            file.settings.auto_lock_minutes, None,
+            "the file's own value"
+        );
+        assert_eq!(file.mac, None);
+        // Longer timeouts fall back too; shorter ones stay.
+        let mixed = tampered(&serde_json::json!({
+            "autoLockMinutes": 480, "lockOnSleep": true, "lockOnScreenLock": true,
+            "clipboardClearSeconds": 15, "theme": "system", "language": "system",
+            "quickUnlockMaxAgeDays": 3
+        }));
+        let s = parse(&mixed).unwrap().settings;
+        assert_eq!(
+            (
+                s.auto_lock_minutes,
+                s.clipboard_clear_seconds,
+                s.quick_unlock_max_age_days
+            ),
+            (Some(10), Some(15), 3)
+        );
+    }
+
+    #[test]
+    fn stricter_than_default_is_idempotent_and_never_weaker() {
+        let strict = stricter_than_default(&Settings {
+            auto_lock_minutes: Some(480),
+            lock_on_sleep: false,
+            lock_on_screen_lock: false,
+            clipboard_clear_seconds: None,
+            quick_unlock_max_age_days: 30,
+            ..Settings::default()
+        });
+        assert_eq!(strict, Settings::default());
+        assert_eq!(stricter_than_default(&strict), strict);
+    }
+
+    /// The canonical form is fixed by CRYPTO_SPEC §11.1 (and the same bytes
+    /// are the golden message of `mosaic-core`).
+    #[test]
+    fn canonical_form_is_the_specified_bytes() {
+        assert_eq!(
+            String::from_utf8(canonical_settings(&Settings::default())).unwrap(),
+            r#"{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}"#
+        );
+        let other = Settings {
+            auto_lock_minutes: None,
+            clipboard_clear_seconds: None,
+            lock_on_sleep: false,
+            lock_on_screen_lock: false,
+            theme: Theme::Light,
+            language: Language::De,
+            quick_unlock_max_age_days: 30,
+        };
+        assert_eq!(
+            String::from_utf8(canonical_settings(&other)).unwrap(),
+            r#"{"autoLockMinutes":null,"clipboardClearSeconds":null,"language":"de","lockOnScreenLock":false,"lockOnSleep":false,"quickUnlockMaxAgeDays":30,"theme":"light"}"#
+        );
+    }
+
+    #[test]
+    fn every_field_changes_the_canonical_bytes() {
+        let base = Settings::default();
+        let edits: [fn(&mut Settings); 7] = [
+            |s| s.auto_lock_minutes = Some(11),
+            |s| s.lock_on_sleep = false,
+            |s| s.lock_on_screen_lock = false,
+            |s| s.clipboard_clear_seconds = None,
+            |s| s.theme = Theme::Dark,
+            |s| s.language = Language::En,
+            |s| s.quick_unlock_max_age_days = 15,
+        ];
+        for change in edits {
+            let mut changed = base.clone();
+            change(&mut changed);
+            assert_ne!(canonical_settings(&changed), canonical_settings(&base));
+        }
+    }
+
+    #[test]
+    fn the_mac_round_trips_and_bad_ones_read_as_missing() {
+        let mac: [u8; MAC_LEN] = core::array::from_fn(|i| u8::try_from(i * 7).unwrap());
+        let text = String::from_utf8(render(&sample(), Some(&mac)).unwrap()).unwrap();
+        assert_eq!(parse_checked(text.as_bytes()).unwrap().1.mac, Some(mac));
+        let hex = to_hex(&mac);
+        for bad in [
+            hex[..62].to_owned(),
+            format!("{hex}00"),
+            hex.to_uppercase(),
+            hex.replace(&hex[..1], "g"),
+        ] {
+            let edited = text.replace(&hex, &bad);
+            assert_eq!(
+                parse_checked(edited.as_bytes()).unwrap().1.mac,
+                None,
+                "{bad}"
+            );
+        }
+        let without = String::from_utf8(render(&sample(), None).unwrap()).unwrap();
+        assert!(!without.contains("\"mac\""));
     }
 
     proptest! {
@@ -459,12 +710,10 @@ mod tests {
             state.settings.clipboard_clear_seconds = seconds;
             state.settings.lock_on_sleep = sleep;
             state.settings.lock_on_screen_lock = screen_lock;
-            let parsed = parse(&render(&state).unwrap()).unwrap();
+            let parsed = parse(&render(&state, None).unwrap()).unwrap();
             prop_assert!(has_lock_trigger(&parsed.settings, SCREEN_LOCK_POSSIBLE));
-            if minutes.is_none() && !sleep && !(screen_lock && SCREEN_LOCK_POSSIBLE) {
-                prop_assert_eq!(parsed.settings.auto_lock_minutes, Some(DEFAULT_AUTO_LOCK_MINUTES));
-                state.settings.auto_lock_minutes = Some(DEFAULT_AUTO_LOCK_MINUTES);
-            }
+            // Locked, only values at least as strict as the defaults count.
+            state.settings = stricter_than_default(&state.settings);
             prop_assert_eq!(parsed, state);
         }
     }

@@ -78,4 +78,6 @@ export const settings = {
   "reauth.bodyQuick": "This makes it easier to get into Mosaic, so it needs your master password.",
   "reauth.bodyKey": "Adding a key to this vault needs your master password.",
   "reauth.bodyMove": "Moving an item out of a vault protected by a security key needs your master password.",
+  "toast.settingsReset":
+    "Your security settings were changed outside Mosaic and were reset to safe defaults.",
 } as const satisfies Record<string, string>;

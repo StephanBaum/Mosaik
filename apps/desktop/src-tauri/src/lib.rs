@@ -43,8 +43,10 @@ pub mod events;
 pub mod keystore;
 pub mod persist;
 pub mod quick_unlock;
+pub mod settings_integrity;
 pub mod shortcut;
 pub mod state;
+pub mod unlock_throttle;
 
 use std::sync::{Arc, Mutex};
 
@@ -194,6 +196,8 @@ mod handler_tests;
 mod quick_unlock_tests;
 #[cfg(test)]
 mod redteam_tests;
+#[cfg(test)]
+mod settings_integrity_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

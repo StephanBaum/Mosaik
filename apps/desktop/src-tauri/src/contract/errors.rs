@@ -119,6 +119,15 @@ wire_enum!(
         SshAgentUnavailable,
         /// Another SSH agent already uses the endpoint.
         SshAgentEndpointInUse,
+        /// Too many wrong master passwords in a row: wait a moment, then try
+        /// again. Nothing was checked.
+        UnlockDelayed,
+        /// Too many wrong answers to the Emergency Kit check; the vault
+        /// locked and the next unlock needs the master password.
+        TooManyAttempts,
+        /// An SSH approval was allowed less than a second after the prompt
+        /// appeared; the request is still open.
+        SshAllowTooSoon,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

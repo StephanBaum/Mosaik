@@ -460,7 +460,8 @@ impl Backend {
     /// password within the last two minutes (`reauthenticate` first).
     ///
     /// # Errors
-    /// `locked`, `reauthRequired` (leaving a hardware-protected vault),
+    /// `locked`, `reauthRequired` (leaving a hardware-protected vault; a success uses the
+    /// re-authentication up),
     /// `sameVault`, `itemNotFound`, `vaultNotFound`.
     pub fn move_item(&self, request: MoveItemRequest) -> IpcResult<MovedItem> {
         self.touch();
@@ -477,6 +478,10 @@ impl Backend {
         let target = request.target_vault_id.get();
         let session = slot.unlocked_mut()?;
         let item_id = session.move_item(request.vault_id.get(), request.item_id.get(), target)?;
+        if leaves_hardware_vault {
+            // One re-authentication, one exit (ADR-0028 item 8).
+            self.quick_unlock.spend_reauth();
+        }
         self.items_changed(session);
         Ok(MovedItem {
             vault_id: target.into(),

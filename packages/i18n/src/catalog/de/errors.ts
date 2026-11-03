@@ -57,6 +57,12 @@ export const errors = {
     "Diese SSH-Anfrage ist schon beendet. Führe den Befehl noch einmal aus, wenn du ihn noch brauchst.",
   "error.sshAgentUnavailable":
     "Der SSH-Agent konnte nicht starten. Prüfe, dass kein anderer SSH-Agent läuft, und schalte ihn dann wieder ein.",
+  "error.unlockDelayed":
+    "Zu viele falsche Versuche hintereinander. Warte ein paar Sekunden und versuche es dann noch einmal.",
+  "error.tooManyAttempts":
+    "Zu viele falsche Antworten. Mosaic wurde gesperrt. Entsperre es mit deinem Master-Passwort, um fortzufahren.",
+  "error.sshAllowTooSoon":
+    "Das ging zu schnell, um die Anfrage zu lesen. Prüfe Schlüssel und Programm und wähle dann noch einmal Erlauben.",
   "error.busy":
     "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
   "error.internal":

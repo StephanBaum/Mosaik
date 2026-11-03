@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use mosaic_core::{AccountId, Argon2Profile, SecretString};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
@@ -24,7 +25,9 @@ use crate::events::Events;
 use crate::keystore::SecretKeyStore;
 use crate::persist::{AccountInfo, Persistence, StoredState};
 use crate::quick_unlock::QuickUnlockService;
+use crate::settings_integrity::SettingsGuard;
 use crate::shortcut::ShortcutStatus;
+use crate::unlock_throttle::UnlockThrottle;
 
 /// Where the vault session is.
 pub enum Slot {
@@ -111,8 +114,16 @@ pub struct Backend {
     session: Mutex<Slot>,
     /// The Secret Key's home on this device (CORE_API: the OS keystore).
     pub secret_keys: Box<dyn SecretKeyStore>,
-    stored: Mutex<StoredState>,
-    persistence: Persistence,
+    pub(crate) stored: Mutex<StoredState>,
+    pub(crate) persistence: Persistence,
+    /// Backoff between wrong master passwords.
+    pub(crate) unlock_throttle: Mutex<UnlockThrottle>,
+    /// The clock the throttle reads (a test replaces it).
+    pub(crate) unlock_clock: fn() -> Instant,
+    /// Wrong Emergency Kit answers since the last unlock.
+    pub(crate) kit_wrong: Mutex<u8>,
+    /// The settings MAC state (ADR-0030).
+    pub(crate) settings_guard: Mutex<SettingsGuard>,
     /// The password `generate_password` returned last, for copying it from
     /// Rust. Dropped (zeroized) on the next generation and on lock.
     pub last_generated: Mutex<Option<SecretString>>,
@@ -164,6 +175,10 @@ impl Backend {
             secret_keys,
             stored: Mutex::new(StoredState::default()),
             persistence: Persistence::memory(),
+            settings_guard: Mutex::new(SettingsGuard::default()),
+            unlock_throttle: Mutex::new(UnlockThrottle::default()),
+            unlock_clock: Instant::now,
+            kit_wrong: Mutex::new(0),
             last_generated: Mutex::new(None),
             clipboard: ClipboardService::spawn(
                 MemoryClipboard::default().factory(),
@@ -187,7 +202,9 @@ impl Backend {
     /// Loads and keeps the settings and account in `persistence`.
     #[must_use]
     pub fn with_persistence(mut self, persistence: Persistence) -> Self {
-        self.stored = Mutex::new(persistence.load());
+        let (state, file) = persistence.load_checked();
+        self.stored = Mutex::new(state);
+        self.settings_guard = Mutex::new(SettingsGuard::new(file));
         self.persistence = persistence;
         self
     }
@@ -328,7 +345,7 @@ impl Backend {
         change(&mut stored);
         let snapshot = stored.clone();
         drop(stored);
-        self.persistence.save(&snapshot)?;
+        self.save_state(&snapshot)?;
         Ok(snapshot)
     }
 }

@@ -335,7 +335,8 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
     // Unlocked: deeper validation; `lock` is left out so the round stays
     // unlocked, and the vault keeps its item.
     unlock_with_password(state.backend());
-    let after = run("unlocked", &["lock"]);
+    // `verify_emergency_kit` is left out too: its fifth wrong answer locks (own test).
+    let after = run("unlocked", &["lock", "verify_emergency_kit"]);
     assert!(matches!(after, SessionState::Unlocked { .. }), "{after:?}");
     assert_eq!(
         state
@@ -919,4 +920,236 @@ fn a_tampered_state_file_stays_within_the_floor_and_the_thirty_day_cap() {
         assert!((1..=30).contains(&s.quick_unlock_max_age_days));
         assert!(b.quick_unlock_policy().max_age() <= Duration::from_hours(30 * 24));
     }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Hardening after the red-team pass: one-use grant, attempt limits, names
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_reauth_grant_pays_for_one_key_or_one_exit_and_failures_keep_it() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = &r.backend;
+    let vault = hw_vault(b);
+    let plain = plain_vault(b, &vault);
+    let mut items = Vec::new();
+    for _ in 0..2 {
+        items.push(
+            b.add_item(typed(
+                json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft() }),
+            ))
+            .unwrap(),
+        );
+    }
+    let add_key = || b.add_hardware_vault_key(&mut typed(json!({ "vaultId": vault, "pin": null })));
+    let move_out = |i: usize, target: &str| {
+        b.move_item(typed(json!({
+            "vaultId": vault,
+            "itemId": items[i].summary.item_id.0.to_string(),
+            "targetVaultId": target,
+        })))
+    };
+
+    // Adding a key uses the grant up.
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    assert_eq!(add_key().unwrap().keys.len(), 2);
+    assert_eq!(code(add_key().unwrap_err()), ErrorCode::ReauthRequired);
+
+    // Moving out of the vault uses it up too; a move that fails keeps it.
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    assert_eq!(
+        code(move_out(0, &vault).unwrap_err()),
+        ErrorCode::SameVault,
+        "a failed move"
+    );
+    move_out(0, &plain).unwrap();
+    assert_eq!(
+        code(move_out(1, &plain).unwrap_err()),
+        ErrorCode::ReauthRequired,
+        "the grant went with the first move"
+    );
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    move_out(1, &plain).unwrap();
+
+    // Moving between ordinary vaults neither needs nor uses the grant.
+    let note = b
+        .add_item(typed(
+            json!({ "vaultId": plain, "kind": "totp", "draft": totp_draft() }),
+        ))
+        .unwrap();
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.move_item(typed(json!({
+        "vaultId": plain,
+        "itemId": note.summary.item_id.0.to_string(),
+        "targetVaultId": vault,
+    })))
+    .unwrap();
+    assert!(b.quick_unlock.reauth_granted(), "still held");
+}
+
+#[test]
+fn five_wrong_kit_answers_lock_the_vault_and_need_the_password() {
+    let _kdf = crate::test_support::kdf_permit();
+    let backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    let secret_key = create(&backend);
+    let b = &backend;
+    let right = secret_key.rsplit('-').next().unwrap().to_owned();
+    let check = |group: &str| {
+        b.verify_emergency_kit(&typed(json!({ "lastGroup": group })))
+            .map(|v| v.matches)
+    };
+    for _ in 0..4 {
+        assert_eq!(check("WRNG"), Ok(false));
+    }
+    assert_eq!(check(&right), Ok(true), "a right answer resets the count");
+    for _ in 0..4 {
+        assert_eq!(check("WRNG"), Ok(false));
+    }
+    assert_eq!(
+        code(check("WRNG").unwrap_err()),
+        ErrorCode::TooManyAttempts,
+        "the fifth wrong one"
+    );
+    assert!(!b.is_unlocked(), "the vault locked");
+    assert_eq!(code(check(&right).unwrap_err()), ErrorCode::Locked);
+    unlock_with_password(b);
+    assert_eq!(check("WRNG"), Ok(false), "the count started over");
+    assert_eq!(check(&right), Ok(true));
+}
+
+static CLOCK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn fake_now() -> std::time::Instant {
+    static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+    *BASE.get_or_init(std::time::Instant::now)
+        + Duration::from_millis(CLOCK_MS.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+fn advance(ms: u64) {
+    CLOCK_MS.fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn wrong_passwords_back_off_from_the_third_one_and_a_success_resets() {
+    let _kdf = crate::test_support::kdf_permit();
+    let mut backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    backend.unlock_clock = fake_now;
+    let b = &backend;
+    create(b);
+    b.lock(LockReason::Manual).unwrap();
+    let attempt = |password: &str| {
+        b.unlock(UnlockRequest {
+            password: SecretIn::test(password),
+            secret_key: None,
+        })
+    };
+    for _ in 0..3 {
+        assert_eq!(
+            code(attempt(WRONG).unwrap_err()),
+            ErrorCode::WrongCredentials
+        );
+    }
+    // Refused before any key derivation, even with the right password.
+    let started = std::time::Instant::now();
+    assert_eq!(
+        code(attempt(PASSWORD).unwrap_err()),
+        ErrorCode::UnlockDelayed
+    );
+    assert!(started.elapsed() < Duration::from_millis(500), "no KDF ran");
+    advance(999);
+    assert_eq!(
+        code(attempt(PASSWORD).unwrap_err()),
+        ErrorCode::UnlockDelayed
+    );
+    advance(1);
+    // The 4th wrong password doubles the wait; a refused attempt is not counted.
+    assert_eq!(
+        code(attempt(WRONG).unwrap_err()),
+        ErrorCode::WrongCredentials
+    );
+    advance(1_999);
+    assert_eq!(code(attempt(WRONG).unwrap_err()), ErrorCode::UnlockDelayed);
+    advance(1);
+    // The right password works once the wait is over and clears the count.
+    attempt(PASSWORD).unwrap();
+    b.lock(LockReason::Manual).unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            code(attempt(WRONG).unwrap_err()),
+            ErrorCode::WrongCredentials,
+            "free again"
+        );
+    }
+    attempt(PASSWORD).unwrap();
+    // Other commands are not held up by the wait: it never sleeps.
+    b.lock(LockReason::Manual).unwrap();
+    for _ in 0..3 {
+        let _ = attempt(WRONG);
+    }
+    assert!(b.session_state().is_ok());
+}
+
+#[test]
+fn names_with_bidi_or_zero_width_characters_are_refused() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(0);
+    let b = &r.backend;
+    let vault = first_vault(b);
+    let bad = [
+        "\u{061C}", "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}", "\u{202A}",
+        "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}", "\u{2066}", "\u{2067}", "\u{2068}",
+        "\u{2069}", "\u{FEFF}",
+    ];
+    for c in bad {
+        for name in [
+            format!("{c}Work"),
+            format!("Work{c}gpj"),
+            format!("Work{c}"),
+        ] {
+            assert_eq!(
+                code(b.create_vault(&typed(json!({ "name": name }))).unwrap_err()),
+                ErrorCode::InvalidInput,
+                "create {c:?}"
+            );
+            assert_eq!(
+                code(
+                    b.rename_vault(&typed(json!({ "vaultId": vault, "name": name })))
+                        .unwrap_err()
+                ),
+                ErrorCode::InvalidInput,
+                "rename {c:?}"
+            );
+        }
+    }
+    // Ordinary non-ASCII names stay fine.
+    for ok in [
+        "Privat \u{fc}\u{df}",
+        "\u{4f60}\u{597d}",
+        "Caf\u{e9} \u{1F510}",
+    ] {
+        b.create_vault(&typed(json!({ "name": ok }))).unwrap();
+    }
+    // The first vault of a new account is checked too, before any key work.
+    let fresh = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    let error = fresh
+        .create_account(CreateAccountRequest {
+            email: "x@example.com".into(),
+            password: SecretIn::test(PASSWORD),
+            default_vault_name: "Pers\u{202e}onal".into(),
+        })
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::InvalidInput);
 }

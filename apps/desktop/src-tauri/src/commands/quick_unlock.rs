@@ -407,6 +407,7 @@ impl Backend {
         let account_id = session.account_id();
         *slot = Slot::Unlocked(Box::new(session));
         self.remember_account(account_id, None);
+        self.settings_unlocked(slot);
         self.start_ssh_if_enabled(slot);
         self.touch();
         self.reconcile_slot(slot);

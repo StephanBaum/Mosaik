@@ -29,4 +29,6 @@ export type AppEvent =
     }
   | { type: "quickSearchRequested" }
   /** A hardware vault closed itself (timer or lock): drop revealed codes. */
-  | { type: "hardwareVaultClosed"; vaultId: VaultId };
+  | { type: "hardwareVaultClosed"; vaultId: VaultId }
+  /** Protection settings in the settings file failed their integrity check and were reset. */
+  | { type: "settingsReset" };

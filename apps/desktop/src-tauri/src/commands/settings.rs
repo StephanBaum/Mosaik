@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::settings::{Settings, UpdateSettingsRequest};
-use crate::persist::{has_lock_trigger, normalize};
+use crate::persist::{has_lock_trigger, normalize, same_protection};
 use crate::state::{AppState, Backend};
 
 /// `get_settings`.
@@ -49,7 +49,7 @@ impl Backend {
     /// `invalidInput` when no lock trigger this system can deliver is on
     /// (CRYPTO_SPEC §11; screen lock counts only where
     /// `screenLockDetection`); `reauthRequired` without a password for a
-    /// weakening change; `locked` for a weakening change while locked;
+    /// weakening change; `locked` for a change of a protection setting while locked (ADR-0030);
     /// `wrongCredentials` (the fifth one in a row locks the vault and
     /// requires the password for the next unlock, see
     /// [`Backend::reauthenticate`]); `storeUnavailable` if the file cannot
@@ -68,6 +68,12 @@ impl Backend {
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
             self.reauthenticate(password)?;
+        }
+
+        // Protection settings are written with a MAC (ADR-0030), which
+        // needs the unlocked vault; theme and language can change locked.
+        if !same_protection(&old, &new) && !self.settings_key_available() {
+            return Err(IpcError::LOCKED);
         }
         self.touch();
         let stored = self.update_stored(|stored| stored.settings = new.clone());

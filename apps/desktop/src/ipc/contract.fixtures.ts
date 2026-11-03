@@ -119,6 +119,9 @@ export const fixtures = {
       "sshRequestExpired",
       "sshAgentUnavailable",
       "sshAgentEndpointInUse",
+      "unlockDelayed",
+      "tooManyAttempts",
+      "sshAllowTooSoon",
       "busy",
       "internal"
     ],
@@ -452,6 +455,15 @@ export const fixtures = {
       "code": "sshAgentEndpointInUse"
     },
     {
+      "code": "unlockDelayed"
+    },
+    {
+      "code": "tooManyAttempts"
+    },
+    {
+      "code": "sshAllowTooSoon"
+    },
+    {
       "code": "busy"
     },
     {
@@ -517,6 +529,9 @@ export const fixtures = {
     {
       "type": "hardwareVaultClosed",
       "vaultId": "019a2b3c-4d5e-7010-8000-000000000003"
+    },
+    {
+      "type": "settingsReset"
     }
   ],
   "requests": {

@@ -22,6 +22,23 @@ pub mod ssh;
 pub mod totp;
 pub mod vaults;
 
+/// Whether `c` can make a name look like another one: Unicode bidirectional
+/// controls (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069) and
+/// zero-width characters (U+200B to U+200D, U+FEFF). Names that contain one
+/// are refused (`invalidInput`); they could reorder or hide text in a vault
+/// list or a prompt.
+#[must_use]
+pub(crate) const fn is_spoofing_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
+}
+
 /// The invoke handler with every command of [`names::COMMANDS`], in the
 /// same order. `tests::every_command_is_registered` checks the two agree.
 pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static

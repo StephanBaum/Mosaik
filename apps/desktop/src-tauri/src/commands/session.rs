@@ -24,6 +24,8 @@ use crate::state::{AppState, Backend, Slot, guard};
 
 /// Longest accepted vault name, in bytes.
 pub(crate) const MAX_VAULT_NAME_LEN: usize = 256;
+/// Wrong Emergency Kit answers that lock the vault.
+pub(crate) const MAX_WRONG_KIT_ANSWERS: u8 = 5;
 
 /// `session_state`.
 #[tauri::command]
@@ -104,7 +106,12 @@ fn master_password(secret: SecretIn) -> MasterPassword {
 
 fn validate_text(value: &str, max_len: usize) -> IpcResult<&str> {
     let value = value.trim();
-    if value.is_empty() || value.len() > max_len || value.chars().any(char::is_control) {
+    if value.is_empty()
+        || value.len() > max_len
+        || value
+            .chars()
+            .any(|c| c.is_control() || super::is_spoofing_char(c))
+    {
         return Err(IpcError::new(ErrorCode::InvalidInput));
     }
     Ok(value)
@@ -262,6 +269,7 @@ impl Backend {
         *slot = Slot::Unlocked(Box::new(session));
         self.secret_keys.save(account_id, &created.secret_key)?;
         self.remember_account(account_id, Some(email.clone()));
+        self.settings_unlocked(&slot);
         self.start_ssh_if_enabled(&slot);
         // The kit is unconfirmed until `verify_emergency_kit` matches.
         *guard(&self.kit_pending)? = Some(account_id);
@@ -284,14 +292,33 @@ impl Backend {
     /// the kit can be saved without the password.
     ///
     /// # Errors
-    /// `locked`; `secretKeyRequired` if this device holds no Secret Key.
+    /// `locked`; `secretKeyRequired` if this device holds no Secret Key;
+    /// `tooManyAttempts` on the fifth wrong answer since the last unlock (the
+    /// vault locks and the next unlock needs the master password).
     pub fn verify_emergency_kit(&self, request: &VerifyKitRequest) -> IpcResult<KitVerification> {
         let account = self.slot()?.unlocked()?.account_id();
+        if *guard(&self.kit_wrong)? >= MAX_WRONG_KIT_ANSWERS {
+            return Err(IpcError::new(ErrorCode::TooManyAttempts));
+        }
         let key = self
             .secret_key_of(account)
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
         let matches = key.matches_last_group(request.last_group.expose_secret());
+        if !matches {
+            // The answer is only four characters: after five wrong ones the
+            // vault locks and the next unlock needs the master password.
+            let wrong = {
+                let mut wrong = guard(&self.kit_wrong)?;
+                *wrong = wrong.saturating_add(1);
+                *wrong
+            };
+            if wrong >= MAX_WRONG_KIT_ANSWERS {
+                let _ = self.lock_with(LockReason::Manual, true);
+                return Err(IpcError::new(ErrorCode::TooManyAttempts));
+            }
+        }
         if matches {
+            *guard(&self.kit_wrong)? = 0;
             *guard(&self.kit_pending)? = None;
             self.update_stored(|s| {
                 if let Some(account) = s.account.as_mut() {
@@ -306,9 +333,15 @@ impl Backend {
     /// A typed Secret Key that unlocks is stored for next time.
     ///
     /// # Errors
-    /// `wrongCredentials`, `secretKeyRequired`, `secretKeyMalformed`,
-    /// `secretKeyMistyped`, `alreadyUnlocked`, `noAccount`, or a store error.
+    /// `wrongCredentials`, `unlockDelayed` (after the third wrong password
+    /// in a row, see [`crate::unlock_throttle`]; checked before anything
+    /// else), `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`,
+    /// `alreadyUnlocked`, `noAccount`, or a store error.
     pub fn unlock(&self, request: UnlockRequest) -> IpcResult<SessionState> {
+        let now = (self.unlock_clock)();
+        guard(&self.unlock_throttle)?
+            .check(now)
+            .map_err(|_| IpcError::new(ErrorCode::UnlockDelayed))?;
         let typed = request.secret_key.is_some();
         let secret_key = match request.secret_key {
             Some(typed) => SecretKey::parse(typed.expose_secret())?,
@@ -328,7 +361,9 @@ impl Backend {
                 if typed {
                     self.secret_keys.save(account_id, &secret_key)?;
                 }
+                guard(&self.unlock_throttle)?.succeeded();
                 self.remember_account(account_id, None);
+                self.settings_unlocked(&slot);
                 self.start_ssh_if_enabled(&slot);
                 self.touch();
                 self.reconcile_slot(&mut slot);
@@ -336,7 +371,11 @@ impl Backend {
             }
             Err(UnlockError { session, error }) => {
                 *slot = Slot::Locked(session);
-                Err(error.into())
+                let error = IpcError::from(error);
+                if error.code == ErrorCode::WrongCredentials {
+                    guard(&self.unlock_throttle)?.failed((self.unlock_clock)());
+                }
+                Err(error)
             }
         }
     }
@@ -382,6 +421,10 @@ impl Backend {
     /// cleared if it still holds what Mosaic copied, the lock hooks run (the
     /// onboarding kit window closes) and the webview is told.
     pub fn after_lock(&self, reason: LockReason) {
+        self.settings_locked();
+        if let Ok(mut wrong) = self.kit_wrong.lock() {
+            *wrong = 0;
+        }
         self.quick_unlock.on_lock();
         if let Ok(mut pending) = self.kit_pending.lock() {
             *pending = None;
