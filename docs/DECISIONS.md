@@ -2151,3 +2151,77 @@ when a user moves an existing TOTP secret into a hardware-protected vault, say
 that earlier copies (the old item, its history, backups, exports) are not
 protected, and recommend re-issuing the secret at the provider (THREAT_MODEL
 R26). The strings go through `packages/i18n` in DE and EN.
+
+## ADR-0030: Settings integrity (a MAC under a key derived from AK)
+
+- Status: accepted
+- Date: 2026-11-03
+- Milestone: M3 (red-team findings)
+- Amends: CRYPTO_SPEC §2, §11 (new §11.1); THREAT_MODEL §4.2, R28, R29
+- Note: ADR-0029 stays reserved for the FIDO2 transport (ADR-0028 item 9).
+
+### Context
+`settings.json` is plaintext and was parsed with only range clamps. A local
+process that can write the file (P5) could set `clipboardClearSeconds: null`,
+`autoLockMinutes: null` or the longest quick-unlock age without the master
+password, which `update_settings` demands for the same change in the app. The
+red-team suite showed that only the CRYPTO_SPEC §11 floor and the 30-day cap
+held.
+
+### Decision
+1. **A MAC over the settings.** `settings.json` gets a top-level `mac`
+   (64 lowercase hex characters):
+   `HMAC-SHA-256(K_settings, canonical(settings))` with
+   `K_settings = HKDF-SHA-256(ikm = AK, salt = "", info = ctx("settings-mac"), 32)`.
+   No new primitive: HMAC-SHA-256 is in the spec (§2, OTP row), and the `hmac`
+   crate is already a workspace dependency (OTP) and in the tree through
+   `hkdf`; `mosaic-core` now depends on it directly. `mosaic-core` offers
+   `AccountKey::settings_mac_key()`, a zeroizing `SettingsMacKey` with `tag`
+   and a constant-time `verify`.
+2. **Canonical form** (CRYPTO_SPEC §11.1): the seven settings fields as one
+   JSON object, keys in ascending byte order, no whitespace, integers in
+   decimal, `null`, `true`/`false`, enum values as their wire strings. The
+   file's own `version`, `account`, `sshAgentEnabled` and `mac` are not part
+   of it.
+3. **Locked: only stricter values apply.** The key exists only while the vault
+   is unlocked. From the file, a locked app uses per field the stricter of the
+   file value and the default (auto-lock: the smaller minutes, `null` becomes
+   the default; clipboard: the smaller seconds, `null` becomes the default;
+   quick-unlock age: the smaller days; lock on sleep and on screen lock:
+   always on). Theme and language come from the file. A weaker file value
+   therefore never reaches a decision made before the first unlock, notably
+   the quick-unlock expiry check.
+4. **First unlock after the start: verify.** A valid MAC (constant-time
+   compare) applies the file as it is. A missing or invalid MAC keeps the
+   stricter-than-default values from item 3, rewrites the file with a fresh
+   MAC and, if a weakening field differed, emits the event `settingsReset`
+   once so the UI shows "Your security settings were changed outside Mosaic
+   and were reset to safe defaults." Theme and language survive either way.
+   A file without `mac` (written before this ADR) is handled the same way; a
+   user who had chosen weaker values sees the notice once and sets them again
+   (the cost of not trusting an unauthenticated file).
+5. **Writes.** Every save while unlocked writes the MAC of the settings being
+   written. While locked, a save keeps the settings section and MAC of the
+   file as they are (a new theme or language stays in memory and is written at
+   the next unlock), so a locked write never invalidates a good MAC.
+6. **Key lifetime.** `K_settings` is derived once per unlock, held in a
+   zeroizing container in the backend and dropped on every lock.
+
+### Alternatives considered
+- Signing with a key from the OS keystore: ties settings to one OS API and
+  does not exist for the CLI; the MAC works with the AK every build has.
+- Refusing a bad file outright: it would also throw away theme and language;
+  resetting only the weakening fields is the more useful conservative reading.
+- Encrypting the settings: they are not secret; integrity is the goal.
+
+### Consequences
+- Malware that runs while the vault is unlocked can still change settings
+  through the app or by reading memory (R1); the MAC defends the file at rest
+  and the locked window (THREAT_MODEL R28).
+- While locked, a user with a longer quick-unlock age than the default gets
+  the default age enforced until the first unlock after each start (R28).
+- `sshAgentEnabled` and the account block are outside the MAC; flipping
+  `sshAgentEnabled` only starts the agent after a password or quick unlock,
+  where every signature still needs an approval.
+- The SSH approval prompt names only the client process where the OS gives a
+  name (THREAT_MODEL R29, unchanged by this ADR).

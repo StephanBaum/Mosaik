@@ -38,6 +38,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` |
 | Passkeys | ECDSA P-256 (ES256); Ed25519 (EdDSA) | FIPS 186-5, RFC 8032, WebAuthn L3 | `p256`, `ed25519-dalek` |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
+| Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
 | Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no `rand` / `rand_core`, ADR-0011) |
 | Constant-time compare | — | — | `subtle` |
@@ -765,6 +766,29 @@ therefore cannot lock the user out.
   (scrypt) is under evaluation. Until an ADR decides, export uses the
   item-record format under a fresh key derived as in §5.3 from an export
   passphrase.
+
+### 11.1 Settings integrity (ADR-0030)
+
+`settings.json` is plaintext, so the protection settings in it carry a MAC.
+
+- `K_settings = HKDF(AK, "", ctx("settings-mac"), 32)`.
+- `mac = HMAC-SHA-256(K_settings, canonical(settings))`, stored as 64
+  lowercase hex characters in the top-level field `mac`. A verifier compares
+  in constant time.
+- `canonical(settings)` is the UTF-8 JSON object
+  `{"autoLockMinutes":A,"clipboardClearSeconds":C,"language":L,"lockOnScreenLock":S,"lockOnSleep":P,"quickUnlockMaxAgeDays":Q,"theme":T}`:
+  exactly these keys in this (ascending byte) order, no whitespace, `A` and `C`
+  an unsigned decimal integer or `null`, `Q` an unsigned decimal integer, `S`
+  and `P` `true` or `false`, `L` one of `"system"`, `"en"`, `"de"`, `T` one of
+  `"system"`, `"light"`, `"dark"`. It is computed over the values as written
+  to the file (before range clamping on read).
+- While locked, the app uses for each protection setting the stricter of the
+  file value and the default (10 min, 30 s, 14 days, both lock-on switches
+  on). After the first unlock of a run it verifies the MAC: valid applies the
+  file; missing or invalid keeps the stricter values, rewrites the file with
+  a fresh MAC and tells the user once.
+- `K_settings` lives in a zeroizing container while unlocked and is dropped
+  on lock.
 
 ## 12. Metadata visible to the server
 
