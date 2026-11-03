@@ -51,4 +51,37 @@ export const settings = {
   "settings.appearance.body": "Das Erscheinungsbild und die Sprache von Mosaic.",
   "settings.ssh.body": "Lass Programme sich mit SSH-Schlüsseln aus deinem Tresor anmelden. Du bestätigst jede Nutzung.",
   "settings.kit.body": "Speichere eine neue Kopie deines Emergency Kit. Dafür brauchst du dein Master-Passwort.",
+  "settings.quick": "Schnellentsperrung",
+  "settings.quick.body": "Schnellere Wege zurück, zusätzlich zu deinem Master-Passwort.",
+  "settings.quick.windowsHello": "Windows Hello",
+  "settings.quick.touchId": "Touch ID",
+  "settings.quick.biometric.body":
+    "Entsperre mit Gesicht, Fingerabdruck oder PIN. Nach einem Neustart brauchst du weiterhin dein Master-Passwort.",
+  "settings.quick.biometric.bodyMac":
+    "Entsperre mit deinem Fingerabdruck. Nach einem Neustart brauchst du weiterhin dein Master-Passwort.",
+  "settings.quick.expires": "Mosaic fragt am {date, date, medium} wieder nach deinem Master-Passwort.",
+  "settings.quick.maxAge": "Mindestens so oft nach dem Master-Passwort fragen",
+  "settings.quick.maxAgeDays": "{days, plural, one {# Tag} other {# Tage}}",
+  "settings.quick.biometricLinux": "Biometrisches Entsperren ist unter Linux nicht verfügbar.",
+  "settings.quick.biometricUnavailable": "Auf diesem Gerät nicht eingerichtet.",
+  "settings.quick.keys": "Sicherheitsschlüssel",
+  "settings.quick.keysCount":
+    "{count, plural, =0 {Keiner registriert} one {# registriert} other {# registriert}}",
+  "settings.quick.keysUnsupported":
+    "Sicherheitsschlüssel werden auf diesem System noch nicht unterstützt.",
+  "settings.quick.keyRow": "Sicherheitsschlüssel · {tag} · hinzugefügt am {addedAt, date, medium}",
+  "settings.quick.addKey": "Sicherheitsschlüssel hinzufügen",
+  "settings.quick.addKeyBody":
+    "Stecke den Schlüssel ein, den du hinzufügen möchtest, und gib seine PIN ein. Berühre ihn dann, wenn er blinkt.",
+  "settings.quick.manageKeys": "Verwalten",
+  "settings.quick.removeKey": "Entfernen",
+  "settings.quick.removeKeyNamed": "Sicherheitsschlüssel {tag} entfernen",
+  "settings.quick.removeKeyConfirm": "Sicherheitsschlüssel {tag} entfernen?",
+  "settings.quick.keyRisk":
+    "Wer diesen Schlüssel und seine PIN hat, kann deinen Tresor ohne dein Master-Passwort öffnen.",
+  "reauth.bodyQuick":
+    "Das macht den Zugang zu Mosaic einfacher, deshalb braucht es dein Master-Passwort.",
+  "reauth.bodyKey": "Um einen Schlüssel zu diesem Tresor hinzuzufügen, brauchst du dein Master-Passwort.",
+  "reauth.bodyMove":
+    "Um einen Eintrag aus einem Tresor mit Sicherheitsschlüssel zu verschieben, brauchst du dein Master-Passwort.",
 } satisfies Record<keyof typeof en, string>;

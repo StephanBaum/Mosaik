@@ -351,7 +351,7 @@ pub(crate) fn conflict_copy_id(
 }
 
 /// `HKDF(ikm, salt, ctx(label), 32)` into a fresh secret.
-fn hkdf_ctx(ikm: &[u8], salt: &[u8], label: Label) -> Result<SecretBytes<32>> {
+pub(crate) fn hkdf_ctx(ikm: &[u8], salt: &[u8], label: Label) -> Result<SecretBytes<32>> {
     let mut out = SecretBytes::<32>::zero();
     hkdf_sha256(
         ikm,

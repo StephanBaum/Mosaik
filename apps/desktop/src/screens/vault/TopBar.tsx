@@ -85,6 +85,7 @@ export function TopBar(props: TopBarProps) {
         </button>
       </div>
       <NewButton
+        data-new-item=""
         onClick={props.onNew}
         aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.newItem, platform)}
       >

@@ -67,6 +67,10 @@ pdf-writer = { version = "=0.15.0", default-features = false }
 # Windows Hello (KeyCredentialManager) for quick unlock; the version Tauri's
 # tree already carries, WinRT projections only.
 windows = { version = "=0.62.2", default-features = false, features = ["std", "Foundation", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }
+# macOS Touch ID quick unlock (ADR-0028): Secure Enclave key + ECIES, safe API;
+# both already in the tree through keyring's apple-native backend.
+security-framework = { version = "=3.7.0", default-features = false, features = ["OSX_10_15"] }
+security-framework-sys = { version = "=2.17.0", default-features = false, features = ["OSX_10_15"] }
 # logind and screen-saver signals on Linux (auto-lock on sleep and screen
 # lock); already in the tree through tauri-plugin-single-instance.
 zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }

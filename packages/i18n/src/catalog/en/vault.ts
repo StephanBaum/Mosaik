@@ -38,4 +38,34 @@ export const vault = {
   "trash.detailMeta": "{kind} · {vault} · Deleted {deletedAt, date, medium}",
   "trash.purgeConfirm.title": "Delete \"{title}\" forever?",
   "trash.purgeConfirm.body": "You can't undo this.",
+  "vault.hardware.placeholderName": "Codes (security key)",
+  "vault.hardware.title": "This vault needs your security key",
+  "vault.hardware.body":
+    "Codes here stay safe even if someone learns your master password and Secret Key, but you can't see them without your security key.",
+  "vault.hardware.open": "Use security key",
+  "vault.hardware.lockedNote": "Locked. Your other vaults stay unlocked.",
+  "vault.hardware.lockNow": "Lock this vault",
+  "vault.hardware.closesIn": "Locks in {time}",
+  "vault.hardware.backupTitle": "Register a backup key",
+  "vault.hardware.backupBody":
+    "You have 1 key registered. We recommend two: if you lose your only key, you can't open this vault again.",
+  "vault.hardware.createOption": "Protect with a security key (codes only)",
+  "vault.hardware.tradeoff":
+    "Codes in this vault need your security key every time, so a stolen master password alone is not enough, but losing every registered key loses these codes.",
+  "vault.hardware.removeNote":
+    "Removing a key doesn't change this vault's key. If a key was stolen, move the codes to a new vault.",
+  "vault.hardware.moveNote":
+    "Moving a code you already use into this vault doesn't protect earlier copies: the old item, its history, backups and exports. If you can, issue a new secret at the provider and add that instead.",
+  "vault.hardware.pinBody":
+    "Enter your key's PIN if it has one, then touch the key when it blinks.",
+  "vault.hardware.keys": "Keys",
+  "vault.hardware.keysLabel": "Keys for this vault",
+  "vault.hardware.eyebrow": "Hardware-protected codes",
+  "vault.hardware.selfLocked": "This vault locked itself. Use your security key to open it again.",
+  "vault.hardware.closingSoon": "This vault locks in less than 30 seconds. Use your security key to open it again afterwards.",
+  "vault.hardware.keysTitle": "Keys for this vault",
+  "vault.hardware.codesOnly": "One-time codes only",
+  "vault.create": "New vault",
+  "vault.create.name": "Vault name",
+  "vault.create.submit": "Create vault",
 } as const satisfies Record<string, string>;

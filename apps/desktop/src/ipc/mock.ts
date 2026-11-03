@@ -6,10 +6,23 @@
  * URL options in mock mode: `?mock=noAccount|locked|unlocked` picks the start state
  * (default `noAccount`; the sample account's master password is `mosaic`), and
  * `&latency=<ms>` delays every response to show loading states, and `&sshRequest=1` makes
- * the mock agent ask for an approval 500 ms after unlock.
+ * the mock agent ask for an approval 500 ms after unlock. Quick unlock (docs/DESKTOP_IPC.md
+ * §3): `&quick=biometric,hardwareKey` seeds an enrolled biometric and one security key
+ * (and makes keys "supported"; the real backend says no on every OS), `&bioPlatform=
+ * windowsHello|touchId|none`, `&quickFail=<code>` fails `unlock_quick`, `&touchMs=<ms>`
+ * delays a security-key touch, `&hwOpenSeconds=<s>` sets how long a hardware vault stays
+ * open (default 300). A security key needs the PIN `1234`.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
-import type { CommandName, IpcResult, RequestOf, ResponseOf } from "./contract/index.ts";
+import {
+  biometricPlatformKinds,
+  errorCodes,
+  type BiometricPlatformKind,
+  type CommandName,
+  type ErrorCode,
+  type IpcResult, type RequestOf,
+  type ResponseOf,
+} from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
 import { sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
@@ -17,16 +30,23 @@ import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
 import { itemHandlers } from "./mock/items.ts";
-import { sessionHandlers } from "./mock/session.ts";
+import {
+  quickFromOptions,
+  quickUnlockAsyncHandlers,
+  quickUnlockHandlers,
+  seedHardwareVault,
+  type QuickOptions,
+} from "./mock/quickUnlock.ts";
+import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
-import { MockFailure, type MockHandlers, type MockState } from "./mock/state.ts";
+import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockState } from "./mock/state.ts";
 import { totpHandlers } from "./mock/totp.ts";
-import { vaultHandlers } from "./mock/vaults.ts";
+import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
 export type MockStart = "noAccount" | "locked" | "unlocked";
 
-export interface MockOptions {
+export interface MockOptions extends QuickOptions {
   start?: MockStart;
   latencyMs?: number;
   /** Emit an SSH approval request 500 ms after unlock. */
@@ -41,6 +61,7 @@ export interface MockOptions {
 /** One handler set per contract area. */
 const handlers: MockHandlers = {
   ...sessionHandlers,
+  ...quickUnlockHandlers,
   ...appHandlers,
   ...importHandlers,
   ...vaultHandlers,
@@ -53,6 +74,34 @@ const handlers: MockHandlers = {
   ...sshHandlers,
 };
 
+function quickOptionsFromParams(params: URLSearchParams): MockOptions {
+  const quick = (params.get("quick") ?? "")
+    .split(",")
+    .filter((method): method is "biometric" | "hardwareKey" => method === "biometric" || method === "hardwareKey");
+  const platform = params.get("bioPlatform");
+  const fail = params.get("quickFail");
+  const touchMs = Number(params.get("touchMs") ?? "");
+  const hwOpenSeconds = Number(params.get("hwOpenSeconds") ?? "");
+  return {
+    ...(quick.length > 0 ? { quick } : {}),
+    ...(platform === "none"
+      ? { biometricPlatform: null }
+      : biometricPlatformKinds.some((kind) => kind === platform)
+        ? { biometricPlatform: platform as BiometricPlatformKind }
+        : {}),
+    ...(errorCodes.some((code) => code === fail) ? { quickFail: fail as ErrorCode } : {}),
+    ...(Number.isFinite(touchMs) && touchMs > 0 ? { touchMs } : {}),
+    ...(Number.isFinite(hwOpenSeconds) && hwOpenSeconds > 0 ? { hwOpenSeconds } : {}),
+  };
+}
+
+/** Handlers that wait on a device; they run after the sync ones are ruled out. */
+const asyncHandlers: MockAsyncHandlers = {
+  ...sessionAsyncHandlers,
+  ...quickUnlockAsyncHandlers,
+  ...vaultAsyncHandlers,
+};
+
 export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
@@ -62,6 +111,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
+    ...quickOptionsFromParams(params),
   };
 }
 
@@ -69,6 +119,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
   const listeners = new Set<EventListener>();
   let counter = 0;
   const start = options.start ?? "noAccount";
+  const now = options.now ?? (() => Date.now());
   const state: MockState = {
     account: start === "noAccount" ? null : { ...sampleAccount },
     secretKeyStored: start !== "noAccount",
@@ -79,6 +130,8 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     vaults: start === "noAccount" ? [] : sampleVaults(),
     items: start === "noAccount" || options.emptyVault === true ? [] : sampleItems(),
     settings: { ...defaultSettings },
+    quick: quickFromOptions(options, now),
+    hardwareVaults: [],
     lastGenerated: null,
     emit: (event) => {
       for (const listener of listeners) {
@@ -86,12 +139,14 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       }
     },
     sshRequest: options.sshRequest === true,
-    now: options.now ?? (() => Date.now()),
+    now,
     nextId: () => {
       counter += 1;
       return `019a2b3c-0000-7000-8000-${counter.toString(16).padStart(12, "0")}`;
     },
   };
+
+  seedHardwareVault(state, options, start !== "noAccount");
 
   if (start === "unlocked") {
     startAgent(state);
@@ -106,13 +161,13 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     } else {
       await Promise.resolve();
     }
-    const handler = handlers[command];
+    const handler = handlers[command] ?? asyncHandlers[command];
     if (handler === undefined) {
       return { ok: false, error: { code: "notImplemented" } };
     }
     try {
       // Responses are copied so the UI cannot mutate mock state by reference.
-      return { ok: true, value: structuredClone(handler(state, request)) };
+      return { ok: true, value: structuredClone(await handler(state, request)) };
     } catch (error) {
       if (error instanceof MockFailure) {
         return { ok: false, error: { code: error.code } };

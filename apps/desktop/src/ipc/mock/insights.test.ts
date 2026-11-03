@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMockIpc } from "../mock.ts";
 import { sampleItems, sampleVaults } from "./data.ts";
+import { defaultQuick } from "./quickUnlock.ts";
 import { mockSecurityReport } from "./insights.ts";
 import { defaultSettings } from "./settings.ts";
 import type { MockItem, MockState } from "./state.ts";
@@ -19,6 +20,8 @@ function state(items: MockItem[]): MockState {
     vaults: sampleVaults(),
     items,
     settings: { ...defaultSettings },
+    quick: defaultQuick(),
+    hardwareVaults: [],
     lastGenerated: null,
     emit: () => undefined,
     now: () => NOW,

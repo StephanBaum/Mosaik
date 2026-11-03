@@ -51,7 +51,15 @@ Mosaic is pre-audit. Nothing here has been externally reviewed.
 `SessionState` is `{ state: "noAccount" }`,
 `{ state: "locked", email, secretKeyStored, quickUnlock }` or
 `{ state: "unlocked", accountId, email, kitVerified }`. Every session command returns the new state.
-`quickUnlock` is empty until `mosaic-vault` stores quick-unlock wrappings (ADR-0020 item 7).
+`quickUnlock` lists the methods the unlock screen may offer: `biometric` once Windows
+Hello or Touch ID is enrolled, `hardwareKey` once a security key is registered and the
+system supports keys. It is empty after an app start until the master password has been
+used once (quick unlock never works right after a restart), and a method drops out when
+its enrollment expires (`maxAgeDays`, from `Settings.quickUnlockMaxAgeDays`) or the
+platform invalidated it. The UI offers a method only from this list, never prompts on
+screen load, and re-reads `session_state` after `quickUnlockExpired`,
+`quickUnlockInvalidated` or `passwordRequired` so the buttons vanish and the password
+field takes focus (UX_GUIDELINES §8).
 The store can also be unavailable, for example when another process holds it. In that
 case every command fails with `storeInUse` or `storeUnavailable`, and the UI shows that
 sentence.
@@ -64,24 +72,39 @@ that unlocks is stored.
 
 ## 3. Commands
 
-Status: **live** means wired now. `unlock_quick` is the only stub.
+Status: **live** means wired now. Security keys report `supported: false` on every OS
+until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key controls then.
 
 | Command | Request → response | Errors besides `locked` / `internal` | Status |
 |---|---|---|---|
 | **Session** | | | |
 | `session_state` | `null` → `SessionState` | `storeInUse`, `storeUnavailable` | live |
 | `create_account` | `{ email, password, defaultVaultName }` → `{ emergencyKit: { accountId, email, secretKey }, session }` | `accountExists`, `invalidInput`, `emptyPassword` | live (Argon2 calibrated on the device) |
-| `save_emergency_kit` | `{ labels: { title, intro, email, accountId, signInUrl, signInUrlValue, secretKey, masterPassword, masterPasswordHint, footer }, password \| null }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `reauthRequired`, `wrongCredentials` (the vault locks), `secretKeyRequired`, `invalidInput` | live (Rust shows the save dialog, then renders and writes the PDF; no password needed from `create_account` until the kit is verified or the vault locks) |
+| `save_emergency_kit` | `{ labels: { title, intro, email, accountId, signInUrl, signInUrlValue, secretKey, masterPassword, masterPasswordHint, footer }, password \| null }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `reauthRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `secretKeyRequired`, `invalidInput` | live (Rust shows the save dialog, then renders and writes the PDF; no password needed from `create_account` until the kit is verified or the vault locks) |
 | `verify_emergency_kit` | `{ lastGroup }` → `{ matches }` | `secretKeyRequired` | live (needs unlocked; a match sets `kitVerified`) |
 | `unlock` | `{ password, secretKey \| null }` → `SessionState` | `wrongCredentials` (never says which secret), `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`, `alreadyUnlocked`, `noAccount` | live |
-| `unlock_quick` | `{ method: "biometric" \| "hardwareKey" }` → `SessionState` | `quickUnlockUnavailable` | stub (no OS prompt; PROGRESS M3-R6) |
+| `unlock_quick` | `{ method: "biometric" \| "hardwareKey", pin \| null }` → `SessionState` | `quickUnlockUnavailable`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`, `cancelled`, `alreadyUnlocked`, `busy`, `hardwareKey*` codes | live (OS prompt; `pin` only for `hardwareKey`; without it a key that needs one fails with `hardwareKeyPinRequired`) |
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
+| `reauthenticate` | `{ password }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window in which `enroll_*`, `add_hardware_vault_key` and `move_item` out of a hardware vault accept `password: null`; the UI sends those first without a password and calls this on `reauthRequired`, then retries) |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
 | `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection }` | none | live |
+| **Quick unlock** | | | |
+| `quick_unlock_status` | `null` → `QuickUnlockStatus` = `{ biometric: { platform: "windowsHello" \| "touchId" \| null, available, enrolled, enrolledAt \| null, expiresAt \| null }, hardwareKeys: { supported, keys: { methodId, addedAt }[], maxKeys }, maxAgeDays }` | | live (needs unlocked) |
+| `enroll_biometric` | `{ password \| null }` → `QuickUnlockStatus` | `reauthRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `quickUnlockUnavailable`, `cancelled`, `busy` (another enrollment is running) | live (the UI sends `null` first and asks for the password on `reauthRequired`; a successful enrollment uses up the 2-minute grant) |
+| `remove_biometric` | `null` → `QuickUnlockStatus` | | live |
+| `enroll_hardware_key` | `{ password \| null, pin \| null }` → `QuickUnlockStatus` | `reauthRequired`, `wrongCredentials`, `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`, `hardwareKeyPin*`, `hardwareKeyNoPin`, `hardwareKeyLimit`, `cancelled`, `busy` | live (unsupported until ADR-0029) |
+| `remove_hardware_key` | `{ methodId }` → `QuickUnlockStatus` | `invalidInput`, `hardwareKeyNotRecognized` | live |
+| `hardware_key_cancel` | `null` → `null` | | live (the pending call fails with `cancelled`) |
 | **Vaults** | | | |
-| `list_vaults` | `null` → `VaultSummary[]` (`vaultId`, `name \| null`, `itemCount`, `available`) | | live |
+| `list_vaults` | `null` → `VaultSummary[]` (`vaultId`, `name \| null`, `itemCount`, `available`, `protection: "accountKey" \| "hardwareKey"`, `openUntil \| null`) | | live (a closed hardware vault has `name: null`, `available: false`; `openUntil` is a wall-clock projection of the monotonic deadline, display only) |
 | `create_vault` | `{ name }` → `VaultSummary` | `invalidInput` | live |
 | `rename_vault` | `{ vaultId, name }` → `VaultSummary` | `invalidInput`, `vaultNotFound`, `vaultUnavailable` | live |
+| `create_hardware_vault` | `{ name, pin \| null }` → `VaultSummary` | as `enroll_hardware_key`, `invalidInput` | live (unsupported until ADR-0029) |
+| `open_hardware_vault` | `{ vaultId, pin \| null }` → `VaultSummary` | `vaultNotFound`, `invalidInput`, `hardwareKeyNotRecognized`, device codes | live |
+| `close_hardware_vault` | `{ vaultId }` → `null` | `vaultNotFound`, `invalidInput` | live |
+| `hardware_vault_keys` | `{ vaultId }` → `{ keys }` | `vaultNotFound`, `invalidInput` | live |
+| `add_hardware_vault_key` | `{ vaultId, pin \| null }` → `{ keys }` | `reauthRequired` (no `reauthenticate` in the last two minutes), `vaultUnavailable`, `hardwareKeyLimit`, device codes | live |
+| `remove_hardware_vault_key` | `{ vaultId, methodId }` → `{ keys }` | `vaultUnavailable`, `hardwareKeyLast`, `hardwareKeyNotRecognized` | live |
 | **Items** | | | |
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
 | `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live |
@@ -90,7 +113,7 @@ Status: **live** means wired now. `unlock_quick` is the only stub.
 | `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound` | live |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
-| `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound` | live |
+| `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`) | live |
 | **Clipboard** | | | |
 | `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable` | live |
 | `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | live |
@@ -99,7 +122,7 @@ Status: **live** means wired now. `unlock_quick` is the only stub.
 | `totp_code` | `{ vaultId, itemId }` → `{ code, secondsRemaining \| null, period \| null }` | `noOtp`, `vaultUnavailable` | live |
 | **Settings** | | | |
 | `get_settings` | `null` → `Settings` | | live (stored in `settings.json` in the app data directory) |
-| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing), `wrongCredentials` (the vault locks), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`) | live |
+| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing, or raising `quickUnlockMaxAgeDays`), `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`) | live |
 | **Security insights** | | | |
 | `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
@@ -169,6 +192,7 @@ Notes per area:
 | `sshApprovalClosed` | `{ requestId, reason: "answered" \| "expired" \| "locked" }` | Close it. |
 | `sshSignFailed` | `{ requestId, vaultId, itemId, reason: "passphraseRequired" \| "wrongPassphrase" \| "keyMalformed" \| "kdfTooExpensive" \| "publicKeyMismatch" \| "unsupported" \| "internal" }` | A sign request failed after approval; show `ssh.signFailed.<reason>`. No secret. |
 | `quickSearchRequested` | none | The global shortcut was pressed while unlocked; open the command palette. |
+| `hardwareVaultClosed` | `{ vaultId }` | A hardware vault closed itself (timer or lock). Drop revealed codes and show the closed panel. |
 
 The latest `subscribe_events` call wins (one main window). After subscribing, the
 webview re-reads `session_state`, since events are notifications and not a log.
@@ -183,7 +207,11 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentQuota`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `busy`,
-`internal`.
+`internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
+`hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
+`hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,
+`hardwareKeyNoPin`, `hardwareKeyNotRecognized`, `hardwareKeyLimit`, `hardwareKeyLast`,
+`itemTypeNotAllowed`.
 
 The UI message for each code is `error.<code>` in `packages/i18n`. Rust maps
 `mosaic-vault` and `mosaic-core` errors to codes in `contract/errors.rs`. Anything
@@ -193,7 +221,7 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code` |
 
 `SecretOut` is the only contract type that serializes a secret, and a fixture test fails
@@ -217,7 +245,14 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
 
 - `pnpm --filter @mosaic/desktop dev:mock`: the UI in a browser at
   http://localhost:1420. Options: `?mock=noAccount|locked|unlocked` and `&latency=300`.
-  The sample account's master password is `mosaic`.
+  The sample account's master password is `mosaic`. Quick unlock:
+  `&quick=biometric,hardwareKey` seeds an enrolled Windows Hello and one security key (and
+  turns on key support, which the real backend still reports as unsupported), plus one
+  closed hardware vault "Codes (security key)" with two codes; `&bioPlatform=windowsHello|touchId|none`,
+  `&quickFail=<errorCode>` fails `unlock_quick` (expiry codes also drop the method),
+  `&touchMs=<ms>` delays a key touch (cancel with `hardware_key_cancel`) and
+  `&hwOpenSeconds=<s>` sets how long a hardware vault stays open (default 300). A security
+  key needs the PIN `1234`.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no

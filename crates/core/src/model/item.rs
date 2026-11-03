@@ -1129,6 +1129,15 @@ impl fmt::Debug for ItemEdit<'_> {
 }
 
 impl ItemEdit<'_> {
+    /// The OTP configuration as this edit currently sees it, so a caller can
+    /// adjust it in the same edit ([`Item::otp`] for the item itself).
+    #[must_use]
+    pub fn otp(&self) -> Option<OtpConfig> {
+        self.doc
+            .value(OTP)
+            .and_then(|v| OtpConfig::from_value(v).ok())
+    }
+
     /// The stamp of this edit, ticked on the first change. A deleted item
     /// takes no edits ([`Item::undelete`] first).
     fn stamp(&mut self) -> Result<Stamp> {
@@ -1628,5 +1637,21 @@ mod tests {
         ] {
             assert_eq!(history_stamp(&bad), None, "{bad}");
         }
+    }
+
+    /// `ItemEdit::otp` shows the configuration set earlier in the same edit.
+    #[test]
+    fn an_edit_sees_its_own_otp_configuration() {
+        let d = DeviceId::from_bytes([0xAB; 16]).unwrap();
+        let at = Timestamp::from_unix_millis(1);
+        let mut item = Item::new(&ItemType::Totp, d, at).unwrap();
+        let mut e = item.edit(d, at);
+        assert!(e.otp().is_none());
+        let mut config = OtpConfig::totp(SecretVec::from_slice(b"12345678901234567890").unwrap());
+        e.set_otp(&config).unwrap();
+        assert!(!e.otp().unwrap().hardware_protected);
+        config.hardware_protected = true;
+        e.set_otp(&config).unwrap();
+        assert!(e.otp().unwrap().hardware_protected);
     }
 }

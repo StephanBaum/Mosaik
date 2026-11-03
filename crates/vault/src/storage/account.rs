@@ -218,6 +218,30 @@ impl Store {
         params: &PasswordParams,
         password_wrapping: &WrappedKey,
     ) -> Result<()> {
+        self.update_password_removing(params, password_wrapping, &[])
+            .map(drop)
+    }
+
+    /// §6.4 and §6.2 in one transaction: replaces the password parameters
+    /// and wrapping and deletes the given other unlock methods (quick unlock
+    /// does not survive a password change), then scrubs the WAL. Returns the
+    /// rows that were deleted, so the caller can delete the platform keys
+    /// that belong to them. Methods in `remove` that are not stored are
+    /// skipped.
+    ///
+    /// # Errors
+    /// As for [`Store::update_password`], plus
+    /// [`Error::PasswordMethodReserved`] if `remove` holds the password
+    /// method (checked before anything is written).
+    pub fn update_password_removing(
+        &mut self,
+        params: &PasswordParams,
+        password_wrapping: &WrappedKey,
+        remove: &[UnlockMethod],
+    ) -> Result<Vec<StoredUnlockMethod>> {
+        if remove.iter().any(|m| matches!(m, UnlockMethod::Password)) {
+            return Err(Error::PasswordMethodReserved);
+        }
         let tx = self.write()?;
         let stored = read_account(&tx)?.ok_or(Error::NoAccount)?;
         check_params(params, &stored)?;
@@ -229,8 +253,28 @@ impl Store {
             password_wrapping,
             &[],
         )?;
+        let mut removed = Vec::new();
+        for method in remove {
+            let key = (method.id(), method.method_id(&stored.account_id));
+            let row: Option<UnlockRow> = tx
+                .query_row(
+                    "SELECT method, method_id, wrapped_ak, params, updated_at FROM unlock_methods
+                     WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .optional()?;
+            if let Some(row) = row {
+                removed.push(decode_unlock(&stored.account_id, row)?);
+                tx.execute(
+                    "DELETE FROM unlock_methods WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                )?;
+            }
+        }
         tx.commit()?;
-        self.scrub_wal()
+        self.scrub_wal()?;
+        Ok(removed)
     }
 
     /// Applies a §6.6 full re-key in one transaction: the new password
@@ -328,6 +372,61 @@ impl Store {
         self.scrub_wal()
     }
 
+    /// Stores one quick-unlock or hardware-key wrapping and deletes the
+    /// given other methods in ONE transaction, then scrubs the WAL once
+    /// (the enrollment of a quick-unlock wrapping replaces the previous
+    /// one: either both happen or neither). Returns the rows that were
+    /// deleted, so the caller can delete the platform keys that belong to
+    /// them. Methods in `remove` that are not stored, or that equal the
+    /// stored one, are skipped.
+    ///
+    /// # Errors
+    /// As for [`Store::put_unlock_method`], plus
+    /// [`Error::PasswordMethodReserved`] if `remove` holds the password
+    /// method (checked before anything is written).
+    pub fn replace_unlock_methods(
+        &mut self,
+        put: (&UnlockMethod, &WrappedKey, &[u8]),
+        remove: &[UnlockMethod],
+    ) -> Result<Vec<StoredUnlockMethod>> {
+        let (method, wrapped_account_key, method_params) = put;
+        check_other_method(method, method_params)?;
+        if remove.iter().any(|m| matches!(m, UnlockMethod::Password)) {
+            return Err(Error::PasswordMethodReserved);
+        }
+        let tx = self.write()?;
+        let account = read_account(&tx)?.ok_or(Error::NoAccount)?;
+        let mut removed = Vec::new();
+        for old in remove.iter().filter(|m| *m != method) {
+            let key = (old.id(), old.method_id(&account.account_id));
+            let row: Option<UnlockRow> = tx
+                .query_row(
+                    "SELECT method, method_id, wrapped_ak, params, updated_at FROM unlock_methods
+                     WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .optional()?;
+            if let Some(row) = row {
+                removed.push(decode_unlock(&account.account_id, row)?);
+                tx.execute(
+                    "DELETE FROM unlock_methods WHERE method = ?1 AND method_id = ?2",
+                    params![key.0, key.1],
+                )?;
+            }
+        }
+        upsert_unlock(
+            &tx,
+            &account.account_id,
+            method,
+            wrapped_account_key,
+            method_params,
+        )?;
+        tx.commit()?;
+        self.scrub_wal()?;
+        Ok(removed)
+    }
+
     /// The stored wrapping for `method`, if any.
     ///
     /// # Errors
@@ -411,6 +510,64 @@ mod tests {
         let w = Kek::from_secret(SecretBytes::random().unwrap());
         let wrapped = ak.wrap(&w, &p.account_id, method).unwrap();
         (ak, w, wrapped)
+    }
+
+    #[test]
+    fn update_password_removing_is_atomic_and_returns_rows() {
+        let mut s = Store::open_in_memory().unwrap();
+        let p = params(Argon2Profile::Standard);
+        let (_, _, wrapped) = wrapping(&p, &UnlockMethod::Password);
+        s.init_account(&p, &wrapped).unwrap();
+        let quick = UnlockMethod::QuickUnlock(DeviceId::new_v7().unwrap());
+        let hw = UnlockMethod::hardware_key(&[7; 32]);
+        let (_, _, wq) = wrapping(&p, &quick);
+        let (_, _, wh) = wrapping(&p, &hw);
+        s.put_unlock_method(&quick, &wq, &[1]).unwrap();
+        s.put_unlock_method(&hw, &wh, &[2]).unwrap();
+
+        // The password method is never removable, and nothing is written.
+        let p2 = PasswordParams {
+            salt: AccountSalt::generate().unwrap(),
+            ..p
+        };
+        let (_, _, new_wrapped) = wrapping(&p2, &UnlockMethod::Password);
+        assert!(matches!(
+            s.update_password_removing(&p2, &new_wrapped, &[UnlockMethod::Password]),
+            Err(Error::PasswordMethodReserved)
+        ));
+        assert_eq!(s.account().unwrap(), Some(p));
+        assert_eq!(s.unlock_methods().unwrap().len(), 3);
+
+        // A weaker profile fails before any row is deleted.
+        let weaker = PasswordParams {
+            profile: Argon2Profile::Baseline,
+            ..p2
+        };
+        assert!(matches!(
+            s.update_password_removing(&weaker, &new_wrapped, &[quick]),
+            Err(Error::ProfileDowngrade)
+        ));
+        assert_eq!(s.unlock_methods().unwrap().len(), 3);
+
+        // Success: password replaced, quick row returned and gone, the
+        // hardware row and a missing method are untouched.
+        let missing = UnlockMethod::QuickUnlock(DeviceId::new_v7().unwrap());
+        let removed = s
+            .update_password_removing(&p2, &new_wrapped, &[quick, missing])
+            .unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].method, quick);
+        assert_eq!(removed[0].params, [1]);
+        assert_eq!(s.account().unwrap(), Some(p2));
+        assert_eq!(s.unlock_method(&quick).unwrap(), None);
+        assert!(s.unlock_method(&hw).unwrap().is_some());
+        assert_eq!(
+            s.unlock_method(&UnlockMethod::Password)
+                .unwrap()
+                .unwrap()
+                .wrapped_account_key,
+            new_wrapped
+        );
     }
 
     #[test]

@@ -24,6 +24,9 @@ use crate::kdf::{self, AccountSalt, TEST_COST};
 use crate::secret::{
     AccountKey, AttachmentKey, Kek, MasterPassword, SecretBytes, SecretKey, VaultKey,
 };
+use crate::unlock::{
+    PrfOutput, TotpVaultKey, hello_unlock_key, prf_hw_vault_key, prf_salt_input, prf_unlock_key,
+};
 
 const ACCOUNT: [u8; 16] = [0x0A; 16];
 const VAULT: [u8; 16] = [0x0B; 16];
@@ -127,6 +130,27 @@ mod spec_aad {
     pub(super) fn wrap_vault(account: &[u8; 16], vault: &[u8; 16], generation: u32) -> Vec<u8> {
         let mut a = start(&[0x01, 0x01], b"wrap/vault");
         a.extend_from_slice(account);
+        a.extend_from_slice(vault);
+        a.extend_from_slice(&generation.to_be_bytes());
+        a
+    }
+
+    /// §7.4: `01 01 || aad("wrap/hw-vault", account_id, vault_id, method_id[16])`.
+    pub(super) fn wrap_hw_vault(
+        account: &[u8; 16],
+        vault: &[u8; 16],
+        method_id: &[u8; 16],
+    ) -> Vec<u8> {
+        let mut a = start(&[0x01, 0x01], b"wrap/hw-vault");
+        a.extend_from_slice(account);
+        a.extend_from_slice(vault);
+        a.extend_from_slice(method_id);
+        a
+    }
+
+    /// §7.4: `01 01 || aad("wrap/vault-under-tk", vault_id, key_generation:u32)`.
+    pub(super) fn wrap_vault_under_tk(vault: &[u8; 16], generation: u32) -> Vec<u8> {
+        let mut a = start(&[0x01, 0x01], b"wrap/vault-under-tk");
         a.extend_from_slice(vault);
         a.extend_from_slice(&generation.to_be_bytes());
         a
@@ -438,11 +462,146 @@ fn golden_aad() {
         &aad,
     );
     let ak_aad = WrappedKey::ak_aad(&account, &UnlockMethod::Password);
+    let method_id = hw_method_id();
+    assert_eq!(
+        WrappedKey::tk_aad(&account, &vault, &method_id).as_bytes(),
+        spec_aad::wrap_hw_vault(&ACCOUNT, &VAULT, &method_id)
+    );
+    assert_eq!(
+        WrappedKey::vault_under_tk_aad(&vault, KeyGeneration::new(2).unwrap()).as_bytes(),
+        spec_aad::wrap_vault_under_tk(&VAULT, 2)
+    );
+    check(
+        "aad_wrap_hw_vault",
+        "Effective AAD of a TK wrapping (CRYPTO_SPEC 7.4): 01 01 || ctx(\"wrap/hw-vault\") || 00 || account_id || vault_id || method_id
+         account_id = 0a*16, vault_id = 0b*16, method_id = SHA-256(44*32)[..16]",
+        WrappedKey::tk_aad(&account, &vault, &method_id).as_bytes(),
+    );
+    check(
+        "aad_wrap_vault_under_tk",
+        "Effective AAD of a vault key under TK (CRYPTO_SPEC 7.4): 01 01 || ctx(\"wrap/vault-under-tk\") || 00 || vault_id || key_generation:u32
+         vault_id = 0b*16, key_generation = 2",
+        WrappedKey::vault_under_tk_aad(&vault, KeyGeneration::new(2).unwrap()).as_bytes(),
+    );
     check(
         "aad_wrap_ak",
         "Effective AAD of a password wrapping of AK (CRYPTO_SPEC 3, 6.1): 01 01 || ctx(\"wrap/ak\") || 00 || account_id || 01 || account_id\n\
          account_id = 0a*16",
         ak_aad.as_bytes(),
+    );
+}
+
+fn hw_method_id() -> [u8; 16] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest([0x44u8; 32])[..16].try_into().unwrap()
+}
+
+#[test]
+fn golden_hello_unlock_key() {
+    let signature = crate::secret::SecretVec::from_slice(&(0..=255u8).collect::<Vec<_>>()).unwrap();
+    let w = hello_unlock_key(&signature, &[0x11; 32]).unwrap();
+    check(
+        "hello_unlock_key",
+        "W = HKDF(ikm = signature, salt = challenge, info = ctx(\"hello-unlock\"), 32) (CRYPTO_SPEC 6.2)
+         signature = 00..ff (256 bytes), challenge = 11*32",
+        w.expose_secret(),
+    );
+}
+
+#[test]
+fn golden_prf_salt_input() {
+    check(
+        "prf_salt_input",
+        "SHA-256(\"WebAuthn PRF\" || 00 || prf_salt) (CRYPTO_SPEC 3)
+         prf_salt = 22*32",
+        &prf_salt_input(&[0x22; 32]),
+    );
+}
+
+fn prf33() -> PrfOutput {
+    PrfOutput::from_secret(SecretBytes::from_array(&mut [0x33; 32]))
+}
+
+#[test]
+fn golden_prf_unlock_key() {
+    let w = prf_unlock_key(&prf33(), &[0x44; 32]).unwrap();
+    check(
+        "prf_unlock_key",
+        "W = HKDF(ikm = PRF output, salt = SHA-256(credential_id), info = ctx(\"prf-unlock\"), 32) (CRYPTO_SPEC 6.3)
+         PRF output = 33*32, credential_id = 44*32",
+        w.expose_secret(),
+    );
+}
+
+#[test]
+fn golden_prf_hw_vault_key() {
+    let w = prf_hw_vault_key(&prf33(), &[0x44; 32]).unwrap();
+    check(
+        "prf_hw_vault_key",
+        "W_hw = HKDF(ikm = PRF output, salt = SHA-256(credential_id), info = ctx(\"prf-hw-vault\"), 32) (CRYPTO_SPEC 7.4)
+         PRF output = 33*32, credential_id = 44*32",
+        w.expose_secret(),
+    );
+}
+
+#[test]
+fn golden_wrapped_tk() {
+    let (account, vault, ..) = ids();
+    let w_hw = prf_hw_vault_key(&prf33(), &[0x44; 32]).unwrap();
+    let tk = TotpVaultKey(SecretBytes::from_array(&mut [0x55; 32]));
+    let method_id = hw_method_id();
+    let wrapped = tk
+        .wrap_with_nonce(&w_hw, &account, &vault, &method_id, &nonce())
+        .unwrap();
+    let golden = check(
+        "wrapped_tk",
+        "WrappedKey (CRYPTO_SPEC 7.4), label wrap/hw-vault
+         TK = 55*32, W_hw = golden prf_hw_vault_key, account_id = 0a*16, vault_id = 0b*16, method_id = SHA-256(44*32)[..16], nonce = 50..67
+         layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]",
+        wrapped.as_bytes(),
+    );
+    let pt = open_with_spec_aad(
+        &golden,
+        2,
+        w_hw.expose_secret(),
+        &spec_aad::wrap_hw_vault(&ACCOUNT, &VAULT, &method_id),
+    );
+    assert_eq!(pt.expose_secret(), &[0x55; 32]);
+    let decoded = WrappedKey::from_bytes(&golden).unwrap();
+    assert_eq!(
+        decoded
+            .unwrap_totp_vault_key(&w_hw, &account, &vault, &method_id)
+            .unwrap(),
+        tk
+    );
+}
+
+#[test]
+fn golden_vault_key_under_tk() {
+    let (_, vault, ..) = ids();
+    let tk = TotpVaultKey(SecretBytes::from_array(&mut [0x55; 32]));
+    let key = vk(2);
+    let wrapped = key.wrap_under_tk_with_nonce(&tk, &vault, &nonce()).unwrap();
+    let golden = check(
+        "wrapped_vk_under_tk",
+        "WrappedKey (CRYPTO_SPEC 7.4), label wrap/vault-under-tk
+         TK = 55*32, VK = 30*32, key_generation = 2, vault_id = 0b*16, nonce = 50..67
+         layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]",
+        wrapped.as_bytes(),
+    );
+    let pt = open_with_spec_aad(
+        &golden,
+        2,
+        &[0x55; 32],
+        &spec_aad::wrap_vault_under_tk(&VAULT, 2),
+    );
+    assert_eq!(pt.expose_secret(), &[0x30; 32]);
+    let decoded = WrappedKey::from_bytes(&golden).unwrap();
+    assert_eq!(
+        decoded
+            .unwrap_vault_key_under_tk(&tk, &vault, KeyGeneration::new(2).unwrap())
+            .unwrap(),
+        key
     );
 }
 

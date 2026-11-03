@@ -1,0 +1,6 @@
+# WrappedKey (CRYPTO_SPEC 7.4), label wrap/hw-vault
+#          TK = 55*32, W_hw = golden prf_hw_vault_key, account_id = 0a*16, vault_id = 0b*16, method_id = SHA-256(44*32)[..16], nonce = 50..67
+#          layout: version(01) alg(01) nonce[24] ciphertext[32] tag[16]
+0101505152535455565758595a5b5c5d5e5f606162636465666742e1e4d587a5
+6e98517e828ca6847c61c3ee08cebae4b6eae66b3db1db626464d42a707620e5
+9b6d01f09fec0cf3a872

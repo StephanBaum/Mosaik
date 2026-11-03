@@ -119,3 +119,21 @@ export function useFindings(inSecurityView: boolean): readonly InsightFinding[] 
   }, [ipc, inSecurityView]);
   return findings;
 }
+
+/** Whether the backend can use security keys (hides the hardware-vault option otherwise). */
+export function useHardwareKeysSupported(): boolean {
+  const ipc = useIpc();
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    let current = true;
+    void ipc.call("quick_unlock_status", null).then((result) => {
+      if (current && result.ok) {
+        setSupported(result.value.hardwareKeys.supported);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [ipc]);
+  return supported;
+}

@@ -49,6 +49,10 @@ pub struct Settings {
     pub theme: Theme,
     /// UI language.
     pub language: Language,
+    /// How many days a biometric quick-unlock enrollment is used before the
+    /// master password is needed again (1 to 30). Raising it needs the
+    /// master password (CRYPTO_SPEC §6.2).
+    pub quick_unlock_max_age_days: u32,
 }
 
 impl Default for Settings {
@@ -60,6 +64,7 @@ impl Default for Settings {
             clipboard_clear_seconds: Some(30),
             theme: Theme::System,
             language: Language::System,
+            quick_unlock_max_age_days: 14,
         }
     }
 }
@@ -72,7 +77,8 @@ pub struct UpdateSettingsRequest {
     /// The new settings.
     pub settings: Settings,
     /// The master password. Required (else `reauthRequired`) when the change
-    /// turns auto-lock or clipboard clearing off; `null` otherwise.
+    /// turns auto-lock or clipboard clearing off, or raises the quick-unlock
+    /// maximum age; `null` otherwise.
     pub password: Option<SecretIn>,
 }
 
@@ -90,6 +96,7 @@ pub(crate) mod samples {
                 clipboard_clear_seconds: None,
                 theme: Theme::Dark,
                 language: Language::De,
+                quick_unlock_max_age_days: 30,
             },
         ]
     }

@@ -883,7 +883,8 @@ fn a_failed_load_returns_the_locked_session() {
         .conn_for_tests()
         .execute_batch("DROP TABLE local_device;")
         .unwrap();
-    let err = UnlockedSession::load(store, account_id, account_key).unwrap_err();
+    let err = UnlockedSession::load(store, account_id, account_key, super::QuickState::default())
+        .unwrap_err();
     assert!(matches!(err.error, Error::Store(StorageError::Database(_))));
     assert!(err.session.has_account().unwrap());
     assert_eq!(
@@ -1419,8 +1420,13 @@ impl UnlockedSession {
             store,
             account_id,
             account_key,
+            password_unlocked,
             ..
         } = self;
-        Self::load(store, account_id, account_key).unwrap()
+        let quick = super::QuickState {
+            password_unlocked,
+            failed_quick: 0,
+        };
+        Self::load(store, account_id, account_key, quick).unwrap()
     }
 }

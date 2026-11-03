@@ -3,7 +3,7 @@
  * top-most dialog without extra code. Put `autoFocus` on the control that should start
  * with focus.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { IconButton } from "./IconButton.tsx";
 
@@ -33,12 +33,21 @@ export function Dialog({
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
 
+  // Read while rendering, before the dialog or its `autoFocus` control takes focus.
+  const [opener] = useState(() => document.activeElement);
+
   useEffect(() => {
     const dialog = ref.current;
     if (dialog !== null && !dialog.open) {
       dialog.showModal();
     }
-  }, []);
+    // Whatever had focus when the dialog opened gets it back when the dialog goes away.
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
+        opener.focus();
+      }
+    };
+  }, [opener]);
 
   return (
     <dialog

@@ -1,7 +1,16 @@
 /** Mock session commands: the same state machine as `src-tauri/src/commands/session.rs`. */
 import type { SessionState } from "../contract/index.ts";
+import {
+  closeHardwareVault,
+  MOCK_REAUTH_MS,
+  quickMethods,
+  verifyQuickUnlock,
+} from "./quickUnlock.ts";
 import { startAgent } from "./ssh.ts";
-import { fail, randomIndex, requireUnlocked, type MockHandlers, type MockState } from "./state.ts";
+import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
+  type MockHandlers,
+  type MockState,
+} from "./state.ts";
 
 const SECRET_KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTVWXYZ";
 
@@ -27,7 +36,7 @@ export function sessionState(state: MockState): SessionState {
       state: "locked",
       email: state.account.email,
       secretKeyStored: state.secretKeyStored,
-      quickUnlock: [],
+      quickUnlock: quickMethods(state),
     };
   }
   return {
@@ -62,7 +71,14 @@ export const sessionHandlers: MockHandlers = {
     state.unlocked = true;
     state.kitVerified = false;
     state.vaults = [
-      { vaultId: state.nextId(), name: request.defaultVaultName.trim(), itemCount: 0, available: true },
+      {
+        vaultId: state.nextId(),
+        name: request.defaultVaultName.trim(),
+        itemCount: 0,
+        available: true,
+        protection: "accountKey",
+        openUntil: null,
+      },
     ];
     state.items = [];
     return {
@@ -115,19 +131,40 @@ export const sessionHandlers: MockHandlers = {
     }
     state.unlocked = true;
     state.secretKeyStored = true;
+    state.quick.passwordUsed = true;
     startAgent(state);
     return sessionState(state);
   },
 
-  unlock_quick: () => fail("quickUnlockUnavailable"),
+  reauthenticate: (state, request) => {
+    requireUnlocked(state);
+    if (request.password !== state.account?.password) {
+      fail("wrongCredentials");
+    }
+    state.quick.reauthUntil = state.now() + MOCK_REAUTH_MS;
+    return null;
+  },
 
   lock: (state) => {
     if (state.unlocked) {
       state.unlocked = false;
+      state.quick.reauthUntil = 0;
+      for (const vault of state.hardwareVaults) {
+        closeHardwareVault(state, vault, "lock");
+      }
       state.lastGenerated = null;
       state.heldImport = null;
       state.emit({ type: "locked", reason: "manual" });
     }
+    return sessionState(state);
+  },
+};
+
+export const sessionAsyncHandlers: MockAsyncHandlers = {
+  unlock_quick: async (state, request) => {
+    await verifyQuickUnlock(state, request);
+    state.unlocked = true;
+    startAgent(state);
     return sessionState(state);
   },
 };

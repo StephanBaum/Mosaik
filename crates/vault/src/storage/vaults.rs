@@ -258,6 +258,80 @@ impl Store {
         })
     }
 
+    /// Creates a hardware-protected vault (§7.4) with its first vault key
+    /// (wrapped under TK) and its first TK wrapping in ONE transaction, so
+    /// a crash can never leave a TK vault without a way to open it. The
+    /// vault's sealed metadata `meta` (sealed under `generation`) is stored
+    /// in the same transaction.
+    ///
+    /// # Errors
+    /// As [`Store::create_vault_with`] and [`Store::put_tk_wrapping`]
+    /// ([`Error::UnlockParamsTooLarge`]).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one transaction needs the vault, its key, its first TK wrapping and its metadata"
+    )]
+    pub fn create_tk_vault(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+        method_id: &[u8; 16],
+        wrapped_tk: &WrappedKey,
+        tk_params: &[u8],
+        meta: &VaultMetaCiphertext,
+    ) -> Result<VaultState> {
+        if tk_params.len() > MAX_UNLOCK_PARAMS_LEN {
+            return Err(Error::UnlockParamsTooLarge);
+        }
+        check_generation(generation, meta.key_generation())?;
+        let tx = self.write()?;
+        if read_vault(&tx, vault_id)?.is_some() {
+            return Err(Error::VaultExists);
+        }
+        if let Some(floor) = read_floor(&tx, vault_id)?
+            && generation < floor
+        {
+            return Err(Error::KeyGenerationRollback {
+                highest_accepted: floor.get(),
+                offered: generation.get(),
+            });
+        }
+        tx.execute(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at,
+                                 meta, meta_generation)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6)",
+            params![
+                vault_id.as_bytes(),
+                VaultKeyWrap::TotpKey.code(),
+                generation.get(),
+                now_ms(),
+                meta.as_bytes(),
+                meta.key_generation().get()
+            ],
+        )?;
+        upsert_key(&tx, vault_id, generation, wrapped_vault_key)?;
+        tx.execute(
+            "INSERT INTO tk_wrappings (vault_id, method_id, wrapped_tk, params, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                vault_id.as_bytes(),
+                method_id,
+                wrapped_tk.as_bytes(),
+                tk_params,
+                now_ms()
+            ],
+        )?;
+        tx.commit()?;
+        Ok(VaultState {
+            vault_id: *vault_id,
+            key_wrap: VaultKeyWrap::TotpKey,
+            current_generation: generation,
+            highest_accepted_generation: generation,
+        })
+    }
+
     /// The highest generation accepted for a vault before it was deleted
     /// from this store, if it ever was. It never decreases and is never
     /// removed.

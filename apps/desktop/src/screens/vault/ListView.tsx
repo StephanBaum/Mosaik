@@ -1,4 +1,6 @@
 /** The vault and trash views: the list pane beside the detail or editor, or the empty state. */
+import { useCallback, useState } from "react";
+import { useIpcEvent } from "../../hooks/useIpcEvent.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type {
   InsightFinding,
@@ -9,6 +11,7 @@ import type {
 import { EmptyVault } from "./EmptyVault.tsx";
 import { ItemDetail } from "./ItemDetail.tsx";
 import { ItemEditor } from "./ItemEditor.tsx";
+import { HardwareVaultBar, HardwareVaultPanel, type VaultTransition } from "./HardwareVaultPanel.tsx";
 import { ItemList } from "./ItemList.tsx";
 import type { Category } from "./useVaultData.ts";
 import type { Editor } from "./VaultLayout.tsx";
@@ -38,7 +41,8 @@ function Detail(props: ListViewProps) {
   if (editor.mode !== "closed") {
     return (
       <ItemEditor
-        vaults={vaults}
+        // New items go to vaults that hold any item type; hardware vaults hold codes only.
+        vaults={editor.mode === "new" ? vaults.filter((vault) => vault.protection === "accountKey") : vaults}
         vaultId={vaultId}
         editing={editor.mode === "edit" ? editor.detail : null}
         onSaved={(item) => {
@@ -75,6 +79,57 @@ function Detail(props: ListViewProps) {
 }
 
 export function ListView(props: ListViewProps) {
+  const { vaultId, trash, vaults } = props;
+  // A vault that just opened or closed moves focus and is announced (once).
+  const [transition, setTransition] = useState<VaultTransition | null>(null);
+  useIpcEvent((event) => {
+    if (event.type === "hardwareVaultClosed") {
+      setTransition({ kind: "closed", vaultId: event.vaultId });
+    }
+  });
+  // Looking at another vault: a close that happened elsewhere is no longer news.
+  const [shownVault, setShownVault] = useState(vaultId);
+  if (shownVault !== vaultId) {
+    setShownVault(vaultId);
+    setTransition(null);
+  }
+  const seen = useCallback(() => {
+    setTransition(null);
+  }, []);
+  const hardware = vaults.find((vault) => vault.vaultId === vaultId && vault.protection === "hardwareKey");
+  if (hardware !== undefined && !trash) {
+    const is = (kind: VaultTransition["kind"]) =>
+      transition?.kind === kind && transition.vaultId === hardware.vaultId;
+    // A closed hardware vault shows no items; an open one shows them under its own bar.
+    return hardware.available ? (
+      <div className="hw-open">
+        <HardwareVaultBar
+          vault={hardware}
+          focusLock={is("opened")}
+          onSeen={seen}
+          onClosed={() => {
+            setTransition({ kind: "closed", vaultId: hardware.vaultId });
+            props.onChanged();
+          }}
+        />
+        <Split {...props} />
+      </div>
+    ) : (
+      <HardwareVaultPanel
+        vault={hardware}
+        justClosed={is("closed")}
+        onSeen={seen}
+        onOpened={() => {
+          setTransition({ kind: "opened", vaultId: hardware.vaultId });
+          props.onChanged();
+        }}
+      />
+    );
+  }
+  return <Split {...props} />;
+}
+
+function Split(props: ListViewProps) {
   const { t } = useI18n();
   const { vaultId, trash, query, category, findings, selected, reloadKey, onSelect, onEditor } = props;
   return (

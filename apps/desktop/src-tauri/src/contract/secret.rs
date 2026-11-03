@@ -28,6 +28,12 @@ impl SecretIn {
         self.0.expose_secret()
     }
 
+    /// The secret as a zeroizing string, borrowed.
+    #[must_use]
+    pub fn as_secret(&self) -> &SecretString {
+        &self.0
+    }
+
     /// The secret as a zeroizing string.
     #[must_use]
     pub fn into_secret(self) -> SecretString {

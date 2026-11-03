@@ -363,7 +363,52 @@ key_newtype!(
     16
 );
 
+key_newtype!(
+    /// One 32-byte WebAuthn PRF / CTAP hmac-secret output (CRYPTO_SPEC §3).
+    PrfOutput,
+    32
+);
+
+key_newtype!(
+    /// The key `TK` of a hardware-protected TOTP vault (CRYPTO_SPEC §7.4).
+    TotpVaultKey,
+    32
+);
+
+impl PrfOutput {
+    /// Wraps the 32 bytes the authenticator returned.
+    #[must_use]
+    pub fn from_secret(secret: SecretBytes<32>) -> Self {
+        Self(secret)
+    }
+}
+
+impl TotpVaultKey {
+    /// `TK = random(32)` (§7.4).
+    ///
+    /// # Errors
+    /// [`Error::Randomness`] if the CSPRNG fails.
+    pub fn generate() -> Result<Self> {
+        Ok(Self(SecretBytes::random()?))
+    }
+}
+
 impl Kek {
+    /// A random `W` (macOS quick unlock, §6.2).
+    ///
+    /// # Errors
+    /// [`Error::Randomness`] if the CSPRNG fails.
+    pub fn generate() -> Result<Self> {
+        Ok(Self(SecretBytes::random()?))
+    }
+
+    /// Borrows `W` so a platform keystore can encrypt it (macOS, §6.2).
+    /// Restricted API; never log it.
+    #[must_use]
+    pub fn expose_secret(&self) -> &[u8; 32] {
+        self.0.expose_secret()
+    }
+
     /// Uses an externally derived 32-byte secret as a wrapping key `W`, for
     /// unlock methods other than the password (quick unlock, hardware key).
     #[must_use]

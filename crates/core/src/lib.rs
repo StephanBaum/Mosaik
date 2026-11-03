@@ -56,6 +56,7 @@ pub mod model;
 mod rng;
 mod secret;
 mod secret_key;
+pub mod unlock;
 
 #[cfg(test)]
 mod golden;

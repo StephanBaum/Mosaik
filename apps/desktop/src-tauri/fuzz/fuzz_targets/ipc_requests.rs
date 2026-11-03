@@ -1,4 +1,4 @@
-//! The IPC request types: the first byte (minus `A`, modulo 23) picks the
+//! The IPC request types: the first byte (minus `A`, modulo 30) picks the
 //! type, the rest is the JSON body. Deserializing never panics, and
 //! `draft::prepare` refuses a bad draft with `invalidInput` only.
 #![no_main]
@@ -23,22 +23,33 @@ use contract::items::{
     AddItemRequest, ItemRequest, ListItemsRequest, MoveItemRequest, RevealRequest,
     SetFavoriteRequest, UpdateItemRequest,
 };
+use contract::quick_unlock::{
+    CreateHardwareVaultRequest, EnrollBiometricRequest, EnrollHardwareKeyRequest,
+    HardwareVaultKeyRequest, HardwareVaultRequest, RemoveHardwareKeyRequest,
+};
 use contract::session::{
-    CreateAccountRequest, QuickUnlockRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
+    CreateAccountRequest, QuickUnlockRequest, ReauthenticateRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
 };
 use contract::settings::UpdateSettingsRequest;
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
-use contract::vaults::{CreateVaultRequest, RenameVaultRequest};
+use contract::vaults::{CreateVaultRequest, RenameVaultRequest, VaultRequest};
 
 fn parse<'a, T: serde::Deserialize<'a>>(json: &'a [u8]) -> Option<T> {
     serde_json::from_slice(json).ok()
+}
+
+/// `parse_method_id` never panics and accepts only the canonical form.
+fn check_method_id(text: &str) {
+    if let Some(id) = contract::quick_unlock::parse_method_id(text) {
+        assert_eq!(contract::quick_unlock::method_id_hex(&id), text);
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 23;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 31;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -74,6 +85,22 @@ fuzz_target!(|data: &[u8]| {
         19 => drop(parse::<ImportCancelRequest>(json)),
         20 => drop(parse::<SshSetEnabledRequest>(json)),
         21 => drop(parse::<SaveKitRequest>(json)),
+        22 => drop(parse::<EnrollBiometricRequest>(json)),
+        23 => drop(parse::<EnrollHardwareKeyRequest>(json)),
+        24 => {
+            if let Some(r) = parse::<RemoveHardwareKeyRequest>(json) {
+                check_method_id(&r.method_id);
+            }
+        }
+        25 => drop(parse::<CreateHardwareVaultRequest>(json)),
+        26 => drop(parse::<HardwareVaultRequest>(json)),
+        27 => {
+            if let Some(r) = parse::<HardwareVaultKeyRequest>(json) {
+                check_method_id(&r.method_id);
+            }
+        }
+        28 => drop(parse::<VaultRequest>(json)),
+        29 => drop(parse::<ReauthenticateRequest>(json)),
         _ => drop(parse::<SshRespondRequest>(json)),
     }
 });

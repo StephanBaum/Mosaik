@@ -14,7 +14,7 @@ function renderEditor() {
       <IpcProvider ipc={createMockIpc({ start: "unlocked" })}>
         <ToastProvider>
           <ItemEditor
-            vaults={[{ vaultId: "v1", name: "Personal", itemCount: 0, available: true }]}
+            vaults={[{ vaultId: "v1", name: "Personal", itemCount: 0, available: true, protection: "accountKey", openUntil: null }]}
             vaultId="v1"
             editing={null}
             onSaved={vi.fn()}

@@ -7,6 +7,7 @@ import { catalogs, type MessageKey } from "@mosaic/i18n";
 import { describe, expect, it } from "vitest";
 import { fixtures } from "./contract.fixtures.ts";
 import {
+  biometricPlatformKinds,
   channelCommands,
   commandNames,
   customFieldKinds,
@@ -35,6 +36,7 @@ import {
   themes,
   trashFilters,
   urlMatchModes,
+  vaultProtections,
   type ErrorCode,
 } from "./contract/index.ts";
 import type { EnumFixtures } from "./contract/fixtures.ts";
@@ -48,6 +50,7 @@ describe("contract parity with Rust", () => {
   });
 
   const enums: { [K in keyof EnumFixtures]: readonly string[] } = {
+    biometricPlatformKind: biometricPlatformKinds,
     errorCode: errorCodes,
     quickUnlockKind: quickUnlockKinds,
     itemKind: itemKinds,
@@ -74,6 +77,7 @@ describe("contract parity with Rust", () => {
     sshCloseReason: sshCloseReasons,
     lockReason: lockReasons,
     syncStatus: syncStatuses,
+    vaultProtection: vaultProtections,
   };
 
   it.each(Object.entries(enums))("%s has the same values", (name, values) => {

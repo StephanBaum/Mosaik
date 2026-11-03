@@ -4,7 +4,7 @@
 
 use mosaic_core::model::OtpKind;
 use mosaic_core::{ItemId, SecretString, VaultId};
-use mosaic_vault::session::UnlockedSession;
+use mosaic_vault::session::{UnlockedSession, VaultProtection};
 use tauri::State;
 
 use super::clipboard::now_unix_seconds;
@@ -24,22 +24,23 @@ pub async fn totp_code(state: State<'_, AppState>, request: ItemRequest) -> IpcR
 /// remaining and its period (both `None` for HOTP).
 ///
 /// # Errors
-/// `itemNotFound`, `itemDeleted`, `noOtp`, `vaultUnavailable` (a
-/// hardware-protected secret, CRYPTO_SPEC §7.4: TK unlock is not built yet,
-/// M2-R6).
+/// `vaultNotFound`, `itemNotFound`, `itemDeleted`, `noOtp`,
+/// `vaultUnavailable` (a hardware-protected vault that is closed,
+/// CRYPTO_SPEC §7.4).
 pub(crate) fn current_code(
     session: &mut UnlockedSession,
     vault_id: VaultId,
     item_id: ItemId,
 ) -> IpcResult<(SecretString, Option<u32>, Option<u32>)> {
+    // A closed hardware-protected vault holds no items in memory: say why.
+    if session.vault_protection(vault_id)? == (VaultProtection::HardwareKey { open: false }) {
+        return Err(IpcError::new(ErrorCode::VaultUnavailable));
+    }
     let item = session.item(vault_id, item_id)?;
     if item.is_deleted() {
         return Err(IpcError::new(ErrorCode::ItemDeleted));
     }
     let config = item.otp().ok_or(IpcError::new(ErrorCode::NoOtp))?;
-    if config.hardware_protected {
-        return Err(IpcError::new(ErrorCode::VaultUnavailable));
-    }
     let code = session.otp_code(vault_id, item_id, now_unix_seconds()?)?;
     let time_based = config.kind != OtpKind::Hotp;
     Ok((

@@ -1,9 +1,10 @@
 //! Session commands: state, account creation, Emergency Kit check, unlock,
-//! quick unlock, lock, and the event subscription. Also the Emergency Kit
-//! PDF and re-authentication, which the other commands use.
+//! lock, and the event subscription. Also the Emergency Kit PDF and
+//! re-authentication, which the other commands use. Quick unlock is in
+//! `commands/quick_unlock.rs`.
 
 use mosaic_core::{AccountId, MasterPassword, SecretKey};
-use mosaic_vault::session::{LockedSession, UnlockError};
+use mosaic_vault::session::{Error as SessionError, LockedSession, UnlockError};
 use tauri::State;
 use tauri::ipc::Channel;
 
@@ -12,11 +13,12 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::secret::{SecretIn, SecretOut};
 use crate::contract::session::{
     AppStatus, CreateAccountRequest, CreatedAccount, EmergencyKit, KitSaved, KitVerification,
-    QuickUnlockRequest, SaveKitRequest, SessionState, ShortcutState, UnlockRequest,
+    ReauthenticateRequest, SaveKitRequest, SessionState, ShortcutState, UnlockRequest,
     VerifyKitRequest,
 };
 use crate::emergency_kit::{self, KitValues};
 use crate::persist::{AccountInfo, valid_email};
+use crate::quick_unlock::MAX_FAILED_REAUTH;
 use crate::shortcut::ShortcutStatus;
 use crate::state::{AppState, Backend, Slot, guard};
 
@@ -68,19 +70,19 @@ pub async fn unlock(state: State<'_, AppState>, request: UnlockRequest) -> IpcRe
     state.run(move |b| b.unlock(request)).await
 }
 
-/// `unlock_quick`.
-#[tauri::command]
-pub async fn unlock_quick(
-    state: State<'_, AppState>,
-    request: QuickUnlockRequest,
-) -> IpcResult<SessionState> {
-    state.run(move |b| b.unlock_quick(&request)).await
-}
-
 /// `lock`.
 #[tauri::command]
 pub async fn lock(state: State<'_, AppState>) -> IpcResult<SessionState> {
     state.run(|b| b.lock(LockReason::Manual)).await
+}
+
+/// `reauthenticate`.
+#[tauri::command]
+pub async fn reauthenticate(
+    state: State<'_, AppState>,
+    request: ReauthenticateRequest,
+) -> IpcResult<()> {
+    state.run(move |b| b.reauthenticate(request.password)).await
 }
 
 /// `subscribe_events`: the webview hands over a channel for [`AppEvent`]s.
@@ -123,7 +125,7 @@ impl Backend {
         self.secret_keys.load(account).ok().flatten()
     }
 
-    fn state_of(&self, slot: &Slot) -> IpcResult<SessionState> {
+    pub(crate) fn state_of(&self, slot: &Slot) -> IpcResult<SessionState> {
         let account = self.account();
         let email = account.as_ref().and_then(|a| a.email.clone());
         match slot {
@@ -135,7 +137,9 @@ impl Backend {
                         email,
                         secret_key_stored: account
                             .is_some_and(|a| self.secret_keys.is_stored(a.account_id.get())),
-                        quick_unlock: self.quick_unlock.offered(),
+                        quick_unlock: self
+                            .quick_unlock
+                            .offered(locked, &self.quick_unlock_policy()),
                     })
                 } else {
                     Ok(SessionState::NoAccount)
@@ -151,7 +155,7 @@ impl Backend {
 
     /// Starts the SSH agent after an unlock if the user turned it on. A
     /// failure shows up as `error` in `ssh_agent_status`.
-    fn start_ssh_if_enabled(&self, slot: &Slot) {
+    pub(crate) fn start_ssh_if_enabled(&self, slot: &Slot) {
         if self.stored().ssh_agent_enabled
             && let Ok(session) = slot.unlocked()
         {
@@ -185,7 +189,7 @@ impl Backend {
 
     /// Records the unlocked account in the state file (best effort: a file
     /// that cannot be written keeps the state in memory).
-    fn remember_account(&self, account_id: AccountId, email: Option<String>) {
+    pub(crate) fn remember_account(&self, account_id: AccountId, email: Option<String>) {
         let _ = self.update_stored(|stored| {
             let keep = stored
                 .account
@@ -327,6 +331,7 @@ impl Backend {
                 self.remember_account(account_id, None);
                 self.start_ssh_if_enabled(&slot);
                 self.touch();
+                self.reconcile_slot(&mut slot);
                 self.state_of(&slot)
             }
             Err(UnlockError { session, error }) => {
@@ -336,42 +341,31 @@ impl Backend {
         }
     }
 
-    /// Quick unlock (CRYPTO_SPEC §6.2). Answers `quickUnlockUnavailable`
-    /// without any OS prompt until `mosaic-vault` can unlock with a
-    /// quick-unlock wrapping (ADR-0020 item 7, PROGRESS M3-R6).
-    ///
-    /// # Errors
-    /// `alreadyUnlocked`, `quickUnlockUnavailable`, the store's code.
-    pub fn unlock_quick(&self, request: &QuickUnlockRequest) -> IpcResult<SessionState> {
-        {
-            let slot = self.slot()?;
-            match &*slot {
-                Slot::Unlocked(_) => return Err(IpcError::new(ErrorCode::AlreadyUnlocked)),
-                Slot::Unavailable(code) => return Err(IpcError::new(*code)),
-                Slot::Taken => return Err(IpcError::new(ErrorCode::Busy)),
-                Slot::Locked(_) => {}
-            }
-        }
-        // With vault support: release the platform secret
-        // (`self.quick_unlock.platform(method)`, the OS prompt), derive W in
-        // mosaic-core, and unlock with the method-0x02 wrapping. Until then
-        // no OS call is made.
-        let _ = request.method;
-        Err(IpcError::new(ErrorCode::QuickUnlockUnavailable))
-    }
-
     /// Locks: drops every key and decrypted item (they zeroize), then
     /// [`Backend::after_lock`]. Locking a locked vault is a no-op.
     ///
     /// # Errors
     /// The store's code when it is unavailable.
     pub fn lock(&self, reason: LockReason) -> IpcResult<SessionState> {
+        self.lock_with(reason, false)
+    }
+
+    /// [`Backend::lock`] that also refuses every quick-unlock method until
+    /// the next password unlock (the reauth-limit lock, ADR-0028 item 8):
+    /// a plain lock resets the failed-attempt count, so locking after five
+    /// wrong passwords would otherwise let the next Hello prompt reopen the
+    /// guessing.
+    fn lock_with(&self, reason: LockReason, require_password: bool) -> IpcResult<SessionState> {
         let mut slot = self.slot()?;
         let mut locked_now = false;
         if matches!(*slot, Slot::Unlocked(_))
             && let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken)
         {
-            *slot = Slot::Locked(session.lock());
+            *slot = Slot::Locked(if require_password {
+                session.lock_requiring_password()
+            } else {
+                session.lock()
+            });
             locked_now = true;
         }
         let state = self.state_of(&slot);
@@ -383,10 +377,12 @@ impl Backend {
     }
 
     /// What follows every lock: the last generated password, import files
-    /// and adapter state are dropped, the clipboard is cleared if it still
-    /// holds what Mosaic copied, the lock hooks run (the onboarding kit window
-    /// closes) and the webview is told.
+    /// and adapter state are dropped, the quick-unlock grant is forgotten and
+    /// a running security-key operation is cancelled, the clipboard is
+    /// cleared if it still holds what Mosaic copied, the lock hooks run (the
+    /// onboarding kit window closes) and the webview is told.
     pub fn after_lock(&self, reason: LockReason) {
+        self.quick_unlock.on_lock();
         if let Ok(mut pending) = self.kit_pending.lock() {
             *pending = None;
         }
@@ -404,38 +400,51 @@ impl Backend {
     }
 
     /// Checks the master password while unlocked (UX_GUIDELINES §8: turning
-    /// a protection off needs it again).
-    ///
-    /// `mosaic-vault` has no verify method yet, so this re-derives the keys
-    /// the only way the frozen API allows: lock, then unlock with
-    /// `password` and the stored Secret Key. A wrong password therefore
-    /// leaves the vault **locked** (`wrongCredentials` plus the `locked`
-    /// event), which is the conservative outcome; a session method
-    /// `verify_master_password` is proposed to keep it unlocked instead.
+    /// a protection off, or enrolling a quick method, needs it again) with
+    /// `UnlockedSession::verify_master_password`. Nothing locks or unlocks:
+    /// the vault stays open on a wrong password. A right password keeps the
+    /// vault's `Reauthenticated` proof for two minutes (the enroll commands
+    /// take `password: null` within that time); the fifth wrong one in a row
+    /// locks the vault **and** requires the password for the next unlock
+    /// (no quick method is offered until then). Any lock resets the count
+    /// and drops the proof.
     ///
     /// # Errors
     /// `locked`, `secretKeyRequired`, `wrongCredentials`, `emptyPassword`.
     pub fn reauthenticate(&self, password: SecretIn) -> IpcResult<()> {
         let password = master_password(password);
-        let mut slot = self.slot()?;
-        let account = slot.unlocked()?.account_id();
+        let slot = self.slot()?;
+        let session = slot.unlocked()?;
         let key = self
-            .secret_key_of(account)
+            .secret_key_of(session.account_id())
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
-        let Slot::Unlocked(session) = std::mem::replace(&mut *slot, Slot::Taken) else {
-            return Err(IpcError::INTERNAL);
-        };
-        match session.lock().unlock(&password, &key) {
-            Ok(session) => {
-                *slot = Slot::Unlocked(Box::new(session));
+        match session.verify_master_password(&password, &key) {
+            Ok(proof) => {
+                self.quick_unlock.grant_reauth(proof);
                 Ok(())
             }
-            Err(UnlockError { session, error }) => {
-                *slot = Slot::Locked(session);
+            Err(SessionError::UnlockFailed) => {
                 drop(slot);
-                self.after_lock(LockReason::Manual);
-                Err(error.into())
+                if self.quick_unlock.reauth_failed() >= MAX_FAILED_REAUTH {
+                    let _ = self.lock_with(LockReason::Manual, true);
+                }
+                Err(IpcError::new(ErrorCode::WrongCredentials))
             }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The master password for a change that needs it: a non-empty
+    /// `password` is checked ([`Backend::reauthenticate`]); `null` passes
+    /// only within two minutes of a right one.
+    ///
+    /// # Errors
+    /// `reauthRequired`, and those of [`Backend::reauthenticate`].
+    pub(crate) fn require_reauth(&self, password: Option<SecretIn>) -> IpcResult<()> {
+        match password {
+            Some(password) if !password.expose_secret().is_empty() => self.reauthenticate(password),
+            _ if self.quick_unlock.reauth_granted() => Ok(()),
+            _ => Err(IpcError::new(ErrorCode::ReauthRequired)),
         }
     }
 
@@ -448,7 +457,7 @@ impl Backend {
     ///
     /// # Errors
     /// `locked`, `reauthRequired` (no or empty password), `wrongCredentials`
-    /// (the vault is then locked), `secretKeyRequired`, `invalidInput`
+    /// (the vault locks after five in a row), `secretKeyRequired`, `invalidInput`
     /// (labels, or a path that cannot be written), `internal` if no dialog
     /// can be shown.
     pub fn save_emergency_kit(&self, request: SaveKitRequest) -> IpcResult<KitSaved> {
@@ -495,7 +504,7 @@ impl Backend {
 }
 
 /// Takes the locked session out of the slot; the slot is unchanged on error.
-fn take_locked(slot: &mut Slot) -> IpcResult<LockedSession> {
+pub(crate) fn take_locked(slot: &mut Slot) -> IpcResult<LockedSession> {
     match std::mem::replace(slot, Slot::Taken) {
         Slot::Locked(locked) => Ok(locked),
         other => {

@@ -323,7 +323,7 @@ impl UnlockedSession {
     /// [`Error::Core`] with `Decryption` if the wrapping does not open;
     /// [`Error::KeyGenerationRollback`] for a generation below the
     /// accepted one; [`Error::VaultKeyConflict`]; [`Error::VaultUnavailable`]
-    /// for a hardware-protected vault.
+    /// for a hardware-protected vault (their sync is M6).
     pub fn apply_remote_vault_key(
         &mut self,
         vault_id: VaultId,
@@ -343,6 +343,12 @@ impl UnlockedSession {
             self.vaults.insert(vault_id, ov);
             return Ok(());
         };
+        if ov.protection == VaultKeyWrap::TotpKey {
+            // The keys of a hardware-protected vault (CRYPTO_SPEC 7.4) sit
+            // under its TK; an AK wrapping never joins them. Syncing them is
+            // M6.
+            return Err(Error::VaultUnavailable);
+        }
         if !ov.available() {
             return self.repair_vault_key(vault_id, generation, wrapped, &vk);
         }

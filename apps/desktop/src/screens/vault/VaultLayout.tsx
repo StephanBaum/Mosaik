@@ -4,6 +4,7 @@
  * SSH approval dialog live here too.
  */
 import type { MessageKey } from "@mosaic/i18n";
+import { useState } from "react";
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type {
@@ -19,10 +20,17 @@ import { SecurityDashboard } from "../SecurityDashboard.tsx";
 import { SettingsScreen } from "../SettingsScreen.tsx";
 import { SshApprovalDialog } from "../SshApprovalDialog.tsx";
 import { ListView } from "./ListView.tsx";
-import { Sidebar } from "./Sidebar.tsx";
+import { CreateVaultDialog } from "./CreateVaultDialog.tsx";
+import { Sidebar, vaultLabel } from "./Sidebar.tsx";
 import { TopBar } from "./TopBar.tsx";
+import { useHardwareVaultClosed } from "./useHardwareVaultClosed.ts";
 import { useShell, type Shell } from "./useShell.ts";
-import { useCategoryCounts, useFindings, useVaults, type Category } from "./useVaultData.ts";
+import {
+  useCategoryCounts,
+  useFindings,
+  useVaults,
+  type Category,
+} from "./useVaultData.ts";
 
 export type View = "vault" | "trash" | "security" | "generator" | "settings" | "import";
 
@@ -110,18 +118,24 @@ function MainArea({
   );
 }
 
+function labelOf(vault: VaultSummary | undefined, t: Translate): string {
+  return vault === undefined ? t("vault.unnamed") : vaultLabel(vault, t);
+}
+
 export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) => void }) {
   const events = useEvents();
   const { t } = useI18n();
   const shell = useShell(onLocked);
   const { view, vaultId, category, query, editor, itemCount } = shell;
   const vaults = useVaults(shell.reloadKey);
+  const [creating, setCreating] = useState(false);
+  useHardwareVaultClosed(shell);
   const counts = useCategoryCounts(vaultId, shell.reloadKey);
   const findings = useFindings(view === "security");
   const vaultName =
     vaultId === null
       ? t("vault.allVaults")
-      : (vaults.find((vault) => vault.vaultId === vaultId)?.name ?? t("vault.unnamed"));
+      : labelOf(vaults.find((vault) => vault.vaultId === vaultId), t);
 
   return (
     <div className="vault">
@@ -143,6 +157,9 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
         }}
         onView={shell.go}
         onLock={shell.lock}
+        onNewVault={() => {
+          setCreating(true);
+        }}
       />
       <TopBar
         vaultName={vaultName}
@@ -167,6 +184,18 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
           onNavigate={shell.go}
           onNewItem={shell.startNew}
           onLock={shell.lock}
+        />
+      )}
+      {creating && (
+        <CreateVaultDialog
+          onCreated={(vault) => {
+            shell.changed();
+            shell.setVaultId(vault.vaultId);
+            shell.go("vault");
+          }}
+          onClose={() => {
+            setCreating(false);
+          }}
         />
       )}
       <SshApprovalDialog />

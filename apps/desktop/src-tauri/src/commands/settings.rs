@@ -25,26 +25,35 @@ pub async fn update_settings(
 }
 
 /// Whether going from `old` to `new` turns a protection off: auto-lock on
-/// idle, on sleep or on screen lock, or clipboard clearing. The contract
-/// names auto-lock and clipboard clearing; the sleep and screen-lock
-/// switches are part of auto-lock here, the conservative reading.
+/// idle, on sleep or on screen lock, or clipboard clearing, or raises the
+/// quick-unlock maximum age. The contract names auto-lock and clipboard
+/// clearing; the sleep and screen-lock switches are part of auto-lock here,
+/// the conservative reading.
 #[must_use]
 pub fn weakens(old: &Settings, new: &Settings) -> bool {
     (old.auto_lock_minutes.is_some() && new.auto_lock_minutes.is_none())
         || (old.clipboard_clear_seconds.is_some() && new.clipboard_clear_seconds.is_none())
         || (old.lock_on_sleep && !new.lock_on_sleep)
         || (old.lock_on_screen_lock && !new.lock_on_screen_lock)
+        || new.quick_unlock_max_age_days > old.quick_unlock_max_age_days
 }
 
 impl Backend {
     /// Stores new settings (clamped). A change that turns a protection off
     /// needs `password`, checked against the vault.
     ///
+    /// A weakening change is turning a protection off or raising
+    /// `quickUnlockMaxAgeDays`.
+    ///
     /// # Errors
-    /// `invalidInput` when no lock trigger this system can deliver is on (CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`); `reauthRequired` without a password for a weakening change; `locked`
-    /// for a weakening change while locked; `wrongCredentials` (the vault is
-    /// then locked, see [`Backend::reauthenticate`]); `storeUnavailable` if
-    /// the file cannot be written (the settings apply anyway).
+    /// `invalidInput` when no lock trigger this system can deliver is on
+    /// (CRYPTO_SPEC §11; screen lock counts only where
+    /// `screenLockDetection`); `reauthRequired` without a password for a
+    /// weakening change; `locked` for a weakening change while locked;
+    /// `wrongCredentials` (the fifth one in a row locks the vault and
+    /// requires the password for the next unlock, see
+    /// [`Backend::reauthenticate`]); `storeUnavailable` if the file cannot
+    /// be written (the settings apply anyway).
     pub fn update_settings(&self, request: UpdateSettingsRequest) -> IpcResult<Settings> {
         if !has_lock_trigger(&request.settings, self.screen_lock_detection()) {
             return Err(IpcError::new(ErrorCode::InvalidInput));
@@ -62,6 +71,8 @@ impl Backend {
         }
         self.touch();
         let stored = self.update_stored(|stored| stored.settings = new.clone());
+        // A shorter maximum age can expire the enrollment at once.
+        self.reconcile_quick_unlock();
         stored.map(|s| s.settings)
     }
 }
@@ -89,5 +100,12 @@ mod tests {
             assert!(weakens(&on, &off));
             assert!(!weakens(&off, &on), "turning it back on is free");
         }
+        let mut longer_age = on.clone();
+        longer_age.quick_unlock_max_age_days = on.quick_unlock_max_age_days + 1;
+        assert!(
+            weakens(&on, &longer_age),
+            "a longer quick-unlock age weakens"
+        );
+        assert!(!weakens(&longer_age, &on), "a shorter one is free");
     }
 }

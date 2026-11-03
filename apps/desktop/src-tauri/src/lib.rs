@@ -21,7 +21,8 @@
 //! - [`shortcut`]: the global shortcut (focuses the main window);
 //! - [`emergency_kit`] and [`dialogs`]: the Emergency Kit PDF, saved where
 //!   the user chooses;
-//! - [`quick_unlock`]: the platform half of quick unlock (Windows Hello);
+//! - [`quick_unlock`]: the platform half of quick unlock (Windows Hello,
+//!   Touch ID, security keys behind a trait);
 //! - [`adapters`]: the import and SSH agent services.
 //!
 //! CRYPTO_SPEC §11 floor: the auto-lock triggers (idle, sleep, screen lock)
@@ -59,7 +60,7 @@ use crate::contract::events::LockReason;
 use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
-use crate::quick_unlock::QuickUnlock;
+use crate::quick_unlock::QuickUnlockService;
 use crate::state::{AppState, Backend, Slot, guard};
 
 /// The store's file name in the app data directory.
@@ -128,7 +129,10 @@ pub fn run() -> tauri::Result<()> {
                 .with_persistence(persistence)
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
-                .with_quick_unlock(QuickUnlock::for_this_os());
+                .with_quick_unlock(QuickUnlockService::for_this_os());
+            // Removes an expired or orphaned quick-unlock enrollment and its
+            // platform key before the first unlock screen.
+            backend.reconcile_quick_unlock();
             let state = AppState::new(backend);
 
             let weak = state.downgrade();
@@ -186,6 +190,8 @@ pub fn run() -> tauri::Result<()> {
 mod flow_tests;
 #[cfg(test)]
 mod handler_tests;
+#[cfg(test)]
+mod quick_unlock_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

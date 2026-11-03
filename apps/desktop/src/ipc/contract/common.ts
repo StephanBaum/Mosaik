@@ -54,6 +54,21 @@ export const errorCodes = [
   "sshAgentEndpointInUse",
   "busy",
   "internal",
+  "cancelled",
+  "quickUnlockExpired",
+  "quickUnlockInvalidated",
+  "passwordRequired",
+  "hardwareKeyUnsupported",
+  "hardwareKeyNotFound",
+  "hardwareKeyTimeout",
+  "hardwareKeyPinRequired",
+  "hardwareKeyPinInvalid",
+  "hardwareKeyPinBlocked",
+  "hardwareKeyNoPin",
+  "hardwareKeyNotRecognized",
+  "hardwareKeyLimit",
+  "hardwareKeyLast",
+  "itemTypeNotAllowed",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 

@@ -62,8 +62,9 @@ store directly. The M6 sync client sits next to the session and uses its
 | `LockedSession::join_account(&PasswordParams, &WrappedKey, &MasterPassword, &SecretKey)` | Adds this device to an existing account (M6 pre-login data); nothing is stored on a wrong password. |
 | `LockedSession::unlock(&MasterPassword, &SecretKey)` | Password unlock (§6.1). Failures return `UnlockError { session, error }`, the locked session unchanged; `Error::UnlockFailed` does not say which secret was wrong. |
 | `UnlockedSession::lock(self)` → `LockedSession` | Drops AK, every VK, the decrypted items and the search index (all zeroize). |
+| `UnlockedSession::lock_requiring_password(self)` → `LockedSession` | Like `lock`, and sets the failed-quick-attempt counter to `MAX_FAILED_QUICK_ATTEMPTS`: no quick method is offered or accepted until the next password unlock (ADR-0028 item 8; the app uses it for the five-wrong-reauthentications lock). |
 | `account_id`, `device_id`, `store`, `corrupt_records` | State and diagnostics. `device_id` is this session's writer ID, fresh for every unlock (ADR-0015, third M2 integration review). |
-| `change_master_password(current, new, &SecretKey)` → `PasswordChanged` | §6.4; returns the new params and `OPW'` for M6. |
+| `change_master_password(current, new, &SecretKey)` → `PasswordChanged` | §6.4; returns the new params and `OPW'` for M6. Since ADR-0028 it first runs `verify_master_password`, deletes every quick-unlock wrapping in the same transaction (`PasswordChanged::removed_quick_unlock`). The session API does not offer Secret Key rotation yet (`secret_key` must be the current one); when it does, it MUST also delete every quick-unlock wrapping. |
 | `rotate_device_id` | After `DeviceIdReused` (ADR-0009 item 7); then apply the record again. The old ID stays suspect for the session, so the re-applied record keeps both writers' values (ADR-0015). |
 | `create_vault(name)`, `vaults()` → `Vec<VaultSummary>`, `vault_meta`, `rename_vault`, `rotate_vault_key` | Vaults; names live only in encrypted metadata (`VaultSummary`'s `Debug` does not print them); key generations only go up, and a rotation re-seals and queues every readable record and the metadata (§7.1). |
 | `item`, `items(&ItemFilter)` → `Vec<ItemRef>`, `search(query)` | Reading. `ItemFilter { vault, trash: TrashFilter, favorites_only }`. `ItemFilter` is `#[non_exhaustive]` (third M2 integration review): start from `ItemFilter::default()` and set fields, so a new filter is additive. Search covers title, user name, email, URLs and tags, in memory only. |
@@ -73,6 +74,7 @@ store directly. The M6 sync client sits next to the session and uses its
 | `otp_code(vault, item, unix_time)` → `OtpCode { code, seconds_remaining }` | Current code of an item's OTP configuration; HOTP advances and saves the counter first. |
 | `apply_remote_record(&RemoteRecord)` → `ApplyOutcome` | Merge a received record (§10, ADR-0012): `New`, `FastForward`, `Merged { restored_fields, stamp_collision }`, `Ignored`, and (added in the third M2 integration review) `Split { conflict_copies }` for a merge above the item limit (ADR-0016; the count of conflict copies, each marked with `conflict_copy_of`; changed from `Split { conflict_copy: Option<ItemId> }` in the fourth M2 integration review, ADR-0016 amendment) and `ReplacedUnreadable` for a local row that could not be read and so had no rollback anchor (THREAT_MODEL R17). |
 | `apply_remote_vault_key(vault, generation, &WrappedKey)`, `apply_remote_vault_meta(vault, &VaultMetaCiphertext)` | New vaults, rotations, renames from other devices. A newer generation re-seals and queues every readable record still below it; the key of a held generation again is a no-op, a different one is `Error::VaultKeyConflict` (ADR-0013), a lower one `Error::KeyGenerationRollback`. A vault unavailable because its key row is damaged is repaired by a wrapping that opens (ADR-0012 amendment). Metadata merges with `VaultMeta::merge_and_repair` (`DeviceIdReused`, `Merged { stamp_collision }` as for records), and metadata that replaces an unreadable local metadata row is `ReplacedUnreadable` (fourth M2 integration review, ADR-0012 amendment). |
+| `verify_master_password` → `Reauthenticated` (a proof bound to the session, valid `REAUTH_GRANT` = 120 s; `enroll_quick_unlock(&Kek, params, &Reauthenticated)` and `enroll_hardware_key(&NewHardwareKey, &PrfOutput, &Reauthenticated)` refuse a missing, expired or foreign one with `Error::ReauthenticationRequired`, so the API enforces "enrolling needs the master password"), `LockedSession::note_failed_hardware_attempt`, quick unlock (`enroll_quick_unlock`, `remove_quick_unlock`, `quick_unlock_enrollment`, `LockedSession::{unlock_quick, quick_unlock_enrollment, remove_quick_unlock, password_required}`), hardware keys (`enroll_hardware_key`, `remove_hardware_key`, `hardware_keys`, `LockedSession::{unlock_with_hardware_key, hardware_keys}`), hardware-protected vaults (`create_hardware_vault`, `open_hardware_vault`, `close_hardware_vault`, `hardware_vault_keys`, `add_hardware_vault_key`, `remove_hardware_vault_key`, `vault_protection`), types `QuickUnlockPolicy`, `QuickUnlockEnrollment`, `HardwareKeyEnrollment`, `NewHardwareKey`, `VaultProtection` | CRYPTO_SPEC §6.2, §6.3, §7.4, ADR-0028 (added in M3). |
 | `pending_uploads(limit)`, `mark_uploaded(vault, record, OutboxSeq, server_seq)` | Outbox for the M6 client. |
 | `Error`, `Result` | `#[non_exhaustive]`; variants carry only IDs and key generations. `VaultKeyConflict { generation }` was added in the M2 integration review. |
 
@@ -106,7 +108,9 @@ Contracts the apps must keep:
 `config_from_otp(&Otp, issuer, label)` and `config_from_otp_auth(&OtpAuth)`
 → `(OtpConfig, counter)`, `otp_auth_from_config(&OtpConfig, counter)` →
 `OtpAuth` (for `otpauth://` export). Store the counter with
-`ItemEdit::set_otp_counter`.
+`ItemEdit::set_otp_counter`. `ItemEdit::otp()` (added in M3, ADR-0028) reads the
+configuration inside an edit so the session can keep `hardware_protected` in
+step with the vault in the same sync event.
 
 ### `storage` (restricted: `session`, the M6 sync client, migrations, tests)
 
@@ -125,7 +129,8 @@ cursors, device ID, `rekey_account`), the types `RecordBody`, `RecordKind`,
 `storage::Error` (with `VaultKeyConflict`, ADR-0013), the function
 `validate_attachment_ciphertext` (the §7.3 layout check the M6 server
 also runs on uploads) and the constant `MAX_UNLOCK_PARAMS_LEN` are
-restricted. Added in the third M2 integration review: `readable_vault_keys`
+restricted, including `Store::{create_tk_vault, update_password_removing}`
+(M3, ADR-0028). Added in the third M2 integration review: `readable_vault_keys`
 (the wrapped keys of a vault that decode, damaged rows left out);
 `mark_uploaded` returns `false` for a late acknowledgement of a superseded
 change instead of `StaleServerSeq`; `Store::open` resolves the path before
@@ -204,6 +209,12 @@ setup, tests and fuzzing):
   `as_bytes`), `DerivedKeys`, the
   `wrap` / `unwrap_*` methods, `seal_attachment`, `open_attachment`,
   `MAX_ATTACHMENT_LEN`, `attachment::ciphertext_len`.
+- **`unlock` module** (M3 unlock-method setup and `mosaic-vault`, ADR-0028):
+  `hello_unlock_key`, `prf_salt_input`, `credential_id_hash`,
+  `prf_unlock_key`, `prf_hw_vault_key`, `new_prf_salt`, `PrfOutput`,
+  `TotpVaultKey`, `Kek::generate`, `Kek::expose_secret`,
+  `VaultKey::wrap_under_tk`, `WrappedKey::{unwrap_totp_vault_key,
+  unwrap_vault_key_under_tk}`.
 - **Building blocks:** `encoding` (`ctx`, `CTX_PREFIX`, `pad`, `unpad`,
   `padded_len`, `PAD_BLOCK`, `PAD_MIN`; the AAD builder is crate-private),
   `kdf::{prepare_password, stretch, derive_keys}` with the intermediate
@@ -274,9 +285,9 @@ an RNG (ADR-0011). Internal: the `fuzzing` module.
 
 ## Expected additions (pre-approved as additive)
 
-- M3: quick unlock and hardware-key unlock on `LockedSession` (§6.2, §6.3;
-  the store already keeps the wrappings), TK unlock of a hardware-protected
-  TOTP vault (§7.4), a §6.6 re-key method on top of
+- M3: done (ADR-0028): quick unlock and hardware-key unlock on
+  `LockedSession` (§6.2, §6.3), TK unlock of a hardware-protected TOTP vault
+  (§7.4). Still to come: a §6.6 re-key method on top of
   `Store::rekey_account`, import helpers, a session method that hands an
   item's OTP code and fields to the extension one credential at a time
   (brief §4).

@@ -762,17 +762,12 @@ fn settings_persist_clamp_and_need_reauth_to_weaken() {
         .unwrap_err();
     assert_eq!(code(wrong), ErrorCode::WrongCredentials);
     assert!(
-        matches!(b.session_state().unwrap(), SessionState::Locked { .. }),
-        "a wrong re-auth locks"
+        matches!(b.session_state().unwrap(), SessionState::Unlocked { .. }),
+        "a wrong re-auth does not lock (M3-R8)"
     );
-    assert!(events(&log).contains(&json!({ "type": "locked", "reason": "manual" })));
+    assert!(!events(&log).contains(&json!({ "type": "locked", "reason": "manual" })));
     assert_eq!(b.settings_snapshot(), dark, "unchanged");
 
-    b.unlock(UnlockRequest {
-        password: SecretIn::test(PASSWORD),
-        secret_key: None,
-    })
-    .unwrap();
     let stored = b
         .update_settings(UpdateSettingsRequest {
             settings: off.clone(),
@@ -887,21 +882,25 @@ fn a_restart_remembers_the_account_and_finds_the_key() {
 }
 
 #[test]
-fn quick_unlock_is_unavailable_until_the_vault_supports_it() {
+fn quick_unlock_is_unavailable_without_a_platform() {
     let _kdf = crate::test_support::kdf_permit();
     let h = unlocked();
-    let request = req(json!({ "method": "biometric" }));
+    let mut request = req(json!({ "method": "biometric" }));
     assert_eq!(
-        code(h.backend.unlock_quick(&request).unwrap_err()),
+        code(h.backend.unlock_quick(&mut request).unwrap_err()),
         ErrorCode::AlreadyUnlocked
     );
     h.backend.lock(LockReason::Manual).unwrap();
-    for method in ["biometric", "hardwareKey"] {
+    // The default backend has neither a biometric platform nor security keys.
+    for (method, wanted) in [
+        ("biometric", ErrorCode::QuickUnlockUnavailable),
+        ("hardwareKey", ErrorCode::HardwareKeyUnsupported),
+    ] {
         let error = h
             .backend
-            .unlock_quick(&req(json!({ "method": method })))
+            .unlock_quick(&mut req(json!({ "method": method })))
             .unwrap_err();
-        assert_eq!(code(error), ErrorCode::QuickUnlockUnavailable);
+        assert_eq!(code(error), wanted);
     }
     let unavailable = Backend::new(
         Slot::Unavailable(ErrorCode::StoreInUse),
@@ -909,7 +908,7 @@ fn quick_unlock_is_unavailable_until_the_vault_supports_it() {
         || Ok(Argon2Profile::Baseline),
     );
     assert_eq!(
-        code(unavailable.unlock_quick(&request).unwrap_err()),
+        code(unavailable.unlock_quick(&mut request).unwrap_err()),
         ErrorCode::StoreInUse
     );
     assert_eq!(
@@ -1000,8 +999,11 @@ fn after_verification_the_kit_needs_the_password() {
         .save_emergency_kit(kit_request(Some("not the password")))
         .unwrap_err();
     assert_eq!(code(error), ErrorCode::WrongCredentials);
-    assert!(!b.is_unlocked(), "a wrong password locks the vault");
-    assert!(events(&events_log).contains(&json!({ "type": "locked", "reason": "manual" })));
+    assert!(
+        b.is_unlocked(),
+        "a wrong password no longer locks the vault"
+    );
+    assert!(!events(&events_log).contains(&json!({ "type": "locked", "reason": "manual" })));
 }
 
 #[test]
@@ -1622,11 +1624,6 @@ fn no_secret_leaks_into_errors_events_or_debug_output() {
         .unwrap_err(),
     );
     record_error(b.reauthenticate(SecretIn::test(ITEM_PASSWORD)).unwrap_err());
-    b.unlock(UnlockRequest {
-        password: SecretIn::test(PASSWORD),
-        secret_key: Some(SecretIn::test(&h.secret_key)),
-    })
-    .unwrap();
     record_error(
         b.update_item(req(with_item(&detail, json!({ "draft": {
             "text": [], "secrets": [{ "field": "password", "value": ITEM_PASSWORD }], "urls": [],
@@ -1734,6 +1731,7 @@ fn the_crate_has_no_logging_or_printing() {
         include_str!("adapters/import.rs"),
         include_str!("adapters/ssh.rs"),
         include_str!("flow_tests.rs"),
+        include_str!("quick_unlock_tests.rs"),
         include_str!("autolock.rs"),
         include_str!("clipboard.rs"),
         include_str!("dialogs.rs"),
@@ -1742,7 +1740,12 @@ fn the_crate_has_no_logging_or_printing() {
         include_str!("keystore.rs"),
         include_str!("lib.rs"),
         include_str!("persist.rs"),
-        include_str!("quick_unlock.rs"),
+        include_str!("quick_unlock/fakes.rs"),
+        include_str!("quick_unlock/hardware.rs"),
+        include_str!("quick_unlock/mod.rs"),
+        include_str!("quick_unlock/params.rs"),
+        include_str!("quick_unlock/touch_id.rs"),
+        include_str!("quick_unlock/windows_hello.rs"),
         include_str!("shortcut.rs"),
         include_str!("state.rs"),
         include_str!("test_support.rs"),
@@ -1752,6 +1755,7 @@ fn the_crate_has_no_logging_or_printing() {
         include_str!("commands/import.rs"),
         include_str!("commands/insights.rs"),
         include_str!("commands/items.rs"),
+        include_str!("commands/quick_unlock.rs"),
         include_str!("commands/session.rs"),
         include_str!("commands/settings.rs"),
         include_str!("commands/ssh.rs"),

@@ -102,6 +102,62 @@ pub enum Error {
         /// The generation of the rejected object.
         offered: u32,
     },
+
+    /// The quick-unlock enrollment was past its maximum age (CRYPTO_SPEC
+    /// §6.2); it was deleted.
+    #[error("quick unlock expired")]
+    QuickUnlockExpired,
+
+    /// The platform secret did not open the quick-unlock wrapping; the
+    /// enrollment was deleted.
+    #[error("quick unlock invalidated")]
+    QuickUnlockInvalidated,
+
+    /// No quick-unlock enrollment exists.
+    #[error("no quick unlock")]
+    NoQuickUnlock,
+
+    /// The master password must be used first: no password unlock since the
+    /// store was opened (quick unlock), or too many rejected attempts in a
+    /// row (quick unlock and hardware keys).
+    #[error("master password required")]
+    PasswordRequired,
+
+    /// Enrolling a quick-unlock or hardware-key method needs a fresh proof
+    /// of the master password from this session
+    /// ([`super::UnlockedSession::verify_master_password`]): the proof is
+    /// older than [`super::REAUTH_GRANT`] or comes from another session.
+    #[error("master password re-authentication required")]
+    ReauthenticationRequired,
+
+    /// The credential is not registered (for unlock, or for this vault).
+    #[error("unknown hardware key")]
+    UnknownHardwareKey,
+
+    /// The security key's PRF output did not open the wrapping.
+    #[error("hardware key rejected")]
+    HardwareKeyRejected,
+
+    /// The maximum number of hardware keys is registered.
+    #[error("too many hardware keys")]
+    HardwareKeyLimit,
+
+    /// The vault's last security key cannot be removed.
+    #[error("last hardware key")]
+    LastHardwareKey,
+
+    /// Credential ID or RP ID outside the accepted lengths.
+    #[error("invalid hardware key")]
+    InvalidHardwareKey,
+
+    /// The operation needs a hardware-protected vault (or one that is not).
+    #[error("wrong vault protection")]
+    WrongVaultProtection,
+
+    /// A hardware-protected vault holds only one-time-code items
+    /// (CRYPTO_SPEC §7.4).
+    #[error("item type not allowed in this vault")]
+    ItemTypeNotAllowed,
 }
 
 impl From<mosaic_core::Error> for Error {

@@ -41,4 +41,35 @@ export const vault = {
   "trash.detailMeta": "{kind} · {vault} · Gelöscht am {deletedAt, date, medium}",
   "trash.purgeConfirm.title": "\"{title}\" endgültig löschen?",
   "trash.purgeConfirm.body": "Das lässt sich nicht rückgängig machen.",
+  "vault.hardware.placeholderName": "Codes (Sicherheitsschlüssel)",
+  "vault.hardware.title": "Dieser Tresor braucht deinen Sicherheitsschlüssel",
+  "vault.hardware.body":
+    "Die Codes hier bleiben sicher, auch wenn jemand dein Master-Passwort und deinen Secret Key kennt. Ohne deinen Sicherheitsschlüssel kannst du sie aber nicht sehen.",
+  "vault.hardware.open": "Sicherheitsschlüssel verwenden",
+  "vault.hardware.lockedNote": "Gesperrt. Deine anderen Tresore bleiben entsperrt.",
+  "vault.hardware.lockNow": "Diesen Tresor sperren",
+  "vault.hardware.closesIn": "Sperrt in {time}",
+  "vault.hardware.backupTitle": "Ersatzschlüssel registrieren",
+  "vault.hardware.backupBody":
+    "Du hast 1 Schlüssel registriert. Wir empfehlen zwei: Verlierst du deinen einzigen Schlüssel, kannst du diesen Tresor nie wieder öffnen.",
+  "vault.hardware.createOption": "Mit Sicherheitsschlüssel schützen (nur Codes)",
+  "vault.hardware.tradeoff":
+    "Codes in diesem Tresor brauchen jedes Mal deinen Sicherheitsschlüssel. Ein gestohlenes Master-Passwort allein reicht dann nicht, aber wenn du alle registrierten Schlüssel verlierst, sind diese Codes verloren.",
+  "vault.hardware.removeNote":
+    "Das Entfernen eines Schlüssels ändert den Schlüssel dieses Tresors nicht. Wurde ein Schlüssel gestohlen, verschiebe die Codes in einen neuen Tresor.",
+  "vault.hardware.moveNote":
+    "Wenn du einen Code, den du schon nutzt, in diesen Tresor verschiebst, schützt das frühere Kopien nicht: den alten Eintrag, seinen Verlauf, Backups und Exporte. Stelle wenn möglich beim Anbieter ein neues Secret aus und füge dieses hinzu.",
+  "vault.hardware.pinBody":
+    "Gib die PIN deines Schlüssels ein, falls er eine hat, und berühre ihn dann, wenn er blinkt.",
+  "vault.hardware.keys": "Schlüssel",
+  "vault.hardware.keysLabel": "Schlüssel dieses Tresors",
+  "vault.hardware.eyebrow": "Hardwaregeschützte Codes",
+  "vault.hardware.selfLocked": "Dieser Tresor hat sich selbst gesperrt. Öffne ihn mit deinem Sicherheitsschlüssel wieder.",
+  "vault.hardware.closingSoon":
+    "Dieser Tresor sperrt sich in weniger als 30 Sekunden. Öffne ihn danach mit deinem Sicherheitsschlüssel wieder.",
+  "vault.hardware.keysTitle": "Schlüssel für diesen Tresor",
+  "vault.hardware.codesOnly": "Nur Einmalcodes",
+  "vault.create": "Neuer Tresor",
+  "vault.create.name": "Name des Tresors",
+  "vault.create.submit": "Tresor erstellen",
 } satisfies Record<keyof typeof en, string>;

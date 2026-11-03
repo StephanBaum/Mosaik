@@ -5,6 +5,7 @@ import { useCopy } from "../../components/CopyButton.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useToast } from "../../components/ToastProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useReauth } from "../../hooks/useReauth.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
   CopyField,
@@ -107,6 +108,8 @@ export function ItemDetail({
   const ipc = useIpc();
   const toast = useToast();
   const { detail, error, setError } = useDetail(item, reloadKey);
+  // Moving an item out of a hardware vault needs a fresh master password.
+  const { guard, dialog: reauthDialog } = useReauth("reauth.bodyMove");
   useCopyShortcuts(item, detail, !trash);
 
   const messages: Record<ItemCommand, string> = {
@@ -121,7 +124,8 @@ export function ItemDetail({
         toast(message);
       }
       onChanged(gone);
-    } else {
+    } else if (result.error.code !== "cancelled") {
+      // Giving up the master-password step on purpose is not an error.
       setError(result.error);
     }
     await Promise.resolve();
@@ -146,7 +150,9 @@ export function ItemDetail({
             void ipc.call("set_favorite", { ...item, favorite }).then((result) => settle(result, false));
           },
           onMove: (targetVaultId) => {
-            void ipc.call("move_item", { ...item, targetVaultId }).then((result) => settle(result, true));
+            void guard(() => ipc.call("move_item", { ...item, targetVaultId })).then((result) =>
+              settle(result, true),
+            );
           },
           onEdit: () => {
             onEdit(detail);
@@ -163,6 +169,7 @@ export function ItemDetail({
         </section>
       )}
       <DetailFooter detail={detail} />
+      {reauthDialog}
     </article>
   );
 }

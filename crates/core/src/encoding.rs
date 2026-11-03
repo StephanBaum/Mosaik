@@ -72,9 +72,20 @@ pub(crate) mod label {
     /// HKDF info of a conflict copy's item ID (§10, ADR-0016).
     pub(crate) const CONFLICT_COPY_ID: Label = Label::new("conflict-copy-id");
 
+    /// HKDF info of the Windows Hello quick-unlock `W` (§6.2).
+    pub(crate) const HELLO_UNLOCK: Label = Label::new("hello-unlock");
+    /// HKDF info of a hardware key's `W` (§6.3).
+    pub(crate) const PRF_UNLOCK: Label = Label::new("prf-unlock");
+    /// HKDF info of a hardware key's `W_hw` for a TOTP vault (§7.4).
+    pub(crate) const PRF_HW_VAULT: Label = Label::new("prf-hw-vault");
+    /// AAD of a TK wrapping (§7.4).
+    pub(crate) const WRAP_HW_VAULT: Label = Label::new("wrap/hw-vault");
+    /// AAD of a vault key wrapped under TK (§7.4).
+    pub(crate) const WRAP_VAULT_UNDER_TK: Label = Label::new("wrap/vault-under-tk");
+
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 12] = [
+    pub(crate) const ALL: [Label; 17] = [
         SECRET_KEY,
         ROOT,
         KEK,
@@ -87,6 +98,11 @@ pub(crate) mod label {
         TOMBSTONE,
         ATTACHMENT,
         CONFLICT_COPY_ID,
+        HELLO_UNLOCK,
+        PRF_UNLOCK,
+        PRF_HW_VAULT,
+        WRAP_HW_VAULT,
+        WRAP_VAULT_UNDER_TK,
     ];
 }
 

@@ -15,6 +15,7 @@ pub mod insights;
 pub mod items;
 /// The command list, shared with `build.rs` (which `include!`s it).
 pub mod names;
+pub mod quick_unlock;
 pub mod session;
 pub mod settings;
 pub mod ssh;
@@ -31,13 +32,26 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         session::save_emergency_kit,
         session::verify_emergency_kit,
         session::unlock,
-        session::unlock_quick,
         session::lock,
+        session::reauthenticate,
         session::subscribe_events,
         session::app_status,
+        quick_unlock::unlock_quick,
+        quick_unlock::quick_unlock_status,
+        quick_unlock::enroll_biometric,
+        quick_unlock::remove_biometric,
+        quick_unlock::enroll_hardware_key,
+        quick_unlock::remove_hardware_key,
+        quick_unlock::hardware_key_cancel,
         vaults::list_vaults,
         vaults::create_vault,
         vaults::rename_vault,
+        vaults::create_hardware_vault,
+        vaults::open_hardware_vault,
+        vaults::close_hardware_vault,
+        vaults::hardware_vault_keys,
+        vaults::add_hardware_vault_key,
+        vaults::remove_hardware_vault_key,
         items::list_items,
         items::get_item,
         items::reveal_secret,

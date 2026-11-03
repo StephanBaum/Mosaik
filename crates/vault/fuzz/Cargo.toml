@@ -46,3 +46,10 @@ path = "fuzz_targets/apply_remote.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "decode_hw_params"
+path = "fuzz_targets/decode_hw_params.rs"
+test = false
+doc = false
+bench = false

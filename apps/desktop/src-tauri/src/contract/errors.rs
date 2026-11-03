@@ -37,6 +37,42 @@ wire_enum!(
         EmptyPassword,
         /// The quick-unlock method is not set up or not available.
         QuickUnlockUnavailable,
+        /// The user dismissed the OS prompt or the security-key touch was
+        /// cancelled. Nothing changed.
+        Cancelled,
+        /// The quick-unlock enrollment was past its maximum age and was
+        /// removed; unlock with the master password and set it up again.
+        QuickUnlockExpired,
+        /// The platform key no longer opens the enrollment (a changed
+        /// fingerprint, a reset Hello); it was removed.
+        QuickUnlockInvalidated,
+        /// The master password is required first (after an app start, or
+        /// after five rejected quick unlocks in a row).
+        PasswordRequired,
+        /// This build cannot talk to security keys.
+        HardwareKeyUnsupported,
+        /// No security key is plugged in.
+        HardwareKeyNotFound,
+        /// The security key was not touched in time.
+        HardwareKeyTimeout,
+        /// The security key needs its PIN.
+        HardwareKeyPinRequired,
+        /// The security key's PIN is wrong.
+        HardwareKeyPinInvalid,
+        /// The security key's PIN is blocked.
+        HardwareKeyPinBlocked,
+        /// The security key has no PIN set.
+        HardwareKeyNoPin,
+        /// The plugged-in security key is not registered here, or its answer
+        /// did not open the wrapping.
+        HardwareKeyNotRecognized,
+        /// The most security keys are registered.
+        HardwareKeyLimit,
+        /// The last security key of a hardware-protected vault cannot be
+        /// removed.
+        HardwareKeyLast,
+        /// A hardware-protected vault holds one-time-code items only.
+        ItemTypeNotAllowed,
         /// Another Mosaic process holds the local vault.
         StoreInUse,
         /// The local vault file could not be opened or read.
@@ -135,6 +171,19 @@ impl From<SessionError> for IpcError {
             SessionError::NoOtp => ErrorCode::NoOtp,
             SessionError::AttachmentTooLarge => ErrorCode::AttachmentTooLarge,
             SessionError::AttachmentQuota => ErrorCode::AttachmentQuota,
+            SessionError::QuickUnlockExpired => ErrorCode::QuickUnlockExpired,
+            SessionError::QuickUnlockInvalidated => ErrorCode::QuickUnlockInvalidated,
+            SessionError::NoQuickUnlock => ErrorCode::QuickUnlockUnavailable,
+            SessionError::PasswordRequired => ErrorCode::PasswordRequired,
+            SessionError::ReauthenticationRequired => ErrorCode::ReauthRequired,
+            SessionError::UnknownHardwareKey | SessionError::HardwareKeyRejected => {
+                ErrorCode::HardwareKeyNotRecognized
+            }
+            SessionError::HardwareKeyLimit => ErrorCode::HardwareKeyLimit,
+            SessionError::LastHardwareKey => ErrorCode::HardwareKeyLast,
+            SessionError::InvalidHardwareKey => ErrorCode::HardwareKeyUnsupported,
+            SessionError::WrongVaultProtection => ErrorCode::InvalidInput,
+            SessionError::ItemTypeNotAllowed => ErrorCode::ItemTypeNotAllowed,
             SessionError::Store(store) => return store.into(),
             SessionError::Core(core) => return core.into(),
             _ => ErrorCode::Internal,
@@ -226,6 +275,42 @@ mod tests {
             ),
             (SessionError::AttachmentQuota, ErrorCode::AttachmentQuota),
             (SessionError::UnknownAttachment, ErrorCode::Internal),
+            (
+                SessionError::QuickUnlockExpired,
+                ErrorCode::QuickUnlockExpired,
+            ),
+            (
+                SessionError::QuickUnlockInvalidated,
+                ErrorCode::QuickUnlockInvalidated,
+            ),
+            (
+                SessionError::NoQuickUnlock,
+                ErrorCode::QuickUnlockUnavailable,
+            ),
+            (SessionError::PasswordRequired, ErrorCode::PasswordRequired),
+            (
+                SessionError::ReauthenticationRequired,
+                ErrorCode::ReauthRequired,
+            ),
+            (
+                SessionError::UnknownHardwareKey,
+                ErrorCode::HardwareKeyNotRecognized,
+            ),
+            (
+                SessionError::HardwareKeyRejected,
+                ErrorCode::HardwareKeyNotRecognized,
+            ),
+            (SessionError::HardwareKeyLimit, ErrorCode::HardwareKeyLimit),
+            (SessionError::LastHardwareKey, ErrorCode::HardwareKeyLast),
+            (
+                SessionError::InvalidHardwareKey,
+                ErrorCode::HardwareKeyUnsupported,
+            ),
+            (SessionError::WrongVaultProtection, ErrorCode::InvalidInput),
+            (
+                SessionError::ItemTypeNotAllowed,
+                ErrorCode::ItemTypeNotAllowed,
+            ),
             (
                 SessionError::Core(mosaic_core::Error::Decryption),
                 ErrorCode::Internal,

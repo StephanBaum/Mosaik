@@ -62,9 +62,11 @@
 
 mod attachments;
 mod error;
+mod hardware_vaults;
 mod items;
 mod search;
 mod sync;
+mod unlock_methods;
 mod vaults;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,7 +77,7 @@ use mosaic_core::model::{Item, Timestamp, Tombstone, VaultMeta};
 use mosaic_core::{
     AccountId, AccountKey, Argon2Profile, DeviceId, ItemId, KeyGeneration, MasterPassword,
     OpaquePassword, PasswordParams, SecretKey, SecretString, UnlockMethod, VaultId, VaultKey,
-    WrappedKey,
+    WrappedKey, unlock::TotpVaultKey,
 };
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
@@ -84,6 +86,12 @@ pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use sync::{ApplyOutcome, RemoteRecord};
+use unlock_methods::QuickState;
+pub use unlock_methods::{
+    DEFAULT_RP_ID, HardwareKeyEnrollment, MAX_FAILED_QUICK_ATTEMPTS, MAX_HARDWARE_KEYS,
+    NewHardwareKey, QUICK_UNLOCK_FUTURE_SKEW, QuickMethod, QuickUnlockEnrollment,
+    QuickUnlockPolicy, REAUTH_GRANT, Reauthenticated, VaultProtection,
+};
 pub use vaults::VaultSummary;
 
 /// Session construction for the fuzz targets only. Compiled only under
@@ -96,6 +104,15 @@ pub mod fuzzing {
     use super::{UnlockError, UnlockedSession};
     use crate::storage::Store;
 
+    /// Runs the strict hardware-key parameter decoder (CRYPTO_SPEC §6.3)
+    /// on arbitrary bytes. Returns the canonical re-encoding of what
+    /// decoded (it must equal the input), or `None` if they did not decode.
+    #[must_use]
+    pub fn decode_hw_params(method_id: &[u8; 16], bytes: &[u8]) -> Option<Vec<u8>> {
+        let key = super::unlock_methods::decode_hw_params(method_id, bytes).ok()?;
+        super::unlock_methods::encode_hw_params(&key).ok()
+    }
+
     /// An unlocked session over `store` with an account key the caller
     /// already holds, skipping Argon2id, so a fuzz target can build fresh
     /// sessions for every input.
@@ -107,13 +124,19 @@ pub mod fuzzing {
         account_id: AccountId,
         account_key: AccountKey,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
-        UnlockedSession::load(Box::new(store), account_id, account_key)
+        UnlockedSession::load(
+            Box::new(store),
+            account_id,
+            account_key,
+            super::QuickState::default(),
+        )
     }
 }
 
 /// A session without keys: the store, and nothing that needs unlocking.
 pub struct LockedSession {
     store: Box<Store>,
+    quick: QuickState,
 }
 
 impl fmt::Debug for LockedSession {
@@ -183,6 +206,9 @@ pub struct PasswordChanged {
     pub params: PasswordParams,
     /// `OPW'` for OPAQUE re-registration (M6, §9.4).
     pub opaque_password: OpaquePassword,
+    /// The quick-unlock enrollment the change deleted (CRYPTO_SPEC §6.2):
+    /// the app deletes its platform key.
+    pub removed_quick_unlock: Option<QuickUnlockEnrollment>,
 }
 
 /// A vault as the session holds it.
@@ -201,6 +227,12 @@ struct OpenVault {
     items: BTreeMap<ItemId, Item>,
     /// Records that failed to decrypt or decode.
     corrupt: BTreeSet<ItemId>,
+    /// What the vault keys are wrapped under (fixed at creation).
+    protection: VaultKeyWrap,
+    /// `TK` of a hardware-protected vault while it is open (CRYPTO_SPEC
+    /// 7.4). Dropped, and so zeroized, when the vault closes or the session
+    /// locks.
+    tk: Option<TotpVaultKey>,
 }
 
 impl OpenVault {
@@ -212,6 +244,8 @@ impl OpenVault {
             meta_unreadable: false,
             items: BTreeMap::new(),
             corrupt: BTreeSet::new(),
+            protection: VaultKeyWrap::AccountKey,
+            tk: None,
         }
     }
 
@@ -247,6 +281,12 @@ pub struct UnlockedSession {
     /// either writer's edits (ADR-0015).
     retired: Vec<DeviceId>,
     account_key: AccountKey,
+    /// A random ID of this unlocked session (not the writer ID, which can
+    /// rotate): binds a [`Reauthenticated`] proof to the session that made
+    /// it.
+    proof_id: DeviceId,
+    /// Whether the master password unlocked since the store was opened.
+    password_unlocked: bool,
     vaults: BTreeMap<VaultId, OpenVault>,
     index: search::SearchIndex,
 }
@@ -267,6 +307,7 @@ impl LockedSession {
     pub fn open(store: Store) -> Self {
         Self {
             store: Box::new(store),
+            quick: QuickState::default(),
         }
     }
 
@@ -305,10 +346,13 @@ impl LockedSession {
         profile: Argon2Profile,
     ) -> core::result::Result<(UnlockedSession, CreatedAccount), UnlockError> {
         match create_account_in(&mut self.store, password, profile) {
-            Ok((account_key, created)) => {
-                UnlockedSession::load(self.store, created.params.account_id, account_key)
-                    .map(|session| (session, created))
-            }
+            Ok((account_key, created)) => UnlockedSession::load(
+                self.store,
+                created.params.account_id,
+                account_key,
+                QuickState::PASSWORD,
+            )
+            .map(|session| (session, created)),
             Err(error) => Err(UnlockError {
                 session: self,
                 error,
@@ -338,7 +382,9 @@ impl LockedSession {
                 Ok(ak)
             });
         match joined {
-            Ok(ak) => UnlockedSession::load(self.store, params.account_id, ak),
+            Ok(ak) => {
+                UnlockedSession::load(self.store, params.account_id, ak, QuickState::PASSWORD)
+            }
             Err(error) => Err(UnlockError {
                 session: self,
                 error,
@@ -359,7 +405,9 @@ impl LockedSession {
         secret_key: &SecretKey,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
         match unlock_account_key(&self.store, password, secret_key) {
-            Ok((account_id, ak)) => UnlockedSession::load(self.store, account_id, ak),
+            Ok((account_id, ak)) => {
+                UnlockedSession::load(self.store, account_id, ak, QuickState::PASSWORD)
+            }
             Err(error) => Err(UnlockError {
                 session: self,
                 error,
@@ -465,6 +513,8 @@ fn open_record(
 }
 
 /// Loads one vault: unwraps its keys, decrypts its metadata and records.
+/// A hardware-protected vault (CRYPTO_SPEC 7.4) stays closed: it needs its
+/// TK, not AK ([`UnlockedSession::open_hardware_vault`]).
 fn load_vault(
     store: &Store,
     ak: &AccountKey,
@@ -472,9 +522,9 @@ fn load_vault(
     state: &VaultState,
 ) -> Result<OpenVault> {
     let vault_id = state.vault_id;
-    let mut ov = OpenVault::new(state.highest_accepted_generation);
     if state.key_wrap != VaultKeyWrap::AccountKey {
-        // A hardware-protected TOTP vault (§7.4) needs its TK, not AK.
+        let mut ov = OpenVault::new(state.highest_accepted_generation);
+        ov.protection = state.key_wrap;
         return Ok(ov);
     }
     // A damaged key row is left out, and only that generation is lost:
@@ -482,18 +532,32 @@ fn load_vault(
     // on (ADR-0010 item 9) until a wrapping that opens arrives
     // (`apply_remote_vault_key`); records under the other generations stay
     // readable.
+    let mut keys = BTreeMap::new();
     for (generation, wrapped) in store.readable_vault_keys(&vault_id)? {
         // A wrapping that does not open is skipped; without the current
         // generation the vault is unavailable rather than the unlock failing.
         if let Ok(vk) = wrapped.unwrap_vault_key(ak, account_id, &vault_id, generation) {
-            ov.keys.insert(generation, vk);
+            keys.insert(generation, vk);
         }
     }
+    load_vault_with(store, state, keys)
+}
+
+/// The metadata and records half of [`load_vault`], for the keys the caller
+/// unwrapped (under AK, or under TK for an open hardware-protected vault).
+fn load_vault_with(
+    store: &Store,
+    state: &VaultState,
+    keys: BTreeMap<KeyGeneration, VaultKey>,
+) -> Result<OpenVault> {
+    let vault_id = state.vault_id;
+    let mut ov = OpenVault::new(state.highest_accepted_generation);
+    ov.protection = state.key_wrap;
+    ov.keys = keys;
     if !ov.available() {
         return Ok(ov);
     }
     let meta = match store.vault_meta(&vault_id) {
-        Ok(meta) => meta,
         // Damaged metadata reads as absent, like metadata that does not
         // decrypt, but is remembered as unreadable.
         Err(crate::storage::Error::Corrupt) => {
@@ -501,6 +565,7 @@ fn load_vault(
             None
         }
         Err(e) => return Err(e.into()),
+        Ok(meta) => meta,
     };
     if let Some(ct) = meta {
         ov.meta = ov
@@ -597,7 +662,17 @@ impl UnlockedSession {
         mut store: Box<Store>,
         account_id: AccountId,
         account_key: AccountKey,
+        quick: QuickState,
     ) -> core::result::Result<Self, UnlockError> {
+        let proof_id = match DeviceId::new_v7() {
+            Ok(id) => id,
+            Err(e) => {
+                return Err(UnlockError {
+                    session: LockedSession { store, quick },
+                    error: e.into(),
+                });
+            }
+        };
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
                 let mut index = search::SearchIndex::default();
@@ -612,12 +687,14 @@ impl UnlockedSession {
                     device,
                     retired: Vec::new(),
                     account_key,
+                    proof_id,
+                    password_unlocked: quick.password_unlocked,
                     vaults,
                     index,
                 })
             }
             Err(error) => Err(UnlockError {
-                session: LockedSession { store },
+                session: LockedSession { store, quick },
                 error,
             }),
         }
@@ -628,8 +705,38 @@ impl UnlockedSession {
     /// and returns the locked session.
     #[must_use]
     pub fn lock(self) -> LockedSession {
-        let Self { store, .. } = self;
-        LockedSession { store }
+        let Self {
+            store,
+            password_unlocked,
+            ..
+        } = self;
+        LockedSession {
+            store,
+            quick: QuickState {
+                password_unlocked,
+                failed_quick: 0,
+            },
+        }
+    }
+
+    /// Locks and refuses every quick-unlock method until the next password
+    /// unlock (the failed-attempt counter is set to its limit). Used when
+    /// the re-authentication limit was hit, so a guesser at an unlocked
+    /// machine cannot reset the limit by locking (ADR-0028 item 8).
+    #[must_use]
+    pub fn lock_requiring_password(self) -> LockedSession {
+        let Self {
+            store,
+            password_unlocked,
+            ..
+        } = self;
+        LockedSession {
+            store,
+            quick: QuickState {
+                password_unlocked,
+                failed_quick: MAX_FAILED_QUICK_ATTEMPTS,
+            },
+        }
     }
 
     /// The account.
@@ -664,10 +771,18 @@ impl UnlockedSession {
     }
 
     /// Changes the master password (CRYPTO_SPEC §6.4): checks `current`
-    /// with `secret_key`, derives the new wrapping under the account's
-    /// profile with a new salt, and replaces the stored one. Vault keys and
-    /// items are not touched. The result carries what the server needs
-    /// (M6: OPAQUE re-registration under §9.4).
+    /// with `secret_key` ([`Self::verify_master_password`]), derives the new
+    /// wrapping under the account's profile with a new salt, and replaces
+    /// the stored one. A quick-unlock wrapping does not survive the change:
+    /// it is deleted in the same transaction (§6.2) and returned in
+    /// [`PasswordChanged::removed_quick_unlock`], so the app deletes the
+    /// platform key. Hardware-key wrappings stay valid (AK is unchanged).
+    /// The session API does not offer Secret Key rotation (§6.5) yet:
+    /// `secret_key` must be the account's current one. When rotation is
+    /// added it MUST also delete every quick-unlock wrapping (§6.2), like
+    /// this method does. Vault keys and items are not touched. The result
+    /// carries what the server needs (M6: OPAQUE re-registration under
+    /// §9.4).
     ///
     /// # Errors
     /// [`Error::UnlockFailed`] if `current` or `secret_key` is wrong (then
@@ -678,11 +793,7 @@ impl UnlockedSession {
         new_password: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<PasswordChanged> {
-        let (_, check) = unlock_account_key(&self.store, current, secret_key)?;
-        if check != self.account_key {
-            return Err(Error::UnlockFailed);
-        }
-        drop(check);
+        drop(self.verify_master_password(current, secret_key)?);
         let params = self.store.account()?.ok_or(Error::NoAccount)?;
         let change = mosaic_core::change_master_password(
             &self.account_key,
@@ -691,11 +802,26 @@ impl UnlockedSession {
             &params,
             params.profile,
         )?;
-        self.store
-            .update_password(&change.params, &change.wrapped_account_key)?;
+        let quick: Vec<UnlockMethod> = self
+            .store
+            .unlock_methods()?
+            .into_iter()
+            .map(|r| r.method)
+            .filter(|m| matches!(m, UnlockMethod::QuickUnlock(_)))
+            .collect();
+        let removed = self.store.update_password_removing(
+            &change.params,
+            &change.wrapped_account_key,
+            &quick,
+        )?;
+        let removed_quick_unlock = removed
+            .into_iter()
+            .filter_map(QuickUnlockEnrollment::from_row)
+            .max_by_key(|e| *e.enrollment_id.as_bytes());
         Ok(PasswordChanged {
             params: change.params,
             opaque_password: change.opaque_password,
+            removed_quick_unlock,
         })
     }
 
@@ -742,4 +868,8 @@ impl UnlockedSession {
 }
 
 #[cfg(test)]
+mod hardware_vaults_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod unlock_methods_tests;

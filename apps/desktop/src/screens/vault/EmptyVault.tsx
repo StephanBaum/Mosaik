@@ -36,6 +36,7 @@ export function EmptyVault({ onNew, onImport }: { onNew: () => void; onImport: (
       <div className="actions empty-state__actions">
         <HoloButton
           ambient
+          data-new-item=""
           onClick={onNew}
           aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.newItem, platform)}
         >

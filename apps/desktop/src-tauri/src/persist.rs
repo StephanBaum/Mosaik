@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::contract::errors::{IpcError, IpcResult};
 use crate::contract::ids::WireAccountId;
-use crate::contract::settings::Settings;
+use crate::contract::settings::{Language, Settings, Theme};
 
 /// The state file's name in the app data directory.
 pub const STATE_FILE: &str = "settings.json";
@@ -36,6 +36,10 @@ pub const MAX_EMAIL_LEN: usize = 254;
 pub const AUTO_LOCK_MINUTES: (u32, u32) = (1, 480);
 /// Shortest and longest clipboard timeout, in seconds.
 pub const CLIPBOARD_SECONDS: (u32, u32) = (10, 300);
+/// Shortest and longest quick-unlock maximum age, in days (CRYPTO_SPEC §6.2).
+pub const QUICK_UNLOCK_DAYS: (u32, u32) = (1, 30);
+/// Default quick-unlock maximum age, in days.
+pub const DEFAULT_QUICK_UNLOCK_DAYS: u32 = 14;
 
 /// Everything in the state file.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -62,11 +66,59 @@ pub struct AccountInfo {
     pub kit_verified: bool,
 }
 
+/// The settings as the file holds them. Like [`Settings`], but a file from
+/// before a setting existed reads with that setting's default (the wire
+/// type keeps every key required).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PersistedSettings {
+    auto_lock_minutes: Option<u32>,
+    lock_on_sleep: bool,
+    lock_on_screen_lock: bool,
+    clipboard_clear_seconds: Option<u32>,
+    theme: Theme,
+    language: Language,
+    #[serde(default = "default_quick_unlock_days")]
+    quick_unlock_max_age_days: u32,
+}
+
+fn default_quick_unlock_days() -> u32 {
+    DEFAULT_QUICK_UNLOCK_DAYS
+}
+
+impl From<PersistedSettings> for Settings {
+    fn from(p: PersistedSettings) -> Self {
+        Self {
+            auto_lock_minutes: p.auto_lock_minutes,
+            lock_on_sleep: p.lock_on_sleep,
+            lock_on_screen_lock: p.lock_on_screen_lock,
+            clipboard_clear_seconds: p.clipboard_clear_seconds,
+            theme: p.theme,
+            language: p.language,
+            quick_unlock_max_age_days: p.quick_unlock_max_age_days,
+        }
+    }
+}
+
+impl From<&Settings> for PersistedSettings {
+    fn from(s: &Settings) -> Self {
+        Self {
+            auto_lock_minutes: s.auto_lock_minutes,
+            lock_on_sleep: s.lock_on_sleep,
+            lock_on_screen_lock: s.lock_on_screen_lock,
+            clipboard_clear_seconds: s.clipboard_clear_seconds,
+            theme: s.theme,
+            language: s.language,
+            quick_unlock_max_age_days: s.quick_unlock_max_age_days,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StateFile {
     version: u32,
-    settings: Settings,
+    settings: PersistedSettings,
     account: Option<AccountInfo>,
     #[serde(default)]
     ssh_agent_enabled: bool,
@@ -101,6 +153,9 @@ pub fn normalize(mut settings: Settings) -> Settings {
     settings.clipboard_clear_seconds = settings
         .clipboard_clear_seconds
         .map(|s| s.clamp(CLIPBOARD_SECONDS.0, CLIPBOARD_SECONDS.1));
+    settings.quick_unlock_max_age_days = settings
+        .quick_unlock_max_age_days
+        .clamp(QUICK_UNLOCK_DAYS.0, QUICK_UNLOCK_DAYS.1);
     if !has_lock_trigger(&settings, SCREEN_LOCK_POSSIBLE) {
         settings.auto_lock_minutes = Some(DEFAULT_AUTO_LOCK_MINUTES);
     }
@@ -131,7 +186,7 @@ pub fn parse(bytes: &[u8]) -> Option<StoredState> {
         a
     });
     Some(StoredState {
-        settings: normalize(file.settings),
+        settings: normalize(file.settings.into()),
         account,
         ssh_agent_enabled: file.ssh_agent_enabled,
     })
@@ -144,7 +199,7 @@ pub fn parse(bytes: &[u8]) -> Option<StoredState> {
 pub fn render(state: &StoredState) -> IpcResult<Vec<u8>> {
     let file = StateFile {
         version: STATE_VERSION,
-        settings: state.settings.clone(),
+        settings: PersistedSettings::from(&state.settings),
         account: state.account.clone(),
         ssh_agent_enabled: state.ssh_agent_enabled,
     };
@@ -227,8 +282,6 @@ mod tests {
 
     use super::*;
     use crate::contract::ids::samples as ids;
-    use crate::contract::settings::{Language, Theme};
-
     fn sample() -> StoredState {
         StoredState {
             settings: Settings {
@@ -238,6 +291,7 @@ mod tests {
                 clipboard_clear_seconds: None,
                 theme: Theme::Dark,
                 language: Language::De,
+                quick_unlock_max_age_days: 21,
             },
             account: Some(AccountInfo {
                 account_id: ids::account(),
@@ -309,6 +363,25 @@ mod tests {
         assert_eq!(clamped.auto_lock_minutes, Some(1));
         assert_eq!(clamped.clipboard_clear_seconds, Some(300));
         assert_eq!(normalize(Settings::default()), Settings::default());
+        for (days, wanted) in [(0, 1), (14, 14), (31, 30), (u32::MAX, 30)] {
+            let n = normalize(Settings {
+                quick_unlock_max_age_days: days,
+                ..Settings::default()
+            });
+            assert_eq!(n.quick_unlock_max_age_days, wanted);
+        }
+    }
+
+    #[test]
+    fn a_file_from_before_the_quick_unlock_age_reads_the_default() {
+        let good = String::from_utf8(render(&sample()).unwrap()).unwrap();
+        let old = good.replace(",\n    \"quickUnlockMaxAgeDays\": 21", "");
+        assert!(!old.contains("quickUnlockMaxAge"), "{old}");
+        let parsed = parse(old.as_bytes()).unwrap();
+        assert_eq!(
+            parsed.settings.quick_unlock_max_age_days,
+            DEFAULT_QUICK_UNLOCK_DAYS
+        );
     }
 
     #[test]
