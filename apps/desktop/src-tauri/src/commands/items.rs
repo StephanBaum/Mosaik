@@ -471,17 +471,28 @@ impl Backend {
                 .vault_protection(request.vault_id.get()),
             Ok(mosaic_vault::session::VaultProtection::HardwareKey { .. })
         );
-        if leaves_hardware_vault {
-            self.require_reauth(None)?;
+        // Leaving a hardware-protected vault takes the grant (atomically:
+        // of two parallel moves one gets it) and spends it on success; a
+        // failed move hands it back.
+        let grant = if leaves_hardware_vault {
+            Some(self.take_reauth_grant()?)
+        } else {
+            None
+        };
+        let moved = self.move_item_now(&request);
+        if moved.is_err()
+            && let Some(grant) = grant
+        {
+            self.quick_unlock.restore_reauth(grant);
         }
+        moved
+    }
+
+    fn move_item_now(&self, request: &MoveItemRequest) -> IpcResult<MovedItem> {
         let mut slot = self.slot()?;
         let target = request.target_vault_id.get();
         let session = slot.unlocked_mut()?;
         let item_id = session.move_item(request.vault_id.get(), request.item_id.get(), target)?;
-        if leaves_hardware_vault {
-            // One re-authentication, one exit (ADR-0028 item 8).
-            self.quick_unlock.spend_reauth();
-        }
         self.items_changed(session);
         Ok(MovedItem {
             vault_id: target.into(),

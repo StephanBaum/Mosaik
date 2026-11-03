@@ -1105,9 +1105,38 @@ fn names_with_bidi_or_zero_width_characters_are_refused() {
     let b = &r.backend;
     let vault = first_vault(b);
     let bad = [
-        "\u{061C}", "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}", "\u{202A}",
-        "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}", "\u{2066}", "\u{2067}", "\u{2068}",
-        "\u{2069}", "\u{FEFF}",
+        "\u{061C}",
+        "\u{200B}",
+        "\u{200C}",
+        "\u{200D}",
+        "\u{200E}",
+        "\u{200F}",
+        "\u{202A}",
+        "\u{202B}",
+        "\u{202C}",
+        "\u{202D}",
+        "\u{202E}",
+        "\u{2066}",
+        "\u{2067}",
+        "\u{2068}",
+        "\u{2069}",
+        "\u{FEFF}",
+        "\u{00AD}",
+        "\u{034F}",
+        "\u{115F}",
+        "\u{1160}",
+        "\u{180E}",
+        "\u{2060}",
+        "\u{2064}",
+        "\u{206F}",
+        "\u{3164}",
+        "\u{FE00}",
+        "\u{FE0F}",
+        "\u{FFF9}",
+        "\u{FFFB}",
+        "\u{E0001}",
+        "\u{E0020}",
+        "\u{E0FFF}",
     ];
     for c in bad {
         for name in [
@@ -1152,4 +1181,235 @@ fn names_with_bidi_or_zero_width_characters_are_refused() {
         })
         .unwrap_err();
     assert_eq!(code(error), ErrorCode::InvalidInput);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Races between parallel commands
+// ---------------------------------------------------------------------------
+
+/// A clock that never moves, so a backoff set by one attempt stays in force
+/// for the whole test (and no other test's clock can end it).
+fn frozen_now() -> std::time::Instant {
+    static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+    *BASE.get_or_init(std::time::Instant::now)
+}
+
+#[test]
+fn parallel_wrong_passwords_run_one_derivation_past_the_backoff() {
+    let _kdf = crate::test_support::kdf_permit();
+    let mut backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    backend.unlock_clock = frozen_now;
+    let b = &backend;
+    create(b);
+    b.lock(LockReason::Manual).unwrap();
+    let attempt = |password: &str| {
+        b.unlock(UnlockRequest {
+            password: SecretIn::test(password),
+            secret_key: None,
+        })
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            code(attempt(WRONG).unwrap_err()),
+            ErrorCode::WrongCredentials
+        );
+    }
+    // Eight parallel attempts at the edge of the limit: the one that runs
+    // is the third wrong password, which starts the backoff; the other seven
+    // read the throttle only after it and are refused before any derivation.
+    let barrier = std::sync::Barrier::new(8);
+    let codes: Vec<ErrorCode> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    code(attempt(WRONG).unwrap_err())
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|c| **c == ErrorCode::WrongCredentials)
+            .count(),
+        1,
+        "{codes:?}"
+    );
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|c| **c == ErrorCode::UnlockDelayed)
+            .count(),
+        7,
+        "{codes:?}"
+    );
+}
+
+#[test]
+fn parallel_kit_guesses_cannot_pass_the_five_answer_cap() {
+    let _kdf = crate::test_support::kdf_permit();
+    let backend = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    );
+    create(&backend);
+    let b = &backend;
+    let barrier = std::sync::Barrier::new(16);
+    let results: Vec<Result<bool, ErrorCode>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    b.verify_emergency_kit(&typed(json!({ "lastGroup": "WRNG" })))
+                        .map(|v| v.matches)
+                        .map_err(code)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let answered = results.iter().filter(|r| **r == Ok(false)).count();
+    assert_eq!(answered, 4, "four wrong answers are answered: {results:?}");
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| **r == Err(ErrorCode::TooManyAttempts))
+            .count(),
+        1,
+        "the fifth locks: {results:?}"
+    );
+    assert!(
+        results.iter().all(|r| matches!(
+            r,
+            Ok(false) | Err(ErrorCode::TooManyAttempts | ErrorCode::Locked)
+        )),
+        "{results:?}"
+    );
+    assert!(!b.is_unlocked());
+}
+
+#[test]
+fn one_reauth_grant_lets_only_one_of_two_parallel_moves_out_of_a_hardware_vault() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(1);
+    let b = &r.backend;
+    let vault = hw_vault(b);
+    let plain = plain_vault(b, &vault);
+    let items: Vec<_> = (0..2)
+        .map(|_| {
+            b.add_item(typed(
+                json!({ "vaultId": vault, "kind": "totp", "draft": totp_draft() }),
+            ))
+            .unwrap()
+        })
+        .collect();
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let barrier = std::sync::Barrier::new(2);
+    let results: Vec<Result<(), ErrorCode>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .iter()
+            .map(|item| {
+                let (vault, plain) = (&vault, &plain);
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    b.move_item(typed(json!({
+                        "vaultId": vault,
+                        "itemId": item.summary.item_id.0.to_string(),
+                        "targetVaultId": plain,
+                    })))
+                    .map(|_| ())
+                    .map_err(code)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(
+        results.iter().filter(|r| r.is_ok()).count(),
+        1,
+        "{results:?}"
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| **r == Err(ErrorCode::ReauthRequired))
+            .count(),
+        1,
+        "{results:?}"
+    );
+    assert!(!b.quick_unlock.reauth_granted(), "the grant was spent");
+}
+
+#[test]
+fn a_reauth_grant_taken_out_before_a_lock_is_not_put_back_after_it() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(0);
+    let b = &r.backend;
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let grant = b.quick_unlock.take_reauth().expect("granted");
+    assert!(!b.quick_unlock.reauth_granted(), "taken out");
+    b.lock(LockReason::Manual).unwrap();
+    unlock_with_password(b);
+    b.quick_unlock.restore_reauth(grant);
+    assert!(
+        !b.quick_unlock.reauth_granted(),
+        "a failed command of the old session cannot revive its grant"
+    );
+    // Within the same session a failed command does hand it back.
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let grant = b.quick_unlock.take_reauth().expect("granted");
+    b.quick_unlock.restore_reauth(grant);
+    assert!(b.quick_unlock.reauth_granted());
+}
+
+#[test]
+fn item_titles_with_invisible_or_direction_changing_characters_are_refused() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig(0);
+    let b = &r.backend;
+    let vault = first_vault(b);
+    let draft = |title: &str| {
+        json!({
+            "text": [{ "field": "title", "value": title }],
+            "secrets": [], "urls": [], "customFields": [], "tags": null, "otp": null
+        })
+    };
+    for c in [
+        "\u{202E}",
+        "\u{200B}",
+        "\u{00AD}",
+        "\u{FE0F}",
+        "\u{E0001}",
+        "\u{2066}",
+        "\u{FEFF}",
+    ] {
+        assert_eq!(
+            code(
+                b.add_item(typed(
+                    json!({ "vaultId": vault, "kind": "login", "draft": draft(&format!("Ba{c}nk")) })
+                ))
+                .unwrap_err()
+            ),
+            ErrorCode::InvalidInput,
+            "add {c:?}"
+        );
+    }
+    let ok = b
+        .add_item(typed(
+            json!({ "vaultId": vault, "kind": "login", "draft": draft("Caf\u{e9} \u{1F510}") }),
+        ))
+        .unwrap();
+    let (vault_id, item_id) = ids(&ok);
+    let edit = b.update_item(typed(json!({
+        "vaultId": vault_id, "itemId": item_id, "draft": draft("Ev\u{202E}il")
+    })));
+    assert_eq!(code(edit.unwrap_err()), ErrorCode::InvalidInput, "update");
 }

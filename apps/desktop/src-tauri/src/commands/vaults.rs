@@ -384,8 +384,22 @@ impl Backend {
         self.slot()?.unlocked()?;
         self.require_hardware()?;
         // A new key opens the vault later: like enrolling one, it needs a
-        // right master password within the last two minutes.
-        self.require_reauth(None)?;
+        // right master password within the last two minutes. The grant is
+        // taken (of two parallel calls one gets it), spent by a success and
+        // handed back by a failure.
+        let grant = self.take_reauth_grant()?;
+        let added = self.add_hardware_vault_key_now(vault_id, request);
+        if added.is_err() {
+            self.quick_unlock.restore_reauth(grant);
+        }
+        added
+    }
+
+    fn add_hardware_vault_key_now(
+        &self,
+        vault_id: VaultId,
+        request: &mut HardwareVaultRequest,
+    ) -> IpcResult<HardwareVaultKeys> {
         let account = {
             let slot = self.slot()?;
             let session = slot.unlocked()?;
@@ -410,8 +424,8 @@ impl Backend {
         let added = session.add_hardware_vault_key(vault_id, &key, &prf);
         drop(prf);
         added?;
-        // One re-authentication, one new key (ADR-0028 item 8).
-        self.quick_unlock.spend_reauth();
+        // One re-authentication, one new key (ADR-0028 item 8): the grant
+        // was taken at the start and is not put back.
         Ok(HardwareVaultKeys {
             keys: summaries(&session.hardware_vault_keys(vault_id)?),
         })
