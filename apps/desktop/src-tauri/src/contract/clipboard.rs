@@ -14,7 +14,8 @@ use super::items::{SecretFieldKey, TextFieldKey};
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub enum CopyField {
     /// The login user name.
@@ -46,7 +47,8 @@ pub enum CopyField {
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub enum CopySource {
     /// A value of an item.
