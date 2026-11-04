@@ -25,7 +25,7 @@ import {
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
-import { sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
+import { bulkItems, sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
@@ -55,6 +55,8 @@ export interface MockOptions extends QuickOptions {
   kitUnverified?: boolean;
   /** Start with vaults but no items (first run without an import). */
   emptyVault?: boolean;
+  /** Add this many generated logins (`?items=5000`), for long-list checks. */
+  bulkItems?: number;
   now?: () => number;
 }
 
@@ -106,11 +108,13 @@ export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
   const latency = Number(params.get("latency") ?? "0");
+  const bulk = Math.trunc(Number(params.get("items") ?? "0"));
   return {
     ...(start === "locked" || start === "unlocked" || start === "noAccount" ? { start } : {}),
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
+    ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
 }
@@ -128,7 +132,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     sshEnabled: false,
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
-    items: start === "noAccount" || options.emptyVault === true ? [] : sampleItems(),
+    items: start === "noAccount" || options.emptyVault === true ? [] : [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)],
     settings: { ...defaultSettings },
     quick: quickFromOptions(options, now),
     hardwareVaults: [],
