@@ -2313,8 +2313,11 @@ worth more than any 30-second code, so where it lives matters.
    because the screenshot portal writes a file. macOS: hidden in this version
    (item 8). `app_status.otpScreenScan` tells the UI.
 6. **Clipboard.** Rust reads the image (arboard `image-data`) only on the user's
-   action. After a successful decode it empties the clipboard, because the
-   screenshot is the secret in another form, and the UI says that clipboard
+   action. After a decode that found a code (a good one, a migration, several or
+   an invalid one) it empties the clipboard, but only if it still holds the same
+   image (size and SHA-256 of the pixels), because the screenshot is the secret in
+   another form and the user may have copied something else while the scan ran.
+   The UI says that clipboard
    history, the Snipping Tool's auto-save or a saved screenshot file may still hold
    a copy.
 7. **Hostile images.** PNG and JPEG only (by magic bytes); file ≤ 20 MiB checked
@@ -2322,7 +2325,16 @@ worth more than any 30-second code, so where it lives matters.
    before decoding; decoder allocations ≤ 512 MiB (`image::Limits`); frames are
    box-downscaled to ≤ 8 MP of grey levels before QR detection; at most 16 QR
    codes per frame are decoded; one scan runs at a time (`busy`). The clipboard
-   image is decoded by arboard before Mosaic can check it (R31).
+   image is decoded by arboard before Mosaic can check it (R31). `rqrr` 0.11.0
+   tries every viable finder-pattern pair and clones the prepared image per
+   attempt, so a screen full of fake finder squares ran for hours. It is patched
+   in `vendor/rqrr` (a patch of the existing dependency, not a new crate; see
+   `vendor/rqrr/MOSAIC_PATCH.md`): no groups if there are more than 64 finder
+   patterns, and at most 256 grouping attempts per image. Drop the patch once
+   upstream bounds this. The JPEG decoder (zune-jpeg) runs `unsafe` SIMD code on
+   attacker-chosen bytes and a decoder panic aborts the app (`panic = "abort"`);
+   the decoder set is unchanged, and the `scan_image` fuzz target (JPEG seed
+   included) is the mitigation (R31).
 8. **macOS screen capture is deferred.** When it is added it uses ScreenCaptureKit
    through a maintained safe wrapper (or `CGDisplayCreateImage` from
    `objc2-core-graphics` if ScreenCaptureKit has none), asks for Screen Recording

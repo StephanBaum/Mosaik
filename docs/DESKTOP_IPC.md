@@ -160,7 +160,7 @@ Notes per area:
   cleared on lock); the webview gets `OtpPending` without the secret, the live code from
   `otp_pending_code` and saves with `OtpChange { op: "setPending", pendingId, issuer,
   accountName }`, which uses the slot up (a failed save keeps it). A pasted screenshot is
-  read once and the clipboard is emptied afterwards (`clipboardCleared`). `app_status.
+  read once and the clipboard is emptied afterwards if it still holds that image (`clipboardCleared`; also emptied, silently, when the code is a migration, several or invalid). `pendingId` is 32 hex characters, opaque. `app_status.
   otpScreenScan` is `true` on Windows and on Linux under X11 only. `OtpPending` is
   `{ pendingId, scheme, issuer, accountName, algorithm, digits, period, strength,
   expiresInSeconds }`; `strength` is `weak`, `belowRfc4226` or `rfc4226`.

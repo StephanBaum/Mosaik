@@ -1133,6 +1133,12 @@ saved.
   instead, Cmd+Ctrl+Shift+4); O2 `otpauth-migration://` is refused with its own
   message for now (a Google Authenticator batch import may become an import format);
   O3 `win-screenshot =4.0.14` is accepted for Windows.
+- **Crypto-review fixes:** `rqrr` is vendored with a bound on grouping work (at most
+  64 finder patterns, 256 grouping attempts; `vendor/rqrr/MOSAIC_PATCH.md`, ADR-0031);
+  the pending slot is inserted and restored under the session lock and purged on the
+  idle tick; pending IDs are 16 random bytes in hex; the clipboard is emptied for
+  migration, several and invalid codes too, and only if it still holds the scanned
+  image; screen frames are wiped as soon as their grey levels exist.
 - **Manual checks pending (Needs owner):** Windows 10/11 with two monitors, QR in a
   browser behind Mosaic: found, and the Mosaic window comes back focused; a Win+Shift+S
   snip pasted: found and the clipboard emptied; Linux X11: found; Linux Wayland: no
