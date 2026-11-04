@@ -1113,6 +1113,34 @@ the state file `settings.json` as a local writer (P5) would edit it.
 - **Left:** a joint rollback of store and file (M3-R23); emoji written with
   U+FE0F are refused in names (M3-R24).
 
+## M3 follow-up — one-time-code setup (2026-11-04)
+
+Branch `feat/m3-otp-setup` (ADR-0031). The item editor can now add a one-time code
+(brief §5 "2FA / TOTP"): *Scan screen*, *Paste screenshot*, *Choose image…* and
+*Can't scan? Enter the key*, then a confirmation with the live code before anything is
+saved.
+
+- **Landed:** new crate `mosaic-qr` (images and screen frames to `otpauth://`,
+  `rqrr` + `image`, size limits, zeroizing buffers, fuzz targets `scan_image` and
+  `scan_luma` in CI); `mosaic_totp::validate_label` is public; commands `otp_scan`,
+  `otp_parse`, `otp_pending_code`, `otp_pending_discard` with Rust-side pending slots
+  (the scanned secret never enters the webview), `OtpChange::setPending`,
+  `CopySource::pendingOtp`, `app_status.otpScreenScan`, twelve error codes; clipboard
+  image read and clear after read; Windows (GDI) and Linux X11 screen capture; the
+  UI (`OtpSection`, `OtpSetupDialog`, DE and EN strings), mock handlers incl. the
+  previously missing mock `add_item` and `update_item`; THREAT_MODEL R30–R32.
+- **Owner decisions taken:** O1 macOS *Scan screen* stays hidden (paste a screenshot
+  instead, Cmd+Ctrl+Shift+4); O2 `otpauth-migration://` is refused with its own
+  message for now (a Google Authenticator batch import may become an import format);
+  O3 `win-screenshot =4.0.14` is accepted for Windows.
+- **Manual checks pending (Needs owner):** Windows 10/11 with two monitors, QR in a
+  browser behind Mosaic: found, and the Mosaic window comes back focused; a Win+Shift+S
+  snip pasted: found and the clipboard emptied; Linux X11: found; Linux Wayland: no
+  *Scan screen* button; macOS: no *Scan screen* button, Cmd+Ctrl+Shift+4 and paste: found.
+- **Not in scope:** `otpauth://` export, Google Authenticator batch import, macOS
+  screen capture (ADR-0031 item 8), a link from a login to its code item in a
+  hardware vault (autofill of the code is M4).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -1197,4 +1225,5 @@ See the THREAT_MODEL §5 residual-risk register.
 - **Touch ID** needs a Developer ID–signed build with entitlements (Apple
   Developer account); unsigned builds hide Touch ID.
 - **Manual hardware checks for quick unlock (crypto review M3, L4)**: (a) Windows: does a second, unsigned executable of the same user open and sign with Mosaic's Hello key (`Mosaic quick unlock <nonce>`)? If yes, THREAT_MODEL R23's residual is real until MSIX package identity (M9). (b) macOS: Touch ID enroll, unlock and a fingerprint change on a Developer ID signed build (the macOS code only compiles in CI; nothing ran on a Mac), including the cancel mapping of `decrypt`.
+- **Manual checks for one-time-code setup (ADR-0031, 2026-11-04)**: see "M3 follow-up — one-time-code setup" above (Windows two monitors, snip paste, X11, Wayland, macOS paste).
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

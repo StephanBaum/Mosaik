@@ -87,7 +87,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
 | `reauthenticate` | `{ password }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window in which `enroll_*`, `add_hardware_vault_key` and `move_item` out of a hardware vault accept `password: null`; the UI sends those first without a password and calls this on `reauthRequired`, then retries) |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
-| `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection }` | none | live |
+| `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection, otpScreenScan }` | none | live |
 | **Quick unlock** | | | |
 | `quick_unlock_status` | `null` → `QuickUnlockStatus` = `{ biometric: { platform: "windowsHello" \| "touchId" \| null, available, enrolled, enrolledAt \| null, expiresAt \| null }, hardwareKeys: { supported, keys: { methodId, addedAt }[], maxKeys }, maxAgeDays }` | | live (needs unlocked) |
 | `enroll_biometric` | `{ password \| null }` → `QuickUnlockStatus` | `reauthRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `quickUnlockUnavailable`, `cancelled`, `busy` (another enrollment is running) | live (the UI sends `null` first and asks for the password on `reauthRequired`; a successful enrollment uses up the 2-minute grant) |
@@ -109,17 +109,22 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
 | `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live |
 | `reveal_secret` | `{ vaultId, itemId, secret: SecretRef }` → `{ value, hideAfterSeconds }` | `itemNotFound`, `fieldEmpty` | live |
-| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `vaultUnavailable` | live (at most 512 entries per draft list) |
-| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound` | live |
+| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `vaultUnavailable`, `otpPendingExpired` | live (at most 512 entries per draft list) |
+| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound`, `otpPendingExpired` | live |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
 | **Clipboard** | | | |
-| `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable` | live |
+| `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } \| { kind: "pendingOtp", pendingId } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable`, `otpPendingExpired`, `invalidInput` (HOTP) | live |
 | `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | live |
 | **Generator, codes** | | | |
 | `generate_password` | `{ kind: "password", length, lowercase, uppercase, digits, symbols, excludeAmbiguous } \| { kind: "passphrase", words, separator, capitalize, appendDigit } \| { kind: "forSite", host }` → `{ value, entropyBits, strength }` | `invalidInput` | live (works while locked) |
 | `totp_code` | `{ vaultId, itemId }` → `{ code, secondsRemaining \| null, period \| null }` | `noOtp`, `vaultUnavailable` | live |
+| **One-time code setup** | | | |
+| `otp_scan` | `{ source: "screen" \| "clipboard" \| "file" }` → `{ kind: "found", pending: OtpPending, clipboardCleared } \| { kind: "cancelled" }` | `busy`, `otpScanUnsupported` (screen), `clipboardUnavailable`, `otpClipboardNoImage`, `otpImageUnreadable`, `otpImageTooLarge`, `otpQrNotFound`, `otpQrNotOtp`, `otpQrMigration`, `otpQrMultiple`, `otpQrInvalid` | live, needs unlocked; `cancelled` only for `file`; `clipboardCleared` is `true` only for `clipboard` |
+| `otp_parse` | `{ kind: "uri", uri } \| { kind: "key", secret, issuer \| null, accountName \| null, algorithm, digits, period }` → `OtpPending` | `otpUriInvalid`, `otpQrMigration` (a pasted `otpauth-migration://` link), `otpKeyInvalid`, `invalidInput` (labels, digits 6–8, period 1–300) | live, needs unlocked; `key` always makes a TOTP |
+| `otp_pending_code` | `{ pendingId }` → `{ code, secondsRemaining, period }` | `otpPendingExpired`, `invalidInput` (HOTP: no preview, the counter must not move before saving) | live, needs unlocked; a background refresh |
+| `otp_pending_discard` | `{ pendingId }` → `null` | none (unknown IDs are ignored) | live, works while locked (no-op) |
 | **Settings** | | | |
 | `get_settings` | `null` → `Settings` | | live (stored in `settings.json` in the app data directory) |
 | `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing, or raising `quickUnlockMaxAgeDays`), `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`), `locked` (a protection setting changes while locked; theme and language can; the protection settings carry a MAC that needs the unlocked vault, ADR-0030) | live |
@@ -149,6 +154,16 @@ Notes per area:
   `ItemDraft` is one edit, applied as one sync event. Its lists of text, secret, URL and
   custom-field changes go by element ID, so concurrent edits merge per element. Its
   `tags` and `otp` take `null` for "unchanged".
+- **OTP setup.** Rust captures the screen, reads the clipboard image or the chosen
+  PNG/JPEG file, finds the QR code and parses the `otpauth://` URI (`mosaic-qr`,
+  ADR-0031). The result stays in Rust as a pending slot (10 minutes, at most 4,
+  cleared on lock); the webview gets `OtpPending` without the secret, the live code from
+  `otp_pending_code` and saves with `OtpChange { op: "setPending", pendingId, issuer,
+  accountName }`, which uses the slot up (a failed save keeps it). A pasted screenshot is
+  read once and the clipboard is emptied afterwards (`clipboardCleared`). `app_status.
+  otpScreenScan` is `true` on Windows and on Linux under X11 only. `OtpPending` is
+  `{ pendingId, scheme, issuer, accountName, algorithm, digits, period, strength,
+  expiresInSeconds }`; `strength` is `weak`, `belowRfc4226` or `rfc4226`.
 - **Clipboard.** Rust reads the value and writes the system clipboard itself. It marks
   the entry as concealed and excluded from clipboard history where the OS supports it.
   It clears the clipboard after `clipboardClearSeconds` (default 30 s) unless the user
@@ -212,7 +227,9 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
 `hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,
 `hardwareKeyNoPin`, `hardwareKeyNotRecognized`, `hardwareKeyLimit`, `hardwareKeyLast`,
-`itemTypeNotAllowed`.
+`itemTypeNotAllowed`, `otpScanUnsupported`, `otpQrNotFound`, `otpQrNotOtp`,
+`otpQrMigration`, `otpQrMultiple`, `otpQrInvalid`, `otpUriInvalid`, `otpKeyInvalid`,
+`otpImageUnreadable`, `otpImageTooLarge`, `otpClipboardNoImage`, `otpPendingExpired`.
 
 The UI message for each code is `error.<code>` in `packages/i18n`. Rust maps
 `mosaic-vault` and `mosaic-core` errors to codes in `contract/errors.rs`. Anything
@@ -222,8 +239,8 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
-| Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
+| Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code` |
 
 `SecretOut` is the only contract type that serializes a secret, and a fixture test fails
 if a secret sample shows up in any other response. Debug output of both types is
@@ -253,7 +270,9 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   `&quickFail=<errorCode>` fails `unlock_quick` (expiry codes also drop the method),
   `&touchMs=<ms>` delays a key touch (cancel with `hardware_key_cancel`) and
   `&hwOpenSeconds=<s>` sets how long a hardware vault stays open (default 300). A security
-  key needs the PIN `1234`.
+  key needs the PIN `1234`. One-time code setup (ADR-0031): `&otpScan=<errorCode>|cancel`
+  makes `otp_scan` fail with that code (or cancel the file dialog) and `&screenScan=0`
+  reports screen scanning as unsupported.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no
