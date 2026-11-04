@@ -185,9 +185,11 @@ impl OwnedFrame {
         self.layout
     }
 
-    /// The pixel bytes (fixture generators).
-    #[cfg(any(test, feature = "testing"))]
-    pub(crate) fn pixels(&self) -> &[u8] {
+    /// The pixel bytes, row-major and packed (`width * bytes per pixel` per
+    /// row). A view of the zeroizing buffer: copy it only into zeroizing
+    /// memory or a digest.
+    #[must_use]
+    pub fn pixels(&self) -> &[u8] {
         &self.pixels
     }
 }

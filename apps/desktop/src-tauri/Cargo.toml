@@ -26,6 +26,7 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 arboard = { workspace = true, features = ["image-data"] }
+getrandom.workspace = true
 keyring.workspace = true
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
@@ -39,6 +40,7 @@ pdf-writer.workspace = true
 rfd.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sha2.workspace = true
 subtle.workspace = true
 tauri.workspace = true
 tauri-plugin-global-shortcut.workspace = true

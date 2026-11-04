@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 use crate::decode::{ImageLimits, decode_image};
 use crate::error::ScanError;
-use crate::frame::{Frame, Luma, to_luma};
+use crate::frame::{Frame, Luma, OwnedFrame, to_luma};
 
 /// Frames examined per scan; more are ignored.
 pub const MAX_FRAMES: usize = 8;
@@ -133,13 +133,35 @@ fn scan_luma(luma: &Luma, invert: bool, found: &mut Found) -> Result<bool, ScanE
 /// # Errors
 /// `NotFound`, `NotOtp`, `Migration`, `Multiple`, `InvalidOtp`.
 pub fn scan_frames(frames: &[Frame<'_>]) -> Result<OtpAuth, ScanError> {
+    let lumas: Vec<Luma> = frames
+        .iter()
+        .take(MAX_FRAMES)
+        .filter_map(|frame| to_luma(frame, MAX_DECODE_PIXELS).ok())
+        .collect();
+    scan_lumas(&lumas)
+}
+
+/// [`scan_frames`] on frames it owns: each is dropped (zeroized) as soon as
+/// its grey levels exist, so the raw screen pixels are gone before the search
+/// starts.
+///
+/// # Errors
+/// As [`scan_frames`].
+pub fn scan_owned_frames(frames: Vec<OwnedFrame>) -> Result<OtpAuth, ScanError> {
+    let mut lumas = Vec::new();
+    for frame in frames.into_iter().take(MAX_FRAMES) {
+        if let Ok(luma) = to_luma(&frame.frame(), MAX_DECODE_PIXELS) {
+            lumas.push(luma);
+        }
+    }
+    scan_lumas(&lumas)
+}
+
+fn scan_lumas(lumas: &[Luma]) -> Result<OtpAuth, ScanError> {
     let mut found = Found::default();
-    for frame in frames.iter().take(MAX_FRAMES) {
-        let Ok(luma) = to_luma(frame, MAX_DECODE_PIXELS) else {
-            continue;
-        };
-        if !scan_luma(&luma, false, &mut found)? {
-            scan_luma(&luma, true, &mut found)?;
+    for luma in lumas {
+        if !scan_luma(luma, false, &mut found)? {
+            scan_luma(luma, true, &mut found)?;
         }
     }
     found.finish()

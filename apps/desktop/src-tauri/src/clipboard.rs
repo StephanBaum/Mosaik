@@ -27,6 +27,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::SecretString;
 use mosaic_qr::{OwnedFrame, PixelLayout};
+use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
@@ -56,6 +57,28 @@ pub enum ClipboardImage {
     Unreadable,
     /// The image, RGBA with straight alpha, in a zeroizing buffer.
     Image(OwnedFrame),
+}
+
+/// Identifies an image on the clipboard: size and a SHA-256 of the pixel
+/// bytes. Lets a slow scan check, before clearing, that the clipboard still
+/// holds the image it scanned.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ImageFingerprint {
+    width: u32,
+    height: u32,
+    digest: [u8; 32],
+}
+
+impl ImageFingerprint {
+    /// The fingerprint of `frame`.
+    #[must_use]
+    pub fn of(frame: &OwnedFrame) -> Self {
+        Self {
+            width: frame.width(),
+            height: frame.height(),
+            digest: Sha256::digest(frame.pixels()).into(),
+        }
+    }
 }
 
 /// The OS clipboard, as the worker uses it.
@@ -241,8 +264,17 @@ impl ClipboardBackend for MemoryClipboard {
     }
 
     fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
-        let image = self.image.lock().map_err(|_| ClipboardError)?.take();
-        Ok(image.map_or(ClipboardImage::Empty, ClipboardImage::Image))
+        let held = self.image.lock().map_err(|_| ClipboardError)?;
+        // A copy, as the system clipboard hands out: reading does not consume.
+        Ok(held.as_ref().map_or(ClipboardImage::Empty, |f| {
+            OwnedFrame::new(
+                f.width(),
+                f.height(),
+                f.layout(),
+                Zeroizing::new(f.pixels().to_vec()),
+            )
+            .map_or(ClipboardImage::Unreadable, ClipboardImage::Image)
+        }))
     }
 }
 
@@ -258,8 +290,9 @@ enum Command {
     ReadImage {
         reply: Sender<Result<ClipboardImage, ClipboardError>>,
     },
-    ClearAny {
-        reply: Sender<Result<(), ClipboardError>>,
+    ClearIfImage {
+        expected: ImageFingerprint,
+        reply: Sender<Result<bool, ClipboardError>>,
     },
     Shutdown,
 }
@@ -352,14 +385,22 @@ impl Worker {
         Ok(true)
     }
 
-    /// Empties the clipboard whatever it holds (a pasted screenshot is not
-    /// ours, but it is the secret in another form), and forgets any held
-    /// value: there is nothing left to clear later.
-    fn clear_any(&mut self) -> Result<(), ClipboardError> {
+    /// Empties the clipboard if it still holds the image `expected` (a pasted
+    /// screenshot is not ours, but it is the secret in another form), and
+    /// forgets any held value: there is nothing left to clear later. Anything
+    /// copied since is left alone (`false`). The re-read pixels are wiped.
+    fn clear_if_image(&mut self, expected: &ImageFingerprint) -> Result<bool, ClipboardError> {
         let backend = self.backend.as_mut().ok_or(ClipboardError)?;
+        let same = match backend.read_image()? {
+            ClipboardImage::Image(frame) => ImageFingerprint::of(&frame) == *expected,
+            ClipboardImage::Empty | ClipboardImage::Unreadable => false,
+        };
+        if !same {
+            return Ok(false);
+        }
         backend.clear()?;
         self.held = None;
-        Ok(())
+        Ok(true)
     }
 
     fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
@@ -425,8 +466,8 @@ impl Worker {
                 Wake::Command(Command::ReadImage { reply }) => {
                     let _ = reply.send(self.read_image());
                 }
-                Wake::Command(Command::ClearAny { reply }) => {
-                    let _ = reply.send(self.clear_any());
+                Wake::Command(Command::ClearIfImage { expected, reply }) => {
+                    let _ = reply.send(self.clear_if_image(&expected));
                 }
                 Wake::Command(Command::Shutdown) => {
                     self.shutdown();
@@ -526,13 +567,15 @@ impl ClipboardService {
             .map_err(|ClipboardError| IpcError::new(ErrorCode::ClipboardUnavailable))
     }
 
-    /// Empties the clipboard whatever it holds.
+    /// Empties the clipboard if it still holds the image `expected`; returns
+    /// whether it did. Content copied meanwhile (decoding can take seconds)
+    /// is not touched.
     ///
     /// # Errors
     /// `clipboardUnavailable`.
-    pub fn clear_any(&self) -> IpcResult<()> {
+    pub fn clear_if_image(&self, expected: ImageFingerprint) -> IpcResult<bool> {
         let (reply, answer) = mpsc::channel();
-        self.send(Command::ClearAny { reply })?;
+        self.send(Command::ClearIfImage { expected, reply })?;
         answer
             .recv()
             .map_err(|_| IpcError::new(ErrorCode::ClipboardUnavailable))?
@@ -672,6 +715,23 @@ mod tests {
         fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
             Err(ClipboardError)
         }
+    }
+
+    #[test]
+    fn clear_if_image_only_clears_the_image_it_was_given() {
+        use mosaic_qr::testing::{SAMPLE_URI, qr_frame, rgba};
+        let (service, memory, _log) = service();
+        let scanned = rgba(&qr_frame(SAMPLE_URI, 4, 4));
+        let fingerprint = ImageFingerprint::of(&scanned);
+        memory.put_image(scanned);
+        // Something else was copied while the scan ran.
+        memory.put_image(rgba(&qr_frame("https://example.com", 4, 4)));
+        assert!(!service.clear_if_image(fingerprint.clone()).unwrap());
+        assert!(memory.has_image(), "left alone");
+        memory.put("text now");
+        memory.put_image(rgba(&qr_frame(SAMPLE_URI, 4, 4)));
+        assert!(service.clear_if_image(fingerprint).unwrap());
+        assert!(!memory.has_image() && memory.content().is_none());
     }
 
     #[test]

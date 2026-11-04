@@ -125,14 +125,12 @@ mod platform {
     /// (GDI), so `Rgbx8`; the buffer moves into the zeroizing frame.
     pub(super) fn grab() -> IpcResult<Vec<OwnedFrame>> {
         let buf = win_screenshot::capture::capture_display().map_err(|_| IpcError::INTERNAL)?;
-        check_size(buf.width, buf.height)?;
-        let frame = OwnedFrame::new(
-            buf.width,
-            buf.height,
-            PixelLayout::Rgbx8,
-            Zeroizing::new(buf.pixels),
-        )
-        .map_err(|_| IpcError::INTERNAL)?;
+        let (width, height) = (buf.width, buf.height);
+        // Wiped on every path below, an oversized capture included.
+        let pixels = Zeroizing::new(buf.pixels);
+        check_size(width, height)?;
+        let frame = OwnedFrame::new(width, height, PixelLayout::Rgbx8, pixels)
+            .map_err(|_| IpcError::INTERNAL)?;
         Ok(vec![frame])
     }
 }

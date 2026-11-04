@@ -13,7 +13,7 @@ use std::time::{Instant, SystemTime};
 
 use mosaic_core::SecretString;
 use mosaic_core::model::OtpConfig;
-use mosaic_qr::{Frame, ImageLimits, Payload, ScanError};
+use mosaic_qr::{ImageLimits, Payload, ScanError};
 use mosaic_totp::{
     Algorithm, Digits, Otp, OtpAuth, OtpKind, OtpSecret, Period, SecretStrength, SecretText,
     validate_label,
@@ -23,7 +23,7 @@ use tauri::State;
 use zeroize::Zeroizing;
 
 use super::clipboard::now_unix_seconds;
-use crate::clipboard::ClipboardImage;
+use crate::clipboard::{ClipboardImage, ImageFingerprint};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::items::{OtpChange, OtpScheme};
 use crate::contract::otp::{
@@ -224,22 +224,31 @@ impl Backend {
             return Err(IpcError::new(ErrorCode::OtpScanUnsupported));
         }
         let frames = self.screen.capture()?;
-        let views: Vec<Frame<'_>> = frames.iter().map(mosaic_qr::OwnedFrame::frame).collect();
-        let result = mosaic_qr::scan_frames(&views);
-        // Wiped before anything else happens.
-        drop(views);
-        drop(frames);
-        result.map_err(scan_error)
+        // Each frame is wiped as soon as its grey levels exist, before the
+        // (slow) search starts.
+        mosaic_qr::scan_owned_frames(frames).map_err(scan_error)
     }
 
-    /// Looks for a setup code in the clipboard image.
-    fn scan_clipboard(&self) -> IpcResult<OtpAuth> {
+    /// Looks for a setup code in the clipboard image. The image holds the
+    /// secret in another form, so whenever a code was found (a good one, a
+    /// migration, one of several or an invalid one) the clipboard is cleared
+    /// if it still holds the same image; `cleared` tells whether it did.
+    fn scan_clipboard(&self, cleared: &mut bool) -> IpcResult<OtpAuth> {
         match self.clipboard.read_image()? {
             ClipboardImage::Empty => Err(IpcError::new(ErrorCode::OtpClipboardNoImage)),
             ClipboardImage::Unreadable => Err(IpcError::new(ErrorCode::OtpImageUnreadable)),
             ClipboardImage::Image(frame) => {
                 check_clipboard_pixels(frame.width(), frame.height())?;
-                mosaic_qr::scan_frames(&[frame.frame()]).map_err(scan_error)
+                let fingerprint = ImageFingerprint::of(&frame);
+                let result = mosaic_qr::scan_frames(&[frame.frame()]);
+                drop(frame);
+                if matches!(
+                    result,
+                    Ok(_) | Err(ScanError::Migration | ScanError::Multiple | ScanError::InvalidOtp)
+                ) {
+                    *cleared = self.clipboard.clear_if_image(fingerprint).unwrap_or(false);
+                }
+                result.map_err(scan_error)
             }
         }
     }
@@ -272,18 +281,14 @@ impl Backend {
         let mut clipboard_cleared = false;
         let auth = match request.source {
             OtpScanSource::Screen => self.scan_screen()?,
-            OtpScanSource::Clipboard => {
-                let auth = self.scan_clipboard()?;
-                clipboard_cleared = self.clipboard.clear_any().is_ok();
-                auth
-            }
+            OtpScanSource::Clipboard => self.scan_clipboard(&mut clipboard_cleared)?,
             OtpScanSource::File => match self.scan_file()? {
                 Some(auth) => auth,
                 None => return Ok(OtpScanResult::Cancelled),
             },
         };
-        // The vault may have locked during the scan: the setup is dropped.
-        self.require_unlocked()?;
+        // The vault may have locked during the scan: `hold_pending` refuses
+        // then, and the setup is dropped.
         Ok(OtpScanResult::Found {
             pending: self.hold_pending(auth)?,
             clipboard_cleared,
@@ -327,7 +332,6 @@ impl Backend {
                 period,
             )?,
         };
-        self.require_unlocked()?;
         self.hold_pending(auth)
     }
 
@@ -426,18 +430,34 @@ impl Backend {
 
     /// Puts a taken entry back after a failed save (not into a locked vault).
     pub(crate) fn restore_pending_otp(&self, taken: TakenOtp) {
-        if self.is_unlocked()
+        // The session slot is held across the insert (slot first, then the
+        // pending mutex; `after_lock` only takes the latter): a lock either
+        // comes first and nothing is restored, or comes after and clears it.
+        if let Ok(slot) = self.slot()
+            && slot.unlocked().is_ok()
             && let Ok(mut pending) = self.otp_pending.lock()
         {
             pending.restore(taken.id, taken.entry);
         }
     }
 
-    /// Stores `auth` and builds its preview.
+    /// Stores `auth` and builds its preview. Refuses (`locked`) unless the
+    /// vault is unlocked, checked under the session slot guard for the same
+    /// reason as in [`Self::restore_pending_otp`].
     fn hold_pending(&self, auth: OtpAuth) -> IpcResult<OtpPending> {
+        let slot = self.slot()?;
+        slot.unlocked()?;
         let mut preview = preview(&auth);
-        preview.pending_id = guard(&self.otp_pending)?.insert(auth, clocks());
+        preview.pending_id = guard(&self.otp_pending)?.insert(auth, clocks())?;
+        drop(slot);
         Ok(preview)
+    }
+
+    /// Drops pending setups past their TTL (the idle tick calls this).
+    pub fn purge_expired_pending(&self) {
+        if let Ok(mut pending) = self.otp_pending.lock() {
+            pending.purge_expired(clocks());
+        }
     }
 }
 

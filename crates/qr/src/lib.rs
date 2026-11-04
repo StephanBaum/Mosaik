@@ -31,4 +31,5 @@ pub use error::ScanError;
 pub use frame::{Frame, OwnedFrame, PixelLayout};
 pub use scan::{
     MAX_DECODE_PIXELS, MAX_FRAMES, MAX_GRIDS_PER_FRAME, Payload, classify, scan_frames, scan_image,
+    scan_owned_frames,
 };

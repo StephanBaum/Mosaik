@@ -18,7 +18,7 @@ use crate::clipboard::MemoryClipboard;
 use crate::commands::otp::check_clipboard_pixels;
 use crate::contract::errors::{ErrorCode, IpcResult};
 use crate::contract::events::LockReason;
-use crate::contract::items::{ItemDetail, OtpScheme};
+use crate::contract::items::{ItemDetail, OtpChange, OtpScheme};
 use crate::contract::otp::{
     OtpAlgorithm, OtpParseRequest, OtpPending, OtpPendingRequest, OtpScanRequest, OtpScanResult,
     OtpScanSource, OtpSecretStrength,
@@ -183,7 +183,8 @@ fn scanning_the_screen_holds_the_setup_in_rust_and_maps_the_errors() {
     assert_eq!((pending.digits, pending.period), (6, Some(30)));
     assert_eq!(pending.strength, OtpSecretStrength::BelowRfc4226);
     assert_eq!(pending.expires_in_seconds, 600);
-    assert!(pending.pending_id.starts_with("otp-"));
+    assert_eq!(pending.pending_id.len(), 32, "16 random bytes in hex");
+    assert!(pending.pending_id.bytes().all(|c| c.is_ascii_hexdigit()));
     assert!(!b.otp_scanning.load(Ordering::SeqCst), "flag released");
 
     // Errors of the scan itself.
@@ -585,4 +586,51 @@ fn a_pending_setup_becomes_a_hardware_protected_item() {
         })))
         .unwrap();
     assert!(detail.otp.unwrap().hardware_protected);
+}
+
+#[test]
+fn a_clipboard_image_with_a_secret_is_cleared_even_when_the_scan_fails() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig();
+    let b = &r.backend;
+    // Migration, several codes and an invalid code all hold secrets.
+    let cases = [
+        (
+            "otpauth-migration://offline?data=CgYKBAAAAAA%3D",
+            ErrorCode::OtpQrMigration,
+        ),
+        ("otpauth://totp/x?secret=1", ErrorCode::OtpQrInvalid),
+    ];
+    for (uri, expected) in cases {
+        r.clipboard.put_image(rgba(&qr_frame(uri, 5, 4)));
+        assert_eq!(scan_code(b, OtpScanSource::Clipboard), expected);
+        assert!(!r.clipboard.has_image(), "{uri} was cleared");
+    }
+    // A QR code that is not a setup holds nothing of ours: left alone.
+    r.clipboard
+        .put_image(rgba(&qr_frame("https://example.com", 5, 4)));
+    assert_eq!(
+        scan_code(b, OtpScanSource::Clipboard),
+        ErrorCode::OtpQrNotOtp
+    );
+    assert!(r.clipboard.has_image());
+}
+
+#[test]
+fn a_pending_setup_is_not_restored_into_a_locked_vault() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = rig();
+    let b = &r.backend;
+    let id = pending_id(&parse_uri(b, SAMPLE_URI).unwrap());
+    let change = OtpChange::SetPending {
+        pending_id: id,
+        issuer: None,
+        account_name: None,
+    };
+    let taken = b.take_pending_otp(Some(&change)).unwrap().unwrap();
+    b.lock(LockReason::Manual).unwrap();
+    b.restore_pending_otp(taken);
+    assert_eq!(b.otp_pending.lock().unwrap().len(), 0);
+    unlock(b);
+    assert_eq!(b.otp_pending.lock().unwrap().len(), 0);
 }

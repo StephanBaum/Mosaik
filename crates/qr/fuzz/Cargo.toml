@@ -12,6 +12,10 @@ cargo-fuzz = true
 [workspace]
 members = ["."]
 
+# Same patched rqrr as the main workspace (vendor/rqrr/MOSAIC_PATCH.md).
+[patch.crates-io]
+rqrr = { path = "../../../vendor/rqrr" }
+
 [lints.rust]
 # CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
 unsafe_code = "forbid"

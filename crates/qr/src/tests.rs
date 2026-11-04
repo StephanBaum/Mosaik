@@ -397,7 +397,48 @@ fn write_fuzz_seeds() {
         &png(&canvas(64, 64, PixelLayout::Luma8, 255, &[])),
     );
     let small = qr_frame(SAMPLE_URI, 2, 4);
-    let mut raw = u16::try_from(small.width()).unwrap().to_le_bytes().to_vec();
+    // Layout byte 0 is Luma8, then the width.
+    let mut raw = vec![0];
+    raw.extend_from_slice(&u16::try_from(small.width()).unwrap().to_le_bytes());
     raw.extend_from_slice(small.pixels());
     write(&luma_dir, "otp.luma", &raw);
+}
+
+/// A white greyscale frame tiled with `n` x `n` finder squares (7 modules of
+/// `module` px) and no timing pattern, so no grid is valid.
+fn finder_field(n: u32, module: u32, gap: u32) -> OwnedFrame {
+    let pitch = 7 * module + gap;
+    let side = n * pitch + gap;
+    let mut pixels = vec![255_u8; (side * side) as usize];
+    for y in 0..side {
+        for x in 0..side {
+            let (lx, ly) = (x.wrapping_sub(gap) % pitch, y.wrapping_sub(gap) % pitch);
+            if x < gap || y < gap || lx >= 7 * module || ly >= 7 * module {
+                continue;
+            }
+            let (mx, my) = (lx / module, ly / module);
+            let outer = mx == 0 || mx == 6 || my == 0 || my == 6;
+            let core = (2..=4).contains(&mx) && (2..=4).contains(&my);
+            if outer || core {
+                pixels[(y * side + x) as usize] = 0;
+            }
+        }
+    }
+    OwnedFrame::new(side, side, PixelLayout::Luma8, Zeroizing::new(pixels)).unwrap()
+}
+
+#[test]
+fn fake_finder_field_is_bounded() {
+    // 900 capstones: over the patched rqrr's capstone cap.
+    // 8 x 8 = 64: under it, so the attempt cap is what ends the search.
+    for n in [30, 8] {
+        let started = std::time::Instant::now();
+        let result = scan_one(&finder_field(n, 4, 10));
+        assert_eq!(result.unwrap_err(), ScanError::NotFound);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(15),
+            "scan of {n}x{n} fake finders took {:?}",
+            started.elapsed()
+        );
+    }
 }
