@@ -1,5 +1,12 @@
 /** Create or edit an item (D10): title, user name, password (the generator can fill it), website, notes, tags. */
-import { useState, type Dispatch, type SetStateAction, type SyntheticEvent } from "react";
+import {
+  useState,
+  type Dispatch,
+  type KeyboardEvent,
+  type ReactNode,
+  type SetStateAction,
+  type SyntheticEvent,
+} from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
@@ -9,18 +16,18 @@ import { PasswordField } from "../../components/PasswordField.tsx";
 import { Select } from "../../components/Select.tsx";
 import { TextArea } from "../../components/TextArea.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { useToast } from "../../components/ToastProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import {
   itemKinds,
   type IpcError,
   type ItemDetail,
-  type ItemDraft,
   type ItemKind,
   type ItemRequest,
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
+import { initialForm, useSave, type Form } from "./editorForm.ts";
+import { OTP_UNCHANGED, OtpSection } from "./otp/OtpSection.tsx";
 
 const CREATABLE: readonly ItemKind[] = itemKinds.filter(
   (kind) => kind !== "unsupported" && kind !== "passkey",
@@ -36,80 +43,6 @@ const GENERATED_PASSWORD = {
   symbols: true,
   excludeAmbiguous: true,
 } as const;
-
-interface Form {
-  kind: ItemKind;
-  vault: string;
-  title: string;
-  username: string;
-  password: string;
-  url: string;
-  notes: string;
-  tags: string;
-}
-
-function textOf(detail: ItemDetail | null, field: string): string {
-  return detail?.text.find((entry) => entry.field === field)?.value ?? "";
-}
-
-function initialForm(editing: ItemDetail | null, vaults: readonly VaultSummary[], vaultId: string | null): Form {
-  return {
-    kind: editing?.summary.kind ?? "login",
-    vault: vaultId ?? vaults[0]?.vaultId ?? "",
-    title: editing?.summary.title ?? "",
-    username: textOf(editing, "username"),
-    password: "",
-    url: "",
-    notes: textOf(editing, "notes"),
-    tags: editing?.summary.tags.join(", ") ?? "",
-  };
-}
-
-function buildDraft(form: Form): ItemDraft {
-  const empty = (value: string): string | null => (value === "" ? null : value);
-  return {
-    text: [
-      { field: "title", value: form.title },
-      { field: "username", value: empty(form.username) },
-      { field: "notes", value: empty(form.notes) },
-    ],
-    secrets: form.password === "" ? [] : [{ field: "password", value: form.password }],
-    urls: form.url === "" ? [] : [{ op: "add", url: form.url, matchMode: "exactOrigin", allowHttp: false }],
-    customFields: [],
-    tags: form.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag !== ""),
-    otp: null,
-  };
-}
-
-function useSave(editing: ItemDetail | null, onSaved: (item: ItemRequest) => void) {
-  const { t } = useI18n();
-  const ipc = useIpc();
-  const toast = useToast();
-  const [error, setError] = useState<IpcError | null>(null);
-
-  async function save(form: Form) {
-    setError(null);
-    const draft = buildDraft(form);
-    const result =
-      editing === null
-        ? await ipc.call("add_item", { vaultId: form.vault, kind: form.kind, draft })
-        : await ipc.call("update_item", {
-            vaultId: editing.summary.vaultId,
-            itemId: editing.summary.itemId,
-            draft,
-          });
-    if (result.ok) {
-      toast(t("toast.saved"));
-      onSaved({ vaultId: result.value.summary.vaultId, itemId: result.value.summary.itemId });
-    } else {
-      setError(result.error);
-    }
-  }
-  return { error, setError, save };
-}
 
 function KindAndVault({
   form,
@@ -161,11 +94,14 @@ function FormFields({
   creating,
   onChange,
   onFill,
+  children,
 }: {
   form: Form;
   creating: boolean;
   onChange: (patch: Partial<Form>) => void;
   onFill: () => void;
+  /** The one-time code section, after the website. */
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const text = (key: "title" | "username" | "tags", label: string, hint?: string) => (
@@ -209,6 +145,7 @@ function FormFields({
           }}
         />
       )}
+      {children}
       <TextArea
         label={t("item.field.notes")}
         value={form.notes}
@@ -255,6 +192,61 @@ function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: (
   );
 }
 
+/** The one-time code section, fed from the form. */
+function EditorOtp({
+  form,
+  editing,
+  vaults,
+  missing,
+  onChange,
+}: {
+  form: Form;
+  editing: ItemDetail | null;
+  vaults: readonly VaultSummary[];
+  missing: boolean;
+  onChange: (patch: Partial<Form>) => void;
+}) {
+  return (
+    <OtpSection
+      kind={form.kind}
+      existing={editing?.otp ?? null}
+      value={form.otp}
+      onChange={(otp) => {
+        onChange({ otp });
+      }}
+      vaults={vaults}
+      prefill={{ issuer: form.title, account: form.username }}
+      missing={missing}
+    />
+  );
+}
+
+/** The pending setup is forgotten when the editor is left without saving. */
+function useCancel(form: Form, onCancel: () => void): () => void {
+  const ipc = useIpc();
+  return () => {
+    if (form.otp.kind === "pending") {
+      void ipc.call("otp_pending_discard", { pendingId: form.otp.result.pending.pendingId });
+    }
+    onCancel();
+  };
+}
+
+function useHeading(editing: ItemDetail | null, kind: ItemKind): string {
+  const { t } = useI18n();
+  return editing === null
+    ? t("editor.newTitle", { kind })
+    : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
+}
+
+/** Esc leaves the editor; a dialog inside the form handles its own Esc. */
+function leaveOnEscape(event: KeyboardEvent<HTMLFormElement>, leave: () => void) {
+  if (event.key === "Escape" && !(event.target instanceof Element && event.target.closest("dialog"))) {
+    event.preventDefault();
+    leave();
+  }
+}
+
 export function ItemEditor({
   vaults,
   vaultId,
@@ -273,55 +265,57 @@ export function ItemEditor({
   const [initial] = useState(() => initialForm(editing, vaults, vaultId));
   const [form, setForm] = useState(initial);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [otpTried, setOtpTried] = useState(false);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const { error, setError, save } = useSave(editing, onSaved);
-
-  const fillGenerated = useFillGenerated(setForm, setError);
   const change = (patch: Partial<Form>) => {
     setForm((current) => ({ ...current, ...patch }));
   };
-  const heading =
-    editing === null
-      ? t("editor.newTitle", { kind: form.kind })
-      : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
+  const { error, setError, save } = useSave(editing, vaults, onSaved, () => {
+    change({ otp: OTP_UNCHANGED });
+  });
+  const cancel = useCancel(form, onCancel);
+  // A one-time code item without a code would be empty.
+  const otpMissing = form.kind === "totp" && editing === null && form.otp.kind !== "pending";
+  const fillGenerated = useFillGenerated(setForm, setError);
+  const heading = useHeading(editing, form.kind);
   return (
     <form
       className="editor"
       onSubmit={(event: SyntheticEvent) => {
         event.preventDefault();
+        if (otpMissing) {
+          setOtpTried(true);
+          return;
+        }
         void save(form);
       }}
       noValidate
       onKeyDown={(event) => {
-        // A dialog inside the form (the discard prompt) handles its own Esc.
-        if (event.key === "Escape" && !(event.target instanceof Element && event.target.closest("dialog"))) {
-          event.preventDefault();
+        leaveOnEscape(event, () => {
           if (dirty) {
             setConfirmDiscard(true);
           } else {
-            onCancel();
+            cancel();
           }
-        }
+        });
       }}
     >
       <div className="editor__header">
         <h2 className="display">{heading}</h2>
-        <KindAndVault
+        <KindAndVault form={form} creating={editing === null} vaults={vaults} onChange={change} />
+      </div>
+      <FormFields form={form} creating={editing === null} onChange={change} onFill={fillGenerated}>
+        <EditorOtp
           form={form}
-          creating={editing === null}
+          editing={editing}
           vaults={vaults}
+          missing={otpTried && otpMissing}
           onChange={change}
         />
-      </div>
-      <FormFields
-        form={form}
-        creating={editing === null}
-        onChange={change}
-        onFill={fillGenerated}
-      />
+      </FormFields>
       <ErrorAlert error={error} />
       <div className="form-footer">
-        <Button onClick={onCancel}>{t("action.cancel")}</Button>
+        <Button onClick={cancel}>{t("action.cancel")}</Button>
         <HoloButton type="submit">{t("action.save")}</HoloButton>
       </div>
       {confirmDiscard && (
@@ -329,7 +323,7 @@ export function ItemEditor({
           onKeep={() => {
             setConfirmDiscard(false);
           }}
-          onDiscard={onCancel}
+          onDiscard={cancel}
         />
       )}
     </form>

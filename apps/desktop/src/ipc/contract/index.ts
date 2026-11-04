@@ -7,6 +7,7 @@ export * from "./generator.ts";
 export * from "./import.ts";
 export * from "./insights.ts";
 export * from "./items.ts";
+export * from "./otp.ts";
 export * from "./session.ts";
 export * from "./settings.ts";
 export * from "./quickUnlock.ts";

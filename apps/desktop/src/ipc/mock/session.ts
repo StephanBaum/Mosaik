@@ -6,6 +6,7 @@ import {
   quickMethods,
   verifyQuickUnlock,
 } from "./quickUnlock.ts";
+import { clearMockPending } from "./otp.ts";
 import { startAgent } from "./ssh.ts";
 import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
   type MockHandlers,
@@ -153,6 +154,7 @@ export const sessionHandlers: MockHandlers = {
         closeHardwareVault(state, vault, "lock");
       }
       state.lastGenerated = null;
+      clearMockPending(state);
       state.heldImport = null;
       state.emit({ type: "locked", reason: "manual" });
     }

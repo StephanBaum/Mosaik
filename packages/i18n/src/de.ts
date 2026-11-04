@@ -13,6 +13,7 @@ import { ssh } from "./catalog/de/ssh.ts";
 import { settings } from "./catalog/de/settings.ts";
 import { palette } from "./catalog/de/palette.ts";
 import { shell } from "./catalog/de/shell.ts";
+import { otp } from "./catalog/de/otp.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -30,4 +31,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...settings,
   ...palette,
   ...shell,
+  ...otp,
 };

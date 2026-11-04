@@ -87,4 +87,23 @@ export const errors = {
   "error.hardwareKeyLast":
     "This is the vault's only key. Register another one before you remove it.",
   "error.itemTypeNotAllowed": "This vault holds one-time codes only.",
+  "error.otpScanUnsupported":
+    "Screen scanning isn't available on this system. Paste a screenshot instead.",
+  "error.otpQrNotFound": "No QR code found. Make sure the whole code is visible, then try again.",
+  "error.otpQrNotOtp":
+    "This QR code isn't a two-factor setup code. Look for the code on the site's 2FA setup page.",
+  "error.otpQrMigration":
+    "This is a Google Authenticator export code, which Mosaic can't read yet. Set up each account again on its site, or enter its setup key.",
+  "error.otpQrMultiple":
+    "More than one setup code is visible. Show only the one you want, then try again.",
+  "error.otpQrInvalid":
+    "This setup code uses settings Mosaic doesn't support. Enter the setup key instead.",
+  "error.otpUriInvalid": "This isn't a valid otpauth:// link. Copy the whole link again.",
+  "error.otpKeyInvalid":
+    "This key isn't valid. It uses only the letters A to Z and the digits 2 to 7; check for typos.",
+  "error.otpImageUnreadable": "Mosaic can't read this image. Use a PNG or JPEG file.",
+  "error.otpImageTooLarge": "This image is too large. Use a screenshot of just the QR code.",
+  "error.otpClipboardNoImage":
+    "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
+  "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
 } as const satisfies Record<string, string>;

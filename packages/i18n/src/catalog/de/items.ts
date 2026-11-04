@@ -66,7 +66,6 @@ export const items = {
   "editor.kind": "Typ",
   "editor.vault": "Tresor",
   "editor.url": "Website",
-  "editor.otp": "Einmalcode-Einrichtung (otpauth://-Link)",
   "editor.tags": "Tags, durch Kommas getrennt",
   "editor.keepSecret": "Leer lassen, um den aktuellen Wert zu behalten.",
   "editor.fillGenerated": "Mit erzeugtem Passwort füllen",

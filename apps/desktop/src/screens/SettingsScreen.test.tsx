@@ -23,7 +23,7 @@ describe("settings", () => {
     const user = userEvent.setup();
     render(
       <PlatformContext value="mac">
-        <App ipc={withStatus(createMockIpc({ start: "unlocked" }), { shortcut: "conflict", screenLockDetection: true })} languages={["en"]} />
+        <App ipc={withStatus(createMockIpc({ start: "unlocked" }), { shortcut: "conflict", screenLockDetection: true, otpScreenScan: true })} languages={["en"]} />
       </PlatformContext>,
     );
     await screen.findByText("GitHub");
@@ -36,6 +36,7 @@ describe("settings", () => {
     const ipc = withStatus(createMockIpc({ start: "unlocked" }), {
       shortcut: "registered",
       screenLockDetection: false,
+      otpScreenScan: true,
     });
     render(<App ipc={ipc} languages={["en"]} />);
     await screen.findByText("GitHub");

@@ -89,6 +89,8 @@ export interface AppStatus {
   shortcut: ShortcutState;
   /** Whether the app is told when the screen locks (CRYPTO_SPEC section 11 gap). */
   screenLockDetection: boolean;
+  /** Whether "Scan screen" works here (Windows, Linux X11). */
+  otpScreenScan: boolean;
 }
 
 export interface QuickUnlockRequest {
