@@ -492,6 +492,17 @@ pub enum OtpChange {
         /// The URI (it contains the shared secret).
         uri: SecretIn,
     },
+    /// Set it from a scanned or parsed setup that Rust holds under
+    /// `pending_id` (`otp_scan`, `otp_parse`; ADR-0031). The slot is
+    /// consumed by a successful save.
+    SetPending {
+        /// The slot.
+        pending_id: String,
+        /// The issuer to store (`null` or empty: none).
+        issuer: Option<String>,
+        /// The account name to store (`null` or empty: none).
+        account_name: Option<String>,
+    },
     /// Remove it.
     Remove,
 }
@@ -744,6 +755,11 @@ pub(crate) mod samples {
         vec![
             OtpChange::Set {
                 uri: SecretIn::test("otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP"),
+            },
+            OtpChange::SetPending {
+                pending_id: "otp-1".into(),
+                issuer: Some("GitHub".into()),
+                account_name: Some("alex@example.com".into()),
             },
             OtpChange::Remove,
         ]

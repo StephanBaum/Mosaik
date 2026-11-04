@@ -38,6 +38,8 @@ pub struct AppStatus {
     pub shortcut: ShortcutState,
     /// Whether the app is told when the screen locks (CRYPTO_SPEC section 11 gap).
     pub screen_lock_detection: bool,
+    /// Whether "Scan screen" works here (Windows, Linux X11; ADR-0031).
+    pub otp_screen_scan: bool,
 }
 
 /// Where the session is. Every session command returns the new state.
@@ -251,6 +253,7 @@ pub(crate) mod samples {
         AppStatus {
             shortcut: ShortcutState::Conflict,
             screen_lock_detection: false,
+            otp_screen_scan: true,
         }
     }
 

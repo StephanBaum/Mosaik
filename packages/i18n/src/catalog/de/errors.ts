@@ -101,4 +101,27 @@ export const errors = {
   "error.hardwareKeyLast":
     "Das ist der einzige Schlüssel dieses Tresors. Registriere zuerst einen weiteren.",
   "error.itemTypeNotAllowed": "Dieser Tresor enthält nur Einmalcodes.",
+  "error.otpScanUnsupported":
+    "Bildschirm-Scan ist auf diesem System nicht verfügbar. Füge stattdessen einen Screenshot ein.",
+  "error.otpQrNotFound":
+    "Kein QR-Code gefunden. Achte darauf, dass der ganze Code sichtbar ist, und versuch es noch einmal.",
+  "error.otpQrNotOtp":
+    "Dieser QR-Code ist kein 2FA-Einrichtungscode. Such den Code auf der 2FA-Einrichtungsseite der Website.",
+  "error.otpQrMigration":
+    "Das ist ein Exportcode aus Google Authenticator, den Mosaic noch nicht lesen kann. Richte jedes Konto auf seiner Website neu ein oder gib den Einrichtungsschlüssel ein.",
+  "error.otpQrMultiple":
+    "Mehr als ein Einrichtungscode ist sichtbar. Zeig nur den gewünschten und versuch es noch einmal.",
+  "error.otpQrInvalid":
+    "Dieser Einrichtungscode nutzt Einstellungen, die Mosaic nicht unterstützt. Gib stattdessen den Einrichtungsschlüssel ein.",
+  "error.otpUriInvalid":
+    "Das ist kein gültiger otpauth://-Link. Kopier den ganzen Link noch einmal.",
+  "error.otpKeyInvalid":
+    "Dieser Schlüssel ist ungültig. Er besteht nur aus den Buchstaben A bis Z und den Ziffern 2 bis 7; prüf ihn auf Tippfehler.",
+  "error.otpImageUnreadable":
+    "Mosaic kann dieses Bild nicht lesen. Nimm eine PNG- oder JPEG-Datei.",
+  "error.otpImageTooLarge": "Dieses Bild ist zu groß. Nimm einen Screenshot nur vom QR-Code.",
+  "error.otpClipboardNoImage":
+    "In der Zwischenablage ist kein Bild. Mach einen Screenshot vom QR-Code und füge ihn hier ein.",
+  "error.otpPendingExpired":
+    "Der gescannte Code ist nicht mehr verfügbar. Scann ihn noch einmal.",
 } satisfies Record<keyof typeof en, string>;

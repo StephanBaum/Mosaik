@@ -2264,3 +2264,123 @@ held.
   (fail safe, not fail open).
 - The SSH approval prompt names only the client process where the OS gives a
   name (THREAT_MODEL R29, unchanged by this ADR).
+
+## ADR-0031: One-time-code setup from QR codes (screen, clipboard, image file) and manual entry
+
+- Status: accepted
+- Date: 2026-11-04
+- Milestone: M3 follow-up (brief §5 "2FA / TOTP")
+- Amends: DESKTOP_IPC §3, §5, §6; THREAT_MODEL §4.2, §5 (R30–R32)
+
+### Context
+The brief asks for "QR scanning from screen and image; otpauth:// import/export".
+The item editor had no way to add a one-time code (`otp: null` always). Setting
+up 2FA should take one click: most sites show a QR code in the browser next to
+Mosaic. The decoded `otpauth://` URI carries a long-lived shared secret, which is
+worth more than any 30-second code, so where it lives matters.
+
+### Decision
+1. **Four sources, in this UI order:** *Scan screen* (one click), *Paste
+   screenshot* (an image on the clipboard, also Ctrl/Cmd+V in the dialog), *Choose
+   image…* (native file dialog, PNG or JPEG), and *Can't scan? Enter the key*
+   (an `otpauth://` link or a bare base32 key; issuer and account prefilled from
+   the item's title and user name).
+2. **Rust decodes, the webview never sees the secret from a scan.** Every source
+   is parsed in Rust (`mosaic-qr`, `mosaic-totp`) into an `OtpAuth` held in a
+   pending slot behind an opaque ID. The webview receives a preview without the
+   secret (issuer, account, scheme, algorithm, digits, period, secret-length
+   class), a live code as `SecretOut` (like `totp_code`), and saves with
+   `OtpChange::SetPending`. Slots expire after 10 minutes (monotonic and wall
+   clock, the earlier wins), at most 4 exist (the oldest is dropped), they are
+   consumed by a successful save, dropped by `otp_pending_discard`, and all are
+   dropped on lock. Manual entry sends the typed text as `SecretIn` (it is in the
+   webview anyway because the user typed it, R19).
+3. **Confirmation before saving.** Nothing is stored until the user confirms a
+   screen showing issuer, account (both editable), digits, period, algorithm and
+   the current code. The editor saves the item; the dialog never writes.
+4. **Screen capture rules.** Capture happens only on a click on *Scan screen*,
+   never automatically or repeatedly, one frame per display (at most 8). Mosaic's
+   main window is hidden for the capture (shown again and focused afterwards on
+   every path) so the code behind it is visible. Pixels go from the OS buffer
+   straight into zeroizing buffers, are converted to grey levels, and are wiped as
+   soon as the QR search ends. They are never written to disk, logged, sent to the
+   webview or kept as a thumbnail. Only an `otpauth://` payload survives. Any
+   other QR content is dropped unread; errors say only "not a setup code", never
+   what the code contained.
+5. **Platforms.** Windows: GDI capture of the virtual screen (`win-screenshot`).
+   Linux: X11 only (`x11rb` `GetImage` on the root window); under Wayland
+   (`WAYLAND_DISPLAY` set or `XDG_SESSION_TYPE=wayland`) the button is hidden,
+   because the screenshot portal writes a file. macOS: hidden in this version
+   (item 8). `app_status.otpScreenScan` tells the UI.
+6. **Clipboard.** Rust reads the image (arboard `image-data`) only on the user's
+   action. After a decode that found a code (a good one, a migration, several or
+   an invalid one) it empties the clipboard, but only if it still holds the same
+   image (size and SHA-256 of the pixels), because the screenshot is the secret in
+   another form and the user may have copied something else while the scan ran.
+   The UI says that clipboard
+   history, the Snipping Tool's auto-save or a saved screenshot file may still hold
+   a copy.
+7. **Hostile images.** PNG and JPEG only (by magic bytes); file ≤ 20 MiB checked
+   before reading; width and height ≤ 16384 and ≤ 40 MP checked from the header
+   before decoding; decoder allocations ≤ 512 MiB (`image::Limits`); frames are
+   box-downscaled to ≤ 8 MP of grey levels before QR detection; at most 16 QR
+   codes per frame are decoded; one scan runs at a time (`busy`). The clipboard
+   image is decoded by arboard before Mosaic can check it (R31). `rqrr` 0.11.0
+   tries every viable finder-pattern pair and clones the prepared image per
+   attempt, so a screen full of fake finder squares ran for hours. It is patched
+   in `vendor/rqrr` (a patch of the existing dependency, not a new crate; see
+   `vendor/rqrr/MOSAIC_PATCH.md`): no groups if there are more than 64 finder
+   patterns, and at most 256 grouping attempts per image. Drop the patch once
+   upstream bounds this. The JPEG decoder (zune-jpeg) runs `unsafe` SIMD code on
+   attacker-chosen bytes and a decoder panic aborts the app (`panic = "abort"`);
+   the decoder set is unchanged, and the `scan_image` fuzz target (JPEG seed
+   included) is the mitigation (R31).
+8. **macOS screen capture is deferred.** When it is added it uses ScreenCaptureKit
+   through a maintained safe wrapper (or `CGDisplayCreateImage` from
+   `objc2-core-graphics` if ScreenCaptureKit has none), asks for Screen Recording
+   only on the first click with `CGRequestScreenCaptureAccess`, checks
+   `CGPreflightScreenCaptureAccess` before every capture, and on denial shows
+   "Mosaic isn't allowed to see your screen. Allow it in System Settings → Privacy
+   & Security → Screen Recording, then restart Mosaic — or paste a screenshot
+   instead." with a button that opens that settings pane, never a loop of prompts.
+   That needs its own ADR amendment and an owner decision.
+9. **`otpauth-migration://`** (Google Authenticator export, several accounts in a
+   protobuf) is recognized and refused with its own message. Batch import, if
+   wanted, goes into `mosaic-import` later.
+10. **Several codes.** Two or more different `otpauth://` payloads in one scan are
+    refused (`otpQrMultiple`); identical ones count once; unrelated QR codes next
+    to one `otpauth://` code are ignored.
+11. **Hardware-protected vaults (ADR-0028).** If the account has a
+    hardware-protected vault, the confirmation offers to keep the code there, with
+    the trade-off in one sentence for each choice. The code then becomes a `totp`
+    item in that vault and the login item keeps no code. The choice is enabled only
+    while that vault is open.
+12. **The preview code is shown at once**, not masked: the site usually asks for it
+    to finish setup. It can be copied through Rust and hides on blur and lock
+    (UX_GUIDELINES §8 exception, scoped to this dialog).
+
+### Alternatives considered
+- Returning the decoded URI to the webview as `SecretOut` and sending it back as
+  `SecretIn` in `OtpChange::Set`: simpler, but the long-lived secret then sits in
+  the JavaScript heap for every scan. Rejected for the scan paths; `Set { uri }`
+  stays for compatibility.
+- `xcap` for all platforms: pipewire/libclang/xcb in the lock and the Linux build.
+- The Wayland screenshot portal: writes a file.
+- Decoding in the webview with a JS QR library: secret and pixels in the JS heap.
+- Accepting the first of several codes: the user may save the wrong account.
+
+### Dependencies
+`rqrr =0.11.0` (pure-Rust QR decoder, a quirc port; no `unsafe`), `image =0.25.10`
+(`png`, `jpeg` through zune-jpeg; bounded by `Limits`; arboard's `image-data`
+pulls it anyway), `arboard` `image-data` (clipboard images), `win-screenshot
+=4.0.14` (Windows only; its only dependency is `windows 0.62.2`, already in the
+tree; one maintainer, owner decision O3 accepts it), `x11rb =0.13.2` (Linux only,
+already in the tree through arboard) and `qrcodegen =1.8.0` (test fixtures only).
+None of them is a cryptographic primitive.
+
+### Consequences
+New crate `mosaic-qr` with fuzz targets in CI. New commands `otp_scan`,
+`otp_parse`, `otp_pending_code`, `otp_pending_discard`; new draft op
+`setPending`; new copy source `pendingOtp`; `app_status.otpScreenScan`; twelve
+error codes. THREAT_MODEL gains R30–R32. Export of `otpauth://` (brief) is not
+part of this ADR.

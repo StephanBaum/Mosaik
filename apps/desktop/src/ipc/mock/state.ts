@@ -10,6 +10,7 @@ import type {
   BiometricPlatformKind,
   HardwareKeySummary,
   ItemDetail,
+  OtpPending,
   RequestOf,
   ResponseOf,
   SecretFieldKey,
@@ -66,6 +67,14 @@ export interface MockHardwareVault {
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
+/** URL options of the one-time code setup (`&otpScan=<code>|cancel`, `&screenScan=0`). */
+export interface MockSetupOptions {
+  /** Makes `otp_scan` fail with this code (or cancel the file dialog). */
+  otpScan: ErrorCode | "cancel" | null;
+  /** Whether "Scan screen" is supported. */
+  screenScan: boolean;
+}
+
 export interface MockState {
   account: MockAccount | null;
   secretKeyStored: boolean;
@@ -81,6 +90,10 @@ export interface MockState {
   quick: MockQuick;
   hardwareVaults: MockHardwareVault[];
   lastGenerated: string | null;
+  /** Parsed one-time code setups waiting for confirmation (ADR-0031). */
+  otpPending: Map<string, OtpPending>;
+  otpPendingCounter: number;
+  options: MockSetupOptions;
   /** Whether the mock agent asks for an approval after unlock (`?sshRequest=1`). */
   sshRequest: boolean;
   emit: (event: AppEvent) => void;

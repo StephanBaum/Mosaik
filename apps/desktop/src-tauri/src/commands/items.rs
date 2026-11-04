@@ -7,6 +7,7 @@ use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter,
 use tauri::State;
 
 use super::draft;
+use super::otp::TakenOtp;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
@@ -406,12 +407,24 @@ impl Backend {
             .kind
             .to_model()
             .ok_or(IpcError::new(ErrorCode::InvalidInput))?;
-        let prepared = draft::prepare(request.draft)?;
+        let taken = self.take_pending_otp(request.draft.otp.as_ref())?;
+        let result = self.add_prepared(request, &item_type, taken.as_ref());
+        self.finish_pending_otp(taken, result.is_ok());
+        result
+    }
+
+    fn add_prepared(
+        &self,
+        request: AddItemRequest,
+        item_type: &mosaic_core::model::ItemType,
+        taken: Option<&TakenOtp>,
+    ) -> IpcResult<ItemDetail> {
+        let prepared = draft::prepare(request.draft, taken.map(TakenOtp::config).transpose()?)?;
         let vault_id = request.vault_id.get();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
         let item_id = session
-            .add_item(vault_id, &item_type, |edit| prepared.apply(edit, &[]))
+            .add_item(vault_id, item_type, |edit| prepared.apply(edit, &[]))
             .map_err(draft::edit_error)?;
         self.items_changed(session);
         detail(vault_id, item_id, session.item(vault_id, item_id)?)
@@ -424,7 +437,18 @@ impl Backend {
     /// `itemDeleted`, `vaultUnavailable`.
     pub fn update_item(&self, request: UpdateItemRequest) -> IpcResult<ItemDetail> {
         self.touch();
-        let prepared = draft::prepare(request.draft)?;
+        let taken = self.take_pending_otp(request.draft.otp.as_ref())?;
+        let result = self.update_prepared(request, taken.as_ref());
+        self.finish_pending_otp(taken, result.is_ok());
+        result
+    }
+
+    fn update_prepared(
+        &self,
+        request: UpdateItemRequest,
+        taken: Option<&TakenOtp>,
+    ) -> IpcResult<ItemDetail> {
+        let prepared = draft::prepare(request.draft, taken.map(TakenOtp::config).transpose()?)?;
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;

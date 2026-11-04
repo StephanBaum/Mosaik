@@ -33,6 +33,12 @@ pub const PDF: FileFilter = FileFilter {
     extensions: &["pdf"],
 };
 
+/// PNG and JPEG images (QR screenshots).
+pub const IMAGES: FileFilter = FileFilter {
+    name: "PNG, JPEG",
+    extensions: &["png", "jpg", "jpeg"],
+};
+
 /// The dialogs the backend can open.
 pub trait Dialogs: Send + Sync {
     /// Asks where to save a file; `None` if the user cancels.

@@ -98,13 +98,15 @@ pub struct Prepared {
     otp: OtpOp,
 }
 
-/// Checks a draft.
+/// Checks a draft. `pending` is the configuration (and HOTP counter) of the
+/// scanned setup an `OtpChange::SetPending` refers to; the caller took it
+/// from the pending slots (`None` for every other caller).
 ///
 /// # Errors
-/// `invalidInput` for a list with more than [`MAX_DRAFT_ENTRIES`] entries,
+/// `otpPendingExpired` for a `SetPending` without `pending`, `invalidInput` for a list with more than [`MAX_DRAFT_ENTRIES`] entries,
 /// a malformed element ID, URL, label or `otpauth://` URI, or a title with
 /// invisible or direction-changing characters.
-pub fn prepare(draft: ItemDraft) -> IpcResult<Prepared> {
+pub fn prepare(draft: ItemDraft, pending: Option<(OtpConfig, u64)>) -> IpcResult<Prepared> {
     if draft.text.len() > MAX_DRAFT_ENTRIES
         || draft.secrets.len() > MAX_DRAFT_ENTRIES
         || draft.urls.len() > MAX_DRAFT_ENTRIES
@@ -179,6 +181,10 @@ pub fn prepare(draft: ItemDraft) -> IpcResult<Prepared> {
         Some(OtpChange::Remove) => OtpOp::Remove,
         Some(OtpChange::Set { uri }) => {
             let (config, counter) = otp_config(uri.expose_secret())?;
+            OtpOp::Set(config, counter)
+        }
+        Some(OtpChange::SetPending { .. }) => {
+            let (config, counter) = pending.ok_or(IpcError::new(ErrorCode::OtpPendingExpired))?;
             OtpOp::Set(config, counter)
         }
     };

@@ -16,6 +16,13 @@ import type {
 } from "./import.ts";
 import type { SecurityReport } from "./insights.ts";
 import type {
+  OtpParseRequest,
+  OtpPending,
+  OtpPendingRequest,
+  OtpScanRequest,
+  OtpScanResult,
+} from "./otp.ts";
+import type {
   EnrollBiometricRequest,
   EnrollHardwareKeyRequest,
   HardwareVaultKeys,
@@ -111,6 +118,11 @@ export interface Commands {
   // Generator and one-time codes
   generate_password: Command<GenerateRequest, Generated>;
   totp_code: Command<ItemRequest, TotpCode>;
+  // One-time code setup
+  otp_scan: Command<OtpScanRequest, OtpScanResult>;
+  otp_parse: Command<OtpParseRequest, OtpPending>;
+  otp_pending_code: Command<OtpPendingRequest, TotpCode>;
+  otp_pending_discard: Command<OtpPendingRequest, null>;
   // Settings
   get_settings: Command<null, Settings>;
   update_settings: Command<UpdateSettingsRequest, Settings>;
@@ -174,6 +186,10 @@ const commandSet = {
   clear_clipboard: true,
   generate_password: true,
   totp_code: true,
+  otp_scan: true,
+  otp_parse: true,
+  otp_pending_code: true,
+  otp_pending_discard: true,
   get_settings: true,
   update_settings: true,
   security_report: true,

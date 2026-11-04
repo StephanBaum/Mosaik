@@ -72,6 +72,18 @@ export const errorCodes = [
   "hardwareKeyLimit",
   "hardwareKeyLast",
   "itemTypeNotAllowed",
+  "otpScanUnsupported",
+  "otpQrNotFound",
+  "otpQrNotOtp",
+  "otpQrMigration",
+  "otpQrMultiple",
+  "otpQrInvalid",
+  "otpUriInvalid",
+  "otpKeyInvalid",
+  "otpImageUnreadable",
+  "otpImageTooLarge",
+  "otpClipboardNoImage",
+  "otpPendingExpired",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 

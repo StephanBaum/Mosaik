@@ -194,7 +194,11 @@ export type CustomFieldChange =
   | { op: "update"; elementId: string; label: string; kind: CustomFieldKind; value: string }
   | { op: "remove"; elementId: string };
 
-export type OtpChange = { op: "set"; uri: string } | { op: "remove" };
+export type OtpChange =
+  | { op: "set"; uri: string }
+  /** A scanned or parsed setup Rust holds under `pendingId`; the slot is used up by a save. */
+  | { op: "setPending"; pendingId: string; issuer: string | null; accountName: string | null }
+  | { op: "remove" };
 
 /** One edit: empty lists and `null` leave things unchanged. */
 export interface ItemDraft {

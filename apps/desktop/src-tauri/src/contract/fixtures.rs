@@ -30,6 +30,7 @@ use super::items::{
     MoveItemRequest, MovedItem, OtpScheme, RevealRequest, RevealedSecret, SecretFieldKey,
     SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
 };
+use super::otp::{self, OtpAlgorithm, OtpScanSource, OtpSecretStrength};
 use super::quick_unlock::{self, BiometricPlatformKind};
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
@@ -349,6 +350,7 @@ fn tool_commands(f: &mut Fixtures, item_request: ItemRequest) {
         vec![generator::samples::generated()],
     );
     f.command("totp_code", vec![item_request], totp::samples::codes());
+    otp_commands(f);
 
     f.command("get_settings", vec![()], settings::samples::settings());
     f.command(
@@ -365,6 +367,30 @@ fn tool_commands(f: &mut Fixtures, item_request: ItemRequest) {
         "security_report",
         vec![()],
         vec![insights::samples::report()],
+    );
+}
+
+/// The one-time code setup commands (ADR-0031).
+fn otp_commands(f: &mut Fixtures) {
+    f.command(
+        "otp_scan",
+        otp::samples::scan_requests(),
+        otp::samples::scan_results(),
+    );
+    f.command(
+        "otp_parse",
+        otp::samples::parse_requests(),
+        otp::samples::previews(),
+    );
+    f.command(
+        "otp_pending_code",
+        otp::samples::pending_requests(),
+        totp::samples::codes(),
+    );
+    f.command(
+        "otp_pending_discard",
+        otp::samples::pending_requests(),
+        vec![()],
     );
 }
 
@@ -454,6 +480,9 @@ fn enums() -> Map<String, Value> {
         ("urlMatchMode", values(UrlMatchMode::ALL)),
         ("customFieldKind", values(CustomFieldKind::ALL)),
         ("otpScheme", values(OtpScheme::ALL)),
+        ("otpScanSource", values(OtpScanSource::ALL)),
+        ("otpAlgorithm", values(OtpAlgorithm::ALL)),
+        ("otpSecretStrength", values(OtpSecretStrength::ALL)),
         ("strength", values(Strength::ALL)),
         ("theme", values(Theme::ALL)),
         ("language", values(Language::ALL)),
@@ -562,9 +591,13 @@ fn fixtures_hold_secrets_only_where_the_contract_allows() {
         let text = samples.to_string();
         let may_hold_secret = matches!(
             command.as_str(),
-            "create_account" | "reveal_secret" | "generate_password" | "totp_code"
+            "create_account"
+                | "reveal_secret"
+                | "generate_password"
+                | "totp_code"
+                | "otp_pending_code"
         );
-        for secret in ["hunter2", "M1-7KQ4", "492039", "q7#Vt2"] {
+        for secret in ["hunter2", "M1-7KQ4", "492039", "q7#Vt2", "JBSWY3DPEHPK3PXP"] {
             assert!(
                 may_hold_secret || !text.contains(secret),
                 "{command} response holds a secret sample"

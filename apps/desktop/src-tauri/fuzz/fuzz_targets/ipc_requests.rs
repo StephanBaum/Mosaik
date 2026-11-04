@@ -1,6 +1,7 @@
 //! The IPC request types: the first byte (minus `A`, modulo 31) picks the
 //! type, the rest is the JSON body. Deserializing never panics, and
-//! `draft::prepare` refuses a bad draft with `invalidInput` only.
+//! `draft::prepare` refuses a bad draft with `invalidInput` (or
+//! `otpPendingExpired` for a `setPending` without a slot) only.
 #![no_main]
 #![allow(
     dead_code,
@@ -23,6 +24,7 @@ use contract::generator::GenerateRequest;
 use contract::import::{
     ImportCancelRequest, ImportChooseRequest, ImportCommitRequest, ImportPreviewRequest,
 };
+use contract::otp::{OtpParseRequest, OtpPendingRequest, OtpScanRequest};
 use contract::items::{
     AddItemRequest, ItemRequest, ListItemsRequest, MoveItemRequest, RevealRequest,
     SetFavoriteRequest, UpdateItemRequest,
@@ -53,7 +55,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 31;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 34;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -66,15 +68,23 @@ fuzz_target!(|data: &[u8]| {
         8 => drop(parse::<RevealRequest>(json)),
         9 => {
             if let Some(r) = parse::<AddItemRequest>(json) {
-                if let Err(error) = draft::prepare(r.draft) {
-                    assert_eq!(error.code, ErrorCode::InvalidInput);
+                if let Err(error) = draft::prepare(r.draft, None) {
+                    // setPending refers to a slot the fuzzer does not have.
+                    assert!(matches!(
+                        error.code,
+                        ErrorCode::InvalidInput | ErrorCode::OtpPendingExpired
+                    ));
                 }
             }
         }
         10 => {
             if let Some(r) = parse::<UpdateItemRequest>(json) {
-                if let Err(error) = draft::prepare(r.draft) {
-                    assert_eq!(error.code, ErrorCode::InvalidInput);
+                if let Err(error) = draft::prepare(r.draft, None) {
+                    // setPending refers to a slot the fuzzer does not have.
+                    assert!(matches!(
+                        error.code,
+                        ErrorCode::InvalidInput | ErrorCode::OtpPendingExpired
+                    ));
                 }
             }
         }
@@ -105,6 +115,9 @@ fuzz_target!(|data: &[u8]| {
         }
         28 => drop(parse::<VaultRequest>(json)),
         29 => drop(parse::<ReauthenticateRequest>(json)),
-        _ => drop(parse::<SshRespondRequest>(json)),
+        30 => drop(parse::<SshRespondRequest>(json)),
+        31 => drop(parse::<OtpScanRequest>(json)),
+        32 => drop(parse::<OtpParseRequest>(json)),
+        _ => drop(parse::<OtpPendingRequest>(json)),
     }
 });

@@ -250,7 +250,8 @@ amendment); `OtpSecret` (`from_bytes`, `from_base32`, `to_base32`,
 `From<String>`, `expose_secret`, `len`, `is_empty`, constant-time `==`);
 `OtpAuth { otp, issuer: Option<SecretText>, account_name: SecretText }`
 (the label fields became `SecretText` in the third M2 integration review,
-ADR-0008 amendment) with `parse` and `to_uri` for `otpauth://` URIs (the `uri` module is public only for these items and
+ADR-0008 amendment) with `parse` and `to_uri` for `otpauth://` URIs and `validate_label(issuer, account)` for
+the label rules alone (manual entry in the desktop app, ADR-0031; the `uri` module is public only for these items and
 its limits, which the root re-exports); `hotp`, `totp`, `steam_guard`,
 `unix_time_now`; the limits (`MAX_SECRET_LEN`, equal to the model's
 `MAX_OTP_SECRET_LEN`, `MAX_SECRET_TEXT_LEN`, `MAX_URI_LEN`, `MAX_PARAMS`,

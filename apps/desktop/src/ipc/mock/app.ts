@@ -5,5 +5,9 @@ import type { MockHandlers } from "./state.ts";
 export const SCREEN_LOCK_DETECTION: boolean = true;
 
 export const appHandlers: MockHandlers = {
-  app_status: () => ({ shortcut: "registered", screenLockDetection: SCREEN_LOCK_DETECTION }),
+  app_status: (state) => ({
+    shortcut: "registered",
+    screenLockDetection: SCREEN_LOCK_DETECTION,
+    otpScreenScan: state.options.screenScan,
+  }),
 };

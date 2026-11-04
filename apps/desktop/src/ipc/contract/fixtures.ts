@@ -19,6 +19,9 @@ export interface EnumFixtures {
   urlMatchMode: string[];
   customFieldKind: string[];
   otpScheme: string[];
+  otpScanSource: string[];
+  otpAlgorithm: string[];
+  otpSecretStrength: string[];
   strength: string[];
   theme: string[];
   language: string[];

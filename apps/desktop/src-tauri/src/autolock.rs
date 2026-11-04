@@ -186,6 +186,7 @@ impl Monitor {
                         let _ = backend.lock(reason);
                     }
                     backend.close_expired_hardware_vaults(now, SystemTime::now(), slept);
+                    backend.purge_expired_pending();
                 }
             })
             .ok();

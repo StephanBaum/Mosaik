@@ -18,6 +18,7 @@ pub mod insights;
 pub mod items;
 /// The command list, shared with `build.rs` (which `include!`s it).
 pub mod names;
+pub mod otp;
 pub mod quick_unlock;
 pub mod session;
 pub mod settings;
@@ -78,6 +79,10 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         clipboard::clear_clipboard,
         generator::generate_password,
         totp::totp_code,
+        otp::otp_scan,
+        otp::otp_parse,
+        otp::otp_pending_code,
+        otp::otp_pending_discard,
         settings::get_settings,
         settings::update_settings,
         insights::security_report,

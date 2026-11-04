@@ -121,6 +121,7 @@ impl Backend {
                     .ok_or(IpcError::new(ErrorCode::FieldEmpty))?;
                 SecretString::from_str_copy(value.expose_secret())?
             }
+            CopySource::PendingOtp { pending_id } => self.pending_code_parts(&pending_id)?.0,
             CopySource::Item {
                 vault_id,
                 item_id,

@@ -1,0 +1,40 @@
+[package]
+name = "mosaic-qr-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-qr scanner (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+[workspace]
+members = ["."]
+
+# Same patched rqrr as the main workspace (vendor/rqrr/MOSAIC_PATCH.md).
+[patch.crates-io]
+rqrr = { path = "../../../vendor/rqrr" }
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-qr = { path = "..", features = ["testing"] }
+
+[[bin]]
+name = "scan_image"
+path = "fuzz_targets/scan_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "scan_luma"
+path = "fuzz_targets/scan_luma.rs"
+test = false
+doc = false
+bench = false

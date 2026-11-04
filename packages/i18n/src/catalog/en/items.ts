@@ -64,7 +64,6 @@ export const items = {
   "editor.kind": "Type",
   "editor.vault": "Vault",
   "editor.url": "Website",
-  "editor.otp": "One-time code setup (otpauth:// link)",
   "editor.tags": "Tags, separated by commas",
   "editor.keepSecret": "Leave empty to keep the current value.",
   "editor.fillGenerated": "Fill with a generated password",

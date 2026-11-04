@@ -61,6 +61,12 @@ pub enum CopySource {
     /// The password most recently returned by `generate_password`, which
     /// Rust keeps until the next generation or lock.
     Generated,
+    /// The current code of a scanned one-time-code setup that Rust holds
+    /// (ADR-0031).
+    PendingOtp {
+        /// The slot.
+        pending_id: String,
+    },
 }
 
 /// `copy_to_clipboard`.
@@ -111,6 +117,11 @@ pub(crate) mod samples {
             }),
             CopyRequest {
                 source: CopySource::Generated,
+            },
+            CopyRequest {
+                source: CopySource::PendingOtp {
+                    pending_id: "otp-1".into(),
+                },
             },
         ]
     }

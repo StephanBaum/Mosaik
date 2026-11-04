@@ -11,7 +11,9 @@
  * (and makes keys "supported"; the real backend says no on every OS), `&bioPlatform=
  * windowsHello|touchId|none`, `&quickFail=<code>` fails `unlock_quick`, `&touchMs=<ms>`
  * delays a security-key touch, `&hwOpenSeconds=<s>` sets how long a hardware vault stays
- * open (default 300). A security key needs the PIN `1234`.
+ * open (default 300). A security key needs the PIN `1234`. One-time code setup
+ * (ADR-0031): `&otpScan=<errorCode>|cancel` makes `otp_scan` fail with that code (or
+ * cancels the file dialog), `&screenScan=0` reports screen scanning as unsupported.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import {
@@ -30,6 +32,7 @@ import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
 import { itemHandlers } from "./mock/items.ts";
+import { otpHandlers } from "./mock/otp.ts";
 import {
   quickFromOptions,
   quickUnlockAsyncHandlers,
@@ -40,7 +43,7 @@ import {
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
-import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockState } from "./mock/state.ts";
+import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockItem, type MockState } from "./mock/state.ts";
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
@@ -55,6 +58,10 @@ export interface MockOptions extends QuickOptions {
   kitUnverified?: boolean;
   /** Start with vaults but no items (first run without an import). */
   emptyVault?: boolean;
+  /** Fail `otp_scan` with this code, or cancel the file dialog (`?otpScan=cancel`). */
+  otpScan?: ErrorCode | "cancel";
+  /** Report screen scanning as unsupported when `false` (`&screenScan=0`). */
+  screenScan?: boolean;
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
   bulkItems?: number;
   now?: () => number;
@@ -71,6 +78,7 @@ const handlers: MockHandlers = {
   ...clipboardHandlers,
   ...generatorHandlers,
   ...totpHandlers,
+  ...otpHandlers,
   ...settingsHandlers,
   ...insightHandlers,
   ...sshHandlers,
@@ -104,6 +112,16 @@ const asyncHandlers: MockAsyncHandlers = {
   ...vaultAsyncHandlers,
 };
 
+function otpOptionsFromParams(params: URLSearchParams): MockOptions {
+  const scan = params.get("otpScan");
+  return {
+    ...(scan === "cancel" || errorCodes.some((code) => code === scan)
+      ? { otpScan: scan as ErrorCode | "cancel" }
+      : {}),
+    ...(params.get("screenScan") === "0" ? { screenScan: false } : {}),
+  };
+}
+
 export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
@@ -114,9 +132,17 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
+    ...otpOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
+}
+
+function initialItems(start: MockStart, options: MockOptions): MockItem[] {
+  if (start === "noAccount" || options.emptyVault === true) {
+    return [];
+  }
+  return [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)];
 }
 
 export function createMockIpc(options: MockOptions = {}): MosaicIpc {
@@ -132,11 +158,14 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     sshEnabled: false,
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
-    items: start === "noAccount" || options.emptyVault === true ? [] : [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)],
+    items: initialItems(start, options),
     settings: { ...defaultSettings },
     quick: quickFromOptions(options, now),
     hardwareVaults: [],
     lastGenerated: null,
+    otpPending: new Map(),
+    otpPendingCounter: 0,
+    options: { otpScan: options.otpScan ?? null, screenScan: options.screenScan ?? true },
     emit: (event) => {
       for (const listener of listeners) {
         listener(event);

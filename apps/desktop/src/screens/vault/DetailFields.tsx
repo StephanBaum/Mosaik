@@ -108,7 +108,7 @@ export function DetailFields({ detail, item }: { detail: Detail; item: ItemReque
     <div className="rows">
       <TextRows detail={detail} item={item} />
       <SecretRows detail={detail} item={item} />
-      {detail.otp !== null && <TotpCode item={item} />}
+      {detail.otp !== null && <TotpCode source={{ kind: "item", item }} />}
       <UrlRows detail={detail} />
       <CustomRows detail={detail} item={item} />
     </div>

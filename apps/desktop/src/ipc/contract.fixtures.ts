@@ -44,6 +44,10 @@ export const fixtures = {
     "clear_clipboard",
     "generate_password",
     "totp_code",
+    "otp_scan",
+    "otp_parse",
+    "otp_pending_code",
+    "otp_pending_discard",
     "get_settings",
     "update_settings",
     "security_report",
@@ -96,6 +100,18 @@ export const fixtures = {
       "hardwareKeyLimit",
       "hardwareKeyLast",
       "itemTypeNotAllowed",
+      "otpScanUnsupported",
+      "otpQrNotFound",
+      "otpQrNotOtp",
+      "otpQrMigration",
+      "otpQrMultiple",
+      "otpQrInvalid",
+      "otpUriInvalid",
+      "otpKeyInvalid",
+      "otpImageUnreadable",
+      "otpImageTooLarge",
+      "otpClipboardNoImage",
+      "otpPendingExpired",
       "storeInUse",
       "storeUnavailable",
       "vaultNotFound",
@@ -199,10 +215,25 @@ export const fixtures = {
       "sleep",
       "screenLock"
     ],
+    "otpAlgorithm": [
+      "sha1",
+      "sha256",
+      "sha512"
+    ],
+    "otpScanSource": [
+      "screen",
+      "clipboard",
+      "file"
+    ],
     "otpScheme": [
       "totp",
       "hotp",
       "steam"
+    ],
+    "otpSecretStrength": [
+      "weak",
+      "belowRfc4226",
+      "rfc4226"
     ],
     "quickUnlockKind": [
       "biometric",
@@ -385,6 +416,42 @@ export const fixtures = {
     },
     {
       "code": "itemTypeNotAllowed"
+    },
+    {
+      "code": "otpScanUnsupported"
+    },
+    {
+      "code": "otpQrNotFound"
+    },
+    {
+      "code": "otpQrNotOtp"
+    },
+    {
+      "code": "otpQrMigration"
+    },
+    {
+      "code": "otpQrMultiple"
+    },
+    {
+      "code": "otpQrInvalid"
+    },
+    {
+      "code": "otpUriInvalid"
+    },
+    {
+      "code": "otpKeyInvalid"
+    },
+    {
+      "code": "otpImageUnreadable"
+    },
+    {
+      "code": "otpImageTooLarge"
+    },
+    {
+      "code": "otpClipboardNoImage"
+    },
+    {
+      "code": "otpPendingExpired"
     },
     {
       "code": "storeInUse"
@@ -690,6 +757,12 @@ export const fixtures = {
         "source": {
           "kind": "generated"
         }
+      },
+      {
+        "source": {
+          "kind": "pendingOtp",
+          "pendingId": "otp-1"
+        }
       }
     ],
     "create_account": [
@@ -841,6 +914,42 @@ export const fixtures = {
       {
         "pin": null,
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "otp_parse": [
+      {
+        "kind": "uri",
+        "uri": "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub"
+      },
+      {
+        "accountName": null,
+        "algorithm": "sha1",
+        "digits": 6,
+        "issuer": "GitHub",
+        "kind": "key",
+        "period": 30,
+        "secret": "JBSW Y3DP EHPK 3PXP"
+      }
+    ],
+    "otp_pending_code": [
+      {
+        "pendingId": "otp-1"
+      }
+    ],
+    "otp_pending_discard": [
+      {
+        "pendingId": "otp-1"
+      }
+    ],
+    "otp_scan": [
+      {
+        "source": "screen"
+      },
+      {
+        "source": "clipboard"
+      },
+      {
+        "source": "file"
       }
     ],
     "purge_item": [
@@ -1102,6 +1211,75 @@ export const fixtures = {
             }
           ],
           "otp": {
+            "accountName": "alex@example.com",
+            "issuer": "GitHub",
+            "op": "setPending",
+            "pendingId": "otp-1"
+          },
+          "secrets": [
+            {
+              "field": "password",
+              "value": "n3w-pa55word"
+            }
+          ],
+          "tags": [
+            "work"
+          ],
+          "text": [
+            {
+              "field": "title",
+              "value": "GitHub"
+            },
+            {
+              "field": "notes",
+              "value": null
+            }
+          ],
+          "urls": [
+            {
+              "allowHttp": false,
+              "matchMode": "exactOrigin",
+              "op": "add",
+              "url": "https://github.com"
+            },
+            {
+              "allowHttp": false,
+              "elementId": "3-019a2b3c4d5e7000",
+              "matchMode": "etld1",
+              "op": "update",
+              "url": "https://github.com/login"
+            },
+            {
+              "elementId": "6-019a2b3c4d5e7000",
+              "op": "remove"
+            }
+          ]
+        },
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "draft": {
+          "customFields": [
+            {
+              "kind": "hidden",
+              "label": "PIN",
+              "op": "add",
+              "value": "1234"
+            },
+            {
+              "elementId": "4-019a2b3c4d5e7000",
+              "kind": "email",
+              "label": "Recovery email",
+              "op": "update",
+              "value": "alex@example.org"
+            },
+            {
+              "elementId": "5-019a2b3c4d5e7000",
+              "op": "remove"
+            }
+          ],
+          "otp": {
             "op": "remove"
           },
           "secrets": [
@@ -1268,6 +1446,7 @@ export const fixtures = {
     ],
     "app_status": [
       {
+        "otpScreenScan": true,
         "screenLockDetection": false,
         "shortcut": "conflict"
       }
@@ -1762,6 +1941,76 @@ export const fixtures = {
         "openUntil": 1761480300000,
         "protection": "hardwareKey",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000003"
+      }
+    ],
+    "otp_parse": [
+      {
+        "accountName": "alex@example.com",
+        "algorithm": "sha1",
+        "digits": 6,
+        "expiresInSeconds": 600,
+        "issuer": "GitHub",
+        "pendingId": "otp-1",
+        "period": 30,
+        "scheme": "totp",
+        "strength": "belowRfc4226"
+      },
+      {
+        "accountName": null,
+        "algorithm": "sha256",
+        "digits": 8,
+        "expiresInSeconds": 600,
+        "issuer": null,
+        "pendingId": "otp-2",
+        "period": null,
+        "scheme": "hotp",
+        "strength": "rfc4226"
+      },
+      {
+        "accountName": "gabe",
+        "algorithm": "sha1",
+        "digits": 5,
+        "expiresInSeconds": 590,
+        "issuer": "Steam",
+        "pendingId": "otp-3",
+        "period": 30,
+        "scheme": "steam",
+        "strength": "weak"
+      }
+    ],
+    "otp_pending_code": [
+      {
+        "code": "492039",
+        "period": 30,
+        "secondsRemaining": 17
+      },
+      {
+        "code": "755224",
+        "period": null,
+        "secondsRemaining": null
+      }
+    ],
+    "otp_pending_discard": [
+      null
+    ],
+    "otp_scan": [
+      {
+        "clipboardCleared": true,
+        "kind": "found",
+        "pending": {
+          "accountName": "alex@example.com",
+          "algorithm": "sha1",
+          "digits": 6,
+          "expiresInSeconds": 600,
+          "issuer": "GitHub",
+          "pendingId": "otp-1",
+          "period": 30,
+          "scheme": "totp",
+          "strength": "belowRfc4226"
+        }
+      },
+      {
+        "kind": "cancelled"
       }
     ],
     "purge_item": [

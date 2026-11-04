@@ -13,7 +13,9 @@ export type CopyField =
 export type CopySource =
   | { kind: "item"; vaultId: VaultId; itemId: ItemId; field: CopyField }
   /** The password `generate_password` returned last. */
-  | { kind: "generated" };
+  | { kind: "generated" }
+  /** The current code of a scanned setup Rust holds (ADR-0031). */
+  | { kind: "pendingOtp"; pendingId: string };
 
 export interface CopyRequest {
   source: CopySource;

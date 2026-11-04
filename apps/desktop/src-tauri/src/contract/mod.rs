@@ -25,6 +25,7 @@ pub mod ids;
 pub mod import;
 pub mod insights;
 pub mod items;
+pub mod otp;
 pub mod quick_unlock;
 pub mod secret;
 pub mod session;
