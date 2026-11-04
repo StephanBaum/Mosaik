@@ -54,8 +54,10 @@ Use tokens only. Never use raw values in components.
   `focus-ring`) for the light and dark themes. Contrast, tested in CI:
   body text ≥ 4.5:1, large text and UI components/focus indicators ≥ 3:1.
 - **Themes:** light, dark, and system (default).
-- **Motion:** 120 ms (micro) and 200 ms (panels), ease-out.
-  `prefers-reduced-motion` disables any non-essential motion.
+- **Motion:** 120 ms (micro) and 200 ms (panels), ease-out, except the
+  unlock/lock reveal (ADR-0032), which runs for the owner's tuned 1.9 s.
+  `prefers-reduced-motion` disables any non-essential motion (the reveal
+  becomes a 250 ms crossfade).
 
 ## 3. Layout
 
@@ -131,7 +133,9 @@ shortcut. Global shortcuts can be remapped, and the app detects conflicts.
   off with a warning), with a countdown in a toast. Excluded from clipboard
   history where the OS allows.
 - **Reveal:** a per-field toggle that hides again after 60 s, on blur or on
-  lock.
+  lock. Every element that renders a secret value carries `data-secret` (plus
+  `data-mask` with its masked text); the snapshot code of the lock animation
+  never paints it (ADR-0032).
 - **Re-authentication** before export, master password change, viewing the
   Secret Key, adding a quick-unlock method, or turning off auto-lock.
 - **Emergency Kit:** generated during onboarding. The user must download or

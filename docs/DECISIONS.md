@@ -2397,3 +2397,95 @@ New crate `mosaic-qr` with fuzz targets in CI. New commands `otp_scan`,
 `setPending`; new copy source `pendingOtp`; `app_status.otpScreenScan`; twelve
 error codes. THREAT_MODEL gains R30–R32. Export of `otpauth://` (brief) is not
 part of this ADR.
+
+## ADR-0032: Liquid-glass unlock and lock reveal
+
+- Status: accepted
+- Date: 2026-11-04
+- Decided by: the owner (review of `docs/design/holo/reveal-studies.html`)
+- Amends: ADR-0027 item 6 ("One WebGL2 context") and the UX_GUIDELINES §2 motion line
+- Milestone: M3 (desktop UI fidelity)
+
+### Context
+The owner approved a reveal for locking and unlocking: a lens of glass that grows
+from the click, shows the vault through it and closes again on lock. The studies
+(`docs/design/holo/reveal-studies.html`) are DOM-driven prototypes with fixed
+values. Porting them touches security, because a lock animation that keeps the
+live vault on screen after the backend has locked would keep secrets visible,
+and it touches the 120/200 ms motion rule and the single WebGL2 context.
+
+### Decision
+**Unlock.** The live vault DOM is revealed through a `clip-path` polygon that
+follows an irregular lens outline (a sum of sines, written once in JS for the
+polygon and once in GLSL for the band). The lens grows from the click point on
+the Unlock or quick-unlock control, or from the centre of the Unlock button after
+a keyboard submit. A WebGL2 canvas, which never receives pointer events, draws
+only the glass rim and bevel band. The band samples a snapshot of the vault,
+never the unlock screen, and the canvas is empty when the reveal ends. The
+vault pieces enter as the rim reaches them (nav items, footer controls, top
+bar, list header, rows, detail pane, pages); the logo is never choreographed
+(the foil stays static, ADR-0027). The owner's values are fixed in
+`apps/desktop/src/reveal/timing.ts`, including a 1.9 s duration, an explicit
+exception to the 120/200 ms motion rule. While the lens runs the vault is
+usable inside it and the unlock layer is `inert` and `aria-hidden`. Focus goes
+to the vault's `main` when the reveal starts.
+
+**Lock never keeps the live vault on screen.** We chose the conservative option
+on every point that touches security or state:
+1. The `lock` command is sent first and never waits for the animation.
+2. In the same task the vault is painted into a sealed snapshot and, in the same
+   React commit, unmounted. Revealed values, one-time codes, generated passwords
+   and typed passwords leave the DOM before the first lock frame.
+3. The snapshot painter never reads `[data-secret]` content (it paints the static
+   `data-mask` text instead), never reads an input or textarea value, and skips
+   dialogs, media and visually hidden text. Every component that renders a secret
+   carries `data-secret` (UX_GUIDELINES §8). Non-secret item text (titles, hosts)
+   can stay visible as pixels until the lens closes, and is then freed.
+4. The closing animation (about 1.4 s) starts when the locked session arrives and
+   plays over the picture, with the real unlock screen live and focused
+   underneath. Clicks and typing reach it at once.
+5. If the lock fails, or the locked session does not arrive within 4 s, the vault
+   is put back.
+6. Locks the app did not start (idle, sleep, screen lock, tray) switch instantly:
+   the user may not be looking, and a picture of the vault must not linger after
+   the backend has locked. A lock from the shortcut or the palette closes into
+   the centre of the Lock button. Onboarding and Emergency Kit transitions stay
+   instant.
+
+**Fallbacks.** The band uses a second WebGL2 context, created lazily and only for
+this cosmetic band (it amends ADR-0027 item 6; the foil renderer is unchanged).
+Without WebGL2, after a lost context, when the snapshot is too large for a
+texture, after a build failure, or after three frames slower than 50 ms, the
+transition falls back to the clip-path lens alone. With `prefers-reduced-motion`
+it is a 250 ms crossfade with no glass. Without clip-path or a 2D canvas it is an
+instant swap (also what the jsdom tests get). A hidden window or a resize jumps
+straight to the end state.
+
+**Origin.** The last pointer press on the Unlock control (valid for 30 s, so a
+slow quick-unlock prompt still counts) or on the Lock button (valid for 2 s)
+sets the origin; a key press clears it. Otherwise the centre of the control, then
+of the stage.
+
+### Alternatives considered
+- Keeping the live vault under the closing lens (as the study does): rejected,
+  the vault would show secrets after the backend locked and its hooks would call
+  IPC against a locked backend.
+- Animating event-driven locks too: rejected, see decision 6.
+- A canvas-only reveal (no `clip-path`): the DOM is the picture on unlock and
+  `clip-path` also clips hit testing, so the vault is clickable exactly where it
+  is visible.
+- Reading the live text into the snapshot (`html2canvas`, `foreignObject`):
+  rejected, it reads values; a display list built by our own walker has explicit
+  exclusion rules and runs under the CSP without blobs or workers.
+- Drawing the band with the foil renderer's context: rejected, its program, size
+  and `preserveDrawingBuffer` setting are the foil's.
+
+### Consequences
+New `apps/desktop/src/reveal/` (display-list collector, canvas painter, WebGL2
+band, drivers, phase machine, stage). The unlock and vault screens now live in
+layers of a `RevealStage`, only the active layer carries `id="main"`, and
+`useShell.lock` seals the vault after sending `lock`. Fidelity limits of the
+snapshot: no box shadows, gradients, pseudo-elements or text ellipsis, text
+drawn by the canvas rather than the layout engine. E2E specs wait for a reveal
+to settle before axe runs. Known cost: each UI unlock and lock in the e2e suite
+takes about 2 s longer.

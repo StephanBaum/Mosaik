@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); open: security-key transport (owner, WP7), unlock reveal port, virtual list, coverage run, extension-attacker review, manual hardware checks) |
+| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
 | M4 Browser extension | — |
 | M5 Passkeys | — |
 | M6 Sync server | — |
@@ -1170,6 +1170,42 @@ OTP pending slots.
   operations) now refuse unknown fields like every other request (unit variants
   cannot, and carry nothing).
 - **Left:** report the port-blind origin check upstream (R33).
+
+## M3 follow-up — unlock reveal (2026-11-04)
+
+Branch `feat/m3-unlock-reveal`, ADR-0032. The owner's liquid-glass reveal from
+`docs/design/holo/reveal-studies.html` is in the app, frontend only (no Rust,
+no new dependency, no CSP change).
+
+- **Landed:** `apps/desktop/src/reveal/` (display-list collector with the
+  secret-exclusion rules, canvas painter, WebGL2 glass band, unlock and lock
+  drivers, pure phase reducer, `RevealStage`/`RevealProvider`). The unlock
+  and vault screens sit in layers of the stage; unlock grows a clip-path lens
+  from the click on Unlock, with the band on top and the vault choreographed as
+  the rim reaches it; lock sends `lock` first, paints the vault into a sealed
+  snapshot and unmounts it in the same commit, then closes the lens over the
+  picture while the live unlock screen is focused underneath. Idle, sleep,
+  screen-lock and tray locks stay instant. `data-secret`/`data-mask` markers on
+  `SecretField`, `TotpCode` and the generator output; `data-reveal-origin` on the
+  Unlock and Lock buttons; only the active layer carries `id="main"`.
+- **Fallbacks:** plain lens without WebGL2, after a lost context, an oversized
+  texture, a failed build or three frames over 50 ms; 250 ms crossfade under
+  reduced motion; instant swap without clip-path or a 2D canvas (jsdom); a
+  hidden window or a resize jumps to the end state; an unsent lock puts the
+  vault back after 4 s.
+- **Tests:** vitest for timing, choreography, lens, frames, collect (hunter2
+  fixture), phase table, drivers, origin, stage, `useShell.lock` order, the
+  selectors against a rendered vault and the three secret renderers;
+  Playwright `e2e/reveal.spec.ts` (off-centre click, interaction mid-run, lock,
+  reduced motion). The other e2e specs wait for a reveal to settle before axe.
+- **Known fidelity limits of the snapshot painter:** no box shadows, gradients,
+  pseudo-elements or text ellipsis; text and borders are drawn by the canvas,
+  not the layout engine, so the first lock frame can shimmer slightly against
+  the live DOM; foil canvases are frozen at the moment of the snapshot; blurred
+  sprites need `CanvasRenderingContext2D.filter` (without it the pop is not
+  blurred). Non-secret item text stays visible as pixels until the lens closes.
+- **Not verified by a human:** the look on real GPUs and on macOS/Linux
+  webviews; the glass band ran in headless Chromium in e2e (`data-mode="glass"`).
 
 ## Open risks / findings
 
