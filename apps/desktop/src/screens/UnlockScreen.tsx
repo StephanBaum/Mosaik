@@ -144,7 +144,7 @@ export function UnlockScreen({
           <p className="status" aria-live="polite">
             {busy ? t("lock.working") : ""}
           </p>
-          <HoloButton type="submit" size="lg" block ambient disabled={busy || quickBusy}>
+          <HoloButton type="submit" size="lg" block ambient disabled={busy || quickBusy} data-reveal-origin="unlock">
             {t("lock.submit")}
           </HoloButton>
         </form>

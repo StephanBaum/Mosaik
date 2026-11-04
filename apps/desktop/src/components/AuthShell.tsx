@@ -4,6 +4,7 @@
  */
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
+import { useLandmarkId } from "../reveal/context.ts";
 import { Brand } from "./Brand.tsx";
 import { HoloSurface } from "./HoloSurface.tsx";
 
@@ -55,12 +56,13 @@ export function AuthShell({
   /** Centres the column vertically (unlock). */
   center?: boolean;
 }) {
+  const mainId = useLandmarkId("main");
   return (
     <div className="auth">
       <header className="auth__header">
         <Brand />
       </header>
-      <main id="main" className={center ? "auth__body auth__body--center" : "auth__body"}>
+      <main id={mainId} className={center ? "auth__body auth__body--center" : "auth__body"}>
         <div className="auth__column">
           {progress !== undefined && <Progress {...progress} />}
           {children}

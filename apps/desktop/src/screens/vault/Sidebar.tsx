@@ -215,6 +215,7 @@ export function Sidebar(props: SidebarProps) {
           label={t("action.lock")}
           title={`${t("action.lock")} (${format(SHORTCUTS.lock, platform, t)})`}
           aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.lock, platform)}
+          data-reveal-origin="lock"
           onClick={props.onLock}
         />
       </div>

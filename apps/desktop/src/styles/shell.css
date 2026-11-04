@@ -8,6 +8,10 @@
   background: var(--color-bg);
 }
 
+.vault__main:focus {
+  outline: none;
+}
+
 .vault__main {
   grid-column: 2;
   grid-row: 2;

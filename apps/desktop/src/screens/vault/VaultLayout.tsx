@@ -7,6 +7,7 @@ import type { MessageKey } from "@mosaic/i18n";
 import { useState } from "react";
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useLandmarkId } from "../../reveal/context.ts";
 import type {
   InsightFinding,
   ItemDetail as Detail,
@@ -69,8 +70,9 @@ function MainArea({
 }) {
   const { view, query, category, editor, itemCount } = shell;
   const listing = view === "vault" || view === "trash";
+  const mainId = useLandmarkId("main");
   return (
-    <main id="main" className="vault__main">
+    <main id={mainId} tabIndex={-1} className="vault__main">
       {listing && (
         <ListView
           vaults={vaults}

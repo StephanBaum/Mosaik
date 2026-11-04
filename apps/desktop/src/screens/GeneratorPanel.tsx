@@ -63,7 +63,7 @@ function Output({ result, mode, onRegenerate }: { result: Generated; mode: Mode;
   return (
     <div className="generator__output">
       {/* aria-live off: the value changes with every slider step and must not be announced each time. */}
-      <output className="generated" aria-label={t("generator.result")} aria-live="off">
+      <output className="generated" data-secret="" aria-label={t("generator.result")} aria-live="off">
         {mode === "password"
           ? splitRuns(result.value).map((run, index) => (
               <span key={index} className={run.minor ? "generated__minor" : undefined}>
