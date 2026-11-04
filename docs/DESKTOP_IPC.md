@@ -277,6 +277,8 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no
   devtools and serves the frontend through the custom protocol under the strict CSP.
+  A navigation guard (`navigation.rs`, ADR-0019 amendment) keeps every webview on the
+  bundled frontend; only `tauri dev` builds may also load the Vite dev server.
 - `pnpm test` runs component tests (Vitest, jsdom) against the mock.
   `pnpm test:e2e` runs Playwright and axe against a mock-mode production build, which
   the preview server serves with the production CSP from `tauri.conf.json`.
