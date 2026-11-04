@@ -27,7 +27,7 @@ import {
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
-import { sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
+import { bulkItems, sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
@@ -43,7 +43,7 @@ import {
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
-import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockState } from "./mock/state.ts";
+import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockItem, type MockState } from "./mock/state.ts";
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
@@ -62,6 +62,8 @@ export interface MockOptions extends QuickOptions {
   otpScan?: ErrorCode | "cancel";
   /** Report screen scanning as unsupported when `false` (`&screenScan=0`). */
   screenScan?: boolean;
+  /** Add this many generated logins (`?items=5000`), for long-list checks. */
+  bulkItems?: number;
   now?: () => number;
 }
 
@@ -124,14 +126,23 @@ export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
   const latency = Number(params.get("latency") ?? "0");
+  const bulk = Math.trunc(Number(params.get("items") ?? "0"));
   return {
     ...(start === "locked" || start === "unlocked" || start === "noAccount" ? { start } : {}),
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
     ...otpOptionsFromParams(params),
+    ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
+}
+
+function initialItems(start: MockStart, options: MockOptions): MockItem[] {
+  if (start === "noAccount" || options.emptyVault === true) {
+    return [];
+  }
+  return [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)];
 }
 
 export function createMockIpc(options: MockOptions = {}): MosaicIpc {
@@ -147,7 +158,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     sshEnabled: false,
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
-    items: start === "noAccount" || options.emptyVault === true ? [] : sampleItems(),
+    items: initialItems(start, options),
     settings: { ...defaultSettings },
     quick: quickFromOptions(options, now),
     hardwareVaults: [],

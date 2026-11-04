@@ -1,10 +1,10 @@
-/** The item list: searched with a 150 ms debounce, rendered progressively past 200 rows. */
+/** The item list: searched with a 150 ms debounce, windowed (virtual scrolling) past 200 rows. */
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Avatar } from "../../components/Avatar.tsx";
-import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { useLatest } from "../../hooks/useLatest.ts";
+import { renderedIndices, useWindowedRows } from "../../hooks/useWindowedRows.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
@@ -20,7 +20,8 @@ import { matchesCategory, type Category } from "./useVaultData.ts";
 import { UserText } from "../../components/UserText.tsx";
 
 export const SEARCH_DEBOUNCE_MS = 150;
-const PAGE = 200;
+/** Longer lists render only the rows near the viewport. */
+export const WINDOW_AFTER = 200;
 
 interface Query {
   vaultId: VaultId | null;
@@ -163,11 +164,88 @@ function useFocusAfterRemoval(
     }
     index.current = null;
     if (document.activeElement === null || document.activeElement === document.body) {
-      const rows = list.current?.querySelectorAll<HTMLElement>(".item-row");
-      const row = rows?.[Math.min(last, rows.length - 1)];
+      const at = Math.min(last, items.length - 1);
+      const row = list.current?.querySelector<HTMLElement>(`[data-row="${String(at)}"] .item-row`);
       (row ?? document.querySelector<HTMLElement>("[data-new-item]"))?.focus();
     }
   }, [items, open, list]);
+}
+
+/**
+ * The rows themselves. Past `WINDOW_AFTER` only the rows near the viewport are rendered;
+ * the open row and the focused row (with its neighbours, for Tab) stay rendered when
+ * scrolled away, so neither the selection nor keyboard focus is lost.
+ */
+function Rows({
+  items,
+  selected,
+  flags,
+  now,
+  list,
+  onSelect,
+}: {
+  items: readonly ItemSummary[];
+  selected: ItemRequest | null;
+  flags: Map<string, InsightKind>;
+  now: number | null;
+  list: RefObject<HTMLUListElement | null>;
+  onSelect: (item: ItemRequest) => void;
+}) {
+  const { t } = useI18n();
+  const count = items.length;
+  const windowed = count > WINDOW_AFTER;
+  const range = useWindowedRows(list, ".item-row", count, windowed);
+  const [focused, setFocused] = useState<number | null>(null);
+  const isOpen = (item: ItemSummary) => selected?.vaultId === item.vaultId && selected.itemId === item.itemId;
+  const open = useMemo(
+    () => items.findIndex((item) => selected?.vaultId === item.vaultId && selected.itemId === item.itemId),
+    [items, selected],
+  );
+  const pinned = focused === null ? [open] : [open, focused - 1, focused, focused + 1];
+  const rows = windowed ? renderedIndices(range, pinned, count) : items.map((_, index) => index);
+
+  return (
+    <ul
+      ref={list}
+      className={windowed ? "item-list item-list--windowed" : "item-list"}
+      aria-label={t("vault.itemCount", { count })}
+      onFocus={(event) => {
+        const row =
+          event.target instanceof Element ? event.target.closest<HTMLElement>("[data-row]")?.dataset["row"] : undefined;
+        setFocused(row === undefined ? null : Number(row));
+      }}
+      onBlur={(event) => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+          setFocused(null);
+        }
+      }}
+    >
+      {rows.map((index) => {
+        const item = items[index];
+        return (
+          item !== undefined && (
+            <li
+              key={`${item.vaultId}/${item.itemId}`}
+              data-row={index}
+              aria-setsize={windowed ? count : undefined}
+              aria-posinset={windowed ? index + 1 : undefined}
+              ref={windowed ? (element) => element?.style.setProperty("--row", String(index)) : undefined}
+            >
+              <ItemRow
+                item={item}
+                selected={isOpen(item)}
+                flag={flags.get(`${item.vaultId}/${item.itemId}`)}
+                now={now}
+                onSelect={() => {
+                  onSelect({ vaultId: item.vaultId, itemId: item.itemId });
+                }}
+              />
+            </li>
+          )
+        );
+      })}
+    </ul>
+  );
 }
 
 export function ItemList({
@@ -194,7 +272,6 @@ export function ItemList({
 }) {
   const { t } = useI18n();
   const { items, error } = useItems({ vaultId, trash, query, category, reloadKey }, onLoaded);
-  const [shown, setShown] = useState(PAGE);
   const flags = useMemo(() => flagsOf(findings), [findings]);
   const list = useRef<HTMLUListElement>(null);
   useFocusAfterRemoval(items, selected, list);
@@ -220,31 +297,15 @@ export function ItemList({
           <div className="list-pane__header">
             <span>{t("vault.itemCount", { count: items.length })}</span>
           </div>
-          <ul ref={list} className="item-list" aria-label={t("vault.itemCount", { count: items.length })}>
-            {items.slice(0, shown).map((item) => (
-              <li key={`${item.vaultId}/${item.itemId}`}>
-                <ItemRow
-                  item={item}
-                  selected={selected?.vaultId === item.vaultId && selected.itemId === item.itemId}
-                  flag={flags.get(`${item.vaultId}/${item.itemId}`)}
-                  now={trash ? now : null}
-                  onSelect={() => {
-                    onSelect({ vaultId: item.vaultId, itemId: item.itemId });
-                  }}
-                />
-              </li>
-            ))}
-          </ul>
+          <Rows
+            items={items}
+            selected={selected}
+            flags={flags}
+            now={trash ? now : null}
+            list={list}
+            onSelect={onSelect}
+          />
         </>
-      )}
-      {items !== null && items.length > shown && (
-        <Button
-          onClick={() => {
-            setShown((n) => n + PAGE);
-          }}
-        >
-          {t("insights.showAll", { count: items.length })}
-        </Button>
       )}
     </div>
   );

@@ -369,6 +369,19 @@ select.field__input {
   list-style: none;
 }
 
+/* Past 200 rows only the rows near the viewport are rendered (useWindowedRows): the list
+   keeps the full height and each row sits at its index. */
+.item-list--windowed {
+  position: relative;
+  height: calc(var(--rows) * var(--row-height));
+}
+
+.item-list--windowed > li {
+  position: absolute;
+  top: calc(var(--row) * var(--row-height));
+  inset-inline: 0;
+}
+
 .empty {
   margin: 0;
 }

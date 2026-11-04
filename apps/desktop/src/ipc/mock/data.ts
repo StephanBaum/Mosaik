@@ -73,6 +73,20 @@ function login(spec: LoginSpec): MockItem {
   };
 }
 
+/** `count` generated logins, for long-list checks (`?items=5000`). */
+export function bulkItems(count: number): MockItem[] {
+  return Array.from({ length: count }, (_, index) => {
+    const n = String(index + 1).padStart(5, "0");
+    return login({
+      itemId: `019a2b3c-4d5e-7020-9000-0000000${n}`,
+      title: `Service ${n}`,
+      username: `user${n}@example.com`,
+      url: `https://service${n}.example.com`,
+      password: `bulk-password-${n}`,
+    });
+  });
+}
+
 export function sampleItems(): MockItem[] {
   return [
     login({
