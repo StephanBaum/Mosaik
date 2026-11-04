@@ -227,3 +227,34 @@ test("a reveal that answers after the window lost focus stays hidden", async ({ 
   await page.getByRole("button", { name: "Reveal Password" }).click();
   await expect(page.getByText("correct-horse-battery-staple")).toBeVisible();
 });
+
+test("item URLs are text, never links the webview could follow", async ({ page }) => {
+  // Attempt: an item URL (typed, imported or synced; it may be `javascript:`, `file:`, a UNC
+  // path or an OS scheme) becomes a link, so a click navigates the vault window or hands the
+  // URL to the OS (ADR-0026 item 5: the webview opens no external link). The mock has fixed
+  // items, so their https URLs stand in; Rust's navigation guard (`navigation.rs`) is the
+  // backstop, which this Chromium run against the mock IPC cannot exercise.
+  const exfil = evilRequests(page);
+  await page.goto("/?mock=unlocked");
+  await page.getByRole("button", { name: /GitHub/ }).click();
+  const detail = page.getByRole("article", { name: "GitHub" });
+  await expect(detail.getByText("https://github.com/login")).toBeVisible();
+  await detail.getByText("https://github.com/login").click({ modifiers: ["Control"] });
+  await detail.getByText("https://github.com/login").dblclick();
+  const detailLinks = await linkTargets(page);
+  await page.getByRole("button", { name: "Security" }).click();
+  await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+  expect({ detail: detailLinks, security: await linkTargets(page) }).toEqual({ detail: [], security: [] });
+  expect(page.context().pages()).toHaveLength(1);
+  expect(new URL(page.url()).origin).toBe("http://localhost:1421");
+  expect(exfil()).toEqual([]);
+});
+
+/** Every link, area or form target in the document except in-page fragments. */
+async function linkTargets(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll("a[href], area[href], [formaction], form[action]")]
+      .map((element) => element.getAttribute("href") ?? element.getAttribute("formaction") ?? element.getAttribute("action") ?? "")
+      .filter((target) => !target.startsWith("#")),
+  );
+}

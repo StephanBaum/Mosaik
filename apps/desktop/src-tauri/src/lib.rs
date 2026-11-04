@@ -205,6 +205,8 @@ mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]
+mod redteam_surface_tests;
+#[cfg(test)]
 mod redteam_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
