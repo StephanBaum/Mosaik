@@ -83,8 +83,8 @@ describe("one-time code setup dialog", () => {
   it("scans the screen and shows what it found with the live code", async () => {
     const { calls } = renderDialog(scan("screen"));
     expect(await screen.findByRole("heading", { name: "Is this the right code?" })).toBeTruthy();
-    expect((screen.getByLabelText("Service") as HTMLInputElement).value).toBe("GitHub");
-    expect((screen.getByLabelText("Account") as HTMLInputElement).value).toBe("alex@example.com");
+    expect(screen.getByLabelText<HTMLInputElement>("Service").value).toBe("GitHub");
+    expect(screen.getByLabelText<HTMLInputElement>("Account").value).toBe("alex@example.com");
     expect(screen.getByText("6 digits, new code every 30 seconds")).toBeTruthy();
     expect(await screen.findByText("492 039")).toBeTruthy();
     expect(calls.filter((call) => call === "otp_scan")).toHaveLength(1);
@@ -131,19 +131,19 @@ describe("one-time code setup dialog", () => {
     );
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "Is this the right code?" })).toBeTruthy();
-    expect((screen.getByLabelText("Service") as HTMLInputElement).value).toBe("Acme");
+    expect(screen.getByLabelText<HTMLInputElement>("Service").value).toBe("Acme");
   });
 
   it("prefills service and account from the item for a typed key", async () => {
     const user = userEvent.setup();
     renderDialog({ kind: "manual" });
-    expect((screen.getByLabelText("Service") as HTMLInputElement).value).toBe("Acme");
-    expect((screen.getByLabelText("Account") as HTMLInputElement).value).toBe("alex");
+    expect(screen.getByLabelText<HTMLInputElement>("Service").value).toBe("Acme");
+    expect(screen.getByLabelText<HTMLInputElement>("Account").value).toBe("alex");
     await user.type(screen.getByLabelText("Setup key or otpauth:// link"), "JBSW Y3DP EHPK 3PXP");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByRole("heading", { name: "Is this the right code?" });
-    expect((screen.getByLabelText("Service") as HTMLInputElement).value).toBe("Acme");
-    expect((screen.getByLabelText("Account") as HTMLInputElement).value).toBe("alex");
+    expect(screen.getByLabelText<HTMLInputElement>("Service").value).toBe("Acme");
+    expect(screen.getByLabelText<HTMLInputElement>("Account").value).toBe("alex");
   });
 
   it("rejects a key that is not base32", async () => {
@@ -152,7 +152,7 @@ describe("one-time code setup dialog", () => {
     await user.type(screen.getByLabelText("Setup key or otpauth:// link"), "0189");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText(/This key isn't valid/)).toBeTruthy();
-    expect((screen.getByLabelText("Setup key or otpauth:// link") as HTMLInputElement).value).toBe("");
+    expect(screen.getByLabelText<HTMLInputElement>("Setup key or otpauth:// link").value).toBe("");
   });
 
   it("reads a pasted screenshot on Ctrl+V outside a text field and says the clipboard was cleared", async () => {
