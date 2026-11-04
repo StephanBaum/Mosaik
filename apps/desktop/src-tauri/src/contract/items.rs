@@ -350,7 +350,8 @@ pub struct ItemDetail {
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
-    rename_all_fields = "camelCase"
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
 )]
 pub enum SecretRef {
     /// A secret field.
@@ -420,7 +421,12 @@ pub struct SecretFieldChange {
 /// A change to the URL list.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
-#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "op",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum UrlChange {
     /// Append a URL.
     Add {
@@ -453,7 +459,12 @@ pub enum UrlChange {
 /// value is one, and the type decides nothing about the transport.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
-#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "op",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum CustomFieldChange {
     /// Append a field.
     Add {
@@ -485,7 +496,12 @@ pub enum CustomFieldChange {
 /// A change to the item's own one-time password.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
-#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "op",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum OtpChange {
     /// Set it from an `otpauth://` URI (pasted or scanned).
     Set {

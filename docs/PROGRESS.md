@@ -1147,6 +1147,30 @@ saved.
   screen capture (ADR-0031 item 8), a link from a login to its code item in a
   hardware vault (autofill of the code is M4).
 
+## M3 red team, second pass: extension-attacker review of the desktop IPC (2026-11-04)
+
+Branch `test/m3-ipc-redteam`. Attacked the Tauri surface around the commands:
+remote origins and other webviews, core and plugin commands, forged invoke keys,
+navigation and `window.open`, URL opening, the config and dependency list, unknown
+fields, plus a read of the SSH agent pipe, single instance, files written and the
+OTP pending slots.
+
+- **Held:** only the bundled origin in the window `main` reaches IPC; every
+  `core:*` and plugin command (content protection, devtools, new webviews, event
+  listen, global shortcut, opener, shell, fs, dialog, clipboard) is refused; a
+  forged invoke key gets no answer; no devtools, asset protocol, remote IPC or
+  URL-opening plugin is in the build; `window.open` is refused (no new-window
+  handler); item URLs render as text; import paths come only from the native
+  dialog; pending OTP IDs are random; the pipe is first-instance with remote
+  clients rejected.
+- **Fixed:** a navigation guard keeps every webview on the bundled frontend.
+  Without it a script or link could carry data out in the address or load
+  `http://tauri.localhost:<port>/`, which Tauri 2.12 counts as local (R33).
+  Tagged request values (copy source, secret reference, generator request, draft
+  operations) now refuse unknown fields like every other request (unit variants
+  cannot, and carry nothing).
+- **Left:** report the port-blind origin check upstream (R33).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

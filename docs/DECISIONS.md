@@ -1590,6 +1590,19 @@ Linux-only advisories stay until upstream moves. Tracks that need native
 dialogs or the clipboard add Rust-only crates with a justification, and an ADR
 if a crate is security-relevant (the OS keystore crate, an SSH crate).
 
+### Amendment (2026-11-04): navigation guard
+The red-team review of the desktop IPC (THREAT_MODEL R33) found two gaps in
+this baseline: the CSP does not cover top-level navigations, and Tauri's IPC
+origin check ignores the port, so `http://tauri.localhost:<port>/` served by
+any local process would count as the app. A navigation guard
+(`apps/desktop/src-tauri/src/navigation.rs`, a plugin on the app builder)
+now refuses every load except the bundled frontend (`http://tauri.localhost`
+on Windows, `tauri://localhost` elsewhere, with no port or credentials). The
+Vite dev server is allowed only in builds without the `custom-protocol`
+feature, which `tauri build` always sets. `window.open` stays refused (no
+new-window handler). Tests in `redteam_surface_tests.rs` check that the guard
+is registered and what it refuses.
+
 ## ADR-0020: Desktop shell OS integration (Secret Key store, clipboard, auto-lock, shortcut, dialogs, Emergency Kit)
 
 - Status: accepted

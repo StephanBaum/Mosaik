@@ -41,6 +41,7 @@ pub mod dialogs;
 pub mod emergency_kit;
 pub mod events;
 pub mod keystore;
+pub mod navigation;
 pub mod otp_pending;
 pub mod persist;
 pub mod quick_unlock;
@@ -104,6 +105,9 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             shortcut::focus_main(app);
         }))
+        // No webview leaves the bundled frontend (the CSP does not cover
+        // top-level navigations).
+        .plugin(navigation::guard())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let slot = open_store(&dir);
@@ -200,6 +204,8 @@ mod handler_tests;
 mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
+#[cfg(test)]
+mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
 #[cfg(test)]
