@@ -1,0 +1,27 @@
+[package]
+name = "mosaic-qr"
+description = "Mosaic QR scanning: images and screen frames to otpauth:// entries (ADR-0031)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Fixture generators for this crate's and mosaic-desktop's tests. Never enabled in the app.
+testing = ["dep:qrcodegen"]
+
+[dependencies]
+image.workspace = true
+mosaic-totp = { path = "../totp" }
+qrcodegen = { workspace = true, optional = true }
+rqrr.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+qrcodegen.workspace = true

@@ -48,4 +48,4 @@ pub use secret::{
     COMMON_MIN_SECRET_LEN, MAX_SECRET_LEN, MAX_SECRET_TEXT_LEN, OtpSecret, RFC4226_MIN_SECRET_LEN,
     SecretStrength, SecretText,
 };
-pub use uri::{MAX_PARAMS, MAX_TEXT_LEN, MAX_URI_LEN, OtpAuth};
+pub use uri::{MAX_PARAMS, MAX_TEXT_LEN, MAX_URI_LEN, OtpAuth, validate_label};

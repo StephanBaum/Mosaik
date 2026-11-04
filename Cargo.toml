@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "apps/desktop/src-tauri/fuzz"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "apps/desktop/src-tauri/fuzz"]
 
 [workspace.package]
 version = "0.0.0"
@@ -50,7 +50,8 @@ tauri-build = { version = "=2.7.4", default-features = false, features = ["confi
 tauri-plugin-single-instance = { version = "=2.5.4", default-features = false }
 # M3 shell
 # Clipboard written from Rust, with the OS history/monitoring exclusions on
-# Windows, macOS and Linux (maintained by 1Password); text only, no images.
+# Windows, macOS and Linux (maintained by 1Password); text, and image reads for
+# pasted QR screenshots (mosaic-desktop enables `image-data`).
 arboard = { version = "=3.7.0", default-features = false }
 # The Secret Key in the OS keystore (Windows Credential Manager, macOS
 # Keychain, Linux kernel keyring); no Secret Service transport crypto.
@@ -114,6 +115,18 @@ signature = { version = "=3.0.0", default-features = false }
 # Async listener (Unix socket, Windows named pipe), timers and channels for the
 # agent; already in the tree through Tauri.
 tokio = { version = "=1.54.1", default-features = false, features = ["net", "rt", "sync", "time", "io-util"] }
+# OTP setup (ADR-0031)
+# Pure-Rust QR decoder (quirc port) for 2FA setup codes; no image feature (we feed luma).
+rqrr = { version = "=0.11.0", default-features = false }
+# PNG and JPEG (zune-jpeg) decoding with Limits for QR screenshots; arboard's
+# image-data feature pulls the same crate.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+# Windows "Scan screen": GDI capture of the virtual screen; depends only on windows 0.62.2.
+win-screenshot = { version = "=4.0.14", default-features = false }
+# X11 "Scan screen": GetImage of the root window; already in the tree via arboard.
+x11rb = { version = "=0.13.2", default-features = false }
+# Test-only QR encoder for generated scan fixtures (zero dependencies).
+qrcodegen = "=1.8.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -162,6 +175,16 @@ opt-level = 3
 [profile.dev.package.poly1305]
 opt-level = 3
 [profile.dev.package.sha2]
+opt-level = 3
+
+# QR detection on screen-sized frames is unusably slow unoptimized (ADR-0031).
+[profile.dev.package.rqrr]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.png]
 opt-level = 3
 
 [profile.release]

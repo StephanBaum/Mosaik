@@ -318,10 +318,14 @@ fn parse_secret(raw: &[u8]) -> Result<OtpSecret> {
     secret
 }
 
-/// Checks the issuer and account name of a label: each must be valid text,
-/// and without an issuer a `:` in the account name would read as an issuer
-/// separator when formatted (possible only after a blank label prefix).
-fn validate_label(issuer: Option<&str>, account: &str) -> Result<()> {
+/// Checks an issuer and account name against the label rules of this module
+/// (length, forbidden characters, surrounding whitespace, `:` without issuer).
+/// Each must be valid text, and without an issuer a `:` in the account name
+/// would read as an issuer separator when formatted.
+///
+/// # Errors
+/// [`Error::InvalidLabel`].
+pub fn validate_label(issuer: Option<&str>, account: &str) -> Result<()> {
     if let Some(i) = issuer {
         validate_text(i)?;
     }
@@ -573,6 +577,18 @@ mod tests {
 
     fn p(s: &str) -> Result<OtpAuth> {
         OtpAuth::parse(s)
+    }
+
+    #[test]
+    fn validate_label_public_rules() {
+        assert!(validate_label(Some("GitHub"), "alex@example.com").is_ok());
+        assert!(validate_label(None, "").is_ok());
+        assert_eq!(validate_label(None, "a:b"), Err(Error::InvalidLabel));
+        assert_eq!(validate_label(Some("x"), " a"), Err(Error::InvalidLabel));
+        assert_eq!(
+            validate_label(Some("a\u{202e}b"), "a"),
+            Err(Error::InvalidLabel)
+        );
     }
 
     fn ok(s: &str) -> OtpAuth {

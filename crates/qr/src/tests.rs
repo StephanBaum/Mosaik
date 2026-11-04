@@ -1,0 +1,403 @@
+//! Unit tests for `mosaic-qr` (fixtures from `testing`).
+
+use image::{ImageBuffer, ImageEncoder, Luma};
+use mosaic_totp::{Algorithm, OtpAuth, OtpKind, SecretText};
+use proptest::prelude::*;
+use zeroize::Zeroizing;
+
+use crate::testing::{SAMPLE_URI, canvas, inverted, jpeg, png, qr_frame, qr_frame_transparent};
+use crate::{
+    Frame, ImageLimits, OwnedFrame, Payload, PixelLayout, ScanError, classify, scan_frames,
+    scan_image,
+};
+
+const DEFAULT: ImageLimits = ImageLimits::DEFAULT;
+const OTHER_URI: &str =
+    "otpauth://totp/Other:bob?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Other";
+
+fn assert_sample(auth: &OtpAuth) {
+    assert_eq!(
+        auth.issuer.as_ref().map(SecretText::expose_secret),
+        Some("Example")
+    );
+    assert_eq!(auth.account_name.expose_secret(), "alice@example.com");
+    assert_eq!(
+        auth.otp.secret.to_base32().expose_secret(),
+        "JBSWY3DPEHPK3PXP"
+    );
+    assert_eq!(auth.otp.algorithm, Algorithm::Sha1);
+    assert_eq!(auth.otp.kind, OtpKind::DEFAULT_TOTP);
+}
+
+fn scan_one(frame: &OwnedFrame) -> Result<OtpAuth, ScanError> {
+    scan_frames(&[frame.frame()])
+}
+
+/// A screen-like canvas with the given codes at fixed spots.
+fn screen(codes: &[&str], layout: PixelLayout) -> OwnedFrame {
+    let frames: Vec<OwnedFrame> = codes.iter().map(|c| qr_frame(c, 5, 4)).collect();
+    let place: Vec<(&OwnedFrame, u32, u32)> = frames
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f, 40 + 480 * u32::try_from(i).unwrap_or(0), 60))
+        .collect();
+    canvas(1400, 640, layout, 240, &place)
+}
+
+#[test]
+fn png_round_trip() {
+    let auth = scan_image(&png(&qr_frame(SAMPLE_URI, 4, 4)), &DEFAULT).unwrap();
+    assert_sample(&auth);
+}
+
+#[test]
+fn jpeg_q75() {
+    let auth = scan_image(&jpeg(&qr_frame(SAMPLE_URI, 6, 4), 75), &DEFAULT).unwrap();
+    assert_sample(&auth);
+}
+
+#[test]
+fn transparent_png() {
+    let auth = scan_image(&png(&qr_frame_transparent(SAMPLE_URI, 4)), &DEFAULT).unwrap();
+    assert_sample(&auth);
+}
+
+#[test]
+fn inverted_code() {
+    let auth = scan_image(&png(&inverted(&qr_frame(SAMPLE_URI, 4, 4))), &DEFAULT).unwrap();
+    assert_sample(&auth);
+}
+
+#[test]
+fn screenshot_rgbx_alpha_zero() {
+    let qr = qr_frame(SAMPLE_URI, 5, 4);
+    let c = canvas(1920, 1080, PixelLayout::Rgbx8, 240, &[(&qr, 700, 300)]);
+    assert_sample(&scan_one(&c).unwrap());
+}
+
+#[test]
+fn screenshot_bgrx() {
+    let qr = qr_frame(SAMPLE_URI, 5, 4);
+    let c = canvas(1920, 1080, PixelLayout::Bgrx8, 240, &[(&qr, 700, 300)]);
+    assert_sample(&scan_one(&c).unwrap());
+}
+
+#[test]
+fn large_canvas_downscaled() {
+    let qr = qr_frame(SAMPLE_URI, 10, 4);
+    let c = canvas(7680, 4320, PixelLayout::Rgbx8, 255, &[(&qr, 100, 100)]);
+    assert_sample(&scan_one(&c).unwrap());
+}
+
+#[test]
+fn two_frames_second_has_code() {
+    let blank = canvas(800, 600, PixelLayout::Rgbx8, 200, &[]);
+    let qr = qr_frame(SAMPLE_URI, 5, 4);
+    let with = canvas(800, 600, PixelLayout::Rgbx8, 200, &[(&qr, 50, 50)]);
+    assert_sample(&scan_frames(&[blank.frame(), with.frame()]).unwrap());
+}
+
+#[test]
+fn not_otp() {
+    let qr = qr_frame("https://example.com", 5, 4);
+    assert_eq!(scan_one(&qr).unwrap_err(), ScanError::NotOtp);
+}
+
+#[test]
+fn migration() {
+    let qr = qr_frame("otpauth-migration://offline?data=CgYKBAAAAAA%3D", 5, 4);
+    assert_eq!(scan_one(&qr).unwrap_err(), ScanError::Migration);
+}
+
+#[test]
+fn migration_wins_over_other() {
+    let c = screen(
+        &[
+            "otpauth-migration://offline?data=CgYKBAAAAAA%3D",
+            "https://example.com",
+        ],
+        PixelLayout::Rgbx8,
+    );
+    assert_eq!(scan_one(&c).unwrap_err(), ScanError::Migration);
+}
+
+#[test]
+fn multiple_distinct() {
+    let c = screen(&[SAMPLE_URI, OTHER_URI], PixelLayout::Rgbx8);
+    assert_eq!(scan_one(&c).unwrap_err(), ScanError::Multiple);
+}
+
+#[test]
+fn duplicates_count_once() {
+    let c = screen(&[SAMPLE_URI, SAMPLE_URI], PixelLayout::Rgbx8);
+    assert_sample(&scan_one(&c).unwrap());
+}
+
+#[test]
+fn otp_beside_other_qr() {
+    let c = screen(&[SAMPLE_URI, "https://example.com"], PixelLayout::Rgbx8);
+    assert_sample(&scan_one(&c).unwrap());
+}
+
+#[test]
+fn invalid_otp() {
+    for uri in [
+        "otpauth://totp/x?secret=1",
+        "otpauth://totp/x?secret=JBSWY3DP&algorithm=MD5",
+    ] {
+        let qr = qr_frame(uri, 5, 4);
+        assert_eq!(scan_one(&qr).unwrap_err(), ScanError::InvalidOtp, "{uri}");
+    }
+}
+
+#[test]
+fn no_qr() {
+    let blank = canvas(200, 200, PixelLayout::Luma8, 255, &[]);
+    assert_eq!(
+        scan_image(&png(&blank), &DEFAULT).unwrap_err(),
+        ScanError::NotFound
+    );
+}
+
+#[test]
+fn tiny_frame() {
+    let tiny = canvas(10, 10, PixelLayout::Luma8, 255, &[]);
+    assert_eq!(scan_one(&tiny).unwrap_err(), ScanError::NotFound);
+}
+
+#[test]
+fn file_too_large() {
+    let bytes = png(&qr_frame(SAMPLE_URI, 4, 4));
+    let limits = ImageLimits {
+        max_file_bytes: 100,
+        ..DEFAULT
+    };
+    assert_eq!(
+        scan_image(&bytes, &limits).unwrap_err(),
+        ScanError::TooLarge
+    );
+}
+
+#[test]
+fn side_too_large() {
+    let bytes = png(&canvas(300, 1, PixelLayout::Luma8, 255, &[]));
+    let limits = ImageLimits {
+        max_side: 256,
+        ..DEFAULT
+    };
+    assert_eq!(
+        scan_image(&bytes, &limits).unwrap_err(),
+        ScanError::TooLarge
+    );
+}
+
+#[test]
+fn pixels_too_many() {
+    let bytes = png(&canvas(200, 200, PixelLayout::Luma8, 255, &[]));
+    let limits = ImageLimits {
+        max_pixels: 10_000,
+        ..DEFAULT
+    };
+    assert_eq!(
+        scan_image(&bytes, &limits).unwrap_err(),
+        ScanError::TooLarge
+    );
+}
+
+#[test]
+fn alloc_limit() {
+    let bytes = png(&canvas(200, 200, PixelLayout::Rgba8, 255, &[]));
+    let limits = ImageLimits {
+        max_alloc: 1024,
+        ..DEFAULT
+    };
+    assert_eq!(
+        scan_image(&bytes, &limits).unwrap_err(),
+        ScanError::TooLarge
+    );
+}
+
+#[test]
+fn unsupported_format() {
+    for bytes in [&b"GIF89a\x01\x00\x01\x00"[..], b"BM\x00\x00\x00\x00", b""] {
+        assert_eq!(
+            scan_image(bytes, &DEFAULT).unwrap_err(),
+            ScanError::Unreadable
+        );
+    }
+}
+
+#[test]
+fn truncated_png() {
+    let bytes = png(&qr_frame(SAMPLE_URI, 4, 4));
+    assert_eq!(
+        scan_image(&bytes[..60], &DEFAULT).unwrap_err(),
+        ScanError::Unreadable
+    );
+}
+
+#[test]
+fn sixteen_bit_png() {
+    let qr = qr_frame(SAMPLE_URI, 4, 4);
+    let wide: Vec<u16> = qr.pixels().iter().map(|&v| u16::from(v) * 257).collect();
+    let buf: ImageBuffer<Luma<u16>, Vec<u16>> =
+        ImageBuffer::from_raw(qr.width(), qr.height(), wide).unwrap();
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut out)
+        .write_image(
+            bytes_of(buf.as_raw()).as_slice(),
+            buf.width(),
+            buf.height(),
+            image::ExtendedColorType::L16,
+        )
+        .unwrap();
+    assert_sample(&scan_image(&out, &DEFAULT).unwrap());
+}
+
+/// Native-endian bytes of 16-bit samples, as `ImageEncoder` expects them.
+fn bytes_of(samples: &[u16]) -> Vec<u8> {
+    samples.iter().flat_map(|s| s.to_ne_bytes()).collect()
+}
+
+#[test]
+fn frame_new_checks() {
+    let px = [0u8; 64];
+    let l = PixelLayout::Luma8;
+    assert!(Frame::new(8, 8, 8, l, &px).is_ok());
+    assert!(Frame::new(8, 8, 7, l, &px).is_err(), "stride too small");
+    assert!(Frame::new(9, 8, 9, l, &px).is_err(), "buffer short");
+    assert!(Frame::new(0, 8, 8, l, &px).is_err(), "zero width");
+    assert!(Frame::new(8, 0, 8, l, &px).is_err(), "zero height");
+    assert!(
+        Frame::new(u32::MAX, u32::MAX, usize::MAX, PixelLayout::Rgba8, &px).is_err(),
+        "overflowing dimensions"
+    );
+    assert!(OwnedFrame::new(8, 9, l, Zeroizing::new(px.to_vec())).is_err());
+}
+
+#[test]
+fn classify_table() {
+    assert_eq!(classify(" OTPAUTH://totp/a?secret=A\n"), Payload::OtpAuth);
+    assert_eq!(classify("otpauth-migration://x"), Payload::Migration);
+    assert_eq!(classify("OtPaUtH-MiGrAtIoN://x"), Payload::Migration);
+    assert_eq!(classify("https://x"), Payload::Other);
+    assert_eq!(classify(""), Payload::Other);
+}
+
+#[test]
+fn debug_redacts() {
+    let frame = OwnedFrame::new(2, 1, PixelLayout::Luma8, Zeroizing::new(vec![171, 205])).unwrap();
+    let text = format!("{frame:?} {:?}", frame.frame());
+    assert!(text.contains("width: 2"));
+    assert!(!text.contains("171") && !text.contains("205"));
+}
+
+#[test]
+fn to_luma_values() {
+    use crate::frame::to_luma;
+    let one = |layout: PixelLayout, px: &[u8]| {
+        // 21x21 repeat so the smallest-QR check passes.
+        let bpp = layout.bytes_per_pixel();
+        let all: Vec<u8> = px.iter().copied().cycle().take(21 * 21 * bpp).collect();
+        let frame = Frame::new(21, 21, 21 * bpp, layout, &all).unwrap();
+        let luma = to_luma(&frame, 1 << 20).unwrap();
+        luma.pixels[0]
+    };
+    for layout in [PixelLayout::Rgb8, PixelLayout::Rgba8] {
+        let white: &[u8] = if layout == PixelLayout::Rgb8 {
+            &[255, 255, 255]
+        } else {
+            &[255, 255, 255, 255]
+        };
+        let black: &[u8] = if layout == PixelLayout::Rgb8 {
+            &[0, 0, 0]
+        } else {
+            &[0, 0, 0, 255]
+        };
+        assert_eq!(one(layout, white), 255);
+        assert_eq!(one(layout, black), 0);
+    }
+    assert_eq!(one(PixelLayout::Rgbx8, &[255, 255, 255, 0]), 255);
+    assert_eq!(one(PixelLayout::Bgrx8, &[0, 0, 0, 0]), 0);
+    let half = one(PixelLayout::LumaA8, &[0, 128]);
+    assert!((127..=129).contains(&half), "{half}");
+    let half = one(PixelLayout::Rgba8, &[0, 0, 0, 128]);
+    assert!((127..=129).contains(&half), "{half}");
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+
+    #[test]
+    fn prop_round_trip(
+        secret in proptest::collection::vec(any::<u8>(), 10..=64),
+        issuer in "[A-Za-z0-9._@-][A-Za-z0-9 ._@-]{0,18}[A-Za-z0-9._@-]",
+        account in "[A-Za-z0-9._@-][A-Za-z0-9 ._@-]{0,18}[A-Za-z0-9._@-]",
+        digits in 6u8..=8,
+        long_period in any::<bool>(),
+    ) {
+        use mosaic_totp::{Digits, Otp, OtpSecret, Period};
+        let auth = OtpAuth {
+            otp: Otp {
+                secret: OtpSecret::from_bytes(&secret).unwrap(),
+                algorithm: Algorithm::Sha1,
+                kind: OtpKind::Totp {
+                    digits: Digits::new(digits).unwrap(),
+                    period: Period::new(if long_period { 60 } else { 30 }).unwrap(),
+                },
+            },
+            issuer: Some(SecretText::new(&issuer)),
+            account_name: SecretText::new(&account),
+        };
+        let uri = auth.to_uri().unwrap();
+        let bytes = png(&qr_frame(uri.expose_secret(), 4, 4));
+        let scanned = scan_image(&bytes, &DEFAULT).unwrap();
+        prop_assert_eq!(scanned, auth);
+    }
+}
+
+#[test]
+#[ignore = "writes fuzz seeds; run with MOSAIC_UPDATE_FIXTURES=1"]
+fn write_fuzz_seeds() {
+    if std::env::var("MOSAIC_UPDATE_FIXTURES").as_deref() != Ok("1") {
+        return;
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/seeds");
+    let image_dir = root.join("scan_image");
+    let luma_dir = root.join("scan_luma");
+    std::fs::create_dir_all(&image_dir).unwrap();
+    std::fs::create_dir_all(&luma_dir).unwrap();
+    let write = |dir: &std::path::Path, name: &str, bytes: &[u8]| {
+        assert!(bytes.len() <= 8 * 1024, "{name} too large");
+        std::fs::write(dir.join(name), bytes).unwrap();
+    };
+    write(&image_dir, "otp.png", &png(&qr_frame(SAMPLE_URI, 4, 4)));
+    write(
+        &image_dir,
+        "otp.jpg",
+        &jpeg(&qr_frame(SAMPLE_URI, 3, 4), 70),
+    );
+    write(
+        &image_dir,
+        "url.png",
+        &png(&qr_frame("https://example.com", 4, 4)),
+    );
+    write(
+        &image_dir,
+        "migration.png",
+        &png(&qr_frame(
+            "otpauth-migration://offline?data=CgYKBAAAAAA%3D",
+            4,
+            4,
+        )),
+    );
+    write(
+        &image_dir,
+        "blank.png",
+        &png(&canvas(64, 64, PixelLayout::Luma8, 255, &[])),
+    );
+    let small = qr_frame(SAMPLE_URI, 2, 4);
+    let mut raw = u16::try_from(small.width()).unwrap().to_le_bytes().to_vec();
+    raw.extend_from_slice(small.pixels());
+    write(&luma_dir, "otp.luma", &raw);
+}
