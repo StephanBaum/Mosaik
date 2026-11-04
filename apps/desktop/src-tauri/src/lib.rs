@@ -41,8 +41,10 @@ pub mod dialogs;
 pub mod emergency_kit;
 pub mod events;
 pub mod keystore;
+pub mod otp_pending;
 pub mod persist;
 pub mod quick_unlock;
+pub mod screen_capture;
 pub mod settings_integrity;
 pub mod shortcut;
 pub mod state;
@@ -63,6 +65,7 @@ use crate::dialogs::NativeDialogs;
 use crate::keystore::{LayeredKeystore, OsKeystore};
 use crate::persist::Persistence;
 use crate::quick_unlock::QuickUnlockService;
+use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
 
 /// The store's file name in the app data directory.
@@ -131,6 +134,7 @@ pub fn run() -> tauri::Result<()> {
                 .with_persistence(persistence)
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
+                .with_screen_capture(Box::new(NativeScreenCapture::new(app.handle().clone())))
                 .with_quick_unlock(QuickUnlockService::for_this_os());
             // Removes an expired or orphaned quick-unlock enrollment and its
             // platform key before the first unlock screen.
@@ -192,6 +196,8 @@ pub fn run() -> tauri::Result<()> {
 mod flow_tests;
 #[cfg(test)]
 mod handler_tests;
+#[cfg(test)]
+mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]

@@ -51,6 +51,11 @@ pub const COMMANDS: &[&str] = &[
     // Generator and one-time codes
     "generate_password",
     "totp_code",
+    // One-time code setup
+    "otp_scan",
+    "otp_parse",
+    "otp_pending_code",
+    "otp_pending_discard",
     // Settings
     "get_settings",
     "update_settings",

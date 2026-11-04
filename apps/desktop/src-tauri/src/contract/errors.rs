@@ -73,6 +73,30 @@ wire_enum!(
         HardwareKeyLast,
         /// A hardware-protected vault holds one-time-code items only.
         ItemTypeNotAllowed,
+        /// Screen scanning is not available on this system.
+        OtpScanUnsupported,
+        /// The scan found no QR code.
+        OtpQrNotFound,
+        /// The QR code is not an `otpauth://` setup code.
+        OtpQrNotOtp,
+        /// The QR code is a Google Authenticator export.
+        OtpQrMigration,
+        /// Several different setup codes were visible.
+        OtpQrMultiple,
+        /// The setup code uses settings Mosaic does not support.
+        OtpQrInvalid,
+        /// The text is not a valid `otpauth://` link.
+        OtpUriInvalid,
+        /// The setup key is not valid base32.
+        OtpKeyInvalid,
+        /// The image cannot be read (not PNG or JPEG, or damaged).
+        OtpImageUnreadable,
+        /// The image is over a size limit.
+        OtpImageTooLarge,
+        /// The clipboard holds no image.
+        OtpClipboardNoImage,
+        /// The scanned setup expired, was used or was never created.
+        OtpPendingExpired,
         /// Another Mosaic process holds the local vault.
         StoreInUse,
         /// The local vault file could not be opened or read.

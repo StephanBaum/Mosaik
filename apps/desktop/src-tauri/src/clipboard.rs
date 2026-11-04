@@ -26,7 +26,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::SecretString;
+use mosaic_qr::{OwnedFrame, PixelLayout};
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::AppEvent;
@@ -44,6 +46,17 @@ const RETRY: Duration = MAX_WAIT;
 const SHUTDOWN_TRIES: u32 = 5;
 /// Pause between those tries.
 const SHUTDOWN_PAUSE: Duration = Duration::from_millis(100);
+
+/// What the clipboard holds, as an image.
+#[derive(Debug)]
+pub enum ClipboardImage {
+    /// No image on the clipboard.
+    Empty,
+    /// An image the OS could not convert.
+    Unreadable,
+    /// The image, RGBA with straight alpha, in a zeroizing buffer.
+    Image(OwnedFrame),
+}
 
 /// The OS clipboard, as the worker uses it.
 pub trait ClipboardBackend {
@@ -67,6 +80,13 @@ pub trait ClipboardBackend {
     /// # Errors
     /// When the clipboard cannot be written.
     fn clear(&mut self) -> Result<(), ClipboardError>;
+
+    /// The clipboard image (arboard decodes it; RGBA, straight alpha).
+    /// `ContentNotAvailable` is `Empty`, `ConversionFailure` is `Unreadable`.
+    ///
+    /// # Errors
+    /// When the clipboard cannot be read right now.
+    fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError>;
 }
 
 /// The clipboard could not be used. Carries nothing (no OS message, which
@@ -131,13 +151,34 @@ impl ClipboardBackend for SystemClipboard {
     fn clear(&mut self) -> Result<(), ClipboardError> {
         self.0.clear().map_err(|_| ClipboardError)
     }
+
+    fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
+        match self.0.get_image() {
+            Ok(image) => {
+                let (Ok(width), Ok(height)) =
+                    (u32::try_from(image.width), u32::try_from(image.height))
+                else {
+                    return Ok(ClipboardImage::Unreadable);
+                };
+                let pixels = Zeroizing::new(image.bytes.into_owned());
+                Ok(OwnedFrame::new(width, height, PixelLayout::Rgba8, pixels)
+                    .map_or(ClipboardImage::Unreadable, ClipboardImage::Image))
+            }
+            Err(arboard::Error::ContentNotAvailable) => Ok(ClipboardImage::Empty),
+            Err(arboard::Error::ConversionFailure) => Ok(ClipboardImage::Unreadable),
+            Err(_) => Err(ClipboardError),
+        }
+    }
 }
 
 /// An in-process clipboard, the default until the app installs the system
 /// one, and for tests. Clones share the content, so a test can play "the
 /// user copied something else". The content is a zeroizing secret string.
 #[derive(Clone, Default)]
-pub struct MemoryClipboard(Arc<Mutex<Option<SecretString>>>);
+pub struct MemoryClipboard {
+    text: Arc<Mutex<Option<SecretString>>>,
+    image: Arc<Mutex<Option<OwnedFrame>>>,
+}
 
 impl MemoryClipboard {
     /// A factory that hands this clipboard to the worker.
@@ -150,7 +191,7 @@ impl MemoryClipboard {
     #[cfg(test)]
     #[must_use]
     pub fn content(&self) -> Option<String> {
-        self.0
+        self.text
             .lock()
             .ok()
             .and_then(|c| c.as_ref().map(|s| s.expose_secret().to_owned()))
@@ -159,28 +200,49 @@ impl MemoryClipboard {
     /// Replaces the content, as another app would (tests).
     #[cfg(test)]
     pub fn put(&self, text: &str) {
-        if let Ok(mut content) = self.0.lock() {
+        if let Ok(mut content) = self.text.lock() {
             *content = Some(SecretString::from(text.to_owned()));
         }
+    }
+
+    /// Puts an image on the clipboard, as a screenshot tool would (tests).
+    #[cfg(test)]
+    pub fn put_image(&self, frame: OwnedFrame) {
+        if let Ok(mut image) = self.image.lock() {
+            *image = Some(frame);
+        }
+    }
+
+    /// Whether an image is on the clipboard (tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn has_image(&self) -> bool {
+        self.image.lock().is_ok_and(|image| image.is_some())
     }
 }
 
 impl ClipboardBackend for MemoryClipboard {
     fn write(&mut self, text: &str) -> Result<(), ClipboardError> {
-        *self.0.lock().map_err(|_| ClipboardError)? = Some(SecretString::from(text.to_owned()));
+        *self.text.lock().map_err(|_| ClipboardError)? = Some(SecretString::from(text.to_owned()));
         Ok(())
     }
 
     fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
-        let content = self.0.lock().map_err(|_| ClipboardError)?;
+        let content = self.text.lock().map_err(|_| ClipboardError)?;
         Ok(content
             .as_ref()
             .map(|s| SecretString::from(s.expose_secret().to_owned())))
     }
 
     fn clear(&mut self) -> Result<(), ClipboardError> {
-        *self.0.lock().map_err(|_| ClipboardError)? = None;
+        *self.text.lock().map_err(|_| ClipboardError)? = None;
+        *self.image.lock().map_err(|_| ClipboardError)? = None;
         Ok(())
+    }
+
+    fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
+        let image = self.image.lock().map_err(|_| ClipboardError)?.take();
+        Ok(image.map_or(ClipboardImage::Empty, ClipboardImage::Image))
     }
 }
 
@@ -192,6 +254,12 @@ enum Command {
     },
     ClearIfOurs {
         reply: Sender<Result<bool, ClipboardError>>,
+    },
+    ReadImage {
+        reply: Sender<Result<ClipboardImage, ClipboardError>>,
+    },
+    ClearAny {
+        reply: Sender<Result<(), ClipboardError>>,
     },
     Shutdown,
 }
@@ -284,6 +352,20 @@ impl Worker {
         Ok(true)
     }
 
+    /// Empties the clipboard whatever it holds (a pasted screenshot is not
+    /// ours, but it is the secret in another form), and forgets any held
+    /// value: there is nothing left to clear later.
+    fn clear_any(&mut self) -> Result<(), ClipboardError> {
+        let backend = self.backend.as_mut().ok_or(ClipboardError)?;
+        backend.clear()?;
+        self.held = None;
+        Ok(())
+    }
+
+    fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
+        self.backend.as_mut().ok_or(ClipboardError)?.read_image()
+    }
+
     fn deadline(&self) -> Option<(Instant, SystemTime)> {
         self.held.as_ref().and_then(|h| h.deadline)
     }
@@ -339,6 +421,12 @@ impl Worker {
                 }
                 Wake::Command(Command::ClearIfOurs { reply }) => {
                     let _ = reply.send(self.clear_if_ours());
+                }
+                Wake::Command(Command::ReadImage { reply }) => {
+                    let _ = reply.send(self.read_image());
+                }
+                Wake::Command(Command::ClearAny { reply }) => {
+                    let _ = reply.send(self.clear_any());
                 }
                 Wake::Command(Command::Shutdown) => {
                     self.shutdown();
@@ -419,6 +507,32 @@ impl ClipboardService {
     pub fn clear_if_ours(&self) -> IpcResult<bool> {
         let (reply, answer) = mpsc::channel();
         self.send(Command::ClearIfOurs { reply })?;
+        answer
+            .recv()
+            .map_err(|_| IpcError::new(ErrorCode::ClipboardUnavailable))?
+            .map_err(|ClipboardError| IpcError::new(ErrorCode::ClipboardUnavailable))
+    }
+
+    /// The image on the clipboard, read on the worker (ADR-0031).
+    ///
+    /// # Errors
+    /// `clipboardUnavailable`.
+    pub fn read_image(&self) -> IpcResult<ClipboardImage> {
+        let (reply, answer) = mpsc::channel();
+        self.send(Command::ReadImage { reply })?;
+        answer
+            .recv()
+            .map_err(|_| IpcError::new(ErrorCode::ClipboardUnavailable))?
+            .map_err(|ClipboardError| IpcError::new(ErrorCode::ClipboardUnavailable))
+    }
+
+    /// Empties the clipboard whatever it holds.
+    ///
+    /// # Errors
+    /// `clipboardUnavailable`.
+    pub fn clear_any(&self) -> IpcResult<()> {
+        let (reply, answer) = mpsc::channel();
+        self.send(Command::ClearAny { reply })?;
         answer
             .recv()
             .map_err(|_| IpcError::new(ErrorCode::ClipboardUnavailable))?
@@ -555,6 +669,9 @@ mod tests {
         fn clear(&mut self) -> Result<(), ClipboardError> {
             Err(ClipboardError)
         }
+        fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
+            Err(ClipboardError)
+        }
     }
 
     #[test]
@@ -597,6 +714,9 @@ mod tests {
                 return Err(ClipboardError);
             }
             self.inner.clear()
+        }
+        fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
+            self.inner.read_image()
         }
     }
 

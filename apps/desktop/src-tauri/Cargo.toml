@@ -25,12 +25,13 @@ path = "src/main.rs"
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
-arboard.workspace = true
+arboard = { workspace = true, features = ["image-data"] }
 keyring.workspace = true
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
 mosaic-import = { path = "../../../crates/import" }
 mosaic-insights = { path = "../../../crates/insights" }
+mosaic-qr = { path = "../../../crates/qr" }
 mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
 mosaic-totp = { path = "../../../crates/totp" }
 mosaic-vault = { path = "../../../crates/vault" }
@@ -47,6 +48,7 @@ zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
+win-screenshot.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
@@ -54,11 +56,13 @@ security-framework-sys.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true
+x11rb.workspace = true
 
 [build-dependencies]
 tauri-build.workspace = true
 
 [dev-dependencies]
+mosaic-qr = { path = "../../../crates/qr", features = ["testing"] }
 proptest.workspace = true
 tempfile.workspace = true
 # The mock runtime for the command and ACL wiring test.

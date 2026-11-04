@@ -181,6 +181,7 @@ impl Backend {
         AppStatus {
             shortcut,
             screen_lock_detection: self.screen_lock_detection(),
+            otp_screen_scan: self.screen.supported(),
         }
     }
 
@@ -447,6 +448,9 @@ impl Backend {
         }
         if let Ok(mut generated) = self.last_generated.lock() {
             *generated = None;
+        }
+        if let Ok(mut pending) = self.otp_pending.lock() {
+            pending.clear();
         }
         if let Ok(mut files) = self.import_files.lock() {
             files.clear();

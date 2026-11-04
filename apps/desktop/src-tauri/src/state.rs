@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -23,8 +24,10 @@ use crate::contract::settings::Settings;
 use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
 use crate::keystore::SecretKeyStore;
+use crate::otp_pending::PendingOtps;
 use crate::persist::{AccountInfo, Persistence, StoredState};
 use crate::quick_unlock::QuickUnlockService;
+use crate::screen_capture::{NoScreenCapture, ScreenCapture};
 use crate::settings_integrity::SettingsGuard;
 use crate::shortcut::ShortcutStatus;
 use crate::unlock_throttle::UnlockThrottle;
@@ -144,6 +147,14 @@ pub struct Backend {
     pub dialogs: Box<dyn Dialogs>,
     /// Files chosen for import.
     pub import_files: Mutex<FileTokens>,
+    /// "Scan screen" (ADR-0031); `NoScreenCapture` until the app sets the
+    /// native one.
+    pub screen: Box<dyn ScreenCapture>,
+    /// Parsed OTP setups waiting for confirmation (ADR-0031 item 2). Cleared
+    /// on lock.
+    pub(crate) otp_pending: Mutex<PendingOtps>,
+    /// Set while an `otp_scan` runs (one at a time).
+    pub(crate) otp_scanning: AtomicBool,
     /// Whether the global shortcut is registered (`None` until tried).
     pub shortcut_status: Mutex<Option<ShortcutStatus>>,
     /// Asks the OS to flag the window (taskbar attention) when an SSH
@@ -191,6 +202,9 @@ impl Backend {
             adapters: Adapters::default(),
             dialogs: Box::new(NoDialogs),
             import_files: Mutex::new(FileTokens::default()),
+            screen: Box::new(NoScreenCapture),
+            otp_pending: Mutex::new(PendingOtps::default()),
+            otp_scanning: AtomicBool::new(false),
             shortcut_status: Mutex::new(None),
             attention: None,
             os_sources: Mutex::new(Vec::new()),
@@ -220,6 +234,13 @@ impl Backend {
     #[must_use]
     pub fn with_dialogs(mut self, dialogs: Box<dyn Dialogs>) -> Self {
         self.dialogs = dialogs;
+        self
+    }
+
+    /// Uses this screen capture.
+    #[must_use]
+    pub fn with_screen_capture(mut self, screen: Box<dyn ScreenCapture>) -> Self {
+        self.screen = screen;
         self
     }
 

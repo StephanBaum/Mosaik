@@ -38,3 +38,55 @@ pub(crate) fn ssh_test_endpoint() -> TestEndpoint {
         }
     }
 }
+
+/// A screen that returns the frames it was given (once), counts the captures
+/// and can run a hook "during" the capture (a lock, for example).
+type CaptureHook = Box<dyn Fn() + Send + Sync>;
+
+#[derive(Clone)]
+pub(crate) struct FakeScreenCapture {
+    supported: bool,
+    frames: std::sync::Arc<std::sync::Mutex<Vec<mosaic_qr::OwnedFrame>>>,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    on_capture: std::sync::Arc<std::sync::Mutex<Option<CaptureHook>>>,
+}
+
+impl FakeScreenCapture {
+    pub(crate) fn new(supported: bool, frames: Vec<mosaic_qr::OwnedFrame>) -> Self {
+        Self {
+            supported,
+            frames: std::sync::Arc::new(std::sync::Mutex::new(frames)),
+            calls: std::sync::Arc::default(),
+            on_capture: std::sync::Arc::default(),
+        }
+    }
+
+    /// Replaces the frames the next capture returns.
+    pub(crate) fn load(&self, frames: Vec<mosaic_qr::OwnedFrame>) {
+        *self.frames.lock().unwrap() = frames;
+    }
+
+    /// How many times the screen was captured.
+    pub(crate) fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Runs `hook` inside the next captures.
+    pub(crate) fn on_capture(&self, hook: CaptureHook) {
+        *self.on_capture.lock().unwrap() = Some(hook);
+    }
+}
+
+impl crate::screen_capture::ScreenCapture for FakeScreenCapture {
+    fn supported(&self) -> bool {
+        self.supported
+    }
+
+    fn capture(&self) -> crate::contract::errors::IpcResult<Vec<mosaic_qr::OwnedFrame>> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if let Some(hook) = self.on_capture.lock().unwrap().as_ref() {
+            hook();
+        }
+        Ok(std::mem::take(&mut *self.frames.lock().unwrap()))
+    }
+}
