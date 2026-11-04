@@ -143,7 +143,9 @@ export function TotpCode({
     <div className="row">
       <div className="row__main">
         <span className="row__label">{name}</span>
-        <span className="row__value otp-code">{code === null ? MASKED : groupCode(code.code)}</span>
+        <span className="row__value otp-code" data-secret="" data-mask={MASKED}>
+          {code === null ? MASKED : groupCode(code.code)}
+        </span>
       </div>
       {code !== null && left !== null && (
         <span className="row__meta">

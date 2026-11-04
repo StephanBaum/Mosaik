@@ -9,6 +9,32 @@ import type { IpcError, IpcResult, RevealedSecret } from "../ipc/contract/index.
 import { ErrorAlert } from "./ErrorAlert.tsx";
 import { IconButton } from "./IconButton.tsx";
 
+/** What the hidden value looks like. The snapshot painter draws this, never the value. */
+const MASK = "••••••••••••••••";
+
+/**
+ * The value, or its mask while hidden. Both carry `data-secret` (and `data-mask`), so the
+ * reveal's snapshot painter draws the mask and never reads the value (UX_GUIDELINES section 8).
+ */
+function SecretValue({ value }: { value: string | null }) {
+  const { t } = useI18n();
+  return value === null ? (
+    <span
+      className="row__value secret-mask"
+      role="img"
+      aria-label={t("item.secret.hiddenLabel")}
+      data-secret=""
+      data-mask={MASK}
+    >
+      {MASK}
+    </span>
+  ) : (
+    <span className="row__value mono" data-secret="" data-mask={MASK}>
+      {value}
+    </span>
+  );
+}
+
 export function SecretField({
   label,
   reveal,
@@ -64,13 +90,7 @@ export function SecretField({
     <div className="row">
       <div className="row__main">
         <span className="row__label">{label}</span>
-        {value === null ? (
-          <span className="row__value secret-mask" role="img" aria-label={t("item.secret.hiddenLabel")}>
-            ••••••••••••••••
-          </span>
-        ) : (
-          <span className="row__value mono">{value}</span>
-        )}
+        <SecretValue value={value} />
       </div>
       <IconButton
         icon={value === null ? "eye" : "eyeOff"}

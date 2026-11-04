@@ -5,12 +5,14 @@ import type { ItemRequest, SessionState, VaultId } from "../../ipc/contract/inde
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { usePlatform } from "../../platform/platform.ts";
 import { useAppShortcuts } from "../../platform/shortcuts.ts";
+import { useReveal } from "../../reveal/context.ts";
 import type { Category } from "./useVaultData.ts";
 import type { Editor, View } from "./VaultLayout.tsx";
 
 export function useShell(onLocked: (session: SessionState) => void) {
   const ipc = useIpc();
   const platform = usePlatform();
+  const reveal = useReveal();
   const { setPaletteOpen } = useEvents();
   const [view, setView] = useState<View>("vault");
   const [vaultId, setVaultId] = useState<VaultId | null>(null);
@@ -40,9 +42,15 @@ export function useShell(onLocked: (session: SessionState) => void) {
     setEditor({ mode: "new" });
   };
   const lock = () => {
-    void ipc.call("lock", null).then((result) => {
+    // The backend locks first and never waits for the animation. In the same task the vault
+    // is sealed into a picture and unmounted, so no secret outlives the lock on screen.
+    const pending = ipc.call("lock", null);
+    const sealed = reveal.sealVault();
+    void pending.then((result) => {
       if (result.ok) {
         onLocked(result.value);
+      } else if (sealed) {
+        reveal.abortSeal();
       }
     });
   };

@@ -8,6 +8,8 @@ import { expect, test, type Page } from "@playwright/test";
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function expectAccessible(page: Page): Promise<void> {
+  // A reveal in flight has half-faded text: wait for it to settle before axe looks.
+  await expect(page.locator(".reveal")).not.toHaveAttribute("data-phase", /^(unlocking|locking|sealing)$/);
   const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }

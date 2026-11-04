@@ -15,6 +15,8 @@ import type { MosaicIpc } from "./ipc/client.ts";
 import { IpcProvider, useIpc } from "./ipc/IpcProvider.tsx";
 import { KitRecoveryFlow } from "./screens/KitRecoveryFlow.tsx";
 import { OnboardingFlow } from "./screens/onboarding/OnboardingFlow.tsx";
+import { RevealProvider } from "./reveal/RevealProvider.tsx";
+import { RevealStage, type RevealTarget } from "./reveal/RevealStage.tsx";
 import { UnlockScreen } from "./screens/UnlockScreen.tsx";
 import { VaultLayout } from "./screens/vault/VaultLayout.tsx";
 import { useSession, type SessionView } from "./session/useSession.ts";
@@ -40,11 +42,13 @@ function Localized({ languages }: { languages: readonly string[] }) {
   return (
     <I18nProvider locale={resolveLocale(settings?.language ?? "system", languages)}>
       <HoloProvider dark={dark}>
-        <ToastProvider>
-          <SecretsProvider>
-            <SessionRoot />
-          </SecretsProvider>
-        </ToastProvider>
+        <RevealProvider dark={dark}>
+          <ToastProvider>
+            <SecretsProvider>
+              <SessionRoot />
+            </SecretsProvider>
+          </ToastProvider>
+        </RevealProvider>
       </HoloProvider>
     </I18nProvider>
   );
@@ -63,13 +67,40 @@ function SessionRoot() {
   );
 }
 
-function Routes({
-  view,
-  setSession,
-}: {
-  view: SessionView;
-  setSession: Parameters<typeof OnboardingFlow>[0]["onDone"];
-}) {
+type SetSession = Parameters<typeof OnboardingFlow>[0]["onDone"];
+
+/** Which screen the session shows, as the reveal stage sees it. */
+function targetOf(view: SessionView): RevealTarget {
+  if (view.status === "loading") {
+    return { kind: "other", key: "loading" };
+  }
+  if (view.status === "failed") {
+    return { kind: "other", key: "failed" };
+  }
+  const session = view.session;
+  switch (session.state) {
+    case "noAccount":
+      return { kind: "other", key: "onboarding" };
+    case "locked":
+      return { kind: "locked", session };
+    case "unlocked":
+      return session.kitVerified ? { kind: "vault" } : { kind: "other", key: "kit" };
+  }
+}
+
+function Routes({ view, setSession }: { view: SessionView; setSession: SetSession }) {
+  return (
+    <RevealStage
+      target={targetOf(view)}
+      renderUnlock={(session) => <UnlockScreen session={session} onUnlocked={setSession} />}
+      renderVault={() => <VaultLayout onLocked={setSession} />}
+      other={<OtherRoute view={view} setSession={setSession} />}
+    />
+  );
+}
+
+/** The screens that are not part of the lock and unlock reveal. */
+function OtherRoute({ view, setSession }: { view: SessionView; setSession: SetSession }) {
   const { t } = useI18n();
   if (view.status === "loading") {
     return (
@@ -94,13 +125,9 @@ function Routes({
   switch (session.state) {
     case "noAccount":
       return <OnboardingFlow onDone={setSession} />;
-    case "locked":
-      return <UnlockScreen session={session} onUnlocked={setSession} />;
     case "unlocked":
-      return session.kitVerified ? (
-        <VaultLayout onLocked={setSession} />
-      ) : (
-        <KitRecoveryFlow onDone={setSession} />
-      );
+      return <KitRecoveryFlow onDone={setSession} />;
+    case "locked":
+      return null;
   }
 }
