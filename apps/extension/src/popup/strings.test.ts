@@ -49,6 +49,14 @@ describe("popup styles use tokens only", () => {
     expect(sizes.filter((size) => size !== "1px")).toEqual([]);
   });
 
+  it("keeps the status bar in the layout flow and ships the primary button's tiles", () => {
+    const css = readFileSync(join(dir, "popup.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const bar = /\.status-bar\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(bar).not.toMatch(/position:\s*(absolute|fixed)/);
+    expect(css).toContain("holo-stripes-tile.png");
+    expect(css).toContain("holo-stripes-tile-dark.png");
+  });
+
   it.each([...files(dir, ".tsx")])("%s has no inline colors or styles", (path) => {
     const source = readFileSync(path, "utf8");
     expect(source).not.toMatch(COLOR);

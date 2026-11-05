@@ -5,7 +5,7 @@ import type { PopupState } from "../../shared/messages.ts";
 import { useI18n } from "../i18n.tsx";
 import { useActions } from "../useActions.ts";
 import { useServices } from "../usePopup.ts";
-import { useAnnounce } from "./Announcer.tsx";
+import { StatusBar, useAnnounce } from "./Announcer.tsx";
 import { IconButton } from "./Button.tsx";
 import { ConfirmDialog } from "./Dialog.tsx";
 import { Icon } from "./Icon.tsx";
@@ -181,6 +181,7 @@ export function Shell({ header, footer, children }: { header: ReactNode; footer:
       <main id="main" className="main">
         {children}
       </main>
+      <StatusBar />
       {footer}
     </div>
   );

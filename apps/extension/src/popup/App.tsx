@@ -21,7 +21,14 @@ function Body({ state, view }: { state: PopupState; view: View }) {
     case "locked":
       return <LockedView state={state} />;
     case "checking":
-      return <p className="muted center">{t("ext.connect.checking")}</p>;
+      return (
+        <>
+          <h1 className="visually-hidden">{t("ext.manifest.name")}</h1>
+          <p className="muted center" role="status">
+            {t("ext.connect.checking")}
+          </p>
+        </>
+      );
     default:
       return <ConnectView state={state} />;
   }
@@ -41,9 +48,9 @@ function Popup({ api, env }: { api: PopupApi; env: PopupEnv }) {
         </header>
         <main id="main" className="main">
           {loadError === null ? (
-            <p className="muted" role="status">
+            <h1 className="muted heading-plain">
               {t("ext.loading")}
-            </p>
+            </h1>
           ) : (
             <p className="alert" role="alert">
               {errorText(loadError)}

@@ -2743,7 +2743,9 @@ T3 and T4.
 
 ### Amendment (M4 T4): the popup and the mockup deviations
 
-The popup is React with the static holo gradient, built from the shared tokens, in German and
+The popup is React with the holo primary button as a static stripe tile (the PNG tiles from
+`docs/design/holo/`, shipped inside the package, light and dark; no WebGL, and the page CSP
+`img-src 'self'` already allows them), built from the shared tokens, in German and
 English (`ext.*`). Four mockups differ from what is built, each on purpose:
 
 - **E01 (locked).** No master-password field, no "or" divider and no Windows Hello button: the
@@ -2766,7 +2768,8 @@ English (`ext.*`). Four mockups differ from what is built, each on purpose:
   from the desktop into the field or onto the clipboard (item 6).
 
 Smaller differences: the header has two views (logins and search, generator) and no lock
-button, since the popup cannot lock the vault; the generator's "Fill and save as new login"
+button: E02's Lock button is omitted, because locking stays in the desktop app and the
+extension has no lock op (`lock` is on the never-callable list); the generator's "Fill and save as new login"
 becomes "Fill" (the filled password is then offered for saving like a captured one, ADR-0038
 item 4); the footer shows the link to the desktop instead of the sync state, and the More
 menu holds the save-capture switch and "Disconnect from Mosaic". The popup needs React and

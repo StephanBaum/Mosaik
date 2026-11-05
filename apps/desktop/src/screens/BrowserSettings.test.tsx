@@ -22,12 +22,12 @@ describe("browser settings", () => {
     expect(await within(section).findByText("Chrome")).toBeTruthy();
     expect(within(section).getByText(/Chromium-based browser/)).toBeTruthy();
 
-    await user.click(within(section).getByRole("button", { name: "Disconnect: Chrome" }));
+    await user.click(within(section).getByRole("button", { name: "Disconnect Chrome" }));
     expect(within(section).getByText("Disconnect “Chrome”?")).toBeTruthy();
     // Cancel keeps it.
     await user.click(within(section).getByRole("button", { name: "Cancel" }));
     expect(within(section).getByText("Chrome")).toBeTruthy();
-    await user.click(within(section).getByRole("button", { name: "Disconnect: Chrome" }));
+    await user.click(within(section).getByRole("button", { name: "Disconnect Chrome" }));
     await user.click(within(section).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => {
       expect(within(section).queryByText("Chrome")).toBeNull();

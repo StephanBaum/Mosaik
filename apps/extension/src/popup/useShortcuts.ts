@@ -5,6 +5,8 @@
  * menus and dialogs themselves (the top layer closes first).
  */
 import { useEffect } from "react";
+import { useAnnounce } from "./components/Announcer.tsx";
+import { useI18n } from "./i18n.tsx";
 import type { Actions, ItemKey } from "./useActions.ts";
 
 export interface ShortcutItem extends ItemKey {
@@ -48,10 +50,10 @@ function isFillKey(event: KeyboardEvent, target: Element | null): boolean {
 }
 
 /** The copy shortcut's field, unless the user is copying text or typing in a box. */
-function copyFieldFor(event: KeyboardEvent, target: Element | null, item: ShortcutItem): ShortcutField | null {
+function copyFieldFor(event: KeyboardEvent, target: Element | null): ShortcutField | null {
   const field = fieldOf(event);
   const typing = (window.getSelection()?.toString() ?? "") !== "" || (target?.closest(OWN_COPY) ?? null) !== null;
-  return field === null || typing || (field === "totp" && !item.hasOtp) ? null : field;
+  return typing ? null : field;
 }
 
 export function useShortcuts({
@@ -65,6 +67,8 @@ export function useShortcuts({
   copy: Actions["copy"];
   enabled: boolean;
 }): void {
+  const announce = useAnnounce();
+  const { errorText } = useI18n();
   useEffect(() => {
     if (!enabled) {
       return undefined;
@@ -82,8 +86,11 @@ export function useShortcuts({
         }
         return;
       }
-      const field = copyFieldFor(event, target, item);
-      if (field !== null) {
+      const field = copyFieldFor(event, target);
+      if (field === "totp" && !item.hasOtp) {
+        event.preventDefault();
+        announce(errorText("noOtp"));
+      } else if (field !== null) {
         event.preventDefault();
         void copy({ kind: "item", vaultId: item.vaultId, itemId: item.itemId, field });
       }
@@ -92,5 +99,5 @@ export function useShortcuts({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [items, fill, copy, enabled]);
+  }, [items, fill, copy, enabled, announce, errorText]);
 }

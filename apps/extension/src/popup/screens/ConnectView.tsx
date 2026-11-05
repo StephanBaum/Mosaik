@@ -50,7 +50,7 @@ function PairCode({ pairCode }: { pairCode: PopupState["pairCode"] }) {
   return (
     <div className="pair" role="status">
       <span className="caption">{t("ext.connect.pairing.code")}</span>
-      <span className="pair__code" aria-label={shown.split("").join(" ")}>
+      <span className="pair__code" role="img" aria-label={shown.split("").join(" ")}>
         {shown}
       </span>
       <span className="caption">{t("ext.connect.pairing.waiting")}</span>
@@ -85,7 +85,7 @@ export function ConnectView({ state }: { state: PopupState }) {
         {t(`ext.connect.${view}.title`)}
       </h1>
       <p className="muted">{t(`ext.connect.${view}.body`)}</p>
-      {view === "hostMissing" && (
+      {view === "hostMissing" && env.hostInstallCommand !== null && (
         <p className="caption">
           {t("ext.connect.hostMissing.dev", { command: env.hostInstallCommand })}
         </p>

@@ -4,7 +4,7 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "./Button.tsx";
-import type { IconName } from "./Icon.tsx";
+import { Icon, type IconName } from "./Icon.tsx";
 
 export interface MenuItem {
   id: string;
@@ -55,11 +55,13 @@ function MenuList({
           }}
         >
           <span className="menu__text">
-            <span>{item.label}</span>
+            <span className="menu__label">{item.label}</span>
             {item.description !== undefined && <span className="menu__description">{item.description}</span>}
           </span>
           {item.checked !== undefined && (
-            <span className={item.checked ? "menu__check is-on" : "menu__check"} aria-hidden="true" />
+            <span className={item.checked ? "menu__check is-on" : "menu__check"} aria-hidden="true">
+              {item.checked && <Icon name="check" size="sm" />}
+            </span>
           )}
           {item.hint !== undefined && <kbd className="kbd">{item.hint}</kbd>}
         </button>

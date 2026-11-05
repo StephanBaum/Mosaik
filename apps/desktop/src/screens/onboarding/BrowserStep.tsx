@@ -3,7 +3,6 @@
  * (the pairing dialog opens over the step as usual, ADR-0036); the list of paired browsers
  * updates by itself. Store links appear once the listings exist (`STORE_URLS`).
  */
-import { Button } from "../../components/Button.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { UserText } from "../../components/UserText.tsx";
@@ -74,6 +73,7 @@ function PairedList({ pairings }: { pairings: readonly BrowserPairing[] }) {
 export function BrowserStep({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
   const [status] = useBrowserStatus();
+  const paired = (status?.pairings.length ?? 0) > 0;
   return (
     <OnboardingShell step={5}>
       <div className="auth__main">
@@ -88,20 +88,19 @@ export function BrowserStep({ onDone }: { onDone: () => void }) {
           <li>{t("onboarding.browser.step3")}</li>
         </ol>
         <PairedList pairings={status?.pairings ?? []} />
-        <div className="done-note">
-          <Icon name="check" />
-          <div>
-            <p className="done-note__title">{t("onboarding.done.title")}</p>
-            <p className="caption">{t("onboarding.done.body")}</p>
+        {paired && (
+          <div className="done-note">
+            <Icon name="check" />
+            <div>
+              <p className="done-note__title">{t("onboarding.done.title")}</p>
+              <p className="caption">{t("onboarding.done.body")}</p>
+            </div>
           </div>
-        </div>
+        )}
         <div className="auth__actions">
           <HoloButton size="lg" block onClick={onDone}>
-            {t("onboarding.browser.done")}
+            {t(paired ? "onboarding.browser.done" : "onboarding.browser.skip")}
           </HoloButton>
-          <Button variant="ghost" size="lg" block className="button--muted" onClick={onDone}>
-            {t("onboarding.browser.skip")}
-          </Button>
         </div>
       </div>
       <BrowserPairingDialog />

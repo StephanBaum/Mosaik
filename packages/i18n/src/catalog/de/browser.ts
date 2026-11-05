@@ -24,10 +24,13 @@ export const browser = {
   "browser.hint.other": "Browser",
   "browser.family.chromium": "Browser auf Chromium-Basis",
   "browser.family.firefox": "Firefox",
-  "browser.save.titleNew": "Diesen Zugang in Mosaic speichern?",
-  "browser.save.titleUpdate": "Diesen Zugang in Mosaic aktualisieren?",
+  "browser.escCancels": "zum Abbrechen",
+  "browser.save.titleNew": "Dieses Login in Mosaic speichern?",
+  "browser.save.titleUpdate": "Dieses Login in Mosaic aktualisieren?",
   "browser.save.description":
-    "{browser} bietet an, einen Zugang zu speichern. Mosaic schreibt ihn nur, wenn du „Speichern“ wählst.",
+    "{browser} bietet an, ein Login zu speichern. Mosaic schreibt es nur, wenn du „Speichern“ wählst.",
+  "browser.save.descriptionUpdate":
+    "{browser} bietet ein neues Passwort für dieses Login an. Mosaic ändert es nur, wenn du „Passwort aktualisieren“ wählst.",
   "browser.save.site": "Website",
   "browser.save.username": "Benutzername",
   "browser.save.noUsername": "Keiner",
@@ -35,7 +38,7 @@ export const browser = {
   "browser.save.passwordHidden": "Verborgen",
   "browser.save.target": "Speichern als",
   "browser.save.updateOption": "„{title}“ aktualisieren",
-  "browser.save.newOption": "Neuer Zugang",
+  "browser.save.newOption": "Neues Login",
   "browser.save.itemTitle": "Titel",
   "browser.save.vault": "Tresor",
   "browser.save.allowHttp": "Ausfüllen auf dieser unverschlüsselten Seite erlauben",
@@ -46,16 +49,17 @@ export const browser = {
   "browser.save.update": "Passwort aktualisieren",
   "browser.settings.title": "Browser",
   "browser.settings.body":
-    "Browser-Erweiterungen, die Zugangsdaten aus dieser App ausfüllen. Jede Verbindung bestätigst du hier.",
+    "Browser-Erweiterungen, die Logins aus dieser App ausfüllen. Jede Verbindung bestätigst du hier.",
   "browser.settings.empty":
     "Noch ist kein Browser verbunden. Installiere die Mosaic-Erweiterung und wähle dort „Verbinden“.",
   "browser.settings.connected": "Jetzt verbunden",
   "browser.settings.lastUsed": "Zuletzt genutzt {when}",
   "browser.settings.neverUsed": "Noch nicht genutzt",
   "browser.settings.disconnect": "Trennen",
+  "browser.settings.disconnectNamed": "{name} trennen",
   "browser.settings.disconnectTitle": "„{name}“ trennen?",
   "browser.settings.disconnectBody":
-    "Dieser Browser kann keine Zugangsdaten mehr ausfüllen, bis du ihn in der Erweiterung neu verbindest.",
+    "Dieser Browser kann keine Logins mehr ausfüllen, bis du ihn in der Erweiterung neu verbindest.",
   "browser.settings.endpointInUse":
     "Ein anderes Programm oder ein anderes Mosaic-Fenster nutzt die Verbindung für Browser bereits. Schließe es und starte Mosaic neu.",
   "browser.settings.endpointUnavailable":

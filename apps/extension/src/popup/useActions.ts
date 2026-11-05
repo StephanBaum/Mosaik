@@ -10,6 +10,9 @@ import { useAnnounce } from "./components/Announcer.tsx";
 import { useI18n } from "./i18n.tsx";
 import { useServices } from "./usePopup.ts";
 
+/** Lets the "Filled." announcement be heard before the popup closes. */
+const CLOSE_DELAY_MS = 400;
+
 export interface ItemKey {
   vaultId: string;
   itemId: string;
@@ -37,6 +40,7 @@ export function useActions(): Actions {
       try {
         await done;
         announce(t(said));
+        await new Promise<void>((resolve) => setTimeout(resolve, CLOSE_DELAY_MS));
         await env.closePopup();
       } catch (error) {
         fail(error);

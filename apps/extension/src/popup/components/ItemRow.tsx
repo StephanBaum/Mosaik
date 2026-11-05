@@ -4,6 +4,7 @@ import type { CopySource } from "../../shared/protocol.ts";
 import { useI18n } from "../i18n.tsx";
 import { Avatar, Button } from "./Button.tsx";
 import { Menu, type MenuItem } from "./Menu.tsx";
+import { shortcutPlatform } from "../platform.ts";
 
 export interface RowItem {
   vaultId: string;
@@ -38,10 +39,19 @@ function copyItems(
   t: Translate,
   copy: (field: "username" | "password" | "totp") => () => void,
 ): MenuItem[] {
+  const platform = shortcutPlatform();
   return [
-    { id: "username", label: t("ext.item.copyUsername"), hint: "Ctrl+C", disabled: item.username === null, onSelect: copy("username") },
-    { id: "password", label: t("ext.item.copyPassword"), hint: "Ctrl+Shift+C", onSelect: copy("password") },
-    ...(item.hasOtp ? [{ id: "totp", label: t("ext.item.copyCode"), hint: "Ctrl+Alt+C", onSelect: copy("totp") }] : []),
+    {
+      id: "username",
+      label: t("ext.item.copyUsername"),
+      hint: t("ext.shortcut.copyUser", { platform }),
+      disabled: item.username === null,
+      onSelect: copy("username"),
+    },
+    { id: "password", label: t("ext.item.copyPassword"), hint: t("ext.shortcut.copyPassword", { platform }), onSelect: copy("password") },
+    ...(item.hasOtp
+      ? [{ id: "totp", label: t("ext.item.copyCode"), hint: t("ext.shortcut.copyCode", { platform }), onSelect: copy("totp") }]
+      : []),
   ];
 }
 
@@ -53,7 +63,7 @@ export function ItemRow({
   onCopy,
 }: {
   item: RowItem;
-  /** The first match gets the holo button; the rest are plain. */
+  /** The first match gets the holo button, unless a save or code card above holds the screen's one primary; the rest are plain. */
   primary: boolean;
   /** Fill is off for the whole page (a frame of another site has the focus). */
   fillOff: boolean;
@@ -75,8 +85,13 @@ export function ItemRow({
     >
       <Avatar text={item.title ?? name} active={primary} />
       <span className="item__text">
-        <span className="item__title">{item.title ?? name}</span>
-        <span className="item__subtitle">{subtitleOf(item, t)}</span>
+        <span className="item__title" title={item.title ?? name}>
+          {item.title ?? name}
+        </span>
+        <span className="item__subtitle" title={subtitleOf(item, t)}>
+          {subtitleOf(item, t)}
+        </span>
+        {!item.fillable && <span className="item__note item__note--quiet">{t("ext.search.copyOnly")}</span>}
         {item.blocked && (
           <span id={noteId} className="item__note">
             {t("ext.item.blocked")}

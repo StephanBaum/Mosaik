@@ -31,7 +31,6 @@ export const ext = {
   "ext.more.disconnectBody":
     "Dieser Browser kann erst wieder Logins ausfüllen, wenn du ihn neu verbindest. Die neue Verbindung bestätigst du in der Mosaic-App.",
   "ext.action.cancel": "Abbrechen",
-  "ext.action.close": "Schließen",
 
   // Connecting
   "ext.connect.checking": "Verbinde mit Mosaic …",
@@ -71,7 +70,6 @@ export const ext = {
   // Logins
   "ext.logins.forSite": "Für {host}",
   "ext.logins.count": "{count, plural, one {# Login} other {# Logins}}",
-  "ext.logins.exact": "genaue Übereinstimmung",
   "ext.logins.sameSite": "gleiche Website",
   "ext.logins.none": "Kein gespeichertes Login für {host}.",
   "ext.logins.noneHint":
@@ -98,6 +96,10 @@ export const ext = {
     "Ergebnisse bleiben in diesem Popup. Die Seite bekommt immer nur das eine Login, das du ausfüllst.",
   "ext.search.none": "Nichts gefunden.",
   "ext.search.copy": "Kopieren",
+  "ext.search.copyOnly": "Nur kopieren: nicht für diese Website gespeichert",
+  "ext.shortcut.copyUser": "{platform, select, mac {⌘C} other {Strg+C}}",
+  "ext.shortcut.copyPassword": "{platform, select, mac {⇧⌘C} other {Strg+Umschalt+C}}",
+  "ext.shortcut.copyCode": "{platform, select, mac {⌥⌘C} other {Strg+Alt+C}}",
   "ext.search.results": "{count, plural, one {# Ergebnis} other {# Ergebnisse}}",
 
   // Frames
@@ -111,14 +113,12 @@ export const ext = {
   // Address warnings
   "ext.warning.idn.title": "Prüfe die Adresse",
   "ext.warning.idn.body":
-    "Diese Adresse enthält Sonderzeichen. Sie kann wie eine andere Website aussehen, ein häufiger Phishing-Trick.",
+    "Diese Adresse enthält Sonderzeichen und kann wie eine andere Website aussehen. Prüfe die Adressleiste, bevor du dich anmeldest.",
   "ext.warning.lookalike.body":
-    "Diese Seite ist nicht {saved}. Sie sieht ähnlich aus, ein häufiger Phishing-Trick.",
+    "Diese Seite ist nicht {saved}. Sie sieht ähnlich aus, ein häufiger Phishing-Trick. Schließe den Tab oder gib {saved} selbst ein.",
   "ext.warning.youAreOn": "Du bist auf",
   "ext.warning.writtenAs": "Geschrieben als",
   "ext.warning.savedFor": "Gespeichert für",
-  "ext.warning.noFill":
-    "Mosaic füllt nicht auf einer Website aus, die nicht zur gespeicherten Adresse passt.",
   "ext.warning.insecure.title": "Diese Seite ist nicht verschlüsselt",
   "ext.warning.insecure.body":
     "Die Seite nutzt http. Andere im Netzwerk könnten dein Passwort mitlesen. Mosaic füllt hier nur Logins aus, bei denen du es erlaubt hast.",
@@ -205,8 +205,9 @@ export const ext = {
   "ext.error.fieldEmpty": "Dieses Feld ist leer, es gibt also nichts auszufüllen oder zu kopieren.",
   "ext.error.clipboardUnavailable":
     "Mosaic konnte die Zwischenablage nicht nutzen. Versuche es erneut oder kopiere in der Mosaic-App.",
-  "ext.error.cancelled": "In der Mosaic-App abgebrochen.",
-  "ext.error.pairingDenied": "Die Verbindung wurde in der Mosaic-App abgelehnt.",
+  "ext.error.cancelled": "In der Mosaic-App abgebrochen. Versuche es erneut, wenn du so weit bist.",
+  "ext.error.pairingDenied":
+    "Die Verbindung wurde in der Mosaic-App abgelehnt. Wähle „Verbinden“, um es erneut zu versuchen, und dann „Erlauben“.",
   "ext.error.pairingExpired":
     "Die Verbindungsanfrage ist abgelaufen. Wähle „Verbinden“, um neu zu beginnen.",
   "ext.error.pairingConflict":
@@ -215,7 +216,8 @@ export const ext = {
     "Zu viele Verbindungen wurden abgelehnt. Warte zehn Minuten und versuche es dann erneut.",
   "ext.error.pairingLimit":
     "Mit diesem Computer sind zu viele Browser verbunden. Trenne einen in den Mosaic-Einstellungen.",
-  "ext.error.internal": "In Mosaic ist etwas schiefgelaufen. Versuche es erneut.",
+  "ext.error.internal":
+    "In Mosaic ist ein unerwartetes Problem aufgetreten. Versuche es erneut. Wenn es bleibt, starte die Mosaic-App neu.",
   "ext.error.desktopNotRunning":
     "Mosaic läuft auf diesem Computer nicht. Öffne es und versuche es dann erneut.",
   "ext.error.desktopNotAuthentic":

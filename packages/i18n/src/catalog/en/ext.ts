@@ -29,7 +29,6 @@ export const ext = {
   "ext.more.disconnectBody":
     "This browser can't fill logins until you connect it again. You approve the new connection in the Mosaic app.",
   "ext.action.cancel": "Cancel",
-  "ext.action.close": "Close",
 
   // Connecting
   "ext.connect.checking": "Connecting to Mosaic…",
@@ -68,7 +67,6 @@ export const ext = {
   // Logins
   "ext.logins.forSite": "For {host}",
   "ext.logins.count": "{count, plural, one {# login} other {# logins}}",
-  "ext.logins.exact": "exact match",
   "ext.logins.sameSite": "same site",
   "ext.logins.none": "No saved login for {host}.",
   "ext.logins.noneHint":
@@ -93,6 +91,10 @@ export const ext = {
     "Results stay in this popup. The page only ever receives the one login you fill.",
   "ext.search.none": "Nothing found.",
   "ext.search.copy": "Copy",
+  "ext.search.copyOnly": "Copy only: not saved for this site",
+  "ext.shortcut.copyUser": "{platform, select, mac {⌘C} other {Ctrl+C}}",
+  "ext.shortcut.copyPassword": "{platform, select, mac {⇧⌘C} other {Ctrl+Shift+C}}",
+  "ext.shortcut.copyCode": "{platform, select, mac {⌥⌘C} other {Ctrl+Alt+C}}",
   "ext.search.results": "{count, plural, one {# result} other {# results}}",
 
   // Frames
@@ -105,13 +107,12 @@ export const ext = {
   // Address warnings
   "ext.warning.idn.title": "Check the address",
   "ext.warning.idn.body":
-    "This address uses special characters. It can look like another site, which is a common phishing trick.",
+    "This address uses special characters and can look like another site. Check the address bar before you sign in.",
   "ext.warning.lookalike.body":
-    "This site isn't {saved}. It looks similar, which is a common phishing trick.",
+    "This site isn't {saved}. It looks similar, which is a common phishing trick. Close this tab, or type {saved} yourself.",
   "ext.warning.youAreOn": "You're on",
   "ext.warning.writtenAs": "Written as",
   "ext.warning.savedFor": "Saved for",
-  "ext.warning.noFill": "Mosaic doesn't fill on a site that doesn't match the saved address.",
   "ext.warning.insecure.title": "This page isn't encrypted",
   "ext.warning.insecure.body":
     "The page uses http. Others on the network could read your password. Mosaic fills here only for logins you allowed it for.",
@@ -193,14 +194,16 @@ export const ext = {
   "ext.error.fieldEmpty": "That field is empty, so there's nothing to fill or copy.",
   "ext.error.clipboardUnavailable":
     "Mosaic couldn't use the clipboard. Try again, or copy it in the Mosaic app.",
-  "ext.error.cancelled": "Cancelled in the Mosaic app.",
-  "ext.error.pairingDenied": "The connection was denied in the Mosaic app.",
+  "ext.error.cancelled": "Cancelled in the Mosaic app. Try again when you're ready.",
+  "ext.error.pairingDenied":
+    "The connection was denied in the Mosaic app. Choose Connect to try again, then choose Allow.",
   "ext.error.pairingExpired": "The connection request ran out of time. Choose Connect to start again.",
   "ext.error.pairingConflict": "Another connection request was open. Choose Connect to try again.",
   "ext.error.pairingBlocked": "Too many connections were denied. Wait ten minutes, then try again.",
   "ext.error.pairingLimit":
     "This computer has too many connected browsers. Disconnect one in the Mosaic settings.",
-  "ext.error.internal": "Something went wrong in Mosaic. Try again.",
+  "ext.error.internal":
+    "Mosaic hit an unexpected problem. Try again, and if it repeats, restart the Mosaic app.",
   "ext.error.desktopNotRunning": "Mosaic isn't running on this computer. Open it, then try again.",
   "ext.error.desktopNotAuthentic":
     "The app that answered isn't the Mosaic app this browser is connected to. Nothing was sent.",

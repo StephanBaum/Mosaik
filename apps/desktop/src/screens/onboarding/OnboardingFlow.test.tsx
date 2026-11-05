@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../../App.tsx";
+import type { MosaicIpc } from "../../ipc/client.ts";
+import type { BrowserStatus } from "../../ipc/contract/index.ts";
 import { createMockIpc } from "../../ipc/mock.ts";
 
 async function createAccount(user: ReturnType<typeof userEvent.setup>, heading: string) {
@@ -55,6 +57,9 @@ describe("onboarding", () => {
     // No store listing yet, so no store links.
     expect(screen.queryByRole("link", { name: /^Get for/ })).toBeNull();
     expect(screen.getByText(/isn't in the browser stores yet/)).toBeTruthy();
+    // A browser is connected: "Done" is the one primary button, with the done note, and no skip.
+    expect(screen.getByText("You're all set")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     const nav = await screen.findByRole("navigation", { name: "Vaults" });
@@ -96,6 +101,36 @@ describe("onboarding", () => {
     expect(screen.getByText("Chrome connected")).toBeTruthy();
   });
 
+  it("offers only \"Skip for now\" while no browser is connected, with an honest note", async () => {
+    const user = userEvent.setup();
+    const base = createMockIpc();
+    const ipc: MosaicIpc = {
+      subscribe: (listener) => base.subscribe(listener),
+      call: (command, request) =>
+        command === "browser_status"
+          ? Promise.resolve({ ok: true, value: { endpoint: "running", registry: "ok", pairings: [] } satisfies BrowserStatus })
+          : base.call(command, request),
+    };
+    render(<App ipc={ipc} languages={["en-US"]} />);
+    await createAccount(user, "Create your account");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await screen.findByRole("heading", { name: "Save your Emergency Kit" });
+    const secretKey = document.querySelector(".secret-key")?.textContent ?? "";
+    await user.click(screen.getByRole("button", { name: "Save Emergency Kit (PDF)" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByLabelText("Last group of your Secret Key"), secretKey.split("-").at(-1) ?? "");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(await screen.findByRole("button", { name: "Skip for now" }));
+    await screen.findByRole("heading", { name: "Install the browser extension" });
+    expect(screen.getByText("Waiting for the extension. No browser is connected yet.")).toBeTruthy();
+    expect(screen.getByText("The extension isn't in the browser stores yet. You can connect it later in Settings → Browsers.")).toBeTruthy();
+    expect(screen.queryByText(/developer build/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByText("You're all set")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(await screen.findByRole("navigation", { name: "Vaults" })).toBeTruthy();
+  });
+
   it("speaks German on the browser step", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc()} languages={["de-DE"]} />);
@@ -109,6 +144,6 @@ describe("onboarding", () => {
     await user.click(screen.getByRole("button", { name: "Bestätigen" }));
     await user.click(await screen.findByRole("button", { name: "Jetzt überspringen" }));
     expect(await screen.findByRole("heading", { name: "Installiere die Browser-Erweiterung" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Fertig" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Fertig" })).toBeTruthy();
   });
 });

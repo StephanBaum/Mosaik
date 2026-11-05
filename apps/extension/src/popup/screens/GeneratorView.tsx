@@ -129,9 +129,10 @@ function GeneratedValue({
   return (
     <>
       <div className="generated-box">
-        <output className="generated" data-secret="" aria-label={t("ext.generator.value")}>
+        {/* Not an <output>: that is a live region, and the password must never be announced. */}
+        <span className="generated" data-secret="" role="group" aria-label={t("ext.generator.value")}>
           {result?.value ?? ""}
-        </output>
+        </span>
         <IconButton icon="refresh" label={t("ext.generator.regenerate")} onClick={onRegenerate} />
       </div>
       <div className="meta">

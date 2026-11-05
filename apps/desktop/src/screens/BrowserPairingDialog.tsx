@@ -57,7 +57,7 @@ export function useAnnouncement(seconds: number): string {
 }
 
 /** The ring, the countdown text and the Esc hint, with the live region for screen readers. */
-export function Expiry({ expiresAt, now }: { expiresAt: number; now: number }) {
+export function Expiry({ expiresAt, now, label }: { expiresAt: number; now: number; label: string }) {
   const { t } = useI18n();
   const [total] = useState(() => Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000)));
   const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
@@ -68,7 +68,7 @@ export function Expiry({ expiresAt, now }: { expiresAt: number; now: number }) {
         <CountdownRing remaining={seconds} total={total} />
         <p className="browser-prompt__expiry-text">{t("browser.expires", { seconds })}</p>
         <span>
-          <Kbd>{t("keys.esc")}</Kbd> {t("browser.escDenies")}
+          <Kbd>{t("keys.esc")}</Kbd> {label}
         </span>
       </div>
       <p role="status" className="visually-hidden">
@@ -140,7 +140,7 @@ function Prompt({ request }: { request: BrowserPairingRequest }) {
             setLabel(event.target.value);
           }}
         />
-        <Expiry expiresAt={request.expiresAt} now={now} />
+        <Expiry expiresAt={request.expiresAt} now={now} label={t("browser.escDenies")} />
         <ErrorAlert error={error} />
         <div className="dialog__actions">
           <Button

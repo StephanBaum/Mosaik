@@ -49,7 +49,7 @@ export const onboarding = {
   "onboarding.browser.step3":
     "Check that the code matches, then choose Allow in the window that opens here.",
   "onboarding.browser.notInStores":
-    "The extension isn't in the browser stores yet. Until it is, install it from a developer build.",
+    "The extension isn't in the browser stores yet. You can connect it later in Settings → Browsers.",
   "onboarding.browser.getFor": "Get for {browser}",
   "onboarding.browser.connectedList": "Connected browsers",
   "onboarding.browser.waiting": "Waiting for the extension. No browser is connected yet.",

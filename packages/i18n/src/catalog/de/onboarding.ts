@@ -54,7 +54,7 @@ export const onboarding = {
   "onboarding.browser.step3":
     "Prüfe, ob der Code übereinstimmt, und wähle dann „Erlauben“ in dem Fenster, das sich hier öffnet.",
   "onboarding.browser.notInStores":
-    "Die Erweiterung ist noch nicht in den Browser-Stores. Bis dahin installierst du sie aus einem Entwickler-Build.",
+    "Die Erweiterung ist noch nicht in den Browser-Stores. Du kannst sie später unter Einstellungen → Browser verbinden.",
   "onboarding.browser.getFor": "Für {browser} holen",
   "onboarding.browser.connectedList": "Verbundene Browser",
   "onboarding.browser.waiting": "Warte auf die Erweiterung. Noch ist kein Browser verbunden.",

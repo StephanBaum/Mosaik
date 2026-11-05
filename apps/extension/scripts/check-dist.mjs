@@ -17,6 +17,8 @@ const FORBIDDEN_TEXT = [
   "pauseAfterProbe",
   "onMessageExternal",
   "onConnectExternal",
+  // The developer command of the "host missing" screen (src/popup/env.ts): dev and e2e builds only.
+  "host:install",
 ];
 const PERMISSIONS = ["activeTab", "scripting", "nativeMessaging", "contextMenus", "storage"];
 const FORBIDDEN_KEYS = [

@@ -205,7 +205,7 @@ describe("address warnings", () => {
       }),
     );
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("This site isn't github.com. It looks similar, which is a common phishing trick.")).toBeTruthy();
+    expect(within(alert).getByText("This site isn't github.com. It looks similar, which is a common phishing trick. Close this tab, or type github.com yourself.")).toBeTruthy();
     expect(within(alert).getByText("githuh.com")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /fill anyway/i })).toBeNull();
   });

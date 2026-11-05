@@ -12,8 +12,8 @@ export interface PopupEnv {
   fillShortcut(): Promise<string | null>;
   /** Closes the popup after a fill; does nothing where the page is not a popup. */
   closePopup(): Promise<void>;
-  /** Shown to developers on the "host missing" screen. */
-  hostInstallCommand: string;
+  /** Shown to developers on the "host missing" screen; null in the store packages. */
+  hostInstallCommand: string | null;
 }
 
 export const HOST_INSTALL_COMMAND = "pnpm --filter @mosaic/extension host:install";
@@ -45,6 +45,8 @@ export function chromeEnv(): PopupEnv {
         window.close();
       }
     },
-    hostInstallCommand: HOST_INSTALL_COMMAND,
+    // Only dev and e2e builds name the developer command; the store packages show the user text alone.
+    hostInstallCommand:
+      import.meta.env.MODE === "dev" || import.meta.env.MODE === "e2e" ? HOST_INSTALL_COMMAND : null,
   };
 }

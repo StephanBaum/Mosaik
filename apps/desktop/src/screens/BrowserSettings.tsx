@@ -69,7 +69,7 @@ function PairingRow({
       <Button
         variant="ghost"
         size="sm"
-        aria-label={`${t("browser.settings.disconnect")}: ${pairing.label}`}
+        aria-label={t("browser.settings.disconnectNamed", { name: pairing.label })}
         onClick={onAsk}
       >
         {t("browser.settings.disconnect")}

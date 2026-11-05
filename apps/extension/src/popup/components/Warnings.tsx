@@ -39,7 +39,6 @@ function Lookalike({ savedHost, host }: { savedHost: string; host: string }) {
           <dt>{t("ext.warning.savedFor")}</dt>
           <dd>{savedHost}</dd>
         </dl>
-        <p className="caption">{t("ext.warning.noFill")}</p>
       </div>
     </div>
   );

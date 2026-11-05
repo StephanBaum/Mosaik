@@ -21,10 +21,13 @@ export const browser = {
   "browser.hint.other": "Browser",
   "browser.family.chromium": "Chromium-based browser",
   "browser.family.firefox": "Firefox",
+  "browser.escCancels": "to cancel",
   "browser.save.titleNew": "Save this login in Mosaic?",
   "browser.save.titleUpdate": "Update this login in Mosaic?",
   "browser.save.description":
     "{browser} offers to save a login. Mosaic writes it only if you choose Save.",
+  "browser.save.descriptionUpdate":
+    "{browser} offers a new password for this login. Mosaic changes it only if you choose Update password.",
   "browser.save.site": "Website",
   "browser.save.username": "User name",
   "browser.save.noUsername": "None",
@@ -50,6 +53,7 @@ export const browser = {
   "browser.settings.lastUsed": "Last used {when}",
   "browser.settings.neverUsed": "Not used yet",
   "browser.settings.disconnect": "Disconnect",
+  "browser.settings.disconnectNamed": "Disconnect {name}",
   "browser.settings.disconnectTitle": "Disconnect “{name}”?",
   "browser.settings.disconnectBody":
     "This browser can't fill logins until you connect it again from the extension.",

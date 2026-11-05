@@ -94,12 +94,15 @@ function SiteLogins({
   tab,
   rows,
   fillOff,
+  quiet,
   onFill,
   onCopy,
 }: {
   tab: NonNullable<PopupState["tab"]>;
   rows: readonly RowItem[];
   fillOff: boolean;
+  /** A save or code card holds the screen's one primary button, so no row gets the holo one. */
+  quiet: boolean;
   onFill: (item: RowItem) => void;
   onCopy: (source: CopySource) => void;
 }) {
@@ -108,9 +111,9 @@ function SiteLogins({
   return (
     <section aria-labelledby="for-site" className="section">
       <div className="section__head">
-        <h1 id="for-site" className="title">
+        <h2 id="for-site" className="title">
           {t("ext.logins.forSite", { host: tab.unicodeHost ?? tab.host })}
-        </h1>
+        </h2>
         {rows.length > 0 && <span className="caption">{t("ext.logins.count", { count: rows.length })}</span>}
       </div>
       {rows.length === 0 ? (
@@ -124,7 +127,7 @@ function SiteLogins({
             <ItemRow
               key={`${row.vaultId}/${row.itemId}`}
               item={row}
-              primary={index === 0 && !row.blocked}
+              primary={index === 0 && !row.blocked && !quiet}
               fillOff={fillOff}
               onFill={() => {
                 onFill(row);
@@ -153,11 +156,21 @@ export function LoginsView({ state }: { state: PopupState }) {
 
   return (
     <>
-      <Notices state={state} gate={gate} actions={actions} />
       {tab === null ? (
-        <p className="muted">{t("ext.logins.unsupported")}</p>
+        <h1 className="muted heading-plain">{t("ext.logins.unsupported")}</h1>
       ) : (
-        <SiteLogins tab={tab} rows={rows} fillOff={gate.blocked} onFill={fillRow} onCopy={copy} />
+        <h1 className="visually-hidden">{t("ext.nav.logins")}</h1>
+      )}
+      <Notices state={state} gate={gate} actions={actions} />
+      {tab !== null && (
+        <SiteLogins
+          tab={tab}
+          rows={rows}
+          fillOff={gate.blocked}
+          quiet={state.pendingSave !== null || state.nextOtp !== null}
+          onFill={fillRow}
+          onCopy={copy}
+        />
       )}
       <Search fillOff={gate.blocked} onFill={fillRow} onCopy={copy} />
       {tab !== null && <p className="caption note">{t("ext.logins.frameNote", { host: tab.host })}</p>}

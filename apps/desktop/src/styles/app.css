@@ -575,6 +575,12 @@ input[type="checkbox"]:not([role="switch"]) {
   justify-content: flex-end;
   gap: var(--space-3);
   margin-top: var(--space-6);
+  /* In a dialog that scrolls (a short window) the buttons stay in view. */
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-block: var(--space-3);
+  background: var(--color-surface);
 }
 
 .toasts {

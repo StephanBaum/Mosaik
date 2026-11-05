@@ -38,7 +38,7 @@ describe("before the vault is reachable", () => {
     });
     await user.click(await screen.findByRole("button", { name: "Connect" }));
     expect(requestsOf(port, "pair")).toHaveLength(1);
-    expect((await screen.findByRole("alert")).textContent).toBe("The connection was denied in the Mosaic app.");
+    expect((await screen.findByRole("alert")).textContent).toBe("The connection was denied in the Mosaic app. Choose Connect to try again, then choose Allow.");
   });
 
   it("shows the code as XXX-XXX while the user answers in the app, and takes a code pushed later", async () => {

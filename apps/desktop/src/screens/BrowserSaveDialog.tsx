@@ -170,6 +170,12 @@ function NewLoginFields({
   );
 }
 
+function Description({ request }: { request: BrowserSaveRequest }) {
+  const { t } = useI18n();
+  const key = request.kind === "update" ? "browser.save.descriptionUpdate" : "browser.save.description";
+  return <p className="lede">{t(key, { browser: request.pairingLabel })}</p>;
+}
+
 function Prompt({ request }: { request: BrowserSaveRequest }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -211,7 +217,7 @@ function Prompt({ request }: { request: BrowserSaveRequest }) {
       }}
     >
       <div className="browser-prompt">
-        <p className="lede">{t("browser.save.description", { browser: request.pairingLabel })}</p>
+        <Description request={request} />
         <Details request={request} />
         {request.kind === "update" && (
           <Select
@@ -224,7 +230,7 @@ function Prompt({ request }: { request: BrowserSaveRequest }) {
           />
         )}
         {!updating && <NewLoginFields request={request} choice={choice} />}
-        <Expiry expiresAt={request.expiresAt} now={now} />
+        <Expiry expiresAt={request.expiresAt} now={now} label={t("browser.escCancels")} />
         <ErrorAlert error={error} />
         <div className="dialog__actions">
           <Button

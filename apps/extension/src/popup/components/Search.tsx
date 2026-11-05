@@ -75,7 +75,7 @@ export function Search({
       <h2 id={`${inputId}-label`} className="label">
         <label htmlFor={inputId}>{t("ext.search.label")}</label>
       </h2>
-      <div className="search__box">
+      <label className="search__box">
         <Icon name="search" />
         <input
           id={inputId}
@@ -87,7 +87,7 @@ export function Search({
             setQuery(event.target.value);
           }}
         />
-      </div>
+      </label>
       {hits === null ? (
         <p className="caption">{t("ext.search.note")}</p>
       ) : hits.length === 0 ? (

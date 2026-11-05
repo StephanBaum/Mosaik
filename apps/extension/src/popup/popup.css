@@ -133,11 +133,7 @@ body {
 }
 
 .status-bar {
-  position: absolute;
-  right: 0;
-  bottom: var(--popup-footer);
-  left: 0;
-  z-index: var(--layer-sticky);
+  flex-shrink: 0;
   background: var(--color-bg-subtle);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
@@ -225,6 +221,11 @@ body {
   line-height: var(--line-height-md);
 }
 
+/* A heading that reads as a plain sentence (the state texts that are the page's h1). */
+.heading-plain {
+  font: inherit;
+}
+
 .muted {
   margin: 0;
   color: var(--color-text-secondary);
@@ -250,6 +251,7 @@ body {
 }
 
 .kbd {
+  white-space: nowrap;
   padding: 0 var(--space-3);
   border-radius: var(--radius-tag);
   background: var(--color-bg-selected);
@@ -376,28 +378,37 @@ body {
   background: var(--color-surface);
 }
 
-/* The primary action: the static holo gradient (ADR-0014, ADR-0035: no WebGL in the popup). */
+/*
+ * The primary action: the holo foil at rest as a static stripe tile (ADR-0014, ADR-0035: no
+ * WebGL in the popup). The tile is the one the desktop's shader draws at rest, so the button
+ * matches the mockups (E01 to E07). The label keeps the desktop's near-black colour and
+ * highlight shadow, which stay at 4.5:1 on the tile in both themes.
+ */
 .button--primary.holo {
-  border: var(--border-width-hairline) solid var(--primary-action-rim);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-pill);
-  background: linear-gradient(
-    115deg,
-    var(--primary-action-fallback),
-    var(--primary-action-fallback-highlight),
-    var(--primary-action-fallback)
-  );
+  background: var(--primary-action-fallback-highlight) url("./assets/holo-stripes-tile.png") center / auto 200% repeat-x;
   color: var(--primary-action-label);
   font-weight: 600;
   text-shadow: var(--primary-action-label-shadow);
 }
 
+:root[data-theme="dark"] .button--primary.holo:not(:disabled) {
+  background-image: url("./assets/holo-stripes-tile-dark.png");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .button--primary.holo:not(:disabled) {
+    background-image: url("./assets/holo-stripes-tile-dark.png");
+  }
+}
+
 .button--primary.holo:hover:not(:disabled) {
-  background: linear-gradient(
-    115deg,
-    var(--primary-action-fallback-highlight),
-    var(--primary-action-fallback),
-    var(--primary-action-fallback-highlight)
-  );
+  filter: saturate(1.25);
+}
+
+.button--primary.holo:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .button--primary.holo:disabled {
@@ -484,6 +495,10 @@ body {
 .item__note {
   white-space: normal;
   color: var(--color-warning);
+}
+
+.item__note--quiet {
+  color: var(--color-text-secondary);
 }
 
 .avatar {
@@ -609,6 +624,11 @@ body {
   font: inherit;
 }
 
+/* The clear button of WebKit search boxes is a hard-coded grey cross; the box has no other. */
+.search__box input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .search__box:focus-within {
   outline: var(--border-width-focus) solid var(--color-focus-ring);
   outline-offset: var(--space-1);
@@ -626,8 +646,10 @@ body {
   z-index: var(--layer-menu);
   display: flex;
   flex-direction: column;
+  /* As wide as the longest label and shortcut, but never wider than the popup. */
+  width: max-content;
   min-width: calc(var(--space-9) * 3);
-  max-width: calc(var(--space-9) * 4);
+  max-width: calc(var(--popup-width) - 2 * var(--space-5));
   padding: var(--space-2);
   border: var(--border-width-hairline) solid var(--color-border);
   border-radius: var(--radius-panel);
@@ -667,6 +689,10 @@ body {
   cursor: not-allowed;
 }
 
+.menu__label {
+  white-space: nowrap;
+}
+
 .menu__text {
   display: flex;
   flex: 1 1 auto;
@@ -681,7 +707,10 @@ body {
 }
 
 .menu__check {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
   width: var(--size-icon);
   height: var(--size-icon);
   border: var(--border-width-focus) solid var(--color-border-strong);
@@ -691,7 +720,7 @@ body {
 .menu__check.is-on {
   border-color: var(--color-accent);
   background: var(--color-accent);
-  box-shadow: inset 0 0 0 var(--space-1) var(--color-surface);
+  color: var(--color-accent-text);
 }
 
 /* Dialog */
