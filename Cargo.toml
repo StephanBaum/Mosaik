@@ -51,7 +51,7 @@ tempfile = { version = "=3.27.0", default-features = false }
 tauri = { version = "=2.12.5", default-features = false, features = ["wry", "compression", "x11"] }
 tauri-build = { version = "=2.7.4", default-features = false, features = ["config-json"] }
 # Focus the running instance instead of opening a second store session.
-tauri-plugin-single-instance = { version = "=2.5.4", default-features = false }
+tauri-plugin-single-instance = { version = "=2.5.5", default-features = false }
 # M3 shell
 # Clipboard written from Rust, with the OS history/monitoring exclusions on
 # Windows, macOS and Linux (maintained by 1Password); text, and image reads for
