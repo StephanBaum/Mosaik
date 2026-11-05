@@ -32,6 +32,8 @@ mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
 mosaic-import = { path = "../../../crates/import" }
 mosaic-insights = { path = "../../../crates/insights" }
+mosaic-native-messaging = { path = "../../../crates/native-messaging" }
+mosaic-origin = { path = "../../../crates/origin" }
 mosaic-qr = { path = "../../../crates/qr" }
 mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
 mosaic-totp = { path = "../../../crates/totp" }
@@ -46,6 +48,9 @@ tauri.workspace = true
 tauri-plugin-global-shortcut.workspace = true
 tauri-plugin-single-instance.workspace = true
 thiserror.workspace = true
+# The browser endpoint serves local connections on Tauri's async runtime
+# (already in the tree through Tauri, mosaic-ssh-agent and mosaic-native-messaging).
+tokio.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]

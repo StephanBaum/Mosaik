@@ -75,4 +75,9 @@ pub const COMMANDS: &[&str] = &[
     "ssh_agent_status",
     "ssh_agent_set_enabled",
     "ssh_respond",
+    // Browser extension
+    "browser_status",
+    "browser_remove_pairing",
+    "browser_pairing_respond",
+    "browser_save_respond",
 ];

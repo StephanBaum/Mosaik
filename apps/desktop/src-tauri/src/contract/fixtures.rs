@@ -16,6 +16,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use super::attachments::{self, AttachmentAdded, AttachmentSaved};
+use super::browser::{
+    self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
+    BrowserPairingRespondRequest, BrowserRemovePairingRequest, BrowserSaveDecision,
+    BrowserSaveKind, BrowserSaveRespondRequest, PairingDecision,
+};
 use super::clipboard;
 use super::errors::ErrorCode;
 use super::events::{self, LockReason, SyncStatus};
@@ -521,6 +526,59 @@ fn ssh_commands(f: &mut Fixtures) {
     );
 }
 
+/// The browser extension commands.
+fn browser_commands(f: &mut Fixtures) {
+    f.command("browser_status", vec![()], browser::samples::statuses());
+    f.command(
+        "browser_remove_pairing",
+        vec![BrowserRemovePairingRequest {
+            pairing_id: browser::samples::pairing_id(),
+        }],
+        browser::samples::statuses(),
+    );
+    f.command(
+        "browser_pairing_respond",
+        vec![
+            BrowserPairingRespondRequest {
+                request_id: browser::samples::request_id(),
+                decision: PairingDecision::Allow,
+                label: Some("Work laptop".into()),
+            },
+            BrowserPairingRespondRequest {
+                request_id: browser::samples::request_id(),
+                decision: PairingDecision::Deny,
+                label: None,
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "browser_save_respond",
+        vec![
+            BrowserSaveRespondRequest {
+                request_id: browser::samples::request_id(),
+                decision: BrowserSaveDecision::SaveNew {
+                    vault_id: ids::vault(1),
+                    title: "Example".into(),
+                    allow_http: false,
+                },
+            },
+            BrowserSaveRespondRequest {
+                request_id: browser::samples::request_id(),
+                decision: BrowserSaveDecision::Update {
+                    vault_id: ids::vault(1),
+                    item_id: ids::item(2),
+                },
+            },
+            BrowserSaveRespondRequest {
+                request_id: browser::samples::request_id(),
+                decision: BrowserSaveDecision::Cancel,
+            },
+        ],
+        vec![()],
+    );
+}
+
 /// Every string enum of the contract, by name.
 fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
@@ -554,6 +612,12 @@ fn enums() -> Map<String, Value> {
         ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
+        ("browserEndpointState", values(BrowserEndpointState::ALL)),
+        ("browserFamily", values(BrowserFamily::ALL)),
+        ("browserHint", values(BrowserHint::ALL)),
+        ("pairingDecision", values(PairingDecision::ALL)),
+        ("browserCloseReason", values(BrowserCloseReason::ALL)),
+        ("browserSaveKind", values(BrowserSaveKind::ALL)),
         ("lockReason", values(LockReason::ALL)),
         ("syncStatus", values(SyncStatus::ALL)),
     ] {
@@ -579,6 +643,7 @@ pub(crate) fn build() -> Value {
     tool_commands(&mut f, item_request);
     import_commands(&mut f);
     ssh_commands(&mut f);
+    browser_commands(&mut f);
     let enums = enums();
 
     let listed: BTreeSet<&str> = f

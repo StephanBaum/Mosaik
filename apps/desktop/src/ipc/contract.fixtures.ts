@@ -64,12 +64,46 @@ export const fixtures = {
     "import_cancel",
     "ssh_agent_status",
     "ssh_agent_set_enabled",
-    "ssh_respond"
+    "ssh_respond",
+    "browser_status",
+    "browser_remove_pairing",
+    "browser_pairing_respond",
+    "browser_save_respond"
   ],
   "enums": {
     "biometricPlatformKind": [
       "windowsHello",
       "touchId"
+    ],
+    "browserCloseReason": [
+      "answered",
+      "expired",
+      "conflict",
+      "locked",
+      "disconnected"
+    ],
+    "browserEndpointState": [
+      "running",
+      "inUse",
+      "unavailable"
+    ],
+    "browserFamily": [
+      "chromium",
+      "firefox"
+    ],
+    "browserHint": [
+      "chrome",
+      "edge",
+      "brave",
+      "opera",
+      "vivaldi",
+      "chromium",
+      "firefox",
+      "other"
+    ],
+    "browserSaveKind": [
+      "new",
+      "update"
     ],
     "customFieldKind": [
       "text",
@@ -152,6 +186,9 @@ export const fixtures = {
       "unlockDelayed",
       "tooManyAttempts",
       "sshAllowTooSoon",
+      "browserRequestExpired",
+      "browserAllowTooSoon",
+      "browserPairingNotFound",
       "busy",
       "internal"
     ],
@@ -248,6 +285,10 @@ export const fixtures = {
       "weak",
       "belowRfc4226",
       "rfc4226"
+    ],
+    "pairingDecision": [
+      "allow",
+      "deny"
     ],
     "quickUnlockKind": [
       "biometric",
@@ -567,6 +608,15 @@ export const fixtures = {
       "code": "sshAllowTooSoon"
     },
     {
+      "code": "browserRequestExpired"
+    },
+    {
+      "code": "browserAllowTooSoon"
+    },
+    {
+      "code": "browserPairingNotFound"
+    },
+    {
       "code": "busy"
     },
     {
@@ -635,6 +685,69 @@ export const fixtures = {
     },
     {
       "type": "settingsReset"
+    },
+    {
+      "request": {
+        "browser": "chromium",
+        "code": "4F7K2Q",
+        "expiresAt": 1761480155000,
+        "hint": "edge",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000
+      },
+      "type": "browserPairingRequested"
+    },
+    {
+      "reason": "answered",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "browserPairingClosed"
+    },
+    {
+      "request": {
+        "candidates": [
+          {
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+            "title": "Example",
+            "username": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          }
+        ],
+        "expiresAt": 1761480335000,
+        "host": "example.com",
+        "insecure": false,
+        "kind": "update",
+        "origin": "https://example.com",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "suggestedTitle": "example.com",
+        "username": "alex@example.com"
+      },
+      "type": "browserSaveRequested"
+    },
+    {
+      "request": {
+        "candidates": [],
+        "expiresAt": 1761480335000,
+        "host": "example.com",
+        "insecure": true,
+        "kind": "new",
+        "origin": "http://example.com",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "suggestedTitle": "example.com",
+        "username": null
+      },
+      "type": "browserSaveRequested"
+    },
+    {
+      "reason": "locked",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "browserSaveClosed"
+    },
+    {
+      "type": "browserPairingsChanged"
     }
   ],
   "requests": {
@@ -753,6 +866,51 @@ export const fixtures = {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "browser_pairing_respond": [
+      {
+        "decision": "allow",
+        "label": "Work laptop",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": "deny",
+        "label": null,
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "browser_remove_pairing": [
+      {
+        "pairingId": "0123456789abcdef0123456789abcdef"
+      }
+    ],
+    "browser_save_respond": [
+      {
+        "decision": {
+          "allowHttp": false,
+          "kind": "saveNew",
+          "title": "Example",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+          "kind": "update",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "cancel"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "browser_status": [
+      null
     ],
     "clear_clipboard": [
       null
@@ -1737,6 +1895,74 @@ export const fixtures = {
       },
       {
         "kind": "cancelled"
+      }
+    ],
+    "browser_pairing_respond": [
+      null
+    ],
+    "browser_remove_pairing": [
+      {
+        "endpoint": "running",
+        "pairings": [
+          {
+            "browser": "chromium",
+            "connected": true,
+            "createdAt": 1761480000000,
+            "label": "Chrome",
+            "lastUsedAt": 1761480035000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          },
+          {
+            "browser": "firefox",
+            "connected": false,
+            "createdAt": 1761480010000,
+            "label": "Firefox",
+            "lastUsedAt": null,
+            "pairingId": "fedcba9876543210fedcba9876543210"
+          }
+        ]
+      },
+      {
+        "endpoint": "inUse",
+        "pairings": []
+      },
+      {
+        "endpoint": "unavailable",
+        "pairings": []
+      }
+    ],
+    "browser_save_respond": [
+      null
+    ],
+    "browser_status": [
+      {
+        "endpoint": "running",
+        "pairings": [
+          {
+            "browser": "chromium",
+            "connected": true,
+            "createdAt": 1761480000000,
+            "label": "Chrome",
+            "lastUsedAt": 1761480035000,
+            "pairingId": "0123456789abcdef0123456789abcdef"
+          },
+          {
+            "browser": "firefox",
+            "connected": false,
+            "createdAt": 1761480010000,
+            "label": "Firefox",
+            "lastUsedAt": null,
+            "pairingId": "fedcba9876543210fedcba9876543210"
+          }
+        ]
+      },
+      {
+        "endpoint": "inUse",
+        "pairings": []
+      },
+      {
+        "endpoint": "unavailable",
+        "pairings": []
       }
     ],
     "clear_clipboard": [

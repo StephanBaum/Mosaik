@@ -5,6 +5,7 @@
 
 use serde::Serialize;
 
+use super::browser::{BrowserCloseReason, BrowserPairingRequest, BrowserSaveRequest};
 use super::errors::ErrorCode;
 use super::ids::UnixMillis;
 use super::ids::{WireItemId, WireVaultId};
@@ -109,11 +110,41 @@ pub enum AppEvent {
     /// edited outside Mosaic, or is from an older version) and weaker
     /// protection settings in it were reset to safe defaults (ADR-0030).
     SettingsReset,
+    /// A browser asks to be paired. The UI shows the code and waits for the
+    /// user (`browser_pairing_respond`).
+    BrowserPairingRequested {
+        /// The request.
+        request: BrowserPairingRequest,
+    },
+    /// A pairing request is no longer open.
+    BrowserPairingClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: BrowserCloseReason,
+    },
+    /// The extension offers to save a login. The UI shows what would be
+    /// written (`browser_save_respond`); the password stays in Rust.
+    BrowserSaveRequested {
+        /// The request.
+        request: BrowserSaveRequest,
+    },
+    /// A save request is no longer open.
+    BrowserSaveClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: BrowserCloseReason,
+    },
+    /// A browser was paired or removed, or connected or disconnected: read
+    /// `browser_status` again.
+    BrowserPairingsChanged,
 }
 
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
+    use crate::contract::browser::samples as browser;
     use crate::contract::ids::samples as ids;
     use crate::contract::ssh::samples as ssh;
 
@@ -155,6 +186,24 @@ pub(crate) mod samples {
                 vault_id: ids::vault(3),
             },
             AppEvent::SettingsReset,
+            AppEvent::BrowserPairingRequested {
+                request: browser::pairing_request(),
+            },
+            AppEvent::BrowserPairingClosed {
+                request_id: browser::request_id(),
+                reason: BrowserCloseReason::Answered,
+            },
+            AppEvent::BrowserSaveRequested {
+                request: browser::save_request(),
+            },
+            AppEvent::BrowserSaveRequested {
+                request: browser::save_request_new(),
+            },
+            AppEvent::BrowserSaveClosed {
+                request_id: browser::request_id(),
+                reason: BrowserCloseReason::Locked,
+            },
+            AppEvent::BrowserPairingsChanged,
         ];
         for event in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -167,7 +216,12 @@ pub(crate) mod samples {
                 | AppEvent::SshSignFailed { .. }
                 | AppEvent::QuickSearchRequested
                 | AppEvent::HardwareVaultClosed { .. }
-                | AppEvent::SettingsReset => {}
+                | AppEvent::SettingsReset
+                | AppEvent::BrowserPairingRequested { .. }
+                | AppEvent::BrowserPairingClosed { .. }
+                | AppEvent::BrowserSaveRequested { .. }
+                | AppEvent::BrowserSaveClosed { .. }
+                | AppEvent::BrowserPairingsChanged => {}
             }
         }
         all

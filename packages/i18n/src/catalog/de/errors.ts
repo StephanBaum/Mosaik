@@ -77,6 +77,12 @@ export const errors = {
     "Zu viele falsche Antworten. Mosaic wurde gesperrt. Entsperre es mit deinem Master-Passwort, um fortzufahren.",
   "error.sshAllowTooSoon":
     "Das ging zu schnell, um die Anfrage zu lesen. Prüfe Schlüssel und Programm und wähle dann noch einmal Erlauben.",
+  "error.browserRequestExpired":
+    "Diese Browser-Anfrage ist bereits beendet. Frage in der Erweiterung noch einmal an, wenn du sie noch brauchst.",
+  "error.browserAllowTooSoon":
+    "Das ging zu schnell, um die Anfrage zu lesen. Prüfe die Angaben und wähle dann noch einmal.",
+  "error.browserPairingNotFound":
+    "Dieser Browser ist nicht mehr verbunden. Öffne die Einstellungen neu, um die aktuelle Liste zu sehen.",
   "error.busy":
     "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
   "error.internal":

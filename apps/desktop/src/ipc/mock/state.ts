@@ -17,6 +17,7 @@ import type {
   Settings,
   VaultSummary,
 } from "../contract/index.ts";
+import type { MockBrowser } from "./browser.ts";
 
 export interface MockAccount {
   accountId: string;
@@ -99,6 +100,8 @@ export interface MockState {
   /** The Emergency Kit check passed. */
   kitVerified: boolean;
   sshEnabled: boolean;
+  /** The browser extension endpoint (`mock/browser.ts`). */
+  browser: MockBrowser;
   /** The import preview waiting for a commit. */
   heldImport: { previewId: string; entries: number[] } | null;
   vaults: VaultSummary[];

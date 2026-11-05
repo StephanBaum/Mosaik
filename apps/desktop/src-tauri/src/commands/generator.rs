@@ -23,7 +23,7 @@ pub async fn generate_password(
     state.run(move |b| b.generate(request)).await
 }
 
-const fn strength(strength: CoreStrength) -> Strength {
+pub(crate) const fn strength(strength: CoreStrength) -> Strength {
     match strength {
         CoreStrength::VeryWeak => Strength::VeryWeak,
         CoreStrength::Weak => Strength::Weak,
@@ -33,14 +33,14 @@ const fn strength(strength: CoreStrength) -> Strength {
     }
 }
 
-fn generator_error(error: GeneratorError) -> IpcError {
+pub(crate) fn generator_error(error: GeneratorError) -> IpcError {
     IpcError::new(match error {
         GeneratorError::Randomness | GeneratorError::Wordlist => ErrorCode::Internal,
         _ => ErrorCode::InvalidInput,
     })
 }
 
-fn generate(request: GenerateRequest) -> Result<GeneratedPassword, GeneratorError> {
+pub(crate) fn generate(request: GenerateRequest) -> Result<GeneratedPassword, GeneratorError> {
     match request {
         GenerateRequest::Password {
             length,
@@ -88,13 +88,24 @@ impl Backend {
         self.touch();
         let generated = generate(request).map_err(generator_error)?;
         let entropy = generated.entropy();
-        let kept = SecretString::from_str_copy(generated.expose_secret())?;
+        self.keep_generated(&generated)?;
         let shown = SecretString::from_str_copy(generated.expose_secret())?;
-        *guard(&self.last_generated)? = Some(kept);
         Ok(Generated {
             value: SecretOut::new(shown),
             entropy_bits: entropy.bits(),
             strength: strength(entropy.strength()),
         })
+    }
+
+    /// Keeps a generated password for `copy_to_clipboard` (replacing the
+    /// previous one, which zeroizes). Not user activity: the browser
+    /// endpoint generates through here too.
+    ///
+    /// # Errors
+    /// `internal` if the secret buffer cannot be allocated.
+    pub(crate) fn keep_generated(&self, generated: &GeneratedPassword) -> IpcResult<()> {
+        let kept = SecretString::from_str_copy(generated.expose_secret())?;
+        *guard(&self.last_generated)? = Some(kept);
+        Ok(())
     }
 }
