@@ -1284,12 +1284,10 @@ fn parallel_kit_guesses_cannot_pass_the_five_answer_cap() {
     });
     let answered = results.iter().filter(|r| **r == Ok(false)).count();
     assert_eq!(answered, 4, "four wrong answers are answered: {results:?}");
-    assert_eq!(
-        results
-            .iter()
-            .filter(|r| **r == Err(ErrorCode::TooManyAttempts))
-            .count(),
-        1,
+    // The fifth wrong answer locks. Guesses that arrive between its cap check and the lock see
+    // the full counter and are refused the same way, so at least one, not exactly one, says so.
+    assert!(
+        results.contains(&Err(ErrorCode::TooManyAttempts)),
         "the fifth locks: {results:?}"
     );
     assert!(
