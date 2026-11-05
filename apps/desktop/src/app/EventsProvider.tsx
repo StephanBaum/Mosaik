@@ -1,19 +1,22 @@
 /**
  * The one subscription to Rust events, fanned out to the app: lock (hide secrets, reload
  * the session), clipboard cleared and settings reset (toasts), SSH approvals (a queue) and the quick-search
- * shortcut (opens the palette).
+ * shortcut (opens the palette). The browser extension's prompts live in `useBrowserPrompts`.
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "../components/ToastProvider.tsx";
 import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
+import { useBrowserPrompts, type BrowserPrompts } from "./useBrowserPrompts.ts";
 import { useSecrets } from "./SecretsContext.tsx";
 
 interface EventsContextValue {
   /** Open SSH approval requests, oldest first. */
   ssh: readonly SshApprovalRequest[];
   removeSsh: (requestId: string) => void;
+  /** The browser extension's pairing and save prompts, and the paired-browsers counter. */
+  browser: BrowserPrompts;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
   /** Why the vault locked last, until the next unlock. */
@@ -36,15 +39,20 @@ export function EventsProvider({
   const toast = useToast();
   const secrets = useSecrets();
   const [ssh, setSsh] = useState<SshApprovalRequest[]>([]);
+  const browser = useBrowserPrompts();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
 
   useIpcEvent((event: AppEvent) => {
+    if (browser.apply(event)) {
+      return;
+    }
     switch (event.type) {
       case "locked":
         secrets.clearAll();
         setSsh([]);
+        browser.clear();
         setPaletteOpen(false);
         setLockReason(event.reason);
         onLocked();
@@ -76,6 +84,7 @@ export function EventsProvider({
   const value = useMemo<EventsContextValue>(
     () => ({
       ssh,
+      browser,
       removeSsh: (requestId) => {
         setSsh((queue) => queue.filter((request) => request.requestId !== requestId));
       },
@@ -87,7 +96,7 @@ export function EventsProvider({
       },
       sync,
     }),
-    [ssh, paletteOpen, lockReason, sync],
+    [ssh, browser, paletteOpen, lockReason, sync],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

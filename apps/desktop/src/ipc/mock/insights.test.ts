@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMockIpc } from "../mock.ts";
+import { defaultBrowser } from "./browser.ts";
 import { sampleItems, sampleVaults } from "./data.ts";
 import { defaultQuick } from "./quickUnlock.ts";
 import { mockSecurityReport } from "./insights.ts";
@@ -16,6 +17,7 @@ function state(items: MockItem[]): MockState {
     kitVerified: true,
     sshEnabled: false,
     sshRequest: false,
+    browser: defaultBrowser(() => NOW),
     heldImport: null,
     vaults: sampleVaults(),
     items,

@@ -7,6 +7,7 @@ import {
   verifyQuickUnlock,
 } from "./quickUnlock.ts";
 import { clearMockPending } from "./otp.ts";
+import { startBrowser } from "./browser.ts";
 import { startAgent } from "./ssh.ts";
 import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
   type MockHandlers,
@@ -134,6 +135,7 @@ export const sessionHandlers: MockHandlers = {
     state.secretKeyStored = true;
     state.quick.passwordUsed = true;
     startAgent(state);
+    startBrowser(state);
     return sessionState(state);
   },
 
@@ -167,6 +169,7 @@ export const sessionAsyncHandlers: MockAsyncHandlers = {
     await verifyQuickUnlock(state, request);
     state.unlocked = true;
     startAgent(state);
+    startBrowser(state);
     return sessionState(state);
   },
 };

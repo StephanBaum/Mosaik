@@ -13,7 +13,9 @@
  * delays a security-key touch, `&hwOpenSeconds=<s>` sets how long a hardware vault stays
  * open (default 300). A security key needs the PIN `1234`. One-time code setup
  * (ADR-0031): `&otpScan=<errorCode>|cancel` makes `otp_scan` fail with that code (or
- * cancels the file dialog), `&screenScan=0` reports screen scanning as unsupported.
+ * cancels the file dialog), `&screenScan=0` reports screen scanning as unsupported. Browser
+ * extension (M4): `&browserPair=1` makes a browser ask for pairing, and `&browserSave=new|update`
+ * makes it offer to save a login, both 500 ms after the app subscribes.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import {
@@ -26,6 +28,7 @@ import {
   type ResponseOf,
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
+import { browserHandlers, defaultBrowser, startBrowser } from "./mock/browser.ts";
 import { attachmentHandlers } from "./mock/attachments.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
 import { bulkItems, sampleAccount, sampleAttachments, sampleItems, sampleVaults } from "./mock/data.ts";
@@ -63,6 +66,10 @@ export interface MockOptions extends QuickOptions {
   latencyMs?: number;
   /** Emit an SSH approval request 500 ms after unlock. */
   sshRequest?: boolean;
+  /** A browser asks for pairing 500 ms after subscribing (`&browserPair=1`). */
+  browserPair?: boolean;
+  /** A browser offers to save a login 500 ms after subscribing (`&browserSave=new|update`). */
+  browserSave?: "new" | "update";
   /** Start with an unconfirmed Emergency Kit (`?kit=unverified`). */
   kitUnverified?: boolean;
   /** Start with vaults but no items (first run without an import). */
@@ -96,6 +103,7 @@ const handlers: MockHandlers = {
   ...settingsHandlers,
   ...insightHandlers,
   ...sshHandlers,
+  ...browserHandlers,
 };
 
 function quickOptionsFromParams(params: URLSearchParams): MockOptions {
@@ -125,6 +133,14 @@ const asyncHandlers: MockAsyncHandlers = {
   ...quickUnlockAsyncHandlers,
   ...vaultAsyncHandlers,
 };
+
+function browserOptionsFromParams(params: URLSearchParams): MockOptions {
+  const save = params.get("browserSave");
+  return {
+    ...(params.get("browserPair") === "1" ? { browserPair: true } : {}),
+    ...(save === "new" || save === "update" ? { browserSave: save } : {}),
+  };
+}
 
 function otpOptionsFromParams(params: URLSearchParams): MockOptions {
   const scan = params.get("otpScan");
@@ -160,6 +176,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(start === "locked" || start === "unlocked" || start === "noAccount" ? { start } : {}),
     ...(Number.isFinite(latency) && latency > 0 ? { latencyMs: latency } : {}),
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
+    ...browserOptionsFromParams(params),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
     ...otpOptionsFromParams(params),
     ...attachOptionsFromParams(params),
@@ -202,6 +219,11 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     unlocked: start === "unlocked",
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
+    browser: {
+      ...defaultBrowser(now),
+      pairOnStart: options.browserPair === true,
+      saveOnStart: options.browserSave ?? null,
+    },
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
     items: initialItems(start, options),
@@ -260,6 +282,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     call,
     subscribe(listener) {
       listeners.add(listener);
+      startBrowser(state);
       return Promise.resolve(() => {
         listeners.delete(listener);
       });

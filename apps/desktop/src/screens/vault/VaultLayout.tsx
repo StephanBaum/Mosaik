@@ -19,7 +19,7 @@ import { GeneratorPanel } from "../GeneratorPanel.tsx";
 import { ImportFlow } from "../import/ImportFlow.tsx";
 import { SecurityDashboard } from "../SecurityDashboard.tsx";
 import { SettingsScreen } from "../SettingsScreen.tsx";
-import { SshApprovalDialog } from "../SshApprovalDialog.tsx";
+import { ApprovalDialogs } from "../ApprovalDialogs.tsx";
 import { ListView } from "./ListView.tsx";
 import { CreateVaultDialog } from "./CreateVaultDialog.tsx";
 import { Sidebar, vaultLabel } from "./Sidebar.tsx";
@@ -201,7 +201,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
           }}
         />
       )}
-      <SshApprovalDialog />
+      <ApprovalDialogs />
     </div>
   );
 }

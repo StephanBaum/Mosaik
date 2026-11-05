@@ -277,7 +277,7 @@ A request with `v` other than 1 gets `protocolVersion`.
 | `listForOrigin` | `{origin, topOrigin}` | `{items: LoginMatch[] (at most 50), warnings: OriginWarning[]}` |
 | `search` | `{query (1 to 128 chars, trimmed), origin \| null}` | `{items: SearchHit[] (at most 20)}` |
 | `fill` | `{vaultId, itemId, origin, topOrigin, frame: "top" \| "sameOriginFrame", want: {login, otp}}` | `{username: string \| null, password: Secret \| null, otp: Secret \| null}` |
-| `copy` | `{source: {kind: "item", vaultId, itemId, field: "username" \| "password" \| "totp"} \| {kind: "generated"}}` | `{clearAfterSeconds: number \| null}` |
+| `copy` | `{source: {kind: "item", vaultId, itemId, field: "username" \| "password" \| "totp"} \| {kind: "generated"}}`. `field: "totp"` of an HOTP login is refused with `otpNotFillable` (copying would advance the counter, as a fill would) | `{clearAfterSeconds: number \| null}` |
 | `generate` | `{request: <desktop GenerateRequest>}`, where `forSite` gains `rules: string \| null` (at most 4096) | `{value: Secret, entropyBits, strength, rulesSource: "page" \| "siteQuirks" \| null}` |
 | `checkSave` | `{origin, topOrigin, username: string \| null, password: Secret}` | `{kind: "new" \| "update" \| "unchanged", itemTitle: string \| null}` |
 | `proposeSave` | `{origin, topOrigin, username: string \| null, password: Secret}` | `{outcome: "saved" \| "updated" \| "cancelled", vaultId \| null, itemId \| null}` |
@@ -326,13 +326,13 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 | `SAVE_PROMPT_TIMEOUT` | 300 s |
 | desktop idle close | 10 min |
 | extension port idle disconnect | 60 s with nothing in flight |
-| `MAX_CONNECTIONS` | 8 (more are accepted and closed) |
+| `MAX_CONNECTIONS` | 8 authenticated sessions (a ninth `hello` is refused `busy`). Connections that have not authenticated have their own 4 slots; a new one evicts the oldest, so idle connections cannot lock the host out. A session starts only while its pairing still exists, and ends (`notPaired`, then close) when it is removed |
 | `MAX_IN_FLIGHT` | 4 per connection |
 | `MAX_PAIRINGS` | 16 (`pairingLimit`) |
 
 Rate limits are the desktop's, per pairing, as sliding windows: `fill` 10 per 10 s, `copy`
 20 per 60 s, `listForOrigin` and `search` together 60 per 60 s, `generate` 30 per 60 s,
-`checkSave` 10 per 60 s, `proposeSave` 3 per 60 s; `focus` 1 per 2 s (global);
+`checkSave` 10 per 60 s, `proposeSave` 3 per 60 s (a `proposeSave` also counts against the `checkSave` window); `focus` 1 per 2 s (global);
 `pairRequest` 3 per 60 s (global), and 3 denials within 10 min block pair requests for
 10 min (`pairingBlocked`).
 

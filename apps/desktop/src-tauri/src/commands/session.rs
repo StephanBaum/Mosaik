@@ -160,14 +160,16 @@ impl Backend {
         }
     }
 
-    /// Starts the SSH agent after an unlock if the user turned it on. A
-    /// failure shows up as `error` in `ssh_agent_status`.
-    pub(crate) fn start_ssh_if_enabled(&self, slot: &Slot) {
+    /// What follows every unlock: the SSH agent starts if the user turned
+    /// it on (a failure shows up as `error` in `ssh_agent_status`), and the
+    /// unlock hooks run (the browser endpoint tells its sessions).
+    pub(crate) fn after_unlock(&self, slot: &Slot) {
         if self.stored().ssh_agent_enabled
             && let Ok(session) = slot.unlocked()
         {
             let _ = self.adapters.ssh.start(session, self.event_sink());
         }
+        self.run_unlock_hooks();
     }
 
     /// What this system can and cannot do.
@@ -278,7 +280,7 @@ impl Backend {
         // file that does not verify), then the account is recorded.
         self.settings_unlocked(&mut slot);
         self.remember_account(&mut slot, account_id, Some(email.clone()));
-        self.start_ssh_if_enabled(&slot);
+        self.after_unlock(&slot);
         // The kit is unconfirmed until `verify_emergency_kit` matches.
         *guard(&self.kit_pending)? = Some(account_id);
         self.touch();
@@ -381,7 +383,7 @@ impl Backend {
                 guard(&self.unlock_throttle)?.succeeded();
                 self.settings_unlocked(&mut slot);
                 self.remember_account(&mut slot, account_id, None);
-                self.start_ssh_if_enabled(&slot);
+                self.after_unlock(&slot);
                 self.touch();
                 self.reconcile_slot(&mut slot);
                 self.state_of(&slot)

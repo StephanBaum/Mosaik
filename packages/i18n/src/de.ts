@@ -9,6 +9,7 @@ import { generator } from "./catalog/de/generator.ts";
 import { clipboard } from "./catalog/de/clipboard.ts";
 import { insights } from "./catalog/de/insights.ts";
 import { importMessages } from "./catalog/de/import.ts";
+import { browser } from "./catalog/de/browser.ts";
 import { ssh } from "./catalog/de/ssh.ts";
 import { settings } from "./catalog/de/settings.ts";
 import { palette } from "./catalog/de/palette.ts";
@@ -30,6 +31,7 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...insights,
   ...importMessages,
   ...ssh,
+  ...browser,
   ...settings,
   ...palette,
   ...shell,

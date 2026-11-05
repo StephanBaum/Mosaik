@@ -11,6 +11,7 @@
 )]
 
 pub mod attachments;
+pub mod browser;
 pub mod clipboard;
 pub mod draft;
 pub mod generator;
@@ -98,5 +99,9 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         ssh::ssh_agent_status,
         ssh::ssh_agent_set_enabled,
         ssh::ssh_respond,
+        browser::browser_status,
+        browser::browser_remove_pairing,
+        browser::browser_pairing_respond,
+        browser::browser_save_respond,
     ]
 }

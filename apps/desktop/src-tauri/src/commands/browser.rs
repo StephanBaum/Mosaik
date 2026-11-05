@@ -1,0 +1,100 @@
+//! Browser extension commands (`docs/DESKTOP_IPC.md` §3): the paired
+//! browsers, and the answers to the pairing and save prompts. The prompts
+//! arrive as events; the endpoint itself is `crate::browser`.
+
+use tauri::State;
+
+use crate::browser::parse_id;
+use crate::contract::browser::{
+    BrowserPairingRespondRequest, BrowserRemovePairingRequest, BrowserSaveRespondRequest,
+    BrowserStatus,
+};
+use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
+use crate::state::{AppState, Backend};
+
+/// `browser_status`.
+#[tauri::command]
+pub async fn browser_status(state: State<'_, AppState>) -> IpcResult<BrowserStatus> {
+    Ok(state.backend().browser_status())
+}
+
+/// `browser_remove_pairing`.
+#[tauri::command]
+pub async fn browser_remove_pairing(
+    state: State<'_, AppState>,
+    request: BrowserRemovePairingRequest,
+) -> IpcResult<BrowserStatus> {
+    state.run(move |b| b.browser_remove_pairing(&request)).await
+}
+
+/// `browser_pairing_respond`.
+#[tauri::command]
+pub async fn browser_pairing_respond(
+    state: State<'_, AppState>,
+    request: BrowserPairingRespondRequest,
+) -> IpcResult<()> {
+    state
+        .run(move |b| b.browser_pairing_respond(&request))
+        .await
+}
+
+/// `browser_save_respond`.
+#[tauri::command]
+pub async fn browser_save_respond(
+    state: State<'_, AppState>,
+    request: BrowserSaveRespondRequest,
+) -> IpcResult<()> {
+    state.run(move |b| b.browser_save_respond(&request)).await
+}
+
+impl Backend {
+    /// The endpoint and the paired browsers.
+    #[must_use]
+    pub fn browser_status(&self) -> BrowserStatus {
+        self.browser.status()
+    }
+
+    /// Removes a pairing; its live sessions are told and closed.
+    ///
+    /// # Errors
+    /// `browserPairingNotFound`.
+    pub fn browser_remove_pairing(
+        &self,
+        request: &BrowserRemovePairingRequest,
+    ) -> IpcResult<BrowserStatus> {
+        self.touch();
+        let not_found = || IpcError::new(ErrorCode::BrowserPairingNotFound);
+        let id = parse_id(&request.pairing_id).ok_or_else(not_found)?;
+        let removed = self
+            .browser
+            .shared()
+            .remove_pairing(&id, None)
+            .map_err(|_| IpcError::INTERNAL)?;
+        if removed {
+            Ok(self.browser.status())
+        } else {
+            Err(not_found())
+        }
+    }
+
+    /// Answers the pairing prompt.
+    ///
+    /// # Errors
+    /// `browserRequestExpired`, `browserAllowTooSoon` (the request stays
+    /// open), `invalidInput` (a bad label; the request stays open).
+    pub fn browser_pairing_respond(&self, request: &BrowserPairingRespondRequest) -> IpcResult<()> {
+        self.touch();
+        self.browser.shared().respond_pair(request)
+    }
+
+    /// Answers the save prompt; a save writes the vault.
+    ///
+    /// # Errors
+    /// `browserRequestExpired`, `browserAllowTooSoon`, `invalidInput`,
+    /// `vaultNotFound`, `vaultUnavailable`, `itemNotFound` (the request
+    /// stays open after all of them except the first), `locked`.
+    pub fn browser_save_respond(&self, request: &BrowserSaveRespondRequest) -> IpcResult<()> {
+        self.touch();
+        self.browser.shared().respond_save(self, request)
+    }
+}

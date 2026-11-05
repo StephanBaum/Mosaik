@@ -167,6 +167,14 @@ wire_enum!(
         /// An SSH approval was allowed less than a second after the prompt
         /// appeared; the request is still open.
         SshAllowTooSoon,
+        /// The browser pairing or save request was already answered or
+        /// expired.
+        BrowserRequestExpired,
+        /// A browser pairing or save was allowed less than a second after
+        /// the prompt appeared; the request is still open.
+        BrowserAllowTooSoon,
+        /// No browser pairing with that ID.
+        BrowserPairingNotFound,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

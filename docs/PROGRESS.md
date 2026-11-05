@@ -11,7 +11,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
-| M4 Browser extension | 🔄 in progress (T1 channel) |
+| M4 Browser extension | 🔄 in progress (T1 channel, T2 desktop endpoint) |
 | M5 Passkeys | — |
 | M6 Sync server | — |
 | M7 Rotation | — |
@@ -1337,6 +1337,51 @@ the CI changes (T5) follow.
   frame AAD, the PSK transfer at pairing and the endpoint trust (ADR-0036 stays proposed
   until then). Not verified here: the Windows registry install (`reg.exe`) was not run
   against the real registry.
+
+## M4 Browser extension — T2 desktop endpoint (2026-11-05)
+
+Track T2 of the M4 plan (ADR-0037, proposed): the desktop serves the channel T1 built, pairs
+browsers, answers fill and lookup requests, and shows the two dialogs. The extension itself
+(T3, T4) and the CI changes (T5) follow.
+
+- **`apps/desktop/src-tauri/src/browser/`**: `BrowserService` (started in `lib.rs` after
+  `AppState` exists, stopped at `RunEvent::Exit`; lock and unlock hooks), `connection`
+  (accept loop on Tauri's async runtime, the pre-auth exchange, the library's
+  `server_handshake`, the AEAD request loop with a reader, a writer that seals in write
+  order, 4 requests in flight, a 10 minute idle close, 8 connections), `handlers` (the
+  allowlist: one `match` on `Op`), `fill` (`listForOrigin`, `search`, `fill`, `copy`,
+  `generate`), `save` (`checkSave`, `proposeSave` and the writes), `prompts` (one pairing and
+  one save prompt, the 1 s Allow guard, expiry, conflict, the 3-denial block), `registry`
+  (`browser-pairings.json`, atomic, 0600 on Unix, keys as `PairingKey`) and `ratelimit`.
+  On Windows the service binds a random pipe name (`first_pipe_instance`, remote clients
+  rejected) and holds the `DiscoveryLease` for its whole life; on Unix it binds with the
+  library's rules.
+- **Webview**: commands `browser_status`, `browser_remove_pairing`, `browser_pairing_respond`,
+  `browser_save_respond`; events `browserPairingRequested`, `browserPairingClosed`,
+  `browserSaveRequested`, `browserSaveClosed`, `browserPairingsChanged`; error codes
+  `browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound` (DESKTOP_IPC.md).
+  Screens `BrowserPairingDialog`, `BrowserSaveDialog` (password only as a mask) and the
+  "Browsers" group of Settings; mock options `&browserPair=1` and `&browserSave=new|update`;
+  i18n `browser.*` and `error.browser*` (DE and EN).
+- **Small changes elsewhere**: `Backend` gains `with_focus` (the extension's `focus`),
+  `on_unlock` hooks (run where the SSH agent starts after an unlock), `keep_generated`
+  (generation without counting as activity); the attention hook also fires for the two new
+  prompts; `useAllowGuard` moved out of the SSH dialog.
+- **Dependencies**: path dependencies on `mosaic-native-messaging` and `mosaic-origin`, and
+  `tokio` (workspace, already in the tree through Tauri, `mosaic-ssh-agent` and
+  `mosaic-native-messaging`) for the connection tasks. Nothing new from crates.io. The desktop
+  fuzz crate still builds (`cargo check --manifest-path apps/desktop/src-tauri/fuzz/Cargo.toml
+  --bins`); the contract module imports only serde and contract types.
+- **Tests**: `browser_tests.rs` (29, over `tokio::io::duplex` against the host's real
+  handshake and an injectable clock), unit tests in `registry`, `ratelimit`, `save`; contract
+  fixtures regenerated; Vitest (`BrowserPairingDialog`, `BrowserSaveDialog`,
+  `BrowserSettings`, contract parity); Playwright `e2e/browser.spec.ts` (both dialogs, the
+  settings group, axe light and dark).
+- **Not verified here**: the real endpoint (Windows pipe and discovery file, Unix socket)
+  under the desktop; `BrowserService::start` was not run against the OS (the library's own
+  tests cover the transports and the lease), and the Unix paths run only on CI. The crypto
+  review of the registry at rest, the pairing flow, the 1 s guard, the prompt lifetimes and
+  the `touch` policy is still open (ADR-0037 stays proposed).
 
 ## M4 Browser extension — T3 extension core (2026-11-05)
 
