@@ -11,7 +11,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
-| M4 Browser extension | — |
+| M4 Browser extension | 🔄 in progress (T1 channel) |
 | M5 Passkeys | — |
 | M6 Sync server | — |
 | M7 Rotation | — |
@@ -1240,6 +1240,46 @@ work; attachments (Track B) come next.
 - **Not verified by a human:** the look of the new forms against the owner's taste (no
   mockup exists for cards, identities, notes or files), the masked SSH textarea in the
   macOS and Linux webviews (`-webkit-text-security`).
+
+## M4 Browser extension — T1 channel (2026-11-05)
+
+Track T1 of the M4 plan (ADR-0035, ADR-0036, both proposed): the Rust side of the channel
+between the extension and the desktop. The desktop endpoint (T2), the extension (T3, T4) and
+the CI changes (T5) follow.
+
+- **`mosaic_core::browser_channel`** (CRYPTO_SPEC §15, labels `browser/auth`,
+  `browser/handshake`, `browser/session`, `browser/frame`): `PairingKey`, `Role`,
+  `ChannelSession`, `new_pairing_id`, `new_channel_nonce`. PSK handshake with mutual HMAC
+  proofs (desktop first) and per-direction XChaCha20-Poly1305 frames with strict sequence
+  numbers; no new primitive and no new crate (`hmac`, `hkdf`, `sha2`, `chacha20poly1305`,
+  `subtle`, `zeroize`, `getrandom` were all in §2). The golden vector's HKDF and HMAC values
+  come from a Python standard-library script whose source is in the test's doc comment; the
+  two sealed frames are pinned from this code.
+- **`crates/origin` (`mosaic-origin`)**: `PageOrigin::parse` (WHATWG via `url`, canonical
+  origin strings only), `saved_origin`, `registrable_domain` (`psl`), `fill_allowed`
+  (exact origin; eTLD+1 per URL; HTTP rules), `idn_unicode`, `lookalike_of`. New dependency:
+  `psl =2.1.246` (MIT/Apache-2.0, `cargo deny` passes without changes to `deny.toml`);
+  `url` and `idna` are used directly (already in the tree).
+- **`crates/native-messaging` (`mosaic-native-messaging`, binary `mosaic-native-host`)**:
+  endpoint derivation and the transports (the ssh-agent rules, copied; Unix client checks),
+  framing (256 KiB cap), the strict envelope, ops and error codes with typed bodies,
+  pre-auth messages, `client_handshake` and `server_handshake` (the desktop's side, ready for
+  T2), the relay, the caller check, `install` and `uninstall`, and
+  `fixtures/protocol.json`. The fuzz crate has the targets `envelope`, `preauth_message` and
+  `channel_open`. Workspace features added: tokio `io-std`, serde_json `raw_value`.
+- **Dev key**: `apps/extension/keys/dev-public-key.b64` (base64 SPKI of an RSA-2048 key; the
+  private key was discarded); `DEV_CHROMIUM_EXTENSION_ID = lccdgfpfnmegbdgooanfejdbahhokikm`,
+  recomputed by a test.
+- **Docs**: `docs/NATIVE_MESSAGING.md` (normative protocol), CRYPTO_SPEC §15 and the §2 and §4
+  rows, ADR-0035 and ADR-0036, THREAT_MODEL §4.4 and R38, R39, R40, R42, R45, CORE_API.
+- **Tests**: `browser_channel` 12, `mosaic-origin` 21 (with proptest), `mosaic-native-messaging`
+  81 unit tests plus 5 that run the real host binary against an in-test desktop. The Unix
+  transport tests (permissions, owners, stale sockets, the client checks) are written and
+  type-check for `x86_64-unknown-linux-gnu`, but run only on Linux and macOS (CI).
+- **Open for the review of T1**: the crypto-reviewer pass on the handshake, key schedule,
+  frame AAD, the PSK transfer at pairing and the endpoint trust (ADR-0036 stays proposed
+  until then). Not verified here: the Windows registry install (`reg.exe`) was not run
+  against the real registry.
 
 ## Open risks / findings
 

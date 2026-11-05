@@ -118,13 +118,19 @@ Mitigations name the milestone in which they are implemented and tested.
 
 ### 4.4 Native messaging channel
 
+The extension reaches the desktop through the host binary `mosaic-native-host`
+and a local endpoint (ADR-0036, `docs/NATIVE_MESSAGING.md`, CRYPTO_SPEC §15).
+
 | STRIDE | Threat | Mitigation |
 |---|---|---|
-| S | Another extension launches our host | `allowed_origins` lists only our extension IDs. The host checks the caller origin argument, M4 |
-| S | Local malware talks to the desktop app directly (P5) | authenticated pairing (user confirms a code on first connection). Messages are authenticated with the pairing key, M4 |
-| T | Frames altered in transit | authenticated framing, strict length limits, M4 |
-| I | Vault data leaked over the channel | the request/response API returns only the requested credential after user approval. There is no list or dump API, M4 |
-| D | Oversized frames | 1 MiB frame cap (Chrome's host→extension limit), fuzzed decoder, M4 |
+| S | Another extension launches our host (P3) | the host manifest lists only our extension IDs (`allowed_origins`, `allowed_extensions`); the host checks the caller argument against the pinned IDs (store IDs; the dev ID in debug builds only, R39) and exits with code 2 without connecting otherwise, M4 |
+| S | Local malware talks to the desktop directly (P5), or an impostor answers the host | pairing is approved once in the desktop (the user compares a code and clicks Allow after a 1 s guard; only while unlocked; one request at a time; at most 3 a minute; a block after 3 denials). Every connection runs a mutual PSK handshake with HMAC proofs over both nonces, desktop first, and then AEAD frames with strict sequence numbers (CRYPTO_SPEC §15). Same-user malware that reads `K_pair` is not stopped (R38, R45), M4 |
+| S | Another OS user or sandboxed process reaches the endpoint, or squats it | Unix: the socket is in a `0700` directory, the socket is `0600`, the server checks the peer UID and the client checks the directory's mode and owner and the peer's UID. Windows: a random pipe name per desktop start, created as first instance with remote clients rejected, published in a file in the user's profile that other accounts cannot read (R42), M4 |
+| T | Frames altered, replayed, reordered or reflected in transit | XChaCha20-Poly1305 per direction, the direction and pairing ID in the AAD, the header authenticated, strict sequence numbers, a closed connection on the first failure, M4 |
+| I | Vault data leaked over the channel | there is no list or dump API: `search` returns at most 20 summaries without secrets; a secret leaves the desktop only for a fill of a matching item (one credential), as a generated value, or through a desktop-side clipboard copy; the host forwards an allowlist of ops and never parses bodies, M4 |
+| I | The channel's secrets in memory | `K_pair` and the session keys sit in zeroizing types in the host and the desktop; the host's JSON parsing leaves residue (R40), M4 |
+| D | Oversized or malformed frames, floods | 256 KiB frame cap on both links, checked before the payload is read; length 0 or a truncated frame is an error; the host exits with code 3 on a malformed browser frame; at most 8 connections, 4 requests in flight per connection and 16 pairings; per-pairing rate limits in the desktop; decoders fuzzed (`crates/native-messaging/fuzz`), M4 |
+| E | The extension reaches commands it should not | the desktop serves only the ops of the protocol (`Op` allowlist, anything else is `invalidRequest`); unlock, lock, item reads, exports, imports and settings are not ops, M4 |
 
 ### 4.5 Sync server
 
@@ -211,6 +217,11 @@ Mitigations name the milestone in which they are implemented and tested.
 | R31 | Copies of a QR screenshot outside Mosaic: OS clipboard history, screenshot auto-save (Windows Snipping Tool), screenshot files, the web page itself. arboard decodes a clipboard image before Mosaic can apply its size limits, so a same-user process can place a huge image there and make a scan click use a lot of memory. The JPEG decoder (zune-jpeg) runs `unsafe` SIMD code on attacker-chosen bytes and a decoder panic aborts the app (`panic = "abort"`) | accepted, ADR-0031; the `scan_image` fuzz target is the mitigation, the decoder set is unchanged. Mosaic clears the clipboard after a successful read and tells the user where copies may remain |
 | R32 | A crafted image the user chooses can keep one CPU core busy (QR finder-pattern matching is quadratic, and `rqrr`'s grouping step cloned the whole image per attempt, which ran for hours on a screen full of fake finder squares). The vendored `rqrr` patch caps it at 64 finder patterns and 256 grouping attempts per image; the pixel caps bound the rest, nothing else is blocked and a second scan answers `busy` | mitigated, ADR-0031 (`vendor/rqrr/MOSAIC_PATCH.md`); the fuzz targets run with a 10 s timeout |
 | R33 | Tauri 2.12's IPC origin check compares only the scheme and host of the page, so `http://tauri.localhost:<port>/` and `https://tauri.localhost/` (a server any local process can run on the loopback interface) count as the app itself and get every command `main` is granted; only the navigation guard keeps such a page out of Mosaic's window. tauri-runtime-wry lets a navigation through when its URL does not parse | mitigated by the navigation guard (red team 2026-11-04); report upstream and re-check on each Tauri update |
+| R38 | Same-user malware (P5) can rewrite the per-user host manifest or registry key, replace the host binary, read `K_pair` (the extension's IndexedDB, the desktop's `browser-pairings.json`) and then request fills for any origin while the vault is unlocked, or relay the channel. Pairing and the handshake stop other OS users, sandboxed apps and processes that do not read profile files, not P5 | accepted (ADR-0036); M9: installer-owned manifests and a signed host |
+| R39 | Debug hosts accept the dev Chromium ID, which any unpacked extension that carries our public `key` obtains. Release hosts accept only store IDs, but a temporary Firefox add-on with our gecko ID reaches the host. Both need developer mode and a new pairing | accepted |
+| R40 | Fill credentials, OTP codes, generated passwords and captured passwords pass through the background heap, the isolated world, `storage.session` (memory) and, for fills, the page DOM. JavaScript cannot zeroize them. The host's serde parsing leaves unwiped residue | accepted, like R19 |
+| R42 | Windows: there is no peer process identity without unsafe code, and the default pipe DACL lets other accounts open read-only handles (they cannot send). A pipe name left stale by a desktop crash can be squatted until the next start, which lets an impostor answer a pairing request; the user then never sees a desktop dialog | accepted; M9: an explicit SDDL and server PID checks |
+| R45 | The pairing code correlates a request with the user's click; it is not a cryptographic short authentication string. The PSK handshake is Mosaic-specific and has no forward secrecy against a later theft of `K_pair` (channel traffic is not observable without P5) | accepted (ADR-0036, crypto review) |
 
 ## 6. Review log
 

@@ -2571,3 +2571,119 @@ an identity and an SSH key item. Attachments for documents are a later change; t
 form carries a hint to save first. THREAT_MODEL needs no new risk: the private key text is
 in zeroizing memory from the IPC body to the model, parsed keys are dropped before the
 parse function returns, and nothing secret reaches an error or `Debug` output.
+
+## ADR-0035: Browser extension architecture, gestures and UI surface
+
+- Status: proposed (amended in T4 of M4)
+- Date: 2026-11-05
+- Decided by: the principal engineer, from brief §2 and §4 (the most conservative options)
+- Milestone: M4 (browser extension)
+
+### Context
+Brief §2 fixes Manifest V3, TypeScript, React for the popup, and native messaging to the
+desktop app, which holds the unlocked vault. Brief §4 (fill rules) is the highest-risk area
+of the product. Chrome, Edge and Firefox must come from one codebase.
+
+### Decision
+1. **One tree, two targets.** `apps/extension` builds `chromium` (Chrome and Edge) and
+   `firefox` from one source tree with Vite 8: three plain builds (popup and background as
+   ES modules; the content and capture scripts as IIFEs), the manifest generated per target.
+   No CRXJS and no `webextension-polyfill`: the code uses `chrome.*` with promises, which
+   Firefox MV3 supports. `@types/chrome` is the only new dev dependency.
+2. **No inline UI in M4.** The extension never inserts DOM into a page. Trusted gestures are
+   a click in the popup, the `fill-login` command (Ctrl+Shift+L, Command+Shift+L on macOS)
+   and the context-menu items "Fill login" and "Generate password". Brief §4.4 allows
+   popup-only fill, and it removes the clickjacking surface.
+3. **Content scripts on demand.** They are injected with `activeTab` and `scripting` after a
+   gesture. Save capture is the only persistent script, and it is opt-in through
+   `optional_host_permissions`. Permissions are `activeTab`, `scripting`, `nativeMessaging`,
+   `contextMenus` and `storage`; a production manifest has no `host_permissions`.
+4. **The extension holds no vault, store or device ID** (ADR-0009 item 7 and ADR-0015 do not
+   apply until a standalone extension vault exists, which needs its own ADR). Unlock happens
+   only in the desktop app; the master password never enters the browser.
+5. **Storage.** The pairing lives in the extension IndexedDB (background only). Pending
+   saves and fill state live in `storage.session` (memory). Never `storage.local` or
+   `storage.sync`.
+6. **The popup sees no vault secrets.** Copying happens in desktop Rust; OTP codes are filled
+   or copied, never displayed; generated values are shown. The primary action uses the static
+   holo gradient (ADR-0027).
+7. **Mockup deviations.** E01 has no master-password field. E04 moves the title and the vault
+   choice to the desktop dialog. E05 has no "Fill anyway" for a non-matching origin. E07 shows
+   no code and has no per-site toggle (the OTP is filled in the same gesture when the form
+   has an OTP field).
+
+### Alternatives considered
+- An inline icon in a closed shadow root with occlusion checks: rejected for M4 as the
+  largest attack surface; revisit with its own red-team pass.
+- Unlock in the popup: the master password would enter browser memory; brief §2 places the
+  unlocked vault in the desktop app.
+- `webextension-polyfill`: unnecessary in MV3.
+- CRXJS: an extra build dependency.
+
+### Consequences
+A fill needs one click or a shortcut. Users keep the desktop app running and unlocked.
+End-to-end builds need host permissions, so `activeTab` gating is checked manually and by a
+manifest test. Firefox has no automated end-to-end test. T1 (the channel) is in
+`crates/native-messaging` and `mosaic_core::browser_channel`; the extension itself follows in
+T3 and T4.
+
+## ADR-0036: Native messaging host, local endpoint and pairing
+
+- Status: proposed
+- Date: 2026-11-05
+- Decided by: the principal engineer, from brief §4.7 (the most conservative options); needs the crypto review before it is accepted
+- Milestone: M4 (browser extension)
+
+### Context
+Brief §4.7 requires a channel authenticated and bound to the installed desktop app.
+THREAT_MODEL §4.4 asks for a user-confirmed pairing and authenticated messages.
+CRYPTO_SPEC §2 has no key-agreement primitive outside HPKE, and adding one (or a protocol
+that needs one) is a crypto decision of its own.
+
+### Decision
+1. **A separate small binary.** `mosaic-native-host` (crate `mosaic-native-messaging`, whose
+   library the desktop shares) relays the browser stdio to the running desktop app. It
+   never launches the desktop and never holds vault data.
+2. **The host checks its caller.** The argument the browser passes is compared with the
+   pinned IDs: the Chrome Web Store and Edge Add-ons IDs (owner), the Firefox add-on ID, and
+   the dev ID only in debug builds. Anything else exits with code 2 without connecting.
+3. **Endpoints.** Unix: a socket in a `0700` directory with peer-UID checks on both sides
+   (the `mosaic-ssh-agent` transport rules, copied; M9 extracts one shared crate). Windows:
+   a random pipe name per desktop start, created as first instance with remote clients
+   rejected, published in a discovery file under `%LOCALAPPDATA%` that other accounts
+   cannot read (they cannot squat the name beforehand).
+4. **Pairing is approved in the desktop.** The desktop shows a code that the popup also
+   shows; Allow has a 1 s guard; one pending request at a time (a second cancels both); at
+   most 3 requests a minute; a 10-minute block after 3 denials; only while unlocked. The
+   desktop then draws `pairing_id` and `K_pair` and returns them over the endpoint.
+5. **Every connection runs a PSK handshake** (CRYPTO_SPEC §15): mutual HMAC proofs over both
+   nonces, the desktop first, then HKDF-derived per-direction XChaCha20-Poly1305 keys with
+   strict sequence numbers. The nonce of a frame is derived from its sequence number
+   (an exception to the random nonces of §7.2, argued in §15: one key per connection, one
+   number once per key).
+6. **`K_pair` is stored in the clear** in `browser-pairings.json` (mode 0600 on Unix) and in
+   the extension IndexedDB. Both copies are equally exposed to the same user; a stolen key
+   is useless while the vault is locked.
+7. **Dev builds register the host with `mosaic-native-host install`**, which writes the host
+   manifests (and, on Windows, `HKCU` registry keys through `reg.exe`). The M9 installer
+   takes over.
+
+### Alternatives considered
+- The desktop binary as the host: loads the webview stack for every browser connection and
+  conflicts with the single-instance lock.
+- An X25519 short authentication string through `hpke`: needs a commitment scheme, which is
+  protocol design outside the spec, and gains nothing against the only attacker who can sit
+  between host and desktop (P5).
+- Noise through `snow`: a new crypto dependency.
+- TLS-PSK: `rustls` has no external PSK.
+- Keystore storage for `K_pair`: no gain on Windows and the key is lost at logout on Linux.
+- Confirming the pairing in the extension (mockup D06): a process that claims to be the
+  extension could confirm itself.
+
+### Consequences
+The crypto review is required before this ADR is accepted. New residual risks R38 (same-user
+malware), R39 (the dev ID), R42 (Windows endpoint identity) and R45 (no forward secrecy, the
+code is not a SAS) are recorded. The owner supplies the store IDs and confirms the Firefox
+add-on ID. The installer, signing and the pipe SDDL come in M9. The host is built on
+`tokio` with `io-std`; `serde_json` gains `raw_value` so request bodies are relayed without
+being parsed.
