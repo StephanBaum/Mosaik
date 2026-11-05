@@ -1,0 +1,9 @@
+<!-- attempts: a login form in a sandboxed srcdoc frame (opaque origin) under a page with no fields. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Sandboxed srcdoc</title>
+<iframe id="sandboxed" sandbox="allow-scripts" width="400" height="200"></iframe>
+<script>
+  document.getElementById("sandboxed").srcdoc =
+    '<form><input id="user" name="username" type="text"><input id="pass" name="password" type="password"></form>';
+</script>

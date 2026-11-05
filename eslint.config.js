@@ -19,6 +19,10 @@ export default tseslint.config(
       "apps/desktop/src-tauri/gen/**",
       "apps/desktop/test-results/**",
       "apps/desktop/playwright-report/**",
+      "apps/extension/test-results/**",
+      "apps/extension/playwright-report/**",
+      // Hostile pages are browser-side test fixtures, not app code.
+      "apps/extension/test/hostile-site/pages/**",
     ],
   },
   js.configs.recommended,
@@ -48,5 +52,5 @@ export default tseslint.config(
       "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }],
     },
   },
-  { files: ["**/*.js"], ...tseslint.configs.disableTypeChecked },
+  { files: ["**/*.{js,mjs}"], ...tseslint.configs.disableTypeChecked },
 );

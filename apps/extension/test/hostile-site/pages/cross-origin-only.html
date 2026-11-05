@@ -1,0 +1,9 @@
+<!-- attempts: a page with no fields of its own that shows a login form from another origin, so the
+     other origin's frame is the only frame with fields. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Cross-origin only</title>
+<iframe id="evil" width="400" height="200"></iframe>
+<script>
+  document.getElementById("evil").src = `${location.protocol}//evil.test:${location.port}/login.html`;
+</script>

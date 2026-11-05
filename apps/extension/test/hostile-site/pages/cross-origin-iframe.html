@@ -1,0 +1,13 @@
+<!-- attempts: embed a login form from another origin next to the real one, hoping the fill goes to it. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Cross-origin iframe</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<iframe id="evil" width="400" height="200"></iframe>
+<script>
+  document.getElementById("evil").src = `${location.protocol}//evil.test:${location.port}/login.html`;
+</script>

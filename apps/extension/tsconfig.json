@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["chrome", "node", "vite/client"]
+  },
+  "include": [
+    "src",
+    "scripts/*.ts",
+    "e2e",
+    "test/**/*.ts",
+    "test/**/*.d.mts",
+    "vite.config.ts",
+    "vite.content.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
+}

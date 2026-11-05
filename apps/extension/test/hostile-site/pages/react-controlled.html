@@ -1,0 +1,51 @@
+<!-- attempts: none. A controlled form that learns a value only when an input event finds that its
+     value tracker (React's, emulated here) has not seen it, as React does. The fill must reach it. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>React-style controlled inputs</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <button id="submit" type="submit" disabled>Sign in</button>
+</form>
+<script>
+  const state = { user: "", pass: "" };
+  window.__state = { changes: 0, userLength: 0, passLength: 0, submitEnabled: false };
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+
+  function render() {
+    // Controlled: the DOM always shows the state, written through the tracked setter.
+    for (const key of ["user", "pass"]) {
+      const el = document.getElementById(key);
+      if (descriptor.get.call(el) !== state[key]) el.value = state[key];
+    }
+    const button = document.getElementById("submit");
+    button.disabled = !(state.user && state.pass);
+    window.__state = {
+      changes: window.__state.changes + 1,
+      userLength: state.user.length,
+      passLength: state.pass.length,
+      submitEnabled: !button.disabled,
+    };
+  }
+
+  function track(el, key) {
+    let tracked = "";
+    Object.defineProperty(el, "value", {
+      configurable: true,
+      get() { return descriptor.get.call(this); },
+      set(next) { tracked = "" + next; descriptor.set.call(this, next); },
+    });
+    el.addEventListener("input", () => {
+      const actual = descriptor.get.call(el);
+      if (actual !== tracked) {   // only a change the tracker has not seen becomes onChange
+        tracked = actual;
+        state[key] = actual;
+        render();
+      }
+    });
+  }
+  track(document.getElementById("user"), "user");
+  track(document.getElementById("pass"), "pass");
+</script>

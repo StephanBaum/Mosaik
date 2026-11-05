@@ -1,0 +1,9 @@
+<!-- The B layer of nested-a-b-a.html: frames the login form of the origin named in ?inner=. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Nested B</title>
+<iframe id="a" width="400" height="200"></iframe>
+<script>
+  const inner = new URLSearchParams(location.search).get("inner");
+  document.getElementById("a").src = `${inner}/login.html`;
+</script>

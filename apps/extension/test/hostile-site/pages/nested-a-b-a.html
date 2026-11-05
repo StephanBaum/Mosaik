@@ -1,0 +1,10 @@
+<!-- attempts: frame a page of another origin (B) that frames our own login form again (A inside B
+     inside A), so the innermost frame has our origin but a hostile ancestor. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Nested A-B-A</title>
+<iframe id="b" width="500" height="300"></iframe>
+<script>
+  const inner = encodeURIComponent(location.origin);
+  document.getElementById("b").src = `${location.protocol}//evil.test:${location.port}/nested-b.html?inner=${inner}`;
+</script>

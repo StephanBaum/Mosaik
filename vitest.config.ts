@@ -12,6 +12,7 @@ export default defineConfig({
         },
       },
       "apps/desktop/vitest.config.ts",
+      "apps/extension/vitest.config.ts",
     ],
   },
 });

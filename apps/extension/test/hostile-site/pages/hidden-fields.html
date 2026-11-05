@@ -1,0 +1,30 @@
+<!-- attempts: harvest a fill through fields the user cannot see: opacity 0, off screen, zero size,
+     1 px, clipped away, display none, visibility hidden, and one under a nearly invisible parent.
+     The visible username and password at the end are the real form. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Hidden fields</title>
+<script src="/_leaks.js"></script>
+<style>
+  .row { margin: 4px 0; }
+  #decoy-clip { clip-path: inset(100%); }
+  #decoy-offscreen { position: absolute; left: -9999px; top: 0; }
+  #decoy-zero { width: 0; height: 0; padding: 0; border: 0; }
+  #decoy-tiny { width: 1px; height: 1px; padding: 0; border: 0; }
+  #decoy-opacity { opacity: 0; }
+  #decoy-none { display: none; }
+  #decoy-visibility { visibility: hidden; }
+  #ghost { opacity: 0.05; }
+</style>
+<form id="login" onsubmit="return false">
+  <input id="decoy-opacity" name="u0" type="password" autocomplete="current-password">
+  <input id="decoy-offscreen" name="u1" type="password" autocomplete="current-password">
+  <input id="decoy-zero" name="u2" type="password" autocomplete="current-password">
+  <input id="decoy-tiny" name="u3" type="password" autocomplete="current-password">
+  <input id="decoy-clip" name="u4" type="password" autocomplete="current-password">
+  <input id="decoy-none" name="u5" type="password" autocomplete="current-password">
+  <input id="decoy-visibility" name="u6" type="password" autocomplete="current-password">
+  <div id="ghost"><input id="decoy-parent" name="u7" type="password" autocomplete="current-password"></div>
+  <div class="row"><input id="user" name="username" type="text" autocomplete="username"></div>
+  <div class="row"><input id="pass" name="password" type="password" autocomplete="current-password"></div>
+</form>

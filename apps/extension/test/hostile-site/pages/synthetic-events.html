@@ -1,0 +1,31 @@
+<!-- attempts: press the shortcut and click the fields with synthetic (untrusted) events, open a
+     context menu with a synthetic contextmenu event, and send itself fill-shaped messages. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Synthetic events</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  function attack() {
+    const keys = { key: "L", code: "KeyL", ctrlKey: true, shiftKey: true, metaKey: true, bubbles: true, composed: true };
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      document.dispatchEvent(new KeyboardEvent(type, keys));
+      document.getElementById("user").dispatchEvent(new KeyboardEvent(type, keys));
+    }
+    for (const id of ["user", "pass"]) {
+      const el = document.getElementById(id);
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2 }));
+      el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      el.dispatchEvent(new Event("focus"));
+    }
+    document.getElementById("login").dispatchEvent(new Event("submit", { cancelable: true }));
+    window.postMessage({ type: "fill", username: "x", password: "y", otp: null }, "*");
+    window.postMessage({ op: "fill", vaultId: "v1", itemId: "i1", confirmFrame: true }, "*");
+  }
+  attack();
+  setInterval(attack, 200);
+</script>

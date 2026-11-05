@@ -1,0 +1,14 @@
+<!-- attempts: cover the real fields with a transparent full-page layer (clickjacking style), so the
+     user's click lands on the page and the fields are not what the user sees. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Overlay occlusion</title>
+<script src="/_leaks.js"></script>
+<style>
+  #overlay { position: fixed; inset: 0; background: transparent; z-index: 99999; }
+</style>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<div id="overlay"></div>

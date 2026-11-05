@@ -1,0 +1,10 @@
+<!-- attempts: change the form between the probe and the fill (the test does this while the fill is
+     paused): turn the password field into a text field and inject a transparent password field. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Type swap and late inject</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
