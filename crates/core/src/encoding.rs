@@ -86,9 +86,18 @@ pub(crate) mod label {
     /// HKDF info of the settings MAC key (§11.1).
     pub(crate) const SETTINGS_MAC: Label = Label::new("settings-mac");
 
+    /// HKDF info of the browser channel's authentication key (§15).
+    pub(crate) const BROWSER_AUTH: Label = Label::new("browser/auth");
+    /// Prefix of the browser channel handshake transcript (§15).
+    pub(crate) const BROWSER_HANDSHAKE: Label = Label::new("browser/handshake");
+    /// HKDF info of the browser channel's session keys (§15).
+    pub(crate) const BROWSER_SESSION: Label = Label::new("browser/session");
+    /// AAD of a browser channel frame (§15).
+    pub(crate) const BROWSER_FRAME: Label = Label::new("browser/frame");
+
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 18] = [
+    pub(crate) const ALL: [Label; 22] = [
         SECRET_KEY,
         ROOT,
         KEK,
@@ -107,6 +116,10 @@ pub(crate) mod label {
         WRAP_HW_VAULT,
         WRAP_VAULT_UNDER_TK,
         SETTINGS_MAC,
+        BROWSER_AUTH,
+        BROWSER_HANDSHAKE,
+        BROWSER_SESSION,
+        BROWSER_FRAME,
     ];
 }
 

@@ -1,0 +1,24 @@
+[package]
+name = "mosaic-origin"
+description = "Mosaic origin matching: page-origin parsing, exact-origin and eTLD+1 fill rules, IDN and lookalike checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mosaic-core = { path = "../core" }
+# Public suffix list compiled in, for opt-in eTLD+1 matching (ADR-0037).
+psl.workspace = true
+# WHATWG URL parsing, identical to the browser's origin rules.
+url.workspace = true
+# IDNA to-Unicode for the IDN warning.
+idna.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

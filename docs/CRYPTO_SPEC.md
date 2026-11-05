@@ -39,6 +39,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Passkeys | ECDSA P-256 (ES256); Ed25519 (EdDSA) | FIPS 186-5, RFC 8032, WebAuthn L3 | `p256`, `ed25519-dalek` |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
+| Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
 | Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no `rand` / `rand_core`, ADR-0011) |
 | Constant-time compare | — | — | `subtle` |
@@ -101,6 +102,9 @@ Interoperability only (these read or serve third-party formats and never protect
 | `W_hw` (§7.4) | 256 bit | never stored | until `TK` is wrapped or unwrapped |
 | Hardware-vault key `TK` | 256 bit | wrapped per security key (§7.4) | while the hardware-protected vault is open, at most 5 minutes |
 | Settings MAC key `K_settings` (§11.1) | 256 bit | never stored | while unlocked |
+| Browser pairing key `K_pair` (§15) | 256 bit | the desktop's `browser-pairings.json` and the extension's IndexedDB; in host and desktop memory while used | while a browser is paired, until it is disconnected |
+| Browser channel auth key `K_auth` (§15) | 256 bit | never stored | during the handshake |
+| Browser channel session keys `K_h2d`, `K_d2h` (§15) | 2 x 256 bit | never stored | while the connection is open |
 
 Rules for every secret type in code:
 
@@ -110,6 +114,12 @@ Rules for every secret type in code:
 - Never logged, never formatted into error messages, never in panic payloads.
   Error types carry no secret-derived data.
 - Comparisons use `subtle::ConstantTimeEq`.
+- One exception to "no `Serialize`": the browser channel's wire wrapper
+  `HexKey` in `crates/native-messaging` (§15) serializes `K_pair` as 64 hex
+  digits, because the key must travel in the `pair` response and in the stored
+  pairing of `hello`. It wraps `PairingKey` (which itself has no `Serialize`),
+  prints `[REDACTED]` in `Debug`, builds its text in zeroizing memory and is
+  used for those two bodies only. `PairingKey` implements `ConstantTimeEq`.
 - Release builds use `panic = "abort"`.
 - Swapping memory to disk is a residual risk; `mlock` would need `unsafe` and
   is deferred (ADR-0005).
@@ -893,3 +903,102 @@ size buckets), tags, vault names, or attachment names.
 - Golden-file tests for every serialized format, so format changes are visible
   in review.
 - Fuzz targets for every decoder (§10, plus item and import parsers).
+
+## 15. Browser extension channel (ADR-0036)
+
+The browser extension talks to the desktop app through a native messaging host
+(`crates/native-messaging`, `docs/NATIVE_MESSAGING.md`) that relays to a local
+endpoint of the running desktop. This section is the cryptography of that
+host-to-desktop link. The code is `mosaic_core::browser_channel`. The
+sync server never sees any of it (§12 is unchanged).
+
+**No key agreement.** The desktop draws a pairing and sends it in the clear
+over the OS-protected endpoint after the user approved a pairing request in
+the desktop app. The endpoint's OS access control (a Unix socket in a `0700`
+directory with a peer-UID check, or a randomly named pipe published in a file
+only the user can read) and the user's approval authenticate the pairing,
+not any cryptographic exchange. A program that is not the user's cannot reach
+the endpoint; a program that is (malware running as the user, P5) can also
+read `K_pair` where it is stored and is not stopped by this construction
+(THREAT_MODEL R38, R42, R45). Nothing here invents a primitive: HKDF-SHA-256,
+HMAC-SHA-256 and XChaCha20-Poly1305 are used as in §2.
+
+**Pairing.** At approval the desktop draws `pairing_id = random(16)` and
+`K_pair = random(32)` and stores both (`K_pair` as in §4). The extension
+stores them too. Up to 16 pairings exist. Removing a pairing on either side
+makes the next handshake fail.
+
+**Labels** (§3): `browser/auth`, `browser/handshake`, `browser/session`,
+`browser/frame`.
+
+**Handshake** (once per connection; `nonce_h = random(32)` by the host,
+`nonce_d = random(32)` by the desktop):
+
+```
+K_auth  = HKDF(K_pair, salt = pairing_id, ctx("browser/auth"), 32)
+T       = ctx("browser/handshake") || 0x00 || pairing_id || nonce_h || nonce_d
+proof_d = HMAC-SHA-256(K_auth, T || 0x02)         the desktop proves first
+proof_h = HMAC-SHA-256(K_auth, T || 0x01)
+okm     = HKDF(K_pair, salt = pairing_id || nonce_h || nonce_d, ctx("browser/session"), 64)
+K_h2d = okm[0..32]      K_d2h = okm[32..64]
+```
+
+Message order: host `hello {pairing_id, nonce_h}`, desktop `challenge
+{nonce_d, proof_d}`, host `finish {proof_h}`; the desktop's first AEAD frame
+is the state event. The host verifies `proof_d` before it sends `proof_h`.
+Proofs, and the host's check whether a `hello` carries the pairing it already
+holds, are compared with `subtle`. Any failure closes the connection. The
+desktop answers an unknown `pairing_id` (at `hello`) and a wrong `proof_h`
+(after `finish`) with the same message, `refused notPaired`, but not at the
+same step: a dummy challenge for an unknown ID would make a host whose
+pairing was removed on the desktop fail on `proof_d`, and the host learns
+that the pairing is gone only from `notPaired`. The step tells a caller only
+whether a 128-bit random `pairing_id` exists, which nobody can guess. The
+roles are the last byte of the HMAC message
+(`0x01` host, `0x02` desktop), so neither proof can be replayed as the other.
+Both nonces are fresh per connection, so a recorded `hello` and `finish`
+fail against a new `challenge`.
+
+**Frames** (after the handshake, both directions):
+
+```
+frame = header || ct
+header = 0x01 (version) || 0x01 (XChaCha20-Poly1305) || seq:u64 (big-endian)
+ct     = XChaCha20-Poly1305(K_dir, nonce = 0^16 || seq:u64 (big-endian), plaintext,
+                            AAD = header || aad("browser/frame", dir:u8, pairing_id))
+```
+
+`dir` is `0x01` host to desktop (key `K_h2d`) and `0x02` desktop to host
+(key `K_d2h`). Sequence numbers start at 0 in each direction. The receiver
+requires exactly the next number, so a replayed, dropped, reordered or
+reflected frame fails. A frame that fails to open **poisons** the session:
+every later `open` and `seal` fails with `Decryption`, so a caller that
+ignores the error cannot go on using a connection that was tampered with
+(the caller closes it anyway). The nonce is derived from the sequence number
+instead of drawn at random (a deliberate exception to §7.2's "fresh random
+nonce", ADR-0036): each key is used for one connection only, because it
+depends on both connection nonces, and a sequence number is used at most
+once per key. A sender whose sequence number would reach `u64::MAX` stops
+(`SizeLimit`); no frame for that number exists, so a receiver at it can only
+reject (`Decryption`). Every handshake or frame failure on the receiving side
+is the one error `Decryption`.
+
+**Randomness.** `pairing_id`, `K_pair`, both nonces, the Windows pipe name and
+the pairing code all come from `mosaic_core`'s `random(n)` (§3, §13); the
+native messaging crate has no CSPRNG of its own.
+
+**Limits.** A frame is at most 262144 bytes on both links (the plaintext leaves
+26 bytes for header and tag). The desktop closes an idle connection after
+10 minutes.
+
+**Known gaps.** No forward secrecy against a later theft of `K_pair` (traffic
+is observable only by P5, who can read `K_pair` anyway), and the pairing code
+shown at approval correlates the request with the user's click; it is not a
+short authentication string (THREAT_MODEL R45).
+
+**Tests.** A golden vector with fixed `K_pair`, `pairing_id` and nonces
+checks `K_auth`, both proofs and both session keys against a Python
+standard-library script (its source is in the test's doc comment) and pins one
+sealed frame per direction. Tampering with the header, sequence number,
+ciphertext or direction fails; out-of-order frames and the wrong role's key
+fail; `Debug` is redacted. The decoders are fuzzed (`crates/native-messaging/fuzz`).
