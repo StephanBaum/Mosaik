@@ -414,14 +414,33 @@ fn read_capped(path: &Path) -> Option<Vec<u8>> {
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
+    // A leftover temporary file could have other permissions or content:
+    // remove it, create the new one exclusively, and remove it again if
+    // anything fails.
+    match fs::remove_file(&tmp) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let written = write_tmp_then_rename(&tmp, path, bytes);
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_tmp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     {
-        let mut file = fs::File::create(&tmp)?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }
     // Replaces an existing file on every desktop OS (on Windows through
     // `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`).
-    fs::rename(&tmp, path)
+    fs::rename(tmp, path)
 }
 
 #[cfg(test)]

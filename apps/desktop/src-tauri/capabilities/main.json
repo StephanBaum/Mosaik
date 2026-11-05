@@ -62,6 +62,10 @@
     "allow-import-cancel",
     "allow-ssh-agent-status",
     "allow-ssh-agent-set-enabled",
-    "allow-ssh-respond"
+    "allow-ssh-respond",
+    "allow-browser-status",
+    "allow-browser-remove-pairing",
+    "allow-browser-pairing-respond",
+    "allow-browser-save-respond"
   ]
 }

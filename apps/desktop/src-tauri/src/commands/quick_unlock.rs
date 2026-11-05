@@ -419,7 +419,7 @@ impl Backend {
         *slot = Slot::Unlocked(Box::new(session));
         self.settings_unlocked(slot);
         self.remember_account(slot, account_id, None);
-        self.start_ssh_if_enabled(slot);
+        self.after_unlock(slot);
         self.touch();
         self.reconcile_slot(slot);
         self.state_of(slot)

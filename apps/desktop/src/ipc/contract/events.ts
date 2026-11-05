@@ -1,4 +1,9 @@
 /** Events contract: mirrors `src-tauri/src/contract/events.rs`. */
+import type {
+  BrowserCloseReason,
+  BrowserPairingRequest,
+  BrowserSaveRequest,
+} from "./browser.ts";
 import type { ErrorCode, ItemId, UnixMillis, VaultId } from "./common.ts";
 import type { SshApprovalRequest, SshCloseReason, SshSignFailReason } from "./ssh.ts";
 
@@ -31,4 +36,12 @@ export type AppEvent =
   /** A hardware vault closed itself (timer or lock): drop revealed codes. */
   | { type: "hardwareVaultClosed"; vaultId: VaultId }
   /** Protection settings in the settings file failed their integrity check and were reset. */
-  | { type: "settingsReset" };
+  | { type: "settingsReset" }
+  /** A browser asks to be paired: show the code and wait for the user. */
+  | { type: "browserPairingRequested"; request: BrowserPairingRequest }
+  | { type: "browserPairingClosed"; requestId: string; reason: BrowserCloseReason }
+  /** The extension offers to save a login (the password stays in Rust). */
+  | { type: "browserSaveRequested"; request: BrowserSaveRequest }
+  | { type: "browserSaveClosed"; requestId: string; reason: BrowserCloseReason }
+  /** A browser was paired, removed, connected or disconnected. */
+  | { type: "browserPairingsChanged" };

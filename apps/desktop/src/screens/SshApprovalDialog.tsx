@@ -12,14 +12,13 @@ import { ErrorAlert } from "../components/ErrorAlert.tsx";
 import { HoloButton } from "../components/HoloButton.tsx";
 import { Icon } from "../components/icons.tsx";
 import { Kbd } from "../components/Kbd.tsx";
-import { useWindowFocused } from "../hooks/useWindowFocused.ts";
+import { ALLOW_GUARD_MS, useAllowGuard } from "../hooks/useAllowGuard.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import type { IpcError, SshApprovalRequest, SshDecision } from "../ipc/contract/index.ts";
 import { UserText } from "../components/UserText.tsx";
 
-export const ALLOW_GUARD_MS = 1000;
-const TICK_MS = 250;
+export { ALLOW_GUARD_MS };
 /** The countdown is announced to screen readers once, when this many seconds remain. */
 const ANNOUNCE_AT_SECONDS = 10;
 
@@ -31,32 +30,6 @@ export function SshApprovalDialog() {
   }
   // A new request restarts the dialog (and its guard).
   return <Prompt key={first.requestId} request={first} waiting={ssh.length - 1} />;
-}
-
-/** The clock and the guard: allow stays disabled for 1 s after opening and after a refocus. */
-function useAllowGuard(): { now: number; locked: boolean } {
-  const focused = useWindowFocused();
-  const [now, setNow] = useState(() => Date.now());
-  const [guardUntil, setGuardUntil] = useState(() => Date.now() + ALLOW_GUARD_MS);
-  const wasFocused = useRef(focused);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, TICK_MS);
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (focused && !wasFocused.current) {
-      setGuardUntil(Date.now() + ALLOW_GUARD_MS);
-    }
-    wasFocused.current = focused;
-  }, [focused]);
-
-  return { now, locked: !focused || now < guardUntil };
 }
 
 /** The countdown text for a live region: empty until `ANNOUNCE_AT_SECONDS`, then fixed. */

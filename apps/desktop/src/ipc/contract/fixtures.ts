@@ -37,6 +37,13 @@ export interface EnumFixtures {
   sshSignFailReason: string[];
   sshDecision: string[];
   sshCloseReason: string[];
+  browserEndpointState: string[];
+  browserRegistryState: string[];
+  browserFamily: string[];
+  browserHint: string[];
+  pairingDecision: string[];
+  browserCloseReason: string[];
+  browserSaveKind: string[];
   lockReason: string[];
   syncStatus: string[];
   vaultProtection: string[];

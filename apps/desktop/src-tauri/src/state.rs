@@ -17,6 +17,7 @@ use tauri::ipc::Channel;
 
 use crate::adapters::{Adapters, EventSink};
 use crate::autolock::Activity;
+use crate::browser::BrowserService;
 use crate::clipboard::{BackendFactory, ClipboardService, MemoryClipboard};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::{AppEvent, LockReason};
@@ -83,6 +84,10 @@ pub type Attention = Arc<dyn Fn() + Send + Sync>;
 
 /// Called after every lock (for example to hide the quick-search window).
 pub type LockHook = Box<dyn Fn(LockReason) + Send + Sync>;
+
+/// Called after every unlock, with the session still held (it must not take
+/// the session itself).
+pub type UnlockHook = Box<dyn Fn() + Send + Sync>;
 
 /// Files chosen for import, behind opaque tokens (`import_choose_file`).
 #[derive(Default)]
@@ -163,6 +168,10 @@ pub struct Backend {
     /// Asks the OS to flag the window (taskbar attention) when an SSH
     /// approval arrives. It never focuses the window.
     attention: Option<Attention>,
+    /// Brings the main window forward (the browser extension's `focus`).
+    focus: Option<Attention>,
+    /// The browser extension endpoint (M4).
+    pub browser: BrowserService,
     /// The OS event sources that started (auto-lock on sleep and screen lock).
     pub os_sources: Mutex<Vec<&'static str>>,
     /// The account whose Emergency Kit was not yet confirmed in this process
@@ -170,6 +179,7 @@ pub struct Backend {
     /// and by every lock). While it matches, the kit saves without the password.
     pub(crate) kit_pending: Mutex<Option<AccountId>>,
     lock_hooks: Mutex<Vec<LockHook>>,
+    unlock_hooks: Mutex<Vec<UnlockHook>>,
 }
 
 impl Backend {
@@ -211,9 +221,12 @@ impl Backend {
             preview_busy: AtomicBool::new(false),
             shortcut_status: Mutex::new(None),
             attention: None,
+            focus: None,
+            browser: BrowserService::new(),
             os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
+            unlock_hooks: Mutex::new(Vec::new()),
         }
     }
 
@@ -267,6 +280,35 @@ impl Backend {
     pub fn with_attention(mut self, hook: Attention) -> Self {
         self.attention = Some(hook);
         self
+    }
+
+    /// Brings the main window forward when the browser extension asks.
+    #[must_use]
+    pub fn with_focus(mut self, hook: Attention) -> Self {
+        self.focus = Some(hook);
+        self
+    }
+
+    /// Brings the main window forward, if the app set a way to.
+    pub fn focus_window(&self) {
+        if let Some(focus) = &self.focus {
+            focus();
+        }
+    }
+
+    /// Runs `hook` after every unlock.
+    pub fn on_unlock(&self, hook: UnlockHook) {
+        if let Ok(mut hooks) = self.unlock_hooks.lock() {
+            hooks.push(hook);
+        }
+    }
+
+    pub(crate) fn run_unlock_hooks(&self) {
+        if let Ok(hooks) = self.unlock_hooks.lock() {
+            for hook in hooks.iter() {
+                hook();
+            }
+        }
     }
 
     /// Runs `hook` after every lock.
@@ -335,13 +377,20 @@ impl Backend {
         self.stored.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
-    /// Sends events to the webview from background threads (the SSH agent).
+    /// Sends events to the webview from background threads (the SSH agent,
+    /// the browser endpoint).
     #[must_use]
     pub fn event_sink(&self) -> EventSink {
         let events = self.events.clone();
         let attention = self.attention.clone();
         Arc::new(move |event| {
-            if let (AppEvent::SshApprovalRequested { .. }, Some(attention)) = (&event, &attention) {
+            let wants_attention = matches!(
+                event,
+                AppEvent::SshApprovalRequested { .. }
+                    | AppEvent::BrowserPairingRequested { .. }
+                    | AppEvent::BrowserSaveRequested { .. }
+            );
+            if let (true, Some(attention)) = (wants_attention, &attention) {
                 attention();
             }
             events.emit(&event);

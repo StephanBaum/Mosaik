@@ -23,7 +23,9 @@
 //!   the user chooses;
 //! - [`quick_unlock`]: the platform half of quick unlock (Windows Hello,
 //!   Touch ID, security keys behind a trait);
-//! - [`adapters`]: the import and SSH agent services.
+//! - [`adapters`]: the import and SSH agent services;
+//! - [`browser`]: the endpoint for the browser extension's native messaging
+//!   host (M4, ADR-0035 to ADR-0037).
 //!
 //! CRYPTO_SPEC §11 floor: the auto-lock triggers (idle, sleep, screen lock)
 //! cannot all be disabled. `update_settings` refuses such a request with
@@ -35,6 +37,7 @@
 pub mod adapters;
 pub mod attachment_files;
 pub mod autolock;
+pub mod browser;
 pub mod clipboard;
 pub mod commands;
 pub mod contract;
@@ -140,6 +143,10 @@ pub fn run() -> tauri::Result<()> {
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
                 .with_screen_capture(Box::new(NativeScreenCapture::new(app.handle().clone())))
+                .with_focus({
+                    let handle = app.handle().clone();
+                    Arc::new(move || shortcut::focus_main(&handle))
+                })
                 .with_quick_unlock(QuickUnlockService::for_this_os());
             // Removes an expired or orphaned quick-unlock enrollment and its
             // platform key before the first unlock screen.
@@ -162,6 +169,8 @@ pub fn run() -> tauri::Result<()> {
                 TICK,
             ))));
             app.manage(state.clone());
+            // After the state exists: the endpoint reaches the vault through it.
+            state.backend().browser.start(&dir, state.downgrade());
 
             let status = shortcut::install(app.handle());
             if let Ok(mut slot) = guard(&state.backend().shortcut_status) {
@@ -189,6 +198,8 @@ pub fn run() -> tauri::Result<()> {
                 // Drop keys and decrypted items, and clear what Mosaic put on
                 // the clipboard, before the process ends.
                 state.backend().adapters.ssh.shutdown();
+                // Closes the sessions and, on Windows, deletes `endpoint.json`.
+                state.backend().browser.stop();
                 let _ = state.backend().lock(LockReason::Manual);
                 state.backend().clipboard.shutdown();
             }
@@ -197,6 +208,8 @@ pub fn run() -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod browser_tests;
 #[cfg(test)]
 mod flow_tests;
 #[cfg(test)]

@@ -4,6 +4,12 @@
  * Channel, and `MosaicIpc.subscribe` wraps it.
  */
 import type { AttachmentAdded, AttachmentRequest, AttachmentSaved } from "./attachments.ts";
+import type {
+  BrowserPairingRespondRequest,
+  BrowserRemovePairingRequest,
+  BrowserSaveRespondRequest,
+  BrowserStatus,
+} from "./browser.ts";
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
@@ -144,6 +150,11 @@ export interface Commands {
   ssh_agent_status: Command<null, SshAgentStatus>;
   ssh_agent_set_enabled: Command<SshSetEnabledRequest, SshAgentStatus>;
   ssh_respond: Command<SshRespondRequest, null>;
+  // Browser extension
+  browser_status: Command<null, BrowserStatus>;
+  browser_remove_pairing: Command<BrowserRemovePairingRequest, BrowserStatus>;
+  browser_pairing_respond: Command<BrowserPairingRespondRequest, null>;
+  browser_save_respond: Command<BrowserSaveRespondRequest, null>;
 }
 
 export type CommandName = keyof Commands;
@@ -218,6 +229,10 @@ const commandSet = {
   ssh_agent_status: true,
   ssh_agent_set_enabled: true,
   ssh_respond: true,
+  browser_status: true,
+  browser_remove_pairing: true,
+  browser_pairing_respond: true,
+  browser_save_respond: true,
 } as const satisfies Record<CommandName, true>;
 
 export const commandNames = Object.keys(commandSet) as CommandName[];

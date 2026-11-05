@@ -69,6 +69,12 @@ export const errors = {
     "Too many wrong answers. Mosaic locked. Unlock it with your master password to continue.",
   "error.sshAllowTooSoon":
     "That was too quick to read the request. Check the key and the program, then choose Allow again.",
+  "error.browserRequestExpired":
+    "That browser request has already ended. Ask again from the extension if you still need it.",
+  "error.browserAllowTooSoon":
+    "That was too quick to read the request. Check the details, then choose again.",
+  "error.browserPairingNotFound":
+    "That browser is no longer connected. Reopen Settings to see the current list.",
   "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
   "error.internal":
     "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",

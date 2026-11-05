@@ -24,6 +24,7 @@ import { format, GLOBAL_PALETTE } from "../platform/shortcuts.ts";
 import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
+import { BrowserSettings } from "./BrowserSettings.tsx";
 import { SshSettings } from "./SshSettings.tsx";
 
 const AUTO_LOCK = [1, 5, 10, 30, 60];
@@ -205,6 +206,16 @@ function KitSettings() {
   );
 }
 
+/** The groups for programs that use the vault: the SSH agent and browser extensions. */
+function Integrations({ onError }: { onError: (error: IpcError | null) => void }) {
+  return (
+    <>
+      <SshSettings onError={onError} />
+      <BrowserSettings onError={onError} />
+    </>
+  );
+}
+
 export function SettingsScreen() {
   const { t } = useI18n();
   const toast = useToast();
@@ -269,7 +280,7 @@ export function SettingsScreen() {
         }}
         onError={setError}
       />
-      <SshSettings onError={setError} />
+      <Integrations onError={setError} />
       <KitSettings />
       {pending !== null && (
         <ReauthDialog
