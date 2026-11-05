@@ -1485,11 +1485,9 @@ fake desktop in the e2e build; the real native host and desktop are not part of 
   also holds the two optional host patterns as host permissions, since a headless browser cannot
   click through the permission prompt. React and the test libraries are new dependencies of
   `apps/extension` (the plan named only `@types/chrome`).
-- **Found, not fixed (Rust, T5)**: the host relay times every forwarded request out after 15 s
-  (`REQUEST_TIMEOUT_SECS`), while `proposeSave` waits up to 300 s for the desktop dialog
-  (`SAVE_PROMPT_TIMEOUT_SECS` is defined and unused). The extension waits 305 s for
-  `proposeSave`, but until the relay gives that op its own timeout the popup reports `timeout`
-  after 15 s while the desktop dialog stays open. The `neverSave` list has no screen yet.
+- **Found and fixed**: the host relay timed every forwarded request out after 15 s, while
+  `proposeSave` waits up to 300 s for the desktop dialog. The relay now waits 302 s for
+  `proposeSave` (`request_timeout`), so the host answers before the popup's 305 s. The `neverSave` list has no screen yet.
 - **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` and
   `registerContentScripts` with `persistAcrossSessions` there are taken from the docs); the
   real native host and desktop end to end; `activeTab` gating on the production build; the

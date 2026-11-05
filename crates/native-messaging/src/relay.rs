@@ -40,14 +40,24 @@ use crate::ids::Caller;
 use crate::preauth::{ClientMessage, ServerMessage, is_pairing_code};
 use crate::protocol::{
     DesktopMessage, ErrorCode, Event, LockState, MAX_FRAME_BYTES, Op, PAIR_TIMEOUT_SECS,
-    PROTOCOL_VERSION, REQUEST_TIMEOUT_SECS, RequestEnvelope, error_json, ok_json, request_json,
-    to_zeroizing,
+    PROTOCOL_VERSION, REQUEST_TIMEOUT_SECS, RequestEnvelope, SAVE_PROMPT_TIMEOUT_SECS, error_json,
+    ok_json, request_json, to_zeroizing,
 };
 use crate::transport;
 
 /// Seconds a pairing request may wait for the user, with a little slack over
 /// the desktop's own expiry so its `pairingExpired` arrives first.
 const PAIR_WAIT: Duration = Duration::from_secs(PAIR_TIMEOUT_SECS + 5);
+
+/// How long the host waits for the desktop's answer to a forwarded request. `proposeSave`
+/// waits for the user in the desktop's save dialog (up to [`SAVE_PROMPT_TIMEOUT_SECS`]), so it
+/// gets that window plus a margin; the host still answers before the extension gives up.
+fn request_timeout(op: Op) -> Duration {
+    match op {
+        Op::ProposeSave => Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS + 2),
+        _ => Duration::from_secs(REQUEST_TIMEOUT_SECS),
+    }
+}
 
 /// Request IDs a connection remembers after their request timed out. A
 /// connection that would need more is closed.
@@ -469,7 +479,7 @@ impl<C: Connect> Host<C> {
         self.pending.insert(id, conn);
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            sleep(Duration::from_secs(REQUEST_TIMEOUT_SECS)).await;
+            sleep(request_timeout(op)).await;
             let _ = tx.send(Msg::Timeout { conn, id });
         });
         Ok(())

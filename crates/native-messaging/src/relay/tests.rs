@@ -817,3 +817,24 @@ fn a_connection_with_too_many_timed_out_ids_is_closed() {
         assert_eq!(read_request(&mut stream, &mut session).await["id"], 100);
     });
 }
+
+#[test]
+fn propose_save_waits_for_the_desktop_dialog_and_the_host_answers_first() {
+    // The desktop's save dialog stays open up to SAVE_PROMPT_TIMEOUT_SECS; the host must not
+    // time out before that, and must answer before the extension's 305 s wait ends.
+    let save = request_timeout(Op::ProposeSave);
+    assert!(save > Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS));
+    assert!(save < Duration::from_secs(305));
+    for op in [
+        Op::Status,
+        Op::Fill,
+        Op::Copy,
+        Op::CheckSave,
+        Op::ListForOrigin,
+    ] {
+        assert_eq!(
+            request_timeout(op),
+            Duration::from_secs(REQUEST_TIMEOUT_SECS)
+        );
+    }
+}

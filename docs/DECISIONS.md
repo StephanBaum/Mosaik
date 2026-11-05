@@ -2960,8 +2960,8 @@ feed the script, and a decision taken in the extension alone would write to the 
    history. "Not now" drops the pending save; "Never for this site" stores the origin in the
    extension's IndexedDB (`neverSave:<origin>`) and drops it.
 6. **Time.** The popup waits for the desktop's answer for up to 305 s (`SAVE_PROMPT_TIMEOUT`
-   plus a margin); the host's 15 s relay timeout for ordinary requests must not apply to
-   `proposeSave` (found in T4, to be closed in the native-messaging crate).
+   plus a margin); the host relay waits 302 s for `proposeSave` (`SAVE_PROMPT_TIMEOUT_SECS`
+   plus 2 s, so it answers before the popup gives up) and 15 s for every other request.
 
 ### Alternatives considered
 - Saving directly from the popup: a single decision in the extension would write to the vault.

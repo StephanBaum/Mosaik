@@ -324,7 +324,7 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 | `HANDSHAKE_STEP_TIMEOUT` | 5 s |
 | `REQUEST_TIMEOUT` | 15 s (the extension waits 20 s) |
 | `PAIR_TIMEOUT` | 120 s |
-| `SAVE_PROMPT_TIMEOUT` | 300 s |
+| `SAVE_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `proposeSave`, the extension 305 s) |
 | desktop idle close | 10 min |
 | extension port idle disconnect | 60 s with nothing in flight |
 | `MAX_CONNECTIONS` | 8 authenticated sessions (a ninth `hello` is refused `busy`). Connections that have not authenticated have their own 4 slots; a new one evicts the oldest, so idle connections cannot lock the host out. A session starts only while its pairing still exists, and ends (`notPaired`, then close) when it is removed |
