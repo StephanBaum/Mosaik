@@ -215,6 +215,15 @@ setup, tests and fuzzing):
   `TotpVaultKey`, `Kek::generate`, `Kek::expose_secret`,
   `VaultKey::wrap_under_tk`, `WrappedKey::{unwrap_totp_vault_key,
   unwrap_vault_key_under_tk}`.
+- **`browser_channel` module** (M4, additive; CRYPTO_SPEC §15, ADR-0036; used by
+  `mosaic-native-messaging` and the desktop's browser service): `PairingKey`
+  (`generate`, `from_bytes`, `expose_secret`, `proof`, `verify_proof`,
+  `session`; zeroizing, not `Clone`, redacted `Debug`), `Role` (`Host`,
+  `Desktop`), `ChannelSession` (`seal`, `open`; strict per-direction sequence
+  numbers, one `Decryption` error for every failure), `new_pairing_id`,
+  `new_channel_nonce`, and the constants `PAIRING_ID_LEN`, `PAIRING_KEY_LEN`,
+  `CHANNEL_NONCE_LEN`, `PROOF_LEN`, `FRAME_HEADER_LEN`. The caller never
+  supplies a nonce; the frame nonce is derived from the sequence number.
 - **Building blocks:** `encoding` (`ctx`, `CTX_PREFIX`, `pad`, `unpad`,
   `padded_len`, `PAD_BLOCK`, `PAD_MIN`; the AAD builder is crate-private),
   `kdf::{prepare_password, stretch, derive_keys}` with the intermediate

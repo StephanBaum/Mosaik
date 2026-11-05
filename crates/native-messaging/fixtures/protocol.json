@@ -1,0 +1,625 @@
+{
+  "errors": [
+    {
+      "code": "invalidRequest",
+      "message": {
+        "error": "invalidRequest",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "notPaired",
+      "message": {
+        "error": "notPaired",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "protocolVersion",
+      "message": {
+        "error": "protocolVersion",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "busy",
+      "message": {
+        "error": "busy",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "locked",
+      "message": {
+        "error": "locked",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "rateLimited",
+      "message": {
+        "error": "rateLimited",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "originMismatch",
+      "message": {
+        "error": "originMismatch",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "insecureOrigin",
+      "message": {
+        "error": "insecureOrigin",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "crossOriginFrame",
+      "message": {
+        "error": "crossOriginFrame",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "itemNotFound",
+      "message": {
+        "error": "itemNotFound",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "vaultUnavailable",
+      "message": {
+        "error": "vaultUnavailable",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "noOtp",
+      "message": {
+        "error": "noOtp",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "otpNotFillable",
+      "message": {
+        "error": "otpNotFillable",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "fieldEmpty",
+      "message": {
+        "error": "fieldEmpty",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "clipboardUnavailable",
+      "message": {
+        "error": "clipboardUnavailable",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "cancelled",
+      "message": {
+        "error": "cancelled",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "pairingDenied",
+      "message": {
+        "error": "pairingDenied",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "pairingExpired",
+      "message": {
+        "error": "pairingExpired",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "pairingConflict",
+      "message": {
+        "error": "pairingConflict",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "pairingBlocked",
+      "message": {
+        "error": "pairingBlocked",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "pairingLimit",
+      "message": {
+        "error": "pairingLimit",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "internal",
+      "message": {
+        "error": "internal",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "desktopNotRunning",
+      "message": {
+        "error": "desktopNotRunning",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "desktopNotAuthentic",
+      "message": {
+        "error": "desktopNotAuthentic",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "timeout",
+      "message": {
+        "error": "timeout",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "frameTooLarge",
+      "message": {
+        "error": "frameTooLarge",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    }
+  ],
+  "events": [
+    {
+      "message": {
+        "event": "state",
+        "state": "locked",
+        "v": 1
+      },
+      "name": "state"
+    },
+    {
+      "message": {
+        "event": "state",
+        "state": "unlocked",
+        "v": 1
+      },
+      "name": "state"
+    },
+    {
+      "message": {
+        "event": "unpaired",
+        "v": 1
+      },
+      "name": "unpaired"
+    },
+    {
+      "message": {
+        "event": "disconnected",
+        "v": 1
+      },
+      "name": "disconnected"
+    },
+    {
+      "message": {
+        "code": "4F7K2Q",
+        "event": "pairCode",
+        "expiresInSeconds": 120,
+        "requestId": 7,
+        "v": 1
+      },
+      "name": "pairCode"
+    }
+  ],
+  "requests": [
+    {
+      "message": {
+        "body": {
+          "hint": "chrome",
+          "pairing": {
+            "key": "2222222222222222222222222222222222222222222222222222222222222222",
+            "pairingId": "11111111111111111111111111111111"
+          }
+        },
+        "id": 7,
+        "op": "hello",
+        "v": 1
+      },
+      "op": "hello"
+    },
+    {
+      "message": {
+        "body": {
+          "hint": "firefox"
+        },
+        "id": 7,
+        "op": "pair",
+        "v": 1
+      },
+      "op": "pair"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "op": "status",
+        "v": 1
+      },
+      "op": "status"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "op": "focus",
+        "v": 1
+      },
+      "op": "focus"
+    },
+    {
+      "message": {
+        "body": {
+          "origin": "https://example.com",
+          "topOrigin": "https://example.com"
+        },
+        "id": 7,
+        "op": "listForOrigin",
+        "v": 1
+      },
+      "op": "listForOrigin"
+    },
+    {
+      "message": {
+        "body": {
+          "origin": "https://example.com",
+          "query": "git"
+        },
+        "id": 7,
+        "op": "search",
+        "v": 1
+      },
+      "op": "search"
+    },
+    {
+      "message": {
+        "body": {
+          "frame": "top",
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://example.com",
+          "topOrigin": "https://example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001",
+          "want": {
+            "login": true,
+            "otp": true
+          }
+        },
+        "id": 7,
+        "op": "fill",
+        "v": 1
+      },
+      "op": "fill"
+    },
+    {
+      "message": {
+        "body": {
+          "source": {
+            "field": "password",
+            "itemId": "0190a0b0-0000-7000-8000-000000000002",
+            "kind": "item",
+            "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+          }
+        },
+        "id": 7,
+        "op": "copy",
+        "v": 1
+      },
+      "op": "copy"
+    },
+    {
+      "message": {
+        "body": {
+          "request": {
+            "host": "example.com",
+            "kind": "forSite",
+            "rules": "minlength: 12; required: lower, upper; required: digit;"
+          }
+        },
+        "id": 7,
+        "op": "generate",
+        "v": 1
+      },
+      "op": "generate"
+    },
+    {
+      "message": {
+        "body": {
+          "origin": "https://example.com",
+          "password": "correct horse battery staple",
+          "topOrigin": "https://example.com",
+          "username": "ada@example.com"
+        },
+        "id": 7,
+        "op": "checkSave",
+        "v": 1
+      },
+      "op": "checkSave"
+    },
+    {
+      "message": {
+        "body": {
+          "origin": "https://example.com",
+          "password": "correct horse battery staple",
+          "topOrigin": "https://example.com",
+          "username": "ada@example.com"
+        },
+        "id": 7,
+        "op": "proposeSave",
+        "v": 1
+      },
+      "op": "proposeSave"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "op": "unpair",
+        "v": 1
+      },
+      "op": "unpair"
+    }
+  ],
+  "responses": [
+    {
+      "message": {
+        "body": {
+          "desktop": "unlocked",
+          "paired": true
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "hello"
+    },
+    {
+      "message": {
+        "body": {
+          "key": "2222222222222222222222222222222222222222222222222222222222222222",
+          "pairingId": "11111111111111111111111111111111"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "pair"
+    },
+    {
+      "message": {
+        "body": {
+          "state": "unlocked"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "status"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "focus"
+    },
+    {
+      "message": {
+        "body": {
+          "items": [
+            {
+              "blocked": null,
+              "favorite": false,
+              "hasOtp": true,
+              "host": "example.com",
+              "itemId": "0190a0b0-0000-7000-8000-000000000002",
+              "matchedBy": "exactOrigin",
+              "title": "Example",
+              "username": "ada@example.com",
+              "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+            },
+            {
+              "blocked": "insecure",
+              "favorite": true,
+              "hasOtp": false,
+              "host": null,
+              "itemId": "0190a0b0-0000-7000-8000-000000000002",
+              "matchedBy": "etld1",
+              "title": null,
+              "username": null,
+              "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+            }
+          ],
+          "warnings": [
+            {
+              "kind": "idn",
+              "unicodeHost": "bücher.example"
+            },
+            {
+              "kind": "insecure"
+            },
+            {
+              "kind": "lookalike",
+              "savedHost": "github.com"
+            }
+          ]
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "listForOrigin"
+    },
+    {
+      "message": {
+        "body": {
+          "items": [
+            {
+              "favorite": true,
+              "fillable": true,
+              "hasOtp": false,
+              "host": "example.com",
+              "itemId": "0190a0b0-0000-7000-8000-000000000002",
+              "title": "Example",
+              "username": null,
+              "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+            }
+          ]
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "search"
+    },
+    {
+      "message": {
+        "body": {
+          "otp": "492039",
+          "password": "correct horse battery staple",
+          "username": "ada@example.com"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "fill"
+    },
+    {
+      "message": {
+        "body": {
+          "clearAfterSeconds": 30
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "copy"
+    },
+    {
+      "message": {
+        "body": {
+          "entropyBits": 131.1,
+          "rulesSource": "page",
+          "strength": "veryStrong",
+          "value": "q7#Vt2!mZp9@Lx4$Nw6&"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "generate"
+    },
+    {
+      "message": {
+        "body": {
+          "itemTitle": "Example",
+          "kind": "update"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "checkSave"
+    },
+    {
+      "message": {
+        "body": {
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "outcome": "saved",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "proposeSave"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "unpair"
+    }
+  ],
+  "version": 1
+}

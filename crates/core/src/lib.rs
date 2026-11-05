@@ -46,6 +46,7 @@
 
 mod aead;
 pub mod attachment;
+pub mod browser_channel;
 pub mod encoding;
 pub mod envelope;
 mod error;

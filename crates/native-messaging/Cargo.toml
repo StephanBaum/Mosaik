@@ -1,0 +1,42 @@
+[package]
+name = "mosaic-native-messaging"
+description = "Mosaic native messaging: the browser extension host, its wire protocol and the desktop channel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "mosaic_native_messaging"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mosaic-native-host"
+path = "src/main.rs"
+
+[dependencies]
+mosaic-core = { path = "../core" }
+# Derive for the wire types (the desktop crate enables the same feature).
+serde = { workspace = true, features = ["derive"] }
+# raw_value: the host relays request bodies without parsing them.
+serde_json.workspace = true
+thiserror.workspace = true
+# io-std: the host's stdin and stdout. Only the net, rt, sync, time and io
+# features: no `macros`.
+tokio.workspace = true
+zeroize.workspace = true
+# The random pipe name of the Windows endpoint.
+getrandom.workspace = true
+
+[dev-dependencies]
+base64ct = { workspace = true, features = ["alloc"] }
+hex-literal.workspace = true
+# The dev extension ID test recomputes SHA-256 of the dev public key.
+sha2.workspace = true
+tempfile.workspace = true
+# test-util: paused time for the per-step timeout tests.
+tokio = { workspace = true, features = ["test-util"] }
