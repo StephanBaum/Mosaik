@@ -11,7 +11,7 @@ import type {
   TabInfo,
 } from "../shared/messages.ts";
 import { hostOf, isSecureOrigin, originOf, unicodeHostOf } from "../shared/origin.ts";
-import type { LoginMatch } from "../shared/protocol.ts";
+import type { GenerateRequest, LoginMatch } from "../shared/protocol.ts";
 import { classifyFrame, chooseTarget } from "./frames.ts";
 import {
   LAST_FILLED_TTL_MS,
@@ -96,11 +96,8 @@ export class PopupService {
         return this.#fill(request.op === "fillOtp", request, tab);
       case "copy":
         return native.request("copy", { source: request.source });
-      case "generate": {
-        const generated = await native.request("generate", { request: request.request });
-        hold.hold(generated.value);
-        return generated;
-      }
+      case "generate":
+        return this.#generate(request.request, tab);
       case "fillGenerated":
         return finish(
           await fillGeneratedPassword(fill, fillRequest(tab, { confirmFrame: request.confirmFrame }), hold),
@@ -126,6 +123,16 @@ export class PopupService {
     return finish(
       await runFill(this.#deps.fill, fillRequest(tab, { item, otpOnly, confirmFrame: request.confirmFrame })),
     );
+  }
+
+  /** A password from the desktop, held for a following fill on this tab and origin only. */
+  async #generate(request: GenerateRequest, tab: TabRef | null): Promise<unknown> {
+    const generated = await this.#deps.native.request("generate", { request });
+    const origin = originOf(tab?.url);
+    if (tab !== null && origin !== null) {
+      this.#deps.hold.hold(generated.value, { tabId: tab.id, origin });
+    }
+    return generated;
   }
 
   async #search(query: string, tab: TabRef | null): Promise<unknown> {

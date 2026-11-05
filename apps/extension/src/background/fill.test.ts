@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContentMessage, FillReply, FrameProbe } from "../shared/messages.ts";
 import type { LoginMatch, RequestMap, ResultMap } from "../shared/protocol.ts";
-import { runFill, type FillDeps, type FillOutcome, type FillRequest } from "./fill.ts";
+import { GeneratedHold, fillGeneratedPassword, runFill, type FillDeps, type FillOutcome, type FillRequest } from "./fill.ts";
 import { lastErrorKey, lastFilledKey, memorySession } from "./session.ts";
 import type { FrameTarget } from "./tabs.ts";
 
@@ -280,5 +280,38 @@ describe("delivery", () => {
     expect(failure(outcome)).toBe("noFields");
     expect(h.badge.set).not.toHaveBeenCalled();
     expect(await h.deps.session.get(lastErrorKey(TAB))).toBe("noFields");
+  });
+});
+
+describe("a generated password held for a fill", () => {
+  const signUp = frame(0, { counts: { username: 1, password: 0, newPassword: 2, otp: 0 } });
+  const sentPassword = (): unknown => (h.sent.at(-1)?.message as { password?: unknown } | undefined)?.password;
+
+  it("is filled on the tab and origin it was generated for", async () => {
+    h.setProbes([signUp]);
+    const hold = new GeneratedHold(() => h.now.value);
+    hold.hold("held-pw", { tabId: TAB, origin: TOP });
+    expect((await fillGeneratedPassword(h.deps, request({ gesture: "menu" }), hold)).ok).toBe(true);
+    expect(sentPassword()).toBe("held-pw");
+    expect(h.requests.filter((r) => r.op === "generate")).toHaveLength(0);
+  });
+
+  it("never goes to another origin or tab: those get a fresh password, and the held one is dropped", async () => {
+    h.setProbes([frame(0, { origin: "https://evil.test", counts: signUp.counts })]);
+    const hold = new GeneratedHold(() => h.now.value);
+    hold.hold("held-pw", { tabId: TAB, origin: TOP });
+    await fillGeneratedPassword(h.deps, request({ gesture: "menu", tabUrl: "https://evil.test/join" }), hold);
+    expect(sentPassword()).toBe("generated");
+    expect(hold.take({ tabId: TAB, origin: TOP })).toBeNull();
+
+    hold.hold("held-pw", { tabId: TAB + 1, origin: TOP });
+    expect(hold.take({ tabId: TAB, origin: TOP })).toBeNull();
+  });
+
+  it("expires after two minutes", () => {
+    const hold = new GeneratedHold(() => h.now.value);
+    hold.hold("held-pw", { tabId: TAB, origin: TOP });
+    h.now.value += 120_000;
+    expect(hold.take({ tabId: TAB, origin: TOP })).toBeNull();
   });
 });

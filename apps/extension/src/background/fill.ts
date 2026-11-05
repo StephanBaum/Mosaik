@@ -198,9 +198,20 @@ export async function runGesture(
   }
 }
 
-/** A password the extension generated, held in memory for two minutes for a following fill. */
+/** Where a generated password may go: the tab and the page origin it was generated on. */
+export interface HoldScope {
+  tabId: number;
+  origin: string;
+}
+
+/**
+ * A password the extension generated, held in memory for two minutes for a following fill on
+ * the same tab and origin only. Any take clears it, so a password generated for one site (and
+ * perhaps already used there) never reaches another.
+ */
 export class GeneratedHold {
   #value: string | null = null;
+  #scope: HoldScope | null = null;
   #expires = 0;
   readonly #now: () => number;
 
@@ -208,20 +219,24 @@ export class GeneratedHold {
     this.#now = now;
   }
 
-  hold(value: string): void {
+  hold(value: string, scope: HoldScope): void {
     this.#value = value;
+    this.#scope = { ...scope };
     this.#expires = this.#now() + 120_000;
   }
 
-  take(): string | null {
-    const value = this.#now() < this.#expires ? this.#value : null;
+  take(scope: HoldScope): string | null {
+    const held = this.#scope;
+    const fits = held !== null && held.tabId === scope.tabId && held.origin === scope.origin;
+    const value = fits && this.#now() < this.#expires ? this.#value : null;
     this.#value = null;
+    this.#scope = null;
     return value;
   }
 }
 
-async function generateFor(deps: FillDeps, p: Prepared, hold: GeneratedHold): Promise<string> {
-  const held = hold.take();
+async function generateFor(deps: FillDeps, req: FillRequest, p: Prepared, hold: GeneratedHold): Promise<string> {
+  const held = hold.take({ tabId: req.tabId, origin: p.target.origin });
   if (held !== null) {
     return held;
   }
@@ -247,7 +262,7 @@ export async function fillGeneratedPassword(
       type: "fillGenerated" as const,
       fillId: newFillId(),
       expectedOrigin: p.target.origin,
-      password: await generateFor(deps, p, hold),
+      password: await generateFor(deps, req, p, hold),
     };
     let reply: FillReply;
     try {
