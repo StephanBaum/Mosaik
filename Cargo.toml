@@ -92,7 +92,7 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 # KDBX inner XML; already in the tree (through plist).
 quick-xml = { version = "=0.42.0", default-features = false }
 # 1Password 1PUX archives: deflate only, no encryption, no other codecs.
-zip = { version = "=9.1.2", default-features = false, features = ["deflate-flate2"] }
+zip = { version = "=9.2.1", default-features = false, features = ["deflate-flate2"] }
 # M4 browser extension (ADR-0035, ADR-0036, ADR-0037)
 # Public suffix list compiled in (MIT/Apache-2.0, no_std), for opt-in eTLD+1 matching.
 psl = { version = "=2.1.246", default-features = false, features = ["helpers"] }
