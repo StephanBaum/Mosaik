@@ -2816,3 +2816,66 @@ being parsed.
 - **Bodies are borrowed.** Envelopes borrow their bodies from zeroizing frame buffers and
   secrets are serialized into exactly sized zeroizing buffers (R40).
 - **Randomness** for the pipe name and the pairing code comes from `mosaic_core` (CRYPTO_SPEC §2).
+
+## ADR-0037: Fill policy and origin matching in desktop Rust
+
+- Status: proposed
+- Date: 2026-11-05
+- Decided by: the principal engineer, from brief §4.1 to 4.3, 4.5 and 4.8 (the most conservative options)
+- Milestone: M4 (browser extension)
+
+### Context
+Brief §4 sets the fill rules. Item URLs already carry `UrlMatch` and `allow_http`.
+`mosaic-insights::url` deliberately does not decide fills. The desktop holds the vault, so it
+is the natural place for every match decision.
+
+### Decision
+1. **The desktop decides every match** through the new crate `mosaic-origin`: WHATWG parsing
+   through `url` (already in the tree), eTLD+1 through `psl` (new; MIT or Apache-2.0; a
+   build-time snapshot of the public suffix list), and the frame origin the browser reports.
+   The extension never sees a saved URL.
+2. **Default exact origin.** eTLD+1 only for a URL that asks for it (`Etld1`), domains only
+   (never IPs, single labels or bare suffixes), scheme equal. A page on plain HTTP matches
+   only a URL with `allow_http` (loopback excepted); a saved `http://` URL never matches an
+   `https://` page.
+3. **Frames.** The desktop refuses a fill unless `origin == topOrigin` (`crossOriginFrame`
+   for a `sameOriginFrame` request whose origin differs, `invalidRequest` for a `top`
+   request that does). The extension sends only frames whose whole ancestry is same-origin
+   and visible, and asks the user to confirm every non-top frame; cross-origin, sandboxed
+   and opaque frames are never filled.
+4. **One fill returns one item's username and password, or its one-time code** (TOTP and
+   Steam only; HOTP is refused with `otpNotFillable` because filling would advance the
+   counter), to one frame, pinned by `documentId` where the browser has one. Fields are
+   detected again and visibility is checked again at fill time; forms are never submitted.
+   A fill that wants both a login and a code returns the code only when the item has a
+   time-based one. The vault side is `Backend::browser_fill`; the item must be a live login
+   outside the trash in an open vault, else `itemNotFound` (its type is not revealed) or
+   `vaultUnavailable`.
+5. **Warnings.** An IDN host shows both forms; a lookalike warning (same name with another
+   suffix, or edit distance 1 for names of 4 or more characters) appears only when nothing
+   matches; plain HTTP is flagged. `listForOrigin` lists a login that matches only through a
+   URL without the HTTP override as `blocked: "insecure"`.
+6. **No fill of a non-matching item.** The per-URL HTTP override in the desktop editor is
+   the only "fill anyway".
+7. **Activity.** Only `fill` and `copy` count as user activity (`Backend::touch`), so a
+   script polling the endpoint cannot keep the vault from auto-locking.
+8. **Rate limits** (per pairing, sliding windows): `fill` 10 per 10 s, `copy` 20 per minute,
+   `listForOrigin` and `search` together 60 per minute, `generate` 30 per minute, `checkSave`
+   10 per minute, `proposeSave` 3 per minute; `focus` 1 per 2 s and pairing requests 3 per
+   minute globally.
+
+### Alternatives considered
+- Matching in TypeScript: duplicated logic, and the extension would need every saved URL.
+- `publicsuffix` with a runtime list: a file to ship and to update.
+- A confusables skeleton through `unicode-security`: another dependency; the IDN warning and
+  exact matching cover it.
+
+### Consequences
+Saved URLs without a scheme behave as `https`. Sites that move logins between subdomains
+need eTLD+1 on the URL. Any script at the matching origin (an XSS, a confirmed same-origin
+frame) can read a filled credential, and eTLD+1 extends that to sibling subdomains (R41). A
+paired extension can list login titles through `search`, test candidate passwords through
+`checkSave` and copy any login to the clipboard (R43). The pairing prompt and the save
+prompt follow the SSH approval pattern (ADR-0025): one at a time, a 1 s Allow guard, expiry
+and lock close them, and the captured password never reaches the webview. The `psl` snapshot
+is only as new as the release.

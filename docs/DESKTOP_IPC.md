@@ -144,6 +144,11 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `ssh_agent_status` | `null` → `{ enabled, running, endpoint \| null, keyCount, skipped: { vaultId, itemId, reason: "unsupported" \| "malformed" \| "duplicate" }[], error \| null }` | | live |
 | `ssh_agent_set_enabled` | `{ enabled }` → `SshAgentStatus` | `sshAgentUnavailable`, `sshAgentEndpointInUse`; turning it on needs unlocked | live (mosaic-ssh-agent, ADR-0025; off by default) |
 | `ssh_respond` | `{ requestId, decision: "allowOnce" \| "allowFor15Minutes" \| "deny" }` → `null` | `sshRequestExpired`, `sshAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken) | live |
+| **Browser extension** | | | |
+| `browser_status` | `null` → `{ endpoint: "running" \| "inUse" \| "unavailable", pairings: { pairingId, label, browser: "chromium" \| "firefox", createdAt, lastUsedAt \| null, connected }[] }` | none | live |
+| `browser_remove_pairing` | `{ pairingId }` → the same status | `browserPairingNotFound` (also for an ID that is not 32 hex digits). The pairing's live sessions get `unpaired` and close | live |
+| `browser_pairing_respond` | `{ requestId, decision: "allow" \| "deny", label: string \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken), `invalidInput` (a label that is not 1 to 64 characters, or contains control, format or default-ignorable characters; the request stays open) | live |
+| `browser_save_respond` | `{ requestId, decision: { kind: "saveNew", vaultId, title, allowHttp } \| { kind: "update", vaultId, itemId } \| { kind: "cancel" } }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (as above; a cancel is always taken), `invalidInput` (a title that is not 1 to 256 characters or has spoofing characters), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an update of a login that is not one of the request's candidates, or gone), `locked`. The request stays open after all of them except the first | live |
 
 Notes per area:
 
@@ -252,6 +257,42 @@ Notes per area:
   4 prompts are already open (`sshApprovalClosed`). A request that fails after approval arrives as
   `sshSignFailed`. `SSH_AUTH_SOCK` is `endpoint`.
 
+- **Browser extension.** The extension reaches the desktop through the host binary and the
+  local endpoint (`docs/NATIVE_MESSAGING.md`, ADR-0035 to ADR-0037); the webview sees only
+  the paired browsers and two prompts.
+  - **Pairing.** A host's `pairRequest` is shown while the vault is unlocked as
+    `browserPairingRequested`: the six-symbol `code` (Crockford base32, shown `XXX-XXX`, the
+    extension shows the same), the browser family the host verified and the `hint` the
+    extension gave (display only). The user names the browser and answers with
+    `browser_pairing_respond`; the desktop then draws the pairing ID and `K_pair` itself and
+    hands them to the host over the endpoint. One request is open at a time: a second one
+    closes both as `conflict`. An unanswered request ends after 120 s (`expired`), on lock
+    (`locked`) or when the host hangs up (`disconnected`). Three denials within ten minutes
+    block pairing requests for ten minutes; at most three requests a minute; at most 16
+    pairings.
+  - **Save.** `proposeSave` from a paired browser opens `browserSaveRequested` with the host,
+    the captured user name, whether it is a `new` login or an `update` (the logins with the
+    same user name are the `candidates`), a suggested title and `insecure` (the page is plain
+    HTTP, not loopback). **The request carries no password**: it stays in Rust as a
+    `SecretString` and is dropped on cancel, expiry (300 s), lock and disconnect; the dialog
+    shows a fixed mask. `saveNew` adds a login (user name, password, the page's origin as an
+    exact-origin URL; `allowHttp` is honoured only when `insecure`); `update` changes the
+    password only (the model moves the old one into the history). Only a candidate can be
+    updated. Nothing is written without this answer.
+  - **Guards.** An allow less than 1 s after the prompt appeared is refused
+    (`browserAllowTooSoon`); the UI also keeps its button disabled for 1 s, and again after the
+    window regains focus. Labels and titles are checked with `is_spoofing_char`.
+  - **Activity.** Only `fill` and `copy` from the extension count as user activity (auto-lock).
+    The webview's own answers to these prompts do.
+  - **Events.** `browserPairingsChanged` follows every pairing, removal, connect and
+    disconnect: read `browser_status` again. `browserPairingClosed` and `browserSaveClosed`
+    close the dialog with the reason `answered`, `expired`, `conflict`, `locked` or
+    `disconnected`.
+  - `ErrorCode` gains `browserRequestExpired`, `browserAllowTooSoon` and
+    `browserPairingNotFound`. Fixtures list the four commands and the five events; the
+    contract module imports only `serde`, `mosaic-core` ids and contract types, because the
+    desktop fuzz crate includes it.
+
 ## 4. Events (`AppEvent`, tag `type`)
 
 | Event | Payload | Meaning |
@@ -264,6 +305,11 @@ Notes per area:
 | `sshSignFailed` | `{ requestId, vaultId, itemId, reason: "passphraseRequired" \| "wrongPassphrase" \| "keyMalformed" \| "kdfTooExpensive" \| "publicKeyMismatch" \| "unsupported" \| "internal" }` | A sign request failed after approval; show `ssh.signFailed.<reason>`. No secret. |
 | `quickSearchRequested` | none | The global shortcut was pressed while unlocked; open the command palette. |
 | `hardwareVaultClosed` | `{ vaultId }` | A hardware vault closed itself (timer or lock). Drop revealed codes and show the closed panel. |
+| `browserPairingRequested` | `{ request: { requestId, browser, hint, code, requestedAt, expiresAt } }` | A browser asks to be paired: show the dialog (code, name field, Deny, Allow after 1 s). |
+| `browserPairingClosed` | `{ requestId, reason: "answered" \| "expired" \| "conflict" \| "locked" \| "disconnected" }` | Close it. |
+| `browserSaveRequested` | `{ request: { requestId, pairingLabel, origin, host, username \| null, kind: "new" \| "update", candidates, suggestedTitle, insecure, requestedAt, expiresAt } }` | Show the save dialog. No password. |
+| `browserSaveClosed` | `{ requestId, reason }` | Close it. |
+| `browserPairingsChanged` | none | A browser was paired, removed, connected or disconnected: read `browser_status` again. |
 | `settingsReset` | none | The first unlock after the start found weaker protection settings in `settings.json` without a valid integrity MAC (edited outside Mosaic, or from before the MAC) and reset them to the defaults (ADR-0030). Show the toast `toast.settingsReset` once. Sent at most once per app start. |
 
 The latest `subscribe_events` call wins (one main window). After subscribing, the
@@ -280,7 +326,8 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentFileUnreadable`, `attachmentSaveFailed`, `attachmentPreviewUnsupported`,
 `attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
-`importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`, `busy`,
+`importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`,
+`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
 `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
 `hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,
