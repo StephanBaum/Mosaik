@@ -1,5 +1,6 @@
 /** Vite plugins shared by the extension builds. */
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { cssVariables } from "../../../packages/design-tokens/src/css.ts";
@@ -56,6 +57,28 @@ export function excludeE2e(mode: string): Plugin {
     enforce: "pre",
     load(id) {
       return mode !== "e2e" && /[/\\]src[/\\]background[/\\]e2e\.ts$/.test(id) ? stub : undefined;
+    },
+  };
+}
+
+/** Ships the SIL OFL 1.1 texts with the bundled fonts (OFL condition 2) as `licenses/<font>-OFL.txt`. */
+export function fontLicenses(): Plugin {
+  const require = createRequire(import.meta.url);
+  const fonts = [
+    ["@fontsource/dm-sans", "DM-Sans"],
+    ["@fontsource/ibm-plex-mono", "IBM-Plex-Mono"],
+  ] as const;
+  return {
+    name: "mosaic-font-licenses",
+    apply: "build",
+    generateBundle() {
+      for (const [pkg, name] of fonts) {
+        this.emitFile({
+          type: "asset",
+          fileName: `licenses/${name}-OFL.txt`,
+          source: readFileSync(require.resolve(`${pkg}/LICENSE`), "utf8"),
+        });
+      }
     },
   };
 }

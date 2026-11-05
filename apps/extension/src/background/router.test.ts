@@ -128,7 +128,9 @@ describe("Router.onConnect", () => {
     ["no id", { request: { op: "getState" } }],
     ["a string id", { id: "1", request: { op: "getState" } }],
     ["a fill without confirmFrame", { id: 1, request: { op: "fill", vaultId: "v", itemId: "i" } }],
-    ["a save op (not in this build)", { id: 1, request: { op: "savePending", action: "save" } }],
+    ["a save answer that is not one", { id: 1, request: { op: "savePending", action: "delete" } }],
+    ["a frame confirmation with extra keys", { id: 1, request: { op: "fillGenerated", confirmFrame: { frameId: 1, documentId: null, origin: "x" } } }],
+    ["a frame confirmation that is a boolean", { id: 1, request: { op: "fillGenerated", confirmFrame: true } }],
     ["a bare string", "getState"],
   ])("drops %s without a reply", async (_name, message) => {
     const deps = makeDeps();
@@ -150,12 +152,14 @@ describe("Router.onConnect", () => {
       { op: "pair" },
       { op: "focusDesktop" },
       { op: "search", query: "git" },
-      { op: "fill", vaultId: "v", itemId: "i", confirmFrame: false },
-      { op: "fillOtp", vaultId: "v", itemId: "i", confirmFrame: true },
+      { op: "fill", vaultId: "v", itemId: "i", confirmFrame: null },
+      { op: "fillOtp", vaultId: "v", itemId: "i", confirmFrame: { frameId: 3, documentId: "doc-3" } },
       { op: "copy", source: { kind: "generated" } },
       { op: "copy", source: { kind: "item", vaultId: "v", itemId: "i", field: "totp" } },
       { op: "generate", request: { kind: "forSite", host: "a.test", rules: null } },
-      { op: "fillGenerated", confirmFrame: false },
+      { op: "fillGenerated", confirmFrame: null },
+      { op: "savePending", action: "save" },
+      { op: "saveOffersChanged", enabled: true },
       { op: "unpair" },
     ];
     requests.forEach((request, index) => {
@@ -178,13 +182,15 @@ describe("Router.onConnect", () => {
   });
 });
 
+const CAPTURE = { type: "captured", username: "ada", password: "pw", newPassword: null, ancestorsSameOrigin: true };
+
 describe("Router.onMessage", () => {
   const content: SenderInfo = { id: EXT, url: "https://bank.test/", tab: PAGE_TAB };
 
   it("hands a captured message from our content script to the capture handler", () => {
     const onCaptured = vi.fn();
     const router = new Router(makeDeps({ onCaptured }));
-    router.onMessage({ type: "captured" }, content);
+    router.onMessage(CAPTURE, content);
     expect(onCaptured).toHaveBeenCalledOnce();
   });
 
@@ -193,7 +199,7 @@ describe("Router.onMessage", () => {
     const deps = makeDeps({ onCaptured });
     const router = new Router(deps);
     for (const sender of [content, popupSender, { id: EXT }, { url: "https://evil.test/" }]) {
-      router.onMessage({ op: "fill", vaultId: "v", itemId: "i", confirmFrame: true }, sender);
+      router.onMessage({ op: "fill", vaultId: "v", itemId: "i", confirmFrame: { frameId: 3, documentId: "doc-3" } }, sender);
       router.onMessage({ id: 1, request: { op: "getState" } }, sender);
       router.onMessage({ type: "fill" }, sender);
     }
@@ -201,12 +207,25 @@ describe("Router.onMessage", () => {
     expect(deps.handlePopup).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["an empty password", { ...CAPTURE, password: "" }],
+    ["a password over 1024 characters", { ...CAPTURE, password: "x".repeat(1025) }],
+    ["a user name over 256 characters", { ...CAPTURE, username: "u".repeat(257) }],
+    ["an extra key (an origin the page chose)", { ...CAPTURE, origin: "https://bank.test" }],
+    ["a missing key", { type: "captured", password: "pw" }],
+    ["a boolean ancestry as text", { ...CAPTURE, ancestorsSameOrigin: "yes" }],
+  ])("drops a captured message with %s", (_name, message) => {
+    const onCaptured = vi.fn();
+    new Router(makeDeps({ onCaptured })).onMessage(message, content);
+    expect(onCaptured).not.toHaveBeenCalled();
+  });
+
   it("drops captured messages that do not come from our content script", () => {
     const onCaptured = vi.fn();
     const router = new Router(makeDeps({ onCaptured }));
-    router.onMessage({ type: "captured" }, { id: "other", url: "https://bank.test/", tab: PAGE_TAB });
-    router.onMessage({ type: "captured" }, { id: EXT, url: POPUP });
-    router.onMessage({ type: "captured" }, {});
+    router.onMessage(CAPTURE, { id: "other", url: "https://bank.test/", tab: PAGE_TAB });
+    router.onMessage(CAPTURE, { id: EXT, url: POPUP });
+    router.onMessage(CAPTURE, {});
     expect(onCaptured).not.toHaveBeenCalled();
   });
 
@@ -216,13 +235,13 @@ describe("Router.onMessage", () => {
     const router = new Router(makeDeps({ onCaptured, now: () => now }));
     for (let i = 0; i < 8; i++) {
       now += 1_500;
-      router.onMessage({ type: "captured" }, content);
+      router.onMessage(CAPTURE, content);
     }
     expect(onCaptured).toHaveBeenCalledTimes(5);
-    router.onMessage({ type: "captured" }, { ...content, tab: { id: 8 } });
+    router.onMessage(CAPTURE, { ...content, tab: { id: 8 } });
     expect(onCaptured).toHaveBeenCalledTimes(6);
     now += 60_000;
-    router.onMessage({ type: "captured" }, content);
+    router.onMessage(CAPTURE, content);
     expect(onCaptured).toHaveBeenCalledTimes(7);
   });
 
@@ -232,7 +251,7 @@ describe("Router.onMessage", () => {
     for (let i = 0; i < 10; i++) {
       router.onMessage({ type: "noise" }, content);
     }
-    router.onMessage({ type: "captured" }, content);
+    router.onMessage(CAPTURE, content);
     expect(onCaptured).not.toHaveBeenCalled();
   });
 });

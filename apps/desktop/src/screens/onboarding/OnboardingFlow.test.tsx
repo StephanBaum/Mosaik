@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { App } from "../../App.tsx";
@@ -47,7 +47,15 @@ describe("onboarding", () => {
     await screen.findByRole("heading", { name: "Bring your passwords along" });
     expect(document.body.textContent).not.toContain(secretKey);
     await user.click(screen.getByRole("button", { name: "Skip for now" }));
-    await user.click(await screen.findByRole("button", { name: "Open my vault" }));
+
+    // D06: the optional browser extension step, then straight into the vault.
+    await screen.findByRole("heading", { name: "Install the browser extension" });
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Step 5 of 5");
+    expect(screen.getByText("Chrome connected")).toBeTruthy();
+    // No store listing yet, so no store links.
+    expect(screen.queryByRole("link", { name: /^Get for/ })).toBeNull();
+    expect(screen.getByText(/isn't in the browser stores yet/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     const nav = await screen.findByRole("navigation", { name: "Vaults" });
     expect(await within(nav).findByRole("button", { name: /^Personal/ })).toBeTruthy();
@@ -61,5 +69,46 @@ describe("onboarding", () => {
     await user.click(screen.getByRole("button", { name: "Konto erstellen" }));
     expect(await screen.findByRole("heading", { name: "Sichere dein Emergency Kit" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Emergency Kit speichern (PDF)" })).toBeTruthy();
+  });
+
+  it("shows the pairing dialog over the browser step and lists the new browser", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ browserPair: true })} languages={["en-US"]} />);
+    await createAccount(user, "Create your account");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await screen.findByRole("heading", { name: "Save your Emergency Kit" });
+    const secretKey = document.querySelector(".secret-key")?.textContent ?? "";
+    await user.click(screen.getByRole("button", { name: "Save Emergency Kit (PDF)" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByLabelText("Last group of your Secret Key"), secretKey.split("-").at(-1) ?? "");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(await screen.findByRole("button", { name: "Skip for now" }));
+    await screen.findByRole("heading", { name: "Install the browser extension" });
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("4F7-K2Q")).toBeTruthy();
+    const allow = within(dialog).getByRole("button", { name: "Allow" });
+    await waitFor(() => {
+      expect((allow as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.click(allow);
+    expect(await screen.findByText("Edge connected")).toBeTruthy();
+    expect(screen.getByText("Chrome connected")).toBeTruthy();
+  });
+
+  it("speaks German on the browser step", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc()} languages={["de-DE"]} />);
+    await createAccount(user, "Erstelle dein Konto");
+    await user.click(screen.getByRole("button", { name: "Konto erstellen" }));
+    await screen.findByRole("heading", { name: "Sichere dein Emergency Kit" });
+    const secretKey = document.querySelector(".secret-key")?.textContent ?? "";
+    await user.click(screen.getByRole("button", { name: "Emergency Kit speichern (PDF)" }));
+    await user.click(await screen.findByRole("button", { name: "Weiter" }));
+    await user.type(await screen.findByLabelText("Letzte Gruppe deines Secret Keys"), secretKey.split("-").at(-1) ?? "");
+    await user.click(screen.getByRole("button", { name: "Bestätigen" }));
+    await user.click(await screen.findByRole("button", { name: "Jetzt überspringen" }));
+    expect(await screen.findByRole("heading", { name: "Installiere die Browser-Erweiterung" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fertig" })).toBeTruthy();
   });
 });

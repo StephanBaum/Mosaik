@@ -3,9 +3,10 @@
  * two context-menu items. The browser delivers them only for a real key press or click in its
  * own UI, never for events a page dispatches. No inline UI exists in M4 (ADR-0035).
  */
+import { COMMAND_FILL } from "../shared/ids.ts";
 import { fillGeneratedPassword, runFill, type FillDeps, type FillOutcome, type FillRequest, type GeneratedHold } from "./fill.ts";
 
-export const COMMAND_FILL = "fill-login";
+export { COMMAND_FILL };
 export const MENU_FILL = "fill";
 export const MENU_GENERATE = "generate";
 
@@ -29,7 +30,7 @@ function request(gesture: "command" | "menu", tab: { id: number; url: string | u
     menuFrameId,
     item: null,
     otpOnly: false,
-    confirmFrame: false,
+    confirmFrame: null,
   };
 }
 
@@ -54,7 +55,7 @@ export async function onMenuClicked(
   const req = request("menu", { id: tab.id, url: tab.url }, info.frameId ?? 0);
   return info.menuItemId === MENU_FILL
     ? runFill(deps.fill, req)
-    : fillGeneratedPassword(deps.fill, { ...req, confirmFrame: false }, deps.hold);
+    : fillGeneratedPassword(deps.fill, req, deps.hold);
 }
 
 /** `runtime.onInstalled`: the two menu items, shown on editable fields. */

@@ -83,6 +83,8 @@ export const sessionHandlers: MockHandlers = {
       },
     ];
     state.items = [];
+    // A fresh account is unlocked: the browser request the URL asked for may follow (onboarding D06).
+    startBrowser(state);
     return {
       emergencyKit: {
         accountId: state.account.accountId,

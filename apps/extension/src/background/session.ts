@@ -6,6 +6,8 @@ export interface SessionStore {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
   remove(...keys: string[]): Promise<void>;
+  /** The keys that start with `prefix`. */
+  keys(prefix: string): Promise<string[]>;
 }
 
 export function chromeSession(): SessionStore {
@@ -13,6 +15,7 @@ export function chromeSession(): SessionStore {
     get: async (key) => (await chrome.storage.session.get(key))[key],
     set: (key, value) => chrome.storage.session.set({ [key]: value }),
     remove: (...keys) => chrome.storage.session.remove(keys),
+    keys: async (prefix) => Object.keys(await chrome.storage.session.get(null)).filter((key) => key.startsWith(prefix)),
   };
 }
 
@@ -30,8 +33,11 @@ export function memorySession(): SessionStore {
       }
       return Promise.resolve();
     },
+    keys: (prefix) => Promise.resolve([...map.keys()].filter((key) => key.startsWith(prefix))),
   };
 }
 
+export const pendingSaveKey = (tabId: number): string => `pendingSave:${String(tabId)}`;
+export const PENDING_SAVE_PREFIX = "pendingSave:";
 export const lastFilledKey = (tabId: number): string => `lastFilled:${String(tabId)}`;
 export const lastErrorKey = (tabId: number): string => `lastError:${String(tabId)}`;

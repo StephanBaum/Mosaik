@@ -7,6 +7,7 @@
 import { errorCodeOf } from "../shared/errors.ts";
 import {
   isCapturedMessage,
+  type CapturedMessage,
   isPopupEnvelope,
   POPUP_PORT,
   type PopupEvent,
@@ -19,7 +20,9 @@ import { RateLimiter } from "./ratelimit.ts";
 export interface SenderInfo {
   id?: string | undefined;
   url?: string | undefined;
-  tab?: { id?: number | undefined } | undefined;
+  /** The sending document's origin (browser-supplied; "null" when opaque). */
+  origin?: string | undefined;
+  tab?: { id?: number | undefined; url?: string | undefined } | undefined;
   frameId?: number | undefined;
 }
 
@@ -41,8 +44,8 @@ export interface RouterDeps {
   testPopup: boolean;
   now: () => number;
   handlePopup: (request: PopupRequest, sender: SenderInfo) => Promise<unknown>;
-  /** The opt-in capture script's message (T4); without a handler it is dropped. */
-  onCaptured?: (message: unknown, sender: SenderInfo) => void;
+  /** The opt-in capture script's message; without a handler it is dropped. */
+  onCaptured?: (message: CapturedMessage, sender: SenderInfo) => void;
 }
 
 const CONTENT_PER_SECOND = 10;

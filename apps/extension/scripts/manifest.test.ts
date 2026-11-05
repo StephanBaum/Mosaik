@@ -80,7 +80,7 @@ describe("dev and e2e manifests", () => {
 
   it("e2e adds host access to *.test and webNavigation, and keeps the rest", () => {
     const e2e = manifest("chromium", "e2e");
-    expect(e2e["host_permissions"]).toEqual(["https://*.test/*", "http://*.test/*"]);
+    expect(e2e["host_permissions"]).toEqual(["https://*.test/*", "http://*.test/*", "https://*/*", "http://*/*"]);
     expect(e2e["permissions"]).toEqual([...(chromium["permissions"] as string[]), "webNavigation"]);
     expect(e2e["externally_connectable"]).toEqual({ ids: [] });
     expect(e2e).not.toHaveProperty("web_accessible_resources");
@@ -96,9 +96,10 @@ describe("dev and e2e manifests", () => {
 });
 
 describe("locale files", () => {
-  it.each(["en", "de"] as const)("%s has the four strings, from the shared catalog", (locale) => {
+  it.each(["en", "de"] as const)("%s has the five strings, from the shared catalog", (locale) => {
     const messages = localeMessages(locale);
-    expect(Object.keys(messages).sort()).toEqual(["commandFill", "extDescription", "extName", "menuGenerate"]);
+    expect(Object.keys(messages).sort()).toEqual(["commandFill", "extDescription", "extName", "menuGenerate", "saveBadgeTitle"]);
+    expect(messages["saveBadgeTitle"]?.message).toBe(catalogs[locale]["ext.save.badgeTitle"]);
     expect(messages["extName"]?.message).toBe(catalogs[locale]["ext.manifest.name"]);
     expect(messages["commandFill"]?.message).toBe(catalogs[locale]["ext.command.fill"]);
   });

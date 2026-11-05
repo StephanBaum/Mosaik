@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
     "types": ["chrome", "node", "vite/client"]
   },
   "include": [
@@ -11,6 +12,7 @@
     "test/**/*.d.mts",
     "vite.config.ts",
     "vite.content.config.ts",
+    "vite.capture.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"
   ]
