@@ -1278,6 +1278,26 @@ an in-memory image preview and Save as. Nothing about the CSP or the dependency 
   or Protected View), the look of the Files section and the preview dialog against the
   owner's taste (no mockup exists).
 
+## M3 follow-up — UX review fixes (2026-11-05)
+
+Branch `fix/m3-ux-polish`. Frontend only. Fixed from the ux-reviewer round: the editor takes
+focus on the title and Esc leaves it from anywhere (an open dialog keeps its own Esc), focus
+returns to the item row or "New item"; secret toggles are named after their field (the unlock
+and master-password screens keep "Show password"); a title is required (an untitled import may
+stay untitled); the preview shows "Preparing preview…"; the top bar no longer overlaps in a
+narrow German window; dialogs focus `data-autofocus` and trap Tab; focus returns to "Add file…"
+after a removal; custom-field rows are groups; the nits and copy changes.
+
+- **Skipped:** the strength meter under the editor password (m14): the frontend has no strength
+  function, only the Rust generator answers with one, and a new algorithm is out of scope. The
+  breadcrumb "New {kind}" (m14): the kind is editor state, the top bar only knows that an
+  editor is open. New match modes and the "not saved yet" list row stay out as decided.
+- **Deviated:** an item without files (not a document) shows a small ghost "Add file…" button
+  where the Files section sits, not at the end of the detail or in the "…" menu, so the button
+  keeps its place when the first file arrives.
+- **Not verified by a human:** the look of the narrow top bar and the aligned editor rows
+  (checked by tests and Playwright only).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

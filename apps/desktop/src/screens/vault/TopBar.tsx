@@ -47,7 +47,9 @@ function Breadcrumb(props: TopBarProps) {
               /
             </span>
           )}
-          <span aria-current={index === crumbs.length - 1 ? "page" : undefined}>{crumb}</span>
+          <span className="breadcrumb__crumb" aria-current={index === crumbs.length - 1 ? "page" : undefined}>
+            {crumb}
+          </span>
         </span>
       ))}
     </nav>
@@ -86,11 +88,12 @@ export function TopBar(props: TopBarProps) {
       </div>
       <NewButton
         data-new-item=""
+        className="topbar__new"
         onClick={props.onNew}
         aria-keyshortcuts={ariaKeyshortcuts(SHORTCUTS.newItem, platform)}
       >
         <Icon name="plus" />
-        {t("vault.new")}
+        <span className="topbar__new-label">{t("vault.new")}</span>
       </NewButton>
     </header>
   );

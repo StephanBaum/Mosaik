@@ -48,7 +48,7 @@ export function ReauthDialog({
           label={t("reauth.password")}
           type="password"
           autoComplete="current-password"
-          autoFocus
+          data-autofocus=""
           value={password}
           onChange={(event) => {
             setPassword(event.target.value);

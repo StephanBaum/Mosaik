@@ -13,6 +13,7 @@ import { ItemDetail } from "./ItemDetail.tsx";
 import { ItemEditor } from "./ItemEditor.tsx";
 import { HardwareVaultBar, HardwareVaultPanel, type VaultTransition } from "./HardwareVaultPanel.tsx";
 import { ItemList } from "./ItemList.tsx";
+import { useEditorFocusReturn } from "./useEditorFocusReturn.ts";
 import type { Category } from "./useVaultData.ts";
 import type { Editor } from "./VaultLayout.tsx";
 
@@ -40,6 +41,7 @@ function Detail(props: ListViewProps) {
   const { editor, selected, trash, vaults, vaultId, reloadKey, onSelect, onEditor, onChanged } = props;
   // The item saved last as new: its detail puts the cursor on "Add file" (documents).
   const [created, setCreated] = useState<string | null>(null);
+  useEditorFocusReturn(editor.mode !== "closed");
   if (editor.mode !== "closed") {
     return (
       <ItemEditor

@@ -61,11 +61,14 @@ function ValueInput({
 
 function Row({
   row,
+  index,
   error,
   onChange,
   onRemove,
 }: {
   row: CustomRow;
+  /** 1-based position, names a row whose label is still empty. */
+  index: number;
   error: CustomRowError | undefined;
   onChange: (change: Partial<CustomRow>) => void;
   onRemove: () => void;
@@ -79,7 +82,11 @@ function Row({
         ? t("editor.custom.labelTooLong")
         : undefined;
   return (
-    <div className="row">
+    <div
+      className="row row--editor"
+      role="group"
+      aria-label={row.label.trim() || t("editor.custom.unnamed", { index })}
+    >
       <div className="row__main">
         <TextField
           label={t("editor.custom.label")}
@@ -134,10 +141,11 @@ export function CustomFieldsEditor({
     <section className="editor" aria-label={t("item.customFields")}>
       {rows.length > 0 && (
         <div className="rows">
-          {rows.map((row) => (
+          {rows.map((row, at) => (
             <Row
               key={row.rowKey}
               row={row}
+              index={at + 1}
               error={errors[row.rowKey]}
               onChange={(change) => {
                 onChange(rows.map((each) => (each.rowKey === row.rowKey ? { ...each, ...change } : each)));

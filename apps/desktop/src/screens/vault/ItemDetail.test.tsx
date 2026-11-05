@@ -231,8 +231,9 @@ describe("detail fields by kind", () => {
     expect(screen.getByText("The SSH agent can't use ssh-rsa keys yet. The key is stored safely.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy Public key" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reveal Passphrase" })).toBeTruthy();
-    // There is no way to see or copy the private key.
-    expect(screen.queryByText(/Private key/)).toBeNull();
+    // The private key has a row that says so, and no way to see or copy it.
+    expect(screen.getByText("Stored encrypted. It can't be shown or copied.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Private key/ })).toBeNull();
   });
 
   it("lists fields outside the layout under Other fields, and a one-time code field without a value", () => {

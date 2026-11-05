@@ -154,6 +154,12 @@
   color: var(--color-text-secondary);
 }
 
+.chip--warning {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+}
+
 .callout {
   display: flex;
   gap: calc(var(--space-3) + var(--space-1));

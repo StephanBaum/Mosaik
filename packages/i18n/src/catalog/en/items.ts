@@ -23,7 +23,7 @@ export const items = {
   "item.field.email": "Email",
   "item.field.phone": "Phone",
   "item.field.company": "Company",
-  "item.field.addressLine1": "Address",
+  "item.field.addressLine1": "Address line 1",
   "item.field.addressLine2": "Address line 2",
   "item.field.city": "City",
   "item.field.region": "Region",
@@ -46,7 +46,7 @@ export const items = {
   "item.field.wifiPassword": "Wi-Fi password",
   "item.urls": "{count, plural, one {Website} other {Websites}}",
   "item.tags": "Tags",
-  "item.customFields": "More fields",
+  "item.customFields": "Custom fields",
   "item.secret.hiddenLabel": "Hidden. Choose Reveal to show it.",
   "item.secret.revealed":
     "{field} shown. It hides again in {seconds, plural, one {# second} other {# seconds}}.",
@@ -87,6 +87,7 @@ export const items = {
   "item.field.sshPublicKey": "Public key",
   "item.field.sshFingerprint": "Fingerprint",
   "item.ssh.encrypted": "Protected by a passphrase",
+  "item.ssh.privateKeyKept": "Stored encrypted. It can't be shown or copied.",
   "item.ssh.agentUnsupported":
     "The SSH agent can't use {algorithm} keys yet. The key is stored safely.",
   "editor.ssh.privateKeyHint":
@@ -103,10 +104,14 @@ export const items = {
   "editor.clearSecret": "Remove {field}",
   "editor.secretWillClear": "{field} will be removed when you save.",
   "editor.urls.add": "Add website",
+  "editor.urls.matchExactRecommended": "Exact host (recommended)",
+  "editor.urls.hint": "Enter a full address starting with https://",
+  "editor.urls.heading": "Websites",
   "editor.urls.label": "Website {index}",
   "editor.urls.match": "Match type for website {index}",
   "editor.urls.remove": "Remove website {index}",
   "editor.custom.add": "Add custom field",
+  "editor.custom.unnamed": "Custom field {index}",
   "editor.custom.label": "Field name",
   "editor.custom.kind": "Field type",
   "editor.custom.value": "Value",
@@ -125,4 +130,5 @@ export const items = {
   "item.customKind.otp": "One-time code",
   "item.otherFields": "Other fields",
   "editor.document.filesAfterSave": "Save the document first, then add files to it.",
+  "editor.titleRequired": "Give this item a title.",
 } as const satisfies Record<string, string>;

@@ -97,6 +97,51 @@ describe("FilesSection", () => {
     expect(await screen.findByText("File removed.")).toBeTruthy();
   });
 
+  it("puts focus on Add file after a file was removed", async () => {
+    const user = userEvent.setup();
+    render(<Host />);
+    const files = await section();
+    await user.click(files.getByRole("button", { name: "Remove contract.pdf" }));
+    await user.click(await screen.findByRole("button", { name: "Remove file" }));
+    await waitFor(() => {
+      expect(files.getAllByRole("listitem")).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(files.getByRole("button", { name: "Add file…" }));
+    });
+  });
+
+  it("shows only a quiet Add file action on an item without files", async () => {
+    const ipc = createMockIpc({ start: "unlocked" });
+    const result = await ipc.call("get_item", ITEM);
+    if (!result.ok) {
+      throw new Error("get_item failed");
+    }
+    const detail: ItemDetail = { ...result.value, attachments: [] };
+    render(
+      <I18nProvider locale="en">
+        <IpcProvider ipc={ipc}>
+          <SecretsProvider>
+            <ToastProvider>
+              <FilesSection
+                detail={detail}
+                item={ITEM}
+                editable
+                quietWhenEmpty
+                autoFocusAdd={false}
+                onChanged={() => undefined}
+              />
+            </ToastProvider>
+          </SecretsProvider>
+        </IpcProvider>
+      </I18nProvider>,
+    );
+    expect(await screen.findByRole("button", { name: "Add file…" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Files" })).toBeNull();
+    expect(screen.queryByText("No files yet.")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Files" })).toBeNull();
+  });
+
   it("adds a file and says so; a cancelled dialog is silent", async () => {
     const user = userEvent.setup();
     render(<Host />);

@@ -73,6 +73,8 @@ export interface Form {
 export type CustomRowError = "labelRequired" | "labelTooLong" | "kindNeedsValue";
 
 export interface FormErrors {
+  /** A new item, or one that had a title, needs one (an untitled import may stay as it is). */
+  titleRequired: boolean;
   cardExpiry: boolean;
   sshKey: "missing" | "shape" | null;
   custom: Record<string, CustomRowError>;
@@ -336,6 +338,17 @@ function customRowError(row: CustomRow): CustomRowError | null {
   return row.stored && row.kind !== row.storedKind && row.value === "" ? "kindNeedsValue" : null;
 }
 
+function sshKeyError(form: Form): FormErrors["sshKey"] {
+  if (!hasSshKey(form.kind)) {
+    return null;
+  }
+  const key = form.sshPrivateKey.trim();
+  if (key === "") {
+    return form.creating ? "missing" : null;
+  }
+  return key.includes(SSH_KEY_HEADER) ? null : "shape";
+}
+
 /** What blocks saving. Hints (card number, email) never do. */
 export function validateForm(form: Form, initial: Form): FormErrors {
   const expiry = form.text.cardExpiry ?? "";
@@ -347,28 +360,20 @@ export function validateForm(form: Form, initial: Form): FormErrors {
       custom[row.rowKey] = error;
     }
   }
-  let sshKey: FormErrors["sshKey"] = null;
-  if (hasSshKey(form.kind)) {
-    const key = form.sshPrivateKey.trim();
-    if (key === "") {
-      sshKey = form.creating ? "missing" : null;
-    } else if (!key.includes(SSH_KEY_HEADER)) {
-      sshKey = "shape";
-    }
-  }
   return {
+    titleRequired: form.title.trim() === "" && (form.creating || initial.title.trim() !== ""),
     cardExpiry:
       layoutOf(form.kind).some((spec) => spec.key === "cardExpiry") &&
       expiry.trim() !== "" &&
       !legacy &&
       normalizeExpiry(expiry) === null,
-    sshKey,
+    sshKey: sshKeyError(form),
     custom,
   };
 }
 
 export function hasErrors(errors: FormErrors): boolean {
-  return errors.cardExpiry || errors.sshKey !== null || Object.keys(errors.custom).length > 0;
+  return errors.titleRequired || errors.cardExpiry || errors.sshKey !== null || Object.keys(errors.custom).length > 0;
 }
 
 /** Whether another custom field fits. */

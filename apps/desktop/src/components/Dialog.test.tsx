@@ -38,7 +38,43 @@ function Host() {
   );
 }
 
+function Autofocus() {
+  return (
+    <Dialog title="Pick" onClose={() => undefined}>
+      <button type="button">First</button>
+      <button type="button" data-autofocus="">
+        Intended
+      </button>
+      <button type="button">Last</button>
+    </Dialog>
+  );
+}
+
 describe("Dialog", () => {
+  it("focuses the control marked data-autofocus, not the first one", () => {
+    render(
+      <I18nProvider locale="en">
+        <Autofocus />
+      </I18nProvider>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Intended" }));
+  });
+
+  it("wraps Tab from the last control to the first and Shift+Tab back", async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider locale="en">
+        <Autofocus />
+      </I18nProvider>,
+    );
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Last" }));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "First" }));
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Last" }));
+  });
+
   it("gives focus back to the control that opened it", async () => {
     const user = userEvent.setup();
     render(

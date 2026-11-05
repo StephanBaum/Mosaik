@@ -19,6 +19,7 @@ import { useAppShortcuts } from "../../platform/shortcuts.ts";
 import { DetailFields } from "./DetailFields.tsx";
 import { DetailHeader, type ItemCommand } from "./DetailHeader.tsx";
 import { FilesSection } from "./files/FilesSection.tsx";
+import { titleOrUntitled } from "./title.ts";
 
 function useDetail(item: ItemRequest, reloadKey: number) {
   const ipc = useIpc();
@@ -136,6 +137,7 @@ function DetailBody({
       item={item}
       editable={!trash}
       autoFocusAdd={isDocument && justCreated}
+      quietWhenEmpty={!isDocument}
       onChanged={onDetail}
     />
   );
@@ -195,7 +197,7 @@ export function ItemDetail({
   if (detail === null) {
     return <ErrorAlert error={error} />;
   }
-  const title = detail.summary.title ?? t("vault.untitled");
+  const title = titleOrUntitled(detail.summary.title, t("vault.untitled"));
   return (
     <article className="detail" aria-label={title}>
       <DetailHeader

@@ -7,6 +7,7 @@
 import { Fragment } from "react";
 import { Chip } from "../../components/Chip.tsx";
 import { CopyButton } from "../../components/CopyButton.tsx";
+import { Icon } from "../../components/icons.tsx";
 import { SecretField } from "../../components/SecretField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
@@ -38,7 +39,12 @@ function secretCopy(field: SecretFieldKey): CopyField {
 function ExpiredChip({ expiry }: { expiry: string }) {
   const { t } = useI18n();
   const now = useNow();
-  return isExpired(expiry, new Date(now)) ? <Chip>{t("item.card.expired")}</Chip> : null;
+  return isExpired(expiry, new Date(now)) ? (
+    <Chip tone="warning">
+      <Icon name="alert" size="sm" />
+      {t("item.card.expired")}
+    </Chip>
+  ) : null;
 }
 
 function TextRow({
@@ -205,6 +211,11 @@ function CustomRows({ detail, item }: { detail: Detail; item: ItemRequest }) {
   });
 }
 
+function CustomHeading() {
+  const { t } = useI18n();
+  return <h3 className="editor__group-heading">{t("item.customFields")}</h3>;
+}
+
 export function DetailFields({ detail, item }: { detail: Detail; item: ItemRequest }) {
   return (
     <div className="rows">
@@ -213,6 +224,7 @@ export function DetailFields({ detail, item }: { detail: Detail; item: ItemReque
       <OtherRows detail={detail} item={item} />
       {detail.otp !== null && <TotpCode source={{ kind: "item", item }} />}
       <UrlRows detail={detail} />
+      {detail.customFields.length > 0 && <CustomHeading />}
       <CustomRows detail={detail} item={item} />
     </div>
   );

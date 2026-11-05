@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SecretsProvider } from "../../app/SecretsContext.tsx";
@@ -50,6 +50,33 @@ describe("item editor", () => {
     expect(dialog).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Discard" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the cursor in the title and leaves on Esc from the page body", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderEditor();
+    expect(document.activeElement).toBe(screen.getByLabelText("Title"));
+    // After a click on empty space or a closed menu, focus is on the body: Esc still leaves.
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before it drops edits when Esc comes from the page body", async () => {
+    const user = userEvent.setup();
+    const { onCancel } = renderEditor();
+    await user.type(screen.getByLabelText("Title"), "Draft");
+    (document.activeElement as HTMLElement).blur();
+    await user.keyboard("{Escape}");
+    expect(onCancel).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Discard your changes?" });
+    // The dialog starts on "Keep editing", and its own Esc keeps the editor open.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep editing" }));
+    // Esc in a dialog is its own cancel event (jsdom does not send it for a key press).
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(dialog.isConnected).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("keeps the notes in a multi-line field", () => {
@@ -280,6 +307,51 @@ describe("item editor, kinds and custom fields", () => {
     expect(await screen.findByText("Enter the expiry as MM/YY, for example 04/29.")).toBeTruthy();
   });
 
+  it("names each secret toggle after its field", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "creditCard");
+    const number = screen.getByRole("button", { name: "Reveal Card number" });
+    expect(screen.getByRole("button", { name: "Reveal Security code" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reveal PIN" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show password" })).toBeNull();
+    expect(number.getAttribute("aria-controls")).toBe(screen.getByLabelText("Card number").id);
+    await user.click(number);
+    expect(screen.getByRole("button", { name: "Hide Card number" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByLabelText("Card number").getAttribute("type")).toBe("text");
+  });
+
+  it("asks for a title instead of saving an untitled item", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    expect(screen.queryByText("Give this item a title.")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect((await screen.findByText("Give this item a title.")).textContent).toBe("Give this item a title.");
+    expect(screen.getByLabelText("Title").getAttribute("aria-invalid")).toBe("true");
+    await user.type(screen.getByLabelText("Title"), "Router");
+    expect(screen.queryByText("Give this item a title.")).toBeNull();
+  });
+
+  it("warns about a card number that fails the check as a status with an icon", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "creditCard");
+    await user.type(screen.getByLabelText("Card number"), "4111 1111 1111 1112");
+    const hint = screen.getByText("This number doesn't pass the card check. Check it for typos.");
+    expect(hint.getAttribute("role")).toBe("status");
+    expect(hint.querySelector("svg")).not.toBeNull();
+  });
+
+  it("does not offer an SSH passphrase to the password manager and lists the key first", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "sshKey");
+    expect(screen.getByLabelText("Passphrase").getAttribute("autocomplete")).toBe("off");
+    const key = screen.getByLabelText("Private key");
+    const passphrase = screen.getByLabelText("Passphrase");
+    expect(key.compareDocumentPosition(passphrase) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("asks for the private key of an SSH key item", async () => {
     const user = userEvent.setup();
     renderEditor();
@@ -320,6 +392,19 @@ describe("item editor, kinds and custom fields", () => {
     expect(draft.customFields).toEqual([
       { op: "update", elementId: "c1", label: "Gate code", kind: "hidden", value: null },
     ]);
+  });
+
+  it("names each custom field row for screen readers", async () => {
+    const user = userEvent.setup();
+    renderEditing(stored({ customFields: [] }));
+    const add = screen.getByRole("button", { name: "Add custom field" });
+    await user.click(add);
+    await user.click(add);
+    expect(screen.getByRole("group", { name: "Custom field 1" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Custom field 2" })).toBeTruthy();
+    await user.type(within(screen.getByRole("group", { name: "Custom field 2" })).getByLabelText("Field name"), "Gate");
+    expect(screen.getByRole("group", { name: "Gate" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Custom field 1" })).toBeTruthy();
   });
 
   it("adds a custom field and marks a stored secret for removal", async () => {

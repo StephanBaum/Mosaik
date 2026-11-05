@@ -226,6 +226,17 @@ select.field__input {
   line-height: var(--line-height-xs);
 }
 
+.field__hint--warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.field__hint--warning .icon {
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
 .alert {
   margin: 0;
   color: var(--color-danger);

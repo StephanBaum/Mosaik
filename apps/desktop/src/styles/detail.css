@@ -159,7 +159,7 @@
 }
 
 .editor__header .display {
-  flex: 1 1 calc(var(--space-9) * 3);
+  flex: 1 1 100%;
   margin: 0;
 }
 
@@ -177,10 +177,25 @@
   height: var(--size-control-md);
 }
 
+.editor__password,
+.row--editor {
+  /* The label line above a field, so a button beside it lines up with the input. */
+  --editor-label-offset: calc(var(--line-height-xs) + var(--space-2) + var(--space-1));
+  align-items: flex-start;
+}
+
 .editor__password {
   display: flex;
-  align-items: flex-end;
   gap: var(--space-3);
+}
+
+.editor__password > .button {
+  margin-top: var(--editor-label-offset);
+}
+
+.editor__password > .icon-button,
+.row--editor > .icon-button {
+  margin-top: calc(var(--editor-label-offset) + (var(--size-input) - var(--size-control-md)) / 2);
 }
 
 .editor__password .field {
@@ -188,11 +203,15 @@
 }
 
 .editor__group-heading {
-  margin: 0;
+  margin: var(--space-5) 0 0;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
+}
+
+.rows > .editor__group-heading:first-child {
+  margin-top: 0;
 }
 
 /* Files (ADR-0034) */
@@ -225,12 +244,22 @@
 
 .files__actions {
   display: flex;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
 }
 
 .files > .alert {
   margin: 0;
+}
+
+/* Holds the dialog's height while the pixels are prepared, so it does not jump. */
+.preview__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(var(--space-9) * 4);
 }
 
 /* The preview frame: the canvas is scaled down to fit, never up. */

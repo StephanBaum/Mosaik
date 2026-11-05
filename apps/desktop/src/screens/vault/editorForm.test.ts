@@ -256,6 +256,23 @@ describe("validateForm", () => {
     expect(validateForm({ ...initial, text: { cardExpiry: "" } }, initial).cardExpiry).toBe(false);
   });
 
+  it("requires a title for a new item and for one that had a title", () => {
+    const fresh = initialForm(null, vaults, "v1");
+    expect(validateForm(fresh, fresh).titleRequired).toBe(true);
+    expect(hasErrors(validateForm(fresh, fresh))).toBe(true);
+    expect(validateForm({ ...fresh, title: "   " }, fresh).titleRequired).toBe(true);
+    expect(validateForm({ ...fresh, title: "Router" }, fresh).titleRequired).toBe(false);
+
+    const initial = initialForm(detail("login"), vaults, null);
+    expect(validateForm({ ...initial, title: " " }, initial).titleRequired).toBe(true);
+  });
+
+  it("lets an untitled import be saved without a title as long as it stays untitled", () => {
+    const untitled = detail("login", { summary: { ...detail("login").summary, title: null } });
+    const initial = initialForm(untitled, vaults, null);
+    expect(validateForm(initial, initial).titleRequired).toBe(false);
+  });
+
   it("checks custom field labels", () => {
     const initial = initialForm(stored, vaults, null);
     const rows = [

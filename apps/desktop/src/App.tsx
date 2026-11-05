@@ -2,7 +2,7 @@
  * The app shell: providers (IPC, settings, i18n, toasts, secrets, events) and the
  * session-driven routing between onboarding, unlock, the Emergency Kit recovery and the vault.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { EventsProvider } from "./app/EventsProvider.tsx";
 import { SecretsProvider } from "./app/SecretsContext.tsx";
 import { SettingsProvider, useSettings } from "./app/SettingsProvider.tsx";
@@ -62,8 +62,30 @@ function SessionRoot() {
       <a className="skip-link" href="#main">
         {t("app.skipToContent")}
       </a>
+      <UnlockAnnouncement view={view} />
       <Routes view={view} setSession={setSession} />
     </EventsProvider>
+  );
+}
+
+/**
+ * Says "Mosaic is unlocked." in a live region that outlives the unlock screen (the lock message
+ * is on that screen; nothing else tells a screen reader that the vault opened). A start that is
+ * already unlocked says nothing.
+ */
+function UnlockAnnouncement({ view }: { view: SessionView }) {
+  const { t } = useI18n();
+  const state = view.status === "ready" ? view.session.state : null;
+  const [previous, setPrevious] = useState(state);
+  const [announce, setAnnounce] = useState(false);
+  if (previous !== state) {
+    setPrevious(state);
+    setAnnounce(previous === "locked" && state === "unlocked");
+  }
+  return (
+    <p className="visually-hidden" role="status">
+      {announce ? t("session.unlocked") : ""}
+    </p>
   );
 }
 

@@ -213,7 +213,7 @@
   display: flex;
   grid-column: 2;
   grid-row: 1;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-3) var(--space-4);
   min-height: var(--size-header);
@@ -222,6 +222,8 @@
 
 .breadcrumb {
   display: flex;
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: calc(var(--space-2) + var(--space-1));
   color: var(--color-text-muted);
@@ -230,7 +232,25 @@
 
 .breadcrumb__item {
   display: inline-flex;
+  flex-shrink: 1;
+  min-width: 0;
   gap: calc(var(--space-2) + var(--space-1));
+}
+
+.breadcrumb__crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb__sep {
+  flex-shrink: 0;
+}
+
+/* The button keeps its name for screen readers and shows only the icon in a narrow window. */
+.topbar__new {
+  flex-shrink: 0;
 }
 
 .breadcrumb__sep {
@@ -245,6 +265,7 @@
 .search {
   display: flex;
   flex: 1 1 calc(var(--space-9) * 4);
+  min-width: 0;
   align-items: center;
   gap: var(--space-3);
   max-width: calc(var(--space-9) * 8);
@@ -455,6 +476,15 @@
 
   .topbar {
     padding: 0 var(--space-4);
+  }
+
+  .topbar__new-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .split__detail {

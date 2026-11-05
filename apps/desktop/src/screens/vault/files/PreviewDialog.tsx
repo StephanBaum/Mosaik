@@ -111,6 +111,11 @@ export function PreviewDialog({
 
   return (
     <Dialog title={attachment.fileName} size="wide" onClose={close}>
+      {loading && (
+        <p role="status" className="files__note preview__loading">
+          {t("files.previewLoading")}
+        </p>
+      )}
       <div
         data-secret=""
         className="preview__frame"
@@ -122,7 +127,7 @@ export function PreviewDialog({
       <ErrorAlert error={error} />
       <div className="dialog__actions">
         <Button onClick={onSaveAs}>{t("files.saveAsShort")}</Button>
-        <Button autoFocus onClick={close}>
+        <Button data-autofocus="" onClick={close}>
           {t("files.close")}
         </Button>
       </div>

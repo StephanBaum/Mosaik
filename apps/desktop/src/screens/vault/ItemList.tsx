@@ -18,6 +18,7 @@ import type {
 import { daysLeft, TRASH_URGENT_DAYS } from "../../time/trash.ts";
 import { matchesCategory, type Category } from "./useVaultData.ts";
 import { UserText } from "../../components/UserText.tsx";
+import { titleOrUntitled } from "./title.ts";
 
 export const SEARCH_DEBOUNCE_MS = 150;
 /** Longer lists render only the rows near the viewport. */
@@ -97,7 +98,7 @@ function ItemRow({
   onSelect: () => void;
 }) {
   const { t } = useI18n();
-  const title = item.title ?? t("vault.untitled");
+  const title = titleOrUntitled(item.title, t("vault.untitled"));
   const trashed = now !== null && item.trashedAt !== null ? daysLeft(item.trashedAt, now) : null;
   return (
     <button

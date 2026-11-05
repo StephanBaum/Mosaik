@@ -104,7 +104,7 @@ export function CreateVaultDialog({
       <form className="stack" onSubmit={(event) => void submit(event)} noValidate>
         <TextField
           label={t("vault.create.name")}
-          autoFocus
+          data-autofocus=""
           autoComplete="off"
           value={name}
           onChange={(event) => {
