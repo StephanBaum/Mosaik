@@ -39,6 +39,9 @@ pub enum CopyField {
         /// The element.
         element_id: String,
     },
+    /// The public key of an SSH key item (`fieldEmpty` if it has no key
+    /// material). The private key is never copied.
+    SshPublicKey,
 }
 
 /// What to copy.
@@ -117,6 +120,7 @@ pub(crate) mod samples {
             item(CopyField::CustomField {
                 element_id: "5-019a2b3c4d5e7000".into(),
             }),
+            item(CopyField::SshPublicKey),
             CopyRequest {
                 source: CopySource::Generated,
             },

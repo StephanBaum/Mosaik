@@ -29,6 +29,10 @@ export interface MockItem {
   detail: ItemDetail;
   secrets: Partial<Record<SecretFieldKey, string>>;
   history: string[];
+  /** Hidden custom-field values by element ID (the detail never carries them). */
+  customSecrets: Record<string, string>;
+  /** The pasted private key of an SSH key item; it never leaves the mock either. */
+  sshKey: { privateKey: string } | null;
 }
 
 /** A pending security-key touch that `hardware_key_cancel` can reject. */

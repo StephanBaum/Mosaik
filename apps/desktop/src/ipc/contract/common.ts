@@ -39,6 +39,7 @@ export const errorCodes = [
   "noOtp",
   "fieldEmpty",
   "invalidInput",
+  "sshKeyInvalid",
   "reauthRequired",
   "attachmentTooLarge",
   "attachmentQuota",

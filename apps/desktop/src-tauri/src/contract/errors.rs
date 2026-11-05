@@ -117,6 +117,8 @@ wire_enum!(
         FieldEmpty,
         /// A request value is out of range or malformed.
         InvalidInput,
+        /// The pasted text is not an OpenSSH private key (or is too long).
+        SshKeyInvalid,
         /// The change needs the master password again (UX_GUIDELINES §8).
         ReauthRequired,
         /// The file is larger than 50 MiB.

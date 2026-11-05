@@ -1,7 +1,9 @@
 //! Item commands. Summaries and details never carry a secret; the only
 //! secret that leaves here is the one `reveal_secret` was asked for.
 
-use mosaic_core::model::{CustomFieldValue, Item, OtpKind, SecretField, TextField, UrlMatch};
+use mosaic_core::model::{
+    CustomFieldValue, Item, ItemType, OtpKind, SecretField, TextField, UrlMatch,
+};
 use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
 use tauri::State;
@@ -14,7 +16,8 @@ use crate::contract::items::{
     AddItemRequest, AttachmentEntry, CustomFieldEntry, CustomFieldKind, ItemDetail, ItemKind,
     ItemRequest, ItemSummary, ListItemsRequest, MoveItemRequest, MovedItem, OtpScheme, OtpSummary,
     RevealRequest, RevealedSecret, ReviewState, SecretFieldKey, SecretRef, SetFavoriteRequest,
-    TextFieldEntry, TextFieldKey, TrashFilter, UpdateItemRequest, UrlEntry, UrlMatchMode,
+    SshKeySummary, TextFieldEntry, TextFieldKey, TrashFilter, UpdateItemRequest, UrlEntry,
+    UrlMatchMode,
 };
 use crate::contract::secret::SecretOut;
 use crate::state::{AppState, Backend};
@@ -210,6 +213,29 @@ fn custom_entry(element_id: String, label: String, value: &CustomFieldValue) -> 
     }
 }
 
+/// The SSH key summary of an item (`None` without key material). Material
+/// that does not parse shows what was stored, flagged as unusable by the
+/// agent.
+fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
+    let material = item.ssh_key()?;
+    Some(match mosaic_ssh_agent::describe_material(&material) {
+        Ok(info) => SshKeySummary {
+            public_key: Some(info.public_key),
+            fingerprint: Some(info.fingerprint),
+            algorithm: Some(info.algorithm),
+            encrypted: info.encrypted,
+            agent_supported: info.agent_supported,
+        },
+        Err(_) => SshKeySummary {
+            public_key: non_empty(Some(material.public_key.as_str())),
+            fingerprint: non_empty(Some(material.fingerprint.as_str())),
+            algorithm: None,
+            encrypted: false,
+            agent_supported: false,
+        },
+    })
+}
+
 fn detail(vault_id: VaultId, item_id: ItemId, item: &Item) -> IpcResult<ItemDetail> {
     let text = TextField::ALL
         .iter()
@@ -285,6 +311,7 @@ fn detail(vault_id: VaultId, item_id: ItemId, item: &Item) -> IpcResult<ItemDeta
             deleted_concurrently: item.deleted_concurrently().is_some(),
             conflict_copy_of: item.conflict_copy_of().map(Into::into),
         },
+        ssh_key: ssh_summary(item),
     })
 }
 
@@ -420,11 +447,16 @@ impl Backend {
         taken: Option<&TakenOtp>,
     ) -> IpcResult<ItemDetail> {
         let prepared = draft::prepare(request.draft, taken.map(TakenOtp::config).transpose()?)?;
+        if prepared.sets_ssh_key() && request.kind != ItemKind::SshKey {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
         let vault_id = request.vault_id.get();
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
         let item_id = session
-            .add_item(vault_id, item_type, |edit| prepared.apply(edit, &[]))
+            .add_item(vault_id, item_type, |edit| {
+                prepared.apply(edit, &[], Vec::new())
+            })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
         detail(vault_id, item_id, session.item(vault_id, item_id)?)
@@ -452,14 +484,16 @@ impl Backend {
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
-        let tags: Vec<String> = session
-            .item(vault_id, item_id)?
-            .tags()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        let current = session.item(vault_id, item_id)?;
+        if prepared.sets_ssh_key() && current.item_type() != Some(ItemType::SshKey) {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
+        let tags: Vec<String> = current.tags().into_iter().map(str::to_owned).collect();
+        let fields = current.custom_fields();
         session
-            .update_item(vault_id, item_id, |edit| prepared.apply(edit, &tags))
+            .update_item(vault_id, item_id, |edit| {
+                prepared.apply(edit, &tags, fields)
+            })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
         detail(vault_id, item_id, session.item(vault_id, item_id)?)

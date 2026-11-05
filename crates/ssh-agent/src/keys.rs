@@ -9,7 +9,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use mosaic_core::model::{Item, ItemType, SecretField, SshKeyMaterial, TextField};
+use mosaic_core::model::{Item, ItemType, SecretField, SshKeyMaterial, Text, TextField};
 use mosaic_core::{ItemId, SecretString, VaultId};
 use ssh_key::public::{EcdsaPublicKey, KeyData};
 use ssh_key::{HashAlg, Kdf, PrivateKey, PublicKey};
@@ -334,6 +334,77 @@ fn sign_with<K: ssh_key::SigningKey>(key: &K, data: &[u8]) -> Option<ssh_key::Si
     key.try_sign(data).ok()
 }
 
+/// The longest private key text [`material_from_openssh`] accepts, in
+/// bytes. A real OpenSSH key file is well under 4 KiB (RSA 4096 is about
+/// 3.4 KiB).
+pub const MAX_PRIVATE_KEY_TEXT_LEN: usize = 16 * 1024;
+
+/// What the app shows about stored key material. Public data only.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct KeyInfo {
+    /// The public key in `authorized_keys` format.
+    pub public_key: String,
+    /// The SHA-256 fingerprint (`SHA256:...`).
+    pub fingerprint: String,
+    /// The SSH algorithm name (for example `ssh-ed25519`).
+    pub algorithm: String,
+    /// The private key is protected by a passphrase.
+    pub encrypted: bool,
+    /// The agent can sign with this key (see [`KeyAlgorithm`]).
+    pub agent_supported: bool,
+}
+
+/// Key material from a pasted OpenSSH private key. The key is parsed, not
+/// decrypted, so an encrypted key costs no KDF time; the public key and the
+/// fingerprint come from the file's clear header. Surrounding whitespace is
+/// trimmed. Every parsed form is dropped (and wiped) before this returns.
+///
+/// # Errors
+/// [`KeyError::Malformed`] for text above [`MAX_PRIVATE_KEY_TEXT_LEN`] or
+/// text that is not an OpenSSH private key, [`KeyError::Allocation`] if the
+/// key copy cannot be reserved.
+pub fn material_from_openssh(private_key: &str) -> Result<SshKeyMaterial, KeyError> {
+    let text = private_key.trim();
+    if text.is_empty() || text.len() > MAX_PRIVATE_KEY_TEXT_LEN {
+        return Err(KeyError::Malformed);
+    }
+    let parsed = PrivateKey::from_openssh(text).map_err(|_| KeyError::Malformed)?;
+    let public = parsed.public_key();
+    let public_key = public.to_openssh().map_err(|_| KeyError::Malformed)?;
+    let fingerprint = public.fingerprint(HashAlg::Sha256).to_string();
+    drop(parsed);
+    let private = SecretString::from_str_copy(text).map_err(|_| KeyError::Allocation)?;
+    Ok(SshKeyMaterial::new(
+        private,
+        Text::new(&public_key),
+        Text::new(&fingerprint),
+    ))
+}
+
+/// Describes stored key material without decrypting it. The public key is
+/// `material.public_key`, or, if that is empty or does not parse, the one in
+/// the private key's header (as [`AgentKey::new`] does); the fingerprint is
+/// computed, never taken from the material.
+///
+/// # Errors
+/// [`KeyError::Malformed`] if the private key text or the public key cannot
+/// be read.
+pub fn describe_material(material: &SshKeyMaterial) -> Result<KeyInfo, KeyError> {
+    let parsed = PrivateKey::from_openssh(material.private_key.expose_secret())
+        .map_err(|_| KeyError::Malformed)?;
+    let public = match PublicKey::from_openssh(material.public_key.as_str()) {
+        Ok(p) => p,
+        Err(_) => parsed.public_key().clone(),
+    };
+    Ok(KeyInfo {
+        public_key: public.to_openssh().map_err(|_| KeyError::Malformed)?,
+        fingerprint: public.fingerprint(HashAlg::Sha256).to_string(),
+        algorithm: public.algorithm().as_str().to_owned(),
+        encrypted: parsed.is_encrypted(),
+        agent_supported: KeyAlgorithm::of(public.key_data()).is_ok(),
+    })
+}
+
 /// The keys the agent serves, in insertion order. A public key is listed
 /// once: a second item with the same key is skipped, so an approval always
 /// names one item.
@@ -566,6 +637,78 @@ mod tests {
             let err = AgentKey::new(v, i, None, None, material(private, ""), None);
             assert_eq!(err.unwrap_err(), KeyError::Unsupported, "{name}");
         }
+    }
+
+    #[test]
+    fn material_from_openssh_ed25519() {
+        let (private, public) = fixture("ed25519");
+        // Surrounding whitespace is trimmed.
+        let m = material_from_openssh(&format!(
+            "
+  {private}
+
+"
+        ))
+        .unwrap();
+        assert_eq!(
+            m.fingerprint.as_str(),
+            "SHA256:QjbS4EZK032epnEDVJGO7K3jwMFOWJMwAflXxbJSUUM"
+        );
+        assert_eq!(m.public_key.as_str(), public.trim());
+        assert_eq!(m.private_key.expose_secret(), private.trim());
+        let info = describe_material(&m).unwrap();
+        assert_eq!(info.algorithm, "ssh-ed25519");
+        assert!(info.agent_supported && !info.encrypted);
+        assert_eq!(info.fingerprint, m.fingerprint.as_str());
+        // The stored material serves as an agent key.
+        let (vault, item) = ids();
+        AgentKey::new(vault, item, None, None, m, None).unwrap();
+    }
+
+    #[test]
+    fn material_from_openssh_encrypted_not_decrypted() {
+        let (private, _) = fixture("ed25519_encrypted");
+        let m = material_from_openssh(private).unwrap();
+        assert_eq!(
+            m.fingerprint.as_str(),
+            "SHA256:y3g+LJFxKc2TrMnmUC5dojjMtDnPO88o0ws6qrvpnzQ"
+        );
+        let info = describe_material(&m).unwrap();
+        assert!(info.encrypted && info.agent_supported);
+    }
+
+    #[test]
+    fn material_from_openssh_refuses_garbage_and_oversize() {
+        for text in [
+            "",
+            "   ",
+            "hello",
+            "-----BEGIN OPENSSH PRIVATE KEY-----
+AAAA
+-----END OPENSSH PRIVATE KEY-----",
+        ] {
+            assert_eq!(material_from_openssh(text).err(), Some(KeyError::Malformed));
+        }
+        let (private, _) = fixture("ed25519");
+        let long = format!("{private}{}", " ".repeat(MAX_PRIVATE_KEY_TEXT_LEN));
+        // Trailing whitespace is trimmed first, so this still fits.
+        assert!(material_from_openssh(&long).is_ok());
+        let long = format!("{private}{}", "A".repeat(MAX_PRIVATE_KEY_TEXT_LEN));
+        assert_eq!(
+            material_from_openssh(&long).err(),
+            Some(KeyError::Malformed)
+        );
+    }
+
+    #[test]
+    fn describe_rsa_not_agent_supported() {
+        let (private, public) = fixture("rsa");
+        let info = describe_material(&material(private, public)).unwrap();
+        assert!(!info.agent_supported);
+        assert_eq!(info.algorithm, "ssh-rsa");
+        // Without a stored public key, the header's one is used.
+        let info = describe_material(&material(private, "")).unwrap();
+        assert!(!info.agent_supported);
     }
 
     #[test]

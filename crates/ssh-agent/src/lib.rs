@@ -69,8 +69,9 @@ pub use approval::{
 pub use core::{AgentConfig, AgentCore};
 pub use error::Error;
 pub use keys::{
-    AgentKey, DEFAULT_MAX_KDF_ROUNDS, KeyAlgorithm, KeyError, KeySet, SignFailure, SkipReason,
-    SkippedKey, rsa_signature_algorithm,
+    AgentKey, DEFAULT_MAX_KDF_ROUNDS, KeyAlgorithm, KeyError, KeyInfo, KeySet,
+    MAX_PRIVATE_KEY_TEXT_LEN, SignFailure, SkipReason, SkippedKey, describe_material,
+    material_from_openssh, rsa_signature_algorithm,
 };
 pub use server::AgentHandle;
 pub use transport::Endpoint;

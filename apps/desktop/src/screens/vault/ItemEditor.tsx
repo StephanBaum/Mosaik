@@ -1,9 +1,12 @@
-/** Create or edit an item (D10): title, user name, password (the generator can fill it), website, notes, tags. */
+/**
+ * Create or edit an item (D10): title, the kind's fields (`kinds/layouts.ts`), websites,
+ * one-time code, SSH key, tags, notes and custom fields. The kind can be chosen only while
+ * creating: core has no setter for it and two devices could pick different kinds (ADR-0033).
+ */
 import {
   useState,
   type Dispatch,
   type KeyboardEvent,
-  type ReactNode,
   type SetStateAction,
   type SyntheticEvent,
 } from "react";
@@ -11,11 +14,7 @@ import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
-import { Icon } from "../../components/icons.tsx";
-import { PasswordField } from "../../components/PasswordField.tsx";
 import { Select } from "../../components/Select.tsx";
-import { TextArea } from "../../components/TextArea.tsx";
-import { TextField } from "../../components/TextField.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import {
@@ -24,10 +23,13 @@ import {
   type ItemDetail,
   type ItemKind,
   type ItemRequest,
+  type SecretFieldKey,
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
-import { initialForm, useSave, type Form } from "./editorForm.ts";
-import { OTP_UNCHANGED, OtpSection } from "./otp/OtpSection.tsx";
+import { Sections } from "./editor/Sections.tsx";
+import { changeKind, hasErrors, initialForm, validateForm, type Form } from "./editorForm.ts";
+import { OTP_UNCHANGED } from "./otp/OtpSection.tsx";
+import { useSave } from "./useSave.ts";
 
 const CREATABLE: readonly ItemKind[] = itemKinds.filter(
   (kind) => kind !== "unsupported" && kind !== "passkey",
@@ -49,11 +51,13 @@ function KindAndVault({
   creating,
   vaults,
   onChange,
+  onKind,
 }: {
   form: Form;
   creating: boolean;
   vaults: readonly VaultSummary[];
   onChange: (patch: Partial<Form>) => void;
+  onKind: (kind: ItemKind) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -65,7 +69,7 @@ function KindAndVault({
             value={form.kind}
             options={CREATABLE.map((each) => ({ value: each, label: t(`item.kind.${each}`) }))}
             onChange={(event) => {
-              onChange({ kind: event.target.value as ItemKind });
+              onKind(event.target.value as ItemKind);
             }}
           />
         </div>
@@ -89,87 +93,21 @@ function KindAndVault({
   );
 }
 
-function FormFields({
-  form,
-  creating,
-  onChange,
-  onFill,
-  children,
-}: {
-  form: Form;
-  creating: boolean;
-  onChange: (patch: Partial<Form>) => void;
-  onFill: () => void;
-  /** The one-time code section, after the website. */
-  children?: ReactNode;
-}) {
-  const { t } = useI18n();
-  const text = (key: "title" | "username" | "tags", label: string, hint?: string) => (
-    <TextField
-      label={label}
-      hint={hint}
-      value={form[key]}
-      required={key === "title"}
-      autoComplete="off"
-      onChange={(event) => {
-        onChange({ [key]: event.target.value });
-      }}
-    />
-  );
-  return (
-    <>
-      {text("title", t("item.field.title"))}
-      {text("username", t("item.field.username"))}
-      <div className="editor__password">
-        <PasswordField
-          label={t("item.field.password")}
-          hint={creating ? undefined : t("editor.keepSecret")}
-          autoComplete="new-password"
-          value={form.password}
-          onChange={(event) => {
-            onChange({ password: event.target.value });
-          }}
-        />
-        <Button onClick={onFill}>
-          <Icon name="refresh" />
-          {t("action.generate")}
-        </Button>
-      </div>
-      {creating && (
-        <TextField
-          label={t("editor.url")}
-          type="url"
-          value={form.url}
-          onChange={(event) => {
-            onChange({ url: event.target.value });
-          }}
-        />
-      )}
-      {children}
-      <TextArea
-        label={t("item.field.notes")}
-        value={form.notes}
-        rows={2}
-        autoComplete="off"
-        onChange={(event) => {
-          onChange({ notes: event.target.value });
-        }}
-      />
-      {text("tags", t("editor.tags"))}
-    </>
-  );
-}
-
-/** Asks the generator for a password and puts it in the form. */
+/** Asks the generator for a password and puts it in the form field `key`. */
 function useFillGenerated(
   setForm: Dispatch<SetStateAction<Form>>,
   setError: (error: IpcError | null) => void,
-): () => void {
+): (key: SecretFieldKey) => void {
   const ipc = useIpc();
-  return () => {
+  return (key) => {
     void ipc.call("generate_password", GENERATED_PASSWORD).then((result) => {
       if (result.ok) {
-        setForm((current) => ({ ...current, password: result.value.value }));
+        const value = result.value.value;
+        setForm((current) => ({
+          ...current,
+          secrets: { ...current.secrets, [key]: value },
+          clearSecrets: current.clearSecrets.filter((each) => each !== key),
+        }));
       } else {
         setError(result.error);
       }
@@ -189,35 +127,6 @@ function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: (
         <Button onClick={onDiscard}>{t("editor.discard.confirm")}</Button>
       </div>
     </Dialog>
-  );
-}
-
-/** The one-time code section, fed from the form. */
-function EditorOtp({
-  form,
-  editing,
-  vaults,
-  missing,
-  onChange,
-}: {
-  form: Form;
-  editing: ItemDetail | null;
-  vaults: readonly VaultSummary[];
-  missing: boolean;
-  onChange: (patch: Partial<Form>) => void;
-}) {
-  return (
-    <OtpSection
-      kind={form.kind}
-      existing={editing?.otp ?? null}
-      value={form.otp}
-      onChange={(otp) => {
-        onChange({ otp });
-      }}
-      vaults={vaults}
-      prefill={{ issuer: form.title, account: form.username }}
-      missing={missing}
-    />
   );
 }
 
@@ -247,6 +156,54 @@ function leaveOnEscape(event: KeyboardEvent<HTMLFormElement>, leave: () => void)
   }
 }
 
+/** The form's state, what blocks saving and what a submit does. */
+function useEditorState(
+  editing: ItemDetail | null,
+  vaults: readonly VaultSummary[],
+  vaultId: string | null,
+  onSaved: (item: ItemRequest) => void,
+) {
+  const [initial] = useState(() => initialForm(editing, vaults, vaultId));
+  const [form, setForm] = useState(initial);
+  const [tried, setTried] = useState(false);
+  const change = (patch: Partial<Form>) => {
+    setForm((current) => ({ ...current, ...patch }));
+  };
+  const { error, setError, save } = useSave({
+    editing,
+    vaults,
+    initial,
+    onSaved,
+    onCodeStored: () => {
+      change({ otp: OTP_UNCHANGED });
+    },
+  });
+  const errors = validateForm(form, initial);
+  // A one-time code item without a code would be empty.
+  const otpMissing = form.kind === "totp" && editing === null && form.otp.kind !== "pending";
+  const submit = () => {
+    setTried(true);
+    if (!otpMissing && !hasErrors(errors)) {
+      void save(form);
+    }
+  };
+  return {
+    initial,
+    form,
+    errors,
+    tried,
+    otpMissing,
+    error,
+    change,
+    submit,
+    dirty: JSON.stringify(form) !== JSON.stringify(initial),
+    setKind: (kind: ItemKind) => {
+      setForm((current) => changeKind(current, kind));
+    },
+    fillGenerated: useFillGenerated(setForm, setError),
+  };
+}
+
 export function ItemEditor({
   vaults,
   vaultId,
@@ -262,32 +219,17 @@ export function ItemEditor({
   onCancel: () => void;
 }) {
   const { t } = useI18n();
-  const [initial] = useState(() => initialForm(editing, vaults, vaultId));
-  const [form, setForm] = useState(initial);
+  const state = useEditorState(editing, vaults, vaultId, onSaved);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [otpTried, setOtpTried] = useState(false);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const change = (patch: Partial<Form>) => {
-    setForm((current) => ({ ...current, ...patch }));
-  };
-  const { error, setError, save } = useSave(editing, vaults, onSaved, () => {
-    change({ otp: OTP_UNCHANGED });
-  });
+  const { form, dirty } = state;
   const cancel = useCancel(form, onCancel);
-  // A one-time code item without a code would be empty.
-  const otpMissing = form.kind === "totp" && editing === null && form.otp.kind !== "pending";
-  const fillGenerated = useFillGenerated(setForm, setError);
   const heading = useHeading(editing, form.kind);
   return (
     <form
       className="editor"
       onSubmit={(event: SyntheticEvent) => {
         event.preventDefault();
-        if (otpMissing) {
-          setOtpTried(true);
-          return;
-        }
-        void save(form);
+        state.submit();
       }}
       noValidate
       onKeyDown={(event) => {
@@ -302,18 +244,26 @@ export function ItemEditor({
     >
       <div className="editor__header">
         <h2 className="display">{heading}</h2>
-        <KindAndVault form={form} creating={editing === null} vaults={vaults} onChange={change} />
-      </div>
-      <FormFields form={form} creating={editing === null} onChange={change} onFill={fillGenerated}>
-        <EditorOtp
+        <KindAndVault
           form={form}
-          editing={editing}
+          creating={editing === null}
           vaults={vaults}
-          missing={otpTried && otpMissing}
-          onChange={change}
+          onChange={state.change}
+          onKind={state.setKind}
         />
-      </FormFields>
-      <ErrorAlert error={error} />
+      </div>
+      <Sections
+        form={form}
+        initial={state.initial}
+        editing={editing}
+        vaults={vaults}
+        errors={state.errors}
+        tried={state.tried}
+        otpMissing={state.otpMissing}
+        onChange={state.change}
+        onGenerate={state.fillGenerated}
+      />
+      <ErrorAlert error={state.error} />
       <div className="form-footer">
         <Button onClick={cancel}>{t("action.cancel")}</Button>
         <HoloButton type="submit">{t("action.save")}</HoloButton>

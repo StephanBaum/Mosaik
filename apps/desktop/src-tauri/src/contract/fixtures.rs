@@ -268,7 +268,7 @@ fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "get_item",
         vec![item_request],
-        vec![items::samples::detail()],
+        vec![items::samples::detail(), items::samples::ssh_detail()],
     );
     f.command(
         "reveal_secret",
