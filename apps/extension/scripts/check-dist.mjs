@@ -9,9 +9,25 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const PRODUCTION = ["chromium", "firefox"];
-const FORBIDDEN_TEXT = ["mosaicE2E", "e2eTabId", "onMessageExternal", "onConnectExternal"];
+// Names from src/background/e2e.ts and e2e-desktop.ts (the fake desktop), and the external listeners.
+const FORBIDDEN_TEXT = [
+  "mosaicE2E",
+  "e2eTabId",
+  "FakeDesktop",
+  "pauseAfterProbe",
+  "onMessageExternal",
+  "onConnectExternal",
+];
 const PERMISSIONS = ["activeTab", "scripting", "nativeMessaging", "contextMenus", "storage"];
-const FORBIDDEN_KEYS = ["host_permissions", "web_accessible_resources", "key", "update_url"];
+const FORBIDDEN_KEYS = [
+  "host_permissions",
+  "content_scripts",
+  "web_accessible_resources",
+  "optional_permissions",
+  "key",
+  "update_url",
+];
+const OPTIONAL_HOSTS = ["http://*/*", "https://*/*"];
 const TEXT_FILE = /\.(js|mjs|html|css|json)$/;
 
 /** @param {string} dir @returns {string[]} */
@@ -44,6 +60,14 @@ function check(name) {
   }
   if (JSON.stringify([...(manifest.permissions ?? [])].sort()) !== JSON.stringify([...PERMISSIONS].sort())) {
     problems.push(`${name}: permissions are ${JSON.stringify(manifest.permissions)}`);
+  }
+  if (JSON.stringify([...(manifest.optional_host_permissions ?? [])].sort()) !== JSON.stringify(OPTIONAL_HOSTS)) {
+    problems.push(`${name}: optional_host_permissions are ${JSON.stringify(manifest.optional_host_permissions)}`);
+  }
+  // Chromium: no other extension may connect (Firefox has no such key and allows none by default).
+  const external = JSON.stringify(manifest.externally_connectable);
+  if (name === "chromium" ? external !== '{"ids":[]}' : external !== undefined) {
+    problems.push(`${name}: externally_connectable is ${String(external)}`);
   }
   return problems;
 }
