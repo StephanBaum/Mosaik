@@ -101,6 +101,10 @@ export const fixtures = {
       "firefox",
       "other"
     ],
+    "browserRegistryState": [
+      "ok",
+      "unreadable"
+    ],
     "browserSaveKind": [
       "new",
       "update"
@@ -1920,15 +1924,23 @@ export const fixtures = {
             "lastUsedAt": null,
             "pairingId": "fedcba9876543210fedcba9876543210"
           }
-        ]
+        ],
+        "registry": "ok"
       },
       {
         "endpoint": "inUse",
-        "pairings": []
+        "pairings": [],
+        "registry": "ok"
       },
       {
         "endpoint": "unavailable",
-        "pairings": []
+        "pairings": [],
+        "registry": "ok"
+      },
+      {
+        "endpoint": "running",
+        "pairings": [],
+        "registry": "unreadable"
       }
     ],
     "browser_save_respond": [
@@ -1954,15 +1966,23 @@ export const fixtures = {
             "lastUsedAt": null,
             "pairingId": "fedcba9876543210fedcba9876543210"
           }
-        ]
+        ],
+        "registry": "ok"
       },
       {
         "endpoint": "inUse",
-        "pairings": []
+        "pairings": [],
+        "registry": "ok"
       },
       {
         "endpoint": "unavailable",
-        "pairings": []
+        "pairings": [],
+        "registry": "ok"
+      },
+      {
+        "endpoint": "running",
+        "pairings": [],
+        "registry": "unreadable"
       }
     ],
     "clear_clipboard": [

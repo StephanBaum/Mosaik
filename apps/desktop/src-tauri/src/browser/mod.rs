@@ -45,7 +45,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::contract::browser::{BrowserEndpointState, BrowserPairing, BrowserStatus};
+use crate::contract::browser::{
+    BrowserEndpointState, BrowserPairing, BrowserRegistryState, BrowserStatus,
+};
 use crate::contract::events::AppEvent;
 use crate::contract::ids::UnixMillis;
 use crate::state::Backend;
@@ -297,12 +299,16 @@ impl BrowserService {
             .lock()
             .map_or(BrowserEndpointState::Unavailable, |e| *e);
         let connected: Vec<[u8; 16]> = self.shared.connected_pairings();
-        let pairings = self
-            .shared
-            .registry
-            .lock()
-            .map(|registry| {
-                registry
+        let (registry, pairings) = self.shared.registry.lock().map_or_else(
+            // A poisoned lock: nothing can be changed, say so.
+            |_| (BrowserRegistryState::Unreadable, Vec::new()),
+            |registry| {
+                let state = if registry.is_unreadable() {
+                    BrowserRegistryState::Unreadable
+                } else {
+                    BrowserRegistryState::Ok
+                };
+                let pairings = registry
                     .list()
                     .iter()
                     .map(|p| BrowserPairing {
@@ -313,10 +319,15 @@ impl BrowserService {
                         last_used_at: p.last_used_at,
                         connected: connected.contains(&p.id),
                     })
-                    .collect()
-            })
-            .unwrap_or_default();
-        BrowserStatus { endpoint, pairings }
+                    .collect();
+                (state, pairings)
+            },
+        );
+        BrowserStatus {
+            endpoint,
+            registry,
+            pairings,
+        }
     }
 
     /// Serves one connection (tests hand in a duplex stream).

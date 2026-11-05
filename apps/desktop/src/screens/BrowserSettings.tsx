@@ -132,6 +132,13 @@ export function BrowserSettings({ onError }: { onError: (error: IpcError | null)
           </p>
         </div>
       )}
+      {status !== null && status.registry === "unreadable" && (
+        <div className="setting-row">
+          <p className="alert" role="alert">
+            {t("browser.settings.registryUnreadable")}
+          </p>
+        </div>
+      )}
       {status !== null && status.pairings.length === 0 && (
         <div className="setting-row">
           <p className="field__hint">{t("browser.settings.empty")}</p>

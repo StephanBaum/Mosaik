@@ -20,6 +20,7 @@ const SAVE_REQUEST_ID = "0f9e8d7c6b5a49382716f5e4d3c2b1a0";
 
 export interface MockBrowser {
   endpoint: BrowserStatus["endpoint"];
+  registry: BrowserStatus["registry"];
   pairings: BrowserPairing[];
   /** Emit a pairing request after the first subscription (`&browserPair=1`). */
   pairOnStart: boolean;
@@ -32,6 +33,7 @@ export interface MockBrowser {
 export function defaultBrowser(now: () => number): MockBrowser {
   return {
     endpoint: "running",
+    registry: "ok",
     pairings: [
       {
         pairingId: "0123456789abcdef0123456789abcdef",
@@ -50,7 +52,11 @@ export function defaultBrowser(now: () => number): MockBrowser {
 }
 
 function statusOf(state: MockState): BrowserStatus {
-  return { endpoint: state.browser.endpoint, pairings: state.browser.pairings };
+  return {
+    endpoint: state.browser.endpoint,
+    registry: state.browser.registry,
+    pairings: state.browser.pairings,
+  };
 }
 
 function pairingRequest(state: MockState): BrowserPairingRequest {

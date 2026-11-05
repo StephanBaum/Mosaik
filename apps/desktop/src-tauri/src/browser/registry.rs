@@ -50,6 +50,9 @@ pub enum RegistryError {
     /// The OS random generator or the file failed.
     #[error("the browser pairings could not be saved")]
     Storage,
+    /// The saved file exists but could not be read; it is left as it is.
+    #[error("the saved browser pairings could not be read")]
+    Unreadable,
 }
 
 /// One paired browser.
@@ -74,6 +77,9 @@ pub struct Pairing {
 pub struct Registry {
     path: Option<PathBuf>,
     pairings: Vec<Pairing>,
+    /// The file exists but could not be read (or is damaged): the registry
+    /// is empty and read-only, so the file is never overwritten.
+    unreadable: bool,
 }
 
 #[derive(Deserialize)]
@@ -144,19 +150,34 @@ impl Registry {
         Self {
             path: None,
             pairings: Vec::new(),
+            unreadable: false,
         }
     }
 
-    /// The registry saved in `dir`. A missing, oversized or damaged file is
-    /// an empty registry (the browsers connect again).
+    /// The registry saved in `dir`. A missing file is an empty registry. Any
+    /// other failure to read it (permissions, a damaged, oversized or
+    /// unknown file) gives an empty registry that is read-only: nothing is
+    /// added or removed, and the file stays as it is until the user fixes
+    /// it, so a transient error cannot cost every pairing.
     #[must_use]
     pub fn in_dir(dir: &Path) -> Self {
         let path = dir.join(FILE_NAME);
-        let pairings = read_file(&path).unwrap_or_default();
+        let (pairings, unreadable) = match read_file(&path) {
+            Loaded::Missing => (Vec::new(), false),
+            Loaded::Read(pairings) => (pairings, false),
+            Loaded::Unreadable => (Vec::new(), true),
+        };
         Self {
             path: Some(path),
             pairings,
+            unreadable,
         }
+    }
+
+    /// Whether the saved file could not be read (the registry is read-only).
+    #[must_use]
+    pub const fn is_unreadable(&self) -> bool {
+        self.unreadable
     }
 
     /// The pairings, oldest first.
@@ -175,14 +196,17 @@ impl Registry {
     /// the ID and a second handle on the same key for `pairApproved`.
     ///
     /// # Errors
-    /// [`RegistryError::Full`], [`RegistryError::Storage`] (nothing is
-    /// added then).
+    /// [`RegistryError::Full`], [`RegistryError::Storage`],
+    /// [`RegistryError::Unreadable`] (nothing is added then).
     pub fn add(
         &mut self,
         label: String,
         browser: BrowserFamily,
         now: UnixMillis,
     ) -> Result<([u8; 16], PairingKey), RegistryError> {
+        if self.unreadable {
+            return Err(RegistryError::Unreadable);
+        }
         if self.pairings.len() >= MAX_PAIRINGS {
             return Err(RegistryError::Full);
         }
@@ -210,8 +234,12 @@ impl Registry {
     /// Removes a pairing and saves the file. `false`: no such pairing.
     ///
     /// # Errors
-    /// [`RegistryError::Storage`] (the pairing stays then).
+    /// [`RegistryError::Storage`] (the pairing stays then),
+    /// [`RegistryError::Unreadable`].
     pub fn remove(&mut self, id: &[u8; 16]) -> Result<bool, RegistryError> {
+        if self.unreadable {
+            return Err(RegistryError::Unreadable);
+        }
         let Some(at) = self.pairings.iter().position(|p| p.id == *id) else {
             return Ok(false);
         };
@@ -242,6 +270,9 @@ impl Registry {
     }
 
     fn save(&self) -> Result<(), RegistryError> {
+        if self.unreadable {
+            return Err(RegistryError::Unreadable);
+        }
         let Some(path) = &self.path else {
             return Ok(());
         };
@@ -265,8 +296,26 @@ impl Registry {
     }
 }
 
-fn read_file(path: &Path) -> Option<Vec<Pairing>> {
-    let file = fs::File::open(path).ok()?;
+/// What reading the file gave.
+enum Loaded {
+    /// There is no file yet.
+    Missing,
+    /// The pairings in it.
+    Read(Vec<Pairing>),
+    /// It exists but cannot be used.
+    Unreadable,
+}
+
+fn read_file(path: &Path) -> Loaded {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Loaded::Missing,
+        Err(_) => return Loaded::Unreadable,
+    };
+    parse_file(file).map_or(Loaded::Unreadable, Loaded::Read)
+}
+
+fn parse_file(file: fs::File) -> Option<Vec<Pairing>> {
     let mut bytes = Zeroizing::new(Vec::new());
     file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
     if u64::try_from(bytes.len()).ok()? > MAX_FILE_BYTES {
@@ -296,31 +345,49 @@ fn read_file(path: &Path) -> Option<Vec<Pairing>> {
 
 /// Writes `bytes` to a temporary file next to `path` and renames it over
 /// `path` (the pattern of `persist::write_atomic`), private to the user on
-/// Unix.
+/// Unix. A leftover temporary file is removed first (it could have other
+/// permissions), the new one is created exclusively, and the temporary file
+/// is removed again if anything fails.
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
-    {
-        let mut file = create_private(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
+    match fs::remove_file(&tmp) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
     }
-    fs::rename(&tmp, path)
+    let written = write_tmp_then_rename(&tmp, path, bytes);
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_tmp_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = create_private(tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(tmp, path)
 }
 
 #[cfg(unix)]
 fn create_private(path: &Path) -> std::io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    fs::OpenOptions::new()
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    let file = fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
-        .open(path)
+        .open(path)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    Ok(file)
 }
 
 #[cfg(not(unix))]
 fn create_private(path: &Path) -> std::io::Result<fs::File> {
-    fs::File::create(path)
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
 }
 
 #[cfg(test)]
@@ -415,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn a_damaged_file_is_an_empty_registry() {
+    fn a_damaged_file_is_an_empty_read_only_registry() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(FILE_NAME);
         for bad in [
@@ -432,9 +499,64 @@ mod tests {
                 "cd".repeat(32)
             ),
         ] {
-            fs::write(&path, bad).unwrap();
-            assert!(Registry::in_dir(dir.path()).list().is_empty());
+            fs::write(&path, &bad).unwrap();
+            let mut registry = Registry::in_dir(dir.path());
+            assert!(registry.list().is_empty());
+            assert!(registry.is_unreadable());
+            assert_eq!(
+                registry
+                    .add("Chrome".into(), BrowserFamily::Chromium, 0)
+                    .err(),
+                Some(RegistryError::Unreadable)
+            );
+            assert_eq!(registry.remove(&[1; 16]), Err(RegistryError::Unreadable));
+            registry.note_used(&[1; 16], 5);
+            assert_eq!(fs::read(&path).unwrap(), bad.as_bytes(), "left as it was");
         }
+    }
+
+    #[test]
+    fn a_missing_file_is_an_empty_registry_that_can_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut registry = Registry::in_dir(dir.path());
+        assert!(!registry.is_unreadable());
+        assert!(
+            registry
+                .add("Chrome".into(), BrowserFamily::Chromium, 0)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_unreadable_not_missing() {
+        // A directory where the file should be: opening or reading it fails,
+        // which is never "not found".
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(FILE_NAME)).unwrap();
+        assert!(Registry::in_dir(dir.path()).is_unreadable());
+    }
+
+    #[test]
+    fn a_leftover_temporary_file_does_not_stop_a_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("browser-pairings.json.tmp");
+        fs::write(&tmp, "old").unwrap();
+        let mut registry = Registry::in_dir(dir.path());
+        registry
+            .add("Chrome".into(), BrowserFamily::Chromium, 0)
+            .unwrap();
+        assert!(!tmp.exists(), "renamed over the file");
+        assert_eq!(Registry::in_dir(dir.path()).list().len(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_removes_the_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // The target is a directory: the rename fails after the write.
+        let target = dir.path().join("target.json");
+        fs::create_dir(&target).unwrap();
+        assert!(write_atomic(&target, b"{}").is_err());
+        assert!(!dir.path().join("target.json.tmp").exists());
     }
 
     #[cfg(unix)]
@@ -442,6 +564,25 @@ mod tests {
     fn the_file_is_private_on_unix() {
         use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir().unwrap();
+        let mut registry = Registry::in_dir(dir.path());
+        registry
+            .add("Chrome".into(), BrowserFamily::Chromium, 0)
+            .unwrap();
+        let mode = fs::metadata(dir.path().join(FILE_NAME))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_leftover_temporary_file_with_open_permissions_is_not_reused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("browser-pairings.json.tmp");
+        fs::write(&tmp, "old").unwrap();
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o644)).unwrap();
         let mut registry = Registry::in_dir(dir.path());
         registry
             .add("Chrome".into(), BrowserFamily::Chromium, 0)

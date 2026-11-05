@@ -57,4 +57,6 @@ export const browser = {
     "Another program, or another Mosaic window, already uses the connection for browsers. Close it, then restart Mosaic.",
   "browser.settings.endpointUnavailable":
     "Mosaic couldn't open the connection for browsers. Restart Mosaic. If it keeps happening, check that your user folder is writable.",
+  "browser.settings.registryUnreadable":
+    "Saved browser connections can't be read. Mosaic won't change them until this is fixed.",
 } as const satisfies Record<string, string>;

@@ -139,10 +139,12 @@ pub(super) fn check_sizes(body: &SaveBody) -> Result<(), WireError> {
     let password = body.password.expose_secret();
     let ok = body.origin.len() <= MAX_ORIGIN_BYTES
         && body.top_origin.len() <= MAX_ORIGIN_BYTES
-        && body
-            .username
-            .as_ref()
-            .is_none_or(|u| u.len() <= MAX_USERNAME_BYTES)
+        && body.username.as_ref().is_none_or(|u| {
+            // The user name is shown in the desktop dialog: no control,
+            // format or default-ignorable characters (as for titles).
+            u.len() <= MAX_USERNAME_BYTES
+                && !u.chars().any(|c| c.is_control() || is_spoofing_char(c))
+        })
         && !password.is_empty()
         && password.len() <= MAX_PASSWORD_BYTES;
     if ok {

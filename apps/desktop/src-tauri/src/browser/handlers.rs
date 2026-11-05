@@ -6,9 +6,12 @@
 //! vault, add or change an item directly, or touch settings. Work on the
 //! vault runs on the blocking pool.
 //!
-//! Before an op runs: the protocol version, the per-pairing rate limit, and
+//! Before an op runs: the protocol version, that the pairing still exists
+//! (`notPaired`, and the connection closes), the per-pairing rate limit, and
 //! the lock (every op except `status`, `focus` and `unpair` answers `locked`
 //! while the vault is locked).
+
+use std::sync::Arc;
 
 use mosaic_core::SecretString;
 use mosaic_native_messaging::bodies::{
@@ -26,6 +29,7 @@ use super::connection::Ctx;
 use super::prompts::cancelled;
 use super::registry::RegistryError;
 use super::{Bucket, Shared, unix_millis};
+use crate::contract::browser::BrowserCloseReason;
 use crate::state::Backend;
 
 /// A finished request: the response to send, and whether to close the
@@ -59,10 +63,11 @@ pub(super) async fn run(ctx: &Ctx, plain: &[u8]) -> Done {
     }
 }
 
+/// An error response. A pairing that is gone closes the connection.
 fn failure(id: u32, code: WireError) -> Done {
     Done {
         response: error_json(id, code).unwrap_or_default(),
-        close: false,
+        close: code == WireError::NotPaired,
     }
 }
 
@@ -77,17 +82,20 @@ fn parse<'a, T: Deserialize<'a>>(raw: &'a RawValue) -> Result<T, WireError> {
     serde_json::from_str(raw.get()).map_err(|_| WireError::InvalidRequest)
 }
 
-/// The rate-limit bucket of an op.
-const fn bucket(op: Op) -> Option<Bucket> {
+/// The rate-limit buckets an op counts against. `proposeSave` also counts
+/// against the `checkSave` bucket: it answers `busy` and `cancelled` from the
+/// same comparison with the vault that `checkSave` makes, so it must not be a
+/// cheaper way to test candidate passwords.
+const fn buckets(op: Op) -> &'static [Bucket] {
     match op {
-        Op::Fill => Some(Bucket::Fill),
-        Op::Copy => Some(Bucket::Copy),
-        Op::ListForOrigin | Op::Search => Some(Bucket::Lookup),
-        Op::Generate => Some(Bucket::Generate),
-        Op::CheckSave => Some(Bucket::CheckSave),
-        Op::ProposeSave => Some(Bucket::ProposeSave),
-        Op::Focus => Some(Bucket::Focus),
-        Op::Hello | Op::Pair | Op::Status | Op::Unpair => None,
+        Op::Fill => &[Bucket::Fill],
+        Op::Copy => &[Bucket::Copy],
+        Op::ListForOrigin | Op::Search => &[Bucket::Lookup],
+        Op::Generate => &[Bucket::Generate],
+        Op::CheckSave => &[Bucket::CheckSave],
+        Op::ProposeSave => &[Bucket::ProposeSave, Bucket::CheckSave],
+        Op::Focus => &[Bucket::Focus],
+        Op::Hello | Op::Pair | Op::Status | Op::Unpair => &[],
     }
 }
 
@@ -113,7 +121,12 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
     let op = Op::from_wire(&request.op).ok_or(WireError::InvalidRequest)?;
     let (id, raw) = (request.id, request.body);
     let shared = &ctx.shared;
-    if let Some(bucket) = bucket(op) {
+    // A pairing removed while this session was being set up, or between two
+    // requests, ends the session.
+    if !shared.is_paired(&ctx.pairing) {
+        return Err(WireError::NotPaired);
+    }
+    for &bucket in buckets(op) {
         let allowed = super::lock(&shared.limiter)?.allow(bucket, Some(ctx.pairing), shared.now());
         if !allowed {
             return Err(WireError::RateLimited);
@@ -138,7 +151,9 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
         }
         Op::Unpair => {
             parse::<Empty>(raw)?;
-            shared.remove_pairing(&ctx.pairing, Some(ctx.conn))?;
+            shared
+                .remove_pairing_blocking(ctx.pairing, Some(ctx.conn))
+                .await?;
             let mut reply = body(id, &Empty {})?;
             reply.close = true;
             Ok(reply)
@@ -157,13 +172,13 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
         Op::Fill => {
             let b: FillBody = parse(raw)?;
             let filled = blocking(ctx, move |be| be.browser_fill(&b)).await?;
-            shared.note_used(&ctx.pairing);
+            shared.note_used_blocking(ctx.pairing).await;
             body(id, &filled)
         }
         Op::Copy => {
             let b: CopyBody = parse(raw)?;
             let copied = blocking(ctx, move |be| be.browser_copy(&b)).await?;
-            shared.note_used(&ctx.pairing);
+            shared.note_used_blocking(ctx.pairing).await;
             body(id, &copied)
         }
         Op::Generate => {
@@ -191,6 +206,11 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
 /// `proposeSave`: classify, show the desktop dialog, wait for the answer.
 async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireError> {
     let captured: SaveBody = parse(raw)?;
+    // `busy` before any comparison with the vault: while a prompt is open the
+    // answer must not depend on what is saved.
+    if ctx.shared.save_is_open() {
+        return Err(WireError::Busy);
+    }
     let (plan, captured) = blocking(ctx, move |be| {
         let plan = be.browser_plan_save(&captured)?;
         Ok((plan, captured))
@@ -209,17 +229,18 @@ async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireE
     let password = SecretString::from_str_copy(wire_password.expose_secret())
         .map_err(|_| WireError::Internal)?;
     drop(wire_password);
-    let (request_id, rx) = ctx
-        .shared
-        .open_save(&ctx.pairing, plan, username, password)?;
+    let (request_id, rx) =
+        ctx.shared
+            .open_save(&ctx.pairing, ctx.conn, plan, username, password)?;
     let result = ctx.shared.await_save(&request_id, rx).await?;
     body(id, &result)
 }
 
 impl Shared {
-    /// Removes a pairing: the file, the rate-limit windows and every live
-    /// session (told `unpaired`, then closed), except `except`, which the
-    /// caller closes itself.
+    /// Removes a pairing: the file, the rate-limit windows, its save prompt
+    /// and every live session (told `unpaired`, then closed), except
+    /// `except`, which the caller closes itself. Writes the file: not for an
+    /// async thread (see `remove_pairing_blocking`).
     pub(crate) fn remove_pairing(
         &self,
         pairing: &[u8; 16],
@@ -229,20 +250,44 @@ impl Shared {
             super::lock(&self.registry)?
                 .remove(pairing)
                 .map_err(|e: RegistryError| match e {
-                    RegistryError::Full | RegistryError::Storage => WireError::Internal,
+                    RegistryError::Full | RegistryError::Storage | RegistryError::Unreadable => {
+                        WireError::Internal
+                    }
                 })?;
         if let Ok(mut limiter) = self.limiter.lock() {
             limiter.forget(pairing);
         }
         self.close_pairing(pairing, except);
+        // The prompt of a removed pairing has nobody to answer to; its
+        // password is dropped.
+        self.close_saves_where(BrowserCloseReason::Disconnected, |save| {
+            save.pairing == *pairing
+        });
         self.pairings_changed();
         Ok(removed)
     }
 
-    /// Records that a pairing filled or copied.
-    fn note_used(&self, pairing: &[u8; 16]) {
-        if let Ok(mut registry) = self.registry.lock() {
-            registry.note_used(pairing, unix_millis());
-        }
+    /// [`Shared::remove_pairing`] on the blocking pool.
+    pub(crate) async fn remove_pairing_blocking(
+        self: &Arc<Self>,
+        pairing: [u8; 16],
+        except: Option<u64>,
+    ) -> Result<bool, WireError> {
+        let shared = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || shared.remove_pairing(&pairing, except))
+            .await
+            .map_err(|_| WireError::Internal)?
+    }
+
+    /// Records that a pairing filled or copied (the file is written at most
+    /// every ten minutes, on the blocking pool).
+    async fn note_used_blocking(self: &Arc<Self>, pairing: [u8; 16]) {
+        let shared = Arc::clone(self);
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            if let Ok(mut registry) = shared.registry.lock() {
+                registry.note_used(&pairing, unix_millis());
+            }
+        })
+        .await;
     }
 }

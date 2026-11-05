@@ -305,7 +305,19 @@ impl Backend {
                 let (vault, item) = parse_ids(vault_id, item_id)?;
                 {
                     let slot = self.slot().map_err(wire)?;
-                    login_exists(slot.unlocked().map_err(wire)?, vault, item)?;
+                    let session = slot.unlocked().map_err(wire)?;
+                    login_exists(session, vault, item)?;
+                    // Copying a code of an HOTP login would advance its
+                    // counter (a vault write): refused, like a fill.
+                    if matches!(field, CopyField::Totp)
+                        && session
+                            .item(vault, item)
+                            .map_err(|_| WireError::ItemNotFound)?
+                            .otp()
+                            .is_some_and(|config| config.kind == OtpKind::Hotp)
+                    {
+                        return Err(WireError::OtpNotFillable);
+                    }
                 }
                 Source::Item {
                     vault_id: vault.into(),

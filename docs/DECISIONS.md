@@ -2845,7 +2845,8 @@ is the natural place for every match decision.
    and opaque frames are never filled.
 4. **One fill returns one item's username and password, or its one-time code** (TOTP and
    Steam only; HOTP is refused with `otpNotFillable` because filling would advance the
-   counter), to one frame, pinned by `documentId` where the browser has one. Fields are
+   counter; `copy` of the `totp` field of an HOTP login is refused the same way), to one
+   frame, pinned by `documentId` where the browser has one. Fields are
    detected again and visibility is checked again at fill time; forms are never submitted.
    A fill that wants both a login and a code returns the code only when the item has a
    time-based one. The vault side is `Backend::browser_fill`; the item must be a live login
@@ -2861,7 +2862,7 @@ is the natural place for every match decision.
    script polling the endpoint cannot keep the vault from auto-locking.
 8. **Rate limits** (per pairing, sliding windows): `fill` 10 per 10 s, `copy` 20 per minute,
    `listForOrigin` and `search` together 60 per minute, `generate` 30 per minute, `checkSave`
-   10 per minute, `proposeSave` 3 per minute; `focus` 1 per 2 s and pairing requests 3 per
+   10 per minute (`proposeSave` counts against it too), `proposeSave` 3 per minute; `focus` 1 per 2 s and pairing requests 3 per
    minute globally.
 
 ### Alternatives considered

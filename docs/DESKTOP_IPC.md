@@ -145,7 +145,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `ssh_agent_set_enabled` | `{ enabled }` → `SshAgentStatus` | `sshAgentUnavailable`, `sshAgentEndpointInUse`; turning it on needs unlocked | live (mosaic-ssh-agent, ADR-0025; off by default) |
 | `ssh_respond` | `{ requestId, decision: "allowOnce" \| "allowFor15Minutes" \| "deny" }` → `null` | `sshRequestExpired`, `sshAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken) | live |
 | **Browser extension** | | | |
-| `browser_status` | `null` → `{ endpoint: "running" \| "inUse" \| "unavailable", pairings: { pairingId, label, browser: "chromium" \| "firefox", createdAt, lastUsedAt \| null, connected }[] }` | none | live |
+| `browser_status` | `null` → `{ endpoint: "running" \| "inUse" \| "unavailable", registry: "ok" \| "unreadable", pairings: { pairingId, label, browser: "chromium" \| "firefox", createdAt, lastUsedAt \| null, connected }[] }` | none | live |
 | `browser_remove_pairing` | `{ pairingId }` → the same status | `browserPairingNotFound` (also for an ID that is not 32 hex digits). The pairing's live sessions get `unpaired` and close | live |
 | `browser_pairing_respond` | `{ requestId, decision: "allow" \| "deny", label: string \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken), `invalidInput` (a label that is not 1 to 64 characters, or contains control, format or default-ignorable characters; the request stays open) | live |
 | `browser_save_respond` | `{ requestId, decision: { kind: "saveNew", vaultId, title, allowHttp } \| { kind: "update", vaultId, itemId } \| { kind: "cancel" } }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (as above; a cancel is always taken), `invalidInput` (a title that is not 1 to 256 characters or has spoofing characters), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an update of a login that is not one of the request's candidates, or gone), `locked`. The request stays open after all of them except the first | live |
@@ -274,11 +274,17 @@ Notes per area:
     the captured user name, whether it is a `new` login or an `update` (the logins with the
     same user name are the `candidates`), a suggested title and `insecure` (the page is plain
     HTTP, not loopback). **The request carries no password**: it stays in Rust as a
-    `SecretString` and is dropped on cancel, expiry (300 s), lock and disconnect; the dialog
+    `SecretString` and is dropped on cancel, expiry (300 s), lock, disconnect of the asking
+    session and removal of its pairing; the dialog
     shows a fixed mask. `saveNew` adds a login (user name, password, the page's origin as an
     exact-origin URL; `allowHttp` is honoured only when `insecure`); `update` changes the
     password only (the model moves the old one into the history). Only a candidate can be
     updated. Nothing is written without this answer.
+  - **Unreadable list.** If `browser-pairings.json` exists but cannot be read (damaged,
+    oversized, locked, wrong version), `browser_status` reports `registry: "unreadable"` with
+    an empty list. The list is then read-only: no pairing request is shown, and
+    `browser_remove_pairing` fails with `internal`. The file is never overwritten, so a
+    transient error cannot cost every pairing. A missing file is `registry: "ok"`.
   - **Guards.** An allow less than 1 s after the prompt appeared is refused
     (`browserAllowTooSoon`); the UI also keeps its button disabled for 1 s, and again after the
     window regains focus. Labels and titles are checked with `is_spoofing_char`.

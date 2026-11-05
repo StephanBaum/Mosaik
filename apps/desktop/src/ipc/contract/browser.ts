@@ -4,6 +4,10 @@ import type { ItemId, UnixMillis, VaultId } from "./common.ts";
 export const browserEndpointStates = ["running", "inUse", "unavailable"] as const;
 export type BrowserEndpointState = (typeof browserEndpointStates)[number];
 
+/** Whether the saved list of paired browsers could be read; `unreadable` makes it read-only. */
+export const browserRegistryStates = ["ok", "unreadable"] as const;
+export type BrowserRegistryState = (typeof browserRegistryStates)[number];
+
 export const browserFamilies = ["chromium", "firefox"] as const;
 export type BrowserFamily = (typeof browserFamilies)[number];
 
@@ -47,6 +51,8 @@ export interface BrowserPairing {
 
 export interface BrowserStatus {
   endpoint: BrowserEndpointState;
+  /** `unreadable`: the saved file is damaged or locked; nothing is added or removed until fixed. */
+  registry: BrowserRegistryState;
   pairings: BrowserPairing[];
 }
 

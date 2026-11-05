@@ -31,6 +31,17 @@ wire_enum!(
 );
 
 wire_enum!(
+    /// Whether the saved list of paired browsers could be read at start.
+    pub enum BrowserRegistryState {
+        /// Read (or there was none yet).
+        Ok,
+        /// The file exists but could not be read. The list is empty and
+        /// read-only: nothing is added or removed until it is fixed.
+        Unreadable,
+    }
+);
+
+wire_enum!(
     /// The browser family the host reported for a pairing.
     pub enum BrowserFamily {
         /// Chrome, Edge, Brave, ...
@@ -124,6 +135,8 @@ pub struct BrowserPairing {
 pub struct BrowserStatus {
     /// The endpoint.
     pub endpoint: BrowserEndpointState,
+    /// Whether the saved pairings could be read.
+    pub registry: BrowserRegistryState,
     /// Paired browsers, oldest first.
     pub pairings: Vec<BrowserPairing>,
 }
@@ -269,6 +282,7 @@ pub(crate) mod samples {
         vec![
             BrowserStatus {
                 endpoint: BrowserEndpointState::Running,
+                registry: BrowserRegistryState::Ok,
                 pairings: vec![
                     BrowserPairing {
                         pairing_id: pairing_id(),
@@ -290,10 +304,17 @@ pub(crate) mod samples {
             },
             BrowserStatus {
                 endpoint: BrowserEndpointState::InUse,
+                registry: BrowserRegistryState::Ok,
                 pairings: vec![],
             },
             BrowserStatus {
                 endpoint: BrowserEndpointState::Unavailable,
+                registry: BrowserRegistryState::Ok,
+                pairings: vec![],
+            },
+            BrowserStatus {
+                endpoint: BrowserEndpointState::Running,
+                registry: BrowserRegistryState::Unreadable,
                 pairings: vec![],
             },
         ]

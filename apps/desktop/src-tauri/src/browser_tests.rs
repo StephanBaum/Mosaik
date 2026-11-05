@@ -15,13 +15,16 @@
 )]
 
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
-use mosaic_core::browser_channel::{ChannelSession, PairingKey};
+use mosaic_core::browser_channel::{ChannelSession, PairingKey, Role, new_channel_nonce};
 use mosaic_core::model::{ItemType, LoginUrl, SecretField, TextField, UrlMatch};
 use mosaic_core::{Argon2Profile, ItemId, VaultId};
+use mosaic_native_messaging::Hex;
 use mosaic_native_messaging::bodies::{BrowserKind, Hint};
 use mosaic_native_messaging::error::Error as NmError;
 use mosaic_native_messaging::framing::{ByteOrder, read_frame, write_frame};
@@ -35,13 +38,13 @@ use mosaic_vault::otp::config_from_otp_auth;
 use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::Store;
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt as _, DuplexStream};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, DuplexStream, ReadBuf};
 
 use crate::browser::{BrowserService, Clock, Limits, Registry};
 use crate::clipboard::MemoryClipboard;
 use crate::contract::browser::{
-    BrowserFamily, BrowserPairingRespondRequest, BrowserRemovePairingRequest, BrowserSaveDecision,
-    BrowserSaveRespondRequest, PairingDecision,
+    BrowserFamily, BrowserPairingRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
+    BrowserSaveDecision, BrowserSaveRespondRequest, PairingDecision,
 };
 use crate::contract::errors::{ErrorCode, IpcError};
 use crate::contract::events::LockReason;
@@ -764,23 +767,66 @@ fn pre_auth_status_and_focus_work_and_focus_is_limited() {
 }
 
 #[test]
-fn the_ninth_connection_is_closed() {
+fn idle_pre_auth_connections_cannot_lock_the_host_out() {
     run(async {
         let env = Env::new();
-        let mut open = Vec::new();
+        env.service().on_unlocked();
+        let (id, key) = env.add_pairing("Chrome");
+        let mut idle = Vec::new();
         for _ in 0..8 {
             let (client, server) = tokio::io::duplex(1024);
             env.service().serve(server);
-            open.push(client);
+            idle.push(client);
         }
-        let (mut ninth, server) = tokio::io::duplex(1024);
-        env.service().serve(server);
+        // Only four pre-auth connections wait: each new one evicts the oldest.
+        for client in &mut idle[..4] {
+            let mut byte = [0u8; 1];
+            let read = tokio::time::timeout(Duration::from_secs(2), client.read(&mut byte))
+                .await
+                .expect("closed at once");
+            assert_eq!(read.unwrap(), 0);
+        }
         let mut byte = [0u8; 1];
-        let read = tokio::time::timeout(Duration::from_secs(2), ninth.read(&mut byte))
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), idle[7].read(&mut byte))
+                .await
+                .is_err(),
+            "the newest still waits"
+        );
+        // The real host gets in anyway.
+        let mut peer = connect(&env, &id, &key).await.unwrap();
+        assert_eq!(
+            peer.call("status", json!({})).await.unwrap()["state"],
+            "unlocked"
+        );
+    });
+}
+
+#[test]
+fn the_ninth_session_is_refused_and_pre_auth_messages_still_work() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let (id, key) = env.add_pairing("Chrome");
+        let mut sessions = Vec::new();
+        for _ in 0..8 {
+            sessions.push(connect(&env, &id, &key).await.unwrap());
+        }
+        assert!(matches!(
+            connect(&env, &id, &key).await.err(),
+            Some(NmError::Refused(Wire::Busy))
+        ));
+        // Sessions do not use up the pre-auth slots.
+        let (mut stream, server) = tokio::io::duplex(1 << 16);
+        env.service().serve(server);
+        write_message(&mut stream, &ClientMessage::Status { v: 1 })
             .await
-            .expect("closed at once");
-        assert_eq!(read.unwrap(), 0);
-        drop(open);
+            .unwrap();
+        assert!(matches!(
+            read_server_message(&mut stream).await.unwrap(),
+            ServerMessage::Status { .. }
+        ));
+        drop(sessions);
     });
 }
 
@@ -2096,6 +2142,491 @@ fn locking_while_a_save_is_pending_refuses_it_and_drops_the_password() {
         assert_eq!(env.events_of("browserSaveClosed")[0]["reason"], "locked");
         // The session stays up and is told.
         assert_eq!(peer.event().await.unwrap()["state"], "locked");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Review follow-ups: revocation, prompt owners, HOTP copy, the registry
+// ---------------------------------------------------------------------------
+
+/// The host's side of the handshake up to the challenge: the stream, `nonce_h`
+/// and `nonce_d`. The test then does what it wants before `finish`.
+async fn hello(env: &Env, id: &[u8; 16]) -> (DuplexStream, [u8; 32], [u8; 32]) {
+    let (mut stream, server) = tokio::io::duplex(1 << 20);
+    env.service().serve(server);
+    let nonce_h = new_channel_nonce().unwrap();
+    let hello = ClientMessage::Hello {
+        v: PROTOCOL_VERSION,
+        pairing_id: Hex(*id),
+        nonce: Hex(nonce_h),
+    };
+    write_message(&mut stream, &hello).await.unwrap();
+    let ServerMessage::Challenge { nonce, .. } = read_server_message(&mut stream).await.unwrap()
+    else {
+        panic!("no challenge");
+    };
+    (stream, nonce_h, nonce.0)
+}
+
+/// The rest of the handshake: the peer and the first frame (the state).
+async fn finish(
+    mut stream: DuplexStream,
+    key: &PairingKey,
+    id: &[u8; 16],
+    nonce_h: [u8; 32],
+    nonce_d: [u8; 32],
+) -> (Peer, Value) {
+    let proof = key.proof(Role::Host, id, &nonce_h, &nonce_d).unwrap();
+    let finish = ClientMessage::Finish {
+        v: PROTOCOL_VERSION,
+        proof: Hex(proof),
+    };
+    write_message(&mut stream, &finish).await.unwrap();
+    let mut session = key.session(Role::Host, id, &nonce_h, &nonce_d).unwrap();
+    let frame = read_frame(&mut stream, ByteOrder::Big)
+        .await
+        .unwrap()
+        .expect("the first frame");
+    let first: Value =
+        serde_json::from_slice(session.open(&frame).unwrap().expose_secret()).unwrap();
+    let peer = Peer {
+        stream,
+        session,
+        next: 0,
+        events: Vec::new(),
+    };
+    (peer, first)
+}
+
+#[test]
+fn a_pairing_removed_during_the_handshake_never_gets_a_session() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let (id, key) = env.add_pairing("Chrome");
+        let (stream, nonce_h, nonce_d) = hello(&env, &id).await;
+        // The user disconnects the browser between `hello` and `finish`.
+        env.backend()
+            .browser_remove_pairing(&BrowserRemovePairingRequest {
+                pairing_id: crate::browser::hex(&id),
+            })
+            .unwrap();
+        let (mut peer, first) = finish(stream, &key, &id, nonce_h, nonce_d).await;
+        assert_eq!(first["event"], "state");
+        // It is told and closed, and no request is ever served.
+        assert_eq!(peer.event().await.unwrap()["event"], "unpaired");
+        assert!(peer.event().await.is_none(), "closed");
+        assert!(env.backend().browser_status().pairings.is_empty());
+    });
+}
+
+#[test]
+fn a_request_after_the_pairing_is_gone_is_not_paired_and_closes() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let (id, key) = env.add_pairing("Chrome");
+        let mut peer = connect(&env, &id, &key).await.unwrap();
+        // Removed behind the sessions' back, as a race would do.
+        env.service()
+            .shared()
+            .registry
+            .lock()
+            .unwrap()
+            .remove(&id)
+            .unwrap();
+        assert_eq!(
+            peer.call("status", json!({})).await.unwrap_err(),
+            "notPaired"
+        );
+        assert!(peer.event().await.is_none(), "closed");
+    });
+}
+
+#[test]
+fn a_lock_during_the_handshake_is_pushed_to_the_new_session() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let (id, key) = env.add_pairing("Chrome");
+        let (stream, nonce_h, nonce_d) = hello(&env, &id).await;
+        env.service().on_locked();
+        let (mut peer, first) = finish(stream, &key, &id, nonce_h, nonce_d).await;
+        assert_eq!(
+            first["state"], "unlocked",
+            "what the handshake started with"
+        );
+        let event = peer.event().await.unwrap();
+        assert_eq!(
+            (event["event"].as_str(), event["state"].as_str()),
+            (Some("state"), Some("locked"))
+        );
+        assert_eq!(peer.call("fill", json!({})).await.unwrap_err(), "locked");
+    });
+}
+
+#[test]
+fn a_save_prompt_ends_when_its_browser_disconnects() {
+    run(async {
+        let env = Env::unlocked();
+        let mut peer = paired_peer(&env).await;
+        peer.request(
+            "proposeSave",
+            save_body("https://example.com", Some("bob"), "pending-pw"),
+        )
+        .await;
+        wait_for_event(&env, "browserSaveRequested").await;
+        let request = save_request_id(&env);
+        drop(peer);
+        wait_for_event(&env, "browserSaveClosed").await;
+        assert_eq!(
+            env.events_of("browserSaveClosed")[0]["reason"],
+            "disconnected"
+        );
+        assert!(
+            env.service()
+                .shared()
+                .prompts
+                .lock()
+                .unwrap()
+                .save_id()
+                .is_none(),
+            "the password is dropped"
+        );
+        assert_eq!(
+            code_of(
+                env.backend()
+                    .browser_save_respond(&respond_save(&request, BrowserSaveDecision::Cancel))
+            ),
+            ErrorCode::BrowserRequestExpired
+        );
+    });
+}
+
+#[test]
+fn a_save_prompt_ends_when_its_pairing_is_removed() {
+    run(async {
+        let env = Env::unlocked();
+        let mut peer = paired_peer(&env).await;
+        peer.request(
+            "proposeSave",
+            save_body("https://example.com", Some("bob"), "pending-pw"),
+        )
+        .await;
+        wait_for_event(&env, "browserSaveRequested").await;
+        let request = save_request_id(&env);
+        let pairing_id = env.backend().browser_status().pairings[0]
+            .pairing_id
+            .clone();
+        env.backend()
+            .browser_remove_pairing(&BrowserRemovePairingRequest { pairing_id })
+            .unwrap();
+        assert_eq!(
+            env.events_of("browserSaveClosed")[0]["reason"],
+            "disconnected"
+        );
+        assert!(
+            env.service()
+                .shared()
+                .prompts
+                .lock()
+                .unwrap()
+                .save_id()
+                .is_none()
+        );
+        assert_eq!(
+            code_of(
+                env.backend()
+                    .browser_save_respond(&respond_save(&request, BrowserSaveDecision::Cancel))
+            ),
+            ErrorCode::BrowserRequestExpired
+        );
+    });
+}
+
+#[test]
+fn copying_the_code_of_an_hotp_login_is_refused_and_leaves_the_counter() {
+    run(async {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let f = fixture(&env);
+        let mut peer = paired_peer(&env).await;
+        let copy = |item: ItemId| {
+            json!({"source": {"kind": "item", "vaultId": vault.to_string(),
+                "itemId": item.to_string(), "field": "totp"}})
+        };
+        let counter = || {
+            let slot = env.backend().slot().unwrap();
+            slot.unlocked()
+                .unwrap()
+                .item(vault, f.hotp)
+                .unwrap()
+                .otp_counter()
+        };
+        assert_eq!(counter(), 0);
+        assert_eq!(
+            peer.call("copy", copy(f.hotp)).await.unwrap_err(),
+            "otpNotFillable"
+        );
+        assert_eq!(counter(), 0, "no vault write");
+        assert_eq!(env.clipboard.content(), None);
+        // A time-based code is copied.
+        peer.call("copy", copy(f.totp)).await.unwrap();
+        for _ in 0..100 {
+            if env.clipboard.content().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let code = env
+            .clipboard
+            .content()
+            .expect("the code is on the clipboard");
+        assert!(
+            code.len() == 6 && code.bytes().all(|c| c.is_ascii_digit()),
+            "{code}"
+        );
+    });
+}
+
+#[test]
+fn propose_save_answers_busy_before_it_looks_at_the_vault() {
+    run(async {
+        let env = Env::unlocked();
+        env.login(
+            "Example",
+            "alex@example.com",
+            "old-pw",
+            "https://example.com",
+        );
+        let mut peer = paired_peer(&env).await;
+        peer.request(
+            "proposeSave",
+            save_body("https://example.com", Some("alex@example.com"), "new-pw"),
+        )
+        .await;
+        wait_for_event(&env, "browserSaveRequested").await;
+        // The password equals the saved one: with no prompt open this would be
+        // `cancelled`. With one open it is `busy`, whatever is saved.
+        env.clock.advance(Duration::from_secs(61));
+        assert_eq!(
+            peer.call(
+                "proposeSave",
+                save_body("https://example.com", Some("alex@example.com"), "old-pw"),
+            )
+            .await
+            .unwrap_err(),
+            "busy"
+        );
+        assert_eq!(
+            peer.call(
+                "proposeSave",
+                save_body("https://example.com", Some("alex@example.com"), ""),
+            )
+            .await
+            .unwrap_err(),
+            "busy",
+            "not even the sizes are checked"
+        );
+    });
+}
+
+#[test]
+fn propose_save_counts_against_the_check_save_limit_too() {
+    run(async {
+        let env = Env::unlocked();
+        env.login(
+            "Example",
+            "alex@example.com",
+            "old-pw",
+            "https://example.com",
+        );
+        let mut peer = paired_peer(&env).await;
+        let same = save_body("https://example.com", Some("alex@example.com"), "old-pw");
+        // Nine `checkSave` in a minute, then a `proposeSave` is the tenth.
+        for _ in 0..9 {
+            peer.call("checkSave", same.clone()).await.unwrap();
+        }
+        assert_eq!(
+            peer.call("proposeSave", same.clone()).await.unwrap()["outcome"],
+            "cancelled"
+        );
+        assert_eq!(
+            peer.call("checkSave", same).await.unwrap_err(),
+            "rateLimited"
+        );
+    });
+}
+
+#[test]
+fn captured_user_names_with_control_or_spoofing_characters_are_refused() {
+    run(async {
+        let env = Env::unlocked();
+        let mut peer = paired_peer(&env).await;
+        let o = "https://example.com";
+        for name in ["bo\u{202e}b", "a\tb", "a\nb", "a\u{200b}b"] {
+            assert_eq!(
+                check_save(&mut peer, &env, save_body(o, Some(name), "pw"))
+                    .await
+                    .unwrap_err(),
+                "invalidRequest",
+                "{name:?}"
+            );
+        }
+        assert_eq!(
+            check_save(&mut peer, &env, save_body(o, Some("bob"), "pw"))
+                .await
+                .unwrap()["kind"],
+            "new"
+        );
+    });
+}
+
+/// A stream the host never closes, which reads one message and whose writes
+/// fail once `fail` is set.
+struct BreaksOnDemand {
+    input: Vec<u8>,
+    at: usize,
+    fail: Arc<AtomicBool>,
+    /// Everything written while the stream still worked.
+    written: Arc<Mutex<Vec<u8>>>,
+}
+
+impl AsyncRead for BreaksOnDemand {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let left = self.input.len() - self.at;
+        if left == 0 {
+            return Poll::Pending;
+        }
+        let n = left.min(buf.remaining());
+        let (from, to) = (self.at, self.at + n);
+        buf.put_slice(&self.input[from..to]);
+        self.at = to;
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for BreaksOnDemand {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+        }
+        self.written.lock().unwrap().extend_from_slice(buf);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+#[test]
+fn a_pairing_whose_approval_cannot_be_delivered_is_removed_again() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let mut input = Vec::new();
+        let request = ClientMessage::PairRequest {
+            v: PROTOCOL_VERSION,
+            browser: BrowserKind::Chromium,
+            hint: Hint::Edge,
+        };
+        write_message(&mut input, &request).await.unwrap();
+        let fail = Arc::new(AtomicBool::new(false));
+        let written = Arc::new(Mutex::new(Vec::new()));
+        env.service().serve(BreaksOnDemand {
+            input,
+            at: 0,
+            fail: Arc::clone(&fail),
+            written: Arc::clone(&written),
+        });
+        wait_for_event(&env, "browserPairingRequested").await;
+        // Wait for the whole `pairPending` frame.
+        for _ in 0..200 {
+            let complete = {
+                let sent = written.lock().unwrap();
+                sent.first_chunk::<4>().is_some_and(|head| {
+                    sent.len() >= 4 + usize::try_from(u32::from_be_bytes(*head)).unwrap()
+                })
+            };
+            if complete {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let request_id =
+            env.events_of("browserPairingRequested").pop().unwrap()["request"]["requestId"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+        // The pending message went out; now the connection breaks.
+        fail.store(true, Ordering::SeqCst);
+        env.clock.advance(Duration::from_millis(1100));
+        env.backend()
+            .browser_pairing_respond(&respond_pair(&request_id, true, None))
+            .unwrap();
+        let mut gone = false;
+        for _ in 0..200 {
+            if env.backend().browser_status().pairings.is_empty() {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(gone, "nobody got the key, so the pairing is removed");
+    });
+}
+
+#[test]
+fn an_unreadable_registry_is_reported_and_left_alone() {
+    run(async {
+        let env = Env::new();
+        env.service().on_unlocked();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("browser-pairings.json");
+        std::fs::write(&file, "not the pairings").unwrap();
+        env.use_dir(dir.path());
+        let status = env.backend().browser_status();
+        assert_eq!(status.registry, BrowserRegistryState::Unreadable);
+        assert_eq!(
+            serde_json::to_value(&status).unwrap()["registry"],
+            "unreadable"
+        );
+        // No pairing is offered, none is removed, and the file stays.
+        let (_stream, reply) = pair_request(&env).await;
+        assert_eq!(refusal(&reply), Wire::Internal);
+        assert!(env.events_of("browserPairingRequested").is_empty());
+        assert!(
+            env.backend()
+                .browser_remove_pairing(&BrowserRemovePairingRequest {
+                    pairing_id: "ab".repeat(16)
+                })
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"not the pairings");
+
+        // A readable (here: missing) file is fine again.
+        let fresh = tempfile::tempdir().unwrap();
+        env.use_dir(fresh.path());
+        assert_eq!(
+            env.backend().browser_status().registry,
+            BrowserRegistryState::Ok
+        );
     });
 }
 

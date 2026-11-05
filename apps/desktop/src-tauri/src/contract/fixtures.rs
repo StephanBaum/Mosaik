@@ -18,8 +18,8 @@ use serde_json::{Map, Value, json};
 use super::attachments::{self, AttachmentAdded, AttachmentSaved};
 use super::browser::{
     self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
-    BrowserPairingRespondRequest, BrowserRemovePairingRequest, BrowserSaveDecision,
-    BrowserSaveKind, BrowserSaveRespondRequest, PairingDecision,
+    BrowserPairingRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
+    BrowserSaveDecision, BrowserSaveKind, BrowserSaveRespondRequest, PairingDecision,
 };
 use super::clipboard;
 use super::errors::ErrorCode;
@@ -613,6 +613,7 @@ fn enums() -> Map<String, Value> {
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
+        ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),
         ("browserHint", values(BrowserHint::ALL)),
         ("pairingDecision", values(PairingDecision::ALL)),

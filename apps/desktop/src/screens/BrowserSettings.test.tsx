@@ -37,7 +37,7 @@ describe("browser settings", () => {
 
   it("shows when the connection for browsers could not start", async () => {
     const base = createMockIpc({ start: "unlocked" });
-    const status: BrowserStatus = { endpoint: "inUse", pairings: [] };
+    const status: BrowserStatus = { endpoint: "inUse", registry: "ok", pairings: [] };
     const ipc: MosaicIpc = {
       subscribe: (listener) => base.subscribe(listener),
       call: (command, request) =>
@@ -48,6 +48,21 @@ describe("browser settings", () => {
     render(<App ipc={ipc} languages={["en"]} />);
     await openSettings();
     expect(await screen.findByText(/already uses the connection for browsers/)).toBeTruthy();
+  });
+
+  it("says when the saved browser connections can't be read", async () => {
+    const base = createMockIpc({ start: "unlocked" });
+    const status: BrowserStatus = { endpoint: "running", registry: "unreadable", pairings: [] };
+    const ipc: MosaicIpc = {
+      subscribe: (listener) => base.subscribe(listener),
+      call: (command, request) =>
+        command === "browser_status"
+          ? Promise.resolve({ ok: true, value: status })
+          : base.call(command, request),
+    };
+    render(<App ipc={ipc} languages={["en"]} />);
+    await openSettings();
+    expect(await screen.findByText(/Saved browser connections can't be read/)).toBeTruthy();
   });
 
   it("reads the list again when Rust reports a change", async () => {

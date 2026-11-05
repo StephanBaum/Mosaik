@@ -55,6 +55,10 @@ struct PendingPair {
 /// A save request waiting for the user.
 pub(crate) struct PendingSave {
     request_id: String,
+    /// The pairing that asked; the prompt ends if it is removed.
+    pub(crate) pairing: [u8; 16],
+    /// The session that asked; the prompt ends if it closes.
+    pub(crate) conn: u64,
     shown_at: Instant,
     /// The page's origin, which becomes the saved URL.
     pub(crate) origin: String,
@@ -84,6 +88,12 @@ pub(crate) struct SavePlan {
 pub struct Prompts {
     pair: Option<PendingPair>,
     save: Option<PendingSave>,
+    /// A save is being written to the vault: its entry is out of `save`
+    /// (the vault is not written under the prompts lock) and no other save
+    /// may open.
+    applying: bool,
+    /// Why the prompts were dropped while `applying`.
+    dropped_while_applying: Option<BrowserCloseReason>,
     denials: VecDeque<Instant>,
     blocked_until: Option<Instant>,
 }
@@ -179,10 +189,15 @@ impl Shared {
         if !self.is_unlocked() {
             return Err(WireError::Locked);
         }
-        if super::lock(&self.registry)?.list().len()
-            >= mosaic_native_messaging::protocol::MAX_PAIRINGS
         {
-            return Err(WireError::PairingLimit);
+            let registry = super::lock(&self.registry)?;
+            if registry.is_unreadable() {
+                // Nothing could be saved: do not ask the user.
+                return Err(WireError::Internal);
+            }
+            if registry.list().len() >= mosaic_native_messaging::protocol::MAX_PAIRINGS {
+                return Err(WireError::PairingLimit);
+            }
         }
         if let Some(old) = prompts.pair.take() {
             let _ = old.reply.send(Err(WireError::PairingConflict));
@@ -301,9 +316,18 @@ impl Shared {
         let outcome = match added {
             Ok(pairing) => Ok(pairing),
             Err(RegistryError::Full) => Err(WireError::PairingLimit),
-            Err(RegistryError::Storage) => Err(WireError::Internal),
+            Err(RegistryError::Storage | RegistryError::Unreadable) => Err(WireError::Internal),
         };
-        let _ = pending.reply.send(outcome);
+        if let Err(Ok((id, _key))) = pending.reply.send(outcome) {
+            // The browser hung up in the same instant: nobody got the key.
+            let _ = super::lock(&self.registry).map(|mut registry| registry.remove(&id));
+            self.emit(AppEvent::BrowserPairingClosed {
+                request_id: request.request_id.clone(),
+                reason: BrowserCloseReason::Disconnected,
+            });
+            self.pairings_changed();
+            return Err(IpcError::new(ErrorCode::BrowserRequestExpired));
+        }
         self.close_event(&request.request_id);
         self.pairings_changed();
         Ok(())
@@ -319,10 +343,12 @@ impl Shared {
     /// Opens the save prompt for a `proposeSave`.
     ///
     /// # Errors
-    /// `busy` while another save request is open.
+    /// `busy` while another save request is open, `notPaired` when the
+    /// pairing or the session is gone.
     pub(crate) fn open_save(
         &self,
         pairing: &[u8; 16],
+        conn: u64,
         plan: SavePlan,
         username: Option<String>,
         password: SecretString,
@@ -334,8 +360,14 @@ impl Shared {
             // prompt opened here is either refused or drained.
             return Err(WireError::Locked);
         }
-        if prompts.save.is_some() {
+        if prompts.save.is_some() || prompts.applying {
             return Err(WireError::Busy);
+        }
+        // Both checks happen under the prompts lock, and the owner's removal
+        // or disconnect sweeps the prompts afterwards, so a prompt is never
+        // left behind by an owner that is already gone.
+        if !self.conn_is_open(conn) {
+            return Err(WireError::NotPaired);
         }
         let label = super::lock(&self.registry)?
             .get(pairing)
@@ -358,6 +390,8 @@ impl Shared {
         };
         prompts.save = Some(PendingSave {
             request_id: request_id.clone(),
+            pairing: *pairing,
+            conn,
             shown_at: now,
             origin: plan.origin,
             username,
@@ -417,7 +451,41 @@ impl Shared {
         true
     }
 
+    /// Whether a save request is open (or being written).
+    pub(crate) fn save_is_open(&self) -> bool {
+        self.prompts
+            .lock()
+            .is_ok_and(|prompts| prompts.save.is_some() || prompts.applying)
+    }
+
+    /// Ends the save prompt if `owned` says it is the caller's: its
+    /// session closed or its pairing was removed. The password is dropped
+    /// and the waiting `proposeSave` ends (its reply channel closes).
+    pub(crate) fn close_saves_where(
+        &self,
+        reason: BrowserCloseReason,
+        owned: impl Fn(&PendingSave) -> bool,
+    ) {
+        let Ok(mut prompts) = self.prompts.lock() else {
+            return;
+        };
+        if !prompts.save.as_ref().is_some_and(owned) {
+            return;
+        }
+        let pending = prompts.save.take();
+        drop(prompts);
+        if let Some(pending) = pending {
+            let request_id = pending.request_id.clone();
+            drop(pending);
+            self.emit(AppEvent::BrowserSaveClosed { request_id, reason });
+        }
+    }
+
     /// `browser_save_respond`.
+    ///
+    /// The vault is written without the prompts lock (the lock hooks take it
+    /// while the vault slot is held): the entry is taken out first, and put
+    /// back if the write fails and the prompts were not dropped meanwhile.
     ///
     /// # Errors
     /// `browserRequestExpired`, `browserAllowTooSoon`, `invalidInput`,
@@ -430,31 +498,60 @@ impl Shared {
     ) -> IpcResult<()> {
         use crate::contract::browser::BrowserSaveDecision as Decision;
         let now = self.now();
-        let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
-        let open = prompts
-            .save
-            .as_ref()
-            .filter(|p| p.request_id == request.request_id)
-            .ok_or(IpcError::new(ErrorCode::BrowserRequestExpired))?;
-        let result = match &request.decision {
-            Decision::Cancel => cancelled(),
-            decision => {
-                if too_soon(open.shown_at, now) {
-                    return Err(IpcError::new(ErrorCode::BrowserAllowTooSoon));
-                }
-                backend.browser_apply_save(open, decision)?
+        let cancel = matches!(request.decision, Decision::Cancel);
+        let pending = {
+            let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
+            let open = prompts
+                .save
+                .as_ref()
+                .filter(|p| p.request_id == request.request_id)
+                .ok_or(IpcError::new(ErrorCode::BrowserRequestExpired))?;
+            if !cancel && too_soon(open.shown_at, now) {
+                return Err(IpcError::new(ErrorCode::BrowserAllowTooSoon));
             }
+            prompts.applying = !cancel;
+            prompts.dropped_while_applying = None;
+            prompts.save.take()
         };
-        let pending = prompts.save.take();
-        drop(prompts);
-        if let Some(pending) = pending {
-            let _ = pending.reply.send(Ok(result));
+        let Some(pending) = pending else {
+            return Err(IpcError::INTERNAL);
+        };
+        let applied = if cancel {
+            Ok(cancelled())
+        } else {
+            backend.browser_apply_save(&pending, &request.decision)
+        };
+        let dropped = {
+            let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
+            prompts.applying = false;
+            let dropped = prompts.dropped_while_applying.take();
+            if applied.is_err() && dropped.is_none() {
+                // Nothing was written: the prompt stays open.
+                prompts.save = Some(pending);
+                return applied.map(|_| ());
+            }
+            dropped
+        };
+        match applied {
+            Ok(result) => {
+                let _ = pending.reply.send(Ok(result));
+                self.emit(AppEvent::BrowserSaveClosed {
+                    request_id: request.request_id.clone(),
+                    reason: BrowserCloseReason::Answered,
+                });
+                Ok(())
+            }
+            Err(error) => {
+                // The vault locked (or the service stopped) during the write.
+                let reason = dropped.unwrap_or(BrowserCloseReason::Locked);
+                let _ = pending.reply.send(Err(refusal_for(reason)));
+                self.emit(AppEvent::BrowserSaveClosed {
+                    request_id: request.request_id.clone(),
+                    reason,
+                });
+                Err(error)
+            }
         }
-        self.emit(AppEvent::BrowserSaveClosed {
-            request_id: request.request_id.clone(),
-            reason: BrowserCloseReason::Answered,
-        });
-        Ok(())
     }
 
     /// Closes both prompts: the vault locked or the service stopped. The
@@ -465,12 +562,12 @@ impl Shared {
         };
         let pair = prompts.pair.take();
         let save = prompts.save.take();
+        if prompts.applying {
+            // A save is being written: its owner finishes it off.
+            prompts.dropped_while_applying = Some(reason);
+        }
         drop(prompts);
-        let refusal = if reason == BrowserCloseReason::Locked {
-            WireError::Locked
-        } else {
-            WireError::DesktopNotRunning
-        };
+        let refusal = refusal_for(reason);
         if let Some(pair) = pair {
             let _ = pair.reply.send(Err(refusal));
             self.emit(AppEvent::BrowserPairingClosed {
@@ -483,6 +580,14 @@ impl Shared {
             let _ = save.reply.send(Err(refusal));
             self.emit(AppEvent::BrowserSaveClosed { request_id, reason });
         }
+    }
+}
+
+/// What a prompt that closed for `reason` tells the browser.
+const fn refusal_for(reason: BrowserCloseReason) -> WireError {
+    match reason {
+        BrowserCloseReason::Locked => WireError::Locked,
+        _ => WireError::DesktopNotRunning,
     }
 }
 

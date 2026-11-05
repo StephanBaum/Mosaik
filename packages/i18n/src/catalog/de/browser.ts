@@ -60,4 +60,6 @@ export const browser = {
     "Ein anderes Programm oder ein anderes Mosaic-Fenster nutzt die Verbindung für Browser bereits. Schließe es und starte Mosaic neu.",
   "browser.settings.endpointUnavailable":
     "Mosaic konnte die Verbindung für Browser nicht öffnen. Starte Mosaic neu. Wenn das bleibt, prüfe, ob dein Benutzerordner beschreibbar ist.",
+  "browser.settings.registryUnreadable":
+    "Gespeicherte Browser-Verbindungen lassen sich nicht lesen. Mosaic ändert sie nicht, bis das behoben ist.",
 } as const satisfies Record<keyof typeof en, string>;
