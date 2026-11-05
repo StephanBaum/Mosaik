@@ -109,8 +109,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `list_items` | `{ vaultId \| null, trash: "exclude" \| "only" \| "include", favoritesOnly, query \| null }` → `ItemSummary[]` | | live |
 | `get_item` | `{ vaultId, itemId }` → `ItemDetail` (secrets as field names only) | `vaultNotFound`, `itemNotFound`, `itemDeleted` | live |
 | `reveal_secret` | `{ vaultId, itemId, secret: SecretRef }` → `{ value, hideAfterSeconds }` | `itemNotFound`, `fieldEmpty` | live |
-| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `vaultUnavailable`, `otpPendingExpired` | live (at most 512 entries per draft list) |
-| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `itemNotFound`, `otpPendingExpired` | live |
+| `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `vaultUnavailable`, `otpPendingExpired` | live (at most 512 entries per draft list) |
+| `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `itemNotFound`, `otpPendingExpired` | live (the kind of an item cannot change, ADR-0033) |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
@@ -153,7 +153,23 @@ Notes per area:
   `{ kind: "field", field } | { kind: "customField", elementId } | { kind: "history", index }`.
   `ItemDraft` is one edit, applied as one sync event. Its lists of text, secret, URL and
   custom-field changes go by element ID, so concurrent edits merge per element. Its
-  `tags` and `otp` take `null` for "unchanged".
+  `tags`, `otp` and `sshKey` take `null` for "unchanged". A custom-field `update` takes
+  `value: null` to keep the stored value (a hidden or one-time-code field can be renamed
+  without being revealed); that is only allowed when `kind` equals the stored kind,
+  otherwise the result is `invalidInput`, as for an unknown element ID. The text, secret
+  and custom-field changes the UI sends are limited to the item's kind (ADR-0033); the
+  contract itself accepts any field on any item.
+- **SSH keys.** `ItemDraft.sshKey` is `null` or `{ op: "set", privateKey }`, for `sshKey`
+  items only (`invalidInput` otherwise). Rust parses the pasted OpenSSH key without
+  decrypting it, derives the public key and the SHA-256 fingerprint and stores all three
+  as one field; text that is not an OpenSSH private key, or is longer than 16 KiB, is
+  `sshKeyInvalid`. The passphrase is the item's `password` secret (what the agent reads).
+  The material can be replaced, not removed. `ItemDetail.sshKey` is `null` or
+  `{ publicKey, fingerprint, algorithm, encrypted, agentSupported }` (`agentSupported`
+  is `false` for RSA, P-384 and other keys the agent cannot sign with). The private key
+  never goes back to the webview: it is not a `SecretFieldKey`, there is no reveal, and
+  `CopyField { kind: "sshPublicKey" }` copies the public key only (`fieldEmpty` without
+  material).
 - **OTP setup.** Rust captures the screen, reads the clipboard image or the chosen
   PNG/JPEG file, finds the QR code and parses the `otpauth://` URI (`mosaic-qr`,
   ADR-0031). The result stays in Rust as a pending slot (10 minutes, at most 4,
@@ -169,8 +185,8 @@ Notes per area:
   It clears the clipboard after `clipboardClearSeconds` (default 30 s) unless the user
   copied something else in the meantime, then emits `clipboardCleared`. The receipt
   drives the toast "Copied. Clears in 30 seconds." and its live region. `CopyField` is
-  `username`, `password`, `totp`, `{ text, field }`, `{ secret, field }` or
-  `{ customField, elementId }`.
+  `username`, `password`, `totp`, `{ text, field }`, `{ secret, field }`,
+  `{ customField, elementId }` or `sshPublicKey`.
 - **Generator.** The generated value is shown in the generator, so it is returned.
   Rust also keeps it, so `{ kind: "generated" }` copies it without the webview sending
   it back. Rust drops it on the next generation and on lock.
@@ -219,7 +235,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `wrongCredentials`, `secretKeyRequired`, `secretKeyMalformed`, `secretKeyMistyped`,
 `emptyPassword`, `quickUnlockUnavailable`, `storeInUse`, `storeUnavailable`,
 `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `sameVault`,
-`noOtp`, `fieldEmpty`, `invalidInput`, `reauthRequired`, `attachmentTooLarge`,
+`noOtp`, `fieldEmpty`, `invalidInput`, `sshKeyInvalid`, `reauthRequired`, `attachmentTooLarge`,
 `attachmentQuota`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`, `busy`,
@@ -239,7 +255,7 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values and custom-field values in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code` |
 
 `SecretOut` is the only contract type that serializes a secret, and a fixture test fails
