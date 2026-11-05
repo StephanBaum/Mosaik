@@ -3,6 +3,21 @@ use crate::identify::Point;
 #[derive(Debug, PartialEq, Clone)]
 pub struct Perspective(pub [f64; 8]);
 
+/// Mosaic patch: the largest coordinate magnitude `Perspective::map` returns.
+/// Real points lie inside the image (at most 16384 px per side in Mosaic), so
+/// this only touches degenerate transforms. Differences of two clamped values
+/// stay below 2^15 and the sum of two of their products below 2^31.
+pub(crate) const MAX_COORD: i32 = 16_383;
+
+/// Mosaic patch: rounds and clamps one mapped coordinate; NaN becomes the
+/// lower bound (far outside the image).
+fn clamp_coord(v: f64) -> i32 {
+    if v.is_nan() {
+        return -MAX_COORD;
+    }
+    v.round().clamp(-f64::from(MAX_COORD), f64::from(MAX_COORD)) as i32
+}
+
 impl Perspective {
     pub fn create(rect: &[Point; 4], w: f64, h: f64) -> Option<Self> {
         let mut c = [0.0; 8];
@@ -49,16 +64,13 @@ impl Perspective {
         let x = (self.0[0] * u + self.0[1] * v + self.0[2]) / den;
         let y = (self.0[3] * u + self.0[4] * v + self.0[5]) / den;
 
-        let x = x.round();
-        let y = y.round();
-
-        assert!(x <= i32::MAX as f64);
-        assert!(x >= i32::MIN as f64);
-        assert!(y <= i32::MAX as f64);
-        assert!(y >= i32::MIN as f64);
+        // Mosaic patch: a degenerate transform from a hostile image maps to NaN,
+        // infinities or huge values; upstream asserted (a panic, an abort in
+        // Mosaic's release builds). Clamp instead, to a range that keeps the
+        // later integer products of coordinate differences inside i32.
         Point {
-            x: x as i32,
-            y: y as i32,
+            x: clamp_coord(x),
+            y: clamp_coord(y),
         }
     }
 

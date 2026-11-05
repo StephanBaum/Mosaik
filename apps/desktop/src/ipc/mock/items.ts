@@ -1,18 +1,22 @@
 /** Mock item commands. `add_item` and `update_item` apply the parts of a draft the UI sends. */
 import type {
   AddItemRequest,
+  CustomFieldChange,
+  CustomFieldEntry,
   ItemDraft,
   ItemKind,
   ItemRequest,
   ListItemsRequest,
   OtpSummary,
   TextFieldKey,
+  UrlChange,
 } from "../contract/index.ts";
+import { MOCK_SSH_SUMMARY } from "./data.ts";
 import { requireFreshReauth } from "./quickUnlock.ts";
 import { hardwareVaultOf, vaultReadable } from "./vaults.ts";
 import { fail, requireUnlocked, type MockHandlers, type MockItem, type MockState } from "./state.ts";
 
-function find(state: MockState, request: ItemRequest): MockItem {
+export function findItem(state: MockState, request: ItemRequest): MockItem {
   if (!state.vaults.some((vault) => vault.vaultId === request.vaultId)) {
     fail("vaultNotFound");
   }
@@ -72,17 +76,124 @@ function otpOf(state: MockState, vaultId: string, draft: ItemDraft): OtpSummary 
   };
 }
 
+/** The text field the list shows under the title, by kind. */
+const SUBTITLE_FIELD: Partial<Record<ItemKind, TextFieldKey>> = {
+  login: "username",
+  creditCard: "cardholderName",
+  identity: "email",
+  wifi: "wifiSsid",
+  apiKey: "apiKeyHost",
+  sshKey: "sshComment",
+};
+
 function setText(item: MockItem, field: TextFieldKey, value: string | null): void {
   const summary = item.detail.summary;
   if (field === "title") {
     summary.title = value;
-  } else if (field === "username") {
-    summary.subtitle = value;
+  } else if (SUBTITLE_FIELD[summary.kind] === field) {
+    summary.subtitle = value === "" ? null : value;
   }
   item.detail.text = item.detail.text.filter((entry) => entry.field !== field);
   if (value !== null && value !== "" && field !== "title") {
     item.detail.text.push({ field, value });
   }
+}
+
+function applyUrls(item: MockItem, changes: readonly UrlChange[]): void {
+  const detail = item.detail;
+  for (const change of changes) {
+    if (change.op === "add") {
+      detail.urls.push({
+        elementId: crypto.randomUUID(),
+        url: change.url,
+        matchMode: change.matchMode,
+        allowHttp: change.allowHttp,
+      });
+    } else {
+      const at = detail.urls.findIndex((entry) => entry.elementId === change.elementId);
+      if (at < 0) {
+        fail("invalidInput");
+      }
+      if (change.op === "remove") {
+        detail.urls.splice(at, 1);
+      } else {
+        detail.urls[at] = {
+          elementId: change.elementId,
+          url: change.url,
+          matchMode: change.matchMode,
+          allowHttp: change.allowHttp,
+        };
+      }
+    }
+  }
+  const first = detail.urls[0]?.url;
+  detail.summary.host = first !== undefined && URL.canParse(first) ? new URL(first).hostname : null;
+}
+
+function customEntry(
+  item: MockItem,
+  elementId: string,
+  change: { label: string; kind: CustomFieldEntry["kind"] },
+  value: string,
+): CustomFieldEntry {
+  const secret = change.kind === "hidden";
+  if (secret) {
+    item.customSecrets[elementId] = value;
+  } else {
+    Reflect.deleteProperty(item.customSecrets, elementId);
+  }
+  return {
+    elementId,
+    label: change.label,
+    kind: change.kind,
+    value: secret || change.kind === "otp" ? null : value,
+  };
+}
+
+function applyCustomFields(item: MockItem, changes: readonly CustomFieldChange[]): void {
+  const fields = item.detail.customFields;
+  for (const change of changes) {
+    if (change.op === "add") {
+      const elementId = crypto.randomUUID();
+      fields.push(customEntry(item, elementId, change, change.value));
+      continue;
+    }
+    const at = fields.findIndex((entry) => entry.elementId === change.elementId);
+    const stored = fields[at];
+    if (stored === undefined) {
+      fail("invalidInput");
+    }
+    if (change.op === "remove") {
+      fields.splice(at, 1);
+      Reflect.deleteProperty(item.customSecrets, change.elementId);
+    } else if (change.value === null) {
+      // Keep the stored value: only a rename, and only of the same kind.
+      if (change.kind !== stored.kind) {
+        fail("invalidInput");
+      }
+      fields[at] = { ...stored, label: change.label };
+    } else {
+      fields[at] = customEntry(item, change.elementId, change, change.value);
+    }
+  }
+}
+
+function applySshKey(item: MockItem, draft: ItemDraft): void {
+  const change = draft.sshKey;
+  if (change === null) {
+    return;
+  }
+  if (item.detail.summary.kind !== "sshKey") {
+    fail("invalidInput");
+  }
+  if (!change.privateKey.includes("BEGIN OPENSSH PRIVATE KEY")) {
+    fail("sshKeyInvalid");
+  }
+  item.sshKey = { privateKey: change.privateKey };
+  item.detail.sshKey = {
+    ...MOCK_SSH_SUMMARY,
+    encrypted: change.privateKey.includes("aes256-ctr"),
+  };
 }
 
 function applyDraft(state: MockState, item: MockItem, draft: ItemDraft): void {
@@ -102,17 +213,9 @@ function applyDraft(state: MockState, item: MockItem, draft: ItemDraft): void {
       }
     }
   }
-  for (const change of draft.urls) {
-    if (change.op === "add") {
-      item.detail.urls.push({
-        elementId: crypto.randomUUID(),
-        url: change.url,
-        matchMode: change.matchMode,
-        allowHttp: change.allowHttp,
-      });
-      summary.host = URL.canParse(change.url) ? new URL(change.url).hostname : summary.host;
-    }
-  }
+  applyUrls(item, draft.urls);
+  applyCustomFields(item, draft.customFields);
+  applySshKey(item, draft);
   if (draft.tags !== null) {
     summary.tags = draft.tags;
   }
@@ -150,9 +253,12 @@ function newItem(state: MockState, request: AddItemRequest): MockItem {
       otp: null,
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+      sshKey: null,
     },
     secrets: {},
     history: [],
+    customSecrets: {},
+    sshKey: null,
   };
 }
 
@@ -176,7 +282,7 @@ export const itemHandlers: MockHandlers = {
 
   update_item: (state, request) => {
     requireUnlocked(state);
-    const item = find(state, request);
+    const item = findItem(state, request);
     applyDraft(state, item, request.draft);
     return item.detail;
   },
@@ -190,44 +296,44 @@ export const itemHandlers: MockHandlers = {
 
   get_item: (state, request) => {
     requireUnlocked(state);
-    return find(state, request).detail;
+    return findItem(state, request).detail;
   },
 
   reveal_secret: (state, request) => {
     requireUnlocked(state);
-    const item = find(state, request);
+    const item = findItem(state, request);
     const secret = request.secret;
     const value =
       secret.kind === "field"
         ? item.secrets[secret.field]
-        : secret.kind === "history"
-          ? item.history[secret.index]
-          : undefined;
+        : secret.kind === "customField"
+          ? item.customSecrets[secret.elementId]
+          : item.history[secret.index];
     return { value: value ?? fail("fieldEmpty"), hideAfterSeconds: 60 };
   },
 
   set_favorite: (state, request) => {
     requireUnlocked(state);
-    const item = find(state, request);
+    const item = findItem(state, request);
     item.detail.summary.favorite = request.favorite;
     return item.detail.summary;
   },
 
   trash_item: (state, request) => {
     requireUnlocked(state);
-    find(state, request).detail.summary.trashedAt = state.now();
+    findItem(state, request).detail.summary.trashedAt = state.now();
     return null;
   },
 
   restore_item: (state, request) => {
     requireUnlocked(state);
-    find(state, request).detail.summary.trashedAt = null;
+    findItem(state, request).detail.summary.trashedAt = null;
     return null;
   },
 
   purge_item: (state, request) => {
     requireUnlocked(state);
-    const item = find(state, request);
+    const item = findItem(state, request);
     state.items = state.items.filter((each) => each !== item);
     return null;
   },
@@ -240,7 +346,7 @@ export const itemHandlers: MockHandlers = {
     if (!state.vaults.some((vault) => vault.vaultId === request.targetVaultId)) {
       fail("vaultNotFound");
     }
-    const item = find(state, request);
+    const item = findItem(state, request);
     if (hardwareVaultOf(state, request.vaultId) !== undefined) {
       requireFreshReauth(state, false);
     }

@@ -207,6 +207,8 @@ select.field__input {
 .field__input--secret {
   font-family: var(--font-mono);
   letter-spacing: 0.15em;
+  /* A masked multi-line field (the SSH private key): dots, whatever is typed or pasted. */
+  -webkit-text-security: disc;
 }
 
 .field__input--mono {

@@ -122,6 +122,7 @@ export const fixtures = {
       "noOtp",
       "fieldEmpty",
       "invalidInput",
+      "sshKeyInvalid",
       "reauthRequired",
       "attachmentTooLarge",
       "attachmentQuota",
@@ -484,6 +485,9 @@ export const fixtures = {
       "code": "invalidInput"
     },
     {
+      "code": "sshKeyInvalid"
+    },
+    {
       "code": "reauthRequired"
     },
     {
@@ -628,6 +632,13 @@ export const fixtures = {
             },
             {
               "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN code",
+              "op": "update",
+              "value": null
+            },
+            {
+              "elementId": "7-019a2b3c4d5e7000",
               "op": "remove"
             }
           ],
@@ -641,6 +652,10 @@ export const fixtures = {
               "value": "n3w-pa55word"
             }
           ],
+          "sshKey": {
+            "op": "set",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
+          },
           "tags": [
             "work"
           ],
@@ -747,6 +762,16 @@ export const fixtures = {
           "field": {
             "elementId": "5-019a2b3c4d5e7000",
             "kind": "customField"
+          },
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "kind": "item",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        }
+      },
+      {
+        "source": {
+          "field": {
+            "kind": "sshPublicKey"
           },
           "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
           "kind": "item",
@@ -1140,6 +1165,13 @@ export const fixtures = {
             },
             {
               "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN code",
+              "op": "update",
+              "value": null
+            },
+            {
+              "elementId": "7-019a2b3c4d5e7000",
               "op": "remove"
             }
           ],
@@ -1153,6 +1185,10 @@ export const fixtures = {
               "value": "n3w-pa55word"
             }
           ],
+          "sshKey": {
+            "op": "set",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
+          },
           "tags": [
             "work"
           ],
@@ -1207,6 +1243,13 @@ export const fixtures = {
             },
             {
               "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN code",
+              "op": "update",
+              "value": null
+            },
+            {
+              "elementId": "7-019a2b3c4d5e7000",
               "op": "remove"
             }
           ],
@@ -1222,6 +1265,10 @@ export const fixtures = {
               "value": "n3w-pa55word"
             }
           ],
+          "sshKey": {
+            "op": "set",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
+          },
           "tags": [
             "work"
           ],
@@ -1276,6 +1323,13 @@ export const fixtures = {
             },
             {
               "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN code",
+              "op": "update",
+              "value": null
+            },
+            {
+              "elementId": "7-019a2b3c4d5e7000",
               "op": "remove"
             }
           ],
@@ -1288,6 +1342,10 @@ export const fixtures = {
               "value": "n3w-pa55word"
             }
           ],
+          "sshKey": {
+            "op": "set",
+            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
+          },
           "tags": [
             "work"
           ],
@@ -1412,6 +1470,7 @@ export const fixtures = {
         "secrets": [
           "password"
         ],
+        "sshKey": null,
         "summary": {
           "favorite": true,
           "hasOtp": true,
@@ -1656,6 +1715,7 @@ export const fixtures = {
         "secrets": [
           "password"
         ],
+        "sshKey": null,
         "summary": {
           "favorite": true,
           "hasOtp": true,
@@ -1686,6 +1746,51 @@ export const fixtures = {
             "url": "https://github.com/login"
           }
         ]
+      },
+      {
+        "attachments": [],
+        "createdAt": 1761400000000,
+        "customFields": [],
+        "historyCount": 2,
+        "otp": null,
+        "review": {
+          "conflictCopyOf": null,
+          "conflictingFields": 0,
+          "deletedConcurrently": false
+        },
+        "secrets": [
+          "password"
+        ],
+        "sshKey": {
+          "agentSupported": true,
+          "algorithm": "ssh-ed25519",
+          "encrypted": true,
+          "fingerprint": "SHA256:mockmockmockmockmockmockmockmockmockmockmo",
+          "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockMockMockMockMockMockMockMockMockMock deploy"
+        },
+        "summary": {
+          "favorite": true,
+          "hasOtp": false,
+          "host": null,
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "kind": "sshKey",
+          "modifiedAt": 1761480000000,
+          "needsReview": false,
+          "subtitle": "deploy@example.com",
+          "tags": [
+            "work"
+          ],
+          "title": "Deploy key",
+          "trashedAt": null,
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "text": [
+          {
+            "field": "sshComment",
+            "value": "deploy@example.com"
+          }
+        ],
+        "urls": []
       }
     ],
     "get_settings": [
@@ -2477,6 +2582,7 @@ export const fixtures = {
         "secrets": [
           "password"
         ],
+        "sshKey": null,
         "summary": {
           "favorite": true,
           "hasOtp": true,

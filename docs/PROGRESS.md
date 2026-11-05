@@ -1207,6 +1207,40 @@ no new dependency, no CSP change).
 - **Not verified by a human:** the look on real GPUs and on macOS/Linux
   webviews; the glass band ran in headless Chromium in e2e (`data-mode="glass"`).
 
+## M3 follow-up — item kinds and custom fields (2026-11-05)
+
+Branch `feat/m3-item-kinds`, ADR-0033. The item editor and the detail now follow the kind
+of the item instead of showing the login form for everything. Track A of the item-kinds
+work; attachments (Track B) come next.
+
+- **Landed:** one layout table per kind (`screens/vault/kinds/layouts.ts`) feeding the
+  editor (`editor/KindFields`, `UrlListEditor`, `CustomFieldsEditor`, `SshKeyInput`) and
+  `DetailFields` ("Other fields" for values outside the layout); payment card helpers
+  (Luhn, length and email hints, brand from the prefix, `MM/YYYY` expiry that blocks only
+  when it cannot be stored, grouped number on reveal, "Expired" chip); websites with add,
+  edit and remove; custom fields with add, rename, retype, remove and a limit of 512;
+  secrets that start empty when editing and a Remove button for stored ones; SSH keys by
+  paste (Rust derives the public key and fingerprint without decrypting; detail shows
+  public key, fingerprint, algorithm, passphrase chip and an agent-support note; the
+  private key never comes back). Contract: `Update.value` is optional (`null` keeps the
+  stored value), `ItemDraft.sshKey`, `ItemDetail.sshKey`, `CopyField sshPublicKey`,
+  `sshKeyInvalid`; `mosaic-ssh-agent` exports `material_from_openssh` and
+  `describe_material`. The mock applies URL and custom-field edits; seeds a card, an
+  identity and an SSH key.
+- **Decisions (ADR-0033):** the kind of an existing item cannot change; custom fields
+  cannot be reordered; no one-time-code type for new custom fields; SSH keys are paste
+  only, replaceable but not removable; the private key has no reveal, copy or export.
+- **Tests:** Rust (`draft` unit tests, four handler tests, ssh-agent key tests, refreshed
+  contract fixtures); vitest for layouts, card helpers, the form diff, the editor, the
+  detail and the mock; Playwright `e2e/item-kinds.spec.ts` (card with a hidden custom
+  field from create to remove, SSH key paste), axe on editor and detail.
+- **Deferred to Track B:** attachments and the files section of the document form (the
+  form carries a "save first" hint), preview and Save as, the attachment error codes in
+  the UI.
+- **Not verified by a human:** the look of the new forms against the owner's taste (no
+  mockup exists for cards, identities, notes or files), the masked SSH textarea in the
+  macOS and Linux webviews (`-webkit-text-security`).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

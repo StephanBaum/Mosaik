@@ -5,7 +5,7 @@ import { SecretsProvider } from "../../app/SecretsContext.tsx";
 import { ToastProvider } from "../../components/ToastProvider.tsx";
 import { I18nProvider } from "../../i18n/I18nProvider.tsx";
 import type { MosaicIpc } from "../../ipc/client.ts";
-import type { CommandName, IpcError } from "../../ipc/contract/index.ts";
+import type { CommandName, IpcError, ItemDetail } from "../../ipc/contract/index.ts";
 import { IpcProvider } from "../../ipc/IpcProvider.tsx";
 import { createMockIpc } from "../../ipc/mock.ts";
 import { ItemEditor } from "./ItemEditor.tsx";
@@ -186,3 +186,162 @@ describe("item editor, one-time code", () => {
     expect(adds(sent)).toHaveLength(0);
   });
 });
+
+const VAULTS = [
+  { vaultId: "v1", name: "Personal", itemCount: 0, available: true, protection: "accountKey", openUntil: null },
+] as const;
+
+function stored(over: Partial<ItemDetail> = {}): ItemDetail {
+  return {
+    summary: {
+      vaultId: "v1",
+      itemId: "i1",
+      kind: "login",
+      title: "GitHub",
+      subtitle: null,
+      host: null,
+      favorite: false,
+      hasOtp: false,
+      tags: [],
+      modifiedAt: null,
+      trashedAt: null,
+      needsReview: false,
+    },
+    createdAt: null,
+    text: [{ field: "username", value: "alex" }],
+    secrets: ["password"],
+    urls: [],
+    customFields: [{ elementId: "c1", label: "PIN", kind: "hidden", value: null }],
+    attachments: [],
+    otp: null,
+    historyCount: 0,
+    review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+    sshKey: null,
+    ...over,
+  };
+}
+
+/** The editor on an existing item, recording what it sends. */
+function renderEditing(editing: ItemDetail) {
+  const inner = createMockIpc({ start: "unlocked" });
+  const sent: Sent[] = [];
+  const ipc: MosaicIpc = {
+    subscribe: (listener) => inner.subscribe(listener),
+    call: (command, request) => {
+      sent.push({ command, request });
+      return inner.call(command, request);
+    },
+  };
+  render(
+    <I18nProvider locale="en">
+      <IpcProvider ipc={ipc}>
+        <ToastProvider>
+          <ItemEditor
+            vaults={VAULTS}
+            vaultId="v1"
+            editing={editing}
+            onSaved={vi.fn()}
+            onCancel={vi.fn()}
+          />
+        </ToastProvider>
+      </IpcProvider>
+    </I18nProvider>,
+  );
+  return sent;
+}
+
+describe("item editor, kinds and custom fields", () => {
+  it("shows the fields of the chosen kind", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    expect(screen.getByLabelText("User name")).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("Type"), "creditCard");
+    expect(screen.getByLabelText("Card number")).toBeTruthy();
+    expect(screen.getByLabelText("Cardholder")).toBeTruthy();
+    expect(screen.queryByLabelText("User name")).toBeNull();
+    expect(screen.queryByLabelText("Website 1")).toBeNull();
+  });
+
+  it("hints at a card number that fails the check without blocking", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "creditCard");
+    await user.type(screen.getByLabelText("Card number"), "4111 1111 1111 1112");
+    expect(screen.getByText("This number doesn't pass the card check. Check it for typos.")).toBeTruthy();
+    expect(screen.getByLabelText("Card brand")).toHaveProperty("value", "Visa");
+  });
+
+  it("blocks an expiry it cannot store", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "creditCard");
+    await user.type(screen.getByLabelText("Expires"), "13/29");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Enter the expiry as MM/YY, for example 04/29.")).toBeTruthy();
+  });
+
+  it("asks for the private key of an SSH key item", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.selectOptions(screen.getByLabelText("Type"), "sshKey");
+    expect(screen.getByLabelText("Private key").tagName).toBe("TEXTAREA");
+    expect(screen.getByLabelText("Passphrase")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/This isn't an OpenSSH private key/)).toBeTruthy();
+  });
+
+  it("has no kind picker when editing", () => {
+    renderEditing(stored());
+    expect(screen.queryByLabelText("Type")).toBeNull();
+    expect(screen.queryByLabelText("Vault")).toBeNull();
+    expect(screen.getByLabelText("User name")).toBeTruthy();
+  });
+
+  it("blocks changing the kind of a hidden field without a value", async () => {
+    const user = userEvent.setup();
+    const sent = renderEditing(stored());
+    await user.selectOptions(screen.getByLabelText("Field type"), "text");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Enter a value to change the type of a hidden field.")).toBeTruthy();
+    expect(sent.some((each) => each.command === "update_item")).toBe(false);
+  });
+
+  it("renames a hidden field without sending its value", async () => {
+    const user = userEvent.setup();
+    const sent = renderEditing(stored());
+    const label = screen.getByLabelText("Field name");
+    await user.clear(label);
+    await user.type(label, "Gate code");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(sent.some((each) => each.command === "update_item")).toBe(true);
+    });
+    const draft = (sent.find((each) => each.command === "update_item")?.request as { draft: ItemDraftLike }).draft;
+    expect(draft.customFields).toEqual([
+      { op: "update", elementId: "c1", label: "Gate code", kind: "hidden", value: null },
+    ]);
+  });
+
+  it("adds a custom field and marks a stored secret for removal", async () => {
+    const user = userEvent.setup();
+    const sent = renderEditing(stored({ customFields: [] }));
+    await user.click(screen.getByRole("button", { name: "Add custom field" }));
+    await user.type(screen.getByLabelText("Field name"), "Door code");
+    await user.selectOptions(screen.getByLabelText("Field type"), "hidden");
+    await user.type(screen.getByLabelText("Value"), "1234");
+    await user.click(screen.getByRole("button", { name: "Remove Password" }));
+    expect(screen.getByText("Password will be removed when you save.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(sent.some((each) => each.command === "update_item")).toBe(true);
+    });
+    const draft = (sent.find((each) => each.command === "update_item")?.request as { draft: ItemDraftLike }).draft;
+    expect(draft.customFields).toEqual([{ op: "add", label: "Door code", kind: "hidden", value: "1234" }]);
+    expect(draft.secrets).toEqual([{ field: "password", value: null }]);
+  });
+});
+
+interface ItemDraftLike {
+  customFields: unknown[];
+  secrets: unknown[];
+}

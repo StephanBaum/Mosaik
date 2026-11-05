@@ -8,7 +8,9 @@ export type CopyField =
   | { kind: "totp" }
   | { kind: "text"; field: TextFieldKey }
   | { kind: "secret"; field: SecretFieldKey }
-  | { kind: "customField"; elementId: string };
+  | { kind: "customField"; elementId: string }
+  /** The public key of an SSH key item; the private key is never copied. */
+  | { kind: "sshPublicKey" };
 
 export type CopySource =
   | { kind: "item"; vaultId: VaultId; itemId: ItemId; field: CopyField }

@@ -16,7 +16,7 @@ const MASK = "••••••••••••••••";
  * The value, or its mask while hidden. Both carry `data-secret` (and `data-mask`), so the
  * reveal's snapshot painter draws the mask and never reads the value (UX_GUIDELINES section 8).
  */
-function SecretValue({ value }: { value: string | null }) {
+function SecretValue({ value, format }: { value: string | null; format: ((value: string) => string) | undefined }) {
   const { t } = useI18n();
   return value === null ? (
     <span
@@ -30,7 +30,7 @@ function SecretValue({ value }: { value: string | null }) {
     </span>
   ) : (
     <span className="row__value mono" data-secret="" data-mask={MASK}>
-      {value}
+      {format === undefined ? value : format(value)}
     </span>
   );
 }
@@ -39,9 +39,12 @@ export function SecretField({
   label,
   reveal,
   actions,
+  format,
 }: {
   label: string;
   reveal: () => Promise<IpcResult<RevealedSecret>>;
+  /** How the revealed text is shown (a card number in groups); the copy stays unformatted. */
+  format?: ((value: string) => string) | undefined;
   /** Extra controls next to the reveal button, for example a copy button. */
   actions?: ReactNode;
 }) {
@@ -90,7 +93,7 @@ export function SecretField({
     <div className="row">
       <div className="row__main">
         <span className="row__label">{label}</span>
-        <SecretValue value={value} />
+        <SecretValue value={value} format={format} />
       </div>
       <IconButton
         icon={value === null ? "eye" : "eyeOff"}

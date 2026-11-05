@@ -186,3 +186,11 @@
 .editor__password .field {
   flex: 1;
 }
+
+.editor__group-heading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}

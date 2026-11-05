@@ -328,6 +328,129 @@ fn malformed_drafts_are_invalid_input() {
     assert_eq!(code(unknown), ErrorCode::ItemNotFound);
 }
 
+const NO_EDITS: &str =
+    r#"{ "text": [], "secrets": [], "urls": [], "customFields": [], "tags": null, "otp": null }"#;
+
+fn draft_with(extra: Value) -> Value {
+    let mut draft: Value = serde_json::from_str(NO_EDITS).unwrap();
+    if let (Some(map), Some(extra)) = (draft.as_object_mut(), extra.as_object()) {
+        map.extend(extra.clone());
+    }
+    draft
+}
+
+fn add_ssh(b: &Backend, vault: &str) -> ItemDetail {
+    let draft = draft_with(json!({
+        "text": [{ "field": "title", "value": "Deploy key" }],
+        "sshKey": { "op": "set", "privateKey": ED25519 }
+    }));
+    b.add_item(req(
+        json!({ "vaultId": vault, "kind": "sshKey", "draft": draft }),
+    ))
+    .unwrap()
+}
+
+#[test]
+fn update_item_relabels_hidden_field_without_reveal() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let detail = add_login(&h.backend, &vault_id(&h.backend));
+    let pin = element_of(&detail, "PIN");
+    let update = |label: &str, kind: &str| {
+        h.backend.update_item(req(with_item(
+            &detail,
+            json!({ "draft": draft_with(json!({ "customFields": [
+                { "op": "update", "elementId": pin, "label": label, "kind": kind, "value": null }
+            ]})) }),
+        )))
+    };
+    let renamed = update("PIN code", "hidden").unwrap();
+    assert_eq!(element_of(&renamed, "PIN code"), pin);
+    let revealed = h
+        .backend
+        .reveal_secret(&req(with_item(
+            &renamed,
+            json!({ "secret": { "kind": "customField", "elementId": pin } }),
+        )))
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&revealed).unwrap()["value"],
+        json!(HIDDEN_VALUE),
+        "the stored value survives a rename without a value"
+    );
+    // Another kind needs a value; an unknown element is refused too.
+    assert_eq!(
+        code(update("PIN", "text").unwrap_err()),
+        ErrorCode::InvalidInput
+    );
+    let unknown = h.backend.update_item(req(with_item(
+        &detail,
+        json!({ "draft": draft_with(json!({ "customFields": [
+            { "op": "update", "elementId": "999-0000", "label": "x", "kind": "hidden", "value": null }
+        ]})) }),
+    )));
+    assert_eq!(code(unknown.unwrap_err()), ErrorCode::InvalidInput);
+}
+
+#[test]
+fn ssh_key_on_login_is_invalid_input() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    let draft = draft_with(json!({ "sshKey": { "op": "set", "privateKey": ED25519 } }));
+    let added = h.backend.add_item(req(
+        json!({ "vaultId": vault, "kind": "login", "draft": draft.clone() }),
+    ));
+    assert_eq!(code(added.unwrap_err()), ErrorCode::InvalidInput);
+    let login = add_login(&h.backend, &vault);
+    let updated = h
+        .backend
+        .update_item(req(with_item(&login, json!({ "draft": draft }))));
+    assert_eq!(code(updated.unwrap_err()), ErrorCode::InvalidInput);
+    // Not a key: refused with its own code, on a key item as well.
+    let garbage = draft_with(json!({ "sshKey": { "op": "set", "privateKey": "hunter2" } }));
+    let added = h.backend.add_item(req(
+        json!({ "vaultId": vault, "kind": "sshKey", "draft": garbage }),
+    ));
+    assert_eq!(code(added.unwrap_err()), ErrorCode::SshKeyInvalid);
+}
+
+#[test]
+fn detail_reports_ssh_summary() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    let detail = add_ssh(&h.backend, &vault);
+    let summary = detail.ssh_key.as_ref().unwrap();
+    assert_eq!(summary.public_key.as_deref(), Some(ED25519_PUB.trim()));
+    assert_eq!(
+        summary.fingerprint.as_deref(),
+        Some("SHA256:QjbS4EZK032epnEDVJGO7K3jwMFOWJMwAflXxbJSUUM")
+    );
+    assert_eq!(summary.algorithm.as_deref(), Some("ssh-ed25519"));
+    assert!(!summary.encrypted && summary.agent_supported);
+    // The private key never reaches a detail, a list or a reveal.
+    let body = ED25519.lines().nth(1).unwrap();
+    let json = serde_json::to_string(&detail).unwrap();
+    assert!(!json.contains(body) && !json.contains("PRIVATE KEY"));
+    // A login has no summary.
+    let login = add_login(&h.backend, &vault);
+    assert!(login.ssh_key.is_none());
+}
+
+#[test]
+fn copy_ssh_public_key() {
+    let _kdf = crate::test_support::kdf_permit();
+    let h = unlocked();
+    let vault = vault_id(&h.backend);
+    let detail = add_ssh(&h.backend, &vault);
+    copy(&h.backend, &detail, json!({ "kind": "sshPublicKey" })).unwrap();
+    assert_eq!(h.clipboard.content().as_deref(), Some(ED25519_PUB.trim()));
+    let login = add_login(&h.backend, &vault);
+    let error = copy(&h.backend, &login, json!({ "kind": "sshPublicKey" })).unwrap_err();
+    assert_eq!(code(error), ErrorCode::FieldEmpty);
+}
+
 fn list_items_in(b: &Backend, trash: &str) -> Vec<ItemSummary> {
     b.list_items(&req(
         json!({ "vaultId": null, "trash": trash, "favoritesOnly": false, "query": null }),

@@ -2489,3 +2489,85 @@ snapshot: no box shadows, gradients, pseudo-elements or text ellipsis, text
 drawn by the canvas rather than the layout engine. E2E specs wait for a reveal
 to settle before axe runs. Known cost: each UI unlock and lock in the e2e suite
 takes about 2 s longer.
+
+## ADR-0033: Forms for each item kind, custom fields and SSH key paste
+
+- Status: accepted
+- Date: 2026-11-05
+- Decided by: the owner's direction (per-type forms and custom fields before M4); the details are the most conservative options
+- Milestone: M3 (desktop app)
+
+### Context
+The editor showed the login form for every kind. The `ItemDraft` contract could already
+express custom fields and URL edits, but the UI never sent them and the mock ignored them.
+Two things the contract could not express: editing a hidden or one-time-code custom field
+without revealing it (`Update.value` was required), and setting SSH key material. Core has
+no setter for an item's type, no way to clear key material and no key generation.
+`docs/design/screens/D10-NewItem.dc.html` (the login form) is the only mockup; every kind
+follows its structure (title, kind fields, websites, one-time code, tags, notes, a ghost
+"Add custom field" button).
+
+### Decision
+1. **The kind of an existing item cannot change.** The kind picker stays for new items.
+   Core has no setter and `type` is metadata where the largest stamp wins, so a kind change
+   made on two devices at once would pick one kind and leave fields behind that the other
+   kind does not show; the SSH agent and hardware vaults gate on the type. A user who needs
+   another kind creates a new item.
+2. **While creating, changing the kind keeps a value for every field key** in the form.
+   Only the fields in the selected kind's layout are sent, plus title, notes, tags and
+   custom fields.
+3. **One layout table per kind** (`screens/vault/kinds/layouts.ts`) drives both the editor
+   and the detail. Fields that hold a value but are not in the layout (imports, passkeys,
+   newer kinds) are listed under "Other fields", so nothing is hidden.
+4. **Custom fields cannot be reordered.** `CustomFieldChange` has no position; elements
+   are stored one key each and ordered by element ID, which is creation order. Ordering
+   would need a core model change.
+5. **`CustomFieldChange::Update.value` is `SecretIn | null`.** `null` keeps the stored
+   value. It is allowed only when `kind` equals the stored kind and the element exists;
+   otherwise the result is `invalidInput`. The label checks are the same as for a value.
+   This is how a hidden or one-time-code field is renamed without being revealed.
+6. **New custom fields can be** text, hidden, url, email, phone or date. A one-time code is
+   not offered (the item's own one-time code covers it). Existing one-time-code custom
+   fields, which come from imports, show as a read-only row that can be renamed and
+   removed.
+7. **SSH keys are paste only.** `ItemDraft.sshKey = { op: "set", privateKey }`, for `sshKey`
+   items only. Rust parses (does not decrypt) the OpenSSH key, derives the public key and
+   fingerprint and stores `SshKeyMaterial`; any key `ssh_key::PrivateKey::from_openssh`
+   parses is accepted, encrypted ones included, so there is no KDF cost. Text that does
+   not parse, or is longer than 16 KiB, is `sshKeyInvalid`. The passphrase is the
+   `password` secret, labelled "Passphrase", because that is what `AgentKey::from_item`
+   reads. There is no key generation: core and the repo have none. Keys the agent cannot
+   serve (RSA, P-384, ...) are stored, and the detail says so. The material can be
+   replaced but not removed, because core has no clear.
+8. **The private key never goes back to the webview.** No reveal, no copy, no export.
+   `ItemDetail.sshKey` carries the public key, fingerprint, algorithm, `encrypted` and
+   `agentSupported`; `CopyField::SshPublicKey` copies the public key. The textarea that
+   takes the key is masked and cleared with the form.
+9. **Secret fields in edit mode start empty and mean "keep".** A "Remove" button next to
+   each stored secret marks it for clearing (`value: null`). Card numbers are sent without
+   spaces; the revealed number is shown in groups (4-6-5 for American Express). The expiry
+   is stored as `MM/YYYY` and an expiry that cannot be turned into that blocks saving;
+   the Luhn, length and email hints never block.
+
+### Alternatives considered
+- Letting the kind change on edit through a new core setter: rejected, see 1; it needs a
+  CRDT rule for concurrent kind changes first.
+- A separate `rename_custom_field` command: rejected, `Update` with `null` is the same
+  edit with the same sync event as every other change.
+- Generating SSH keys in Rust: rejected, it adds a crypto dependency path (ADR needed) and
+  a key the user must back up elsewhere; paste covers keys users already have.
+- Decrypting the pasted key to check the passphrase: rejected, it costs KDF time per save
+  and keeps decrypted key material in memory for nothing.
+- Showing the private key on request: rejected, the use of a key is signing; nobody needs
+  to read it back, and it is the one secret that must never reach JavaScript.
+
+### Consequences
+`CustomFieldChange::Update.value` is optional on the wire (the TS type and the fixtures
+changed), `ItemDraft` has a new key `sshKey` that is always present (`null`),
+`ItemDetail.sshKey`, `CopyField::SshPublicKey` and `ErrorCode::SshKeyInvalid` are new.
+`mosaic-ssh-agent` exports `material_from_openssh`, `describe_material`, `KeyInfo` and
+`MAX_PRIVATE_KEY_TEXT_LEN`. The mock applies URL and custom-field edits and seeds a card,
+an identity and an SSH key item. Attachments for documents are a later change; the document
+form carries a hint to save first. THREAT_MODEL needs no new risk: the private key text is
+in zeroizing memory from the IPC body to the model, parsed keys are dropped before the
+parse function returns, and nothing secret reaches an error or `Debug` output.

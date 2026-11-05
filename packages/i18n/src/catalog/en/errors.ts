@@ -34,6 +34,8 @@ export const errors = {
     "That field is empty, so there's nothing to copy or show. Edit the item to fill it in.",
   "error.invalidInput":
     "Something in this form isn't valid. Check the highlighted fields and try again.",
+  "error.sshKeyInvalid":
+    "This isn't an OpenSSH private key. Paste the whole key, including the BEGIN and END lines.",
   "error.reauthRequired": "This change needs your master password. Enter it to confirm.",
   "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
   "error.attachmentQuota":

@@ -40,6 +40,8 @@ export const errors = {
     "Dieses Feld ist leer, es gibt also nichts zu kopieren oder anzuzeigen. Bearbeite den Eintrag, um es auszufüllen.",
   "error.invalidInput":
     "Etwas in diesem Formular ist ungültig. Prüfe die markierten Felder und versuche es noch einmal.",
+  "error.sshKeyInvalid":
+    "Das ist kein privater OpenSSH-Schlüssel. Füge den ganzen Schlüssel ein, auch die BEGIN- und END-Zeilen.",
   "error.reauthRequired":
     "Diese Änderung braucht dein Master-Passwort. Gib es zur Bestätigung ein.",
   "error.attachmentTooLarge": "Diese Datei ist größer als 50 MiB. Wähle eine kleinere Datei.",

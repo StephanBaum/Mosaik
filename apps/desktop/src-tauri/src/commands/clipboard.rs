@@ -67,6 +67,15 @@ pub(crate) fn field_value(
         CopyField::Secret { field } => item
             .secret(field.to_model())?
             .ok_or(IpcError::new(ErrorCode::FieldEmpty)),
+        CopyField::SshPublicKey => {
+            let material = item.ssh_key().ok_or(IpcError::new(ErrorCode::FieldEmpty))?;
+            let info = mosaic_ssh_agent::describe_material(&material).ok();
+            let public = info.as_ref().map_or_else(
+                || material.public_key.as_str(),
+                |info| info.public_key.as_str(),
+            );
+            copy_text(Some(public))
+        }
         CopyField::Totp => {
             super::totp::current_code(session, vault_id, item_id).map(|(code, ..)| code)
         }

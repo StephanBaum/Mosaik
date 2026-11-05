@@ -317,6 +317,25 @@ pub struct ReviewState {
     pub conflict_copy_of: Option<WireItemId>,
 }
 
+/// What the detail shows of an SSH key item's material. The private key
+/// never leaves Rust: no reveal, no copy, no export.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKeySummary {
+    /// The public key, an `authorized_keys` line (`null` if the material
+    /// does not parse and holds none).
+    pub public_key: Option<String>,
+    /// The SHA-256 fingerprint, `SHA256:...` (`null` if unknown).
+    pub fingerprint: Option<String>,
+    /// The SSH algorithm name, for example `ssh-ed25519` (`null` if the
+    /// material does not parse).
+    pub algorithm: Option<String>,
+    /// The private key is protected by a passphrase.
+    pub encrypted: bool,
+    /// The SSH agent can sign with this key.
+    pub agent_supported: bool,
+}
+
 /// One item in the detail pane. Secret fields are listed by name only.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -342,6 +361,8 @@ pub struct ItemDetail {
     pub history_count: u32,
     /// Sync review state.
     pub review: ReviewState,
+    /// The SSH key material, summarized (`null` unless the item has some).
+    pub ssh_key: Option<SshKeySummary>,
 }
 
 /// A secret to reveal or copy.
@@ -483,8 +504,10 @@ pub enum CustomFieldChange {
         label: String,
         /// The kind.
         kind: CustomFieldKind,
-        /// The value.
-        value: SecretIn,
+        /// The new value, or `null` to keep the stored one (only when `kind`
+        /// equals the stored kind, else `invalidInput`): a hidden or `otp`
+        /// field can be renamed without being revealed.
+        value: Option<SecretIn>,
     },
     /// Remove a field.
     Remove {
@@ -523,6 +546,25 @@ pub enum OtpChange {
     Remove,
 }
 
+/// A change to the item's SSH key material (`sshKey` items only).
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(
+    tag = "op",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SshKeyChange {
+    /// Store a pasted OpenSSH private key. Rust derives the public key and
+    /// the fingerprint; the key is parsed, not decrypted. The material can
+    /// be replaced but not removed.
+    Set {
+        /// The OpenSSH private key text.
+        private_key: SecretIn,
+    },
+}
+
 /// The edits of `add_item` and `update_item`. Empty lists and `null` leave
 /// things unchanged; the whole draft is one edit and one sync event.
 #[derive(Debug, Deserialize)]
@@ -541,6 +583,9 @@ pub struct ItemDraft {
     pub tags: Option<Vec<String>>,
     /// The item's own one-time password (`null`: unchanged).
     pub otp: Option<OtpChange>,
+    /// The SSH key material (`null`: unchanged; other than `null` only for
+    /// `sshKey` items, else `invalidInput`).
+    pub ssh_key: Option<SshKeyChange>,
 }
 
 /// `add_item`.
@@ -695,6 +740,44 @@ pub(crate) mod samples {
                 deleted_concurrently: false,
                 conflict_copy_of: None,
             },
+            ssh_key: None,
+        }
+    }
+
+    pub(crate) fn ssh_detail() -> ItemDetail {
+        ItemDetail {
+            summary: ItemSummary {
+                kind: ItemKind::SshKey,
+                title: Some("Deploy key".into()),
+                subtitle: Some("deploy@example.com".into()),
+                host: None,
+                has_otp: false,
+                ..summary()
+            },
+            text: vec![TextFieldEntry {
+                field: TextFieldKey::SshComment,
+                value: "deploy@example.com".into(),
+            }],
+            secrets: vec![SecretFieldKey::Password],
+            urls: vec![],
+            custom_fields: vec![],
+            attachments: vec![],
+            otp: None,
+            ssh_key: Some(ssh_summary()),
+            ..detail()
+        }
+    }
+
+    fn ssh_summary() -> SshKeySummary {
+        SshKeySummary {
+            public_key: Some(
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockMockMockMockMockMockMockMockMockMock deploy"
+                    .into(),
+            ),
+            fingerprint: Some("SHA256:mockmockmockmockmockmockmockmockmockmockmo".into()),
+            algorithm: Some("ssh-ed25519".into()),
+            encrypted: true,
+            agent_supported: true,
         }
     }
 
@@ -740,16 +823,29 @@ pub(crate) mod samples {
                     element_id: "4-019a2b3c4d5e7000".into(),
                     label: "Recovery email".into(),
                     kind: CustomFieldKind::Email,
-                    value: SecretIn::test("alex@example.org"),
+                    value: Some(SecretIn::test("alex@example.org")),
+                },
+                CustomFieldChange::Update {
+                    element_id: "5-019a2b3c4d5e7000".into(),
+                    label: "PIN code".into(),
+                    kind: CustomFieldKind::Hidden,
+                    value: None,
                 },
                 CustomFieldChange::Remove {
-                    element_id: "5-019a2b3c4d5e7000".into(),
+                    element_id: "7-019a2b3c4d5e7000".into(),
                 },
             ],
             tags: Some(vec!["work".into()]),
             otp: Some(OtpChange::Set {
                 uri: SecretIn::test(
                     "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
+                ),
+            }),
+            ssh_key: Some(SshKeyChange::Set {
+                private_key: SecretIn::test(
+                    "-----BEGIN OPENSSH PRIVATE KEY-----
+AAAA
+-----END OPENSSH PRIVATE KEY-----",
                 ),
             }),
         }

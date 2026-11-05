@@ -143,6 +143,23 @@ export interface ReviewState {
   conflictCopyOf: ItemId | null;
 }
 
+/**
+ * What the detail shows of an SSH key item's material. The private key never comes back
+ * to the webview: no reveal, no copy, no export.
+ */
+export interface SshKeySummary {
+  /** An `authorized_keys` line. */
+  publicKey: string | null;
+  /** `SHA256:...` */
+  fingerprint: string | null;
+  /** For example `ssh-ed25519`. */
+  algorithm: string | null;
+  /** The private key is protected by a passphrase. */
+  encrypted: boolean;
+  /** Whether the SSH agent can sign with it. */
+  agentSupported: boolean;
+}
+
 export interface ItemDetail {
   summary: ItemSummary;
   createdAt: UnixMillis | null;
@@ -155,6 +172,8 @@ export interface ItemDetail {
   otp: OtpSummary | null;
   historyCount: number;
   review: ReviewState;
+  /** `null` unless the item has SSH key material. */
+  sshKey: SshKeySummary | null;
 }
 
 export type SecretRef =
@@ -191,8 +210,12 @@ export type UrlChange =
 
 export type CustomFieldChange =
   | { op: "add"; label: string; kind: CustomFieldKind; value: string }
-  | { op: "update"; elementId: string; label: string; kind: CustomFieldKind; value: string }
+  /** `value: null` keeps the stored value; only allowed when `kind` is the stored kind. */
+  | { op: "update"; elementId: string; label: string; kind: CustomFieldKind; value: string | null }
   | { op: "remove"; elementId: string };
+
+/** Sets the material of an `sshKey` item. It can be replaced, not removed. */
+export type SshKeyChange = { op: "set"; privateKey: string };
 
 export type OtpChange =
   | { op: "set"; uri: string }
@@ -208,6 +231,8 @@ export interface ItemDraft {
   customFields: CustomFieldChange[];
   tags: string[] | null;
   otp: OtpChange | null;
+  /** `null`: unchanged. Only for `sshKey` items (`invalidInput` otherwise). */
+  sshKey: SshKeyChange | null;
 }
 
 export interface AddItemRequest {

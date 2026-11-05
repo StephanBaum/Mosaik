@@ -2,10 +2,26 @@
  * Sample data for the mock IPC. Illustrative only: the Secret Key is the one from the
  * design mockups (docs/design/README.md), the master password is `mosaic`.
  */
-import type { ItemSummary, VaultSummary } from "../contract/index.ts";
+import type {
+  ItemKind,
+  ItemSummary,
+  SecretFieldKey,
+  SshKeySummary,
+  TextFieldEntry,
+  VaultSummary,
+} from "../contract/index.ts";
 import type { MockAccount, MockHardwareVault, MockItem } from "./state.ts";
 
 export const MOCK_PASSWORD = "mosaic";
+
+/** What the mock derives from any pasted OpenSSH key (the real derivation is Rust's). */
+export const MOCK_SSH_SUMMARY: SshKeySummary = {
+  publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockMockMockMockMockMockMockMockMockMock mock",
+  fingerprint: "SHA256:mockmockmockmockmockmockmockmockmockmockmo",
+  algorithm: "ssh-ed25519",
+  encrypted: false,
+  agentSupported: true,
+};
 
 export const sampleAccount: MockAccount = {
   accountId: "019a2b3c-4d5e-7030-8000-000000000001",
@@ -67,9 +83,12 @@ function login(spec: LoginSpec): MockItem {
           : null,
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+      sshKey: null,
     },
     secrets: { password },
     history: [],
+    customSecrets: {},
+    sshKey: null,
   };
 }
 
@@ -85,6 +104,83 @@ export function bulkItems(count: number): MockItem[] {
       password: `bulk-password-${n}`,
     });
   });
+}
+
+interface KindSpec {
+  itemId: string;
+  title: string;
+  kind: ItemKind;
+  subtitle: string | null;
+  text: TextFieldEntry[];
+  secrets: Partial<Record<SecretFieldKey, string>>;
+  sshKey?: SshKeySummary;
+}
+
+function kindItem(spec: KindSpec): MockItem {
+  const { itemId, title, kind, subtitle } = spec;
+  return {
+    detail: {
+      summary: summary({ itemId, title, kind, subtitle }),
+      createdAt: 1_761_400_000_000,
+      text: spec.text,
+      secrets: Object.keys(spec.secrets) as SecretFieldKey[],
+      urls: [],
+      customFields: [],
+      attachments: [],
+      otp: null,
+      historyCount: 0,
+      review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+      sshKey: spec.sshKey ?? null,
+    },
+    secrets: spec.secrets,
+    history: [],
+    customSecrets: {},
+    sshKey: spec.sshKey === undefined ? null : { privateKey: "mock-private-key" },
+  };
+}
+
+/** A payment card, an identity and an SSH key, so every kind has a sample. */
+function kindSamples(): MockItem[] {
+  return [
+    kindItem({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000005",
+      title: "Visa Debit",
+      kind: "creditCard",
+      subtitle: "Alex Example",
+      text: [
+        { field: "cardholderName", value: "Alex Example" },
+        { field: "cardExpiry", value: "04/2029" },
+        { field: "cardBrand", value: "Visa" },
+      ],
+      secrets: { cardNumber: "4111111111111111", cardVerificationCode: "737" },
+    }),
+    kindItem({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000006",
+      title: "Alex Example",
+      kind: "identity",
+      subtitle: "alex@example.com",
+      text: [
+        { field: "firstName", value: "Alex" },
+        { field: "lastName", value: "Example" },
+        { field: "email", value: "alex@example.com" },
+        { field: "phone", value: "+49 30 1234567" },
+        { field: "addressLine1", value: "Musterstrasse 1" },
+        { field: "postalCode", value: "10115" },
+        { field: "city", value: "Berlin" },
+        { field: "country", value: "Germany" },
+      ],
+      secrets: { passportNumber: "C01X00T47" },
+    }),
+    kindItem({
+      itemId: "019a2b3c-4d5e-7020-8000-000000000007",
+      title: "Deploy key",
+      kind: "sshKey",
+      subtitle: "deploy@example.com",
+      text: [{ field: "sshComment", value: "deploy@example.com" }],
+      secrets: {},
+      sshKey: MOCK_SSH_SUMMARY,
+    }),
+  ];
 }
 
 export function sampleItems(): MockItem[] {
@@ -132,10 +228,14 @@ export function sampleItems(): MockItem[] {
         otp: null,
         historyCount: 0,
         review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+        sshKey: null,
       },
       secrets: { wifiPassword: "meadow-lantern-quiet-74" },
       history: [],
+      customSecrets: {},
+      sshKey: null,
     },
+    ...kindSamples(),
   ];
 }
 
@@ -166,9 +266,12 @@ function codeItem(itemId: string, title: string, issuer: string): MockItem {
       otp: { scheme: "totp", issuer, digits: 6, period: 30, hardwareProtected: true },
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+      sshKey: null,
     },
     secrets: {},
     history: [],
+    customSecrets: {},
+    sshKey: null,
   };
 }
 
