@@ -45,6 +45,11 @@ pub const COMMANDS: &[&str] = &[
     "restore_item",
     "purge_item",
     "move_item",
+    // Attachments
+    "attachment_add",
+    "attachment_preview",
+    "attachment_save",
+    "attachment_remove",
     // Clipboard
     "copy_to_clipboard",
     "clear_clipboard",

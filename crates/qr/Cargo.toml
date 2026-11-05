@@ -21,6 +21,8 @@ qrcodegen = { workspace = true, optional = true }
 rqrr.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
+zune-core.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

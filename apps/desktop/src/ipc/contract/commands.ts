@@ -3,6 +3,7 @@
  * `src-tauri/src/commands/names.rs`. `subscribe_events` is not here: its argument is a
  * Channel, and `MosaicIpc.subscribe` wraps it.
  */
+import type { AttachmentAdded, AttachmentRequest, AttachmentSaved } from "./attachments.ts";
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
@@ -112,6 +113,12 @@ export interface Commands {
   restore_item: Command<ItemRequest, null>;
   purge_item: Command<ItemRequest, null>;
   move_item: Command<MoveItemRequest, MovedItem>;
+  // Attachments
+  attachment_add: Command<ItemRequest, AttachmentAdded>;
+  /** Binary response: `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`. */
+  attachment_preview: Command<AttachmentRequest, ArrayBuffer>;
+  attachment_save: Command<AttachmentRequest, AttachmentSaved>;
+  attachment_remove: Command<AttachmentRequest, ItemDetail>;
   // Clipboard
   copy_to_clipboard: Command<CopyRequest, CopyReceipt>;
   clear_clipboard: Command<null, null>;
@@ -142,6 +149,13 @@ export interface Commands {
 export type CommandName = keyof Commands;
 export type RequestOf<K extends CommandName> = Commands[K]["request"];
 export type ResponseOf<K extends CommandName> = Commands[K]["response"];
+
+/**
+ * Commands whose response is binary (an `ArrayBuffer`), so the Rust fixtures hold no JSON
+ * response sample for them. `satisfies` keeps the list inside `Commands`.
+ */
+export const binaryCommands = ["attachment_preview"] as const satisfies readonly CommandName[];
+export type BinaryCommandName = (typeof binaryCommands)[number];
 
 /** Commands whose argument is a Channel rather than a request. */
 export const channelCommands = ["subscribe_events"] as const;
@@ -182,6 +196,10 @@ const commandSet = {
   restore_item: true,
   purge_item: true,
   move_item: true,
+  attachment_add: true,
+  attachment_preview: true,
+  attachment_save: true,
+  attachment_remove: true,
   copy_to_clipboard: true,
   clear_clipboard: true,
   generate_password: true,

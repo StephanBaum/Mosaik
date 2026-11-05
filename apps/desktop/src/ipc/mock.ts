@@ -26,8 +26,9 @@ import {
   type ResponseOf,
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
+import { attachmentHandlers } from "./mock/attachments.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
-import { bulkItems, sampleAccount, sampleItems, sampleVaults } from "./mock/data.ts";
+import { bulkItems, sampleAccount, sampleAttachments, sampleItems, sampleVaults } from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
@@ -43,7 +44,15 @@ import {
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
-import { MockFailure, type MockAsyncHandlers, type MockHandlers, type MockItem, type MockState } from "./mock/state.ts";
+import {
+  MockFailure,
+  type MockAsyncHandlers,
+  type MockAttachment,
+  type MockHandlers,
+  type MockItem,
+  type MockSetupOptions,
+  type MockState,
+} from "./mock/state.ts";
 import { totpHandlers } from "./mock/totp.ts";
 import { vaultAsyncHandlers, vaultHandlers } from "./mock/vaults.ts";
 
@@ -62,6 +71,10 @@ export interface MockOptions extends QuickOptions {
   otpScan?: ErrorCode | "cancel";
   /** Report screen scanning as unsupported when `false` (`&screenScan=0`). */
   screenScan?: boolean;
+  /** Fail `attachment_add` with this code, or cancel the file dialog (`?attachAdd=cancel`). */
+  attachAdd?: ErrorCode | "cancel";
+  /** Fail `attachment_save` with this code, or cancel the save dialog (`?attachSave=cancel`). */
+  attachSave?: ErrorCode | "cancel";
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
   bulkItems?: number;
   now?: () => number;
@@ -75,6 +88,7 @@ const handlers: MockHandlers = {
   ...importHandlers,
   ...vaultHandlers,
   ...itemHandlers,
+  ...attachmentHandlers,
   ...clipboardHandlers,
   ...generatorHandlers,
   ...totpHandlers,
@@ -122,6 +136,21 @@ function otpOptionsFromParams(params: URLSearchParams): MockOptions {
   };
 }
 
+function attachOptionsFromParams(params: URLSearchParams): MockOptions {
+  const pick = (name: string): ErrorCode | "cancel" | undefined => {
+    const value = params.get(name);
+    return value === "cancel" || errorCodes.some((code) => code === value)
+      ? (value as ErrorCode | "cancel")
+      : undefined;
+  };
+  const add = pick("attachAdd");
+  const save = pick("attachSave");
+  return {
+    ...(add === undefined ? {} : { attachAdd: add }),
+    ...(save === undefined ? {} : { attachSave: save }),
+  };
+}
+
 export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
@@ -133,6 +162,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(params.get("sshRequest") === "1" ? { sshRequest: true } : {}),
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
     ...otpOptionsFromParams(params),
+    ...attachOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
@@ -143,6 +173,22 @@ function initialItems(start: MockStart, options: MockOptions): MockItem[] {
     return [];
   }
   return [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)];
+}
+
+function initialAttachments(start: MockStart, options: MockOptions): Map<string, MockAttachment> {
+  return start === "noAccount" || options.emptyVault === true
+    ? new Map<string, MockAttachment>()
+    : sampleAttachments();
+}
+
+/** The URL options the handlers read, with their defaults. */
+function setupOptions(options: MockOptions): MockSetupOptions {
+  return {
+    otpScan: options.otpScan ?? null,
+    screenScan: options.screenScan ?? true,
+    attachAdd: options.attachAdd ?? null,
+    attachSave: options.attachSave ?? null,
+  };
 }
 
 export function createMockIpc(options: MockOptions = {}): MosaicIpc {
@@ -165,7 +211,8 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     lastGenerated: null,
     otpPending: new Map(),
     otpPendingCounter: 0,
-    options: { otpScan: options.otpScan ?? null, screenScan: options.screenScan ?? true },
+    attachments: initialAttachments(start, options),
+    options: setupOptions(options),
     emit: (event) => {
       for (const listener of listeners) {
         listener(event);

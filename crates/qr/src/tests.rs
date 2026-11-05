@@ -259,6 +259,146 @@ fn bytes_of(samples: &[u16]) -> Vec<u8> {
     samples.iter().flat_map(|s| s.to_ne_bytes()).collect()
 }
 
+/// A `w` x `h` RGB frame with a smooth gradient (JPEG-friendly).
+fn rgb_frame(w: u32, h: u32) -> OwnedFrame {
+    let mut px = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            px.extend([
+                u8::try_from(x * 3 % 256).unwrap(),
+                u8::try_from(y * 5 % 256).unwrap(),
+                128,
+            ]);
+        }
+    }
+    OwnedFrame::new(w, h, PixelLayout::Rgb8, Zeroizing::new(px)).unwrap()
+}
+
+#[test]
+fn decode_layouts_and_dimensions() {
+    use crate::decode_image;
+    let grey = qr_frame(SAMPLE_URI, 4, 4);
+    let (w, h) = (grey.width(), grey.height());
+
+    let f = decode_image(&png(&grey), &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (w, h, PixelLayout::Luma8)
+    );
+    assert_eq!(f.pixels(), grey.pixels());
+
+    let f = decode_image(&jpeg(&grey, 90), &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (w, h, PixelLayout::Luma8)
+    );
+    assert_eq!(f.pixels().len(), (w * h) as usize);
+
+    let rgb = rgb_frame(40, 24);
+    let f = decode_image(&png(&rgb), &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (40, 24, PixelLayout::Rgb8)
+    );
+    assert_eq!(f.pixels(), rgb.pixels());
+
+    let f = decode_image(&jpeg(&rgb, 90), &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (40, 24, PixelLayout::Rgb8)
+    );
+    assert_eq!(f.pixels().len(), 40 * 24 * 3);
+
+    let f = decode_image(&png(&crate::testing::rgba(&grey)), &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (w, h, PixelLayout::Rgba8)
+    );
+    let f = decode_image(&png(&qr_frame_transparent(SAMPLE_URI, 4)), &DEFAULT).unwrap();
+    assert_eq!(f.layout(), PixelLayout::LumaA8);
+}
+
+#[test]
+fn decode_sixteen_bit_png_narrows_to_high_byte() {
+    use crate::decode_image;
+    let samples: Vec<u16> = vec![0x0000, 0x1234, 0xABCD, 0xFFFF, 0x8001, 0x00FF];
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut out)
+        .write_image(&bytes_of(&samples), 3, 2, image::ExtendedColorType::L16)
+        .unwrap();
+    let f = decode_image(&out, &DEFAULT).unwrap();
+    assert_eq!(
+        (f.width(), f.height(), f.layout()),
+        (3, 2, PixelLayout::Luma8)
+    );
+    assert_eq!(f.pixels(), [0x00, 0x12, 0xAB, 0xFF, 0x80, 0x00]);
+}
+
+#[test]
+fn truncated_jpeg() {
+    use crate::decode_image;
+    let bytes = jpeg(&qr_frame(SAMPLE_URI, 4, 4), 80);
+    // Cut inside the headers.
+    assert_eq!(
+        decode_image(&bytes[..60], &DEFAULT).unwrap_err(),
+        ScanError::Unreadable
+    );
+    // Only the magic bytes.
+    assert_eq!(
+        decode_image(&bytes[..3], &DEFAULT).unwrap_err(),
+        ScanError::Unreadable
+    );
+}
+
+/// The JPEG with its SOF0 dimensions rewritten to `w` x `h`.
+fn jpeg_with_dimensions(mut bytes: Vec<u8>, w: u16, h: u16) -> Vec<u8> {
+    let sof = bytes
+        .windows(2)
+        .position(|m| m == [0xFF, 0xC0])
+        .expect("baseline SOF0");
+    bytes[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+    bytes[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn jpeg_oversize_header_refused_before_allocation() {
+    use crate::decode_image;
+    let base = jpeg(&qr_frame(SAMPLE_URI, 4, 4), 80);
+    // 65535 x 65535 would need 4 GiB; the header alone must be refused.
+    let huge = jpeg_with_dimensions(base.clone(), u16::MAX, u16::MAX);
+    assert_eq!(
+        decode_image(&huge, &DEFAULT).unwrap_err(),
+        ScanError::TooLarge
+    );
+    // Within the side limit but over the pixel budget.
+    let wide = jpeg_with_dimensions(base.clone(), 10_000, 10_000);
+    assert_eq!(
+        decode_image(&wide, &DEFAULT).unwrap_err(),
+        ScanError::TooLarge
+    );
+    // Side, pixel and allocation limits on a genuine image.
+    for limits in [
+        ImageLimits {
+            max_side: 16,
+            ..DEFAULT
+        },
+        ImageLimits {
+            max_pixels: 100,
+            ..DEFAULT
+        },
+        ImageLimits {
+            max_alloc: 100,
+            ..DEFAULT
+        },
+    ] {
+        assert_eq!(
+            decode_image(&base, &limits).unwrap_err(),
+            ScanError::TooLarge
+        );
+    }
+}
+
 #[test]
 fn frame_new_checks() {
     let px = [0u8; 64];

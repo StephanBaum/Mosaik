@@ -114,6 +114,11 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
 | `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
+| **Attachments** | | | |
+| `attachment_add` | `{ vaultId, itemId }` → `{ kind: "added", item: ItemDetail } \| { kind: "cancelled" }` | `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `itemTypeNotAllowed` (hardware-protected vault), `attachmentTooLarge` (above 50 MiB, checked before reading), `attachmentQuota` (1 GiB per account), `attachmentFileUnreadable`, `storeUnavailable` | live (Rust opens the native file dialog, reads the file bounded, encrypts it; ADR-0034) |
+| `attachment_preview` | `{ vaultId, itemId, attachmentId }` → **binary** `ArrayBuffer`: `[width u32 LE][height u32 LE][width * height * 4 bytes RGBA]` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable` (not on this device, damaged or failed authentication), `attachmentPreviewUnsupported`, `attachmentPreviewTooLarge`, `busy` (one preview at a time) | live (PNG and JPEG only; refused for trashed items with `itemDeleted`) |
+| `attachment_save` | `{ vaultId, itemId, attachmentId }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable`, `attachmentSaveFailed` | live (Rust opens the native save dialog and decrypts only after it returns a path; refused for trashed items with `itemDeleted`) |
+| `attachment_remove` | `{ vaultId, itemId, attachmentId }` → `ItemDetail` | `itemNotFound`, `itemDeleted`, `attachmentNotFound` | live (a synced edit; the encrypted file leaves this device's store) |
 | **Clipboard** | | | |
 | `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } \| { kind: "pendingOtp", pendingId } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable`, `otpPendingExpired`, `invalidInput` (HOTP) | live |
 | `clear_clipboard` | `null` → `null` | `clipboardUnavailable` | live |
@@ -180,6 +185,41 @@ Notes per area:
   otpScreenScan` is `true` on Windows and on Linux under X11 only. `OtpPending` is
   `{ pendingId, scheme, issuer, accountName, algorithm, digits, period, strength,
   expiresInSeconds }`; `strength` is `weak`, `belowRfc4226` or `rfc4226`.
+- **Attachments** (ADR-0034). All file input and output happens in Rust, on paths that only a
+  native dialog opened by Rust can produce; the webview gets no fs or dialog permission, and
+  the four requests carry IDs only (`deny_unknown_fields`, so a `path` key is refused).
+  - `AttachmentEntry` is `{ attachmentId, fileName, mime, size, addedAt \| null, available,
+    previewable }`. `addedAt` comes from the time-ordered attachment ID. `available` says the
+    encrypted file is in this device's store (a synced reference can arrive before its file).
+    `previewable` is `available` and a PNG or JPEG. `mime` is a display hint (magic bytes
+    first, then the extension) and decides nothing about security.
+  - **Add.** The dialog has no filter. The size is checked before reading (more than 50 MiB
+    is `attachmentTooLarge`; a file that grows during the read is refused too) and the file
+    is read into a zeroizing buffer. A vault lock during the dialog or the read stores
+    nothing (`locked`). The stored name has control and spoofing characters removed and is
+    cut to 255 bytes. Hardware-protected vaults refuse files (`itemTypeNotAllowed`).
+  - **Preview.** One call: decrypt, decode with `mosaic_qr::decode_image` (PNG and JPEG
+    by magic bytes, at most 16384 px per side, 40 MP, 512 MiB of decoder memory), box
+    downscale so that neither side exceeds 2048 px and the area stays at most 4194304
+    pixels (at most 16 MiB plus the 8-byte header), return the pixels. No PDF or other
+    format has a preview in this version: they get Save as only. A second preview while
+    one runs is `busy`. The vault is checked again before the pixels are returned.
+  - **Save as.** The dialog suggests the name with spoofing and control characters removed,
+    `/ \ : * ? " < > |` replaced by `_`, trailing dots and spaces trimmed, a leading dot
+    replaced, Windows device names (`CON`, `COM1`, ...) prefixed and a length of at most
+    200 bytes with the extension kept. Rust decrypts only after the dialog returned a path
+    and the vault is still unlocked with the same account. It writes a temporary file
+    `.<16 hex>.mosaic-partial` in the same folder (created new, mode 0600 on Unix), syncs it
+    and renames it over the target; on any error the temporary file is removed. On
+    Windows the saved file gets the Mark of the Web (`ZoneId=3`, best effort). Overwriting
+    relies on the native dialog's own confirmation.
+  - **Remove.** The item and attachment must exist; the reference leaves the item and the
+    encrypted file leaves the store.
+  - `ErrorCode` gains `attachmentNotFound`, `attachmentUnavailable`,
+    `attachmentFileUnreadable`, `attachmentSaveFailed`, `attachmentPreviewUnsupported` and
+    `attachmentPreviewTooLarge`. `fixtures.rs` lists `attachment_preview` in
+    `BINARY_RESPONSES`: it has a request sample and no JSON response sample, and the
+    TypeScript parity test exempts it. In TypeScript its response is `ArrayBuffer`.
 - **Clipboard.** Rust reads the value and writes the system clipboard itself. It marks
   the entry as concealed and excluded from clipboard history where the OS supports it.
   It clears the clipboard after `clipboardClearSeconds` (default 30 s) unless the user
@@ -236,7 +276,9 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `emptyPassword`, `quickUnlockUnavailable`, `storeInUse`, `storeUnavailable`,
 `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `sameVault`,
 `noOtp`, `fieldEmpty`, `invalidInput`, `sshKeyInvalid`, `reauthRequired`, `attachmentTooLarge`,
-`attachmentQuota`, `clipboardUnavailable`, `importFileUnreadable`,
+`attachmentQuota`, `attachmentNotFound`, `attachmentUnavailable`,
+`attachmentFileUnreadable`, `attachmentSaveFailed`, `attachmentPreviewUnsupported`,
+`attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
@@ -258,6 +300,21 @@ without its own code becomes `internal`, which leaks nothing.
 | webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code` |
 
+Preview pixels are a second Rust → webview flow of decrypted content. They are not a
+`SecretOut` (they are binary, not JSON, and are not a string the UI can hide by clearing
+state). `attachment_preview` answers with one `tauri::ipc::Response`, which arrives as an
+`ArrayBuffer`: `[width u32 LE][height u32 LE][RGBA]`, downscaled in Rust, at most 2048 x 2048
+and 4194304 pixels. The file itself never crosses the boundary, and nothing is encoded as
+base64 or put in JSON. Rust keeps nothing between calls: the plaintext, the decoded image and
+the downscaled pixels are zeroizing buffers dropped before the call returns, a failed decode
+included (the response `Vec` that moves into Tauri is ordinary memory, and so is the scratch
+memory of the PNG and JPEG decoders: the inflate window and the coefficient planes). The webview paints the pixels into a
+`<canvas>` with `putImageData` (no `blob:`, `data:` or frame in the CSP), overwrites the
+`ArrayBuffer` with zeros right after, and treats the dialog like a revealed secret: it closes
+on lock and when the window loses focus, and clears the canvas and sets its size to 0 when it
+goes. An answer that arrives after the dialog closed is zeroed and dropped. The frame carries
+`data-secret` without `data-mask`, so the reveal snapshot never paints it.
+
 `SecretOut` is the only contract type that serializes a secret, and a fixture test fails
 if a secret sample shows up in any other response. Debug output of both types is
 redacted. Neither type is `Clone`.
@@ -269,6 +326,10 @@ Residual exposure, accepted (THREAT_MODEL, desktop):
   The secret is moved into a zeroizing type at deserialization.
 - A revealed secret, a generated password and a one-time code live in the webview until
   the UI hides them: after `hideAfterSeconds` (60), on blur, or on lock.
+- Preview pixels of an image attachment live in Tauri's response buffer and the webview
+  heap, and in the canvas until it is cleared. The webview wipes its copies as described
+  above; the response `Vec` and any copy the webview engine keeps are not under Mosaic's
+  control (THREAT_MODEL R35).
 
 ## 7. Mock IPC and development
 
@@ -288,7 +349,10 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   `&hwOpenSeconds=<s>` sets how long a hardware vault stays open (default 300). A security
   key needs the PIN `1234`. One-time code setup (ADR-0031): `&otpScan=<errorCode>|cancel`
   makes `otp_scan` fail with that code (or cancel the file dialog) and `&screenScan=0`
-  reports screen scanning as unsupported.
+  reports screen scanning as unsupported. Attachments (ADR-0034): `&attachAdd=<errorCode>|cancel`
+  and `&attachSave=<errorCode>|cancel` make `attachment_add` and `attachment_save` fail with that
+  code or cancel the dialog; by default an add stores a 1.2 MB `scan-2.png`, and the "Passport scan"
+  document starts with a PNG (previewable) and a PDF. The mock preview is a 64 x 48 gradient.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no

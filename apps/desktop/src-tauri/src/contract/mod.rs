@@ -17,6 +17,7 @@
 
 mod macros;
 
+pub mod attachments;
 pub mod clipboard;
 pub mod errors;
 pub mod events;

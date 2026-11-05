@@ -2761,6 +2761,8 @@ dependencies = [
  "rqrr",
  "thiserror 2.0.21",
  "zeroize",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

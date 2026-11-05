@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
+use super::attachments::{self, AttachmentAdded, AttachmentSaved};
 use super::clipboard;
 use super::errors::ErrorCode;
 use super::events::{self, LockReason, SyncStatus};
@@ -47,6 +48,12 @@ use crate::commands::names::COMMANDS;
 
 /// Commands whose argument is not a JSON request (a `Channel`).
 const CHANNEL_COMMANDS: &[&str] = &["subscribe_events"];
+
+/// Commands whose response is binary (an `ArrayBuffer` in the webview), so it
+/// has no JSON sample. `attachment_preview` returns
+/// `[width u32 LE][height u32 LE][width * height * 4 bytes of straight RGBA]`
+/// (at most 2048 x 2048 and 4194304 pixels), as one `tauri::ipc::Response`.
+const BINARY_RESPONSES: &[&str] = &["attachment_preview"];
 
 struct Fixtures {
     requests: Map<String, Value>,
@@ -82,6 +89,29 @@ impl Fixtures {
         assert!(previous.is_none(), "{name} listed twice");
         self.responses
             .insert(name.to_owned(), serde_json::to_value(responses).unwrap());
+    }
+}
+
+impl Fixtures {
+    /// Adds a command with a binary response: request samples only.
+    fn binary_command<Req>(&mut self, name: &str, requests: &[Req])
+    where
+        Req: Serialize + DeserializeOwned,
+    {
+        assert!(BINARY_RESPONSES.contains(&name), "{name} is not binary");
+        let requests: Vec<Value> = requests
+            .iter()
+            .map(|request| {
+                let value = serde_json::to_value(request).unwrap();
+                serde_json::from_value::<Req>(value.clone())
+                    .unwrap_or_else(|e| panic!("{name}: request does not round-trip: {e}"));
+                value
+            })
+            .collect();
+        let previous = self
+            .requests
+            .insert(name.to_owned(), Value::Array(requests));
+        assert!(previous.is_none(), "{name} listed twice");
     }
 }
 
@@ -336,6 +366,32 @@ fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
 }
 
 /// Clipboard, generator and one-time codes, settings and insights.
+/// The attachment commands.
+fn attachment_commands(f: &mut Fixtures, item_request: ItemRequest) {
+    let request = attachments::samples::request();
+    f.command(
+        "attachment_add",
+        vec![item_request],
+        vec![
+            AttachmentAdded::Added {
+                item: Box::new(items::samples::detail()),
+            },
+            AttachmentAdded::Cancelled,
+        ],
+    );
+    f.binary_command("attachment_preview", &[request]);
+    f.command(
+        "attachment_save",
+        vec![request],
+        vec![AttachmentSaved::Saved, AttachmentSaved::Cancelled],
+    );
+    f.command(
+        "attachment_remove",
+        vec![request],
+        vec![items::samples::detail()],
+    );
+}
+
 fn tool_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "copy_to_clipboard",
@@ -519,6 +575,7 @@ pub(crate) fn build() -> Value {
     quick_unlock_commands(&mut f);
     vault_commands(&mut f);
     item_commands(&mut f, item_request);
+    attachment_commands(&mut f, item_request);
     tool_commands(&mut f, item_request);
     import_commands(&mut f);
     ssh_commands(&mut f);
@@ -544,6 +601,7 @@ pub(crate) fn build() -> Value {
         "events": events::samples::events(),
         "requests": f.requests,
         "responses": f.responses,
+        "binaryResponses": BINARY_RESPONSES,
     })
 }
 

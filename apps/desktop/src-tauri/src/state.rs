@@ -155,6 +155,9 @@ pub struct Backend {
     pub(crate) otp_pending: Mutex<PendingOtps>,
     /// Set while an `otp_scan` runs (one at a time).
     pub(crate) otp_scanning: AtomicBool,
+    /// Set while an `attachment_preview` runs (one at a time: it holds a
+    /// decrypted file and its decoded pixels).
+    pub(crate) preview_busy: AtomicBool,
     /// Whether the global shortcut is registered (`None` until tried).
     pub shortcut_status: Mutex<Option<ShortcutStatus>>,
     /// Asks the OS to flag the window (taskbar attention) when an SSH
@@ -205,6 +208,7 @@ impl Backend {
             screen: Box::new(NoScreenCapture),
             otp_pending: Mutex::new(PendingOtps::default()),
             otp_scanning: AtomicBool::new(false),
+            preview_busy: AtomicBool::new(false),
             shortcut_status: Mutex::new(None),
             attention: None,
             os_sources: Mutex::new(Vec::new()),

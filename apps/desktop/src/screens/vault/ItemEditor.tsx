@@ -27,6 +27,7 @@ import {
   type VaultSummary,
 } from "../../ipc/contract/index.ts";
 import { Sections } from "./editor/Sections.tsx";
+import { FilesSection } from "./files/FilesSection.tsx";
 import { changeKind, hasErrors, initialForm, validateForm, type Form } from "./editorForm.ts";
 import { OTP_UNCHANGED } from "./otp/OtpSection.tsx";
 import { useSave } from "./useSave.ts";
@@ -148,6 +149,25 @@ function useHeading(editing: ItemDetail | null, kind: ItemKind): string {
     : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
 }
 
+/**
+ * The files of the item being edited. Adding and removing a file take effect at once (they are
+ * their own commands, not part of the form), which the caption says.
+ */
+function EditorFiles({ editing }: { editing: ItemDetail }) {
+  const { t } = useI18n();
+  const [current, setCurrent] = useState(editing);
+  return (
+    <FilesSection
+      detail={current}
+      item={{ vaultId: editing.summary.vaultId, itemId: editing.summary.itemId }}
+      editable
+      autoFocusAdd={false}
+      note={t("files.editorNote")}
+      onChanged={setCurrent}
+    />
+  );
+}
+
 /** Esc leaves the editor; a dialog inside the form handles its own Esc. */
 function leaveOnEscape(event: KeyboardEvent<HTMLFormElement>, leave: () => void) {
   if (event.key === "Escape" && !(event.target instanceof Element && event.target.closest("dialog"))) {
@@ -263,6 +283,7 @@ export function ItemEditor({
         onChange={state.change}
         onGenerate={state.fillGenerated}
       />
+      {editing !== null && <EditorFiles editing={editing} />}
       <ErrorAlert error={state.error} />
       <div className="form-footer">
         <Button onClick={cancel}>{t("action.cancel")}</Button>

@@ -125,6 +125,10 @@ rqrr = { version = "=0.11.0", default-features = false }
 # PNG and JPEG (zune-jpeg) decoding with Limits for QR screenshots; arboard's
 # image-data feature pulls the same crate.
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+# JPEG decoded straight from the borrowed plaintext (no input copy, zeroizing output);
+# both are already in the tree through image.
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std", "x86", "neon"] }
+zune-core = { version = "=0.5.3", default-features = false, features = ["std"] }
 # Windows "Scan screen": GDI capture of the virtual screen; depends only on windows 0.62.2.
 win-screenshot = { version = "=4.0.14", default-features = false }
 # X11 "Scan screen": GetImage of the root window; already in the tree via arboard.

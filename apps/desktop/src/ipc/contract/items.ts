@@ -127,6 +127,12 @@ export interface AttachmentEntry {
   fileName: string;
   mime: string;
   size: number;
+  /** When the file was added (from its time-ordered ID); `null` for an ID of another kind. */
+  addedAt: UnixMillis | null;
+  /** Whether the encrypted file is in this device's store (a synced reference can arrive first). */
+  available: boolean;
+  /** Available and a PNG or JPEG: the preview can show it. */
+  previewable: boolean;
 }
 
 export interface OtpSummary {

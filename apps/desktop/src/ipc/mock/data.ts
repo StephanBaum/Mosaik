@@ -10,7 +10,7 @@ import type {
   TextFieldEntry,
   VaultSummary,
 } from "../contract/index.ts";
-import type { MockAccount, MockHardwareVault, MockItem } from "./state.ts";
+import type { MockAccount, MockAttachment, MockHardwareVault, MockItem } from "./state.ts";
 
 export const MOCK_PASSWORD = "mosaic";
 
@@ -139,6 +139,50 @@ function kindItem(spec: KindSpec): MockItem {
   };
 }
 
+const PASSPORT_PNG = "019a2b3c-4d5e-7040-8000-000000000001";
+const CONTRACT_PDF = "019a2b3c-4d5e-7040-8000-000000000002";
+
+/** The mock attachments the sample document refers to. */
+export function sampleAttachments(): Map<string, MockAttachment> {
+  return new Map<string, MockAttachment>([
+    [PASSPORT_PNG, { kind: "png", bytes: 2_400_000 }],
+    [CONTRACT_PDF, { kind: "pdf", bytes: 310_000 }],
+  ]);
+}
+
+/** A document with two files, one previewable and one not. */
+function documentSample(): MockItem {
+  const item = kindItem({
+    itemId: "019a2b3c-4d5e-7020-8000-000000000008",
+    title: "Passport scan",
+    kind: "document",
+    subtitle: null,
+    text: [{ field: "notes", value: "Scans for the visa application." }],
+    secrets: {},
+  });
+  item.detail.attachments = [
+    {
+      attachmentId: PASSPORT_PNG,
+      fileName: "passport.png",
+      mime: "image/png",
+      size: 2_400_000,
+      addedAt: 1_761_450_000_000,
+      available: true,
+      previewable: true,
+    },
+    {
+      attachmentId: CONTRACT_PDF,
+      fileName: "contract.pdf",
+      mime: "application/pdf",
+      size: 310_000,
+      addedAt: 1_761_460_000_000,
+      available: true,
+      previewable: false,
+    },
+  ];
+  return item;
+}
+
 /** A payment card, an identity and an SSH key, so every kind has a sample. */
 function kindSamples(): MockItem[] {
   return [
@@ -180,6 +224,7 @@ function kindSamples(): MockItem[] {
       secrets: {},
       sshKey: MOCK_SSH_SUMMARY,
     }),
+    documentSample(),
   ];
 }
 

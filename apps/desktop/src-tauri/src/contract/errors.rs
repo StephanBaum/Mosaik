@@ -125,6 +125,19 @@ wire_enum!(
         AttachmentTooLarge,
         /// The account's attachments would exceed 1 GiB.
         AttachmentQuota,
+        /// The item has no such file (removed or never synced here).
+        AttachmentNotFound,
+        /// The file is not on this device (not synced yet), damaged or failed
+        /// authentication.
+        AttachmentUnavailable,
+        /// The chosen file could not be read.
+        AttachmentFileUnreadable,
+        /// The file could not be written where the user chose.
+        AttachmentSaveFailed,
+        /// The file is not a PNG or JPEG image the preview can decode.
+        AttachmentPreviewUnsupported,
+        /// The image is over a preview size limit.
+        AttachmentPreviewTooLarge,
         /// The system clipboard could not be written.
         ClipboardUnavailable,
         /// The import file could not be read.
@@ -206,6 +219,7 @@ impl From<SessionError> for IpcError {
             SessionError::NoOtp => ErrorCode::NoOtp,
             SessionError::AttachmentTooLarge => ErrorCode::AttachmentTooLarge,
             SessionError::AttachmentQuota => ErrorCode::AttachmentQuota,
+            SessionError::UnknownAttachment => ErrorCode::AttachmentNotFound,
             SessionError::QuickUnlockExpired => ErrorCode::QuickUnlockExpired,
             SessionError::QuickUnlockInvalidated => ErrorCode::QuickUnlockInvalidated,
             SessionError::NoQuickUnlock => ErrorCode::QuickUnlockUnavailable,
@@ -309,7 +323,10 @@ mod tests {
                 ErrorCode::AttachmentTooLarge,
             ),
             (SessionError::AttachmentQuota, ErrorCode::AttachmentQuota),
-            (SessionError::UnknownAttachment, ErrorCode::Internal),
+            (
+                SessionError::UnknownAttachment,
+                ErrorCode::AttachmentNotFound,
+            ),
             (
                 SessionError::QuickUnlockExpired,
                 ErrorCode::QuickUnlockExpired,

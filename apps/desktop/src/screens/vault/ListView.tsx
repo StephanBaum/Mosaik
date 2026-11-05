@@ -38,6 +38,8 @@ export interface ListViewProps {
 function Detail(props: ListViewProps) {
   const { t } = useI18n();
   const { editor, selected, trash, vaults, vaultId, reloadKey, onSelect, onEditor, onChanged } = props;
+  // The item saved last as new: its detail puts the cursor on "Add file" (documents).
+  const [created, setCreated] = useState<string | null>(null);
   if (editor.mode !== "closed") {
     return (
       <ItemEditor
@@ -46,12 +48,17 @@ function Detail(props: ListViewProps) {
         vaultId={vaultId}
         editing={editor.mode === "edit" ? editor.detail : null}
         onSaved={(item) => {
+          setCreated(editor.mode === "new" ? item.itemId : null);
           onEditor({ mode: "closed" });
           onSelect(item);
           onChanged();
         }}
         onCancel={() => {
           onEditor({ mode: "closed" });
+          if (editor.mode === "edit") {
+            // Files added or removed in the editor took effect at once.
+            onChanged();
+          }
         }}
       />
     );
@@ -65,6 +72,7 @@ function Detail(props: ListViewProps) {
       trash={trash}
       vaults={vaults}
       reloadKey={reloadKey}
+      justCreated={created === selected.itemId}
       onChanged={(gone) => {
         if (gone) {
           onSelect(null);

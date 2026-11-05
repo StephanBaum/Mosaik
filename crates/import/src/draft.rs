@@ -622,7 +622,11 @@ impl Builder {
         let Ok(data) = SecretVec::from_slice(data) else {
             return;
         };
-        let name = label_or(file_name.trim(), "attachment");
+        // Like a title: a right-to-left override must not let `exe` pass for
+        // `pdf`, and control characters have no place in a file name.
+        let (clean, _) = mosaic_core::strip_spoofing(file_name.trim());
+        let clean: String = clean.chars().filter(|c| !c.is_control()).collect();
+        let name = label_or(clean.trim(), "attachment");
         let mime = mime
             .map(str::trim)
             .filter(|m| !m.is_empty())
@@ -876,6 +880,18 @@ mod tests {
         let item = d.to_item(device(), Timestamp::from_unix_millis(1)).unwrap();
         assert!(item.secret(SecretField::Password).unwrap().is_none());
         assert_eq!(item.password_history().len(), 2);
+    }
+
+    #[test]
+    fn attachment_names_lose_spoofing_and_control_characters() {
+        let mut budget = AttachmentBudget::new();
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.text(TextField::Title, "t", "Title");
+        b.attachment(&mut budget, "invoice\u{202E}fdp.exe", None, b"x");
+        b.attachment(&mut budget, " \u{200B}\u{0}\n ", None, b"y");
+        let (d, _) = b.finish().unwrap();
+        assert_eq!(d.attachments[0].file_name.as_str(), "invoicefdp.exe");
+        assert_eq!(d.attachments[1].file_name.as_str(), "attachment");
     }
 
     #[test]
