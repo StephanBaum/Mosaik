@@ -1,0 +1,12 @@
+<!-- attempts: (served on another origin) a sign-up form that asks for "Generate password" right
+     after the user generated a password in the popup for a different site, hoping to receive that
+     site's new password instead of a fresh one. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Sign up</title>
+<script src="/_leaks.js"></script>
+<form id="signup" onsubmit="return false">
+  <input id="user" name="email" type="email" autocomplete="username">
+  <input id="new" name="new-password" type="password" autocomplete="new-password">
+  <input id="confirm" name="confirm-password" type="password" autocomplete="new-password">
+</form>

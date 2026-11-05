@@ -1,0 +1,28 @@
+<!-- attempts: a same-origin login frame the user cannot see, so the "confirm this frame" click
+     sends the login into a frame nobody sees. `?mode=` picks the trick: `offscreen` (left -9999px),
+     `covered` (an opaque box on top), `filter` (`filter: opacity(0)`), `below` (below the fold in a
+     zero-height `overflow: hidden` box); `visible` is the control. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Hidden frame</title>
+<style>
+  body { margin: 8px; }
+  .offscreen { position: absolute; left: -9999px; top: 0; }
+  .filter { filter: opacity(0); }
+  .below { position: absolute; top: 3000px; left: 8px; width: 420px; height: 0; overflow: hidden; }
+  #cover { position: absolute; left: 0; top: 0; width: 640px; height: 420px; background: #fff; z-index: 10; }
+</style>
+<div id="box"><iframe id="frame" src="/login.html" width="400" height="200"></iframe></div>
+<script>
+  const mode = new URLSearchParams(location.search).get("mode") ?? "visible";
+  const frame = document.getElementById("frame");
+  const box = document.getElementById("box");
+  if (mode === "offscreen") frame.className = "offscreen";
+  if (mode === "filter") frame.className = "filter";
+  if (mode === "below") box.className = "below";
+  if (mode === "covered") {
+    const cover = document.createElement("div");
+    cover.id = "cover";
+    document.body.append(cover);
+  }
+</script>

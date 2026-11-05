@@ -1,0 +1,11 @@
+<!-- attempts: none. A plain login form; the control page of the suite, and the page other pages embed in frames. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Login</title>
+<script src="/_leaks.js"></script>
+<form id="login" action="/never" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <input id="code" name="otp" type="text" autocomplete="one-time-code">
+  <button type="submit">Sign in</button>
+</form>

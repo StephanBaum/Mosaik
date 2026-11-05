@@ -1,0 +1,27 @@
+<!-- attempts: talk to the extension as if the page were part of it: postMessage with fill-shaped and
+     capture-shaped payloads (before and after the content script exists), look for the
+     extension API, and try to load the extension's pages (the test does the last part). -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Spoof messages</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  window.__received = [];
+  window.addEventListener("message", (event) => window.__received.push(event.data));
+  window.__spoofApi = typeof chrome === "undefined" ? "no chrome" : typeof chrome.runtime?.sendMessage;
+  function spoof() {
+    const payloads = [
+      { type: "fill", fillId: "x", expectedOrigin: location.origin, username: "evil", password: "evil", otp: null },
+      { type: "fillGenerated", fillId: "x", expectedOrigin: location.origin, password: "evil" },
+      { type: "captured", username: "a", password: "b" },
+      { op: "fill", vaultId: "v1", itemId: "i1", confirmFrame: true },
+    ];
+    for (const payload of payloads) window.postMessage(payload, "*");
+  }
+  spoof();
+  setInterval(spoof, 100);
+</script>

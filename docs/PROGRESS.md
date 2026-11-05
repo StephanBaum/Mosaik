@@ -1383,6 +1383,47 @@ browsers, answers fill and lookup requests, and shows the two dialogs. The exten
   review of the registry at rest, the pairing flow, the 1 s guard, the prompt lifetimes and
   the `touch` policy is still open (ADR-0037 stays proposed).
 
+## M4 Browser extension — T3 extension core (2026-11-05)
+
+Track T3 of the M4 plan (ADR-0035): `apps/extension` (`@mosaic/extension`), the MV3 core with
+on-demand fill and the hostile-page harness. The popup UI, save capture and the generator
+screens are T4; the desktop endpoint is T2, so the extension runs against a fake desktop
+until T2 merges.
+
+- **Builds**: one tree, Vite 8, plain multi-entry builds (no CRXJS, no polyfill). `build`
+  makes `dist/chromium` and `dist/firefox`; `build:dev` is chromium with the dev key (extension
+  id fixed for the native host); `build:e2e` adds the test hooks and `*.test` host access. The
+  background and popup are ES modules, the content script an IIFE. `check-dist.mjs` fails on
+  test code, external listeners, `host_permissions`, `web_accessible_resources`, a `key` or a
+  changed permission list in the two production packages.
+- **Manifest**: permissions exactly `activeTab`, `scripting`, `nativeMessaging`,
+  `contextMenus`, `storage`; `optional_host_permissions` for the T4 capture; the CSP of the
+  plan; `externally_connectable: {ids: []}` (Chromium). `_locales` and the icons are generated
+  at build time from `packages/i18n` (`ext.manifest.*`, `ext.command.*`) and `scripts/icons.ts`.
+- **Background**: `NativeClient` (lazy port, `hello` with the stored pairing, ID matching,
+  20 s timeout, in-flight cap of 4, 60 s idle close, error mapping), `Router` (sender rules,
+  rate limits), the fill algorithm and `decideFrame`/`chooseTarget` (pure), gestures
+  (`fill-login`, context menu), popup operations, `PopupState`. Protocol validators check
+  every host message with exact keys and are tested against `crates/native-messaging/
+  fixtures/protocol.json` in both directions.
+- **Content script**: `detect` (login, username-first, sign-up, change form, one-time codes
+  single and split, open shadow roots), `visibility` (`isFillable`), `frame` (`frameAncestry`),
+  `fill` (isolated-world native setter, `input` then `change`). It re-checks origin, ancestry,
+  visibility and fields at fill time.
+- **Tests**: vitest project `extension` 270 tests in 11 files (`packages` project, i18n parity,
+  2862 tests still green). Playwright `e2e/hostile`: 18 tests in 14 spec files against the
+  hostile-site server (`autofill-on-load`, `synthetic-events`, `cross-origin-iframe`,
+  `same-origin-iframe`, `nested-a-b-a`, `sandboxed-srcdoc`, `lookalike`, `http-page`,
+  `hidden-fields`, `overlay-occlusion`, `type-swap-and-late-inject`, `navigate-after-probe`,
+  `spoof-messages`, `react-controlled`). Removing the frame check from `decideFrame` makes the
+  cross-origin and A-B-A specs fail (checked once by hand).
+- **Docs**: `docs/EXTENSION_SECURITY.md` v1 (attack, mitigation, test), THREAT_MODEL §4.3 and
+  R46. New dependency: `@types/chrome` 0.3.7 (dev; types for `chrome.*`), nothing else.
+- **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` support from
+  Firefox 128 is taken from the plan, not checked); `activeTab` gating without host permissions
+  (the e2e build has host access; check by hand on the production build); the review by the
+  extension-attacker agent is still to do.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

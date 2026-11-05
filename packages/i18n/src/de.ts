@@ -16,6 +16,7 @@ import { palette } from "./catalog/de/palette.ts";
 import { shell } from "./catalog/de/shell.ts";
 import { otp } from "./catalog/de/otp.ts";
 import { files } from "./catalog/de/files.ts";
+import { ext } from "./catalog/de/ext.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -36,4 +37,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...shell,
   ...otp,
   ...files,
+  ...ext,
 };

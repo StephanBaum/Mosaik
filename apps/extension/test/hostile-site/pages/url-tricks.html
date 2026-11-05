@@ -1,0 +1,21 @@
+<!-- attempts: make the tab URL disagree with the document: `history.pushState` to another path
+     (same origin, must still work), and replace the whole tab with a `blob:` URL document that holds
+     a login form (the tab URL is no longer http(s), so nothing may be filled). The test calls
+     `toBlob()`. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>URL tricks</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  window.toBlob = () => {
+    const html =
+      '<!doctype html><meta charset="utf-8"><form onsubmit="return false">' +
+      '<input id="user" name="username" type="text" autocomplete="username">' +
+      '<input id="pass" name="password" type="password" autocomplete="current-password"></form>';
+    location.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  };
+</script>

@@ -1,0 +1,25 @@
+<!-- attempts: read the credential as soon as the page loads, by focusing the fields, firing focus,
+     visibilitychange and load-time events, and polling the values for ten seconds. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Autofill on load</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  window.__seen = [];
+  const poll = () => window.__seen.push([...document.querySelectorAll("input")].map((i) => i.value).join("|"));
+  const timer = setInterval(poll, 100);
+  setTimeout(() => clearInterval(timer), 10000);
+  for (const id of ["user", "pass"]) {
+    const el = document.getElementById(id);
+    el.focus();
+    el.dispatchEvent(new Event("focus"));
+    el.dispatchEvent(new Event("focusin", { bubbles: true }));
+  }
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("load"));
+  window.dispatchEvent(new Event("pageshow"));
+</script>

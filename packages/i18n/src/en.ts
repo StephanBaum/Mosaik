@@ -19,6 +19,7 @@ import { palette } from "./catalog/en/palette.ts";
 import { shell } from "./catalog/en/shell.ts";
 import { otp } from "./catalog/en/otp.ts";
 import { files } from "./catalog/en/files.ts";
+import { ext } from "./catalog/en/ext.ts";
 
 export const en = {
   ...app,
@@ -38,6 +39,7 @@ export const en = {
   ...shell,
   ...otp,
   ...files,
+  ...ext,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

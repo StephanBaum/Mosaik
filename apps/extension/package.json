@@ -1,0 +1,28 @@
+{
+  "name": "@mosaic/extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm build:chromium && pnpm build:firefox",
+    "build:chromium": "vite build --mode chromium && vite build -c vite.content.config.ts --mode chromium",
+    "build:firefox": "vite build --mode firefox && vite build -c vite.content.config.ts --mode firefox",
+    "build:dev": "vite build --mode dev && vite build -c vite.content.config.ts --mode dev",
+    "build:e2e": "vite build --mode e2e && vite build -c vite.content.config.ts --mode e2e",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "pnpm -w exec eslint apps/extension --max-warnings 0",
+    "test": "pnpm -w exec vitest run --project extension",
+    "test:e2e": "playwright test",
+    "host:install": "cargo run -p mosaic-native-messaging --bin mosaic-native-host -- install --browsers chrome,edge,chromium"
+  },
+  "dependencies": {
+    "@mosaic/design-tokens": "workspace:*",
+    "@mosaic/i18n": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/chrome": "0.3.7",
+    "jsdom": "29.1.1",
+    "vite": "8.3.5"
+  }
+}

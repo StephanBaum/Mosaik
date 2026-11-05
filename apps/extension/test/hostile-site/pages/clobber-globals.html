@@ -1,0 +1,32 @@
+<!-- attempts: DOM clobbering of what the content script reads from globals. `mosaicContent` is
+     named by page elements (window named properties reach isolated worlds), hoping the script
+     thinks it is already installed and never answers; `document.documentElement` and
+     `document.activeElement` are named by images (document named properties override built-ins),
+     so a decoy far to the right in a 4 px `overflow: hidden` box counts as "inside the document".
+     The visible username and password are the real form. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Clobber globals</title>
+<script src="/_leaks.js"></script>
+<style>
+  body { margin: 8px; }
+  #sink { width: 0; height: 0; overflow: hidden; }
+  #right { position: absolute; left: 0; top: 120px; width: 4px; height: 4px; overflow: hidden; }
+  #decoy-right { margin-left: 5000px; }
+</style>
+<div id="sink">
+  <img id="mosaicContent" name="mosaicContent" alt="">
+  <img name="documentElement" alt="" width="20000" height="20000" style="display: block">
+  <img name="activeElement" alt="">
+</div>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<div id="right"><input id="decoy-right" form="login" name="d0" type="password" autocomplete="current-password"></div>
+<script>
+  window.__clobbered = {
+    mosaicContent: String(window.mosaicContent),
+    documentElement: String(document.documentElement),
+  };
+</script>

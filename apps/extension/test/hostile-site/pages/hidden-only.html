@@ -1,0 +1,12 @@
+<!-- attempts: a form whose every field is hidden from the user (nothing the user could see to fill). -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Hidden only</title>
+<script src="/_leaks.js"></script>
+<style>
+  #login { opacity: 0; position: absolute; left: -5000px; }
+</style>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
