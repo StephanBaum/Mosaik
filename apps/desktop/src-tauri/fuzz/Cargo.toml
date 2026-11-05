@@ -27,6 +27,7 @@ mosaic-core = { path = "../../../../crates/core" }
 mosaic-vault = { path = "../../../../crates/vault" }
 mosaic-totp = { path = "../../../../crates/totp" }
 mosaic-generator = { path = "../../../../crates/generator" }
+mosaic-ssh-agent = { path = "../../../../crates/ssh-agent" }
 serde = { version = "=1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip"] }
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
