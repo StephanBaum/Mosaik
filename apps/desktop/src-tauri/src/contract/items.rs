@@ -287,6 +287,14 @@ pub struct AttachmentEntry {
     pub mime: String,
     /// Size in bytes.
     pub size: u64,
+    /// When the file was added (from its time-ordered ID); `null` for an
+    /// ID of another kind.
+    pub added_at: Option<UnixMillis>,
+    /// Whether the encrypted file is in this device's store (a synced
+    /// reference can arrive before its file).
+    pub available: bool,
+    /// Whether the preview can show it: available and a PNG or JPEG.
+    pub previewable: bool,
 }
 
 /// The item's one-time-password configuration, without the secret.
@@ -726,6 +734,9 @@ pub(crate) mod samples {
                 file_name: "recovery-codes.txt".into(),
                 mime: "text/plain".into(),
                 size: 512,
+                added_at: Some(1_800_000_000_000),
+                available: true,
+                previewable: false,
             }],
             otp: Some(OtpSummary {
                 scheme: OtpScheme::Totp,

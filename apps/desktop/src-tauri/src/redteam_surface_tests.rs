@@ -452,3 +452,34 @@ fn tagged_request_values_refuse_unknown_fields() {
         &json!({ "op": "setPending", "pendingId": "ab", "issuer": null, "accountName": null }),
     );
 }
+
+#[test]
+fn attachment_requests_refuse_path_keys() {
+    // Attempt: the webview names a file by path (to read or to overwrite one) or smuggles any
+    // other key into an attachment request. Paths come only from the native dialogs Rust opens.
+    use crate::contract::attachments::AttachmentRequest;
+    use crate::contract::items::ItemRequest;
+
+    let ids = json!({
+        "vaultId": "019a2b3c-0000-7000-8000-000000000001",
+        "itemId": "019a2b3c-0000-7000-8000-000000000002",
+    });
+    let with_attachment = json!({
+        "vaultId": "019a2b3c-0000-7000-8000-000000000001",
+        "itemId": "019a2b3c-0000-7000-8000-000000000002",
+        "attachmentId": "019a2b3c-0000-7000-8000-000000000003",
+    });
+    assert!(serde_json::from_value::<ItemRequest>(ids.clone()).is_ok());
+    assert!(serde_json::from_value::<AttachmentRequest>(with_attachment.clone()).is_ok());
+    for key in ["path", "filePath", "fileName", "uri", "token", "isAdmin"] {
+        for valid in [&ids, &with_attachment] {
+            let mut value = valid.clone();
+            value[key] = json!("C:/Users/victim/.ssh/id_ed25519");
+            assert!(
+                serde_json::from_value::<ItemRequest>(value.clone()).is_err()
+                    && serde_json::from_value::<AttachmentRequest>(value).is_err(),
+                "{key} was accepted"
+            );
+        }
+    }
+}

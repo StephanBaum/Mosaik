@@ -10,6 +10,7 @@
     reason = "errors are documented on the Backend methods and in DESKTOP_IPC.md"
 )]
 
+pub mod attachments;
 pub mod clipboard;
 pub mod draft;
 pub mod generator;
@@ -75,6 +76,10 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         items::restore_item,
         items::purge_item,
         items::move_item,
+        attachments::attachment_add,
+        attachments::attachment_preview,
+        attachments::attachment_save,
+        attachments::attachment_remove,
         clipboard::copy_to_clipboard,
         clipboard::clear_clipboard,
         generator::generate_password,

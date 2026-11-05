@@ -33,6 +33,7 @@
 #![forbid(unsafe_code)]
 
 pub mod adapters;
+pub mod attachment_files;
 pub mod autolock;
 pub mod clipboard;
 pub mod commands;

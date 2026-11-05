@@ -4,6 +4,9 @@
 import type { ContractFixtures } from "./contract/fixtures.ts";
 
 export const fixtures = {
+  "binaryResponses": [
+    "attachment_preview"
+  ],
   "commands": [
     "session_state",
     "create_account",
@@ -40,6 +43,10 @@ export const fixtures = {
     "restore_item",
     "purge_item",
     "move_item",
+    "attachment_add",
+    "attachment_preview",
+    "attachment_save",
+    "attachment_remove",
     "copy_to_clipboard",
     "clear_clipboard",
     "generate_password",
@@ -126,6 +133,12 @@ export const fixtures = {
       "reauthRequired",
       "attachmentTooLarge",
       "attachmentQuota",
+      "attachmentNotFound",
+      "attachmentUnavailable",
+      "attachmentFileUnreadable",
+      "attachmentSaveFailed",
+      "attachmentPreviewUnsupported",
+      "attachmentPreviewTooLarge",
       "clipboardUnavailable",
       "importFileUnreadable",
       "importFormatInvalid",
@@ -497,6 +510,24 @@ export const fixtures = {
       "code": "attachmentQuota"
     },
     {
+      "code": "attachmentNotFound"
+    },
+    {
+      "code": "attachmentUnavailable"
+    },
+    {
+      "code": "attachmentFileUnreadable"
+    },
+    {
+      "code": "attachmentSaveFailed"
+    },
+    {
+      "code": "attachmentPreviewUnsupported"
+    },
+    {
+      "code": "attachmentPreviewTooLarge"
+    },
+    {
       "code": "clipboardUnavailable"
     },
     {
@@ -695,6 +726,33 @@ export const fixtures = {
     ],
     "app_status": [
       null
+    ],
+    "attachment_add": [
+      {
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "attachment_preview": [
+      {
+        "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "attachment_remove": [
+      {
+        "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "attachment_save": [
+      {
+        "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
     ],
     "clear_clipboard": [
       null
@@ -1433,9 +1491,12 @@ export const fixtures = {
       {
         "attachments": [
           {
+            "addedAt": 1800000000000,
             "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+            "available": true,
             "fileName": "recovery-codes.txt",
             "mime": "text/plain",
+            "previewable": false,
             "size": 512
           }
         ],
@@ -1508,6 +1569,174 @@ export const fixtures = {
         "otpScreenScan": true,
         "screenLockDetection": false,
         "shortcut": "conflict"
+      }
+    ],
+    "attachment_add": [
+      {
+        "item": {
+          "attachments": [
+            {
+              "addedAt": 1800000000000,
+              "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+              "available": true,
+              "fileName": "recovery-codes.txt",
+              "mime": "text/plain",
+              "previewable": false,
+              "size": 512
+            }
+          ],
+          "createdAt": 1761400000000,
+          "customFields": [
+            {
+              "elementId": "4-019a2b3c4d5e7000",
+              "kind": "email",
+              "label": "Recovery email",
+              "value": "alex@example.org"
+            },
+            {
+              "elementId": "5-019a2b3c4d5e7000",
+              "kind": "hidden",
+              "label": "PIN",
+              "value": null
+            }
+          ],
+          "historyCount": 2,
+          "otp": {
+            "digits": 6,
+            "hardwareProtected": false,
+            "issuer": "GitHub",
+            "period": 30,
+            "scheme": "totp"
+          },
+          "review": {
+            "conflictCopyOf": null,
+            "conflictingFields": 0,
+            "deletedConcurrently": false
+          },
+          "secrets": [
+            "password"
+          ],
+          "sshKey": null,
+          "summary": {
+            "favorite": true,
+            "hasOtp": true,
+            "host": "github.com",
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+            "kind": "login",
+            "modifiedAt": 1761480000000,
+            "needsReview": false,
+            "subtitle": "alex@example.com",
+            "tags": [
+              "work"
+            ],
+            "title": "GitHub",
+            "trashedAt": null,
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          },
+          "text": [
+            {
+              "field": "username",
+              "value": "alex@example.com"
+            }
+          ],
+          "urls": [
+            {
+              "allowHttp": false,
+              "elementId": "3-019a2b3c4d5e7000",
+              "matchMode": "exactOrigin",
+              "url": "https://github.com/login"
+            }
+          ]
+        },
+        "kind": "added"
+      },
+      {
+        "kind": "cancelled"
+      }
+    ],
+    "attachment_remove": [
+      {
+        "attachments": [
+          {
+            "addedAt": 1800000000000,
+            "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+            "available": true,
+            "fileName": "recovery-codes.txt",
+            "mime": "text/plain",
+            "previewable": false,
+            "size": 512
+          }
+        ],
+        "createdAt": 1761400000000,
+        "customFields": [
+          {
+            "elementId": "4-019a2b3c4d5e7000",
+            "kind": "email",
+            "label": "Recovery email",
+            "value": "alex@example.org"
+          },
+          {
+            "elementId": "5-019a2b3c4d5e7000",
+            "kind": "hidden",
+            "label": "PIN",
+            "value": null
+          }
+        ],
+        "historyCount": 2,
+        "otp": {
+          "digits": 6,
+          "hardwareProtected": false,
+          "issuer": "GitHub",
+          "period": 30,
+          "scheme": "totp"
+        },
+        "review": {
+          "conflictCopyOf": null,
+          "conflictingFields": 0,
+          "deletedConcurrently": false
+        },
+        "secrets": [
+          "password"
+        ],
+        "sshKey": null,
+        "summary": {
+          "favorite": true,
+          "hasOtp": true,
+          "host": "github.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "kind": "login",
+          "modifiedAt": 1761480000000,
+          "needsReview": false,
+          "subtitle": "alex@example.com",
+          "tags": [
+            "work"
+          ],
+          "title": "GitHub",
+          "trashedAt": null,
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "text": [
+          {
+            "field": "username",
+            "value": "alex@example.com"
+          }
+        ],
+        "urls": [
+          {
+            "allowHttp": false,
+            "elementId": "3-019a2b3c4d5e7000",
+            "matchMode": "exactOrigin",
+            "url": "https://github.com/login"
+          }
+        ]
+      }
+    ],
+    "attachment_save": [
+      {
+        "kind": "saved"
+      },
+      {
+        "kind": "cancelled"
       }
     ],
     "clear_clipboard": [
@@ -1678,9 +1907,12 @@ export const fixtures = {
       {
         "attachments": [
           {
+            "addedAt": 1800000000000,
             "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+            "available": true,
             "fileName": "recovery-codes.txt",
             "mime": "text/plain",
+            "previewable": false,
             "size": 512
           }
         ],
@@ -2545,9 +2777,12 @@ export const fixtures = {
       {
         "attachments": [
           {
+            "addedAt": 1800000000000,
             "attachmentId": "019a2b3c-4d5e-7040-8000-000000000001",
+            "available": true,
             "fileName": "recovery-codes.txt",
             "mime": "text/plain",
+            "previewable": false,
             "size": 512
           }
         ],

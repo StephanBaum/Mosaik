@@ -41,6 +41,8 @@ export const ICONS = {
   card: [{ rect: [2, 5, 20, 14, 2] }, { d: "M2 10h20" }],
   note,
   file: note,
+  fileText: note,
+  image: [{ rect: [3, 3, 18, 18, 2] }, { circle: [9, 9, 2] }, { d: "m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" }],
   terminal: [{ d: "m4 17 6-6-6-6" }, { d: "M12 19h8" }],
   shield: [{ d: shield }],
   shieldAlert: [{ d: shield }, { d: "M12 8v4" }, { d: "M12 16h.01" }],

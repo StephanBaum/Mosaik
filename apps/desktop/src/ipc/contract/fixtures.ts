@@ -3,7 +3,7 @@
  * (ADR-0018). `satisfies ContractFixtures` there makes `tsc` reject any sample whose
  * fields, variants or command names differ from these TypeScript types.
  */
-import type { CommandName, RequestOf, ResponseOf } from "./commands.ts";
+import type { BinaryCommandName, CommandName, RequestOf, ResponseOf } from "./commands.ts";
 import type { IpcError } from "./common.ts";
 import type { AppEvent } from "./events.ts";
 
@@ -49,5 +49,8 @@ export interface ContractFixtures {
   errors: IpcError[];
   events: AppEvent[];
   requests: { [K in CommandName]: RequestOf<K>[] };
-  responses: { [K in CommandName]: ResponseOf<K>[] };
+  /** JSON samples of every command except those with a binary response. */
+  responses: { [K in Exclude<CommandName, BinaryCommandName>]: ResponseOf<K>[] };
+  /** The commands without a JSON response sample (`attachment_preview`). */
+  binaryResponses: BinaryCommandName[];
 }

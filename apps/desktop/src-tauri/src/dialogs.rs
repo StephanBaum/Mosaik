@@ -39,6 +39,12 @@ pub const IMAGES: FileFilter = FileFilter {
     extensions: &["png", "jpg", "jpeg"],
 };
 
+/// Any file (attachments). An empty extension list adds no filter.
+pub const ANY_FILE: FileFilter = FileFilter {
+    name: "All files",
+    extensions: &[],
+};
+
 /// The dialogs the backend can open.
 pub trait Dialogs: Send + Sync {
     /// Asks where to save a file; `None` if the user cancels.
@@ -105,26 +111,24 @@ impl<R: Runtime> NativeDialogs<R> {
     }
 }
 
+/// The dialog with `filter`, or unfiltered for [`ANY_FILE`].
+fn with_filter(dialog: rfd::AsyncFileDialog, filter: FileFilter) -> rfd::AsyncFileDialog {
+    if filter.extensions.is_empty() {
+        dialog
+    } else {
+        dialog.add_filter(filter.name, filter.extensions)
+    }
+}
+
 impl<R: Runtime> Dialogs for NativeDialogs<R> {
     fn save_file(&self, suggested_name: &str, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
         let name = suggested_name.to_owned();
         self.run(move |dialog| {
-            Box::pin(
-                dialog
-                    .add_filter(filter.name, filter.extensions)
-                    .set_file_name(name)
-                    .save_file(),
-            )
+            Box::pin(with_filter(dialog, filter).set_file_name(name).save_file())
         })
     }
 
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
-        self.run(move |dialog| {
-            Box::pin(
-                dialog
-                    .add_filter(filter.name, filter.extensions)
-                    .pick_file(),
-            )
-        })
+        self.run(move |dialog| Box::pin(with_filter(dialog, filter).pick_file()))
     }
 }

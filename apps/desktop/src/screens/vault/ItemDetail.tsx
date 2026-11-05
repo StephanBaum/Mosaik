@@ -4,7 +4,7 @@ import { Callout } from "../../components/Callout.tsx";
 import { useCopy } from "../../components/CopyButton.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useToast } from "../../components/ToastProvider.tsx";
-import { useI18n } from "../../i18n/I18nProvider.tsx";
+import { useI18n, type I18n } from "../../i18n/I18nProvider.tsx";
 import { useReauth } from "../../hooks/useReauth.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
@@ -18,6 +18,7 @@ import { usePlatform } from "../../platform/platform.ts";
 import { useAppShortcuts } from "../../platform/shortcuts.ts";
 import { DetailFields } from "./DetailFields.tsx";
 import { DetailHeader, type ItemCommand } from "./DetailHeader.tsx";
+import { FilesSection } from "./files/FilesSection.tsx";
 
 function useDetail(item: ItemRequest, reloadKey: number) {
   const ipc = useIpc();
@@ -35,7 +36,7 @@ function useDetail(item: ItemRequest, reloadKey: number) {
       current = false;
     };
   }, [ipc, item, reloadKey]);
-  return { detail, error, setError };
+  return { detail, setDetail, error, setError };
 }
 
 /** Whether a copy shortcut would fight the user's own copy: selected text, a field or a dialog. */
@@ -76,6 +77,28 @@ function useCopyShortcuts(item: ItemRequest, detail: Detail | null, enabled: boo
   );
 }
 
+/** The toast of each item command. */
+function commandMessages(t: I18n["t"]): Record<ItemCommand, string> {
+  return {
+    trash_item: t("toast.trashed"),
+    restore_item: t("toast.restored"),
+    purge_item: t("toast.purged"),
+  };
+}
+
+function DetailNotes({ notes }: { notes: string | undefined }) {
+  const { t } = useI18n();
+  if (notes === undefined || notes === "") {
+    return null;
+  }
+  return (
+    <section className="detail__notes">
+      <h3 className="row__label">{t("item.field.notes")}</h3>
+      <p className="detail__notes-text">{notes}</p>
+    </section>
+  );
+}
+
 function DetailFooter({ detail }: { detail: Detail }) {
   const { t } = useI18n();
   const { modifiedAt } = detail.summary;
@@ -88,11 +111,51 @@ function DetailFooter({ detail }: { detail: Detail }) {
   );
 }
 
+/**
+ * The fields, the files, the notes and the footer. A document is its files, so they come first
+ * (and take the cursor when the document is new); on other items they follow the fields.
+ */
+function DetailBody({
+  detail,
+  item,
+  trash,
+  justCreated,
+  onDetail,
+}: {
+  detail: Detail;
+  item: ItemRequest;
+  trash: boolean;
+  justCreated: boolean;
+  onDetail: (detail: Detail) => void;
+}) {
+  const isDocument = detail.summary.kind === "document";
+  const notes = detail.text.find((entry) => entry.field === "notes")?.value;
+  const files = (
+    <FilesSection
+      detail={detail}
+      item={item}
+      editable={!trash}
+      autoFocusAdd={isDocument && justCreated}
+      onChanged={onDetail}
+    />
+  );
+  return (
+    <>
+      {isDocument && files}
+      <DetailFields detail={detail} item={item} />
+      {!isDocument && files}
+      <DetailNotes notes={notes} />
+      <DetailFooter detail={detail} />
+    </>
+  );
+}
+
 export function ItemDetail({
   item,
   trash,
   vaults,
   reloadKey,
+  justCreated = false,
   onChanged,
   onEdit,
 }: {
@@ -100,6 +163,8 @@ export function ItemDetail({
   trash: boolean;
   vaults: readonly VaultSummary[];
   reloadKey: number;
+  /** The item was saved a moment ago: a document puts the cursor on "Add file". */
+  justCreated?: boolean;
   /** Something changed; `gone` when the item no longer exists under this ID. */
   onChanged: (gone: boolean) => void;
   onEdit: (detail: Detail) => void;
@@ -107,16 +172,12 @@ export function ItemDetail({
   const { t } = useI18n();
   const ipc = useIpc();
   const toast = useToast();
-  const { detail, error, setError } = useDetail(item, reloadKey);
+  const { detail, setDetail, error, setError } = useDetail(item, reloadKey);
   // Moving an item out of a hardware vault needs a fresh master password.
   const { guard, dialog: reauthDialog } = useReauth("reauth.bodyMove");
   useCopyShortcuts(item, detail, !trash);
 
-  const messages: Record<ItemCommand, string> = {
-    trash_item: t("toast.trashed"),
-    restore_item: t("toast.restored"),
-    purge_item: t("toast.purged"),
-  };
+  const messages = commandMessages(t);
 
   async function settle(result: { ok: true } | { ok: false; error: IpcError }, gone: boolean, message?: string) {
     if (result.ok) {
@@ -135,7 +196,6 @@ export function ItemDetail({
     return <ErrorAlert error={error} />;
   }
   const title = detail.summary.title ?? t("vault.untitled");
-  const notes = detail.text.find((entry) => entry.field === "notes")?.value;
   return (
     <article className="detail" aria-label={title}>
       <DetailHeader
@@ -161,14 +221,16 @@ export function ItemDetail({
       />
       {detail.review.conflictingFields > 0 && <Callout tone="warning">{t("item.review")}</Callout>}
       <ErrorAlert error={error} />
-      <DetailFields detail={detail} item={item} />
-      {notes != null && notes !== "" && (
-        <section className="detail__notes">
-          <h3 className="row__label">{t("item.field.notes")}</h3>
-          <p className="detail__notes-text">{notes}</p>
-        </section>
-      )}
-      <DetailFooter detail={detail} />
+      <DetailBody
+        detail={detail}
+        item={item}
+        trash={trash}
+        justCreated={justCreated}
+        onDetail={(changed) => {
+          setDetail(changed);
+          onChanged(false);
+        }}
+      />
       {reauthDialog}
     </article>
   );

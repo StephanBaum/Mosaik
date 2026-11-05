@@ -2572,6 +2572,120 @@ form carries a hint to save first. THREAT_MODEL needs no new risk: the private k
 in zeroizing memory from the IPC body to the model, parsed keys are dropped before the
 parse function returns, and nothing secret reaches an error or `Debug` output.
 
+
+## ADR-0034: Encrypted file attachments with an in-memory image preview and Save as
+
+- Status: accepted
+- Date: 2026-11-05
+- Decided by: the owner's direction (files before M4; preview in memory and Save as only); the details are the most conservative options
+- Milestone: M3 (desktop app)
+
+### Context
+Items can carry files (CRYPTO_SPEC §7.3: a file key in the item, STREAM ciphertext in the
+store; the session API exists since M2), but the desktop app had no way to add, open or
+export one. The webview has no fs or dialog permission (ADR-0019), the CSP has no `blob:`,
+`data:`, `frame-src` or `worker-src` (and the red-team test asserts it), and a decrypted file
+is exactly what Mosaic is built not to leave lying around.
+
+### Decision
+1. **All file input and output happens in Rust.** Paths come only from native dialogs that
+   Rust opens (`Dialogs` trait, rfd, ADR-0019), never from the webview. Requests carry IDs
+   only, with `deny_unknown_fields`. The webview gets no fs or dialog permission.
+2. **How bytes move.** Add: Rust reads the file. Save as: Rust writes the file. Preview: the
+   webview receives **downscaled RGBA pixels** as one binary IPC response
+   (`tauri::ipc::Response`, an `ArrayBuffer` in JavaScript). It never receives the file. No
+   base64 and no file bytes in JSON. No chunking is needed, because the preview is at most
+   16 MiB plus 8 bytes and files never cross the IPC boundary.
+3. **The image preview stays under the current CSP.** Rust decodes the image and the webview
+   paints raw pixels into a `<canvas>` with `putImageData`. The CSP is unchanged. Decoding
+   uses `mosaic_qr::decode_image`: magic-byte format detection, PNG and JPEG only, the
+   dimension, pixel and allocation limits (16384 px per side, 40 MP, 512 MiB, 50 MiB file),
+   output into a zeroizing buffer. This is the decoder surface already accepted in ADR-0031.
+   GIF, WebP, HEIC and others get Save as only. EXIF orientation and colour profiles are
+   ignored. The result is box-downscaled by the smallest integer factor that brings both
+   sides to at most 2048 px and the area to at most 4194304 pixels.
+4. **No PDF preview in this track.** PDFs get Save as only. The trade-off, for the owner:
+   - (a) **Pure-Rust renderer.** The only realistic candidate is `hayro`. It is young and
+     unaudited, and it brings a large new parsing surface: font parsing, JPX, JBIG2 and
+     CCITT decoders and a CPU rasterizer. It needs its own ADR plus `cargo deny` and an
+     inspection of its unsafe code. A crash or logic bug would run in the vault process.
+     Value: medium.
+   - (b) **pdf.js.** It needs `worker-src` (a CSP change that fails the red-team test) and
+     about 1.5 MB of JavaScript. A pdf.js bug would execute inside the vault window, which
+     has full IPC access, so it is equivalent to XSS.
+   - (c) **The webview's built-in viewer.** It needs a frame plus a `blob:` or `data:` URL (a
+     CSP change) and runs PDFium or PDFKit on hostile input inside the vault window.
+     WebKitGTK on Linux has no viewer at all, so it is not cross-platform.
+   - (d) **Save as only, preview later.** This is the choice: zero new attack surface.
+
+   The likely follow-up is (a), rendering in a separate sandboxed helper process, behind its
+   own ADR.
+5. **Rust holds no decrypted state between calls.** Preview is one call: decrypt into a
+   `SecretVec`, decode into a `Zeroizing` buffer, downscale into a `Zeroizing` buffer, then
+   move into the response. `mosaic_qr::decode_image` runs `zune-jpeg` directly over the
+   borrowed plaintext (no input copy) and one `image` PNG decoder over the same borrow, checks
+   the limits from the header before allocating, and decodes into a buffer that it reserves
+   itself and that is wiped on drop, also when the decode fails. The buffers that Mosaic
+   owns are wiped before the call returns, except the `Vec` handed to Tauri. Save as decrypts
+   after the dialog closes, writes, and wipes. So "drop on preview close, lock and idle tick"
+   holds in Rust because nothing is kept. The residual is THREAT_MODEL R35: Tauri's response
+   buffer and the webview's copy are ordinary heap memory, and so is the decoders' own
+   scratch (the PNG inflate window and row buffers, the zune-jpeg coefficient planes), which
+   the decoder crates free without wiping (R31). Only one preview runs at a time (`busy`), and the lock is checked again
+   before the pixels are returned.
+6. **Webview hygiene for previews.** Right after painting, the pixel `ArrayBuffer` is
+   overwritten with zeros. On close, lock and window blur (through
+   `useSecrets().register`, the same rule as revealed secrets) the canvas is cleared and set
+   to `width = height = 0`. An answer that arrives after the dialog closed is wiped and
+   dropped (a generation counter, as in `SecretField`). The canvas wrapper carries
+   `data-secret=""` with no `data-mask`, so the reveal snapshot paints the box only and never
+   visits the subtree; the preview also sits inside `<dialog>`, which the snapshot skips. The
+   file list shows no thumbnails.
+7. **Save as.** Rust writes only to the path the save dialog returns. The dialog suggests
+   `safe_file_name(name)`: spoofing and control characters removed (an RTL override can
+   disguise `exe` as `jpg`), `/ \ : * ? " < > |` replaced by `_`, trailing dots and spaces
+   trimmed, a leading dot replaced, Windows device names prefixed, at most 200 bytes with the
+   extension kept. Overwriting relies on the native dialog's own confirmation (a manual
+   check on each OS is listed in PROGRESS). The write is atomic: a temporary file
+   `.<16 hex>.mosaic-partial` in the same folder, created new (mode 0600 on Unix, so no
+   execute bit), written, synced and renamed over the target; on any error after the file was
+   created the temporary file is removed. On Windows the Mark of the Web
+   (`:Zone.Identifier`, `ZoneId=3`) is written to the temporary file before the rename (NTFS
+   moves the stream with the file) and again after it as a fallback, best effort, so that
+   opening the file triggers SmartScreen and Office Protected View. macOS and Linux get no
+   quarantine marker yet (THREAT_MODEL R36). SSH private keys are never exported (ADR-0033); they are not attachments.
+8. **Adding a file** is refused with `itemTypeNotAllowed` for items in hardware-protected
+   vaults and is hidden in the trash. Preview and Save as are refused for trashed items
+   (`itemDeleted`); restore the item first. Adding, previewing and saving re-check the account
+   (and, for adding, the vault protection and the trash state) after a dialog, so a lock and
+   unlock into another account during the dialog stores or returns nothing.
+   The size is checked before reading (50 MiB) and the read stops one byte past it, so a file
+   that grows meanwhile is refused; the quota (1 GiB per account) is checked before
+   encrypting; a lock during the dialog or the read stores nothing.
+9. **Not in this change:** rename (it needs a new session method), drag and drop, and
+   thumbnails. On drag and drop: Tauri's drag-drop handler gives paths to Rust
+   (`WindowEvent::DragDrop`) and the webview never sees file contents, but sending a drop to
+   the right item needs a confirmation flow plus a red-team check that `tauri://drag-drop`
+   events cannot reach the webview without `core:event`. That becomes a follow-up ADR.
+
+### Alternatives considered
+- Sending the file to the webview and showing it through an `<img>` or `<object>`: rejected,
+  it needs `blob:` or `data:` in the CSP and puts decrypted bytes and a second decoder in the
+  window that holds full IPC access.
+- Decoding in the webview (`createImageBitmap`): rejected for the same reason; the decoder
+  would run on hostile bytes inside the vault window.
+- Chunked transfer of the file to the webview: rejected, the file never needs to arrive there.
+- Writing the saved file in place instead of temp file plus rename: rejected, a failed write
+  would destroy the existing target.
+- Thumbnails in the file list: rejected, they would decode every image on every view and keep
+  pixels of files the user did not open.
+
+### Consequences
+Four commands (`attachment_add`, `attachment_preview`, `attachment_save`, `attachment_remove`),
+six error codes, `AttachmentEntry.{addedAt, available, previewable}`, and THREAT_MODEL R34 to
+R37. The dependency set is unchanged. The first binary response is documented in
+DESKTOP_IPC.md §3 and §6.
+
 ## ADR-0035: Browser extension architecture, gestures and UI surface
 
 - Status: proposed (amended in T4 of M4)

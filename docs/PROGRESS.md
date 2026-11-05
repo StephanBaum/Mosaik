@@ -1241,6 +1241,43 @@ work; attachments (Track B) come next.
   mockup exists for cards, identities, notes or files), the masked SSH textarea in the
   macOS and Linux webviews (`-webkit-text-security`).
 
+## M3 follow-up — attachments (2026-11-05)
+
+Branch `feat/m3-attachments`, ADR-0034. Track B of the item-kinds work: files on items, with
+an in-memory image preview and Save as. Nothing about the CSP or the dependency set changed.
+
+- **Landed:** `attachment_add`, `attachment_preview` (the first binary IPC response),
+  `attachment_save` and `attachment_remove`; `AttachmentEntry.{addedAt, available,
+  previewable}`; six error codes. Rust (`attachment_files.rs`, `commands/attachments.rs`):
+  all file I/O in Rust through native dialogs, bounded reads, atomic 0600 writes with the
+  Mark of the Web on Windows, file-name sanitizing, PNG and JPEG decoding through
+  `mosaic_qr::decode_image` with a box downscale to at most 2048 px and 4 MP, one preview at
+  a time, the lock checked again after every dialog and before pixels are returned. UI
+  (`screens/vault/files/`): a Files section (first on documents, after the fields on other
+  kinds, read-only in the trash, with a caption in the editor), the preview dialog (canvas
+  `putImageData`, buffer zeroed after painting, canvas cleared on close, lock and blur, late
+  answers dropped) and a remove confirmation. The mock seeds a "Passport scan" document with
+  a PNG and a PDF and follows `?attachAdd=` and `?attachSave=`.
+- **Decisions (ADR-0034):** no PDF preview (Save as only; the options and the likely
+  sandboxed-helper follow-up are in the ADR); SSH private keys are never exported; the
+  preview closes on window blur like a revealed secret; thumbnails, rename and drag and drop
+  are out.
+- **Tests:** Rust unit tests for names, MIME sniffing, bounded reads, atomic writes, the
+  UUIDv7 timestamp and the preview (header, downscale, alpha, PDF, oversize header); eleven
+  handler tests on a file-backed store (add, cancel, too large, lock during the dialog,
+  hardware vault, preview round trip and `busy`, save, cancelled save decrypts nothing,
+  remove, unknown attachment); `attachment_requests_refuse_path_keys`; refreshed contract
+  fixtures with `BINARY_RESPONSES`; vitest for the preview parser, the dialog, the section,
+  sizes, the mock and the snapshot collector; Playwright `e2e/attachments.spec.ts`
+  (preview, save, add, remove, lock closes the preview, trash read-only), axe on the
+  section, the dialog and the confirmation.
+- **Deferred:** PDF preview through a sandboxed renderer process (own ADR), rename, drag and
+  drop (needs a confirmation flow and a red-team check of `tauri://drag-drop`), thumbnails.
+- **Not verified by a human:** the native open and save dialogs on each OS (the tests use
+  fakes), the Mark of the Web on a real NTFS volume (Windows opens the file with SmartScreen
+  or Protected View), the look of the Files section and the preview dialog against the
+  owner's taste (no mockup exists).
+
 ## M4 Browser extension — T1 channel (2026-11-05)
 
 Track T1 of the M4 plan (ADR-0035, ADR-0036, both proposed): the Rust side of the channel
@@ -1333,6 +1370,7 @@ the CI changes (T5) follow.
 | M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |
 | M3-R23 | medium | Settings integrity (ADR-0030): a joint rollback of the vault store and `settings.json` to an earlier consistent pair still verifies (the nonce rolls back with the file). Needs the same local write access as the attack it would undo | accepted until M6: settings as a synced record under CRYPTO_SPEC §10; THREAT_MODEL R28 |
 | M3-R24 | info | Names and titles refuse variation selectors (U+FE00 to U+FE0F) and ZWJ (U+200D), so an emoji sequence that needs them (for example a heart with U+FE0F) cannot be typed; imports strip them from titles | accepted (ADR-0030 red-team follow-up); revisit if users report it |
+| M3-R25 | low | Attachment quota and garbage collection are local only: the 1 GiB account quota counts live items, while trashed items keep their files (`crates/vault/src/session/attachments.rs:21-28`); and when `delete_attachment` fails after a failed `update_item`, the error is lost and an orphan blob stays queued (`:68-71`) | open, M6 (server-side quota and garbage collection) |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 
@@ -1366,4 +1404,5 @@ See the THREAT_MODEL §5 residual-risk register.
   Developer account); unsigned builds hide Touch ID.
 - **Manual hardware checks for quick unlock (crypto review M3, L4)**: (a) Windows: does a second, unsigned executable of the same user open and sign with Mosaic's Hello key (`Mosaic quick unlock <nonce>`)? If yes, THREAT_MODEL R23's residual is real until MSIX package identity (M9). (b) macOS: Touch ID enroll, unlock and a fingerprint change on a Developer ID signed build (the macOS code only compiles in CI; nothing ran on a Mac), including the cancel mapping of `decrypt`.
 - **Manual checks for one-time-code setup (ADR-0031, 2026-11-04)**: see "M3 follow-up — one-time-code setup" above (Windows two monitors, snip paste, X11, Wayland, macOS paste).
+- **Manual check of Save as overwrite confirmation (ADR-0034, 2026-11-05)**: on each OS (Windows `IFileSaveDialog`, macOS `NSSavePanel`, Linux GTK), saving an attachment onto an existing file must make the native dialog ask before replacing it; Mosaic relies on that prompt and adds none. Also check the Mark of the Web on a real NTFS volume.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.
