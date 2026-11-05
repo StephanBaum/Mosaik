@@ -1241,6 +1241,43 @@ work; attachments (Track B) come next.
   mockup exists for cards, identities, notes or files), the masked SSH textarea in the
   macOS and Linux webviews (`-webkit-text-security`).
 
+## M3 follow-up — attachments (2026-11-05)
+
+Branch `feat/m3-attachments`, ADR-0034. Track B of the item-kinds work: files on items, with
+an in-memory image preview and Save as. Nothing about the CSP or the dependency set changed.
+
+- **Landed:** `attachment_add`, `attachment_preview` (the first binary IPC response),
+  `attachment_save` and `attachment_remove`; `AttachmentEntry.{addedAt, available,
+  previewable}`; six error codes. Rust (`attachment_files.rs`, `commands/attachments.rs`):
+  all file I/O in Rust through native dialogs, bounded reads, atomic 0600 writes with the
+  Mark of the Web on Windows, file-name sanitizing, PNG and JPEG decoding through
+  `mosaic_qr::decode_image` with a box downscale to at most 2048 px and 4 MP, one preview at
+  a time, the lock checked again after every dialog and before pixels are returned. UI
+  (`screens/vault/files/`): a Files section (first on documents, after the fields on other
+  kinds, read-only in the trash, with a caption in the editor), the preview dialog (canvas
+  `putImageData`, buffer zeroed after painting, canvas cleared on close, lock and blur, late
+  answers dropped) and a remove confirmation. The mock seeds a "Passport scan" document with
+  a PNG and a PDF and follows `?attachAdd=` and `?attachSave=`.
+- **Decisions (ADR-0034):** no PDF preview (Save as only; the options and the likely
+  sandboxed-helper follow-up are in the ADR); SSH private keys are never exported; the
+  preview closes on window blur like a revealed secret; thumbnails, rename and drag and drop
+  are out.
+- **Tests:** Rust unit tests for names, MIME sniffing, bounded reads, atomic writes, the
+  UUIDv7 timestamp and the preview (header, downscale, alpha, PDF, oversize header); eleven
+  handler tests on a file-backed store (add, cancel, too large, lock during the dialog,
+  hardware vault, preview round trip and `busy`, save, cancelled save decrypts nothing,
+  remove, unknown attachment); `attachment_requests_refuse_path_keys`; refreshed contract
+  fixtures with `BINARY_RESPONSES`; vitest for the preview parser, the dialog, the section,
+  sizes, the mock and the snapshot collector; Playwright `e2e/attachments.spec.ts`
+  (preview, save, add, remove, lock closes the preview, trash read-only), axe on the
+  section, the dialog and the confirmation.
+- **Deferred:** PDF preview through a sandboxed renderer process (own ADR), rename, drag and
+  drop (needs a confirmation flow and a red-team check of `tauri://drag-drop`), thumbnails.
+- **Not verified by a human:** the native open and save dialogs on each OS (the tests use
+  fakes), the Mark of the Web on a real NTFS volume (Windows opens the file with SmartScreen
+  or Protected View), the look of the Files section and the preview dialog against the
+  owner's taste (no mockup exists).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -1326,4 +1363,5 @@ See the THREAT_MODEL §5 residual-risk register.
   Developer account); unsigned builds hide Touch ID.
 - **Manual hardware checks for quick unlock (crypto review M3, L4)**: (a) Windows: does a second, unsigned executable of the same user open and sign with Mosaic's Hello key (`Mosaic quick unlock <nonce>`)? If yes, THREAT_MODEL R23's residual is real until MSIX package identity (M9). (b) macOS: Touch ID enroll, unlock and a fingerprint change on a Developer ID signed build (the macOS code only compiles in CI; nothing ran on a Mac), including the cancel mapping of `decrypt`.
 - **Manual checks for one-time-code setup (ADR-0031, 2026-11-04)**: see "M3 follow-up — one-time-code setup" above (Windows two monitors, snip paste, X11, Wayland, macOS paste).
+- **Manual check of Save as overwrite confirmation (ADR-0034, 2026-11-05)**: on each OS (Windows `IFileSaveDialog`, macOS `NSSavePanel`, Linux GTK), saving an attachment onto an existing file must make the native dialog ask before replacing it; Mosaic relies on that prompt and adds none. Also check the Mark of the Web on a real NTFS volume.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.
