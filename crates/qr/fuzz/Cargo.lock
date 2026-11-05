@@ -298,6 +298,8 @@ dependencies = [
  "rqrr",
  "thiserror",
  "zeroize",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

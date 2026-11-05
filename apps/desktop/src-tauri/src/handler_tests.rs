@@ -2148,6 +2148,29 @@ fn attachment_add_stores_and_lists() {
 }
 
 #[test]
+fn attachment_names_from_sync_are_cleaned_for_display() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    {
+        // An import or a sync can deliver a name this device never cleaned.
+        let mut slot = r.backend.slot().unwrap();
+        slot.unlocked_mut()
+            .unwrap()
+            .add_attachment(
+                item.summary.vault_id.get(),
+                item.summary.item_id.get(),
+                "invoice\u{202E}fdp.exe\u{0}",
+                "application/octet-stream",
+                b"data",
+            )
+            .unwrap();
+    }
+    let shown = r.backend.get_item(req(item_req(&item))).unwrap();
+    assert_eq!(shown.attachments[0].file_name, "invoicefdp.exe");
+}
+
+#[test]
 fn attachment_add_cancelled() {
     let _kdf = crate::test_support::kdf_permit();
     let r = disk_rig();

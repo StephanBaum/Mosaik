@@ -65,6 +65,10 @@ const RESERVED_STEMS: &[&str] = &[
     "LPT\u{b9}",
     "LPT\u{b2}",
     "LPT\u{b3}",
+    "COM0",
+    "LPT0",
+    "CONIN$",
+    "CONOUT$",
 ];
 
 fn code(code: ErrorCode) -> IpcError {
@@ -81,12 +85,18 @@ fn cut_bytes(text: &str, max: usize) -> &str {
 }
 
 /// The name stored with an attachment: the file name of the chosen path,
-/// lossy UTF-8, without spoofing or control characters, trimmed and cut to
-/// [`MAX_STORED_NAME_LEN`]. Never empty.
+/// lossy UTF-8, cleaned by [`display_name`].
 #[must_use]
 pub fn stored_name(raw: Option<&OsStr>) -> String {
-    let lossy = raw.map(OsStr::to_string_lossy).unwrap_or_default();
-    let (stripped, _) = strip_spoofing(&lossy);
+    display_name(&raw.map(OsStr::to_string_lossy).unwrap_or_default())
+}
+
+/// A name that is safe to show: without spoofing or control characters,
+/// trimmed and cut to [`MAX_STORED_NAME_LEN`]. Never empty. Names that come
+/// from an import or from sync pass through here before they reach the UI.
+#[must_use]
+pub fn display_name(name: &str) -> String {
+    let (stripped, _) = strip_spoofing(name);
     let cleaned: String = stripped.chars().filter(|c| !c.is_control()).collect();
     let name = cut_bytes(cleaned.trim(), MAX_STORED_NAME_LEN).trim_end();
     if name.is_empty() {
@@ -123,20 +133,30 @@ fn cut_keeping_extension(name: &str, max: usize) -> String {
 /// spoofing or control characters (a right-to-left override can disguise
 /// `exe` as `jpg`), no separators or characters Windows refuses, no
 /// trailing dots or spaces, no leading dot (a hidden file), no device name,
-/// at most [`MAX_SAVE_NAME_LEN`] bytes. Never empty.
+/// at most [`MAX_SAVE_NAME_LEN`] bytes. Every kind of whitespace becomes a
+/// plain space and runs of them collapse into one, so a long run of wide
+/// spaces cannot push a real extension out of view. Never empty.
 #[must_use]
 pub fn safe_file_name(name: &str) -> String {
-    let replaced: String = name
+    let mut replaced = String::with_capacity(name.len());
+    let mut after_space = false;
+    for c in name
         .chars()
         .filter(|&c| !is_spoofing_char(c) && !c.is_control())
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
+    {
+        let c = if c.is_whitespace() {
+            ' '
+        } else if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            '_'
+        } else {
+            c
+        };
+        if c == ' ' && after_space {
+            continue;
+        }
+        after_space = c == ' ';
+        replaced.push(c);
+    }
     let trimmed = replaced.trim().trim_end_matches(['.', ' ']);
     let mut safe = match trimmed.strip_prefix('.') {
         Some(rest) => format!("_{rest}"),
@@ -198,6 +218,11 @@ pub fn previewable_mime(mime: &str) -> bool {
 pub fn read_bounded(path: &Path, max: usize) -> IpcResult<Zeroizing<Vec<u8>>> {
     let unreadable = || code(ErrorCode::AttachmentFileUnreadable);
     let too_large = || code(ErrorCode::AttachmentTooLarge);
+    // A named pipe or a device would block `open`: refuse it by its type first.
+    // The check after opening (below) is the authoritative one.
+    if !std::fs::metadata(path).map_err(|_| unreadable())?.is_file() {
+        return Err(unreadable());
+    }
     let file = File::open(path).map_err(|_| unreadable())?;
     let meta = file.metadata().map_err(|_| unreadable())?;
     if !meta.is_file() {
@@ -233,9 +258,15 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         // No execute bit, nothing for group or others.
         options.mode(0o600);
     }
+    // If this fails nothing of ours exists, and the path may be somebody
+    // else's file: it is never removed.
     let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    if written.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    written
 }
 
 /// Marks a saved file as coming from the internet (`ZoneId=3`), so opening
@@ -250,8 +281,11 @@ fn mark_of_the_web(path: &Path) {
 
 /// Writes `bytes` to `path` atomically: a temporary file in the same folder
 /// (`.<16 hex>.mosaic-partial`, created new, mode 0600 on Unix), synced,
-/// then renamed over the target. On any error the temporary file is removed.
-/// On Windows the Mark of the Web is added afterwards.
+/// then renamed over the target. On any error the temporary file is removed
+/// (once it was created). On Windows the Mark of the Web goes onto the
+/// temporary file before the rename, so the target is never visible without
+/// it (NTFS moves the stream with the file), and is written again after the
+/// rename as a fallback.
 ///
 /// # Errors
 /// `attachmentSaveFailed`, `internal` (no randomness).
@@ -266,8 +300,10 @@ pub fn write_file_atomic(path: &Path, bytes: &[u8]) -> IpcResult<()> {
         ".{:016x}.mosaic-partial",
         u64::from_le_bytes(random)
     ));
-    let result = write_new_file(&temp, bytes).and_then(|()| std::fs::rename(&temp, path));
-    if result.is_err() {
+    write_new_file(&temp, bytes).map_err(|_| code(ErrorCode::AttachmentSaveFailed))?;
+    #[cfg(windows)]
+    mark_of_the_web(&temp);
+    if std::fs::rename(&temp, path).is_err() {
         let _ = std::fs::remove_file(&temp);
         return Err(code(ErrorCode::AttachmentSaveFailed));
     }
@@ -351,8 +387,11 @@ fn block_average(frame: &OwnedFrame, k: u32, ox: u32, oy: u32) -> [u8; 4] {
 /// Decodes an attachment as an image and returns what the webview paints:
 /// `[width u32 LE][height u32 LE][width * height * 4 RGBA bytes]`, box
 /// downscaled so that neither side exceeds [`PREVIEW_MAX_SIDE`] and the
-/// area stays within [`PREVIEW_MAX_PIXELS`]. Every buffer on the way
-/// (decoded pixels, the result) is zeroizing; the caller owns the result.
+/// area stays within [`PREVIEW_MAX_PIXELS`]. The decoded pixels and the result
+/// are zeroizing and wiped on every path, a failed decode included; the
+/// caller owns the result. The decoders' own scratch (the PNG inflate window,
+/// the JPEG coefficient planes) is ordinary heap memory that is freed
+/// unwiped (THREAT_MODEL R35).
 ///
 /// # Errors
 /// `attachmentPreviewTooLarge` (over a decoder limit),
@@ -410,9 +449,48 @@ mod tests {
             ("report.pdf", "report.pdf"),
             ("a\u{0}b\nc", "abc"),
             ("Konto ä.txt", "Konto ä.txt"),
+            ("COM0", "_COM0"),
+            ("lpt0.txt", "_lpt0.txt"),
+            ("CONIN$", "_CONIN$"),
+            ("conout$.log", "_conout$.log"),
         ] {
             assert_eq!(safe_file_name(input), expected, "{input:?}");
         }
+    }
+
+    #[test]
+    fn safe_file_name_collapses_wide_space_runs() {
+        let wide = format!("scan.jpg{}.exe", "\u{2003}".repeat(60));
+        assert_eq!(safe_file_name(&wide), "scan.jpg .exe");
+        assert_eq!(
+            safe_file_name("a \u{a0}\u{3000}  b\u{2028}c.txt"),
+            "a b c.txt"
+        );
+        assert_eq!(safe_file_name("\u{2003}\u{2003}"), "attachment");
+    }
+
+    #[test]
+    fn display_name_strips_spoofing_and_controls() {
+        assert_eq!(display_name("invoice\u{202E}fdp.exe"), "invoicefdp.exe");
+        assert_eq!(display_name("a\u{0}b\n.pdf"), "ab.pdf");
+        assert_eq!(display_name("\u{200B}"), "file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_bounded_does_not_block_on_a_fifo() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pipe");
+        // No libc in this crate: the system `mkfifo` makes it. Without that
+        // tool there is nothing to test.
+        let Ok(status) = std::process::Command::new("mkfifo").arg(&path).status() else {
+            return;
+        };
+        if !status.success() {
+            return;
+        }
+        let error = read_bounded(&path, 10).unwrap_err();
+        assert_eq!(error.code, ErrorCode::AttachmentFileUnreadable);
     }
 
     #[test]

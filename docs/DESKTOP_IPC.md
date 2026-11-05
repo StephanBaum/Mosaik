@@ -116,8 +116,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
 | **Attachments** | | | |
 | `attachment_add` | `{ vaultId, itemId }` → `{ kind: "added", item: ItemDetail } \| { kind: "cancelled" }` | `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `itemTypeNotAllowed` (hardware-protected vault), `attachmentTooLarge` (above 50 MiB, checked before reading), `attachmentQuota` (1 GiB per account), `attachmentFileUnreadable`, `storeUnavailable` | live (Rust opens the native file dialog, reads the file bounded, encrypts it; ADR-0034) |
-| `attachment_preview` | `{ vaultId, itemId, attachmentId }` → **binary** `ArrayBuffer`: `[width u32 LE][height u32 LE][width * height * 4 bytes RGBA]` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable` (not on this device, damaged or failed authentication), `attachmentPreviewUnsupported`, `attachmentPreviewTooLarge`, `busy` (one preview at a time) | live (PNG and JPEG only; works for trashed items) |
-| `attachment_save` | `{ vaultId, itemId, attachmentId }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable`, `attachmentSaveFailed` | live (Rust opens the native save dialog and decrypts only after it returns a path; works for trashed items) |
+| `attachment_preview` | `{ vaultId, itemId, attachmentId }` → **binary** `ArrayBuffer`: `[width u32 LE][height u32 LE][width * height * 4 bytes RGBA]` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable` (not on this device, damaged or failed authentication), `attachmentPreviewUnsupported`, `attachmentPreviewTooLarge`, `busy` (one preview at a time) | live (PNG and JPEG only; refused for trashed items with `itemDeleted`) |
+| `attachment_save` | `{ vaultId, itemId, attachmentId }` → `{ kind: "saved" } \| { kind: "cancelled" }` | `itemNotFound`, `itemDeleted`, `attachmentNotFound`, `attachmentUnavailable`, `attachmentSaveFailed` | live (Rust opens the native save dialog and decrypts only after it returns a path; refused for trashed items with `itemDeleted`) |
 | `attachment_remove` | `{ vaultId, itemId, attachmentId }` → `ItemDetail` | `itemNotFound`, `itemDeleted`, `attachmentNotFound` | live (a synced edit; the encrypted file leaves this device's store) |
 | **Clipboard** | | | |
 | `copy_to_clipboard` | `{ source: { kind: "item", vaultId, itemId, field: CopyField } \| { kind: "generated" } \| { kind: "pendingOtp", pendingId } }` → `{ clearsAt \| null, clearAfterSeconds \| null }` | `fieldEmpty`, `noOtp`, `clipboardUnavailable`, `otpPendingExpired`, `invalidInput` (HOTP) | live |
@@ -306,8 +306,9 @@ state). `attachment_preview` answers with one `tauri::ipc::Response`, which arri
 `ArrayBuffer`: `[width u32 LE][height u32 LE][RGBA]`, downscaled in Rust, at most 2048 x 2048
 and 4194304 pixels. The file itself never crosses the boundary, and nothing is encoded as
 base64 or put in JSON. Rust keeps nothing between calls: the plaintext, the decoded image and
-the downscaled pixels are zeroizing buffers dropped before the call returns (the response
-`Vec` that moves into Tauri is ordinary memory). The webview paints the pixels into a
+the downscaled pixels are zeroizing buffers dropped before the call returns, a failed decode
+included (the response `Vec` that moves into Tauri is ordinary memory, and so is the scratch
+memory of the PNG and JPEG decoders: the inflate window and the coefficient planes). The webview paints the pixels into a
 `<canvas>` with `putImageData` (no `blob:`, `data:` or frame in the CSP), overwrites the
 `ArrayBuffer` with zeros right after, and treats the dialog like a revealed secret: it closes
 on lock and when the window loses focus, and clears the canvas and sets its size to 0 when it

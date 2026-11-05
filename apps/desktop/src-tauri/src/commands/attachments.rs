@@ -9,8 +9,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use mosaic_core::{AccountId, MAX_ATTACHMENT_LEN, SecretVec};
-use mosaic_vault::session::{Error as SessionError, VaultProtection};
+use mosaic_core::{AccountId, ItemId, MAX_ATTACHMENT_LEN, SecretVec, VaultId};
+use mosaic_vault::session::{Error as SessionError, UnlockedSession, VaultProtection};
 use mosaic_vault::storage::Error as StoreError;
 use tauri::State;
 use tauri::ipc::Response;
@@ -91,6 +91,25 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
+/// An item can take a file only in a software-protected vault (a hardware-key
+/// vault has no attachment key) and while it is not in the trash.
+fn check_attachable(
+    session: &UnlockedSession,
+    vault_id: VaultId,
+    item_id: ItemId,
+) -> IpcResult<()> {
+    if matches!(
+        session.vault_protection(vault_id)?,
+        VaultProtection::HardwareKey { .. }
+    ) {
+        return Err(IpcError::new(ErrorCode::ItemTypeNotAllowed));
+    }
+    if session.item(vault_id, item_id)?.is_deleted() {
+        return Err(IpcError::new(ErrorCode::ItemDeleted));
+    }
+    Ok(())
+}
+
 /// A session error of reading an attachment, as the code the UI acts on:
 /// a file that is not here, damaged or fails authentication is
 /// `attachmentUnavailable`; the rest as everywhere.
@@ -125,19 +144,12 @@ impl Backend {
     pub fn attachment_add(&self, request: ItemRequest) -> IpcResult<AttachmentAdded> {
         self.touch();
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
-        {
+        let account = {
             let slot = self.slot()?;
             let session = slot.unlocked()?;
-            if matches!(
-                session.vault_protection(vault_id)?,
-                VaultProtection::HardwareKey { .. }
-            ) {
-                return Err(IpcError::new(ErrorCode::ItemTypeNotAllowed));
-            }
-            if session.item(vault_id, item_id)?.is_deleted() {
-                return Err(IpcError::new(ErrorCode::ItemDeleted));
-            }
-        }
+            check_attachable(session, vault_id, item_id)?;
+            session.account_id()
+        };
         let Some(path) = self.dialogs.open_file(ANY_FILE)? else {
             return Ok(AttachmentAdded::Cancelled);
         };
@@ -148,8 +160,15 @@ impl Backend {
         let mime = sniff_mime(&name, head);
         // If the vault locked meanwhile this is `locked`, and the bytes are
         // wiped when they drop.
+        // A lock and unlock during the dialog or the read can have brought in
+        // another account, a hardware-protected vault or a trashed item: the
+        // checks run again under this guard, against the account captured above.
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
+        if session.account_id() != account {
+            return Err(IpcError::LOCKED);
+        }
+        check_attachable(session, vault_id, item_id)?;
         session.add_attachment(vault_id, item_id, &name, mime, bytes.as_slice())?;
         drop(bytes);
         self.items_changed(session);
@@ -174,12 +193,15 @@ impl Backend {
     pub fn attachment_preview(&self, request: &AttachmentRequest) -> IpcResult<Zeroizing<Vec<u8>>> {
         self.touch();
         let _busy = BusyGuard::acquire(&self.preview_busy)?;
-        let plaintext = self.decrypt_attachment(request, None)?;
+        let (plaintext, account) = self.decrypt_attachment(request, None)?;
         let pixels = render_preview(plaintext.expose_secret());
         drop(plaintext);
-        // Decoding takes a while: if the vault locked meanwhile, the pixels
-        // are dropped (wiped) here instead of returned.
-        self.slot()?.unlocked()?;
+        // Decoding takes a while: if the vault locked meanwhile (or another
+        // account unlocked), the pixels are dropped (wiped) here instead of
+        // returned.
+        if self.slot()?.unlocked()?.account_id() != account {
+            return Err(IpcError::LOCKED);
+        }
         pixels
     }
 
@@ -196,7 +218,7 @@ impl Backend {
         let Some(path) = self.dialogs.save_file(&safe_file_name(&name), ANY_FILE)? else {
             return Ok(AttachmentSaved::Cancelled);
         };
-        let plaintext = self.decrypt_attachment(request, Some(account))?;
+        let (plaintext, _) = self.decrypt_attachment(request, Some(account))?;
         write_file_atomic(&path, plaintext.expose_secret())?;
         Ok(AttachmentSaved::Saved)
     }
@@ -249,23 +271,25 @@ impl Backend {
     /// Decrypts an attachment under the session lock, which is released
     /// before the caller uses the plaintext. With `account`, the session must
     /// still be that account's (it can have locked and unlocked during a
-    /// dialog); a different one is `locked`.
+    /// dialog); a different one is `locked`. Returns the plaintext with the
+    /// account it was decrypted for.
     fn decrypt_attachment(
         &self,
         request: &AttachmentRequest,
         account: Option<AccountId>,
-    ) -> IpcResult<SecretVec> {
+    ) -> IpcResult<(SecretVec, AccountId)> {
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         if account.is_some_and(|expected| session.account_id() != expected) {
             return Err(IpcError::LOCKED);
         }
-        session
+        let plaintext = session
             .attachment(
                 request.vault_id.get(),
                 request.item_id.get(),
                 request.attachment_id.get(),
             )
-            .map_err(attachment_error)
+            .map_err(attachment_error)?;
+        Ok((plaintext, session.account_id()))
     }
 }

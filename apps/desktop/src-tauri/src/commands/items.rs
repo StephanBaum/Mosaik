@@ -11,7 +11,7 @@ use tauri::State;
 
 use super::draft;
 use super::otp::TakenOtp;
-use crate::attachment_files::{added_at, previewable_mime};
+use crate::attachment_files::{added_at, display_name, previewable_mime};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
@@ -247,7 +247,8 @@ fn attachment_entries(store: &Store, item: &Item) -> Vec<AttachmentEntry> {
             let available = matches!(store.attachment_info(&a.attachment_id), Ok(Some(_)));
             AttachmentEntry {
                 attachment_id: a.attachment_id.into(),
-                file_name: a.file_name.as_str().to_owned(),
+                // Imports and sync deliver names this device did not clean.
+                file_name: display_name(a.file_name.as_str()),
                 mime: a.mime.as_str().to_owned(),
                 size: a.size,
                 added_at: added_at(&a.attachment_id),

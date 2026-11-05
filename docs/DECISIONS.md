@@ -2622,11 +2622,16 @@ is exactly what Mosaic is built not to leave lying around.
    own ADR.
 5. **Rust holds no decrypted state between calls.** Preview is one call: decrypt into a
    `SecretVec`, decode into a `Zeroizing` buffer, downscale into a `Zeroizing` buffer, then
-   move into the response. All Rust buffers are wiped before the call returns, except the
-   `Vec` handed to Tauri. Save as decrypts after the dialog closes, writes, and wipes. So
-   "drop on preview close, lock and idle tick" holds in Rust because nothing is kept. The
-   residual is THREAT_MODEL R35: Tauri's response buffer and the webview's copy are ordinary
-   heap memory. Only one preview runs at a time (`busy`), and the lock is checked again
+   move into the response. `mosaic_qr::decode_image` runs `zune-jpeg` directly over the
+   borrowed plaintext (no input copy) and one `image` PNG decoder over the same borrow, checks
+   the limits from the header before allocating, and decodes into a buffer that it reserves
+   itself and that is wiped on drop, also when the decode fails. The buffers that Mosaic
+   owns are wiped before the call returns, except the `Vec` handed to Tauri. Save as decrypts
+   after the dialog closes, writes, and wipes. So "drop on preview close, lock and idle tick"
+   holds in Rust because nothing is kept. The residual is THREAT_MODEL R35: Tauri's response
+   buffer and the webview's copy are ordinary heap memory, and so is the decoders' own
+   scratch (the PNG inflate window and row buffers, the zune-jpeg coefficient planes), which
+   the decoder crates free without wiping (R31). Only one preview runs at a time (`busy`), and the lock is checked again
    before the pixels are returned.
 6. **Webview hygiene for previews.** Right after painting, the pixel `ArrayBuffer` is
    overwritten with zeros. On close, lock and window blur (through
@@ -2643,12 +2648,17 @@ is exactly what Mosaic is built not to leave lying around.
    extension kept. Overwriting relies on the native dialog's own confirmation (a manual
    check on each OS is listed in PROGRESS). The write is atomic: a temporary file
    `.<16 hex>.mosaic-partial` in the same folder, created new (mode 0600 on Unix, so no
-   execute bit), written, synced and renamed over the target; on any error the temporary file
-   is removed. On Windows the Mark of the Web (`:Zone.Identifier`, `ZoneId=3`) is written
-   afterwards, best effort, so that opening the file triggers SmartScreen and Office
-   Protected View. SSH private keys are never exported (ADR-0033); they are not attachments.
+   execute bit), written, synced and renamed over the target; on any error after the file was
+   created the temporary file is removed. On Windows the Mark of the Web
+   (`:Zone.Identifier`, `ZoneId=3`) is written to the temporary file before the rename (NTFS
+   moves the stream with the file) and again after it as a fallback, best effort, so that
+   opening the file triggers SmartScreen and Office Protected View. macOS and Linux get no
+   quarantine marker yet (THREAT_MODEL R36). SSH private keys are never exported (ADR-0033); they are not attachments.
 8. **Adding a file** is refused with `itemTypeNotAllowed` for items in hardware-protected
-   vaults and is hidden in the trash. Preview and Save as work for trashed items, read-only.
+   vaults and is hidden in the trash. Preview and Save as are refused for trashed items
+   (`itemDeleted`); restore the item first. Adding, previewing and saving re-check the account
+   (and, for adding, the vault protection and the trash state) after a dialog, so a lock and
+   unlock into another account during the dialog stores or returns nothing.
    The size is checked before reading (50 MiB) and the read stops one byte past it, so a file
    that grows meanwhile is refused; the quota (1 GiB per account) is checked before
    encrypting; a lock during the dialog or the read stores nothing.
