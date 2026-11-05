@@ -44,7 +44,7 @@ use crate::browser::{BrowserService, Clock, Limits, Registry};
 use crate::clipboard::MemoryClipboard;
 use crate::contract::browser::{
     BrowserFamily, BrowserPairingRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
-    BrowserSaveDecision, BrowserSaveRespondRequest, PairingDecision,
+    BrowserSaveDecision, BrowserSaveRespondRequest, BrowserStatus, PairingDecision,
 };
 use crate::contract::errors::{ErrorCode, IpcError};
 use crate::contract::events::LockReason;
@@ -274,6 +274,18 @@ struct Peer {
     session: ChannelSession,
     next: u32,
     events: Vec<Value>,
+}
+
+/// The browser status once the first pairing shows as connected (at most 5 s).
+async fn connected_status(env: &Env) -> BrowserStatus {
+    for _ in 0..500 {
+        let status = env.backend().browser_status();
+        if status.pairings.first().is_some_and(|p| p.connected) {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the session never showed as connected");
 }
 
 async fn connect(env: &Env, id: &[u8; 16], key: &PairingKey) -> Result<Peer, NmError> {
@@ -645,8 +657,8 @@ fn removing_a_pairing_tells_and_closes_its_sessions() {
         env.service().on_unlocked();
         let (id, key) = pair(&env, "Chrome").await;
         let mut peer = connect(&env, &id, &key).await.unwrap();
-        let status = env.backend().browser_status();
-        assert!(status.pairings[0].connected);
+        // The session registers right after the handshake's first frame, so wait for it.
+        let status = connected_status(&env).await;
         let removed = env
             .backend()
             .browser_remove_pairing(&BrowserRemovePairingRequest {
