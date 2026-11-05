@@ -14,10 +14,12 @@
 //!   existing socket is replaced only if nothing answers on it; any other
 //!   file at the path is left alone and the bind fails.
 //! - **Unix, client:** the parent directory must be a real directory with
-//!   mode `& 0o077 == 0`, the path must be a socket owned by the directory's
-//!   owner, and after connecting the peer's UID must be the directory's
-//!   owner. Unix peer identity is available without unsafe code; Windows
-//!   has none (THREAT_MODEL R42).
+//!   mode `& 0o077 == 0` owned by the current user, the path must be a
+//!   socket owned by the directory's owner, and after connecting the peer's
+//!   UID must be the directory's owner. The current UID has no safe std
+//!   call: it is the owner of `/proc/self` where that exists (Linux), else
+//!   the owner of `$HOME` (macOS). Unix peer identity is available without
+//!   unsafe code; Windows has none (THREAT_MODEL R42).
 //! - **Windows:** the pipe is created as the first instance of its name (so
 //!   the bind fails if the name is taken) and remote clients are rejected.
 //!   The pipe keeps Windows' default security descriptor: full access for
@@ -169,6 +171,23 @@ mod unix {
         }
     }
 
+    /// The UID of the current user without `unsafe` (std has no `getuid`):
+    /// the owner of `/proc/self`, which the kernel gives the process's UID,
+    /// and where there is no procfs (macOS) the owner of `$HOME`, which must
+    /// be an absolute path to a real directory. `None` if neither works; the
+    /// client then refuses to connect.
+    fn current_uid() -> Option<u32> {
+        if let Ok(meta) = fs::metadata("/proc/self") {
+            return Some(meta.uid());
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from)?;
+        if !home.is_absolute() {
+            return None;
+        }
+        let meta = fs::metadata(home).ok()?;
+        meta.is_dir().then(|| meta.uid())
+    }
+
     /// The client's checks before connecting: returns the directory's owner.
     pub(super) fn check_client_path(path: &Path) -> Result<u32, Error> {
         if !path.is_absolute() || path.as_os_str().len() > MAX_SOCKET_PATH {
@@ -180,6 +199,11 @@ mod unix {
             Err(e) => return Err(connect_error(&e)),
         };
         if !dir_meta.file_type().is_dir() || dir_meta.mode() & 0o077 != 0 {
+            return Err(Error::EndpointInsecure);
+        }
+        // A private directory of somebody else is not ours: that user could
+        // run a socket there that speaks to this one.
+        if current_uid() != Some(dir_meta.uid()) {
             return Err(Error::EndpointInsecure);
         }
         let meta = match fs::symlink_metadata(path) {

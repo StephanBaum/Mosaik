@@ -14,11 +14,12 @@
 //! sending half. They talk over channels; there is no `select!`.
 
 use core::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 
 use mosaic_core::browser_channel::{ChannelSession, PAIRING_ID_LEN, PairingKey};
 use serde::Serialize;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -47,6 +48,10 @@ use crate::transport;
 /// Seconds a pairing request may wait for the user, with a little slack over
 /// the desktop's own expiry so its `pairingExpired` arrives first.
 const PAIR_WAIT: Duration = Duration::from_secs(PAIR_TIMEOUT_SECS + 5);
+
+/// Request IDs a connection remembers after their request timed out. A
+/// connection that would need more is closed.
+pub(crate) const MAX_TOMBSTONES: usize = 1024;
 
 /// Bytes an AEAD frame adds to its plaintext: header and tag.
 const FRAME_OVERHEAD: usize = mosaic_core::browser_channel::FRAME_HEADER_LEN + 16;
@@ -231,6 +236,10 @@ struct Active<S> {
     writer: WriteHalf<S>,
     session: ChannelSession,
     state: LockState,
+    /// IDs of requests that timed out on this connection. They stay
+    /// unusable for its lifetime, so a late answer from the desktop can
+    /// never be taken for the answer to a request that reused the ID.
+    tombstones: HashSet<u32>,
 }
 
 struct Host<C: Connect> {
@@ -281,6 +290,7 @@ impl<C: Connect> Host<C> {
                 if self.pending.get(&id) == Some(&conn) {
                     self.pending.remove(&id);
                     self.respond_err(id, ErrorCode::Timeout)?;
+                    self.tombstone(conn, id)?;
                 }
             }
             Msg::Paired { id, key } => self.on_paired(id, key).await?,
@@ -306,10 +316,25 @@ impl<C: Connect> Host<C> {
         self.emit(to_zeroizing(event)?)
     }
 
+    /// Remembers `id` as timed out on `conn`. A connection with more than
+    /// [`MAX_TOMBSTONES`] of them is closed.
+    fn tombstone(&mut self, conn: u64, id: u32) -> Result<(), Error> {
+        let Some(active) = self.active.as_mut().filter(|a| a.conn == conn) else {
+            return Ok(());
+        };
+        active.tombstones.insert(id);
+        if active.tombstones.len() > MAX_TOMBSTONES {
+            self.desktop_lost(ErrorCode::DesktopNotRunning)?;
+        }
+        Ok(())
+    }
+
     // ----- requests from the browser -------------------------------------
 
+    /// `frame` is the zeroizing buffer of the browser's frame; the envelope
+    /// borrows its body from it and never copies it.
     async fn on_browser(&mut self, frame: &[u8]) -> Result<(), Error> {
-        let request: RequestEnvelope =
+        let request: RequestEnvelope<'_> =
             serde_json::from_slice(frame).map_err(|_| Error::Malformed)?;
         let id = request.id;
         if request.v != PROTOCOL_VERSION {
@@ -318,7 +343,7 @@ impl<C: Connect> Host<C> {
         match Op::from_wire(&request.op) {
             Some(Op::Hello) => self.on_hello(id, request.body.get()).await,
             Some(Op::Pair) => self.on_pair(id, request.body.get()),
-            Some(op) if op.is_forwarded() => self.forward(id, op, &request.body).await,
+            Some(op) if op.is_forwarded() => self.forward(id, op, request.body).await,
             _ => self.respond_err(id, ErrorCode::InvalidRequest),
         }
     }
@@ -342,7 +367,7 @@ impl<C: Connect> Host<C> {
     /// same one keeps it.
     fn set_pairing(&mut self, new: Option<Pairing>) {
         let same = match (&self.pairing, &new) {
-            (Some(a), Some(b)) => a.id == b.id && a.key.expose_secret() == b.key.expose_secret(),
+            (Some(a), Some(b)) => a.id == b.id && bool::from(a.key.ct_eq(&b.key)),
             (None, None) => true,
             _ => false,
         };
@@ -410,7 +435,11 @@ impl<C: Connect> Host<C> {
         op: Op,
         body: &serde_json::value::RawValue,
     ) -> Result<(), Error> {
-        if self.pending.contains_key(&id) {
+        let timed_out = self
+            .active
+            .as_ref()
+            .is_some_and(|a| a.tombstones.contains(&id));
+        if self.pending.contains_key(&id) || timed_out {
             return self.respond_err(id, ErrorCode::InvalidRequest);
         }
         if self.pairing.is_none() {
@@ -490,6 +519,7 @@ impl<C: Connect> Host<C> {
             writer,
             session,
             state,
+            tombstones: HashSet::new(),
         });
         if announce {
             self.emit_event(&Event::state(state))?;
@@ -524,7 +554,10 @@ impl<C: Connect> Host<C> {
         let verbatim = Zeroizing::new(plaintext.expose_secret().to_vec());
         match message {
             DesktopMessage::Response(response) => {
-                if self.pending.remove(&response.id).is_some() {
+                // A late answer to a request that timed out is dropped.
+                if !active.tombstones.contains(&response.id)
+                    && self.pending.remove(&response.id).is_some()
+                {
                     self.emit(verbatim)?;
                 }
             }

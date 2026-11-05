@@ -29,8 +29,8 @@ thiserror.workspace = true
 # features: no `macros`.
 tokio.workspace = true
 zeroize.workspace = true
-# The random pipe name of the Windows endpoint.
-getrandom.workspace = true
+# ConstantTimeEq: the host compares K_pair in constant time.
+subtle.workspace = true
 
 [dev-dependencies]
 base64ct = { workspace = true, features = ["alloc"] }

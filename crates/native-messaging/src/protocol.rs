@@ -15,6 +15,7 @@
 //! value, unknown keys rejected. Secrets are JSON strings of type [`Secret`].
 
 use core::fmt;
+use std::io;
 
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -279,9 +280,15 @@ pub enum LockState {
 }
 
 /// A request from the extension (or, sealed, from the host).
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// The body borrows the buffer the request was parsed from. Parse it with
+/// `serde_json::from_slice` from a zeroizing frame buffer that outlives the
+/// envelope: an owned copy of a body (`Box<RawValue>`) would sit on the heap
+/// unwiped and can hold `K_pair`, passwords and OTP codes (THREAT_MODEL R40).
+/// `Debug` never prints the body.
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RequestEnvelope {
+pub struct RequestEnvelope<'a> {
     /// Protocol version.
     pub v: u8,
     /// Correlation ID, chosen by the extension.
@@ -289,13 +296,26 @@ pub struct RequestEnvelope {
     /// The op's wire name.
     pub op: String,
     /// The op's body, not parsed by the host.
-    pub body: Box<RawValue>,
+    #[serde(borrow)]
+    pub body: &'a RawValue,
 }
 
-/// A response from the host or the desktop.
-#[derive(Debug, Serialize, Deserialize)]
+impl fmt::Debug for RequestEnvelope<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RequestEnvelope")
+            .field("v", &self.v)
+            .field("id", &self.id)
+            .field("op", &self.op)
+            .field("body", &REDACTED)
+            .finish()
+    }
+}
+
+/// A response from the host or the desktop. Borrows its body from the buffer
+/// it was parsed from, like [`RequestEnvelope`]; `Debug` never prints it.
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ResponseEnvelope {
+pub struct ResponseEnvelope<'a> {
     /// Protocol version.
     pub v: u8,
     /// The request's ID.
@@ -303,14 +323,38 @@ pub struct ResponseEnvelope {
     /// Whether the request succeeded.
     pub ok: bool,
     /// The result, if `ok`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<Box<RawValue>>,
+    #[serde(default, borrow, skip_serializing_if = "Option::is_none")]
+    pub body: Option<&'a RawValue>,
     /// The failure, if not `ok`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorCode>,
 }
 
-impl ResponseEnvelope {
+impl fmt::Debug for ResponseEnvelope<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut out = f.debug_struct("ResponseEnvelope");
+        out.field("v", &self.v)
+            .field("id", &self.id)
+            .field("ok", &self.ok);
+        if self.body.is_some() {
+            out.field("body", &REDACTED);
+        }
+        out.field("error", &self.error).finish()
+    }
+}
+
+/// What `Debug` prints in place of a body or a secret.
+struct Redacted;
+
+impl fmt::Debug for Redacted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+const REDACTED: Redacted = Redacted;
+
+impl ResponseEnvelope<'_> {
     /// Checks the shape: version 1, `ok` with a body and no error, or not
     /// `ok` with an error and no body.
     ///
@@ -394,23 +438,32 @@ impl Event {
     }
 }
 
-/// What a desktop-to-host plaintext is.
-#[derive(Debug)]
-pub enum DesktopMessage {
+/// What a desktop-to-host plaintext is. A response borrows its body from the
+/// plaintext it was parsed from.
+pub enum DesktopMessage<'a> {
     /// An answer to a request.
-    Response(ResponseEnvelope),
+    Response(ResponseEnvelope<'a>),
     /// A push.
     Event(Event),
 }
 
-impl DesktopMessage {
+impl fmt::Debug for DesktopMessage<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Response(response) => f.debug_tuple("Response").field(response).finish(),
+            Self::Event(event) => f.debug_tuple("Event").field(event).finish(),
+        }
+    }
+}
+
+impl<'a> DesktopMessage<'a> {
     /// Parses and validates a plaintext from the desktop.
     ///
     /// # Errors
     /// [`Error::ProtocolVersion`] for a version other than 1,
     /// [`Error::Malformed`] for anything else that is not a response or
     /// event of this protocol.
-    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         #[derive(Deserialize)]
         struct Probe<'a> {
             #[serde(borrow, default)]
@@ -424,7 +477,7 @@ impl DesktopMessage {
             }
             Ok(Self::Event(event))
         } else {
-            let response: ResponseEnvelope =
+            let response: ResponseEnvelope<'a> =
                 serde_json::from_slice(bytes).map_err(|_| Error::Malformed)?;
             response.validate()?;
             Ok(Self::Response(response))
@@ -432,14 +485,62 @@ impl DesktopMessage {
     }
 }
 
-/// Serializes `value` into zeroizing memory.
+/// Counts the bytes a serialization writes, and keeps none of them.
+struct CountingWriter(usize);
+
+impl io::Write for CountingWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_add(buf.len())
+            .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Appends to a vector that never grows: a write that does not fit fails, so
+/// no reallocation can leave an unwiped copy of the bytes behind.
+struct FixedWriter<'a>(&'a mut Vec<u8>);
+
+impl io::Write for FixedWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.0.capacity() - self.0.len() < buf.len() {
+            return Err(io::Error::from(io::ErrorKind::WriteZero));
+        }
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Serializes `value` into zeroizing memory, in a buffer of exactly the
+/// serialized length. A first pass only counts the bytes; the second fills a
+/// buffer reserved once, so the secret is never copied by a reallocation of
+/// a growing buffer (THREAT_MODEL R40).
 ///
 /// # Errors
-/// [`Error::Malformed`] if serialization fails (it cannot for these types).
+/// [`Error::Malformed`] if serialization fails (it cannot for these types),
+/// [`Error::Io`] if the buffer cannot be reserved, [`Error::Internal`] if
+/// the second pass does not write what the first one counted.
 pub fn to_zeroizing<T: Serialize + ?Sized>(value: &T) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let mut out = Zeroizing::new(Vec::with_capacity(512));
-    serde_json::to_writer(&mut *out, value).map_err(|_| Error::Malformed)?;
-    Ok(out)
+    let mut counter = CountingWriter(0);
+    serde_json::to_writer(&mut counter, value).map_err(|_| Error::Malformed)?;
+    let mut out = Zeroizing::new(Vec::new());
+    out.try_reserve_exact(counter.0)
+        .map_err(|_| Error::Io(io::ErrorKind::OutOfMemory))?;
+    serde_json::to_writer(FixedWriter(&mut out), value).map_err(|_| Error::Internal)?;
+    if out.len() == counter.0 {
+        Ok(out)
+    } else {
+        Err(Error::Internal)
+    }
 }
 
 /// A request with a typed body, for senders (tests, fixtures, the host's
@@ -564,7 +665,7 @@ mod tests {
     #[test]
     fn requests_reject_unknown_fields_and_keep_the_body_verbatim() {
         let ok = br#"{"v":1,"id":7,"op":"status","body":{ "a" : [1, 2] }}"#;
-        let req: RequestEnvelope = serde_json::from_slice(ok).unwrap();
+        let req: RequestEnvelope<'_> = serde_json::from_slice(ok).unwrap();
         assert_eq!((req.v, req.id, req.op.as_str()), (1, 7, "status"));
         assert_eq!(req.body.get(), r#"{ "a" : [1, 2] }"#);
         for bad in [
@@ -577,13 +678,15 @@ mod tests {
             b"",
             b"not json",
         ] {
-            assert!(serde_json::from_slice::<RequestEnvelope>(bad).is_err());
+            assert!(serde_json::from_slice::<RequestEnvelope<'_>>(bad).is_err());
         }
     }
 
     #[test]
     fn responses_are_validated() {
-        let parse = |s: &str| DesktopMessage::parse(s.as_bytes());
+        fn parse(s: &str) -> Result<DesktopMessage<'_>, Error> {
+            DesktopMessage::parse(s.as_bytes())
+        }
         let is_response =
             |m: Result<DesktopMessage, Error>| matches!(m, Ok(DesktopMessage::Response(_)));
         assert!(is_response(parse(r#"{"v":1,"id":7,"ok":true,"body":{}}"#)));
@@ -679,5 +782,82 @@ mod tests {
         let back: Secret = serde_json::from_str("\"pw\"").unwrap();
         assert_eq!(back.expose_secret(), "pw");
         assert!(serde_json::from_str::<Secret>("5").is_err());
+    }
+
+    #[test]
+    fn envelopes_borrow_their_bodies_from_the_frame() {
+        // Compile-level check: the body's lifetime is the buffer's. If the
+        // envelopes owned their bodies (`Box<RawValue>`), these signatures
+        // would not tie the result to `frame`.
+        fn request_body<'a>(frame: &'a [u8]) -> &'a str {
+            let request: RequestEnvelope<'a> = serde_json::from_slice(frame).unwrap();
+            request.body.get()
+        }
+        fn response_body(frame: &[u8]) -> Option<&str> {
+            match DesktopMessage::parse(frame) {
+                Ok(DesktopMessage::Response(r)) => r.body.map(RawValue::get),
+                _ => None,
+            }
+        }
+        let frame = Zeroizing::new(br#"{"v":1,"id":1,"op":"fill","body":{"k":"v"}}"#.to_vec());
+        let body = request_body(&frame);
+        // The body is a slice of the frame buffer itself, not a copy.
+        let range = frame.as_ptr_range();
+        assert!(range.contains(&body.as_ptr()));
+        let reply = Zeroizing::new(br#"{"v":1,"id":1,"ok":true,"body":[1]}"#.to_vec());
+        let body = response_body(&reply).unwrap();
+        assert!(reply.as_ptr_range().contains(&body.as_ptr()));
+    }
+
+    #[test]
+    fn debug_never_prints_a_body() {
+        let request = br#"{"v":1,"id":7,"op":"fill","body":{"password":"hunter2"}}"#;
+        let request: RequestEnvelope<'_> = serde_json::from_slice(request).unwrap();
+        let text = format!("{request:?}");
+        assert!(
+            text.contains("id: 7") && text.contains("\"fill\""),
+            "{text}"
+        );
+        assert!(text.contains("body: [REDACTED]"), "{text}");
+        assert!(!text.contains("hunter2"), "{text}");
+
+        let reply = br#"{"v":1,"id":7,"ok":true,"body":{"password":"hunter2"}}"#;
+        let message = DesktopMessage::parse(reply).unwrap();
+        let text = format!("{message:?}");
+        assert!(text.contains("body: [REDACTED]"), "{text}");
+        assert!(!text.contains("hunter2"), "{text}");
+
+        let failure = DesktopMessage::parse(br#"{"v":1,"id":7,"ok":false,"error":"locked"}"#);
+        let text = format!("{:?}", failure.unwrap());
+        assert!(text.contains("Locked") && !text.contains("body"), "{text}");
+    }
+
+    /// Serializes a longer string at every call, like a buggy `Serialize`.
+    struct Unstable(core::cell::Cell<usize>);
+
+    impl Serialize for Unstable {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            self.0.set(self.0.get() + 1);
+            serializer.serialize_str(&"y".repeat(self.0.get() * 10))
+        }
+    }
+
+    #[test]
+    fn serialization_reserves_the_exact_size_once() {
+        let body = "x".repeat(5000);
+        let json = ok_json(1, &body).unwrap();
+        assert!(json.len() > 4096);
+        assert_eq!(json.capacity(), json.len(), "no reallocation, no slack");
+        let small = error_json(3, ErrorCode::Locked).unwrap();
+        assert_eq!(small.capacity(), small.len());
+        // Escapes make the output longer than the input; still exact.
+        let escaped = ok_json(2, &String::from('"').repeat(3000)).unwrap();
+        assert_eq!(escaped.capacity(), escaped.len());
+        // A serialization that differs between passes is refused without
+        // growing the buffer.
+        assert_eq!(
+            to_zeroizing(&Unstable(core::cell::Cell::new(0))).unwrap_err(),
+            Error::Internal
+        );
     }
 }

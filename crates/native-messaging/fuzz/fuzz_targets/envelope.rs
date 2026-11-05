@@ -8,9 +8,9 @@ use libfuzzer_sys::fuzz_target;
 use mosaic_native_messaging::protocol::{DesktopMessage, Op, RequestEnvelope};
 
 fuzz_target!(|data: &[u8]| {
-    if let Ok(request) = serde_json::from_slice::<RequestEnvelope>(data) {
+    if let Ok(request) = serde_json::from_slice::<RequestEnvelope<'_>>(data) {
         let again = serde_json::to_vec(&request).expect("serialize");
-        let back: RequestEnvelope = serde_json::from_slice(&again).expect("re-parse");
+        let back: RequestEnvelope<'_> = serde_json::from_slice(&again).expect("re-parse");
         assert_eq!(
             (back.v, back.id, back.op.as_str(), back.body.get()),
             (request.v, request.id, request.op.as_str(), request.body.get())

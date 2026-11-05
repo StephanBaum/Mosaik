@@ -119,14 +119,12 @@ fn request_samples() -> Vec<(Op, Value)> {
             },
         }),
     );
-    let generate = GenerateBody {
-        request: RawValue::from_string(
-            r#"{"kind":"forSite","host":"example.com","rules":"minlength: 12; required: lower, upper; required: digit;"}"#
-                .to_owned(),
-        )
-        .unwrap(),
-    };
-    add(Op::Generate, to_value(&generate));
+    let request = RawValue::from_string(
+        r#"{"kind":"forSite","host":"example.com","rules":"minlength: 12; required: lower, upper; required: digit;"}"#
+            .to_owned(),
+    )
+    .unwrap();
+    add(Op::Generate, to_value(&GenerateBody { request: &request }));
     add(Op::CheckSave, to_value(&save_body()));
     add(Op::ProposeSave, to_value(&save_body()));
     add(Op::Unpair, to_value(&Empty {}));
@@ -306,7 +304,11 @@ fn check_request_body(op: Op, body: &Value) {
         Op::Search => round_trips::<SearchBody>(body),
         Op::Fill => round_trips::<FillBody>(body),
         Op::Copy => round_trips::<CopyBody>(body),
-        Op::Generate => round_trips::<GenerateBody>(body),
+        Op::Generate => {
+            let text = body.to_string();
+            let typed: GenerateBody<'_> = serde_json::from_str(&text).unwrap();
+            assert_eq!(&to_value(&typed), body);
+        }
         Op::CheckSave | Op::ProposeSave => round_trips::<SaveBody>(body),
     }
 }
@@ -330,7 +332,8 @@ fn check_response_body(op: Op, body: &Value) {
 #[test]
 fn every_sample_is_valid_for_the_rust_types() {
     for (op, message) in request_samples() {
-        let request: RequestEnvelope = serde_json::from_str(&message.to_string()).unwrap();
+        let text = message.to_string();
+        let request: RequestEnvelope<'_> = serde_json::from_str(&text).unwrap();
         assert_eq!(Op::from_wire(&request.op), Some(op));
         check_request_body(op, &message["body"]);
     }

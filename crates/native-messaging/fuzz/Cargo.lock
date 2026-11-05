@@ -296,10 +296,10 @@ dependencies = [
 name = "mosaic-native-messaging"
 version = "0.0.0"
 dependencies = [
- "getrandom",
  "mosaic-core",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
  "tokio",
  "zeroize",

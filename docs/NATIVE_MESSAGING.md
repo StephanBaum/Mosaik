@@ -43,13 +43,18 @@ copied (M9 extracts one shared crate).
 
 - The server disconnects a peer whose UID is not the socket owner's.
 - The client requires: the parent is a real directory (not a symbolic link) with
-  `mode & 0o077 == 0`; the path is a socket owned by the directory's owner; after
-  `connect`, the peer's UID equals the directory's owner.
+  `mode & 0o077 == 0` that the current user owns; the path is a socket owned by the
+  directory's owner; after `connect`, the peer's UID equals the directory's owner. Std has no
+  safe `getuid`, so the current UID is the owner of `/proc/self` (Linux) and, where there is
+  no procfs (macOS), the owner of `$HOME` (absolute, a real directory); if neither is
+  readable the client refuses to connect.
 
 **Windows rules.** The desktop creates the pipe as first instance
 (`first_pipe_instance(true)`) and rejects remote clients (`reject_remote_clients(true)`).
 After the bind it writes the discovery file atomically (a temporary file in the same
-directory, then a rename) and deletes it at exit:
+directory, then a rename) and keeps a **lease** on it (`DiscoveryLease`): a handle opened
+with write access and `FILE_SHARE_READ` that stays open for the desktop's lifetime. Dropping
+the lease closes the handle and deletes the file:
 
 ```json
 {"version":1,"pipe":"\\\\.\\pipe\\mosaic-browser-0123456789abcdef0123456789abcdef"}
@@ -60,6 +65,18 @@ validates the name against `^\\\\\.\\pipe\\mosaic-browser-[0-9a-f]{32}$`. A miss
 `desktopNotRunning`. Other OS accounts cannot read the file, so they cannot squat the
 name in advance (named pipe names are machine-global). Windows gives no peer process
 identity without unsafe code (THREAT_MODEL R42).
+
+Before it trusts the file, the host **probes** it: it opens the file for reading with
+`share_mode(FILE_SHARE_READ)`. While the desktop's lease is open, that open fails with a
+sharing violation (`ERROR_SHARING_VIOLATION`, 32), because the lease holds write access and
+the probe does not share writing: the desktop is live, and the host reads the file with a
+normal full-sharing open (which the lease allows). If the probe **succeeds**, nobody holds the
+file, so it is stale (a desktop crash leaves it behind): the host answers `desktopNotRunning`
+without connecting. Pipe names are machine-global, so without the probe another account could
+create a pipe with a stale name and answer the host. A second desktop cannot replace a leased
+file (its rename is denied: `EndpointInUse`). The desktop takes the lease after it bound the
+pipe. Unit tests on Windows show both outcomes (lease held: live and readable; no lease or a
+dropped lease: stale).
 
 **Debug override.** Debug builds read `MOSAIC_BROWSER_ENDPOINT` (a socket path or a pipe
 name of the form above) instead of the table, for integration tests. Release builds ignore
@@ -180,12 +197,17 @@ finish {proof}                        ->
 
 - The host verifies `proof_d` before it sends `finish`. A wrong `proof_d` is
   `desktopNotAuthentic` on the host, which hangs up; the desktop sees the connection close.
-- The desktop answers an unknown `pairingId` and a wrong `proof` alike with
-  `refused notPaired`. After `finish` verifies, the desktop's first AEAD frame is the
+- The desktop answers an unknown `pairingId` (at `hello`) and a wrong `proof` (after `finish`)
+  with the same message, `refused notPaired`, but not at the same step. A dummy challenge for
+  an unknown ID would make a host whose pairing the desktop removed fail on `proof_d` and
+  report `desktopNotAuthentic`; the host needs `notPaired` to learn that the pairing is gone
+  (§5.3). The step reveals only whether a random 128-bit `pairingId` exists. After `finish`
+  verifies, the desktop's first AEAD frame is the
   `state` event; the host waits for it.
 - Every step has a timeout of 5 s.
 - Any failure of a frame (bad tag, wrong sequence number, unknown version or algorithm) is
-  one error; the receiver closes the connection.
+  one error and poisons the session (every later seal or open fails); the receiver closes the
+  connection.
 - A sequence number at `u64::MAX` is not used: the sender stops.
 
 ### 4.2 Pre-auth messages
@@ -335,9 +357,11 @@ executable:
 | macOS | `~/Library/Application Support/{Google/Chrome,Microsoft Edge,Chromium}/NativeMessagingHosts/<HOST_NAME>.json` | `~/Library/Application Support/Mozilla/NativeMessagingHosts/` |
 | Linux | `~/.config/{google-chrome,microsoft-edge,chromium}/NativeMessagingHosts/` | `~/.mozilla/native-messaging-hosts/` |
 
-The registry is written with `reg.exe add ... /ve /t REG_SZ /d <path> /f` (no unsafe code and
-no extra crate). `uninstall` removes every file and key `install` can write, for every
-browser. The M9 installer takes over (sidecar `externalBin`, store IDs only, signing).
+The registry is written with `%SystemRoot%\System32\reg.exe add ... /ve /t REG_SZ /d <path> /f`
+(an absolute path from `SystemRoot`, `C:\Windows` if unset; no unsafe code and no extra crate).
+`uninstall` removes every file `install` can write, for every browser, and a registry key only
+if its default value (`reg query ... /ve`) is the manifest path this binary would write; any
+other value is left in place and reported (`kept HKCU\...`). The M9 installer takes over (sidecar `externalBin`, store IDs only, signing).
 Flatpak and Snap browsers cannot run native hosts; that is documented as unsupported.
 
 ## 8. Fixtures and tests

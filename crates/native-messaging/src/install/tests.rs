@@ -1,19 +1,27 @@
 use super::*;
 
+/// A fake registry: remembers the values set and answers queries from them.
 #[derive(Default)]
 struct Recorder {
     set: Vec<(String, PathBuf)>,
+    values: std::collections::HashMap<String, PathBuf>,
     deleted: Vec<String>,
 }
 
 impl Registry for Recorder {
     fn set_default(&mut self, key: &str, value: &Path) -> Result<(), Error> {
         self.set.push((key.to_owned(), value.to_path_buf()));
+        self.values.insert(key.to_owned(), value.to_path_buf());
         Ok(())
+    }
+
+    fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+        self.values.get(key).cloned()
     }
 
     fn delete(&mut self, key: &str) -> Result<(), Error> {
         self.deleted.push(key.to_owned());
+        self.values.remove(key);
         Ok(())
     }
 }
@@ -196,9 +204,10 @@ fn windows_install_sets_the_keys_and_uninstall_deletes_them() {
     assert!(registry.set.iter().all(|(_, v)| *v == plan.files[0].path));
     assert!(plan.files[0].path.exists());
 
-    let mut registry = Recorder::default();
-    uninstall(&layout, &mut registry).unwrap();
-    assert_eq!(registry.deleted.len(), 4, "every browser's key");
+    let done = uninstall(&layout, &mut registry).unwrap();
+    assert_eq!(registry.deleted.len(), 2, "the keys install set");
+    assert_eq!(done.kept.len(), 0);
+    assert!(registry.values.is_empty());
     assert!(!plan.files[0].path.exists());
     assert!(
         !plan.files[0].path.parent().unwrap().exists(),
@@ -228,5 +237,81 @@ fn browser_lists_parse() {
     );
     for bad in ["", "safari", "chrome,", ",chrome", "Chrome"] {
         assert_eq!(Browser::parse_list(bad), Err(Error::Install), "{bad:?}");
+    }
+}
+
+#[test]
+fn uninstall_keeps_registry_values_that_are_not_ours() {
+    let root = tempfile::tempdir().unwrap();
+    let layout = windows_layout(root.path());
+    let mut registry = Recorder::default();
+    let plan = install(
+        &layout,
+        &[Browser::Chrome, Browser::Edge],
+        &host(root.path()),
+        &mut registry,
+    )
+    .unwrap();
+    let chrome = plan.registry[0].key.clone();
+    let edge = plan.registry[1].key.clone();
+    // Another program took over Chrome's key.
+    let foreign = PathBuf::from(r"C:\Other\host.json");
+    registry.values.insert(chrome.clone(), foreign.clone());
+
+    let done = uninstall(&layout, &mut registry).unwrap();
+    assert_eq!(
+        registry.deleted,
+        vec![edge],
+        "only the key that points to us"
+    );
+    assert_eq!(done.kept.len(), 1);
+    assert_eq!(done.kept[0].key, chrome);
+    assert_eq!(
+        registry.values.get(&chrome),
+        Some(&foreign),
+        "left in place"
+    );
+}
+
+#[test]
+fn reg_exe_is_called_by_absolute_path() {
+    assert_eq!(
+        reg_exe_path(Some(OsString::from(r"D:\Win"))),
+        PathBuf::from(r"D:\Win").join("System32").join("reg.exe")
+    );
+    assert_eq!(
+        reg_exe_path(None),
+        PathBuf::from(r"C:\Windows")
+            .join("System32")
+            .join("reg.exe")
+    );
+}
+
+#[test]
+fn reg_query_output_is_parsed_without_the_value_name() {
+    let english = r"
+HKEY_CURRENT_USER\Software\x
+    (Default)    REG_SZ    C:\Users\a b\firefox.json
+
+"
+    .replace('\n', "\r\n");
+    assert_eq!(
+        parse_reg_query_default(&english),
+        Some(PathBuf::from(r"C:\Users\a b\firefox.json"))
+    );
+    let german = r"HKEY_CURRENT_USER\Software\x
+    (Standard)    REG_SZ    C:\p.json
+";
+    assert_eq!(
+        parse_reg_query_default(german),
+        Some(PathBuf::from(r"C:\p.json"))
+    );
+    for none in [
+        "",
+        "ERROR: The system was unable to find the specified registry key",
+        "    (Default)    REG_SZ    \n",
+        "    (Default)    REG_DWORD    0x1\n",
+    ] {
+        assert_eq!(parse_reg_query_default(none), None, "{none:?}");
     }
 }

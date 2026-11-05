@@ -14,10 +14,12 @@
 //! | macOS | `~/Library/Application Support/{Google/Chrome,Microsoft Edge,Chromium}/NativeMessagingHosts/<HOST_NAME>.json` | `~/Library/Application Support/Mozilla/NativeMessagingHosts/` |
 //! | Linux | `~/.config/{google-chrome,microsoft-edge,chromium}/NativeMessagingHosts/` | `~/.mozilla/native-messaging-hosts/` |
 //!
-//! The registry is written through `reg.exe` (no unsafe code, no extra
-//! crate). This is the developer install; the M9 installer takes over with
+//! The registry is written through `%SystemRoot%\System32\reg.exe`, called by
+//! absolute path (no unsafe code, no extra crate). `uninstall` deletes a key
+//! only if its default value is the manifest this binary would write. This is the developer install; the M9 installer takes over with
 //! store IDs only and a signed host.
 
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -265,14 +267,18 @@ pub fn plan(layout: &Layout, browsers: &[Browser], host_path: &Path) -> Result<P
     Ok(plan)
 }
 
-/// Writes registry values; a trait so tests can record instead of touching
-/// the registry.
+/// Reads and writes registry values; a trait so tests can record instead of
+/// touching the registry.
 pub trait Registry {
     /// Sets the default value of `HKCU\<key>`.
     ///
     /// # Errors
     /// [`Error::Install`] if it could not be set.
     fn set_default(&mut self, key: &str, value: &Path) -> Result<(), Error>;
+
+    /// The default value of `HKCU\<key>`, or `None` if the key or the value
+    /// does not exist (or cannot be read).
+    fn default_value(&mut self, key: &str) -> Option<PathBuf>;
 
     /// Deletes `HKCU\<key>`; a missing key is fine.
     ///
@@ -281,13 +287,54 @@ pub trait Registry {
     fn delete(&mut self, key: &str) -> Result<(), Error>;
 }
 
+/// `%SystemRoot%\System32\reg.exe`, by absolute path so that no program
+/// earlier on the `PATH` or in the working directory can stand in for it.
+/// `system_root` is `%SystemRoot%`; `C:\Windows` if it is not set.
+#[must_use]
+pub fn reg_exe_path(system_root: Option<OsString>) -> PathBuf {
+    PathBuf::from(system_root.unwrap_or_else(|| OsString::from(r"C:\Windows")))
+        .join("System32")
+        .join("reg.exe")
+}
+
+/// The value in the output of `reg query <key> /ve`: the text after the type
+/// `REG_SZ` on the line that has one. The name of the value (`(Default)`,
+/// localized by Windows) is not looked at.
+#[must_use]
+pub fn parse_reg_query_default(output: &str) -> Option<PathBuf> {
+    output.lines().find_map(|line| {
+        let (_, value) = line.split_once("REG_SZ")?;
+        let value = value.trim();
+        (!value.is_empty()).then(|| PathBuf::from(value))
+    })
+}
+
 /// The Windows registry through `reg.exe`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RegExe;
 
+impl RegExe {
+    fn command() -> Command {
+        Command::new(reg_exe_path(std::env::var_os("SystemRoot")))
+    }
+}
+
 impl Registry for RegExe {
+    fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+        let output = Self::command()
+            .arg("query")
+            .arg(format!(r"HKCU\{key}"))
+            .arg("/ve")
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_reg_query_default(&String::from_utf8_lossy(&output.stdout))
+    }
+
     fn set_default(&mut self, key: &str, value: &Path) -> Result<(), Error> {
-        let status = Command::new("reg")
+        let status = Self::command()
             .arg("add")
             .arg(format!(r"HKCU\{key}"))
             .args(["/ve", "/t", "REG_SZ", "/d"])
@@ -305,7 +352,7 @@ impl Registry for RegExe {
 
     fn delete(&mut self, key: &str) -> Result<(), Error> {
         // A missing key is a non-zero exit; either way the key is gone.
-        let _ = Command::new("reg")
+        let _ = Self::command()
             .arg("delete")
             .arg(format!(r"HKCU\{key}"))
             .arg("/f")
@@ -336,11 +383,25 @@ pub fn install(
     Ok(plan)
 }
 
-/// Removes everything [`install`] can write, for every browser.
+/// What [`uninstall`] removed and what it left alone.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Uninstalled {
+    /// Everything Mosaic's install can write. The files are removed; a
+    /// registry key is deleted unless it is in `kept`.
+    pub plan: Plan,
+    /// Registry keys whose default value is not the manifest this binary
+    /// writes: another program or install owns them, so they stay.
+    pub kept: Vec<RegistryEntry>,
+}
+
+/// Removes everything [`install`] can write, for every browser. A registry
+/// key is deleted only if its default value is the manifest path this binary
+/// would have written; any other value belongs to somebody else and is
+/// reported in [`Uninstalled::kept`].
 ///
 /// # Errors
 /// [`Error::Install`] if a file could not be removed.
-pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Plan, Error> {
+pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Uninstalled, Error> {
     // The path is not written, only used to build the plan.
     let any_host = if layout.os == Os::Windows {
         layout.local_app_data.join("mosaic-native-host.exe")
@@ -348,8 +409,14 @@ pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Plan, E
         layout.home.join("mosaic-native-host")
     };
     let plan = plan(layout, &Browser::ALL, &any_host)?;
+    let mut kept = Vec::new();
     for entry in &plan.registry {
-        registry.delete(&entry.key)?;
+        match registry.default_value(&entry.key) {
+            Some(value) if value == entry.manifest => registry.delete(&entry.key)?,
+            // No such key or value: nothing of ours to remove.
+            None => {}
+            Some(_) => kept.push(entry.clone()),
+        }
     }
     for file in &plan.files {
         match fs::remove_file(&file.path) {
@@ -364,7 +431,7 @@ pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Plan, E
         // Mosaic's own directory: remove it if nothing else is in it.
         let _ = fs::remove_dir(dir);
     }
-    Ok(plan)
+    Ok(Uninstalled { plan, kept })
 }
 
 #[cfg(test)]

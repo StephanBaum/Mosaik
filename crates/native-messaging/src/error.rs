@@ -59,6 +59,10 @@ pub enum Error {
     /// The caller is not an allowed extension.
     #[error("the caller is not an allowed extension")]
     CallerNotAllowed,
+    /// A failure that cannot happen when the code is right (for example a
+    /// serialization that is not deterministic).
+    #[error("internal error")]
+    Internal,
     /// Writing or removing a host manifest or registry entry failed.
     #[error("installing the native messaging manifest failed")]
     Install,

@@ -114,6 +114,12 @@ Rules for every secret type in code:
 - Never logged, never formatted into error messages, never in panic payloads.
   Error types carry no secret-derived data.
 - Comparisons use `subtle::ConstantTimeEq`.
+- One exception to "no `Serialize`": the browser channel's wire wrapper
+  `HexKey` in `crates/native-messaging` (§15) serializes `K_pair` as 64 hex
+  digits, because the key must travel in the `pair` response and in the stored
+  pairing of `hello`. It wraps `PairingKey` (which itself has no `Serialize`),
+  prints `[REDACTED]` in `Debug`, builds its text in zeroizing memory and is
+  used for those two bodies only. `PairingKey` implements `ConstantTimeEq`.
 - Release builds use `panic = "abort"`.
 - Swapping memory to disk is a residual risk; `mlock` would need `unsafe` and
   is deferred (ADR-0005).
@@ -940,9 +946,15 @@ K_h2d = okm[0..32]      K_d2h = okm[32..64]
 Message order: host `hello {pairing_id, nonce_h}`, desktop `challenge
 {nonce_d, proof_d}`, host `finish {proof_h}`; the desktop's first AEAD frame
 is the state event. The host verifies `proof_d` before it sends `proof_h`.
-Proofs are compared with `subtle`. Any failure closes the connection; the
-desktop answers an unknown `pairing_id` and a wrong `proof_h` alike
-(`refused notPaired`). The roles are the last byte of the HMAC message
+Proofs, and the host's check whether a `hello` carries the pairing it already
+holds, are compared with `subtle`. Any failure closes the connection. The
+desktop answers an unknown `pairing_id` (at `hello`) and a wrong `proof_h`
+(after `finish`) with the same message, `refused notPaired`, but not at the
+same step: a dummy challenge for an unknown ID would make a host whose
+pairing was removed on the desktop fail on `proof_d`, and the host learns
+that the pairing is gone only from `notPaired`. The step tells a caller only
+whether a 128-bit random `pairing_id` exists, which nobody can guess. The
+roles are the last byte of the HMAC message
 (`0x01` host, `0x02` desktop), so neither proof can be replayed as the other.
 Both nonces are fresh per connection, so a recorded `hello` and `finish`
 fail against a new `challenge`.
@@ -959,14 +971,21 @@ ct     = XChaCha20-Poly1305(K_dir, nonce = 0^16 || seq:u64 (big-endian), plainte
 `dir` is `0x01` host to desktop (key `K_h2d`) and `0x02` desktop to host
 (key `K_d2h`). Sequence numbers start at 0 in each direction. The receiver
 requires exactly the next number, so a replayed, dropped, reordered or
-reflected frame fails; a rejected frame leaves the session unchanged and the
-caller closes the connection. The nonce is derived from the sequence number
+reflected frame fails. A frame that fails to open **poisons** the session:
+every later `open` and `seal` fails with `Decryption`, so a caller that
+ignores the error cannot go on using a connection that was tampered with
+(the caller closes it anyway). The nonce is derived from the sequence number
 instead of drawn at random (a deliberate exception to §7.2's "fresh random
 nonce", ADR-0036): each key is used for one connection only, because it
 depends on both connection nonces, and a sequence number is used at most
 once per key. A sender whose sequence number would reach `u64::MAX` stops
-(`SizeLimit`). Every handshake or frame failure is the one error
-`Decryption`.
+(`SizeLimit`); no frame for that number exists, so a receiver at it can only
+reject (`Decryption`). Every handshake or frame failure on the receiving side
+is the one error `Decryption`.
+
+**Randomness.** `pairing_id`, `K_pair`, both nonces, the Windows pipe name and
+the pairing code all come from `mosaic_core`'s `random(n)` (§3, §13); the
+native messaging crate has no CSPRNG of its own.
 
 **Limits.** A frame is at most 262144 bytes on both links (the plaintext leaves
 26 bytes for header and tag). The desktop closes an idle connection after

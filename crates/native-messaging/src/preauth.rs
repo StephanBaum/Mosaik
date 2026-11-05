@@ -5,6 +5,7 @@
 //! identifiers, nonces, proofs and keys are lowercase hex of a fixed length
 //! (pairing ID 32 digits, nonce and proof 64, key 64).
 
+use mosaic_core::browser_channel::new_pairing_code_bits;
 use serde::{Deserialize, Serialize};
 
 use crate::bodies::BrowserKind;
@@ -168,11 +169,9 @@ pub const PAIRING_CODE_LEN: usize = 6;
 /// A pairing code from 30 random bits: six symbols of Crockford base32.
 ///
 /// # Errors
-/// [`Error::Io`] if the OS CSPRNG fails.
+/// [`Error::Channel`] if the OS CSPRNG fails.
 pub fn new_pairing_code() -> Result<String, Error> {
-    let mut bytes = [0u8; 4];
-    getrandom::fill(&mut bytes).map_err(|_| Error::Io(std::io::ErrorKind::Other))?;
-    Ok(pairing_code(u32::from_be_bytes(bytes)))
+    Ok(pairing_code(new_pairing_code_bits()?))
 }
 
 /// The six symbols of the low 30 bits of `bits`.

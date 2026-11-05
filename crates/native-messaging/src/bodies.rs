@@ -4,6 +4,8 @@
 //! and rejects unknown keys. The host parses only the two host-local bodies
 //! ([`HelloBody`], [`PairBody`]); the desktop parses the others.
 
+use core::fmt;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 
@@ -376,11 +378,23 @@ pub struct CopyResult {
 /// `generate` request. The inner request is the desktop's `GenerateRequest`
 /// (its `forSite` gains `rules`, at most 4096 characters); the host does not
 /// look into it.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// Borrows the request from the buffer it was parsed from (a body is never
+/// copied into unwiped memory); `Debug` does not print it.
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GenerateBody {
+pub struct GenerateBody<'a> {
     /// The desktop's generator request.
-    pub request: Box<RawValue>,
+    #[serde(borrow)]
+    pub request: &'a RawValue,
+}
+
+impl fmt::Debug for GenerateBody<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GenerateBody")
+            .field("request", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Where the generator's rules came from.

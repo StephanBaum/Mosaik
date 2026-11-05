@@ -2801,3 +2801,18 @@ code is not a SAS) are recorded. The owner supplies the store IDs and confirms t
 add-on ID. The installer, signing and the pipe SDDL come in M9. The host is built on
 `tokio` with `io-std`; `serde_json` gains `raw_value` so request bodies are relayed without
 being parsed.
+
+### Amendment (crypto review follow-ups, 2026-11-05)
+- **Windows discovery lease.** The desktop keeps `endpoint.json` open (write access,
+  `FILE_SHARE_READ`) for its lifetime and the host trusts the file only if a read probe with
+  `FILE_SHARE_READ` fails with a sharing violation. A file nothing holds (a crash) is stale and
+  refused, which closes the cross-account stale-pipe-name capture of R42. No new crate and no
+  unsafe code (std `OpenOptionsExt::share_mode`).
+- **Poisoned sessions.** A frame that fails to open ends the session for good: every later
+  `seal` and `open` fails with `Decryption`.
+- **Unknown pairing ID.** Answered with `refused notPaired` at `hello`, not with a dummy
+  challenge: a dummy challenge would make a host whose pairing was removed fail on `proof_d`
+  and never learn that the pairing is gone.
+- **Bodies are borrowed.** Envelopes borrow their bodies from zeroizing frame buffers and
+  secrets are serialized into exactly sized zeroizing buffers (R40).
+- **Randomness** for the pipe name and the pairing code comes from `mosaic_core` (CRYPTO_SPEC §2).

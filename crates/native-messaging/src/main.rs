@@ -106,13 +106,20 @@ fn uninstall_command(args: &[OsString]) -> ExitCode {
         eprintln!("usage: mosaic-native-host uninstall");
         return ExitCode::from(EXIT_FAILURE);
     }
-    let Ok(plan) = Layout::current().and_then(|layout| install::uninstall(&layout, &mut RegExe))
+    let Ok(done) = Layout::current().and_then(|layout| install::uninstall(&layout, &mut RegExe))
     else {
         eprintln!("mosaic-native-host: uninstall failed");
         return ExitCode::from(EXIT_FAILURE);
     };
-    for file in &plan.files {
+    for file in &done.plan.files {
         println!("removed {}", file.path.display());
+    }
+    for entry in &done.kept {
+        println!(
+            "kept HKCU\\{}: its value is not {}",
+            entry.key,
+            entry.manifest.display()
+        );
     }
     ExitCode::SUCCESS
 }

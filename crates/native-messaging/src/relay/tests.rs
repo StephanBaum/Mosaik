@@ -749,3 +749,71 @@ fn the_same_pairing_keeps_the_session() {
         drop(served);
     });
 }
+
+#[test]
+fn a_timed_out_id_cannot_be_reused_and_a_late_answer_is_dropped() {
+    block_on_paused(async {
+        let mut rig = Rig::new();
+        rig.send(&hello(1)).await;
+        let (mut stream, mut session) = rig.desktop.session().await;
+        rig.recv().await;
+        rig.send(&request(
+            2,
+            "copy",
+            &json!({"source": {"kind": "generated"}}),
+        ))
+        .await;
+        read_request(&mut stream, &mut session).await;
+        assert_eq!(rig.recv().await, err(2, "timeout"));
+        // The extension reuses the ID: refused here, never forwarded.
+        rig.send(&request(2, "status", &json!({}))).await;
+        assert_eq!(rig.recv().await, err(2, "invalidRequest"));
+        // The late answer to the first request is dropped, not taken for an
+        // answer to anything else.
+        reply(
+            &mut stream,
+            &mut session,
+            &ok(2, &json!({"clearAfterSeconds": null})),
+        )
+        .await;
+        rig.send(&request(3, "status", &json!({}))).await;
+        let forwarded = read_request(&mut stream, &mut session).await;
+        assert_eq!(
+            forwarded["id"], 3,
+            "the reused ID never reached the desktop"
+        );
+        reply(
+            &mut stream,
+            &mut session,
+            &ok(3, &json!({"state": "locked"})),
+        )
+        .await;
+        assert_eq!(rig.recv().await, ok(3, &json!({"state": "locked"})));
+    });
+}
+
+#[test]
+fn a_connection_with_too_many_timed_out_ids_is_closed() {
+    block_on_paused(async {
+        let mut rig = Rig::new();
+        rig.send(&hello(1)).await;
+        let (mut stream, mut session) = rig.desktop.session().await;
+        rig.recv().await;
+        let total = u32::try_from(MAX_TOMBSTONES + 1).unwrap();
+        for id in 100..100 + total {
+            rig.send(&request(id, "status", &json!({}))).await;
+        }
+        for _ in 0..total {
+            read_request(&mut stream, &mut session).await;
+        }
+        // Every request times out; the last tombstone is one too many.
+        for _ in 0..total {
+            assert_eq!(rig.recv().await["error"], "timeout");
+        }
+        assert_eq!(rig.recv().await, event("disconnected"));
+        // The next request opens a fresh connection with an empty set.
+        rig.send(&request(100, "status", &json!({}))).await;
+        let (mut stream, mut session) = rig.desktop.session().await;
+        assert_eq!(read_request(&mut stream, &mut session).await["id"], 100);
+    });
+}

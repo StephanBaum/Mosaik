@@ -101,6 +101,27 @@ pub fn new_channel_nonce() -> Result<[u8; CHANNEL_NONCE_LEN]> {
     rng::array()
 }
 
+/// A fresh `random(16)` token for the name of the Windows pipe. Not secret,
+/// but unguessable names are what keeps other accounts from squatting the
+/// pipe in advance (THREAT_MODEL R42). Exposed so that
+/// `mosaic-native-messaging` needs no CSPRNG of its own (CRYPTO_SPEC §2).
+///
+/// # Errors
+/// [`Error::Randomness`] if the OS CSPRNG fails.
+pub fn new_endpoint_token() -> Result<[u8; 16]> {
+    rng::array()
+}
+
+/// 30 fresh random bits for a pairing code (six Crockford base32 symbols;
+/// the caller encodes them). Uniform: the top two bits of a random `u32`
+/// are cleared, no modulo bias.
+///
+/// # Errors
+/// [`Error::Randomness`] if the OS CSPRNG fails.
+pub fn new_pairing_code_bits() -> Result<u32> {
+    Ok(u32::from_be_bytes(rng::array()?) & 0x3fff_ffff)
+}
+
 /// `K_pair`: the 256-bit key the desktop draws when the user approves a
 /// pairing. Zeroized on drop, not `Clone`, `Display` or `Serialize`.
 pub struct PairingKey(SecretBytes<PAIRING_KEY_LEN>);
@@ -108,6 +129,12 @@ pub struct PairingKey(SecretBytes<PAIRING_KEY_LEN>);
 impl fmt::Debug for PairingKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[REDACTED]")
+    }
+}
+
+impl ConstantTimeEq for PairingKey {
+    fn ct_eq(&self, other: &Self) -> subtle::Choice {
+        self.0.ct_eq(&other.0)
     }
 }
 
@@ -225,6 +252,7 @@ impl PairingKey {
             pairing_id: *pairing_id,
             send_seq: 0,
             recv_seq: 0,
+            poisoned: false,
         })
     }
 
@@ -259,6 +287,10 @@ impl PairingKey {
 
 /// The two directions of an authenticated connection: AEAD frames with
 /// strict, gap-free sequence numbers. Not `Clone`; keys are zeroized on drop.
+///
+/// A frame that fails to open poisons the session: from then on `seal` and
+/// `open` fail with [`Error::Decryption`]. The connection is dead and the
+/// caller must close it (CRYPTO_SPEC §15).
 pub struct ChannelSession {
     send_key: SecretBytes<32>,
     recv_key: SecretBytes<32>,
@@ -267,6 +299,8 @@ pub struct ChannelSession {
     pairing_id: [u8; PAIRING_ID_LEN],
     send_seq: u64,
     recv_seq: u64,
+    /// Set by the first failed `open`; never cleared.
+    poisoned: bool,
 }
 
 impl fmt::Debug for ChannelSession {
@@ -312,10 +346,14 @@ impl ChannelSession {
     /// `header || ct || tag`. The sequence number advances only on success.
     ///
     /// # Errors
+    /// [`Error::Decryption`] if the session is poisoned by a failed `open`;
     /// [`Error::SizeLimit`] if the sequence number is exhausted (`u64::MAX`)
     /// or the plaintext is too large; [`Error::Allocation`] if the output
     /// buffer cannot be reserved.
     pub fn seal(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
+        if self.poisoned {
+            return Err(Error::Decryption);
+        }
         let seq = self.send_seq;
         if seq == u64::MAX {
             return Err(Error::SizeLimit);
@@ -334,22 +372,33 @@ impl ChannelSession {
     }
 
     /// Opens the next frame of the receiving direction. The sequence number
-    /// advances only when the frame authenticates, so a rejected frame
-    /// leaves the session as it was (the caller closes the connection).
+    /// advances only when the frame authenticates. Any failure poisons the
+    /// session: every later `seal` and `open` fails, so a caller that
+    /// ignores the error cannot go on using a connection that an attacker
+    /// has tampered with.
     ///
     /// # Errors
-    /// [`Error::Decryption`] for any failure: a short frame, an unknown
-    /// version or algorithm, a sequence number other than the expected one,
-    /// a bad tag, the wrong key or direction. [`Error::SizeLimit`] if the
-    /// sequence number is exhausted.
+    /// [`Error::Decryption`] for any failure: a poisoned session, a short
+    /// frame, an unknown version or algorithm, a sequence number other than
+    /// the expected one, a bad tag, the wrong key or direction.
     pub fn open(&mut self, frame: &[u8]) -> Result<SecretVec> {
-        let seq = self.recv_seq;
-        if seq == u64::MAX {
-            return Err(Error::SizeLimit);
+        if self.poisoned {
+            return Err(Error::Decryption);
         }
+        let opened = self.open_next(frame);
+        if opened.is_err() {
+            self.poisoned = true;
+        }
+        opened
+    }
+
+    fn open_next(&mut self, frame: &[u8]) -> Result<SecretVec> {
+        let seq = self.recv_seq;
         let (header, ciphertext) = frame
             .split_first_chunk::<FRAME_HEADER_LEN>()
             .ok_or(Error::Decryption)?;
+        // A frame for `seq == u64::MAX` cannot authenticate: `seal` stops
+        // before that number, so nobody holding the key ever sealed one.
         if *header != frame_header(seq) {
             return Err(Error::Decryption);
         }
@@ -360,7 +409,7 @@ impl ChannelSession {
             aad.as_bytes(),
             ciphertext,
         )?;
-        self.recv_seq = seq.checked_add(1).ok_or(Error::SizeLimit)?;
+        self.recv_seq = seq.checked_add(1).ok_or(Error::Decryption)?;
         Ok(plaintext)
     }
 }
@@ -526,20 +575,36 @@ mod tests {
             let (_, mut fresh) = pair();
             assert_eq!(fresh.open(&bad).unwrap_err(), Error::Decryption, "byte {i}");
         }
+        // Every rejected frame poisons the session it was offered to, so
+        // each rejection below runs on a fresh one.
+        let rejects = |bad: &[u8]| {
+            let (_, mut fresh) = pair();
+            assert_eq!(fresh.open(bad).unwrap_err(), Error::Decryption);
+        };
+        rejects(&frame[..frame.len() - 1]);
+        rejects(&[]);
+        rejects(&frame[..9]);
+        rejects(&frame[..FRAME_HEADER_LEN]);
         let (_, mut fresh) = pair();
-        assert_eq!(
-            fresh.open(&frame[..frame.len() - 1]).unwrap_err(),
-            Error::Decryption
-        );
-        assert_eq!(fresh.open(&[]).unwrap_err(), Error::Decryption);
-        assert_eq!(fresh.open(&frame[..9]).unwrap_err(), Error::Decryption);
-        assert_eq!(
-            fresh.open(&frame[..FRAME_HEADER_LEN]).unwrap_err(),
-            Error::Decryption
-        );
-        // The untouched frame still opens: the failures did not move the
-        // sequence.
         assert_eq!(fresh.open(&frame).unwrap().expose_secret(), b"payload");
+    }
+
+    #[test]
+    fn a_failed_open_poisons_the_session() {
+        let (mut host, mut desktop) = pair();
+        let good = host.seal(b"first").unwrap();
+        let mut bad = good.clone();
+        bad[FRAME_HEADER_LEN] ^= 1;
+        assert_eq!(desktop.open(&bad).unwrap_err(), Error::Decryption);
+        // The genuine frame no longer opens and nothing can be sealed.
+        assert_eq!(desktop.open(&good).unwrap_err(), Error::Decryption);
+        assert_eq!(desktop.seal(b"reply").unwrap_err(), Error::Decryption);
+        assert_eq!(desktop.open(&[]).unwrap_err(), Error::Decryption);
+        // A session that never failed is unaffected, and so is the peer's
+        // sending half.
+        assert_eq!(host.seal(b"second").unwrap().len(), 10 + 6 + 16);
+        let (_, mut other) = pair();
+        assert_eq!(other.open(&good).unwrap().expose_secret(), b"first");
     }
 
     #[test]
@@ -560,16 +625,20 @@ mod tests {
 
     #[test]
     fn sequence_numbers_are_strict() {
-        let (mut host, mut desktop) = pair();
+        let (mut host, _) = pair();
         let (f0, f1, f2) = (
             host.seal(b"0").unwrap(),
             host.seal(b"1").unwrap(),
             host.seal(b"2").unwrap(),
         );
-        assert_eq!(desktop.open(&f1).unwrap_err(), Error::Decryption, "skip");
+        let fresh = || pair().1;
+        assert_eq!(fresh().open(&f1).unwrap_err(), Error::Decryption, "skip");
+        assert_eq!(fresh().open(&f2).unwrap_err(), Error::Decryption, "gap");
+        let mut desktop = fresh();
         desktop.open(&f0).unwrap();
         assert_eq!(desktop.open(&f0).unwrap_err(), Error::Decryption, "replay");
-        assert_eq!(desktop.open(&f2).unwrap_err(), Error::Decryption, "gap");
+        let mut desktop = fresh();
+        desktop.open(&f0).unwrap();
         desktop.open(&f1).unwrap();
         desktop.open(&f2).unwrap();
     }
@@ -603,18 +672,41 @@ mod tests {
     }
 
     #[test]
-    fn sequence_exhaustion_is_a_size_limit() {
+    fn sequence_exhaustion_stops_the_sender() {
         let (mut host, mut desktop) = pair();
         host.send_seq = u64::MAX;
         assert_eq!(host.seal(b"x").unwrap_err(), Error::SizeLimit);
+        // A receiver at the last number cannot be fed: no valid frame
+        // exists for it.
         desktop.recv_seq = u64::MAX;
-        assert_eq!(desktop.open(&[0u8; 40]).unwrap_err(), Error::SizeLimit);
-        // The last usable number works and then the session is spent.
+        assert_eq!(desktop.open(&[0u8; 40]).unwrap_err(), Error::Decryption);
+        // The last usable number works and then the sender is spent.
+        let (mut host, mut desktop) = pair();
         host.send_seq = u64::MAX - 1;
         desktop.recv_seq = u64::MAX - 1;
         let frame = host.seal(b"last").unwrap();
         assert_eq!(desktop.open(&frame).unwrap().expose_secret(), b"last");
         assert_eq!(host.seal(b"x").unwrap_err(), Error::SizeLimit);
+    }
+
+    #[test]
+    fn pairing_keys_compare_in_constant_time() {
+        let a = PairingKey::from_bytes(&mut [1u8; 32]);
+        let same = PairingKey::from_bytes(&mut [1u8; 32]);
+        let mut flipped = [1u8; 32];
+        flipped[31] ^= 1;
+        let other = PairingKey::from_bytes(&mut flipped);
+        assert!(bool::from(a.ct_eq(&same)));
+        assert!(!bool::from(a.ct_eq(&other)));
+        assert!(!bool::from(other.ct_eq(&same)));
+    }
+
+    #[test]
+    fn endpoint_tokens_and_code_bits_are_random_and_bounded() {
+        assert_ne!(new_endpoint_token().unwrap(), new_endpoint_token().unwrap());
+        let bits: Vec<u32> = (0..64).map(|_| new_pairing_code_bits().unwrap()).collect();
+        assert!(bits.iter().all(|b| *b < 1 << 30));
+        assert!(bits.iter().any(|b| *b != bits[0]));
     }
 
     #[test]

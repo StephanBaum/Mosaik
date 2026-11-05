@@ -11,6 +11,11 @@
 //!   which other accounts cannot read, so they cannot squat the name
 //!   beforehand (named pipe names are machine-global).
 //!
+//! The file is trusted only while the desktop holds a lease on it
+//! (`DiscoveryLease`, Windows): after a crash nothing holds it and the host
+//! refuses the stale name instead of connecting to whatever program created
+//! a pipe with it (THREAT_MODEL R42).
+//!
 //! The functions that derive paths take their inputs as arguments so they
 //! can be tested for every OS on any OS; [`default_endpoint`] feeds them from
 //! the environment.
@@ -19,7 +24,14 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+use mosaic_core::browser_channel::new_endpoint_token;
+
 use crate::error::Error;
+
+#[cfg(windows)]
+mod lease;
+#[cfg(windows)]
+pub use lease::{DiscoveryLease, discovery_is_live, read_live_discovery_file};
 
 /// The app identifier of the desktop bundle (`tauri.conf.json`); the
 /// directory name under the user's data directories.
@@ -48,10 +60,9 @@ pub enum Endpoint {
 /// A fresh pipe name: [`PIPE_PREFIX`] and `random(16)` as lowercase hex.
 ///
 /// # Errors
-/// [`Error::Io`] if the OS CSPRNG fails.
+/// [`Error::Channel`] if the OS CSPRNG fails.
 pub fn new_windows_pipe_name() -> Result<String, Error> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|_| Error::Io(io::ErrorKind::Other))?;
+    let bytes = new_endpoint_token()?;
     Ok(format!("{PIPE_PREFIX}{}", &**crate::hex::encode(&bytes)))
 }
 
@@ -194,14 +205,25 @@ pub fn read_discovery_file(path: &Path) -> Result<String, Error> {
 /// Writes the discovery file for `pipe` atomically (a temporary file in the
 /// same directory, then a rename), creating the directory if needed.
 ///
+/// On Windows the desktop uses `DiscoveryLease::create` instead, which
+/// also keeps the file locked for its lifetime; this function alone leaves a
+/// file the host treats as stale.
+///
 /// # Errors
 /// [`Error::EndpointInvalid`] for a bad pipe name or a path without a
 /// directory, [`Error::Io`] on a write failure.
 pub fn write_discovery_file(path: &Path, pipe: &str) -> Result<(), Error> {
-    if !is_valid_pipe_name(pipe) {
+    if !is_valid_pipe_name(pipe) || path.parent().is_none() {
         return Err(Error::EndpointInvalid);
     }
-    let dir = path.parent().ok_or(Error::EndpointInvalid)?;
+    write_discovery_file_io(path, pipe).map_err(Error::from)
+}
+
+/// The write of [`write_discovery_file`], with the raw I/O error.
+fn write_discovery_file_io(path: &Path, pipe: &str) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     fs::create_dir_all(dir)?;
     let tmp = path.with_extension("json.tmp");
     let write = || -> io::Result<()> {
@@ -210,9 +232,8 @@ pub fn write_discovery_file(path: &Path, pipe: &str) -> Result<(), Error> {
         file.sync_all()?;
         fs::rename(&tmp, path)
     };
-    write().map_err(|e| {
+    write().inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
-        Error::from(e)
     })
 }
 
@@ -225,6 +246,19 @@ pub fn remove_discovery_file(path: &Path) -> Result<(), Error> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
+    }
+}
+
+/// The pipe name of the discovery file at `path`, trusted only while a
+/// desktop holds the file (Windows; elsewhere there is no discovery file).
+fn read_trusted_discovery_file(path: &Path) -> Result<String, Error> {
+    #[cfg(windows)]
+    {
+        read_live_discovery_file(path)
+    }
+    #[cfg(not(windows))]
+    {
+        read_discovery_file(path)
     }
 }
 
@@ -245,7 +279,9 @@ pub fn discovery_file() -> Result<PathBuf, Error> {
 }
 
 /// The endpoint the host connects to: on Unix the socket path of this OS, on
-/// Windows the pipe named in the discovery file.
+/// Windows the pipe named in the discovery file, but only while a desktop
+/// holds that file open (`DiscoveryLease`); a stale file is
+/// `DesktopNotRunning`.
 ///
 /// In debug builds `MOSAIC_BROWSER_ENDPOINT` (a socket path or a pipe name)
 /// replaces it, for integration tests. Release builds ignore the variable.
@@ -260,7 +296,7 @@ pub fn default_endpoint() -> Result<Endpoint, Error> {
         return endpoint_from_override(&value.to_string_lossy());
     }
     if cfg!(windows) {
-        let pipe = read_discovery_file(&discovery_file()?)?;
+        let pipe = read_trusted_discovery_file(&discovery_file()?)?;
         Ok(Endpoint::NamedPipe(pipe))
     } else if cfg!(target_os = "macos") {
         macos_socket_path(env_path("HOME").as_deref()).map(Endpoint::UnixSocket)
