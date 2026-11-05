@@ -68,6 +68,7 @@ export function WelcomeStep({ onCreated }: { onCreated: (created: CreatedAccount
           />
           <PasswordField
             size="lg"
+            toggleLabel="password"
             label={t("onboarding.create.password")}
             hint={t("onboarding.create.passwordHint")}
             autoComplete="new-password"
@@ -79,6 +80,7 @@ export function WelcomeStep({ onCreated }: { onCreated: (created: CreatedAccount
           />
           <PasswordField
             size="lg"
+            toggleLabel="password"
             label={t("onboarding.create.confirm")}
             autoComplete="new-password"
             required

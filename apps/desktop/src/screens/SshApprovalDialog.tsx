@@ -158,7 +158,7 @@ function Prompt({ request, waiting }: { request: SshApprovalRequest; waiting: nu
         <ErrorAlert error={error} />
         <div className="dialog__actions">
           <Button
-            autoFocus
+            data-autofocus=""
             onClick={() => {
               void answer("deny");
             }}

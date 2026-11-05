@@ -12,6 +12,7 @@ import { usePlatform } from "../platform/platform.ts";
 import { ariaKeyshortcuts, SHORTCUTS, type ShortcutName } from "../platform/shortcuts.ts";
 import type { View } from "./vault/VaultLayout.tsx";
 import { UserText } from "../components/UserText.tsx";
+import { titleOrUntitled } from "./vault/title.ts";
 
 interface Entry {
   id: string;
@@ -82,7 +83,7 @@ function useEntries(query: string, actions: Actions): Entry[] {
     const found: Entry[] = items.map((item) => ({
       id: `item-${item.itemId}`,
       group: "items",
-      label: item.title ?? t("vault.untitled"),
+      label: titleOrUntitled(item.title, t("vault.untitled")),
       hint:
         item.subtitle === null
           ? t(`item.kind.${item.kind}`)
@@ -258,7 +259,7 @@ export function CommandPalette(actions: Actions) {
           aria-activedescendant={selected === undefined ? undefined : `${listId}-${selected.id}`}
           aria-label={t("palette.search")}
           placeholder={t("palette.search")}
-          autoFocus
+          data-autofocus=""
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);

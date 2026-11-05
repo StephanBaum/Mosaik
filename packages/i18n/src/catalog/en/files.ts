@@ -3,6 +3,7 @@ export const files = {
   "files.title": "Files",
   "files.add": "Add file…",
   "files.empty": "No files yet.",
+  "files.previewLoading": "Preparing preview…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",

@@ -1,11 +1,48 @@
 /**
  * A modal dialog on the native `<dialog>` element: focus is trapped and Esc closes the
- * top-most dialog without extra code. Put `autoFocus` on the control that should start
- * with focus.
+ * top-most dialog without extra code. Put `data-autofocus` on the control that should start
+ * with focus (React's `autoFocus` runs before `showModal()` and is ignored by a closed dialog).
+ * Tab and Shift+Tab wrap inside the dialog, so leaving it by keyboard never moves focus to the
+ * page behind (the preview closes when the window loses focus).
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import { IconButton } from "./IconButton.tsx";
+
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** The controls Tab can reach inside `dialog`, in order. */
+function tabStops(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (element) =>
+      !element.hasAttribute("disabled") &&
+      element.getAttribute("tabindex") !== "-1" &&
+      element.closest("[hidden], [inert]") === null,
+  );
+}
+
+/** Wraps Tab from the last control to the first and Shift+Tab the other way. */
+function trapTab(event: KeyboardEvent<HTMLDialogElement>): void {
+  if (event.key !== "Tab") {
+    return;
+  }
+  const stops = tabStops(event.currentTarget);
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    return;
+  }
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === event.currentTarget)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 
 export function Dialog({
   title,
@@ -40,6 +77,7 @@ export function Dialog({
     const dialog = ref.current;
     if (dialog !== null && !dialog.open) {
       dialog.showModal();
+      dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     }
     // Whatever had focus when the dialog opened gets it back when the dialog goes away.
     return () => {
@@ -54,6 +92,7 @@ export function Dialog({
       ref={ref}
       className={`dialog dialog--${size}`}
       aria-label={label ?? title}
+      onKeyDown={trapTab}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

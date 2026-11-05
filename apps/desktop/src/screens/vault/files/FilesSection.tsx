@@ -3,7 +3,7 @@
  * Remove. A file never reaches the webview; the buttons ask Rust, which opens the native dialogs
  * and does all file I/O. There are no thumbnails.
  */
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { Button } from "../../../components/Button.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
 import { ErrorAlert } from "../../../components/ErrorAlert.tsx";
@@ -34,7 +34,7 @@ function RemoveDialog({
     <Dialog title={t("files.removeConfirm.title", { name: entry.fileName })} onClose={onKeep}>
       <p className="lede">{t("files.removeConfirm.body")}</p>
       <div className="dialog__actions">
-        <Button autoFocus onClick={onKeep}>
+        <Button data-autofocus="" onClick={onKeep}>
           {t("files.removeConfirm.keep")}
         </Button>
         <Button variant="dangerSolid" onClick={onRemove}>
@@ -79,7 +79,7 @@ function FileRow({
       </div>
       <div className="files__actions">
         {entry.previewable && (
-          <IconButton icon="eye" label={t("files.preview", { name })} onClick={onPreview} />
+          <IconButton icon="image" label={t("files.preview", { name })} onClick={onPreview} />
         )}
         <IconButton
           icon="download"
@@ -138,12 +138,79 @@ function FilesList({
   );
 }
 
+/**
+ * The remove dialog is modal while it closes, so focus goes back to "Add file…" only after it is
+ * gone. Returns what to call right before the dialog is dismissed after a removal.
+ */
+function useRefocusAfterRemove(
+  removing: AttachmentEntry | null,
+  addButton: RefObject<HTMLButtonElement | null>,
+): () => void {
+  const pending = useRef(false);
+  useEffect(() => {
+    if (removing === null && pending.current) {
+      pending.current = false;
+      addButton.current?.focus();
+    }
+  }, [removing, addButton]);
+  return () => {
+    pending.current = true;
+  };
+}
+
+/** The preview and the remove confirmation. */
+function FileDialogs({
+  item,
+  files,
+  previewing,
+  removing,
+  onPreviewDone,
+  onRemoveDone,
+  onRemoved,
+}: {
+  item: ItemRequest;
+  files: Files;
+  previewing: AttachmentEntry | null;
+  removing: AttachmentEntry | null;
+  onPreviewDone: () => void;
+  onRemoveDone: () => void;
+  onRemoved: () => void;
+}) {
+  return (
+    <>
+      {previewing !== null && (
+        <PreviewDialog
+          item={item}
+          attachment={previewing}
+          onClose={onPreviewDone}
+          onSaveAs={() => {
+            files.saveAs(previewing);
+          }}
+        />
+      )}
+      {removing !== null && (
+        <RemoveDialog
+          entry={removing}
+          onKeep={onRemoveDone}
+          onRemove={() => {
+            void files.remove(removing).then(() => {
+              onRemoved();
+              onRemoveDone();
+            });
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 export function FilesSection({
   detail,
   item,
   editable,
   autoFocusAdd,
   note,
+  quietWhenEmpty = false,
   onChanged,
 }: {
   detail: ItemDetail;
@@ -152,6 +219,8 @@ export function FilesSection({
   autoFocusAdd: boolean;
   /** A caption under the heading (the editor says that files are saved at once). */
   note?: string | undefined;
+  /** With no files, show only a small "Add file…" action instead of the whole section. */
+  quietWhenEmpty?: boolean;
   onChanged: (detail: ItemDetail) => void;
 }) {
   const { t } = useI18n();
@@ -160,26 +229,34 @@ export function FilesSection({
   const addButton = useRef<HTMLButtonElement>(null);
   const [previewing, setPreviewing] = useState<AttachmentEntry | null>(null);
   const [removing, setRemoving] = useState<AttachmentEntry | null>(null);
+  const onRemoved = useRefocusAfterRemove(removing, addButton);
   if (!editable && detail.attachments.length === 0) {
     return null;
   }
+  // The slots stay where they are, so the button keeps its place (and focus) when the first file arrives.
+  const quiet = quietWhenEmpty && detail.attachments.length === 0;
   return (
-    <section className="files" aria-labelledby={headingId}>
-      <h3 id={headingId} className="files__title">
-        {t("files.title")}
-      </h3>
-      {note !== undefined && <p className="files__note">{note}</p>}
-      <FilesList
-        entries={detail.attachments}
-        editable={editable}
-        files={files}
-        onPreview={setPreviewing}
-        onRemove={setRemoving}
-      />
+    <section className="files" aria-labelledby={quiet ? undefined : headingId}>
+      {!quiet && (
+        <h3 id={headingId} className="files__title">
+          {t("files.title")}
+        </h3>
+      )}
+      {!quiet && note !== undefined && <p className="files__note">{note}</p>}
+      {!quiet && (
+        <FilesList
+          entries={detail.attachments}
+          editable={editable}
+          files={files}
+          onPreview={setPreviewing}
+          onRemove={setRemoving}
+        />
+      )}
       {editable && (
         <div>
           <Button
             ref={addButton}
+            variant={quiet ? "ghost" : "secondary"}
             autoFocus={autoFocusAdd}
             aria-busy={files.adding}
             disabled={files.adding}
@@ -190,32 +267,19 @@ export function FilesSection({
         </div>
       )}
       <ErrorAlert error={files.error} />
-      {previewing !== null && (
-        <PreviewDialog
-          item={item}
-          attachment={previewing}
-          onClose={() => {
-            setPreviewing(null);
-          }}
-          onSaveAs={() => {
-            files.saveAs(previewing);
-          }}
-        />
-      )}
-      {removing !== null && (
-        <RemoveDialog
-          entry={removing}
-          onKeep={() => {
-            setRemoving(null);
-          }}
-          onRemove={() => {
-            void files.remove(removing).then(() => {
-              setRemoving(null);
-              addButton.current?.focus();
-            });
-          }}
-        />
-      )}
+      <FileDialogs
+        item={item}
+        files={files}
+        previewing={previewing}
+        removing={removing}
+        onPreviewDone={() => {
+          setPreviewing(null);
+        }}
+        onRemoveDone={() => {
+          setRemoving(null);
+        }}
+        onRemoved={onRemoved}
+      />
     </section>
   );
 }

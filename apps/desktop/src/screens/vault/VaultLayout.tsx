@@ -32,6 +32,7 @@ import {
   useVaults,
   type Category,
 } from "./useVaultData.ts";
+import { titleOrUntitled } from "./title.ts";
 
 export type View = "vault" | "trash" | "security" | "generator" | "settings" | "import";
 
@@ -56,7 +57,7 @@ function editorTitleOf(editor: Editor, t: Translate): string | null {
   if (editor.mode === "new") {
     return t("vault.new");
   }
-  return editor.mode === "edit" ? (editor.detail.summary.title ?? t("vault.untitled")) : null;
+  return editor.mode === "edit" ? (titleOrUntitled(editor.detail.summary.title, t("vault.untitled"))) : null;
 }
 
 function MainArea({

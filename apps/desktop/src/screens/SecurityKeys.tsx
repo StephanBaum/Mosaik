@@ -97,7 +97,7 @@ export function AddKeyDialog({
           <PasswordField
             label={t("reauth.password")}
             autoComplete="current-password"
-            autoFocus
+            data-autofocus=""
             error={passwordError === null ? undefined : errorMessage(passwordError)}
             value={flow.password}
             onChange={(event) => {
@@ -108,7 +108,7 @@ export function AddKeyDialog({
         <PasswordField
           label={t("lock.quick.pin")}
           autoComplete="off"
-          autoFocus={!withPassword}
+          data-autofocus={withPassword ? undefined : ""}
           value={flow.pin}
           onChange={(event) => {
             flow.setPin(event.target.value);

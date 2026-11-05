@@ -10,6 +10,7 @@ import { MenuButton, type MenuItem } from "../../components/Menu.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { ItemDetail as Detail, VaultSummary } from "../../ipc/contract/index.ts";
 import { UserText } from "../../components/UserText.tsx";
+import { titleOrUntitled } from "./title.ts";
 
 export type ItemCommand = "trash_item" | "restore_item" | "purge_item";
 
@@ -35,7 +36,7 @@ function PurgeDialog({
     <Dialog title={t("trash.purgeConfirm.title", { title })} onClose={onCancel}>
       <p className="lede">{t("trash.purgeConfirm.body")}</p>
       <div className="dialog__actions">
-        <Button autoFocus onClick={onCancel}>
+        <Button data-autofocus="" onClick={onCancel}>
           {t("action.cancel")}
         </Button>
         <Button variant="dangerSolid" onClick={onConfirm}>
@@ -81,7 +82,7 @@ function Actions({
         </Button>
         {confirmPurge && (
           <PurgeDialog
-            title={summary.title ?? t("vault.untitled")}
+            title={titleOrUntitled(summary.title, t("vault.untitled"))}
             onCancel={() => {
               setConfirmPurge(false);
             }}
@@ -136,7 +137,7 @@ export function DetailHeader({
 }) {
   const { t } = useI18n();
   const summary = detail.summary;
-  const title = summary.title ?? t("vault.untitled");
+  const title = titleOrUntitled(summary.title, t("vault.untitled"));
   const vaultName = vaults.find((vault) => vault.vaultId === summary.vaultId)?.name;
   return (
     <div className="detail__header">

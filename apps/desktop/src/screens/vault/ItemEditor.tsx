@@ -3,18 +3,13 @@
  * one-time code, SSH key, tags, notes and custom fields. The kind can be chosen only while
  * creating: core has no setter for it and two devices could pick different kinds (ADR-0033).
  */
-import {
-  useState,
-  type Dispatch,
-  type KeyboardEvent,
-  type SetStateAction,
-  type SyntheticEvent,
-} from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Select } from "../../components/Select.tsx";
+import { useLatest } from "../../hooks/useLatest.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import {
@@ -31,6 +26,7 @@ import { FilesSection } from "./files/FilesSection.tsx";
 import { changeKind, hasErrors, initialForm, validateForm, type Form } from "./editorForm.ts";
 import { OTP_UNCHANGED } from "./otp/OtpSection.tsx";
 import { useSave } from "./useSave.ts";
+import { titleOrUntitled } from "./title.ts";
 
 const CREATABLE: readonly ItemKind[] = itemKinds.filter(
   (kind) => kind !== "unsupported" && kind !== "passkey",
@@ -122,7 +118,7 @@ function DiscardDialog({ onKeep, onDiscard }: { onKeep: () => void; onDiscard: (
     <Dialog title={t("editor.discard.title")} onClose={onKeep}>
       <p>{t("editor.discard.body")}</p>
       <div className="dialog__actions">
-        <Button autoFocus onClick={onKeep}>
+        <Button data-autofocus="" onClick={onKeep}>
           {t("editor.discard.keep")}
         </Button>
         <Button onClick={onDiscard}>{t("editor.discard.confirm")}</Button>
@@ -146,7 +142,7 @@ function useHeading(editing: ItemDetail | null, kind: ItemKind): string {
   const { t } = useI18n();
   return editing === null
     ? t("editor.newTitle", { kind })
-    : t("editor.editTitle", { title: editing.summary.title ?? t("vault.untitled") });
+    : t("editor.editTitle", { title: titleOrUntitled(editing.summary.title, t("vault.untitled")) });
 }
 
 /**
@@ -168,12 +164,25 @@ function EditorFiles({ editing }: { editing: ItemDetail }) {
   );
 }
 
-/** Esc leaves the editor; a dialog inside the form handles its own Esc. */
-function leaveOnEscape(event: KeyboardEvent<HTMLFormElement>, leave: () => void) {
-  if (event.key === "Escape" && !(event.target instanceof Element && event.target.closest("dialog"))) {
-    event.preventDefault();
-    leave();
-  }
+/**
+ * Esc leaves the editor wherever focus is (also on the page body after the editor opened), as
+ * long as the editor is the top layer: an open dialog handles its own Esc, and a key press that
+ * something else already used (a menu, say) is left alone.
+ */
+function useLeaveOnEscape(leave: () => void): void {
+  const latest = useLatest(leave);
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented && document.querySelector("dialog[open]") === null) {
+        event.preventDefault();
+        latest.current();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [latest]);
 }
 
 /** The form's state, what blocks saving and what a submit does. */
@@ -244,6 +253,13 @@ export function ItemEditor({
   const { form, dirty } = state;
   const cancel = useCancel(form, onCancel);
   const heading = useHeading(editing, form.kind);
+  useLeaveOnEscape(() => {
+    if (dirty) {
+      setConfirmDiscard(true);
+    } else {
+      cancel();
+    }
+  });
   return (
     <form
       className="editor"
@@ -252,15 +268,6 @@ export function ItemEditor({
         state.submit();
       }}
       noValidate
-      onKeyDown={(event) => {
-        leaveOnEscape(event, () => {
-          if (dirty) {
-            setConfirmDiscard(true);
-          } else {
-            cancel();
-          }
-        });
-      }}
     >
       <div className="editor__header">
         <h2 className="display">{heading}</h2>

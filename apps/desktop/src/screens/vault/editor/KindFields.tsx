@@ -87,23 +87,29 @@ function TextInput({ spec, form, tried, errors, onChange }: Shared & { spec: Fie
   );
 }
 
-/** The hint under a secret: why it is empty, what it will do, or what looks off. */
+/** The hint under a secret: why it is empty, what it will do, or what looks off (a warning). */
 function secretHint(
   t: ReturnType<typeof useI18n>["t"],
   spec: FieldSpec,
   state: { typed: string; stored: boolean; clearing: boolean; label: string },
-): string | undefined {
+): { text: string | undefined; warning: boolean } {
   if (state.clearing) {
-    return t("editor.secretWillClear", { field: state.label });
+    return { text: t("editor.secretWillClear", { field: state.label }), warning: false };
   }
   if (spec.input === "cardNumber" && state.typed !== "") {
     const problem = cardNumberHint(state.typed);
-    return problem === null ? undefined : t(problem === "length" ? "editor.card.lengthHint" : "editor.card.luhnHint");
+    if (problem !== null) {
+      return { text: t(problem === "length" ? "editor.card.lengthHint" : "editor.card.luhnHint"), warning: true };
+    }
+    return { text: undefined, warning: false };
   }
   if (state.stored && state.typed === "") {
-    return t("editor.keepSecret");
+    return { text: t("editor.keepSecret"), warning: false };
   }
-  return spec.key === "cardVerificationCode" ? t("editor.card.cvvHint") : undefined;
+  return {
+    text: spec.key === "cardVerificationCode" ? t("editor.card.cvvHint") : undefined,
+    warning: false,
+  };
 }
 
 function SecretInput({
@@ -123,6 +129,7 @@ function SecretInput({
   const typed = form.secrets[key] ?? "";
   const clearing = form.clearSecrets.includes(key);
   const numeric = spec.input === "digits" || spec.input === "cardNumber";
+  const hint = secretHint(t, spec, { typed, stored, clearing, label });
   const change = (value: string) => {
     const patch: Partial<Form> = { secrets: { ...form.secrets, [key]: value } };
     if (key === "cardNumber") {
@@ -138,8 +145,10 @@ function SecretInput({
     <div className="editor__password">
       <PasswordField
         label={label}
-        hint={secretHint(t, spec, { typed, stored, clearing, label })}
-        autoComplete={key === "password" ? "new-password" : "off"}
+        hint={hint.text}
+        hintTone={hint.warning ? "warning" : undefined}
+        // Only a login's password is new; an SSH passphrase is not offered to the password manager.
+        autoComplete={key === "password" && form.kind === "login" ? "new-password" : "off"}
         inputMode={numeric ? "numeric" : undefined}
         disabled={clearing}
         value={typed}

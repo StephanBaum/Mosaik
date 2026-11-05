@@ -5,6 +5,7 @@ export const unlock = {
   "lock.wrongPassword":
     "That master password didn't work. Check Caps Lock and your keyboard layout, then try again.",
   "lock.locked": "Mosaic is locked.",
+  "session.unlocked": "Mosaic is unlocked.",
   "lock.secretKey": "Secret Key",
   "lock.secretKeyHint":
     "This device doesn't have your Secret Key yet. Type it from your Emergency Kit, and Mosaic remembers it on this device.",

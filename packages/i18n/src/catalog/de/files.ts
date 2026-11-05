@@ -5,6 +5,7 @@ export const files = {
   "files.title": "Dateien",
   "files.add": "Datei hinzufügen…",
   "files.empty": "Noch keine Dateien.",
+  "files.previewLoading": "Vorschau wird vorbereitet…",
   "files.size.b": "{value} B",
   "files.size.kb": "{value} KB",
   "files.size.mb": "{value} MB",

@@ -114,7 +114,7 @@ export function UnlockScreen({
         <UnlockIntro email={session.email} />
         <form ref={form} className="form-stack" onSubmit={(event) => void submit(event)} noValidate>
           <PasswordField
-            size="lg"
+            size="lg" toggleLabel="password"
             label={t("lock.masterPassword")}
             autoComplete="current-password"
             // The one field on this screen: focus it like a native unlock prompt.

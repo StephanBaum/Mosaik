@@ -28,6 +28,12 @@ export function SshRows({ summary, item }: { summary: SshKeySummary; item: ItemR
       )}
       <div className="row">
         <div className="row__main">
+          <span className="row__label">{t("item.field.sshPrivateKey")}</span>
+          <span className="row__value">{t("item.ssh.privateKeyKept")}</span>
+        </div>
+      </div>
+      <div className="row">
+        <div className="row__main">
           <span className="row__label">{t("item.field.sshFingerprint")}</span>
           <span className="row__value mono">{summary.fingerprint ?? ""}</span>
         </div>

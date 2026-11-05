@@ -57,6 +57,46 @@ describe("App with the mock IPC", () => {
     expect(await screen.findByRole("heading", { name: "Unlock Mosaic" })).toBeTruthy();
   });
 
+  it("announces the unlock in a live region, but not a start that is already unlocked", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await screen.findByText("GitHub");
+    expect(screen.queryByText("Mosaic is unlocked.")).toBeNull();
+    unmount();
+
+    render(<App ipc={createMockIpc({ start: "locked" })} languages={["en"]} />);
+    await user.type(await screen.findByLabelText("Master password"), "mosaic");
+    await user.click(screen.getByRole("button", { name: "Unlock" }));
+    await screen.findByText("GitHub");
+    const announcement = screen.getByText("Mosaic is unlocked.");
+    expect(announcement.getAttribute("role")).toBe("status");
+    expect(announcement.classList.contains("visually-hidden")).toBe(true);
+  });
+
+  it("opens the editor on the title and gives focus back when Esc closes it", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await screen.findByText("GitHub");
+    const newItem = screen.getByRole("button", { name: "New item" });
+    await user.click(newItem);
+    expect(document.activeElement).toBe(await screen.findByLabelText("Title"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Title")).toBeNull();
+    });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "New item" }));
+
+    // Editing an open item: Cancel returns to the item's row.
+    await user.click(screen.getByText("GitHub"));
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(document.activeElement).toBe(await screen.findByLabelText("Title"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Title")).toBeNull();
+    });
+    expect(document.activeElement?.classList.contains("item-row")).toBe(true);
+  });
+
   it("speaks German with informal address", async () => {
     render(<App ipc={createMockIpc({ start: "locked" })} languages={["de-DE"]} />);
     expect(await screen.findByRole("heading", { name: "Mosaic entsperren" })).toBeTruthy();

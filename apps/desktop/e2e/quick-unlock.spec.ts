@@ -28,10 +28,10 @@ for (const colorScheme of ["light", "dark"] as const) {
       const guard = watch(page);
       await page.goto("/?mock=locked&quick=hardwareKey");
       await page.getByRole("button", { name: "Use security key" }).click();
-      await expect(page.getByLabel("Security key PIN")).toBeVisible();
+      await expect(page.getByLabel("Security key PIN", { exact: true })).toBeVisible();
       await expectAccessible(page);
 
-      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByText("GitHub")).toBeVisible();
       guard.expectClean();
@@ -82,7 +82,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       await openCodesVault(page);
       await expectAccessible(page);
 
-      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await page.getByRole("button", { name: "Use security key" }).click();
       await expect(page.getByText("Bank", { exact: true })).toBeVisible();
       await expect(page.getByRole("region", { name: "Register a backup key" })).toBeVisible();
@@ -98,14 +98,14 @@ for (const colorScheme of ["light", "dark"] as const) {
       const guard = watch(page);
       await page.goto("/?mock=unlocked&quick=hardwareKey");
       await openCodesVault(page);
-      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await page.getByRole("button", { name: "Use security key" }).click();
       await expect(page.getByRole("button", { name: "Lock this vault" })).toBeFocused();
 
       const card = page.getByRole("region", { name: "Register a backup key" });
       await card.getByRole("button", { name: "Add security key" }).click();
       const add = page.getByRole("dialog", { name: "Add security key" });
-      await add.getByLabel("Security key PIN").fill("1234");
+      await add.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await add.getByRole("button", { name: "Add security key" }).click();
 
       const reauth = page.getByRole("dialog", { name: "Confirm with your master password" });
@@ -120,21 +120,21 @@ for (const colorScheme of ["light", "dark"] as const) {
     test("hardware vault: warns before it locks, then says it locked itself", async ({ page }) => {
       await page.goto("/?mock=unlocked&quick=hardwareKey&hwOpenSeconds=3");
       await openCodesVault(page);
-      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await page.getByRole("button", { name: "Use security key" }).click();
       await expect(page.getByText(/locks in less than 30 seconds/)).toBeVisible();
       await expectAccessible(page);
 
       const notice = page.getByText("This vault locked itself. Use your security key to open it again.");
       await expect(notice).toBeVisible({ timeout: 8000 });
-      await expect(page.getByLabel("Security key PIN")).toBeFocused();
+      await expect(page.getByLabel("Security key PIN", { exact: true })).toBeFocused();
       await expectAccessible(page);
     });
 
     test("unlock: a deliberate cancel of the key touch says nothing", async ({ page }) => {
       await page.goto("/?mock=locked&quick=hardwareKey&touchMs=60000");
       await page.getByRole("button", { name: "Use security key" }).click();
-      await page.getByLabel("Security key PIN").fill("1234");
+      await page.getByLabel("Security key PIN", { exact: true }).fill("1234");
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByText("Insert your key and touch it when it blinks.")).toBeVisible();
       await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();

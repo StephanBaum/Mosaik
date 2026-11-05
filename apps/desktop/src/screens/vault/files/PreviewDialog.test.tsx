@@ -137,6 +137,33 @@ describe("PreviewDialog", () => {
     expect(screen.getByRole("dialog", { name: "passport.png" })).toBeTruthy();
   });
 
+  it("says the preview is being prepared until the pixels are painted", async () => {
+    const { ipc, answerWith } = controlledIpc();
+    render(<Host ipc={ipc} />);
+    expect(screen.getByRole("status").textContent).toBe("Preparing preview…");
+    await act(async () => {
+      answerWith({ ok: true, value: answer(2, 2) });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+  });
+
+  it("starts on Close and keeps Tab and Shift+Tab inside the dialog", async () => {
+    const user = userEvent.setup();
+    render(<Host ipc={controlledIpc().ipc} />);
+    const close = screen.getByRole("button", { name: "Close" });
+    const saveAs = screen.getByRole("button", { name: "Save as…" });
+    expect(document.activeElement).toBe(close);
+    // Tab from the last control wraps to the first instead of leaving the dialog (and closing it on blur).
+    await user.tab();
+    expect(document.activeElement).toBe(saveAs);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(close);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("marks the frame as a secret without a mask", () => {
     const { ipc } = controlledIpc();
     render(<Host ipc={ipc} />);

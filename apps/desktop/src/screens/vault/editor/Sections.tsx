@@ -58,7 +58,6 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
   const notes = (
     <TextArea
       label={t("item.field.notes")}
-      hint={form.kind === "document" && form.creating ? t("editor.document.filesAfterSave") : undefined}
       value={form.notes}
       rows={note ? 12 : 2}
       autoComplete="off"
@@ -77,6 +76,9 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
       }}
     />
   );
+  const filesAfterSave = form.kind === "document" && form.creating && (
+    <p className="field__hint">{t("editor.document.filesAfterSave")}</p>
+  );
   return note ? (
     <>
       {notes}
@@ -86,6 +88,7 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
     <>
       {tags}
       {notes}
+      {filesAfterSave}
     </>
   );
 }
@@ -100,11 +103,23 @@ export function Sections(props: SectionsProps) {
         label={t("item.field.title")}
         value={form.title}
         required
+        autoFocus
         autoComplete="off"
+        error={props.tried && errors.titleRequired ? t("editor.titleRequired") : undefined}
         onChange={(event) => {
           onChange({ title: event.target.value });
         }}
       />
+      {hasSshKey(form.kind) && (
+        <SshKeyInput
+          value={form.sshPrivateKey}
+          creating={initial.creating}
+          error={props.tried ? errors.sshKey : null}
+          onChange={(sshPrivateKey) => {
+            onChange({ sshPrivateKey });
+          }}
+        />
+      )}
       <KindFields
         form={form}
         tried={props.tried}
@@ -128,16 +143,6 @@ export function Sections(props: SectionsProps) {
           vaults={props.vaults}
           missing={props.tried && props.otpMissing}
           onChange={onChange}
-        />
-      )}
-      {hasSshKey(form.kind) && (
-        <SshKeyInput
-          value={form.sshPrivateKey}
-          creating={initial.creating}
-          error={props.tried ? errors.sshKey : null}
-          onChange={(sshPrivateKey) => {
-            onChange({ sshPrivateKey });
-          }}
         />
       )}
       <NotesAndTags form={form} onChange={onChange} />

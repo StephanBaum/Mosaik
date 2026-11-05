@@ -7,6 +7,7 @@ export const unlock = {
   "lock.wrongPassword":
     "Dieses Master-Passwort hat nicht funktioniert. Prüfe die Feststelltaste und dein Tastaturlayout und versuche es erneut.",
   "lock.locked": "Mosaic ist gesperrt.",
+  "session.unlocked": "Mosaic ist entsperrt.",
   "lock.secretKey": "Secret Key",
   "lock.secretKeyHint":
     "Dieses Gerät kennt deinen Secret Key noch nicht. Gib ihn aus deinem Emergency Kit ein, dann merkt Mosaic ihn sich auf diesem Gerät.",

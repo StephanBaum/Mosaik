@@ -21,6 +21,7 @@ export function UrlListEditor({
   };
   return (
     <>
+      <h3 className="editor__group-heading">{t("editor.urls.heading")}</h3>
       {rows.map((row, at) => (
         <div key={row.rowKey} className="editor__password">
           <TextField
@@ -28,6 +29,7 @@ export function UrlListEditor({
             type="url"
             autoComplete="off"
             value={row.url}
+            hint={at === 0 ? t("editor.urls.hint") : undefined}
             onChange={(event) => {
               patch(row.rowKey, { url: event.target.value });
             }}
@@ -35,7 +37,10 @@ export function UrlListEditor({
           <Select
             label={t("editor.urls.match", { index: at + 1 })}
             value={row.matchMode}
-            options={urlMatchModes.map((mode) => ({ value: mode, label: t(`item.urlMatch.${mode}`) }))}
+            options={urlMatchModes.map((mode) => ({
+              value: mode,
+              label: t(mode === "exactOrigin" ? "editor.urls.matchExactRecommended" : `item.urlMatch.${mode}`),
+            }))}
             onChange={(event) => {
               patch(row.rowKey, { matchMode: event.target.value as UrlMatchMode });
             }}
