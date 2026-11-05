@@ -1,7 +1,7 @@
 # Extension security
 
-Status: v1 (M4 track T3: the core and the hostile-page harness). Save capture, the popup
-screens and a mapping of every brief §4 item follow in T4 and T5. Normative companions:
+Status: v2 (M4 track T4: save capture and the popup added to T3's core and hostile-page
+harness). A mapping of every brief §4 item follows in T5. Normative companions:
 `THREAT_MODEL.md` §4.3, `NATIVE_MESSAGING.md`, ADR-0035 (architecture and gestures), ADR-0036
 (channel) and ADR-0037 (fill policy).
 
@@ -45,13 +45,20 @@ extension`; `e2e/hostile/*.spec.ts` run in Chromium with the e2e build, see §7)
 | A page reads the extension's files or pages | No `web_accessible_resources`; `externally_connectable: {ids: []}` | `scripts/manifest.test.ts`, `e2e/hostile/spoof-messages.spec.ts` |
 | A framework ignores a programmatic value (React, Vue) | The value is set with the DOM's own setter from the isolated world, then `input` (composed `InputEvent`) and `change` fire | `src/content/fill.test.ts`, `e2e/hostile/react-controlled.spec.ts` |
 | Test code in the shipped package | `excludeE2e` replaces `src/background/e2e.ts` outside `--mode e2e`; `check-dist.mjs` fails the build on `mosaicE2E`, `e2eTabId`, `FakeDesktop`, `pauseAfterProbe`, external listeners, `host_permissions`, `content_scripts`, `web_accessible_resources`, `optional_permissions`, `key`, a changed permission or optional-host list, or an `externally_connectable` other than `{ids: []}` (Chromium) / absent (Firefox) | `scripts/check-dist.mjs`, `scripts/manifest.test.ts` |
+| Save capture (opt-in) reads what the user types, or a page makes it report a login | Off by default. On: the popup asks for the optional site access in the click, the background registers `capture.js` (never in the manifest; `check-dist.mjs` fails if `content_scripts` exist). The script reacts to trusted clicks on submit controls and the Enter key, not to `submit` (a script's `requestSubmit()` raises a trusted `submit`), reads only the submitted form, at most once per 2 s, and listens to no page message (`check-dist.mjs` greps for it). Origin and tab come from the browser; cross-origin, opaque and hidden-ancestry frames are dropped | `src/capture/capture.test.ts`, `src/background/save.test.ts`, `e2e/save.spec.ts` |
+| A page feeds the capture a login to save | Scripted `submit`, `click` and key events are ignored. A real click leaves the page free to fire a scripted one afterwards; the result is a pending save whose host and user name the popup shows and whose password stays hidden, and nothing is written until the desktop's own dialog is allowed (R44) | `e2e/save.spec.ts` ("a page cannot make the capture report a login"), `src/background/save.test.ts` |
+| A captured or generated password shown or sent for another site or tab | A pending save is bound to its tab and the tab's origin: another origin, five minutes, a closed tab and a tab that left the site drop it. The popup shows the host, the user name and a hidden password; "Save" sends the stored login, never anything the popup supplies | `src/background/save.test.ts`, `src/background/popup.test.ts`, `e2e/generator.spec.ts` |
+| A frame confirmation clicked for one frame is used for another (the page swaps the focused frame between the popup's state and the click) | `confirmFrame` names the frame id and the document id the popup showed when the dialog opened; the background fills only when the target at fill time is that frame and document, else `frameNeedsConfirmation`. Where the browser gives no document id (Firefox) only the frame id is compared | `src/background/fill.test.ts`, `e2e/popup.spec.ts` |
+| The popup's generated password filled into another tab or site, or a different password than the one shown | The hold is bound to the tab and origin, is taken once, and the popup's Fill requires it (`generatedExpired` otherwise, never a new password); "this site" generation takes the host and the page's rules from the tab, not from the popup | `src/background/fill.test.ts`, `src/background/popup.test.ts`, `e2e/generator.spec.ts` |
+| The popup shows a vault password or a code | It never does: lists hold titles and user names, a fill or copy goes through the desktop, a code is filled or copied there, the save card hides the password, and the only secret on screen is the generated password (`data-secret`) | `src/popup/logins.test.tsx`, `src/popup/save-generator.test.tsx`, `e2e/popup.spec.ts` |
+| Inline UI or page-visible traces from the popup or capture | None: nothing is inserted into pages; the popup is an extension page under the extension CSP (no inline script or style: `src/popup/strings.test.ts` checks styles use tokens and no `style=`) | `scripts/check-dist.mjs`, `src/popup/strings.test.ts` |
 | Malformed or hostile replies from the host | Every message is validated with exact keys and the fixture samples of the Rust side; unknown keys, versions and events are dropped | `src/shared/protocol.test.ts` |
 
 ## 2. Gestures and the fill
 
 A fill starts only from:
 
-1. a click in the toolbar popup (`fill`, `fillOtp`, `fillGenerated`; the popup is T4),
+1. a click in the toolbar popup (`fill`, `fillOtp`, `fillGenerated`),
 2. the `fill-login` command (Ctrl+Shift+L, Command+Shift+L on macOS),
 3. the context-menu items "Fill login" and "Generate password" on editable fields.
 
@@ -71,8 +78,11 @@ submitted. A failed shortcut or menu fill is shown as the toolbar badge `!`, the
   extension id, with `sender.url` equal to our `popup.html` and no `sender.tab`
   (`router.ts`). Each message is validated with exact keys; anything else is dropped without a
   reply.
-- The single message a content script may send is `captured` (T4), from our id with a tab,
-  at most 10 messages a second and 5 captures a minute per tab.
+- The single message a content script may send is `captured` (from `capture.js`), from our id
+  with a tab, with exactly the keys `type`, `username`, `password`, `newPassword` and
+  `ancestorsSameOrigin` (a password of 1 to 1024 characters), at most 10 messages a second and
+  5 captures a minute per tab. Where the capture came from is read from the sender, never the
+  message.
 - The content script accepts `runtime` messages only from our background (`sender.id` equals our
   id and no `sender.tab`) and validates them. It never listens to `message`, and the page
   cannot reach `runtime` at all.
@@ -83,19 +93,22 @@ submitted. A failed shortcut or menu fill is shown as the toolbar badge `!`, the
 
 Production manifest (`scripts/manifest.ts`, enforced by `manifest.test.ts` and `check-dist.mjs`):
 `activeTab`, `scripting`, `nativeMessaging`, `contextMenus`, `storage`. `optional_host_permissions`
-(`https://*/*`, `http://*/*`) exist only for the opt-in save capture (T4) and are not granted
+(`https://*/*`, `http://*/*`) exist only for the opt-in save capture and are not granted
 by default. There are no `host_permissions` and no static `content_scripts`. The extension pages
 run under `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src
 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 
-The `e2e` build adds `host_permissions` for `*.test` and `webNavigation`, so the tests can run
-without a physical click; the `dev` build adds only the dev key (fixed extension id for the
+The `e2e` build adds `host_permissions` for `*.test` (and for the two patterns of the optional
+permission, which a headless browser cannot grant by clicking) and `webNavigation`, so the tests
+can run without a physical click; the `dev` build adds only the dev key (fixed extension id for the
 native host). Neither is published.
 
 ## 5. Storage
 
 IndexedDB in the extension's origin, read by the background only: the pairing (`pairing`, id and
-`K_pair`). `chrome.storage.session` (memory): `lastFilled:<tabId>`, `lastError:<tabId>`. Never
+`K_pair`) and `neverSave:<origin>` (sites where saving is never offered). `chrome.storage.session`
+(memory): `lastFilled:<tabId>`, `lastError:<tabId>` (shown once), `pendingSave:<tabId>` (a captured
+or generated login, five minutes, with the password). Never
 `storage.local` or `storage.sync`. A secret leaves the desktop only inside a `fill` or
 `generate` response and lives in locals of one call; JavaScript cannot wipe it (THREAT_MODEL R40).
 
@@ -141,7 +154,19 @@ Not automated: `activeTab` gating (the e2e build has host permissions; check by 
 the production build, the shortcut and the popup fill work and nothing is injected before a
 gesture), and Firefox (Playwright cannot load Firefox extensions).
 
-## 8. Known limits
+## 8. The popup
+
+A page of the extension under the CSP of §4, in `src/popup/` (React, tokens, `ext.*` strings in
+German and English). It reaches the background over the port `popup` only and shows what the
+background reports for the front tab. It shows no vault password and no code; the one secret
+on screen is a generated password, in an element with `data-secret`. Frames: the popup names the
+frame it shows (`frameTarget`), a same-origin frame needs the "Fill in the frame" click, and
+the click sends that frame's id and document id back (§1); a frame of another site offers no
+button. Copies and fills are announced in a live region ("Copied. Clears in 30 seconds.").
+Keys: Enter fills the first match (or the row with focus), Ctrl+C, Ctrl+Shift+C and Ctrl+Alt+C
+copy the user name, password and code, Esc closes the top layer (menu, then dialog).
+
+## 9. Known limits
 
 Found by the extension-attacker pass and not closed, because the DOM offers no reliable test or
 the impact stays within the page's own origin:
@@ -153,10 +178,6 @@ the impact stays within the page's own origin:
   invisible without changing anything the checks read.
 - Opacity is not multiplied across frame levels: a field at 0.5 in a frame at 0.5 passes
   (each level is checked on its own).
-- The `confirmFrame` click is a boolean, not bound to the frame the popup showed: a page can swap
-  which visible same-origin frame is focused between the popup's state and the click. The target
-  is still a visible same-origin frame. The T4 popup should send the confirmed frame's
-  `documentId`.
 - Off screen, any `clip-path` counts as hiding, and any `mask-image` on a field or ancestor
   counts as opacity 0 everywhere: such forms fill only once they are scrolled into view (or not
   at all with a mask).

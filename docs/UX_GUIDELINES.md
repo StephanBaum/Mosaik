@@ -140,9 +140,12 @@ shortcut. Global shortcuts can be remapped, and the app detects conflicts.
   Secret Key, adding a quick-unlock method, or turning off auto-lock.
 - **Emergency Kit:** generated during onboarding. The user must download or
   print it, then confirm by typing the last group of the Secret Key.
-- **Warnings** (HTTP site, lookalike domain, reused password): one sentence,
-  one recommended action, and a secondary "Fill anyway" behind an explicit
-  click.
+- **Warnings** (HTTP site, lookalike domain, reused password): one sentence
+  and one recommended action. "Fill anyway" exists only as the per-URL HTTP
+  override in the desktop item editor (an explicit choice on the login itself).
+  It is never a button for an address that does not match the saved one: the
+  extension popup (mockup E05) shows the warning and offers no way around it
+  (ADR-0035 amendment, ADR-0037).
 - **Onboarding budget:** under 2 minutes, in this order: create account →
   Emergency Kit → (optional) import from Enpass → install extension. Each step
   is skippable except the Emergency Kit.

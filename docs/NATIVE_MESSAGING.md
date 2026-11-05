@@ -308,7 +308,8 @@ A request with `v` other than 1 gets `protocolVersion`.
 - Host: `desktopNotRunning`, `desktopNotAuthentic`, `timeout`, `frameTooLarge`.
 - Extension-local, never on the wire: `hostMissing`, `hostForbidden`, `hostExited`,
   `unsupportedPage`, `noFields`, `noMatch`, `frameNeedsConfirmation`, `frameOpaque`,
-  `originChanged`, `pageHidden`.
+  `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture was not
+  granted), `generatedExpired` (the generated password the popup showed is no longer held).
 
 A host answer to a drop of the desktop is `desktopNotRunning`. An unknown or forbidden op,
 a body that does not parse and a request id already in flight are `invalidRequest`. A
