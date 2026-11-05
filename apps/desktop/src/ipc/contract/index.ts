@@ -1,4 +1,5 @@
 /** The IPC contract (docs/DESKTOP_IPC.md), one module per area. */
+export * from "./attachments.ts";
 export * from "./clipboard.ts";
 export * from "./commands.ts";
 export * from "./common.ts";

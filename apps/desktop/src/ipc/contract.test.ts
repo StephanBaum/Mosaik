@@ -7,6 +7,7 @@ import { catalogs, type MessageKey } from "@mosaic/i18n";
 import { describe, expect, it } from "vitest";
 import { fixtures } from "./contract.fixtures.ts";
 import {
+  binaryCommands,
   biometricPlatformKinds,
   channelCommands,
   commandNames,
@@ -50,6 +51,12 @@ describe("contract parity with Rust", () => {
   it("lists the same commands", () => {
     expect(sorted([...commandNames, ...channelCommands])).toEqual(sorted(fixtures.commands));
     expect(sorted(Object.keys(fixtures.requests))).toEqual(sorted(commandNames));
+  });
+
+  it("exempts exactly the binary-response commands from the JSON response samples", () => {
+    expect(sorted(binaryCommands)).toEqual(sorted(fixtures.binaryResponses));
+    const json = commandNames.filter((name) => !(binaryCommands as readonly string[]).includes(name));
+    expect(sorted(Object.keys(fixtures.responses))).toEqual(sorted(json));
   });
 
   const enums: { [K in keyof EnumFixtures]: readonly string[] } = {

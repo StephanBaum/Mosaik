@@ -40,6 +40,18 @@ export const errors = {
   "error.attachmentTooLarge": "That file is larger than 50 MiB. Choose a smaller file.",
   "error.attachmentQuota":
     "Your files would use more than the 1 GiB available. Remove some attachments, then try again.",
+  "error.attachmentNotFound":
+    "This file is no longer part of the item. Reload the item.",
+  "error.attachmentUnavailable":
+    "This file can't be opened on this device. It may not be synced yet or may be damaged.",
+  "error.attachmentFileUnreadable":
+    "That file can't be read. Choose another file.",
+  "error.attachmentSaveFailed":
+    "The file couldn't be saved there. Choose another folder.",
+  "error.attachmentPreviewUnsupported":
+    "There's no preview for this file. Use Save as to open it.",
+  "error.attachmentPreviewTooLarge":
+    "This image is too large to preview. Use Save as to open it.",
   "error.clipboardUnavailable":
     "Mosaic couldn't use the clipboard. Close apps that might be holding it, then try again.",
   "error.importFileUnreadable":

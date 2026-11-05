@@ -6,10 +6,12 @@ use mosaic_core::model::{
 };
 use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
+use mosaic_vault::storage::Store;
 use tauri::State;
 
 use super::draft;
 use super::otp::TakenOtp;
+use crate::attachment_files::{added_at, previewable_mime};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
@@ -236,7 +238,33 @@ fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
     })
 }
 
-fn detail(vault_id: VaultId, item_id: ItemId, item: &Item) -> IpcResult<ItemDetail> {
+/// The attachments of an item. A reference can arrive by sync before its
+/// encrypted file, so `available` asks the store.
+fn attachment_entries(store: &Store, item: &Item) -> Vec<AttachmentEntry> {
+    item.attachments()
+        .into_iter()
+        .map(|a| {
+            let available = matches!(store.attachment_info(&a.attachment_id), Ok(Some(_)));
+            AttachmentEntry {
+                attachment_id: a.attachment_id.into(),
+                file_name: a.file_name.as_str().to_owned(),
+                mime: a.mime.as_str().to_owned(),
+                size: a.size,
+                added_at: added_at(&a.attachment_id),
+                available,
+                previewable: available && previewable_mime(a.mime.as_str()),
+            }
+        })
+        .collect()
+}
+
+/// The detail of an item, secrets masked.
+pub(super) fn detail(
+    store: &Store,
+    vault_id: VaultId,
+    item_id: ItemId,
+    item: &Item,
+) -> IpcResult<ItemDetail> {
     let text = TextField::ALL
         .iter()
         .filter(|&&field| field != TextField::Title)
@@ -294,16 +322,7 @@ fn detail(vault_id: VaultId, item_id: ItemId, item: &Item) -> IpcResult<ItemDeta
                 )
             })
             .collect(),
-        attachments: item
-            .attachments()
-            .into_iter()
-            .map(|a| AttachmentEntry {
-                attachment_id: a.attachment_id.into(),
-                file_name: a.file_name.as_str().to_owned(),
-                mime: a.mime.as_str().to_owned(),
-                size: a.size,
-            })
-            .collect(),
+        attachments: attachment_entries(store, item),
         otp,
         history_count: u32::try_from(item.password_history().len()).unwrap_or(u32::MAX),
         review: ReviewState {
@@ -349,11 +368,12 @@ impl Backend {
         self.touch();
         let slot = self.slot()?;
         let (vault_id, item_id) = (request.vault_id.get(), request.item_id.get());
-        let item = slot.unlocked()?.item(vault_id, item_id)?;
+        let session = slot.unlocked()?;
+        let item = session.item(vault_id, item_id)?;
         if item.is_deleted() {
             return Err(IpcError::new(ErrorCode::ItemDeleted));
         }
-        detail(vault_id, item_id, item)
+        detail(session.store(), vault_id, item_id, item)
     }
 
     /// One secret of an item.
@@ -459,7 +479,12 @@ impl Backend {
             })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
-        detail(vault_id, item_id, session.item(vault_id, item_id)?)
+        detail(
+            session.store(),
+            vault_id,
+            item_id,
+            session.item(vault_id, item_id)?,
+        )
     }
 
     /// Applies a draft to an item and returns its detail.
@@ -496,7 +521,12 @@ impl Backend {
             })
             .map_err(draft::edit_error)?;
         self.items_changed(session);
-        detail(vault_id, item_id, session.item(vault_id, item_id)?)
+        detail(
+            session.store(),
+            vault_id,
+            item_id,
+            session.item(vault_id, item_id)?,
+        )
     }
 
     /// Moves an item to another vault (new item ID). Moving an item **out

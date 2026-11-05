@@ -1903,6 +1903,7 @@ fn the_crate_has_no_logging_or_printing() {
         include_str!("adapters/mod.rs"),
         include_str!("adapters/import.rs"),
         include_str!("adapters/ssh.rs"),
+        include_str!("attachment_files.rs"),
         include_str!("flow_tests.rs"),
         include_str!("quick_unlock_tests.rs"),
         include_str!("autolock.rs"),
@@ -1922,6 +1923,7 @@ fn the_crate_has_no_logging_or_printing() {
         include_str!("shortcut.rs"),
         include_str!("state.rs"),
         include_str!("test_support.rs"),
+        include_str!("commands/attachments.rs"),
         include_str!("commands/clipboard.rs"),
         include_str!("commands/draft.rs"),
         include_str!("commands/generator.rs"),
@@ -1955,4 +1957,468 @@ fn the_crate_has_no_logging_or_printing() {
             assert!(!source.contains(forbidden), "{forbidden}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (a file-backed store: an in-memory one has no attachments)
+// ---------------------------------------------------------------------------
+
+type Hook = Box<dyn Fn() + Send>;
+
+/// Native dialogs for tests: the paths to answer with, the names the save
+/// dialog was asked to suggest, and a hook that runs "while the dialog is
+/// open" (a lock, for example).
+#[derive(Clone, Default)]
+struct Picks {
+    open: Arc<Mutex<Option<PathBuf>>>,
+    save: Arc<Mutex<Option<PathBuf>>>,
+    suggested: Arc<Mutex<Vec<String>>>,
+    filters: Arc<Mutex<Vec<(&'static str, usize)>>>,
+    during: Arc<Mutex<Option<Hook>>>,
+}
+
+impl Picks {
+    fn open(&self, path: Option<&std::path::Path>) {
+        *self.open.lock().unwrap() = path.map(std::path::Path::to_path_buf);
+    }
+    fn save(&self, path: Option<&std::path::Path>) {
+        *self.save.lock().unwrap() = path.map(std::path::Path::to_path_buf);
+    }
+    fn run_hook(&self) {
+        if let Some(hook) = self.during.lock().unwrap().as_ref() {
+            hook();
+        }
+    }
+}
+
+impl Dialogs for Picks {
+    fn save_file(&self, suggested: &str, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
+        self.suggested.lock().unwrap().push(suggested.to_owned());
+        self.filters
+            .lock()
+            .unwrap()
+            .push((filter.name, filter.extensions.len()));
+        self.run_hook();
+        Ok(self.save.lock().unwrap().clone())
+    }
+    fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
+        self.filters
+            .lock()
+            .unwrap()
+            .push((filter.name, filter.extensions.len()));
+        self.run_hook();
+        Ok(self.open.lock().unwrap().clone())
+    }
+}
+
+struct DiskRig {
+    backend: Arc<Backend>,
+    picks: Picks,
+    dir: tempfile::TempDir,
+    vault: String,
+}
+
+fn disk_rig() -> DiskRig {
+    let dir = tempfile::tempdir().unwrap();
+    let picks = Picks::default();
+    let (backend, _clipboard, _events) = backend_with(
+        Store::open(dir.path().join("vault.sqlite3")).unwrap(),
+        SharedKeystore::default(),
+        Persistence::memory(),
+    );
+    let backend = Arc::new(backend.with_dialogs(Box::new(picks.clone())));
+    create(&backend);
+    let vault = vault_id(&backend);
+    DiskRig {
+        backend,
+        picks,
+        dir,
+        vault,
+    }
+}
+
+fn add_document(b: &Backend, vault: &str) -> ItemDetail {
+    b.add_item(req(json!({
+        "vaultId": vault,
+        "kind": "document",
+        "draft": {
+            "text": [{ "field": "title", "value": "Passport scan" }],
+            "secrets": [], "urls": [], "customFields": [], "tags": null, "otp": null
+        }
+    })))
+    .unwrap()
+}
+
+fn write_png(dir: &std::path::Path, name: &str, width: u32, height: u32) -> (PathBuf, Vec<u8>) {
+    use mosaic_qr::{OwnedFrame, PixelLayout};
+    let pixels: Vec<u8> = (0..width * height * 4)
+        .map(|i| u8::try_from(i % 251).unwrap())
+        .collect();
+    let frame = OwnedFrame::new(
+        width,
+        height,
+        PixelLayout::Rgba8,
+        zeroize::Zeroizing::new(pixels.clone()),
+    )
+    .unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, mosaic_qr::testing::png(&frame)).unwrap();
+    (path, pixels)
+}
+
+fn attachment_added(r: &DiskRig, item: &ItemDetail) -> ItemDetail {
+    match r.backend.attachment_add(req(item_req(item))).unwrap() {
+        crate::contract::attachments::AttachmentAdded::Added { item } => *item,
+        crate::contract::attachments::AttachmentAdded::Cancelled => panic!("cancelled"),
+    }
+}
+
+fn att_req(item: &ItemDetail, index: usize) -> Value {
+    with_item(
+        item,
+        json!({ "attachmentId": item.attachments[index].attachment_id.0.to_string() }),
+    )
+}
+
+fn ciphertext_path(b: &Backend, item: &ItemDetail, index: usize) -> PathBuf {
+    let slot = b.slot().unwrap();
+    let dir = slot
+        .unlocked()
+        .unwrap()
+        .store()
+        .attachment_dir()
+        .unwrap()
+        .to_path_buf();
+    let name = item.attachments[index]
+        .attachment_id
+        .0
+        .as_bytes()
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            use std::fmt::Write as _;
+            write!(hex, "{byte:02x}").unwrap();
+            hex
+        });
+    dir.join(name)
+}
+
+fn unlock_again(b: &Backend) {
+    b.unlock(UnlockRequest {
+        password: SecretIn::test(PASSWORD),
+        secret_key: None,
+    })
+    .unwrap();
+}
+
+fn lock_during_dialog(r: &DiskRig) {
+    let weak = Arc::downgrade(&r.backend);
+    *r.picks.during.lock().unwrap() = Some(Box::new(move || {
+        if let Some(backend) = weak.upgrade() {
+            backend.lock(LockReason::Manual).unwrap();
+        }
+    }));
+}
+
+#[test]
+fn attachment_add_stores_and_lists() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let (path, _) = write_png(r.dir.path(), "scan.png", 6, 4);
+    r.picks.open(Some(&path));
+    let size = std::fs::metadata(&path).unwrap().len();
+    let added = attachment_added(&r, &item);
+    assert_eq!(added.attachments.len(), 1);
+    let entry = &added.attachments[0];
+    assert_eq!(entry.file_name, "scan.png");
+    assert_eq!(entry.mime, "image/png");
+    assert_eq!(entry.size, size);
+    assert!(entry.available && entry.previewable);
+    assert!(entry.added_at.is_some_and(|ms| ms > 1_500_000_000_000));
+    let again = r.backend.get_item(req(item_req(&item))).unwrap();
+    assert_eq!(again.attachments, added.attachments);
+    // The path stays in Rust: nothing of it is in the response.
+    let json = serde_json::to_string(&added).unwrap();
+    assert!(!json.contains("scan.png\\"));
+    assert!(!json.contains(r.dir.path().file_name().unwrap().to_str().unwrap()));
+    assert_eq!(
+        r.picks.filters.lock().unwrap().as_slice(),
+        &[("All files", 0)]
+    );
+}
+
+#[test]
+fn attachment_add_cancelled() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    r.picks.open(None);
+    assert_eq!(
+        r.backend.attachment_add(req(item_req(&item))).unwrap(),
+        crate::contract::attachments::AttachmentAdded::Cancelled
+    );
+    let again = r.backend.get_item(req(item_req(&item))).unwrap();
+    assert_eq!(again.attachments, Vec::new());
+}
+
+#[test]
+fn attachment_add_too_large() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let path = r.dir.path().join("huge.bin");
+    let len = u64::try_from(mosaic_core::MAX_ATTACHMENT_LEN).unwrap() + 1;
+    std::fs::File::create(&path).unwrap().set_len(len).unwrap();
+    r.picks.open(Some(&path));
+    let error = r.backend.attachment_add(req(item_req(&item))).unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentTooLarge);
+    r.picks.open(Some(r.dir.path()));
+    let error = r.backend.attachment_add(req(item_req(&item))).unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentFileUnreadable, "a folder");
+    let again = r.backend.get_item(req(item_req(&item))).unwrap();
+    assert_eq!(again.attachments, Vec::new());
+}
+
+#[test]
+fn attachment_add_lock_during_dialog_stores_nothing() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let (path, _) = write_png(r.dir.path(), "scan.png", 3, 3);
+    r.picks.open(Some(&path));
+    lock_during_dialog(&r);
+    let error = r.backend.attachment_add(req(item_req(&item))).unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
+    *r.picks.during.lock().unwrap() = None;
+    unlock_again(&r.backend);
+    let again = r.backend.get_item(req(item_req(&item))).unwrap();
+    assert_eq!(again.attachments, Vec::new());
+    let slot = r.backend.slot().unwrap();
+    let store = slot.unlocked().unwrap().store();
+    let record = item.summary.item_id.get();
+    let vault = item.summary.vault_id.get();
+    assert_eq!(
+        store.attachments_for_record(&vault, &record).unwrap(),
+        Vec::new()
+    );
+}
+
+#[test]
+fn attachment_add_hardware_vault_refused() {
+    use crate::quick_unlock::QuickUnlockService;
+    let _kdf = crate::test_support::kdf_permit();
+    let key = crate::quick_unlock::fakes::FakeHardwareKey::new(1);
+    let dir = tempfile::tempdir().unwrap();
+    let picks = Picks::default();
+    let (path, _) = write_png(dir.path(), "scan.png", 2, 2);
+    picks.open(Some(&path));
+    let (backend, _c, _l) = backend_with(
+        Store::open(dir.path().join("vault.sqlite3")).unwrap(),
+        SharedKeystore::default(),
+        Persistence::memory(),
+    );
+    let backend = backend
+        .with_quick_unlock(QuickUnlockService::new(None, Box::new(Arc::clone(&key))))
+        .with_dialogs(Box::new(picks.clone()));
+    create(&backend);
+    let vault = backend
+        .create_hardware_vault(&mut req(json!({ "name": "Codes", "pin": null })))
+        .unwrap()
+        .vault_id
+        .0
+        .to_string();
+    let error = backend
+        .attachment_add(req(json!({
+            "vaultId": vault, "itemId": "019a2b3c-0000-7000-8000-000000000002"
+        })))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ItemTypeNotAllowed);
+    assert!(
+        picks.filters.lock().unwrap().is_empty(),
+        "refused before any dialog opened"
+    );
+}
+
+#[test]
+fn attachment_preview_png_roundtrip() {
+    use std::sync::atomic::Ordering;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let (path, pixels) = write_png(r.dir.path(), "scan.png", 6, 4);
+    r.picks.open(Some(&path));
+    let item = attachment_added(&r, &item);
+    let preview = r
+        .backend
+        .attachment_preview(&req(att_req(&item, 0)))
+        .unwrap();
+    assert_eq!(preview.get(..8), Some(&[6, 0, 0, 0, 4, 0, 0, 0][..]));
+    assert_eq!(preview.get(8..), Some(pixels.as_slice()));
+    assert!(!r.backend.preview_busy.load(Ordering::SeqCst));
+    // A file that is not an image has no preview, and the flag is released.
+    let text = r.dir.path().join("notes.txt");
+    std::fs::write(&text, b"just text").unwrap();
+    r.picks.open(Some(&text));
+    let item = attachment_added(&r, &item);
+    let error = r
+        .backend
+        .attachment_preview(&req(att_req(&item, 1)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentPreviewUnsupported);
+    assert!(!r.backend.preview_busy.load(Ordering::SeqCst));
+    // Locked: nothing is returned.
+    r.backend.lock(LockReason::Manual).unwrap();
+    let error = r
+        .backend
+        .attachment_preview(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
+}
+
+#[test]
+fn attachment_preview_busy() {
+    use std::sync::atomic::Ordering;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let (path, _) = write_png(r.dir.path(), "scan.png", 2, 2);
+    r.picks.open(Some(&path));
+    let item = attachment_added(&r, &item);
+    r.backend.preview_busy.store(true, Ordering::SeqCst);
+    let error = r
+        .backend
+        .attachment_preview(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Busy);
+    assert!(
+        r.backend.preview_busy.load(Ordering::SeqCst),
+        "the running preview's flag is not cleared by the refused one"
+    );
+    r.backend.preview_busy.store(false, Ordering::SeqCst);
+    assert!(
+        r.backend
+            .attachment_preview(&req(att_req(&item, 0)))
+            .is_ok()
+    );
+}
+
+#[test]
+fn attachment_save_writes_plaintext() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let source = r.dir.path().join("notes.txt");
+    std::fs::write(&source, b"recovery codes: 1234").unwrap();
+    r.picks.open(Some(&source));
+    let item = attachment_added(&r, &item);
+    let out = r.dir.path().join("saved.txt");
+    r.picks.save(Some(&out));
+    let saved = r.backend.attachment_save(&req(att_req(&item, 0))).unwrap();
+    assert_eq!(saved, crate::contract::attachments::AttachmentSaved::Saved);
+    assert_eq!(std::fs::read(&out).unwrap(), b"recovery codes: 1234");
+    assert_eq!(r.picks.suggested.lock().unwrap().as_slice(), ["notes.txt"]);
+    // The vault locking during the save dialog writes nothing.
+    let later = r.dir.path().join("later.txt");
+    r.picks.save(Some(&later));
+    lock_during_dialog(&r);
+    let error = r
+        .backend
+        .attachment_save(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
+    assert!(!later.exists());
+    *r.picks.during.lock().unwrap() = None;
+    // A target that cannot be written is a save error, not a panic.
+    unlock_again(&r.backend);
+    r.picks
+        .save(Some(&r.dir.path().join("no/such/folder/f.txt")));
+    let error = r
+        .backend
+        .attachment_save(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentSaveFailed);
+}
+
+#[test]
+fn attachment_save_cancelled_decrypts_nothing() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let source = r.dir.path().join("notes.txt");
+    std::fs::write(&source, b"data").unwrap();
+    r.picks.open(Some(&source));
+    let item = attachment_added(&r, &item);
+    // Damage the stored ciphertext: only a decryption would notice.
+    std::fs::write(ciphertext_path(&r.backend, &item, 0), b"x").unwrap();
+    r.picks.save(None);
+    assert_eq!(
+        r.backend.attachment_save(&req(att_req(&item, 0))).unwrap(),
+        crate::contract::attachments::AttachmentSaved::Cancelled
+    );
+    let out = r.dir.path().join("out.txt");
+    r.picks.save(Some(&out));
+    let error = r
+        .backend
+        .attachment_save(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentUnavailable);
+    assert!(!out.exists());
+    let error = r
+        .backend
+        .attachment_preview(&req(att_req(&item, 0)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentUnavailable);
+}
+
+#[test]
+fn attachment_remove_then_not_found() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let source = r.dir.path().join("notes.txt");
+    std::fs::write(&source, b"data").unwrap();
+    r.picks.open(Some(&source));
+    let item = attachment_added(&r, &item);
+    let stored = ciphertext_path(&r.backend, &item, 0);
+    assert!(stored.exists());
+    let removed = r
+        .backend
+        .attachment_remove(&req(att_req(&item, 0)))
+        .unwrap();
+    assert_eq!(removed.attachments, Vec::new());
+    assert!(!stored.exists(), "the encrypted file leaves the store");
+    for error in [
+        r.backend
+            .attachment_remove(&req(att_req(&item, 0)))
+            .unwrap_err(),
+        r.backend
+            .attachment_preview(&req(att_req(&item, 0)))
+            .unwrap_err(),
+        r.backend
+            .attachment_save(&req(att_req(&item, 0)))
+            .unwrap_err(),
+    ] {
+        assert_eq!(code(error), ErrorCode::AttachmentNotFound);
+    }
+}
+
+#[test]
+fn unknown_attachment_maps_to_attachment_not_found() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let item = add_document(&r.backend, &r.vault);
+    let unknown = with_item(
+        &item,
+        json!({ "attachmentId": "019a2b3c-0000-7000-8000-0000000000aa" }),
+    );
+    let error = r.backend.attachment_remove(&req(unknown)).unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentNotFound);
+    // And an unknown item stays an unknown item.
+    let nothing = json!({
+        "vaultId": r.vault,
+        "itemId": "019a2b3c-0000-7000-8000-0000000000bb",
+        "attachmentId": "019a2b3c-0000-7000-8000-0000000000aa",
+    });
+    let error = r.backend.attachment_preview(&req(nothing)).unwrap_err();
+    assert_eq!(code(error), ErrorCode::ItemNotFound);
 }

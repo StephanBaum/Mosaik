@@ -71,8 +71,21 @@ export interface MockHardwareVault {
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** URL options of the one-time code setup (`&otpScan=<code>|cancel`, `&screenScan=0`). */
+/** A mock attachment: no bytes, only what the mock needs to answer a preview. */
+export interface MockAttachment {
+  kind: "png" | "pdf" | "other";
+  bytes: number;
+}
+
+/**
+ * URL options of the one-time code setup (`&otpScan=<code>|cancel`, `&screenScan=0`) and of
+ * attachments (`&attachAdd=<code>|cancel`, `&attachSave=<code>|cancel`).
+ */
 export interface MockSetupOptions {
+  /** Makes `attachment_add` fail with this code (or cancel the file dialog). */
+  attachAdd: ErrorCode | "cancel" | null;
+  /** Makes `attachment_save` fail with this code (or cancel the save dialog). */
+  attachSave: ErrorCode | "cancel" | null;
   /** Makes `otp_scan` fail with this code (or cancel the file dialog). */
   otpScan: ErrorCode | "cancel" | null;
   /** Whether "Scan screen" is supported. */
@@ -97,6 +110,8 @@ export interface MockState {
   /** Parsed one-time code setups waiting for confirmation (ADR-0031). */
   otpPending: Map<string, OtpPending>;
   otpPendingCounter: number;
+  /** Attachments by ID (the item details hold the metadata the UI sees). */
+  attachments: Map<string, MockAttachment>;
   options: MockSetupOptions;
   /** Whether the mock agent asks for an approval after unlock (`?sshRequest=1`). */
   sshRequest: boolean;

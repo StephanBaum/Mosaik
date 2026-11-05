@@ -47,6 +47,18 @@ export const errors = {
   "error.attachmentTooLarge": "Diese Datei ist größer als 50 MiB. Wähle eine kleinere Datei.",
   "error.attachmentQuota":
     "Deine Dateien würden mehr als die verfügbaren 1 GiB belegen. Entferne einige Anhänge und versuche es dann noch einmal.",
+  "error.attachmentNotFound":
+    "Diese Datei gehört nicht mehr zum Eintrag. Lade den Eintrag neu.",
+  "error.attachmentUnavailable":
+    "Diese Datei lässt sich auf diesem Gerät nicht öffnen. Sie ist vielleicht noch nicht synchronisiert oder beschädigt.",
+  "error.attachmentFileUnreadable":
+    "Diese Datei lässt sich nicht lesen. Wähle eine andere Datei.",
+  "error.attachmentSaveFailed":
+    "Die Datei ließ sich dort nicht speichern. Wähle einen anderen Ordner.",
+  "error.attachmentPreviewUnsupported":
+    "Für diese Datei gibt es keine Vorschau. Öffne sie über Speichern unter.",
+  "error.attachmentPreviewTooLarge":
+    "Dieses Bild ist zu groß für die Vorschau. Öffne es über Speichern unter.",
   "error.clipboardUnavailable":
     "Mosaic konnte die Zwischenablage nicht verwenden. Schließe Apps, die sie blockieren könnten, und versuche es dann noch einmal.",
   "error.importFileUnreadable":

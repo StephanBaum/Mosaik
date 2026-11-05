@@ -63,6 +63,17 @@ describe("collect: secrets stay out of the picture", () => {
     expect(json).toContain("***");
   });
 
+  it("paints no live canvas for a preview frame inside a secret", () => {
+    const root = mount(
+      '<div><div data-secret><canvas width="4" height="4"></canvas></div><canvas width="4" height="4"></canvas></div>',
+    );
+    const canvases = root.querySelectorAll("canvas");
+    const live = collect(root, measure, { groups: false }).base.filter((op) => op.k === "live");
+    // The plain canvas is a live op; the one in the secret frame is never visited.
+    expect(live).toHaveLength(1);
+    expect(live.some((op) => op.el === canvases[0])).toBe(false);
+  });
+
   it("uses the mask attribute names the components write", () => {
     expect(SECRET_ATTR).toBe("data-secret");
     expect(MASK_ATTR).toBe("data-mask");
