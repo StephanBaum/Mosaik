@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]
@@ -29,7 +29,7 @@ unicode-normalization = { version = "=0.1.26", default-features = false }
 thiserror = { version = "=2.0.21", default-features = false }
 # M2 model (serde_json also reads the generator's vendored password-rules.json)
 serde = { version = "=1.0.229", default-features = false, features = ["std"] }
-serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip"] }
+serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
 base64ct = { version = "=1.8.3", default-features = false }
 # M2 totp
 # HMAC for HOTP/TOTP (CRYPTO_SPEC §2 "OTP"); already in the tree through hkdf.
@@ -93,6 +93,13 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 quick-xml = { version = "=0.42.0", default-features = false }
 # 1Password 1PUX archives: deflate only, no encryption, no other codecs.
 zip = { version = "=9.1.2", default-features = false, features = ["deflate-flate2"] }
+# M4 browser extension (ADR-0035, ADR-0036, ADR-0037)
+# Public suffix list compiled in (MIT/Apache-2.0, no_std), for opt-in eTLD+1 matching.
+psl = { version = "=2.1.246", default-features = false, features = ["helpers"] }
+# WHATWG URL parsing, identical to the browser's origin rules; already in the tree through Tauri.
+url = { version = "=2.5.8", default-features = false, features = ["std"] }
+# IDNA to-Unicode for the lookalike and IDN warnings; already in the tree through url.
+idna = { version = "=1.1.0", default-features = false, features = ["std", "compiled_data"] }
 # M3 sshagent
 # OpenSSH key parsing, passphrase decryption and Ed25519 / ECDSA P-256 signing
 # for the SSH agent (RustCrypto; proposed ADR, CRYPTO_SPEC §2 "SSH agent").
@@ -118,7 +125,7 @@ p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa"] }
 signature = { version = "=3.0.0", default-features = false }
 # Async listener (Unix socket, Windows named pipe), timers and channels for the
 # agent; already in the tree through Tauri.
-tokio = { version = "=1.54.1", default-features = false, features = ["net", "rt", "sync", "time", "io-util"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["net", "rt", "sync", "time", "io-util", "io-std"] }
 # OTP setup (ADR-0031)
 # Pure-Rust QR decoder (quirc port) for 2FA setup codes; no image feature (we feed luma).
 rqrr = { version = "=0.11.0", default-features = false }
