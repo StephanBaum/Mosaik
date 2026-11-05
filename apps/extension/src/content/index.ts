@@ -23,11 +23,17 @@ function passwordRulesOf(detection: Detection): string | null {
   return rules !== null && rules.length <= MAX_RULES_LENGTH ? rules : null;
 }
 
+/**
+ * The document's own origin: "null" when it is opaque (a CSP `sandbox` header, a sandboxed
+ * frame), where `location.origin` would still name the site of the URL.
+ */
+const documentOrigin = (): string => window.origin;
+
 export function probe(): ProbeResult {
   const ancestry = frameAncestry(window);
   const detection = detect(document);
   return {
-    origin: location.origin,
+    origin: documentOrigin(),
     ancestorsSameOrigin: ancestry.ancestorsSameOrigin,
     frameVisible: ancestry.frameVisible,
     depth: ancestry.depth,
@@ -40,7 +46,7 @@ export function probe(): ProbeResult {
 
 /** The checks that must hold again at fill time: the page may have changed since the probe. */
 function refusal(expectedOrigin: string): ErrorCode | null {
-  if (location.origin !== expectedOrigin) {
+  if (documentOrigin() !== expectedOrigin) {
     return "originChanged";
   }
   if (document.visibilityState !== "visible") {
@@ -98,7 +104,9 @@ function onMessage(
   return false;
 }
 
-if (globalThis.mosaicContent === undefined) {
-  globalThis.mosaicContent = { probe };
+// An own property only: a page element with id or name "mosaicContent" also shows up as a
+// global in this world (window named properties) and must not pass for the installed script.
+if (!Object.hasOwn(globalThis, "mosaicContent")) {
+  Object.defineProperty(globalThis, "mosaicContent", { value: { probe }, enumerable: false });
   chrome.runtime.onMessage.addListener(onMessage);
 }

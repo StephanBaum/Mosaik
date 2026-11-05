@@ -1,15 +1,21 @@
 /**
  * Where this frame sits. A frame may only be filled when every ancestor is same-origin with it
  * (no A-B-A nesting, no sandboxed or opaque frame) and every `<iframe>` element on the way is
- * visible to the user.
+ * one the user can see: the field rules of `isFillable` (size, opacity, on top, not clipped),
+ * applied in the parent's document.
+ *
+ * Origins are the documents' own (`window.origin`), not their URLs' (`location.origin`): a
+ * document under a CSP `sandbox` or in a sandboxed frame has an opaque origin ("null") although
+ * its URL names a site.
  */
-import { domEnv, isElementVisible, type VisibilityEnv } from "./visibility.ts";
+import { domEnv, isFillable, type VisibilityEnv } from "./visibility.ts";
 
 /** The part of `Window` this module reads (so tests can pass plain objects). */
 export interface FrameWindow {
   readonly parent: FrameWindow;
   readonly frameElement: Element | null;
-  readonly location: { readonly origin: string };
+  /** The document's origin; reading it on a cross-origin window throws. */
+  readonly origin: string;
 }
 
 export interface Ancestry {
@@ -32,7 +38,7 @@ function depthOf(win: FrameWindow): number {
 /** Reads the parent's origin; a cross-origin parent throws, which counts as "not same-origin". */
 function parentOrigin(win: FrameWindow): string | null {
   try {
-    return win.parent.location.origin;
+    return win.parent.origin;
   } catch {
     return null;
   }
@@ -40,7 +46,7 @@ function parentOrigin(win: FrameWindow): string | null {
 
 export function frameAncestry(win: FrameWindow, env: VisibilityEnv = domEnv): Ancestry {
   const depth = depthOf(win);
-  const own = win.location.origin;
+  const own = win.origin;
   let visible = true;
   let w = win;
   for (let level = 0; level < depth; level++) {
@@ -48,7 +54,7 @@ export function frameAncestry(win: FrameWindow, env: VisibilityEnv = domEnv): An
     if (own === "null" || element === null || parentOrigin(w) !== own) {
       return { ancestorsSameOrigin: false, frameVisible: false, depth };
     }
-    visible &&= isElementVisible(element, env);
+    visible &&= isFillable(element, env);
     w = w.parent;
   }
   return { ancestorsSameOrigin: depth < MAX_FRAME_DEPTH, frameVisible: visible, depth };

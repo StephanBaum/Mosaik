@@ -10,6 +10,7 @@ const env: VisibilityEnv = {
   parent: (el) => el.parentElement,
   viewport: () => ({ width: 1000, height: 800, scrollX: 0, scrollY: 0, docWidth: 1000, docHeight: 800 }),
   elementAt: (el) => el,
+  clip: () => ({ overflow: false, shape: false }),
 };
 
 function run(markup: string) {

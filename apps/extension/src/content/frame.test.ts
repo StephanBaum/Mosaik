@@ -9,11 +9,12 @@ const visibleEnv: VisibilityEnv = {
   parent: (el) => el.parentElement,
   viewport: () => ({ width: 1000, height: 800, scrollX: 0, scrollY: 0, docWidth: 1000, docHeight: 800 }),
   elementAt: (el) => el,
+  clip: () => ({ overflow: false, shape: false }),
 };
 
 interface Spec {
   origin: string;
-  /** Reading this window's location throws, as it does for a cross-origin window. */
+  /** Reading this window's origin throws, as it does for a cross-origin window. */
   blocked?: boolean;
   /** The `<iframe>` that holds this window is hidden. */
   hidden?: boolean;
@@ -37,11 +38,11 @@ function chain(specs: Spec[]): FrameWindow {
         return owner ?? win;
       },
       frameElement: iframe,
-      get location(): { origin: string } {
+      get origin(): string {
         if (spec.blocked === true) {
           throw new DOMException("Blocked a frame from accessing a cross-origin frame.", "SecurityError");
         }
-        return { origin: spec.origin };
+        return spec.origin;
       },
     };
     parent = win;
@@ -80,14 +81,14 @@ describe("frameAncestry", () => {
     expect(frameAncestry(win, visibleEnv)).toMatchObject({ ancestorsSameOrigin: false, depth: 2 });
   });
 
-  it("a parent whose location cannot be read counts as cross-origin", () => {
+  it("a parent whose origin cannot be read counts as cross-origin", () => {
     const win = chain([{ origin: A, blocked: true }, { origin: A }]);
     expect(frameAncestry(win, visibleEnv).ancestorsSameOrigin).toBe(false);
   });
 
   it("an embedder that is not reachable (frameElement is null) counts as cross-origin", () => {
     const win = chain([{ origin: A }, { origin: A }]);
-    const orphan: FrameWindow = { parent: win.parent, frameElement: null, location: { origin: A } };
+    const orphan: FrameWindow = { parent: win.parent, frameElement: null, origin: A };
     expect(frameAncestry(orphan, visibleEnv).ancestorsSameOrigin).toBe(false);
   });
 
@@ -104,6 +105,18 @@ describe("frameAncestry", () => {
       box: () => ({ left: 0, top: 0, right: 1, bottom: 1, width: 1, height: 1 }),
     };
     expect(frameAncestry(chain([{ origin: A }, { origin: A }]), tinyEnv).frameVisible).toBe(false);
+  });
+
+  it("a frame element covered by something else, or clipped away off screen, makes the frame invisible", () => {
+    const cover = document.createElement("div");
+    const coveredEnv: VisibilityEnv = { ...visibleEnv, elementAt: () => cover };
+    expect(frameAncestry(chain([{ origin: A }, { origin: A }]), coveredEnv).frameVisible).toBe(false);
+    const clippedEnv: VisibilityEnv = {
+      ...visibleEnv,
+      box: () => ({ left: 0, top: 3000, right: 300, bottom: 3150, width: 300, height: 150 }),
+      clip: () => ({ overflow: false, shape: true }),
+    };
+    expect(frameAncestry(chain([{ origin: A }, { origin: A }]), clippedEnv).frameVisible).toBe(false);
   });
 
   it("gives up beyond the depth limit", () => {
