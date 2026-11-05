@@ -31,11 +31,17 @@ async function handle(req, res) {
   }
   try {
     const body = await readFile(join(here, "pages", name));
-    res.writeHead(200, {
+    /** @type {Record<string, string>} */
+    const headers = {
       "content-type": TYPES[name.slice(name.lastIndexOf("."))] ?? "text/plain",
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
-    });
+    };
+    if (name.startsWith("csp-sandbox")) {
+      // How a site hosts untrusted HTML on its own origin: the document gets an opaque origin.
+      headers["content-security-policy"] = "sandbox allow-scripts allow-forms";
+    }
+    res.writeHead(200, headers);
     res.end(body);
   } catch {
     res.writeHead(404).end();

@@ -24,6 +24,8 @@ import type { PopupState } from "../src/shared/messages.ts";
 import { HTTP_PORT, HTTPS_PORT, startServer } from "../test/hostile-site/server.mjs";
 
 const DIST = resolve(import.meta.dirname, "../dist/e2e");
+/** A second, hostile extension (test/evil-extension), loaded only where a test opts in. */
+const EVIL_EXTENSION = resolve(import.meta.dirname, "../test/evil-extension");
 
 export const BANK = `https://bank.test:${String(HTTPS_PORT)}`;
 export const EVIL = `https://evil.test:${String(HTTPS_PORT)}`;
@@ -48,6 +50,7 @@ interface Hooks {
   log(): LogEntry[];
   gesture(gesture: E2EGesture): Promise<FillOutcome | null>;
   popupState(tabId: number): Promise<PopupState>;
+  popupGenerate(tabId: number): Promise<string>;
   pauseAfterProbe(): void;
   isPaused(): boolean;
   release(): void;
@@ -61,6 +64,7 @@ export interface Fake {
   fills(): Promise<LogEntry[]>;
   gesture(gesture: E2EGesture): Promise<FillOutcome | null>;
   popupState(tabId: number): Promise<PopupState>;
+  popupGenerate(tabId: number): Promise<string>;
   pauseAfterProbe(): Promise<void>;
   isPaused(): Promise<boolean>;
   release(): Promise<void>;
@@ -93,17 +97,19 @@ async function liveWorker(context: BrowserContext, id: string): Promise<Worker> 
   throw new Error("the extension's service worker did not start");
 }
 
-async function launch(): Promise<Extension & { close(): Promise<void> }> {
+async function launch(withEvilExtension: boolean): Promise<Extension & { close(): Promise<void> }> {
   if (!existsSync(join(DIST, "manifest.json"))) {
     throw new Error("dist/e2e is missing: run `pnpm --filter @mosaic/extension build:e2e` first");
   }
   const profile = await mkdtemp(join(tmpdir(), "mosaic-e2e-"));
+  // The hostile extension has no service worker, so the first one is always Mosaic's.
+  const extensions = withEvilExtension ? `${DIST},${EVIL_EXTENSION}` : DIST;
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: true,
     args: [
-      `--disable-extensions-except=${DIST}`,
-      `--load-extension=${DIST}`,
+      `--disable-extensions-except=${extensions}`,
+      `--load-extension=${extensions}`,
       "--host-resolver-rules=MAP *.test 127.0.0.1",
       "--ignore-certificate-errors",
     ],
@@ -132,6 +138,7 @@ function makeFake(ext: Extension): Fake {
     fills: async () => (await log()).filter((entry) => entry.op === "fill"),
     gesture: (gesture) => run((g: E2EGesture) => (globalThis as unknown as WithHooks).mosaicE2E.gesture(g), gesture),
     popupState: (tabId) => run((t: number) => (globalThis as unknown as WithHooks).mosaicE2E.popupState(t), tabId),
+    popupGenerate: (tabId) => run((t: number) => (globalThis as unknown as WithHooks).mosaicE2E.popupGenerate(t), tabId),
     pauseAfterProbe: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.pauseAfterProbe(); }),
     isPaused: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.isPaused()),
     release: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.release(); }),
@@ -158,12 +165,13 @@ function makeFake(ext: Extension): Fake {
   };
 }
 
-export const test = base.extend<{ fake: Fake; ext: Extension }, { shared: Extension }>({
+export const test = base.extend<{ fake: Fake; ext: Extension }, { shared: Extension; evilExtension: boolean }>({
+  // `test.use({ evilExtension: true })` starts a browser that also has the hostile extension.
+  evilExtension: [false, { scope: "worker", option: true }],
   shared: [
-    // eslint-disable-next-line no-empty-pattern -- Playwright reads the dependencies from this pattern
-    async ({}, use) => {
+    async ({ evilExtension }, use) => {
       const server = await startServer();
-      const ext = await launch();
+      const ext = await launch(evilExtension);
       await use(ext);
       await ext.close();
       await server.close();

@@ -1,0 +1,6 @@
+<!-- attempts: the site's own login page in a sandboxed frame without allow-same-origin (opaque origin,
+     but its URL and `location.origin` name the site), under a page with no fields. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Sandboxed frame with a real URL</title>
+<iframe id="sandboxed" sandbox="allow-scripts allow-forms" src="/login.html" width="400" height="200"></iframe>

@@ -1,0 +1,15 @@
+<!-- attempts: get the site's login filled into a document with an opaque origin. The server sends
+     `Content-Security-Policy: sandbox allow-scripts allow-forms` (how sites host untrusted HTML on
+     their own host), so the page's scripts do not run as the site's origin, while the tab URL and
+     `location.origin` (which follow the URL) still name the site. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>CSP sandbox login</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+</form>
+<script>
+  window.__realOrigin = self.origin;
+</script>

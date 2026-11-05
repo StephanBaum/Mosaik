@@ -1,0 +1,9 @@
+<!-- attempts: (served on the site) embed another origin's page whose about:blank child frame holds a
+     login form; the child inherits the other origin, so it is a cross-origin frame. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>about:blank inside another origin</title>
+<iframe id="evil" width="500" height="200"></iframe>
+<script>
+  document.getElementById("evil").src = `${location.protocol}//evil.test:${location.port}/about-blank-frame.html`;
+</script>

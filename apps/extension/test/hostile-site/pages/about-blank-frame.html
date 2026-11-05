@@ -1,0 +1,23 @@
+<!-- attempts: a login form in a child frame that inherits this page's origin without a URL of its
+     own: an `about:blank` frame written by the parent (a `javascript:` URL frame ends up the same:
+     an about:blank document with the parent's origin). Served on the
+     site they are same-origin frames (confirmation needed); embedded by another origin
+     (about-blank-in-evil.html) they carry that other origin and must never be filled. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>about:blank frame</title>
+<script src="/_leaks.js"></script>
+<iframe id="blank" width="400" height="120"></iframe>
+<script>
+  const form =
+    '<form onsubmit="return false"><input id="user" name="username" type="text" autocomplete="username">' +
+    '<input id="pass" name="password" type="password" autocomplete="current-password"></form>';
+  const doc = document.getElementById("blank").contentDocument;
+  doc.open();
+  doc.write(form);
+  doc.close();
+  // The parent's leak recorder also listens inside the child it controls.
+  for (const type of ["input", "change"]) {
+    doc.addEventListener(type, (event) => window.__mosaicLeaks.push({ type, id: event.target.id, value: event.target.value, frame: "blank" }), true);
+  }
+</script>

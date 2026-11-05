@@ -40,6 +40,16 @@ export function testTabOf(url: string | undefined): number | null {
   return value === null ? null : Number(value);
 }
 
+/** The popup's "generate" on a tab; returns the value, which the background now holds for a fill. */
+async function popupGenerate(popup: PopupService, tabId: number): Promise<string> {
+  const tab = await chrome.tabs.get(tabId);
+  const generated = (await popup.handle(
+    { op: "generate", request: { kind: "forSite", host: "", rules: null } },
+    { id: tabId, url: tab.url },
+  )) as { value: string };
+  return generated.value;
+}
+
 export function installE2E(host: E2EHost): void {
   let paused = false;
   let release: (() => void) | null = null;
@@ -96,6 +106,8 @@ export function installE2E(host: E2EHost): void {
         return { ok: false, error: errorCodeOf(error) };
       }
     },
+
+    popupGenerate: (tabId: number): Promise<string> => popupGenerate(host.popup, tabId),
 
     async popupState(tabId: number): Promise<PopupState> {
       const tab = await chrome.tabs.get(tabId);

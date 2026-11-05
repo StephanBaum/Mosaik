@@ -23,6 +23,7 @@ export default tseslint.config(
       "apps/extension/playwright-report/**",
       // Hostile pages are browser-side test fixtures, not app code.
       "apps/extension/test/hostile-site/pages/**",
+      "apps/extension/test/evil-extension/**",
     ],
   },
   js.configs.recommended,

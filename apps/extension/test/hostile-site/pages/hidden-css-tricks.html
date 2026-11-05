@@ -1,0 +1,32 @@
+<!-- attempts: hide password fields with CSS the first hidden-field page does not use:
+     `filter: opacity(0)` on the field and a nearly transparent `filter` on a parent, a fully
+     transparent `mask-image`, `transform: scale(0)`, a `content-visibility: hidden` parent, and
+     fields below the fold inside a zero-height `overflow: hidden` box or a `clip-path` box (off
+     screen, so no hit test can see that they are clipped). The visible username and password at the
+     top are the real form. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Hidden CSS tricks</title>
+<script src="/_leaks.js"></script>
+<style>
+  body { margin: 8px; }
+  .row { margin: 4px 0; }
+  #decoy-filter { filter: opacity(0); }
+  #ghost-filter { filter: opacity(0.05); }
+  #decoy-mask { -webkit-mask-image: linear-gradient(transparent, transparent); mask-image: linear-gradient(transparent, transparent); }
+  #decoy-scale { transform: scale(0); }
+  #cv { content-visibility: hidden; }
+  #below-overflow { position: absolute; top: 3000px; left: 8px; width: 300px; height: 0; overflow: hidden; }
+  #below-clip { position: absolute; top: 3200px; left: 8px; clip-path: inset(50%); }
+</style>
+<form id="login" onsubmit="return false">
+  <div class="row"><input id="user" name="username" type="text" autocomplete="username"></div>
+  <div class="row"><input id="pass" name="password" type="password" autocomplete="current-password"></div>
+  <input id="decoy-filter" name="d0" type="password" autocomplete="current-password">
+  <div id="ghost-filter"><input id="decoy-ghost-filter" name="d1" type="password" autocomplete="current-password"></div>
+  <input id="decoy-mask" name="d2" type="password" autocomplete="current-password">
+  <input id="decoy-scale" name="d3" type="password" autocomplete="current-password">
+  <div id="cv"><input id="decoy-cv" name="d4" type="password" autocomplete="current-password"></div>
+  <div id="below-overflow"><input id="decoy-below-overflow" name="d5" type="password" autocomplete="current-password"></div>
+  <div id="below-clip"><input id="decoy-below-clip" name="d6" type="password" autocomplete="current-password"></div>
+</form>

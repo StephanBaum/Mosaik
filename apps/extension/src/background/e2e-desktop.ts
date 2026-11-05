@@ -69,6 +69,7 @@ const insecure = (origin: string): boolean => origin.startsWith("http:");
 export class FakeDesktop {
   config: E2EConfig = defaultConfig();
   readonly log: LogEntry[] = [];
+  #generated = 0;
 
   /** A port the `NativeClient` can use in place of `connectNative`. */
   createPort(): NativePort {
@@ -178,7 +179,9 @@ export class FakeDesktop {
       case "copy":
         return { clearAfterSeconds: 30 };
       case "generate":
-        return { value: GENERATED, entropyBits: 100, strength: "strong", rulesSource: null };
+        // Every value differs, so a test can tell a held password from a fresh one.
+        this.#generated++;
+        return { value: `${GENERATED}-${String(this.#generated)}`, entropyBits: 100, strength: "strong", rulesSource: null };
       case "checkSave":
         return { kind: "new", itemTitle: null };
       case "proposeSave":

@@ -23,16 +23,28 @@ extension`; `e2e/hostile/*.spec.ts` run in Chromium with the e2e build, see §7)
 | Same-origin iframe the user did not mean | Needs a confirmation click in the popup (`confirmFrame`); a shortcut or menu fill stops with `frameNeedsConfirmation` (badge and popup). The desktop is told `sameOriginFrame` and refuses `origin != topOrigin` | `e2e/hostile/same-origin-iframe.spec.ts` |
 | A-B-A nesting: our login form inside a hostile frame inside our page | Every ancestor must have the frame's origin; the middle frame fails that, so the inner frame is `crossOriginFrame` even when confirmed | `e2e/hostile/nested-a-b-a.spec.ts` |
 | Sandboxed or `srcdoc` frame, opaque origin | Origin `"null"` and non-http(s) origins are `frameOpaque`; the browser may also keep the script out | `e2e/hostile/sandboxed-srcdoc.spec.ts`, `src/background/frames.test.ts` |
+| A document with an opaque origin but a site URL: a page served with `Content-Security-Policy: sandbox` (how sites host untrusted HTML on their own host), or the site's page in a sandboxed `<iframe src>` | The content script reports and re-checks the document's own origin (`window.origin`, `"null"` here), never `location.origin`, which follows the URL; ancestry compares `parent.origin` the same way. Result: `frameOpaque` | `e2e/hostile/csp-sandbox.spec.ts`, `src/content/frame.test.ts` |
+| `about:blank` (or `javascript:`) child frame that inherits an origin | The browser injects into it; it carries the origin it inherited, so on the site it is a same-origin frame (confirmation needed) and inside another origin's frame it is `crossOriginFrame` | `e2e/hostile/about-blank.spec.ts` |
+| Hidden same-origin frame: off screen, covered by an opaque box, `filter: opacity(0)`, in a clipped box below the fold, shrunk to 0 x 0 after the probe | Every `<iframe>` element on the way gets the full field test (`isFillable`: size, opacity, document bounds, hit test, clip) in its parent's document, realm-independent; inside a frame a field must be on screen in the frame's viewport. Re-run at fill time | `e2e/hostile/hidden-frame.spec.ts`, `e2e/hostile/race-after-probe.spec.ts`, `src/content/frame.test.ts`, `src/content/visibility.test.ts` |
+| Frame `src` changed to another origin, or an https page downgraded to http, after the probe | `documentId` pinning and the origin re-check in the content script | `e2e/hostile/race-after-probe.spec.ts` |
+| Tab URL that disagrees with the document: `history.pushState` to another path, the tab replaced by a `blob:` document | The top origin comes from the tab URL and must be http(s); pushState keeps the origin, `blob:` is `unsupportedPage` | `e2e/hostile/url-tricks.spec.ts` |
+| Context-menu gesture naming a missing frame, another origin's frame, or a same-origin frame | The frame id comes from the browser; a missing frame is `noFields`, another origin `crossOriginFrame`, a same-origin frame `frameNeedsConfirmation` (fill and generate), before the desktop is asked | `e2e/hostile/forged-frame-id.spec.ts` |
+| Rapid repeated gestures | Each gesture fills the one chosen credential into the top frame; at most four desktop requests are in flight (`MAX_IN_FLIGHT`), the rest are `busy` | `e2e/hostile/race-after-probe.spec.ts` |
+| A password generated in the popup for one site filled into another (context-menu "Generate password" within two minutes) | `GeneratedHold` is bound to the tab and page origin it was generated on; any take clears it; elsewhere a fresh password is generated | `e2e/hostile/generated-hold.spec.ts`, `src/background/fill.test.ts` |
 | Look-alike or homoglyph host | The desktop matches the exact origin; the extension reports the frame's own origin, never a page-supplied one. An `xn--` host is shown in Unicode (`unicodeHostOf`) with the desktop's `idn` warning; there is no "fill anyway" | `e2e/hostile/lookalike.spec.ts`, `src/shared/origin.test.ts` |
 | Fill over plain HTTP | The desktop refuses an http page unless the item's URL allows it, and never matches an https URL to an http page; the extension skips `blocked` matches | `e2e/hostile/http-page.spec.ts` |
 | Hidden fields: opacity 0, off screen, 0 or 1 px, clipped, `display: none`, `visibility: hidden`, transparent parent | `isFillable`: displayed (`checkVisibility`), at least 4 x 4 px, combined opacity of field and ancestors at least 0.2, inside the document, and on screen at one of five points the field (or its label) is the top element. Runs at probe and again at fill | `src/content/visibility.test.ts`, `e2e/hostile/hidden-fields.spec.ts` |
+| Hidden fields the first rules missed: `filter: opacity()` on the field or a parent, a transparent `mask-image`, a field below the fold in a zero-height `overflow: hidden` box or a `clip-path` box (off screen, where no hit test runs) | Opacity includes every `filter: opacity()`; any `mask-image` counts as opacity 0 (masks are not measured: conservative). Off screen a field is fillable only in the top document and when neither it nor an ancestor has a clip shape (`clip-path`, `clip`) and no ancestor's `overflow: hidden/clip` box leaves less than 4 x 4 px of it (the root element and the body excepted) | `e2e/hostile/hidden-css-tricks.spec.ts`, `src/content/visibility.test.ts` |
 | Field changed or injected between the probe and the fill | The content script detects again before writing; fields that changed type, were renamed, or are not fillable now receive nothing; an empty result is `noFields`, not success | `src/content/detect.test.ts`, `e2e/hostile/type-swap-and-late-inject.spec.ts` |
 | Navigation between the probe and the fill | Delivery is pinned to the probed `documentId` (Chromium); the content script compares `location.origin` with the expected origin (`originChanged`), re-checks ancestry and visibility | `e2e/hostile/navigate-after-probe.spec.ts` |
 | DOM clobbering: `<input name="elements">`, `name="type"` and the like | Fields are found with `querySelectorAll("input")`; attributes are read with `getAttribute`; the form of a field is `input.form`, never `form.elements` | `src/content/detect.test.ts` |
+| DOM clobbering of globals: an element with id or name `mosaicContent` (window named properties do reach the isolated world in Chromium) made the script think it was installed, so it never answered; `<img name="documentElement">` and the like | The script installs itself unless `mosaicContent` is an own property of the global, and defines it as one. Document named properties were measured not to reach the isolated world | `e2e/hostile/clobber-and-pollution.spec.ts` |
+| Prototype pollution in the page's world: replaced `value` setter, `checkVisibility`, `getComputedStyle`, `getBoundingClientRect`, `elementFromPoint`, `getAttribute`, `dispatchEvent`, `Object.prototype` keys | The content script runs in the isolated world; none of the page's replacements runs for it | `e2e/hostile/clobber-and-pollution.spec.ts` |
 | Spoofed extension messages from a page or another extension | See §3 | `src/background/router.test.ts`, `e2e/hostile/spoof-messages.spec.ts` |
+| Another installed extension: `runtime.sendMessage` and `runtime.connect` (as `popup` and other names) to Mosaic, a fill-shaped `tabs.sendMessage` to the tab, reading Mosaic's content-script state | `externally_connectable: {ids: []}` and no external listeners: refused and disconnected; `tabs.sendMessage` reaches only the sender's own content scripts; each extension has its own isolated world | `e2e/hostile/other-extension.spec.ts` (with `test/evil-extension/`) |
 | A page reads the extension's files or pages | No `web_accessible_resources`; `externally_connectable: {ids: []}` | `scripts/manifest.test.ts`, `e2e/hostile/spoof-messages.spec.ts` |
 | A framework ignores a programmatic value (React, Vue) | The value is set with the DOM's own setter from the isolated world, then `input` (composed `InputEvent`) and `change` fire | `src/content/fill.test.ts`, `e2e/hostile/react-controlled.spec.ts` |
-| Test code in the shipped package | `excludeE2e` replaces `src/background/e2e.ts` outside `--mode e2e`; `check-dist.mjs` fails the build on `mosaicE2E`, `e2eTabId`, external listeners, `host_permissions`, `web_accessible_resources`, `key` or a changed permission list | `scripts/check-dist.mjs`, `scripts/manifest.test.ts` |
+| Test code in the shipped package | `excludeE2e` replaces `src/background/e2e.ts` outside `--mode e2e`; `check-dist.mjs` fails the build on `mosaicE2E`, `e2eTabId`, `FakeDesktop`, `pauseAfterProbe`, external listeners, `host_permissions`, `content_scripts`, `web_accessible_resources`, `optional_permissions`, `key`, a changed permission or optional-host list, or an `externally_connectable` other than `{ids: []}` (Chromium) / absent (Firefox) | `scripts/check-dist.mjs`, `scripts/manifest.test.ts` |
 | Malformed or hostile replies from the host | Every message is validated with exact keys and the fixture samples of the Rust side; unknown keys, versions and events are dropped | `src/shared/protocol.test.ts` |
 
 ## 2. Gestures and the fill
@@ -120,6 +132,34 @@ string and the HTTP rule only; the real matching is `mosaic-origin` and is teste
 Every page starts with a comment naming its attempts and records the values its scripts see
 arrive in `window.__mosaicLeaks`.
 
+`test.use({ evilExtension: true })` starts a separate browser that also loads
+`test/evil-extension/` (another installed extension, for `other-extension.spec.ts`). The server
+sends `Content-Security-Policy: sandbox allow-scripts allow-forms` for pages named
+`csp-sandbox*`.
+
 Not automated: `activeTab` gating (the e2e build has host permissions; check by hand that, in
 the production build, the shortcut and the popup fill work and nothing is injected before a
 gesture), and Firefox (Playwright cannot load Firefox extensions).
+
+## 8. Known limits
+
+Found by the extension-attacker pass and not closed, because the DOM offers no reliable test or
+the impact stays within the page's own origin:
+
+- An opaque overlay with `pointer-events: none` over a field: `elementFromPoint` (and
+  `elementsFromPoint`) skip such elements, so the field passes the hit test while the user sees the
+  overlay. Clicks reach the field, and only that same origin gets the credential.
+- Colour tricks: transparent text, background and border, or `mix-blend-mode`, make a field
+  invisible without changing anything the checks read.
+- Opacity is not multiplied across frame levels: a field at 0.5 in a frame at 0.5 passes
+  (each level is checked on its own).
+- The `confirmFrame` click is a boolean, not bound to the frame the popup showed: a page can swap
+  which visible same-origin frame is focused between the popup's state and the click. The target
+  is still a visible same-origin frame. The T4 popup should send the confirmed frame's
+  `documentId`.
+- Off screen, any `clip-path` counts as hiding, and any `mask-image` on a field or ancestor
+  counts as opacity 0 everywhere: such forms fill only once they are scrolled into view (or not
+  at all with a mask).
+- A field in a closed shadow root is not seen and not filled.
+- A page can stop fills on itself (for example `<img name="querySelectorAll">` or a focused field
+  in a cross-origin ad frame); that is denial of service against itself, not a leak.

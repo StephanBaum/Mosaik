@@ -1,0 +1,51 @@
+<!-- attempts: change the content script's logic from the page's (main) world: replace the
+     `value` setter of HTMLInputElement to record what is written, make `checkVisibility`,
+     `getComputedStyle`, `getBoundingClientRect` and `elementFromPoint` call every field visible and
+     on top, make `getAttribute` call every field a current password, record `dispatchEvent`, and
+     pollute `Object.prototype` with the keys of the extension's messages. If any of it reached the isolated world, the
+     hidden decoys would be filled or the setter log would hold the password. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Prototype pollution</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <input id="decoy-opacity" name="d0" type="password" autocomplete="current-password" style="opacity: 0">
+  <input id="decoy-none" name="d1" type="password" autocomplete="current-password" style="display: none">
+  <input id="decoy-text" name="d2" type="text" style="position: absolute; left: -9999px">
+</form>
+<script>
+  window.__pollution = [];
+  const record = (what, value) => window.__pollution.push({ what, value: String(value) });
+  const value = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  Object.defineProperty(HTMLInputElement.prototype, "value", {
+    configurable: true,
+    get() { return value.get.call(this); },
+    set(v) { record("setter", v); value.set.call(this, v); },
+  });
+  Element.prototype.checkVisibility = function () { record("checkVisibility", this.id); return true; };
+  const realStyle = window.getComputedStyle;
+  window.getComputedStyle = function (el) {
+    record("getComputedStyle", el.id);
+    return { ...realStyle(el), opacity: "1", display: "block", visibility: "visible" };
+  };
+  Element.prototype.getBoundingClientRect = function () {
+    record("getBoundingClientRect", this.id);
+    return { left: 10, top: 10, right: 210, bottom: 40, width: 200, height: 30, x: 10, y: 10 };
+  };
+  Document.prototype.elementFromPoint = function () { record("elementFromPoint", ""); return document.getElementById("decoy-opacity"); };
+  const realGet = Element.prototype.getAttribute;
+  Element.prototype.getAttribute = function (name) {
+    record("getAttribute", name);
+    return name === "autocomplete" ? "current-password" : realGet.call(this, name);
+  };
+  const realDispatch = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function (event) { record("dispatchEvent", event.type); return realDispatch.call(this, event); };
+  // Non-enumerable, so the test harness's own serializer in this world keeps working.
+  for (const [key, polluted] of Object.entries({ ok: true, frame: "top", ancestorsSameOrigin: true, frameVisible: true, documentId: "forged" })) {
+    Object.defineProperty(Object.prototype, key, { value: polluted, configurable: true, writable: true, enumerable: false });
+  }
+  // The page's own calls above recorded nothing yet; only the extension could add entries now.
+  window.__pollution.length = 0;
+</script>
