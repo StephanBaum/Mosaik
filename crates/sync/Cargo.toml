@@ -16,7 +16,7 @@ default = []
 test-util = []
 # The OPAQUE ciphersuite module (`wire::opaque`, used by the server and the
 # HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
-opaque = ["dep:opaque-ke", "dep:sha2_0_10", "dep:getrandom"]
+opaque = ["dep:opaque-ke", "dep:sha2_0_10"]
 # The HTTP transport (M6 T4); enables `opaque`. T1 has no reqwest code.
 http = ["opaque"]
 
@@ -38,5 +38,22 @@ thiserror.workspace = true
 opaque-ke = { workspace = true, optional = true }
 # SHA-512 of the TripleDH key exchange: opaque-ke 4.0 uses the digest 0.10 generation.
 sha2_0_10 = { workspace = true, optional = true }
-# The OS CSPRNG for opaque-ke's random number generator (ADR-0011).
-getrandom = { workspace = true, optional = true }
+# Random temp file names of the folder transport, the retry jitter and
+# opaque-ke's random number generator (ADR-0011).
+getrandom.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# `O_NONBLOCK` for opening files in a folder anyone can write to: a FIFO
+# planted on a segment name must not hang the reader. Already in the lock file
+# (a dependency of getrandom and tempfile); this only adds the edge.
+libc = "0.2"
+
+[dev-dependencies]
+# Temporary folders for the folder transport tests and simulations.
+tempfile.workspace = true
+
+# The integration tests need the simulation utilities.
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+required-features = ["test-util"]

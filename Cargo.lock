@@ -3064,6 +3064,7 @@ dependencies = [
  "base64ct",
  "getrandom 0.4.3",
  "idna",
+ "libc",
  "mosaic-core",
  "mosaic-vault",
  "opaque-ke",
@@ -3071,6 +3072,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sha2 0.11.1",
+ "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
 ]

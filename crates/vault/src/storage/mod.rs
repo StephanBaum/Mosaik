@@ -18,6 +18,7 @@
 //! | `local_device` | this install's device ID, which stamps local edits (§10, public per §12) |
 //! | `settings_nonce` | local-only random nonce bound into the settings-file MAC (§11.1); never in the outbox, never synced |
 //! | `install_identity`, `sync_config`, `sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint`, `attachment_deletions` | local sync state of M6 (schema v3): install ID, backend choice, cursors, local sequence blocks, checkpoint counter, attachment deletions still to send |
+//! | `sync_own_seq`, `sync_engine_state`, `sync_peer_checkpoint`, `sync_lag`, `sync_key_candidate`, `sync_marker_seen` | persisted engine state (schema v4): own sequence numbers, halt and strikes, peer checkpoints, lag timers, vault keys seen per generation, delete-marker first-seen times |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
 //! store cannot be handed a plaintext or a key. Every object is decoded
@@ -83,6 +84,7 @@
 mod account;
 mod attachments;
 mod device;
+mod engine_state;
 mod error;
 mod fs;
 mod records;
@@ -101,6 +103,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
+pub use engine_state::{EngineState, MarkerStamp, OwnSeq, PeerCheckpoint, PeerEntry, SyncHalt};
 pub use error::{Error, Result};
 pub use records::{
     CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,

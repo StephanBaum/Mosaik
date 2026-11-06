@@ -430,7 +430,9 @@ name = "mosaic-sync"
 version = "0.0.0"
 dependencies = [
  "base64ct",
+ "getrandom",
  "idna",
+ "libc",
  "mosaic-core",
  "mosaic-vault",
  "serde",
