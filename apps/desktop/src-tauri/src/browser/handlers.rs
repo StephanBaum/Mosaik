@@ -266,11 +266,10 @@ async fn passkey_create(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, Wir
         be.browser_plan_passkey_create(&request, &label)
     })
     .await?;
-    let request_id = plan.request_id.clone();
-    let rx = ctx
-        .shared
-        .open_passkey(&ctx.pairing, ctx.conn, PasskeyPlan::Create(plan))?;
-    finish_passkey(ctx, id, &request_id, rx).await
+    let (handle, rx) =
+        ctx.shared
+            .open_passkey(&ctx.pairing, ctx.conn, PasskeyPlan::Create(plan))?;
+    finish_passkey(ctx, id, &handle, rx).await
 }
 
 /// `passkeyGet`: plan (no matching passkey answers `passkeyNotFound` without
@@ -282,20 +281,19 @@ async fn passkey_get(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireEr
     }
     let label = ctx.shared.pairing_label(&ctx.pairing)?;
     let plan = blocking(ctx, move |be| be.browser_plan_passkey_get(&request, &label)).await?;
-    let request_id = plan.request_id.clone();
-    let rx = ctx
+    let (handle, rx) = ctx
         .shared
         .open_passkey(&ctx.pairing, ctx.conn, PasskeyPlan::Get(plan))?;
-    finish_passkey(ctx, id, &request_id, rx).await
+    finish_passkey(ctx, id, &handle, rx).await
 }
 
 async fn finish_passkey(
     ctx: &Ctx,
     id: u32,
-    request_id: &str,
+    handle: &str,
     rx: tokio::sync::oneshot::Receiver<super::passkey_prompt::PasskeyResult>,
 ) -> Result<Reply, WireError> {
-    let reply = ctx.shared.await_passkey(request_id, rx).await?;
+    let reply = ctx.shared.await_passkey(handle, rx).await?;
     if reply.completed() {
         ctx.shared.note_used_blocking(ctx.pairing).await;
     }

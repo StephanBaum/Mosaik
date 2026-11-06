@@ -84,6 +84,28 @@ describe("browser passkey dialog: sign in", () => {
     });
   });
 
+  it("switches to asking for the password when the verification ran out while the dialog was open", async () => {
+    const user = userEvent.setup();
+    const { dialog } = await open({ browserPasskey: "uvExpires" }, GET);
+    // Nothing to type when the dialog opened.
+    expect(dialog.querySelectorAll("input[type=password]")).toHaveLength(0);
+    const signIn = within(dialog).getByRole("button", { name: "Sign in with passkey" });
+    await enabled(signIn);
+    await user.click(signIn);
+    // Rust answered `reauthRequired`: the dialog stays open and shows the password field.
+    expect(await within(dialog).findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringMatching(/master password/),
+    );
+    const password = within(dialog).getByLabelText("Master password");
+    expect((signIn as HTMLButtonElement).disabled).toBe(true);
+    await user.type(password, "mosaic");
+    await user.click(signIn);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: GET })).toBeNull();
+    });
+  });
+
   it("lets the browser use another device", async () => {
     const user = userEvent.setup();
     const first = await open({ browserPasskey: "get" }, GET);
@@ -140,7 +162,18 @@ describe("browser passkey dialog: create", () => {
     expect(within(dialog).getByText("You already have a passkey for example.com in Mosaic.")).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Save passkey" })).toBeNull();
     expect(within(dialog).queryByRole("radio")).toBeNull();
-    await user.click(within(dialog).getByRole("button", { name: "OK" }));
+    // The acknowledge waits out the Allow guard like an Allow.
+    const ok = within(dialog).getByRole("button", { name: "OK" });
+    expect(ok.getAttribute("aria-disabled")).toBe("true");
+    await user.click(ok);
+    expect(screen.queryByRole("dialog", { name: EXCLUDED })).not.toBeNull();
+    await waitFor(
+      () => {
+        expect(ok.getAttribute("aria-disabled")).toBe("false");
+      },
+      { timeout: ALLOW_GUARD_MS + 1500 },
+    );
+    await user.click(ok);
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: EXCLUDED })).toBeNull();
     });

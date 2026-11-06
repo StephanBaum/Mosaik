@@ -113,10 +113,10 @@ impl Prompts {
         self.pair.as_ref().map(|p| p.request_id.as_str())
     }
 
-    /// The open passkey request's ID (tests).
+    /// The open passkey dialog's handle (tests).
     #[cfg(test)]
     pub(crate) fn passkey_id(&self) -> Option<&str> {
-        self.passkey.as_ref().map(PendingPasskey::request_id)
+        self.passkey.as_ref().map(PendingPasskey::handle)
     }
 
     /// The open save request's ID (tests).
@@ -152,7 +152,7 @@ impl Prompts {
     }
 }
 
-fn new_request_id() -> Result<String, WireError> {
+pub(super) fn new_request_id() -> Result<String, WireError> {
     mosaic_core::browser_channel::new_endpoint_token()
         .map(|t| hex(&t))
         .map_err(|_| WireError::Internal)
@@ -535,17 +535,32 @@ impl Shared {
         } else {
             backend.browser_apply_save(&pending, &request.decision)
         };
+        let mut orphaned = false;
         let dropped = {
             let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
             prompts.applying = false;
             let dropped = prompts.dropped_while_applying.take();
             if applied.is_err() && dropped.is_none() {
-                // Nothing was written: the prompt stays open.
-                prompts.save = Some(pending);
-                return applied.map(|_| ());
+                if pending.reply.is_closed() {
+                    // The request expired (or its session went away) while
+                    // the answer was applied: nobody waits for it, so the
+                    // prompt is not put back.
+                    orphaned = true;
+                } else {
+                    // Nothing was written: the prompt stays open.
+                    prompts.save = Some(pending);
+                    return applied.map(|_| ());
+                }
             }
             dropped
         };
+        if orphaned {
+            self.emit(AppEvent::BrowserSaveClosed {
+                request_id: request.request_id.clone(),
+                reason: BrowserCloseReason::Expired,
+            });
+            return applied.map(|_| ());
+        }
         match applied {
             Ok(result) => {
                 let _ = pending.reply.send(Ok(result));
@@ -587,7 +602,7 @@ impl Shared {
         }
         drop(prompts);
         if let Some(passkey) = passkey {
-            let request_id = passkey.request_id().to_owned();
+            let request_id = passkey.handle().to_owned();
             passkey.refuse(WireError::Cancelled);
             self.emit(AppEvent::BrowserPasskeyClosed { request_id, reason });
         }

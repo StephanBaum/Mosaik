@@ -1,4 +1,4 @@
-//! Browser extension endpoint (M4, ADR-0036, ADR-0037; passkeys M5, ADR-0040):
+//! Browser extension endpoint (M4, ADR-0036, ADR-0037; passkeys M5, ADR-0040 (lands with M5 T3)):
 //! the paired browsers, the pairing prompt, the save prompt and the passkey
 //! prompt. The channel to the extension
 //! itself speaks `mosaic-native-messaging`'s protocol and is not part of
@@ -315,7 +315,10 @@ pub struct BrowserPasskeyCandidate {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserPasskeyRequest {
-    /// Handle for `browser_passkey_respond`: 32 lowercase hex digits.
+    /// The desktop's own handle for this prompt (`browser_passkey_respond`,
+    /// `browserPasskeyClosed`): 32 lowercase hex digits, made for each
+    /// prompt. It is never the extension's request ID, so a page that reuses
+    /// its IDs cannot steer an answer meant for another prompt.
     pub request_id: String,
     /// The name of the browser that asks.
     pub pairing_label: String,
@@ -381,12 +384,14 @@ pub enum BrowserPasskeyDecision {
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowserPasskeyRespondRequest {
-    /// From the event.
+    /// The prompt's handle, from the event.
     pub request_id: String,
     /// The answer.
     pub decision: BrowserPasskeyDecision,
-    /// The master password, when the dialog asked for it (`needsPassword`);
-    /// `null` otherwise.
+    /// The master password, when the user typed one: the dialog asked for it
+    /// (`needsPassword`) or the verification ran out while it was open
+    /// (`reauthRequired`). `null` otherwise. Checked only when verification
+    /// is needed at that moment.
     pub password: Option<SecretIn>,
 }
 

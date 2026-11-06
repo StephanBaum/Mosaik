@@ -298,9 +298,9 @@ A request with `v` other than 1 gets `protocolVersion`.
 - `OriginWarning` = `{kind: "idn", unicodeHost}` | `{kind: "insecure"}` |
   `{kind: "lookalike", savedHost}`.
 - Limits: origin at most 2048 bytes, username 256, password 1024, title 256 characters.
-- Passkeys (ADR-0039, ADR-0040). Binary values are base64url without padding. `requestId` is 32
-  lowercase hex digits chosen by the extension; it names the request for `passkeyCancel` and is
-  the handle of the desktop dialog. `origin` and `topOrigin` come from the browser, never from the
+- Passkeys (ADR-0039, ADR-0040 (lands with M5 T3)). Binary values are base64url without padding.
+  `requestId` is 32 lowercase hex digits chosen by the extension; it names the request for
+  `passkeyCancel` only. The desktop dialog has its own handle, made by the desktop. `origin` and `topOrigin` come from the browser, never from the
   page, and must be equal (`crossOriginFrame`) and https (`insecureOrigin`). `rpId` is the page's
   request or `null` (the host); the desktop accepts it only if `mosaic-origin` does
   (`webauthn_rp_id`: a domain at or under the origin's registrable domain, not a public suffix),

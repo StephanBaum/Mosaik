@@ -40,6 +40,8 @@ mod ratelimit;
 mod registry;
 mod save;
 
+pub(crate) use passkey::sanitize_name;
+
 #[cfg(windows)]
 use mosaic_native_messaging::endpoint::DiscoveryLease;
 use mosaic_native_messaging::endpoint::Endpoint;

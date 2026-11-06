@@ -1604,6 +1604,18 @@ CXF export (T4) follow.
   are still due. Search does not index a passkey's user name (the list row shows it). A passkey that
   the page aborts while its answer is being written is stored but not delivered (an orphan the user
   can trash).
+- **Crypto-review follow-ups (T2)**: each passkey dialog has a desktop-generated handle (the
+  `requestId` of the events and of `browser_passkey_respond`); the extension's ID only matches
+  `passkeyCancel`. The dialog switches to password mode on `reauthRequired` (the 300 s window
+  ran out while it was open). A failed answer after the request expired no longer puts the prompt
+  back (passkey and save). An acknowledge waits out the 1 s guard. The UV window needs both the
+  monotonic and the wall clock within 300 s (a suspend expires it). The passkey dialog's password
+  verifies and counts failures but earns no two-minute re-authentication grant
+  (`verify_master_only`). A `passkey` item edit takes only title, notes and tags (`invalidInput`
+  otherwise). Item-view names are sanitized. **Left open:** the core accessor that returns a
+  passkey's public fields without copying its key (`crates/core` was out of scope for this
+  track); until then `Item::passkey()` copies the key (zeroizing) for each passkey item that is
+  listed or planned. CRYPTO_SPEC §16 still names ADR-0040 as normative (it lands with T3).
 
 ## M5 Passkeys — T3 browser interception (2026-11-06)
 

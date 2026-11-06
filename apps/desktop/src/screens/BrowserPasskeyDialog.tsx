@@ -1,10 +1,14 @@
 /**
- * The browser passkey prompt (M5, ADR-0040): a site asked to create a passkey or to sign in with
- * one, and the user decides here, in the desktop app. Nothing is signed or written before the
+ * The browser passkey prompt (M5, ADR-0040 (lands with M5 T3)): a site asked to create a
+ * passkey or to sign in with one, and the user decides here, in the desktop app. Nothing is signed or written before the
  * Allow: the primary button stays disabled for 1 s after the dialog opens and after the window
- * regains focus. Cancel has the initial focus and Esc means Cancel. No key material and no
- * challenge reaches this window; the only secret is the master password the user types when the
- * site asked for user verification (it is sent to Rust and cleared at once).
+ * regains focus (so does the acknowledge of an exclusion). Cancel has the initial focus and Esc
+ * means Cancel. No key material and no challenge reaches this window; the only secret is the
+ * master password the user types when verification is needed (it is sent to Rust and cleared at
+ * once). Verification can become needed while the dialog is open (the five-minute window runs
+ * out): Rust then answers `reauthRequired` and the dialog switches to asking for the password.
+ * The request's `requestId` is the desktop's own handle for this prompt, never the extension's;
+ * a new handle remounts the prompt, so the guard timer, the selection and a typed password reset.
  */
 import { useState, type ReactNode, type SyntheticEvent } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
@@ -34,6 +38,7 @@ export function BrowserPasskeyDialog() {
   if (browser.passkey === null) {
     return null;
   }
+  // Keyed by the desktop's handle: a new request remounts the prompt, whatever the page's own ID.
   return <Prompt key={browser.passkey.requestId} request={browser.passkey} />;
 }
 
@@ -173,18 +178,30 @@ function titleKeyOf(request: BrowserPasskeyRequest) {
   return request.kind === "get" ? "browser.passkey.getTitle" : "browser.passkey.createTitle";
 }
 
-function Prompt({ request }: { request: BrowserPasskeyRequest }) {
-  const { t } = useI18n();
+/**
+ * The master password the dialog may ask for: from the start (`needsPassword`), or once Rust
+ * answers `reauthRequired` because the verification window ran out while the dialog was open.
+ */
+function useVerification(request: BrowserPasskeyRequest) {
+  const [password, setPassword] = useState("");
+  const [reauth, setReauth] = useState(false);
+  const needsTyping = (request.needsPassword || reauth) && !request.excluded;
+  const askForPassword = () => {
+    setReauth(true);
+  };
+  return { password, setPassword, needsTyping, askForPassword };
+}
+
+/** Sends the answer; an expired request closes the dialog, any other error keeps it open. */
+function useAnswer(request: BrowserPasskeyRequest, verification: ReturnType<typeof useVerification>) {
   const ipc = useIpc();
   const { browser } = useEvents();
-  const { now, locked } = useAllowGuard();
-  const choice = useChoice(request);
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<IpcError | null>(null);
+  const { password, setPassword, needsTyping, askForPassword } = verification;
 
   async function answer(decision: BrowserPasskeyDecision) {
     const commits = decision.kind === "create" || decision.kind === "assert";
-    const typed = commits && request.needsPassword ? password : "";
+    const typed = commits && needsTyping ? password : "";
     const result = await ipc.call("browser_passkey_respond", {
       requestId: request.requestId,
       decision,
@@ -194,15 +211,29 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
     setPassword("");
     if (result.ok || result.error.code === "browserRequestExpired") {
       browser.removePasskey(request.requestId);
-    } else {
-      setError(result.error);
+      return;
     }
+    if (result.error.code === "reauthRequired") {
+      askForPassword();
+    }
+    setError(result.error);
   }
+  return { answer, error };
+}
+
+function Prompt({ request }: { request: BrowserPasskeyRequest }) {
+  const { t } = useI18n();
+  const { now, locked } = useAllowGuard();
+  const choice = useChoice(request);
+  const verification = useVerification(request);
+  const { answer, error } = useAnswer(request, verification);
+  const { password, setPassword, needsTyping } = verification;
 
   const { decision } = choice;
-  const needsTyping = request.needsPassword && !request.excluded;
   const ready = decision !== null && (!needsTyping || password !== "");
-  const commits = decision?.kind === "create" || decision?.kind === "assert";
+  // Everything that is not a cancel waits out the Allow guard.
+  const guarded =
+    decision?.kind === "create" || decision?.kind === "assert" || decision?.kind === "acknowledge";
   return (
     <Dialog
       title={t(titleKeyOf(request), { rpId: request.rpId })}
@@ -220,7 +251,7 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
         noValidate
         onSubmit={(event: SyntheticEvent) => {
           event.preventDefault();
-          if (decision !== null && ready && !(commits && locked)) {
+          if (decision !== null && ready && !(guarded && locked)) {
             void answer(decision);
           }
         }}
@@ -245,7 +276,7 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
         <ErrorAlert error={error} />
         <Actions
           request={request}
-          disabled={!ready || (commits && locked)}
+          disabled={!ready || (guarded && locked)}
           onAnswer={(each) => {
             void answer(each);
           }}
@@ -311,9 +342,13 @@ function Actions({
         <HoloButton
           type="submit"
           data-autofocus=""
+          // Not `disabled`: the only button of the dialog must keep the focus while the guard runs.
+          aria-disabled={disabled}
           onClick={(event) => {
             event.preventDefault();
-            onAnswer({ kind: "acknowledge" });
+            if (!disabled) {
+              onAnswer({ kind: "acknowledge" });
+            }
           }}
         >
           {t("browser.passkey.ok")}
