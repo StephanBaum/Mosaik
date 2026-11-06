@@ -1009,7 +1009,7 @@ fail; `Debug` is redacted. The decoders are fuzzed (`crates/native-messaging/fuz
 Mosaic is a software WebAuthn authenticator: ES256 only, `none` attestation,
 discoverable credentials stored as `passkey` vault items. The code is
 `mosaic-passkey`; it does the cryptography and the byte encodings, never
-origin or rpId policy (that is `mosaic_origin::webauthn_rp_id`, ADR-0040 (lands with M5 T3),
+origin or rpId policy (that is `mosaic_origin::webauthn_rp_id`, ADR-0040,
 called by the desktop). Nothing here invents a primitive: ECDSA P-256 with
 SHA-256 and RFC 6979 nonces is `p256`; the key and public-key encodings are
 the RustCrypto `pkcs8`, `spki` and `der` crates. The WebAuthn specification
@@ -1052,7 +1052,7 @@ byte, in this member order, without whitespace:
 `0x20`, `0x21`, `0x23..0x5B` and `0x5D..0x10FFFF` unchanged, `0x22` as `\"`,
 `0x5C` as `\\`, every other code point as `\u` and four **lowercase** hex
 digits, then `"`. `crossOrigin` is always `false`; `topOrigin` is never emitted
-(cross-origin frames are not served, ADR-0040, lands with M5 T3).
+(cross-origin frames are not served, ADR-0040).
 
 **authenticatorData** =
 `rpIdHash (32) || flags (1) || signCount (u32, 4) [|| attestedCredentialData]`;

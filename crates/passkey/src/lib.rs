@@ -12,7 +12,7 @@
 //!   sign count is stored.
 //!
 //! It does no origin or relying-party-ID policy: callers pass an rpId already
-//! validated by `mosaic_origin::webauthn_rp_id` (ADR-0040, lands with M5 T3), and the `origin`
+//! validated by `mosaic_origin::webauthn_rp_id` (ADR-0040), and the `origin`
 //! string of the browser. It holds no vault and does no I/O. Private keys live
 //! in zeroizing types and appear in no error.
 #![forbid(unsafe_code)]
