@@ -13,6 +13,8 @@ export const MAX_FRAME_BYTES = 262_144;
 export const REQUEST_TIMEOUT_MS = 20_000;
 /** A save prompt stays open for 300 s on the desktop (SAVE_PROMPT_TIMEOUT). */
 export const SAVE_PROMPT_TIMEOUT_MS = 305_000;
+/** A passkey prompt stays open for 300 s on the desktop (PASSKEY_PROMPT_TIMEOUT). */
+export const PASSKEY_PROMPT_TIMEOUT_MS = 305_000;
 /** A pairing request stays open for 120 s on the desktop. */
 export const PAIR_TIMEOUT_MS = 125_000;
 /** The port is closed after this long with nothing in flight. */
@@ -78,6 +80,57 @@ export interface SaveBody {
   password: string;
 }
 
+export type UserVerification = "required" | "preferred" | "discouraged";
+
+/**
+ * `passkeyCreate` (docs/NATIVE_MESSAGING.md §5.2). Binary values are base64url without padding.
+ * `origin` and `topOrigin` come from the browser, never from the page.
+ */
+export interface PasskeyCreateBody {
+  /** 32 lowercase hex digits, chosen by the extension. */
+  requestId: string;
+  origin: string;
+  topOrigin: string;
+  rpId: string | null;
+  userId: string;
+  userName: string;
+  userDisplayName: string;
+  challenge: string;
+  algorithms: number[];
+  excludeCredentials: string[];
+  userVerification: UserVerification;
+}
+
+export interface PasskeyGetBody {
+  requestId: string;
+  origin: string;
+  topOrigin: string;
+  rpId: string | null;
+  challenge: string;
+  allowCredentials: string[];
+  userVerification: UserVerification;
+}
+
+/** The credential a `passkeyCreate` made. The only key material is the public key. */
+export interface CreatedCredential {
+  credentialId: string;
+  clientDataJson: string;
+  attestationObject: string;
+  authenticatorData: string;
+  publicKeySpki: string;
+  publicKeyAlgorithm: number;
+  vaultId: string;
+  itemId: string;
+}
+
+export interface AssertionBody {
+  credentialId: string;
+  clientDataJson: string;
+  authenticatorData: string;
+  signature: string;
+  userHandle: string;
+}
+
 export interface RequestMap {
   hello: { pairing: Pairing | null; hint: Hint };
   pair: { hint: Hint };
@@ -98,6 +151,9 @@ export interface RequestMap {
   checkSave: SaveBody;
   proposeSave: SaveBody;
   unpair: EmptyBody;
+  passkeyCreate: PasskeyCreateBody;
+  passkeyGet: PasskeyGetBody;
+  passkeyCancel: { requestId: string };
 }
 
 export interface ResultMap {
@@ -122,6 +178,9 @@ export interface ResultMap {
     itemId: string | null;
   };
   unpair: EmptyBody;
+  passkeyCreate: { outcome: "created" | "useAnotherDevice"; credential: CreatedCredential | null };
+  passkeyGet: { outcome: "asserted" | "useAnotherDevice"; assertion: AssertionBody | null };
+  passkeyCancel: EmptyBody;
 }
 
 export type Op = keyof RequestMap;
@@ -140,6 +199,9 @@ export const OPS = [
   "checkSave",
   "proposeSave",
   "unpair",
+  "passkeyCreate",
+  "passkeyGet",
+  "passkeyCancel",
 ] as const satisfies readonly Op[];
 
 export interface RequestEnvelope<O extends Op = Op> {

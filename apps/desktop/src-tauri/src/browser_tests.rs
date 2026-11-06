@@ -2657,3 +2657,1659 @@ fn the_app_identifier_is_the_bundle_identifier() {
         mosaic_native_messaging::endpoint::APP_IDENTIFIER
     );
 }
+
+#[test]
+fn a_failed_save_answer_after_the_request_expired_leaves_no_prompt_behind() {
+    run(async {
+        let env = Env::unlocked_with(Limits {
+            save_timeout: Duration::from_millis(700),
+            ..Limits::default()
+        });
+        let mut peer = paired_peer(&env).await;
+        let id = peer
+            .request(
+                "proposeSave",
+                save_body("https://new.example", Some("bob"), "captured-pw"),
+            )
+            .await;
+        wait_for_event(&env, "browserSaveRequested").await;
+        env.clock.advance(Duration::from_secs(2));
+        // A vault that does not exist: the answer fails once it has the vault
+        // slot, which the test holds while the request expires.
+        let request = respond_save(
+            &save_request_id(&env),
+            BrowserSaveDecision::SaveNew {
+                vault_id: VaultId::new_v7().unwrap().into(),
+                title: "Bob".into(),
+                allow_http: false,
+            },
+        );
+        let slot = env.backend().slot().unwrap();
+        let backend = env.backend();
+        let answered = std::thread::scope(|scope| {
+            let answered = scope.spawn(move || backend.browser_save_respond(&request));
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(slot);
+            answered.join().unwrap()
+        });
+        assert_eq!(code(answered.unwrap_err()), ErrorCode::VaultNotFound);
+        assert_eq!(peer.response(id).await.unwrap()["outcome"], "cancelled");
+        assert!(
+            env.service()
+                .shared()
+                .prompts
+                .lock()
+                .unwrap()
+                .save_id()
+                .is_none(),
+            "the prompt is not put back"
+        );
+        let closed = env.events_of("browserSaveClosed");
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0]["reason"], "expired");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Passkeys (M5 T2, ADR-0039, ADR-0040)
+// ---------------------------------------------------------------------------
+
+mod passkeys {
+    use std::collections::HashMap;
+
+    use mosaic_core::Timestamp;
+    use mosaic_core::model::{PasskeyCredential, Text};
+    use mosaic_passkey::{CreateInput, b64url, from_b64url};
+    use p256::ecdsa::signature::Verifier as _;
+    use p256::ecdsa::{Signature, VerifyingKey};
+    use p256::pkcs8::DecodePublicKey as _;
+    use sha2::{Digest as _, Sha256};
+
+    use super::*;
+    use crate::contract::browser::{
+        BrowserPasskeyDecision as Decision, BrowserPasskeyRespondRequest,
+    };
+
+    const CHALLENGE: [u8; 32] = [7; 32];
+    const SITE: &str = "https://login.example.com";
+
+    fn rid(n: u8) -> String {
+        format!("{n:032x}")
+    }
+
+    thread_local! {
+        /// The dialog handle (the desktop's own ID) of each prompt the test
+        /// opened, by the extension's request ID.
+        static HANDLES: std::cell::RefCell<HashMap<String, String>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+
+    /// The handle of the dialog opened for the extension's request `n`.
+    fn handle_of(n: u8) -> String {
+        HANDLES.with(|handles| {
+            handles
+                .borrow()
+                .get(&rid(n))
+                .cloned()
+                .unwrap_or_else(|| rid(n))
+        })
+    }
+
+    fn create_body(origin: &str, rp: Option<&str>, uv: &str, request: u8) -> Value {
+        json!({
+            "requestId": rid(request), "origin": origin, "topOrigin": origin, "rpId": rp,
+            "userId": b64url(&[1, 2, 3, 4]), "userName": "alex@example.com",
+            "userDisplayName": "Alex Example", "challenge": b64url(&CHALLENGE),
+            "algorithms": [-7, -257], "excludeCredentials": [], "userVerification": uv,
+        })
+    }
+
+    fn get_body(origin: &str, rp: Option<&str>, allow: &[&[u8]], uv: &str, request: u8) -> Value {
+        json!({
+            "requestId": rid(request), "origin": origin, "topOrigin": origin, "rpId": rp,
+            "challenge": b64url(&CHALLENGE),
+            "allowCredentials": allow.iter().map(|id| b64url(id)).collect::<Vec<_>>(),
+            "userVerification": uv,
+        })
+    }
+
+    fn answer(
+        request: u8,
+        decision: Decision,
+        password: Option<&str>,
+    ) -> BrowserPasskeyRespondRequest {
+        BrowserPasskeyRespondRequest {
+            request_id: handle_of(request),
+            decision,
+            password: password.map(SecretIn::test),
+        }
+    }
+
+    fn respond(env: &Env, request: u8, decision: Decision) -> Result<(), ErrorCode> {
+        env.backend()
+            .browser_passkey_respond(&answer(request, decision, None))
+            .map_err(code)
+    }
+
+    fn assert_with(item: ItemId, vault: VaultId) -> Decision {
+        Decision::Assert {
+            vault_id: vault.into(),
+            item_id: item.into(),
+        }
+    }
+
+    fn create_in(vault: VaultId) -> Decision {
+        Decision::Create {
+            vault_id: vault.into(),
+        }
+    }
+
+    /// A stored passkey of the tests, with the public key to check signatures.
+    struct Seeded {
+        item: ItemId,
+        credential_id: Vec<u8>,
+        spki: Vec<u8>,
+        user_handle: Vec<u8>,
+    }
+
+    impl Env {
+        fn seed_passkey(&self, rp: &str, user: &str, discoverable: bool, count: u64) -> Seeded {
+            let created = mosaic_passkey::create(&CreateInput {
+                rp_id: rp,
+                origin: &format!("https://{rp}"),
+                challenge: &CHALLENGE,
+                user_handle: &[9; 16],
+                algorithms: &[-7],
+                user_verified: false,
+            })
+            .unwrap();
+            let mut credential = PasskeyCredential::new(
+                created.credential_id.clone(),
+                Text::new(rp),
+                vec![9; 16],
+                created.private_key_pkcs8,
+                -7,
+                Timestamp::from_unix_millis(1_000),
+            );
+            credential.user_name = Text::new(user);
+            credential.discoverable = discoverable;
+            let vault = self.vault();
+            let mut slot = self.backend().slot().unwrap();
+            let item = slot
+                .unlocked_mut()
+                .unwrap()
+                .add_item(vault, &ItemType::Passkey, |e| {
+                    e.set_title(rp)?;
+                    e.set_passkey(&credential)?;
+                    if count > 0 {
+                        e.set_passkey_sign_count(count)?;
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            Seeded {
+                item,
+                credential_id: created.credential_id,
+                spki: created.public_key_spki,
+                user_handle: vec![9; 16],
+            }
+        }
+
+        /// Every `passkey` item: its credential and sign count.
+        fn passkeys(&self) -> Vec<(ItemId, PasskeyCredential, u64)> {
+            let slot = self.backend().slot().unwrap();
+            let session = slot.unlocked().unwrap();
+            session
+                .items(&mosaic_vault::session::ItemFilter::default())
+                .into_iter()
+                .filter_map(|e| Some((e.item_id, e.item.passkey()?, e.item.passkey_sign_count())))
+                .collect()
+        }
+
+        fn passkey_open(&self) -> bool {
+            self.service()
+                .shared()
+                .prompts
+                .lock()
+                .unwrap()
+                .passkey_id()
+                .is_some()
+        }
+    }
+
+    /// A call after the rate-limit windows slid (for tests that send many requests).
+    async fn ask(env: &Env, peer: &mut Peer, op: &str, body: Value) -> Result<Value, String> {
+        env.clock.advance(Duration::from_secs(61));
+        peer.call(op, body).await
+    }
+
+    /// Sends a passkey request and waits until its dialog is open.
+    async fn start(env: &Env, peer: &mut Peer, op: &str, body: Value) -> u32 {
+        let before = env.events_of("browserPasskeyRequested").len();
+        let extension_id = body["requestId"].as_str().unwrap().to_owned();
+        let id = peer.request(op, body).await;
+        wait_for_event_n(env, "browserPasskeyRequested", before + 1).await;
+        let handle = last_request(env)["requestId"].as_str().unwrap().to_owned();
+        HANDLES.with(|handles| handles.borrow_mut().insert(extension_id, handle));
+        id
+    }
+
+    fn last_request(env: &Env) -> Value {
+        env.events_of("browserPasskeyRequested").pop().unwrap()["request"].clone()
+    }
+
+    /// The Allow guard of the dialog just shown has passed.
+    fn pass_guard(env: &Env) {
+        env.clock.advance(Duration::from_millis(1100));
+    }
+
+    fn decode(value: &Value) -> Vec<u8> {
+        from_b64url(value.as_str().unwrap(), 4096).unwrap()
+    }
+
+    fn client_data(value: &Value) -> Value {
+        serde_json::from_slice(&decode(value)).unwrap()
+    }
+
+    /// Checks `signature` over `authenticatorData || SHA-256(clientDataJSON)` with a SPKI.
+    fn verifies(spki: &[u8], assertion: &Value) -> bool {
+        let mut message = decode(&assertion["authenticatorData"]);
+        message.extend_from_slice(&Sha256::digest(decode(&assertion["clientDataJson"])));
+        let key = VerifyingKey::from_public_key_der(spki).unwrap();
+        let signature = Signature::from_der(&decode(&assertion["signature"])).unwrap();
+        key.verify(&message, &signature).is_ok()
+    }
+
+    fn rp_hash(rp: &str) -> Vec<u8> {
+        Sha256::digest(rp.as_bytes()).to_vec()
+    }
+
+    #[test]
+    fn create_writes_the_item_before_it_answers_and_the_new_key_signs() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let mut peer = paired_peer(&env).await;
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyCreate",
+                create_body(SITE, Some("example.com"), "preferred", 1),
+            )
+            .await;
+            let request = last_request(&env);
+            assert_eq!(request["kind"], "create");
+            // The handle is the desktop's own, not the extension's request ID.
+            assert_eq!(request["requestId"].as_str().unwrap().len(), 32);
+            assert_ne!(request["requestId"], rid(1));
+            assert_eq!(request["pairingLabel"], "Chrome");
+            assert_eq!(request["origin"], SITE);
+            assert_eq!(request["rpId"], "example.com");
+            assert_eq!(request["userName"], "alex@example.com");
+            assert_eq!(request["userDisplayName"], "Alex Example");
+            assert_eq!(request["candidates"], json!([]));
+            assert_eq!(request["excluded"], false);
+            assert_eq!(request["needsPassword"], false, "unlocked a moment ago");
+            assert_eq!(request["userVerification"], "preferred");
+            assert!(!request.to_string().contains("challenge"));
+
+            // The Allow guard: nothing is written before it.
+            assert_eq!(
+                respond(&env, 1, create_in(vault)),
+                Err(ErrorCode::BrowserAllowTooSoon)
+            );
+            assert!(env.passkeys().is_empty());
+            pass_guard(&env);
+            assert_eq!(
+                respond(
+                    &env,
+                    1,
+                    Decision::Create {
+                        vault_id: VaultId::new_v7().unwrap().into()
+                    }
+                ),
+                Err(ErrorCode::VaultNotFound)
+            );
+            assert!(env.passkey_open(), "still open after an error");
+            respond(&env, 1, create_in(vault)).unwrap();
+
+            let created = peer.response(id).await.unwrap();
+            assert_eq!(created["outcome"], "created");
+            let credential = &created["credential"];
+            let stored = env.passkeys();
+            assert_eq!(stored.len(), 1);
+            let (item, passkey, count) = &stored[0];
+            assert_eq!(passkey.credential_id, decode(&credential["credentialId"]));
+            assert_eq!(passkey.credential_id.len(), 16);
+            assert_eq!(passkey.rp_id.as_str(), "example.com");
+            assert_eq!(passkey.user_name.as_str(), "alex@example.com");
+            assert_eq!(passkey.user_display_name.as_str(), "Alex Example");
+            assert_eq!(passkey.user_handle, vec![1, 2, 3, 4]);
+            assert_eq!(
+                (passkey.algorithm, passkey.discoverable, *count),
+                (-7, true, 0)
+            );
+            assert_eq!(credential["vaultId"], vault.to_string());
+            assert_eq!(credential["itemId"], item.to_string());
+            assert_eq!(credential["publicKeyAlgorithm"], -7);
+            {
+                let slot = env.backend().slot().unwrap();
+                let stored = slot.unlocked().unwrap().item(vault, *item).unwrap();
+                assert_eq!(stored.title(), Some("example.com"));
+            }
+
+            // authenticatorData: rpIdHash, UP|UV|BE|BS|AT, count 0, the credential.
+            let auth = decode(&credential["authenticatorData"]);
+            assert_eq!(auth[..32], rp_hash("example.com")[..]);
+            assert_eq!(auth[32], 0x5D);
+            assert_eq!(auth[33..37], [0, 0, 0, 0]);
+            assert_eq!(auth[53..55], [0, 16]);
+            assert_eq!(auth[55..71], passkey.credential_id[..]);
+            assert_eq!(auth.len(), 148);
+            let spki = decode(&credential["publicKeySpki"]);
+            assert_eq!(spki.len(), 91);
+            // clientDataJSON is built here from the browser's origin.
+            let data = client_data(&credential["clientDataJson"]);
+            assert_eq!(
+                data,
+                json!({"type": "webauthn.create", "challenge": b64url(&CHALLENGE),
+                       "origin": SITE, "crossOrigin": false})
+            );
+            assert_eq!(
+                decode(&credential["attestationObject"]).len(),
+                178,
+                "format none"
+            );
+            assert_eq!(
+                env.events_of("browserPasskeyClosed")[0]["reason"],
+                "answered"
+            );
+
+            // The new key signs a sign-in that the returned public key verifies.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "preferred", 2),
+            )
+            .await;
+            assert_eq!(
+                last_request(&env)["candidates"].as_array().unwrap().len(),
+                1
+            );
+            pass_guard(&env);
+            respond(&env, 2, assert_with(*item, vault)).unwrap();
+            let asserted = peer.response(id).await.unwrap();
+            assert_eq!(asserted["outcome"], "asserted");
+            assert!(verifies(&spki, &asserted["assertion"]));
+        });
+    }
+
+    #[test]
+    fn get_signs_for_allow_lists_and_discoverable_requests() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let found = env.seed_passkey("example.com", "alex", true, 0);
+            let hidden = env.seed_passkey("example.com", "work", false, 0);
+            env.seed_passkey("other.example", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+
+            // The rp ID defaults to the host, which holds no passkey.
+            assert_eq!(
+                peer.call("passkeyGet", get_body(SITE, None, &[], "discouraged", 1))
+                    .await
+                    .unwrap_err(),
+                "passkeyNotFound"
+            );
+            assert!(env.events_of("browserPasskeyRequested").is_empty());
+
+            // Without a list only discoverable passkeys of this site are offered.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            let request = last_request(&env);
+            assert_eq!(request["kind"], "get");
+            let candidates = request["candidates"].as_array().unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0]["itemId"], found.item.to_string());
+            assert_eq!(candidates[0]["vaultName"], "Personal");
+            assert_eq!(candidates[0]["userName"], "alex");
+            assert_eq!(request["needsPassword"], false);
+            // A passkey that was not offered cannot be used.
+            pass_guard(&env);
+            assert_eq!(
+                respond(&env, 1, assert_with(hidden.item, vault)),
+                Err(ErrorCode::ItemNotFound)
+            );
+            assert_eq!(
+                respond(&env, 1, create_in(vault)),
+                Err(ErrorCode::InvalidInput)
+            );
+            respond(&env, 1, assert_with(found.item, vault)).unwrap();
+            let asserted = peer.response(id).await.unwrap();
+            let assertion = &asserted["assertion"];
+            assert!(verifies(&found.spki, assertion));
+            assert_eq!(decode(&assertion["credentialId"]), found.credential_id);
+            assert_eq!(decode(&assertion["userHandle"]), found.user_handle);
+            let auth = decode(&assertion["authenticatorData"]);
+            assert_eq!(auth.len(), 37);
+            assert_eq!(auth[..32], rp_hash("example.com")[..]);
+            assert_eq!(auth[32], 0x19, "UP|BE|BS, no user verification");
+            assert_eq!(
+                client_data(&assertion["clientDataJson"]),
+                json!({"type": "webauthn.get", "challenge": b64url(&CHALLENGE),
+                       "origin": SITE, "crossOrigin": false})
+            );
+
+            // An allow list names the non-discoverable one.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(
+                    SITE,
+                    Some("example.com"),
+                    &[b"unknown", &hidden.credential_id],
+                    "discouraged",
+                    2,
+                ),
+            )
+            .await;
+            let request = last_request(&env);
+            let candidates = request["candidates"].as_array().unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0]["itemId"], hidden.item.to_string());
+            pass_guard(&env);
+            respond(&env, 2, assert_with(hidden.item, vault)).unwrap();
+            let asserted = peer.response(id).await.unwrap();
+            assert!(verifies(&hidden.spki, &asserted["assertion"]));
+            assert!(!verifies(&found.spki, &asserted["assertion"]));
+        });
+    }
+
+    #[test]
+    fn requests_that_cannot_be_answered_open_no_dialog() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            env.seed_passkey("example.com", "alex", true, 0);
+            let trashed = env.seed_passkey("example.net", "alex", true, 0);
+            env.backend()
+                .slot()
+                .unwrap()
+                .unlocked_mut()
+                .unwrap()
+                .trash_item(vault, trashed.item)
+                .unwrap();
+            let mut peer = paired_peer(&env).await;
+            env.backend().activity.backdate(Duration::from_hours(1));
+
+            let get = |origin: &str, rp: Option<&str>| get_body(origin, rp, &[], "preferred", 1);
+            let create = |origin: &str, rp: Option<&str>| create_body(origin, rp, "preferred", 1);
+            // No passkey for the site, or only one in the trash.
+            for origin in ["https://example.org", "https://example.net"] {
+                assert_eq!(
+                    ask(&env, &mut peer, "passkeyGet", get(origin, None))
+                        .await
+                        .unwrap_err(),
+                    "passkeyNotFound",
+                    "{origin}"
+                );
+            }
+            // A passkey of a site is not offered to its look-alike.
+            assert_eq!(
+                ask(
+                    &env,
+                    &mut peer,
+                    "passkeyGet",
+                    get("https://example.com.evil.test", Some("example.com"))
+                )
+                .await
+                .unwrap_err(),
+                "rpIdMismatch"
+            );
+            // A page cannot claim another site's rp ID: only the page's own
+            // origin is believed.
+            assert_eq!(
+                ask(
+                    &env,
+                    &mut peer,
+                    "passkeyGet",
+                    get("https://evil.test", Some("bank.test"))
+                )
+                .await
+                .unwrap_err(),
+                "rpIdMismatch"
+            );
+            assert_eq!(
+                ask(
+                    &env,
+                    &mut peer,
+                    "passkeyCreate",
+                    create("https://evil.test", Some("bank.test"))
+                )
+                .await
+                .unwrap_err(),
+                "rpIdMismatch"
+            );
+            for rp in [
+                "com",
+                "Example.com",
+                "example.com.",
+                "sub.login.example.com",
+                "",
+            ] {
+                assert_eq!(
+                    ask(&env, &mut peer, "passkeyGet", get(SITE, Some(rp)))
+                        .await
+                        .unwrap_err(),
+                    "rpIdMismatch",
+                    "{rp:?}"
+                );
+            }
+            assert_eq!(
+                ask(
+                    &env,
+                    &mut peer,
+                    "passkeyGet",
+                    get("http://example.com", None)
+                )
+                .await
+                .unwrap_err(),
+                "insecureOrigin"
+            );
+            assert_eq!(
+                ask(
+                    &env,
+                    &mut peer,
+                    "passkeyCreate",
+                    create("http://example.com", None)
+                )
+                .await
+                .unwrap_err(),
+                "insecureOrigin"
+            );
+            for origin in ["https://127.0.0.1", "https://localhost"] {
+                assert_eq!(
+                    ask(&env, &mut peer, "passkeyGet", get(origin, None))
+                        .await
+                        .unwrap_err(),
+                    "rpIdMismatch",
+                    "{origin}"
+                );
+            }
+            // A frame that is not the top document.
+            let mut framed = create(SITE, Some("example.com"));
+            framed["topOrigin"] = json!("https://example.com");
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyCreate", framed)
+                    .await
+                    .unwrap_err(),
+                "crossOriginFrame"
+            );
+            let mut framed = get(SITE, Some("example.com"));
+            framed["topOrigin"] = json!("https://other.example");
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyGet", framed)
+                    .await
+                    .unwrap_err(),
+                "crossOriginFrame"
+            );
+            // Only ES256 is made.
+            let mut other = create(SITE, Some("example.com"));
+            other["algorithms"] = json!([-8, -257]);
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyCreate", other)
+                    .await
+                    .unwrap_err(),
+                "passkeyUnsupported"
+            );
+            // Malformed inputs.
+            for (key, value) in [
+                ("requestId", json!("abc")),
+                ("requestId", json!("A".repeat(32))),
+                ("challenge", json!("AAEC")),
+                ("challenge", json!("not base64!")),
+                ("userId", json!("")),
+                ("userId", json!(b64url(&[0; 65]))),
+                ("userName", json!("x".repeat(257))),
+                ("excludeCredentials", json!([""])),
+                ("excludeCredentials", json!(vec!["AQID"; 65])),
+                ("algorithms", json!(vec![-7; 17])),
+            ] {
+                let mut bad = create(SITE, Some("example.com"));
+                bad[key] = value;
+                assert_eq!(
+                    ask(&env, &mut peer, "passkeyCreate", bad)
+                        .await
+                        .unwrap_err(),
+                    "invalidRequest",
+                    "{key}"
+                );
+            }
+            let mut bad = get(SITE, Some("example.com"));
+            bad["allowCredentials"] = json!([b64url(&[0; 1024])]);
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyGet", bad).await.unwrap_err(),
+                "invalidRequest"
+            );
+            let mut extra = get(SITE, Some("example.com"));
+            extra["extra"] = json!(1);
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyGet", extra).await.unwrap_err(),
+                "invalidRequest"
+            );
+            let mut missing = get(SITE, Some("example.com"));
+            missing.as_object_mut().unwrap().remove("rpId");
+            assert_eq!(
+                ask(&env, &mut peer, "passkeyGet", missing)
+                    .await
+                    .unwrap_err(),
+                "invalidRequest"
+            );
+
+            assert!(
+                env.events_of("browserPasskeyRequested").is_empty(),
+                "none of these shows a dialog"
+            );
+            assert!(!env.passkey_open());
+            assert!(
+                env.idle() >= Duration::from_hours(1),
+                "an unanswered request is not user activity"
+            );
+            assert_eq!(env.passkeys().len(), 1, "nothing was written");
+        });
+    }
+
+    #[test]
+    fn an_excluded_create_only_informs_and_answers_passkey_excluded() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let existing = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let mut body = create_body(SITE, Some("example.com"), "required", 1);
+            body["excludeCredentials"] = json!([b64url(b"other"), b64url(&existing.credential_id)]);
+            let id = start(&env, &mut peer, "passkeyCreate", body).await;
+            let request = last_request(&env);
+            assert_eq!(request["excluded"], true);
+            assert_eq!(request["needsPassword"], false, "nothing is signed");
+            // Nothing can be created from this dialog.
+            pass_guard(&env);
+            assert_eq!(
+                respond(&env, 1, create_in(vault)),
+                Err(ErrorCode::InvalidInput)
+            );
+            assert_eq!(
+                respond(&env, 1, Decision::UseAnotherDevice),
+                Err(ErrorCode::InvalidInput)
+            );
+            respond(&env, 1, Decision::Acknowledge).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "passkeyExcluded");
+            assert_eq!(env.passkeys().len(), 1);
+
+            // Acknowledging is for an exclusion only.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyCreate",
+                create_body(SITE, Some("example.com"), "preferred", 2),
+            )
+            .await;
+            assert_eq!(
+                respond(&env, 2, Decision::Acknowledge),
+                Err(ErrorCode::InvalidInput)
+            );
+            respond(&env, 2, Decision::Cancel).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+        });
+    }
+
+    #[test]
+    fn use_another_device_and_cancel_sign_and_write_nothing() {
+        run(async {
+            let env = Env::unlocked();
+            let found = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyCreate",
+                create_body(SITE, Some("example.com"), "preferred", 1),
+            )
+            .await;
+            // These need no Allow guard.
+            respond(&env, 1, Decision::UseAnotherDevice).unwrap();
+            assert_eq!(
+                peer.response(id).await.unwrap(),
+                json!({"outcome": "useAnotherDevice", "credential": null})
+            );
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "preferred", 2),
+            )
+            .await;
+            respond(&env, 2, Decision::UseAnotherDevice).unwrap();
+            assert_eq!(
+                peer.response(id).await.unwrap(),
+                json!({"outcome": "useAnotherDevice", "assertion": null})
+            );
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "preferred", 3),
+            )
+            .await;
+            respond(&env, 3, Decision::Cancel).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert_eq!(env.passkeys().len(), 1);
+            assert_eq!(env.passkeys()[0].0, found.item);
+            assert_eq!(
+                code_of(
+                    env.backend()
+                        .browser_passkey_respond(&answer(3, Decision::Cancel, None))
+                ),
+                ErrorCode::BrowserRequestExpired
+            );
+            assert_eq!(env.events_of("browserPasskeyClosed").len(), 3);
+        });
+    }
+
+    #[test]
+    fn user_verification_follows_the_five_minute_window_and_the_password() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let get = |uv: &str, n: u8| get_body(SITE, Some("example.com"), &[], uv, n);
+            let flags = |asserted: &Value| decode(&asserted["assertion"]["authenticatorData"])[32];
+
+            // Within the window of the unlock: UV with a dialog click.
+            let id = start(&env, &mut peer, "passkeyGet", get("required", 1)).await;
+            assert_eq!(last_request(&env)["needsPassword"], false);
+            pass_guard(&env);
+            respond(&env, 1, assert_with(key.item, vault)).unwrap();
+            assert_eq!(flags(&peer.response(id).await.unwrap()), 0x1D);
+
+            // 301 s later the dialog asks for the master password.
+            env.clock.advance(Duration::from_secs(301));
+            let id = start(&env, &mut peer, "passkeyGet", get("required", 2)).await;
+            assert_eq!(last_request(&env)["needsPassword"], true);
+            pass_guard(&env);
+            let decision = || assert_with(key.item, vault);
+            assert_eq!(respond(&env, 2, decision()), Err(ErrorCode::ReauthRequired));
+            let wrong = env.backend().browser_passkey_respond(&answer(
+                2,
+                decision(),
+                Some("not the password"),
+            ));
+            assert_eq!(code_of(wrong), ErrorCode::WrongCredentials);
+            assert!(env.passkey_open(), "the dialog stays open");
+            env.backend()
+                .browser_passkey_respond(&answer(2, decision(), Some(PASSWORD)))
+                .unwrap();
+            assert_eq!(flags(&peer.response(id).await.unwrap()), 0x1D);
+
+            // The right password verified the user for five minutes.
+            let id = start(&env, &mut peer, "passkeyGet", get("preferred", 3)).await;
+            assert_eq!(last_request(&env)["needsPassword"], false);
+            pass_guard(&env);
+            respond(&env, 3, decision()).unwrap();
+            assert_eq!(flags(&peer.response(id).await.unwrap()), 0x1D);
+
+            // `discouraged` never asks and never sets the flag.
+            env.clock.advance(Duration::from_secs(301));
+            let id = start(&env, &mut peer, "passkeyGet", get("discouraged", 4)).await;
+            assert_eq!(last_request(&env)["needsPassword"], false);
+            pass_guard(&env);
+            respond(&env, 4, decision()).unwrap();
+            assert_eq!(flags(&peer.response(id).await.unwrap()), 0x19);
+
+            // A create is the same: 0x59 without, 0x5D with the verification.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyCreate",
+                create_body(SITE, Some("example.com"), "discouraged", 5),
+            )
+            .await;
+            pass_guard(&env);
+            respond(&env, 5, create_in(vault)).unwrap();
+            let created = peer.response(id).await.unwrap();
+            assert_eq!(
+                decode(&created["credential"]["authenticatorData"])[32],
+                0x59
+            );
+        });
+    }
+
+    #[test]
+    fn five_wrong_passwords_in_the_dialog_lock_the_vault() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            env.clock.advance(Duration::from_secs(301));
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "required", 1),
+            )
+            .await;
+            pass_guard(&env);
+            for _ in 0..4 {
+                let wrong = env.backend().browser_passkey_respond(&answer(
+                    1,
+                    assert_with(key.item, vault),
+                    Some("nope"),
+                ));
+                assert_eq!(code_of(wrong), ErrorCode::WrongCredentials);
+            }
+            assert!(env.backend().is_unlocked());
+            let wrong = env.backend().browser_passkey_respond(&answer(
+                1,
+                assert_with(key.item, vault),
+                Some("nope"),
+            ));
+            assert_eq!(code_of(wrong), ErrorCode::WrongCredentials);
+            assert!(!env.backend().is_unlocked(), "the fifth failure locks");
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert_eq!(env.events_of("browserPasskeyClosed")[0]["reason"], "locked");
+        });
+    }
+
+    #[test]
+    fn an_imported_counter_is_raised_and_stored_before_the_signature_is_released() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 41);
+            let mut peer = paired_peer(&env).await;
+            for (n, expected) in [(1u8, 42u32), (2, 43)] {
+                let id = start(
+                    &env,
+                    &mut peer,
+                    "passkeyGet",
+                    get_body(SITE, Some("example.com"), &[], "discouraged", n),
+                )
+                .await;
+                pass_guard(&env);
+                respond(&env, n, assert_with(key.item, vault)).unwrap();
+                let asserted = peer.response(id).await.unwrap();
+                let auth = decode(&asserted["assertion"]["authenticatorData"]);
+                assert_eq!(auth[32], 0x19);
+                assert_eq!(auth[33..37], expected.to_be_bytes());
+                assert_eq!(env.passkeys()[0].2, u64::from(expected), "stored");
+                assert!(verifies(&key.spki, &asserted["assertion"]));
+            }
+            // The counter of a passkey Mosaic made stays 0 and is never written.
+            let fresh = env.seed_passkey("example.org", "alex", true, 0);
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body("https://example.org", None, &[], "discouraged", 3),
+            )
+            .await;
+            pass_guard(&env);
+            respond(&env, 3, assert_with(fresh.item, vault)).unwrap();
+            let asserted = peer.response(id).await.unwrap();
+            assert_eq!(
+                decode(&asserted["assertion"]["authenticatorData"])[33..37],
+                [0; 4]
+            );
+            let stored = env.passkeys();
+            assert_eq!(stored.iter().find(|p| p.0 == fresh.item).unwrap().2, 0);
+        });
+    }
+
+    #[test]
+    fn a_passkey_that_changed_since_the_dialog_opened_is_not_signed() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            env.backend()
+                .slot()
+                .unwrap()
+                .unlocked_mut()
+                .unwrap()
+                .trash_item(vault, key.item)
+                .unwrap();
+            pass_guard(&env);
+            assert_eq!(
+                respond(&env, 1, assert_with(key.item, vault)),
+                Err(ErrorCode::ItemNotFound)
+            );
+            respond(&env, 1, Decision::Cancel).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+        });
+    }
+
+    #[test]
+    fn names_are_sanitized_and_a_closed_vault_refuses_a_create() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let mut peer = paired_peer(&env).await;
+            let mut body = create_body(SITE, Some("example.com"), "discouraged", 1);
+            body["userName"] = json!("al\u{202e}ex\u{7}@example.com");
+            body["userDisplayName"] = json!("é".repeat(100));
+            let id = start(&env, &mut peer, "passkeyCreate", body).await;
+            let request = last_request(&env);
+            assert_eq!(request["userName"], "alex@example.com");
+            assert_eq!(request["userDisplayName"].as_str().unwrap().len(), 64);
+            pass_guard(&env);
+            respond(&env, 1, create_in(vault)).unwrap();
+            peer.response(id).await.unwrap();
+            let stored = env.passkeys();
+            assert_eq!(stored[0].1.user_name.as_str(), "alex@example.com");
+            assert_eq!(stored[0].1.user_display_name.as_str().len(), 64);
+        });
+    }
+
+    #[test]
+    fn a_hardware_protected_vault_never_takes_a_passkey() {
+        use crate::browser::CreatePlan;
+        use crate::quick_unlock::QuickUnlockService;
+        use crate::quick_unlock::fakes::FakeHardwareKey;
+        let _kdf = crate::test_support::kdf_permit();
+        let key = FakeHardwareKey::new(1);
+        let backend = Backend::new(
+            Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+            Box::new(MemoryKeystore::default()),
+            || Ok(Argon2Profile::Baseline),
+        )
+        .with_quick_unlock(QuickUnlockService::new(None, Box::new(Arc::clone(&key))));
+        backend
+            .create_account(CreateAccountRequest {
+                email: "alex@example.com".into(),
+                password: SecretIn::test(PASSWORD),
+                default_vault_name: "Personal".into(),
+            })
+            .unwrap();
+        let summary = backend
+            .create_hardware_vault(
+                &mut serde_json::from_value(json!({ "name": "Codes", "pin": null })).unwrap(),
+            )
+            .unwrap();
+        let plan = CreatePlan {
+            request_id: rid(1),
+            pairing_label: "Chrome".into(),
+            origin: SITE.into(),
+            rp_id: "example.com".into(),
+            challenge: CHALLENGE.to_vec(),
+            user_handle: vec![1, 2, 3, 4],
+            user_name: "alex".into(),
+            user_display_name: "Alex".into(),
+            algorithms: vec![-7],
+            user_verification: mosaic_native_messaging::bodies::UserVerification::Discouraged,
+            excluded: false,
+        };
+        // Open, and still not a place for passkeys.
+        let refused = backend.browser_apply_passkey_create(&plan, summary.vault_id.get(), false);
+        assert_eq!(code_of(refused), ErrorCode::VaultUnavailable);
+        backend
+            .close_hardware_vault(
+                &serde_json::from_value(json!({ "vaultId": summary.vault_id.0.to_string() }))
+                    .unwrap(),
+            )
+            .unwrap();
+        let refused = backend.browser_apply_passkey_create(&plan, summary.vault_id.get(), false);
+        assert_eq!(code_of(refused), ErrorCode::VaultUnavailable);
+        let unknown =
+            backend.browser_apply_passkey_create(&plan, VaultId::new_v7().unwrap(), false);
+        assert_eq!(code_of(unknown), ErrorCode::VaultNotFound);
+    }
+
+    #[test]
+    fn one_passkey_prompt_at_a_time_and_only_its_own_pairing_can_cancel_it() {
+        run(async {
+            let env = Env::unlocked();
+            let (id_a, key_a) = pair(&env, "Chrome").await;
+            let (id_b, key_b) = pair(&env, "Firefox").await;
+            let mut first = connect(&env, &id_a, &key_a).await.unwrap();
+            let mut second = connect(&env, &id_b, &key_b).await.unwrap();
+            env.seed_passkey("example.com", "alex", true, 0);
+            let get = |n: u8| get_body(SITE, Some("example.com"), &[], "discouraged", n);
+
+            let id = start(&env, &mut first, "passkeyGet", get(1)).await;
+            // A second request, of either kind and of either browser, is busy.
+            assert_eq!(first.call("passkeyGet", get(2)).await.unwrap_err(), "busy");
+            assert_eq!(second.call("passkeyGet", get(3)).await.unwrap_err(), "busy");
+            assert_eq!(
+                second
+                    .call(
+                        "passkeyCreate",
+                        create_body(SITE, Some("example.com"), "preferred", 4)
+                    )
+                    .await
+                    .unwrap_err(),
+                "busy"
+            );
+            // Another browser cannot close it, whatever ID it names.
+            assert_eq!(
+                second
+                    .call("passkeyCancel", json!({"requestId": rid(1)}))
+                    .await
+                    .unwrap(),
+                json!({})
+            );
+            assert!(env.passkey_open());
+            assert!(env.events_of("browserPasskeyClosed").is_empty());
+            // The page of the first browser gave up.
+            let cancel = first
+                .request("passkeyCancel", json!({"requestId": rid(1)}))
+                .await;
+            let mut answers = first.responses(&[id, cancel]).await;
+            assert_eq!(answers.remove(&cancel).unwrap().unwrap(), json!({}));
+            assert_eq!(answers.remove(&id).unwrap().unwrap_err(), "cancelled");
+            assert!(!env.passkey_open());
+            assert_eq!(
+                env.events_of("browserPasskeyClosed")[0]["reason"],
+                "abortedByPage"
+            );
+            // Cancelling what is not open is quiet.
+            assert_eq!(
+                first
+                    .call("passkeyCancel", json!({"requestId": rid(1)}))
+                    .await
+                    .unwrap(),
+                json!({})
+            );
+            let mut extra = json!({"requestId": rid(1)});
+            extra["extra"] = json!(1);
+            assert_eq!(
+                first.call("passkeyCancel", extra).await.unwrap_err(),
+                "invalidRequest"
+            );
+        });
+    }
+
+    #[test]
+    fn a_passkey_prompt_expires_and_the_lock_cancels_it() {
+        run(async {
+            let env = Env::unlocked_with(Limits {
+                passkey_timeout: Duration::from_millis(1500),
+                ..Limits::default()
+            });
+            env.seed_passkey("example.com", "alex", true, 0);
+            let get = |n: u8| get_body(SITE, Some("example.com"), &[], "discouraged", n);
+            let mut peer = paired_peer(&env).await;
+
+            // Expiry: the dialog says when, and the site is told `cancelled`.
+            let id = start(&env, &mut peer, "passkeyGet", get(1)).await;
+            let shown = last_request(&env);
+            let window =
+                shown["expiresAt"].as_i64().unwrap() - shown["requestedAt"].as_i64().unwrap();
+            assert!((1500..1600).contains(&window), "{window}");
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert_eq!(
+                env.events_of("browserPasskeyClosed")[0]["reason"],
+                "expired"
+            );
+            assert_eq!(
+                code_of(
+                    env.backend()
+                        .browser_passkey_respond(&answer(1, Decision::Cancel, None))
+                ),
+                ErrorCode::BrowserRequestExpired
+            );
+
+            // The vault locks: the site is told `cancelled`, nothing is signed.
+            let id = start(&env, &mut peer, "passkeyGet", get(2)).await;
+            env.backend().lock(LockReason::Manual).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert_eq!(env.events_of("browserPasskeyClosed")[1]["reason"], "locked");
+            assert_eq!(peer.event().await.unwrap()["state"], "locked");
+            assert!(!env.passkey_open());
+            // While locked: no new request, but an abort is still taken.
+            assert_eq!(peer.call("passkeyGet", get(3)).await.unwrap_err(), "locked");
+            assert_eq!(
+                peer.call("passkeyCreate", create_body(SITE, None, "preferred", 4))
+                    .await
+                    .unwrap_err(),
+                "locked"
+            );
+            assert_eq!(
+                peer.call("passkeyCancel", json!({"requestId": rid(3)}))
+                    .await
+                    .unwrap(),
+                json!({})
+            );
+        });
+    }
+
+    #[test]
+    fn a_passkey_prompt_ends_when_its_browser_disconnects() {
+        run(async {
+            let env = Env::unlocked();
+            env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            drop(peer);
+            wait_for_event(&env, "browserPasskeyClosed").await;
+            assert_eq!(
+                env.events_of("browserPasskeyClosed")[0]["reason"],
+                "disconnected"
+            );
+            assert!(!env.passkey_open());
+            assert_eq!(
+                code_of(
+                    env.backend()
+                        .browser_passkey_respond(&answer(1, Decision::Cancel, None))
+                ),
+                ErrorCode::BrowserRequestExpired
+            );
+        });
+    }
+
+    #[test]
+    fn a_passkey_prompt_ends_when_its_pairing_is_removed() {
+        run(async {
+            let env = Env::unlocked();
+            env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let status = connected_status(&env).await;
+            start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            env.backend()
+                .browser_remove_pairing(&BrowserRemovePairingRequest {
+                    pairing_id: status.pairings[0].pairing_id.clone(),
+                })
+                .unwrap();
+            wait_for_event(&env, "browserPasskeyClosed").await;
+            assert_eq!(
+                env.events_of("browserPasskeyClosed")[0]["reason"],
+                "disconnected"
+            );
+            assert!(!env.passkey_open());
+        });
+    }
+
+    #[test]
+    fn passkey_requests_are_rate_limited_per_pairing() {
+        run(async {
+            let env = Env::unlocked();
+            let mut peer = paired_peer(&env).await;
+            let creates =
+                |n: u8| create_body("https://evil.test", Some("bank.test"), "preferred", n);
+            for n in 0..3 {
+                assert_eq!(
+                    peer.call("passkeyCreate", creates(n)).await.unwrap_err(),
+                    "rpIdMismatch"
+                );
+            }
+            assert_eq!(
+                peer.call("passkeyCreate", creates(9)).await.unwrap_err(),
+                "rateLimited"
+            );
+            for n in 0..10 {
+                assert_eq!(
+                    peer.call(
+                        "passkeyGet",
+                        get_body(SITE, Some("example.com"), &[], "preferred", n)
+                    )
+                    .await
+                    .unwrap_err(),
+                    "passkeyNotFound"
+                );
+            }
+            assert_eq!(
+                peer.call(
+                    "passkeyGet",
+                    get_body(SITE, Some("example.com"), &[], "preferred", 9)
+                )
+                .await
+                .unwrap_err(),
+                "rateLimited"
+            );
+            for _ in 0..20 {
+                peer.call("passkeyCancel", json!({"requestId": rid(1)}))
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                peer.call("passkeyCancel", json!({"requestId": rid(1)}))
+                    .await
+                    .unwrap_err(),
+                "rateLimited"
+            );
+            // The windows slide.
+            env.clock.advance(Duration::from_secs(61));
+            assert_eq!(
+                peer.call("passkeyCreate", creates(9)).await.unwrap_err(),
+                "rpIdMismatch"
+            );
+        });
+    }
+
+    #[test]
+    fn the_item_detail_of_a_passkey_never_holds_the_private_key() {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let key = env.seed_passkey("example.com", "alex", true, 7);
+        let detail = env
+            .backend()
+            .get_item(crate::contract::items::ItemRequest {
+                vault_id: vault.into(),
+                item_id: key.item.into(),
+            })
+            .unwrap();
+        let passkey = detail.passkey.as_ref().unwrap();
+        assert_eq!(passkey.rp_id, "example.com");
+        assert_eq!(passkey.user_name, "alex");
+        assert_eq!(passkey.credential_id, b64url(&key.credential_id));
+        assert_eq!(passkey.sign_count, 7);
+        assert_eq!(detail.summary.subtitle.as_deref(), Some("alex"));
+        assert_eq!(detail.summary.host.as_deref(), Some("example.com"));
+        assert!(detail.secrets.is_empty(), "the key is not a secret field");
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(!json.to_lowercase().contains("privatekey") && !json.contains("private_key"));
+    }
+
+    #[test]
+    fn redteam_no_browser_op_returns_a_private_key() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let stored = env.seed_passkey("example.com", "alex", true, 5);
+            let der = env.passkeys()[0].1.private_key.expose_secret().to_vec();
+            let needles = crate::redteam_tests::key_needles(&der);
+            env.login("Example", "alex", "pw-1", "https://example.com");
+            let mut peer = paired_peer(&env).await;
+            let mut seen: Vec<String> = Vec::new();
+            let mut keep = |value: Result<Value, String>| {
+                seen.push(match value {
+                    Ok(v) => v.to_string(),
+                    Err(e) => e,
+                });
+            };
+
+            // A creation, a sign-in and every other op that could list or dump.
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyCreate",
+                create_body(SITE, Some("example.com"), "discouraged", 1),
+            )
+            .await;
+            pass_guard(&env);
+            respond(&env, 1, create_in(vault)).unwrap();
+            keep(peer.response(id).await);
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(
+                    SITE,
+                    Some("example.com"),
+                    &[stored.credential_id.as_slice()],
+                    "discouraged",
+                    2,
+                ),
+            )
+            .await;
+            pass_guard(&env);
+            respond(&env, 2, assert_with(stored.item, vault)).unwrap();
+            keep(peer.response(id).await);
+            env.clock.advance(Duration::from_secs(61));
+            let b = "https://example.com";
+            keep(peer.call("status", json!({})).await);
+            keep(
+                peer.call("listForOrigin", json!({"origin": b, "topOrigin": b}))
+                    .await,
+            );
+            keep(
+                peer.call("search", json!({"query": "alex", "origin": b}))
+                    .await,
+            );
+            keep(
+                peer.call("search", json!({"query": "example", "origin": null}))
+                    .await,
+            );
+            keep(
+                peer.call(
+                    "checkSave",
+                    json!({"origin": b, "topOrigin": b, "username": "alex", "password": "x"}),
+                )
+                .await,
+            );
+
+            // The ops that do not exist.
+            for op in [
+                "listPasskeys",
+                "getPasskey",
+                "exportPasskey",
+                "dumpVault",
+                "revealSecret",
+            ] {
+                keep(peer.call(op, json!({})).await);
+            }
+            keep(
+                peer.call(
+                    "passkeyGet",
+                    json!({"requestId": rid(3), "privateKey": true}),
+                )
+                .await,
+            );
+
+            let new_der = env
+                .passkeys()
+                .into_iter()
+                .find(|p| p.0 != stored.item)
+                .unwrap()
+                .1
+                .private_key
+                .expose_secret()
+                .to_vec();
+            let all_needles: Vec<String> = needles
+                .into_iter()
+                .chain(crate::redteam_tests::key_needles(&new_der))
+                .collect();
+            let events: Vec<String> = env.events.lock().unwrap().iter().cloned().collect();
+            for text in seen.iter().chain(events.iter()) {
+                assert!(
+                    !text.contains("privateKey") && !text.contains("private_key"),
+                    "{text}"
+                );
+                for needle in &all_needles {
+                    assert!(!text.contains(needle.as_str()), "{text}");
+                }
+            }
+            assert!(seen.len() >= 11);
+        });
+    }
+
+    #[test]
+    fn an_answer_belongs_to_the_dialog_handle_not_to_a_reused_extension_id() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let get = || get_body(SITE, Some("example.com"), &[], "discouraged", 1);
+
+            // A opens and is cancelled by the page.
+            let first = start(&env, &mut peer, "passkeyGet", get()).await;
+            let handle_a = handle_of(1);
+            let cancel = peer
+                .request("passkeyCancel", json!({"requestId": rid(1)}))
+                .await;
+            let mut answers = peer.responses(&[first, cancel]).await;
+            assert_eq!(answers.remove(&first).unwrap().unwrap_err(), "cancelled");
+
+            // B reuses the extension's ID.
+            let second = start(&env, &mut peer, "passkeyGet", get()).await;
+            let handle_b = handle_of(1);
+            assert_ne!(handle_a, handle_b, "a handle is never reused");
+            assert_ne!(handle_b, rid(1), "and is not the extension's ID");
+            pass_guard(&env);
+
+            let stale = |request_id: &str| {
+                env.backend()
+                    .browser_passkey_respond(&BrowserPasskeyRespondRequest {
+                        request_id: request_id.to_owned(),
+                        decision: assert_with(key.item, vault),
+                        password: None,
+                    })
+            };
+            // A's handle, and the extension's own ID, do not apply to B.
+            assert_eq!(code_of(stale(&handle_a)), ErrorCode::BrowserRequestExpired);
+            assert_eq!(code_of(stale(&rid(1))), ErrorCode::BrowserRequestExpired);
+            assert!(env.passkey_open(), "B is still waiting");
+            assert_eq!(env.passkeys()[0].2, 0, "nothing was signed");
+            respond(&env, 1, assert_with(key.item, vault)).unwrap();
+            assert!(peer.response(second).await.is_ok());
+        });
+    }
+
+    #[test]
+    fn an_acknowledge_waits_out_the_allow_guard_but_a_cancel_does_not() {
+        run(async {
+            let env = Env::unlocked();
+            let existing = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let mut body = create_body(SITE, Some("example.com"), "required", 1);
+            body["excludeCredentials"] = json!([b64url(&existing.credential_id)]);
+            let id = start(&env, &mut peer, "passkeyCreate", body.clone()).await;
+            assert_eq!(
+                respond(&env, 1, Decision::Acknowledge),
+                Err(ErrorCode::BrowserAllowTooSoon)
+            );
+            assert!(env.passkey_open(), "still open");
+            pass_guard(&env);
+            respond(&env, 1, Decision::Acknowledge).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "passkeyExcluded");
+
+            // A cancel is always taken.
+            let id = start(&env, &mut peer, "passkeyCreate", body).await;
+            respond(&env, 1, Decision::Cancel).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+        });
+    }
+
+    #[test]
+    fn a_failed_answer_after_the_request_expired_leaves_no_prompt_behind() {
+        run(async {
+            let env = Env::unlocked_with(Limits {
+                passkey_timeout: Duration::from_millis(700),
+                ..Limits::default()
+            });
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            pass_guard(&env);
+            let request = answer(1, assert_with(key.item, vault), None);
+            // The answer waits for the vault; meanwhile the request expires,
+            // and the passkey is trashed so the answer fails.
+            let mut slot = env.backend().slot().unwrap();
+            let backend = env.backend();
+            let answered = std::thread::scope(|scope| {
+                let answered = scope.spawn(move || backend.browser_passkey_respond(&request));
+                std::thread::sleep(Duration::from_millis(1500));
+                slot.unlocked_mut()
+                    .unwrap()
+                    .trash_item(vault, key.item)
+                    .unwrap();
+                drop(slot);
+                answered.join().unwrap()
+            });
+            assert_eq!(code(answered.unwrap_err()), ErrorCode::ItemNotFound);
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert!(!env.passkey_open(), "the prompt is not put back");
+            let closed = env.events_of("browserPasskeyClosed");
+            assert_eq!(closed.len(), 1);
+            assert_eq!(closed[0]["reason"], "expired");
+            assert_eq!(closed[0]["requestId"], handle_of(1));
+        });
+    }
+
+    #[test]
+    fn a_passkey_dialog_password_verifies_but_earns_no_reauth_grant() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            env.clock.advance(Duration::from_secs(301));
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "required", 1),
+            )
+            .await;
+            pass_guard(&env);
+            // Wrong ones count; a right one answers.
+            let wrong = env.backend().browser_passkey_respond(&answer(
+                1,
+                assert_with(key.item, vault),
+                Some("nope"),
+            ));
+            assert_eq!(code_of(wrong), ErrorCode::WrongCredentials);
+            env.backend()
+                .browser_passkey_respond(&answer(1, assert_with(key.item, vault), Some(PASSWORD)))
+                .unwrap();
+            assert!(peer.response(id).await.is_ok());
+            assert!(env.backend().uv_recent(), "the user counts as verified");
+            // A move out of a hardware vault (and every other change that
+            // spends the grant) still asks for the password itself.
+            assert_eq!(
+                code_of(env.backend().take_reauth_grant().map(|_| ())),
+                ErrorCode::ReauthRequired
+            );
+            env.backend()
+                .reauthenticate(SecretIn::test(PASSWORD))
+                .unwrap();
+            assert!(env.backend().take_reauth_grant().is_ok());
+        });
+    }
+
+    #[test]
+    fn a_passkey_item_changes_only_its_title_notes_and_tags() {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let key = env.seed_passkey("example.com", "alex", true, 0);
+        let update = |draft: Value| {
+            let mut full = json!({
+                "text": [], "secrets": [], "urls": [], "customFields": [],
+                "tags": null, "otp": null, "sshKey": null,
+            });
+            for (name, value) in draft.as_object().unwrap() {
+                full[name] = value.clone();
+            }
+            env.backend()
+                .update_item(
+                    serde_json::from_value(json!({
+                        "vaultId": vault.to_string(), "itemId": key.item.to_string(),
+                        "draft": full,
+                    }))
+                    .unwrap(),
+                )
+                .map_err(code)
+        };
+        let invalid = Err(ErrorCode::InvalidInput);
+        assert_eq!(
+            update(json!({"text": [{"field": "username", "value": "mallory"}]})).map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"secrets": [{"field": "password", "value": "pw"}]})).map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"urls": [{
+                "op": "add", "url": "https://evil.example",
+                "matchMode": "exactOrigin", "allowHttp": false
+            }]}))
+            .map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"customFields": [
+                {"op": "add", "label": "x", "kind": "text", "value": "y"}
+            ]}))
+            .map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"otp": {"op": "remove"}})).map(|_| ()),
+            invalid
+        );
+        // Nothing of the above changed the item.
+        assert_eq!(env.passkeys()[0].1.user_name.as_str(), "alex");
+        let detail = update(json!({
+            "text": [
+                {"field": "title", "value": "Example account"},
+                {"field": "notes", "value": "from the bank"},
+            ],
+            "tags": ["bank"],
+        }))
+        .unwrap();
+        assert_eq!(detail.summary.title.as_deref(), Some("Example account"));
+        assert_eq!(detail.summary.tags, vec!["bank".to_owned()]);
+        assert_eq!(detail.passkey.unwrap().rp_id, "example.com");
+        assert_eq!(env.passkeys().len(), 1);
+    }
+
+    #[test]
+    fn the_names_of_a_passkey_in_the_item_views_lose_control_and_format_characters() {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let key = env.seed_passkey("example.com", "al\u{202e}ex\u{7}\n", true, 0);
+        let detail = env
+            .backend()
+            .get_item(crate::contract::items::ItemRequest {
+                vault_id: vault.into(),
+                item_id: key.item.into(),
+            })
+            .unwrap();
+        assert_eq!(detail.passkey.as_ref().unwrap().user_name, "alex");
+        assert_eq!(detail.summary.subtitle.as_deref(), Some("alex"));
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(!json.contains("202e") && !json.contains('\u{202e}'));
+    }
+
+    impl Peer {
+        /// The responses to `ids`, in whatever order they arrive.
+        async fn responses(&mut self, ids: &[u32]) -> HashMap<u32, Result<Value, String>> {
+            let mut out = HashMap::new();
+            while out.len() < ids.len() {
+                let message = self.frame().await.expect("the connection stays open");
+                if message.get("event").is_some() {
+                    self.events.push(message);
+                    continue;
+                }
+                let id = u32::try_from(message["id"].as_u64().unwrap()).unwrap();
+                assert!(ids.contains(&id));
+                out.insert(
+                    id,
+                    if message["ok"] == true {
+                        Ok(message["body"].clone())
+                    } else {
+                        Err(message["error"].as_str().unwrap().to_owned())
+                    },
+                );
+            }
+            out
+        }
+    }
+}

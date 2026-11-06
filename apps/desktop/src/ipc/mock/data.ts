@@ -5,6 +5,7 @@
 import type {
   ItemKind,
   ItemSummary,
+  PasskeySummary,
   SecretFieldKey,
   SshKeySummary,
   TextFieldEntry,
@@ -84,6 +85,7 @@ function login(spec: LoginSpec): MockItem {
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
+      passkey: null,
     },
     secrets: { password },
     history: [],
@@ -131,6 +133,7 @@ function kindItem(spec: KindSpec): MockItem {
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: spec.sshKey ?? null,
+      passkey: null,
     },
     secrets: spec.secrets,
     history: [],
@@ -274,6 +277,7 @@ export function sampleItems(): MockItem[] {
         historyCount: 0,
         review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
         sshKey: null,
+        passkey: null,
       },
       secrets: { wifiPassword: "meadow-lantern-quiet-74" },
       history: [],
@@ -281,6 +285,67 @@ export function sampleItems(): MockItem[] {
       sshKey: null,
     },
     ...kindSamples(),
+  ];
+}
+
+/** The mock passkeys (`&browserPasskey=`): two accounts at example.com, one in each vault. */
+export const MOCK_PASSKEYS = {
+  personal: { vaultId: personal, itemId: "019a2b3c-4d5e-7020-8000-0000000000a1" },
+  work: { vaultId: work, itemId: "019a2b3c-4d5e-7020-8000-0000000000a2" },
+} as const;
+
+/** Builds a mock `passkey` item; there is no key in the mock, only what the detail shows. */
+export function passkeyItem(
+  spec: { vaultId: string; itemId: string; userName: string; displayName: string },
+  passkey: Partial<PasskeySummary> = {},
+): MockItem {
+  const summary_: PasskeySummary = {
+    rpId: "example.com",
+    userName: spec.userName,
+    userDisplayName: spec.displayName,
+    credentialId: "AAECAwQFBgcICQoLDA0ODw",
+    algorithm: "es256",
+    createdAt: 1_761_400_000_000,
+    signCount: 0,
+    ...passkey,
+  };
+  return {
+    detail: {
+      summary: summary({
+        vaultId: spec.vaultId,
+        itemId: spec.itemId,
+        title: summary_.rpId,
+        kind: "passkey",
+        subtitle: spec.userName,
+        host: summary_.rpId,
+      }),
+      createdAt: summary_.createdAt,
+      text: [],
+      secrets: [],
+      urls: [],
+      customFields: [],
+      attachments: [],
+      otp: null,
+      historyCount: 0,
+      review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
+      sshKey: null,
+      passkey: summary_,
+    },
+    secrets: {},
+    history: [],
+    customSecrets: {},
+    sshKey: null,
+  };
+}
+
+/** The passkeys a sign-in request can use. */
+export function samplePasskeys(): MockItem[] {
+  return [
+    passkeyItem({ ...MOCK_PASSKEYS.personal, userName: "alex@example.com", displayName: "Alex Example" }),
+    passkeyItem(
+      { ...MOCK_PASSKEYS.work, userName: "alex.work", displayName: "" },
+      { credentialId: "EBESExQVFhcYGRobHB0eHw" },
+    ),
   ];
 }
 
@@ -312,6 +377,7 @@ function codeItem(itemId: string, title: string, issuer: string): MockItem {
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
+      passkey: null,
     },
     secrets: {},
     history: [],

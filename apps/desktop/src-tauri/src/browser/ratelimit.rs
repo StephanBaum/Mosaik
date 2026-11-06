@@ -20,6 +20,12 @@ pub enum Bucket {
     CheckSave,
     /// `proposeSave`.
     ProposeSave,
+    /// `passkeyCreate`.
+    PasskeyCreate,
+    /// `passkeyGet`.
+    PasskeyGet,
+    /// `passkeyCancel`.
+    PasskeyCancel,
     /// `focus` (global).
     Focus,
     /// Pairing requests (global).
@@ -32,11 +38,13 @@ impl Bucket {
     pub const fn limit(self) -> (usize, Duration) {
         match self {
             Self::Fill => (10, Duration::from_secs(10)),
-            Self::Copy => (20, Duration::from_secs(60)),
+            Self::Copy | Self::PasskeyCancel => (20, Duration::from_secs(60)),
             Self::Lookup => (60, Duration::from_secs(60)),
             Self::Generate => (30, Duration::from_secs(60)),
-            Self::CheckSave => (10, Duration::from_secs(60)),
-            Self::ProposeSave | Self::PairRequest => (3, Duration::from_secs(60)),
+            Self::CheckSave | Self::PasskeyGet => (10, Duration::from_secs(60)),
+            Self::ProposeSave | Self::PairRequest | Self::PasskeyCreate => {
+                (3, Duration::from_secs(60))
+            }
             Self::Focus => (1, Duration::from_secs(2)),
         }
     }
@@ -112,6 +120,27 @@ mod tests {
             assert!(limits.allow(Bucket::PairRequest, None, now));
         }
         assert!(!limits.allow(Bucket::PairRequest, None, now));
+    }
+
+    #[test]
+    fn passkey_buckets_have_their_own_limits() {
+        let mut limits = RateLimits::default();
+        let now = Instant::now();
+        let id = Some([1; 16]);
+        for _ in 0..3 {
+            assert!(limits.allow(Bucket::PasskeyCreate, id, now));
+        }
+        assert!(!limits.allow(Bucket::PasskeyCreate, id, now));
+        for _ in 0..10 {
+            assert!(limits.allow(Bucket::PasskeyGet, id, now));
+        }
+        assert!(!limits.allow(Bucket::PasskeyGet, id, now));
+        for _ in 0..20 {
+            assert!(limits.allow(Bucket::PasskeyCancel, id, now));
+        }
+        assert!(!limits.allow(Bucket::PasskeyCancel, id, now));
+        // The windows are separate from each other and slide after 60 s.
+        assert!(limits.allow(Bucket::PasskeyCreate, id, now + Duration::from_secs(60)));
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! The two prompts of the browser endpoint: pairing and saving a login.
-//! One of each at a time, following the SSH approval pattern (ADR-0025):
+//! The prompts of the browser endpoint: pairing, saving a login and (in
+//! `passkey_prompt`) passkeys. One of each at a time, following the SSH approval pattern (ADR-0025):
 //! a request is shown in the webview, an Allow within a second of it
 //! appearing is refused (`browserAllowTooSoon`, the request stays open), and
 //! an unanswered request ends with its timeout, a lock, or the browser
@@ -15,6 +15,7 @@ use mosaic_native_messaging::bodies::{ProposeSaveResult, SaveOutcome};
 use mosaic_native_messaging::protocol::ErrorCode as WireError;
 use tokio::sync::oneshot;
 
+use super::passkey_prompt::PendingPasskey;
 use super::registry::{RegistryError, label_is_valid};
 use super::{Bucket, Shared, hex, unix_millis};
 use crate::contract::browser::{
@@ -88,6 +89,13 @@ pub(crate) struct SavePlan {
 pub struct Prompts {
     pair: Option<PendingPair>,
     save: Option<PendingSave>,
+    /// The open passkey request (`passkey_prompt`).
+    pub(super) passkey: Option<PendingPasskey>,
+    /// A passkey answer is being applied: its entry is out of `passkey` and
+    /// no other passkey request may open.
+    pub(super) passkey_applying: bool,
+    /// Why the prompts were dropped while `passkey_applying`.
+    pub(super) passkey_dropped_while_applying: Option<BrowserCloseReason>,
     /// A save is being written to the vault: its entry is out of `save`
     /// (the vault is not written under the prompts lock) and no other save
     /// may open.
@@ -103,6 +111,12 @@ impl Prompts {
     #[cfg(test)]
     pub(crate) fn pair_id(&self) -> Option<&str> {
         self.pair.as_ref().map(|p| p.request_id.as_str())
+    }
+
+    /// The open passkey dialog's handle (tests).
+    #[cfg(test)]
+    pub(crate) fn passkey_id(&self) -> Option<&str> {
+        self.passkey.as_ref().map(PendingPasskey::handle)
     }
 
     /// The open save request's ID (tests).
@@ -138,13 +152,13 @@ impl Prompts {
     }
 }
 
-fn new_request_id() -> Result<String, WireError> {
+pub(super) fn new_request_id() -> Result<String, WireError> {
     mosaic_core::browser_channel::new_endpoint_token()
         .map(|t| hex(&t))
         .map_err(|_| WireError::Internal)
 }
 
-fn too_soon(shown_at: Instant, now: Instant) -> bool {
+pub(super) fn too_soon(shown_at: Instant, now: Instant) -> bool {
     now.saturating_duration_since(shown_at) < MIN_ALLOW_DELAY
 }
 
@@ -161,7 +175,7 @@ fn default_label(hint: BrowserHint) -> &'static str {
     }
 }
 
-fn expires_millis(limit: Duration) -> i64 {
+pub(super) fn expires_millis(limit: Duration) -> i64 {
     unix_millis().saturating_add(i64::try_from(limit.as_millis()).unwrap_or(i64::MAX))
 }
 
@@ -521,17 +535,32 @@ impl Shared {
         } else {
             backend.browser_apply_save(&pending, &request.decision)
         };
+        let mut orphaned = false;
         let dropped = {
             let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
             prompts.applying = false;
             let dropped = prompts.dropped_while_applying.take();
             if applied.is_err() && dropped.is_none() {
-                // Nothing was written: the prompt stays open.
-                prompts.save = Some(pending);
-                return applied.map(|_| ());
+                if pending.reply.is_closed() {
+                    // The request expired (or its session went away) while
+                    // the answer was applied: nobody waits for it, so the
+                    // prompt is not put back.
+                    orphaned = true;
+                } else {
+                    // Nothing was written: the prompt stays open.
+                    prompts.save = Some(pending);
+                    return applied.map(|_| ());
+                }
             }
             dropped
         };
+        if orphaned {
+            self.emit(AppEvent::BrowserSaveClosed {
+                request_id: request.request_id.clone(),
+                reason: BrowserCloseReason::Expired,
+            });
+            return applied.map(|_| ());
+        }
         match applied {
             Ok(result) => {
                 let _ = pending.reply.send(Ok(result));
@@ -554,19 +583,29 @@ impl Shared {
         }
     }
 
-    /// Closes both prompts: the vault locked or the service stopped. The
-    /// held password is dropped.
+    /// Closes every prompt: the vault locked or the service stopped. The
+    /// held password is dropped, and a waiting passkey request is told
+    /// `cancelled`.
     pub(crate) fn drop_prompts(&self, reason: BrowserCloseReason) {
         let Ok(mut prompts) = self.prompts.lock() else {
             return;
         };
         let pair = prompts.pair.take();
         let save = prompts.save.take();
+        let passkey = prompts.passkey.take();
         if prompts.applying {
             // A save is being written: its owner finishes it off.
             prompts.dropped_while_applying = Some(reason);
         }
+        if prompts.passkey_applying {
+            prompts.passkey_dropped_while_applying = Some(reason);
+        }
         drop(prompts);
+        if let Some(passkey) = passkey {
+            let request_id = passkey.handle().to_owned();
+            passkey.refuse(WireError::Cancelled);
+            self.emit(AppEvent::BrowserPasskeyClosed { request_id, reason });
+        }
         let refusal = refusal_for(reason);
         if let Some(pair) = pair {
             let _ = pair.reply.send(Err(refusal));

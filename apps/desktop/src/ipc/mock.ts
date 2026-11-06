@@ -15,7 +15,10 @@
  * (ADR-0031): `&otpScan=<errorCode>|cancel` makes `otp_scan` fail with that code (or
  * cancels the file dialog), `&screenScan=0` reports screen scanning as unsupported. Browser
  * extension (M4): `&browserPair=1` makes a browser ask for pairing, and `&browserSave=new|update`
- * makes it offer to save a login, both 500 ms after the app subscribes.
+ * makes it offer to save a login, both 500 ms after the app subscribes. Passkeys (M5):
+ * `&browserPasskey=get|create|excluded|uv|uvExpires` makes it ask to sign in (`uv`: with the master
+ * password; `uvExpires`: the verification runs out while the dialog is open) or to create a passkey, or to create one the vault already holds; the sign-in
+ * variants seed two passkeys for example.com.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import {
@@ -28,10 +31,22 @@ import {
   type ResponseOf,
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
-import { browserHandlers, defaultBrowser, startBrowser } from "./mock/browser.ts";
+import {
+  browserHandlers,
+  defaultBrowser,
+  startBrowser,
+  type PasskeyVariant,
+} from "./mock/browser.ts";
 import { attachmentHandlers } from "./mock/attachments.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
-import { bulkItems, sampleAccount, sampleAttachments, sampleItems, sampleVaults } from "./mock/data.ts";
+import {
+  bulkItems,
+  sampleAccount,
+  sampleAttachments,
+  sampleItems,
+  samplePasskeys,
+  sampleVaults,
+} from "./mock/data.ts";
 import { generatorHandlers } from "./mock/generator.ts";
 import { importHandlers } from "./mock/import.ts";
 import { insightHandlers } from "./mock/insights.ts";
@@ -70,6 +85,8 @@ export interface MockOptions extends QuickOptions {
   browserPair?: boolean;
   /** A browser offers to save a login 500 ms after subscribing (`&browserSave=new|update`). */
   browserSave?: "new" | "update";
+  /** A browser asks for a passkey 500 ms after subscribing (`&browserPasskey=`). */
+  browserPasskey?: PasskeyVariant;
   /** Start with an unconfirmed Emergency Kit (`?kit=unverified`). */
   kitUnverified?: boolean;
   /** Start with vaults but no items (first run without an import). */
@@ -136,9 +153,13 @@ const asyncHandlers: MockAsyncHandlers = {
 
 function browserOptionsFromParams(params: URLSearchParams): MockOptions {
   const save = params.get("browserSave");
+  const passkey = params.get("browserPasskey");
   return {
     ...(params.get("browserPair") === "1" ? { browserPair: true } : {}),
     ...(save === "new" || save === "update" ? { browserSave: save } : {}),
+    ...(passkey === "get" || passkey === "create" || passkey === "excluded" || passkey === "uv" || passkey === "uvExpires"
+      ? { browserPasskey: passkey }
+      : {}),
   };
 }
 
@@ -189,7 +210,11 @@ function initialItems(start: MockStart, options: MockOptions): MockItem[] {
   if (start === "noAccount" || options.emptyVault === true) {
     return [];
   }
-  return [...sampleItems(), ...bulkItems(options.bulkItems ?? 0)];
+  const passkeys =
+    options.browserPasskey === undefined || options.browserPasskey === "create"
+      ? []
+      : samplePasskeys();
+  return [...sampleItems(), ...passkeys, ...bulkItems(options.bulkItems ?? 0)];
 }
 
 function initialAttachments(start: MockStart, options: MockOptions): Map<string, MockAttachment> {
@@ -223,6 +248,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       ...defaultBrowser(now),
       pairOnStart: options.browserPair === true,
       saveOnStart: options.browserSave ?? null,
+      passkeyOnStart: options.browserPasskey ?? null,
     },
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),

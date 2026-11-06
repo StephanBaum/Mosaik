@@ -2,6 +2,7 @@
 import type {
   BrowserCloseReason,
   BrowserPairingRequest,
+  BrowserPasskeyRequest,
   BrowserSaveRequest,
 } from "./browser.ts";
 import type { ErrorCode, ItemId, UnixMillis, VaultId } from "./common.ts";
@@ -43,5 +44,8 @@ export type AppEvent =
   /** The extension offers to save a login (the password stays in Rust). */
   | { type: "browserSaveRequested"; request: BrowserSaveRequest }
   | { type: "browserSaveClosed"; requestId: string; reason: BrowserCloseReason }
+  /** The extension asks to create or use a passkey; the desktop dialog decides. */
+  | { type: "browserPasskeyRequested"; request: BrowserPasskeyRequest }
+  | { type: "browserPasskeyClosed"; requestId: string; reason: BrowserCloseReason }
   /** A browser was paired, removed, connected or disconnected. */
   | { type: "browserPairingsChanged" };

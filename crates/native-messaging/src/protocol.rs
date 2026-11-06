@@ -39,6 +39,8 @@ pub const REQUEST_TIMEOUT_SECS: u64 = 15;
 pub const PAIR_TIMEOUT_SECS: u64 = 120;
 /// Seconds a save prompt stays open (the extension waits longer).
 pub const SAVE_PROMPT_TIMEOUT_SECS: u64 = 300;
+/// Seconds a passkey prompt stays open (the extension waits longer).
+pub const PASSKEY_PROMPT_TIMEOUT_SECS: u64 = 300;
 /// Connections the desktop serves at once (more are accepted and closed).
 pub const MAX_CONNECTIONS: usize = 8;
 /// Requests in flight per connection.
@@ -104,7 +106,7 @@ pub enum ErrorCode {
     OriginMismatch,
     /// The page is plain HTTP and the URL does not allow it.
     InsecureOrigin,
-    /// A cross-origin frame asked for a fill.
+    /// A cross-origin frame asked for a fill or a passkey.
     CrossOriginFrame,
     /// No such item (or not a login).
     ItemNotFound,
@@ -120,6 +122,14 @@ pub enum ErrorCode {
     ClipboardUnavailable,
     /// The user cancelled.
     Cancelled,
+    /// No usable passkey for this site (answered without a dialog).
+    PasskeyNotFound,
+    /// A passkey for this account already exists (`excludeCredentials` hit).
+    PasskeyExcluded,
+    /// The relying party ID is not valid for the page's origin.
+    RpIdMismatch,
+    /// No offered algorithm or option is supported.
+    PasskeyUnsupported,
     /// The user denied the pairing.
     PairingDenied,
     /// The pairing request timed out.
@@ -145,7 +155,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Every code, in the order of the protocol document.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 30] = [
         Self::InvalidRequest,
         Self::NotPaired,
         Self::ProtocolVersion,
@@ -162,6 +172,10 @@ impl ErrorCode {
         Self::FieldEmpty,
         Self::ClipboardUnavailable,
         Self::Cancelled,
+        Self::PasskeyNotFound,
+        Self::PasskeyExcluded,
+        Self::RpIdMismatch,
+        Self::PasskeyUnsupported,
         Self::PairingDenied,
         Self::PairingExpired,
         Self::PairingConflict,
@@ -202,11 +216,17 @@ pub enum Op {
     ProposeSave,
     /// Remove this pairing.
     Unpair,
+    /// Create a passkey after the user approves it on the desktop.
+    PasskeyCreate,
+    /// Sign in with a passkey after the user approves it on the desktop.
+    PasskeyGet,
+    /// Close an open passkey prompt of this pairing.
+    PasskeyCancel,
 }
 
 impl Op {
     /// Every op.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 15] = [
         Self::Hello,
         Self::Pair,
         Self::Status,
@@ -219,6 +239,9 @@ impl Op {
         Self::CheckSave,
         Self::ProposeSave,
         Self::Unpair,
+        Self::PasskeyCreate,
+        Self::PasskeyGet,
+        Self::PasskeyCancel,
     ];
 
     /// The wire name.
@@ -237,6 +260,9 @@ impl Op {
             Self::CheckSave => "checkSave",
             Self::ProposeSave => "proposeSave",
             Self::Unpair => "unpair",
+            Self::PasskeyCreate => "passkeyCreate",
+            Self::PasskeyGet => "passkeyGet",
+            Self::PasskeyCancel => "passkeyCancel",
         }
     }
 
@@ -256,7 +282,7 @@ impl Op {
 }
 
 /// The ops the host forwards to the desktop.
-pub const FORWARDED_OPS: [Op; 10] = [
+pub const FORWARDED_OPS: [Op; 13] = [
     Op::Status,
     Op::Focus,
     Op::ListForOrigin,
@@ -267,6 +293,9 @@ pub const FORWARDED_OPS: [Op; 10] = [
     Op::CheckSave,
     Op::ProposeSave,
     Op::Unpair,
+    Op::PasskeyCreate,
+    Op::PasskeyGet,
+    Op::PasskeyCancel,
 ];
 
 /// The lock state the desktop reports.
@@ -624,6 +653,14 @@ mod tests {
             serde_json::to_string(&ErrorCode::DesktopNotAuthentic).unwrap(),
             "\"desktopNotAuthentic\""
         );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::PasskeyNotFound).unwrap(),
+            "\"passkeyNotFound\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::RpIdMismatch).unwrap(),
+            "\"rpIdMismatch\""
+        );
         for code in ErrorCode::ALL {
             let json = serde_json::to_string(&code).unwrap();
             assert_eq!(serde_json::from_str::<ErrorCode>(&json).unwrap(), code);
@@ -648,6 +685,11 @@ mod tests {
             "lock",
             "add_item",
             "list_items",
+            "listPasskeys",
+            "getPasskey",
+            "passkeyExport",
+            "passkeyDelete",
+            "passkeyCreate ",
             "",
             "Fill",
             "fill ",

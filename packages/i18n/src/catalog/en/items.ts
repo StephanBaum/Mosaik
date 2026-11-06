@@ -129,6 +129,16 @@ export const items = {
   "item.customKind.date": "Date",
   "item.customKind.otp": "One-time code",
   "item.otherFields": "Other fields",
+  "item.passkey.rpId": "Website",
+  "item.passkey.userName": "User name",
+  "item.passkey.displayName": "Display name",
+  "item.passkey.credentialId": "Credential ID",
+  "item.passkey.algorithm": "Algorithm",
+  "item.passkey.algorithmOther": "Other (can't be used to sign in)",
+  "item.passkey.created": "Created",
+  "item.passkey.createdValue": "{at, date, medium}",
+  "item.passkey.note":
+    "This passkey is end-to-end encrypted and syncs with your vault. Its private key never leaves Mosaic.",
   "editor.document.filesAfterSave": "Save the document first, then add files to it.",
   "editor.titleRequired": "Give this item a title.",
 } as const satisfies Record<string, string>;

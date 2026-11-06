@@ -40,8 +40,8 @@ use crate::ids::Caller;
 use crate::preauth::{ClientMessage, ServerMessage, is_pairing_code};
 use crate::protocol::{
     DesktopMessage, ErrorCode, Event, LockState, MAX_FRAME_BYTES, Op, PAIR_TIMEOUT_SECS,
-    PROTOCOL_VERSION, REQUEST_TIMEOUT_SECS, RequestEnvelope, SAVE_PROMPT_TIMEOUT_SECS, error_json,
-    ok_json, request_json, to_zeroizing,
+    PASSKEY_PROMPT_TIMEOUT_SECS, PROTOCOL_VERSION, REQUEST_TIMEOUT_SECS, RequestEnvelope,
+    SAVE_PROMPT_TIMEOUT_SECS, error_json, ok_json, request_json, to_zeroizing,
 };
 use crate::transport;
 
@@ -51,10 +51,12 @@ const PAIR_WAIT: Duration = Duration::from_secs(PAIR_TIMEOUT_SECS + 5);
 
 /// How long the host waits for the desktop's answer to a forwarded request. `proposeSave`
 /// waits for the user in the desktop's save dialog (up to [`SAVE_PROMPT_TIMEOUT_SECS`]), so it
-/// gets that window plus a margin; the host still answers before the extension gives up.
+/// gets that window plus a margin; the host still answers before the extension gives up. The
+/// passkey ops wait for the desktop's passkey dialog the same way ([`PASSKEY_PROMPT_TIMEOUT_SECS`]).
 fn request_timeout(op: Op) -> Duration {
     match op {
         Op::ProposeSave => Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS + 2),
+        Op::PasskeyCreate | Op::PasskeyGet => Duration::from_secs(PASSKEY_PROMPT_TIMEOUT_SECS + 2),
         _ => Duration::from_secs(REQUEST_TIMEOUT_SECS),
     }
 }

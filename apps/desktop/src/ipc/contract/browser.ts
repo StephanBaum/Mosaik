@@ -32,11 +32,19 @@ export const browserCloseReasons = [
   "conflict",
   "locked",
   "disconnected",
+  "abortedByPage",
 ] as const;
 export type BrowserCloseReason = (typeof browserCloseReasons)[number];
 
 export const browserSaveKinds = ["new", "update"] as const;
 export type BrowserSaveKind = (typeof browserSaveKinds)[number];
+
+export const browserPasskeyKinds = ["create", "get"] as const;
+export type BrowserPasskeyKind = (typeof browserPasskeyKinds)[number];
+
+/** The site's user verification preference. */
+export const passkeyVerifications = ["required", "preferred", "discouraged"] as const;
+export type PasskeyVerification = (typeof passkeyVerifications)[number];
 
 export interface BrowserPairing {
   /** 32 lowercase hex digits. */
@@ -108,4 +116,61 @@ export type BrowserSaveDecision =
 export interface BrowserSaveRespondRequest {
   requestId: string;
   decision: BrowserSaveDecision;
+}
+
+/** A passkey the user may sign in with. No key material. */
+export interface BrowserPasskeyCandidate {
+  vaultId: VaultId;
+  itemId: ItemId;
+  vaultName: string;
+  /** May be empty. */
+  userName: string;
+  /** May be empty. */
+  userDisplayName: string;
+}
+
+/** A passkey request: what the site asked for, checked by Rust. No challenge, no key. */
+export interface BrowserPasskeyRequest {
+  /**
+   * The desktop's own handle for this prompt: 32 lowercase hex digits, made for each prompt and
+   * never the extension's request ID.
+   */
+  requestId: string;
+  pairingLabel: string;
+  kind: BrowserPasskeyKind;
+  /** The page's origin, from the browser. */
+  origin: string;
+  /** The relying party ID Rust accepted for the origin. */
+  rpId: string;
+  /** Create only: sanitized, at most 64 bytes. `null` for a sign-in. */
+  userName: string | null;
+  userDisplayName: string | null;
+  /** Sign-in only (never empty); empty for a create. */
+  candidates: BrowserPasskeyCandidate[];
+  /** Create only: Mosaic already holds a passkey the site excludes. Informs only. */
+  excluded: boolean;
+  /** The site wants user verification and none happened in five minutes: ask for the password. */
+  needsPassword: boolean;
+  userVerification: PasskeyVerification;
+  requestedAt: UnixMillis;
+  expiresAt: UnixMillis;
+}
+
+export type BrowserPasskeyDecision =
+  | { kind: "create"; vaultId: VaultId }
+  | { kind: "assert"; vaultId: VaultId; itemId: ItemId }
+  | { kind: "useAnotherDevice" }
+  | { kind: "cancel" }
+  | { kind: "acknowledge" };
+
+export interface BrowserPasskeyRespondRequest {
+  /** The prompt's handle, from the event. */
+  requestId: string;
+  decision: BrowserPasskeyDecision;
+  /**
+   * The master password when the user typed one: the dialog asked for it (`needsPassword`) or
+   * Rust answered `reauthRequired` because the verification ran out while the dialog was open;
+   * `null` otherwise.
+   */
+  password: string | null;
 }

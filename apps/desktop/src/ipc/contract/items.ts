@@ -166,6 +166,26 @@ export interface SshKeySummary {
   agentSupported: boolean;
 }
 
+export const passkeyAlgorithms = ["es256", "other"] as const;
+export type PasskeyAlgorithm = (typeof passkeyAlgorithms)[number];
+
+/**
+ * What the detail shows of a passkey item. The private key never comes back to the webview:
+ * it is not a secret field, and there is no reveal, copy or export for it.
+ */
+export interface PasskeySummary {
+  /** The website's domain. */
+  rpId: string;
+  userName: string;
+  userDisplayName: string;
+  /** Base64url, no padding. */
+  credentialId: string;
+  algorithm: PasskeyAlgorithm;
+  createdAt: UnixMillis;
+  /** 0 for a passkey Mosaic made. */
+  signCount: number;
+}
+
 export interface ItemDetail {
   summary: ItemSummary;
   createdAt: UnixMillis | null;
@@ -180,6 +200,8 @@ export interface ItemDetail {
   review: ReviewState;
   /** `null` unless the item has SSH key material. */
   sshKey: SshKeySummary | null;
+  /** `null` unless the item is a passkey. */
+  passkey: PasskeySummary | null;
 }
 
 export type SecretRef =

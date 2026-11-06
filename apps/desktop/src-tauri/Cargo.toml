@@ -34,6 +34,7 @@ mosaic-import = { path = "../../../crates/import" }
 mosaic-insights = { path = "../../../crates/insights" }
 mosaic-native-messaging = { path = "../../../crates/native-messaging" }
 mosaic-origin = { path = "../../../crates/origin" }
+mosaic-passkey = { path = "../../../crates/passkey" }
 mosaic-qr = { path = "../../../crates/qr" }
 mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
 mosaic-totp = { path = "../../../crates/totp" }
@@ -72,5 +73,8 @@ tauri-build.workspace = true
 mosaic-qr = { path = "../../../crates/qr", features = ["testing"] }
 proptest.workspace = true
 tempfile.workspace = true
+# Passkey tests verify the signatures with the same crate that makes them
+# (already in the tree through mosaic-passkey).
+p256.workspace = true
 # The mock runtime for the command and ACL wiring test.
 tauri = { workspace = true, features = ["test"] }

@@ -257,6 +257,20 @@ impl Prepared {
         self.ssh_key.is_some()
     }
 
+    /// Whether the draft changes nothing but the title, the notes and the
+    /// tags (all a `passkey` item allows).
+    #[must_use]
+    pub fn only_title_notes_tags(&self) -> bool {
+        self.text
+            .iter()
+            .all(|(field, _)| matches!(field, TextField::Title | TextField::Notes))
+            && self.secrets.is_empty()
+            && self.urls.is_empty()
+            && self.fields.is_empty()
+            && matches!(self.otp, OtpOp::Keep)
+            && self.ssh_key.is_none()
+    }
+
     /// Applies the draft to an item being edited. `current_tags` and
     /// `current_fields` are the item's tags and custom fields before the
     /// edit (empty for a new item).

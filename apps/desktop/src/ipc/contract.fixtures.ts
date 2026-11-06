@@ -68,7 +68,8 @@ export const fixtures = {
     "browser_status",
     "browser_remove_pairing",
     "browser_pairing_respond",
-    "browser_save_respond"
+    "browser_save_respond",
+    "browser_passkey_respond"
   ],
   "enums": {
     "biometricPlatformKind": [
@@ -80,7 +81,8 @@ export const fixtures = {
       "expired",
       "conflict",
       "locked",
-      "disconnected"
+      "disconnected",
+      "abortedByPage"
     ],
     "browserEndpointState": [
       "running",
@@ -100,6 +102,10 @@ export const fixtures = {
       "chromium",
       "firefox",
       "other"
+    ],
+    "browserPasskeyKind": [
+      "create",
+      "get"
     ],
     "browserRegistryState": [
       "ok",
@@ -293,6 +299,15 @@ export const fixtures = {
     "pairingDecision": [
       "allow",
       "deny"
+    ],
+    "passkeyAlgorithm": [
+      "es256",
+      "other"
+    ],
+    "passkeyVerification": [
+      "required",
+      "preferred",
+      "discouraged"
     ],
     "quickUnlockKind": [
       "biometric",
@@ -751,6 +766,80 @@ export const fixtures = {
       "type": "browserSaveClosed"
     },
     {
+      "request": {
+        "candidates": [
+          {
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000005",
+            "userDisplayName": "Alex Example",
+            "userName": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Personal"
+          },
+          {
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000006",
+            "userDisplayName": "",
+            "userName": "alex.work",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
+        "excluded": false,
+        "expiresAt": 1761480335000,
+        "kind": "get",
+        "needsPassword": true,
+        "origin": "https://example.com",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "rpId": "example.com",
+        "userDisplayName": null,
+        "userName": null,
+        "userVerification": "required"
+      },
+      "type": "browserPasskeyRequested"
+    },
+    {
+      "request": {
+        "candidates": [],
+        "excluded": false,
+        "expiresAt": 1761480335000,
+        "kind": "create",
+        "needsPassword": false,
+        "origin": "https://example.com",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "rpId": "example.com",
+        "userDisplayName": "Alex Example",
+        "userName": "alex@example.com",
+        "userVerification": "preferred"
+      },
+      "type": "browserPasskeyRequested"
+    },
+    {
+      "request": {
+        "candidates": [],
+        "excluded": true,
+        "expiresAt": 1761480335000,
+        "kind": "create",
+        "needsPassword": false,
+        "origin": "https://example.com",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "rpId": "example.com",
+        "userDisplayName": "Alex Example",
+        "userName": "alex@example.com",
+        "userVerification": "discouraged"
+      },
+      "type": "browserPasskeyRequested"
+    },
+    {
+      "reason": "abortedByPage",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "browserPasskeyClosed"
+    },
+    {
       "type": "browserPairingsChanged"
     }
   ],
@@ -880,6 +969,46 @@ export const fixtures = {
       {
         "decision": "deny",
         "label": null,
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "browser_passkey_respond": [
+      {
+        "decision": {
+          "kind": "create",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "password": null,
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000005",
+          "kind": "assert",
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "password": "correct horse battery staple",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "useAnotherDevice"
+        },
+        "password": null,
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "cancel"
+        },
+        "password": null,
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "acknowledge"
+        },
+        "password": null,
         "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
       }
     ],
@@ -1685,6 +1814,7 @@ export const fixtures = {
           "period": 30,
           "scheme": "totp"
         },
+        "passkey": null,
         "review": {
           "conflictCopyOf": null,
           "conflictingFields": 0,
@@ -1770,6 +1900,7 @@ export const fixtures = {
             "period": 30,
             "scheme": "totp"
           },
+          "passkey": null,
           "review": {
             "conflictCopyOf": null,
             "conflictingFields": 0,
@@ -1852,6 +1983,7 @@ export const fixtures = {
           "period": 30,
           "scheme": "totp"
         },
+        "passkey": null,
         "review": {
           "conflictCopyOf": null,
           "conflictingFields": 0,
@@ -1902,6 +2034,9 @@ export const fixtures = {
       }
     ],
     "browser_pairing_respond": [
+      null
+    ],
+    "browser_passkey_respond": [
       null
     ],
     "browser_remove_pairing": [
@@ -2185,6 +2320,7 @@ export const fixtures = {
           "period": 30,
           "scheme": "totp"
         },
+        "passkey": null,
         "review": {
           "conflictCopyOf": null,
           "conflictingFields": 0,
@@ -2231,6 +2367,7 @@ export const fixtures = {
         "customFields": [],
         "historyCount": 2,
         "otp": null,
+        "passkey": null,
         "review": {
           "conflictCopyOf": null,
           "conflictingFields": 0,
@@ -2268,6 +2405,47 @@ export const fixtures = {
             "value": "deploy@example.com"
           }
         ],
+        "urls": []
+      },
+      {
+        "attachments": [],
+        "createdAt": 1761400000000,
+        "customFields": [],
+        "historyCount": 0,
+        "otp": null,
+        "passkey": {
+          "algorithm": "es256",
+          "createdAt": 1761400000000,
+          "credentialId": "AAECAwQFBgcICQoLDA0ODw",
+          "rpId": "example.com",
+          "signCount": 0,
+          "userDisplayName": "Alex Example",
+          "userName": "alex@example.com"
+        },
+        "review": {
+          "conflictCopyOf": null,
+          "conflictingFields": 0,
+          "deletedConcurrently": false
+        },
+        "secrets": [],
+        "sshKey": null,
+        "summary": {
+          "favorite": true,
+          "hasOtp": false,
+          "host": "example.com",
+          "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+          "kind": "passkey",
+          "modifiedAt": 1761480000000,
+          "needsReview": false,
+          "subtitle": "alex@example.com",
+          "tags": [
+            "work"
+          ],
+          "title": "example.com",
+          "trashedAt": null,
+          "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+        },
+        "text": [],
         "urls": []
       }
     ],
@@ -3055,6 +3233,7 @@ export const fixtures = {
           "period": 30,
           "scheme": "totp"
         },
+        "passkey": null,
         "review": {
           "conflictCopyOf": null,
           "conflictingFields": 0,

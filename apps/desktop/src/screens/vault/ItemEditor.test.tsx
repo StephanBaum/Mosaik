@@ -244,6 +244,7 @@ function stored(over: Partial<ItemDetail> = {}): ItemDetail {
     historyCount: 0,
     review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
     sshKey: null,
+    passkey: null,
     ...over,
   };
 }
@@ -287,6 +288,23 @@ describe("item editor, kinds and custom fields", () => {
     expect(screen.getByLabelText("Cardholder")).toBeTruthy();
     expect(screen.queryByLabelText("User name")).toBeNull();
     expect(screen.queryByLabelText("Website 1")).toBeNull();
+  });
+
+  it("edits a passkey only through its title, tags and notes", () => {
+    renderEditing(
+      stored({
+        summary: { ...stored().summary, kind: "passkey", title: "example.com" },
+        text: [],
+        secrets: [],
+        customFields: [],
+      }),
+    );
+    expect(screen.getByLabelText("Title")).toBeTruthy();
+    expect(screen.getByLabelText("Tags, separated by commas")).toBeTruthy();
+    expect(screen.getByLabelText("Notes")).toBeTruthy();
+    expect(screen.queryByLabelText("User name")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add custom field" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add file/ })).toBeNull();
   });
 
   it("hints at a card number that fails the check without blocking", async () => {

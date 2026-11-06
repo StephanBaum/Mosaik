@@ -486,6 +486,160 @@ pub struct ProposeSaveResult {
     pub item_id: Option<String>,
 }
 
+/// The relying party's user verification preference (WebAuthn L3 6.4.3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UserVerification {
+    /// The relying party requires it.
+    Required,
+    /// The relying party prefers it.
+    Preferred,
+    /// The relying party does not want it.
+    Discouraged,
+}
+
+/// `passkeyCreate` request. Binary values are base64url without padding.
+///
+/// The `origin` and `top_origin` come from the browser, never from the page;
+/// `rp_id` is the page's request and is checked on the desktop.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PasskeyCreateBody {
+    /// 32 lowercase hex digits, chosen by the extension.
+    pub request_id: String,
+    /// The frame's origin.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// The requested relying party ID (`rp.id`), if the page gave one.
+    #[serde(deserialize_with = "required")]
+    pub rp_id: Option<String>,
+    /// The user handle (`user.id`), 1 to 64 bytes.
+    pub user_id: String,
+    /// The user name (at most 256 characters).
+    pub user_name: String,
+    /// The user's display name (at most 256 characters).
+    pub user_display_name: String,
+    /// The challenge, 16 to 1024 bytes.
+    pub challenge: String,
+    /// The COSE algorithms of `pubKeyCredParams` (at most 16).
+    pub algorithms: Vec<i64>,
+    /// The credential IDs of `excludeCredentials` (at most 64, each 1 to 1023 bytes).
+    pub exclude_credentials: Vec<String>,
+    /// The user verification preference.
+    pub user_verification: UserVerification,
+}
+
+/// The credential a `passkeyCreate` made. The only key material is the
+/// public key (`public_key_spki`); the private key never leaves the desktop.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreatedCredential {
+    /// The credential ID (base64url).
+    pub credential_id: String,
+    /// The `clientDataJSON` bytes (base64url).
+    pub client_data_json: String,
+    /// The `none` attestation object (base64url).
+    pub attestation_object: String,
+    /// The authenticator data (base64url).
+    pub authenticator_data: String,
+    /// The public key as an SPKI (base64url).
+    pub public_key_spki: String,
+    /// The COSE algorithm of the key (-7).
+    pub public_key_algorithm: i64,
+    /// The vault of the new `passkey` item.
+    pub vault_id: String,
+    /// The new `passkey` item.
+    pub item_id: String,
+}
+
+/// What came of a `passkeyCreate`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CreateOutcome {
+    /// The passkey was created and stored.
+    Created,
+    /// The user chose another device or a security key.
+    UseAnotherDevice,
+}
+
+/// `passkeyCreate` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasskeyCreateResult {
+    /// What happened.
+    pub outcome: CreateOutcome,
+    /// The credential, if `created`.
+    #[serde(deserialize_with = "required")]
+    pub credential: Option<CreatedCredential>,
+}
+
+/// `passkeyGet` request. Binary values are base64url without padding.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PasskeyGetBody {
+    /// 32 lowercase hex digits, chosen by the extension.
+    pub request_id: String,
+    /// The frame's origin.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// The requested relying party ID (`rpId`), if the page gave one.
+    #[serde(deserialize_with = "required")]
+    pub rp_id: Option<String>,
+    /// The challenge, 16 to 1024 bytes.
+    pub challenge: String,
+    /// The credential IDs of `allowCredentials` (at most 64).
+    pub allow_credentials: Vec<String>,
+    /// The user verification preference.
+    pub user_verification: UserVerification,
+}
+
+/// The signed assertion of a `passkeyGet`, all base64url.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssertionBody {
+    /// The credential ID that signed.
+    pub credential_id: String,
+    /// The `clientDataJSON` bytes.
+    pub client_data_json: String,
+    /// The authenticator data.
+    pub authenticator_data: String,
+    /// The DER signature.
+    pub signature: String,
+    /// The user handle.
+    pub user_handle: String,
+}
+
+/// What came of a `passkeyGet`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GetOutcome {
+    /// The assertion was signed.
+    Asserted,
+    /// The user chose another device or a security key.
+    UseAnotherDevice,
+}
+
+/// `passkeyGet` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasskeyGetResult {
+    /// What happened.
+    pub outcome: GetOutcome,
+    /// The assertion, if `asserted`.
+    #[serde(deserialize_with = "required")]
+    pub assertion: Option<AssertionBody>,
+}
+
+/// `passkeyCancel` request; the response is [`Empty`].
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PasskeyCancelBody {
+    /// The `requestId` of the request to close.
+    pub request_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,5 +729,76 @@ mod tests {
             serde_json::from_str(r#"{"request":{"kind":"random","length":20}}"#).unwrap();
         assert_eq!(body.request.get(), r#"{"kind":"random","length":20}"#);
         assert!(serde_json::from_str::<GenerateBody>(r#"{"request":1,"x":2}"#).is_err());
+    }
+
+    const CREATE: &str = r#"{"requestId":"00112233445566778899aabbccddeeff","origin":"https://a.example","topOrigin":"https://a.example","rpId":null,"userId":"AQID","userName":"ada","userDisplayName":"Ada","challenge":"AAECAwQFBgcICQoLDA0ODw","algorithms":[-7],"excludeCredentials":[],"userVerification":"preferred"}"#;
+    const GET: &str = r#"{"requestId":"00112233445566778899aabbccddeeff","origin":"https://a.example","topOrigin":"https://a.example","rpId":"a.example","challenge":"AAECAwQFBgcICQoLDA0ODw","allowCredentials":["AQID"],"userVerification":"required"}"#;
+    const CANCEL: &str = r#"{"requestId":"00112233445566778899aabbccddeeff"}"#;
+
+    fn rejects<T: serde::de::DeserializeOwned>(json: &str) -> bool {
+        serde_json::from_str::<T>(json).is_err()
+    }
+
+    #[test]
+    fn passkey_create_body_is_strict() {
+        let body: PasskeyCreateBody = serde_json::from_str(CREATE).unwrap();
+        assert_eq!(body.rp_id, None);
+        assert_eq!(body.user_verification, UserVerification::Preferred);
+        assert_eq!(serde_json::to_string(&body).unwrap(), CREATE);
+        let extra = CREATE.replace('}', r#","x":1}"#);
+        assert!(rejects::<PasskeyCreateBody>(&extra));
+        assert!(rejects::<PasskeyCreateBody>(
+            &CREATE.replace(r#""rpId":null,"#, "")
+        ));
+        assert!(rejects::<PasskeyCreateBody>(
+            &CREATE.replace(r#""algorithms":[-7],"#, "")
+        ));
+        assert!(rejects::<PasskeyCreateBody>(
+            &CREATE.replace("preferred", "maybe")
+        ));
+        assert!(rejects::<PasskeyCreateBody>(
+            &CREATE.replace("preferred", "Preferred")
+        ));
+    }
+
+    #[test]
+    fn passkey_get_and_cancel_bodies_are_strict() {
+        let body: PasskeyGetBody = serde_json::from_str(GET).unwrap();
+        assert_eq!(body.rp_id.as_deref(), Some("a.example"));
+        assert_eq!(serde_json::to_string(&body).unwrap(), GET);
+        assert!(rejects::<PasskeyGetBody>(
+            &GET.replace(r#""allowCredentials":["AQID"],"#, "")
+        ));
+        assert!(rejects::<PasskeyGetBody>(&GET.replace('}', r#","x":1}"#)));
+        assert!(rejects::<PasskeyGetBody>(
+            &GET.replace("required", "always")
+        ));
+        assert!(serde_json::from_str::<PasskeyCancelBody>(CANCEL).is_ok());
+        assert!(rejects::<PasskeyCancelBody>("{}"));
+        assert!(rejects::<PasskeyCancelBody>(
+            &CANCEL.replace('}', r#","x":1}"#)
+        ));
+    }
+
+    #[test]
+    fn passkey_results_are_strict() {
+        let none = r#"{"outcome":"useAnotherDevice","credential":null}"#;
+        let result: PasskeyCreateResult = serde_json::from_str(none).unwrap();
+        assert_eq!(result.outcome, CreateOutcome::UseAnotherDevice);
+        assert!(rejects::<PasskeyCreateResult>(r#"{"outcome":"created"}"#));
+        assert!(rejects::<PasskeyCreateResult>(
+            r#"{"outcome":"done","credential":null}"#
+        ));
+        let none = r#"{"outcome":"useAnotherDevice","assertion":null}"#;
+        assert!(serde_json::from_str::<PasskeyGetResult>(none).is_ok());
+        assert!(rejects::<PasskeyGetResult>(r#"{"outcome":"asserted"}"#));
+        let assertion = r#"{"credentialId":"a","clientDataJson":"b","authenticatorData":"c","signature":"d","userHandle":"e"}"#;
+        assert!(serde_json::from_str::<AssertionBody>(assertion).is_ok());
+        assert!(rejects::<AssertionBody>(
+            &assertion.replace(r#","userHandle":"e""#, "")
+        ));
+        assert!(rejects::<AssertionBody>(
+            &assertion.replace('}', r#","privateKey":"k"}"#)
+        ));
     }
 }

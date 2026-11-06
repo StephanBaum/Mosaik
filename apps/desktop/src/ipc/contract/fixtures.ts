@@ -44,6 +44,9 @@ export interface EnumFixtures {
   pairingDecision: string[];
   browserCloseReason: string[];
   browserSaveKind: string[];
+  browserPasskeyKind: string[];
+  passkeyVerification: string[];
+  passkeyAlgorithm: string[];
   lockReason: string[];
   syncStatus: string[];
   vaultProtection: string[];

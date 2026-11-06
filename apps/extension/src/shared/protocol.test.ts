@@ -46,6 +46,44 @@ describe("requests (extension to host)", () => {
   });
 });
 
+describe("passkey ops", () => {
+  const body = (op: string) =>
+    fixtures.requests.find((r) => r.op === op)?.message.body as Record<string, unknown>;
+  const result = (op: string) =>
+    fixtures.responses.find((r) => r.op === op)?.message.body as Record<string, unknown>;
+
+  it("rejects a passkey request with a missing key, an unknown key or a wrong value", () => {
+    const create = body("passkeyCreate");
+    expect(isRequestBody("passkeyCreate", { ...create, privateKey: "x" })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, rpId: undefined })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, userVerification: "always" })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, requestId: "ABC" })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, challenge: "not base64!" })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, algorithms: new Array(17).fill(-7) })).toBe(false);
+    expect(isRequestBody("passkeyCreate", { ...create, excludeCredentials: new Array(65).fill("AQID") })).toBe(false);
+    const get = body("passkeyGet");
+    expect(isRequestBody("passkeyGet", { ...get, allowCredentials: undefined })).toBe(false);
+    expect(isRequestBody("passkeyGet", { ...get, extra: 1 })).toBe(false);
+    expect(isRequestBody("passkeyCancel", { requestId: "00112233445566778899aabbccddeeff", x: 1 })).toBe(false);
+  });
+
+  it("rejects a passkey result with key material, a missing key or a wrong outcome", () => {
+    const created = result("passkeyCreate");
+    expect(isResultBody("passkeyCreate", { ...created, outcome: "done" })).toBe(false);
+    expect(isResultBody("passkeyCreate", { outcome: "created" })).toBe(false);
+    expect(
+      isResultBody("passkeyCreate", {
+        ...created,
+        credential: { ...(created["credential"] as object), privateKey: "k" },
+      }),
+    ).toBe(false);
+    expect(isResultBody("passkeyCreate", { outcome: "useAnotherDevice", credential: null })).toBe(true);
+    expect(isResultBody("passkeyGet", { outcome: "useAnotherDevice", assertion: null })).toBe(true);
+    expect(isResultBody("passkeyGet", { outcome: "asserted" })).toBe(false);
+    expect(isResultBody("passkeyCancel", { x: 1 })).toBe(false);
+  });
+});
+
 describe("responses (host to extension)", () => {
   it.each(fixtures.responses.map((r) => [r.op, r] as const))("%s parses and its body validates", (op, sample) => {
     const parsed = parseHostMessage(sample.message);

@@ -344,6 +344,37 @@ pub struct SshKeySummary {
     pub agent_supported: bool,
 }
 
+wire_enum!(
+    /// The algorithm of a passkey.
+    pub enum PasskeyAlgorithm {
+        /// ECDSA P-256 with SHA-256 (COSE -7), the only one Mosaic signs with.
+        Es256,
+        /// Any other (an imported key Mosaic cannot use).
+        Other,
+    }
+);
+
+/// What the detail shows of a passkey item. The private key never leaves
+/// Rust: it is not a secret field, and no reveal, copy or export reaches it.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeySummary {
+    /// The relying party ID (the website's domain).
+    pub rp_id: String,
+    /// The account's user name.
+    pub user_name: String,
+    /// The account's display name.
+    pub user_display_name: String,
+    /// The credential ID, base64url without padding.
+    pub credential_id: String,
+    /// The signing algorithm.
+    pub algorithm: PasskeyAlgorithm,
+    /// When the passkey was created.
+    pub created_at: UnixMillis,
+    /// The signature counter (0 for a passkey Mosaic made).
+    pub sign_count: u64,
+}
+
 /// One item in the detail pane. Secret fields are listed by name only.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -371,6 +402,9 @@ pub struct ItemDetail {
     pub review: ReviewState,
     /// The SSH key material, summarized (`null` unless the item has some).
     pub ssh_key: Option<SshKeySummary>,
+    /// The passkey, summarized (`null` unless the item has one). Never the
+    /// private key.
+    pub passkey: Option<PasskeySummary>,
 }
 
 /// A secret to reveal or copy.
@@ -752,6 +786,37 @@ pub(crate) mod samples {
                 conflict_copy_of: None,
             },
             ssh_key: None,
+            passkey: None,
+        }
+    }
+
+    pub(crate) fn passkey_detail() -> ItemDetail {
+        ItemDetail {
+            summary: ItemSummary {
+                kind: ItemKind::Passkey,
+                title: Some("example.com".into()),
+                subtitle: Some("alex@example.com".into()),
+                host: Some("example.com".into()),
+                has_otp: false,
+                ..summary()
+            },
+            text: vec![],
+            secrets: vec![],
+            urls: vec![],
+            custom_fields: vec![],
+            attachments: vec![],
+            otp: None,
+            history_count: 0,
+            passkey: Some(PasskeySummary {
+                rp_id: "example.com".into(),
+                user_name: "alex@example.com".into(),
+                user_display_name: "Alex Example".into(),
+                credential_id: "AAECAwQFBgcICQoLDA0ODw".into(),
+                algorithm: PasskeyAlgorithm::Es256,
+                created_at: 1_761_400_000_000,
+                sign_count: 0,
+            }),
+            ..detail()
         }
     }
 

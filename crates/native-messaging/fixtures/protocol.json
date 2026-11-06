@@ -145,6 +145,42 @@
       }
     },
     {
+      "code": "passkeyNotFound",
+      "message": {
+        "error": "passkeyNotFound",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "passkeyExcluded",
+      "message": {
+        "error": "passkeyExcluded",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "rpIdMismatch",
+      "message": {
+        "error": "rpIdMismatch",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "passkeyUnsupported",
+      "message": {
+        "error": "passkeyUnsupported",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
       "code": "pairingDenied",
       "message": {
         "error": "pairingDenied",
@@ -432,6 +468,62 @@
         "v": 1
       },
       "op": "unpair"
+    },
+    {
+      "message": {
+        "body": {
+          "algorithms": [
+            -7,
+            -257
+          ],
+          "challenge": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+          "excludeCredentials": [
+            "AAECAwQFBgcICQoLDA0ODw"
+          ],
+          "origin": "https://example.com",
+          "requestId": "00112233445566778899aabbccddeeff",
+          "rpId": null,
+          "topOrigin": "https://example.com",
+          "userDisplayName": "Ada Lovelace",
+          "userId": "AQIDBA",
+          "userName": "ada@example.com",
+          "userVerification": "preferred"
+        },
+        "id": 7,
+        "op": "passkeyCreate",
+        "v": 1
+      },
+      "op": "passkeyCreate"
+    },
+    {
+      "message": {
+        "body": {
+          "allowCredentials": [
+            "AAECAwQFBgcICQoLDA0ODw"
+          ],
+          "challenge": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+          "origin": "https://example.com",
+          "requestId": "00112233445566778899aabbccddeeff",
+          "rpId": "example.com",
+          "topOrigin": "https://example.com",
+          "userVerification": "required"
+        },
+        "id": 7,
+        "op": "passkeyGet",
+        "v": 1
+      },
+      "op": "passkeyGet"
+    },
+    {
+      "message": {
+        "body": {
+          "requestId": "00112233445566778899aabbccddeeff"
+        },
+        "id": 7,
+        "op": "passkeyCancel",
+        "v": 1
+      },
+      "op": "passkeyCancel"
     }
   ],
   "responses": [
@@ -619,6 +711,54 @@
         "v": 1
       },
       "op": "unpair"
+    },
+    {
+      "message": {
+        "body": {
+          "credential": {
+            "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YQ",
+            "authenticatorData": "o3mm9u6vuaVeN4wRgDTidR5oL6ufLTCrE9IVhbzhlHBd",
+            "clientDataJson": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0",
+            "credentialId": "AAECAwQFBgcICQoLDA0ODw",
+            "itemId": "0190a0b0-0000-7000-8000-000000000002",
+            "publicKeyAlgorithm": -7,
+            "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE",
+            "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+          },
+          "outcome": "created"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "passkeyCreate"
+    },
+    {
+      "message": {
+        "body": {
+          "assertion": {
+            "authenticatorData": "o3mm9u6vuaVeN4wRgDTidR5oL6ufLTCrE9IVhbzhlHAZAAAAAA",
+            "clientDataJson": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0",
+            "credentialId": "AAECAwQFBgcICQoLDA0ODw",
+            "signature": "MEUCIQDa",
+            "userHandle": "AQIDBA"
+          },
+          "outcome": "asserted"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "passkeyGet"
+    },
+    {
+      "message": {
+        "body": {},
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "passkeyCancel"
     }
   ],
   "version": 1

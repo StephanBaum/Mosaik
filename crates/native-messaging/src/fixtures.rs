@@ -31,6 +31,9 @@ use crate::protocol::{
 const ORIGIN: &str = "https://example.com";
 const VAULT: &str = "0190a0b0-0000-7000-8000-000000000001";
 const ITEM: &str = "0190a0b0-0000-7000-8000-000000000002";
+const REQUEST_ID: &str = "00112233445566778899aabbccddeeff";
+const CHALLENGE: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+const CREDENTIAL_ID: &str = "AAECAwQFBgcICQoLDA0ODw";
 
 fn to_value<T: Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap()
@@ -57,6 +60,34 @@ fn save_body() -> SaveBody {
         top_origin: ORIGIN.into(),
         username: Some("ada@example.com".into()),
         password: Secret::new("correct horse battery staple".into()),
+    }
+}
+
+fn passkey_create_body() -> PasskeyCreateBody {
+    PasskeyCreateBody {
+        request_id: REQUEST_ID.into(),
+        origin: ORIGIN.into(),
+        top_origin: ORIGIN.into(),
+        rp_id: None,
+        user_id: "AQIDBA".into(),
+        user_name: "ada@example.com".into(),
+        user_display_name: "Ada Lovelace".into(),
+        challenge: CHALLENGE.into(),
+        algorithms: vec![-7, -257],
+        exclude_credentials: vec![CREDENTIAL_ID.into()],
+        user_verification: UserVerification::Preferred,
+    }
+}
+
+fn passkey_get_body() -> PasskeyGetBody {
+    PasskeyGetBody {
+        request_id: REQUEST_ID.into(),
+        origin: ORIGIN.into(),
+        top_origin: ORIGIN.into(),
+        rp_id: Some("example.com".into()),
+        challenge: CHALLENGE.into(),
+        allow_credentials: vec![CREDENTIAL_ID.into()],
+        user_verification: UserVerification::Required,
     }
 }
 
@@ -128,6 +159,14 @@ fn request_samples() -> Vec<(Op, Value)> {
     add(Op::CheckSave, to_value(&save_body()));
     add(Op::ProposeSave, to_value(&save_body()));
     add(Op::Unpair, to_value(&Empty {}));
+    add(Op::PasskeyCreate, to_value(&passkey_create_body()));
+    add(Op::PasskeyGet, to_value(&passkey_get_body()));
+    add(
+        Op::PasskeyCancel,
+        to_value(&PasskeyCancelBody {
+            request_id: REQUEST_ID.into(),
+        }),
+    );
     out
 }
 
@@ -248,6 +287,36 @@ fn response_samples() -> Vec<(Op, Value)> {
         }),
     );
     add(Op::Unpair, to_value(&Empty {}));
+    add(
+        Op::PasskeyCreate,
+        to_value(&PasskeyCreateResult {
+            outcome: CreateOutcome::Created,
+            credential: Some(CreatedCredential {
+                credential_id: CREDENTIAL_ID.into(),
+                client_data_json: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0".into(),
+                attestation_object: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YQ".into(),
+                authenticator_data: "o3mm9u6vuaVeN4wRgDTidR5oL6ufLTCrE9IVhbzhlHBd".into(),
+                public_key_spki: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE".into(),
+                public_key_algorithm: -7,
+                vault_id: VAULT.into(),
+                item_id: ITEM.into(),
+            }),
+        }),
+    );
+    add(
+        Op::PasskeyGet,
+        to_value(&PasskeyGetResult {
+            outcome: GetOutcome::Asserted,
+            assertion: Some(AssertionBody {
+                credential_id: CREDENTIAL_ID.into(),
+                client_data_json: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0".into(),
+                authenticator_data: "o3mm9u6vuaVeN4wRgDTidR5oL6ufLTCrE9IVhbzhlHAZAAAAAA".into(),
+                signature: "MEUCIQDa".into(),
+                user_handle: "AQIDBA".into(),
+            }),
+        }),
+    );
+    add(Op::PasskeyCancel, to_value(&Empty {}));
     out
 }
 
@@ -310,6 +379,9 @@ fn check_request_body(op: Op, body: &Value) {
             assert_eq!(&to_value(&typed), body);
         }
         Op::CheckSave | Op::ProposeSave => round_trips::<SaveBody>(body),
+        Op::PasskeyCreate => round_trips::<PasskeyCreateBody>(body),
+        Op::PasskeyGet => round_trips::<PasskeyGetBody>(body),
+        Op::PasskeyCancel => round_trips::<PasskeyCancelBody>(body),
     }
 }
 
@@ -318,7 +390,7 @@ fn check_response_body(op: Op, body: &Value) {
         Op::Hello => round_trips::<HelloResult>(body),
         Op::Pair => round_trips::<PairResult>(body),
         Op::Status => round_trips::<StatusResult>(body),
-        Op::Focus | Op::Unpair => round_trips::<Empty>(body),
+        Op::Focus | Op::Unpair | Op::PasskeyCancel => round_trips::<Empty>(body),
         Op::ListForOrigin => round_trips::<ListForOriginResult>(body),
         Op::Search => round_trips::<SearchResult>(body),
         Op::Fill => round_trips::<FillResult>(body),
@@ -326,6 +398,8 @@ fn check_response_body(op: Op, body: &Value) {
         Op::Generate => round_trips::<GenerateResult>(body),
         Op::CheckSave => round_trips::<CheckSaveResult>(body),
         Op::ProposeSave => round_trips::<ProposeSaveResult>(body),
+        Op::PasskeyCreate => round_trips::<PasskeyCreateResult>(body),
+        Op::PasskeyGet => round_trips::<PasskeyGetResult>(body),
     }
 }
 

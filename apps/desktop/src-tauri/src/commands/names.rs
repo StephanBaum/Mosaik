@@ -80,4 +80,5 @@ pub const COMMANDS: &[&str] = &[
     "browser_remove_pairing",
     "browser_pairing_respond",
     "browser_save_respond",
+    "browser_passkey_respond",
 ];

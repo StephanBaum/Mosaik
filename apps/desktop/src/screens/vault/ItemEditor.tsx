@@ -290,7 +290,7 @@ export function ItemEditor({
         onChange={state.change}
         onGenerate={state.fillGenerated}
       />
-      {editing !== null && <EditorFiles editing={editing} />}
+      {editing !== null && editing.summary.kind !== "passkey" && <EditorFiles editing={editing} />}
       <ErrorAlert error={state.error} />
       <div className="form-footer">
         <Button onClick={cancel}>{t("action.cancel")}</Button>
