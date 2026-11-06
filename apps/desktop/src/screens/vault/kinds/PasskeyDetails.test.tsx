@@ -37,11 +37,16 @@ describe("PasskeyDetails", () => {
     expect(screen.getByText("Created").nextSibling?.textContent).toMatch(/2026/);
   });
 
-  it("says the key is end-to-end encrypted, syncs, and never leaves Mosaic", () => {
+  it("gives the full credential ID to screen readers, not the shortened text", () => {
+    show(SUMMARY);
+    expect(screen.getByLabelText("AAECAwQFBgcICQoLDA0ODw").textContent).toBe("AAECAwQFBgcICQoL…");
+  });
+
+  it("says the key is end-to-end encrypted, syncs, is never shown and leaves only through the export", () => {
     show(SUMMARY);
     expect(
       screen.getByText(
-        "This passkey is end-to-end encrypted and syncs with your vault. Its private key never leaves Mosaic.",
+        "This passkey is end-to-end encrypted and syncs with your vault. Its private key is never shown. You can only move it with Settings → Export passkeys.",
       ),
     ).toBeTruthy();
   });
@@ -64,8 +69,8 @@ describe("PasskeyDetails", () => {
     show(SUMMARY, "de");
     expect(screen.getByText("Website")).toBeTruthy();
     expect(screen.getByText("Benutzername")).toBeTruthy();
-    expect(screen.getByText("Zugangsdaten-ID")).toBeTruthy();
+    expect(screen.getByText("Passkey-ID")).toBeTruthy();
     expect(screen.getByText("Algorithmus")).toBeTruthy();
-    expect(screen.getByText(/verlässt Mosaic nie/)).toBeTruthy();
+    expect(screen.getByText(/nur über Einstellungen → Passkeys exportieren mitnehmen/)).toBeTruthy();
   });
 });

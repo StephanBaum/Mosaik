@@ -305,6 +305,11 @@ describe("item editor, kinds and custom fields", () => {
     expect(screen.queryByLabelText("User name")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add custom field" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Add file/ })).toBeNull();
+    expect(
+      screen.getByText(
+        "The website, account and key come from the site that made this passkey, so you can only change the title, tags and notes.",
+      ),
+    ).toBeTruthy();
   });
 
   it("hints at a card number that fails the check without blocking", async () => {

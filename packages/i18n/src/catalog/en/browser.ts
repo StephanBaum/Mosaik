@@ -60,7 +60,9 @@ export const browser = {
   "browser.passkey.save": "Save passkey",
   "browser.passkey.anotherDevice": "Use another device or security key",
   "browser.passkey.cancel": "Cancel",
-  "browser.passkey.ok": "OK",
+  "browser.passkey.ok": "Got it",
+  "browser.passkey.escCloses": "to close",
+  "browser.passkey.passwordNeeded": "Enter your master password to confirm it's you.",
   "browser.settings.title": "Browsers",
   "browser.settings.body":
     "Browser extensions that fill logins from this app. You approve each connection here.",

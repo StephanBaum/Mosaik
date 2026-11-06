@@ -110,6 +110,21 @@ describe("the More menu", () => {
     });
   });
 
+  it("names a switch by its label and describes it with the hint", async () => {
+    const user = userEvent.setup();
+    renderPopup(baseState());
+    await user.click(await screen.findByRole("button", { name: "More options" }));
+    const passkeys = screen.getByRole("menuitemcheckbox", { name: "Use Mosaic for passkeys" });
+    const description = document.getElementById(passkeys.getAttribute("aria-describedby") ?? "");
+    expect(description?.textContent).toBe(
+      "Needs access to all websites to answer passkey requests. You confirm each one in the Mosaic app.",
+    );
+    const offers = screen.getByRole("menuitemcheckbox", { name: "Offer to save logins" });
+    expect(document.getElementById(offers.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
+      /^Needs access to all websites/,
+    );
+  });
+
   it("does nothing when the browser access is declined", async () => {
     const user = userEvent.setup();
     const { port } = renderPopup(baseState(), { env: fakeEnv({ requestSiteAccess: () => Promise.resolve(false) }) });

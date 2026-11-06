@@ -93,12 +93,14 @@ for (const colorScheme of ["light", "dark"] as const) {
         timeout: 5000,
       });
       await expect(page.getByRole("button", { name: "Save passkey" })).toHaveCount(0);
+      await expect(page.getByText("to close")).toBeVisible();
+      await expect(page.getByText(/Closes automatically/)).toHaveCount(0);
       await expectAccessible(page);
       // The acknowledge waits out the Allow guard like an Allow.
-      await expect(page.getByRole("button", { name: "OK" })).toHaveAttribute("aria-disabled", "false", {
+      await expect(page.getByRole("button", { name: "Got it" })).toHaveAttribute("aria-disabled", "false", {
         timeout: 3000,
       });
-      await page.getByRole("button", { name: "OK" }).click();
+      await page.getByRole("button", { name: "Got it" }).click();
       await expect(page.getByRole("heading", { name: "Passkey already saved" })).toBeHidden();
       guard.expectClean();
     });
@@ -112,7 +114,7 @@ for (const colorScheme of ["light", "dark"] as const) {
       const article = page.getByRole("article", { name: "example.com" });
       await expect(article.getByText("Credential ID")).toBeVisible();
       await expect(article.getByText("ES256")).toBeVisible();
-      await expect(article.getByText(/private key never leaves Mosaic/)).toBeVisible();
+      await expect(article.getByText(/Its private key is never shown\. You can only move it with Settings/)).toBeVisible();
       await expectAccessible(page);
       guard.expectClean();
     });

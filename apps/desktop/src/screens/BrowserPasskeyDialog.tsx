@@ -1,16 +1,17 @@
 /**
- * The browser passkey prompt (M5, ADR-0040 (lands with M5 T3)): a site asked to create a
+ * The browser passkey prompt (M5, ADR-0040): a site asked to create a
  * passkey or to sign in with one, and the user decides here, in the desktop app. Nothing is signed or written before the
  * Allow: the primary button stays disabled for 1 s after the dialog opens and after the window
  * regains focus (so does the acknowledge of an exclusion). Cancel has the initial focus and Esc
  * means Cancel. No key material and no challenge reaches this window; the only secret is the
  * master password the user types when verification is needed (it is sent to Rust and cleared at
  * once). Verification can become needed while the dialog is open (the five-minute window runs
- * out): Rust then answers `reauthRequired` and the dialog switches to asking for the password.
+ * out): Rust then answers `reauthRequired`, the dialog switches to asking for the password and
+ * moves the focus into that field.
  * The request's `requestId` is the desktop's own handle for this prompt, never the extension's;
  * a new handle remounts the prompt, so the guard timer, the selection and a typed password reset.
  */
-import { useState, type ReactNode, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
 import { Button } from "../components/Button.tsx";
 import { Chip } from "../components/Chip.tsx";
@@ -18,6 +19,7 @@ import { Dialog } from "../components/Dialog.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
 import { HoloButton } from "../components/HoloButton.tsx";
 import { Icon } from "../components/icons.tsx";
+import { Kbd } from "../components/Kbd.tsx";
 import { Select } from "../components/Select.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { UserText } from "../components/UserText.tsx";
@@ -56,9 +58,11 @@ function Header({ request }: { request: BrowserPasskeyRequest }) {
   const { t } = useI18n();
   return (
     <div className="browser-prompt__origin">
-      <p className="caption">
-        <UserText>{request.pairingLabel}</UserText>
-        {" · "}
+      <p className="body">
+        <span className="muted">
+          <UserText>{request.pairingLabel}</UserText>
+          {" · "}
+        </span>
         <UserText>{hostOf(request.origin)}</UserText>
       </p>
       <Chip>
@@ -185,11 +189,18 @@ function titleKeyOf(request: BrowserPasskeyRequest) {
 function useVerification(request: BrowserPasskeyRequest) {
   const [password, setPassword] = useState("");
   const [reauth, setReauth] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const needsTyping = (request.needsPassword || reauth) && !request.excluded;
   const askForPassword = () => {
     setReauth(true);
   };
-  return { password, setPassword, needsTyping, askForPassword };
+  // The field appears while the user is on a button: the focus follows it.
+  useEffect(() => {
+    if (reauth) {
+      passwordRef.current?.focus();
+    }
+  }, [reauth]);
+  return { password, setPassword, needsTyping, askForPassword, passwordRef };
 }
 
 /** Sends the answer; an expired request closes the dialog, any other error keeps it open. */
@@ -227,7 +238,7 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
   const choice = useChoice(request);
   const verification = useVerification(request);
   const { answer, error } = useAnswer(request, verification);
-  const { password, setPassword, needsTyping } = verification;
+  const { password, setPassword, needsTyping, passwordRef } = verification;
 
   const { decision } = choice;
   const ready = decision !== null && (!needsTyping || password !== "");
@@ -262,6 +273,7 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
           <>
             <p className="body muted">{t("browser.passkey.uvNote")}</p>
             <TextField
+              ref={passwordRef}
               label={t("browser.passkey.password")}
               type="password"
               autoComplete="current-password"
@@ -272,8 +284,7 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
             />
           </>
         )}
-        <Expiry expiresAt={request.expiresAt} now={now} label={t("browser.escCancels")} />
-        <ErrorAlert error={error} />
+        <Status request={request} now={now} error={error} />
         <Actions
           request={request}
           disabled={!ready || (guarded && locked)}
@@ -284,6 +295,38 @@ function Prompt({ request }: { request: BrowserPasskeyRequest }) {
         />
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * How long the prompt stays, how to leave it, and the last error. An exclusion is information
+ * only: no countdown, just how to close it. Rust asks for the password with `reauthRequired`;
+ * this dialog says so in its own words.
+ */
+function Status({
+  request,
+  now,
+  error,
+}: {
+  request: BrowserPasskeyRequest;
+  now: number;
+  error: IpcError | null;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      {request.excluded ? (
+        <p className="caption">
+          <Kbd>{t("keys.esc")}</Kbd> {t("browser.passkey.escCloses")}
+        </p>
+      ) : (
+        <Expiry expiresAt={request.expiresAt} now={now} label={t("browser.escCancels")} />
+      )}
+      <ErrorAlert
+        error={error}
+        message={error?.code === "reauthRequired" ? t("browser.passkey.passwordNeeded") : undefined}
+      />
+    </>
   );
 }
 
@@ -357,25 +400,29 @@ function Actions({
     );
   }
   return (
-    <div className="dialog__actions">
+    <div className="browser-prompt__actions">
+      <div className="dialog__actions">
+        <Button
+          data-autofocus=""
+          onClick={() => {
+            onAnswer({ kind: "cancel" });
+          }}
+        >
+          {t("browser.passkey.cancel")}
+        </Button>
+        <HoloButton type="submit" disabled={disabled || decision === null}>
+          {t(request.kind === "get" ? "browser.passkey.signIn" : "browser.passkey.save")}
+        </HoloButton>
+      </div>
       <Button
-        data-autofocus=""
-        onClick={() => {
-          onAnswer({ kind: "cancel" });
-        }}
-      >
-        {t("browser.passkey.cancel")}
-      </Button>
-      <Button
+        variant="ghost"
+        className="browser-prompt__alt"
         onClick={() => {
           onAnswer({ kind: "useAnotherDevice" });
         }}
       >
         {t("browser.passkey.anotherDevice")}
       </Button>
-      <HoloButton type="submit" disabled={disabled || decision === null}>
-        {t(request.kind === "get" ? "browser.passkey.signIn" : "browser.passkey.save")}
-      </HoloButton>
     </div>
   );
 }

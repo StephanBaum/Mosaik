@@ -25,7 +25,7 @@ export const ext = {
   "ext.more.saveOffersHint":
     "Needs access to all websites, so the extension can notice a login you submit. Nothing is saved until you confirm in the Mosaic app.",
   "ext.passkeys.toggle": "Use Mosaic for passkeys",
-  "ext.passkeys.hint": "Mosaic answers passkey requests on websites. You confirm each one in the Mosaic app.",
+  "ext.passkeys.hint": "Needs access to all websites to answer passkey requests. You confirm each one in the Mosaic app.",
   "ext.passkeys.permissionDenied": "Mosaic needs access to websites to answer passkey requests, and you didn't allow it.",
   "ext.more.disconnect": "Disconnect from Mosaic",
   "ext.more.disconnectTitle": "Disconnect this browser?",

@@ -3,7 +3,7 @@ import { Chip } from "../../components/Chip.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
-import type { ImportEntry, ImportPreview } from "../../ipc/contract/index.ts";
+import type { ImportEntry, ImportPreview, ImportWarning } from "../../ipc/contract/index.ts";
 import { UserText } from "../../components/UserText.tsx";
 
 function EntryRow({
@@ -46,6 +46,14 @@ function EntryRow({
   );
 }
 
+/** The warnings about passkeys that were left out (the file's items are imported without them). */
+const PASSKEY_WARNINGS: ReadonlySet<ImportWarning> = new Set([
+  "passkeysNotImported",
+  "passkeyUnreadable",
+  "passkeyUnsupported",
+  "passkeysSkipped",
+]);
+
 function Summary({ preview }: { preview: ImportPreview }) {
   const { t } = useI18n();
   const kinds = new Map<ImportEntry["kind"], number>();
@@ -74,6 +82,9 @@ function Summary({ preview }: { preview: ImportPreview }) {
             </li>
           ))}
         </ul>
+      )}
+      {preview.warnings.some((warning) => PASSKEY_WARNINGS.has(warning)) && (
+        <p className="field__hint">{t("import.warning.passkeysKeepOldApp")}</p>
       )}
     </>
   );

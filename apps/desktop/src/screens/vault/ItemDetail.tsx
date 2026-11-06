@@ -135,7 +135,8 @@ function DetailBody({
     <FilesSection
       detail={detail}
       item={item}
-      editable={!trash}
+      // A passkey has no files: its fields come from the site that made it.
+      editable={!trash && detail.summary.kind !== "passkey"}
       autoFocusAdd={isDocument && justCreated}
       quietWhenEmpty={!isDocument}
       onChanged={onDetail}

@@ -1,5 +1,5 @@
 /** A labelled input with an optional hint and error, wired for screen readers. */
-import { useId, type InputHTMLAttributes } from "react";
+import { useId, type InputHTMLAttributes, type Ref } from "react";
 import { Icon } from "./icons.tsx";
 
 export function describedBy(...ids: (string | undefined)[]): string | undefined {
@@ -30,6 +30,7 @@ export function TextField({
   error?: string | undefined;
   mono?: boolean;
   size?: "md" | "lg";
+  ref?: Ref<HTMLInputElement>;
 }) {
   const id = useId();
   const hintId = `${id}-hint`;

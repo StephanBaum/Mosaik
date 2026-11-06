@@ -427,6 +427,10 @@
   min-width: 0;
 }
 
+.settings-section__lead {
+  margin-bottom: var(--space-4);
+}
+
 .setting-row {
   display: flex;
   flex-wrap: wrap;
@@ -514,7 +518,7 @@
   gap: var(--space-3);
 }
 
-.browser-prompt__origin .caption {
+.browser-prompt__origin .body {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -537,6 +541,10 @@
   border: var(--border-width-hairline) solid var(--color-divider);
   border-radius: var(--radius-panel);
   cursor: pointer;
+}
+
+.passkey-choice input {
+  accent-color: var(--color-accent);
 }
 
 .passkey-choice:has(input:checked) {
@@ -598,6 +606,27 @@
 
 .browser-prompt .dialog__actions {
   margin-top: 0;
+}
+
+/* The passkey prompt: Cancel and the primary together, the tertiary choice on its own row. */
+.browser-prompt__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-block: var(--space-3);
+  background: var(--color-surface);
+}
+
+.browser-prompt__actions .dialog__actions {
+  position: static;
+  padding-block: 0;
+}
+
+.browser-prompt__alt {
+  align-self: flex-start;
 }
 
 .ssh-prompt .row {
