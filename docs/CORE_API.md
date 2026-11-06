@@ -297,6 +297,32 @@ the shared host-name helpers `MAX_HOST_LEN`, `normalize`, `is_numeric` and
 `candidates`, also used by `mosaic-insights`. Randomness is the OS CSPRNG only;
 callers cannot inject an RNG (ADR-0011). Internal: the `fuzzing` module.
 
+## mosaic-passkey (stable, new in M5)
+
+The ES256 software authenticator of CRYPTO_SPEC section 16. Pure functions and one
+key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
+`mosaic_origin::webauthn_rp_id`, ADR-0040).
+
+- `Es256Key` (not `Clone`, `Debug` prints `Es256Key([REDACTED])`, zeroized on
+  drop): `generate`, `from_pkcs8_der`, `to_pkcs8_der` (a zeroizing `SecretVec`),
+  `cose_public_key` (77 bytes), `public_key_spki_der` (91 bytes), `sign` (DER).
+- `create(&CreateInput) -> Created` and `create_with` (a given key and credential
+  ID, for known-answer tests); `assert(&GetInput, &PasskeyCredential, stored_count)
+  -> Assertion`. `Assertion::persist_count` is `Some(n)` when the caller must
+  store `n` with `ItemEdit::set_passkey_sign_count` before it returns the
+  signature (ADR-0039 D5).
+- Encodings: `client_data_json`, `ccd_to_string`, `rp_id_hash`,
+  `authenticator_data`, `attestation_object_none`, `b64url`, `from_b64url`,
+  `new_credential_id`, `select_algorithm`; the `flags` module.
+- Constants: `COSE_ALG_ES256`, `AAGUID`, `CREDENTIAL_ID_LEN`, `MIN_CHALLENGE_LEN`,
+  `MAX_CHALLENGE_LEN`, `MAX_ALLOW_LIST`; re-exports `MAX_CREDENTIAL_ID_LEN`,
+  `MAX_USER_HANDLE_LEN` from the model. `Error` is `Rng`, `UnsupportedAlgorithm`,
+  `InvalidKey`, `InvalidInput`; none carries key material.
+
+`mosaic-origin` gains `webauthn_rp_id(&PageOrigin, Option<&str>) -> Result<String,
+RpIdError>` (additive): https only, host a non-loopback domain, rpId canonical,
+equal to the host or a dot-suffix of it, not a public suffix.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

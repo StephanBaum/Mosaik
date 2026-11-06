@@ -73,6 +73,7 @@ Mitigations name the milestone in which they are implemented and tested.
 | D | Malicious import file causes OOM or hang | bounded parsers, size limits, fuzzing, M3 |
 | D | Hostile server sends huge Argon2 parameters | upper bounds (§5.3), M1 |
 | E | Memory-unsafety exploit in a parser | `#![forbid(unsafe_code)]`, fuzzing, M1+ |
+| I | A passkey private key leaks, or a signature or encoding is wrong | Keys live in the zeroizing `Es256Key` / `SecretVec`, never `Clone`, redacted `Debug`, not a `SecretField`; ES256 signatures are RFC 6979 deterministic; known-answer tests V1 to V11 (CRYPTO_SPEC §16) and an independent `node:crypto` verifier check every encoding, M5 |
 
 ### 4.2 Desktop app (Tauri)
 
@@ -240,6 +241,8 @@ and a local endpoint (ADR-0036, `docs/NATIVE_MESSAGING.md`, CRYPTO_SPEC §15).
 | R43 | A paired extension can list login titles, user names and hosts through `search` (20 per query, 60 a minute with `listForOrigin`), test candidate passwords through `checkSave` and `proposeSave` (together 10 a minute, and `proposeSave` answers `busy` before it compares anything while a save prompt is open) and copy any login's user name, password or code to the clipboard (20 a minute; the clipboard clears after the configured time). Extension pages are trusted contexts, and the desktop cannot tell the popup from a script in the extension's own contexts. A fill, a copy and a save each need an unlocked vault; only `fill` and `copy` count as activity, so the endpoint does not keep the vault open | accepted (ADR-0037) |
 | R45 | The pairing code correlates a request with the user's click; it is not a cryptographic short authentication string. The `browser` value in `pairRequest` is display-only (it is the host's claim, not proof of which browser asked). The PSK handshake is Mosaic-specific and has no forward secrecy against a later theft of `K_pair` (channel traffic is not observable without P5) | accepted (ADR-0036, crypto review) |
 | R46 | Field visibility is a heuristic. A page at the matching origin can still receive a fill into a field that passes the checks but misleads the user (transparent text, a field styled as another control, a field inside a clipped or scrolled container that is off screen and so never hit-tested). The credential goes only to the page's own origin, which could read it anyway after any manual fill (R41). Open shadow roots are searched to depth 8; closed ones are not | accepted; the checks run at probe and at fill time and the hostile-page suite grows with each finding |
+| R48 | Synced passkeys (BE=1, BS=1) can be copied: whoever holds the vault plaintext (A1) has every private key, and sign count 0 gives relying parties no clone detection. | accepted (ADR-0039), as for passwords |
+| R49 | UV=1 means "unlocked or re-authenticated within 5 minutes plus a dialog click", not a per-operation biometric. Someone at the unlocked, unattended machine inside that window can approve a sign-in. | accepted (ADR-0039); biometric UV a follow-up |
 
 ## 6. Review log
 

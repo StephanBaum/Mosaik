@@ -2880,3 +2880,71 @@ paired extension can list login titles through `search`, test candidate password
 prompt follow the SSH approval pattern (ADR-0025): one at a time, a 1 s Allow guard, expiry
 and lock close them, and the captured password never reaches the webview. The `psl` snapshot
 is only as new as the release.
+
+## ADR-0039: Passkey authenticator, encodings and storage
+
+- Status: proposed
+- Date: 2026-11-06
+- Decided by: the principal engineer, from brief section 5 "Passkeys" and M5 (the most conservative options)
+- Milestone: M5 (passkeys)
+
+### Context
+Brief section 5 makes Mosaic a passkey provider: passkeys are vault items, used in the browser
+and the apps. CRYPTO_SPEC section 2 already named `p256` for "Passkeys". The model already has
+`PasskeyCredential` (credential ID, rp ID, user handle, names, a `private_key` buffer, a COSE
+algorithm, a discoverable flag), `ItemType::Passkey` and a sign count merged by maximum. The
+`crates/passkey` crate was an empty scaffold. There is no CBOR crate in the tree and `pkcs8` /
+`spki` were not in the lockfile.
+
+### Decision
+1. **ES256 only** for create and get (D1). EdDSA is not implemented; an imported EdDSA key is
+   kept out with a warning (ADR-0041). Every relying party must accept ES256, and one
+   algorithm means less code to review.
+2. **Primitives and encodings** (D2). ECDSA P-256 with SHA-256 and RFC 6979 nonces from `p256`
+   0.14.0 with the features `ecdsa` and `pkcs8`. The `pkcs8` feature adds two new crates,
+   `pkcs8` 0.11.0 and `spki` 0.8.1 (both stable releases, same RustCrypto train as `der` 0.8.3 and
+   `sec1` 0.8.1 already in the tree). They are encoding crates, not primitives: PKCS#8 is what
+   the model documents and what Bitwarden, KeePassXC and CXF carry; SPKI is what
+   `getPublicKey()` returns; RustCrypto parsing of untrusted DER beats hand parsing. No new
+   primitive, no `rand_core` (ADR-0011): the key scalar is drawn with `mosaic_core`'s
+   `random(32)` and rejection sampling (FIPS 186-5 A.4.2).
+3. **CBOR is written by hand for three fixed structures** (D3): the COSE_Key, the `none`
+   attestation object and byte-string headers. There is no CBOR decoder in Rust. `serde_cbor`
+   is unmaintained and `ciborium` brings a whole CBOR stack for three constant layouts.
+4. **Authenticator data** (D4): credential ID `random(16)`, AAGUID 16 zero bytes, attestation
+   `none`, flags create `UP|BE|BS|AT` (plus `UV`), get `UP|BE|BS` (plus `UV`). A zero AAGUID
+   does not identify Mosaic users.
+5. **Sign count** (D5): 0 for credentials Mosaic creates, never written. An imported counter
+   `c > 0` signs with `c + 1` and is persisted before the signature is returned, saturating at
+   `u32::MAX`, so a relying party that saw `c` does not flag a clone.
+6. **User verification** (D6): UV is set only if the desktop saw a user verification in the
+   last 300 seconds (unlock, quick unlock, re-authentication). Otherwise, if the relying party
+   asks `required` or `preferred`, the dialog asks for the master password through the
+   existing re-authentication path (with its 5-failure lock). `discouraged` needs only the
+   dialog click and sets UV = 0.
+7. **Storage** (D7): one `passkey` item per credential. The private key is
+   `PasskeyCredential.private_key` (a zeroizing buffer holding PKCS#8 DER) in the encrypted
+   item plaintext, not a `SecretField`, so no reveal, copy or `SecretRef` can reach it. The public
+   key is not stored; it is derived. Login items never carry a `passkey`. No core format change.
+8. **Test vectors.** The WebAuthn specification has no private-key vectors. Known answers are
+   RFC 6979 A.2.5 (signatures over `sample` and `test`) and pinned encodings (V1 to V11 in
+   CRYPTO_SPEC section 16), and an independent verifier written in TypeScript with only
+   `node:crypto` and its own CBOR reader checks the public key, authData, attestation object
+   and signatures the Rust code emits.
+
+### Alternatives considered
+- `passkey-rs`, `webauthn-authenticator-rs`: OpenSSL or large extra dependency trees, and they
+  put policy we want in our own reviewed code.
+- `ciborium` or another CBOR crate: a general codec for three constant layouts.
+- A random AAGUID per install: fingerprints users. A registered AAGUID (to show "Mosaic" next
+  to the passkey) is an owner decision.
+- "Unlocked" as user verification indefinitely: a stolen unattended session would sign with UV
+  forever. The 300 s window plus the password path is the conservative middle without a
+  per-operation biometric API.
+
+### Consequences
+CRYPTO_SPEC sections 2, 4 and 16. Two new encoding crates (`pkcs8` 0.11.0, `spki` 0.8.1),
+only through `p256`'s feature. Residual risks R48 (synced passkeys can be copied and carry no
+clone detection), R49 (UV means "recently unlocked plus a dialog click") and R53 (imported
+counters keep incrementing). Follow-ups: biometric UV through a quick-unlock re-verification
+proof (needs a vault API and a crypto review); EdDSA if relying parties or imports need it.
