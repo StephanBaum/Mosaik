@@ -377,6 +377,34 @@ key_newtype!(
 );
 
 key_newtype!(
+    /// The checkpoint MAC key `K_cp` (CRYPTO_SPEC §10), derived from `AK`
+    /// with [`AccountKey::checkpoint_key`].
+    CheckpointKey,
+    32
+);
+
+key_newtype!(
+    /// The folder backend MAC key `K_fold` (CRYPTO_SPEC §10.1), derived from
+    /// `AK` with [`AccountKey::folder_mac_key`].
+    FolderMacKey,
+    32
+);
+
+key_newtype!(
+    /// The folder device-info key `K_dev` (CRYPTO_SPEC §10.1), derived from
+    /// `AK` with [`AccountKey::device_info_key`].
+    DeviceInfoKey,
+    32
+);
+
+key_newtype!(
+    /// The sync session token (CRYPTO_SPEC §9.2), a bearer credential derived
+    /// with [`crate::sync_auth::session_token`].
+    SessionToken,
+    32
+);
+
+key_newtype!(
     /// The key `TK` of a hardware-protected TOTP vault (CRYPTO_SPEC §7.4).
     TotpVaultKey,
     32

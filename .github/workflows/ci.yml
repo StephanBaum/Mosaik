@@ -81,9 +81,9 @@ jobs:
         # Brief §8: core, totp, generator and passkey. The vault crate
         # holds the M2 session and store; import and the SSH agent parse untrusted
         # input; insights rates vault passwords; origin decides which site gets a
-        # fill and native-messaging frames the extension channel. All are held to
-        # the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey]
+        # fill and native-messaging frames the extension channel; sync holds the
+        # wire formats of both sync backends (M6). All are held to the same bar.
+        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,6 +112,7 @@ jobs:
           - crates/ssh-agent/fuzz
           - crates/native-messaging/fuzz
           - crates/passkey/fuzz
+          - crates/sync/fuzz
           # Includes the shell's contract, persist, draft and Emergency Kit modules by
           # path; no tauri, so no WebKitGTK is needed.
           - apps/desktop/src-tauri/fuzz
@@ -151,6 +152,8 @@ jobs:
             extra=""; if [ -f "dicts/$t.dict" ]; then extra="-dict=dicts/$t.dict"; fi
             case "$t" in
               attachment_*) extra="$extra -max_len=270000" ;;
+              # Segments and JSON bodies are far larger than libFuzzer's default 4096.
+              segment_decode|json_responses) extra="$extra -max_len=65536" ;;
               otpauth_uri|password_rules) extra="$extra -max_len=8192" ;;
               # QR finder-pattern matching is quadratic (THREAT_MODEL R32): 10 s per input.
               scan_image) extra="$extra -max_len=1048576 -timeout=10" ;;
@@ -222,6 +225,10 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
+          manifest-path: crates/sync/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
           manifest-path: apps/desktop/src-tauri/fuzz/Cargo.toml
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
@@ -231,7 +238,7 @@ jobs:
         run: |
           set -euo pipefail
           for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/qr/fuzz crates/generator/fuzz \
-                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz apps/desktop/src-tauri/fuzz; do
+                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz crates/sync/fuzz apps/desktop/src-tauri/fuzz; do
             cargo audit --deny warnings -f "$d/Cargo.lock"
           done
 

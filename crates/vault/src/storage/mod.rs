@@ -17,6 +17,7 @@
 //! | `attachments` | routing metadata; the ciphertext is a file named by the attachment ID (§7.3) |
 //! | `local_device` | this install's device ID, which stamps local edits (§10, public per §12) |
 //! | `settings_nonce` | local-only random nonce bound into the settings-file MAC (§11.1); never in the outbox, never synced |
+//! | `install_identity`, `sync_config`, `sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint`, `attachment_deletions` | local sync state of M6 (schema v3): install ID, backend choice, cursors, local sequence blocks, checkpoint counter, attachment deletions still to send |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
 //! store cannot be handed a plaintext or a key. Every object is decoded
@@ -87,8 +88,10 @@ mod fs;
 mod records;
 mod schema;
 mod settings_nonce;
+mod sync_state;
 mod vaults;
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
@@ -103,6 +106,7 @@ pub use records::{
     CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,
 };
 pub use schema::LATEST_VERSION;
+pub use sync_state::{KeyOrigin, LOCAL_SEQ_BLOCK, SyncConfig, SyncKind, VaultSyncState};
 pub use vaults::{StoredTkWrapping, VaultKeyWrap, VaultState};
 
 #[cfg(doc)]
@@ -141,6 +145,9 @@ pub struct Store {
     /// The exclusive lock of a file store, held for the store's lifetime
     /// and released when the file is closed.
     _lock: Option<File>,
+    /// Block reserved in `sync_local_seq` and not yet handed out, per vault:
+    /// `(next, end)` (see [`Store::allocate_local_seqs`]).
+    local_seq: HashMap<VaultId, (u64, u64)>,
 }
 
 impl fmt::Debug for Store {
@@ -231,10 +238,12 @@ impl Store {
         let _limit: i64 =
             conn.pragma_update_and_check(None, "journal_size_limit", 0, |r| r.get(0))?;
         schema::migrate(&mut conn, schema::MIGRATIONS)?;
+        sync_state::ensure_install_identity(&conn)?;
         Ok(Self {
             conn,
             attachment_dir,
             _lock: lock,
+            local_seq: HashMap::new(),
         })
     }
 
