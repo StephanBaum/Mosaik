@@ -72,6 +72,7 @@ Mitigations name the milestone in which they are implemented and tested.
 | I | Secrets left in memory after lock | `zeroize`, minimal lifetimes, M1. Swap is a residual risk (ADR-0005). |
 | D | Malicious import file causes OOM or hang | bounded parsers, size limits, fuzzing, M3 |
 | D | Hostile server sends huge Argon2 parameters | upper bounds (§5.3), M1 |
+| I | Passkey private keys read from an import file or written to an export file | Import: keys are decoded strictly into zeroizing buffers, validated and re-encoded by `Es256Key` (ES256 only), never in an error or a preview (it carries titles and counts); fuzz target `cxf`, M5 T4. Export: the master password again (the re-authentication is taken and spent), a plaintext warning, the file built in one zeroizing buffer and written by `write_file_atomic` (mode 0600, no system temp file), `handler_tests.rs`, M5 T4. Residual: R52 |
 | E | Memory-unsafety exploit in a parser | `#![forbid(unsafe_code)]`, fuzzing, M1+ |
 | I | A passkey private key leaks, or a signature or encoding is wrong | Keys live in the zeroizing `Es256Key` / `SecretVec`, never `Clone`, redacted `Debug`, not a `SecretField`; ES256 signatures are RFC 6979 deterministic; known-answer tests V1 to V11 (CRYPTO_SPEC §16) and an independent `node:crypto` verifier check every encoding, M5 |
 
@@ -251,6 +252,8 @@ and a local endpoint (ADR-0036, `docs/NATIVE_MESSAGING.md`, CRYPTO_SPEC §15).
 | R49 | UV=1 means "unlocked or re-authenticated within 5 minutes plus a dialog click", not a per-operation biometric. Someone at the unlocked, unattended machine inside that window can approve a sign-in. | accepted (ADR-0039); biometric UV a follow-up |
 | R50 | A page can tell from timing (no dialog, a fast fallback) whether Mosaic holds a passkey for its own rpId, because a request with no matching passkey is answered `passkeyNotFound` without a dialog. Only its own rpId; cross-origin frames are never served. Conditional mediation is not supported, so passkey autofill UIs show only the browser's providers. A compromised extension can claim any origin and so test any rpId for a Mosaic passkey, at 10 requests a minute per pairing: a miss answers `passkeyNotFound` silently, a hit briefly shows a dialog that it can cancel at once. Same class as R43. | accepted (ADR-0040 (lands with M5 T3)) |
 | R51 | The desktop trusts the extension's origin claim, as for `fill` (R43). A compromised extension context can open a dialog naming any rpId the origin it claims is valid for, or an origin it made up; the user still has to approve it, and the dialog shows only the claimed rp ID and host. It can also test any rpId for a Mosaic passkey (see R50). | accepted (ADR-0040 (lands with M5 T3)), as R43 |
+| R52 | A CXF export is an unencrypted file holding private keys. It needs the master password again and shows a warning, but Mosaic cannot wipe the copy on disk (a user-chosen folder, possibly synced or backed up) or stop another program from reading it before the user deletes it. | accepted (ADR-0041) |
+| R53 | Imported credentials with a counter keep incrementing it (`c` becomes `c + 1` at the next sign-in). Two devices signing at once can emit equal counters (the counter merges by maximum), which a relying party may report as a possible clone. | accepted (ADR-0039) |
 
 ## 6. Review log
 
