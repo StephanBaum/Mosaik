@@ -1,6 +1,7 @@
-//! AEAD frames: arbitrary bytes never open (and never panic); any plaintext
-//! sealed by one end opens at the other; one flipped bit in a sealed frame
-//! never opens; the frame length check accepts exactly 1 to the cap.
+//! AEAD frames: arbitrary bytes never open (and never panic) and poison the
+//! session (CRYPTO_SPEC §15: a failed open refuses every later frame); any
+//! plaintext sealed by one end opens at the other; one flipped bit in a sealed
+//! frame never opens; the frame length check accepts exactly 1 to the cap.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -19,7 +20,12 @@ fn sessions() -> (ChannelSession, ChannelSession) {
 
 fuzz_target!(|data: &[u8]| {
     let (mut host, mut desktop) = sessions();
-    assert!(desktop.open(data).is_err(), "arbitrary bytes opened");
+    // Arbitrary bytes on their own session: they never open, and the failure
+    // poisons that session, so even a genuine frame is refused afterwards.
+    let (mut sender, mut probe) = sessions();
+    assert!(probe.open(data).is_err(), "arbitrary bytes opened");
+    let genuine = sender.seal(data).expect("seal");
+    assert!(probe.open(&genuine).is_err(), "a poisoned session opened a frame");
 
     let frame = host.seal(data).expect("seal");
     assert_eq!(desktop.open(&frame).expect("open").expose_secret(), data);

@@ -1,9 +1,8 @@
 # Extension security
 
-Status: v2 (M4 track T4: save capture and the popup added to T3's core and hostile-page
-harness). A mapping of every brief §4 item follows in T5. Normative companions:
-`THREAT_MODEL.md` §4.3, `NATIVE_MESSAGING.md`, ADR-0035 (architecture and gestures), ADR-0036
-(channel) and ADR-0037 (fill policy).
+Status: v3 (M4 close). §10 maps every item of brief §4 to its mitigation and test. Normative
+companions: `THREAT_MODEL.md` §4.3, `NATIVE_MESSAGING.md`, ADR-0035 (architecture and gestures),
+ADR-0036 (channel) and ADR-0037 (fill policy).
 
 The extension is the highest-risk part of Mosaic: it runs next to hostile pages. It holds no
 vault, no master password and no key of the vault. It sees a credential only when the user asks
@@ -206,3 +205,29 @@ the impact stays within the page's own origin:
   user names, never a secret) with every Fill disabled; only the user sees them.
 - A page can stop fills on itself (for example `<img name="querySelectorAll">` or a focused field
   in a cross-origin ad frame); that is denial of service against itself, not a leak.
+
+## 10. Brief §4 map
+
+Every item of brief §4 with its mitigation and tests. "Auto" means the test runs in CI (the
+`extension` job, or the Rust jobs for `crates/*` and `apps/desktop/src-tauri`); "manual" means no
+automated test can show it and the check is on the list in `docs/PROGRESS.md` ("M4 manual checks").
+
+| Brief §4 item | Mitigation | Tests |
+|---|---|---|
+| 1. No autofill on page load; a trusted gesture only | No static content script and no host permissions; the script is injected inside the click, shortcut or menu handler of the browser's own UI (§2). Nothing listens to page events, so no page can fake the gesture | Auto: `e2e/hostile/autofill-on-load.spec.ts`, `e2e/hostile/synthetic-events.spec.ts`, `e2e/hostile/race-after-probe.spec.ts`, `scripts/manifest.test.ts`, `scripts/check-dist.mjs`. Manual: `activeTab` gating on the production build (the e2e build has host access), Firefox |
+| 2. Exact origin (scheme, host, port); eTLD+1 only per item and off by default; punycode and homoglyph warning | `mosaic-origin` in the desktop decides: exact origin string, eTLD+1 only for a URL marked so, `xn--` and look-alike warnings; the extension reports the frame's own origin and shows the Unicode host with the desktop's warning, with no "fill anyway" | Auto: `crates/origin/src/tests.rs` (exact, http/https, eTLD+1, IP and single labels, look-alikes, proptest), `apps/desktop/src-tauri/src/browser_tests.rs` (`fill_returns_a_credential_only_for_a_matching_origin`, `list_for_origin_sorts_caps_and_warns`), `e2e/hostile/lookalike.spec.ts`, `src/shared/origin.test.ts`, `e2e/hostile/url-tricks.spec.ts` |
+| 3. No fill into cross-origin iframes; same-origin only after confirmation | `decideFrame` and `frameAncestry` (every ancestor and every `<iframe>` element on the way); `confirmFrame` bound to frame id and document id; the desktop refuses `origin != topOrigin` and a `sameOriginFrame` without the flag | Auto: `src/background/frames.test.ts`, `src/content/frame.test.ts`, `src/background/fill.test.ts`, `e2e/hostile/cross-origin-iframe.spec.ts`, `same-origin-iframe.spec.ts`, `nested-a-b-a.spec.ts`, `sandboxed-srcdoc.spec.ts`, `csp-sandbox.spec.ts`, `about-blank.spec.ts`, `hidden-frame.spec.ts`, `forged-frame-id.spec.ts`, `popup-binding.spec.ts`, `browser_tests.rs` (frame kinds in `fill_returns_a_credential_only_for_a_matching_origin`) |
+| 4. Clickjacking: no injected UI a page can overlay; opacity, overlay and pointer-events tricks | The choice is "no inline UI at all, toolbar popup only" (ADR-0035 item 2). The field test `isFillable` (size, combined opacity, `filter`, `mask-image`, clip, hit test at five points) runs at probe and at fill time; capture only reports from visible frames | Auto: `e2e/hostile/overlay-occlusion.spec.ts`, `hidden-fields.spec.ts`, `hidden-css-tricks.spec.ts`, `hidden-frame.spec.ts`, `capture-frames.spec.ts`, `src/content/visibility.test.ts`, `src/popup/strings.test.ts`. Open, not detectable: `pointer-events: none` overlays and colour tricks (§9) |
+| 5. Content scripts receive only the single credential being filled, never the vault or item lists | Lists, searches and matches are answered to the popup only (titles and user names, never a secret). A fill is one message with one credential for one frame and one document; the background drops every reference afterwards. The popup and content script cannot reach the native port; the capture script sends one message type | Auto: `src/shared/protocol.test.ts`, `src/background/router.test.ts`, `src/background/fill.test.ts`, `src/content/fill.test.ts`, `src/popup/logins.test.tsx`, `e2e/hostile/spoof-messages.spec.ts`, `e2e/hostile/other-extension.spec.ts`, `browser_tests.rs` (`search_returns_at_most_twenty_logins_without_secrets`, `only_fill_and_copy_count_as_activity_and_only_fill_generate_and_otp_carry_secrets`) |
+| 6. Minimal permissions; host permissions at runtime where possible | `activeTab`, `scripting`, `nativeMessaging`, `contextMenus`, `storage`; no `host_permissions`; the only site access is the optional pair for the opt-in save capture, requested in the popup click (§4) | Auto: `scripts/manifest.test.ts`, `scripts/check-dist.mjs` (fails the production build on any change). Manual: the browser's permission prompt for the capture on Chrome, Edge and Firefox 128+ |
+| 7. Native-messaging channel authenticated and bound to the installed desktop; unknown origins and extension IDs rejected | Host manifests list only our extension IDs (`allowed_origins`, `allowed_extensions`); the host checks the caller argument against the pinned IDs; pairing is approved once in the desktop (code, 1 s guard); the channel is a mutual HMAC proof over `K_pair` and AEAD frames with strict sequence numbers (CRYPTO_SPEC §15); the endpoint is per user, with a lease and peer checks (ADR-0036) | Auto: `crates/core/src/browser_channel.rs` (unit tests), `crates/native-messaging/src/ids.rs` (`chromium_callers`, `firefox_callers`), `src/handshake/tests.rs`, `src/endpoint/lease.rs`, `src/relay/tests.rs`, `crates/native-messaging/tests/host_binary.rs`, `browser_tests.rs` (`the_handshake_needs_the_right_key_and_a_known_pairing`, `a_request_before_the_handshake_closes_the_connection`, `every_op_outside_the_allowlist_is_an_invalid_request`, the pairing tests), fuzz targets `envelope`, `preauth_message`, `channel_open`. Manual: the registry install and pairing on Windows Chrome and Edge, Firefox 128+, macOS and Linux Chrome; Flatpak and Snap browsers cannot run native hosts (unsupported) |
+| 8. Refuse HTTP fills unless the user overrides per item | The desktop refuses an http page unless the item's URL allows it (loopback excepted), never matches https to http, and the extension skips `blocked` matches | Auto: `crates/origin/src/tests.rs` (`http_and_https_never_match_each_other`, `http_pages_need_the_override_unless_loopback`), `e2e/hostile/http-page.spec.ts`, `browser_tests.rs` |
+
+Verified only by hand (also listed in `docs/PROGRESS.md`):
+
+- `activeTab` gating on the production build: the shortcut and the popup fill work, nothing is
+  injected before a gesture.
+- Firefox 128+ as a temporary add-on: pairing, fill, one-time code, save (Playwright cannot load
+  Firefox extensions).
+- The Windows registry install (`reg.exe`), and the Unix manifest paths on macOS and Linux.
+- Keyboard-only and screen-reader use of the popup (axe runs automatically in light and dark).
