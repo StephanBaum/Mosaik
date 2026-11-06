@@ -1628,8 +1628,8 @@ leave as a CXF file. The milestone close follows separately.
   before any key is copied), item summaries and details; the key is copied only for the one
   credential that signs or is exported (`CORE_API`).
 - **`mosaic-passkey`**: `sanitize_name` and `MAX_ACCOUNT_NAME_BYTES` moved here from the desktop (one
-  implementation, also used by the importers); `is_pkcs8_private_key` tells a key of another
-  algorithm from garbage.
+  implementation, also used by the importers); `pkcs8_kind` tells a key of another
+  algorithm from a damaged P-256 key or garbage.
 - **`mosaic-import`**: depends on `mosaic-passkey`. `ItemDraft.passkeys: Vec<PasskeyDraft>`
   (credential, sign count, title); each passkey becomes its own `passkey` item right after its entry
   (with the entry's tags and trash state), an entry of passkeys only makes no item of its own

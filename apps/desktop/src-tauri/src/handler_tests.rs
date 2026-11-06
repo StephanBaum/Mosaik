@@ -2615,6 +2615,87 @@ fn passkey_export_cancel_and_failures_hand_the_reauthentication_back() {
 }
 
 #[test]
+fn passkey_export_ids_are_random_per_export_and_not_the_vaults() {
+    use crate::contract::export::PasskeysExported;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    add_passkey(&r, "example.com", -7, false);
+    add_passkey(&r, "example.org", -7, false);
+    let ids_of = |name: &str| -> Vec<String> {
+        let out = r.dir.path().join(name);
+        r.picks.save(Some(&out));
+        let saved = r
+            .backend
+            .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+            .unwrap();
+        assert_eq!(saved, PasskeysExported::Saved { count: 2 });
+        let doc: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+        let account = &doc["accounts"][0];
+        let mut ids = vec![account["id"].as_str().unwrap().to_owned()];
+        ids.extend(
+            account["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["id"].as_str().unwrap().to_owned()),
+        );
+        ids
+    };
+    let (first, second) = (ids_of("a.json"), ids_of("b.json"));
+    assert_eq!(first.len(), 3);
+    // Fresh IDs per export: no ID repeats, within a file or across files.
+    let all: std::collections::HashSet<&String> = first.iter().chain(&second).collect();
+    assert_eq!(all.len(), 6);
+    // 16 random bytes in base64url, and neither the vault ID nor an item ID.
+    let mut real = vec![mosaic_passkey::b64url(
+        r.backend.list_vaults().unwrap()[0]
+            .vault_id
+            .get()
+            .as_bytes(),
+    )];
+    {
+        let slot = r.backend.slot().unwrap();
+        let session = slot.unlocked().unwrap();
+        real.extend(
+            session
+                .items(&mosaic_vault::session::ItemFilter::default())
+                .iter()
+                .map(|i| mosaic_passkey::b64url(i.item_id.as_bytes())),
+        );
+    }
+    assert_eq!(real.len(), 3);
+    for id in first.iter().chain(&second) {
+        assert_eq!(
+            mosaic_passkey::from_b64url(id, 64).unwrap().len(),
+            16,
+            "{id}"
+        );
+        assert!(!real.contains(id), "{id}");
+    }
+}
+
+#[test]
+fn a_passkey_dialog_password_does_not_pay_for_a_passkey_export() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    add_passkey(&r, "example.com", -7, false);
+    let out = r.dir.path().join("passkeys.json");
+    r.picks.save(Some(&out));
+    // The passkey dialog verifies the master password without earning the
+    // two-minute re-authentication grant.
+    r.backend
+        .verify_master_only(&mosaic_core::MasterPassword::new(PASSWORD.to_owned()))
+        .unwrap();
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ReauthRequired);
+    assert!(r.picks.suggested.lock().unwrap().is_empty());
+    assert!(!out.exists());
+}
+
+#[test]
 fn passkey_export_refuses_empty_and_unknown_vaults() {
     let _kdf = crate::test_support::kdf_permit();
     let r = disk_rig();

@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 mosaic-core = { path = "../core" }
+mosaic-origin = { path = "../origin" }
 mosaic-passkey = { path = "../passkey" }
 mosaic-totp = { path = "../totp" }
 mosaic-vault = { path = "../vault" }

@@ -504,7 +504,7 @@ pub(crate) fn parse_payload(payload: &[u8]) -> Result<Import> {
     let mut c = Collector::new(Format::Keepass);
     let mut budget = AttachmentBudget::new();
     for e in &doc.entries {
-        c.push(entry(e, &doc, &binaries, &mut budget))?;
+        c.push(entry(e, &doc, &binaries, &mut budget, c.passkey_room()))?;
     }
     Ok(c.finish())
 }
@@ -548,6 +548,7 @@ fn entry(
     doc: &Document,
     binaries: &[&[u8]],
     budget: &mut AttachmentBudget,
+    passkey_room: usize,
 ) -> Builder {
     let get = |k: &str| {
         e.fields
@@ -569,7 +570,7 @@ fn entry(
     } else {
         ItemType::Login
     };
-    let mut b = Builder::new(ty);
+    let mut b = Builder::new(ty).with_passkey_room(passkey_room);
     let mut kp_otp = KeepassOtp::default();
     let mut otp_raw: Vec<&Field> = Vec::new();
     let mut passkey_present = false;
@@ -608,7 +609,7 @@ fn entry(
             }
         }
     }
-    if passkey_present {
+    if passkey_present && b.wants_passkey() {
         b.passkey(keepassxc_passkey(e));
     }
     for old in &e.history {

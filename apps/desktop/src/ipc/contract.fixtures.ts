@@ -217,7 +217,8 @@ export const fixtures = {
       "attachmentQuota",
       "titleCleaned",
       "passkeyUnreadable",
-      "passkeyUnsupported"
+      "passkeyUnsupported",
+      "passkeysLimit"
     ],
     "importFormat": [
       "enpass",
@@ -239,7 +240,8 @@ export const fixtures = {
       "otpUnreadable",
       "passkeysNotImported",
       "passkeyUnreadable",
-      "passkeyUnsupported"
+      "passkeyUnsupported",
+      "passkeysSkipped"
     ],
     "insightAction": [
       "changePassword",
@@ -2571,7 +2573,8 @@ export const fixtures = {
               "attachmentQuota",
               "titleCleaned",
               "passkeyUnreadable",
-              "passkeyUnsupported"
+              "passkeyUnsupported",
+              "passkeysLimit"
             ]
           },
           {
@@ -2608,7 +2611,8 @@ export const fixtures = {
           "otpUnreadable",
           "passkeysNotImported",
           "passkeyUnreadable",
-          "passkeyUnsupported"
+          "passkeyUnsupported",
+          "passkeysSkipped"
         ]
       }
     ],

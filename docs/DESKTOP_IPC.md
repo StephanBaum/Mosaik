@@ -254,16 +254,19 @@ Notes per area:
   with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
   `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
   `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
-  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable` or `passkeyUnsupported`. `ImportWarning` is
+  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported` or `passkeysLimit`.
+  `ImportWarning` is
   `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
-  `passkeyUnreadable` or `passkeyUnsupported`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
+  `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
   `onePassword`, `cxf` or `csv`.
   Passkeys (M5, ADR-0041): Bitwarden, KeePassXC and CXF passkeys become `passkey` items of their own,
   one per credential, written right after their entry; `counts` has a `passkey` entry and
   `import_commit`'s `imported` counts them. An entry of passkeys only is listed with kind `passkey`
   and makes no other item. `passkeysNotImported` remains for 1PUX only (it holds no private
   keys); `passkeyUnreadable` means a passkey could not be decoded, `passkeyUnsupported` that its key
-  is not ES256. No warning carries a value from the file.
+  is not ES256, `passkeysSkipped` / `passkeysLimit` that passkeys over 100 per entry or 10,000 per
+  file were left out. A passkey already in the vault is skipped by `import_commit` and counted in
+  `skipped`. No warning carries a value from the file.
 - **Export** (ADR-0041). `export_passkeys_cxf` is the one command that writes private keys out of the
   vault. The webview sends a vault ID and the master password and gets a count back; Rust opens the
   save dialog, builds the file after the dialog returned a path, and writes it. The panel shows the

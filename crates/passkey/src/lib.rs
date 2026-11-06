@@ -33,7 +33,7 @@ pub use encode::{
     attestation_object_none, b64url, ccd_to_string, client_data_json, from_b64url, rp_id_hash,
 };
 pub use error::Error;
-pub use key::{Es256Key, is_pkcs8_private_key, new_credential_id};
+pub use key::{Es256Key, Pkcs8Kind, new_credential_id, pkcs8_kind};
 pub use mosaic_core::model::{MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN};
 pub use name::{MAX_ACCOUNT_NAME_BYTES, sanitize_name};
 

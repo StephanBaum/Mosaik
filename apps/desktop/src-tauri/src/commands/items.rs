@@ -270,7 +270,10 @@ fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
 fn passkey_summary(item: &Item) -> Option<PasskeySummary> {
     let passkey = item.passkey_public()?;
     Some(PasskeySummary {
-        rp_id: passkey.rp_id.as_str().to_owned(),
+        // Canonical (ASCII) when it came from an import or a ceremony; the
+        // display path strips invisible and direction-changing characters
+        // all the same.
+        rp_id: mosaic_core::strip_spoofing(passkey.rp_id.as_str()).0,
         user_name: sanitize_name(passkey.user_name.as_str()),
         user_display_name: sanitize_name(passkey.user_display_name.as_str()),
         credential_id: mosaic_passkey::b64url(&passkey.credential_id),

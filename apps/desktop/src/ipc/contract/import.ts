@@ -13,6 +13,7 @@ export const importWarnings = [
   "passkeysNotImported",
   "passkeyUnreadable",
   "passkeyUnsupported",
+  "passkeysSkipped",
 ] as const;
 export type ImportWarning = (typeof importWarnings)[number];
 
@@ -31,6 +32,7 @@ export const importEntryWarnings = [
   "titleCleaned",
   "passkeyUnreadable",
   "passkeyUnsupported",
+  "passkeysLimit",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 

@@ -327,8 +327,8 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
   it returns `InvalidInput` for a credential ID over 65535 bytes.)
 - `sanitize_name(&str) -> String` and `MAX_ACCOUNT_NAME_BYTES` (64): removes control and format
   characters and cuts at a character boundary; for every name from a site, an import or sync.
-  `is_pkcs8_private_key(&[u8]) -> bool`: whether DER is a well-formed PKCS#8 private key of any
-  type (importers use it to tell an unsupported key from garbage).
+  `pkcs8_kind(&[u8]) -> Pkcs8Kind` (`P256`, `Other`, `NotPkcs8`): the algorithm and curve of a PKCS#8
+  private key from its structure (importers tell an unsupported key from a damaged P-256 key).
 - Constants: `COSE_ALG_ES256`, `AAGUID`, `CREDENTIAL_ID_LEN`, `MIN_CHALLENGE_LEN`,
   `MAX_CHALLENGE_LEN`, `MAX_ALLOW_LIST`; re-exports `MAX_CREDENTIAL_ID_LEN`,
   `MAX_USER_HANDLE_LEN` from the model. `Error` is `Rng`, `UnsupportedAlgorithm`,
@@ -349,8 +349,11 @@ one credential that signs or is exported.
 
 `mosaic-import` gains (additive, M5 T4): `Format::Cxf`, `cxf::parse`, `PasskeyDraft` (credential,
 sign count, title), `ItemDraft::passkeys` and `ItemDraft::has_item`, `MAX_PASSKEYS_PER_ENTRY`,
-`EntryWarning::{PasskeyUnreadable, PasskeyUnsupported}` and the same two `ImportWarning`s. `commit`
-adds each passkey as its own `passkey` item after its entry (counted in `CommitReport::imported`).
+`MAX_IMPORT_PASSKEYS`, `EntryWarning::{PasskeyUnreadable, PasskeyUnsupported, PasskeysLimit}` and
+`ImportWarning::{PasskeyUnreadable, PasskeyUnsupported, PasskeysSkipped}`. `commit`
+adds each passkey as its own `passkey` item after its entry (counted in `CommitReport::imported`);
+a passkey already in the vault is skipped (`CommitReport::skipped`). `mosaic-origin` gains
+`canonical_rp_id`; `mosaic-passkey` gains `pkcs8_kind` and `Pkcs8Kind`.
 
 ## Expected additions (pre-approved as additive)
 

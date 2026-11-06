@@ -620,6 +620,48 @@ fn webauthn_rp_id_checks_in_order() {
     );
 }
 
+#[test]
+fn canonical_rp_ids() {
+    for (raw, canonical) in [
+        ("example.com", "example.com"),
+        ("Example.COM", "example.com"),
+        ("login.Example.com.", "login.example.com"),
+        ("xn--bcher-kva.de", "xn--bcher-kva.de"),
+        ("shop.example.co.uk", "shop.example.co.uk"),
+    ] {
+        assert_eq!(canonical_rp_id(raw).as_deref(), Some(canonical), "{raw}");
+    }
+    let long = format!("{}.com", vec!["a".repeat(62); 4].join("."));
+    for bad in [
+        "",
+        ".",
+        "com",
+        "co.uk",
+        "example.com..",
+        "a..example.com",
+        ".example.com",
+        "b\u{fc}cher.de",
+        "\u{202e}moc.knab",
+        "bank\u{202e}.com",
+        "127.0.0.1",
+        "[::1]",
+        "https://example.com",
+        "example.com/path",
+        "example.com:443",
+        "exa mple.com",
+        " example.com",
+        "example.com\n",
+        "a\u{0}.com",
+        "localhost",
+        &long,
+    ] {
+        assert_eq!(canonical_rp_id(bad), None, "{bad:?}");
+    }
+    // Whatever it accepts, webauthn_rp_id accepts for a page on that host.
+    let rp_id = canonical_rp_id("Login.Example.com.").unwrap();
+    assert_eq!(rp("https://login.example.com", Some(&rp_id)), Ok(rp_id));
+}
+
 mod props {
     use super::*;
     use proptest::prelude::*;

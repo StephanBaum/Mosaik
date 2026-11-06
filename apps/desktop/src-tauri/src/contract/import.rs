@@ -48,6 +48,9 @@ wire_enum!(
         PasskeyUnreadable,
         /// Some passkeys use an algorithm other than ES256 and are left out.
         PasskeyUnsupported,
+        /// Some passkeys are left out: an entry held more than 100, or the
+        /// file more than 10,000.
+        PasskeysSkipped,
     }
 );
 
@@ -84,6 +87,9 @@ wire_enum!(
         PasskeyUnreadable,
         /// A passkey uses an algorithm other than ES256 and is left out.
         PasskeyUnsupported,
+        /// Passkeys over the limit (100 per entry, 10,000 per file) are left
+        /// out.
+        PasskeysLimit,
     }
 );
 

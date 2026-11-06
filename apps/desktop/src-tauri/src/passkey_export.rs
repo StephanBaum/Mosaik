@@ -4,25 +4,27 @@
 //! ```json
 //! { "version": { "major": 1, "minor": 0 }, "exporterRpId": "mosaic.local",
 //!   "exporterDisplayName": "Mosaic", "timestamp": 1714566600,
-//!   "accounts": [{ "id": "<vault id>", "username": "", "email": "",
+//!   "accounts": [{ "id": "<random id>", "username": "", "email": "",
 //!     "collections": [], "items": [{
-//!       "id": "<item id>", "creationAt": 1714566600, "modifiedAt": 1714566600,
+//!       "id": "<random id>", "creationAt": 1714566600, "modifiedAt": 1714566600,
 //!       "title": "example.com",
 //!       "credentials": [{ "type": "passkey", "credentialId": "...",
 //!         "rpId": "example.com", "username": "...", "userDisplayName": "...",
 //!         "userHandle": "...", "key": "<base64url PKCS#8>" }] }] }] }
 //! ```
 //!
-//! All binary members are unpadded base64url. Only ES256 passkeys of live
-//! items are written. The whole file is built in one zeroizing buffer sized
+//! All binary members are unpadded base64url. The account ID and every item
+//! ID are fresh random 16-byte values per export: the file carries neither
+//! the vault ID nor an item ID of Mosaic. Only ES256 passkeys of live items
+//! are written. The whole file is built in one zeroizing buffer sized
 //! by a counting pass first, so it never grows (and never leaves a stale
 //! copy of a private key behind); the caller writes it and drops it.
 //! Nothing here touches the disk.
 
 use std::io::{self, Write};
 
-use mosaic_core::VaultId;
 use mosaic_core::model::ItemType;
+use mosaic_core::{SecretBytes, VaultId};
 use mosaic_passkey::{COSE_ALG_ES256, b64url};
 use mosaic_vault::session::{ItemFilter, UnlockedSession};
 use serde::Serialize;
@@ -91,7 +93,8 @@ pub struct Exported {
 
 /// What one passkey item contributes, owned so the document can borrow it.
 struct Entry {
-    item_id: String,
+    /// The item's real ID: orders the entries, never written.
+    order: [u8; 16],
     title: String,
     created: u64,
     credential_id: String,
@@ -141,7 +144,7 @@ fn entries(session: &UnlockedSession, vault: VaultId) -> Vec<Entry> {
                 return None;
             }
             Some(Entry {
-                item_id: b64url(r.item_id.as_bytes()),
+                order: *r.item_id.as_bytes(),
                 title: r.item.title().unwrap_or_default().to_owned(),
                 created: u64::try_from(credential.created_at.as_unix_millis() / 1000).unwrap_or(0),
                 credential_id: b64url(&credential.credential_id),
@@ -153,8 +156,14 @@ fn entries(session: &UnlockedSession, vault: VaultId) -> Vec<Entry> {
             })
         })
         .collect();
-    out.sort_by(|a, b| (&a.title, &a.item_id).cmp(&(&b.title, &b.item_id)));
+    out.sort_by(|a, b| (&a.title, a.order).cmp(&(&b.title, b.order)));
     out
+}
+
+/// A fresh random 16-byte ID, base64url.
+fn random_id() -> IpcResult<String> {
+    let id = SecretBytes::<16>::random().map_err(|_| IpcError::INTERNAL)?;
+    Ok(b64url(id.expose_secret()))
 }
 
 /// How many ES256 passkeys `vault` would export (no key is read).
@@ -181,10 +190,15 @@ pub fn build(session: &UnlockedSession, vault: VaultId, now: u64) -> IpcResult<E
     if entries.is_empty() {
         return Err(IpcError::new(ErrorCode::ItemNotFound));
     }
+    let ids = entries
+        .iter()
+        .map(|_| random_id())
+        .collect::<IpcResult<Vec<_>>>()?;
     let items: Vec<Item<'_>> = entries
         .iter()
-        .map(|e| Item {
-            id: &e.item_id,
+        .zip(&ids)
+        .map(|(e, id)| Item {
+            id,
             creation_at: e.created,
             modified_at: e.created,
             title: &e.title,
@@ -205,7 +219,7 @@ pub fn build(session: &UnlockedSession, vault: VaultId, now: u64) -> IpcResult<E
         exporter_display_name: "Mosaic",
         timestamp: now,
         accounts: [Account {
-            id: b64url(vault.as_bytes()),
+            id: random_id()?,
             username: "",
             email: "",
             collections: [],

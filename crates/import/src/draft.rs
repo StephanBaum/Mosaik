@@ -20,8 +20,11 @@ pub const MAX_FIELDS_PER_ENTRY: usize = 1_000;
 /// Most attachments kept per entry.
 pub const MAX_ATTACHMENTS_PER_ENTRY: usize = 100;
 /// Most passkeys kept per entry; the rest are dropped with
-/// [`EntryWarning::FieldsDropped`].
+/// [`EntryWarning::PasskeysLimit`].
 pub const MAX_PASSKEYS_PER_ENTRY: usize = 100;
+/// Most passkeys one import keeps; the rest are dropped with
+/// [`EntryWarning::PasskeysLimit`] before their keys are parsed.
+pub const MAX_IMPORT_PASSKEYS: usize = 10_000;
 /// Most attachment bytes one import keeps in memory: the account's
 /// attachment quota (1 GiB). An export can reference one stored file from
 /// many entries (KDBX binaries, 1PUX documents), so this bounds the copies,
@@ -100,6 +103,10 @@ pub enum EntryWarning {
     /// A passkey in the entry uses an algorithm other than ES256 (ECDSA
     /// P-256); it was left out.
     PasskeyUnsupported,
+    /// Passkeys beyond [`MAX_PASSKEYS_PER_ENTRY`] in the entry, or beyond
+    /// [`MAX_IMPORT_PASSKEYS`] in the file, were left out (their keys were
+    /// not read).
+    PasskeysLimit,
 }
 
 /// An attachment file of an entry.
@@ -361,6 +368,8 @@ pub(crate) struct Builder {
     draft: ItemDraft,
     warnings: Vec<EntryWarning>,
     fields: usize,
+    /// How many passkeys the rest of the import has room for.
+    passkey_room: usize,
 }
 
 impl Builder {
@@ -369,7 +378,15 @@ impl Builder {
             draft: ItemDraft::new(item_type),
             warnings: Vec::new(),
             fields: 0,
+            passkey_room: MAX_IMPORT_PASSKEYS,
         }
+    }
+
+    /// Limits the passkeys this entry may keep to what is left of the
+    /// import-wide cap ([`crate::entries::Collector::passkey_room`]).
+    pub(crate) const fn with_passkey_room(mut self, room: usize) -> Self {
+        self.passkey_room = room;
+        self
     }
 
     pub(crate) fn item_type(&self) -> &ItemType {
@@ -685,13 +702,26 @@ impl Builder {
         });
     }
 
+    /// Whether the entry has room for one more passkey (per-entry and
+    /// import-wide caps). Call it **before** parsing a passkey's key, so a
+    /// hostile file cannot make the importer do elliptic-curve work for
+    /// passkeys that are dropped anyway; if there is no room it records
+    /// [`EntryWarning::PasskeysLimit`].
+    pub(crate) fn wants_passkey(&mut self) -> bool {
+        let n = self.draft.passkeys.len();
+        let room = n < MAX_PASSKEYS_PER_ENTRY && n < self.passkey_room;
+        if !room {
+            self.warn(EntryWarning::PasskeysLimit);
+        }
+        room
+    }
+
     /// Adds a passkey read from the source, or the warning why it could not
-    /// be. At most [`MAX_PASSKEYS_PER_ENTRY`] are kept.
+    /// be. The caller asked [`Builder::wants_passkey`] first; a passkey that
+    /// arrives without room is dropped all the same.
     pub(crate) fn passkey(&mut self, passkey: Built) {
         match passkey {
-            Ok(_) if self.draft.passkeys.len() >= MAX_PASSKEYS_PER_ENTRY => {
-                self.warn(EntryWarning::FieldsDropped);
-            }
+            Ok(_) if !self.wants_passkey() => {}
             Ok(p) => self.draft.passkeys.push(p),
             Err(Problem::Unreadable) => self.warn(EntryWarning::PasskeyUnreadable),
             Err(Problem::Unsupported) => self.warn(EntryWarning::PasskeyUnsupported),
@@ -713,8 +743,12 @@ impl Builder {
         let title = self.draft.title().map(Text::new);
         for p in &mut self.draft.passkeys {
             if p.title.is_empty() {
+                // The relying party goes through the same cleaning as a title.
                 p.title = title.as_ref().map_or_else(
-                    || Text::new(p.credential.rp_id.as_str()),
+                    || {
+                        let (clean, _) = mosaic_core::strip_spoofing(p.credential.rp_id.as_str());
+                        Text::new(clean.trim())
+                    },
                     |t| Text::new(t.as_str()),
                 );
             }

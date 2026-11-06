@@ -27,6 +27,8 @@ export const importMessages = {
     "Some passkeys couldn't be read and were left out. Keep your old app until you've moved them.",
   "import.warning.passkeyUnsupported":
     "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out. Keep your old app until you've moved them.",
+  "import.warning.passkeysSkipped":
+    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file). Keep your old app until you've moved them.",
   "import.entry.unmappedFields":
     "Some fields have no matching field in Mosaic. They were kept as custom fields.",
   "import.entry.otpUnreadable":
@@ -49,6 +51,8 @@ export const importMessages = {
   "import.entry.unknownCategory": "Unknown item type. It's imported as a secure note.",
   "import.entry.titleCleaned":
     "The title had invisible or text-reversing characters. They were removed.",
+  "import.entry.passkeysLimit":
+    "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
   "import.entry.fieldsDropped":
     "This item has more fields than Mosaic keeps. The extra fields are left out.",
   "import.skip.malformed": "This entry is damaged and can't be read.",

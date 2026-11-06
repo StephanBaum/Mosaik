@@ -190,6 +190,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::TitleCleaned => ImportEntryWarning::TitleCleaned,
         EntryWarning::PasskeyUnreadable => ImportEntryWarning::PasskeyUnreadable,
         EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
+        EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
         _ => return None,
     })
 }
@@ -204,6 +205,7 @@ fn warning(warning: mosaic_import::ImportWarning) -> Option<ImportWarning> {
         W::PasskeysNotImported => ImportWarning::PasskeysNotImported,
         W::PasskeyUnreadable => ImportWarning::PasskeyUnreadable,
         W::PasskeyUnsupported => ImportWarning::PasskeyUnsupported,
+        W::PasskeysSkipped => ImportWarning::PasskeysSkipped,
         _ => return None,
     })
 }

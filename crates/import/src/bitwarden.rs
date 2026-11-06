@@ -54,6 +54,10 @@ use crate::{Format, buf};
 /// the file is not JSON with an `items` array; [`Error::TooLarge`],
 /// [`Error::LimitExceeded`].
 pub fn parse(input: &[u8]) -> Result<Import> {
+    parse_into(input, Collector::new(Format::Bitwarden))
+}
+
+fn parse_into(input: &[u8], mut c: Collector) -> Result<Import> {
     if input.len() > crate::MAX_FILE_LEN {
         return Err(Error::TooLarge);
     }
@@ -72,10 +76,11 @@ pub fn parse(input: &[u8]) -> Result<Import> {
     };
     let folders = names("folders");
     let collections = names("collections");
-    let mut c = Collector::new(Format::Bitwarden);
     for item in items {
         match item.get("type").and_then(Json::as_i64) {
-            Some(ty) if item.is_object() => c.push(entry(item, ty, &folders, &collections))?,
+            Some(ty) if item.is_object() => {
+                c.push(entry(item, ty, &folders, &collections, c.passkey_room()))?;
+            }
             _ => c.skip(SkipReason::Malformed)?,
         }
     }
@@ -87,6 +92,7 @@ fn entry(
     ty: i64,
     folders: &HashMap<&str, &str>,
     collections: &HashMap<&str, &str>,
+    passkey_room: usize,
 ) -> Builder {
     let item_type = match ty {
         1 => ItemType::Login,
@@ -95,7 +101,7 @@ fn entry(
         5 => ItemType::SshKey,
         _ => ItemType::SecureNote,
     };
-    let mut b = Builder::new(item_type);
+    let mut b = Builder::new(item_type).with_passkey_room(passkey_room);
     if !(1..=5).contains(&ty) {
         b.warn(EntryWarning::UnknownCategory);
     }
@@ -175,8 +181,27 @@ fn login(b: &mut Builder, login: Option<&Json>) {
     }
     b.otp_text(l.str("totp").unwrap_or_default(), "TOTP");
     for credential in l.array("fido2Credentials") {
-        b.passkey(fido2_passkey(credential));
+        if b.wants_passkey() {
+            b.passkey(fido2_passkey(credential));
+        }
     }
+}
+
+/// The signature counter of a credential: absent is 0; otherwise a string of
+/// ASCII digits or a non-negative integer, at most `u32::MAX` (the counter of
+/// the authenticator data is 32 bits). A float, a flag, a sign or a space is
+/// unreadable.
+fn counter(c: &Json) -> core::result::Result<u64, Problem> {
+    let n = match c.get("counter") {
+        None => return Ok(0),
+        Some(Json::Str(s)) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
+            s.parse::<u32>().map_err(|_| Problem::Unreadable)?
+        }
+        Some(Json::Int(i)) => u32::try_from(*i).map_err(|_| Problem::Unreadable)?,
+        Some(Json::UInt(u)) => u32::try_from(*u).map_err(|_| Problem::Unreadable)?,
+        Some(_) => return Err(Problem::Unreadable),
+    };
+    Ok(u64::from(n))
 }
 
 /// One `fido2Credentials` member as a passkey draft.
@@ -205,10 +230,7 @@ fn fido2_passkey(c: &Json) -> Built {
     let private_key =
         buf::base64url_decode(c.str("keyValue").ok_or(Problem::Unreadable)?, MAX_PKCS8_LEN)
             .map_err(unreadable)?;
-    let sign_count = match c.text("counter") {
-        None => 0,
-        Some(n) => n.trim().parse::<u64>().map_err(|_| Problem::Unreadable)?,
-    };
+    let sign_count = counter(c)?;
     let discoverable = match c.get("discoverable") {
         None => true,
         Some(d) => d.as_flag().ok_or(Problem::Unreadable)?,

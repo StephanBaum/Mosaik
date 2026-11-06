@@ -416,3 +416,213 @@ fn passkey_fuzz_seeds_import() {
     assert_eq!(passkeys(&bw)[0].sign_count, 41);
     assert!(bw.entries[0].warnings.is_empty());
 }
+
+/// A CXF file with one item per credential list.
+fn cxf_items(items: &[Vec<Value>]) -> Vec<u8> {
+    let items: Vec<Value> = items
+        .iter()
+        .enumerate()
+        .map(|(i, credentials)| {
+            json!({"id": "aQ", "title": format!("Item {i}"), "credentials": credentials})
+        })
+        .collect();
+    serde_json::to_vec(&json!({
+        "version": {"major": 1, "minor": 0},
+        "accounts": [{"id": "YQ", "items": items}]
+    }))
+    .unwrap()
+}
+
+fn with_rp(mut passkey: Value, rp_id: &str) -> Value {
+    passkey["rpId"] = json!(rp_id);
+    passkey
+}
+
+#[test]
+fn rp_ids_are_canonicalised_and_validated() {
+    let m = make_key();
+    let base = cxf_passkey(&m, &[8; 16]);
+    // Case and one trailing dot are normalised.
+    for (raw, stored) in [
+        ("example.com", "example.com"),
+        ("Example.COM", "example.com"),
+        ("login.Example.com.", "login.example.com"),
+        ("  example.com ", "example.com"),
+    ] {
+        let file = cxf_file(
+            &[with_rp(base.clone(), raw)],
+            &json!({"major": 1, "minor": 0}),
+        );
+        let import = parse(Format::Cxf, &file, None).unwrap();
+        assert_eq!(
+            passkeys(&import)[0].credential.rp_id.as_str(),
+            stored,
+            "{raw}"
+        );
+        // Also through the title fallback of a passkey-only item.
+        assert!(import.entries[0].warnings.is_empty(), "{raw}");
+    }
+    // Everything else is unreadable: a U-label, a bidi character, an IP, a
+    // URL, a public suffix, spaces, a port.
+    for bad in [
+        "b\u{fc}cher.de",
+        "\u{202e}moc.knab",
+        "127.0.0.1",
+        "[::1]",
+        "https://example.com",
+        "example.com/login",
+        "example.com:443",
+        "com",
+        "co.uk",
+        "exa mple.com",
+        "",
+    ] {
+        let file = cxf_file(
+            &[with_rp(base.clone(), bad)],
+            &json!({"major": 1, "minor": 0}),
+        );
+        let import = parse(Format::Cxf, &file, None).unwrap();
+        assert!(passkeys(&import).is_empty(), "{bad:?}");
+        assert_eq!(
+            warnings(&import),
+            [vec![EntryWarning::PasskeyUnreadable]],
+            "{bad:?}"
+        );
+    }
+}
+
+#[test]
+fn rp_ids_that_differ_only_in_case_are_one_credential() {
+    let m = make_key();
+    let first = with_rp(cxf_passkey(&m, &[8; 16]), "EXAMPLE.com");
+    let second = with_rp(cxf_passkey(&m, &[8; 16]), "example.com");
+    let file = cxf_items(&[vec![first.clone()], vec![second.clone()]]);
+    let (mut s, vault) = session(Store::open_in_memory().unwrap());
+    let import = parse(Format::Cxf, &file, None).unwrap();
+    let preview = import.preview(&[]);
+    // The second entry is flagged as a duplicate of the first.
+    assert_eq!(preview.entries[0].duplicate_in_file, None);
+    assert_eq!(preview.entries[1].duplicate_in_file, Some(0));
+    // Even when the user keeps it ticked, commit writes the credential once.
+    let report = commit(import, &mut s, vault, &[]).unwrap();
+    assert_eq!((report.imported, report.skipped, report.failed), (1, 1, 0));
+    assert_eq!(s.items(&ItemFilter::default()).len(), 1);
+}
+
+#[test]
+fn commit_skips_passkeys_the_vault_already_holds() {
+    let (a, b) = (make_key(), make_key());
+    let (mut s, vault) = session(Store::open_in_memory().unwrap());
+    let file = bitwarden(&[
+        fido2(&a, UUID),
+        fido2(&b, &format!("b64.{}", b64url(&[0xAB; 20]))),
+    ]);
+    let report = commit(
+        parse(Format::Bitwarden, &file, None).unwrap(),
+        &mut s,
+        vault,
+        &[],
+    )
+    .unwrap();
+    assert_eq!((report.imported, report.skipped), (3, 0));
+    // The same file again: the login is imported again (the user decides about
+    // that duplicate), both passkeys are skipped.
+    let report = commit(
+        parse(Format::Bitwarden, &file, None).unwrap(),
+        &mut s,
+        vault,
+        &[],
+    )
+    .unwrap();
+    assert_eq!((report.imported, report.skipped, report.failed), (1, 2, 0));
+    let passkey_items = s
+        .items(&ItemFilter::default())
+        .iter()
+        .filter(|r| r.item.item_type() == Some(ItemType::Passkey))
+        .count();
+    assert_eq!(passkey_items, 2);
+}
+
+#[test]
+fn passkey_only_items_keep_the_favorite_mark() {
+    let m = make_key();
+    let (mut s, vault) = session(Store::open_in_memory().unwrap());
+    // `cxf_file` marks its item as a favorite.
+    let file = cxf_file(
+        &[cxf_passkey(&m, &[8; 16])],
+        &json!({"major": 1, "minor": 0}),
+    );
+    let report = commit(parse(Format::Cxf, &file, None).unwrap(), &mut s, vault, &[]).unwrap();
+    assert_eq!(report.imported, 1);
+    let items = s.items(&ItemFilter::default());
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item.item_type(), Some(ItemType::Passkey));
+    assert!(items[0].item.favorite());
+}
+
+#[test]
+fn bitwarden_counter_is_digits_or_a_non_negative_integer_up_to_u32_max() {
+    let m = make_key();
+    let counter = |value: Value| {
+        let mut c = fido2(&m, UUID);
+        c["counter"] = value;
+        let import = parse(Format::Bitwarden, &bitwarden(&[c]), None).unwrap();
+        passkeys(&import).first().map(|p| p.sign_count)
+    };
+    assert_eq!(counter(json!("0")), Some(0));
+    assert_eq!(counter(json!("4294967295")), Some(u64::from(u32::MAX)));
+    assert_eq!(counter(json!(7)), Some(7));
+    assert_eq!(counter(json!(4_294_967_295u64)), Some(u64::from(u32::MAX)));
+    let mut absent = fido2(&m, UUID);
+    absent.as_object_mut().unwrap().remove("counter");
+    let import = parse(Format::Bitwarden, &bitwarden(&[absent]), None).unwrap();
+    assert_eq!(passkeys(&import)[0].sign_count, 0);
+    for bad in [
+        json!(5.0),
+        json!(true),
+        json!("+5"),
+        json!(" 5"),
+        json!("5 "),
+        json!("4294967296"),
+        json!(4_294_967_296u64),
+        json!(-1),
+        json!(""),
+        json!("0x5"),
+        json!(null),
+        json!([5]),
+    ] {
+        assert_eq!(counter(bad.clone()), None, "{bad}");
+    }
+}
+
+#[test]
+fn a_damaged_p256_key_is_unreadable_and_another_algorithm_is_unsupported() {
+    let m = make_key();
+    // A P-256 key whose public key no longer matches: damaged.
+    let mut der = mosaic_passkey::from_b64url(&m.pkcs8, 4096).unwrap();
+    let last = der.len() - 1;
+    der[last] ^= 0xFF;
+    let mut mismatched = fido2(&m, UUID);
+    mismatched["keyValue"] = json!(b64url(&der));
+    // An RSA key (rsaEncryption, stand-in private key): valid PKCS#8, not ES256.
+    let rsa: Vec<u8> = vec![
+        0x30, 0x19, 0x02, 0x01, 0x00, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,
+        0x01, 0x01, 0x01, 0x05, 0x00, 0x04, 0x05, 0x30, 0x03, 0x02, 0x01, 0x01,
+    ];
+    let mut rsa_key = fido2(&m, UUID);
+    rsa_key["keyValue"] = json!(b64url(&rsa));
+    let mut cxf_mismatched = cxf_passkey(&m, &[8; 16]);
+    cxf_mismatched["key"] = json!(b64url(&der));
+    let mut cxf_rsa = cxf_passkey(&m, &[8; 16]);
+    cxf_rsa["key"] = json!(b64url(&rsa));
+
+    let import = parse(Format::Bitwarden, &bitwarden(&[mismatched]), None).unwrap();
+    assert_eq!(warnings(&import), [vec![EntryWarning::PasskeyUnreadable]]);
+    let import = parse(Format::Bitwarden, &bitwarden(&[rsa_key]), None).unwrap();
+    assert_eq!(warnings(&import), [vec![EntryWarning::PasskeyUnsupported]]);
+    let v = json!({"major": 1, "minor": 0});
+    let import = parse(Format::Cxf, &cxf_file(&[cxf_mismatched], &v), None).unwrap();
+    assert_eq!(warnings(&import), [vec![EntryWarning::PasskeyUnreadable]]);
+    let import = parse(Format::Cxf, &cxf_file(&[cxf_rsa], &v), None).unwrap();
+    assert_eq!(warnings(&import), [vec![EntryWarning::PasskeyUnsupported]]);
+}

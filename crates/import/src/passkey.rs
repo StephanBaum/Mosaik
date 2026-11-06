@@ -4,7 +4,10 @@
 //! user handle and names, a PKCS#8 private key, counter, creation time);
 //! this module checks them and builds the credential. The key is parsed and
 //! re-encoded by `mosaic_passkey::Es256Key`, so only a valid P-256 key gets
-//! in, in the one encoding the vault stores. Names go through the same
+//! in, in the one encoding the vault stores. The relying party ID is brought
+//! into its canonical form by `mosaic_origin::canonical_rp_id` (lowercase,
+//! a domain with a registrable suffix) or the passkey is unreadable. Names
+//! go through the same
 //! `mosaic_passkey::sanitize_name` the desktop applies to names from sites.
 //!
 //! Nothing here puts a value from the file in an error: a passkey that
@@ -15,9 +18,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mosaic_core::model::{PasskeyCredential, Text};
 use mosaic_core::{SecretVec, Timestamp};
 use mosaic_passkey::{
-    COSE_ALG_ES256, Es256Key, MAX_CREDENTIAL_ID_LEN, MAX_RP_ID_LEN, MAX_USER_HANDLE_LEN,
-    is_pkcs8_private_key, sanitize_name,
+    COSE_ALG_ES256, Es256Key, MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN, Pkcs8Kind, pkcs8_kind,
+    sanitize_name,
 };
+
+use mosaic_origin::canonical_rp_id;
 
 use crate::buf::Buf;
 use crate::draft::PasskeyDraft;
@@ -70,24 +75,21 @@ pub(crate) fn build(parts: &Parts<'_>) -> Built {
     {
         return Err(Problem::Unreadable);
     }
-    let rp_id = parts.rp_id.trim();
-    if rp_id.is_empty()
-        || rp_id.len() > MAX_RP_ID_LEN
-        || rp_id.chars().any(|c| c.is_control() || c.is_whitespace())
-    {
-        return Err(Problem::Unreadable);
-    }
+    let rp_id = canonical_rp_id(parts.rp_id.trim()).ok_or(Problem::Unreadable)?;
     let key = match Es256Key::from_pkcs8_der(&parts.private_key) {
         Ok(key) => key,
-        // A well-formed key of another algorithm (Ed25519, RSA) is
-        // unsupported, anything else is damaged.
-        Err(_) if is_pkcs8_private_key(&parts.private_key) => return Err(Problem::Unsupported),
+        // A well-formed key of another algorithm or curve (Ed25519, RSA,
+        // P-384) is unsupported; a damaged P-256 key or anything that is not
+        // PKCS#8 is unreadable.
+        Err(_) if pkcs8_kind(&parts.private_key) == Pkcs8Kind::Other => {
+            return Err(Problem::Unsupported);
+        }
         Err(_) => return Err(Problem::Unreadable),
     };
     let der: SecretVec = key.to_pkcs8_der().map_err(|_| Problem::Unreadable)?;
     let mut credential = PasskeyCredential::new(
         parts.credential_id.to_vec(),
-        Text::new(rp_id),
+        Text::new(&rp_id),
         parts.user_handle.to_vec(),
         der,
         COSE_ALG_ES256,
