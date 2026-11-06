@@ -12,6 +12,7 @@ use tauri::State;
 use super::draft;
 use super::otp::TakenOtp;
 use crate::attachment_files::{added_at, display_name, previewable_mime};
+use crate::browser::sanitize_name;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
@@ -171,10 +172,14 @@ fn passkey_of(kind: ItemKind, item: &Item) -> Option<PasskeyCredential> {
         .flatten()
 }
 
-/// The first of the user name and the display name that is not blank.
+/// The first of the user name and the display name that is not blank, with
+/// control and format characters removed (the names come from the site).
 fn passkey_line(passkey: &PasskeyCredential) -> Option<String> {
-    non_empty(Some(passkey.user_name.as_str()))
-        .or_else(|| non_empty(Some(passkey.user_display_name.as_str())))
+    non_empty(Some(sanitize_name(passkey.user_name.as_str()).as_str())).or_else(|| {
+        non_empty(Some(
+            sanitize_name(passkey.user_display_name.as_str()).as_str(),
+        ))
+    })
 }
 
 fn has_otp(item: &Item) -> bool {
@@ -260,13 +265,14 @@ fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
 }
 
 /// The passkey summary of an item (`None` unless it is a `passkey` item with
-/// a readable credential). The private key is not part of it.
+/// a readable credential). The private key is not part of it, and the names
+/// (from the site) lose control and format characters.
 fn passkey_summary(item: &Item) -> Option<PasskeySummary> {
     let passkey = item.passkey()?;
     Some(PasskeySummary {
         rp_id: passkey.rp_id.as_str().to_owned(),
-        user_name: passkey.user_name.as_str().to_owned(),
-        user_display_name: passkey.user_display_name.as_str().to_owned(),
+        user_name: sanitize_name(passkey.user_name.as_str()),
+        user_display_name: sanitize_name(passkey.user_display_name.as_str()),
         credential_id: mosaic_passkey::b64url(&passkey.credential_id),
         algorithm: if passkey.algorithm == mosaic_passkey::COSE_ALG_ES256 {
             PasskeyAlgorithm::Es256
@@ -553,6 +559,11 @@ impl Backend {
         let session = slot.unlocked_mut()?;
         let current = session.item(vault_id, item_id)?;
         if prepared.sets_ssh_key() && current.item_type() != Some(ItemType::SshKey) {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
+        // A passkey comes from the site that made it: only its title, notes
+        // and tags are the user's to change (favorite is its own command).
+        if current.item_type() == Some(ItemType::Passkey) && !prepared.only_title_notes_tags() {
             return Err(IpcError::new(ErrorCode::InvalidInput));
         }
         let tags: Vec<String> = current.tags().into_iter().map(str::to_owned).collect();

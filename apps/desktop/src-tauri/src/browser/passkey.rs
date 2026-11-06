@@ -1,5 +1,5 @@
-//! Passkeys (M5, ADR-0039, ADR-0040): planning and applying `passkeyCreate`
-//! and `passkeyGet`.
+//! Passkeys (M5, ADR-0039, ADR-0040 (lands with M5 T3)): planning and
+//! applying `passkeyCreate` and `passkeyGet`.
 //!
 //! The extension never signs or writes. A request is **planned** here (the
 //! origin and the relying party ID are checked against each other with
@@ -17,7 +17,7 @@
 //! or assertion counts (`Backend::touch`), like a completed `fill`, and so
 //! does the user's own answer in the dialog (`browser_passkey_respond`).
 
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::model::{ItemType, PasskeyCredential, Text};
 use mosaic_core::{ItemId, Timestamp, VaultId, strip_spoofing};
@@ -46,6 +46,23 @@ use crate::state::Backend;
 /// counts for the UV flag of a passkey operation (ADR-0039 D6).
 pub const PASSKEY_UV_WINDOW: Duration = Duration::from_secs(300);
 
+/// Whether a verification made at `at` / `wall_at` still counts at `now` /
+/// `wall_now`: within [`PASSKEY_UV_WINDOW`] on **both** clocks. The monotonic
+/// clock may stand still while the machine sleeps; the wall clock jumps over
+/// the sleep, so a verification from before a suspend expires. A wall clock
+/// that went backwards counts as expired.
+pub(crate) fn uv_fresh(
+    at: Instant,
+    wall_at: SystemTime,
+    now: Instant,
+    wall_now: SystemTime,
+) -> bool {
+    now.saturating_duration_since(at) < PASSKEY_UV_WINDOW
+        && wall_now
+            .duration_since(wall_at)
+            .is_ok_and(|elapsed| elapsed < PASSKEY_UV_WINDOW)
+}
+
 /// The longest account name kept and shown, in bytes (WebAuthn L3 6.4.1).
 pub const MAX_ACCOUNT_NAME_BYTES: usize = 64;
 
@@ -57,7 +74,8 @@ const MAX_ALGORITHMS: usize = 16;
 
 /// What a create request shows and, once allowed, writes.
 pub(crate) struct CreatePlan {
-    /// The extension's request ID (also the dialog's handle).
+    /// The extension's request ID (matched by `passkeyCancel` only; the
+    /// dialog has its own desktop-generated handle).
     pub(crate) request_id: String,
     /// The name of the browser that asks.
     pub(crate) pairing_label: String,
@@ -83,7 +101,8 @@ pub(crate) struct CreatePlan {
 
 /// What a sign-in request shows and, once allowed, signs.
 pub(crate) struct GetPlan {
-    /// The extension's request ID (also the dialog's handle).
+    /// The extension's request ID (matched by `passkeyCancel` only; the
+    /// dialog has its own desktop-generated handle).
     pub(crate) request_id: String,
     /// The name of the browser that asks.
     pub(crate) pairing_label: String,
@@ -118,6 +137,14 @@ const fn verification(uv: UserVerification) -> PasskeyVerification {
 }
 
 impl PasskeyPlan {
+    /// The extension's request ID.
+    pub(crate) fn request_id(&self) -> &str {
+        match self {
+            Self::Create(plan) => &plan.request_id,
+            Self::Get(plan) => &plan.request_id,
+        }
+    }
+
     /// The site's user verification preference.
     pub(crate) const fn verification(&self) -> UserVerification {
         match self {
@@ -138,16 +165,19 @@ impl PasskeyPlan {
         !self.is_excluded() && self.verification() != UserVerification::Discouraged && !uv_recent
     }
 
-    /// The event the webview shows.
+    /// The event the webview shows. `handle` is the dialog's
+    /// desktop-generated ID: it, not the extension's, is the event's
+    /// `requestId`.
     pub(crate) fn to_request(
         &self,
+        handle: &str,
         needs_password: bool,
         requested_at: i64,
         expires_at: i64,
     ) -> BrowserPasskeyRequest {
         match self {
             Self::Create(plan) => BrowserPasskeyRequest {
-                request_id: plan.request_id.clone(),
+                request_id: handle.to_owned(),
                 pairing_label: plan.pairing_label.clone(),
                 kind: BrowserPasskeyKind::Create,
                 origin: plan.origin.clone(),
@@ -162,7 +192,7 @@ impl PasskeyPlan {
                 expires_at,
             },
             Self::Get(plan) => BrowserPasskeyRequest {
-                request_id: plan.request_id.clone(),
+                request_id: handle.to_owned(),
                 pairing_label: plan.pairing_label.clone(),
                 kind: BrowserPasskeyKind::Get,
                 origin: plan.origin.clone(),
@@ -419,11 +449,11 @@ impl Backend {
     }
 
     /// Notes that the user just proved it is them (an unlock or a right
-    /// master password).
+    /// master password), on the monotonic and on the wall clock.
     pub(crate) fn note_user_verification(&self) {
         let now = self.browser.shared().now();
         if let Ok(mut last) = self.last_user_verification.lock() {
-            *last = Some(now);
+            *last = Some((now, SystemTime::now()));
         }
     }
 
@@ -434,14 +464,15 @@ impl Backend {
         }
     }
 
-    /// Whether the user was verified within [`PASSKEY_UV_WINDOW`].
+    /// Whether the user was verified within [`PASSKEY_UV_WINDOW`] on both
+    /// clocks (see [`uv_fresh`]).
     pub(crate) fn uv_recent(&self) -> bool {
         let now = self.browser.shared().now();
         self.last_user_verification
             .lock()
             .ok()
             .and_then(|last| *last)
-            .is_some_and(|at| now.saturating_duration_since(at) < PASSKEY_UV_WINDOW)
+            .is_some_and(|(at, wall_at)| uv_fresh(at, wall_at, now, SystemTime::now()))
     }
 
     /// Creates the passkey in `vault` and stores it **before** the response
@@ -601,6 +632,20 @@ mod tests {
     #[test]
     fn verification_window_is_five_minutes() {
         assert_eq!(PASSKEY_UV_WINDOW, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn a_verification_counts_only_within_the_window_on_both_clocks() {
+        let at = Instant::now();
+        let wall = SystemTime::now();
+        let secs = Duration::from_secs;
+        assert!(uv_fresh(at, wall, at + secs(299), wall + secs(299)));
+        // The monotonic clock ran out.
+        assert!(!uv_fresh(at, wall, at + secs(300), wall + secs(10)));
+        // The monotonic clock stood still (suspend), the wall clock did not.
+        assert!(!uv_fresh(at, wall, at + secs(10), wall + secs(301)));
+        // The wall clock went backwards: expired, not fresh.
+        assert!(!uv_fresh(at, wall + secs(100), at + secs(10), wall));
     }
 
     #[test]

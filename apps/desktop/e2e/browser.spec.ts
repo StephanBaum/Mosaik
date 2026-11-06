@@ -94,6 +94,10 @@ for (const colorScheme of ["light", "dark"] as const) {
       });
       await expect(page.getByRole("button", { name: "Save passkey" })).toHaveCount(0);
       await expectAccessible(page);
+      // The acknowledge waits out the Allow guard like an Allow.
+      await expect(page.getByRole("button", { name: "OK" })).toHaveAttribute("aria-disabled", "false", {
+        timeout: 3000,
+      });
       await page.getByRole("button", { name: "OK" }).click();
       await expect(page.getByRole("heading", { name: "Passkey already saved" })).toBeHidden();
       guard.expectClean();

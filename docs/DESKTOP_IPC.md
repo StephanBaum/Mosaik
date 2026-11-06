@@ -149,7 +149,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `browser_remove_pairing` | `{ pairingId }` → the same status | `browserPairingNotFound` (also for an ID that is not 32 hex digits). The pairing's live sessions get `unpaired` and close | live |
 | `browser_pairing_respond` | `{ requestId, decision: "allow" \| "deny", label: string \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken), `invalidInput` (a label that is not 1 to 64 characters, or contains control, format or default-ignorable characters; the request stays open) | live |
 | `browser_save_respond` | `{ requestId, decision: { kind: "saveNew", vaultId, title, allowHttp } \| { kind: "update", vaultId, itemId } \| { kind: "cancel" } }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (as above; a cancel is always taken), `invalidInput` (a title that is not 1 to 256 characters or has spoofing characters), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an update of a login that is not one of the request's candidates, or gone), `locked`. The request stays open after all of them except the first | live |
-| `browser_passkey_respond` | `{ requestId, decision: { kind: "create", vaultId } \| { kind: "assert", vaultId, itemId } \| { kind: "useAnotherDevice" } \| { kind: "cancel" } \| { kind: "acknowledge" }, password: SecretIn \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (a create or an assert less than 1 s after the dialog appeared; the other answers are always taken), `reauthRequired` (the dialog asked for the password, `needsPassword`, and none came), `wrongCredentials` (counts towards the five-failure lock of `reauthenticate`), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an assert of a passkey that is not one of the request's candidates, or no longer an answer), `invalidInput` (an answer that does not fit the request: `create` for a sign-in, `acknowledge` when not `excluded`, `create` or `useAnotherDevice` for an exclusion), `locked`. The request stays open after all of them except the first | live |
+| `browser_passkey_respond` | `{ requestId (the dialog's desktop-generated handle, from the event), decision: { kind: "create", vaultId } \| { kind: "assert", vaultId, itemId } \| { kind: "useAnotherDevice" } \| { kind: "cancel" } \| { kind: "acknowledge" }, password: SecretIn \| null }` → `null` | `browserRequestExpired` (also for the extension's own request ID or the handle of an earlier dialog), `browserAllowTooSoon` (a create, an assert or an acknowledge less than 1 s after the dialog appeared; a cancel and `useAnotherDevice` are always taken), `reauthRequired` (verification is needed now and no password came: the dialog asked for it with `needsPassword`, or the 300 s window ran out while the dialog was open, and the dialog then asks for the password and sends it with the next click), `wrongCredentials` (counts towards the five-failure lock of `reauthenticate`; a right password verifies the user for passkeys but earns no re-authentication grant for other commands), `secretKeyRequired` (the Secret Key is not on this device, so the password cannot be checked), store errors (`storeUnavailable` and the other storage codes of the vault commands), `internal`, `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an assert of a passkey that is not one of the request's candidates, or no longer an answer), `invalidInput` (an answer that does not fit the request: `create` for a sign-in, `acknowledge` when not `excluded`, `create` or `useAnotherDevice` for an exclusion), `locked`. The request stays open after all of them except the first | live |
 
 Notes per area:
 
@@ -288,7 +288,7 @@ Notes per area:
     exact-origin URL; `allowHttp` is honoured only when `insecure`); `update` changes the
     password only (the model moves the old one into the history). Only a candidate can be
     updated. Nothing is written without this answer.
-  - **Passkeys.** `passkeyCreate` and `passkeyGet` (ADR-0039, ADR-0040) open
+  - **Passkeys.** `passkeyCreate` and `passkeyGet` (ADR-0039, ADR-0040 (lands with M5 T3)) open
     `browserPasskeyRequested` after Rust checked the origin against the relying party ID and
     decoded the inputs: `kind: "create" \| "get"`, the browser's `origin`, the accepted `rpId`,
     for a create the sanitized `userName` and `userDisplayName` (else `null`), for a sign-in the
@@ -297,10 +297,16 @@ Notes per area:
     create that lists a passkey Mosaic holds: the dialog only informs), `needsPassword` (the
     site asked for user verification and none happened in the last 300 s), `userVerification`
     and the times. **The request carries no challenge and no key material.** The user answers
-    with `browser_passkey_respond`: the 1 s Allow guard applies to `create` and `assert`;
-    `password` (a `SecretIn`, `null` when `needsPassword` is false) is checked as
-    `reauthenticate` does, so wrong passwords count towards the five-failure lock; a right one
-    sets UV for 300 s. The answer is applied before the site is told: a create writes a new
+    with `browser_passkey_respond`: the 1 s Allow guard applies to `create`, `assert` and `acknowledge`;
+    `password` (a `SecretIn`; the user may send one whenever typed, it is checked only when
+    verification is needed at that moment) is checked as `reauthenticate` does, so wrong
+    passwords count towards the five-failure lock; a right one sets UV for 300 s but does not
+    open the two-minute re-authentication grant that other commands spend. When the window
+    runs out while the dialog is open, `reauthRequired` means "verification is needed now" and
+    the dialog switches to password mode. The `requestId` of the event and of
+    `browser_passkey_respond` is a handle the desktop makes for each dialog; the extension's own
+    ID is kept only to match its `passkeyCancel` (a page that reuses an ID cannot steer an answer
+    meant for another dialog). The answer is applied before the site is told: a create writes a new
     `passkey` item (title: the relying party ID) and an assertion with an imported counter above
     0 stores the raised counter first. One passkey request is open at a time; it ends on
     cancel, expiry (300 s), lock (the site is told `cancelled`), the asking session closing, its
@@ -438,8 +444,9 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   and `&attachSave=<errorCode>|cancel` make `attachment_add` and `attachment_save` fail with that
   code or cancel the dialog; by default an add stores a 1.2 MB `scan-2.png`, and the "Passport scan"
   document starts with a PNG (previewable) and a PDF. The mock preview is a 64 x 48 gradient.
-  Passkeys (ADR-0040): `&browserPasskey=get|create|excluded|uv` makes a browser ask 500 ms after
-  subscribing to sign in (`uv`: the site wants user verification, the master password is `mosaic`),
+  Passkeys (ADR-0040 (lands with M5 T3)): `&browserPasskey=get|create|excluded|uv|uvExpires` makes a browser ask 500 ms after
+  subscribing to sign in (`uv`: the site wants user verification, the master password is `mosaic`;
+  `uvExpires`: the first click is answered `reauthRequired`, as when the 300 s window ran out),
   to create a passkey, or to create one that the vault already holds; the sign-in variants add two
   passkeys for example.com (one per vault) to the sample items.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420

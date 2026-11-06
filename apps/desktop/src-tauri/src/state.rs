@@ -173,10 +173,10 @@ pub struct Backend {
     /// The browser extension endpoint (M4).
     pub browser: BrowserService,
     /// When the user last proved it is them (an unlock or a right master
-    /// password), on the browser service's clock. Passkeys report user
-    /// verification only within five minutes of it (ADR-0039). Cleared on
-    /// lock.
-    pub(crate) last_user_verification: Mutex<Option<Instant>>,
+    /// password), on the browser service's clock and on the wall clock.
+    /// Passkeys report user verification only within five minutes of it on
+    /// both (ADR-0039; the wall clock covers a suspend). Cleared on lock.
+    pub(crate) last_user_verification: Mutex<Option<(Instant, std::time::SystemTime)>>,
     /// The OS event sources that started (auto-lock on sleep and screen lock).
     pub os_sources: Mutex<Vec<&'static str>>,
     /// The account whose Emergency Kit was not yet confirmed in this process

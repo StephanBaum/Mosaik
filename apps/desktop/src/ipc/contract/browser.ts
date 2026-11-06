@@ -131,7 +131,10 @@ export interface BrowserPasskeyCandidate {
 
 /** A passkey request: what the site asked for, checked by Rust. No challenge, no key. */
 export interface BrowserPasskeyRequest {
-  /** 32 lowercase hex digits. */
+  /**
+   * The desktop's own handle for this prompt: 32 lowercase hex digits, made for each prompt and
+   * never the extension's request ID.
+   */
   requestId: string;
   pairingLabel: string;
   kind: BrowserPasskeyKind;
@@ -161,8 +164,13 @@ export type BrowserPasskeyDecision =
   | { kind: "acknowledge" };
 
 export interface BrowserPasskeyRespondRequest {
+  /** The prompt's handle, from the event. */
   requestId: string;
   decision: BrowserPasskeyDecision;
-  /** The master password when `needsPassword`; `null` otherwise. */
+  /**
+   * The master password when the user typed one: the dialog asked for it (`needsPassword`) or
+   * Rust answered `reauthRequired` because the verification ran out while the dialog was open;
+   * `null` otherwise.
+   */
   password: string | null;
 }

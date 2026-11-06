@@ -2658,6 +2658,58 @@ fn the_app_identifier_is_the_bundle_identifier() {
     );
 }
 
+#[test]
+fn a_failed_save_answer_after_the_request_expired_leaves_no_prompt_behind() {
+    run(async {
+        let env = Env::unlocked_with(Limits {
+            save_timeout: Duration::from_millis(700),
+            ..Limits::default()
+        });
+        let mut peer = paired_peer(&env).await;
+        let id = peer
+            .request(
+                "proposeSave",
+                save_body("https://new.example", Some("bob"), "captured-pw"),
+            )
+            .await;
+        wait_for_event(&env, "browserSaveRequested").await;
+        env.clock.advance(Duration::from_secs(2));
+        // A vault that does not exist: the answer fails once it has the vault
+        // slot, which the test holds while the request expires.
+        let request = respond_save(
+            &save_request_id(&env),
+            BrowserSaveDecision::SaveNew {
+                vault_id: VaultId::new_v7().unwrap().into(),
+                title: "Bob".into(),
+                allow_http: false,
+            },
+        );
+        let slot = env.backend().slot().unwrap();
+        let backend = env.backend();
+        let answered = std::thread::scope(|scope| {
+            let answered = scope.spawn(move || backend.browser_save_respond(&request));
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(slot);
+            answered.join().unwrap()
+        });
+        assert_eq!(code(answered.unwrap_err()), ErrorCode::VaultNotFound);
+        assert_eq!(peer.response(id).await.unwrap()["outcome"], "cancelled");
+        assert!(
+            env.service()
+                .shared()
+                .prompts
+                .lock()
+                .unwrap()
+                .save_id()
+                .is_none(),
+            "the prompt is not put back"
+        );
+        let closed = env.events_of("browserSaveClosed");
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0]["reason"], "expired");
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Passkeys (M5 T2, ADR-0039, ADR-0040)
 // ---------------------------------------------------------------------------
@@ -2685,6 +2737,24 @@ mod passkeys {
         format!("{n:032x}")
     }
 
+    thread_local! {
+        /// The dialog handle (the desktop's own ID) of each prompt the test
+        /// opened, by the extension's request ID.
+        static HANDLES: std::cell::RefCell<HashMap<String, String>> =
+            std::cell::RefCell::new(HashMap::new());
+    }
+
+    /// The handle of the dialog opened for the extension's request `n`.
+    fn handle_of(n: u8) -> String {
+        HANDLES.with(|handles| {
+            handles
+                .borrow()
+                .get(&rid(n))
+                .cloned()
+                .unwrap_or_else(|| rid(n))
+        })
+    }
+
     fn create_body(origin: &str, rp: Option<&str>, uv: &str, request: u8) -> Value {
         json!({
             "requestId": rid(request), "origin": origin, "topOrigin": origin, "rpId": rp,
@@ -2709,7 +2779,7 @@ mod passkeys {
         password: Option<&str>,
     ) -> BrowserPasskeyRespondRequest {
         BrowserPasskeyRespondRequest {
-            request_id: rid(request),
+            request_id: handle_of(request),
             decision,
             password: password.map(SecretIn::test),
         }
@@ -2816,8 +2886,11 @@ mod passkeys {
     /// Sends a passkey request and waits until its dialog is open.
     async fn start(env: &Env, peer: &mut Peer, op: &str, body: Value) -> u32 {
         let before = env.events_of("browserPasskeyRequested").len();
+        let extension_id = body["requestId"].as_str().unwrap().to_owned();
         let id = peer.request(op, body).await;
         wait_for_event_n(env, "browserPasskeyRequested", before + 1).await;
+        let handle = last_request(env)["requestId"].as_str().unwrap().to_owned();
+        HANDLES.with(|handles| handles.borrow_mut().insert(extension_id, handle));
         id
     }
 
@@ -2866,7 +2939,9 @@ mod passkeys {
             .await;
             let request = last_request(&env);
             assert_eq!(request["kind"], "create");
-            assert_eq!(request["requestId"], rid(1));
+            // The handle is the desktop's own, not the extension's request ID.
+            assert_eq!(request["requestId"].as_str().unwrap().len(), 32);
+            assert_ne!(request["requestId"], rid(1));
             assert_eq!(request["pairingLabel"], "Chrome");
             assert_eq!(request["origin"], SITE);
             assert_eq!(request["rpId"], "example.com");
@@ -3974,6 +4049,243 @@ mod passkeys {
             }
             assert!(seen.len() >= 11);
         });
+    }
+
+    #[test]
+    fn an_answer_belongs_to_the_dialog_handle_not_to_a_reused_extension_id() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let get = || get_body(SITE, Some("example.com"), &[], "discouraged", 1);
+
+            // A opens and is cancelled by the page.
+            let first = start(&env, &mut peer, "passkeyGet", get()).await;
+            let handle_a = handle_of(1);
+            let cancel = peer
+                .request("passkeyCancel", json!({"requestId": rid(1)}))
+                .await;
+            let mut answers = peer.responses(&[first, cancel]).await;
+            assert_eq!(answers.remove(&first).unwrap().unwrap_err(), "cancelled");
+
+            // B reuses the extension's ID.
+            let second = start(&env, &mut peer, "passkeyGet", get()).await;
+            let handle_b = handle_of(1);
+            assert_ne!(handle_a, handle_b, "a handle is never reused");
+            assert_ne!(handle_b, rid(1), "and is not the extension's ID");
+            pass_guard(&env);
+
+            let stale = |request_id: &str| {
+                env.backend()
+                    .browser_passkey_respond(&BrowserPasskeyRespondRequest {
+                        request_id: request_id.to_owned(),
+                        decision: assert_with(key.item, vault),
+                        password: None,
+                    })
+            };
+            // A's handle, and the extension's own ID, do not apply to B.
+            assert_eq!(code_of(stale(&handle_a)), ErrorCode::BrowserRequestExpired);
+            assert_eq!(code_of(stale(&rid(1))), ErrorCode::BrowserRequestExpired);
+            assert!(env.passkey_open(), "B is still waiting");
+            assert_eq!(env.passkeys()[0].2, 0, "nothing was signed");
+            respond(&env, 1, assert_with(key.item, vault)).unwrap();
+            assert!(peer.response(second).await.is_ok());
+        });
+    }
+
+    #[test]
+    fn an_acknowledge_waits_out_the_allow_guard_but_a_cancel_does_not() {
+        run(async {
+            let env = Env::unlocked();
+            let existing = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let mut body = create_body(SITE, Some("example.com"), "required", 1);
+            body["excludeCredentials"] = json!([b64url(&existing.credential_id)]);
+            let id = start(&env, &mut peer, "passkeyCreate", body.clone()).await;
+            assert_eq!(
+                respond(&env, 1, Decision::Acknowledge),
+                Err(ErrorCode::BrowserAllowTooSoon)
+            );
+            assert!(env.passkey_open(), "still open");
+            pass_guard(&env);
+            respond(&env, 1, Decision::Acknowledge).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "passkeyExcluded");
+
+            // A cancel is always taken.
+            let id = start(&env, &mut peer, "passkeyCreate", body).await;
+            respond(&env, 1, Decision::Cancel).unwrap();
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+        });
+    }
+
+    #[test]
+    fn a_failed_answer_after_the_request_expired_leaves_no_prompt_behind() {
+        run(async {
+            let env = Env::unlocked_with(Limits {
+                passkey_timeout: Duration::from_millis(700),
+                ..Limits::default()
+            });
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "discouraged", 1),
+            )
+            .await;
+            pass_guard(&env);
+            let request = answer(1, assert_with(key.item, vault), None);
+            // The answer waits for the vault; meanwhile the request expires,
+            // and the passkey is trashed so the answer fails.
+            let mut slot = env.backend().slot().unwrap();
+            let backend = env.backend();
+            let answered = std::thread::scope(|scope| {
+                let answered = scope.spawn(move || backend.browser_passkey_respond(&request));
+                std::thread::sleep(Duration::from_millis(1500));
+                slot.unlocked_mut()
+                    .unwrap()
+                    .trash_item(vault, key.item)
+                    .unwrap();
+                drop(slot);
+                answered.join().unwrap()
+            });
+            assert_eq!(code(answered.unwrap_err()), ErrorCode::ItemNotFound);
+            assert_eq!(peer.response(id).await.unwrap_err(), "cancelled");
+            assert!(!env.passkey_open(), "the prompt is not put back");
+            let closed = env.events_of("browserPasskeyClosed");
+            assert_eq!(closed.len(), 1);
+            assert_eq!(closed[0]["reason"], "expired");
+            assert_eq!(closed[0]["requestId"], handle_of(1));
+        });
+    }
+
+    #[test]
+    fn a_passkey_dialog_password_verifies_but_earns_no_reauth_grant() {
+        run(async {
+            let env = Env::unlocked();
+            let vault = env.vault();
+            let key = env.seed_passkey("example.com", "alex", true, 0);
+            let mut peer = paired_peer(&env).await;
+            env.clock.advance(Duration::from_secs(301));
+            let id = start(
+                &env,
+                &mut peer,
+                "passkeyGet",
+                get_body(SITE, Some("example.com"), &[], "required", 1),
+            )
+            .await;
+            pass_guard(&env);
+            // Wrong ones count; a right one answers.
+            let wrong = env.backend().browser_passkey_respond(&answer(
+                1,
+                assert_with(key.item, vault),
+                Some("nope"),
+            ));
+            assert_eq!(code_of(wrong), ErrorCode::WrongCredentials);
+            env.backend()
+                .browser_passkey_respond(&answer(1, assert_with(key.item, vault), Some(PASSWORD)))
+                .unwrap();
+            assert!(peer.response(id).await.is_ok());
+            assert!(env.backend().uv_recent(), "the user counts as verified");
+            // A move out of a hardware vault (and every other change that
+            // spends the grant) still asks for the password itself.
+            assert_eq!(
+                code_of(env.backend().take_reauth_grant().map(|_| ())),
+                ErrorCode::ReauthRequired
+            );
+            env.backend()
+                .reauthenticate(SecretIn::test(PASSWORD))
+                .unwrap();
+            assert!(env.backend().take_reauth_grant().is_ok());
+        });
+    }
+
+    #[test]
+    fn a_passkey_item_changes_only_its_title_notes_and_tags() {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let key = env.seed_passkey("example.com", "alex", true, 0);
+        let update = |draft: Value| {
+            let mut full = json!({
+                "text": [], "secrets": [], "urls": [], "customFields": [],
+                "tags": null, "otp": null, "sshKey": null,
+            });
+            for (name, value) in draft.as_object().unwrap() {
+                full[name] = value.clone();
+            }
+            env.backend()
+                .update_item(
+                    serde_json::from_value(json!({
+                        "vaultId": vault.to_string(), "itemId": key.item.to_string(),
+                        "draft": full,
+                    }))
+                    .unwrap(),
+                )
+                .map_err(code)
+        };
+        let invalid = Err(ErrorCode::InvalidInput);
+        assert_eq!(
+            update(json!({"text": [{"field": "username", "value": "mallory"}]})).map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"secrets": [{"field": "password", "value": "pw"}]})).map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"urls": [{
+                "op": "add", "url": "https://evil.example",
+                "matchMode": "exactOrigin", "allowHttp": false
+            }]}))
+            .map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"customFields": [
+                {"op": "add", "label": "x", "kind": "text", "value": "y"}
+            ]}))
+            .map(|_| ()),
+            invalid
+        );
+        assert_eq!(
+            update(json!({"otp": {"op": "remove"}})).map(|_| ()),
+            invalid
+        );
+        // Nothing of the above changed the item.
+        assert_eq!(env.passkeys()[0].1.user_name.as_str(), "alex");
+        let detail = update(json!({
+            "text": [
+                {"field": "title", "value": "Example account"},
+                {"field": "notes", "value": "from the bank"},
+            ],
+            "tags": ["bank"],
+        }))
+        .unwrap();
+        assert_eq!(detail.summary.title.as_deref(), Some("Example account"));
+        assert_eq!(detail.summary.tags, vec!["bank".to_owned()]);
+        assert_eq!(detail.passkey.unwrap().rp_id, "example.com");
+        assert_eq!(env.passkeys().len(), 1);
+    }
+
+    #[test]
+    fn the_names_of_a_passkey_in_the_item_views_lose_control_and_format_characters() {
+        let env = Env::unlocked();
+        let vault = env.vault();
+        let key = env.seed_passkey("example.com", "al\u{202e}ex\u{7}\n", true, 0);
+        let detail = env
+            .backend()
+            .get_item(crate::contract::items::ItemRequest {
+                vault_id: vault.into(),
+                item_id: key.item.into(),
+            })
+            .unwrap();
+        assert_eq!(detail.passkey.as_ref().unwrap().user_name, "alex");
+        assert_eq!(detail.summary.subtitle.as_deref(), Some("alex"));
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(!json.contains("202e") && !json.contains('\u{202e}'));
     }
 
     impl Peer {

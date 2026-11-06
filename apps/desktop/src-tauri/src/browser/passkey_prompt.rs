@@ -1,5 +1,12 @@
-//! The passkey prompt of the browser endpoint (M5, ADR-0040): one at a time,
-//! like the save prompt, with the same 1 s Allow guard and expiry.
+//! The passkey prompt of the browser endpoint (M5, ADR-0040 (lands with M5
+//! T3)): one at a time, like the save prompt, with the same 1 s Allow guard
+//! and expiry.
+//!
+//! The dialog's handle (`requestId` of the events and of
+//! `browser_passkey_respond`) is generated here, never taken from the
+//! extension: the extension's own request ID is kept only to match its
+//! `passkeyCancel`, so a page that reuses an ID cannot steer an answer meant
+//! for another prompt.
 //!
 //! The prompt belongs to the **pairing and the session** that asked. It ends
 //! when the vault locks (the site is told `cancelled`), when the session
@@ -18,7 +25,7 @@ use mosaic_native_messaging::protocol::ErrorCode as WireError;
 use tokio::sync::oneshot;
 
 use super::passkey::PasskeyPlan;
-use super::prompts::{expires_millis, too_soon};
+use super::prompts::{expires_millis, new_request_id, too_soon};
 use super::{Shared, unix_millis};
 use crate::contract::browser::{
     BrowserCloseReason, BrowserPasskeyDecision as Decision, BrowserPasskeyRespondRequest,
@@ -57,7 +64,10 @@ pub(crate) type PasskeyResult = Result<PasskeyReply, WireError>;
 
 /// A passkey request waiting for the user.
 pub(crate) struct PendingPasskey {
-    pub(super) request_id: String,
+    /// The desktop-generated handle of the dialog.
+    handle: String,
+    /// The extension's request ID: matched only by `passkeyCancel`.
+    request_id: String,
     /// The pairing that asked; the prompt ends if it is removed.
     pub(crate) pairing: [u8; 16],
     /// The session that asked; the prompt ends if it closes.
@@ -73,9 +83,9 @@ impl PendingPasskey {
         let _ = self.reply.send(Err(error));
     }
 
-    /// The request's ID.
-    pub(super) fn request_id(&self) -> &str {
-        &self.request_id
+    /// The dialog's handle.
+    pub(super) fn handle(&self) -> &str {
+        &self.handle
     }
 }
 
@@ -92,9 +102,16 @@ const fn allowed(plan: &PasskeyPlan, decision: &Decision) -> bool {
     }
 }
 
-/// Whether the decision signs or writes (and so needs the Allow guard).
+/// Whether the decision signs or writes (and so needs user verification).
 const fn commits(decision: &Decision) -> bool {
     matches!(decision, Decision::Create { .. } | Decision::Assert { .. })
+}
+
+/// Whether the decision waits out the Allow guard: everything that is not a
+/// cancel or "another device". An acknowledge is an Allow-like click too, so a
+/// double click on the dialog's primary button cannot skip past what it says.
+const fn guarded(decision: &Decision) -> bool {
+    commits(decision) || matches!(decision, Decision::Acknowledge)
 }
 
 impl Shared {
@@ -116,7 +133,8 @@ impl Shared {
             .is_ok_and(|prompts| prompts.passkey.is_some() || prompts.passkey_applying)
     }
 
-    /// Opens the passkey prompt for a planned request.
+    /// Opens the passkey prompt for a planned request. Returns the dialog's
+    /// desktop-generated handle with the receiver of the answer.
     ///
     /// # Errors
     /// `locked`, `busy` while another passkey request is open,
@@ -126,8 +144,9 @@ impl Shared {
         pairing: &[u8; 16],
         conn: u64,
         plan: PasskeyPlan,
-    ) -> Result<oneshot::Receiver<PasskeyResult>, WireError> {
+    ) -> Result<(String, oneshot::Receiver<PasskeyResult>), WireError> {
         let now = self.now();
+        let handle = new_request_id()?;
         let backend = self.backend().ok_or(WireError::Internal)?;
         let needs_password = plan.needs_password(backend.uv_recent());
         let mut prompts = super::lock(&self.prompts)?;
@@ -146,13 +165,15 @@ impl Shared {
             return Err(WireError::NotPaired);
         }
         let request = plan.to_request(
+            &handle,
             needs_password,
             unix_millis(),
             expires_millis(self.limits.passkey_timeout),
         );
         let (reply, rx) = oneshot::channel();
         prompts.passkey = Some(PendingPasskey {
-            request_id: request.request_id.clone(),
+            handle: handle.clone(),
+            request_id: plan.request_id().to_owned(),
             pairing: *pairing,
             conn,
             shown_at: now,
@@ -161,21 +182,21 @@ impl Shared {
         });
         drop(prompts);
         self.emit(AppEvent::BrowserPasskeyRequested { request });
-        Ok(rx)
+        Ok((handle, rx))
     }
 
     /// Waits for the user's answer, the timeout, or the prompt closing. All
     /// that is not an answer is `cancelled`.
     pub(crate) async fn await_passkey(
         &self,
-        request_id: &str,
+        handle: &str,
         mut rx: oneshot::Receiver<PasskeyResult>,
     ) -> PasskeyResult {
         match tokio::time::timeout(self.limits.passkey_timeout, &mut rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(WireError::Cancelled),
             Err(_) => {
-                if self.close_passkey(request_id, BrowserCloseReason::Expired) {
+                if self.close_passkey(handle, BrowserCloseReason::Expired) {
                     Err(WireError::Cancelled)
                 } else {
                     // Answered in the same instant.
@@ -185,14 +206,15 @@ impl Shared {
         }
     }
 
-    /// Ends the passkey prompt `request_id` without an answer; the waiting
+    /// Ends the passkey prompt `handle` without an answer; the waiting
     /// request is told `cancelled`. `false`: it was not open.
-    pub(crate) fn close_passkey(&self, request_id: &str, reason: BrowserCloseReason) -> bool {
-        self.close_passkeys_matching(reason, |p| p.request_id == request_id)
+    pub(crate) fn close_passkey(&self, handle: &str, reason: BrowserCloseReason) -> bool {
+        self.close_passkeys_matching(reason, |p| p.handle == handle)
     }
 
-    /// `passkeyCancel`: the page gave up. Only the pairing that asked can end
-    /// its own prompt; anything else is ignored without a trace.
+    /// `passkeyCancel`: the page gave up. `request_id` is the extension's
+    /// own ID. Only the pairing that asked can end its own prompt; anything
+    /// else is ignored without a trace.
     pub(crate) fn close_passkey_by_request_id(&self, pairing: &[u8; 16], request_id: &str) {
         self.close_passkeys_matching(BrowserCloseReason::AbortedByPage, |p| {
             p.pairing == *pairing && p.request_id == request_id
@@ -225,7 +247,7 @@ impl Shared {
         let Some(pending) = pending else {
             return false;
         };
-        let request_id = pending.request_id.clone();
+        let request_id = pending.handle.clone();
         pending.refuse(WireError::Cancelled);
         self.emit(AppEvent::BrowserPasskeyClosed { request_id, reason });
         true
@@ -233,7 +255,7 @@ impl Shared {
 
     /// Ends the dialog for an answer that signs nothing.
     fn finish_unsigned(&self, pending: PendingPasskey, decision: &Decision) {
-        let request_id = pending.request_id.clone();
+        let request_id = pending.handle.clone();
         let result = match (decision, &pending.plan) {
             (Decision::UseAnotherDevice, PasskeyPlan::Create(_)) => {
                 Ok(PasskeyReply::Create(PasskeyCreateResult {
@@ -259,8 +281,11 @@ impl Shared {
 
     /// `browser_passkey_respond`.
     ///
-    /// Order: the request is open and the answer fits it; a create or a
-    /// sign-in waits out the Allow guard; the user is verified (unlocked
+    /// `request.request_id` is the dialog's desktop-generated handle (from the
+    /// event), never the extension's request ID.
+    ///
+    /// Order: the request is open and the answer fits it; a create, a sign-in
+    /// or an acknowledge waits out the Allow guard; the user is verified (unlocked
     /// within five minutes, or the master password, whose failures count
     /// towards the five-failure lock); then the vault is written without the
     /// prompts lock (the entry is taken out first, and put back if the write
@@ -283,15 +308,15 @@ impl Shared {
             let open = prompts
                 .passkey
                 .as_ref()
-                .filter(|p| p.request_id == request.request_id)
+                .filter(|p| p.handle == request.request_id)
                 .ok_or(IpcError::new(ErrorCode::BrowserRequestExpired))?;
             if !allowed(&open.plan, decision) {
                 return Err(IpcError::new(ErrorCode::InvalidInput));
             }
+            if guarded(decision) && too_soon(open.shown_at, self.now()) {
+                return Err(IpcError::new(ErrorCode::BrowserAllowTooSoon));
+            }
             if commits(decision) {
-                if too_soon(open.shown_at, self.now()) {
-                    return Err(IpcError::new(ErrorCode::BrowserAllowTooSoon));
-                }
                 open.plan.verification()
             } else {
                 let pending = prompts.passkey.take();
@@ -320,7 +345,7 @@ impl Shared {
             if prompts
                 .passkey
                 .as_ref()
-                .is_none_or(|p| p.request_id != request.request_id)
+                .is_none_or(|p| p.handle != request.request_id)
             {
                 return Err(IpcError::new(ErrorCode::BrowserRequestExpired));
             }
@@ -332,17 +357,32 @@ impl Shared {
             return Err(IpcError::INTERNAL);
         };
         let applied = apply(backend, &pending.plan, &request.decision, user_verified);
-        let dropped = {
+        let (dropped, orphaned) = {
             let mut prompts = super::lock(&self.prompts).map_err(|_| IpcError::INTERNAL)?;
             prompts.passkey_applying = false;
             let dropped = prompts.passkey_dropped_while_applying.take();
+            let mut orphaned = false;
             if applied.is_err() && dropped.is_none() {
-                // Nothing was written or signed: the prompt stays open.
-                prompts.passkey = Some(pending);
-                return applied.map(|_| ());
+                if pending.reply.is_closed() {
+                    // The request expired (or its session went away) while
+                    // the answer was applied: nobody waits for it, so the
+                    // prompt is not put back.
+                    orphaned = true;
+                } else {
+                    // Nothing was written or signed: the prompt stays open.
+                    prompts.passkey = Some(pending);
+                    return applied.map(|_| ());
+                }
             }
-            dropped
+            (dropped, orphaned)
         };
+        if orphaned {
+            self.emit(AppEvent::BrowserPasskeyClosed {
+                request_id: request.request_id.clone(),
+                reason: BrowserCloseReason::Expired,
+            });
+            return applied.map(|_| ());
+        }
         match applied {
             Ok(reply) => {
                 let _ = pending.reply.send(Ok(reply));
@@ -369,7 +409,10 @@ impl Shared {
 /// Whether the user is verified for this operation: not at all for
 /// `discouraged`; otherwise within the window of an unlock or a right
 /// password, or by the password in the answer (`reauthRequired` without one,
-/// `wrongCredentials` for a wrong one).
+/// `wrongCredentials` for a wrong one). A password sent while the window is
+/// still open is not checked (the dialog switches to asking for it when the
+/// window ran out while it was open). The check only verifies: it earns no
+/// two-minute re-authentication grant that other commands could spend.
 fn confirm_user(
     backend: &Backend,
     verification: UserVerification,
@@ -382,7 +425,7 @@ fn confirm_user(
         let password = password
             .filter(|p| !p.expose_secret().is_empty())
             .ok_or(IpcError::new(ErrorCode::ReauthRequired))?;
-        backend.reauthenticate_master(&MasterPassword::new(password.expose_secret().to_owned()))?;
+        backend.verify_master_only(&MasterPassword::new(password.expose_secret().to_owned()))?;
     }
     Ok(true)
 }

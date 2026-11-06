@@ -16,7 +16,8 @@ import { passkeyItem } from "./data.ts";
 import { fail, requireUnlocked, type MockHandlers, type MockState } from "./state.ts";
 
 /** The `&browserPasskey=` variants. */
-export type PasskeyVariant = "get" | "create" | "excluded" | "uv";
+/** `uv` asks for the password at once; `uvExpires` is a sign-in whose verification window runs out while the dialog is open. */
+export type PasskeyVariant = "get" | "create" | "excluded" | "uv" | "uvExpires";
 
 const REQUEST_DELAY_MS = 500;
 const PAIR_TTL_MS = 120_000;
@@ -40,6 +41,8 @@ export interface MockBrowser {
   pairing: BrowserPairingRequest | null;
   save: BrowserSaveRequest | null;
   passkey: BrowserPasskeyRequest | null;
+  /** The open passkey request needs the master password now (the window ran out). */
+  passkeyUvExpired: boolean;
 }
 
 export function defaultBrowser(now: () => number): MockBrowser {
@@ -62,6 +65,7 @@ export function defaultBrowser(now: () => number): MockBrowser {
     pairing: null,
     save: null,
     passkey: null,
+    passkeyUvExpired: false,
   };
 }
 
@@ -123,7 +127,8 @@ function passkeyRequest(state: MockState, variant: PasskeyVariant): BrowserPassk
     requestedAt,
     expiresAt: requestedAt + PASSKEY_TTL_MS,
   };
-  if (variant === "get" || variant === "uv") {
+  state.browser.passkeyUvExpired = variant === "uvExpires";
+  if (variant === "get" || variant === "uv" || variant === "uvExpires") {
     return {
       ...base,
       kind: "get",
@@ -141,7 +146,7 @@ function passkeyRequest(state: MockState, variant: PasskeyVariant): BrowserPassk
         })),
       excluded: false,
       needsPassword: variant === "uv",
-      userVerification: variant === "uv" ? "required" : "preferred",
+      userVerification: variant === "uv" || variant === "uvExpires" ? "required" : "preferred",
     };
   }
   return {
@@ -272,6 +277,11 @@ export const browserHandlers: MockHandlers = {
     }
     if (decision.kind === "create" || decision.kind === "assert") {
       commitPasskey(state, open, request);
+    } else if (
+      decision.kind === "acknowledge" &&
+      state.now() - open.requestedAt < ALLOW_GUARD_MS
+    ) {
+      fail("browserAllowTooSoon");
     }
     browser.passkey = null;
     state.emit({ type: "browserPasskeyClosed", requestId: open.requestId, reason: "answered" });
@@ -307,13 +317,17 @@ function checkUser(
   if (state.now() - open.requestedAt < ALLOW_GUARD_MS) {
     fail("browserAllowTooSoon");
   }
-  if (open.needsPassword) {
-    if (request.password === null || request.password === "") {
+  const typed = request.password !== null && request.password !== "";
+  if (open.needsPassword || state.browser.passkeyUvExpired) {
+    if (!typed) {
       fail("reauthRequired");
     }
+  }
+  if (typed && (open.needsPassword || state.browser.passkeyUvExpired)) {
     if (request.password !== state.account?.password) {
       fail("wrongCredentials");
     }
+    state.browser.passkeyUvExpired = false;
   }
 }
 

@@ -16,8 +16,8 @@
  * cancels the file dialog), `&screenScan=0` reports screen scanning as unsupported. Browser
  * extension (M4): `&browserPair=1` makes a browser ask for pairing, and `&browserSave=new|update`
  * makes it offer to save a login, both 500 ms after the app subscribes. Passkeys (M5):
- * `&browserPasskey=get|create|excluded|uv` makes it ask to sign in (`uv`: with the master
- * password) or to create a passkey, or to create one the vault already holds; the sign-in
+ * `&browserPasskey=get|create|excluded|uv|uvExpires` makes it ask to sign in (`uv`: with the master
+ * password; `uvExpires`: the verification runs out while the dialog is open) or to create a passkey, or to create one the vault already holds; the sign-in
  * variants seed two passkeys for example.com.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
@@ -157,7 +157,7 @@ function browserOptionsFromParams(params: URLSearchParams): MockOptions {
   return {
     ...(params.get("browserPair") === "1" ? { browserPair: true } : {}),
     ...(save === "new" || save === "update" ? { browserSave: save } : {}),
-    ...(passkey === "get" || passkey === "create" || passkey === "excluded" || passkey === "uv"
+    ...(passkey === "get" || passkey === "create" || passkey === "excluded" || passkey === "uv" || passkey === "uvExpires"
       ? { browserPasskey: passkey }
       : {}),
   };

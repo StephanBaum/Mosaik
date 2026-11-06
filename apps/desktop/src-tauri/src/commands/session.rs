@@ -484,12 +484,28 @@ impl Backend {
     }
 
     /// [`Backend::reauthenticate`] for a password already in a zeroizing
-    /// type (the passkey dialog's confirmation). A right password also marks
-    /// the user as verified for passkeys ([`Backend::note_user_verification`]).
+    /// type. A right password also marks the user as verified for passkeys
+    /// ([`Backend::note_user_verification`]).
     ///
     /// # Errors
     /// As [`Backend::reauthenticate`].
     pub(crate) fn reauthenticate_master(&self, password: &MasterPassword) -> IpcResult<()> {
+        self.check_master(password, true)
+    }
+
+    /// The passkey dialog's check: like [`Backend::reauthenticate_master`]
+    /// (wrong passwords count towards the five-failure lock, a right one
+    /// marks the user as verified for passkeys) but it earns **no**
+    /// two-minute re-authentication grant, so a passkey confirmation cannot
+    /// be spent on a protection change or a move out of a hardware vault.
+    ///
+    /// # Errors
+    /// As [`Backend::reauthenticate`].
+    pub(crate) fn verify_master_only(&self, password: &MasterPassword) -> IpcResult<()> {
+        self.check_master(password, false)
+    }
+
+    fn check_master(&self, password: &MasterPassword, grant: bool) -> IpcResult<()> {
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         let key = self
@@ -497,7 +513,11 @@ impl Backend {
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
         match session.verify_master_password(password, &key) {
             Ok(proof) => {
-                self.quick_unlock.grant_reauth(proof);
+                if grant {
+                    self.quick_unlock.grant_reauth(proof);
+                } else {
+                    self.quick_unlock.clear_reauth_failures();
+                }
                 self.note_user_verification();
                 Ok(())
             }

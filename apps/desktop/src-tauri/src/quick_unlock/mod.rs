@@ -291,6 +291,12 @@ impl QuickUnlockService {
                 epoch: self.lock_epoch.load(Ordering::SeqCst),
             });
         }
+        self.clear_reauth_failures();
+    }
+
+    /// A right master password that earns no grant (the passkey dialog):
+    /// the wrong-password count starts again.
+    pub(crate) fn clear_reauth_failures(&self) {
         self.failed_reauth.store(0, Ordering::SeqCst);
     }
 
