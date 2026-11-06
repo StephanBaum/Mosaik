@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "pnpm build:chromium && pnpm build:firefox",
-    "build:chromium": "vite build --mode chromium && vite build -c vite.content.config.ts --mode chromium",
-    "build:firefox": "vite build --mode firefox && vite build -c vite.content.config.ts --mode firefox",
-    "build:dev": "vite build --mode dev && vite build -c vite.content.config.ts --mode dev",
-    "build:e2e": "vite build --mode e2e && vite build -c vite.content.config.ts --mode e2e",
+    "build:chromium": "vite build --mode chromium && vite build -c vite.content.config.ts --mode chromium && vite build -c vite.capture.config.ts --mode chromium",
+    "build:firefox": "vite build --mode firefox && vite build -c vite.content.config.ts --mode firefox && vite build -c vite.capture.config.ts --mode firefox",
+    "build:dev": "vite build --mode dev && vite build -c vite.content.config.ts --mode dev && vite build -c vite.capture.config.ts --mode dev",
+    "build:e2e": "vite build --mode e2e && vite build -c vite.content.config.ts --mode e2e && vite build -c vite.capture.config.ts --mode e2e",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "pnpm -w exec eslint apps/extension --max-warnings 0",
     "test": "pnpm -w exec vitest run --project extension",
@@ -16,12 +16,23 @@
     "host:install": "cargo run -p mosaic-native-messaging --bin mosaic-native-host -- install --browsers chrome,edge,chromium"
   },
   "dependencies": {
+    "@fontsource/dm-sans": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
     "@mosaic/design-tokens": "workspace:*",
-    "@mosaic/i18n": "workspace:*"
+    "@mosaic/i18n": "workspace:*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.64.1",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
     "@types/chrome": "0.3.7",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
     "jsdom": "29.1.1",
     "vite": "8.3.5"
   }

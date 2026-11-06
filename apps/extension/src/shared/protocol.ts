@@ -11,6 +11,8 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_FRAME_BYTES = 262_144;
 /** The host waits 15 s for the desktop; the extension waits a little longer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
+/** A save prompt stays open for 300 s on the desktop (SAVE_PROMPT_TIMEOUT). */
+export const SAVE_PROMPT_TIMEOUT_MS = 305_000;
 /** A pairing request stays open for 120 s on the desktop. */
 export const PAIR_TIMEOUT_MS = 125_000;
 /** The port is closed after this long with nothing in flight. */

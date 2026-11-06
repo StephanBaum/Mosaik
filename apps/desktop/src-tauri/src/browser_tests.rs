@@ -2239,6 +2239,9 @@ fn a_request_after_the_pairing_is_gone_is_not_paired_and_closes() {
         env.service().on_unlocked();
         let (id, key) = env.add_pairing("Chrome");
         let mut peer = connect(&env, &id, &key).await.unwrap();
+        // The session registers right after the handshake's first frame; wait for it, so this
+        // test reaches `dispatch` (a removal before registering is refused by `register`).
+        connected_status(&env).await;
         // Removed behind the sessions' back, as a race would do.
         env.service()
             .shared()

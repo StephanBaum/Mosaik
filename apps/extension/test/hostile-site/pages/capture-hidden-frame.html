@@ -1,0 +1,21 @@
+<!-- attempts: clickjack the opt-in save capture. A same-origin frame holding a login the page filled in
+     (capture-frame-form.html) is laid invisibly over a harmless "Continue" button, so the user's real
+     click lands on the frame's submit button and the capture offers to save (or update) the page's
+     password. `?mode=` picks the trick: `opacity` (`opacity: 0`), `filter` (`filter: opacity(0)`);
+     `visible` is the control. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Hidden capture frame</title>
+<style>
+  body { margin: 8px; }
+  #decoy { position: absolute; left: 8px; top: 60px; width: 300px; height: 60px; }
+  #frame { position: absolute; left: 8px; top: 8px; width: 320px; height: 140px; border: 0; z-index: 5; }
+  .opacity { opacity: 0; }
+  .filter { filter: opacity(0); }
+</style>
+<button id="decoy" type="button">Continue</button>
+<iframe id="frame" src="/capture-frame-form.html"></iframe>
+<script>
+  const mode = new URLSearchParams(location.search).get("mode") ?? "visible";
+  if (mode === "opacity" || mode === "filter") document.getElementById("frame").className = mode;
+</script>

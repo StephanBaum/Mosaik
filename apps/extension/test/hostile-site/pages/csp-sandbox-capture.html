@@ -1,0 +1,12 @@
+<!-- attempts: untrusted HTML the site hosts on its own host under `Content-Security-Policy: sandbox`
+     (an opaque origin, while the URL and `location.origin` still name the site) gets a login the user
+     typed there offered for saving as the site's. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>CSP sandbox capture</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <button type="submit">Sign in</button>
+</form>

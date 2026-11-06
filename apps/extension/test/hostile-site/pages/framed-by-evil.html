@@ -1,0 +1,9 @@
+<!-- attempts: (served on evil.test) frame the bank's real login page, so the popup opened on this tab
+     lists the bank's logins for the framed form and a click on Fill or Fill code sends one into it. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Framed by evil</title>
+<iframe id="bank" width="400" height="200"></iframe>
+<script>
+  document.getElementById("bank").src = `${location.protocol}//bank.test:${location.port}/login.html`;
+</script>

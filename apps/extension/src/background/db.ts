@@ -7,6 +7,8 @@ export interface KeyValueStore {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
+  /** Removes everything (the e2e reset; nothing else calls it). */
+  clear(): Promise<void>;
 }
 
 const DB_NAME = "mosaic";
@@ -45,6 +47,9 @@ export function createIndexedDbStore(): KeyValueStore {
     delete: async (key) => {
       await request((await store("readwrite")).delete(key));
     },
+    clear: async () => {
+      await request((await store("readwrite")).clear());
+    },
   };
 }
 
@@ -58,6 +63,10 @@ export function createMemoryStore(): KeyValueStore {
     },
     delete: (key) => {
       map.delete(key);
+      return Promise.resolve();
+    },
+    clear: () => {
+      map.clear();
       return Promise.resolve();
     },
   };

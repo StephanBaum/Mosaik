@@ -42,6 +42,8 @@ export const LOCAL_ERROR_CODES = [
   "frameOpaque",
   "originChanged",
   "pageHidden",
+  "permissionDenied",
+  "generatedExpired",
 ] as const;
 
 export type WireErrorCode = (typeof WIRE_ERROR_CODES)[number];

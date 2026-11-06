@@ -32,11 +32,12 @@ describe("onboarding flow", () => {
     expect(JSON.stringify(state)).not.toContain(SECRET_KEY);
   });
 
-  it("walks through import and done", () => {
+  it("walks through import and the browser step", () => {
     const base: FlowAction[] = [{ type: "created", account }, { type: "kitSaved" }, { type: "verified" }];
-    expect(run([...base, { type: "skip" }]).step).toBe("done");
+    // The optional browser extension step (D06) follows the import, skipped or finished.
+    expect(run([...base, { type: "skip" }]).step).toBe("browser");
     const imported = run([...base, { type: "importStart" }]);
     expect(imported.step).toBe("importing");
-    expect(flowReducer(imported, { type: "done" }).step).toBe("done");
+    expect(flowReducer(imported, { type: "done" }).step).toBe("browser");
   });
 });

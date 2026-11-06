@@ -17,6 +17,10 @@ const FORBIDDEN_TEXT = [
   "pauseAfterProbe",
   "onMessageExternal",
   "onConnectExternal",
+  // The developer command of the "host missing" screen (src/popup/env.ts): dev and e2e builds only.
+  "host:install",
+  // `storage.session` holds pending saves with their passwords; content scripts must keep no access to it.
+  "setAccessLevel",
 ];
 const PERMISSIONS = ["activeTab", "scripting", "nativeMessaging", "contextMenus", "storage"];
 const FORBIDDEN_KEYS = [
@@ -29,6 +33,12 @@ const FORBIDDEN_KEYS = [
 ];
 const OPTIONAL_HOSTS = ["http://*/*", "https://*/*"];
 const TEXT_FILE = /\.(js|mjs|html|css|json)$/;
+// The package's own entry points: the capture script is registered at run time (never a
+// `content_scripts` entry), so it must be shipped as a file but not be in the manifest.
+const REQUIRED_FILES = ["manifest.json", "popup.html", "background.js", "content.js", "capture.js"];
+// Page scripts never listen to page messages (docs/EXTENSION_SECURITY.md, "who may talk to whom").
+const PAGE_SCRIPTS = ["content.js", "capture.js"];
+const MESSAGE_LISTENER = /addEventListener\(\s*["'`]message["'`]|\.onmessage\b|\bonmessage\s*=/;
 
 /** @param {string} dir @returns {string[]} */
 function walk(dir) {
@@ -44,6 +54,16 @@ function check(name) {
     return [`${name}: dist/${name}/manifest.json is missing (run pnpm build first)`];
   }
   const problems = [];
+  for (const required of REQUIRED_FILES) {
+    if (!existsSync(join(dir, required))) {
+      problems.push(`${name}: ${required} is missing`);
+    }
+  }
+  for (const script of PAGE_SCRIPTS) {
+    if (existsSync(join(dir, script)) && MESSAGE_LISTENER.test(readFileSync(join(dir, script), "utf8"))) {
+      problems.push(`${name}: ${script} listens to page messages`);
+    }
+  }
   for (const file of walk(dir).filter((f) => TEXT_FILE.test(f))) {
     const text = readFileSync(file, "utf8");
     for (const word of FORBIDDEN_TEXT) {

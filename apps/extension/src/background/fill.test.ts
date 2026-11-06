@@ -111,7 +111,7 @@ const request = (over: Partial<FillRequest> = {}): FillRequest => ({
   menuFrameId: null,
   item: null,
   otpOnly: false,
-  confirmFrame: false,
+  confirmFrame: null,
   ...over,
 });
 
@@ -205,7 +205,7 @@ describe("frames", () => {
 
   it("never fills an A-B-A frame, even when the user confirms", async () => {
     h.setProbes([frame(0, { counts: { username: 0, password: 0, newPassword: 0, otp: 0 } }), frame(3, { ancestorsSameOrigin: false })]);
-    const outcome = await runFill(h.deps, request({ gesture: "popup", confirmFrame: true, item: { vaultId: "v1", itemId: "i1", title: null, username: null, hasOtp: null } }));
+    const outcome = await runFill(h.deps, request({ gesture: "popup", confirmFrame: { frameId: 3, documentId: "doc-3" }, item: { vaultId: "v1", itemId: "i1", title: null, username: null, hasOtp: null } }));
     expect(failure(outcome)).toBe("crossOriginFrame");
     expect(filledOps(h)).toBe(0);
   });
@@ -215,10 +215,35 @@ describe("frames", () => {
     expect(failure(await runFill(h.deps, request()))).toBe("frameNeedsConfirmation");
     expect(h.requests).toEqual([]);
     const item = { vaultId: "v1", itemId: "i1", title: null, username: null, hasOtp: null };
-    const outcome = await runFill(h.deps, request({ gesture: "popup", confirmFrame: true, item }));
+    const outcome = await runFill(h.deps, request({ gesture: "popup", confirmFrame: { frameId: 5, documentId: "doc-5" }, item }));
     expect(outcome.ok).toBe(true);
     expect(h.requests[0]).toMatchObject({ op: "fill", body: { frame: "sameOriginFrame", origin: TOP, topOrigin: TOP } });
     expect(h.sent[0]?.frame).toEqual({ frameId: 5, documentId: "doc-5" });
+  });
+
+  it("binds a frame confirmation to the frame and document the popup showed", async () => {
+    const item = { vaultId: "v1", itemId: "i1", title: null, username: null, hasOtp: null };
+    const none = { username: 0, password: 0, newPassword: 0, otp: 0 };
+    const attempt = async (confirmFrame: FillRequest["confirmFrame"]): Promise<string> =>
+      failure(await runFill(h.deps, request({ gesture: "popup", confirmFrame, item })));
+    h.setProbes([frame(0, { counts: none }), frame(5, { documentId: "doc-new" })]);
+    // The popup showed frame 5 as document "doc-5": the page has navigated that frame since.
+    expect(await attempt({ frameId: 5, documentId: "doc-5" })).toBe("frameNeedsConfirmation");
+    // The popup showed another frame; the page moved the fields to frame 5.
+    expect(await attempt({ frameId: 7, documentId: "doc-new" })).toBe("frameNeedsConfirmation");
+    // A confirmation of a document is not one of "no document" either.
+    expect(await attempt({ frameId: 5, documentId: null })).toBe("frameNeedsConfirmation");
+    expect(h.requests).toEqual([]);
+    expect(await attempt({ frameId: 5, documentId: "doc-new" })).toBe("ok");
+    expect(filledOps(h)).toBe(1);
+  });
+
+  it("compares frame ids alone where the browser gives no document id", async () => {
+    const none = { username: 0, password: 0, newPassword: 0, otp: 0 };
+    h.setProbes([frame(0, { counts: none }), frame(5, { documentId: null })]);
+    const item = { vaultId: "v1", itemId: "i1", title: null, username: null, hasOtp: null };
+    const outcome = await runFill(h.deps, request({ gesture: "popup", confirmFrame: { frameId: 5, documentId: null }, item }));
+    expect(outcome.ok).toBe(true);
   });
 
   it("fills the top frame and not an iframe that also has fields", async () => {
@@ -313,5 +338,38 @@ describe("a generated password held for a fill", () => {
     hold.hold("held-pw", { tabId: TAB, origin: TOP });
     h.now.value += 120_000;
     expect(hold.take({ tabId: TAB, origin: TOP })).toBeNull();
+  });
+
+  it("is required by the popup: a password the popup showed that is gone is not replaced by another", async () => {
+    h.setProbes([signUp]);
+    const hold = new GeneratedHold(() => h.now.value);
+    hold.hold("held-pw", { tabId: TAB, origin: "https://other.test" });
+    const outcome = await fillGeneratedPassword(h.deps, request({ gesture: "popup", requireHeld: true }), hold);
+    expect(failure(outcome)).toBe("generatedExpired");
+    expect(h.sent).toEqual([]);
+    expect(h.requests.filter((r) => r.op === "generate")).toHaveLength(0);
+  });
+
+  it("is cleared by the fill and offered to the save flow once, for this tab and origin", async () => {
+    h.setProbes([signUp]);
+    h.setReply({ ok: true, filled: { username: 0, password: 0, otp: 0, newPassword: 2 }, usernameValue: "ada@bank.test" });
+    const seen: unknown[] = [];
+    const deps: FillDeps = { ...h.deps, onGenerated: (filled) => { seen.push(filled); return Promise.resolve(); } };
+    const hold = new GeneratedHold(() => h.now.value);
+    hold.hold("held-pw", { tabId: TAB, origin: TOP });
+    expect(hold.has({ tabId: TAB, origin: TOP })).toBe(true);
+    expect(hold.has({ tabId: TAB + 1, origin: TOP })).toBe(false);
+    await fillGeneratedPassword(deps, request({ gesture: "popup", requireHeld: true }), hold);
+    expect(seen).toEqual([{ tabId: TAB, origin: TOP, topOrigin: TOP, username: "ada@bank.test", password: "held-pw" }]);
+    expect(hold.has({ tabId: TAB, origin: TOP })).toBe(false);
+  });
+
+  it("is not offered for saving when the page refused the fill", async () => {
+    h.setProbes([signUp]);
+    h.setReply({ ok: false, error: "originChanged" });
+    const seen: unknown[] = [];
+    const deps: FillDeps = { ...h.deps, onGenerated: (filled) => { seen.push(filled); return Promise.resolve(); } };
+    await fillGeneratedPassword(deps, request({ gesture: "menu" }), new GeneratedHold(() => h.now.value));
+    expect(seen).toEqual([]);
   });
 });

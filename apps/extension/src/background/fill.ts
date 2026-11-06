@@ -5,7 +5,7 @@
  */
 import { ExtensionError, errorCodeOf, type ErrorCode } from "../shared/errors.ts";
 import { newFillId } from "../shared/ids.ts";
-import type { FillReply, FillSummary, FrameProbe } from "../shared/messages.ts";
+import type { FillReply, FillSummary, FrameProbe, FrameRef } from "../shared/messages.ts";
 import { originOf } from "../shared/origin.ts";
 import type { LoginMatch, RequestMap, ResultMap } from "../shared/protocol.ts";
 import type { Badge } from "./badge.ts";
@@ -24,6 +24,17 @@ export interface FillDeps {
   session: SessionStore;
   badge: Badge;
   now: () => number;
+  /** A generated password was filled into a form: the save flow keeps it for a save prompt. */
+  onGenerated?: (filled: GeneratedFill) => Promise<void>;
+}
+
+/** A generated password that reached a form, for the pending save (bound to its tab and origin). */
+export interface GeneratedFill {
+  tabId: number;
+  origin: string;
+  topOrigin: string;
+  username: string | null;
+  password: string;
 }
 
 export interface FillRequest {
@@ -36,7 +47,13 @@ export interface FillRequest {
   /** The item the user chose; null lets the shortcut and the menu pick the first match. */
   item: ItemRef | null;
   otpOnly: boolean;
-  confirmFrame: boolean;
+  /**
+   * The frame the user confirmed in the popup, as the popup showed it. It counts only when
+   * it is the frame (and document) that is the target at fill time.
+   */
+  confirmFrame: FrameRef | null;
+  /** Popup only: fill the password the popup generated and showed, never a new one. */
+  requireHeld?: boolean;
 }
 
 export interface ItemRef {
@@ -83,11 +100,16 @@ async function prepare(deps: FillDeps, req: FillRequest): Promise<Prepared> {
   if (target === null) {
     throw new ExtensionError("noFields");
   }
-  const decision = decideFrame(target, topOrigin, req.confirmFrame);
+  const decision = decideFrame(target, topOrigin, isConfirmed(req.confirmFrame, target));
   if (!decision.ok) {
     throw new ExtensionError(decision.error);
   }
   return { topOrigin, target, frame: decision.frame };
+}
+
+/** A confirmation names one frame and one document; a page that swapped the frame since is not confirmed. */
+export function isConfirmed(confirm: FrameRef | null, target: FrameProbe): boolean {
+  return confirm !== null && confirm.frameId === target.frameId && confirm.documentId === target.documentId;
 }
 
 const frameOf = (p: Prepared): FrameTarget => ({ frameId: p.target.frameId, documentId: p.target.documentId });
@@ -225,6 +247,18 @@ export class GeneratedHold {
     this.#expires = this.#now() + 120_000;
   }
 
+  /** Whether a password is held for exactly this tab and origin and has not expired. */
+  has(scope: HoldScope): boolean {
+    const held = this.#scope;
+    return (
+      this.#value !== null &&
+      held !== null &&
+      held.tabId === scope.tabId &&
+      held.origin === scope.origin &&
+      this.#now() < this.#expires
+    );
+  }
+
   take(scope: HoldScope): string | null {
     const held = this.#scope;
     const fits = held !== null && held.tabId === scope.tabId && held.origin === scope.origin;
@@ -239,6 +273,10 @@ async function generateFor(deps: FillDeps, req: FillRequest, p: Prepared, hold: 
   const held = hold.take({ tabId: req.tabId, origin: p.target.origin });
   if (held !== null) {
     return held;
+  }
+  if (req.requireHeld === true) {
+    // The popup showed a password that is gone (expired, or for another tab or site).
+    throw new ExtensionError("generatedExpired");
   }
   const host = new URL(p.target.origin).hostname;
   const generated = await deps.native.request("generate", {
@@ -258,15 +296,25 @@ export async function fillGeneratedPassword(
     if (p.target.counts.newPassword === 0) {
       throw new ExtensionError("noFields");
     }
+    const password = await generateFor(deps, req, p, hold);
     const message = {
       type: "fillGenerated" as const,
       fillId: newFillId(),
       expectedOrigin: p.target.origin,
-      password: await generateFor(deps, req, p, hold),
+      password,
     };
     let reply: FillReply;
     try {
       reply = await deps.tabs.send(req.tabId, frameOf(p), message);
+      if (reply.ok) {
+        await deps.onGenerated?.({
+          tabId: req.tabId,
+          origin: p.target.origin,
+          topOrigin: p.topOrigin,
+          username: reply.usernameValue,
+          password,
+        });
+      }
     } finally {
       Object.assign(message, { password: null });
     }

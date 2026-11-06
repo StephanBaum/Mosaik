@@ -2741,6 +2741,41 @@ manifest test. Firefox has no automated end-to-end test. T1 (the channel) is in
 `crates/native-messaging` and `mosaic_core::browser_channel`; the extension itself follows in
 T3 and T4.
 
+### Amendment (M4 T4): the popup and the mockup deviations
+
+The popup is React with the holo primary button as a static stripe tile (the PNG tiles from
+`docs/design/holo/`, shipped inside the package, light and dark; no WebGL, and the page CSP
+`img-src 'self'` already allows them), built from the shared tokens, in German and
+English (`ext.*`). Four mockups differ from what is built, each on purpose:
+
+- **E01 (locked).** No master-password field, no "or" divider and no Windows Hello button: the
+  popup says "Mosaic is locked" and offers "Open Mosaic". Unlocking, with any method, happens
+  in the desktop app (item 4). The footer's "Sync paused while locked" becomes "Mosaic is
+  locked": the popup does not know the sync state.
+- **E04 (save prompt).** No title field and no vault field. The popup shows the site, the user
+  name and a hidden password; "Save in Mosaic…" asks the desktop, which opens its own dialog
+  with the title, the vault and the unencrypted-page checkbox (ADR-0038). The password has no
+  "Show password" button: it never needs to be seen in the browser. The update card lower in the
+  mockup is the same card with another title ("Update the saved login for {host}?") and the
+  name of the login it changes.
+- **E05 (address warning).** No "Fill anyway…" and no "Don't fill" button, since there is
+  nothing to choose: Mosaic does not fill a site whose address does not match the saved one.
+  The only way to fill such an address is to change the login in the desktop app (the per-URL
+  HTTP override or eTLD+1 matching, ADR-0037 item 6). The warning shows the address in Unicode
+  and as written, and for a lookalike the saved address beside it.
+- **E07 (one-time code).** No code on screen and no 30-second ring; no "fill the code
+  automatically" checkbox (item 7). The card has "Fill code" and "Copy code"; the code goes
+  from the desktop into the field or onto the clipboard (item 6).
+
+Smaller differences: the header has two views (logins and search, generator) and no lock
+button: E02's Lock button is omitted, because locking stays in the desktop app and the
+extension has no lock op (`lock` is on the never-callable list); the generator's "Fill and save as new login"
+becomes "Fill" (the filled password is then offered for saving like a captured one, ADR-0038
+item 4); the footer shows the link to the desktop instead of the sync state, and the More
+menu holds the save-capture switch and "Disconnect from Mosaic". The popup needs React and
+its test libraries, so the dependency note in item 1 reads: `@types/chrome` for the types,
+React 19 and the two bundled fonts for the popup, the same versions as the desktop app.
+
 ## ADR-0036: Native messaging host, local endpoint and pairing
 
 - Status: proposed
@@ -2880,3 +2915,65 @@ paired extension can list login titles through `search`, test candidate password
 prompt follow the SSH approval pattern (ADR-0025): one at a time, a 1 s Allow guard, expiry
 and lock close them, and the captured password never reaches the webview. The `psl` snapshot
 is only as new as the release.
+
+## ADR-0038: Save and update prompts
+
+- Status: proposed
+- Date: 2026-11-05
+- Decided by: the principal engineer, from brief §9 and §4 (the most conservative options)
+- Milestone: M4 (browser extension)
+
+### Context
+Brief §9 puts save and update prompts into M4. Seeing what a user types needs a script on
+every site, and writing to the vault from the browser is an integrity risk (A4): a page can
+feed the script, and a decision taken in the extension alone would write to the vault.
+
+### Decision
+1. **Capture is off by default.** The popup's "Offer to save logins" switch asks the browser
+   for the optional host permission (`https://*/*`, `http://*/*`) in the click handler, then
+   the background registers `capture.js` with `scripting.registerContentScripts`. Turning the
+   switch off, or the browser taking the permission back, unregisters it. The script is never
+   in the manifest's `content_scripts`, and `check-dist` checks that.
+2. **What counts as a submit.** A trusted click on a button, a submit or button input, or a
+   `role=button` element, or the Enter key in a text box, in the form (or the nearest
+   container of five levels with a password field, never the whole page). The `submit` event
+   is not a trigger: the browser raises it as a trusted event for a script's `requestSubmit()`
+   and `button.click()`, so a page could fake it; a page can also fire it after any real
+   click, so the capture is evidence that the user did something, not that the user
+   submitted these values (R44). At most one capture per 2 s. The script reads the fields of
+   that form only, takes passwords of 1 to 1024 characters, and sends `captured` (user name,
+   password, and for a change form the new password) to the background.
+3. **The background decides where it came from.** Origin and tab come from the browser
+   (`sender.origin`, `sender.tab`), never from the message. The top frame, or a same-origin
+   frame whose ancestors are all same-origin, counts; cross-origin, opaque and hidden-ancestry
+   frames are dropped, as are sites marked "Never". With the desktop unlocked it asks
+   `checkSave`: `unchanged` is dropped; `new` or `update` is kept as a pending save in
+   `storage.session` for five minutes, with the badge `1`. Locked, the capture is kept
+   without an answer and the popup asks when it opens.
+4. **A pending save is bound to its tab and origin.** It is shown, and sent to the desktop,
+   only for the tab's own origin; on another origin (or after five minutes, or when the tab
+   closes or leaves the site) it is dropped. A generated password that the popup or the
+   context menu filled creates the same pending save, from the value that reached the page
+   (a hold is bound to the tab and origin it was made for, is taken once, and the popup's
+   Fill never substitutes another password for the one it showed).
+5. **The desktop confirms.** The popup shows E04 without title and vault fields. "Save in
+   Mosaic…" sends `proposeSave`; the desktop shows its own dialog (title, vault, update or
+   new, the HTTP override checkbox on an unencrypted page, Allow after 1 s) and writes the
+   item itself; the password stays in Rust. An update puts the old password into the item's
+   history. "Not now" drops the pending save; "Never for this site" stores the origin in the
+   extension's IndexedDB (`neverSave:<origin>`) and drops it.
+6. **Time.** The popup waits for the desktop's answer for up to 305 s (`SAVE_PROMPT_TIMEOUT`
+   plus a margin); the host relay waits 302 s for `proposeSave` (`SAVE_PROMPT_TIMEOUT_SECS`
+   plus 2 s, so it answers before the popup gives up) and 15 s for every other request.
+
+### Alternatives considered
+- Saving directly from the popup: a single decision in the extension would write to the vault.
+- A banner injected into the page: rejected by ADR-0035.
+- Capture without opt-in: broad host access by default.
+- `submit` as the trigger: not a user gesture (item 2).
+
+### Consequences
+Two confirmations (popup and desktop). A pending save survives a service-worker restart but
+not a browser restart. Logins submitted from a custom control that is not a button (a `div`
+with a click handler and no role) are not noticed. The "Never for this site" list has no
+screen yet; clearing the extension's data clears it. R43, R44.
