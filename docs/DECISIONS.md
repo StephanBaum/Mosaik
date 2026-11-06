@@ -2901,7 +2901,7 @@ algorithm, a discoverable flag), `ItemType::Passkey` and a sign count merged by 
    kept out with a warning (ADR-0041). Every relying party must accept ES256, and one
    algorithm means less code to review.
 2. **Primitives and encodings** (D2). ECDSA P-256 with SHA-256 and RFC 6979 nonces from `p256`
-   0.14.0 with the features `ecdsa` and `pkcs8`. The `pkcs8` feature adds two new crates,
+   0.14.0 with the features `alloc`, `ecdsa` and `pkcs8`. The `pkcs8` feature adds two new crates,
    `pkcs8` 0.11.0 and `spki` 0.8.1 (both stable releases, same RustCrypto train as `der` 0.8.3 and
    `sec1` 0.8.1 already in the tree). They are encoding crates, not primitives: PKCS#8 is what
    the model documents and what Bitwarden, KeePassXC and CXF carry; SPKI is what

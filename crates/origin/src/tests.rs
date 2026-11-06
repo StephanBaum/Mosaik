@@ -468,6 +468,128 @@ fn osa_distance_one() {
     }
 }
 
+fn rp(origin: &str, requested: Option<&str>) -> Result<String, RpIdError> {
+    webauthn_rp_id(&page(origin), requested)
+}
+
+#[test]
+fn webauthn_rp_id_table() {
+    use RpIdError::{InsecureOrigin, NotADomain, NotASuffix, NotCanonical, PublicSuffix};
+
+    let ok = |s: &str| Ok(s.to_owned());
+    let cases: [(&str, Option<&str>, Result<String, RpIdError>); 20] = [
+        ("https://example.com", None, ok("example.com")),
+        (
+            "https://login.example.com",
+            Some("example.com"),
+            ok("example.com"),
+        ),
+        (
+            "https://example.com:8443",
+            Some("example.com"),
+            ok("example.com"),
+        ),
+        (
+            "https://example.com",
+            Some("login.example.com"),
+            Err(NotASuffix),
+        ),
+        (
+            "https://evilexample.com",
+            Some("example.com"),
+            Err(NotASuffix),
+        ),
+        (
+            "https://example.com.evil.test",
+            Some("example.com"),
+            Err(NotASuffix),
+        ),
+        ("https://example.com", Some("com"), Err(PublicSuffix)),
+        ("https://example.co.uk", Some("co.uk"), Err(PublicSuffix)),
+        (
+            "https://alice.github.io",
+            Some("github.io"),
+            Err(PublicSuffix),
+        ),
+        (
+            "https://alice.github.io",
+            Some("alice.github.io"),
+            ok("alice.github.io"),
+        ),
+        (
+            "https://example.com",
+            Some("Example.com"),
+            Err(NotCanonical),
+        ),
+        (
+            "https://example.com",
+            Some("example.com."),
+            Err(NotCanonical),
+        ),
+        ("https://example.com", Some(""), Err(NotCanonical)),
+        (
+            "https://xn--bcher-kva.example",
+            Some("xn--bcher-kva.example"),
+            ok("xn--bcher-kva.example"),
+        ),
+        (
+            "https://example.com",
+            Some("b\u{fc}cher.example"),
+            Err(NotCanonical),
+        ),
+        ("http://example.com", None, Err(InsecureOrigin)),
+        ("https://127.0.0.1", None, Err(NotADomain)),
+        ("https://[::1]", None, Err(NotADomain)),
+        ("https://localhost", None, Err(NotADomain)),
+        ("https://bank.test", None, ok("bank.test")),
+    ];
+    for (origin, requested, expected) in cases {
+        assert_eq!(rp(origin, requested), expected, "{origin} {requested:?}");
+    }
+}
+
+#[test]
+fn webauthn_rp_id_checks_in_order() {
+    // Insecure beats everything else, loopback beats a bad rp id.
+    assert_eq!(
+        rp("http://127.0.0.1", Some("")),
+        Err(RpIdError::InsecureOrigin)
+    );
+    assert_eq!(
+        rp("https://localhost", Some("")),
+        Err(RpIdError::NotADomain)
+    );
+    assert_eq!(
+        rp("https://app.localhost", None),
+        Err(RpIdError::NotADomain)
+    );
+    // Canonical beats suffix, suffix beats public suffix.
+    assert_eq!(
+        rp("https://example.com", Some("COM")),
+        Err(RpIdError::NotCanonical)
+    );
+    assert_eq!(
+        rp("https://example.com", Some("org")),
+        Err(RpIdError::NotASuffix)
+    );
+    // A trailing-dot host is not canonical, and the length limit applies.
+    assert_eq!(
+        rp("https://example.com.", None),
+        Err(RpIdError::NotCanonical)
+    );
+    let long = format!("{}.com", vec!["a".repeat(62); 4].join("."));
+    assert!(long.len() > MAX_RP_ID_LEN);
+    assert_eq!(
+        rp(&format!("https://{long}"), Some(&long)),
+        Err(RpIdError::NotCanonical)
+    );
+    // An IP literal is never an rp id, even for a domain origin.
+    assert_eq!(
+        rp("https://example.com", Some("127.0.0.1")),
+        Err(RpIdError::NotCanonical)
+    );
+}
+
 mod props {
     use super::*;
     use proptest::prelude::*;
@@ -528,6 +650,32 @@ mod props {
             ) else { return Ok(()); };
             let url = saved(&sa.serialize(), UrlMatch::ExactOrigin, true);
             prop_assert_eq!(fill_allowed(&url, &pb).is_ok(), sa == pb);
+        }
+
+        #[test]
+        fn an_ok_rp_id_is_the_host_or_a_dot_suffix_of_it(
+            h in host(),
+            n in 0usize..4,
+            default in any::<bool>(),
+        ) {
+            let Ok(origin) = PageOrigin::parse(&format!("https://{h}")) else { return Ok(()); };
+            let host = origin.host_str();
+            // Candidate rp ids: the host itself and each dot-suffix of it.
+            let labels: Vec<&str> = host.split('.').collect();
+            let rp_id = labels[n.min(labels.len() - 1)..].join(".");
+            let requested = if default { None } else { Some(rp_id.as_str()) };
+            if let Ok(rp) = webauthn_rp_id(&origin, requested) {
+                let suffix = format!(".{rp}");
+                prop_assert!(host == rp || host.ends_with(&suffix));
+                prop_assert!(registrable_domain(&rp).is_some());
+            }
+        }
+
+        #[test]
+        fn webauthn_rp_id_never_panics(h in host(), requested in ".{0,300}") {
+            if let Ok(origin) = PageOrigin::parse(&format!("https://{h}")) {
+                let _ = webauthn_rp_id(&origin, Some(&requested));
+            }
         }
 
         #[test]

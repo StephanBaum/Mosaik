@@ -1,6 +1,6 @@
 [package]
 name = "mosaic-passkey"
-description = "Mosaic WebAuthn authenticator logic"
+description = "Mosaic WebAuthn authenticator logic: ES256 software authenticator, encodings and assertions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,3 +11,16 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+mosaic-core = { path = "../core" }
+# ECDSA P-256 / RFC 6979 signing and PKCS#8 / SPKI encodings (ADR-0039).
+p256.workspace = true
+# rpIdHash and clientDataJSON hash.
+sha2.workspace = true
+# base64url without padding (WebAuthn's encoding).
+base64ct = { workspace = true, features = ["alloc"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+hex-literal.workspace = true
+proptest.workspace = true
+serde_json.workspace = true

@@ -36,7 +36,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Streaming AEAD (attachments) | STREAM (big-endian 32-bit counter) over XChaCha20-Poly1305 | Hoang, Reyhanitabar, Rogaway, Vizár 2015 | `chacha20poly1305` / `aead::stream` |
 | Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` |
 | Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` |
-| Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`) |
+| Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`) |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
