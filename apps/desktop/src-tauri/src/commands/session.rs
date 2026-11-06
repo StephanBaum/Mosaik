@@ -169,6 +169,8 @@ impl Backend {
         {
             let _ = self.adapters.ssh.start(session, self.event_sink());
         }
+        // Unlocking (password, biometrics or a security key) verifies the user.
+        self.note_user_verification();
         self.run_unlock_hooks();
     }
 
@@ -445,6 +447,7 @@ impl Backend {
             *wrong = 0;
         }
         self.quick_unlock.on_lock();
+        self.clear_user_verification();
         if let Ok(mut pending) = self.kit_pending.lock() {
             *pending = None;
         }
@@ -477,15 +480,25 @@ impl Backend {
     /// # Errors
     /// `locked`, `secretKeyRequired`, `wrongCredentials`, `emptyPassword`.
     pub fn reauthenticate(&self, password: SecretIn) -> IpcResult<()> {
-        let password = master_password(password);
+        self.reauthenticate_master(&master_password(password))
+    }
+
+    /// [`Backend::reauthenticate`] for a password already in a zeroizing
+    /// type (the passkey dialog's confirmation). A right password also marks
+    /// the user as verified for passkeys ([`Backend::note_user_verification`]).
+    ///
+    /// # Errors
+    /// As [`Backend::reauthenticate`].
+    pub(crate) fn reauthenticate_master(&self, password: &MasterPassword) -> IpcResult<()> {
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         let key = self
             .secret_key_of(session.account_id())
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
-        match session.verify_master_password(&password, &key) {
+        match session.verify_master_password(password, &key) {
             Ok(proof) => {
                 self.quick_unlock.grant_reauth(proof);
+                self.note_user_verification();
                 Ok(())
             }
             Err(SessionError::UnlockFailed) => {

@@ -42,6 +42,7 @@ function detail(kind: ItemKind, over: Partial<ItemDetail> = {}): ItemDetail {
     historyCount: 0,
     review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
     sshKey: null,
+    passkey: null,
     ...over,
   };
 }

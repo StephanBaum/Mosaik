@@ -195,6 +195,10 @@ export const ext = {
   "ext.error.clipboardUnavailable":
     "Mosaic couldn't use the clipboard. Try again, or copy it in the Mosaic app.",
   "ext.error.cancelled": "Cancelled in the Mosaic app. Try again when you're ready.",
+  "ext.error.passkeyNotFound": "Mosaic has no passkey for this site.",
+  "ext.error.passkeyExcluded": "You already have a passkey for this account in Mosaic.",
+  "ext.error.rpIdMismatch": "This site can't use a passkey for that domain, so Mosaic didn't answer.",
+  "ext.error.passkeyUnsupported": "Mosaic can't make a passkey with the options this site asked for.",
   "ext.error.pairingDenied":
     "The connection was denied in the Mosaic app. Choose Connect to try again, then choose Allow.",
   "ext.error.pairingExpired": "The connection request ran out of time. Choose Connect to start again.",

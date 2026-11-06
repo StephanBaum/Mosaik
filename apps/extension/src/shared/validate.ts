@@ -135,6 +135,34 @@ export const copySource = tagged<CopySource>("kind", {
 export const isGenerateRequest = (value: unknown): value is RequestMap["generate"]["request"] =>
   isRecord(value) && typeof value["kind"] === "string";
 
+/** Base64url without padding, at most `maxBytes` of decoded data. */
+const b64url = (maxBytes: number): Guard<string> => {
+  const maxChars = Math.ceil((maxBytes * 4) / 3);
+  return (value): value is string =>
+    typeof value === "string" && value.length <= maxChars && /^[A-Za-z0-9_-]*$/.test(value);
+};
+const userVerification = lit("required", "preferred", "discouraged");
+const requestHex = hex(32);
+
+const createdCredential = obj({
+  credentialId: b64url(1023),
+  clientDataJson: b64url(4096),
+  attestationObject: b64url(4096),
+  authenticatorData: b64url(4096),
+  publicKeySpki: b64url(512),
+  publicKeyAlgorithm: int(-65_536, 65_536),
+  vaultId: id,
+  itemId: id,
+});
+
+const assertionBody = obj({
+  credentialId: b64url(1023),
+  clientDataJson: b64url(4096),
+  authenticatorData: b64url(4096),
+  signature: b64url(512),
+  userHandle: b64url(64),
+});
+
 const saveBody = obj({ origin, topOrigin: origin, username: nullable(str(256)), password: str(1024) });
 
 type Guards<M> = { readonly [O in Op]: Guard<M[O & keyof M]> };
@@ -159,6 +187,29 @@ const requestGuards: Guards<RequestMap> = {
   checkSave: saveBody,
   proposeSave: saveBody,
   unpair: empty,
+  passkeyCreate: obj({
+    requestId: requestHex,
+    origin,
+    topOrigin: origin,
+    rpId: nullable(str(253)),
+    userId: b64url(64),
+    userName: str(256),
+    userDisplayName: str(256),
+    challenge: b64url(1024),
+    algorithms: arr(int(-65_536, 65_536), 16),
+    excludeCredentials: arr(b64url(1023), 64),
+    userVerification,
+  }),
+  passkeyGet: obj({
+    requestId: requestHex,
+    origin,
+    topOrigin: origin,
+    rpId: nullable(str(253)),
+    challenge: b64url(1024),
+    allowCredentials: arr(b64url(1023), 64),
+    userVerification,
+  }),
+  passkeyCancel: obj({ requestId: requestHex }),
 };
 
 const resultGuards: Guards<ResultMap> = {
@@ -183,6 +234,15 @@ const resultGuards: Guards<ResultMap> = {
     itemId: nullable(id),
   }),
   unpair: empty,
+  passkeyCreate: obj({
+    outcome: lit("created", "useAnotherDevice"),
+    credential: nullable(createdCredential),
+  }),
+  passkeyGet: obj({
+    outcome: lit("asserted", "useAnotherDevice"),
+    assertion: nullable(assertionBody),
+  }),
+  passkeyCancel: empty,
 };
 
 export function isOp(value: unknown): value is Op {

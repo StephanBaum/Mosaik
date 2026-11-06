@@ -15,20 +15,26 @@
 //!   the library's server-side handshake, and the AEAD request loop.
 //! - `handlers`: the allowlist. Every op the extension may call is one arm of
 //!   one `match`; nothing else exists. The ops run on the blocking pool.
-//! - `fill`, `save`: the vault side (`Backend::browser_*`), through
-//!   `mosaic-origin` for every match decision.
+//! - `fill`, `save`, `passkey`: the vault side (`Backend::browser_*`),
+//!   through `mosaic-origin` for every match decision.
 //! - `prompts`: the single pairing prompt and the single save prompt, with
-//!   the 1 s Allow guard and the expiry; `registry`: the paired browsers;
-//!   `ratelimit`: sliding windows.
+//!   the 1 s Allow guard and the expiry; `passkey_prompt`: the single
+//!   passkey prompt; `registry`: the paired browsers; `ratelimit`: sliding
+//!   windows.
 //!
-//! Activity policy: only `fill` and `copy` count as user activity
-//! (`Backend::touch`), so a script that polls the endpoint cannot keep the
-//! vault from auto-locking. Secrets leave this module only in a `fill`
-//! response, a `generate` response, and the clipboard.
+//! Activity policy: only `fill` and `copy`, and a **completed** passkey
+//! create or assertion, count as user activity (`Backend::touch`), so a
+//! script that polls the endpoint, or opens dialogs nobody answers, cannot
+//! keep the vault from auto-locking. Secrets leave this module only in a
+//! `fill` response, a `generate` response, and the clipboard; a passkey
+//! response carries a signature and the new credential's public key, never a
+//! private key.
 
 mod connection;
 mod fill;
 mod handlers;
+mod passkey;
+mod passkey_prompt;
 mod prompts;
 mod ratelimit;
 mod registry;
@@ -53,6 +59,8 @@ use crate::contract::ids::UnixMillis;
 use crate::state::Backend;
 
 pub use connection::Out;
+#[cfg(test)]
+pub(crate) use passkey::CreatePlan;
 pub use prompts::{PairOutcome, Prompts};
 pub use ratelimit::{Bucket, RateLimits};
 pub use registry::{Registry, RegistryError, label_is_valid};
@@ -67,16 +75,21 @@ pub struct Limits {
     pub pair_timeout: Duration,
     /// How long a save request stays open.
     pub save_timeout: Duration,
+    /// How long a passkey request stays open.
+    pub passkey_timeout: Duration,
     /// A session with no request for this long is closed.
     pub idle: Duration,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        use mosaic_native_messaging::protocol::{PAIR_TIMEOUT_SECS, SAVE_PROMPT_TIMEOUT_SECS};
+        use mosaic_native_messaging::protocol::{
+            PAIR_TIMEOUT_SECS, PASSKEY_PROMPT_TIMEOUT_SECS, SAVE_PROMPT_TIMEOUT_SECS,
+        };
         Self {
             pair_timeout: Duration::from_secs(PAIR_TIMEOUT_SECS),
             save_timeout: Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS),
+            passkey_timeout: Duration::from_secs(PASSKEY_PROMPT_TIMEOUT_SECS),
             idle: Duration::from_mins(10),
         }
     }

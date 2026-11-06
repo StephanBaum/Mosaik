@@ -152,6 +152,7 @@ function detailOf(over: Partial<Detail> & { kind: Detail["summary"]["kind"] }): 
     historyCount: 0,
     review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
     sshKey: null,
+    passkey: null,
     ...rest,
   };
 }

@@ -515,6 +515,9 @@ async fn run_session<S>(
     shared.unregister(id);
     // A save prompt of this connection has nobody to answer to.
     shared.close_saves_where(BrowserCloseReason::Disconnected, |save| save.conn == id);
+    shared.close_passkeys_where(BrowserCloseReason::Disconnected, |passkey| {
+        passkey.conn == id
+    });
     shared.pairings_changed();
 }
 

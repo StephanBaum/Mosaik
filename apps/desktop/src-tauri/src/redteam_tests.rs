@@ -1418,3 +1418,135 @@ fn item_titles_with_invisible_or_direction_changing_characters_are_refused() {
     })));
     assert_eq!(code(edit.unwrap_err()), ErrorCode::InvalidInput, "update");
 }
+
+// ---------------------------------------------------------------------------
+// 9. A passkey's private key (M5, ADR-0039 D7)
+// ---------------------------------------------------------------------------
+
+/// Every way a private key might be written out: hex, base64, base64url, as a
+/// JSON array, for the whole PKCS#8 document and for the bare scalar.
+pub(crate) fn key_needles(pkcs8: &[u8]) -> Vec<String> {
+    use core::fmt::Write as _;
+
+    use p256::pkcs8::DecodePrivateKey as _;
+    let scalar = p256::SecretKey::from_pkcs8_der(pkcs8).unwrap().to_bytes();
+    let mut needles = Vec::new();
+    for bytes in [pkcs8, scalar.as_slice()] {
+        let url = mosaic_passkey::b64url(bytes);
+        needles.push(url.replace('-', "+").replace('_', "/"));
+        needles.push(url);
+        needles.push(bytes.iter().fold(String::new(), |mut hex, b| {
+            let _ = write!(hex, "{b:02x}");
+            hex
+        }));
+        needles.push(serde_json::to_string(&bytes.to_vec()).unwrap());
+    }
+    needles
+}
+
+#[test]
+fn a_passkey_private_key_reaches_no_command_and_no_item_view() {
+    use mosaic_core::Timestamp;
+    use mosaic_core::model::{ItemType, PasskeyCredential, Text};
+    use mosaic_passkey::CreateInput;
+
+    let _kdf = crate::test_support::kdf_permit();
+    let clipboard = MemoryClipboard::default();
+    let b = Backend::new(
+        Slot::Locked(LockedSession::open(Store::open_in_memory().unwrap())),
+        Box::new(MemoryKeystore::default()),
+        || Ok(Argon2Profile::Baseline),
+    )
+    .with_clipboard(clipboard.factory());
+    create(&b);
+    let vault = first_vault(&b);
+    let created = mosaic_passkey::create(&CreateInput {
+        rp_id: "example.com",
+        origin: "https://example.com",
+        challenge: &[7; 32],
+        user_handle: &[9; 16],
+        algorithms: &[-7],
+        user_verified: false,
+    })
+    .unwrap();
+    let der = created.private_key_pkcs8.expose_secret().to_vec();
+    let mut credential = PasskeyCredential::new(
+        created.credential_id,
+        Text::new("example.com"),
+        vec![9; 16],
+        created.private_key_pkcs8,
+        -7,
+        Timestamp::from_unix_millis(1_000),
+    );
+    credential.user_name = Text::new("red");
+    let item = {
+        let mut slot = b.slot().unwrap();
+        let session = slot.unlocked_mut().unwrap();
+        let vault_id = session.vaults()[0].vault_id;
+        session
+            .add_item(vault_id, &ItemType::Passkey, |e| {
+                e.set_title("example.com")?;
+                e.set_passkey(&credential)
+            })
+            .unwrap()
+            .to_string()
+    };
+    let needles = key_needles(&der);
+
+    let mut views = Vec::new();
+    let detail = b
+        .get_item(typed(json!({ "vaultId": vault, "itemId": item })))
+        .unwrap();
+    assert!(detail.secrets.is_empty() && detail.passkey.is_some());
+    views.push(serde_json::to_string(&detail).unwrap());
+    for query in [Value::Null, json!("example")] {
+        let listed = b
+            .list_items(&typed(json!({
+                "vaultId": null, "trash": "include", "favoritesOnly": false, "query": query
+            })))
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        views.push(serde_json::to_string(&listed).unwrap());
+    }
+    // No secret field, hidden field or history entry is the key.
+    let fields: Vec<Value> = crate::contract::items::SecretFieldKey::ALL
+        .iter()
+        .map(|field| serde_json::to_value(field).unwrap())
+        .collect();
+    for field in &fields {
+        let revealed = b.reveal_secret(&typed(json!({
+            "vaultId": vault, "itemId": item, "secret": { "kind": "field", "field": field }
+        })));
+        assert_eq!(
+            code(revealed.unwrap_err()),
+            ErrorCode::FieldEmpty,
+            "{field}"
+        );
+        let copied = b.copy_to_clipboard(typed(json!({
+            "source": { "kind": "item", "vaultId": vault, "itemId": item,
+                        "field": { "kind": "secret", "field": field } }
+        })));
+        assert!(copied.is_err(), "{field}");
+    }
+    for secret in [
+        json!({ "kind": "history", "index": 0 }),
+        json!({ "kind": "customField", "elementId": "passkey" }),
+        json!({ "kind": "customField", "elementId": "private_key" }),
+    ] {
+        let revealed = b.reveal_secret(&typed(json!({
+            "vaultId": vault, "itemId": item, "secret": secret
+        })));
+        assert!(revealed.is_err(), "{secret}");
+    }
+    assert!(clipboard.content().is_none(), "nothing was copied");
+
+    for view in &views {
+        assert!(
+            !view.contains("privateKey") && !view.contains("private_key"),
+            "{view}"
+        );
+        for needle in &needles {
+            assert!(!view.contains(needle.as_str()), "{view}");
+        }
+    }
+}

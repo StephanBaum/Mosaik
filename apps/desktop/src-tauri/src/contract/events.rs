@@ -5,7 +5,9 @@
 
 use serde::Serialize;
 
-use super::browser::{BrowserCloseReason, BrowserPairingRequest, BrowserSaveRequest};
+use super::browser::{
+    BrowserCloseReason, BrowserPairingRequest, BrowserPasskeyRequest, BrowserSaveRequest,
+};
 use super::errors::ErrorCode;
 use super::ids::UnixMillis;
 use super::ids::{WireItemId, WireVaultId};
@@ -136,6 +138,19 @@ pub enum AppEvent {
         /// Why.
         reason: BrowserCloseReason,
     },
+    /// The extension asks to create or use a passkey. The UI shows the
+    /// request and waits for the user (`browser_passkey_respond`).
+    BrowserPasskeyRequested {
+        /// The request.
+        request: BrowserPasskeyRequest,
+    },
+    /// A passkey request is no longer open.
+    BrowserPasskeyClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: BrowserCloseReason,
+    },
     /// A browser was paired or removed, or connected or disconnected: read
     /// `browser_status` again.
     BrowserPairingsChanged,
@@ -203,6 +218,19 @@ pub(crate) mod samples {
                 request_id: browser::request_id(),
                 reason: BrowserCloseReason::Locked,
             },
+            AppEvent::BrowserPasskeyRequested {
+                request: browser::passkey_get_request(),
+            },
+            AppEvent::BrowserPasskeyRequested {
+                request: browser::passkey_create_request(),
+            },
+            AppEvent::BrowserPasskeyRequested {
+                request: browser::passkey_excluded_request(),
+            },
+            AppEvent::BrowserPasskeyClosed {
+                request_id: browser::request_id(),
+                reason: BrowserCloseReason::AbortedByPage,
+            },
             AppEvent::BrowserPairingsChanged,
         ];
         for event in &all {
@@ -221,6 +249,8 @@ pub(crate) mod samples {
                 | AppEvent::BrowserPairingClosed { .. }
                 | AppEvent::BrowserSaveRequested { .. }
                 | AppEvent::BrowserSaveClosed { .. }
+                | AppEvent::BrowserPasskeyRequested { .. }
+                | AppEvent::BrowserPasskeyClosed { .. }
                 | AppEvent::BrowserPairingsChanged => {}
             }
         }

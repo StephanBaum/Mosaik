@@ -66,6 +66,7 @@
     "allow-browser-status",
     "allow-browser-remove-pairing",
     "allow-browser-pairing-respond",
-    "allow-browser-save-respond"
+    "allow-browser-save-respond",
+    "allow-browser-passkey-respond"
   ]
 }

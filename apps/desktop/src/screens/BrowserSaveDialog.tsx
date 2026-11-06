@@ -4,7 +4,7 @@
  * fixed mask. Cancel has the initial focus and Esc means Cancel; Save stays disabled for 1 s after
  * the dialog opens and after the window regains focus.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useEvents } from "../app/EventsProvider.tsx";
 import { Button } from "../components/Button.tsx";
 import { Dialog } from "../components/Dialog.tsx";
@@ -22,10 +22,10 @@ import type {
   BrowserSaveDecision,
   BrowserSaveRequest,
   IpcError,
-  VaultSummary,
 } from "../ipc/contract/index.ts";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import { Expiry } from "./BrowserPairingDialog.tsx";
+import { useWritableVaults } from "./useWritableVaults.ts";
 
 /** What the password is shown as. */
 export const PASSWORD_MASK = "••••••••";
@@ -40,20 +40,6 @@ export function BrowserSaveDialog() {
     return null;
   }
   return <Prompt key={browser.save.requestId} request={browser.save} />;
-}
-
-/** The vaults a login can be saved to: open ones that are not hardware-protected. */
-function useVaults(): VaultSummary[] {
-  const ipc = useIpc();
-  const [vaults, setVaults] = useState<VaultSummary[]>([]);
-  useEffect(() => {
-    void ipc.call("list_vaults", null).then((result) => {
-      if (result.ok) {
-        setVaults(result.value.filter((v) => v.available && v.protection === "accountKey"));
-      }
-    });
-  }, [ipc]);
-  return vaults;
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -102,7 +88,7 @@ function decisionFor(
 
 /** What the user chose; `decision` is `null` while the choice is incomplete. */
 function useChoice(request: BrowserSaveRequest) {
-  const vaults = useVaults();
+  const vaults = useWritableVaults();
   const [target, setTarget] = useState(request.candidates[0]?.itemId ?? NEW_LOGIN);
   const [title, setTitle] = useState(request.suggestedTitle);
   const [vaultId, setVaultId] = useState("");

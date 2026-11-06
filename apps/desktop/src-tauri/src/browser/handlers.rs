@@ -15,7 +15,8 @@ use std::sync::Arc;
 
 use mosaic_core::SecretString;
 use mosaic_native_messaging::bodies::{
-    CopyBody, Empty, FillBody, GenerateBody, ListForOriginBody, SaveBody, SearchBody, StatusResult,
+    CopyBody, Empty, FillBody, GenerateBody, ListForOriginBody, PasskeyCancelBody,
+    PasskeyCreateBody, PasskeyGetBody, SaveBody, SearchBody, StatusResult,
 };
 use mosaic_native_messaging::protocol::{
     ErrorCode as WireError, MAX_FRAME_BYTES, Op, PROTOCOL_VERSION, RequestEnvelope, error_json,
@@ -26,6 +27,8 @@ use serde_json::value::RawValue;
 use zeroize::Zeroizing;
 
 use super::connection::Ctx;
+use super::passkey::PasskeyPlan;
+use super::passkey_prompt::PasskeyReply;
 use super::prompts::cancelled;
 use super::registry::RegistryError;
 use super::{Bucket, Shared, unix_millis};
@@ -94,14 +97,18 @@ const fn buckets(op: Op) -> &'static [Bucket] {
         Op::Generate => &[Bucket::Generate],
         Op::CheckSave => &[Bucket::CheckSave],
         Op::ProposeSave => &[Bucket::ProposeSave, Bucket::CheckSave],
+        Op::PasskeyCreate => &[Bucket::PasskeyCreate],
+        Op::PasskeyGet => &[Bucket::PasskeyGet],
+        Op::PasskeyCancel => &[Bucket::PasskeyCancel],
         Op::Focus => &[Bucket::Focus],
         Op::Hello | Op::Pair | Op::Status | Op::Unpair => &[],
     }
 }
 
-/// Ops that need the vault unlocked.
+/// Ops that need the vault unlocked. `passkeyCancel` does not: a page that
+/// aborts while the vault locks must still be able to say so.
 const fn needs_unlock(op: Op) -> bool {
-    !matches!(op, Op::Status | Op::Focus | Op::Unpair)
+    !matches!(op, Op::Status | Op::Focus | Op::Unpair | Op::PasskeyCancel)
 }
 
 /// Runs `work` on the blocking pool with the backend.
@@ -198,6 +205,15 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
             )
         }
         Op::ProposeSave => propose_save(ctx, id, raw).await,
+        Op::PasskeyCreate => passkey_create(ctx, id, raw).await,
+        Op::PasskeyGet => passkey_get(ctx, id, raw).await,
+        Op::PasskeyCancel => {
+            let b: PasskeyCancelBody = parse(raw)?;
+            // Always `ok`: whether a request was open is not told to the
+            // page. Only this pairing's own prompt closes.
+            shared.close_passkey_by_request_id(&ctx.pairing, &b.request_id);
+            body(id, &Empty {})
+        }
         // Host-local ops never reach the desktop.
         Op::Hello | Op::Pair => Err(WireError::InvalidRequest),
     }
@@ -236,6 +252,59 @@ async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireE
     body(id, &result)
 }
 
+/// `passkeyCreate`: plan, show the desktop dialog, wait for the answer. The
+/// answer writes the new `passkey` item before it returns.
+async fn passkey_create(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireError> {
+    let request: PasskeyCreateBody = parse(raw)?;
+    // `busy` before any comparison with the vault: while a prompt is open the
+    // answer must not depend on what is saved.
+    if ctx.shared.passkey_is_open() {
+        return Err(WireError::Busy);
+    }
+    let label = ctx.shared.pairing_label(&ctx.pairing)?;
+    let plan = blocking(ctx, move |be| {
+        be.browser_plan_passkey_create(&request, &label)
+    })
+    .await?;
+    let request_id = plan.request_id.clone();
+    let rx = ctx
+        .shared
+        .open_passkey(&ctx.pairing, ctx.conn, PasskeyPlan::Create(plan))?;
+    finish_passkey(ctx, id, &request_id, rx).await
+}
+
+/// `passkeyGet`: plan (no matching passkey answers `passkeyNotFound` without
+/// a dialog), show the desktop dialog, wait, sign.
+async fn passkey_get(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireError> {
+    let request: PasskeyGetBody = parse(raw)?;
+    if ctx.shared.passkey_is_open() {
+        return Err(WireError::Busy);
+    }
+    let label = ctx.shared.pairing_label(&ctx.pairing)?;
+    let plan = blocking(ctx, move |be| be.browser_plan_passkey_get(&request, &label)).await?;
+    let request_id = plan.request_id.clone();
+    let rx = ctx
+        .shared
+        .open_passkey(&ctx.pairing, ctx.conn, PasskeyPlan::Get(plan))?;
+    finish_passkey(ctx, id, &request_id, rx).await
+}
+
+async fn finish_passkey(
+    ctx: &Ctx,
+    id: u32,
+    request_id: &str,
+    rx: tokio::sync::oneshot::Receiver<super::passkey_prompt::PasskeyResult>,
+) -> Result<Reply, WireError> {
+    let reply = ctx.shared.await_passkey(request_id, rx).await?;
+    if reply.completed() {
+        ctx.shared.note_used_blocking(ctx.pairing).await;
+    }
+    match reply {
+        PasskeyReply::Create(result) => body(id, &result),
+        PasskeyReply::Get(result) => body(id, &result),
+    }
+}
+
 impl Shared {
     /// Removes a pairing: the file, the rate-limit windows, its save prompt
     /// and every live session (told `unpaired`, then closed), except
@@ -262,6 +331,9 @@ impl Shared {
         // password is dropped.
         self.close_saves_where(BrowserCloseReason::Disconnected, |save| {
             save.pairing == *pairing
+        });
+        self.close_passkeys_where(BrowserCloseReason::Disconnected, |passkey| {
+            passkey.pairing == *pairing
         });
         self.pairings_changed();
         Ok(removed)

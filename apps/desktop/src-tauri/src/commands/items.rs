@@ -2,7 +2,7 @@
 //! secret that leaves here is the one `reveal_secret` was asked for.
 
 use mosaic_core::model::{
-    CustomFieldValue, Item, ItemType, OtpKind, SecretField, TextField, UrlMatch,
+    CustomFieldValue, Item, ItemType, OtpKind, PasskeyCredential, SecretField, TextField, UrlMatch,
 };
 use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
@@ -17,9 +17,9 @@ use crate::contract::ids::WireVaultId;
 use crate::contract::items::{
     AddItemRequest, AttachmentEntry, CustomFieldEntry, CustomFieldKind, ItemDetail, ItemKind,
     ItemRequest, ItemSummary, ListItemsRequest, MoveItemRequest, MovedItem, OtpScheme, OtpSummary,
-    RevealRequest, RevealedSecret, ReviewState, SecretFieldKey, SecretRef, SetFavoriteRequest,
-    SshKeySummary, TextFieldEntry, TextFieldKey, TrashFilter, UpdateItemRequest, UrlEntry,
-    UrlMatchMode,
+    PasskeyAlgorithm, PasskeySummary, RevealRequest, RevealedSecret, ReviewState, SecretFieldKey,
+    SecretRef, SetFavoriteRequest, SshKeySummary, TextFieldEntry, TextFieldKey, TrashFilter,
+    UpdateItemRequest, UrlEntry, UrlMatchMode,
 };
 use crate::contract::secret::SecretOut;
 use crate::state::{AppState, Backend};
@@ -163,6 +163,20 @@ fn subtitle(kind: ItemKind, item: &Item) -> Option<String> {
     non_empty(item.text(field))
 }
 
+/// The passkey of a `passkey` item. Its private key is dropped (and
+/// zeroized) with the returned value; only the summary leaves this module.
+fn passkey_of(kind: ItemKind, item: &Item) -> Option<PasskeyCredential> {
+    (kind == ItemKind::Passkey)
+        .then(|| item.passkey())
+        .flatten()
+}
+
+/// The first of the user name and the display name that is not blank.
+fn passkey_line(passkey: &PasskeyCredential) -> Option<String> {
+    non_empty(Some(passkey.user_name.as_str()))
+        .or_else(|| non_empty(Some(passkey.user_display_name.as_str())))
+}
+
 fn has_otp(item: &Item) -> bool {
     item.otp().is_some()
         || item
@@ -176,16 +190,23 @@ fn summarize(vault_id: VaultId, item_id: ItemId, item: &Item) -> ItemSummary {
         .item_type()
         .as_ref()
         .map_or(ItemKind::Unsupported, ItemKind::from_model);
+    let passkey = passkey_of(kind, item);
     ItemSummary {
         vault_id: vault_id.into(),
         item_id: item_id.into(),
         kind,
         title: non_empty(item.title()),
-        subtitle: subtitle(kind, item),
-        host: item
-            .urls()
-            .first()
-            .and_then(|(_, url)| host_of(url.url.as_str())),
+        subtitle: passkey
+            .as_ref()
+            .map_or_else(|| subtitle(kind, item), passkey_line),
+        host: passkey.as_ref().map_or_else(
+            || {
+                item.urls()
+                    .first()
+                    .and_then(|(_, url)| host_of(url.url.as_str()))
+            },
+            |p| non_empty(Some(p.rp_id.as_str())),
+        ),
         favorite: item.favorite(),
         has_otp: has_otp(item),
         tags: item.tags().into_iter().map(str::to_owned).collect(),
@@ -235,6 +256,25 @@ fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
             encrypted: false,
             agent_supported: false,
         },
+    })
+}
+
+/// The passkey summary of an item (`None` unless it is a `passkey` item with
+/// a readable credential). The private key is not part of it.
+fn passkey_summary(item: &Item) -> Option<PasskeySummary> {
+    let passkey = item.passkey()?;
+    Some(PasskeySummary {
+        rp_id: passkey.rp_id.as_str().to_owned(),
+        user_name: passkey.user_name.as_str().to_owned(),
+        user_display_name: passkey.user_display_name.as_str().to_owned(),
+        credential_id: mosaic_passkey::b64url(&passkey.credential_id),
+        algorithm: if passkey.algorithm == mosaic_passkey::COSE_ALG_ES256 {
+            PasskeyAlgorithm::Es256
+        } else {
+            PasskeyAlgorithm::Other
+        },
+        created_at: passkey.created_at.as_unix_millis(),
+        sign_count: item.passkey_sign_count(),
     })
 }
 
@@ -332,6 +372,7 @@ pub(super) fn detail(
             conflict_copy_of: item.conflict_copy_of().map(Into::into),
         },
         ssh_key: ssh_summary(item),
+        passkey: passkey_summary(item),
     })
 }
 

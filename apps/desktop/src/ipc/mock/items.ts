@@ -254,6 +254,7 @@ function newItem(state: MockState, request: AddItemRequest): MockItem {
       historyCount: 0,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
+      passkey: null,
     },
     secrets: {},
     history: [],

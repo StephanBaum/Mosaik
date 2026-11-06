@@ -15,7 +15,7 @@ interface EventsContextValue {
   /** Open SSH approval requests, oldest first. */
   ssh: readonly SshApprovalRequest[];
   removeSsh: (requestId: string) => void;
-  /** The browser extension's pairing and save prompts, and the paired-browsers counter. */
+  /** The browser extension's pairing, save and passkey prompts, and the paired-browsers counter. */
   browser: BrowserPrompts;
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;

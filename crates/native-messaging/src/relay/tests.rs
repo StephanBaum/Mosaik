@@ -831,10 +831,24 @@ fn propose_save_waits_for_the_desktop_dialog_and_the_host_answers_first() {
         Op::Copy,
         Op::CheckSave,
         Op::ListForOrigin,
+        Op::PasskeyCancel,
     ] {
         assert_eq!(
             request_timeout(op),
             Duration::from_secs(REQUEST_TIMEOUT_SECS)
+        );
+    }
+}
+
+#[test]
+fn passkey_ops_wait_for_the_desktop_dialog_and_the_host_answers_first() {
+    // passkeyCreate and passkeyGet wait for the user like proposeSave; passkeyCancel is quick.
+    for op in [Op::PasskeyCreate, Op::PasskeyGet] {
+        let wait = request_timeout(op);
+        assert_eq!(wait, Duration::from_secs(PASSKEY_PROMPT_TIMEOUT_SECS + 2));
+        assert!(
+            wait < Duration::from_secs(305),
+            "before the extension gives up"
         );
     }
 }

@@ -21,6 +21,7 @@ import type {
 import { useNow } from "../../time/clock.ts";
 import { groupCardNumber, isExpired } from "./kinds/cardFormat.ts";
 import { layoutOf, type FieldSpec } from "./kinds/layouts.ts";
+import { PasskeyDetails } from "./kinds/PasskeyDetails.tsx";
 import { SshRows } from "./SshRows.tsx";
 import { TotpCode } from "./TotpCode.tsx";
 
@@ -220,6 +221,7 @@ export function DetailFields({ detail, item }: { detail: Detail; item: ItemReque
   return (
     <div className="rows">
       {detail.sshKey !== null && <SshRows summary={detail.sshKey} item={item} />}
+      {detail.passkey !== null && <PasskeyDetails summary={detail.passkey} />}
       <LayoutRows detail={detail} item={item} />
       <OtherRows detail={detail} item={item} />
       {detail.otp !== null && <TotpCode source={{ kind: "item", item }} />}

@@ -93,7 +93,10 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
   );
 }
 
-/** Title, the kind's fields, websites, one-time code, SSH key, tags, notes and custom fields. */
+/**
+ * Title, the kind's fields, websites, one-time code, SSH key, tags, notes and custom fields. A
+ * passkey keeps only title, tags and notes: the rest comes from the site that made it.
+ */
 export function Sections(props: SectionsProps) {
   const { t } = useI18n();
   const { form, initial, editing, errors, onChange } = props;
@@ -146,14 +149,16 @@ export function Sections(props: SectionsProps) {
         />
       )}
       <NotesAndTags form={form} onChange={onChange} />
-      <CustomFieldsEditor
-        rows={form.custom}
-        errors={props.tried ? errors.custom : {}}
-        canAdd={canAddCustomField(form)}
-        onChange={(custom) => {
-          onChange({ custom });
-        }}
-      />
+      {form.kind !== "passkey" && (
+        <CustomFieldsEditor
+          rows={form.custom}
+          errors={props.tried ? errors.custom : {}}
+          canAdd={canAddCustomField(form)}
+          onChange={(custom) => {
+            onChange({ custom });
+          }}
+        />
+      )}
     </>
   );
 }

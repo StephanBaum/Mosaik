@@ -206,6 +206,12 @@ export const ext = {
   "ext.error.clipboardUnavailable":
     "Mosaic konnte die Zwischenablage nicht nutzen. Versuche es erneut oder kopiere in der Mosaic-App.",
   "ext.error.cancelled": "In der Mosaic-App abgebrochen. Versuche es erneut, wenn du so weit bist.",
+  "ext.error.passkeyNotFound": "Mosaic hat keinen Passkey für diese Website.",
+  "ext.error.passkeyExcluded": "Du hast für dieses Konto bereits einen Passkey in Mosaic.",
+  "ext.error.rpIdMismatch":
+    "Diese Website darf keinen Passkey für diese Domain nutzen, deshalb hat Mosaic nicht geantwortet.",
+  "ext.error.passkeyUnsupported":
+    "Mosaic kann mit den Optionen dieser Website keinen Passkey erstellen.",
   "ext.error.pairingDenied":
     "Die Verbindung wurde in der Mosaic-App abgelehnt. Wähle „Verbinden“, um es erneut zu versuchen, und dann „Erlauben“.",
   "ext.error.pairingExpired":

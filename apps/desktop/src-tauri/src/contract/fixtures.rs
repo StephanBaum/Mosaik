@@ -18,8 +18,10 @@ use serde_json::{Map, Value, json};
 use super::attachments::{self, AttachmentAdded, AttachmentSaved};
 use super::browser::{
     self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
-    BrowserPairingRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
+    BrowserPairingRespondRequest, BrowserPasskeyDecision, BrowserPasskeyKind,
+    BrowserPasskeyRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
     BrowserSaveDecision, BrowserSaveKind, BrowserSaveRespondRequest, PairingDecision,
+    PasskeyVerification,
 };
 use super::clipboard;
 use super::errors::ErrorCode;
@@ -33,8 +35,8 @@ use super::import::{
 use super::insights::{self, InsightAction, InsightKind, InsightSeverity};
 use super::items::{
     self, AddItemRequest, CustomFieldKind, ItemKind, ItemRequest, ListItemsRequest,
-    MoveItemRequest, MovedItem, OtpScheme, RevealRequest, RevealedSecret, SecretFieldKey,
-    SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
+    MoveItemRequest, MovedItem, OtpScheme, PasskeyAlgorithm, RevealRequest, RevealedSecret,
+    SecretFieldKey, SetFavoriteRequest, TextFieldKey, TrashFilter, UpdateItemRequest, UrlMatchMode,
 };
 use super::otp::{self, OtpAlgorithm, OtpScanSource, OtpSecretStrength};
 use super::quick_unlock::{self, BiometricPlatformKind};
@@ -303,7 +305,11 @@ fn item_commands(f: &mut Fixtures, item_request: ItemRequest) {
     f.command(
         "get_item",
         vec![item_request],
-        vec![items::samples::detail(), items::samples::ssh_detail()],
+        vec![
+            items::samples::detail(),
+            items::samples::ssh_detail(),
+            items::samples::passkey_detail(),
+        ],
     );
     f.command(
         "reveal_secret",
@@ -577,6 +583,33 @@ fn browser_commands(f: &mut Fixtures) {
         ],
         vec![()],
     );
+    let passkey = |decision, password: Option<&str>| BrowserPasskeyRespondRequest {
+        request_id: browser::samples::request_id(),
+        decision,
+        password: password.map(SecretIn::test),
+    };
+    f.command(
+        "browser_passkey_respond",
+        vec![
+            passkey(
+                BrowserPasskeyDecision::Create {
+                    vault_id: ids::vault(1),
+                },
+                None,
+            ),
+            passkey(
+                BrowserPasskeyDecision::Assert {
+                    vault_id: ids::vault(1),
+                    item_id: ids::item(5),
+                },
+                Some("correct horse battery staple"),
+            ),
+            passkey(BrowserPasskeyDecision::UseAnotherDevice, None),
+            passkey(BrowserPasskeyDecision::Cancel, None),
+            passkey(BrowserPasskeyDecision::Acknowledge, None),
+        ],
+        vec![()],
+    );
 }
 
 /// Every string enum of the contract, by name.
@@ -619,6 +652,9 @@ fn enums() -> Map<String, Value> {
         ("pairingDecision", values(PairingDecision::ALL)),
         ("browserCloseReason", values(BrowserCloseReason::ALL)),
         ("browserSaveKind", values(BrowserSaveKind::ALL)),
+        ("browserPasskeyKind", values(BrowserPasskeyKind::ALL)),
+        ("passkeyVerification", values(PasskeyVerification::ALL)),
+        ("passkeyAlgorithm", values(PasskeyAlgorithm::ALL)),
         ("lockReason", values(LockReason::ALL)),
         ("syncStatus", values(SyncStatus::ALL)),
     ] {

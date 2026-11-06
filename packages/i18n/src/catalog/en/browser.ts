@@ -1,4 +1,4 @@
-/** English UI strings: browser extension (pairing, saving, settings). ICU MessageFormat. */
+/** English UI strings: browser extension (pairing, saving, passkeys, settings). ICU MessageFormat. */
 export const browser = {
   "browser.pair.title": "A browser wants to connect to Mosaic",
   "browser.pair.description":
@@ -44,6 +44,23 @@ export const browser = {
   "browser.save.cancel": "Cancel",
   "browser.save.saveNew": "Save",
   "browser.save.update": "Update password",
+  "browser.passkey.secure": "Secure connection (https)",
+  "browser.passkey.getTitle": "Sign in to {rpId} with a passkey",
+  "browser.passkey.createTitle": "Save a new passkey",
+  "browser.passkey.excludedTitle": "Passkey already saved",
+  "browser.passkey.createBody": "Create a passkey for {rpId} in Mosaic?",
+  "browser.passkey.excludedBody": "You already have a passkey for {rpId} in Mosaic.",
+  "browser.passkey.uvNote":
+    "The site asked for user verification. Enter your master password to confirm it's you.",
+  "browser.passkey.password": "Master password",
+  "browser.passkey.account": "Account",
+  "browser.passkey.noName": "No name",
+  "browser.passkey.vault": "Vault",
+  "browser.passkey.signIn": "Sign in with passkey",
+  "browser.passkey.save": "Save passkey",
+  "browser.passkey.anotherDevice": "Use another device or security key",
+  "browser.passkey.cancel": "Cancel",
+  "browser.passkey.ok": "OK",
   "browser.settings.title": "Browsers",
   "browser.settings.body":
     "Browser extensions that fill logins from this app. You approve each connection here.",

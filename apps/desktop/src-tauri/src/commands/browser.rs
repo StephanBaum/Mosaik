@@ -6,8 +6,8 @@ use tauri::State;
 
 use crate::browser::parse_id;
 use crate::contract::browser::{
-    BrowserPairingRespondRequest, BrowserRemovePairingRequest, BrowserSaveRespondRequest,
-    BrowserStatus,
+    BrowserPairingRespondRequest, BrowserPasskeyRespondRequest, BrowserRemovePairingRequest,
+    BrowserSaveRespondRequest, BrowserStatus,
 };
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::state::{AppState, Backend};
@@ -45,6 +45,17 @@ pub async fn browser_save_respond(
     request: BrowserSaveRespondRequest,
 ) -> IpcResult<()> {
     state.run(move |b| b.browser_save_respond(&request)).await
+}
+
+/// `browser_passkey_respond`.
+#[tauri::command]
+pub async fn browser_passkey_respond(
+    state: State<'_, AppState>,
+    request: BrowserPasskeyRespondRequest,
+) -> IpcResult<()> {
+    state
+        .run(move |b| b.browser_passkey_respond(&request))
+        .await
 }
 
 impl Backend {
@@ -96,5 +107,21 @@ impl Backend {
     pub fn browser_save_respond(&self, request: &BrowserSaveRespondRequest) -> IpcResult<()> {
         self.touch();
         self.browser.shared().respond_save(self, request)
+    }
+}
+
+impl Backend {
+    /// Answers the passkey prompt; a create or a sign-in writes the vault
+    /// (a new `passkey` item, or a raised sign count) before the answer
+    /// reaches the site.
+    ///
+    /// # Errors
+    /// `browserRequestExpired`, `browserAllowTooSoon`, `reauthRequired` (the
+    /// dialog asked for the password), `wrongCredentials`, `vaultNotFound`,
+    /// `vaultUnavailable`, `itemNotFound`, `invalidInput`, `locked`: the
+    /// request stays open after all of them except the first.
+    pub fn browser_passkey_respond(&self, request: &BrowserPasskeyRespondRequest) -> IpcResult<()> {
+        self.touch();
+        self.browser.shared().respond_passkey(self, request)
     }
 }
