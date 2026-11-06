@@ -134,13 +134,15 @@ export const items = {
   "item.passkey.rpId": "Website",
   "item.passkey.userName": "Benutzername",
   "item.passkey.displayName": "Anzeigename",
-  "item.passkey.credentialId": "Zugangsdaten-ID",
+  "item.passkey.credentialId": "Passkey-ID",
   "item.passkey.algorithm": "Algorithmus",
   "item.passkey.algorithmOther": "Anderer (nicht zum Anmelden nutzbar)",
   "item.passkey.created": "Erstellt",
   "item.passkey.createdValue": "{at, date, medium}",
   "item.passkey.note":
-    "Dieser Passkey ist Ende-zu-Ende-verschlüsselt und wird mit deinem Tresor synchronisiert. Sein privater Schlüssel verlässt Mosaic nie.",
+    "Dieser Passkey ist Ende-zu-Ende-verschlüsselt und wird mit deinem Tresor synchronisiert. Sein privater Schlüssel wird nie angezeigt. Du kannst ihn nur über Einstellungen → Passkeys exportieren mitnehmen.",
+  "editor.passkey.fixed":
+    "Website, Konto und Schlüssel stammen von der Website, die diesen Passkey erstellt hat. Du kannst nur Titel, Tags und Notizen ändern.",
   "editor.document.filesAfterSave": "Speichere das Dokument zuerst, dann kannst du Dateien hinzufügen.",
   "editor.titleRequired": "Gib diesem Eintrag einen Titel.",
 } satisfies Record<keyof typeof en, string>;

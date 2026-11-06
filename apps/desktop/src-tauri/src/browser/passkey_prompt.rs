@@ -1,5 +1,5 @@
-//! The passkey prompt of the browser endpoint (M5, ADR-0040 (lands with M5
-//! T3)): one at a time, like the save prompt, with the same 1 s Allow guard
+//! The passkey prompt of the browser endpoint (M5, ADR-0040): one at a
+//! time, like the save prompt, with the same 1 s Allow guard
 //! and expiry.
 //!
 //! The dialog's handle (`requestId` of the events and of

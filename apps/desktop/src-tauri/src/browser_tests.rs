@@ -3862,8 +3862,15 @@ mod passkeys {
         run(async {
             let env = Env::unlocked();
             let mut peer = paired_peer(&env).await;
-            let creates =
-                |n: u8| create_body("https://evil.test", Some("bank.test"), "preferred", n);
+            // Every request comes from another site, so only the pairing's windows count.
+            let creates = |n: u8| {
+                create_body(
+                    &format!("https://evil{n}.test"),
+                    Some("bank.test"),
+                    "preferred",
+                    n,
+                )
+            };
             for n in 0..3 {
                 assert_eq!(
                     peer.call("passkeyCreate", creates(n)).await.unwrap_err(),
@@ -3878,7 +3885,13 @@ mod passkeys {
                 assert_eq!(
                     peer.call(
                         "passkeyGet",
-                        get_body(SITE, Some("example.com"), &[], "preferred", n)
+                        get_body(
+                            &format!("https://s{n}.example.com"),
+                            Some("example.com"),
+                            &[],
+                            "preferred",
+                            n
+                        )
                     )
                     .await
                     .unwrap_err(),
@@ -3888,7 +3901,13 @@ mod passkeys {
             assert_eq!(
                 peer.call(
                     "passkeyGet",
-                    get_body(SITE, Some("example.com"), &[], "preferred", 9)
+                    get_body(
+                        "https://s9.example.com",
+                        Some("example.com"),
+                        &[],
+                        "preferred",
+                        9
+                    )
                 )
                 .await
                 .unwrap_err(),
@@ -3909,6 +3928,78 @@ mod passkeys {
             env.clock.advance(Duration::from_secs(61));
             assert_eq!(
                 peer.call("passkeyCreate", creates(9)).await.unwrap_err(),
+                "rpIdMismatch"
+            );
+        });
+    }
+
+    #[test]
+    fn one_site_cannot_spend_the_passkey_windows_of_another() {
+        run(async {
+            let env = Env::unlocked();
+            let mut peer = paired_peer(&env).await;
+            let evil = |n: u8| create_body("https://evil.test", Some("bank.test"), "preferred", n);
+            let other =
+                |n: u8| create_body("https://other.test", Some("bank.test"), "preferred", n);
+            // A site gets 2 registrations a minute; the third is refused...
+            for n in 0..2 {
+                assert_eq!(
+                    peer.call("passkeyCreate", evil(n)).await.unwrap_err(),
+                    "rpIdMismatch"
+                );
+            }
+            for n in 2..6 {
+                assert_eq!(
+                    peer.call("passkeyCreate", evil(n)).await.unwrap_err(),
+                    "rateLimited"
+                );
+            }
+            // ...without costing the pairing anything: its third window is still free for
+            // another site, and then the pairing's own limit of 3 applies.
+            assert_eq!(
+                peer.call("passkeyCreate", other(7)).await.unwrap_err(),
+                "rpIdMismatch"
+            );
+            assert_eq!(
+                peer.call("passkeyCreate", other(8)).await.unwrap_err(),
+                "rateLimited"
+            );
+            // The same for sign-ins: 6 a minute per site, 10 per pairing. (An origin that is not
+            // in its canonical form is refused `invalidRequest`, so it cannot be a second key.)
+            let get =
+                |origin: &str, n: u8| get_body(origin, Some("example.com"), &[], "preferred", n);
+            for n in 0..6 {
+                assert_eq!(
+                    peer.call("passkeyGet", get("https://a.example.com", n))
+                        .await
+                        .unwrap_err(),
+                    "passkeyNotFound"
+                );
+            }
+            assert_eq!(
+                peer.call("passkeyGet", get("https://a.example.com", 6))
+                    .await
+                    .unwrap_err(),
+                "rateLimited"
+            );
+            for n in 7..11 {
+                assert_eq!(
+                    peer.call("passkeyGet", get("https://b.example.com", n))
+                        .await
+                        .unwrap_err(),
+                    "passkeyNotFound"
+                );
+            }
+            assert_eq!(
+                peer.call("passkeyGet", get("https://c.example.com", 12))
+                    .await
+                    .unwrap_err(),
+                "rateLimited"
+            );
+            // The windows slide.
+            env.clock.advance(Duration::from_secs(61));
+            assert_eq!(
+                peer.call("passkeyCreate", evil(9)).await.unwrap_err(),
                 "rpIdMismatch"
             );
         });

@@ -1,26 +1,16 @@
 /**
- * The desktop's passkey rate windows belong to the pairing, so every site shares them. A page
- * that spends them with forged requests the desktop refuses silently must not turn another
- * site's registration or sign-in into an error: a rate-limited request goes to the browser's own
- * WebAuthn like every other request Mosaic does not answer.
+ * The desktop's passkey rate windows belong to the pairing, but each site also has its own, a
+ * smaller one (2 registrations and 6 sign-ins a minute). A page that spends its own windows with
+ * forged requests the desktop refuses silently is refused `rateLimited` without costing the
+ * pairing anything, so another site's registration and sign-in still reach the Mosaic dialog.
  */
-import {
-  BANK,
-  EVIL,
-  addVirtualAuthenticator,
-  bankRp,
-  expect,
-  open,
-  rpCreate,
-  rpGet,
-  test,
-} from "../fixtures.ts";
+import { BANK, EVIL, bankRp, expect, open, rpCreate, rpGet, test } from "../fixtures.ts";
 
 interface Burner {
   burn(creates: number, gets: number): Promise<unknown[]>;
 }
 
-test("a page that spends the desktop's passkey budget does not take another site's call away from the browser", async ({
+test("a page that spends its own passkey budget does not take another site's call away from Mosaic", async ({
   page,
   context,
   fake,
@@ -32,22 +22,28 @@ test("a page that spends the desktop's passkey budget does not take another site
   // Every forged request was refused without a dialog.
   expect(answers).toEqual(Array.from({ length: 13 }, () => ({ kind: "fallback" })));
   expect(await fake.passkeyPending()).toEqual([]);
-  expect((await fake.passkeyLog()).every((entry) => entry.origin === EVIL)).toBe(true);
+  const burned = await fake.passkeyLog();
+  expect(burned.every((entry) => entry.origin === EVIL)).toBe(true);
+  // The site's own windows (2 and 6) ran out; the pairing's (3 and 10) did not.
+  expect(burned.filter((entry) => entry.result === "rateLimited").map((entry) => entry.op)).toEqual([
+    "passkeyCreate",
+    ...Array.from({ length: 4 }, () => "passkeyGet"),
+  ]);
 
   const bank = await context.newPage();
   await open(bank, bankRp);
   await bank.bringToFront();
-  const authenticator = await addVirtualAuthenticator(context, bank);
 
-  // The desktop says rateLimited; the browser's own authenticator registers and signs in.
+  // The bank has its own windows: the desktop's dialog answers, not the browser's authenticator.
+  await fake.passkeyDecide({ kind: "allow" });
   const created = await rpCreate(bank);
   expect(created.verify).toMatchObject({ ok: true });
-  expect(await authenticator.credentials()).toMatchObject([{ credentialId: created.id, rpId: "bank.test" }]);
-  expect(await rpGet(bank, { allow: [created.id ?? ""] })).toMatchObject({ id: created.id, verify: { ok: true } });
+  await fake.passkeyDecide({ kind: "allow" });
+  expect(await rpGet(bank)).toMatchObject({ id: created.id, verify: { ok: true } });
   const bankLog = (await fake.passkeyLog()).filter((entry) => entry.origin === BANK);
   expect(bankLog.map((entry) => [entry.op, entry.result])).toEqual([
-    ["passkeyCreate", "rateLimited"],
-    ["passkeyGet", "rateLimited"],
+    ["passkeyCreate", "allow"],
+    ["passkeyGet", "allow"],
   ]);
   await bank.close();
 });

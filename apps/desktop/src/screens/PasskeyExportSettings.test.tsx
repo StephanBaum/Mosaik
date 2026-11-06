@@ -17,7 +17,7 @@ import { createMockIpc } from "../ipc/mock.ts";
  * The mock with one passkey in every vault listing and a scripted export: records the calls,
  * checks the master password like the backend does, or cancels the save dialog.
  */
-function withExport(cancel = false) {
+function withExport(cancel = false, empty = false) {
   const inner = createMockIpc({ start: "unlocked" });
   const calls: unknown[] = [];
   const ipc: MosaicIpc = {
@@ -26,7 +26,13 @@ function withExport(cancel = false) {
       if (command === "list_items") {
         const listed = await inner.call("list_items", request as ListItemsRequest);
         const first: ItemSummary | undefined = listed.ok ? listed.value[0] : undefined;
-        const value: ItemSummary[] = first === undefined ? [] : [{ ...first, kind: "passkey" }];
+        const listing = listed.ok ? listed.value : [];
+        // `empty`: the vaults hold no passkey (the mock's own one is dropped); the list stays.
+        const value: ItemSummary[] = empty
+          ? listing.filter((item) => item.kind !== "passkey")
+          : first === undefined
+            ? []
+            : [{ ...first, kind: "passkey" }];
         return { ok: true, value };
       }
       if (command === "export_passkeys_cxf") {
@@ -71,6 +77,27 @@ async function waitEnabled(button: HTMLElement) {
 }
 
 describe("export passkeys", () => {
+  it("shows the plaintext warning as a note above the vault choice", async () => {
+    const { ipc } = withExport();
+    await openSettings(ipc);
+    const note = await screen.findByRole("note");
+    expect(note.className).toMatch(/callout--warning/);
+    expect(note.textContent).toMatch(/passkeys unencrypted/);
+    const vault = screen.getByRole("combobox", { name: "Vault" });
+    expect(note.compareDocumentPosition(vault) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("This vault has no passkeys to export.")).toBeNull();
+  });
+
+  it("says there is nothing to export instead of the warning, and the disabled button points to it", async () => {
+    const { ipc } = withExport(false, true);
+    await openSettings(ipc);
+    const none = await screen.findByText("This vault has no passkeys to export.");
+    expect(screen.queryByRole("note")).toBeNull();
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Export passkeys" });
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-describedby")).toBe(none.id);
+  });
+
   it("warns that the file is unencrypted and asks for the master password", async () => {
     const { ipc, calls } = withExport();
     const user = await openSettings(ipc);

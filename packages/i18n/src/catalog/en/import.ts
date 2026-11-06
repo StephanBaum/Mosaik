@@ -22,13 +22,14 @@ export const importMessages = {
   "import.warning.otpUnreadable":
     "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
   "import.warning.passkeysNotImported":
-    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported; keep your old app until you've moved the passkeys.",
+    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported.",
   "import.warning.passkeyUnreadable":
-    "Some passkeys couldn't be read and were left out. Keep your old app until you've moved them.",
+    "Some passkeys couldn't be read and were left out.",
   "import.warning.passkeyUnsupported":
-    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out. Keep your old app until you've moved them.",
+    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out.",
   "import.warning.passkeysSkipped":
-    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file). Keep your old app until you've moved them.",
+    "Some passkeys were left out because there are too many (at most 100 per item and 10,000 per file).",
+  "import.warning.passkeysKeepOldApp": "Keep your old app until you've moved the passkeys.",
   "import.entry.unmappedFields":
     "Some fields have no matching field in Mosaic. They were kept as custom fields.",
   "import.entry.otpUnreadable":

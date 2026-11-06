@@ -25,13 +25,14 @@ export const importMessages = {
   "import.warning.otpUnreadable":
     "Manche Einstellungen für Einmalcodes wurden nicht erkannt. Sie wurden als verborgene Felder übernommen; richte den Code damit neu ein.",
   "import.warning.passkeysNotImported":
-    "Dieses Exportformat enthält die privaten Schlüssel der Passkeys nicht, deshalb lassen sie sich nicht importieren. Der Rest dieser Einträge wird importiert; behalte deine alte App, bis du die Passkeys umgezogen hast.",
+    "Dieses Exportformat enthält die privaten Schlüssel der Passkeys nicht, deshalb lassen sie sich nicht importieren. Der Rest dieser Einträge wird importiert.",
   "import.warning.passkeyUnreadable":
-    "Manche Passkeys konnten nicht gelesen werden und wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
+    "Manche Passkeys konnten nicht gelesen werden und wurden ausgelassen.",
   "import.warning.passkeyUnsupported":
-    "Manche Passkeys nutzen einen Schlüsseltyp, den Mosaic nicht unterstützt (nur ES256 funktioniert), und wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
+    "Manche Passkeys nutzen einen Schlüsseltyp, den Mosaic nicht unterstützt (nur ES256 funktioniert), und wurden ausgelassen.",
   "import.warning.passkeysSkipped":
-    "Manche Passkeys wurden ausgelassen, weil es zu viele sind (höchstens 100 pro Eintrag und 10.000 pro Datei). Behalte deine alte App, bis du sie umgezogen hast.",
+    "Manche Passkeys wurden ausgelassen, weil es zu viele sind (höchstens 100 pro Eintrag und 10.000 pro Datei).",
+  "import.warning.passkeysKeepOldApp": "Behalte deine alte App, bis du die Passkeys umgezogen hast.",
   "import.entry.unmappedFields":
     "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
   "import.entry.otpUnreadable":

@@ -16,7 +16,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await popup.getByRole("button", { name: "More options" }).click();
     const item = popup.getByRole("menuitemcheckbox", { name: /Use Mosaic for passkeys/ });
     await expect(item).toHaveAttribute("aria-checked", "false");
-    await expect(popup.getByText("Mosaic answers passkey requests on websites. You confirm each one in the Mosaic app.")).toBeVisible();
+    await expect(popup.getByText("Needs access to all websites to answer passkey requests. You confirm each one in the Mosaic app.")).toBeVisible();
     await expectAccessible(popup);
 
     await item.click();

@@ -1,4 +1,4 @@
-//! Browser extension endpoint (M4, ADR-0036, ADR-0037; passkeys M5, ADR-0040 (lands with M5 T3)):
+//! Browser extension endpoint (M4, ADR-0036, ADR-0037; passkeys M5, ADR-0040):
 //! the paired browsers, the pairing prompt, the save prompt and the passkey
 //! prompt. The channel to the extension
 //! itself speaks `mosaic-native-messaging`'s protocol and is not part of

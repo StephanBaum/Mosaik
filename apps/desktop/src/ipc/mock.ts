@@ -212,10 +212,14 @@ function initialItems(start: MockStart, options: MockOptions): MockItem[] {
   if (start === "noAccount" || options.emptyVault === true) {
     return [];
   }
+  // A plain unlocked mock holds one passkey (so the Passkeys category shows); "create" starts
+  // with none, and the other variants bring both accounts a sign-in can choose from.
   const passkeys =
-    options.browserPasskey === undefined || options.browserPasskey === "create"
+    options.browserPasskey === "create"
       ? []
-      : samplePasskeys();
+      : options.browserPasskey === undefined
+        ? samplePasskeys().slice(0, 1)
+        : samplePasskeys();
   return [...sampleItems(), ...passkeys, ...bulkItems(options.bulkItems ?? 0)];
 }
 

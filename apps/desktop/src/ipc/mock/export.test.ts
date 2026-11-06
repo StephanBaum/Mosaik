@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMockIpc } from "../mock.ts";
+import { MOCK_PASSKEYS } from "./data.ts";
 
 describe("mock export_passkeys_cxf", () => {
   it("needs the master password and counts the vault's passkeys", async () => {
@@ -23,12 +24,9 @@ describe("mock export_passkeys_cxf", () => {
   });
 
   it("refuses a vault without passkeys", async () => {
+    // The plain mock holds one passkey, in the personal vault.
     const ipc = createMockIpc({ start: "unlocked" });
-    const vaults = await ipc.call("list_vaults", null);
-    if (!vaults.ok) {
-      throw new Error("list_vaults failed");
-    }
-    const vaultId = vaults.value[0]?.vaultId ?? "";
+    const vaultId = MOCK_PASSKEYS.work.vaultId;
     const result = await ipc.call("export_passkeys_cxf", { vaultId, password: "mosaic" });
     expect(result).toMatchObject({ ok: false, error: { code: "itemNotFound" } });
   });

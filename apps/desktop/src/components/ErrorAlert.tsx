@@ -2,12 +2,13 @@
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { IpcError } from "../ipc/contract/index.ts";
 
-export function ErrorAlert({ error }: { error: IpcError | null }) {
+/** `message` replaces the generic sentence of `error` where a screen knows better what to say. */
+export function ErrorAlert({ error, message }: { error: IpcError | null; message?: string | undefined }) {
   const { errorMessage } = useI18n();
   // The live region stays mounted so screen readers announce new errors.
   return (
     <p className="alert" role="alert">
-      {error === null ? "" : errorMessage(error)}
+      {error === null ? "" : (message ?? errorMessage(error))}
     </p>
   );
 }

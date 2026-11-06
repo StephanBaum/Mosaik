@@ -1,4 +1,5 @@
 /** The editor's sections below the header, in the order of D10. */
+import { Callout } from "../../../components/Callout.tsx";
 import { TextArea } from "../../../components/TextArea.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
@@ -93,6 +94,12 @@ function NotesAndTags({ form, onChange }: Pick<SectionsProps, "form" | "onChange
   );
 }
 
+/** Why a passkey has so few fields to edit. */
+function PasskeyFixed({ kind }: { kind: Form["kind"] }) {
+  const { t } = useI18n();
+  return kind === "passkey" ? <Callout tone="info">{t("editor.passkey.fixed")}</Callout> : null;
+}
+
 /**
  * Title, the kind's fields, websites, one-time code, SSH key, tags, notes and custom fields. A
  * passkey keeps only title, tags and notes: the rest comes from the site that made it.
@@ -123,6 +130,7 @@ export function Sections(props: SectionsProps) {
           }}
         />
       )}
+      <PasskeyFixed kind={form.kind} />
       <KindFields
         form={form}
         tried={props.tried}

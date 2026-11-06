@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { Button } from "../components/Button.tsx";
+import { Callout } from "../components/Callout.tsx";
 import { ReauthDialog } from "../components/ReauthDialog.tsx";
 import { Select } from "../components/Select.tsx";
 import { useToast } from "../components/ToastProvider.tsx";
@@ -14,6 +15,9 @@ import type { VaultId } from "../ipc/contract/index.ts";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { useWritableVaults } from "./useWritableVaults.ts";
+
+/** The "no passkeys" line: it says why the button is disabled. */
+const NONE_ID = "passkey-export-none";
 
 /** How many passkeys the vault holds (`null` while it is being counted). */
 function usePasskeyCount(vaultId: VaultId | null): number | null {
@@ -54,6 +58,15 @@ export function PasskeyExportSettings() {
   }
   return (
     <SettingsSection title={t("settings.passkeyExport")} body={t("settings.passkeyExport.body")}>
+      <div className="settings-section__lead">
+        {count === 0 ? (
+          <p id={NONE_ID} className="body muted">
+            {t("settings.passkeyExport.none")}
+          </p>
+        ) : (
+          <Callout tone="warning">{t("settings.passkeyExport.warning")}</Callout>
+        )}
+      </div>
       <Select
         inline
         label={t("settings.passkeyExport.vault")}
@@ -63,13 +76,10 @@ export function PasskeyExportSettings() {
           setChosen(vaults.find((vault) => vault.vaultId === event.target.value)?.vaultId ?? null);
         }}
       />
-      <p className="field__hint" role="note">
-        {t("settings.passkeyExport.warning")}
-      </p>
-      {count === 0 && <p className="field__hint">{t("settings.passkeyExport.none")}</p>}
       <div className="setting-row">
         <Button
           disabled={vaultId === null || count === null || count === 0}
+          aria-describedby={count === 0 ? NONE_ID : undefined}
           onClick={() => {
             setAsk(true);
           }}
