@@ -10,8 +10,8 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
-| M4 Browser extension | 🔄 in progress (T1–T4 done; T5 close) |
+| M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
+| M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | 🔄 in progress (T1 authenticator, T2 desktop) |
 | M6 Sync server | — |
 | M7 Rotation | — |
@@ -1421,8 +1421,11 @@ until T2 merges.
   R46. New dependency: `@types/chrome` 0.3.7 (dev; types for `chrome.*`), nothing else.
 - **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` support from
   Firefox 128 is taken from the plan, not checked); `activeTab` gating without host permissions
-  (the e2e build has host access; check by hand on the production build); the review by the
-  extension-attacker agent is still to do.
+  (the e2e build has host access; check by hand on the production build).
+- **Extension-attacker pass (done, PR #26)**: six breaks found and fixed with regression tests
+  (sandboxed documents counted as the site, CSS tricks hiding fields, hidden same-origin frames,
+  a generated password reused on another site, `mosaicContent` clobbering, `check-dist` gaps);
+  the hostile suite grew from 14 to 39 specs.
 
 ## M4 Browser extension — T4 popup and save (2026-11-05)
 
@@ -1490,9 +1493,51 @@ fake desktop in the e2e build; the real native host and desktop are not part of 
   `proposeSave` (`request_timeout`), so the host answers before the popup's 305 s. The `neverSave` list has no screen yet.
 - **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` and
   `registerContentScripts` with `persistAcrossSessions` there are taken from the docs); the
-  real native host and desktop end to end; `activeTab` gating on the production build; the
-  extension-attacker and ux-reviewer passes; a hostile-suite test (`race-after-probe`, rapid
+  real native host and desktop end to end; `activeTab` gating on the production build (the
+  ux-reviewer and extension-attacker passes followed on PR #27: one capture break through an
+  invisible frame, fixed); a hostile-suite test (`race-after-probe`, rapid
   gestures) failed once under memory pressure and passed on rerun.
+
+## M4 Browser extension — close (2026-11-06)
+
+Track T5 of the M4 plan: CI, documents and the full gate. M4 is merged as PRs #23 (T1
+channel), #25 (T2 desktop endpoint), #26 (T3 extension core), #27 (T4 popup and save) and the
+close branch `chore/m4-close`.
+
+- **What shipped.** `mosaic-origin` (exact-origin matching, HTTP rules, IDN and look-alike
+  checks), `mosaic-native-messaging` (the host `mosaic-native-host`, the framed, authenticated
+  channel of CRYPTO_SPEC §15, install and uninstall of the host manifests), the desktop's
+  `BrowserService` (pairing, fill, search, copy, generate, save; two dialogs; the "Browsers"
+  settings group; onboarding step D06) and `apps/extension` (MV3 for Chromium and Firefox:
+  toolbar popup, shortcut and context-menu fill, one-time codes, generator, opt-in save capture,
+  no inline UI). ADR-0035 to 0038 are accepted.
+- **Reviews.** crypto-reviewer on the channel and the desktop endpoint (T1, T2); ux-reviewer on
+  the popup, D06 and the dialogs; extension-attacker on the core (T3), then capture and popup
+  (T4), which found and closed the invisible-frame capture clickjacking. All findings were fixed
+  before merge. No review ran on the T5 delta (CI, documents); this track changes no code.
+- **CI.** New job `extension` (Ubuntu: frozen install, Vitest project, production build,
+  `check-dist.mjs`, Chromium install, `build:e2e`, Playwright). `crates/native-messaging/fuzz`
+  joins the fuzz smoke (with its three seed directories), the supply-chain `cargo deny` check and
+  the fuzz-lockfile `cargo audit`. `mosaic-origin` and `mosaic-native-messaging` join the
+  coverage matrix (>= 90 % lines). Crash inputs of a failed fuzz run are uploaded as an artifact
+  (`actions/upload-artifact`, pinned by SHA).
+- **Coverage (local, `cargo llvm-cov -p <crate> --summary-only`, Windows).** `mosaic-origin`
+  98.81 % lines; `mosaic-native-messaging` 92.03 % lines (install.rs 72 % and main.rs 34 % are
+  the weakest files; the Windows registry path and the Unix transports are covered by CI on
+  Linux and macOS, or only by hand).
+- **Documents.** `docs/EXTENSION_SECURITY.md` v3 with the brief §4 map (§10: every item, its
+  mitigation, its test files, what is manual only); CLAUDE.md layout; README status line.
+- **Gate (2026-11-06, one run).** fmt check, clippy with `-D warnings`, the workspace tests
+  (1180 passed, 0 failed, 7 ignored), `cargo deny check`, `cargo audit --deny warnings`,
+  `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (87 files, 5131
+  tests; the extension project has 462 in 20 files) and `pnpm audit`: all green. Playwright:
+  extension 82 passed (e2e build, Chromium headless), desktop 55 passed. The ignored Rust tests
+  (release-mode, OpenSSH interop) run in CI.
+- **Open risks.** M4-R1 to M4-R12 in the register below (same-user malware and the M9 installer,
+  save capture reach, the visibility heuristic, no automated test of the real host, Firefox or
+  the registry install).
+- **Open: manual checks and owner items.** See "Needs owner" ("M4 browser extension", "Manual
+  checks for M4").
 
 ## M5 Passkeys — T1 authenticator (2026-11-06)
 
@@ -1670,6 +1715,18 @@ CXF export (T4) follow.
 | M3-R23 | medium | Settings integrity (ADR-0030): a joint rollback of the vault store and `settings.json` to an earlier consistent pair still verifies (the nonce rolls back with the file). Needs the same local write access as the attack it would undo | accepted until M6: settings as a synced record under CRYPTO_SPEC §10; THREAT_MODEL R28 |
 | M3-R24 | info | Names and titles refuse variation selectors (U+FE00 to U+FE0F) and ZWJ (U+200D), so an emoji sequence that needs them (for example a heart with U+FE0F) cannot be typed; imports strip them from titles | accepted (ADR-0030 red-team follow-up); revisit if users report it |
 | M3-R25 | low | Attachment quota and garbage collection are local only: the 1 GiB account quota counts live items, while trashed items keep their files (`crates/vault/src/session/attachments.rs:21-28`); and when `delete_attachment` fails after a failed `update_item`, the error is lost and an orphan blob stays queued (`:68-71`) | open, M6 (server-side quota and garbage collection) |
+| M4-R1 | medium | Same-user malware can rewrite the per-user host manifest or registry key, replace the host, read `K_pair` and then request fills while the vault is unlocked. Pairing and the handshake stop other OS users and sandboxed processes, not P5 | accepted (ADR-0036), THREAT_MODEL R38; M9: installer-owned manifests and a signed host |
+| M4-R2 | low | Debug hosts accept the dev Chromium ID (any unpacked extension carrying our public `key`); a temporary Firefox add-on with our gecko ID reaches a release host. Both need developer mode and a new pairing | accepted, R39 |
+| M4-R3 | low | Fill credentials, codes and captured passwords pass through the background heap, the isolated world, `storage.session` and the page DOM; JavaScript cannot wipe them, and the host's serde and stdio buffers keep unwiped residue | accepted, R40 |
+| M4-R4 | low | Windows: no peer process identity without unsafe code; the default pipe DACL lets other accounts open read-only handles. The `endpoint.json` lease closes the stale-pipe-name capture; a crash leaves the file refused as stale | accepted (ADR-0036 amendment), R42; M9: pipe SDDL |
+| M4-R5 | low | A paired extension lists login titles, user names and hosts (`search`), tests candidate passwords (`checkSave`, `proposeSave`) and copies a login's secret to the clipboard, all rate limited and only with an unlocked vault; the desktop cannot tell the popup from other code in the extension's contexts | accepted, R43 |
+| M4-R6 | medium | Save capture (opt-in) sees every password typed into a login, sign-up or change form on every site and holds it in `storage.session` for up to 5 minutes. A page can feed it a login after any real click; nothing is saved without the click in the popup and the desktop's own dialog. With the capture on, the granted site access also lifts the `activeTab` bound | accepted (ADR-0038), R44; EXTENSION_SECURITY §9 |
+| M4-R7 | info | The pairing code correlates a request with the user's click; it is not a cryptographic SAS. The `browser` value of `pairRequest` is the host's claim. No forward secrecy against a later theft of `K_pair` | accepted (ADR-0036), R45 |
+| M4-R8 | low | Field visibility is a heuristic: `pointer-events: none` overlays, colour tricks, opacity not multiplied across frame levels, closed shadow roots, any `mask-image` or off-screen `clip-path` counted as hiding. The credential goes only to the page's own origin | accepted, R46, EXTENSION_SECURITY §9; the hostile suite grows with each finding |
+| M4-R9 | low | The e2e suite runs against a fake desktop in Chromium. The real host and desktop end to end, Firefox, the Windows registry install, the Unix manifest paths (macOS, Linux; the Unix transport tests run only on CI) and `activeTab` gating on the production build have no automated test | open: manual checks in "M4 Browser extension — close" |
+| M4-R10 | low | "Never for this site" has no screen to review or undo the list (`neverSave:<origin>` in IndexedDB), and is stored per exact origin | open, M9 UI polish |
+| M4-R11 | info | Flatpak and Snap browsers cannot run a native host; the extension is unsupported there | accepted, documented |
+| M4-R12 | info | One hostile-suite test (`race-after-probe`, rapid gestures) failed once under memory pressure; the desktop pairing test now waits for the session to register (`aca4aa6`). Playwright runs with one retry in CI | accepted |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 
@@ -1704,4 +1761,6 @@ See the THREAT_MODEL §5 residual-risk register.
 - **Manual hardware checks for quick unlock (crypto review M3, L4)**: (a) Windows: does a second, unsigned executable of the same user open and sign with Mosaic's Hello key (`Mosaic quick unlock <nonce>`)? If yes, THREAT_MODEL R23's residual is real until MSIX package identity (M9). (b) macOS: Touch ID enroll, unlock and a fingerprint change on a Developer ID signed build (the macOS code only compiles in CI; nothing ran on a Mac), including the cancel mapping of `decrypt`.
 - **Manual checks for one-time-code setup (ADR-0031, 2026-11-04)**: see "M3 follow-up — one-time-code setup" above (Windows two monitors, snip paste, X11, Wayland, macOS paste).
 - **Manual check of Save as overwrite confirmation (ADR-0034, 2026-11-05)**: on each OS (Windows `IFileSaveDialog`, macOS `NSSavePanel`, Linux GTK), saving an attachment onto an existing file must make the native dialog ask before replacing it; Mosaic relies on that prompt and adds none. Also check the Mark of the Web on a real NTFS volume.
+- **M4 browser extension (2026-11-06)**: (a) the Chrome Web Store and Edge Add-ons extension IDs (`STORE_CHROMIUM_EXTENSION_IDS`, now empty, so release hosts accept no Chromium extension yet) and an AMO listing for the gecko ID `mosaic@stephanbaum.github.io` (it is the one Firefox ID the host accepts); (b) the host name (`HOST_NAME`) and the gecko ID follow the bundle-identifier decision above, so settle that before the first listing; (c) D06 (desktop onboarding step 5) shows store links only once listings exist (`STORE_URLS` is null); (d) the extension store accounts (see Signing) and the M9 installer (sidecar `externalBin`, store IDs only, signing) replace the dev `mosaic-native-host install`; (e) two choices the owner may revisit: popup unlock (ADR-0035 item 4) and no inline UI (item 2). No blocking decision is open.
+- **Manual checks for M4 (2026-11-06)**, none can be automated here: (1) Windows Chrome and Edge: `pnpm --filter @mosaic/extension host:install` (registry), load `dist/dev`, pair, fill a login and a code, save; (2) Firefox 128+ as a temporary add-on (`dist/firefox`): pair, fill, one-time code, save with the optional site access; (3) macOS and Linux Chrome: manifest paths, socket permissions, pair and fill; (4) `activeTab` gating on the production build (`dist/chromium`, no host permissions): the shortcut and the popup fill work, and nothing is injected into a page before a gesture; (5) Flatpak and Snap browsers: confirm they are unsupported and that the popup says the host is missing; (6) keyboard-only and screen-reader pass through the popup (connect, locked, logins, frame confirmation, generator, save) and through the desktop's pairing and save dialogs.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

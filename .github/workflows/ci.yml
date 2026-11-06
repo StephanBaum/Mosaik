@@ -80,8 +80,10 @@ jobs:
       matrix:
         # Brief §8: core, totp, generator (passkey joins in M5). The vault crate
         # holds the M2 session and store; import and the SSH agent parse untrusted
-        # input; insights rates vault passwords. All are held to the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr]
+        # input; insights rates vault passwords; origin decides which site gets a
+        # fill and native-messaging frames the extension channel. All are held to
+        # the same bar.
+        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,6 +110,7 @@ jobs:
           - crates/insights/fuzz
           - crates/import/fuzz
           - crates/ssh-agent/fuzz
+          - crates/native-messaging/fuzz
           # Includes the shell's contract, persist, draft and Emergency Kit modules by
           # path; no tauri, so no WebKitGTK is needed.
           - apps/desktop/src-tauri/fuzz
@@ -155,6 +158,14 @@ jobs:
             cargo "+$FUZZ_TOOLCHAIN" fuzz run --target x86_64-unknown-linux-gnu "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 $extra
             echo "::endgroup::"
           done
+      # A crash input is only reproducible if it survives the job.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-crashes-${{ strategy.job-index }}
+          path: ${{ matrix.dir }}/artifacts
+          if-no-files-found: ignore
 
   rust-supply-chain:
     name: Rust supply chain
@@ -202,6 +213,10 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
+          manifest-path: crates/native-messaging/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
           manifest-path: apps/desktop/src-tauri/fuzz/Cargo.toml
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
@@ -211,7 +226,7 @@ jobs:
         run: |
           set -euo pipefail
           for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/qr/fuzz crates/generator/fuzz \
-                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz apps/desktop/src-tauri/fuzz; do
+                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz apps/desktop/src-tauri/fuzz; do
             cargo audit --deny warnings -f "$d/Cargo.lock"
           done
 
@@ -256,3 +271,27 @@ jobs:
         run: pnpm --filter @mosaic/desktop exec playwright install --with-deps chromium
       # Mock-mode build served with the production CSP; axe in light and dark.
       - run: pnpm --filter @mosaic/desktop exec playwright test --workers=1
+
+  extension:
+    name: Browser extension (build, dist check, Playwright hostile pages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --project extension
+      # The production packages (chromium, firefox), then the checks on what ships.
+      - run: pnpm --filter @mosaic/extension build
+      - run: node apps/extension/scripts/check-dist.mjs
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @mosaic/extension exec playwright install --with-deps chromium
+      # The e2e build carries the test hooks and the `*.test` host access; the
+      # hostile-site server and the fake desktop start from the fixtures. Chromium
+      # runs headless with the extension loaded, so no display server is needed.
+      - run: pnpm --filter @mosaic/extension build:e2e
+      - run: pnpm --filter @mosaic/extension exec playwright test
