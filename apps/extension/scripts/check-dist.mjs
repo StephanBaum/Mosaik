@@ -19,6 +19,8 @@ const FORBIDDEN_TEXT = [
   "onConnectExternal",
   // The developer command of the "host missing" screen (src/popup/env.ts): dev and e2e builds only.
   "host:install",
+  // `storage.session` holds pending saves with their passwords; content scripts must keep no access to it.
+  "setAccessLevel",
 ];
 const PERMISSIONS = ["activeTab", "scripting", "nativeMessaging", "contextMenus", "storage"];
 const FORBIDDEN_KEYS = [
