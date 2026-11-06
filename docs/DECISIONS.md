@@ -3166,3 +3166,184 @@ Firefox registers MAIN-world scripts from version 128 (`strict_min_version` is 1
 from the documentation and is not covered by the Playwright suite, which cannot load Firefox
 extensions. Chromium is covered by `e2e/hostile/passkey-*.spec.ts` with a CDP virtual
 authenticator standing for the browser's own WebAuthn.
+
+## ADR-0042: M6 scope and one protocol over two transports
+
+- Status: accepted
+- Date: 2026-11-06
+- Decided by: the principal engineer, from brief section M6 and the owner direction of 2026-11-02 (own-cloud-folder backend)
+- Milestone: M6 (sync)
+
+### Context
+The brief's M6 bundles the sync server, sharing, organisations, emergency access and WebAuthn 2FA. The
+owner also wants a backend that needs no server: a user-chosen directory that Dropbox, OneDrive, iCloud
+Drive, Nextcloud, Syncthing, a NAS share or a Dropbox Business team folder replicates. Sharing needs the
+`hpke` crate vetted, identity keys and revocation (THREAT_MODEL R18); it would double the milestone.
+
+### Decision
+1. **One sync protocol, two transports.** The sync engine talks to a blocking `Transport` trait
+   (`mosaic-sync`, `crates/sync/src/transport.rs`). `hosted` is the Mosaic server, `folder` is a
+   directory. The engine, the merge rules and the key rules are the same for both.
+2. **In M6:** record, tombstone, vault-key and vault-metadata sync including the key and metadata upload
+   queue (M2-R1, R11, R16); server generation rules (ADR-0013); attachments with soft-delete GC;
+   checkpoints with freeze and rollback detection; a stable per-install device ID; the device list and
+   hosted sign-out of a device; OPAQUE registration, login and re-registration with session tokens and
+   TOTP 2FA for the sync account; joining a new device from either backend; the master-password change
+   carried to the backend.
+3. **Deferred:** sharing, organisations, team vaults and emergency access (M6b); WebAuthn 2FA for the
+   sync account (M9); settings as a synced record (M7, M3-R23, R28); move pointers (M2-R8, R9) and
+   "flag source if copy unreadable" (M7); full re-key and Secret Key rotation (M7); hardware-protected
+   (TK) vaults stay on their device (R60); publishing the server image (M9).
+4. **Sync is off by default** and there is no built-in server URL (`HOSTED_DEFAULT_URL = None` until the
+   owner picks a domain).
+5. **Long-poll replaces WebSocket** (a change to the brief): a 25 s `GET /v1/poll` returns on a change.
+   **SQLite replaces PostgreSQL** for the server; the storage boundary keeps Postgres possible. The
+   Compose deployment is shipped but is built and smoke-tested only in CI (the owner forbids local
+   Docker).
+6. **A Dropbox Business team folder is a directory on disk.** There is no Dropbox API. In M6 a team folder
+   holds several people's separate personal accounts side by side (`a/<account_id>/...`); the layout
+   reserves `s/` for shared vaults in M6b. Other members and the admin are treated like the server (R54).
+
+### Alternatives considered
+- WebSocket push: a new parser and dependency surface and reverse-proxy problems; long-poll needs
+  neither.
+- Provider APIs (Dropbox SDK and similar): network dependencies and OAuth tokens in the client.
+- Including sharing in M6: `hpke` vetting and revocation would double the milestone.
+
+### Consequences
+Brief deviations: SQLite, long-poll, Compose never run locally, sync off by default. M6b gets its own
+spec. THREAT_MODEL R54 to R60 are added.
+
+## ADR-0043: Folder backend format and integrity
+
+- Status: accepted
+- Date: 2026-11-06
+- Decided by: the principal engineer, from ADR-0042 (the most conservative options)
+- Milestone: M6 (sync)
+
+### Context
+A file-sync client replicates a directory with its own conflict handling: it may deliver a half-written
+file, deliver files out of order, rename a file to "(conflicted copy)" or keep old versions. The folder
+holds only ciphertext, but a hostile or careless provider can delete, replace or withhold files.
+
+### Decision
+1. **Per-device append-only segments** (`.mseg`) with an HMAC under `K_fold`
+   (`HKDF(AK, "", ctx("sync/folder-mac-key"), 32)`); the MAC is checked in constant time before parsing.
+2. **Single-writer paths**: every path is written by exactly one install, so a cloud conflict copy can
+   only appear for `head.mck`, `info.mdev` and two fixed top-level files. Blobs are write-once with
+   identical content for an ID everywhere.
+3. **A strict name parser** accepts only the canonical file and directory names; every other name
+   (conflict copies of every provider, temporary and OS files) is ignored. The one exception is a device
+   directory's `*.mck`, where the verified candidate with the highest counter wins.
+4. **Checkpoints as head files** (the hosted checkpoint bytes, `head.mck`, rewritten with tmp and
+   rename); snapshots and compaction of a device's own log; blob delete markers (`.mdel`) with 30 days
+   of retention and no purge while a live local item references the blob; device info sealed under
+   `K_dev` (`HKDF(AK, "", ctx("sync/device-info-key"), 32)`).
+5. **Writes** go through `.<16 hex>.mtmp`, `sync_all` and `rename`; a write-once name is checked for
+   absence first.
+6. **Account file** `.macct` holds salt, profile and the password wrapping of AK with an
+   `account_version`; the current file has the highest version.
+
+### Alternatives considered
+- One SQLite file in the folder: file-sync clients corrupt it.
+- One file per record: far too many files and conflict copies.
+- Signatures (Ed25519): not needed, every reader holds `AK`, so HMAC from CRYPTO_SPEC section 2 suffices
+  and a forger needs `AK`.
+
+### Consequences
+R54 (observers and deleters) and R55 (no compare-and-swap: concurrent rotations are resolved by the
+canonical winner, delete races R15 and R16 remain in folder mode). Files are only appended until a
+device compacts its own log.
+
+## ADR-0044: Server stack and deployment
+
+- Status: accepted
+- Date: 2026-11-06
+- Decided by: the principal engineer, from ADR-0042
+- Milestone: M6 (sync)
+
+### Context
+The brief wants a self-hostable sync server. Self-hosters want one process, one data directory and no
+extra database.
+
+### Decision
+axum and rusqlite (bundled, WAL, one connection behind `spawn_blocking`); the endpoints of the M6 spec
+with JSON bodies that reject unknown keys on both sides; OPAQUE per CRYPTO_SPEC section 9; sessions with a
+SHA-256 token hash, idle and absolute lifetimes and a fresh-login window; TOTP 2FA sealed at rest;
+in-memory rate limits with no persisted IP addresses; quotas per account; a TOML config
+(`deny_unknown_fields`) and a hand-parsed CLI; TLS at a reverse proxy; a distroless image built only in
+CI.
+
+### Alternatives considered
+- PostgreSQL with sqlx: an extra service for self-hosters; the storage boundary keeps it possible.
+- Built-in TLS: certificates belong in the proxy.
+
+### Consequences
+Single-node scale (thousands of accounts); backups through `VACUUM INTO`. THREAT_MODEL section 4.5 says
+rusqlite with bound parameters.
+
+## ADR-0045: Sync engine rules
+
+- Status: accepted
+- Date: 2026-11-06
+- Decided by: the principal engineer, from ADR-0012, ADR-0013 and the M2 review findings
+- Milestone: M6 (sync)
+
+### Context
+The engine has to close the open M2 findings (no upload queue for vault keys and metadata, lost edits
+around rotations, delete races) without a trusted server and over a backend without compare-and-swap.
+
+### Decision
+1. **Key and metadata upload queue** (store schema v3): `upload_pending` and `local_origin` on vault keys,
+   `remote_created`, `meta_upload_pending` and `meta_server_seq` on vaults.
+2. **Two-phase rotation with head CAS**: prepare a key without changing state, upload it conditional on
+   the vault head, commit locally only when accepted; `HeadMoved` pulls, pushes and retries with the same
+   key.
+3. **Per-record base CAS** on upload; **items before tombstones** within a run.
+4. **Canonical key winner and "loser rotates again"** in both transports.
+5. **Deferral of records ahead of their key**: the cursor never passes a record that needs a generation
+   the device does not hold yet.
+6. **Attachments**: soft delete on the backend, re-assert by a holder, fetch-missing with a download
+   budget.
+7. **Checkpoints**: published after every sync; lag and rollback rules of CRYPTO_SPEC section 10.
+8. **`reset_sync_state` on every backend connect**: everything is queued again and the backend's content
+   is merged back, so a backend wiped or switched loses nothing.
+
+### Alternatives considered
+- Server last-writer-wins: loses unmerged versions.
+- Accepting lower key generations: breaks CRYPTO_SPEC section 7.1.
+
+### Consequences
+Closes M2-R1, R2, R10, R11, R16 and M3-R25 (server part); mitigates M2-R7, R12 and R13 in hosted mode;
+leaves R55 for folder mode.
+
+## ADR-0046: Network and OPAQUE dependencies
+
+- Status: accepted
+- Date: 2026-11-06
+- Decided by: the principal engineer, from CRYPTO_SPEC section 2 and ADR-0044
+- Milestone: M6 (sync)
+
+### Context
+M6 adds an HTTP client and server and the OPAQUE implementation that CRYPTO_SPEC section 9 already
+names. Crypto dependencies need an ADR (CLAUDE.md).
+
+### Decision
+- `opaque-ke`, latest 4.x, exact `=` pin (Meta-maintained, NCC Group audited), minimal features; the
+  ciphersuite of CRYPTO_SPEC section 9.1 (ristretto255, TripleDH over SHA-512, identity KSF).
+- `axum`, latest 0.8.x, for the server.
+- `reqwest =0.13.5` (already in the tree through Tauri) with `blocking` and rustls using the **ring**
+  provider (no aws-lc-rs C build), `min_tls_version(TLS_1_3)` and the OS trust store through
+  `rustls-platform-verifier`. If reqwest 0.13.5 has no ring-provider feature, use `rustls-no-provider`
+  plus a direct `rustls` dependency with `ring` and `use_preconfigured_tls`.
+- `toml =1.1.8` for the server config; `tracing` and `tracing-subscriber` (fmt only) for logs.
+- `cargo deny`: a new licence (for example `CDLA-Permissive-2.0` from `webpki-root-certs`) gets a
+  crate-scoped exception with a reason; `deny.toml` is not loosened otherwise.
+
+### Alternatives considered
+- `ureq`: cannot pin TLS 1.3 as directly.
+- `native-tls`: the OpenSSL bindings are banned.
+
+### Consequences
+Each crate enters in the track that uses it: T1 (protocol foundation) adds none of the network or OPAQUE
+crates; the `opaque` module comes with the server and client tracks. No telemetry crate is added.

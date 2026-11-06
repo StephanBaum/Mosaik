@@ -35,17 +35,18 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | AEAD | XChaCha20-Poly1305 | draft-irtf-cfrg-xchacha, RFC 8439 | `chacha20poly1305` |
 | Streaming AEAD (attachments) | STREAM (big-endian 32-bit counter) over XChaCha20-Poly1305 | Hoang, Reyhanitabar, Rogaway, Vizár 2015 | `chacha20poly1305` / `aead::stream` |
 | Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` |
-| Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` |
+| Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` (4.x, exact `=` pin, ADR-0046) |
 | Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`); `sha2` (rpIdHash, clientDataJSON hash); `base64ct` (base64url) |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
+| Sync checkpoints and folder backend (§10, §10.1, ADR-0043) | HMAC-SHA-256 under HKDF-derived keys; XChaCha20-Poly1305 for device info | RFC 2104, 5869, draft-irtf-cfrg-xchacha | `hmac`, `hkdf`, `sha2`, `chacha20poly1305` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
 | Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no `rand` / `rand_core`, ADR-0011) |
 | Constant-time compare | — | — | `subtle` |
 | Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
-| TLS | TLS 1.3 only | RFC 8446 | `rustls` |
+| TLS (client) | TLS 1.3 only, OS trust store | RFC 8446 | `rustls` with the `ring` provider, through `reqwest` blocking (ADR-0046); the server runs behind a reverse proxy that terminates TLS |
 
 Banned: OpenSSL bindings, `ring`-only APIs outside `rustls`, anything
 unmaintained (enforced in `deny.toml`). Adding a crypto dependency needs an
@@ -75,6 +76,11 @@ Interoperability only (these read or serve third-party formats and never protect
   AAD actually passed to the AEAD is always `header || aad(label, ...)`, so
   every header field is authenticated and an object cannot be reinterpreted
   under a different version or algorithm.
+- Labels added for sync (§10, §10.1): `checkpoint-key`, `checkpoint`, `session`,
+  `sync/folder-mac-key`, `sync/folder-segment`, `sync/folder-account`,
+  `sync/folder-blob-delete`, `sync/device-info-key`, `sync/device-info`; and, in
+  the server only, `server/totp-at-rest` (§9.3). `mosaic-core` derives every
+  key from them; `mosaic-sync` and the server never see `AK`.
 - The nil UUID (`00…00`) is reserved and MUST be rejected as a vault, item,
   attachment or account ID.
 - `random(n)` is `n` bytes from the OS CSPRNG. If the CSPRNG fails, the
@@ -584,7 +590,10 @@ from being reused across servers.
   stores the registration record. It never sees `OPW`, `P`, `R` or SK.
 - Login: OPAQUE KE1/KE2/KE3. The resulting `session_key` is used once:
   `session_token = HKDF(session_key, "", ctx("session"), 32)`, which the
-  server stores hashed (SHA-256) along with its expiry.
+  server stores hashed (SHA-256) along with its expiry. Both sides derive
+  the token with `mosaic_core::sync_auth::session_token`; the server never
+  sends it. When 2FA is enabled, login finish creates a *pending* session
+  that only `POST /v1/login/totp` can upgrade (§9.3).
 - **Pre-login.** A new device needs `(account_id, account_salt, profile)`
   before it can compute `OPW`. The server returns these for any email.
   - Email normalization (same on client and server): trim whitespace, apply
@@ -597,6 +606,10 @@ from being reused across servers.
     profile comes from mapping the HMAC output onto the server's real profile
     distribution, rounded to 5 % buckets. opaque-ke's fake credential
     response is used, so KE2 looks the same as for a real account.
+    A fake account ID is UUIDv7-shaped: the first 16 bytes of the HMAC with
+    the version and variant bits set and the 48-bit timestamp replaced by
+    `init_ms - (u48(h[6..12]) mod 15_552_000_000)`, a time in the 180 days
+    before the server was initialised (THREAT_MODEL R10 amendment, R58).
   - Responses are rate-limited per IP and per normalized email. Residual:
     the profile distribution drifts over time and could give statistical
     hints. Accepted.
@@ -608,7 +621,11 @@ from being reused across servers.
 After OPAQUE succeeds, the server can require TOTP or a WebAuthn assertion
 before it issues the `session_token`. This guards server access (for example,
 deleting the account or reading ciphertext) but adds nothing to vault
-confidentiality. The UI says so.
+confidentiality. The UI says so. TOTP secrets (SHA-1, 6 digits, 30 s, the
+replay guard of ADR-0008) are sealed at rest on the server:
+`K_totp = HKDF(server_secret, "", ctx("server/totp-at-rest"), 32)`,
+`sealed = nonce[24] || XChaCha20-Poly1305(K_totp, nonce, secret, aad = ctx("server/totp-at-rest") || 0x00 || account_id)`.
+WebAuthn for the sync account follows in M9.
 
 ### 9.4 Changing the registration
 A request that re-registers OPAQUE, or that replaces or deletes the password
@@ -631,11 +648,28 @@ therefore cannot lock the user out.
   the stored one is ignored. A record that is concurrent with the stored one
   goes to conflict resolution. The server can withhold updates (freeze attack)
   but cannot forge or roll back. Freeze detection: every device publishes a
-  checkpoint
-  `HMAC-SHA-256(K_cp, ctx("checkpoint") || device_id || counter:u64 || SHA-256(canonical seen vectors))`,
-  where `K_cp = HKDF(AK, "", ctx("checkpoint-key"), 32)` and `counter` is a
-  per-device monotonic counter. Other devices warn when the checkpoints they receive are
-  older than their own state for longer than 24 h.
+  checkpoint (exact encoding below)
+  `HMAC-SHA-256(K_cp, ctx("checkpoint") || device_id || counter:u64 || seen_digest)`,
+  where `K_cp = HKDF(AK, "", ctx("checkpoint-key"), 32)`, `counter` is a
+  per-device monotonic counter and `seen_digest` is the SHA-256 of the
+  device's seen state below. `device_id` is the stable per-install `InstallId`
+  (not the writer ID). Other devices warn when a checkpoint shows data they
+  have not received for longer than the grace period (10 min hosted, 24 h
+  folder).
+  - Encoding (hosted upload body and folder `head.mck`, max 4096 entries):
+    `"MCKP" || version:u8 (1) || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32 || n x (vault_id[16] || generation:u32 || high_seq:u64) || mac[32]`
+    with `seen_digest = SHA-256(issued_at_ms:u64 || n:u32 || entries)`.
+    Entries are sorted by `vault_id` without duplicates; a decoder rejects
+    anything else, a nil ID, trailing bytes and a bad MAC (checked in constant
+    time before parsing). `high_seq` is the device's vault cursor (the last
+    `server_seq` applied) after the sync in hosted mode, and the highest
+    segment sequence the device wrote for the vault (0 if none) in folder mode.
+  - Own-counter rules: a verified checkpoint for the device's own
+    `InstallId` with a counter above its stored counter means the install
+    identity is duplicated (a copied profile writing under this ID); the
+    newest own checkpoint below the local counter on two consecutive syncs
+    means the backend was rolled back (one lost upload is tolerated). Both
+    stop automatic sync until the user acts.
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
 - **Conflict model** (ADR-0009, encoding §7.5). Every field is a
   multi-value register; the merge of two replicas is a pure join
@@ -752,6 +786,62 @@ therefore cannot lock the user out.
 - Message parsing on both ends is strict and length-bounded, and is covered by
   fuzz targets.
 
+### 10.1 Folder backend (ADR-0043)
+
+The folder backend stores the same ciphertext objects as the server in a
+directory that a file-sync client replicates (Dropbox, OneDrive, iCloud Drive,
+Nextcloud, Syncthing, a network share). Every reader holds `AK`, so integrity
+uses HMAC-SHA-256, not signatures; a forger needs `AK`.
+
+- Keys, derived only inside `mosaic-core`:
+  `K_fold = HKDF(AK, "", ctx("sync/folder-mac-key"), 32)` and
+  `K_dev = HKDF(AK, "", ctx("sync/device-info-key"), 32)`; `K_cp` is §10.
+- Formats (all big-endian; a decoder checks the total length first, verifies
+  the MAC in constant time over everything before the trailing 32 bytes, only
+  then parses, and rejects trailing bytes, unknown versions, nil IDs and IDs
+  that differ from the path):
+  - Segment `.mseg`: `"MSEG" || 1 || flags:u8 (bit0 snapshot, others 0) || account_id || vault_id || device_id || seq:u64 (>= 1, = file name) || created_at_ms:u64 || count:u32 (1..=4096) || count x (kind:u8 || len:u32 || body) || mac`,
+    `mac = HMAC(K_fold, ctx("sync/folder-segment") || 0x00 || preceding bytes)`.
+    Kinds: 1 item (`record_id || ItemCiphertext`), 2 tombstone
+    (`record_id || TombstoneCiphertext`), 3 vault key (`generation:u32 || WrappedKey[74]`),
+    4 vault metadata. Read limit 16 MiB; a writer keeps segments at or below
+    8 MiB and 256 objects.
+  - Account file `.macct` (168 bytes): `"MACC" || 1 || account_id || account_version:u64 (>= 1) || device_id || salt[16] || profile:u8 (1..=4) || wrapped_ak[74] || mac`,
+    `mac = HMAC(K_fold, ctx("sync/folder-account") || 0x00 || preceding bytes)`.
+    A joining device cannot check the MAC before it has `AK`: it uses the
+    file only to attempt the join (the AEAD of `wrapped_ak` authenticates the
+    parameters) and checks the MAC right after unlocking.
+  - Device info `.mdev`: `"MDEV" || 1 || device_id || nonce[24] || XChaCha20-Poly1305(K_dev, nonce, plaintext, aad)`,
+    `aad = header || aad("sync/device-info", account_id, device_id)` with
+    `header = "MDEV" || 1 || device_id`; the plaintext is canonical JSON
+    (`createdAt`, `name`, `platform`), at most 512 bytes.
+  - Blob delete marker `.mdel` (93 bytes): `"MDEL" || 1 || attachment_id || device_id || deleted_at_ms:u64 || mac`,
+    `mac = HMAC(K_fold, ctx("sync/folder-blob-delete") || 0x00 || preceding bytes)`.
+  - Checkpoint `head.mck`: as §10.
+- **Single-writer rule.** Every path is written by exactly one install (its
+  own `d/<device>/`, `log/<device>/`, its own `.macct` name); blobs are
+  write-once. A sync client's conflict copy can therefore only appear for
+  `head.mck`, `info.mdev` and the two fixed top-level files, and readers
+  accept only strictly canonical names.
+- **Canonical key winner.** Folder mode has no compare-and-swap, so when
+  several devices rotate to one generation the winner is the lowest
+  `(device_id, wrapped key bytes)`; a device that holds a different key for
+  that generation rotates again.
+- Snapshots (a segment with the snapshot flag) carry the writer's whole
+  readable state and let a device compact its own log; old segments are
+  deleted only after the snapshot is written.
+
+### 10.2 Hosted write rules
+
+- Per-record compare-and-swap on `server_seq` (`baseSeq`); a new record
+  (`baseSeq = null`) is accepted only if the record is absent.
+- An upload must carry exactly the vault's current key generation, else the
+  whole batch is refused (`generation_mismatch`).
+- Key upload: generation must be `current + 1`, optionally conditional on
+  the vault's `head_seq`; one wrapped key per (vault, account, generation).
+- A client uploads every item of a run before any tombstone, so a moved
+  item's copy reaches the server before the source's tombstone.
+
 ## 11. Local storage
 
 - The local SQLite database holds the same ciphertext records as the server,
@@ -764,6 +854,9 @@ therefore cannot lock the user out.
   generations, sizes and sequence numbers. The highest accepted
   `key_generation` of a vault (§7.1) outlives the vault's deletion from the
   local store (ADR-0010).
+- The sync configuration (server URL, email, folder path, device name), the
+  per-install `InstallId`, sync cursors and the checkpoint counter are
+  cleartext local metadata. None of it is derived from item plaintext.
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -834,12 +927,28 @@ therefore cannot lock the user out.
 | vault IDs, membership (`account_id` → `vault_id`, role) | access control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
 | attachment IDs and ciphertext sizes | storage quotas |
-| device IDs, device names (user-chosen, MAY be left generic), last-seen | session management |
-| IP addresses (short retention, default 7 days) | rate limiting, abuse defense |
+| device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
+| IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
+| checkpoints (device ID, counter, per vault generation and `high_seq`) | freeze and rollback detection (§10) |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
 | audit events (type, time, device — no content) | user-visible security log |
 
 Quick-unlock wrappings (§6.2) never leave the device.
+
+### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
+
+| Field | Notes |
+|---|---|
+| account ID, `account_salt`, Argon2 profile, wrapped AK (password method) | in `.macct`, with the account version |
+| vault IDs, record IDs, attachment IDs and ciphertext sizes, counts | file names and sizes |
+| ciphertext of records, tombstones, vault metadata, wrapped VKs, attachments | AEAD |
+| device install IDs | directory names; device names are sealed under `K_dev` |
+| checkpoint sequences, counters and vault generations | `head.mck` (MAC'd, not secret) |
+| file creation and modification times | edit timing |
+
+The provider, its admins and the other members of a shared folder can also
+delete, withhold or roll back files, and a provider's version history keeps
+old ciphertext and old password wrappings of AK (THREAT_MODEL R54).
 
 The server **cannot** see item titles, URLs, usernames, item types (beyond
 size buckets), tags, vault names, or attachment names.
