@@ -11,7 +11,8 @@ use super::{
     Error, OpenVault, Result, UnlockedSession, load_vault, open_record, reseal_below_current,
 };
 use crate::storage::{
-    Error as StorageError, Origin, OutboxSeq, RecordBody, RecordEntry, StoredRecord, VaultKeyWrap,
+    Error as StorageError, KeyOrigin, Origin, OutboxSeq, RecordBody, RecordEntry, StoredRecord,
+    VaultKeyWrap,
 };
 
 /// What this device holds for a record that arrives from the server.
@@ -387,7 +388,7 @@ impl UnlockedSession {
             // A vault deleted locally keeps its generation floor (ADR-0010):
             // a re-share below it is the session's rollback error too.
             self.store
-                .create_vault(&vault_id, generation, wrapped)
+                .create_vault_origin(&vault_id, generation, wrapped, KeyOrigin::Remote)
                 .map_err(key_acceptance_error)?;
             let mut ov = OpenVault::new(generation);
             ov.keys.insert(generation, vk);
@@ -417,7 +418,7 @@ impl UnlockedSession {
         }
         let state = self
             .store
-            .accept_vault_key(&vault_id, generation, wrapped)
+            .accept_vault_key_origin(&vault_id, generation, wrapped, KeyOrigin::Remote)
             .map_err(key_acceptance_error)?;
         ov.keys.insert(generation, vk);
         if state.highest_accepted_generation > ov.generation {
@@ -455,7 +456,7 @@ impl UnlockedSession {
             }
             Ordering::Greater => {
                 self.store
-                    .accept_vault_key(&vault_id, generation, wrapped)
+                    .accept_vault_key_origin(&vault_id, generation, wrapped, KeyOrigin::Remote)
                     .map_err(key_acceptance_error)?;
             }
         }
@@ -499,7 +500,7 @@ impl UnlockedSession {
                 // No row at all: add it at the accepted generation.
                 Err(StorageError::UnknownVaultKey) => self
                     .store
-                    .accept_vault_key(&vault_id, generation, wrapped)
+                    .accept_vault_key_origin(&vault_id, generation, wrapped, KeyOrigin::Remote)
                     .map(|_| ())
                     .map_err(key_acceptance_error),
                 Err(e) => Err(e.into()),
@@ -561,13 +562,14 @@ impl UnlockedSession {
             }
         };
         let merged = match merged {
+            // A merge that differs from what the backend holds is queued.
             Some(m) if m != received => {
                 self.store
-                    .set_vault_meta(&vault_id, &m.seal(vk, &vault_id)?)?;
+                    .set_vault_meta_queued(&vault_id, &m.seal(vk, &vault_id)?, true)?;
                 m
             }
             _ => {
-                self.store.set_vault_meta(&vault_id, meta)?;
+                self.store.set_vault_meta_queued(&vault_id, meta, false)?;
                 received
             }
         };

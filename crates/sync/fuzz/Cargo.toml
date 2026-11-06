@@ -1,0 +1,87 @@
+[package]
+name = "mosaic-sync-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the mosaic-sync wire decoders: segments, checkpoints, account files, delete markers, cursors, file names, email normalization and the hosted JSON bodies (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# To check without cargo-fuzz: cargo check --manifest-path
+# crates/sync/fuzz/Cargo.toml --bins
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+# test-util: `KeyedCrypto`, the MAC provider that needs no unlocked session, so
+# a target can compute the MAC of a mutated body and reach the parser behind it.
+mosaic-sync = { path = "..", features = ["test-util"] }
+# The same versions and features as the main workspace.
+serde = { version = "=1.0.229", default-features = false, features = ["std"] }
+serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
+
+[[bin]]
+name = "segment_decode"
+path = "fuzz_targets/segment_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint_decode"
+path = "fuzz_targets/checkpoint_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "account_file_decode"
+path = "fuzz_targets/account_file_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "blob_delete_decode"
+path = "fuzz_targets/blob_delete_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cursor_decode"
+path = "fuzz_targets/cursor_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "folder_name_parse"
+path = "fuzz_targets/folder_name_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "email_normalize"
+path = "fuzz_targets/email_normalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_responses"
+path = "fuzz_targets/json_responses.rs"
+test = false
+doc = false
+bench = false

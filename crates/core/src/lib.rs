@@ -11,7 +11,7 @@
 //!   [`Kek`], [`OpaquePassword`], [`AttachmentKey`], [`SecretKey`]) zeroize
 //!   on drop, are not `Clone`, and print as `[REDACTED]`.
 //! - **Identifiers** ([`AccountId`], [`VaultId`], [`ItemId`],
-//!   [`AttachmentId`], [`DeviceId`]) are UUIDs; the nil UUID is rejected.
+//!   [`AttachmentId`], [`DeviceId`], [`InstallId`]) are UUIDs; the nil UUID is rejected.
 //! - **Derivation** ([`kdf`]): NFC preparation, Argon2id profiles and
 //!   calibration, and the two-secret HKDF derivation of `KEK` and `OPW`.
 //! - **Secret Key** display format `M1-XXXX-...` ([`SecretKey::parse`],
@@ -59,6 +59,7 @@ mod secret;
 mod secret_key;
 mod settings_mac;
 mod spoofing;
+pub mod sync_auth;
 pub mod unlock;
 
 #[cfg(test)]
@@ -69,7 +70,7 @@ pub use envelope::{
     ItemCiphertext, TombstoneCiphertext, UnlockMethod, VaultMetaCiphertext, WrappedKey,
 };
 pub use error::{Error, Result};
-pub use ids::{AccountId, AttachmentId, DeviceId, ItemId, KeyGeneration, VaultId};
+pub use ids::{AccountId, AttachmentId, DeviceId, InstallId, ItemId, KeyGeneration, VaultId};
 pub use kdf::{AccountSalt, Argon2Profile, DerivedKeys};
 pub use keys::{
     NewAccount, PasswordChange, PasswordParams, change_master_password, create_account,
@@ -80,8 +81,9 @@ pub use model::{
     VersionVector,
 };
 pub use secret::{
-    AccountKey, AttachmentKey, Kek, MasterPassword, OpaquePassword, SecretBytes, SecretKey,
-    SecretString, SecretVec, SettingsMacKey, VaultKey,
+    AccountKey, AttachmentKey, CheckpointKey, DeviceInfoKey, FolderMacKey, Kek, MasterPassword,
+    OpaquePassword, SecretBytes, SecretKey, SecretString, SecretVec, SessionToken, SettingsMacKey,
+    VaultKey,
 };
 pub use settings_mac::{SETTINGS_MAC_LEN, SETTINGS_NONCE_LEN, new_settings_nonce};
 pub use spoofing::{has_spoofing_char, is_spoofing_char, strip_spoofing};

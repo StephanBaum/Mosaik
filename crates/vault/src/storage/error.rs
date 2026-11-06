@@ -204,6 +204,13 @@ pub enum Error {
     /// The attachment is not in the store.
     #[error("unknown attachment")]
     UnknownAttachment,
+
+    /// A sync setting or value is out of range: a server URL, folder path,
+    /// email or device name over its length limit or not matching its
+    /// backend kind, a cursor over 64 KiB, or a zero count of sequence
+    /// numbers.
+    #[error("invalid sync data")]
+    SyncDataInvalid,
 }
 
 impl From<rusqlite::Error> for Error {

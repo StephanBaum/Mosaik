@@ -66,6 +66,7 @@ mod hardware_vaults;
 mod items;
 mod search;
 mod sync;
+mod sync_support;
 mod unlock_methods;
 mod vaults;
 
@@ -75,9 +76,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_core::model::{Item, Timestamp, Tombstone, VaultMeta};
 use mosaic_core::{
-    AccountId, AccountKey, Argon2Profile, DeviceId, ItemId, KeyGeneration, MasterPassword,
-    OpaquePassword, PasswordParams, SecretKey, SecretString, UnlockMethod, VaultId, VaultKey,
-    WrappedKey, unlock::TotpVaultKey,
+    AccountId, AccountKey, Argon2Profile, DeviceId, InstallId, ItemId, KeyGeneration,
+    MasterPassword, OpaquePassword, PasswordParams, SecretBytes, SecretKey, SecretString,
+    UnlockMethod, VaultId, VaultKey, VaultMetaCiphertext, WrappedKey, unlock::TotpVaultKey,
 };
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
@@ -85,7 +86,12 @@ use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
 pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
+pub use mosaic_core::sync_auth::FolderMacPurpose;
 pub use sync::{ApplyOutcome, RemoteRecord};
+pub use sync_support::{
+    AccountBootstrap, AttachmentFileState, AttachmentRef, JoinKeys, PendingVaultUpload,
+    PreparedPasswordChange, PreparedRotation,
+};
 use unlock_methods::QuickState;
 pub use unlock_methods::{
     DEFAULT_RP_ID, HardwareKeyEnrollment, MAX_FAILED_QUICK_ATTEMPTS, MAX_HARDWARE_KEYS,
@@ -93,6 +99,8 @@ pub use unlock_methods::{
     QuickUnlockPolicy, REAUTH_GRANT, Reauthenticated, VaultProtection,
 };
 pub use vaults::VaultSummary;
+
+pub use crate::storage::{KeyOrigin, SyncConfig, SyncKind};
 
 /// Session construction for the fuzz targets only. Compiled only under
 /// `cfg(fuzzing)` (set by cargo-fuzz); normal builds do not contain it.
@@ -289,6 +297,18 @@ pub struct UnlockedSession {
     password_unlocked: bool,
     vaults: BTreeMap<VaultId, OpenVault>,
     index: search::SearchIndex,
+    /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
+    /// unlock.
+    install: InstallId,
+    /// A random tag of this unlocked session, never stored: what the
+    /// session prepared (a key rotation, a master password change) records
+    /// it, and the commit refuses anything prepared under another tag, so
+    /// a prepared secret does not outlive a lock.
+    session_tag: [u8; 16],
+    /// The generation and metadata handed out by
+    /// [`UnlockedSession::pending_vault_uploads`] for a vault that is to be
+    /// created on the backend, until it reports back.
+    created_handed: BTreeMap<VaultId, (KeyGeneration, VaultMetaCiphertext)>,
 }
 
 impl fmt::Debug for UnlockedSession {
@@ -370,21 +390,14 @@ impl LockedSession {
     /// is stored then); [`Error::Store`] with `AccountExists` if the store
     /// already has an account.
     pub fn join_account(
-        mut self,
+        self,
         params: &PasswordParams,
         wrapped_account_key: &WrappedKey,
         password: &MasterPassword,
         secret_key: &SecretKey,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
-        let joined = derive_account_key(password, secret_key, params, wrapped_account_key)
-            .and_then(|ak| {
-                self.store.init_account(params, wrapped_account_key)?;
-                Ok(ak)
-            });
-        match joined {
-            Ok(ak) => {
-                UnlockedSession::load(self.store, params.account_id, ak, QuickState::PASSWORD)
-            }
+        match Self::derive_join_keys(params, password, secret_key) {
+            Ok(keys) => self.join_account_with_keys(wrapped_account_key, keys),
             Err(error) => Err(UnlockError {
                 session: self,
                 error,
@@ -649,7 +662,9 @@ fn reseal_below_current(store: &mut Store, vault_id: VaultId, ov: &OpenVault) ->
             Ok(Some(ct)) if ct.key_generation() == ov.generation
         );
         if !current {
-            store.set_vault_meta(&vault_id, &meta.seal(vk, &vault_id)?)?;
+            // Peers that accepted the new generation refuse the old metadata
+            // (§7.1): the re-sealed one is queued for upload.
+            store.set_vault_meta_queued(&vault_id, &meta.seal(vk, &vault_id)?, true)?;
         }
     }
     Ok(())
@@ -664,8 +679,20 @@ impl UnlockedSession {
         account_key: AccountKey,
         quick: QuickState,
     ) -> core::result::Result<Self, UnlockError> {
-        let proof_id = match DeviceId::new_v7() {
-            Ok(id) => id,
+        let ids = DeviceId::new_v7().and_then(|proof_id| {
+            SecretBytes::<16>::random().map(|tag| (proof_id, *tag.expose_secret()))
+        });
+        let (proof_id, session_tag) = match ids {
+            Ok(ids) => ids,
+            Err(e) => {
+                return Err(UnlockError {
+                    session: LockedSession { store, quick },
+                    error: e.into(),
+                });
+            }
+        };
+        let install = match store.install_id() {
+            Ok(install) => install,
             Err(e) => {
                 return Err(UnlockError {
                     session: LockedSession { store, quick },
@@ -689,6 +716,9 @@ impl UnlockedSession {
                     password_unlocked: quick.password_unlocked,
                     vaults,
                     index,
+                    install,
+                    session_tag,
+                    created_handed: BTreeMap::new(),
                 })
             }
             Err(error) => Err(UnlockError {
@@ -823,36 +853,8 @@ impl UnlockedSession {
         new_password: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<PasswordChanged> {
-        drop(self.verify_master_password(current, secret_key)?);
-        let params = self.store.account()?.ok_or(Error::NoAccount)?;
-        let change = mosaic_core::change_master_password(
-            &self.account_key,
-            new_password,
-            secret_key,
-            &params,
-            params.profile,
-        )?;
-        let quick: Vec<UnlockMethod> = self
-            .store
-            .unlock_methods()?
-            .into_iter()
-            .map(|r| r.method)
-            .filter(|m| matches!(m, UnlockMethod::QuickUnlock(_)))
-            .collect();
-        let removed = self.store.update_password_removing(
-            &change.params,
-            &change.wrapped_account_key,
-            &quick,
-        )?;
-        let removed_quick_unlock = removed
-            .into_iter()
-            .filter_map(QuickUnlockEnrollment::from_row)
-            .max_by_key(|e| *e.enrollment_id.as_bytes());
-        Ok(PasswordChanged {
-            params: change.params,
-            opaque_password: change.opaque_password,
-            removed_quick_unlock,
-        })
+        let prepared = self.prepare_master_password_change(current, new_password, secret_key)?;
+        self.commit_master_password_change(prepared)
     }
 
     /// Replaces this session's writer ID after a merge reported
@@ -899,6 +901,8 @@ impl UnlockedSession {
 
 #[cfg(test)]
 mod hardware_vaults_tests;
+#[cfg(test)]
+mod sync_support_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

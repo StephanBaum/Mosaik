@@ -1,0 +1,1 @@
+{"protocol":1,"serverIdentity":"https://sync.example","registration":"invite","limits":{"maxRequestBytes":8388608,"maxAttachmentBytes":104857600,"accountAttachmentBytes":1073741824,"accountRecordBytes":268435456}}

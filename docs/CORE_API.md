@@ -60,6 +60,7 @@ store directly. The M6 sync client sits next to the session and uses its
 | `LockedSession::open(Store)`, `has_account`, `store`, `into_store` | A store without keys. |
 | `LockedSession::create_account(&MasterPassword, Argon2Profile)` → `(UnlockedSession, CreatedAccount)` | New account (CRYPTO_SPEC §5, §6). `CreatedAccount` carries the `EmergencyKit` (account ID and Secret Key display string, show once), the `SecretKey` (for the OS keystore), the public `PasswordParams` and the `OpaquePassword` for M6 registration. |
 | `LockedSession::join_account(&PasswordParams, &WrappedKey, &MasterPassword, &SecretKey)` | Adds this device to an existing account (M6 pre-login data); nothing is stored on a wrong password. |
+| `LockedSession::{derive_join_keys, join_account_with_keys, sync_config}` (M6 T1) | The two halves of `join_account` (`JoinKeys` carries `OPW` for the login before the wrapped `AK` is fetched, and the parameters it was derived under; `join_account_with_keys(wrapped_ak, keys)` stores those), and the stored backend choice. |
 | `LockedSession::unlock(&MasterPassword, &SecretKey)` | Password unlock (§6.1). Failures return `UnlockError { session, error }`, the locked session unchanged; `Error::UnlockFailed` does not say which secret was wrong. |
 | `UnlockedSession::lock(self)` → `LockedSession` | Drops AK, every VK, the decrypted items and the search index (all zeroize). |
 | `UnlockedSession::lock_requiring_password(self)` → `LockedSession` | Like `lock`, and sets the failed-quick-attempt counter to `MAX_FAILED_QUICK_ATTEMPTS`: no quick method is offered or accepted until the next password unlock (ADR-0028 item 8; the app uses it for the five-wrong-reauthentications lock). |
@@ -102,6 +103,46 @@ Contracts the apps must keep:
   restored or copied store never shares one (ADR-0015).
 - Keep the `SecretKey` in the OS keystore; the store never holds it.
 
+**Sync API of the session (M6 T1, `session/sync_support.rs`; for the M6 sync
+engine and the desktop sync service, ADR-0045).** `UnlockedSession`:
+`install_id`; `sync_config` / `set_sync_config` (`SyncConfig`, `SyncKind`);
+`reset_sync_state` (one transaction: every record of a synced vault loses its
+`server_seq` and is queued, the current vault keys, the metadata and every
+attachment are queued, vaults count as not created on the backend, cursors,
+local sequence blocks, `sync_cursors` and pending attachment deletions are
+cleared; hardware-protected vaults are left alone);
+`synced_vaults`; `pending_uploads_in(vault, limit)`;
+`pending_vault_uploads(&mut self)` (`PendingVaultUpload`; `&mut` because it
+remembers the metadata handed out for a creation) with
+`mark_vault_created_remotely`, `mark_vault_key_uploaded`,
+`mark_vault_meta_uploaded` (clears the queued flag only if the stored bytes
+equal the uploaded ones) and `note_vault_meta_seq`; `vault_key_origin`
+(`KeyOrigin`); the two-phase rotation `prepare_vault_rotation` →
+`PreparedRotation` (no state change) and `commit_vault_rotation` (the key
+counts as generated here and already uploaded; `KeyGenerationRollback` if
+the vault accepted that generation meanwhile; `rotate_vault_key` stays for
+offline use and queues its key); `checkpoint_mac` / `verify_checkpoint_mac`,
+`folder_mac` / `verify_folder_mac` (`FolderMacPurpose`), `seal_device_info` /
+`open_device_info`; `next_checkpoint_counter` / `checkpoint_counter`;
+`sync_cursor` / `set_sync_cursor`; `allocate_local_seqs`;
+`attachment_references` (`AttachmentRef`), `attachment_file_state`
+(`AttachmentFileState`), `attachment_ciphertext`, `store_remote_attachment`
+(`Error::UnknownAttachmentReference` unless an item of the vault refers to
+the attachment), `pending_attachment_uploads`, `mark_attachment_uploaded`,
+`pending_attachment_deletions`, `mark_attachment_deletion_sent`;
+`account_bootstrap` (`AccountBootstrap`); `opaque_password` (`UnlockFailed`
+unless the derived `KEK` opens the stored wrapping);
+`prepare_master_password_change` → `PreparedPasswordChange` and
+`commit_master_password_change` (`change_master_password` is now both).
+Each unlocked session has a random 16-byte tag (never stored); both prepared
+values record it, and a commit in a later session (prepare, lock, unlock,
+commit) is refused with the new `Error::PreparedStale` (added because no
+existing variant describes it). `Store::rewrap_vault_key` clears
+`local_origin` and `upload_pending` (the remote-replacement path), and
+`Store::accept_uploaded_vault_key` sets them on a row that holds the same
+wrapping already.
+Deviation from the M6 spec: `pending_vault_uploads` takes `&mut self`.
+
 ### `otp` (stable)
 
 `otp_from_config(&OtpConfig, hotp_counter)` → `mosaic_totp::Otp`,
@@ -139,13 +180,36 @@ enforces the §7.1 and ADR-0010 rules itself. Schema v1 is final as of the
 M2 integration commit: every change goes through a migration
 (`LATEST_VERSION`), never an in-place edit.
 
+Schema v3 (M6 T1, ADR-0045) is additive: `vault_keys.{upload_pending,
+local_origin}`, `vaults.{remote_created, meta_upload_pending,
+meta_server_seq}` and the tables `install_identity`, `sync_config`,
+`sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint` (with a trigger that
+forbids a lower counter) and `attachment_deletions`. The legacy `sync_cursors`
+table stays; M6 does not use it and `reset_sync_state` clears it. New
+restricted `Store` items: `install_id`, `sync_config` / `set_sync_config`
+(`SyncConfig`, `SyncKind`), `sync_cursor_blob` / `set_sync_cursor_blob`,
+`allocate_local_seqs` (reserves blocks of `LOCAL_SEQ_BLOCK` = 1024: a crash
+skips numbers, never reuses one), `checkpoint_counter` /
+`next_checkpoint_counter`, `pending_attachment_deletions` /
+`mark_attachment_deletion_sent` (`delete_attachment`, `delete_record` and
+`delete_vault` record uploaded attachments; orphan files left by a crash have
+no row and so no deletion), `vault_sync_state` (`VaultSyncState`),
+`pending_vault_keys`, `vault_key_origin`, `mark_vault_key_uploaded`,
+`mark_vault_created`, `set_vault_meta_queued`, `mark_vault_meta_uploaded`,
+`note_vault_meta_seq`, `create_vault_origin`, `accept_vault_key_origin`,
+`accept_uploaded_vault_key` (`KeyOrigin`), `outbox_in(vault, limit)`,
+`reset_sync_state` and `storage::Error::SyncDataInvalid`. Hardware-protected
+vaults never get pending flags.
+
 Internal: `session::fuzzing` (`cfg(fuzzing)` only).
 
 ## mosaic-core
 
 Stable for every consumer:
 
-- **IDs:** `AccountId`, `VaultId`, `ItemId`, `AttachmentId`, `DeviceId`
+- **IDs:** `AccountId`, `VaultId`, `ItemId`, `AttachmentId`, `DeviceId`,
+  `InstallId` (M6 T1: the stable per-install ID of checkpoints, folder
+  paths and the server's device list; `DeviceId` stays the writer ID)
   (`new_v7`, `from_bytes`, `from_slice`, `as_bytes`, `Display`),
   `KeyGeneration` (`FIRST`, `new`, `get`, `next`).
 - **Secrets** (zeroize on drop, redacted `Debug`, not `Clone`,
@@ -189,6 +253,21 @@ Stable for every consumer:
 
 Restricted (`mosaic-vault`, the M6 server and sync client, M3 unlock-method
 setup, tests and fuzzing):
+
+- **Sync keys and MACs** (`mosaic_core::sync_auth`, M6 T1, CRYPTO_SPEC §9.2,
+  §10, §10.1): the key types `CheckpointKey`, `FolderMacKey`,
+  `DeviceInfoKey` (zeroizing, redacted `Debug`, no `Clone`, constant-time
+  `==`; derived by `AccountKey::{checkpoint_key, folder_mac_key,
+  device_info_key}`); `checkpoint_mac`, `verify_checkpoint_mac`,
+  `folder_mac`, `verify_folder_mac` with `FolderMacPurpose` (`Segment`,
+  `Account`, `BlobDelete`); `seal_device_info` / `open_device_info`
+  (XChaCha20-Poly1305, exactly 512 bytes of padded plaintext, so every
+  file has the same size); and
+  `session_token(session_key)` → `SessionToken` (`expose`; stable for the
+  sync client, which sends it as the bearer token). The MAC functions return
+  `Result<_>` (HMAC cannot fail for a 32-byte key, but there is no silent
+  fallback). Known-answer tests read `tests/vectors/sync_kat.txt`, written by
+  the independent script `tests/vectors/sync_kat.py`.
 
 - **Ciphertext types** (the methods differ by type):
   - `ItemCiphertext`: `seal`, `from_bytes`, `as_bytes`, `schema_version`,
@@ -355,6 +434,33 @@ adds each passkey as its own `passkey` item after its entry (counted in `CommitR
 a passkey already in the vault is skipped (`CommitReport::skipped`). `mosaic-origin` gains
 `canonical_rp_id`; `mosaic-passkey` gains `pkcs8_kind` and `Pkcs8Kind`.
 
+## mosaic-sync (new in M6 T1; restricted: the M6 engine, desktop sync service and server)
+
+`mosaic_sync::wire` holds the formats of both sync backends; every decoder
+is length-bounded, verifies its MAC in constant time before it parses and
+rejects trailing bytes, unknown versions, nil IDs and IDs that differ from
+the path (CRYPTO_SPEC §10.1, ADR-0043). `SyncCrypto` is the keyed side
+(`UnlockedSession` implements it; `KeyedCrypto` behind `test-util` is for
+tests and fuzzing), so the crate never holds `AK`. Items: `segment`
+(`Segment`, `SegmentObject`, `SegmentPath`), `checkpoint` (`Checkpoint`,
+`CheckpointEntry`; `decode(bytes, expected_device, crypto)` refuses a body
+that names another device than the one it is filed under, `decode_unverified`
+for a server without a key),
+`account_file` (`AccountFile`, `decode_for_join`, `verify_mac`),
+`blob_delete` (`BlobDelete`, `BlobDeletePath`; 93 bytes, one marker per
+device), `device_info` (`DeviceInfo`, a constant 512-byte padded plaintext),
+`segment::{SnapshotInfo, SnapshotTracker}` (multi-part snapshots), `cursor` (`FolderCursor`), `folder_names` (`parse`,
+`FolderName`, name builders), `email::normalize` (shared with the server) and
+`json` (every request and response body of the hosted protocol, `parse` with a
+size cap, `B64` with strict base64url, `codes`). `mosaic_sync::transport` has
+the blocking, object-safe `Transport` trait and `TransportError`
+(`put_checkpoint(&[u8])` and `checkpoints() -> Vec<(InstallId, Vec<u8>)>`:
+transports carry checkpoints as opaque bytes). `json::TotpSetupResponse` holds
+its secret and URI in `SecretText` (redacted `Debug`, no `Clone`). Features:
+`test-util`; `opaque` and `http` are reserved (the OPAQUE module and the HTTP
+transport come with the server and client tracks, ADR-0046). The engine and
+the folder transport (T2) and the server (T3) follow.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on
@@ -365,6 +471,8 @@ a passkey already in the vault is skipped (`CommitReport::skipped`). `mosaic-ori
   (brief §4).
 - M5: `mosaic-passkey` on top of `PasskeyCredential` and
   `ItemEdit::set_passkey_sign_count`.
-- M6: an upload queue for wrapped vault keys and vault metadata (today only
-  records and attachments are queued; ADR-0012 consequences), checkpoints
-  (§10), sharing and emergency access (§8).
+- M6: the upload queue for wrapped vault keys and vault metadata, the
+  checkpoint keys and the sync session API landed in T1 (above); the engine,
+  the folder transport, the server, the HTTP transport and the desktop
+  integration follow in T2 to T5. Sharing and emergency access (§8) move to
+  M6b (ADR-0042).

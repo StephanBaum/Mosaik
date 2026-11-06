@@ -135,6 +135,14 @@ uuid_id!(
     DeviceId
 );
 
+uuid_id!(
+    /// A per-install ID (16-byte UUID, CRYPTO_SPEC §10). Unlike [`DeviceId`], the
+    /// writer ID that is fresh for every unlocked session, it is created once
+    /// per store and names the install in checkpoints, folder paths and
+    /// server device lists.
+    InstallId
+);
+
 /// A vault key generation (CRYPTO_SPEC §7.1). Starts at 1 and increases on
 /// every rotation; 0 is invalid.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

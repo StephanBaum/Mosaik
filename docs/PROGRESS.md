@@ -13,7 +13,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | 🔄 in progress (T1–T4; close pending) |
-| M6 Sync server | — |
+| M6 Sync | 🔄 in progress (T1 foundation) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -1756,6 +1756,47 @@ leave as a CXF file. The milestone close follows separately.
 - **Not verified / open**: the crypto-reviewer pass of the import parsing and the export and the
   ux-reviewer pass of the export panel are still due; no CXF file from another implementation; the
   panel's visual check in light and dark and German (no Playwright run in this track).
+
+## M6 Sync — T1 protocol foundation (2026-11-06)
+
+Spec: the M6 spec of the session (scope ADR-0042; folder format ADR-0043; server ADR-0044;
+engine rules ADR-0045; dependencies ADR-0046; CRYPTO_SPEC §9.2, §10, §10.1, §10.2, §12.1 amended
+first, in their own commit).
+
+- **mosaic-core**: nine new labels, `InstallId`, `sync_auth` (checkpoint, folder and device-info
+  keys, `checkpoint_mac`, `folder_mac` per purpose, sealed device info, `session_token`). Known
+  answers from the independent script `crates/core/tests/vectors/sync_kat.py` (checked in with its
+  output `sync_kat.txt`; the script was re-run and its output is identical).
+- **mosaic-vault**: store schema v3 (migration test from v2 with data), install identity, sync
+  config, opaque cursors, local sequence blocks, the checkpoint counter with its monotonic trigger,
+  attachment deletions, the key and metadata upload queue, `reset_sync_state`; the new session API
+  in `session/sync_support.rs` (two-phase rotation, join and password change split in two halves,
+  MACs and sealed device info, attachment transfer helpers). Existing behavior is unchanged:
+  `join_account` and `change_master_password` are the new halves in sequence.
+- **mosaic-sync** (new crate): `wire::{segment, checkpoint, account_file, blob_delete, device_info,
+  cursor, folder_names, email, json}` and `transport`; 42 tests, line coverage per file between 92
+  and 100 %. Eight fuzz targets with seeds in `crates/sync/fuzz` (compiled on Windows, run in CI),
+  added to the `fuzz-smoke` matrix, the coverage matrix and the fuzz lockfile checks.
+- **Deviations from the M6 spec**: the core MAC functions return `Result` (no silent fallback);
+  `pending_vault_uploads` takes `&mut self` (it remembers the metadata handed out for a creation, so
+  a rename during the upload is not lost); the delete marker first had 77 bytes (the review of T1 added `vault_id` and a per-device path:
+  93 bytes, CRYPTO_SPEC §10.1); `Store::sweep_orphan_attachments` records
+  no deletion (an orphan file has no row, so no vault and no upload state); the cursor decoder
+  requires strictly ascending devices (stricter than "no duplicates"); `wire::opaque`, `opaque-ke`
+  and the `http` code are left to T3 and T4, the features `opaque` and `http` exist but are empty.
+- **Crypto review follow-ups (2026-11-06)**: H1/M1 transports carry checkpoints as raw bytes filed
+  under the path's device, and `Checkpoint::decode(bytes, expected_device, ..)` refuses a body that
+  names another device (`Path`); M2 multi-part snapshots (`snap_base`, `snap_parts`, `SnapshotTracker`);
+  M3 `JoinKeys` carries its `PasswordParams`; M4 §12/§12.1 rows and a constant 512-byte device-info
+  plaintext; M5 `TotpSetupResponse` secrets in `SecretText`; L1 `.mdel` with `vault_id` at
+  `blobs/<attachment>.<device>.mdel` (93 bytes); L2 checkpoint versioning sentence; L3 key flags on
+  rewrap and on an already-held uploaded key; L4 session tag (`Error::PreparedStale`); L5 checkpoint
+  body cap from `Checkpoint::MAX_LEN`; L6 full byte vectors in `sync_kat.py`/`sync_kat.txt`, checked by
+  `crates/sync/src/wire/kat_tests.rs`; L7 the password-split test enrolls quick unlock first.
+- **Not verified / open**: the crypto-reviewer and test-engineer passes of the spec's T1 review
+  (labels, MAC formats, session MAC API, password-change split, KATs) are still due; the fuzz targets
+  were compiled, not run (Windows); the coverage figure above is from a local `cargo llvm-cov` run of
+  `-p mosaic-sync` and CI measures it again.
 
 ## Open risks / findings
 
