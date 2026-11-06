@@ -2,8 +2,6 @@
 //! relock, after a failed part write, and devices that come back after the
 //! log they last read was compacted away.
 
-use std::fs;
-
 use mosaic_core::{ItemId, VaultId};
 use mosaic_sync::engine::SyncError;
 use mosaic_sync::testutil::SimConfig;
@@ -120,29 +118,60 @@ fn snapshot_parts_in_two_pieces(seed: u64, relock_between: bool) {
     );
 }
 
-/// A's compaction fails after the first part (a write error); its next run
-/// compacts again and numbers the new set right after the first part, so
-/// the new set overlaps the range the failed set claimed. A reader that
-/// read the failed set's first part refuses every part of the new set for
-/// as long as its transport lives: an edit that only the new set still
-/// carries (A deleted the segment that had it) never arrives, and A's files
-/// are reported missing.
+/// A's compaction fails after the first part (a write that dies before it
+/// is confirmed); its next run compacts again and numbers the new set after
+/// the whole range the failed set claimed. A reader that read the failed
+/// set's first part accepts the new set: an edit that only the new set still
+/// carries (A deleted the segment that had it) arrives, and A's files are
+/// not reported missing.
 #[test]
 fn snapshot_retried_after_a_failed_part_is_accepted() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use mosaic_sync::engine::{EngineConfig, SyncEngine};
+    use mosaic_sync::testutil::FixedJitter;
+    use mosaic_sync::transport::TransportKind;
+    use mosaic_sync::wire::SessionCrypto;
+
+    use super::util::FlakyCrypto;
+
     let (mut w, vault, items) = big_vault(403);
     let a_id = w.devs[0].s().install_id();
     let item = items[BIG - 1];
     let dir = log_dir(&w, 0, 0, vault);
-    // A directory with the name of the second part's segment makes that
-    // write fail (and nothing else: listings skip directories).
+    let allow = Arc::new(AtomicI64::new(-1));
+    let crypto = FlakyCrypto {
+        inner: SessionCrypto::new(w.devs[0].access.clone()).unwrap(),
+        allow: Arc::clone(&allow),
+    };
+    let transport = mosaic_sync::folder::FolderTransport::open(mosaic_sync::folder::FolderConfig {
+        root: w.replica(0),
+        account_id: w.account,
+        install_id: a_id,
+        crypto,
+        clock: Arc::new(w.clock.clone()),
+        device: mosaic_sync::wire::device_info::DeviceInfo {
+            created_at_ms: 0,
+            name: "device 0".to_owned(),
+            platform: mosaic_sync::wire::device_info::Platform::Linux,
+        },
+    })
+    .unwrap();
+    let mut engine = SyncEngine::with_jitter(
+        transport,
+        EngineConfig::for_kind(TransportKind::Folder),
+        Box::new(FixedJitter(1000)),
+    );
+    // Each run may confirm the pushed segment; the confirmation after it,
+    // the first part of a compaction, fails once: that part is on disk and
+    // the set is not finished.
     let mut failed_at = None;
     for i in 0..90 {
         let high = max_seq(&dir);
-        let blocker = dir.join(format!("{:016x}.mseg", high + 3));
-        fs::create_dir_all(&blocker).unwrap();
+        allow.store(1, Ordering::SeqCst);
         set_password(&mut w, 0, vault, item, &format!("edit {i}"));
-        let outcome = w.try_sync(0);
-        fs::remove_dir(&blocker).unwrap();
+        let outcome = engine.sync_once(&mut w.devs[0].access, &w.clock);
         match outcome {
             Ok(_) => {}
             Err(SyncError::Transport(_)) => {
@@ -152,6 +181,7 @@ fn snapshot_retried_after_a_failed_part_is_accepted() {
             Err(e) => panic!("{e:?}"),
         }
     }
+    allow.store(-1_000, Ordering::SeqCst);
     let pushed = failed_at.expect("the compaction failed once");
     let first = snapshot_parts(&w, 0, 0, vault);
     assert_eq!(first.len(), 1, "only the first part was written");
@@ -162,7 +192,7 @@ fn snapshot_retried_after_a_failed_part_is_accepted() {
     w.sync(1);
     // A's next run compacts again, then deletes everything older.
     w.advance(60_000);
-    w.sync(0);
+    engine.sync_once(&mut w.devs[0].access, &w.clock).unwrap();
     assert!(
         snapshot_parts(&w, 0, 0, vault).len() >= 2,
         "a complete set now"
@@ -172,7 +202,7 @@ fn snapshot_retried_after_a_failed_part_is_accepted() {
         w.sync(1);
     }
     w.advance(25 * HOUR_MS);
-    w.sync(0);
+    engine.sync_once(&mut w.devs[0].access, &w.clock).unwrap();
     w.cloud.settle().unwrap();
     let report = w.sync(1);
     assert_eq!(

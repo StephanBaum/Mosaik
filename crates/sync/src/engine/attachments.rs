@@ -219,9 +219,16 @@ impl<T: Transport> SyncEngine<T> {
                 .unwrap_or(false)
         })?;
         if local_ok {
-            self.transport.replace_attachment(vault, id, &local)?;
-            self.verified_blobs.insert(id);
-            report.attachments_healed += 1;
+            match self.transport.replace_attachment(vault, id, &local) {
+                Ok(()) => {
+                    self.verified_blobs.insert(id);
+                    report.attachments_healed += 1;
+                }
+                // A locked session ends the run; any other failure of this
+                // optional repair is counted and tried again next time.
+                Err(crate::transport::TransportError::Locked) => return Err(SyncError::Locked),
+                Err(_) => report.attachments_heal_failed += 1,
+            }
         }
         Ok(())
     }

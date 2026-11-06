@@ -230,6 +230,8 @@ pub struct Faults {
     /// The next this many `push_records` calls take effect and then fail
     /// with `Timeout`: a crash between the write and the commit.
     pub lose_push_records: u32,
+    /// `replace_attachment` fails with `Io` (nothing written).
+    pub fail_replace_attachment: bool,
 }
 
 /// A transport that fails chosen calls (see [`Faults`]), otherwise honest.
@@ -336,6 +338,9 @@ impl<T: Transport> Transport for Faulty<T> {
         id: AttachmentId,
         ciphertext: &[u8],
     ) -> Result<(), TransportError> {
+        if self.faults.fail_replace_attachment {
+            return Err(TransportError::Io);
+        }
         self.inner.replace_attachment(vault, id, ciphertext)
     }
 
@@ -405,5 +410,87 @@ impl<T: Transport> Transport for Faulty<T> {
         timeout: Duration,
     ) -> Result<ChangeToken, TransportError> {
         self.inner.wait_for_change(since, timeout)
+    }
+}
+
+/// A crypto provider whose `confirm_own_seq` fails once, after a chosen
+/// number of successful confirmations: a segment that was written but whose
+/// confirmation failed, i.e. a write that dies half-way through a snapshot
+/// set. Everything else is the session's.
+pub struct FlakyCrypto {
+    pub inner: mosaic_sync::wire::SessionCrypto<mosaic_sync::testutil::LocalSession>,
+    /// Confirmations still allowed; the call after that fails once, then the
+    /// provider is honest again (negative values never fail).
+    pub allow: std::sync::Arc<std::sync::atomic::AtomicI64>,
+}
+
+impl mosaic_sync::wire::SyncCrypto for FlakyCrypto {
+    fn install_id(&self) -> InstallId {
+        self.inner.install_id()
+    }
+
+    fn folder_mac(
+        &self,
+        purpose: mosaic_core::sync_auth::FolderMacPurpose,
+        msg: &[u8],
+    ) -> Result<[u8; 32], mosaic_sync::WireError> {
+        self.inner.folder_mac(purpose, msg)
+    }
+
+    fn verify_folder_mac(
+        &self,
+        purpose: mosaic_core::sync_auth::FolderMacPurpose,
+        msg: &[u8],
+        mac: &[u8; 32],
+    ) -> Result<bool, mosaic_sync::WireError> {
+        self.inner.verify_folder_mac(purpose, msg, mac)
+    }
+
+    fn checkpoint_mac(
+        &self,
+        counter: u64,
+        seen_digest: &[u8; 32],
+    ) -> Result<[u8; 32], mosaic_sync::WireError> {
+        self.inner.checkpoint_mac(counter, seen_digest)
+    }
+
+    fn verify_checkpoint_mac(
+        &self,
+        device: InstallId,
+        counter: u64,
+        seen_digest: &[u8; 32],
+        mac: &[u8; 32],
+    ) -> Result<bool, mosaic_sync::WireError> {
+        self.inner
+            .verify_checkpoint_mac(device, counter, seen_digest, mac)
+    }
+
+    fn seal_device_info(&self, plaintext: &[u8]) -> Result<Vec<u8>, mosaic_sync::WireError> {
+        self.inner.seal_device_info(plaintext)
+    }
+
+    fn open_device_info(
+        &self,
+        device: InstallId,
+        sealed: &[u8],
+    ) -> Result<mosaic_core::SecretVec, mosaic_sync::WireError> {
+        self.inner.open_device_info(device, sealed)
+    }
+}
+
+impl mosaic_sync::wire::OwnLogState for FlakyCrypto {
+    fn own_seq(&self, vault: VaultId) -> Result<mosaic_sync::wire::OwnSeq, mosaic_sync::WireError> {
+        self.inner.own_seq(vault)
+    }
+
+    fn reserve_own_seq(&self, vault: VaultId, through: u64) -> Result<(), mosaic_sync::WireError> {
+        self.inner.reserve_own_seq(vault, through)
+    }
+
+    fn confirm_own_seq(&self, vault: VaultId, through: u64) -> Result<(), mosaic_sync::WireError> {
+        if self.allow.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            return Err(mosaic_sync::WireError::Crypto);
+        }
+        self.inner.confirm_own_seq(vault, through)
     }
 }

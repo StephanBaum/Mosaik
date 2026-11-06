@@ -17,11 +17,12 @@ use mosaic_vault::storage::MarkerStamp;
 
 use super::compaction::{BIG, big_vault, edit_until_compacted, rounds};
 use super::util::{
-    DAY_MS, Faulty, HOUR_MS, add_login, max_seq, password_of, relock, set_password, shows,
-    snapshot_parts, warns_missing,
+    DAY_MS, Faulty, HOUR_MS, add_login, password_of, relock, set_password, shows, snapshot_parts,
+    warns_missing,
 };
 use crate::common::{
     PASSWORD, World, account_dir, device_dir, files_ending, log_dir, open_transport, pw, segments,
+    tree,
 };
 
 /// Three devices at rest sharing one vault with one item.
@@ -126,19 +127,25 @@ fn junk_at_the_very_top_of_the_sequence_range_changes_nothing() {
     plant_and_write(512, "ffffffffffffffff.mseg");
 }
 
-/// A directory (or junk) on the very next name is stepped past; the hole it
-/// leaves is closed by the compaction that follows, so no peer keeps a
+/// Directories (with content) on the next names, which this device never
+/// wrote, are removed at once and do not stop the writer; no peer keeps a
 /// warning.
 #[test]
-fn a_squatter_on_the_next_name_is_stepped_past_and_the_hole_closes() {
+fn squatters_on_the_next_names_are_removed_and_do_not_stop_the_writer() {
     let (mut w, vault, item) = three_devices(513);
     let a = install(&w, 0);
     let dir = log_dir(&w, 0, 0, vault);
-    let squat = dir.join(segment_name(max_seq(&dir) + 1));
-    fs::create_dir(&squat).unwrap();
+    let reserved = w.devs[0].s().own_seq(vault).unwrap().reserved;
+    let squatters: Vec<_> = (1..=16)
+        .map(|k| dir.join(segment_name(reserved + k)))
+        .collect();
+    for sq in &squatters {
+        fs::create_dir_all(sq.join("inside")).unwrap();
+        fs::write(sq.join("inside").join("file"), b"x").unwrap();
+    }
     set_password(&mut w, 0, vault, item, "past the squatter");
     w.try_sync(0).unwrap();
-    assert!(squat.is_dir(), "the squatter is left alone");
+    assert!(squatters.iter().all(|sq| !sq.is_dir()), "removed");
     w.converge(0);
     w.advance(25 * HOUR_MS);
     for report in w.sync_all() {
@@ -682,4 +689,265 @@ fn old_own_account_files_go_once_a_higher_version_exists() {
             .to_string_lossy()
             .starts_with(&format!("{:016x}-", 2))
     );
+}
+
+// ---------------------------------------------------------------------------
+// Round 2: join, halts, planted names, holes, heal failures
+// ---------------------------------------------------------------------------
+
+/// After a password change, the old password does not join, even while the
+/// old account file is present again (or planted again): a file of a higher
+/// version that the account key MACs supersedes it.
+#[test]
+fn a_superseded_password_cannot_join_while_the_old_file_is_present() {
+    let mut w = World::new(611, 2);
+    w.new_vault(0, "Shared");
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    let (_, v1) = real_account_file(&w);
+    let new_password = "a completely different passphrase";
+    {
+        let dev = &mut w.devs[0];
+        let prepared = dev
+            .access
+            .session_mut()
+            .unwrap()
+            .prepare_master_password_change(&pw(PASSWORD), &pw(new_password), &w.secret_key)
+            .unwrap();
+        dev.engine
+            .transport_mut()
+            .write_account_file(prepared.new_params(), prepared.new_wrapped_ak(), 2)
+            .unwrap();
+        dev.access
+            .session_mut()
+            .unwrap()
+            .commit_master_password_change(prepared)
+            .unwrap();
+    }
+    // The old file comes back.
+    let device: [u8; 16] = v1[29..45].try_into().unwrap();
+    let dir = account_dir(&w, 0).join("account");
+    fs::write(dir.join(account_name(1, &device)), &v1).unwrap();
+    w.cloud.settle().unwrap();
+    let failure = w.try_join(PASSWORD).unwrap_err();
+    assert!(
+        matches!(
+            failure.error,
+            mosaic_sync::folder::JoinError::WrongCredentials
+        ),
+        "{:?}",
+        failure.error
+    );
+    assert!(failure.session.is_some());
+    drop(failure);
+    w.try_join(new_password).unwrap();
+}
+
+/// Under a duplicated identity a halted engine does not rotate and writes
+/// nothing.
+#[test]
+fn a_halted_engine_neither_rotates_nor_writes() {
+    let (mut w, vault, _item) = three_devices(612);
+    w.sync(0);
+    let counter = w.devs[0].s().checkpoint_counter().unwrap();
+    let own = install(&w, 0);
+    let forged = Checkpoint {
+        device_id: own,
+        counter: counter + 5,
+        issued_at_ms: 1,
+        entries: Vec::new(),
+    }
+    .encode(&*w.devs[0].s())
+    .unwrap();
+    fs::write(
+        device_dir(&w, 0, 0).join("head (conflicted copy).mck"),
+        forged,
+    )
+    .unwrap();
+    assert!(matches!(w.try_sync(0), Err(SyncError::IdentityDuplicated)));
+    let before = tree(&w.replica(0));
+    let dev = &mut w.devs[0];
+    let r = dev.engine.rotate_vault(&mut dev.access, &w.clock, vault);
+    assert!(matches!(r, Err(SyncError::IdentityDuplicated)), "{r:?}");
+    assert_eq!(tree(&w.replica(0)), before, "nothing was written");
+}
+
+/// The very first run under a duplicated identity writes nothing: the checks
+/// that can halt it come before the vault is created on the backend.
+#[test]
+fn the_first_run_under_a_duplicated_identity_writes_nothing() {
+    let mut w = World::new(613, 1);
+    let vault = w.new_vault(0, "Fresh");
+    add_login(&mut w, 0, vault, "unsynced");
+    let own = install(&w, 0);
+    let forged = Checkpoint {
+        device_id: own,
+        counter: 5,
+        issued_at_ms: 1,
+        entries: Vec::new(),
+    }
+    .encode(&*w.devs[0].s())
+    .unwrap();
+    fs::write(
+        device_dir(&w, 0, 0).join("head (conflicted copy).mck"),
+        forged,
+    )
+    .unwrap();
+    let before = tree(&w.replica(0));
+    assert!(matches!(w.try_sync(0), Err(SyncError::IdentityDuplicated)));
+    assert_eq!(tree(&w.replica(0)), before, "nothing was written");
+}
+
+/// A rollback with junk planted on top of the newest names still halts: a
+/// file that fails its MAC does not count as present.
+#[test]
+fn rollback_with_junk_planted_on_top_still_halts() {
+    let (mut w, vault, item) = three_devices(614);
+    for i in 0..4 {
+        set_password(&mut w, 0, vault, item, &format!("v{i}"));
+        w.sync(0);
+    }
+    let dir = log_dir(&w, 0, 0, vault);
+    let segs = segments(&dir);
+    for p in &segs[segs.len() - 3..] {
+        fs::remove_file(p).unwrap();
+    }
+    fs::write(dir.join("ffffffffffffffff.mseg"), b"junk").unwrap();
+    relock(&mut w, 0);
+    set_password(&mut w, 0, vault, item, "after");
+    let r = w.try_sync(0);
+    assert!(matches!(r, Err(SyncError::RollbackDetected)), "{r:?}");
+}
+
+/// Names above the reserved numbers were never written by this device:
+/// non-empty directories, junk and junk with a modification time in the
+/// future are removed at once and stop neither pushes nor a multi-part
+/// compaction.
+#[test]
+fn planted_names_above_the_reserved_numbers_stop_nothing() {
+    let (mut w, vault, item) = three_devices(615);
+    let dir = log_dir(&w, 0, 0, vault);
+    // 16 non-empty directories on the next 16 names.
+    let reserved = w.devs[0].s().own_seq(vault).unwrap().reserved;
+    for k in 1..=16 {
+        let d = dir.join(segment_name(reserved + k));
+        fs::create_dir_all(d.join("x")).unwrap();
+        fs::write(d.join("x").join("f"), b"x").unwrap();
+    }
+    set_password(&mut w, 0, vault, item, "one");
+    w.try_sync(0).unwrap();
+    // Junk with a future time.
+    let reserved = w.devs[0].s().own_seq(vault).unwrap().reserved;
+    let junk = dir.join(segment_name(reserved + 1));
+    fs::write(&junk, b"junk").unwrap();
+    let future = std::time::SystemTime::now() + std::time::Duration::from_hours(240);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&junk)
+        .unwrap()
+        .set_modified(future)
+        .unwrap();
+    set_password(&mut w, 0, vault, item, "two");
+    w.try_sync(0).unwrap();
+    assert_ne!(
+        fs::read(&junk).unwrap(),
+        b"junk",
+        "replaced by a real segment"
+    );
+    w.converge(0);
+    for d in 0..3 {
+        assert!(shows(&w, d, vault, item, "two"), "device {d}");
+    }
+
+    // A multi-part compaction with junk in the middle of its range.
+    let (mut w, vault, items) = big_vault(616);
+    let item = items[BIG - 1];
+    let dir = log_dir(&w, 0, 0, vault);
+    for i in 0..90 {
+        let reserved = w.devs[0].s().own_seq(vault).unwrap().reserved;
+        for k in [2, 3] {
+            fs::write(dir.join(segment_name(reserved + k)), b"junk").unwrap();
+        }
+        set_password(&mut w, 0, vault, item, &format!("edit {i}"));
+        w.try_sync(0).unwrap();
+        if !snapshot_parts(&w, 0, 0, vault).is_empty() {
+            break;
+        }
+    }
+    assert!(snapshot_parts(&w, 0, 0, vault).len() >= 2);
+}
+
+/// A rollback that the user acknowledged leaves a hole between the numbers
+/// that survived and the next ones; the housekeeping compacts at once, so
+/// the readers' lag closes and nobody is warned.
+#[test]
+fn a_hole_after_an_acknowledged_rollback_heals_without_a_halt() {
+    let (mut w, vault, item) = three_devices(617);
+    let a = install(&w, 0);
+    for i in 0..4 {
+        set_password(&mut w, 0, vault, item, &format!("v{i}"));
+        w.sync(0);
+    }
+    w.converge(0);
+    let dir = log_dir(&w, 0, 0, vault);
+    let segs = segments(&dir);
+    for p in &segs[segs.len() - 3..] {
+        fs::remove_file(p).unwrap();
+    }
+    w.cloud.settle().unwrap();
+    relock(&mut w, 0);
+    set_password(&mut w, 0, vault, item, "after");
+    assert!(matches!(w.try_sync(0), Err(SyncError::RollbackDetected)));
+    {
+        let dev = &mut w.devs[0];
+        dev.engine.clear_halt(&mut dev.access).unwrap();
+    }
+    w.sync(0);
+    assert!(
+        !snapshot_parts(&w, 0, 0, vault).is_empty(),
+        "the hole was closed by a snapshot"
+    );
+    w.converge(1);
+    w.advance(25 * HOUR_MS);
+    for (d, report) in w.sync_all().iter().enumerate().skip(1) {
+        assert!(!warns_missing(report, a), "device {d}: {report:?}");
+        assert!(shows(&w, d, vault, item, "after"), "device {d}");
+    }
+}
+
+/// A holder that cannot replace a planted blob counts the failure and
+/// carries on: the run does not abort.
+#[test]
+fn a_failed_heal_is_counted_and_never_aborts_the_run() {
+    let mut w = World::new(618, 2);
+    let vault = w.new_vault(0, "Shared");
+    let item = add_login(&mut w, 0, vault, "with file");
+    let id = w.devs[0]
+        .s_mut()
+        .add_attachment(vault, item, "a.txt", "text/plain", b"attachment body")
+        .unwrap();
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    let blob = blob_path(&w, 0, vault, id);
+    let mut planted = fs::read(&blob).unwrap();
+    let last = planted.len() - 1;
+    planted[last] ^= 1;
+    fs::write(&blob, &planted).unwrap();
+    let mut faulty = Faulty::new(open_transport(
+        &w.devs[0].access,
+        &w.replica(0),
+        &w.clock,
+        "device 0",
+    ));
+    faulty.faults.fail_replace_attachment = true;
+    let mut engine = SyncEngine::with_jitter(
+        faulty,
+        EngineConfig::for_kind(TransportKind::Folder),
+        Box::new(FixedJitter(1000)),
+    );
+    let dev = &mut w.devs[0];
+    let r = engine.sync_once(&mut dev.access, &w.clock).unwrap();
+    assert_eq!(r.attachments_heal_failed, 1, "{r:?}");
+    assert_eq!(r.attachments_healed, 0);
+    assert_eq!(fs::read(&blob).unwrap(), planted, "still the planted file");
 }

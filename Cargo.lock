@@ -2844,6 +2844,7 @@ dependencies = [
  "base64ct",
  "getrandom 0.4.3",
  "idna",
+ "libc",
  "mosaic-core",
  "mosaic-vault",
  "serde",

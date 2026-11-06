@@ -58,9 +58,43 @@ impl<C: FolderCrypto> FolderTransport<C> {
         Ok((active.len(), active.iter().map(|f| f.len).sum()))
     }
 
+    /// Whether the verified segments of the own log have a hole: a gap in
+    /// their numbers after the newest complete snapshot set (or from 1 if
+    /// there is none). A hole is what a skipped number, a rollback that was
+    /// acknowledged or a change of backend leaves; readers count the missing
+    /// numbers as lag until a snapshot closes them.
+    fn own_log_has_hole(&mut self, vault: VaultId) -> Result<bool, TransportError> {
+        let install = self.install;
+        let files = self.segment_files(&vault, &install)?;
+        let mut parts_seen: BTreeMap<(u64, u32), usize> = BTreeMap::new();
+        let mut good: Vec<u64> = Vec::new();
+        for file in &files {
+            if let Outcome::Good { snapshot, .. } = self.probe(vault, install, file)? {
+                good.push(file.seq);
+                if let Some(info) = snapshot {
+                    *parts_seen.entry((info.base, info.parts)).or_default() += 1;
+                }
+            }
+        }
+        let start = parts_seen
+            .iter()
+            .filter(|((_, parts), n)| u64::try_from(**n) == Ok(u64::from(*parts)))
+            .map(|((base, parts), _)| base.saturating_add(u64::from(*parts)))
+            .max()
+            .unwrap_or(1);
+        let mut expected = start;
+        for seq in good.into_iter().filter(|s| *s >= start) {
+            if seq != expected {
+                return Ok(true);
+            }
+            expected = seq.saturating_add(1);
+        }
+        Ok(false)
+    }
+
     fn compact_own_logs(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {
         for vault in self.vault_ids()? {
-            let forced = self.force_compact.contains(&vault);
+            let forced = self.force_compact.contains(&vault) || self.own_log_has_hole(vault)?;
             let (count, bytes) = self.active_segments(vault)?;
             if !forced && count <= COMPACT_SEGMENTS && bytes <= COMPACT_BYTES {
                 continue;
@@ -86,7 +120,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
 
     /// Whether the segment file was read (and did not verify) at its current
     /// length and time.
-    fn known_bad(&self, vault: VaultId, device: InstallId, file: &SegmentFile) -> bool {
+    pub(super) fn known_bad(&self, vault: VaultId, device: InstallId, file: &SegmentFile) -> bool {
         self.scan.get(&(vault, device, file.seq)).is_some_and(|e| {
             e.len == file.len && e.modified == file.modified && matches!(e.outcome, Outcome::Bad)
         })

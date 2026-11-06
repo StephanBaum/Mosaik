@@ -89,22 +89,21 @@ fn writes_are_tmp_then_rename() {
     let before = fs::read(&last).unwrap();
     let name = last.file_name().unwrap().to_string_lossy().into_owned();
     let seq = u64::from_str_radix(name.trim_end_matches(".mseg"), 16).unwrap();
-    // The next names are taken by directories: the writer steps past a few
-    // taken names and then gives up, and never writes onto one.
+    // The next names are taken by non-empty directories this device never
+    // wrote: they are removed, the push goes through, nothing is overwritten
+    // and no temp file is left.
     let blockers: Vec<PathBuf> = (1..=16)
         .map(|k| dir.join(format!("{:016x}.mseg", seq + k)))
         .collect();
     for b in &blockers {
-        fs::create_dir(b).unwrap();
+        fs::create_dir_all(b.join("in")).unwrap();
+        fs::write(b.join("in").join("f"), b"x").unwrap();
     }
     set_password(&mut w, 0, vault, item, "third");
-    let err = w.try_sync(0).unwrap_err();
-    assert!(matches!(err, SyncError::Transport(TransportError::Io)));
+    w.sync(0);
     assert_eq!(files_ending(&w.replica(0), ".mtmp").len(), 0);
     assert_eq!(fs::read(&last).unwrap(), before);
-    for b in &blockers {
-        fs::remove_dir(b).unwrap();
-    }
+    assert!(blockers.iter().all(|b| !b.is_dir()));
 
     // A checkpoint is replaced whole.
     let head = device_dir(&w, 0, 0).join("head.mck");

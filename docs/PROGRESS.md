@@ -1911,6 +1911,22 @@ CRYPTO_SPEC §10 and §10.1, ADR-0043 and ADR-0045 (amendments in ADR-0043).
   the rollback check compares the highest listed own segment with `written` (no compaction floor),
   and the holder checks a same-size blob once per engine lifetime instead of once per run.
   `THREAT_MODEL` R57a records that a lost device keeps `AK` until re-key (M7).
+- **T2 re-review follow-ups (2026-11-06, round 2).** A join refuses a superseded password (a
+  higher-version `.macct` that the opened key MACs); `rotate_vault` and the first run check the halt,
+  the own logs and the checkpoints before they write; the rollback check ignores files that fail
+  their MAC; names above `reserved` in the own log are removed at once (directories and links too),
+  snapshot ranges are checked name by name, and a hole in the own numbers (also after an
+  acknowledged rollback or a backend change) triggers a compaction; `read_capped` re-checks the
+  opened file and opens non-blocking on Unix (new `libc` edge for `mosaic-sync`, already in the
+  lock file); a failed heal is counted (`attachments_heal_failed`) and never aborts a run; a backend
+  change keeps `reserved`. CI: the `mosaic-sync` coverage job now runs with `--features test-util`.
+  S8's test injects the failed part through a crypto provider whose confirmation fails once
+  (a name collision no longer fails a write, by design).
+- **Known items for later.** T5: the blob authenticity check (STREAM open of up to 50 MiB) and the
+  holder's check run inside a short session step, so the session lock is held for that time (UI
+  latency); move it to a worker with a copy if it shows. M7 (re-key): own segments written under the
+  old `K_fold` read as bad after a re-key and must not be deleted blindly by the unverifiable-file
+  cleanup; revisit then.
 
 ## Open risks / findings
 

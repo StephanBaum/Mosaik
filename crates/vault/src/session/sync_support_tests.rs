@@ -795,7 +795,11 @@ fn engine_state_persists_and_resets_with_the_backend() {
     assert_eq!((st.last_published_counter, st.strike_count), (3, 1));
 
     s.reset_sync_state().unwrap();
-    assert_eq!(s.own_seq(v).unwrap().reserved, 0);
+    assert_eq!(
+        s.own_seq(v).unwrap(),
+        own(7, 0),
+        "reserved stays, written starts over"
+    );
     assert_eq!(s.peer_checkpoints().unwrap(), Vec::new());
     assert_eq!(s.sync_lag().unwrap(), Vec::new());
     let st = s.sync_engine_state().unwrap();
@@ -806,5 +810,9 @@ fn engine_state_persists_and_resets_with_the_backend() {
     s.confirm_own_seq(v, 4).unwrap();
     s.clear_sync_halt().unwrap();
     assert_eq!(s.sync_engine_state().unwrap().halt, None);
-    assert_eq!(s.own_seq(v).unwrap().reserved, 4);
+    assert_eq!(s.own_seq(v).unwrap().reserved, 7);
+}
+
+fn own(reserved: u64, written: u64) -> crate::storage::OwnSeq {
+    crate::storage::OwnSeq { reserved, written }
 }

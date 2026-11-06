@@ -3506,7 +3506,19 @@ The crypto review and the sync-chaos pass of M6 T2 changed these rules; CRYPTO_S
 9. **Hostile folder files**: symlinks and non-regular files are never read, reads are capped, at most 32
    checkpoint candidates per device directory, the device list needs a verified file, and a join tries
    account files in order (at most 8) until one unlocks and verifies.
-10. A lost or stolen device keeps `AK` and can forge folder objects until a re-key (M7); THREAT_MODEL R57.
+10. A lost or stolen device keeps `AK` and can forge folder objects until a re-key (M7); THREAT_MODEL R57a.
+
+### Amendment, 2026-11-06, round 2 (M6 T2 re-review)
+11. A join refuses a password that a higher-version account file (MAC-verified with the key it opened)
+    supersedes. A halted engine does not rotate; the halting checks run before the first write of a
+    run or a rotation.
+12. The rollback check counts a file at or above `written` only if it verifies or cannot be read now.
+13. Names above `reserved` in the own log are removed at once (files that do not verify, directories,
+    links); snapshot ranges are checked name by name; a hole in the own numbers makes the housekeeping
+    compact. A backend change keeps `reserved` (conservative; the hole is closed by compaction).
+14. Files are opened non-blocking on Unix and re-checked as regular files after the open (a new
+    `libc` edge for `mosaic-sync` on Unix, already in the lock file).
+15. A holder's failed heal is counted in the report and never aborts a run.
 
 ## ADR-0046: Network and OPAQUE dependencies
 

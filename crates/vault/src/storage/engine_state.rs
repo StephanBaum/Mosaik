@@ -598,12 +598,17 @@ impl Store {
 
     /// Clears the engine state that belongs to one backend: peer
     /// checkpoints, lag timers, key observations, marker times, strikes, the
-    /// own sequence numbers and the last published counter (the new backend
-    /// has none of this install's checkpoints). The halt stays; the
+    /// written own sequence numbers and the last published counter (the new
+    /// backend has none of this install's checkpoints). The halt stays, so
+    /// do the reserved own sequence numbers (the conservative choice: a
+    /// folder that comes back never sees a number reused; the hole this
+    /// leaves in a new folder is closed by the first compaction), and the
     /// checkpoint counter stays (it only grows).
     pub(super) fn clear_engine_state_in(tx: &rusqlite::Transaction<'_>) -> Result<()> {
         for sql in [
-            "DELETE FROM sync_own_seq",
+            // Reserved numbers stay (nothing is reused if the old folder
+            // comes back); the new backend counts from zero written.
+            "UPDATE sync_own_seq SET written = 0",
             "DELETE FROM sync_peer_checkpoint",
             "DELETE FROM sync_lag",
             "DELETE FROM sync_key_candidate",

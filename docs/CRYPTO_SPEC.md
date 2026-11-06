@@ -919,23 +919,36 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   was rolled back never makes a device reuse a number its readers already
   marked read, and a failed snapshot set leaves the next set after its whole
   range (`snap_base .. snap_base + snap_parts - 1` is reserved before the
-  first part is written). Files in the own log that do not verify (junk
-  anyone with write access plants, even `ffffffffffffffff.mseg`) never count
-  as segments: a name that is taken is stepped past, at most 16 times, and
-  the housekeeping then compacts the vault so the hole closes; unverifiable
-  files and directories on segment names older than 24 hours are removed
-  from the own log.
+  first part is written, and every name of the range must be free: a range
+  that collides with a file is moved past it). Files in the own log that do
+  not verify (junk anyone with write access plants, even
+  `ffffffffffffffff.mseg`) never count as segments. Anything above
+  `reserved` was never written by this device: a file that does not verify
+  is removed at once, whatever its modification time, and so is a directory
+  (with its content) or a link (the link only) on such a name; a file that
+  verifies stays and the writer steps past its name, at most 16 times.
+  Files and directories on segment names at or below `reserved` that never
+  verify are removed after 24 hours. A hole in the numbers of the verified
+  own segments after the newest complete snapshot set (a skipped number, an
+  acknowledged rollback, a change of backend) makes the housekeeping compact
+  the vault, so the readers' lag closes.
 - **Own log rollback.** Before a run writes anything, it checks every synced
-  vault: if the highest segment file in the own log is below `written`, the
+  vault: if no file at or above `written` is present in the own log, the
   newest segments this device wrote are gone (a restored older folder, or
   deletions), and the run stops with a rollback halt before any push or
-  checkpoint write. A file listed at or above `written` counts as present,
-  even if it does not verify at the moment (the sync client may not have
-  delivered it whole). After the user acknowledges the halt, `written`
-  starts again at 0 and `reserved` stays: no number is ever reused.
+  checkpoint write. A file at or above `written` counts as present if it
+  verifies or cannot be read at the moment (the sync client may not have
+  delivered it whole); a file that was read in full and fails its MAC does
+  not count, so planted junk cannot hide a rollback. After the user
+  acknowledges the halt, `written` starts again at 0 and `reserved` stays:
+  no number is ever reused. Every check that can halt a run (this one, the
+  own checkpoint rules of §10) runs before the run writes anything, and a
+  key rotation runs them too.
 - **Hostile files.** Readers never follow a symlink or open a file that is not
-  a regular file; a file is read through a cap of its maximum length plus
-  one byte; at most 32 checkpoint candidates (`head.mck` first, then the
+  a regular file (checked before the open and again on the opened file, which
+  on Unix is opened non-blocking so a pipe swapped in cannot hang the
+  reader); a file is read through a cap of its maximum length plus one
+  byte; at most 32 checkpoint candidates (`head.mck` first, then the
   newest by modification time) are read per device directory; the device
   list names only devices with a verified `head.mck` or `info.mdev`; a
   device deletes a conflict copy of its own `head.mck` only if the same run
@@ -946,8 +959,12 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   wrapped key does not open is skipped; one that opens but fails its MAC is
   remembered and skipped; the join reports `FolderDamaged` if any candidate
   failed its MAC after unlocking and `WrongCredentials` only if none
-  unlocked. The highest account version counts only files whose MAC
-  verifies.
+  unlocked. Once a file opens, the account files of a higher version (at
+  most 8) are MAC-checked with the key it opened: if one verifies, the
+  password that opened the older file has been changed since, and the join
+  is refused (`WrongCredentials`), so a re-planted old file does not revive a
+  superseded password. The highest account version counts only files whose
+  MAC verifies.
 - **Lag.** For another device's checkpoint entry `(vault, g, high_seq)` the
   folder reader counts the device as behind when `high_seq` is above the
   `contiguous` mark of that device in the vault's cursor. Behind for longer
@@ -1007,7 +1024,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   and IDs); and the time this device first saw each blob delete marker. All
   are IDs, counters, times and ciphertext; nothing is derived from item
   plaintext, and none holds a key. A change of backend clears them all but
-  the halt; the checkpoint counter only grows.
+  the halt and the reserved own sequence numbers (written starts again at
+  0); the checkpoint counter only grows.
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its

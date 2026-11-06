@@ -24,6 +24,13 @@ use mosaic_core::sync_auth::FolderMacPurpose;
 /// and anyone with write access to the folder can plant files.
 const MAX_JOIN_CANDIDATES: usize = 8;
 
+/// The most newer account files a join checks against the key that opened an
+/// older one (see the superseded-password rule).
+const MAX_SUPERSEDED_CHECKS: usize = 8;
+
+/// The most account files read from a folder (newest first).
+const MAX_ACCOUNT_FILES_READ: usize = 64;
+
 /// The account files of a folder, best first: highest version, then lowest
 /// device ID. Each comes with the path IDs and the file's bytes.
 fn candidates(
@@ -39,6 +46,7 @@ fn candidates(
         })
         .collect();
     found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    found.truncate(MAX_ACCOUNT_FILES_READ);
     let mut out = Vec::new();
     for (version, device) in found {
         let Ok(device_id) = InstallId::from_bytes(device) else {
@@ -122,6 +130,38 @@ fn fail(error: JoinError, session: Option<LockedSession>) -> Box<JoinFailure> {
     Box::new(JoinFailure { error, session })
 }
 
+/// Whether an account file of a higher version than candidate `index` (at
+/// most [`MAX_SUPERSEDED_CHECKS`]) carries a MAC of the account key that
+/// opened the candidate: the password was changed since, and the password
+/// that opened the older file is superseded.
+fn superseded(
+    session: &LockedSession,
+    all: &[(AccountFilePath, Vec<u8>)],
+    index: usize,
+    file: &AccountFile,
+    keys: &mosaic_vault::session::JoinKeys,
+) -> bool {
+    let Some((path, _)) = all.get(index) else {
+        return false;
+    };
+    all.iter()
+        .take(index)
+        .filter(|(p, _)| p.account_version > path.account_version)
+        .take(MAX_SUPERSEDED_CHECKS)
+        .filter_map(|(_, bytes)| bytes.split_last_chunk::<32>())
+        .any(|(body, mac)| {
+            session
+                .verify_join_folder_mac(
+                    &file.wrapped_ak,
+                    keys,
+                    FolderMacPurpose::Account,
+                    body,
+                    mac,
+                )
+                .unwrap_or(false)
+        })
+}
+
 /// Joins the account `account` of the folder `root` with the master
 /// password and Secret Key: reads the current account file, derives the
 /// keys under its parameters, opens the wrapped `AK`, then checks the file's
@@ -162,8 +202,8 @@ pub fn join_from_folder(
     // opens but fails its MAC is remembered and skipped too.
     let mut parsed = false;
     let mut damaged = false;
-    for (path, bytes) in all.into_iter().take(MAX_JOIN_CANDIDATES) {
-        let Ok(file) = AccountFile::decode_for_join(&bytes, &path) else {
+    for (index, (path, bytes)) in all.iter().enumerate().take(MAX_JOIN_CANDIDATES) {
+        let Ok(file) = AccountFile::decode_for_join(bytes, path) else {
             continue;
         };
         parsed = true;
@@ -194,6 +234,9 @@ pub fn join_from_folder(
             }
             Ok(true) => {}
         }
+        if superseded(&session, &all, index, &file, &keys) {
+            return Err(fail(JoinError::WrongCredentials, Some(session)));
+        }
         let unlocked = match session.join_account_with_keys(&file.wrapped_ak, keys) {
             Ok(u) => u,
             Err(failed) => {
@@ -205,7 +248,7 @@ pub fn join_from_folder(
             }
         };
         // The same check once more on the unlocked session.
-        return match AccountFile::verify_mac(&bytes, &unlocked) {
+        return match AccountFile::verify_mac(bytes, &unlocked) {
             Ok(true) => Ok(unlocked),
             Ok(false) | Err(_) => Err(fail(JoinError::FolderDamaged, None)),
         };

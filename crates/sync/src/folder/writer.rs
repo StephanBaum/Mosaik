@@ -5,9 +5,10 @@
 use mosaic_core::{KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
 use mosaic_vault::storage::RecordBody;
 
+use super::reader::SegmentFile;
 use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
 use crate::transport::{KeyPushResult, PushRecord, PushResult, TransportError, VaultCreateResult};
-use crate::wire::folder_names;
+use crate::wire::folder_names::{self, FolderName};
 use crate::wire::segment::{
     Segment, SegmentObject, SnapshotInfo, WRITE_MAX_OBJECTS, WRITE_MAX_SEGMENT_LEN,
 };
@@ -110,6 +111,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
             .own_next
             .get(&vault)
             .map_or(0, |next| next.saturating_sub(1));
+        self.clear_above_reserved(vault, state.reserved)?;
         let floor = self.own_verified_high(vault)?.max(state.reserved).max(memo);
         let mut seq = floor.checked_add(1).ok_or(TransportError::Io)?;
         let dir = self.layout.log_dir(&vault, &self.install);
@@ -123,6 +125,52 @@ impl<C: FolderCrypto> FolderTransport<C> {
             seq = seq.checked_add(1).ok_or(TransportError::Io)?;
         }
         Err(TransportError::Io)
+    }
+
+    /// Everything in the own log above `reserved` was never written by this
+    /// device (a number is reserved before its file exists): files that do
+    /// not verify go at once, with no age wait, and so do directories (with
+    /// their content) and links (the link only). A file that verifies stays;
+    /// the writer steps past it. This keeps planted names from stopping the
+    /// writer, whatever their modification time.
+    fn clear_above_reserved(
+        &mut self,
+        vault: VaultId,
+        reserved: u64,
+    ) -> Result<(), TransportError> {
+        let install = self.install;
+        let dir = self.layout.log_dir(&vault, &install);
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            return Ok(());
+        };
+        for item in read.flatten() {
+            let Some(FolderName::Segment { seq }) = folder_names::parse(&item.file_name()) else {
+                continue;
+            };
+            if seq <= reserved {
+                continue;
+            }
+            let path = item.path();
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if !meta.is_file() {
+                fsutil::remove_squatter(&path);
+                continue;
+            }
+            let file = SegmentFile {
+                seq,
+                len: meta.len(),
+                modified: meta.modified().ok(),
+            };
+            // Read first: a file that cannot be read now is not a bad one.
+            let _ = self.probe(vault, install, &file)?;
+            if self.known_bad(vault, install, &file) {
+                fsutil::remove_squatter(&path);
+                self.scan.remove(&(vault, install, seq));
+            }
+        }
+        Ok(())
     }
 
     /// Persists the reservation of `through` (before the write).
@@ -139,6 +187,25 @@ impl<C: FolderCrypto> FolderTransport<C> {
             .map_err(|e| lock_or(e, TransportError::Io))
     }
 
+    /// Whether a file at or above `written` is in the own log of `vault` and
+    /// counts as present: it verifies, or it cannot be read right now (the
+    /// sync client may not have delivered it whole). A file that was read in
+    /// full and fails its MAC does not count: anyone with write access could
+    /// plant one above `written` to hide a rollback.
+    fn own_log_reaches(&mut self, vault: VaultId, written: u64) -> Result<bool, TransportError> {
+        let install = self.install;
+        let files = self.segment_files(&vault, &install)?;
+        for file in files.iter().rev().take_while(|f| f.seq >= written).take(32) {
+            let outcome = self.probe(vault, install, file)?;
+            if matches!(outcome, super::Outcome::Good { .. })
+                || !self.known_bad(vault, install, file)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Whether the own log of any of `vaults` lost its newest segments: the
     /// highest segment file of the log is below the highest sequence number
     /// this install wrote successfully. Anything listed at or above it
@@ -148,7 +215,6 @@ impl<C: FolderCrypto> FolderTransport<C> {
         &mut self,
         vaults: &[VaultId],
     ) -> Result<bool, TransportError> {
-        let install = self.install;
         for vault in vaults {
             let state = self
                 .crypto
@@ -157,11 +223,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
             if state.written == 0 {
                 continue;
             }
-            let listed_high = self
-                .segment_files(vault, &install)?
-                .last()
-                .map_or(0, |f| f.seq);
-            if listed_high < state.written {
+            if !self.own_log_reaches(*vault, state.written)? {
                 return Ok(true);
             }
         }
@@ -222,14 +284,30 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<u64, TransportError> {
         let chunks = chunk(objects);
         let parts = u32::try_from(chunks.len()).map_err(|_| TransportError::Protocol)?;
-        let base = self.next_own_seq(vault)?;
+        let mut base = self.next_own_seq(vault)?;
+        // Every name of the range must be free: a range that collides with a
+        // file that verifies (which the writer must not remove) is moved past
+        // it.
+        let dir = self.layout.log_dir(&vault, &self.install);
+        let mut attempts = 0;
+        let last = loop {
+            let last = base
+                .checked_add(u64::from(parts.saturating_sub(1)))
+                .ok_or(TransportError::Io)?;
+            let taken =
+                (base..=last).find(|s| fsutil::exists(&dir.join(folder_names::segment_name(*s))));
+            let Some(taken) = taken else { break last };
+            attempts += 1;
+            if attempts > MAX_NAME_ATTEMPTS {
+                return Err(TransportError::Io);
+            }
+            self.force_compact.insert(vault);
+            base = taken.checked_add(1).ok_or(TransportError::Io)?;
+        };
         let info = SnapshotInfo { base, parts };
         // The whole range is reserved before the first part is written: a
         // set that fails half-way leaves the next set after its range, so the
         // two never overlap.
-        let last = base
-            .checked_add(u64::from(parts.saturating_sub(1)))
-            .ok_or(TransportError::Io)?;
         self.reserve(vault, last)?;
         let mut seq = base;
         for objects in chunks {

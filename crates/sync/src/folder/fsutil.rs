@@ -90,17 +90,57 @@ pub(crate) fn read_capped(path: &Path, max: u64) -> Result<Option<Vec<u8>>, Tran
     if meta.len() > max {
         return Err(TransportError::Protocol);
     }
-    let file = match fs::File::open(path) {
+    let file = match open_regular(path) {
         Ok(f) => f,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_error(&e)),
     };
+    // The path may have been swapped between the check and the open.
+    match file.metadata() {
+        Ok(m) if m.is_file() => {}
+        Ok(_) => return Ok(None),
+        Err(e) => return Err(io_error(&e)),
+    }
     let mut bytes = Vec::new();
     match file.take(max.saturating_add(1)).read_to_end(&mut bytes) {
         Ok(_) if u64::try_from(bytes.len()).is_ok_and(|n| n <= max) => Ok(Some(bytes)),
         Ok(_) => Err(TransportError::Protocol),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_error(&e)),
+    }
+}
+
+/// Opens a file for reading. On Unix with `O_NONBLOCK`, so that a FIFO that
+/// replaced the file does not block the open (the caller checks that the
+/// opened file is a regular file).
+fn open_regular(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    options.open(path)
+}
+
+/// Removes whatever sits at `path`: a file, a directory with its content, or
+/// a symlink (only the link itself, never its target). Used on names in the
+/// own log that this device never wrote.
+pub(crate) fn remove_squatter(path: &Path) {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if meta.file_type().is_symlink() {
+        // A link to a directory is a directory entry on Windows.
+        if fs::remove_file(path).is_err() {
+            let _ = fs::remove_dir(path);
+        }
+    } else if meta.is_dir() {
+        // `remove_dir_all` does not follow links inside.
+        let _ = fs::remove_dir_all(path);
+    } else {
+        let _ = fs::remove_file(path);
     }
 }
 

@@ -133,6 +133,9 @@ pub struct SyncReport {
     /// Attachment files on the backend that did not authenticate and were
     /// replaced by this device's authentic copy.
     pub attachments_healed: u32,
+    /// Attachment files that did not authenticate and that this device could
+    /// not replace (the write failed); the next run tries again.
+    pub attachments_heal_failed: u32,
     /// Attachments uploaded.
     pub attachments_up: u32,
     /// Attachments downloaded.
@@ -269,6 +272,15 @@ impl<T: Transport> SyncEngine<T> {
         Ok(())
     }
 
+    /// Fails with the persisted halt, if there is one.
+    pub(crate) fn ensure_not_halted(access: &mut impl SessionAccess) -> Result<(), SyncError> {
+        match access.with(|s| s.sync_engine_state())??.halt {
+            Some(SyncHalt::Rollback) => Err(SyncError::RollbackDetected),
+            Some(SyncHalt::Identity) => Err(SyncError::IdentityDuplicated),
+            None => Ok(()),
+        }
+    }
+
     /// Persists a halt and returns the error that reports it.
     fn raise(access: &mut impl SessionAccess, halt: SyncHalt) -> SyncError {
         match access.with(|s| s.set_sync_halt(halt)) {
@@ -319,11 +331,7 @@ impl<T: Transport> SyncEngine<T> {
         clock: &impl Clock,
     ) -> Result<SyncReport, SyncError> {
         let now = clock.now_ms();
-        match access.with(|s| s.sync_engine_state())??.halt {
-            Some(SyncHalt::Rollback) => return Err(SyncError::RollbackDetected),
-            Some(SyncHalt::Identity) => return Err(SyncError::IdentityDuplicated),
-            None => {}
-        }
+        Self::ensure_not_halted(access)?;
         if let Some(retry_at_ms) = self.backoff.retry_at
             && now < retry_at_ms
         {
@@ -363,10 +371,11 @@ impl<T: Transport> SyncEngine<T> {
         let mut report = SyncReport::default();
         let mut stats = pull::RunStats::default();
         let now = clock.now_ms();
-        // Before anything is written to the backend.
+        // Everything that can halt the run comes before anything is written
+        // to the backend.
         self.check_own_logs(access)?;
-        self.upload_vaults(access, &mut report)?;
         self.verify_checkpoints(access, now)?;
+        self.upload_vaults(access, &mut report)?;
         self.pull_phase(access, &mut report, &mut stats)?;
         self.push_phase(access, &mut report, &mut stats, None)?;
         self.push_metas(access, &mut stats, &mut report)?;

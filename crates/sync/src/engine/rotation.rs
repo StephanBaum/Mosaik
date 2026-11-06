@@ -26,8 +26,11 @@ impl<T: Transport> SyncEngine<T> {
         clock: &impl Clock,
         vault: VaultId,
     ) -> Result<RotationOutcome, SyncError> {
-        let _ = clock;
+        // A halt stops a rotation like any other run, and nothing is written
+        // before the checks that can raise one.
+        Self::ensure_not_halted(access)?;
         self.check_own_logs(access)?;
+        self.verify_checkpoints(access, clock.now_ms())?;
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
         self.pull_vault(access, vault, &mut report, &mut stats)?;

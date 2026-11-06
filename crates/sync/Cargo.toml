@@ -37,6 +37,12 @@ thiserror.workspace = true
 # Random temp file names of the folder transport and the retry jitter.
 getrandom.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# `O_NONBLOCK` for opening files in a folder anyone can write to: a FIFO
+# planted on a segment name must not hang the reader. Already in the lock file
+# (a dependency of getrandom and tempfile); this only adds the edge.
+libc = "0.2"
+
 [dev-dependencies]
 # Temporary folders for the folder transport tests and simulations.
 tempfile.workspace = true
