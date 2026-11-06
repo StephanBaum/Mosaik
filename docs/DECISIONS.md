@@ -2688,7 +2688,7 @@ DESKTOP_IPC.md §3 and §6.
 
 ## ADR-0035: Browser extension architecture, gestures and UI surface
 
-- Status: proposed (amended in T4 of M4)
+- Status: accepted (2026-11-06; amended in T4 of M4; reviewed by extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §2 and §4 (the most conservative options)
 - Milestone: M4 (browser extension)
@@ -2778,9 +2778,9 @@ React 19 and the two bundled fonts for the popup, the same versions as the deskt
 
 ## ADR-0036: Native messaging host, local endpoint and pairing
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer, findings fixed)
 - Date: 2026-11-05
-- Decided by: the principal engineer, from brief §4.7 (the most conservative options); needs the crypto review before it is accepted
+- Decided by: the principal engineer, from brief §4.7 (the most conservative options); accepted after the crypto review
 - Milestone: M4 (browser extension)
 
 ### Context
@@ -2830,7 +2830,7 @@ that needs one) is a crypto decision of its own.
   extension could confirm itself.
 
 ### Consequences
-The crypto review is required before this ADR is accepted. New residual risks R38 (same-user
+The crypto review was done before this ADR was accepted. New residual risks R38 (same-user
 malware), R39 (the dev ID), R42 (Windows endpoint identity) and R45 (no forward secrecy, the
 code is not a SAS) are recorded. The owner supplies the store IDs and confirms the Firefox
 add-on ID. The installer, signing and the pipe SDDL come in M9. The host is built on
@@ -2854,7 +2854,7 @@ being parsed.
 
 ## ADR-0037: Fill policy and origin matching in desktop Rust
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer and extension-attacker, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §4.1 to 4.3, 4.5 and 4.8 (the most conservative options)
 - Milestone: M4 (browser extension)
@@ -2918,7 +2918,7 @@ is only as new as the release.
 
 ## ADR-0038: Save and update prompts
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §9 and §4 (the most conservative options)
 - Milestone: M4 (browser extension)
