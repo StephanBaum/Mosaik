@@ -34,3 +34,15 @@ sha2.workspace = true
 unicode-normalization.workspace = true
 idna.workspace = true
 thiserror.workspace = true
+# Random temp file names of the folder transport and the retry jitter.
+getrandom.workspace = true
+
+[dev-dependencies]
+# Temporary folders for the folder transport tests and simulations.
+tempfile.workspace = true
+
+# The integration tests need the simulation utilities.
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+required-features = ["test-util"]

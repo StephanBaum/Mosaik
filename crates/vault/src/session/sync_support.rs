@@ -9,9 +9,9 @@
 
 use mosaic_core::sync_auth::{self, FolderMacPurpose};
 use mosaic_core::{
-    AttachmentId, DerivedKeys, InstallId, ItemId, KeyGeneration, MasterPassword, OpaquePassword,
-    PasswordParams, SecretKey, SecretVec, UnlockMethod, VaultId, VaultKey, VaultMetaCiphertext,
-    WrappedKey,
+    AccountId, AttachmentId, DerivedKeys, InstallId, ItemId, KeyGeneration, MasterPassword,
+    OpaquePassword, PasswordParams, SecretKey, SecretVec, UnlockMethod, VaultId, VaultKey,
+    VaultMetaCiphertext, WrappedKey,
 };
 
 use super::sync::key_acceptance_error;
@@ -182,6 +182,25 @@ impl JoinKeys {
     }
 }
 
+/// The keys a transport needs to MAC and verify its files without a session
+/// ([`UnlockedSession::sync_keys`]): the three keys derived from the account
+/// key (CRYPTO_SPEC §10, §10.1) plus the IDs they are bound to. The folder
+/// transport holds them while it is open and the owner drops the transport
+/// when the session locks. Zeroizing, no `Clone`, redacted `Debug`.
+#[derive(Debug)]
+pub struct SyncKeys {
+    /// The account.
+    pub account_id: AccountId,
+    /// This install.
+    pub install_id: InstallId,
+    /// `K_cp`, the checkpoint MAC key.
+    pub checkpoint: mosaic_core::CheckpointKey,
+    /// `K_fold`, the folder MAC key.
+    pub folder: mosaic_core::FolderMacKey,
+    /// `K_dev`, the device-info key.
+    pub device_info: mosaic_core::DeviceInfoKey,
+}
+
 /// A damaged row reads as absent (the caller repairs it by syncing).
 fn tolerate_corrupt<T>(row: core::result::Result<Option<T>, StorageError>) -> Result<Option<T>> {
     match row {
@@ -268,6 +287,21 @@ impl UnlockedSession {
     #[must_use]
     pub const fn install_id(&self) -> InstallId {
         self.install
+    }
+
+    /// The keys a transport needs to MAC and verify files without a session
+    /// ([`SyncKeys`]). Derived anew on every call.
+    ///
+    /// # Errors
+    /// [`Error::Core`].
+    pub fn sync_keys(&self) -> Result<SyncKeys> {
+        Ok(SyncKeys {
+            account_id: self.account_id,
+            install_id: self.install,
+            checkpoint: self.account_key.checkpoint_key()?,
+            folder: self.account_key.folder_mac_key()?,
+            device_info: self.account_key.device_info_key()?,
+        })
     }
 
     /// The backend choice, if sync is set up.

@@ -13,7 +13,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | 🔄 in progress (T1–T4; close pending) |
-| M6 Sync | 🔄 in progress (T1 foundation) |
+| M6 Sync | 🔄 in progress (T1 foundation, T2 engine and folder transport) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -1797,6 +1797,47 @@ first, in their own commit).
   (labels, MAC formats, session MAC API, password-change split, KATs) are still due; the fuzz targets
   were compiled, not run (Windows); the coverage figure above is from a local `cargo llvm-cov` run of
   `-p mosaic-sync` and CI measures it again.
+
+## M6 Sync — T2 engine and folder transport (2026-11-06)
+
+Branch `feat/m6-folder-engine` on top of T1 and its review fixes. Spec: the M6 spec §3, §5, §11 T2,
+CRYPTO_SPEC §10 and §10.1, ADR-0043 and ADR-0045 (amendments in ADR-0043).
+
+- **Engine** (`mosaic-sync::engine`): `sync_once` in the spec order (vault creation and queued keys,
+  checkpoints, pull, push with every item before any tombstone, metadata, attachments, own
+  checkpoint, housekeeping, lag and warnings), pages applied in short session steps with deferral of
+  records that are ahead of their key (the stored cursor stops before the first deferred unit),
+  two-phase rotation, the canonical-winner rule, backoff with jitter, rollback and
+  duplicated-identity detection. Hosted-only branches (cursor of the lowest deferred sequence,
+  `HeadMoved`, `GenerationTaken`, `Conflict` rounds) are written to the spec but only the folder
+  paths are exercised until T4.
+- **Folder transport** (`mosaic-sync::folder`): layout and strict names, tmp + `sync_all` + rename
+  writes, write-once checks, segment reader with a failure cache (length and mtime) so a partial
+  file is retried but not re-read on every page, out-of-order marks in the cursor, snapshot sets
+  through `SnapshotTracker`, own-log key recovery, compaction, cleanup of own temp and conflict
+  files, blob delete markers and purge, device list, change token, `init` / `inspect`, account
+  file write and `join_from_folder` (MAC check after the unlock).
+- **Test utilities** (`test-util`): `CloudSim` (seeded; late, truncated and withheld files,
+  provider-style conflict copies), `ChaosTransport` (fail before, lost response, duplicate),
+  `MaliciousTransport`, `ManualClock`, `FixedJitter`, `SimRng`, `LocalSession`.
+- **Tests** (`crates/sync/tests/it`, one binary): `folder_transport` (the 11 listed plus waiting for
+  changes and blob purge), `sim_folder` (3 seeds x 6 rounds; 60 x 12 `#[ignore]`d; plus lost
+  responses, duplicates and backoff), `rotation_folder` (the 4 listed plus recovery of a pushed but
+  uncommitted rotation), `join_folder` (the 3 listed plus folder states), `malicious_folder` (the 9
+  listed), `cloudsim` (5).
+- **mosaic-vault**: one additive accessor, `UnlockedSession::sync_keys` (`SyncKeys`), so the folder
+  transport can verify files without the session lock. mosaic-core is unchanged.
+- **Deviations from the spec**: `FolderTransport::open` takes a `FolderConfig` (crypto, clock, device
+  info) instead of three arguments; `maintain` is a method of the `Transport` trait with a
+  `MaintainContext` instead of `maintain(&mut self, access)`; `PullPage::meta` became `metas`
+  (several metadata objects per page); `list_vaults` stops reading at the first verified segment, so
+  `RemoteVault::generation` is a lower bound for the folder (the engine does not use it); a stale
+  device does not purge blobs (new rule, ADR-0043 amendment). The simulation lets one device rotate
+  per round (offline or online); concurrent rotations have their own tests.
+- **Open**: the sync-chaos and crypto-reviewer passes of the spec T2 review; the hosted branches of
+  the engine are untested until T4; a snapshot attributes its copy of the current key to the writer
+  of the snapshot (CRYPTO_SPEC §10.1: only conflicting keys of one generation are compared, and an
+  unknown writer rotates); the first pull of a process verifies every segment it reads.
 
 ## Open risks / findings
 

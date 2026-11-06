@@ -702,3 +702,37 @@ fn sync_config_and_cursors_through_the_session() {
     let locked = s.lock();
     assert_eq!(locked.sync_config().unwrap(), Some(config));
 }
+
+/// The keys a transport holds without a session compute what the session
+/// computes.
+#[test]
+fn sync_keys_match_the_session_operations() {
+    use mosaic_core::sync_auth;
+
+    let (s, _) = account();
+    let keys = s.sync_keys().unwrap();
+    assert_eq!(keys.account_id, s.account_id());
+    assert_eq!(keys.install_id, s.install_id());
+    let digest = [7u8; 32];
+    assert_eq!(
+        sync_auth::checkpoint_mac(&keys.checkpoint, &keys.install_id, 5, &digest).unwrap(),
+        s.checkpoint_mac(5, &digest).unwrap()
+    );
+    assert_eq!(
+        sync_auth::folder_mac(&keys.folder, FolderMacPurpose::Segment, b"msg").unwrap(),
+        s.folder_mac(FolderMacPurpose::Segment, b"msg").unwrap()
+    );
+    let sealed = s.seal_device_info(&[0u8; 512]).unwrap();
+    let opened = sync_auth::open_device_info(
+        &keys.device_info,
+        &keys.account_id,
+        &keys.install_id,
+        &sealed,
+    )
+    .unwrap();
+    assert_eq!(opened.expose_secret().len(), 512);
+    assert!(
+        !format!("{keys:?}").contains("7, 7, 7"),
+        "debug is redacted"
+    );
+}

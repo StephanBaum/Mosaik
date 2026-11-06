@@ -847,12 +847,28 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   client's conflict copy can therefore only appear for `head.mck`,
   `info.mdev` and the two fixed top-level files, and readers accept only
   strictly canonical names. A device removes only its own marker; a blob is
-  purged when a marker is older than the retention period and no live local
-  item refers to it.
+  purged when a marker is older than the retention period, no live local
+  item refers to it, and the purging device's last sync run saw no other
+  device behind (a stale device must not purge what others still use). A
+  holder re-asserts a blob that a marker or a deletion put at risk: it
+  removes its own marker for every item reference it still has and uploads
+  its local copy again if the blob is gone.
 - **Canonical key winner.** Folder mode has no compare-and-swap, so when
   several devices rotate to one generation the winner is the lowest
   `(device_id, wrapped key bytes)`; a device that holds a different key for
-  that generation rotates again.
+  that generation rotates again. The `device_id` of a key is the device
+  that wrote the segment carrying it (the lowest one if several carry the
+  same wrapped key); a device attributes a key it received to the writer,
+  never to itself, and a holder whose key came from an unknown writer
+  assumes the worst and rotates (safe: a rotation loses nothing).
+- **Own log.** A reader reads its own log too, for vault-key objects only:
+  a rotation whose key was written but not committed before a crash is
+  otherwise never learned. Its records and metadata are this device's own
+  and are skipped.
+- **Lag.** For another device's checkpoint entry `(vault, g, high_seq)` the
+  folder reader counts the device as behind when `high_seq` is above the
+  `contiguous` mark of that device in the vault's cursor. Behind for longer
+  than 24 hours is reported as missing files.
 - Snapshots (segments with the snapshot flag) carry the writer's whole
   readable state and let a device compact its own log. A snapshot may span
   several parts (`snap_parts`, at most 65536), each a segment of its own

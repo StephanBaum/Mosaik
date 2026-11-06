@@ -3382,6 +3382,25 @@ Formats are in CRYPTO_SPEC section 10.1.
   same device (`Path` error otherwise).
 - A new checkpoint version must use a new MAC label or put the version byte into the MAC input.
 
+### Amendments (M6 T2 engine and folder transport, 2026-11-06)
+Rules added while implementing the engine; none changes a byte format.
+- The folder transport reads this install's own log for vault-key objects only (a pushed but not
+  committed rotation is recovered after a crash); a key received from another device is never
+  attributed to the reader in the canonical-winner rule.
+- A blob is purged only when the purging device's run saw no other device behind, besides the
+  retention period and the absence of a live local reference; holders re-assert (remove their own
+  marker, upload the local copy again if the blob is gone).
+- Compaction triggers on the own segments written since the last complete snapshot set (more than 64
+  segments or 32 MiB); it writes every part first and deletes the older own segments last.
+- The transport trait gained `PullPage::metas` (a folder page can hold one metadata object per
+  segment; the engine merges them), `checkpoint_high_seq` (the folder answers with the highest own
+  segment sequence) and `maintain` (compaction, cleanup and blob purge, with the session answered
+  through `MaintainContext`). The folder transport gets its keys from `UnlockedSession::sync_keys`
+  and is dropped when the session locks.
+- An engine whose own checkpoint on the backend is below its counter counts one strike per counter
+  value and halts on the second (`RollbackDetected`); a verified checkpoint of its own install above
+  its counter halts at once (`IdentityDuplicated`). Both stay halted until `clear_halt`.
+
 ## ADR-0044: Server stack and deployment
 
 - Status: accepted

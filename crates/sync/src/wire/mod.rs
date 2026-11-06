@@ -168,9 +168,11 @@ impl SyncCrypto for UnlockedSession {
     }
 }
 
-/// [`SyncCrypto`] over keys derived from an account key, for tests, the fuzz
-/// targets and the simulations that have no unlocked session.
-#[cfg(any(test, feature = "test-util"))]
+/// [`SyncCrypto`] over the keys derived from an account key, for a holder
+/// that has no unlocked session at hand: the folder transport (which gets
+/// its keys from [`UnlockedSession::sync_keys`](mosaic_vault::session::UnlockedSession::sync_keys)
+/// and is dropped when the session locks), the tests, the fuzz targets and
+/// the simulations.
 #[derive(Debug)]
 pub struct KeyedCrypto {
     install: InstallId,
@@ -180,12 +182,24 @@ pub struct KeyedCrypto {
     device: mosaic_core::DeviceInfoKey,
 }
 
-#[cfg(any(test, feature = "test-util"))]
 impl KeyedCrypto {
+    /// The keys a session hands out ([`mosaic_vault::session::SyncKeys`]).
+    #[must_use]
+    pub fn from_keys(keys: mosaic_vault::session::SyncKeys) -> Self {
+        Self {
+            install: keys.install_id,
+            account: keys.account_id,
+            checkpoint: keys.checkpoint,
+            folder: keys.folder,
+            device: keys.device_info,
+        }
+    }
+
     /// The keys of `ak` for the install `install` of `account`.
     ///
     /// # Errors
     /// [`WireError::Crypto`].
+    #[cfg(any(test, feature = "test-util"))]
     pub fn new(
         ak: &mosaic_core::AccountKey,
         account: mosaic_core::AccountId,
@@ -201,7 +215,6 @@ impl KeyedCrypto {
     }
 }
 
-#[cfg(any(test, feature = "test-util"))]
 impl SyncCrypto for KeyedCrypto {
     fn install_id(&self) -> InstallId {
         self.install

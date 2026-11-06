@@ -130,6 +130,9 @@ offline use and queues its key); `checkpoint_mac` / `verify_checkpoint_mac`,
 (`Error::UnknownAttachmentReference` unless an item of the vault refers to
 the attachment), `pending_attachment_uploads`, `mark_attachment_uploaded`,
 `pending_attachment_deletions`, `mark_attachment_deletion_sent`;
+`sync_keys` (`SyncKeys`: the checkpoint, folder and device-info keys with the
+account and install IDs, for a transport that has no session; redacted
+`Debug`, no `Clone`; the owner drops the transport when the session locks);
 `account_bootstrap` (`AccountBootstrap`); `opaque_password` (`UnlockFailed`
 unless the derived `KEK` opens the stored wrapping);
 `prepare_master_password_change` → `PreparedPasswordChange` and
@@ -458,8 +461,25 @@ the blocking, object-safe `Transport` trait and `TransportError`
 transports carry checkpoints as opaque bytes). `json::TotpSetupResponse` holds
 its secret and URI in `SecretText` (redacted `Debug`, no `Clone`). Features:
 `test-util`; `opaque` and `http` are reserved (the OPAQUE module and the HTTP
-transport come with the server and client tracks, ADR-0046). The engine and
-the folder transport (T2) and the server (T3) follow.
+transport come with the server and client tracks, ADR-0046).
+
+**M6 T2 (engine and folder transport).** `engine::SyncEngine<T: Transport>`
+(`new`, `with_jitter`, `sync_once(&mut impl SessionAccess, &impl Clock)`,
+`rotate_vault`, `wait_for_change`, `next_retry_at`, `halted` / `clear_halt`,
+`transport_mut`), `SessionAccess` (short locked steps; `Err(Locked)`),
+`EngineConfig::for_kind`, `SyncReport`, `SyncWarning`, `SyncError`,
+`RotationOutcome`, `Jitter` / `SystemJitter`, `Backoff`, `consts`.
+`clock::{Clock, SystemClock}`.
+`folder::{FolderTransport<C: SyncCrypto + Send>, FolderConfig, init, inspect,
+list_accounts, FolderContents, FolderError, current_account_file,
+join_from_folder, JoinError, JoinFailure}`; `FolderTransport::write_account_file`
+and `highest_account_version` for the first publication and a password change.
+`wire::KeyedCrypto` is no longer test-only (`from_keys(SyncKeys)`; `new(ak, ..)`
+stays behind `test-util`). Transport trait changes: `PullPage::metas`
+(a `Vec`), `checkpoint_high_seq`, `maintain(&mut dyn MaintainContext)`.
+Feature `test-util`: `testutil::{CloudSim, SimConfig, ChaosTransport,
+ChaosConfig, MaliciousTransport, ManualClock, FixedJitter, SimRng,
+LocalSession}`. The server (T3) follows.
 
 ## Expected additions (pre-approved as additive)
 
