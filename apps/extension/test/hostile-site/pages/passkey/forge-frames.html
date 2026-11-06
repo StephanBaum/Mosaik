@@ -1,0 +1,24 @@
+<!-- attempts: forge shim requests into the top window (served as bank.test) from a frame of another site (evil.test) and
+     from a sandboxed srcdoc frame with an opaque origin, by `parent.postMessage`, `top.postMessage` and with a transferred
+     MessagePort, hoping the bridge forwards them as bank.test. Only the top window itself may post to the bridge. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey forged frames</title>
+<script src="/_leaks.js"></script>
+<script>
+  // What the bridge would answer the top window if it took a forged request.
+  window.seen = [];
+  addEventListener("message", (event) => {
+    const type = event.data?.type;
+    if (type === "mosaic-passkey-ack" || type === "mosaic-passkey-res") {
+      window.seen.push(event.data);
+    }
+  });
+</script>
+<iframe id="other" width="300" height="100"></iframe>
+<iframe id="sandboxed" width="300" height="100" sandbox="allow-scripts"></iframe>
+<script>
+  const base = `${location.protocol}//evil.test:${location.port}/passkey/`;
+  document.getElementById("other").src = `${base}forge-child.html`;
+  document.getElementById("sandboxed").srcdoc = `<script src="${base}forge-child.js"><\/script>`;
+</script>

@@ -155,7 +155,7 @@ and `--ignore-certificate-errors`, and the hostile-site server
 origins, never a secret), `gesture` (runs the real shortcut, menu or popup handler on a tab),
 `popupState`, and a pause between probe and delivery. The fake desktop decides by exact origin
 string and the HTTP rule only; the real matching is `mosaic-origin` and is tested in Rust. For
-passkeys it also answers `passkeyCreate`, `passkeyGet` and `passkeyCancel` (§10.3): `passkeyDecide`,
+passkeys it also answers `passkeyCreate`, `passkeyGet` and `passkeyCancel` (§10.4): `passkeyDecide`,
 `passkeyLog`, `passkeyPending` and `setPasskeys` are the extra hooks, and the hostile-site server
 serves `/passkey/rp.html`, a single-use `/passkey/challenge` and `/passkey/verify` (the
 independent verifier). Run only the passkey specs with `playwright test e2e/hostile/passkey-`.
@@ -259,8 +259,14 @@ origin, and a forged answer only fools the page that forged it. The trust bounda
   create and sign-in.
 - **Anything not handled goes to the browser's own WebAuthn**, with the page's original options
   object and `this`: setting off, locked, not paired, no desktop, no matching passkey, unsupported
-  options, "Use another device", a page that is not focused and visible, and a bridge that does
-  not answer within 1 s.
+  options, "Use another device", a request the desktop's rate windows refuse (`rateLimited`: the
+  windows belong to the pairing, so one site could spend them for every other), a page that is
+  not focused and visible, and a bridge that does not answer within 1 s. In the last case the shim
+  also posts `mosaic-passkey-abort`, so a bridge that was only late closes the desktop dialog it
+  may already have asked for.
+- **A request is held from the moment it arrives.** The background enters it under
+  `tab:document:pageRequestId` before it checks the tab and the link; an abort, a navigation or a
+  closed tab that comes meanwhile marks it, and the desktop is then never asked.
 
 The bridge listens only to its own window (`event.source === window`), accepts only the shim's
 exact message shapes within the shared limits (`src/shared/passkey-limits.ts`), keeps at most 2
@@ -285,12 +291,40 @@ content scripts (a tab, our id), at most 10 messages a second per tab.
 | Registration of a credential Mosaic already has | `excludeCredentials` that hit open an informing dialog and end with `InvalidStateError` | `e2e/hostile/passkey-excluded-abort.spec.ts` |
 | Mosaic breaks a site it cannot serve (conditional mediation, security keys, PRF) | These and any size beyond the limits are left to the browser, and "Use another device" is in the dialog | `e2e/hostile/passkey-fallback.spec.ts`, `src/passkey/main-world.test.ts` |
 | The switch is off but a page keeps its shim | The background checks the setting on every request and answers a fallback; a reload removes the shim | `e2e/hostile/passkey-fallback.spec.ts` |
+| A page spends the desktop's per-pairing passkey windows (3 creates, 10 sign-ins a minute) with forged requests it refuses silently, so that another site's call fails for a minute | `rateLimited` is a fallback, not `NotAllowedError`: the other site's call goes to the browser's own WebAuthn | `e2e/hostile/passkey-budget.spec.ts`, `src/background/passkey.test.ts` |
+| A page aborts in the same task that started the call (or the tab moves, or closes) before the background has asked the desktop, so the abort finds nothing and a dialog opens for a call nobody waits for | The request is held from its arrival; a cancel before the desktop was asked marks it, and it is never sent | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/background/passkey.test.ts` |
+| A page keeps its main thread busy past the shim's 1 s wait: the shim hands the call to the browser while the bridge has already passed it on, and two prompts are open (approving Mosaic's would store a passkey the site never gets) | On the timeout the shim posts `mosaic-passkey-abort` before it falls back; the bridge passes it on and the request is cancelled | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/passkey/main-world.test.ts` |
+| A frame of another site, a sandboxed `srcdoc` frame, or a popup's opener posts well-formed requests into the window the bridge serves (directly, with a transferred `MessagePort`, or by reaching into its realm) | `event.source` is the posting window, not the bridge's; a cross-origin realm is out of reach | `e2e/hostile/passkey-forge-frames.spec.ts` |
+| The tab reloads or moves to another site while the desktop dialog is open, hoping the answer reaches the new page | The navigation cancels the request; the answer belongs to the old document's message channel, and the new page hears nothing | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/background/passkey.test.ts` |
+| The scripts reach more than the top frame of https pages | Registered with `matches: ["https://*/*"]`, `allFrames: false`, `document_start`, no `matchOriginAsFallback` or `matchAboutBlank`; only with the site access, gone when the switch goes off or the access is taken back | `src/background/passkey-registry.test.ts` |
 | Test code in the shipped package | `FakePasskeys`, `passkeyDecide` and `passkeyPending` join the strings `check-dist.mjs` forbids; both passkey scripts must be shipped, absent from the manifest, check `event.source` wherever they listen, and use no extension API but `runtime.sendMessage` | `scripts/check-dist.mjs` |
 
-### 10.3 The e2e fake desktop
+### 10.3 Limits
 
-`src/background/e2e-passkey.ts` answers `passkeyCreate`, `passkeyGet` and `passkeyCancel` with a
-software authenticator in `test/webauthn/authenticator.ts` (WebCrypto P-256, the encodings of
+- **`busy` is still an error.** While a page's Mosaic dialog is open (the desktop shows one at a
+  time), another site's call ends with `NotAllowedError`. The dialog is visible and names the page,
+  and the user can close it.
+- **The `passkeyCancel` window (20 a minute per pairing) can be spent** by a page that cycles
+  requests and aborts. Another site's abort or navigation then leaves its dialog open until the user
+  closes it or 300 s pass; the answer goes nowhere, but a registration approved there is stored.
+- **A rate-limited call goes to the browser.** After a page spent the windows, a user whose passkey
+  is in Mosaic sees the browser's own prompt for up to a minute.
+- **A page can break its own path**: block the bridge's acknowledgements with a capturing
+  `message` listener and `stopImmediatePropagation`, or clobber `document.hasFocus` (the DOM is
+  shared with the isolated world). Its own calls then go to the browser; nothing reaches another
+  origin.
+- **Same-origin frames** can call the top window's `navigator.credentials` through `parent`; that
+  call is the top's, served as the top's origin, as the browser's own WebAuthn treats it.
+- **Not covered by the suite:** Firefox (no `documentId`: requests are told apart by tab and page
+  number only, and a navigation cancels them first), the back/forward cache (the message channel
+  closes when the page is stored; the restored page's call then falls back), prerendered pages
+  (hidden, so the bridge falls back), and real desktop dialogs (the fake desktop mirrors the
+  rate windows and the one-dialog rule).
+
+### 10.4 The e2e fake desktop
+
+`src/background/e2e-passkey.ts` answers `passkeyCreate`, `passkeyGet` and `passkeyCancel`, within
+the desktop's per-pairing rate windows (`NATIVE_MESSAGING.md`), with a software authenticator in `test/webauthn/authenticator.ts` (WebCrypto P-256, the encodings of
 CRYPTO_SPEC §16 written separately). `src/passkey/authenticator.test.ts` checks its output with
 the independent verifier (`test/webauthn/verifier.ts`), which also stands behind the hostile
 site's `/passkey/verify`. The hooks `passkeyDecide` (the answer in the pretend dialog),
