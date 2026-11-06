@@ -1779,11 +1779,20 @@ first, in their own commit).
   added to the `fuzz-smoke` matrix, the coverage matrix and the fuzz lockfile checks.
 - **Deviations from the M6 spec**: the core MAC functions return `Result` (no silent fallback);
   `pending_vault_uploads` takes `&mut self` (it remembers the metadata handed out for a creation, so
-  a rename during the upload is not lost); the delete marker is 77 bytes (the spec's "93" does not
-  match its own field list; CRYPTO_SPEC §10.1 now says 77); `Store::sweep_orphan_attachments` records
+  a rename during the upload is not lost); the delete marker first had 77 bytes (the review of T1 added `vault_id` and a per-device path:
+  93 bytes, CRYPTO_SPEC §10.1); `Store::sweep_orphan_attachments` records
   no deletion (an orphan file has no row, so no vault and no upload state); the cursor decoder
   requires strictly ascending devices (stricter than "no duplicates"); `wire::opaque`, `opaque-ke`
   and the `http` code are left to T3 and T4, the features `opaque` and `http` exist but are empty.
+- **Crypto review follow-ups (2026-11-06)**: H1/M1 transports carry checkpoints as raw bytes filed
+  under the path's device, and `Checkpoint::decode(bytes, expected_device, ..)` refuses a body that
+  names another device (`Path`); M2 multi-part snapshots (`snap_base`, `snap_parts`, `SnapshotTracker`);
+  M3 `JoinKeys` carries its `PasswordParams`; M4 §12/§12.1 rows and a constant 512-byte device-info
+  plaintext; M5 `TotpSetupResponse` secrets in `SecretText`; L1 `.mdel` with `vault_id` at
+  `blobs/<attachment>.<device>.mdel` (93 bytes); L2 checkpoint versioning sentence; L3 key flags on
+  rewrap and on an already-held uploaded key; L4 session tag (`Error::PreparedStale`); L5 checkpoint
+  body cap from `Checkpoint::MAX_LEN`; L6 full byte vectors in `sync_kat.py`/`sync_kat.txt`, checked by
+  `crates/sync/src/wire/kat_tests.rs`; L7 the password-split test enrolls quick unlock first.
 - **Not verified / open**: the crypto-reviewer and test-engineer passes of the spec's T1 review
   (labels, MAC formats, session MAC API, password-change split, KATs) are still due; the fuzz targets
   were compiled, not run (Windows); the coverage figure above is from a local `cargo llvm-cov` run of

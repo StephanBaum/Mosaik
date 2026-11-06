@@ -981,4 +981,55 @@ mod tests {
         assert!(state.remote_created && !state.meta_upload_pending);
         assert_eq!(s.pending_vault_keys(&remote).unwrap().len(), 0);
     }
+
+    /// L3: the remote-replacement path clears both flags.
+    #[test]
+    fn rewrap_vault_key_clears_the_queue_flags() {
+        let mut s = Store::open_in_memory().unwrap();
+        let (f, vk) = (fixture(), VaultKey::generate(g(1)).unwrap());
+        let wrapped = vk.wrap(&f.ak, &f.account, &f.vault).unwrap();
+        s.create_vault_origin(&f.vault, g(1), &wrapped, KeyOrigin::Local)
+            .unwrap();
+        assert_eq!(s.pending_vault_keys(&f.vault).unwrap().len(), 1);
+        let other = vk.wrap(&f.ak, &f.account, &f.vault).unwrap();
+        assert_ne!(other, wrapped, "a fresh nonce");
+        s.rewrap_vault_key(&f.vault, g(1), &other).unwrap();
+        assert_eq!(s.vault_key(&f.vault, g(1)).unwrap(), Some(other));
+        assert_eq!(s.pending_vault_keys(&f.vault).unwrap().len(), 0);
+        assert_eq!(
+            s.vault_key_origin(&f.vault, g(1)).unwrap(),
+            Some(KeyOrigin::Remote)
+        );
+    }
+
+    /// L3: `accept_uploaded_vault_key` sets the flags of a row that is
+    /// already held with the same wrapping (it was queued before the
+    /// backend took it).
+    #[test]
+    fn accept_uploaded_vault_key_updates_a_held_row() {
+        let mut s = Store::open_in_memory().unwrap();
+        let (f, vk) = (fixture(), VaultKey::generate(g(1)).unwrap());
+        let wrapped = vk.wrap(&f.ak, &f.account, &f.vault).unwrap();
+        s.create_vault_origin(&f.vault, g(1), &wrapped, KeyOrigin::Remote)
+            .unwrap();
+        let vk2 = VaultKey::generate(g(2)).unwrap();
+        let w2 = vk2.wrap(&f.ak, &f.account, &f.vault).unwrap();
+        // Held as a queued local key.
+        s.accept_vault_key_origin(&f.vault, g(2), &w2, KeyOrigin::Local)
+            .unwrap();
+        assert_eq!(s.pending_vault_keys(&f.vault).unwrap().len(), 1);
+        // The backend took it meanwhile: the same wrapping, uploaded.
+        s.accept_uploaded_vault_key(&f.vault, g(2), &w2).unwrap();
+        assert_eq!(s.pending_vault_keys(&f.vault).unwrap().len(), 0);
+        assert_eq!(
+            s.vault_key_origin(&f.vault, g(2)).unwrap(),
+            Some(KeyOrigin::Local)
+        );
+        // A different wrapping of a held generation is still refused.
+        let other = vk2.wrap(&f.ak, &f.account, &f.vault).unwrap();
+        assert!(matches!(
+            s.accept_uploaded_vault_key(&f.vault, g(2), &other),
+            Err(Error::VaultKeyConflict { .. })
+        ));
+    }
 }

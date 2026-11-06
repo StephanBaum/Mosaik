@@ -3371,6 +3371,17 @@ R54 (observers and deleters) and R55 (no compare-and-swap: concurrent rotations 
 canonical winner, delete races R15 and R16 remain in folder mode). Files are only appended until a
 device compacts its own log.
 
+### Amendments (crypto review of M6 T1, 2026-11-06)
+Formats are in CRYPTO_SPEC section 10.1.
+- Snapshots may span several parts: `snap_base` and `snap_parts` follow `created_at_ms` in the MAC'd
+  header; a reader marks older sequence numbers read only when the whole set is verified.
+- The delete marker carries `vault_id` and lives at `blobs/<attachment>.<device>.mdel` (93 bytes), so
+  every install writes only its own marker (single-writer rule).
+- Device info is padded to a constant 512-byte plaintext (`len:u16 || JSON || zeros`).
+- Transports carry checkpoints as raw bytes filed under the path's device ID; the body must name the
+  same device (`Path` error otherwise).
+- A new checkpoint version must use a new MAC label or put the version byte into the MAC input.
+
 ## ADR-0044: Server stack and deployment
 
 - Status: accepted

@@ -35,8 +35,12 @@ pub const SYNC_MAC_LEN: usize = 32;
 const DEVICE_INFO_MAGIC: &[u8; 4] = b"MDEV";
 /// The format version of a sealed device-info file.
 const DEVICE_INFO_VERSION: u8 = 1;
-/// Longest device-info plaintext in bytes (§10.1).
-pub const DEVICE_INFO_MAX_PLAINTEXT: usize = 512;
+/// The exact device-info plaintext length in bytes (§10.1): the caller pads
+/// to it, so every sealed file has the same size.
+pub const DEVICE_INFO_PLAINTEXT_LEN: usize = 512;
+/// The exact length of a sealed device-info file.
+pub const DEVICE_INFO_SEALED_LEN: usize =
+    DEVICE_INFO_HEADER_LEN + aead::NONCE_LEN + DEVICE_INFO_PLAINTEXT_LEN + aead::TAG_LEN;
 /// `magic || version || device_id`, the cleartext header.
 const DEVICE_INFO_HEADER_LEN: usize = 4 + 1 + 16;
 
@@ -194,20 +198,24 @@ fn device_info_aad(header: &[u8], account: &AccountId, device: &InstallId) -> Aa
 
 /// Seals device info (`MDEV || 1 || device_id || nonce[24] || ciphertext || tag`)
 /// under `K_dev`, bound to the account and the device (§10.1). The caller
-/// builds the canonical JSON `plaintext` (at most
-/// [`DEVICE_INFO_MAX_PLAINTEXT`] bytes).
+/// builds the padded `plaintext`, which must be exactly
+/// [`DEVICE_INFO_PLAINTEXT_LEN`] bytes (`len:u16 || canonical JSON || zeros`),
+/// so every sealed file has the same size.
 ///
 /// # Errors
-/// [`Error::SizeLimit`] for a longer plaintext, [`Error::Randomness`] if the
-/// CSPRNG fails.
+/// [`Error::SizeLimit`] for a longer plaintext, [`Error::Malformed`] for a
+/// shorter one, [`Error::Randomness`] if the CSPRNG fails.
 pub fn seal_device_info(
     key: &DeviceInfoKey,
     account: &AccountId,
     device: &InstallId,
     plaintext: &[u8],
 ) -> Result<Vec<u8>> {
-    if plaintext.len() > DEVICE_INFO_MAX_PLAINTEXT {
+    if plaintext.len() > DEVICE_INFO_PLAINTEXT_LEN {
         return Err(Error::SizeLimit);
+    }
+    if plaintext.len() < DEVICE_INFO_PLAINTEXT_LEN {
+        return Err(Error::Malformed);
     }
     let header = device_info_header(device);
     let nonce = aead::random_nonce()?;
@@ -225,7 +233,8 @@ pub fn seal_device_info(
 /// (the one in the file path).
 ///
 /// # Errors
-/// [`Error::Malformed`] for a wrong length or magic or another device ID,
+/// [`Error::Malformed`] for a length other than [`DEVICE_INFO_SEALED_LEN`], a
+/// wrong magic or another device ID,
 /// [`Error::UnsupportedVersion`], and [`Error::Decryption`] for a wrong key,
 /// account or tampered bytes.
 pub fn open_device_info(
@@ -234,9 +243,7 @@ pub fn open_device_info(
     device: &InstallId,
     sealed: &[u8],
 ) -> Result<SecretVec> {
-    let max = DEVICE_INFO_HEADER_LEN + aead::NONCE_LEN + DEVICE_INFO_MAX_PLAINTEXT + aead::TAG_LEN;
-    if sealed.len() < DEVICE_INFO_HEADER_LEN + aead::NONCE_LEN + aead::TAG_LEN || sealed.len() > max
-    {
+    if sealed.len() != DEVICE_INFO_SEALED_LEN {
         return Err(Error::Malformed);
     }
     let (header, rest) = sealed.split_at(DEVICE_INFO_HEADER_LEN);
@@ -395,12 +402,17 @@ mod tests {
     #[test]
     fn device_info_seal_open_and_aad_binding() {
         let key = ak().device_info_key().unwrap();
-        let plaintext = br#"{"createdAt":1,"name":"Laptop","platform":"linux"}"#;
+        let mut plaintext = [0u8; DEVICE_INFO_PLAINTEXT_LEN];
+        let json = br#"{"createdAt":1,"name":"Laptop","platform":"linux"}"#;
+        plaintext[..2].copy_from_slice(&u16::try_from(json.len()).unwrap().to_be_bytes());
+        plaintext[2..2 + json.len()].copy_from_slice(json);
+        let plaintext = &plaintext[..];
         let sealed = seal_device_info(&key, &account(), &install(0x0E), plaintext).unwrap();
         assert_eq!(&sealed[..4], b"MDEV");
         assert_eq!(sealed[4], 1);
         assert_eq!(&sealed[5..21], &[0x0E; 16]);
-        assert_eq!(sealed.len(), 21 + 24 + plaintext.len() + 16);
+        assert_eq!(sealed.len(), 21 + 24 + 512 + 16);
+        assert_eq!(sealed.len(), DEVICE_INFO_SEALED_LEN);
         let opened = open_device_info(&key, &account(), &install(0x0E), &sealed).unwrap();
         assert_eq!(opened.expose_secret(), plaintext);
         // A fresh nonce for every seal.
@@ -442,22 +454,28 @@ mod tests {
         let key = ak().device_info_key().unwrap();
         let (a, d) = (account(), install(0x0E));
         assert_eq!(
-            seal_device_info(&key, &a, &d, &[0; DEVICE_INFO_MAX_PLAINTEXT + 1]).unwrap_err(),
+            seal_device_info(&key, &a, &d, &[0; DEVICE_INFO_PLAINTEXT_LEN + 1]).unwrap_err(),
             Error::SizeLimit
         );
-        let max = seal_device_info(&key, &a, &d, &[7; DEVICE_INFO_MAX_PLAINTEXT]).unwrap();
+        // A shorter plaintext is refused too: the size is constant.
+        for len in [0, 1, DEVICE_INFO_PLAINTEXT_LEN - 1] {
+            assert_eq!(
+                seal_device_info(&key, &a, &d, &vec![0; len]).unwrap_err(),
+                Error::Malformed
+            );
+        }
+        let max = seal_device_info(&key, &a, &d, &[7; DEVICE_INFO_PLAINTEXT_LEN]).unwrap();
+        assert_eq!(max.len(), DEVICE_INFO_SEALED_LEN);
         assert_eq!(
             open_device_info(&key, &a, &d, &max).unwrap().len(),
-            DEVICE_INFO_MAX_PLAINTEXT
+            DEVICE_INFO_PLAINTEXT_LEN
         );
-        let empty = seal_device_info(&key, &a, &d, &[]).unwrap();
-        assert_eq!(open_device_info(&key, &a, &d, &empty).unwrap().len(), 0);
         assert_eq!(
             open_device_info(&key, &a, &d, &max[..max.len() - 1]).unwrap_err(),
-            Error::Decryption
+            Error::Malformed
         );
         assert_eq!(
-            open_device_info(&key, &a, &d, &empty[..60]).unwrap_err(),
+            open_device_info(&key, &a, &d, &max[..60]).unwrap_err(),
             Error::Malformed
         );
         let mut long = max.clone();
@@ -466,13 +484,13 @@ mod tests {
             open_device_info(&key, &a, &d, &long).unwrap_err(),
             Error::Malformed
         );
-        let mut bad_magic = empty.clone();
+        let mut bad_magic = max.clone();
         bad_magic[0] = b'X';
         assert_eq!(
             open_device_info(&key, &a, &d, &bad_magic).unwrap_err(),
             Error::Malformed
         );
-        let mut bad_version = empty;
+        let mut bad_version = max;
         bad_version[4] = 2;
         assert_eq!(
             open_device_info(&key, &a, &d, &bad_version).unwrap_err(),

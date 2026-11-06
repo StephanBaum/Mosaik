@@ -44,9 +44,13 @@ pub struct PendingVaultUpload {
 /// the session has changed ([`UnlockedSession::prepare_vault_rotation`]). The
 /// sync engine offers the wrapped key to the backend first and commits only
 /// if the backend accepts it ([`UnlockedSession::commit_vault_rotation`]).
-/// The key is zeroized on drop; it cannot be cloned.
+/// The key is zeroized on drop; it cannot be cloned. It belongs to the
+/// unlocked session that prepared it: after a lock, a commit is refused
+/// ([`Error::PreparedStale`]).
 #[derive(Debug)]
 pub struct PreparedRotation {
+    /// The tag of the session that prepared it.
+    session_tag: [u8; 16],
     vault_id: VaultId,
     generation: KeyGeneration,
     key: VaultKey,
@@ -113,9 +117,12 @@ pub struct AccountBootstrap {
 /// ([`UnlockedSession::prepare_master_password_change`]). The backend learns
 /// the new registration first; the change is committed locally afterwards
 /// ([`UnlockedSession::commit_master_password_change`]). Zeroizing, no
-/// `Clone`.
+/// `Clone`. It belongs to the unlocked session that prepared it: after a
+/// lock, a commit is refused ([`Error::PreparedStale`]).
 #[derive(Debug)]
 pub struct PreparedPasswordChange {
+    /// The tag of the session that prepared it.
+    session_tag: [u8; 16],
     old_opaque_password: OpaquePassword,
     new_opaque_password: OpaquePassword,
     new_params: PasswordParams,
@@ -151,15 +158,27 @@ impl PreparedPasswordChange {
 /// The keys of a join, derived from the master password and the Secret Key
 /// before the join completes ([`LockedSession::derive_join_keys`]): the
 /// device logs in with `OPW`, fetches the wrapped `AK`, then finishes with
-/// [`LockedSession::join_account_with_keys`]. Zeroizing, no `Clone`.
+/// [`LockedSession::join_account_with_keys`]. It carries the parameters it
+/// was derived under, and the join stores exactly those, so the stored
+/// parameters are the ones the keys belong to. Zeroizing, no `Clone`. There
+/// is no session yet at this point, so it has no session tag.
 #[derive(Debug)]
-pub struct JoinKeys(DerivedKeys);
+pub struct JoinKeys {
+    keys: DerivedKeys,
+    params: PasswordParams,
+}
 
 impl JoinKeys {
     /// `OPW`, the OPAQUE password input.
     #[must_use]
     pub const fn opaque_password(&self) -> &OpaquePassword {
-        &self.0.opaque_password
+        &self.keys.opaque_password
+    }
+
+    /// The public parameters the keys were derived under.
+    #[must_use]
+    pub const fn params(&self) -> &PasswordParams {
+        &self.params
     }
 }
 
@@ -190,30 +209,33 @@ impl LockedSession {
         password: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<JoinKeys> {
-        Ok(JoinKeys(mosaic_core::derive_password_keys(
-            password, secret_key, params,
-        )?))
+        Ok(JoinKeys {
+            keys: mosaic_core::derive_password_keys(password, secret_key, params)?,
+            params: *params,
+        })
     }
 
     /// The second half of [`LockedSession::join_account`]: opens the wrapped
-    /// `AK` with the derived keys, stores the account and unlocks.
+    /// `AK` with the derived keys, stores the account (with the parameters
+    /// the keys carry) and unlocks.
     ///
     /// # Errors
-    /// [`Error::UnlockFailed`] (nothing is stored then);
+    /// [`Error::UnlockFailed`] (nothing is stored then), which includes
+    /// parameters that do not match the wrapped key;
     /// [`Error::Store`] with `AccountExists`.
     pub fn join_account_with_keys(
         mut self,
-        params: &PasswordParams,
         wrapped_ak: &WrappedKey,
         keys: JoinKeys,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
+        let params = keys.params;
         let opened = wrapped_ak
-            .unwrap_account_key(&keys.0.kek, &params.account_id, &UnlockMethod::Password)
+            .unwrap_account_key(&keys.keys.kek, &params.account_id, &UnlockMethod::Password)
             .map_err(unlock_error);
         // The derived keys are wiped here, not at the end of the unlock.
         drop(keys);
         let joined = opened.and_then(|ak| {
-            self.store.init_account(params, wrapped_ak)?;
+            self.store.init_account(&params, wrapped_ak)?;
             Ok(ak)
         });
         match joined {
@@ -426,6 +448,7 @@ impl UnlockedSession {
         let key = VaultKey::generate(generation)?;
         let wrapped = key.wrap(&self.account_key, &self.account_id, &vault)?;
         Ok(PreparedRotation {
+            session_tag: self.session_tag,
             vault_id: vault,
             generation,
             key,
@@ -440,16 +463,21 @@ impl UnlockedSession {
     /// the key is generated.
     ///
     /// # Errors
-    /// [`Error::KeyGenerationRollback`] if the vault has accepted that
-    /// generation or a later one meanwhile; [`Error::UnknownVault`],
+    /// [`Error::PreparedStale`] if it was prepared in an earlier unlocked
+    /// session; [`Error::KeyGenerationRollback`] if the vault has accepted
+    /// that generation or a later one meanwhile; [`Error::UnknownVault`],
     /// [`Error::VaultUnavailable`], [`Error::Store`].
     pub fn commit_vault_rotation(&mut self, p: PreparedRotation) -> Result<KeyGeneration> {
         let PreparedRotation {
+            session_tag,
             vault_id,
             generation,
             key,
             wrapped,
         } = p;
+        if session_tag != self.session_tag {
+            return Err(Error::PreparedStale);
+        }
         let ov = self.vaults.get_mut(&vault_id).ok_or(Error::UnknownVault)?;
         ov.current_key()?;
         if ov.generation >= generation {
@@ -539,7 +567,7 @@ impl UnlockedSession {
     /// Seals this install's device info (`.mdev`, CRYPTO_SPEC §10.1).
     ///
     /// # Errors
-    /// [`Error::Core`] (`SizeLimit` above 512 bytes).
+    /// [`Error::Core`] (`SizeLimit` above 512 bytes, `Malformed` below: the plaintext is exactly 512 bytes).
     pub fn seal_device_info(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         Ok(sync_auth::seal_device_info(
             &self.account_key.device_info_key()?,
@@ -795,6 +823,7 @@ impl UnlockedSession {
             params.profile,
         )?;
         Ok(PreparedPasswordChange {
+            session_tag: self.session_tag,
             old_opaque_password: old_keys.opaque_password,
             new_opaque_password: change.opaque_password,
             new_params: change.params,
@@ -808,11 +837,15 @@ impl UnlockedSession {
     /// so the app deletes its platform key.
     ///
     /// # Errors
-    /// [`Error::Store`] (`AccountMismatch`, `ProfileDowngrade`).
+    /// [`Error::PreparedStale`] if it was prepared in an earlier unlocked
+    /// session; [`Error::Store`] (`AccountMismatch`, `ProfileDowngrade`).
     pub fn commit_master_password_change(
         &mut self,
         p: PreparedPasswordChange,
     ) -> Result<PasswordChanged> {
+        if p.session_tag != self.session_tag {
+            return Err(Error::PreparedStale);
+        }
         let quick: Vec<UnlockMethod> = self
             .store
             .unlock_methods()?

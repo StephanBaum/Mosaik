@@ -154,6 +154,14 @@ pub enum Error {
     #[error("wrong vault protection")]
     WrongVaultProtection,
 
+    /// A prepared key rotation or master password change belongs to an
+    /// unlocked session that has ended: it was prepared before a lock, so it
+    /// is dropped and has to be prepared again
+    /// ([`super::UnlockedSession::commit_vault_rotation`],
+    /// [`super::UnlockedSession::commit_master_password_change`]).
+    #[error("prepared change belongs to an earlier session")]
+    PreparedStale,
+
     /// A hardware-protected vault holds only one-time-code items
     /// (CRYPTO_SPEC §7.4).
     #[error("item type not allowed in this vault")]

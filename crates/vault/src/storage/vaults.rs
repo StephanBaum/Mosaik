@@ -154,6 +154,26 @@ fn upsert_key(
     Ok(())
 }
 
+/// Sets the sync flags of a held vault key (a no-op for a missing row).
+fn set_key_flags(
+    conn: &Connection,
+    vault_id: &VaultId,
+    generation: KeyGeneration,
+    flags: KeyFlags,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE vault_keys SET upload_pending = ?3, local_origin = ?4
+         WHERE vault_id = ?1 AND generation = ?2",
+        params![
+            vault_id.as_bytes(),
+            generation.get(),
+            flags.upload_pending,
+            flags.local_origin
+        ],
+    )?;
+    Ok(())
+}
+
 /// Replaces the wrapping of a held vault key in place. Returns whether the
 /// key was held.
 pub(super) fn rewrap_key(
@@ -435,7 +455,7 @@ impl Store {
         generation: KeyGeneration,
         wrapped_vault_key: &WrappedKey,
     ) -> Result<VaultState> {
-        self.accept_vault_key_flagged(vault_id, generation, wrapped_vault_key, None)
+        self.accept_vault_key_flagged(vault_id, generation, wrapped_vault_key, None, false)
     }
 
     /// [`Store::accept_vault_key`] for the sync queue (schema v3): a new
@@ -457,12 +477,15 @@ impl Store {
             generation,
             wrapped_vault_key,
             Some(KeyFlags::of(origin)),
+            false,
         )
     }
 
     /// [`Store::accept_vault_key_origin`] for a key this install generated
     /// and the backend has already accepted (a committed two-phase
-    /// rotation): `local_origin` is set and nothing is queued.
+    /// rotation): `local_origin` is set and nothing is queued. If the very
+    /// same wrapping is already held, its flags are set the same way (the
+    /// key was queued before the backend took it).
     ///
     /// # Errors
     /// As [`Store::accept_vault_key`].
@@ -480,15 +503,19 @@ impl Store {
                 upload_pending: false,
                 local_origin: true,
             }),
+            true,
         )
     }
 
+    /// `update_held` sets `flags` on the row of an identical wrapping that
+    /// is already held (otherwise that case is a no-op).
     fn accept_vault_key_flagged(
         &mut self,
         vault_id: &VaultId,
         generation: KeyGeneration,
         wrapped_vault_key: &WrappedKey,
         flags: Option<KeyFlags>,
+        update_held: bool,
     ) -> Result<VaultState> {
         let tx = self.write()?;
         let mut state = require_vault(&tx, vault_id)?;
@@ -507,6 +534,14 @@ impl Store {
             .optional()?;
         match held {
             Some(bytes) if bytes.as_slice() == wrapped_vault_key.as_bytes().as_slice() => {
+                if let Some(flags) = flags
+                    && update_held
+                    && state.key_wrap == VaultKeyWrap::AccountKey
+                {
+                    set_key_flags(&tx, vault_id, generation, flags)?;
+                    tx.commit()?;
+                    self.scrub_wal()?;
+                }
                 return Ok(state);
             }
             Some(_) => {
@@ -543,6 +578,11 @@ impl Store {
     /// [`Store::rekey_account`], which changes every wrapping in one
     /// transaction.
     ///
+    /// This is the remote-replacement path (a wrapping that came from the
+    /// backend replaces a damaged one): the row is no longer a local
+    /// generation waiting for upload, so `local_origin` and
+    /// `upload_pending` are both cleared.
+    ///
     /// # Errors
     /// [`Error::UnknownVault`], [`Error::UnknownVaultKey`] if no key of
     /// `generation` is held.
@@ -557,6 +597,7 @@ impl Store {
         if !rewrap_key(&tx, vault_id, generation, wrapped_vault_key)? {
             return Err(Error::UnknownVaultKey);
         }
+        set_key_flags(&tx, vault_id, generation, KeyFlags::of(KeyOrigin::Remote))?;
         tx.commit()?;
         self.scrub_wal()
     }

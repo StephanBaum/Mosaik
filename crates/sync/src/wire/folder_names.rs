@@ -10,7 +10,7 @@
 //! | `^[0-9a-f]{16}\.mseg$` | segment, the digits are the sequence number (>= 1) |
 //! | `^[0-9a-f]{16}-[0-9a-f]{32}\.macct$` | account file: version (>= 1), device |
 //! | `^[0-9a-f]{32}\.matt$` | attachment blob |
-//! | `^[0-9a-f]{32}\.mdel$` | blob delete marker |
+//! | `^[0-9a-f]{32}\.[0-9a-f]{32}\.mdel$` | blob delete marker: attachment, deleting device |
 //! | `head.mck` | checkpoint |
 //! | `info.mdev` | sealed device info |
 //! | `^[0-9a-f]{32}$` | an account, vault or device directory |
@@ -38,8 +38,14 @@ pub enum FolderName {
     },
     /// `<attachment:32hex>.matt`.
     Blob([u8; 16]),
-    /// `<attachment:32hex>.mdel`.
-    BlobDelete([u8; 16]),
+    /// `<attachment:32hex>.<device:32hex>.mdel`: every install writes only
+    /// its own marker.
+    BlobDelete {
+        /// The attachment.
+        attachment: [u8; 16],
+        /// The device that wrote the marker.
+        device: [u8; 16],
+    },
     /// `head.mck`.
     Head,
     /// `info.mdev`.
@@ -106,7 +112,11 @@ pub fn parse(name: &OsStr) -> Option<FolderName> {
         return id32(stem).map(FolderName::Blob);
     }
     if let Some(stem) = name.strip_suffix(".mdel") {
-        return id32(stem).map(FolderName::BlobDelete);
+        let (attachment, device) = stem.split_once('.')?;
+        return Some(FolderName::BlobDelete {
+            attachment: id32(attachment)?,
+            device: id32(device)?,
+        });
     }
     id32(name).map(FolderName::Dir)
 }
@@ -141,8 +151,8 @@ pub fn blob_name(attachment: &[u8; 16]) -> String {
 
 /// The file name of a blob delete marker.
 #[must_use]
-pub fn blob_delete_name(attachment: &[u8; 16]) -> String {
-    format!("{}.mdel", super::hex(attachment))
+pub fn blob_delete_name(attachment: &[u8; 16], device: &[u8; 16]) -> String {
+    format!("{}.{}.mdel", super::hex(attachment), super::hex(device))
 }
 
 /// The directory name of an account, vault or device.
@@ -163,6 +173,12 @@ mod tests {
         0xef,
     ];
 
+    const ID2: &str = "fedcba9876543210fedcba9876543210";
+    const ID2_BYTES: [u8; 16] = [
+        0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32,
+        0x10,
+    ];
+
     fn p(s: &str) -> Option<FolderName> {
         parse(OsStr::new(s))
     }
@@ -181,8 +197,11 @@ mod tests {
         );
         assert_eq!(p(&format!("{ID}.matt")), Some(FolderName::Blob(ID_BYTES)));
         assert_eq!(
-            p(&format!("{ID}.mdel")),
-            Some(FolderName::BlobDelete(ID_BYTES))
+            p(&format!("{ID}.{ID2}.mdel")),
+            Some(FolderName::BlobDelete {
+                attachment: ID_BYTES,
+                device: ID2_BYTES
+            })
         );
         assert_eq!(p(ID), Some(FolderName::Dir(ID_BYTES)));
         assert_eq!(
@@ -198,7 +217,10 @@ mod tests {
             format!("0000000000000003-{ID}.macct")
         );
         assert_eq!(blob_name(&ID_BYTES), format!("{ID}.matt"));
-        assert_eq!(blob_delete_name(&ID_BYTES), format!("{ID}.mdel"));
+        assert_eq!(
+            blob_delete_name(&ID_BYTES, &ID2_BYTES),
+            format!("{ID}.{ID2}.mdel")
+        );
         assert_eq!(dir_name(&ID_BYTES), ID);
         for seq in [1u64, 2, 0x1234_5678_9abc_def0, u64::MAX] {
             assert_eq!(p(&segment_name(seq)), Some(FolderName::Segment { seq }));
@@ -297,6 +319,38 @@ mod tests {
         }
         for name in ["head.mck.tmp", "head.mdev", "mck", "head.MCK", ".mtmp"] {
             assert!(!is_checkpoint_candidate(OsStr::new(name)), "{name}");
+        }
+    }
+
+    /// Delete markers are `<attachment>.<device>.mdel` and nothing else.
+    #[test]
+    fn delete_marker_names_are_strict() {
+        let names = [
+            // Delete markers: the old single-ID form, uppercase, case
+            // changes, conflict copies, temp names, extra and missing parts.
+            format!("{ID}.mdel"),
+            format!("{ID}.{}.mdel", ID2.to_uppercase()),
+            format!("{}.{ID2}.mdel", ID.to_uppercase()),
+            format!("{ID}.{ID2}.MDEL"),
+            format!("{ID}.{ID2} (conflicted copy 2026-11-06).mdel"),
+            format!("{ID} (1).{ID2}.mdel"),
+            format!("{ID}.{ID2}.sync-conflict-20261106-120000-ABCDEFG.mdel"),
+            format!("{ID}.{ID2}-DESKTOP-ABC123.mdel"),
+            format!("{ID}.{ID2} 2.mdel"),
+            format!(".{ID}.{ID2}.mdel.tmp"),
+            format!(".{ID}.{ID2}.mtmp"),
+            format!("{ID}.{ID2}.mdel.mtmp"),
+            format!("{ID}.{ID2}.{ID2}.mdel"),
+            format!("{ID}..mdel"),
+            format!(".{ID2}.mdel"),
+            format!("{ID}.{}.mdel", "0".repeat(32)),
+            format!("{}.{ID2}.mdel", "0".repeat(32)),
+            format!("{ID}.{}.mdel", &ID2[1..]),
+            format!("{ID}_{ID2}.mdel"),
+            format!("{ID}.{ID2}.matt"),
+        ];
+        for name in &names {
+            assert_eq!(p(name), None, "{name:?}");
         }
     }
 

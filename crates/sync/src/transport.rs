@@ -19,8 +19,6 @@ use mosaic_core::{
 };
 use mosaic_vault::storage::RecordBody;
 
-use crate::wire::checkpoint::Checkpoint;
-
 /// Which kind of backend a transport talks to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportKind {
@@ -371,18 +369,26 @@ pub trait Transport: Send {
     /// [`TransportError`].
     fn attachments(&mut self, vault: VaultId) -> Result<Vec<RemoteAttachment>, TransportError>;
 
-    /// Publishes this device's checkpoint.
+    /// Publishes this device's checkpoint, the bytes of
+    /// `Checkpoint::encode`. The transport files them under this install's
+    /// ID (the folder's `d/<device>/head.mck`, the hosted `deviceId`) and
+    /// never decodes them.
     ///
     /// # Errors
     /// [`TransportError`].
-    fn put_checkpoint(&mut self, checkpoint: &Checkpoint) -> Result<(), TransportError>;
+    fn put_checkpoint(&mut self, bytes: &[u8]) -> Result<(), TransportError>;
 
-    /// Every device's latest checkpoint, this device's included. The caller
-    /// verifies each MAC.
+    /// Every device's latest checkpoint as raw bytes, each with the
+    /// install ID it is filed under (the folder path's device, the hosted
+    /// `deviceId`), this device's included. The caller decodes each with
+    /// `Checkpoint::decode(bytes, device, crypto)`, which verifies the MAC
+    /// and that the body names the device it is filed under. A transport
+    /// that sees several candidate files for one device (conflict copies)
+    /// returns each of them.
     ///
     /// # Errors
     /// [`TransportError`].
-    fn checkpoints(&mut self) -> Result<Vec<Checkpoint>, TransportError>;
+    fn checkpoints(&mut self) -> Result<Vec<(InstallId, Vec<u8>)>, TransportError>;
 
     /// The backend's device list.
     ///

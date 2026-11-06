@@ -4,7 +4,9 @@
 //!
 //! ```text
 //! "MSEG" || 1 || flags:u8 (bit0 = snapshot) || account_id[16] || vault_id[16]
-//! || device_id[16] || seq:u64 (>= 1) || created_at_ms:u64 || count:u32 (1..=4096)
+//! || device_id[16] || seq:u64 (>= 1) || created_at_ms:u64
+//! || [ snap_base:u64 || snap_parts:u32 ]            (only when bit0 is set)
+//! || count:u32 (1..=4096)
 //! || count x ( kind:u8 || len:u32 || body[len] ) || mac[32]
 //! mac = HMAC(K_fold, ctx("sync/folder-segment") || 0x00 || all preceding bytes)
 //! kind 1 item        body = record_id[16] || ItemCiphertext
@@ -12,6 +14,14 @@
 //! kind 3 vault key   body = generation:u32 || WrappedKey[74]
 //! kind 4 vault meta  body = VaultMetaCiphertext
 //! ```
+//!
+//! A snapshot may span several parts, each a segment of its own. The part
+//! index is `seq - snap_base`, with `1 <= snap_parts <= 65536` and
+//! `1 <= snap_base <= seq < snap_base + snap_parts`. [`SnapshotTracker`]
+//! decides when a set of parts is complete and a reader may mark the
+//! device's older sequence numbers read.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::sync_auth::FolderMacPurpose;
 use mosaic_core::{
@@ -24,8 +34,13 @@ use super::{Reader, SyncCrypto, WireError, split_mac};
 const MAGIC: &[u8; 4] = b"MSEG";
 const VERSION: u8 = 1;
 const FLAG_SNAPSHOT: u8 = 0b0000_0001;
-/// `magic || version || flags || account || vault || device || seq || created || count`.
+/// `magic || version || flags || account || vault || device || seq || created || count`,
+/// without the snapshot fields.
 const HEADER_LEN: usize = 4 + 1 + 1 + 16 + 16 + 16 + 8 + 8 + 4;
+/// `snap_base || snap_parts`, present only in a snapshot part.
+const SNAPSHOT_FIELDS_LEN: usize = 8 + 4;
+/// The most parts one snapshot set has.
+pub const MAX_SNAPSHOT_PARTS: u32 = 65_536;
 /// The most a reader accepts of one segment file.
 pub const MAX_SEGMENT_LEN: usize = 16 * 1024 * 1024;
 /// The most objects one segment holds.
@@ -148,6 +163,39 @@ impl SegmentObject {
     }
 }
 
+/// The snapshot fields of a segment: it is one part of the set of
+/// `parts` segments with the contiguous sequence numbers
+/// `base ..= base + parts - 1` (CRYPTO_SPEC §10.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SnapshotInfo {
+    /// The sequence number of the set's first part (at least 1).
+    pub base: u64,
+    /// How many parts the set has, 1 to [`MAX_SNAPSHOT_PARTS`].
+    pub parts: u32,
+}
+
+impl SnapshotInfo {
+    /// The highest sequence number of the set.
+    #[must_use]
+    pub fn last_seq(&self) -> u64 {
+        self.base
+            .saturating_add(u64::from(self.parts.saturating_sub(1)))
+    }
+
+    /// Checks the bounds for a part with sequence number `seq`.
+    fn check(&self, seq: u64) -> Result<(), WireError> {
+        let in_set = self.base >= 1
+            && self.base <= seq
+            && seq - self.base < u64::from(self.parts)
+            && self.base.checked_add(u64::from(self.parts)).is_some();
+        if (1..=MAX_SNAPSHOT_PARTS).contains(&self.parts) && in_set {
+            Ok(())
+        } else {
+            Err(WireError::Field)
+        }
+    }
+}
+
 /// The IDs and sequence number of a segment as its path names them
 /// (`a/<account>/v/<vault>/log/<device>/<seq>.mseg`); the file must say the
 /// same.
@@ -166,9 +214,11 @@ pub struct SegmentPath {
 /// A segment: one device's batch of objects for one vault.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Segment {
-    /// The writer's whole current state of the vault: a reader marks every
-    /// sequence number of that device up to `seq` as read.
-    pub snapshot: bool,
+    /// `Some` for a part of a snapshot: the writer's whole current state of
+    /// the vault. A reader marks every sequence number of that device up to
+    /// the set's last one as read once all parts are verified
+    /// ([`SnapshotTracker`]).
+    pub snapshot: Option<SnapshotInfo>,
     /// The account.
     pub account_id: AccountId,
     /// The vault.
@@ -188,22 +238,34 @@ impl Segment {
     ///
     /// # Errors
     /// [`WireError::Field`] for a sequence number of 0 or a count outside
-    /// 1 to [`MAX_OBJECTS`]; [`WireError::Length`] if an object or the file
+    /// 1 to [`MAX_OBJECTS`] or snapshot fields outside their bounds;
+    /// [`WireError::Length`] if an object or the file
     /// exceeds the reader's limits; [`WireError::Crypto`].
     pub fn encode(&self, crypto: &impl SyncCrypto) -> Result<Vec<u8>, WireError> {
         if self.seq == 0 || self.objects.is_empty() || self.objects.len() > MAX_OBJECTS {
             return Err(WireError::Field);
         }
         let count = u32::try_from(self.objects.len()).map_err(|_| WireError::Field)?;
-        let mut out = Vec::with_capacity(HEADER_LEN);
+        if let Some(info) = &self.snapshot {
+            info.check(self.seq)?;
+        }
+        let mut out = Vec::with_capacity(HEADER_LEN + SNAPSHOT_FIELDS_LEN);
         out.extend_from_slice(MAGIC);
         out.push(VERSION);
-        out.push(if self.snapshot { FLAG_SNAPSHOT } else { 0 });
+        out.push(if self.snapshot.is_some() {
+            FLAG_SNAPSHOT
+        } else {
+            0
+        });
         out.extend_from_slice(self.account_id.as_bytes());
         out.extend_from_slice(self.vault_id.as_bytes());
         out.extend_from_slice(self.device_id.as_bytes());
         out.extend_from_slice(&self.seq.to_be_bytes());
         out.extend_from_slice(&self.created_at_ms.to_be_bytes());
+        if let Some(info) = &self.snapshot {
+            out.extend_from_slice(&info.base.to_be_bytes());
+            out.extend_from_slice(&info.parts.to_be_bytes());
+        }
         out.extend_from_slice(&count.to_be_bytes());
         let mut body = Vec::new();
         for object in &self.objects {
@@ -261,9 +323,20 @@ impl Segment {
         let device_id = InstallId::from_bytes(r.array()?).map_err(|_| WireError::Id)?;
         let seq = r.u64()?;
         let created_at_ms = r.u64()?;
+        let snapshot = if flags & FLAG_SNAPSHOT != 0 {
+            Some(SnapshotInfo {
+                base: r.u64()?,
+                parts: r.u32()?,
+            })
+        } else {
+            None
+        };
         let count = usize::try_from(r.u32()?).map_err(|_| WireError::Field)?;
         if seq == 0 || count == 0 || count > MAX_OBJECTS {
             return Err(WireError::Field);
+        }
+        if let Some(info) = &snapshot {
+            info.check(seq)?;
         }
         if (account_id, vault_id, device_id, seq)
             != (path.account_id, path.vault_id, path.device_id, path.seq)
@@ -286,7 +359,7 @@ impl Segment {
         }
         r.finish()?;
         Ok(Self {
-            snapshot: flags & FLAG_SNAPSHOT != 0,
+            snapshot,
             account_id,
             vault_id,
             device_id,
@@ -294,6 +367,88 @@ impl Segment {
             created_at_ms,
             objects,
         })
+    }
+}
+
+/// Collects the verified snapshot parts of one device's log in one vault
+/// and says when a set is complete (CRYPTO_SPEC §10.1).
+///
+/// A reader applies the records of every verified segment at once and marks
+/// that segment's sequence number read. A snapshot part additionally lets it
+/// mark every older sequence number read, but only when all parts of its set
+/// are in: until then the older segments are still needed, because the
+/// parts that are missing may hold state they do not. A set is identified by
+/// `(snap_base, snap_parts)`; a part that disagrees with the parts seen
+/// before, or whose range overlaps another set's, is refused.
+#[derive(Debug, Default)]
+pub struct SnapshotTracker {
+    /// `snap_base` to the set that starts there. Sets never overlap.
+    sets: BTreeMap<u64, TrackedSet>,
+}
+
+#[derive(Debug)]
+struct TrackedSet {
+    parts: u32,
+    /// The sequence numbers of the parts seen (cleared once complete).
+    seen: BTreeSet<u64>,
+    complete: bool,
+}
+
+impl SnapshotTracker {
+    /// An empty tracker.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Notes a verified, parsed segment of the device this tracker is for.
+    /// Returns `Some(last_seq)` when this segment completes a snapshot set:
+    /// the reader may mark every sequence number of the device up to
+    /// `last_seq` read. Returns `None` for any other segment (a segment
+    /// without snapshot fields, a part of an incomplete set, or a part that
+    /// was seen before): the reader marks only the segment's own sequence
+    /// number read.
+    ///
+    /// # Errors
+    /// [`WireError::Field`] if the part disagrees with the set it names
+    /// (another `snap_parts` for the same `snap_base`, or a range that
+    /// overlaps a different set).
+    pub fn add(&mut self, segment: &Segment) -> Result<Option<u64>, WireError> {
+        let Some(info) = segment.snapshot else {
+            return Ok(None);
+        };
+        info.check(segment.seq)?;
+        let last = info.last_seq();
+        // Sets are disjoint ranges, so only the neighbours of `base` can
+        // overlap the new one.
+        if let Some((base, set)) = self.sets.range(..=info.base).next_back() {
+            let same = *base == info.base && set.parts == info.parts;
+            let end = base.saturating_add(u64::from(set.parts.saturating_sub(1)));
+            if !same && end >= info.base {
+                return Err(WireError::Field);
+            }
+        }
+        if let Some((base, set)) = self.sets.range(info.base..).next() {
+            let same = *base == info.base && set.parts == info.parts;
+            if !same && *base <= last {
+                return Err(WireError::Field);
+            }
+        }
+        let set = self.sets.entry(info.base).or_insert_with(|| TrackedSet {
+            parts: info.parts,
+            seen: BTreeSet::new(),
+            complete: false,
+        });
+        if set.complete {
+            return Ok(None);
+        }
+        set.seen.insert(segment.seq);
+        if u64::try_from(set.seen.len()) == Ok(u64::from(set.parts)) {
+            set.complete = true;
+            set.seen.clear();
+            return Ok(Some(last));
+        }
+        Ok(None)
     }
 }
 
@@ -333,7 +488,7 @@ mod tests {
         let vault = f.path.vault_id;
         let tomb_id = ItemId::new_v7().unwrap();
         Segment {
-            snapshot: false,
+            snapshot: None,
             account_id: f.path.account_id,
             vault_id: vault,
             device_id: f.path.device_id,
@@ -368,14 +523,134 @@ mod tests {
         let bytes = s.encode(&f.crypto).unwrap();
         assert_eq!(&bytes[..5], b"MSEG\x01");
         assert_eq!(Segment::decode(&bytes, &f.path, &f.crypto).unwrap(), s);
-        s.snapshot = true;
+        let plain_len = bytes.len();
+        s.snapshot = Some(SnapshotInfo { base: 2, parts: 3 });
         let bytes = s.encode(&f.crypto).unwrap();
         assert_eq!(bytes[5], 1);
-        assert!(
+        assert_eq!(bytes.len(), plain_len + SNAPSHOT_FIELDS_LEN);
+        // base and parts follow created_at_ms, before count.
+        let at = HEADER_LEN - 4;
+        assert_eq!(bytes[at..at + 8], 2u64.to_be_bytes());
+        assert_eq!(bytes[at + 8..at + 12], 3u32.to_be_bytes());
+        assert_eq!(
             Segment::decode(&bytes, &f.path, &f.crypto)
                 .unwrap()
-                .snapshot
+                .snapshot,
+            Some(SnapshotInfo { base: 2, parts: 3 })
         );
+    }
+
+    /// The segment of `f` as part `seq` of the snapshot set `(base, parts)`.
+    fn part(f: &Fixture, seq: u64, base: u64, parts: u32) -> Segment {
+        let mut s = segment(f);
+        s.seq = seq;
+        s.snapshot = Some(SnapshotInfo { base, parts });
+        s
+    }
+
+    fn path_of(f: &Fixture, seq: u64) -> SegmentPath {
+        SegmentPath { seq, ..f.path }
+    }
+
+    /// The snapshot bounds hold in the encoder and the decoder.
+    #[test]
+    fn snapshot_bounds() {
+        let f = fixture();
+        let ok = |seq: u64, base: u64, parts: u32| {
+            let encoded = part(&f, seq, base, parts).encode(&f.crypto).is_ok();
+            (encoded,)
+        };
+        // Inside: the first and the last part, one part, the maximum count.
+        assert!(ok(3, 3, 1).0);
+        assert!(ok(3, 3, 3).0);
+        assert!(ok(5, 3, 3).0);
+        assert!(ok(1, 1, MAX_SNAPSHOT_PARTS).0);
+        assert!(ok(MAX_SNAPSHOT_PARTS.into(), 1, MAX_SNAPSHOT_PARTS).0);
+        // Outside: no parts, too many parts, seq below the base, seq past the
+        // last part, base 0, and an overflowing set.
+        assert!(!ok(3, 3, 0).0);
+        assert!(!ok(3, 3, MAX_SNAPSHOT_PARTS + 1).0);
+        assert!(!ok(2, 3, 3).0);
+        assert!(!ok(6, 3, 3).0);
+        assert!(!ok(3, 0, 5).0);
+        assert!(!ok(u64::MAX, u64::MAX - 1, 5).0);
+        assert!(!ok(u64::from(MAX_SNAPSHOT_PARTS) + 1, 1, MAX_SNAPSHOT_PARTS).0);
+
+        // The decoder refuses what the encoder would not write: forge the
+        // fields behind a valid MAC.
+        let good = part(&f, 4, 3, 2).encode(&f.crypto).unwrap();
+        let (body, _) = good.split_at(good.len() - 32);
+        let at = HEADER_LEN - 4;
+        let forge_fields = |base: u64, parts: u32| {
+            let mut b = body.to_vec();
+            b[at..at + 8].copy_from_slice(&base.to_be_bytes());
+            b[at + 8..at + 12].copy_from_slice(&parts.to_be_bytes());
+            forge(&f, b)
+        };
+        let decode = |b: &[u8]| Segment::decode(b, &path_of(&f, 4), &f.crypto);
+        assert!(decode(&forge_fields(3, 2)).is_ok());
+        for (base, parts) in [
+            (3, 0),
+            (3, MAX_SNAPSHOT_PARTS + 1),
+            (5, 2),
+            (2, 2),
+            (0, 5),
+            (3, 1),
+            (u64::MAX, 2),
+        ] {
+            assert_eq!(
+                decode(&forge_fields(base, parts)),
+                Err(WireError::Field),
+                "{base} {parts}"
+            );
+        }
+        // The flag clear means no fields: a flagged file without them is
+        // short, and fields without the flag shift the count.
+        let mut unflagged = body.to_vec();
+        unflagged[5] = 0;
+        assert!(decode(&forge(&f, unflagged)).is_err());
+    }
+
+    /// Parts arrive in reverse order and an older segment is missing:
+    /// nothing below `snap_base` is marked read until the last part is in.
+    #[test]
+    fn snapshot_parts_in_reverse_order() {
+        let f = fixture();
+        let mut t = SnapshotTracker::new();
+        // Seqs 1 and 2 are older segments that never arrive; the set is
+        // seqs 3..=5.
+        assert_eq!(t.add(&part(&f, 5, 3, 3)), Ok(None));
+        assert_eq!(t.add(&part(&f, 4, 3, 3)), Ok(None));
+        // A repeated part completes nothing.
+        assert_eq!(t.add(&part(&f, 4, 3, 3)), Ok(None));
+        assert_eq!(t.add(&part(&f, 3, 3, 3)), Ok(Some(5)));
+        // Once complete, a repeat is not a new completion.
+        assert_eq!(t.add(&part(&f, 3, 3, 3)), Ok(None));
+        // A plain segment never completes anything.
+        assert_eq!(t.add(&segment(&f)), Ok(None));
+        // A one-part snapshot completes at once.
+        assert_eq!(t.add(&part(&f, 9, 9, 1)), Ok(Some(9)));
+    }
+
+    #[test]
+    fn a_part_that_disagrees_is_refused() {
+        let f = fixture();
+        let mut t = SnapshotTracker::new();
+        assert_eq!(t.add(&part(&f, 3, 3, 3)), Ok(None));
+        // Another part count for the same base.
+        assert_eq!(t.add(&part(&f, 4, 3, 2)), Err(WireError::Field));
+        assert_eq!(t.add(&part(&f, 4, 3, 4)), Err(WireError::Field));
+        // A different set that starts inside, or reaches into, the first.
+        assert_eq!(t.add(&part(&f, 4, 4, 2)), Err(WireError::Field));
+        assert_eq!(t.add(&part(&f, 2, 2, 2)), Err(WireError::Field));
+        // The set is not harmed by the refused parts.
+        assert_eq!(t.add(&part(&f, 4, 3, 3)), Ok(None));
+        assert_eq!(t.add(&part(&f, 5, 3, 3)), Ok(Some(5)));
+        // The next set may start right after the last part.
+        assert_eq!(t.add(&part(&f, 6, 6, 2)), Ok(None));
+        assert_eq!(t.add(&part(&f, 7, 6, 2)), Ok(Some(7)));
+        // But not inside a completed one.
+        assert_eq!(t.add(&part(&f, 5, 5, 1)), Err(WireError::Field));
     }
 
     /// Re-MACs `body` so a test can corrupt the content and still pass the

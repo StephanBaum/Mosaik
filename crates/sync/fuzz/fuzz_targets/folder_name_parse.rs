@@ -23,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
         FolderName::Segment { seq } => segment_name(seq),
         FolderName::Account { version, device } => account_name(version, &device),
         FolderName::Blob(id) => blob_name(&id),
-        FolderName::BlobDelete(id) => blob_delete_name(&id),
+        FolderName::BlobDelete { attachment, device } => blob_delete_name(&attachment, &device),
         FolderName::Head => "head.mck".to_owned(),
         FolderName::DeviceInfo => "info.mdev".to_owned(),
         FolderName::Dir(id) => dir_name(&id),

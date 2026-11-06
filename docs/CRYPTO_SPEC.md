@@ -664,6 +664,21 @@ therefore cannot lock the user out.
     time before parsing). `high_seq` is the device's vault cursor (the last
     `server_seq` applied) after the sync in hosted mode, and the highest
     segment sequence the device wrote for the vault (0 if none) in folder mode.
+    A checkpoint is longest at 4096 entries: 114,761 bytes (41-byte header,
+    28 bytes per entry, 32-byte MAC). The hosted body caps follow from that
+    (the raw `PUT` body at 114,761 bytes; the unpadded base64url text inside
+    a JSON response at 153,015 characters).
+  - Transports carry a checkpoint as opaque bytes, filed under the device ID
+    of its path (`d/<device>/head.mck`, or the hosted `deviceId`); they never
+    decode it. A reader decodes it only together with that ID and rejects the
+    checkpoint when the `device_id` inside the body differs from it
+    (`Path`): the MAC is checked first, and the filing, which the provider
+    or the server controls, is checked against the authenticated body, so a
+    checkpoint filed under another device's name is not read as that
+    device's.
+  - Versioning: a new checkpoint version MUST use a new HKDF label for
+    `K_cp`'s MAC context (e.g. `checkpoint/v2`) or include the version byte
+    in the MAC input.
   - Own-counter rules: a verified checkpoint for the device's own
     `InstallId` with a counter above its stored counter means the install
     identity is duplicated (a copied profile writing under this ID); the
@@ -800,9 +815,12 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   the MAC in constant time over everything before the trailing 32 bytes, only
   then parses, and rejects trailing bytes, unknown versions, nil IDs and IDs
   that differ from the path):
-  - Segment `.mseg`: `"MSEG" || 1 || flags:u8 (bit0 snapshot, others 0) || account_id || vault_id || device_id || seq:u64 (>= 1, = file name) || created_at_ms:u64 || count:u32 (1..=4096) || count x (kind:u8 || len:u32 || body) || mac`,
+  - Segment `.mseg`: `"MSEG" || 1 || flags:u8 (bit0 snapshot, others 0) || account_id || vault_id || device_id || seq:u64 (>= 1, = file name) || created_at_ms:u64 || [snap_base:u64 || snap_parts:u32, present only when bit0 is set] || count:u32 (1..=4096) || count x (kind:u8 || len:u32 || body) || mac`,
     `mac = HMAC(K_fold, ctx("sync/folder-segment") || 0x00 || preceding bytes)`.
-    Kinds: 1 item (`record_id || ItemCiphertext`), 2 tombstone
+    The snapshot fields sit right after `created_at_ms`, so the MAC covers
+    them. Rules: `1 <= snap_parts <= 65536`; `1 <= snap_base <= seq < snap_base + snap_parts`,
+    so the part index is `seq - snap_base`; with the flag clear the fields
+    are absent. Kinds: 1 item (`record_id || ItemCiphertext`), 2 tombstone
     (`record_id || TombstoneCiphertext`), 3 vault key (`generation:u32 || WrappedKey[74]`),
     4 vault metadata. Read limit 16 MiB; a writer keeps segments at or below
     8 MiB and 256 objects.
@@ -813,23 +831,40 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     parameters) and checks the MAC right after unlocking.
   - Device info `.mdev`: `"MDEV" || 1 || device_id || nonce[24] || XChaCha20-Poly1305(K_dev, nonce, plaintext, aad)`,
     `aad = header || aad("sync/device-info", account_id, device_id)` with
-    `header = "MDEV" || 1 || device_id`; the plaintext is canonical JSON
-    (`createdAt`, `name`, `platform`), at most 512 bytes.
-  - Blob delete marker `.mdel` (77 bytes): `"MDEL" || 1 || attachment_id || device_id || deleted_at_ms:u64 || mac`,
+    `header = "MDEV" || 1 || device_id`. The plaintext is exactly 512
+    bytes: `len:u16 || canonical JSON (createdAt, name, platform; len <= 510) || zero bytes`.
+    A decoder rejects `len > 510` and any non-zero padding, so every `.mdev`
+    has the same size (21 + 24 + 512 + 16 = 573 bytes) whatever the name.
+  - Blob delete marker `.mdel` (93 bytes), at `blobs/<attachment>.<device>.mdel`
+    (lowercase 32-hex IDs, one dot): `"MDEL" || 1 || attachment_id || vault_id || device_id || deleted_at_ms:u64 || mac`,
     `mac = HMAC(K_fold, ctx("sync/folder-blob-delete") || 0x00 || preceding bytes)`.
+    The decoder checks `attachment_id`, `vault_id` and `device_id` against
+    the path.
   - Checkpoint `head.mck`: as §10.
 - **Single-writer rule.** Every path is written by exactly one install (its
-  own `d/<device>/`, `log/<device>/`, its own `.macct` name); blobs are
-  write-once. A sync client's conflict copy can therefore only appear for
-  `head.mck`, `info.mdev` and the two fixed top-level files, and readers
-  accept only strictly canonical names.
+  own `d/<device>/`, `log/<device>/`, its own `.macct` name, its own
+  `<attachment>.<device>.mdel` marker); blobs are write-once. A sync
+  client's conflict copy can therefore only appear for `head.mck`,
+  `info.mdev` and the two fixed top-level files, and readers accept only
+  strictly canonical names. A device removes only its own marker; a blob is
+  purged when a marker is older than the retention period and no live local
+  item refers to it.
 - **Canonical key winner.** Folder mode has no compare-and-swap, so when
   several devices rotate to one generation the winner is the lowest
   `(device_id, wrapped key bytes)`; a device that holds a different key for
   that generation rotates again.
-- Snapshots (a segment with the snapshot flag) carry the writer's whole
-  readable state and let a device compact its own log; old segments are
-  deleted only after the snapshot is written.
+- Snapshots (segments with the snapshot flag) carry the writer's whole
+  readable state and let a device compact its own log. A snapshot may span
+  several parts (`snap_parts`, at most 65536), each a segment of its own
+  with contiguous sequence numbers `snap_base ..= snap_base + snap_parts - 1`.
+  A writer deletes old segments only after every part is written. A reader
+  applies the records of every verified part at once, like any segment. It
+  marks every sequence number of that device up to `snap_base + snap_parts - 1`
+  as read only when all `snap_parts` parts of one set are verified and
+  parsed; a set is identified by `(device, snap_base, snap_parts)` and every
+  part must carry the same values (a part that disagrees with a part seen
+  before, or whose range overlaps another set's, is refused). An incomplete
+  set marks only the sequence numbers of its own verified parts as read.
 
 ### 10.2 Hosted write rules
 
@@ -929,7 +964,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | attachment IDs and ciphertext sizes | storage quotas |
 | device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
 | IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
-| checkpoints (device ID, counter, per vault generation and `high_seq`) | freeze and rollback detection (§10) |
+| checkpoints (device ID, counter, `issued_at_ms`, per vault generation and `high_seq`) | freeze and rollback detection (§10) |
+| record kind (item or tombstone, so that deletions are visible as events), per-object lengths and object counts per vault | storage, sync, quotas |
+| the device that generated each wrapped vault key (`device_id` of the key upload) | canonical key winner (§10.1), device list |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
 | audit events (type, time, device — no content) | user-visible security log |
 
@@ -943,7 +980,13 @@ Quick-unlock wrappings (§6.2) never leave the device.
 | vault IDs, record IDs, attachment IDs and ciphertext sizes, counts | file names and sizes |
 | ciphertext of records, tombstones, vault metadata, wrapped VKs, attachments | AEAD |
 | device install IDs | directory names; device names are sealed under `K_dev` |
-| checkpoint sequences, counters and vault generations | `head.mck` (MAC'd, not secret) |
+| checkpoint sequences, counters, vault generations and `issued_at_ms` | `head.mck` (MAC'd, not secret) |
+| record kind: the segment object kind byte shows item, tombstone, vault key and metadata objects, so deletions are visible as events | `.mseg` (the kind bytes are inside the MAC'd file, not encrypted) |
+| per-object lengths and object counts per segment and snapshot | `.mseg` |
+| segment `created_at_ms`, the snapshot flag and the snapshot part fields (`snap_base`, `snap_parts`) | `.mseg` header (MAC'd, not secret) |
+| blob delete markers: `deleted_at_ms` and the deleting device | `.mdel` (the file name and the MAC'd body) |
+| which device generated each wrapped vault key | the writing device's directory (`log/<device>/`) holds the key object |
+| size of `info.mdev`: constant (573 bytes), so the length of a device name is not visible | `.mdev` (padded plaintext, §10.1) |
 | file creation and modification times | edit timing |
 
 The provider, its admins and the other members of a shared folder can also

@@ -346,7 +346,7 @@ mod tests {
     use mosaic_vault::storage::Store;
 
     use super::account_file::{AccountFile, AccountFilePath};
-    use super::blob_delete::BlobDelete;
+    use super::blob_delete::{BlobDelete, BlobDeletePath};
     use super::checkpoint::{Checkpoint, CheckpointEntry};
     use super::device_info::{DeviceInfo, Platform};
     use super::segment::{Segment, SegmentObject, SegmentPath};
@@ -383,7 +383,7 @@ mod tests {
         let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
         let item = ItemId::new_v7().unwrap();
         let segment = Segment {
-            snapshot: false,
+            snapshot: None,
             account_id: account,
             vault_id: vault,
             device_id: install,
@@ -419,7 +419,10 @@ mod tests {
             }],
         };
         let bytes = checkpoint.encode(&session).unwrap();
-        assert_eq!(Checkpoint::decode(&bytes, &session).unwrap(), checkpoint);
+        assert_eq!(
+            Checkpoint::decode(&bytes, install, &session).unwrap(),
+            checkpoint
+        );
         assert!(checkpoint.verify(&bytes, &session).unwrap());
         assert!(!checkpoint.verify(&bytes, &other).unwrap());
     }
@@ -453,12 +456,18 @@ mod tests {
         assert!(!AccountFile::verify_mac(&bytes, &other).unwrap());
         let marker = BlobDelete {
             attachment_id: AttachmentId::new_v7().unwrap(),
+            vault_id: VaultId::new_v7().unwrap(),
             device_id: install,
             deleted_at_ms: 1,
         };
+        let marker_path = BlobDeletePath {
+            vault_id: marker.vault_id,
+            attachment_id: marker.attachment_id,
+            device_id: install,
+        };
         let bytes = marker.encode(&session).unwrap();
         assert_eq!(
-            BlobDelete::decode(&bytes, marker.attachment_id, &session).unwrap(),
+            BlobDelete::decode(&bytes, &marker_path, &session).unwrap(),
             marker
         );
 
@@ -493,3 +502,6 @@ mod tests {
         assert_eq!(hex(&[0xAB, 0x01]), "ab01");
     }
 }
+
+#[cfg(test)]
+mod kat_tests;

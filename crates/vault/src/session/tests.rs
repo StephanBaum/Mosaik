@@ -1413,7 +1413,7 @@ fn vault_summaries_do_not_print_names() {
 impl UnlockedSession {
     /// Locks and unlocks again with the same account key (test shortcut
     /// that skips Argon2id).
-    fn reload(self) -> Self {
+    pub(super) fn reload(self) -> Self {
         let Self {
             store,
             account_id,

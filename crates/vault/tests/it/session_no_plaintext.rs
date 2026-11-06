@@ -106,9 +106,10 @@ fn nothing_readable_reaches_the_disk() {
         s.allocate_local_seqs(upload.vault_id, 3).unwrap();
     }
     s.next_checkpoint_counter().unwrap();
-    let sealed = s
-        .seal_device_info(format!("{{\"name\":\"{}\"}}", m("device")).as_bytes())
-        .unwrap();
+    // The device-info plaintext is exactly 512 bytes (zero padded).
+    let mut device_info = format!("{{\"name\":\"{}\"}}", m("device")).into_bytes();
+    device_info.resize(512, 0);
+    let sealed = s.seal_device_info(&device_info).unwrap();
     assert!(!contains(&sealed, MARKER.as_bytes()));
     for att in s.pending_attachment_uploads().unwrap() {
         s.mark_attachment_uploaded(att.attachment_id).unwrap();

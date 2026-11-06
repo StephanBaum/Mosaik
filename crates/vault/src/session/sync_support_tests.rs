@@ -4,11 +4,13 @@
 
 use mosaic_core::model::ItemType;
 use mosaic_core::unlock::PrfOutput;
-use mosaic_core::{Argon2Profile, MasterPassword, SecretBytes, SecretKey, VaultId, VaultKey};
+use mosaic_core::{
+    Argon2Profile, Kek, MasterPassword, SecretBytes, SecretKey, UnlockMethod, VaultId, VaultKey,
+};
 
 use super::{
     AttachmentFileState, DEFAULT_RP_ID, Error, FolderMacPurpose, KeyOrigin, LockedSession,
-    NewHardwareKey, SyncConfig, SyncKind, UnlockedSession,
+    NewHardwareKey, Reauthenticated, SyncConfig, SyncKind, UnlockedSession,
 };
 use crate::storage::{Error as StorageError, Store};
 
@@ -195,6 +197,73 @@ fn commit_rotation_refuses_stale_generation() {
     ));
 }
 
+/// L4: what a session prepared dies with it. Prepare, lock, unlock, commit:
+/// refused, and nothing changes.
+#[test]
+fn prepared_changes_do_not_survive_a_lock() {
+    let (mut s, created) = account_in(Store::open_in_memory().unwrap());
+    let sk = created.secret_key;
+    let v = s.create_vault("A").unwrap();
+    let rotation = s.prepare_vault_rotation(v).unwrap();
+    let new = MasterPassword::new("a brand new password".to_owned());
+    let change = s.prepare_master_password_change(&pw(), &new, &sk).unwrap();
+    let before = s.account_bootstrap().unwrap();
+
+    // The same session still commits what it prepared (the happy path is
+    // covered elsewhere); a later session does not.
+    let stale_rotation = s.prepare_vault_rotation(v).unwrap();
+    let mut s = s.lock().unlock(&pw(), &sk).unwrap();
+    assert!(matches!(
+        s.commit_vault_rotation(rotation),
+        Err(Error::PreparedStale)
+    ));
+    assert!(matches!(
+        s.commit_vault_rotation(stale_rotation),
+        Err(Error::PreparedStale)
+    ));
+    assert!(matches!(
+        s.commit_master_password_change(change),
+        Err(Error::PreparedStale)
+    ));
+    assert_eq!(s.vaults()[0].key_generation.get(), 1);
+    let after = s.account_bootstrap().unwrap();
+    assert_eq!(
+        (after.params, after.wrapped_ak),
+        (before.params, before.wrapped_ak)
+    );
+
+    // Preparing again in the new session works.
+    let fresh = s.prepare_vault_rotation(v).unwrap();
+    assert_eq!(s.commit_vault_rotation(fresh).unwrap().get(), 2);
+}
+
+/// L3: a damaged local-origin key row replaced by the backend's wrapping is
+/// no longer queued for upload and no longer counts as generated here.
+#[test]
+fn a_damaged_local_key_replaced_by_a_remote_wrapping_is_not_queued() {
+    let (mut s, _) = account();
+    let g1 = mosaic_core::KeyGeneration::FIRST;
+    let v = s.create_vault("A").unwrap();
+    let intact = s.store.vault_key(&v, g1).unwrap().unwrap();
+    // The new vault's key is a local one waiting for upload.
+    assert_eq!(s.vault_key_origin(v, g1).unwrap(), Some(KeyOrigin::Local));
+    assert_eq!(s.store.pending_vault_keys(&v).unwrap().len(), 1);
+    s.store
+        .conn_for_tests()
+        .execute(
+            "UPDATE vault_keys SET wrapped_vk = zeroblob(74) WHERE vault_id = ?1",
+            [v.as_bytes()],
+        )
+        .unwrap();
+    let mut s = s.reload();
+    assert!(!s.vaults()[0].available);
+    s.apply_remote_vault_key(v, g1, &intact).unwrap();
+    assert!(s.vaults()[0].available);
+    assert_eq!(s.store.vault_key(&v, g1).unwrap(), Some(intact));
+    assert_eq!(s.vault_key_origin(v, g1).unwrap(), Some(KeyOrigin::Remote));
+    assert_eq!(s.store.pending_vault_keys(&v).unwrap().len(), 0);
+}
+
 #[test]
 fn install_id_stable_across_unlocks_and_distinct_per_store() {
     let dir = tempfile::tempdir().unwrap();
@@ -376,8 +445,11 @@ fn join_with_keys_equals_join_account() {
         created.opaque_password
     );
 
+    // The keys carry the parameters they were derived under, and the join
+    // stores exactly those.
+    assert_eq!(derived.params(), &bootstrap.params);
     let split = LockedSession::open(Store::open_in_memory().unwrap())
-        .join_account_with_keys(&bootstrap.params, &bootstrap.wrapped_ak, derived)
+        .join_account_with_keys(&bootstrap.wrapped_ak, derived)
         .unwrap();
     let whole = LockedSession::open(Store::open_in_memory().unwrap())
         .join_account(
@@ -400,7 +472,20 @@ fn join_with_keys_equals_join_account() {
     let keys =
         LockedSession::derive_join_keys(&bootstrap.params, &wrong, &created.secret_key).unwrap();
     let err = LockedSession::open(Store::open_in_memory().unwrap())
-        .join_account_with_keys(&bootstrap.params, &bootstrap.wrapped_ak, keys)
+        .join_account_with_keys(&bootstrap.wrapped_ak, keys)
+        .unwrap_err();
+    assert!(matches!(err.error, Error::UnlockFailed));
+    assert!(!err.session.has_account().unwrap());
+
+    // Keys derived under other parameters (another salt) do not open the
+    // wrapped key, and nothing is stored.
+    let mut other_params = bootstrap.params;
+    other_params.salt = mosaic_core::AccountSalt::from_bytes([0x5A; 16]);
+    assert_ne!(other_params, bootstrap.params);
+    let keys = LockedSession::derive_join_keys(&other_params, &pw(), &created.secret_key).unwrap();
+    assert_eq!(keys.params(), &other_params);
+    let err = LockedSession::open(Store::open_in_memory().unwrap())
+        .join_account_with_keys(&bootstrap.wrapped_ak, keys)
         .unwrap_err();
     assert!(matches!(err.error, Error::UnlockFailed));
     assert!(!err.session.has_account().unwrap());
@@ -435,9 +520,24 @@ fn prepare_commit_password_change_equals_change_master_password() {
     let sk = created.secret_key;
     let new = MasterPassword::new("a brand new password".to_owned());
     let before = s.account_bootstrap().unwrap();
+    // A quick-unlock wrapping exists before the change (CRYPTO_SPEC 6.2).
+    let proof = Reauthenticated::for_test(s.proof_id);
+    let (enrolled, _) = s
+        .enroll_quick_unlock(&Kek::generate().unwrap(), &[9], &proof)
+        .unwrap();
+    let quick_rows = |s: &UnlockedSession| {
+        s.store
+            .unlock_methods()
+            .unwrap()
+            .iter()
+            .filter(|r| matches!(r.method, UnlockMethod::QuickUnlock(_)))
+            .count()
+    };
+    assert_eq!(quick_rows(&s), 1);
 
     let prepared = s.prepare_master_password_change(&pw(), &new, &sk).unwrap();
-    // Nothing is stored by the preparation.
+    // Nothing is stored by the preparation: the wrapping is still there.
+    assert_eq!(quick_rows(&s), 1);
     let unchanged = s.account_bootstrap().unwrap();
     assert_eq!(unchanged.params, before.params);
     assert_eq!(unchanged.wrapped_ak, before.wrapped_ak);
@@ -458,7 +558,11 @@ fn prepare_commit_password_change_equals_change_master_password() {
     let params = *prepared.new_params();
     let changed = s.commit_master_password_change(prepared).unwrap();
     assert_eq!(changed.params, params);
-    assert!(changed.removed_quick_unlock.is_none());
+    // The commit deleted the quick-unlock wrapping and returned it, so the
+    // app deletes its platform key.
+    assert_eq!(changed.removed_quick_unlock, Some(enrolled));
+    assert_eq!(quick_rows(&s), 0);
+    assert_eq!(s.quick_unlock_enrollment().unwrap(), None);
     let after = s.account_bootstrap().unwrap();
     assert_eq!((after.params, after.wrapped_ak), (params, wrapped));
     assert_eq!(
@@ -550,14 +654,25 @@ fn checkpoint_folder_and_device_info_use_the_session_keys() {
         assert!(s.verify_folder_mac(purpose, b"m", &mac).unwrap());
         assert!(!s.verify_folder_mac(purpose, b"n", &mac).unwrap());
     }
-    let sealed = s.seal_device_info(b"{\"name\":\"x\"}").unwrap();
+    // The plaintext is exactly 512 bytes (the caller pads it).
+    let mut plaintext = [0u8; 512];
+    plaintext[..12].copy_from_slice(b"{\"name\":\"x\"}");
+    let sealed = s.seal_device_info(&plaintext).unwrap();
     assert_eq!(
         s.open_device_info(s.install_id(), &sealed)
             .unwrap()
             .expose_secret(),
-        b"{\"name\":\"x\"}"
+        plaintext.as_slice()
     );
     assert!(s.open_device_info(other, &sealed).is_err());
+    assert!(matches!(
+        s.seal_device_info(b"{\"name\":\"x\"}"),
+        Err(Error::Core(mosaic_core::Error::Malformed))
+    ));
+    assert!(matches!(
+        s.seal_device_info(&[0u8; 513]),
+        Err(Error::Core(mosaic_core::Error::SizeLimit))
+    ));
 
     assert_eq!(s.checkpoint_counter().unwrap(), 0);
     assert_eq!(s.next_checkpoint_counter().unwrap(), 1);

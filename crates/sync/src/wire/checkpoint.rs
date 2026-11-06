@@ -1,6 +1,9 @@
 //! The checkpoint (CRYPTO_SPEC §10): what a device has seen, MAC'd under
 //! `K_cp`. The same bytes are the hosted upload body and the folder's
-//! `head.mck`.
+//! `head.mck`. Transports carry them as opaque bytes, filed under the device
+//! ID of the path (`d/<device>/`) or of the hosted `deviceId`; a reader
+//! decodes them together with that ID ([`Checkpoint::decode`]) and a body
+//! whose device differs is refused with [`WireError::Path`].
 //!
 //! ```text
 //! "MCKP" || 1 || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32
@@ -118,14 +121,20 @@ impl Checkpoint {
 
     /// Decodes a checkpoint: length bounds, the MAC (the device and counter
     /// are read from their fixed offsets first, the digest is computed over
-    /// the entries), then the content.
+    /// the entries), then the content. `expected_device` is the device the
+    /// transport filed the checkpoint under (the path's `d/<device>/` or the
+    /// hosted `deviceId`); the body must name the same device.
     ///
     /// # Errors
     /// [`WireError::Length`], [`WireError::Mac`], [`WireError::Magic`],
-    /// [`WireError::Version`], [`WireError::Id`], [`WireError::Field`],
-    /// [`WireError::Order`], [`WireError::Crypto`].
-    pub fn decode(bytes: &[u8], crypto: &impl SyncCrypto) -> Result<Self, WireError> {
-        Self::decode_with(bytes, |device, counter, digest, mac| {
+    /// [`WireError::Version`], [`WireError::Id`], [`WireError::Path`],
+    /// [`WireError::Field`], [`WireError::Order`], [`WireError::Crypto`].
+    pub fn decode(
+        bytes: &[u8],
+        expected_device: InstallId,
+        crypto: &impl SyncCrypto,
+    ) -> Result<Self, WireError> {
+        Self::decode_with(bytes, expected_device, |device, counter, digest, mac| {
             crypto.verify_checkpoint_mac(device, counter, digest, mac)
         })
     }
@@ -137,8 +146,8 @@ impl Checkpoint {
     ///
     /// # Errors
     /// As [`Checkpoint::decode`] except [`WireError::Mac`].
-    pub fn decode_unverified(bytes: &[u8]) -> Result<Self, WireError> {
-        Self::decode_with(bytes, |_, _, _, _| Ok(true))
+    pub fn decode_unverified(bytes: &[u8], expected_device: InstallId) -> Result<Self, WireError> {
+        Self::decode_with(bytes, expected_device, |_, _, _, _| Ok(true))
     }
 
     /// Whether `bytes` carry this checkpoint's MAC, in constant time.
@@ -152,6 +161,7 @@ impl Checkpoint {
 
     fn decode_with(
         bytes: &[u8],
+        expected_device: InstallId,
         verify: impl FnOnce(InstallId, u64, &[u8; 32], &[u8; 32]) -> Result<bool, WireError>,
     ) -> Result<Self, WireError> {
         if bytes.len() < HEADER_LEN + 32 || bytes.len() > MAX_LEN {
@@ -176,6 +186,9 @@ impl Checkpoint {
             return Err(WireError::Version);
         }
         let device_id = InstallId::from_bytes(r.array()?).map_err(|_| WireError::Id)?;
+        if device_id != expected_device {
+            return Err(WireError::Path);
+        }
         let counter = r.u64()?;
         let issued_at_ms = r.u64()?;
         let n = usize::try_from(r.u32()?).map_err(|_| WireError::Field)?;
@@ -241,8 +254,8 @@ mod tests {
             let bytes = cp.encode(&c).unwrap();
             assert_eq!(bytes.len(), HEADER_LEN + usize::from(n) * ENTRY_LEN + 32);
             assert_eq!(&bytes[..5], b"MCKP\x01");
-            assert_eq!(Checkpoint::decode(&bytes, &c).unwrap(), cp);
-            assert_eq!(Checkpoint::decode_unverified(&bytes).unwrap(), cp);
+            assert_eq!(Checkpoint::decode(&bytes, id, &c).unwrap(), cp);
+            assert_eq!(Checkpoint::decode_unverified(&bytes, id).unwrap(), cp);
             assert!(cp.verify(&bytes, &c).unwrap());
         }
     }
@@ -278,81 +291,119 @@ mod tests {
             let mut bad = bytes.clone();
             bad[i] ^= 1;
             assert_eq!(
-                Checkpoint::decode(&bad, &c),
+                Checkpoint::decode(&bad, id, &c),
                 Err(WireError::Mac),
                 "byte {i}"
             );
         }
-        assert_eq!(Checkpoint::decode(&[], &c), Err(WireError::Length));
+        assert_eq!(Checkpoint::decode(&[], id, &c), Err(WireError::Length));
         assert_eq!(
-            Checkpoint::decode(&bytes[..HEADER_LEN + 31], &c),
+            Checkpoint::decode(&bytes[..HEADER_LEN + 31], id, &c),
             Err(WireError::Length)
         );
         // Wrong device or key.
         let (other, _) = crypto();
-        assert_eq!(Checkpoint::decode(&bytes, &other), Err(WireError::Mac));
+        assert_eq!(Checkpoint::decode(&bytes, id, &other), Err(WireError::Mac));
         assert!(!cp.verify(&bytes, &other).unwrap());
         // The unverified decoder checks the shape only.
         let mut bad_magic = bytes.clone();
         bad_magic[0] = b'X';
         assert_eq!(
-            Checkpoint::decode_unverified(&bad_magic),
+            Checkpoint::decode_unverified(&bad_magic, id),
             Err(WireError::Magic)
         );
         let mut bad_version = bytes.clone();
         bad_version[4] = 2;
         assert_eq!(
-            Checkpoint::decode_unverified(&bad_version),
+            Checkpoint::decode_unverified(&bad_version, id),
             Err(WireError::Version)
         );
         assert_eq!(
-            Checkpoint::decode(&bad_version, &c),
+            Checkpoint::decode(&bad_version, id, &c),
             Err(WireError::Version)
         );
-        assert_eq!(Checkpoint::decode(&bad_magic, &c), Err(WireError::Magic));
+        assert_eq!(
+            Checkpoint::decode(&bad_magic, id, &c),
+            Err(WireError::Magic)
+        );
         let mut nil = bytes.clone();
         nil[5..21].fill(0);
-        assert_eq!(Checkpoint::decode_unverified(&nil), Err(WireError::Id));
+        assert_eq!(Checkpoint::decode_unverified(&nil, id), Err(WireError::Id));
         let mut trailing = bytes.clone();
         trailing.insert(bytes.len() - 32, 0);
         assert_eq!(
-            Checkpoint::decode_unverified(&trailing),
+            Checkpoint::decode_unverified(&trailing, id),
             Err(WireError::Length)
         );
         let mut count = bytes.clone();
         count[HEADER_LEN - 1] = 2;
         assert_eq!(
-            Checkpoint::decode_unverified(&count),
+            Checkpoint::decode_unverified(&count, id),
             Err(WireError::Length)
         );
         let mut huge = bytes.clone();
         huge[HEADER_LEN - 4..HEADER_LEN].copy_from_slice(&u32::MAX.to_be_bytes());
-        assert_eq!(Checkpoint::decode_unverified(&huge), Err(WireError::Length));
+        assert_eq!(
+            Checkpoint::decode_unverified(&huge, id),
+            Err(WireError::Length)
+        );
+    }
+
+    #[test]
+    fn entry_rejections() {
+        let (c, id) = crypto();
+        let bytes = checkpoint(id, 3).encode(&c).unwrap();
         // Entries: nil vault, generation 0, unsorted, duplicate.
         let entry = HEADER_LEN;
         let mut nil_vault = bytes.clone();
         nil_vault[entry..entry + 16].fill(0);
         assert_eq!(
-            Checkpoint::decode_unverified(&nil_vault),
+            Checkpoint::decode_unverified(&nil_vault, id),
             Err(WireError::Id)
         );
         let mut gen0 = bytes.clone();
         gen0[entry + 16..entry + 20].fill(0);
-        assert_eq!(Checkpoint::decode_unverified(&gen0), Err(WireError::Field));
+        assert_eq!(
+            Checkpoint::decode_unverified(&gen0, id),
+            Err(WireError::Field)
+        );
         let mut unsorted = bytes.clone();
         let (a, b) = (entry, entry + ENTRY_LEN);
         for k in 0..16 {
             unsorted.swap(a + k, b + k);
         }
         assert_eq!(
-            Checkpoint::decode_unverified(&unsorted),
+            Checkpoint::decode_unverified(&unsorted, id),
             Err(WireError::Order)
         );
         let mut dup = bytes.clone();
         for k in 0..16 {
             dup[b + k] = dup[a + k];
         }
-        assert_eq!(Checkpoint::decode_unverified(&dup), Err(WireError::Order));
+        assert_eq!(
+            Checkpoint::decode_unverified(&dup, id),
+            Err(WireError::Order)
+        );
+    }
+
+    /// A checkpoint of device A filed under device B is refused, with a
+    /// valid MAC (H1: the filing is not authenticated, the body is).
+    #[test]
+    fn a_checkpoint_filed_under_another_device_is_refused() {
+        let (c, a) = crypto();
+        let b = InstallId::new_v7().unwrap();
+        let bytes = checkpoint(a, 2).encode(&c).unwrap();
+        assert!(Checkpoint::decode(&bytes, a, &c).is_ok());
+        assert_eq!(Checkpoint::decode(&bytes, b, &c), Err(WireError::Path));
+        assert_eq!(
+            Checkpoint::decode_unverified(&bytes, b),
+            Err(WireError::Path)
+        );
+        // With a wrong MAC the MAC error comes first.
+        let mut bad = bytes;
+        let last = bad.len() - 1;
+        bad[last] ^= 1;
+        assert_eq!(Checkpoint::decode(&bad, b, &c), Err(WireError::Mac));
     }
 
     #[test]
@@ -384,7 +435,7 @@ mod tests {
         let bytes = cp.encode(&c).unwrap();
         assert_eq!(bytes.len(), MAX_LEN);
         assert_eq!(
-            Checkpoint::decode(&bytes, &c).unwrap().entries.len(),
+            Checkpoint::decode(&bytes, id, &c).unwrap().entries.len(),
             MAX_ENTRIES
         );
     }

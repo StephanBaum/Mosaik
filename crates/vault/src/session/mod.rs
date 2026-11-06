@@ -77,8 +77,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mosaic_core::model::{Item, Timestamp, Tombstone, VaultMeta};
 use mosaic_core::{
     AccountId, AccountKey, Argon2Profile, DeviceId, InstallId, ItemId, KeyGeneration,
-    MasterPassword, OpaquePassword, PasswordParams, SecretKey, SecretString, UnlockMethod, VaultId,
-    VaultKey, VaultMetaCiphertext, WrappedKey, unlock::TotpVaultKey,
+    MasterPassword, OpaquePassword, PasswordParams, SecretBytes, SecretKey, SecretString,
+    UnlockMethod, VaultId, VaultKey, VaultMetaCiphertext, WrappedKey, unlock::TotpVaultKey,
 };
 
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
@@ -300,6 +300,11 @@ pub struct UnlockedSession {
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
     /// unlock.
     install: InstallId,
+    /// A random tag of this unlocked session, never stored: what the
+    /// session prepared (a key rotation, a master password change) records
+    /// it, and the commit refuses anything prepared under another tag, so
+    /// a prepared secret does not outlive a lock.
+    session_tag: [u8; 16],
     /// The generation and metadata handed out by
     /// [`UnlockedSession::pending_vault_uploads`] for a vault that is to be
     /// created on the backend, until it reports back.
@@ -392,7 +397,7 @@ impl LockedSession {
         secret_key: &SecretKey,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
         match Self::derive_join_keys(params, password, secret_key) {
-            Ok(keys) => self.join_account_with_keys(params, wrapped_account_key, keys),
+            Ok(keys) => self.join_account_with_keys(wrapped_account_key, keys),
             Err(error) => Err(UnlockError {
                 session: self,
                 error,
@@ -674,8 +679,11 @@ impl UnlockedSession {
         account_key: AccountKey,
         quick: QuickState,
     ) -> core::result::Result<Self, UnlockError> {
-        let proof_id = match DeviceId::new_v7() {
-            Ok(id) => id,
+        let ids = DeviceId::new_v7().and_then(|proof_id| {
+            SecretBytes::<16>::random().map(|tag| (proof_id, *tag.expose_secret()))
+        });
+        let (proof_id, session_tag) = match ids {
+            Ok(ids) => ids,
             Err(e) => {
                 return Err(UnlockError {
                     session: LockedSession { store, quick },
@@ -709,6 +717,7 @@ impl UnlockedSession {
                     vaults,
                     index,
                     install,
+                    session_tag,
                     created_handed: BTreeMap::new(),
                 })
             }

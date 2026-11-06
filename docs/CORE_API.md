@@ -60,7 +60,7 @@ store directly. The M6 sync client sits next to the session and uses its
 | `LockedSession::open(Store)`, `has_account`, `store`, `into_store` | A store without keys. |
 | `LockedSession::create_account(&MasterPassword, Argon2Profile)` → `(UnlockedSession, CreatedAccount)` | New account (CRYPTO_SPEC §5, §6). `CreatedAccount` carries the `EmergencyKit` (account ID and Secret Key display string, show once), the `SecretKey` (for the OS keystore), the public `PasswordParams` and the `OpaquePassword` for M6 registration. |
 | `LockedSession::join_account(&PasswordParams, &WrappedKey, &MasterPassword, &SecretKey)` | Adds this device to an existing account (M6 pre-login data); nothing is stored on a wrong password. |
-| `LockedSession::{derive_join_keys, join_account_with_keys, sync_config}` (M6 T1) | The two halves of `join_account` (`JoinKeys` carries `OPW` for the login before the wrapped `AK` is fetched), and the stored backend choice. |
+| `LockedSession::{derive_join_keys, join_account_with_keys, sync_config}` (M6 T1) | The two halves of `join_account` (`JoinKeys` carries `OPW` for the login before the wrapped `AK` is fetched, and the parameters it was derived under; `join_account_with_keys(wrapped_ak, keys)` stores those), and the stored backend choice. |
 | `LockedSession::unlock(&MasterPassword, &SecretKey)` | Password unlock (§6.1). Failures return `UnlockError { session, error }`, the locked session unchanged; `Error::UnlockFailed` does not say which secret was wrong. |
 | `UnlockedSession::lock(self)` → `LockedSession` | Drops AK, every VK, the decrypted items and the search index (all zeroize). |
 | `UnlockedSession::lock_requiring_password(self)` → `LockedSession` | Like `lock`, and sets the failed-quick-attempt counter to `MAX_FAILED_QUICK_ATTEMPTS`: no quick method is offered or accepted until the next password unlock (ADR-0028 item 8; the app uses it for the five-wrong-reauthentications lock). |
@@ -134,6 +134,13 @@ the attachment), `pending_attachment_uploads`, `mark_attachment_uploaded`,
 unless the derived `KEK` opens the stored wrapping);
 `prepare_master_password_change` → `PreparedPasswordChange` and
 `commit_master_password_change` (`change_master_password` is now both).
+Each unlocked session has a random 16-byte tag (never stored); both prepared
+values record it, and a commit in a later session (prepare, lock, unlock,
+commit) is refused with the new `Error::PreparedStale` (added because no
+existing variant describes it). `Store::rewrap_vault_key` clears
+`local_origin` and `upload_pending` (the remote-replacement path), and
+`Store::accept_uploaded_vault_key` sets them on a row that holds the same
+wrapping already.
 Deviation from the M6 spec: `pending_vault_uploads` takes `&mut self`.
 
 ### `otp` (stable)
@@ -254,7 +261,8 @@ setup, tests and fuzzing):
   device_info_key}`); `checkpoint_mac`, `verify_checkpoint_mac`,
   `folder_mac`, `verify_folder_mac` with `FolderMacPurpose` (`Segment`,
   `Account`, `BlobDelete`); `seal_device_info` / `open_device_info`
-  (XChaCha20-Poly1305, at most 512 bytes of plaintext); and
+  (XChaCha20-Poly1305, exactly 512 bytes of padded plaintext, so every
+  file has the same size); and
   `session_token(session_key)` → `SessionToken` (`expose`; stable for the
   sync client, which sends it as the bearer token). The MAC functions return
   `Result<_>` (HMAC cannot fail for a 32-byte key, but there is no silent
@@ -435,14 +443,20 @@ the path (CRYPTO_SPEC §10.1, ADR-0043). `SyncCrypto` is the keyed side
 (`UnlockedSession` implements it; `KeyedCrypto` behind `test-util` is for
 tests and fuzzing), so the crate never holds `AK`. Items: `segment`
 (`Segment`, `SegmentObject`, `SegmentPath`), `checkpoint` (`Checkpoint`,
-`CheckpointEntry`; `decode_unverified` for a server without a key),
+`CheckpointEntry`; `decode(bytes, expected_device, crypto)` refuses a body
+that names another device than the one it is filed under, `decode_unverified`
+for a server without a key),
 `account_file` (`AccountFile`, `decode_for_join`, `verify_mac`),
-`blob_delete` (`BlobDelete`, 77 bytes), `device_info` (`DeviceInfo`,
-canonical plaintext), `cursor` (`FolderCursor`), `folder_names` (`parse`,
+`blob_delete` (`BlobDelete`, `BlobDeletePath`; 93 bytes, one marker per
+device), `device_info` (`DeviceInfo`, a constant 512-byte padded plaintext),
+`segment::{SnapshotInfo, SnapshotTracker}` (multi-part snapshots), `cursor` (`FolderCursor`), `folder_names` (`parse`,
 `FolderName`, name builders), `email::normalize` (shared with the server) and
 `json` (every request and response body of the hosted protocol, `parse` with a
 size cap, `B64` with strict base64url, `codes`). `mosaic_sync::transport` has
-the blocking, object-safe `Transport` trait and `TransportError`. Features:
+the blocking, object-safe `Transport` trait and `TransportError`
+(`put_checkpoint(&[u8])` and `checkpoints() -> Vec<(InstallId, Vec<u8>)>`:
+transports carry checkpoints as opaque bytes). `json::TotpSetupResponse` holds
+its secret and URI in `SecretText` (redacted `Debug`, no `Clone`). Features:
 `test-util`; `opaque` and `http` are reserved (the OPAQUE module and the HTTP
 transport come with the server and client tracks, ADR-0046). The engine and
 the folder transport (T2) and the server (T3) follow.

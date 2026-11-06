@@ -22,7 +22,8 @@ use core::marker::PhantomData;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::{
-    AccountId, Argon2Profile, AttachmentId, InstallId, ItemId, KeyGeneration, VaultId, WrappedKey,
+    AccountId, Argon2Profile, AttachmentId, InstallId, ItemId, KeyGeneration, SecretString,
+    VaultId, WrappedKey,
 };
 use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde::ser::Serializer;
@@ -37,8 +38,12 @@ pub const MAX_CIPHERTEXT_LEN: usize = 1_048_576 + 64;
 /// The longest decoded vault metadata ciphertext.
 pub const MAX_META_LEN: usize = 65_600;
 /// The longest checkpoint upload in bytes (the raw body of
-/// `PUT /v1/checkpoints/{deviceId}`).
-pub const MAX_CHECKPOINT_UPLOAD_LEN: usize = 65_600;
+/// `PUT /v1/checkpoints/{deviceId}`): the longest checkpoint, 4096 entries
+/// (CRYPTO_SPEC §10). As base64url inside a JSON body it is
+/// [`MAX_CHECKPOINT_JSON_LEN`] characters.
+pub const MAX_CHECKPOINT_UPLOAD_LEN: usize = super::checkpoint::MAX_LEN;
+/// The longest base64url text of a checkpoint in a JSON body.
+pub const MAX_CHECKPOINT_JSON_LEN: usize = encoded_len(MAX_CHECKPOINT_UPLOAD_LEN);
 /// The longest OPAQUE message (registration and login) in bytes.
 pub const MAX_OPAQUE_LEN: usize = 4096;
 /// The protocol version `GET /v1/info` reports.
@@ -246,6 +251,62 @@ impl<'de, const N: usize> Deserialize<'de> for B64Fixed<N> {
             .try_into()
             .map_err(|_| de::Error::custom("wrong length"))?;
         Ok(Self(array))
+    }
+}
+
+/// A secret string in a JSON body (the TOTP setup secret): zeroized on drop,
+/// redacted in `Debug`, no `Clone`, no `PartialEq`. It is read straight into
+/// a [`SecretString`]; only the server serializes it (to send it once).
+pub struct SecretText(SecretString);
+
+impl SecretText {
+    /// Wraps a secret string.
+    #[must_use]
+    pub const fn new(secret: SecretString) -> Self {
+        Self(secret)
+    }
+
+    /// Borrows the secret. Keep the borrow short and never log it.
+    #[must_use]
+    pub fn expose_secret(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl fmt::Debug for SecretText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+impl Serialize for SecretText {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.0.expose_secret())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretText {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = SecretText;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a string")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<SecretText, E> {
+                SecretString::from_str_copy(v)
+                    .map(SecretText)
+                    .map_err(|_| E::custom("allocation failed"))
+            }
+
+            fn visit_string<E: de::Error>(self, v: String) -> Result<SecretText, E> {
+                // Takes the allocation over: it is zeroized with the secret.
+                Ok(SecretText(SecretString::from(v)))
+            }
+        }
+        d.deserialize_string(V)
     }
 }
 
@@ -513,12 +574,15 @@ pub struct PasswordFinishResponse {
     pub account_version: u64,
 }
 
-/// `POST /v1/account/totp/setup` response.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// `POST /v1/account/totp/setup` response. The secret and the URI (which
+/// holds the secret) are secret strings: redacted `Debug`, no `Clone`, no
+/// `PartialEq`, zeroized on drop. `Serialize` is for the server, which sends
+/// the response once.
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TotpSetupResponse {
-    pub secret: String,
-    pub otpauth_uri: String,
+    pub secret: SecretText,
+    pub otpauth_uri: SecretText,
 }
 
 // ---- devices -------------------------------------------------------------------
@@ -872,6 +936,56 @@ mod tests {
 
     fn json<T: Serialize>(v: &T) -> serde_json::Value {
         serde_json::to_value(v).unwrap()
+    }
+
+    #[test]
+    fn the_totp_setup_secret_is_redacted_and_round_trips() {
+        let response = TotpSetupResponse {
+            secret: SecretText::new(SecretString::from("JBSWY3DPEHPK3PXP".to_owned())),
+            otpauth_uri: SecretText::new(SecretString::from(
+                "otpauth://totp/Mosaic?secret=JBSWY3DPEHPK3PXP".to_owned(),
+            )),
+        };
+        let debug = format!("{response:?}");
+        assert!(!debug.contains("JBSWY3DPEHPK3PXP"), "{debug}");
+        assert!(!debug.contains("otpauth://"), "{debug}");
+        assert!(debug.contains("[REDACTED]"));
+        let bytes = to_vec(&response).unwrap();
+        let back: TotpSetupResponse = parse(&bytes, MAX_RESPONSE_LEN).unwrap();
+        assert_eq!(back.secret.expose_secret(), "JBSWY3DPEHPK3PXP");
+        assert!(back.otpauth_uri.expose_secret().starts_with("otpauth://"));
+        // Strict like every body: an unknown key, a non-string, a missing key.
+        for bad in [
+            &br#"{"secret":"a","otpauthUri":"b","x":1}"#[..],
+            br#"{"secret":1,"otpauthUri":"b"}"#,
+            br#"{"secret":"a"}"#,
+        ] {
+            assert!(parse::<TotpSetupResponse>(bad, MAX_RESPONSE_LEN).is_err());
+        }
+    }
+
+    #[test]
+    fn the_longest_checkpoint_fits_the_json_cap() {
+        use crate::wire::checkpoint::MAX_LEN;
+        assert_eq!(MAX_CHECKPOINT_UPLOAD_LEN, MAX_LEN);
+        assert_eq!(MAX_LEN, 114_761);
+        assert_eq!(MAX_CHECKPOINT_JSON_LEN, 153_015);
+        let device = InstallId::new_v7().unwrap();
+        let entry = CheckpointEntry {
+            device_id: device,
+            body: B64(vec![7; MAX_LEN]),
+        };
+        round_trip(&entry);
+        let text = json(&entry);
+        assert_eq!(
+            text["body"].as_str().unwrap().len(),
+            MAX_CHECKPOINT_JSON_LEN
+        );
+        let over = CheckpointEntry {
+            device_id: device,
+            body: B64(vec![7; MAX_LEN + 1]),
+        };
+        assert!(parse::<CheckpointEntry>(&to_vec(&over).unwrap(), MAX_RESPONSE_LEN).is_err());
     }
 
     fn round_trip<T: Serialize + DeserializeOwned + PartialEq + fmt::Debug>(v: &T) {

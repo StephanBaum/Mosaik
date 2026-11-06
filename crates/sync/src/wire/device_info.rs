@@ -1,23 +1,28 @@
 //! A device's name and platform for the device list (CRYPTO_SPEC §10.1,
 //! ADR-0043): sealed in the folder backend's `info.mdev`.
 //!
-//! The plaintext is canonical JSON, at most 512 bytes, with the keys in this
-//! order:
+//! The plaintext is exactly 512 bytes, so every sealed file has the same
+//! size whatever the name:
 //!
 //! ```text
+//! len:u16 || canonical JSON (len <= 510) || zero bytes
 //! {"createdAt":<ms>,"name":"<1..64 characters>","platform":"windows"|"macos"|"linux"}
 //! ```
 //!
-//! [`DeviceInfo::from_plaintext`] accepts only exactly that form, so one
-//! device info has one encoding.
+//! The JSON has its keys in that order. [`DeviceInfo::from_plaintext`]
+//! accepts only exactly that form (a length of at most 510, canonical JSON,
+//! all-zero padding), so one device info has one encoding.
 
 use mosaic_core::InstallId;
 use serde::Deserialize;
 
 use super::{SyncCrypto, WireError};
 
-/// The longest plaintext in bytes.
-pub const MAX_PLAINTEXT_LEN: usize = 512;
+/// The exact plaintext length in bytes (padded).
+pub const PLAINTEXT_LEN: usize = mosaic_core::sync_auth::DEVICE_INFO_PLAINTEXT_LEN;
+/// The longest canonical JSON in bytes: the plaintext minus its 2-byte
+/// length prefix.
+pub const MAX_JSON_LEN: usize = PLAINTEXT_LEN - 2;
 /// The longest device name in characters.
 pub const MAX_NAME_CHARS: usize = 64;
 
@@ -92,13 +97,13 @@ impl DeviceInfo {
         }
     }
 
-    /// The canonical plaintext.
+    /// The canonical JSON, without the length prefix and the padding.
     ///
     /// # Errors
     /// [`WireError::Field`] for a name outside 1 to [`MAX_NAME_CHARS`]
     /// characters or with control characters; [`WireError::Length`] above
-    /// [`MAX_PLAINTEXT_LEN`] bytes.
-    pub fn to_plaintext(&self) -> Result<Vec<u8>, WireError> {
+    /// [`MAX_JSON_LEN`] bytes.
+    pub fn to_json(&self) -> Result<Vec<u8>, WireError> {
         self.check_name()?;
         let mut out = String::new();
         out.push_str("{\"createdAt\":");
@@ -108,23 +113,49 @@ impl DeviceInfo {
         out.push_str(",\"platform\":\"");
         out.push_str(self.platform.as_str());
         out.push_str("\"}");
-        if out.len() > MAX_PLAINTEXT_LEN {
+        if out.len() > MAX_JSON_LEN {
             return Err(WireError::Length);
         }
         Ok(out.into_bytes())
     }
 
-    /// Parses a plaintext, which must be exactly the canonical encoding.
+    /// The padded plaintext: `len:u16 || canonical JSON || zero bytes`,
+    /// exactly [`PLAINTEXT_LEN`] bytes.
     ///
     /// # Errors
-    /// [`WireError::Length`] above [`MAX_PLAINTEXT_LEN`] bytes;
-    /// [`WireError::Field`] for anything that is not canonical device info.
+    /// As [`DeviceInfo::to_json`].
+    pub fn to_plaintext(&self) -> Result<Vec<u8>, WireError> {
+        let json = self.to_json()?;
+        let len = u16::try_from(json.len()).map_err(|_| WireError::Length)?;
+        let mut out = Vec::with_capacity(PLAINTEXT_LEN);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(&json);
+        out.resize(PLAINTEXT_LEN, 0);
+        Ok(out)
+    }
+
+    /// Parses a padded plaintext, which must be exactly the canonical
+    /// encoding.
+    ///
+    /// # Errors
+    /// [`WireError::Length`] unless `bytes` is [`PLAINTEXT_LEN`] bytes, or
+    /// if the length prefix is above [`MAX_JSON_LEN`]; [`WireError::Field`]
+    /// for non-zero padding or anything that is not canonical device info.
     pub fn from_plaintext(bytes: &[u8]) -> Result<Self, WireError> {
-        if bytes.len() > MAX_PLAINTEXT_LEN {
+        if bytes.len() != PLAINTEXT_LEN {
             return Err(WireError::Length);
         }
-        let info: Self = serde_json::from_slice(bytes).map_err(|_| WireError::Field)?;
-        if info.to_plaintext()? == bytes {
+        let (prefix, rest) = bytes.split_first_chunk::<2>().ok_or(WireError::Length)?;
+        let len = usize::from(u16::from_be_bytes(*prefix));
+        if len > MAX_JSON_LEN {
+            return Err(WireError::Length);
+        }
+        let (json, padding) = rest.split_at_checked(len).ok_or(WireError::Length)?;
+        if padding.iter().any(|b| *b != 0) {
+            return Err(WireError::Field);
+        }
+        let info: Self = serde_json::from_slice(json).map_err(|_| WireError::Field)?;
+        if info.to_json()? == json {
             Ok(info)
         } else {
             Err(WireError::Field)
@@ -169,17 +200,38 @@ mod tests {
         }
     }
 
+    /// Pads `json` the way `to_plaintext` does, with an arbitrary length
+    /// prefix, to test the decoder.
+    fn padded(len: u16, json: &[u8]) -> Vec<u8> {
+        let mut out = len.to_be_bytes().to_vec();
+        out.extend_from_slice(json);
+        out.resize(PLAINTEXT_LEN, 0);
+        out
+    }
+
+    fn pad(json: &[u8]) -> Vec<u8> {
+        padded(u16::try_from(json.len()).unwrap(), json)
+    }
+
     #[test]
     fn canonical_plaintext() {
+        let json = br#"{"createdAt":1700000000000,"name":"Laptop","platform":"linux"}"#;
+        assert_eq!(info("Laptop").to_json().unwrap(), json);
+        let plaintext = info("Laptop").to_plaintext().unwrap();
+        assert_eq!(plaintext.len(), PLAINTEXT_LEN);
+        assert_eq!(plaintext, pad(json));
         assert_eq!(
-            info("Laptop").to_plaintext().unwrap(),
-            br#"{"createdAt":1700000000000,"name":"Laptop","platform":"linux"}"#
+            DeviceInfo::from_plaintext(&plaintext).unwrap(),
+            info("Laptop")
         );
         // Escapes, in the same form as the settings canonical JSON.
         let tricky = info("a\"b\\c d\u{e9}");
-        let text = String::from_utf8(tricky.to_plaintext().unwrap()).unwrap();
+        let text = String::from_utf8(tricky.to_json().unwrap()).unwrap();
         assert!(text.contains(r#""a\"b\\c d"#) && text.contains('\u{e9}'));
-        assert_eq!(DeviceInfo::from_plaintext(text.as_bytes()).unwrap(), tricky);
+        assert_eq!(
+            DeviceInfo::from_plaintext(&tricky.to_plaintext().unwrap()).unwrap(),
+            tricky
+        );
     }
 
     #[test]
@@ -189,19 +241,82 @@ mod tests {
         assert!(info(&"x".repeat(64)).to_plaintext().is_ok());
         assert_eq!(info("bell\u{7}").to_plaintext(), Err(WireError::Field));
         assert_eq!(info("tab\there").to_plaintext(), Err(WireError::Field));
-        // 64 four-byte characters stay within 512 bytes.
+        // 64 four-byte characters stay within 510 bytes of JSON.
         assert!(info(&"\u{1F600}".repeat(64)).to_plaintext().is_ok());
+    }
+
+    /// The sealed size is the same for a short and a long name.
+    #[test]
+    fn the_sealed_size_is_constant() {
+        let ak = AccountKey::generate().unwrap();
+        let id = InstallId::new_v7().unwrap();
+        let c = KeyedCrypto::new(&ak, AccountId::new_v7().unwrap(), id).unwrap();
+        let short = info("A").seal(&c).unwrap();
+        let long = info(&"\u{1F600}".repeat(64)).seal(&c).unwrap();
+        assert_eq!(short.len(), long.len());
+        assert_eq!(short.len(), 573);
         assert_eq!(
-            DeviceInfo::from_plaintext(&[b' '; MAX_PLAINTEXT_LEN + 1]),
+            DeviceInfo::open(&long, id, &c)
+                .unwrap()
+                .name
+                .chars()
+                .count(),
+            64
+        );
+    }
+
+    #[test]
+    fn padding_and_length_are_checked() {
+        let json = br#"{"createdAt":1,"name":"x","platform":"macos"}"#;
+        let len = u16::try_from(json.len()).unwrap();
+        assert!(DeviceInfo::from_plaintext(&padded(len, json)).is_ok());
+        // Non-zero padding, in the first and in the last padding byte.
+        for at in [2 + json.len(), PLAINTEXT_LEN - 1] {
+            let mut bad = padded(len, json);
+            bad[at] = 1;
+            assert_eq!(DeviceInfo::from_plaintext(&bad), Err(WireError::Field));
+        }
+        // A length above 510 is refused as such.
+        assert_eq!(
+            DeviceInfo::from_plaintext(&padded(511, json)),
             Err(WireError::Length)
         );
+        assert_eq!(
+            DeviceInfo::from_plaintext(&padded(u16::MAX, json)),
+            Err(WireError::Length)
+        );
+        // 510 itself is allowed by the prefix check, but then the JSON is
+        // not canonical (it carries the padding).
+        assert_eq!(
+            DeviceInfo::from_plaintext(&padded(510, json)),
+            Err(WireError::Field)
+        );
+        // A prefix that cuts the JSON short or reads into the padding.
+        assert_eq!(
+            DeviceInfo::from_plaintext(&padded(len - 1, json)),
+            Err(WireError::Field)
+        );
+        assert_eq!(
+            DeviceInfo::from_plaintext(&padded(len + 1, json)),
+            Err(WireError::Field)
+        );
+        // The total size is exact.
+        let ok = padded(len, json);
+        assert_eq!(
+            DeviceInfo::from_plaintext(&ok[..PLAINTEXT_LEN - 1]),
+            Err(WireError::Length)
+        );
+        let mut long = ok;
+        long.push(0);
+        assert_eq!(DeviceInfo::from_plaintext(&long), Err(WireError::Length));
+        assert_eq!(DeviceInfo::from_plaintext(&[]), Err(WireError::Length));
     }
 
     #[test]
     fn only_the_canonical_form_parses() {
         let good = br#"{"createdAt":1,"name":"x","platform":"macos"}"#;
         assert_eq!(
-            DeviceInfo::from_plaintext(good).unwrap().platform,
+            DeviceInfo::from_plaintext(&pad(good)).unwrap().platform,
             Platform::Macos
         );
         for bad in [
@@ -219,7 +334,7 @@ mod tests {
             b"null",
         ] {
             assert!(
-                DeviceInfo::from_plaintext(bad).is_err(),
+                DeviceInfo::from_plaintext(&pad(bad)).is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
             );
