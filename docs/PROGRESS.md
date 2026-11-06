@@ -1421,8 +1421,11 @@ until T2 merges.
   R46. New dependency: `@types/chrome` 0.3.7 (dev; types for `chrome.*`), nothing else.
 - **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` support from
   Firefox 128 is taken from the plan, not checked); `activeTab` gating without host permissions
-  (the e2e build has host access; check by hand on the production build); the review by the
-  extension-attacker agent is still to do.
+  (the e2e build has host access; check by hand on the production build).
+- **Extension-attacker pass (done, PR #26)**: six breaks found and fixed with regression tests
+  (sandboxed documents counted as the site, CSS tricks hiding fields, hidden same-origin frames,
+  a generated password reused on another site, `mosaicContent` clobbering, `check-dist` gaps);
+  the hostile suite grew from 14 to 39 specs.
 
 ## M4 Browser extension — T4 popup and save (2026-11-05)
 
@@ -1490,8 +1493,9 @@ fake desktop in the e2e build; the real native host and desktop are not part of 
   `proposeSave` (`request_timeout`), so the host answers before the popup's 305 s. The `neverSave` list has no screen yet.
 - **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` and
   `registerContentScripts` with `persistAcrossSessions` there are taken from the docs); the
-  real native host and desktop end to end; `activeTab` gating on the production build; the
-  extension-attacker and ux-reviewer passes; a hostile-suite test (`race-after-probe`, rapid
+  real native host and desktop end to end; `activeTab` gating on the production build (the
+  ux-reviewer and extension-attacker passes followed on PR #27: one capture break through an
+  invisible frame, fixed); a hostile-suite test (`race-after-probe`, rapid
   gestures) failed once under memory pressure and passed on rerun.
 
 ## M4 Browser extension — close (2026-11-06)
