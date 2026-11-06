@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/passkey/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]
@@ -117,9 +117,10 @@ ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zer
 # turns on `zeroize` (the SHA-512 of the key passphrase inside bcrypt-pbkdf
 # is wiped on drop). Same version ssh-key resolves to.
 bcrypt-pbkdf = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
-# Dev-only: builds the RFC 6979 P-256 test key for the agent's known-answer
-# test. Same version ssh-key resolves to.
-p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa"] }
+# ECDSA P-256 (ES256) for passkeys (ADR-0039, CRYPTO_SPEC §16) and the SSH agent's
+# known-answer test. Same version ssh-key resolves to. The `pkcs8` feature adds
+# the PKCS#8 / SPKI encodings (RustCrypto `pkcs8`, `spki`; no new primitive).
+p256 = { version = "=0.14.0", default-features = false, features = ["alloc", "ecdsa", "pkcs8"] }
 # Dev-only: the `Verifier` trait to check the agent's signatures with
 # ssh-key. Same version ssh-key resolves to.
 signature = { version = "=3.0.0", default-features = false }

@@ -1202,6 +1202,7 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "signature",
+ "spki",
  "zeroize",
 ]
 
@@ -1240,6 +1241,7 @@ dependencies = [
  "ff",
  "group",
  "hybrid-array",
+ "pkcs8",
  "rand_core",
  "sec1",
  "subtle",
@@ -2781,6 +2783,16 @@ dependencies = [
 [[package]]
 name = "mosaic-passkey"
 version = "0.0.0"
+dependencies = [
+ "base64ct",
+ "hex-literal",
+ "mosaic-core",
+ "p256",
+ "proptest",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "mosaic-qr"
@@ -3375,6 +3387,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pkcs8"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "451913da69c775a56034ea8d9003d27ee8948e12443eae7c038ba100a4f21cb7"
+dependencies = [
+ "der",
+ "spki",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3501,6 +3523,7 @@ checksum = "5c9f42978c78a00e3d68f69fc03e57a234debae69da4020a4fb588fcdcd07b06"
 dependencies = [
  "elliptic-curve",
  "primefield",
+ "serdect",
  "wnaf",
 ]
 
@@ -4157,6 +4180,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serdect"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66cf8fedced2fcf12406bcb34223dffb92eaf34908ede12fed414c82b7f00b3e"
+dependencies = [
+ "base16ct",
+ "serde",
+]
+
+[[package]]
 name = "serialize-to-javascript"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4326,6 +4359,16 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "spki"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef958a98b9d5da290cfc78946e9f3e61e1e62a18db0d92cac0b83cc161491a9"
+dependencies = [
+ "base64ct",
+ "der",
 ]
 
 [[package]]

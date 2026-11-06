@@ -73,6 +73,7 @@ Mitigations name the milestone in which they are implemented and tested.
 | D | Malicious import file causes OOM or hang | bounded parsers, size limits, fuzzing, M3 |
 | D | Hostile server sends huge Argon2 parameters | upper bounds (§5.3), M1 |
 | E | Memory-unsafety exploit in a parser | `#![forbid(unsafe_code)]`, fuzzing, M1+ |
+| I | A passkey private key leaks, or a signature or encoding is wrong | Keys live in the zeroizing `Es256Key` / `SecretVec`, never `Clone`, redacted `Debug`, not a `SecretField`; ES256 signatures are RFC 6979 deterministic; known-answer tests V1 to V11 (CRYPTO_SPEC §16) and an independent `node:crypto` verifier check every encoding, M5 |
 
 ### 4.2 Desktop app (Tauri)
 
@@ -242,6 +243,8 @@ and a local endpoint (ADR-0036, `docs/NATIVE_MESSAGING.md`, CRYPTO_SPEC §15).
 | R44 | Save capture, once the user turns it on, sees every password typed into a login, sign-up or change form on every site (the optional permission is all websites) and holds it in `storage.session` for up to five minutes, in the isolated world and the background, where JavaScript cannot wipe it (R40). A page can feed the script: a trusted `submit` also follows a script's `requestSubmit()`, so the capture counts only trusted clicks on submit controls and the Enter key, and a page can still fire those after any real click of the user; the capture is then a login the page chose, with its host and user name shown in the popup and the password hidden. The script cannot write anything: the desktop shows its own dialog and writes the item itself (ADR-0038), so a fake capture costs the user one extra prompt, and a user who confirms it stores a password the page already knew. A cross-origin or opaque frame is never captured, and a pending save is shown and sent only for the tab's own origin. "Never for this site" has no screen | accepted (ADR-0038) |
 | R45 | The pairing code correlates a request with the user's click; it is not a cryptographic short authentication string. The `browser` value in `pairRequest` is display-only (it is the host's claim, not proof of which browser asked). The PSK handshake is Mosaic-specific and has no forward secrecy against a later theft of `K_pair` (channel traffic is not observable without P5) | accepted (ADR-0036, crypto review) |
 | R46 | Field visibility is a heuristic. A page at the matching origin can still receive a fill into a field that passes the checks but misleads the user (transparent text, a field styled as another control, a field inside a clipped or scrolled container that is off screen and so never hit-tested). The credential goes only to the page's own origin, which could read it anyway after any manual fill (R41). Open shadow roots are searched to depth 8; closed ones are not | accepted; the checks run at probe and at fill time and the hostile-page suite grows with each finding |
+| R48 | Synced passkeys (BE=1, BS=1) can be copied: whoever holds the vault plaintext (A1) has every private key, and sign count 0 gives relying parties no clone detection. | accepted (ADR-0039), as for passwords |
+| R49 | UV=1 means "unlocked or re-authenticated within 5 minutes plus a dialog click", not a per-operation biometric. Someone at the unlocked, unattended machine inside that window can approve a sign-in. | accepted (ADR-0039); biometric UV a follow-up |
 
 ## 6. Review log
 
