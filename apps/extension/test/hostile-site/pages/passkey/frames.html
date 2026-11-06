@@ -1,0 +1,14 @@
+<!-- attempts: call WebAuthn from a same-origin frame and from a frame of another site, hoping the shim (and so the desktop's passkeys) answers there. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey frames</title>
+<script src="/_leaks.js"></script>
+<script src="/passkey/rp.js"></script>
+<iframe id="same" width="300" height="100" allow="publickey-credentials-create *; publickey-credentials-get *"></iframe>
+<iframe id="other" width="300" height="100" allow="publickey-credentials-create *; publickey-credentials-get *"></iframe>
+<script>
+  const base = `${location.protocol}//`;
+  const port = `:${location.port}`;
+  document.getElementById("same").src = `${base}${location.hostname}${port}/passkey/rp.html`;
+  document.getElementById("other").src = `${base}evil.test${port}/passkey/rp.html`;
+</script>

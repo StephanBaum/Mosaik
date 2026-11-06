@@ -28,6 +28,7 @@ import {
   type LastFilled,
 } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
+import type { PasskeySwitch } from "./passkey-registry.ts";
 import type { SaveService } from "./save.ts";
 import { lastErrorKey, lastFilledKey } from "./session.ts";
 
@@ -41,6 +42,7 @@ export interface PopupDeps {
   fill: FillDeps;
   hold: GeneratedHold;
   save: SaveService;
+  passkeys: PasskeySwitch;
 }
 
 const MAX_KNOWN_ITEMS = 200;
@@ -125,6 +127,7 @@ export class PopupService {
       ),
     savePending: (request, tab) => this.#savePending(request.action, tab),
     saveOffersChanged: async (request) => ({ saveOffers: await this.#deps.save.setOffers(request.enabled) }),
+    setPasskeys: async (request) => ({ passkeys: await this.#deps.passkeys.set(request.enabled) }),
     unpair: async () => {
       await this.#deps.native.unpair();
       return {};
@@ -209,9 +212,11 @@ export class PopupService {
       nextOtp: null,
       lastError: null,
       saveOffers: false,
+      passkeys: false,
       generatorFill: false,
     };
     state.saveOffers = await this.#deps.save.offersEnabled().catch(() => false);
+    state.passkeys = await this.#deps.passkeys.enabled().catch(() => false);
     if (tab !== null && info !== null) {
       await this.#fillTab(state, tab, info);
       state.pendingSave = await this.#deps.save.info(tab.id, info.origin).catch(() => null);

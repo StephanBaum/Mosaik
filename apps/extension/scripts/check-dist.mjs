@@ -15,6 +15,10 @@ const FORBIDDEN_TEXT = [
   "e2eTabId",
   "FakeDesktop",
   "pauseAfterProbe",
+  // The passkey half of the fake desktop (src/background/e2e-passkey.ts) and its hooks.
+  "FakePasskeys",
+  "passkeyDecide",
+  "passkeyPending",
   "onMessageExternal",
   "onConnectExternal",
   // The developer command of the "host missing" screen (src/popup/env.ts): dev and e2e builds only.
@@ -35,10 +39,23 @@ const OPTIONAL_HOSTS = ["http://*/*", "https://*/*"];
 const TEXT_FILE = /\.(js|mjs|html|css|json)$/;
 // The package's own entry points: the capture script is registered at run time (never a
 // `content_scripts` entry), so it must be shipped as a file but not be in the manifest.
-const REQUIRED_FILES = ["manifest.json", "popup.html", "background.js", "content.js", "capture.js"];
+const REQUIRED_FILES = [
+  "manifest.json",
+  "popup.html",
+  "background.js",
+  "content.js",
+  "capture.js",
+  "passkey-main.js",
+  "passkey-bridge.js",
+];
 // Page scripts never listen to page messages (docs/EXTENSION_SECURITY.md, "who may talk to whom").
 const PAGE_SCRIPTS = ["content.js", "capture.js"];
 const MESSAGE_LISTENER = /addEventListener\(\s*["'`]message["'`]|\.onmessage\b|\bonmessage\s*=/;
+// The passkey scripts (ADR-0040) are the only ones that listen to page messages, and only to
+// their own window's (`event.source` is checked). They are registered at run time, so the
+// manifest names neither, and they use no extension API but `runtime.sendMessage`.
+const PASSKEY_SCRIPTS = ["passkey-main.js", "passkey-bridge.js"];
+const SOURCE_CHECK = /\.source\s*!==\s*/;
 
 /** @param {string} dir @returns {string[]} */
 function walk(dir) {
@@ -64,6 +81,19 @@ function check(name) {
       problems.push(`${name}: ${script} listens to page messages`);
     }
   }
+  for (const script of PASSKEY_SCRIPTS) {
+    const path = join(dir, script);
+    if (!existsSync(path)) {
+      continue;
+    }
+    const text = readFileSync(path, "utf8");
+    if (MESSAGE_LISTENER.test(text) && !SOURCE_CHECK.test(text)) {
+      problems.push(`${name}: ${script} listens to page messages without checking event.source`);
+    }
+    if (/\bchrome\.\w+/.test(text.replaceAll("chrome.runtime.sendMessage", ""))) {
+      problems.push(`${name}: ${script} uses an extension API other than runtime.sendMessage`);
+    }
+  }
   for (const file of walk(dir).filter((f) => TEXT_FILE.test(f))) {
     const text = readFileSync(file, "utf8");
     for (const word of FORBIDDEN_TEXT) {
@@ -72,7 +102,13 @@ function check(name) {
       }
     }
   }
-  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+  const manifestText = readFileSync(join(dir, "manifest.json"), "utf8");
+  const manifest = JSON.parse(manifestText);
+  for (const script of PASSKEY_SCRIPTS) {
+    if (manifestText.includes(script)) {
+      problems.push(`${name}: manifest names ${script}`);
+    }
+  }
   for (const key of FORBIDDEN_KEYS) {
     if (key in manifest) {
       problems.push(`${name}: manifest has "${key}"`);

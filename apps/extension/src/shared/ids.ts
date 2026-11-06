@@ -11,6 +11,8 @@ export const DEV_CHROMIUM_EXTENSION_ID = "lccdgfpfnmegbdgooanfejdbahhokikm";
 export const COMMAND_FILL = "fill-login";
 /** The site access the opt-in save capture asks for (`optional_host_permissions`). */
 export const CAPTURE_MATCHES: string[] = ["https://*/*", "http://*/*"];
+/** The pages the opt-in passkey scripts are registered for (top frames of https pages; ADR-0040). */
+export const PASSKEY_MATCHES: string[] = ["https://*/*"];
 
 export const POPUP_PAGE = "popup.html";
 export const CONTENT_SCRIPT = "content.js";

@@ -10,6 +10,7 @@ import {
   IDLE_DISCONNECT_MS,
   MAX_IN_FLIGHT,
   PAIR_TIMEOUT_MS,
+  PASSKEY_PROMPT_TIMEOUT_MS,
   PROTOCOL_VERSION,
   REQUEST_TIMEOUT_MS,
   SAVE_PROMPT_TIMEOUT_MS,
@@ -30,6 +31,14 @@ export interface NativePort {
   disconnect(): void;
   onMessage: { addListener(listener: (message: unknown) => void): void };
   onDisconnect: { addListener(listener: () => void): void };
+}
+
+/** How long a request waits: the ops that wait for the user in a desktop dialog get the dialog's time. */
+export function timeoutOf(op: Op): number {
+  if (op === "proposeSave") {
+    return SAVE_PROMPT_TIMEOUT_MS;
+  }
+  return op === "passkeyCreate" || op === "passkeyGet" ? PASSKEY_PROMPT_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
 }
 
 export type PortFactory = (hostName: string) => NativePort;
@@ -132,13 +141,14 @@ export class NativeClient {
 
   /** Sends a request over the established session (opening the port and saying `hello` first). */
   async request<O extends Exclude<Op, "hello" | "pair">>(op: O, body: RequestMap[O]): Promise<ResultMap[O]> {
-    if (this.#active >= MAX_IN_FLIGHT) {
+    // A cancel is tiny and ends an open dialog, so it is never held back by the cap.
+    if (op !== "passkeyCancel" && this.#active >= MAX_IN_FLIGHT) {
       throw new ExtensionError("busy");
     }
     this.#active++;
     try {
       await this.ensureSession();
-      return await this.#send(op, body, op === "proposeSave" ? SAVE_PROMPT_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+      return await this.#send(op, body, timeoutOf(op));
     } finally {
       this.#active--;
     }

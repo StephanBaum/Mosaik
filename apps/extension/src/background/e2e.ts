@@ -9,6 +9,8 @@ import type { FillOutcome } from "./fill.ts";
 import { fillHooks } from "./fill.ts";
 import { COMMAND_FILL, onCommand, onMenuClicked, type GestureDeps } from "./gestures.ts";
 import type { NativeClient, PortFactory } from "./native.ts";
+import type { PasskeySwitch } from "./passkey-registry.ts";
+import type { OpenPrompt, PasskeyDecision, PasskeyLogEntry } from "./e2e-passkey.ts";
 import type { PairingStore } from "./pairing.ts";
 import type { PopupService } from "./popup.ts";
 import { FAKE_PAIRING, FakeDesktop, defaultConfig, type E2EConfig, type LogEntry, type SaveProposal } from "./e2e-desktop.ts";
@@ -24,6 +26,7 @@ export interface E2EHost {
   gestures: GestureDeps;
   save: SaveService;
   kv: KeyValueStore;
+  passkeys: PasskeySwitch;
 }
 
 export type E2EGesture =
@@ -72,6 +75,8 @@ async function resetE2E(host: E2EHost, partial: Partial<E2EConfig>): Promise<voi
   desktop.proposals.length = 0;
   host.native.disconnect();
   await host.save.setOffers(false);
+  await host.passkeys.set(false);
+  desktop.passkeys.reset();
   await chrome.storage.session.clear();
   await host.kv.clear();
   if (desktop.config.paired) {
@@ -144,6 +149,20 @@ export function installE2E(host: E2EHost): void {
 
     /** Save capture on or off (the site access is part of the e2e manifest). */
     setCapture: (enabled: boolean): Promise<boolean> => host.save.setOffers(enabled),
+
+    /** "Use Mosaic for passkeys" on or off (the site access is part of the e2e manifest). */
+    setPasskeys: (enabled: boolean): Promise<boolean> => host.passkeys.set(enabled),
+
+    /** The answer in the pretend desktop dialog; kept for the next dialog if none is open. */
+    passkeyDecide(decision: PasskeyDecision): void {
+      desktop.passkeys.decide(decision);
+    },
+
+    /** The passkey requests the fake desktop received, in order (ids and origins only). */
+    passkeyLog: (): PasskeyLogEntry[] => desktop.passkeys.log.map((entry) => ({ ...entry })),
+
+    /** The dialog that is open now, if any. */
+    passkeyPending: (): OpenPrompt[] => desktop.passkeys.pending(),
 
     /** What the fake desktop was asked to save. */
     saves: (): SaveProposal[] => desktop.proposals.map((p) => ({ ...p })),

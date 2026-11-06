@@ -255,3 +255,80 @@ describe("Router.onMessage", () => {
     expect(onCaptured).not.toHaveBeenCalled();
   });
 });
+
+describe("the bridge's passkey messages", () => {
+  const content: SenderInfo = { id: EXT, url: "https://bank.test/", tab: PAGE_TAB };
+  const request = {
+    kind: "passkey",
+    op: "get",
+    pageRequestId: 1,
+    origin: "https://bank.test",
+    options: { rpId: null, challenge: "AAAAAAAAAAAAAAAAAAAAAA", allowCredentials: [], userVerification: "preferred" },
+  };
+  const abort = { kind: "passkeyAbort", pageRequestId: 1 };
+
+  function passkeyDeps() {
+    const handle = vi.fn(() => Promise.resolve({ kind: "fallback" } as const));
+    const abortFn = vi.fn();
+    return { handle, abort: abortFn, deps: makeDeps({ passkey: { handle, abort: abortFn } }) };
+  }
+
+  it("hands a request from a content sender to the service and answers later", async () => {
+    const { handle, deps } = passkeyDeps();
+    const respond = vi.fn();
+    expect(new Router(deps).onMessage(request, content, respond)).toBe(true);
+    expect(handle).toHaveBeenCalledWith(request, content);
+    await flush();
+    expect(respond).toHaveBeenCalledWith({ kind: "fallback" });
+  });
+
+  it("answers a fallback when the service fails", async () => {
+    const respond = vi.fn();
+    const deps = makeDeps({ passkey: { handle: () => Promise.reject(new Error("boom")), abort: vi.fn() } });
+    expect(new Router(deps).onMessage(request, content, respond)).toBe(true);
+    await flush();
+    expect(respond).toHaveBeenCalledWith({ kind: "fallback" });
+  });
+
+  it("hands an abort to the service without an answer", () => {
+    const { abort: abortFn, deps } = passkeyDeps();
+    expect(new Router(deps).onMessage(abort, content, vi.fn())).toBe(false);
+    expect(abortFn).toHaveBeenCalledWith(abort, content);
+  });
+
+  it.each([
+    ["an extra member", { ...request, extra: 1 }],
+    ["an unknown op", { ...request, op: "delete" }],
+    ["a challenge that is too short", { ...request, options: { ...request.options, challenge: "AAAA" } }],
+    ["an abort with an extra member", { ...abort, extra: 1 }],
+  ])("drops a message with %s without a reply", (_name, message) => {
+    const { handle, abort: abortFn, deps } = passkeyDeps();
+    const respond = vi.fn();
+    expect(new Router(deps).onMessage(message, content, respond)).toBe(false);
+    expect(handle).not.toHaveBeenCalled();
+    expect(abortFn).not.toHaveBeenCalled();
+    expect(respond).not.toHaveBeenCalled();
+  });
+
+  it("drops them from anything that is not our content script", () => {
+    const { handle, abort: abortFn, deps } = passkeyDeps();
+    const router = new Router(deps);
+    for (const sender of [popupSender, { id: "other", url: "https://bank.test/", tab: PAGE_TAB }, { id: EXT }, {}]) {
+      expect(router.onMessage(request, sender, vi.fn())).toBe(false);
+      expect(router.onMessage(abort, sender, vi.fn())).toBe(false);
+    }
+    expect(handle).not.toHaveBeenCalled();
+    expect(abortFn).not.toHaveBeenCalled();
+  });
+
+  it("drops them where no service is wired, and counts them in the per-tab flood limit", () => {
+    const router = new Router(makeDeps());
+    expect(router.onMessage(request, content, vi.fn())).toBe(false);
+    const { handle, deps } = passkeyDeps();
+    const flooded = new Router(deps);
+    for (let i = 0; i < 12; i++) {
+      flooded.onMessage(request, content, vi.fn());
+    }
+    expect(handle).toHaveBeenCalledTimes(10);
+  });
+});

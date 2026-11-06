@@ -1,7 +1,8 @@
 /**
  * Who may talk to the background. Popup operations come only over a port named `popup` from
- * the extension's own popup page; the one message a content script may send is `captured`.
- * Anything else is dropped without a reply, so a page or another extension learns nothing.
+ * the extension's own popup page; the messages a content script may send are `captured` (the
+ * save capture) and the two passkey messages of the bridge (ADR-0040). Anything else is
+ * dropped without a reply, so a page or another extension learns nothing.
  * The worker listens to nothing from other extensions or web pages (no external-message listeners).
  */
 import { errorCodeOf } from "../shared/errors.ts";
@@ -14,6 +15,14 @@ import {
   type PopupReply,
   type PopupRequest,
 } from "../shared/messages.ts";
+import {
+  isPasskeyAbortMessage,
+  isPasskeyKind,
+  isPasskeyMessage,
+  type PasskeyAbortMessage,
+  type PasskeyMessage,
+  type PasskeyPageResult,
+} from "../shared/passkey-messages.ts";
 import { RateLimiter } from "./ratelimit.ts";
 
 /** The part of `MessageSender` the router reads. */
@@ -24,6 +33,8 @@ export interface SenderInfo {
   origin?: string | undefined;
   tab?: { id?: number | undefined; url?: string | undefined } | undefined;
   frameId?: number | undefined;
+  /** The sending document (Chromium); with the tab and frame it names one page load. */
+  documentId?: string | undefined;
 }
 
 /** The part of `chrome.runtime.Port` the router uses. */
@@ -46,6 +57,11 @@ export interface RouterDeps {
   handlePopup: (request: PopupRequest, sender: SenderInfo) => Promise<unknown>;
   /** The opt-in capture script's message; without a handler it is dropped. */
   onCaptured?: (message: CapturedMessage, sender: SenderInfo) => void;
+  /** The bridge's passkey messages; without a handler they are dropped. */
+  passkey?: {
+    handle: (message: PasskeyMessage, sender: SenderInfo) => Promise<PasskeyPageResult>;
+    abort: (message: PasskeyAbortMessage, sender: SenderInfo) => void;
+  };
 }
 
 const CONTENT_PER_SECOND = 10;
@@ -92,17 +108,44 @@ export class Router {
     });
   };
 
-  /** `runtime.onMessage`: a content script's `captured`, rate limited; everything else is dropped. */
-  onMessage = (message: unknown, sender: SenderInfo): void => {
+  /**
+   * `runtime.onMessage`: a content script's `captured`, or the bridge's passkey messages, rate
+   * limited; everything else is dropped. Returns `true` when the answer comes later (`sendResponse`).
+   */
+  onMessage = (message: unknown, sender: SenderInfo, sendResponse: (response: unknown) => void = () => undefined): boolean => {
     if (!isContentSender(sender, this.#deps)) {
-      return;
+      return false;
     }
     const key = String(sender.tab?.id ?? "");
-    if (!this.#perSecond.allow(key) || !isCapturedMessage(message) || !this.#captured.allow(key)) {
-      return;
+    if (!this.#perSecond.allow(key)) {
+      return false;
     }
-    this.#deps.onCaptured?.(message, sender);
+    if (isPasskeyKind(message)) {
+      return this.#onPasskey(message, sender, sendResponse);
+    }
+    if (isCapturedMessage(message) && this.#captured.allow(key)) {
+      this.#deps.onCaptured?.(message, sender);
+    }
+    return false;
   };
+
+  /** The bridge's two messages. A request is answered later through `sendResponse` (returns `true`). */
+  #onPasskey(message: unknown, sender: SenderInfo, sendResponse: (response: unknown) => void): boolean {
+    const { passkey } = this.#deps;
+    if (passkey === undefined) {
+      return false;
+    }
+    if (isPasskeyMessage(message)) {
+      passkey.handle(message, sender).then(sendResponse, () => {
+        sendResponse({ kind: "fallback" } satisfies PasskeyPageResult);
+      });
+      return true;
+    }
+    if (isPasskeyAbortMessage(message)) {
+      passkey.abort(message, sender);
+    }
+    return false;
+  }
 
   broadcast(event: PopupEvent): void {
     for (const port of this.#ports) {

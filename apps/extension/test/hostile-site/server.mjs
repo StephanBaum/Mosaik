@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 import { createServer as createHttp } from "node:http";
 import { createServer as createHttps } from "node:https";
 import { readFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { URL, fileURLToPath } from "node:url";
@@ -18,13 +20,95 @@ export const HTTPS_PORT = 4843;
 export const HTTP_PORT = 4880;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PAGE = /^[a-z0-9_][a-z0-9_.-]*\.(html|js)$/;
+const PAGE = /^(passkey\/)?[a-z0-9_][a-z0-9_.-]*\.(html|js)$/;
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
 
-/** @param {import("node:http").IncomingMessage} req @param {import("node:http").ServerResponse} res */
-async function handle(req, res) {
+/**
+ * The relying party of the passkey tests (M5): a single-use challenge per request and a verify
+ * endpoint that checks what the page got with an independent WebAuthn verifier (injected by
+ * the test harness; `test/webauthn/verifier.ts`). A challenge is consumed by the first verify
+ * that names it, whatever the outcome, so a replayed response fails.
+ *
+ * @typedef {{ verifyRegistration: (input: object) => { jwk: object, credentialId: Uint8Array, flags: number, signCount: number },
+ *   verifyAssertion: (input: object) => { flags: number, signCount: number } }} PasskeyVerifier
+ */
+function relyingParty(/** @type {PasskeyVerifier | undefined} */ verifier) {
+  const challenges = new Set();
+  const credentials = new Map();
+  const bytes = (/** @type {string} */ value) => new Uint8Array(Buffer.from(value, "base64url"));
+  const json = (/** @type {import("node:http").ServerResponse} */ res, status, /** @type {object} */ body) => {
+    res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(body));
+  };
+  const readBody = (/** @type {import("node:http").IncomingMessage} */ req) =>
+    new Promise((resolve) => {
+      /** @type {Buffer[]} */
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    });
+  /** The verify step proper; throws the verifier's message on a failed check. */
+  const check = (host, body) => {
+    const expectedOrigin = `https://${host}`;
+    const expectedRpId = host.split(":")[0];
+    const common = {
+      expectedOrigin,
+      expectedRpId,
+      expectedChallenge: bytes(body.challenge),
+      clientDataJSON: bytes(body.clientDataJSON),
+    };
+    if (body.kind === "registration") {
+      const result = verifier.verifyRegistration({ ...common, attestationObject: bytes(body.attestationObject) });
+      credentials.set(`${host}/${Buffer.from(result.credentialId).toString("base64url")}`, result.jwk);
+      return { flags: result.flags, signCount: result.signCount, credentialId: Buffer.from(result.credentialId).toString("base64url") };
+    }
+    const jwk = credentials.get(`${host}/${body.credentialId}`);
+    if (jwk === undefined) {
+      throw new Error("unknown credential");
+    }
+    const result = verifier.verifyAssertion({
+      ...common,
+      authenticatorData: bytes(body.authenticatorData),
+      signature: bytes(body.signature),
+      jwk,
+    });
+    return { flags: result.flags, signCount: result.signCount, credentialId: body.credentialId };
+  };
+  return async (/** @type {import("node:http").IncomingMessage} */ req, /** @type {import("node:http").ServerResponse} */ res, /** @type {string} */ name) => {
+    if (name === "passkey/challenge") {
+      const challenge = randomBytes(32).toString("base64url");
+      challenges.add(challenge);
+      json(res, 200, { challenge });
+    } else if (verifier === undefined) {
+      json(res, 501, { ok: false, error: "no verifier" });
+    } else {
+      const body = JSON.parse(String(await readBody(req)));
+      // Single use, even when the check below fails.
+      if (!challenges.delete(body.challenge)) {
+        json(res, 409, { ok: false, error: "challenge unknown or already used" });
+        return;
+      }
+      try {
+        json(res, 200, { ok: true, ...check(req.headers.host ?? "", body) });
+      } catch (error) {
+        json(res, 422, { ok: false, error: error instanceof Error ? error.message : "failed" });
+      }
+    }
+  };
+}
+
+/**
+ * @param {import("node:http").IncomingMessage} req
+ * @param {import("node:http").ServerResponse} res
+ * @param {ReturnType<typeof relyingParty>} passkey
+ */
+async function handle(req, res, passkey) {
   const host = (req.headers.host ?? "").split(":")[0] ?? "";
   const name = new URL(req.url ?? "/", "http://placeholder.test").pathname.slice(1);
+  if (host.endsWith(".test") && (name === "passkey/challenge" || name === "passkey/verify")) {
+    await passkey(req, res, name);
+    return;
+  }
   if (!host.endsWith(".test") || !PAGE.test(name) || name.includes("..")) {
     res.writeHead(host.endsWith(".test") ? 404 : 421).end();
     return;
@@ -57,13 +141,21 @@ const listen = (server, port) =>
     });
   });
 
-/** Starts both servers; `close()` stops them. */
-export async function startServer() {
+/**
+ * Starts both servers; `close()` stops them. `options.passkeyVerifier` is the WebAuthn verifier
+ * behind `/passkey/verify` (the test harness passes `test/webauthn/verifier.ts`).
+ *
+ * @param {{ passkeyVerifier?: PasskeyVerifier }} [options]
+ */
+export async function startServer(options = {}) {
+  const passkey = relyingParty(options.passkeyVerifier);
+  const route = (/** @type {import("node:http").IncomingMessage} */ req, /** @type {import("node:http").ServerResponse} */ res) =>
+    handle(req, res, passkey);
   const tls = {
     key: readFileSync(join(here, "certs", "key.pem")),
     cert: readFileSync(join(here, "certs", "cert.pem")),
   };
-  const servers = [createHttps(tls, handle), createHttp(handle)];
+  const servers = [createHttps(tls, route), createHttp(route)];
   await Promise.all([listen(servers[0], HTTPS_PORT), listen(servers[1], HTTP_PORT)]);
   return {
     httpsPort: HTTPS_PORT,
