@@ -10,7 +10,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M0 Foundations | ✅ done (2026-10-25) |
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
-| M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
+| M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | 🔄 in progress (T1 authenticator) |
 | M6 Sync server | — |
