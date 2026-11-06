@@ -251,14 +251,32 @@ function choose(candidates: readonly Detection[], groups: readonly Field[][], ac
   return picked ?? { username: [], password: [], newPassword: [], otp: [], active };
 }
 
-/** Detects the login form of `root` (see docs/EXTENSION_SECURITY.md, "field detection"). */
-export function detect(root: Document | ShadowRoot, env: VisibilityEnv = domEnv): Detection {
-  const inputs: HTMLInputElement[] = [];
-  collectInputs(root, 0, inputs);
+function detectInputs(inputs: readonly HTMLInputElement[], root: Document | ShadowRoot, env: VisibilityEnv): Detection {
   const active = deepActiveElement(root);
   const groups = groupFields(inputs, env);
   const candidates = groups.map((fields) => analyze(fields, active));
   return choose(candidates, groups, active);
+}
+
+/** Detects the login form of `root` (see docs/EXTENSION_SECURITY.md, "field detection"). */
+export function detect(root: Document | ShadowRoot, env: VisibilityEnv = domEnv): Detection {
+  const inputs: HTMLInputElement[] = [];
+  collectInputs(root, 0, inputs);
+  return detectInputs(inputs, root, env);
+}
+
+/**
+ * Like `detect`, but only the fields inside `scope` (the form that was submitted): what the
+ * save capture reads, so another form on the page cannot answer for it.
+ */
+export function detectWithin(root: Document | ShadowRoot, scope: Element, env: VisibilityEnv = domEnv): Detection {
+  const inputs: HTMLInputElement[] = [];
+  collectInputs(root, 0, inputs);
+  return detectInputs(
+    inputs.filter((input) => scope.contains(input)),
+    root,
+    env,
+  );
 }
 
 export interface FieldCounts {

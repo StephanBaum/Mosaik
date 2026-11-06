@@ -5,7 +5,8 @@
  */
 import { detectHint } from "../shared/ids.ts";
 import type { PopupEvent } from "../shared/messages.ts";
-import { chromeBadge } from "./badge.ts";
+import { chromeBadge, chromeSaveBadge } from "./badge.ts";
+import { chromeCaptureRegistry } from "./capture-registry.ts";
 import { createIndexedDbStore } from "./db.ts";
 import { e2eEnabled, e2ePortFactory, installE2E, testTabOf } from "./e2e.ts";
 import { GeneratedHold, type FillDeps } from "./fill.ts";
@@ -14,6 +15,7 @@ import { NativeClient } from "./native.ts";
 import { PairingStore } from "./pairing.ts";
 import { PopupService, type TabRef } from "./popup.ts";
 import { Router, type SenderInfo } from "./router.ts";
+import { SaveService } from "./save.ts";
 import { chromeSession, lastErrorKey, lastFilledKey } from "./session.ts";
 import { activeTab, chromeTabs } from "./tabs.ts";
 
@@ -25,9 +27,13 @@ const router: Router = new Router({
   testPopup: e2eEnabled,
   now: Date.now,
   handlePopup: async (request, sender) => popup.handle(request, await tabFor(sender)),
+  onCaptured: (message, sender) => {
+    save.onCaptured(message, sender);
+  },
 });
 
-const pairings = new PairingStore(createIndexedDbStore());
+const kv = createIndexedDbStore();
+const pairings = new PairingStore(kv);
 const native = new NativeClient({
   connect: e2ePortFactory() ?? ((name) => chrome.runtime.connectNative(name)),
   lastError: () => chrome.runtime.lastError?.message,
@@ -45,16 +51,26 @@ const native = new NativeClient({
   },
 });
 
+const session = chromeSession();
+const save = new SaveService({
+  native,
+  session,
+  kv,
+  badge: chromeSaveBadge(),
+  capture: chromeCaptureRegistry(),
+  now: Date.now,
+});
 const fillDeps: FillDeps = {
   native,
   tabs: chromeTabs(),
-  session: chromeSession(),
+  session,
   badge: chromeBadge(),
   now: Date.now,
+  onGenerated: save.storeGenerated,
 };
 const hold = new GeneratedHold(Date.now);
 const gestures: GestureDeps = { fill: fillDeps, hold, activeTab };
-const popup = new PopupService({ native, fill: fillDeps, hold }, () => (native.state.pairing ? pairCode : null));
+const popup = new PopupService({ native, fill: fillDeps, hold, save }, () => (native.state.pairing ? pairCode : null));
 
 /** The tab a popup request is about: the front tab (a test popup page names its own). */
 async function tabFor(sender: SenderInfo): Promise<TabRef | null> {
@@ -84,6 +100,16 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   router.forgetTab(tabId);
   void fillDeps.session.remove(lastFilledKey(tabId), lastErrorKey(tabId));
+  void save.drop(tabId);
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url !== undefined) {
+    void save.onNavigated(tabId, changeInfo.url);
+  }
+});
+// The browser can take the optional site access back (browser settings): capture then switches itself off.
+chrome.permissions.onRemoved.addListener(() => {
+  void save.offersEnabled();
 });
 
-installE2E({ native, pairings, popup, gestures });
+installE2E({ native, pairings, popup, gestures, save, kv });

@@ -308,7 +308,8 @@ A request with `v` other than 1 gets `protocolVersion`.
 - Host: `desktopNotRunning`, `desktopNotAuthentic`, `timeout`, `frameTooLarge`.
 - Extension-local, never on the wire: `hostMissing`, `hostForbidden`, `hostExited`,
   `unsupportedPage`, `noFields`, `noMatch`, `frameNeedsConfirmation`, `frameOpaque`,
-  `originChanged`, `pageHidden`.
+  `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture was not
+  granted), `generatedExpired` (the generated password the popup showed is no longer held).
 
 A host answer to a drop of the desktop is `desktopNotRunning`. An unknown or forbidden op,
 a body that does not parse and a request id already in flight are `invalidRequest`. A
@@ -323,7 +324,7 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 | `HANDSHAKE_STEP_TIMEOUT` | 5 s |
 | `REQUEST_TIMEOUT` | 15 s (the extension waits 20 s) |
 | `PAIR_TIMEOUT` | 120 s |
-| `SAVE_PROMPT_TIMEOUT` | 300 s |
+| `SAVE_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `proposeSave`, the extension 305 s) |
 | desktop idle close | 10 min |
 | extension port idle disconnect | 60 s with nothing in flight |
 | `MAX_CONNECTIONS` | 8 authenticated sessions (a ninth `hello` is refused `busy`). Connections that have not authenticated have their own 4 slots; a new one evicts the oldest, so idle connections cannot lock the host out. A session starts only while its pairing still exists, and ends (`notPaired`, then close) when it is removed |

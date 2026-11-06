@@ -11,7 +11,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M1 Crypto core | ✅ done (2026-10-26, `c43d93c`, CI fix `51ba5b2`) |
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
-| M4 Browser extension | 🔄 in progress (T1 channel, T2 desktop endpoint) |
+| M4 Browser extension | 🔄 in progress (T1–T4 done; T5 close) |
 | M5 Passkeys | 🔄 in progress (T1 authenticator) |
 | M6 Sync server | — |
 | M7 Rotation | — |
@@ -1423,6 +1423,76 @@ until T2 merges.
   Firefox 128 is taken from the plan, not checked); `activeTab` gating without host permissions
   (the e2e build has host access; check by hand on the production build); the review by the
   extension-attacker agent is still to do.
+
+## M4 Browser extension — T4 popup and save (2026-11-05)
+
+Track T4 of the M4 plan (ADR-0038, proposed; amendments to ADR-0035): the popup, save
+capture, the generator and one-time-code fill, and the onboarding step D06. Still against the
+fake desktop in the e2e build; the real native host and desktop are not part of any test here.
+
+- **Popup** (`apps/extension/src/popup`, React 19, tokens, `ext.*` in German and English): views
+  `ConnectView` (host missing, forbidden, desktop not running, not connected, pairing with the
+  code `XXX-XXX`, version mismatch), `LockedView` (E01 without a master-password field),
+  `LoginsView` (E02: matches with Fill and a copy menu, search, the first-match shortcut hint,
+  address warnings E05 without "Fill anyway", `OtpCard` E07 without a code, `SaveCard` E04
+  without title and vault, `FrameConfirmDialog`) and `GeneratorView` (E03: Random and
+  Passphrase with the desktop's limits, the value with `data-secret`, strength, which rules it
+  follows, Fill, Copy, Regenerate). Footer: Open Mosaic, connection state, a More menu with
+  "Offer to save logins" and "Disconnect from Mosaic". Keys: Enter, Ctrl+C, Ctrl+Shift+C,
+  Ctrl+Alt+C, Esc (top layer). Copies, fills and save outcomes go to a live region. The popup
+  shows no vault password and no code. Static holo gradient, no WebGL. A style test checks the
+  popup CSS and TSX for raw colours and sizes.
+- **Frame confirmation bound to the frame.** `confirmFrame` is `{frameId, documentId} | null`,
+  taken from `PopupState.frameTarget` when the dialog opens; `fill.ts` fills a same-origin frame
+  only when the target at fill time has that frame id and document id (`frameNeedsConfirmation`
+  otherwise; Firefox has no document id, so only the frame id is compared there).
+- **Generated passwords.** The popup's "this site" request takes host and the page's
+  `passwordrules` from the tab; the hold is bound to tab and origin, taken once, and the popup's
+  Fill requires it (`generatedExpired` instead of a different password). A fill creates a pending
+  save from the value that reached the page.
+- **Save capture** (`src/capture`, `background/save.ts`, `capture-registry.ts`): off by default;
+  the popup asks for the optional site access in the click, the background registers
+  `capture.js`; trusted clicks on submit controls and Enter in a text box (not `submit`, see
+  deviations) trigger it; origin and tab come from the browser; cross-origin and opaque frames
+  and sites marked "Never" are dropped; `checkSave` decides new, update or unchanged;
+  `pendingSave:<tabId>` in `storage.session` for five minutes, bound to the tab's origin;
+  badge `1`; the popup's Save sends `proposeSave` and the desktop confirms in its dialog.
+- **Desktop D06** (`screens/onboarding/BrowserStep.tsx`): step 5 of 5 "Browser extension
+  (optional)": how to connect, the paired browsers listed live (`browserPairingsChanged`), store
+  links only when `STORE_URLS` are set (null for now), Skip for now and Done; the pairing
+  dialog opens over the step. It replaces the old "done" step (the mockup puts "You're all set"
+  in the same step). The mock creates the pairing request after account creation
+  (`&browserPair=1`).
+- **Docs**: ADR-0038, ADR-0035 amendment (E01, E04, E05, E07), UX_GUIDELINES §8 ("Fill anyway"),
+  THREAT_MODEL R44 and the capture row, EXTENSION_SECURITY v2 (rows for the capture, the popup,
+  the frame confirmation and the generator; §8 the popup), NATIVE_MESSAGING (two local codes).
+- **Dependencies** (justification for the commit): the popup needs React 19, `react-dom` and the
+  two bundled fonts (`@fontsource/dm-sans`, `@fontsource/ibm-plex-mono`), and its tests need
+  `@testing-library/{dom,react,user-event}`, `@types/react{,-dom}`, `@vitejs/plugin-react` and
+  `@axe-core/playwright`: all at the versions the desktop already uses, so `pnpm-lock.yaml`
+  gains only importer entries, no new package.
+- **Tests**: vitest project `extension` (popup components against a fake port, `save`,
+  `capture`, `popup`, error-text parity for every code in both languages, style rules; the T3
+  tests updated for `confirmFrame`); Playwright `popup.spec.ts` (views, axe in light and dark,
+  frame confirmation, a stale or forged confirmation refused, keyboard, German), `save.spec.ts`
+  (capture off by default, a trusted submit, update, unchanged, Not now, Never, scripted events
+  ignored, a frame of another site ignored, locked then unlocked, the More menu switch) and
+  `generator.spec.ts` (the shown password is the one filled and then saved, one use only, bound
+  to its tab); desktop `OnboardingFlow.test.tsx`, `flow.test.ts` and `e2e/onboarding.spec.ts`.
+- **Deviations** (recorded in ADR-0035 and ADR-0038): `submit` is not a capture trigger, because
+  the browser raises a trusted `submit` for a script's `requestSubmit()` and `button.click()`
+  (found by the scripted-events spec); a trusted click or Enter is used instead. The e2e build
+  also holds the two optional host patterns as host permissions, since a headless browser cannot
+  click through the permission prompt. React and the test libraries are new dependencies of
+  `apps/extension` (the plan named only `@types/chrome`).
+- **Found and fixed**: the host relay timed every forwarded request out after 15 s, while
+  `proposeSave` waits up to 300 s for the desktop dialog. The relay now waits 302 s for
+  `proposeSave` (`request_timeout`), so the host answers before the popup's 305 s. The `neverSave` list has no screen yet.
+- **Not verified here**: Firefox (no automated e2e; `optional_host_permissions` and
+  `registerContentScripts` with `persistAcrossSessions` there are taken from the docs); the
+  real native host and desktop end to end; `activeTab` gating on the production build; the
+  extension-attacker and ux-reviewer passes; a hostile-suite test (`race-after-probe`, rapid
+  gestures) failed once under memory pressure and passed on rerun.
 
 ## M5 Passkeys — T1 authenticator (2026-11-06)
 

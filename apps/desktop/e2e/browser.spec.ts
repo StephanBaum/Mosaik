@@ -50,9 +50,9 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.goto("/?mock=unlocked");
       await page.getByRole("button", { name: "Settings" }).click();
       await expect(page.getByRole("heading", { name: "Browsers" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Disconnect: Chrome" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Disconnect Chrome" })).toBeVisible();
       await expectAccessible(page);
-      await page.getByRole("button", { name: "Disconnect: Chrome" }).click();
+      await page.getByRole("button", { name: "Disconnect Chrome" }).click();
       await expect(page.getByText("Disconnect “Chrome”?")).toBeVisible();
       await expectAccessible(page);
       guard.expectClean();

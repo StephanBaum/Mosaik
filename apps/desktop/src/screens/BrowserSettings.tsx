@@ -3,34 +3,15 @@
  * connected or when it was last used, and Disconnect with a confirmation. The list is read
  * again whenever Rust reports a change (`browserPairingsChanged`).
  */
-import { useEffect, useState } from "react";
-import { useEvents } from "../app/EventsProvider.tsx";
+import { useState } from "react";
 import { Button } from "../components/Button.tsx";
 import { UserText } from "../components/UserText.tsx";
 import { formatRelative } from "../i18n/format.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
-import type { BrowserPairing, BrowserStatus, IpcError } from "../ipc/contract/index.ts";
+import type { BrowserPairing, IpcError } from "../ipc/contract/index.ts";
 import { useIpc } from "../ipc/IpcProvider.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
-
-function useBrowserStatus() {
-  const ipc = useIpc();
-  const { browser } = useEvents();
-  const { version } = browser;
-  const [status, setStatus] = useState<BrowserStatus | null>(null);
-  useEffect(() => {
-    let current = true;
-    void ipc.call("browser_status", null).then((result) => {
-      if (current && result.ok) {
-        setStatus(result.value);
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, [ipc, version]);
-  return [status, setStatus] as const;
-}
+import { useBrowserStatus } from "./useBrowserStatus.ts";
 
 function PairingRow({
   pairing,
@@ -88,7 +69,7 @@ function PairingRow({
       <Button
         variant="ghost"
         size="sm"
-        aria-label={`${t("browser.settings.disconnect")}: ${pairing.label}`}
+        aria-label={t("browser.settings.disconnectNamed", { name: pairing.label })}
         onClick={onAsk}
       >
         {t("browser.settings.disconnect")}

@@ -17,7 +17,11 @@ export type Target = "chromium" | "firefox";
 
 export const PERMISSIONS = ["activeTab", "scripting", "nativeMessaging", "contextMenus", "storage"] as const;
 export const OPTIONAL_HOSTS = ["https://*/*", "http://*/*"] as const;
-export const E2E_HOSTS = ["https://*.test/*", "http://*.test/*"] as const;
+/**
+ * Host access of the e2e build: the hostile test sites, and the pattern the save capture asks
+ * for as an optional permission (a headless browser cannot click through that prompt).
+ */
+export const E2E_HOSTS = ["https://*.test/*", "http://*.test/*", ...OPTIONAL_HOSTS] as const;
 
 export const EXTENSION_PAGES_CSP = [
   "default-src 'none'",
@@ -91,5 +95,6 @@ export function localeMessages(locale: "en" | "de"): Record<string, Message> {
     extDescription: { message: catalog["ext.manifest.description"] },
     commandFill: { message: catalog["ext.command.fill"] },
     menuGenerate: { message: catalog["ext.command.generate"] },
+    saveBadgeTitle: { message: catalog["ext.save.badgeTitle"] },
   };
 }

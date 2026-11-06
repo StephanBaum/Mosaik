@@ -34,6 +34,16 @@ export interface E2EConfig {
   paired: boolean;
   autoApprovePairing: boolean;
   items: E2EItem[];
+  /** What `checkSave` answers, and how the (pretend) desktop dialog ends a `proposeSave`. */
+  save: { check: ResultMap["checkSave"]; outcome: ResultMap["proposeSave"]["outcome"] };
+}
+
+/** A `proposeSave` the fake desktop received (test data only; the real desktop keeps the password in Rust). */
+export interface SaveProposal {
+  origin: string;
+  topOrigin: string;
+  username: string | null;
+  password: string;
 }
 
 export interface LogEntry {
@@ -51,6 +61,7 @@ export const defaultConfig = (): E2EConfig => ({
   paired: true,
   autoApprovePairing: true,
   items: [],
+  save: { check: { kind: "new", itemTitle: null }, outcome: "saved" },
 });
 
 type Body = Record<string, unknown>;
@@ -69,6 +80,7 @@ const insecure = (origin: string): boolean => origin.startsWith("http:");
 export class FakeDesktop {
   config: E2EConfig = defaultConfig();
   readonly log: LogEntry[] = [];
+  readonly proposals: SaveProposal[] = [];
   #generated = 0;
 
   /** A port the `NativeClient` can use in place of `connectNative`. */
@@ -183,9 +195,12 @@ export class FakeDesktop {
         this.#generated++;
         return { value: `${GENERATED}-${String(this.#generated)}`, entropyBits: 100, strength: "strong", rulesSource: null };
       case "checkSave":
-        return { kind: "new", itemTitle: null };
-      case "proposeSave":
-        return { outcome: "cancelled", vaultId: null, itemId: null };
+        return { ...this.config.save.check };
+      case "proposeSave": {
+        const { origin, topOrigin, username, password } = body as unknown as SaveProposal;
+        this.proposals.push({ origin, topOrigin, username, password });
+        return { outcome: this.config.save.outcome, vaultId: null, itemId: null };
+      }
       case "unpair":
         this.config.paired = false;
         return {};

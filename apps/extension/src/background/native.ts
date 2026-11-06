@@ -12,6 +12,7 @@ import {
   PAIR_TIMEOUT_MS,
   PROTOCOL_VERSION,
   REQUEST_TIMEOUT_MS,
+  SAVE_PROMPT_TIMEOUT_MS,
   type DesktopState,
   type HostEvent,
   type Hint,
@@ -137,7 +138,7 @@ export class NativeClient {
     this.#active++;
     try {
       await this.ensureSession();
-      return await this.#send(op, body, REQUEST_TIMEOUT_MS);
+      return await this.#send(op, body, op === "proposeSave" ? SAVE_PROMPT_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     } finally {
       this.#active--;
     }

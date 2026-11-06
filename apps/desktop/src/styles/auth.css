@@ -294,3 +294,44 @@
 .import-embedded .stack > .button--ghost {
   align-self: flex-start;
 }
+
+/* Browser extension step (D06) */
+
+.store-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: var(--space-6);
+  color: var(--color-text-secondary);
+}
+
+.done-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.done-note .icon {
+  flex-shrink: 0;
+  margin-top: calc((var(--line-height-sm) - var(--size-icon)) / 2);
+  color: var(--color-success);
+}
+
+.done-note__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.done-note .caption {
+  margin: 0;
+}

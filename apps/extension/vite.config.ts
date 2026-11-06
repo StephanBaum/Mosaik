@@ -5,12 +5,13 @@
  * IIFE build (vite.content.config.ts) because content scripts cannot be ES modules.
  */
 import { resolve } from "node:path";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import type { BuildMode } from "./scripts/manifest.ts";
-import { excludeE2e, extensionAssets, tokensStylesheet } from "./scripts/plugins.ts";
+import { excludeE2e, extensionAssets, fontLicenses, tokensStylesheet } from "./scripts/plugins.ts";
 
 export default defineConfig(({ mode }) => ({
-  plugins: [tokensStylesheet(), excludeE2e(mode), extensionAssets(mode as BuildMode)],
+  plugins: [react(), tokensStylesheet(), excludeE2e(mode), extensionAssets(mode as BuildMode), fontLicenses()],
   clearScreen: false,
   build: {
     outDir: `dist/${mode}`,

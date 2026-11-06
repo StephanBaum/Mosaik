@@ -6,8 +6,11 @@ import { ExtensionError, isErrorCode } from "../shared/errors.ts";
 import type {
   FillSummary,
   FrameProbe,
+  FrameRef,
   PopupRequest,
+  PopupResults,
   PopupState,
+  SaveAction,
   TabInfo,
 } from "../shared/messages.ts";
 import { hostOf, isSecureOrigin, originOf, unicodeHostOf } from "../shared/origin.ts";
@@ -25,6 +28,7 @@ import {
   type LastFilled,
 } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
+import type { SaveService } from "./save.ts";
 import { lastErrorKey, lastFilledKey } from "./session.ts";
 
 export interface TabRef {
@@ -36,6 +40,7 @@ export interface PopupDeps {
   native: NativeClient;
   fill: FillDeps;
   hold: GeneratedHold;
+  save: SaveService;
 }
 
 const MAX_KNOWN_ITEMS = 200;
@@ -66,6 +71,20 @@ async function nextOtpOf(deps: PopupDeps, tab: TabRef, origin: string): Promise<
     : null;
 }
 
+/** A failed shortcut or menu fill is shown once: opening the popup is the user having seen it. */
+async function takeLastError(deps: PopupDeps, tabId: number): Promise<PopupState["lastError"]> {
+  const stored = await deps.fill.session.get(lastErrorKey(tabId));
+  if (stored !== undefined) {
+    await deps.fill.session.remove(lastErrorKey(tabId));
+    await deps.fill.badge.clear(tabId);
+  }
+  return isErrorCode(stored) ? stored : null;
+}
+
+type Operations = {
+  readonly [K in PopupRequest["op"]]: (request: Extract<PopupRequest, { op: K }>, tab: TabRef | null) => Promise<unknown>;
+};
+
 type Learnable = Pick<LoginMatch, "vaultId" | "itemId" | "title" | "username" | "hasOtp">;
 
 export class PopupService {
@@ -80,37 +99,41 @@ export class PopupService {
   }
 
   async handle(request: PopupRequest, tab: TabRef | null): Promise<unknown> {
-    const { native, fill, hold } = this.#deps;
-    switch (request.op) {
-      case "getState":
-        return this.#state(tab);
-      case "pair":
-        await native.pair();
-        return {};
-      case "focusDesktop":
-        return native.request("focus", {});
-      case "search":
-        return this.#search(request.query, tab);
-      case "fill":
-      case "fillOtp":
-        return this.#fill(request.op === "fillOtp", request, tab);
-      case "copy":
-        return native.request("copy", { source: request.source });
-      case "generate":
-        return this.#generate(request.request, tab);
-      case "fillGenerated":
-        return finish(
-          await fillGeneratedPassword(fill, fillRequest(tab, { confirmFrame: request.confirmFrame }), hold),
-        );
-      case "unpair":
-        await native.unpair();
-        return {};
-    }
+    const run = this.#operations[request.op] as (request: PopupRequest, tab: TabRef | null) => Promise<unknown>;
+    return run(request, tab);
   }
+
+  readonly #operations: Operations = {
+    getState: (_request, tab) => this.#state(tab),
+    pair: async () => {
+      await this.#deps.native.pair();
+      return {};
+    },
+    focusDesktop: () => this.#deps.native.request("focus", {}),
+    search: (request, tab) => this.#search(request.query, tab),
+    fill: (request, tab) => this.#fill(false, request, tab),
+    fillOtp: (request, tab) => this.#fill(true, request, tab),
+    copy: (request) => this.#deps.native.request("copy", { source: request.source }),
+    generate: (request, tab) => this.#generate(request.request, tab),
+    fillGenerated: async (request, tab) =>
+      finish(
+        await fillGeneratedPassword(
+          this.#deps.fill,
+          fillRequest(tab, { confirmFrame: request.confirmFrame, requireHeld: true }),
+          this.#deps.hold,
+        ),
+      ),
+    savePending: (request, tab) => this.#savePending(request.action, tab),
+    saveOffersChanged: async (request) => ({ saveOffers: await this.#deps.save.setOffers(request.enabled) }),
+    unpair: async () => {
+      await this.#deps.native.unpair();
+      return {};
+    },
+  };
 
   async #fill(
     otpOnly: boolean,
-    request: { vaultId: string; itemId: string; confirmFrame: boolean },
+    request: { vaultId: string; itemId: string; confirmFrame: FrameRef | null },
     tab: TabRef | null,
   ): Promise<FillSummary> {
     const item = this.#known.get(`${request.vaultId}/${request.itemId}`) ?? {
@@ -125,14 +148,30 @@ export class PopupService {
     );
   }
 
-  /** A password from the desktop, held for a following fill on this tab and origin only. */
+  /**
+   * A password from the desktop, held for a following fill on this tab and origin only. For
+   * "this site" the host and the page's password rules come from the tab, never from the popup.
+   */
   async #generate(request: GenerateRequest, tab: TabRef | null): Promise<unknown> {
-    const generated = await this.#deps.native.request("generate", { request });
     const origin = originOf(tab?.url);
-    if (tab !== null && origin !== null) {
-      this.#deps.hold.hold(generated.value, { tabId: tab.id, origin });
+    if (tab === null || origin === null) {
+      throw new ExtensionError("unsupportedPage");
     }
+    const body: GenerateRequest =
+      request.kind === "forSite"
+        ? { kind: "forSite", host: hostOf(origin), rules: chooseTarget(await probeFrames(this.#deps, tab), null)?.passwordRules ?? null }
+        : request;
+    const generated = await this.#deps.native.request("generate", { request: body });
+    this.#deps.hold.hold(generated.value, { tabId: tab.id, origin });
     return generated;
+  }
+
+  async #savePending(action: SaveAction, tab: TabRef | null): Promise<PopupResults["savePending"]> {
+    const origin = originOf(tab?.url);
+    if (tab === null || origin === null) {
+      return { outcome: "dismissed" };
+    }
+    return this.#deps.save.act(tab.id, origin, action);
   }
 
   async #search(query: string, tab: TabRef | null): Promise<unknown> {
@@ -163,6 +202,7 @@ export class PopupService {
       pairCode: this.#pairCode(),
       tab: info,
       frame: "none",
+      frameTarget: null,
       matches: [],
       warnings: [],
       pendingSave: null,
@@ -171,20 +211,22 @@ export class PopupService {
       saveOffers: false,
       generatorFill: false,
     };
+    state.saveOffers = await this.#deps.save.offersEnabled().catch(() => false);
     if (tab !== null && info !== null) {
       await this.#fillTab(state, tab, info);
+      state.pendingSave = await this.#deps.save.info(tab.id, info.origin).catch(() => null);
     }
     return state;
   }
 
   /** What the popup shows about the front tab: its frame, matches, warnings and a pending code. */
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
-    const { native, fill } = this.#deps;
-    const stored = await fill.session.get(lastErrorKey(tab.id));
-    state.lastError = isErrorCode(stored) ? stored : null;
+    const { native } = this.#deps;
+    state.lastError = await takeLastError(this.#deps, tab.id);
     const target = chooseTarget(await probeFrames(this.#deps, tab), null);
     const origin = target?.origin ?? info.origin;
     state.frame = classifyFrame(target, info.origin);
+    state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
     state.generatorFill = (target?.counts.newPassword ?? 0) > 0;
     state.nextOtp = await nextOtpOf(this.#deps, tab, origin);
     if (state.connection === "unlocked") {
@@ -214,7 +256,7 @@ function fillRequest(tab: TabRef | null, extra: Partial<FillRequest>): FillReque
     menuFrameId: null,
     item: null,
     otpOnly: false,
-    confirmFrame: false,
+    confirmFrame: null,
     ...extra,
   };
 }

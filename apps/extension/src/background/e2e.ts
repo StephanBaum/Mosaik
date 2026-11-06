@@ -11,8 +11,10 @@ import { COMMAND_FILL, onCommand, onMenuClicked, type GestureDeps } from "./gest
 import type { NativeClient, PortFactory } from "./native.ts";
 import type { PairingStore } from "./pairing.ts";
 import type { PopupService } from "./popup.ts";
-import { FAKE_PAIRING, FakeDesktop, defaultConfig, type E2EConfig, type LogEntry } from "./e2e-desktop.ts";
-import type { PopupState } from "../shared/messages.ts";
+import { FAKE_PAIRING, FakeDesktop, defaultConfig, type E2EConfig, type LogEntry, type SaveProposal } from "./e2e-desktop.ts";
+import type { FrameRef, PopupRequest, PopupState } from "../shared/messages.ts";
+import type { SaveService } from "./save.ts";
+import type { KeyValueStore } from "./db.ts";
 import { errorCodeOf } from "../shared/errors.ts";
 
 export interface E2EHost {
@@ -20,12 +22,14 @@ export interface E2EHost {
   pairings: PairingStore;
   popup: PopupService;
   gestures: GestureDeps;
+  save: SaveService;
+  kv: KeyValueStore;
 }
 
 export type E2EGesture =
   | { kind: "shortcut"; tabId: number }
   | { kind: "contextMenu"; tabId: number; frameId?: number; menuItemId?: string }
-  | { kind: "popupFill"; tabId: number; itemId: string; confirmFrame?: boolean; otpOnly?: boolean };
+  | { kind: "popupFill"; tabId: number; itemId: string; confirmFrame?: boolean | FrameRef; otpOnly?: boolean };
 
 const desktop = new FakeDesktop();
 
@@ -50,64 +54,99 @@ async function popupGenerate(popup: PopupService, tabId: number): Promise<string
   return generated.value;
 }
 
+/** `true` confirms the frame the popup shows right now (what a click on "Fill in frame" does); a `FrameRef` is a stale or forged one. */
+async function confirmationOf(popup: PopupService, tabId: number, url: string | undefined, want: boolean | FrameRef | undefined): Promise<FrameRef | null> {
+  if (typeof want === "object") {
+    return want;
+  }
+  if (want !== true) {
+    return null;
+  }
+  const state = (await popup.handle({ op: "getState" }, { id: tabId, url })) as PopupState;
+  return state.frameTarget;
+}
+
+async function resetE2E(host: E2EHost, partial: Partial<E2EConfig>): Promise<void> {
+  desktop.config = { ...defaultConfig(), ...partial };
+  desktop.log.length = 0;
+  desktop.proposals.length = 0;
+  host.native.disconnect();
+  await host.save.setOffers(false);
+  await chrome.storage.session.clear();
+  await host.kv.clear();
+  if (desktop.config.paired) {
+    await host.pairings.save(FAKE_PAIRING);
+  } else {
+    await host.pairings.clear();
+  }
+  Object.assign(host.native.state, {
+    checked: false,
+    desktop: null,
+    paired: false,
+    pairing: false,
+    error: null,
+    hasPairing: desktop.config.paired,
+  });
+}
+
+async function runE2EGesture(host: E2EHost, gesture: E2EGesture): Promise<FillOutcome | null> {
+  const tab = await chrome.tabs.get(gesture.tabId);
+  if (gesture.kind === "shortcut") {
+    return onCommand(host.gestures, COMMAND_FILL, tab);
+  }
+  if (gesture.kind === "contextMenu") {
+    return onMenuClicked(host.gestures, { menuItemId: gesture.menuItemId ?? "fill", frameId: gesture.frameId ?? 0 }, tab);
+  }
+  const item = desktop.config.items.find((i) => i.itemId === gesture.itemId);
+  try {
+    const summary = await host.popup.handle(
+      {
+        op: gesture.otpOnly === true ? "fillOtp" : "fill",
+        vaultId: item?.vaultId ?? "",
+        itemId: gesture.itemId,
+        confirmFrame: await confirmationOf(host.popup, gesture.tabId, tab.url, gesture.confirmFrame),
+      },
+      { id: gesture.tabId, url: tab.url },
+    );
+    return { ok: true, summary: summary as Extract<FillOutcome, { ok: true }>["summary"] };
+  } catch (error) {
+    return { ok: false, error: errorCodeOf(error) };
+  }
+}
+
 export function installE2E(host: E2EHost): void {
   let paused = false;
   let release: (() => void) | null = null;
 
   const api = {
-    async reset(partial: Partial<E2EConfig> = {}): Promise<void> {
-      desktop.config = { ...defaultConfig(), ...partial };
-      desktop.log.length = 0;
+    reset: (partial: Partial<E2EConfig> = {}): Promise<void> => resetE2E(host, partial),
+
+    /** Changes the fake desktop (lock it, unlock it) without forgetting anything else, and starts a new session. */
+    configure(partial: Partial<E2EConfig>): void {
+      Object.assign(desktop.config, partial);
       host.native.disconnect();
-      if (desktop.config.paired) {
-        await host.pairings.save(FAKE_PAIRING);
-      } else {
-        await host.pairings.clear();
-      }
-      Object.assign(host.native.state, {
-        checked: false,
-        desktop: null,
-        paired: false,
-        pairing: false,
-        error: null,
-        hasPairing: desktop.config.paired,
-      });
+      Object.assign(host.native.state, { checked: false, desktop: null, paired: false, pairing: false, error: null });
     },
 
     log(): LogEntry[] {
       return desktop.log.map((entry) => ({ ...entry }));
     },
 
-    async gesture(gesture: E2EGesture): Promise<FillOutcome | null> {
-      const tab = await chrome.tabs.get(gesture.tabId);
-      if (gesture.kind === "shortcut") {
-        return onCommand(host.gestures, COMMAND_FILL, tab);
-      }
-      if (gesture.kind === "contextMenu") {
-        return onMenuClicked(
-          host.gestures,
-          { menuItemId: gesture.menuItemId ?? "fill", frameId: gesture.frameId ?? 0 },
-          tab,
-        );
-      }
-      const item = desktop.config.items.find((i) => i.itemId === gesture.itemId);
-      try {
-        const summary = await host.popup.handle(
-          {
-            op: gesture.otpOnly === true ? "fillOtp" : "fill",
-            vaultId: item?.vaultId ?? "",
-            itemId: gesture.itemId,
-            confirmFrame: gesture.confirmFrame ?? false,
-          },
-          { id: gesture.tabId, url: tab.url },
-        );
-        return { ok: true, summary: summary as Extract<FillOutcome, { ok: true }>["summary"] };
-      } catch (error) {
-        return { ok: false, error: errorCodeOf(error) };
-      }
-    },
+    gesture: (gesture: E2EGesture): Promise<FillOutcome | null> => runE2EGesture(host, gesture),
 
     popupGenerate: (tabId: number): Promise<string> => popupGenerate(host.popup, tabId),
+
+    /** Any popup operation on a tab, as the popup page would send it. */
+    async popupRequest(tabId: number, request: PopupRequest): Promise<unknown> {
+      const tab = await chrome.tabs.get(tabId);
+      return host.popup.handle(request, { id: tabId, url: tab.url });
+    },
+
+    /** Save capture on or off (the site access is part of the e2e manifest). */
+    setCapture: (enabled: boolean): Promise<boolean> => host.save.setOffers(enabled),
+
+    /** What the fake desktop was asked to save. */
+    saves: (): SaveProposal[] => desktop.proposals.map((p) => ({ ...p })),
 
     async popupState(tabId: number): Promise<PopupState> {
       const tab = await chrome.tabs.get(tabId);

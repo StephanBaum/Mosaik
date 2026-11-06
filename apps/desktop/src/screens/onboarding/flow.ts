@@ -5,7 +5,7 @@
  */
 import type { CreatedAccount, SessionState } from "../../ipc/contract/index.ts";
 
-export type Step = "kit" | "verify" | "import" | "importing" | "done";
+export type Step = "kit" | "verify" | "import" | "importing" | "browser";
 
 export interface FlowState {
   step: Step;
@@ -37,6 +37,7 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       return { ...state, step: "importing" };
     case "skip":
     case "done":
-      return { ...state, step: "done" };
+      // Both end the import step; the optional browser extension step (D06) comes last.
+      return { ...state, step: "browser" };
   }
 }

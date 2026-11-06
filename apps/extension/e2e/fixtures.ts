@@ -17,10 +17,10 @@ import {
   type Page,
   type Worker,
 } from "@playwright/test";
-import type { E2EConfig, E2EItem, LogEntry } from "../src/background/e2e-desktop.ts";
+import type { E2EConfig, E2EItem, LogEntry, SaveProposal } from "../src/background/e2e-desktop.ts";
 import type { E2EGesture } from "../src/background/e2e.ts";
 import type { FillOutcome } from "../src/background/fill.ts";
-import type { PopupState } from "../src/shared/messages.ts";
+import type { PopupRequest, PopupState } from "../src/shared/messages.ts";
 import { HTTP_PORT, HTTPS_PORT, startServer } from "../test/hostile-site/server.mjs";
 
 const DIST = resolve(import.meta.dirname, "../dist/e2e");
@@ -47,10 +47,14 @@ export const bankItem = (over: Partial<E2EItem> = {}): E2EItem => ({
 
 interface Hooks {
   reset(config?: Partial<E2EConfig>): Promise<void>;
+  configure(config: Partial<E2EConfig>): void;
   log(): LogEntry[];
   gesture(gesture: E2EGesture): Promise<FillOutcome | null>;
   popupState(tabId: number): Promise<PopupState>;
   popupGenerate(tabId: number): Promise<string>;
+  popupRequest(tabId: number, request: PopupRequest): Promise<unknown>;
+  setCapture(enabled: boolean): Promise<boolean>;
+  saves(): SaveProposal[];
   pauseAfterProbe(): void;
   isPaused(): boolean;
   release(): void;
@@ -60,11 +64,15 @@ type WithHooks = { mosaicE2E: Hooks };
 
 export interface Fake {
   reset(config?: Partial<E2EConfig>): Promise<void>;
+  configure(config: Partial<E2EConfig>): Promise<void>;
   log(): Promise<LogEntry[]>;
   fills(): Promise<LogEntry[]>;
   gesture(gesture: E2EGesture): Promise<FillOutcome | null>;
   popupState(tabId: number): Promise<PopupState>;
   popupGenerate(tabId: number): Promise<string>;
+  popupRequest(tabId: number, request: PopupRequest): Promise<unknown>;
+  setCapture(enabled: boolean): Promise<boolean>;
+  saves(): Promise<SaveProposal[]>;
   pauseAfterProbe(): Promise<void>;
   isPaused(): Promise<boolean>;
   release(): Promise<void>;
@@ -134,11 +142,17 @@ function makeFake(ext: Extension): Fake {
   const log = (): Promise<LogEntry[]> => run(() => (globalThis as unknown as WithHooks).mosaicE2E.log());
   return {
     reset: (config) => run((c: Partial<E2EConfig> | undefined) => (globalThis as unknown as WithHooks).mosaicE2E.reset(c), config),
+    configure: (config) =>
+      run((c: Partial<E2EConfig>) => { (globalThis as unknown as WithHooks).mosaicE2E.configure(c); }, config),
     log,
     fills: async () => (await log()).filter((entry) => entry.op === "fill"),
     gesture: (gesture) => run((g: E2EGesture) => (globalThis as unknown as WithHooks).mosaicE2E.gesture(g), gesture),
     popupState: (tabId) => run((t: number) => (globalThis as unknown as WithHooks).mosaicE2E.popupState(t), tabId),
     popupGenerate: (tabId) => run((t: number) => (globalThis as unknown as WithHooks).mosaicE2E.popupGenerate(t), tabId),
+    popupRequest: (tabId, request) =>
+      run((a: { tabId: number; request: PopupRequest }) => (globalThis as unknown as WithHooks).mosaicE2E.popupRequest(a.tabId, a.request), { tabId, request }),
+    setCapture: (enabled) => run((e: boolean) => (globalThis as unknown as WithHooks).mosaicE2E.setCapture(e), enabled),
+    saves: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.saves()),
     pauseAfterProbe: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.pauseAfterProbe(); }),
     isPaused: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.isPaused()),
     release: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.release(); }),
@@ -231,6 +245,31 @@ export async function expectFilled(page: Page, urlPrefix: string): Promise<void>
   const frame = (await inspect(page)).find((f) => f.url.startsWith(urlPrefix));
   expect(frame?.values["user"]).toBe(USERNAME);
   expect(frame?.values["pass"]).toBe(PASSWORD);
+}
+
+export const POPUP_SIZE = { width: 360, height: 600 } as const;
+
+/**
+ * The popup page in a tab of its own, about the tab `tabId` (the test popup takes it from the
+ * query string), at the size of the real popup. The page is closed by the caller's `page.close`.
+ */
+export async function openPopup(
+  context: BrowserContext,
+  extensionId: string,
+  tabId: number,
+  options: { colorScheme?: "light" | "dark"; languages?: readonly string[] } = {},
+): Promise<Page> {
+  const popup = await context.newPage();
+  await popup.setViewportSize(POPUP_SIZE);
+  await popup.emulateMedia({ colorScheme: options.colorScheme ?? "light" });
+  if (options.languages !== undefined) {
+    const languages = [...options.languages];
+    await popup.addInitScript((value) => {
+      Object.defineProperty(navigator, "languages", { get: () => value });
+    }, languages);
+  }
+  await popup.goto(`chrome-extension://${extensionId}/popup.html?e2eTabId=${String(tabId)}`);
+  return popup;
 }
 
 /** Opens a page and waits until it and its frames have loaded. */

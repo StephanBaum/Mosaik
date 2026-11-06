@@ -65,6 +65,22 @@ describe("browser save dialog", () => {
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
+  it("says Esc cancels, and describes an update as a new password for the login", async () => {
+    render(<App ipc={createMockIpc({ start: "unlocked", browserSave: "update" })} languages={["en"]} />);
+    const dialog = await screen.findByRole("dialog", { name: UPDATE }, { timeout: 3000 });
+    expect(within(dialog).getByText("to cancel")).toBeTruthy();
+    expect(within(dialog).queryByText("to deny")).toBeNull();
+    expect(within(dialog).getByText(/offers a new password for this login\. Mosaic changes it only if you choose Update password\./)).toBeTruthy();
+    expect(within(dialog).queryByText(/offers to save a login/)).toBeNull();
+  });
+
+  it("describes a new login as an offer to save one", async () => {
+    render(<App ipc={createMockIpc({ start: "unlocked", browserSave: "new" })} languages={["en"]} />);
+    const dialog = await screen.findByRole("dialog", { name: NEW }, { timeout: 3000 });
+    expect(within(dialog).getByText(/offers to save a login\. Mosaic writes it only if you choose Save\./)).toBeTruthy();
+    expect(within(dialog).getByText("to cancel")).toBeTruthy();
+  });
+
   it("cancels at once", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked", browserSave: "update" })} languages={["en"]} />);

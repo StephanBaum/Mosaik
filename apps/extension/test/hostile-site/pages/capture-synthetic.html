@@ -1,0 +1,24 @@
+<!-- attempts: a page that fills a login form with a password and then fires submit, click and key events from
+     script, hoping the opt-in save capture reports a password the user never submitted. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Synthetic submit</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username" value="victim">
+  <input id="pass" name="password" type="password" autocomplete="current-password" value="page-chosen-password">
+  <button id="go" type="submit">Sign in</button>
+</form>
+<script>
+  const form = document.getElementById("login");
+  const run = () => {
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    document.getElementById("go").click();
+    document.getElementById("go").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document.getElementById("pass").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    form.requestSubmit();
+    window.__scripted = true;
+  };
+  run();
+  setTimeout(run, 500);
+</script>
