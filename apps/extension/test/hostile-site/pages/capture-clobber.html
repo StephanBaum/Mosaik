@@ -1,0 +1,17 @@
+<!-- attempts: stop the save capture from installing itself by clobbering its marker: elements named or
+     with the id `mosaicCapture` (window named properties reach the isolated world in Chromium), and an
+     `Object.prototype.mosaicCapture` in the page's world. A login submitted here must still be offered. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Capture clobber</title>
+<script src="/_leaks.js"></script>
+<img name="mosaicCapture" alt="">
+<a id="mosaicCapture" href="#">x</a>
+<form id="login" onsubmit="return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="pass" name="password" type="password" autocomplete="current-password">
+  <button type="submit">Sign in</button>
+</form>
+<script>
+  Object.prototype.mosaicCapture = true;
+</script>

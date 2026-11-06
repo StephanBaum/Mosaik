@@ -9,14 +9,14 @@
  * `requestSubmit()` and `button.click()` as well. The script adds nothing to the page and
  * listens to no page message.
  */
-import { frameAncestry } from "../content/frame.ts";
 import type { CapturedMessage } from "../shared/messages.ts";
-import { containerOf, extract, isTextEntry, submitControl, Throttle } from "./capture.ts";
+import { containerOf, extract, isTextEntry, mayReport, submitControl, Throttle } from "./capture.ts";
 
 const throttle = new Throttle(Date.now);
 
 function send(scope: Element | null): void {
-  if (scope === null || !throttle.allow()) {
+  // An opaque document, or a frame the user cannot see or whose ancestors are another site's, reports nothing.
+  if (scope === null || !mayReport(window) || !throttle.allow()) {
     return;
   }
   const found = extract(scope);
@@ -26,7 +26,7 @@ function send(scope: Element | null): void {
   const message: CapturedMessage = {
     type: "captured",
     ...found,
-    ancestorsSameOrigin: window === window.top || frameAncestry(window).ancestorsSameOrigin,
+    ancestorsSameOrigin: true,
   };
   // The runtime copies the message when it is sent; nothing of it is kept here.
   chrome.runtime.sendMessage(message).catch(() => undefined);

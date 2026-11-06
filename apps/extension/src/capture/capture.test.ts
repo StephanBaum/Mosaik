@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { VisibilityEnv } from "../content/visibility.ts";
-import { containerOf, extract, isTextEntry, MIN_GAP_MS, passwordsOf, submitControl, Throttle } from "./capture.ts";
+import {
+  type CaptureWindow,
+  containerOf,
+  extract,
+  isTextEntry,
+  mayReport,
+  MIN_GAP_MS,
+  passwordsOf,
+  submitControl,
+  Throttle,
+} from "./capture.ts";
 
 /** Layout does not exist in jsdom: every field is visible unless it sits in `[data-hidden]`. */
 const env: VisibilityEnv = {
@@ -159,5 +169,42 @@ describe("Throttle", () => {
     expect(throttle.allow()).toBe(false);
     now += 1;
     expect(throttle.allow()).toBe(true);
+  });
+});
+
+describe("which documents may report a login", () => {
+  const SITE = "https://bank.example";
+
+  function top(origin: string, urlOrigin = origin): CaptureWindow {
+    const win: { parent?: CaptureWindow; frameElement: null; origin: string; location: { origin: string } } = {
+      frameElement: null,
+      origin,
+      location: { origin: urlOrigin },
+    };
+    win.parent = win as CaptureWindow;
+    return win as CaptureWindow;
+  }
+
+  function child(parent: CaptureWindow, origin: string, frameElement: Element): CaptureWindow {
+    return { parent, frameElement, origin, location: { origin } };
+  }
+
+  it("the top document of a site", () => {
+    expect(mayReport(top(SITE), env)).toBe(true);
+  });
+
+  it("never an opaque document, whatever its URL names (CSP sandbox, sandboxed frame)", () => {
+    expect(mayReport(top("null", SITE), env)).toBe(false);
+    expect(mayReport(top("null"), env)).toBe(false);
+    document.body.innerHTML = '<iframe id="f"></iframe>';
+    expect(mayReport(child(top(SITE), "null", document.getElementById("f") as Element), env)).toBe(false);
+  });
+
+  it("a visible same-origin frame, but not an invisible one or one under another site", () => {
+    document.body.innerHTML = '<iframe id="seen"></iframe><div data-hidden><iframe id="unseen"></iframe></div>';
+    const el = (id: string): Element => document.getElementById(id) as Element;
+    expect(mayReport(child(top(SITE), SITE, el("seen")), env)).toBe(true);
+    expect(mayReport(child(top(SITE), SITE, el("unseen")), env)).toBe(false);
+    expect(mayReport(child(top("https://evil.example"), SITE, el("seen")), env)).toBe(false);
   });
 });

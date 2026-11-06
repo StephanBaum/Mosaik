@@ -4,6 +4,7 @@
  * form on the page cannot answer for it, and only a password of 1 to 1024 characters is taken.
  */
 import { detectWithin } from "../content/detect.ts";
+import { frameAncestry, type FrameWindow } from "../content/frame.ts";
 import type { VisibilityEnv } from "../content/visibility.ts";
 import type { CapturedMessage } from "../shared/messages.ts";
 
@@ -63,6 +64,27 @@ export function extract(scope: Element, env?: VisibilityEnv): Extracted | null {
   }
   const typed = found.username[0]?.value.trim() ?? "";
   return { username: typed === "" || typed.length > MAX_USERNAME ? null : typed, ...passwords };
+}
+
+/** A window as the capture reads it: its frame chain, and the origin its URL names. */
+export type CaptureWindow = FrameWindow & { readonly location: { readonly origin: string } };
+
+/**
+ * Whether this document may report a submitted login at all. An opaque document (a sandbox, by
+ * attribute or by CSP) never does, whatever its URL names: Chromium's `sender.origin` says
+ * "null" there, and this covers browsers that give the background only the URL. A frame
+ * reports only when every ancestor has its origin and every frame element on the way is visible
+ * (`frameAncestry`), so a click through an invisible frame laid over the page is not offered.
+ */
+export function mayReport(win: CaptureWindow, env?: VisibilityEnv): boolean {
+  if (win.origin === "null" || win.origin !== win.location.origin) {
+    return false;
+  }
+  if (win.parent === win) {
+    return true;
+  }
+  const ancestry = env === undefined ? frameAncestry(win) : frameAncestry(win, env);
+  return ancestry.ancestorsSameOrigin && ancestry.frameVisible;
 }
 
 /** The form around `start`, or the nearest ancestor (five levels) that holds a password field. */
