@@ -110,8 +110,11 @@ impl Es256Key {
 
     /// ECDSA over SHA-256 with an RFC 6979 nonce, DER encoded, not
     /// normalized to low S (CRYPTO_SPEC §16).
+    ///
+    /// Crate-private: only [`assert`](crate::assert) signs, over the
+    /// authenticator-data message, so the key is no raw signing oracle.
     #[must_use]
-    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+    pub(crate) fn sign(&self, message: &[u8]) -> Vec<u8> {
         let signature: Signature = self.0.sign(message);
         signature.to_der().as_bytes().to_vec()
     }

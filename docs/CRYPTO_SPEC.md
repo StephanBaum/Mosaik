@@ -36,7 +36,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Streaming AEAD (attachments) | STREAM (big-endian 32-bit counter) over XChaCha20-Poly1305 | Hoang, Reyhanitabar, Rogaway, Vizár 2015 | `chacha20poly1305` / `aead::stream` |
 | Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` |
 | Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` |
-| Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`) |
+| Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`); `sha2` (rpIdHash, clientDataJSON hash); `base64ct` (base64url) |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
@@ -1020,13 +1020,17 @@ Notation as §3. `b64url` is RFC 4648 §5 base64url without padding
 (`base64ct::Base64UrlUnpadded`).
 
 **Keys.** Generate: `random(32)` (`mosaic_core`'s zeroizing secret type) read
-as a P-256 scalar with `p256::SecretKey::from_slice`; a zero or a value
+as a P-256 scalar with `SigningKey::from_slice` (which delegates to
+`p256::SecretKey::from_slice`); a zero or a value
 `>= n` is rejected and redrawn, at most 8 tries, then the operation fails
 (FIPS 186-5 A.4.2 rejection sampling; no `rand_core`, ADR-0011). Store:
-`SecretKey::to_pkcs8_der()` (RustCrypto includes the public key in the PKCS#8
+`SigningKey::to_pkcs8_der()` (RustCrypto includes the public key in the PKCS#8
 structure), copied into a zeroizing buffer, the library's own document dropped
-(and zeroized). Load: `SecretKey::from_pkcs8_der`; anything that is not a
-P-256 key is refused. The key is the `private_key` field of the item's
+(and zeroized). Load: `SigningKey::from_pkcs8_der`; anything that is not a
+P-256 key is refused (a wrong curve, or an embedded public key that does not
+match the scalar). Loading accepts a SEC1 `privateKey` of 24 to 31 bytes,
+zero-padded to 32 by `SecretKey::from_slice`; T4 (import) re-encodes imported
+keys so the stored form is always the 32-byte one. The key is the `private_key` field of the item's
 `passkey` value (§7.5), inside the encrypted item plaintext, and is not a
 `SecretField`.
 
@@ -1073,14 +1077,19 @@ is `0x40 | L` below 24, `58 L` below 256, `59 L (u16)` below 65536; larger is
 refused. The encoder is hand-written for these three fixed structures; Rust
 never decodes CBOR.
 
-**SPKI** (`getPublicKey()`), 91 bytes, from `EncodePublicKey::to_public_key_der`:
-`3059301306072A8648CE3D020106082A8648CE3D030107034200 || 04 || X || Y`.
+**SPKI** (`getPublicKey()`), 91 bytes: the constant prefix
+`3059301306072A8648CE3D020106082A8648CE3D030107034200 || 04 || X || Y`,
+built without a fallible step and checked against `to_public_key_der` in a test.
 
 **Sign count.** A credential Mosaic creates has count 0, which is never
 written. An imported counter `c > 0` signs with `c + 1`, saturating at
 `u32::MAX`, and the caller persists that value
 (`ItemEdit::set_passkey_sign_count`, merged by maximum, §7.5) **before** the
-signature leaves. A counter of 0 stays 0.
+signature leaves. A counter of 0 stays 0. The crate enforces the order in its
+types: `assert` returns a `PendingAssertion` whose signature is private, and it
+is released only with a `CountPersisted` token (built after the store write) or,
+for a counter of 0, with `into_response_without_count` (which refuses while a
+count is pending).
 
 **User verification.** The UV flag is set only if the desktop saw a user
 verification (unlock, quick unlock or re-authentication) in the last 300
@@ -1101,6 +1110,10 @@ get (authData, signature); V11 the imported-counter rule. V1, V2 and V5 to V11
 are also checked by an independent verifier written in TypeScript
 (`apps/extension/test/webauthn/verifier.ts`) with its own CBOR, COSE and
 authData parser and `node:crypto` verification of the ES256 signature.
-Property tests: generate, store as PKCS#8, load and sign verifies with
-`VerifyingKey`; the COSE bytes parsed back equal the verifying key. Garbage
-and non-P-256 PKCS#8 are refused.
+V8 is also built by Rust from a hostile string (quote, backslash, U+0007,
+U+007F, U+2028, U+00FC, U+1F600) and compared with an independent CCDToString
+written from the WebAuthn text. Property tests: generate, store as PKCS#8,
+load and sign verifies with `VerifyingKey`; the COSE bytes parsed back equal
+the verifying key. Garbage, non-P-256 PKCS#8 (Ed25519, RSA, secp256k1, P-384)
+and a P-256 PKCS#8 whose embedded public key does not match the scalar are
+refused. Fuzz targets: `crates/passkey/fuzz` (`b64url`, `pkcs8`).

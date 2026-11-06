@@ -7,7 +7,9 @@
 //!   SHA-256), stored as PKCS#8 and exported as a COSE key and an SPKI.
 //! - The encoders: `clientDataJSON`, `authenticatorData`, the `none`
 //!   attestation object, base64url.
-//! - [`create`] and [`assert`]: one registration or one assertion.
+//! - [`create`] and [`assert`]: one registration or one assertion. An assertion
+//!   is a [`PendingAssertion`]; it releases its signature only after the new
+//!   sign count is stored.
 //!
 //! It does no origin or relying-party-ID policy: callers pass an rpId already
 //! validated by `mosaic_origin::webauthn_rp_id` (ADR-0040), and the `origin`
@@ -23,11 +25,11 @@ mod key;
 mod tests;
 
 pub use ceremony::{
-    Assertion, CreateInput, Created, GetInput, assert, create, create_with, select_algorithm,
+    AssertionResponse, CountPersisted, CreateInput, Created, GetInput, PendingAssertion, assert,
+    create, select_algorithm,
 };
 pub use encode::{
-    attestation_object_none, authenticator_data, b64url, ccd_to_string, client_data_json,
-    from_b64url, rp_id_hash,
+    attestation_object_none, b64url, ccd_to_string, client_data_json, from_b64url, rp_id_hash,
 };
 pub use error::Error;
 pub use key::{Es256Key, new_credential_id};

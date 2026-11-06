@@ -2904,8 +2904,11 @@ algorithm, a discoverable flag), `ItemType::Passkey` and a sign count merged by 
    0.14.0 with the features `alloc`, `ecdsa` and `pkcs8`. The `pkcs8` feature adds two new crates,
    `pkcs8` 0.11.0 and `spki` 0.8.1 (both stable releases, same RustCrypto train as `der` 0.8.3 and
    `sec1` 0.8.1 already in the tree). They are encoding crates, not primitives: PKCS#8 is what
-   the model documents and what Bitwarden, KeePassXC and CXF carry; SPKI is what
-   `getPublicKey()` returns; RustCrypto parsing of untrusted DER beats hand parsing. No new
+   the model documents and what Bitwarden, KeePassXC and CXF carry; RustCrypto parsing of
+   untrusted DER beats hand parsing. `spki` comes with `pkcs8`; the passkey crate uses it for
+   `from_public_key_der` / `to_public_key_der` in its tests. The SPKI that `getPublicKey()`
+   returns is the constant 26-byte prefix, `04`, X and Y, built without a fallible step and
+   checked against `to_public_key_der` in a test. No new
    primitive, no `rand_core` (ADR-0011): the key scalar is drawn with `mosaic_core`'s
    `random(32)` and rejection sampling (FIPS 186-5 A.4.2).
 3. **CBOR is written by hand for three fixed structures** (D3): the COSE_Key, the `none`
@@ -2916,7 +2919,10 @@ algorithm, a discoverable flag), `ItemType::Passkey` and a sign count merged by 
    does not identify Mosaic users.
 5. **Sign count** (D5): 0 for credentials Mosaic creates, never written. An imported counter
    `c > 0` signs with `c + 1` and is persisted before the signature is returned, saturating at
-   `u32::MAX`, so a relying party that saw `c` does not flag a clone.
+   `u32::MAX`, so a relying party that saw `c` does not flag a clone. The crate enforces it in
+   types: `assert` returns a `PendingAssertion` whose signature is private; it is released with
+   a `CountPersisted` token (built after the store write) or, for a counter that stays 0, with
+   `into_response_without_count`, which refuses while a count is pending.
 6. **User verification** (D6): UV is set only if the desktop saw a user verification in the
    last 300 seconds (unlock, quick unlock, re-authentication). Otherwise, if the relying party
    asks `required` or `preferred`, the dialog asks for the master password through the
@@ -2944,7 +2950,9 @@ algorithm, a discoverable flag), `ItemType::Passkey` and a sign count merged by 
 
 ### Consequences
 CRYPTO_SPEC sections 2, 4 and 16. Two new encoding crates (`pkcs8` 0.11.0, `spki` 0.8.1),
-only through `p256`'s feature. Residual risks R48 (synced passkeys can be copied and carry no
+only through `p256`'s feature. The lockfile also gains `serdect`, an optional dependency of the
+RustCrypto crates (a weak feature entry); `cargo tree -e features -i serdect` shows it is not
+built for any workspace member (lockfile-only). Residual risks R48 (synced passkeys can be copied and carry no
 clone detection), R49 (UV means "recently unlocked plus a dialog click") and R53 (imported
 counters keep incrementing). Follow-ups: biometric UV through a quick-unlock re-verification
 proof (needs a vault API and a crypto review); EdDSA if relying parties or imports need it.

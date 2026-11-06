@@ -9,6 +9,8 @@ use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::ceremony::create_with;
+use crate::encode::{authenticator_data, base_flags};
 
 /// RFC 6979 A.2.5 P-256 key (the same key as the ssh-agent known-answer test).
 const D: [u8; 32] = hex!("C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721");
@@ -203,12 +205,13 @@ fn v9_create() {
 #[test]
 fn v10_get() {
     let challenge = challenge();
-    let a = assert(&get_input(&challenge, true), &stored_credential(), 0).unwrap();
+    let pending = assert(&get_input(&challenge, true), &stored_credential(), 0).unwrap();
+    assert_eq!(pending.count_to_persist(), None);
+    let a = pending.into_response_without_count().unwrap();
     assert_eq!(
         a.authenticator_data,
         [&RP_ID_HASH_EXAMPLE[..], &[0x1D], &[0, 0, 0, 0]].concat()
     );
-    assert_eq!(a.persist_count, None);
     assert_eq!(a.credential_id, credential_id());
     assert_eq!(a.user_handle, USER_HANDLE);
     assert_eq!(
@@ -226,21 +229,43 @@ fn v10_get() {
 #[test]
 fn v11_imported_counter() {
     let challenge = challenge();
-    let a = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
+    let pending = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
+    assert_eq!(pending.count_to_persist(), Some(42));
+    let a = pending.into_response(CountPersisted::after_store_write());
     assert_eq!(
         a.authenticator_data,
         [&RP_ID_HASH_EXAMPLE[..], &[0x19], &[0, 0, 0, 0x2A]].concat()
     );
-    assert_eq!(a.persist_count, Some(42));
+}
+
+#[test]
+fn a_pending_count_blocks_the_release_without_a_token() {
+    let challenge = challenge();
+    let input = get_input(&challenge, false);
+    let pending = assert(&input, &stored_credential(), 41).unwrap();
+    assert_eq!(
+        pending.into_response_without_count().err(),
+        Some(Error::InvalidInput)
+    );
+    // A counter that stays 0 releases either way.
+    let zero = assert(&input, &stored_credential(), 0).unwrap();
+    assert!(
+        zero.into_response(CountPersisted::after_store_write())
+            .signature
+            .len()
+            > 8
+    );
 }
 
 #[test]
 fn sign_count_rule() {
     let challenge = challenge();
     let count = |stored: u64| {
-        let a = assert(&get_input(&challenge, false), &stored_credential(), stored).unwrap();
+        let pending = assert(&get_input(&challenge, false), &stored_credential(), stored).unwrap();
+        let persist = pending.count_to_persist();
+        let a = pending.into_response(CountPersisted::after_store_write());
         let bytes: [u8; 4] = a.authenticator_data[33..37].try_into().unwrap();
-        (u32::from_be_bytes(bytes), a.persist_count)
+        (u32::from_be_bytes(bytes), persist)
     };
     assert_eq!(count(0), (0, None));
     assert_eq!(count(1), (2, Some(2)));
@@ -307,7 +332,10 @@ fn full_ceremony_with_a_generated_key() {
         Timestamp::from_unix_millis(1),
     );
     stored.discoverable = true;
-    let a = assert(&get_input(&challenge, true), &stored, 0).unwrap();
+    let a = assert(&get_input(&challenge, true), &stored, 0)
+        .unwrap()
+        .into_response_without_count()
+        .unwrap();
     let spki_key = VerifyingKey::from_sec1_bytes(&c.public_key_spki[26..]).unwrap();
     let message = [
         a.authenticator_data.as_slice(),
@@ -444,6 +472,93 @@ fn limits_are_enforced() {
     );
 }
 
+/// DER `tag || length || content` (short or 16-bit long form).
+fn der(tag: u8, content: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag];
+    match u8::try_from(content.len()) {
+        Ok(n) if n < 0x80 => out.push(n),
+        Ok(n) => out.extend([0x81, n]),
+        Err(_) => {
+            out.push(0x82);
+            out.extend(u16::try_from(content.len()).unwrap().to_be_bytes());
+        }
+    }
+    out.extend_from_slice(content);
+    out
+}
+
+/// A hand-assembled PKCS#8 `ecPublicKey` private key on the curve with the
+/// given OID, with an optional SEC1 public point.
+fn pkcs8_ec(curve_oid: &[u8], scalar: &[u8], public: Option<&[u8]>) -> Vec<u8> {
+    let mut ec = der(0x02, &[1]);
+    ec.extend(der(0x04, scalar));
+    if let Some(point) = public {
+        let bits = [&[0u8][..], point].concat();
+        ec.extend(der(0xA1, &der(0x03, &bits)));
+    }
+    let mut algorithm = der(0x06, &hex!("2A8648CE3D0201"));
+    algorithm.extend(der(0x06, curve_oid));
+    let mut info = der(0x02, &[0]);
+    info.extend(der(0x30, &algorithm));
+    info.extend(der(0x04, &der(0x30, &ec)));
+    der(0x30, &info)
+}
+
+#[test]
+fn pkcs8_on_another_curve_or_with_another_public_key_is_refused() {
+    const P256: [u8; 8] = hex!("2A8648CE3D030107");
+    const SECP256K1: [u8; 5] = hex!("2B8104000A");
+    const P384: [u8; 5] = hex!("2B81040022");
+    let point = |x: &[u8], y: &[u8]| [&[0x04][..], x, y].concat();
+    let own_point = point(&X, &Y);
+
+    // Control: the hand-assembled P-256 structure loads, with and without the
+    // optional public key, as the same key.
+    for public in [Some(own_point.as_slice()), None] {
+        let loaded = Es256Key::from_pkcs8_der(&pkcs8_ec(&P256, &D, public)).unwrap();
+        assert_eq!(loaded.cose_public_key().as_slice(), cose_k().as_slice());
+    }
+
+    // The same structure on secp256k1 and P-384 (with fitting scalar and point
+    // sizes) is refused.
+    let k1 = pkcs8_ec(&SECP256K1, &D, Some(&own_point));
+    let p384 = pkcs8_ec(&P384, &[7; 48], Some(&point(&[1; 48], &[2; 48])));
+    let k1_bare = pkcs8_ec(&SECP256K1, &D, None);
+    for bad in [k1, p384, k1_bare] {
+        assert_eq!(
+            Es256Key::from_pkcs8_der(&bad).err(),
+            Some(Error::InvalidKey)
+        );
+    }
+
+    // P-256 whose embedded public key belongs to another scalar: refused.
+    let other = Es256Key::from_scalar(&[7; 32]);
+    let other_cose = other.cose_public_key();
+    let other_point = point(&other_cose[10..42], &other_cose[45..77]);
+    assert_eq!(
+        Es256Key::from_pkcs8_der(&pkcs8_ec(&P256, &D, Some(&other_point))).err(),
+        Some(Error::InvalidKey)
+    );
+    // And one whose embedded point is not on the curve.
+    assert_eq!(
+        Es256Key::from_pkcs8_der(&pkcs8_ec(&P256, &D, Some(&point(&[1; 32], &[2; 32])))).err(),
+        Some(Error::InvalidKey)
+    );
+}
+
+#[test]
+fn authenticator_data_refuses_a_credential_id_over_65535_bytes() {
+    let cose = key().cose_public_key();
+    let at_flags = base_flags(false, flags::AT);
+    let fits = vec![1; usize::from(u16::MAX)];
+    assert!(authenticator_data(RP_ID, at_flags, 0, Some((&fits, &cose))).is_ok());
+    let too_long = vec![1; usize::from(u16::MAX) + 1];
+    assert_eq!(
+        authenticator_data(RP_ID, at_flags, 0, Some((&too_long, &cose))).err(),
+        Some(Error::InvalidInput)
+    );
+}
+
 #[test]
 fn select_algorithm_cases() {
     assert_eq!(select_algorithm(&[]), Ok(-7));
@@ -575,6 +690,10 @@ proptest! {
     }
 }
 
+/// A hostile origin string for V8: a quote, a backslash, BEL, DEL, U+2028, a
+/// two-byte letter and a non-BMP code point.
+const CCD_HOSTILE: &str = "a\"b\\c\u{7}\u{7f}\u{2028}\u{fc}\u{1f600}";
+
 /// The fixture the TypeScript verifier checks: everything the Rust code emits
 /// for the RFC 6979 key, in hex. `MOSAIC_UPDATE_FIXTURES=1` rewrites it.
 fn fixture() -> serde_json::Value {
@@ -583,11 +702,17 @@ fn fixture() -> serde_json::Value {
     let challenge = challenge();
     let c = created(true);
     let input = get_input(&challenge, true);
-    let get = assert(&input, &stored_credential(), 0).unwrap();
-    let get_no_uv = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
+    let get = assert(&input, &stored_credential(), 0)
+        .unwrap()
+        .into_response_without_count()
+        .unwrap();
+    let pending_no_uv = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
+    let persist_count = pending_no_uv.count_to_persist();
+    let get_no_uv = pending_no_uv.into_response(CountPersisted::after_store_write());
+    let hostile = CCD_HOSTILE;
     let k = key();
     json!({
-        "description": "Known-answer vectors V1 to V11 (CRYPTO_SPEC section 16), regenerated by MOSAIC_UPDATE_FIXTURES=1 cargo test -p mosaic-passkey vectors_fixture",
+        "description": "Known-answer vectors V1 to V11 (CRYPTO_SPEC section 16) and a CCDToString check, regenerated by MOSAIC_UPDATE_FIXTURES=1 cargo test -p mosaic-passkey vectors_fixture",
         "key": {
             "d": hex_string(&D),
             "x": hex_string(&X),
@@ -620,10 +745,14 @@ fn fixture() -> serde_json::Value {
         "getImportedCount": {
             "flags": hex_string(&get_no_uv.authenticator_data[32..33]),
             "storedCount": 41,
-            "signCount": get_no_uv.persist_count,
+            "signCount": persist_count,
             "authData": hex_string(&get_no_uv.authenticator_data),
             "clientDataJson": hex_string(&get_no_uv.client_data_json),
             "signature": hex_string(&get_no_uv.signature),
+        },
+        "ccd": {
+            "inputUtf8": hex_string(hostile.as_bytes()),
+            "outputUtf8": hex_string(ccd_to_string(hostile).as_bytes()),
         },
     })
 }

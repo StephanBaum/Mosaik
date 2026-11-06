@@ -202,7 +202,8 @@ pub enum RpIdError {
     /// ASCII, punycode, no trailing dot).
     #[error("rp id not canonical")]
     NotCanonical,
-    /// The rp ID is neither the host nor a dot-suffix of it.
+    /// The rp ID is neither the host nor a dot-suffix of it, or it is above the
+    /// host's registrable domain.
     #[error("rp id not a suffix of the origin")]
     NotASuffix,
     /// The rp ID is a public suffix (it has no registrable domain).
@@ -218,11 +219,15 @@ pub const MAX_RP_ID_LEN: usize = 253;
 /// the host must be a domain, not loopback; the rp ID defaults to the host;
 /// a given rp ID must be canonical (`Host::parse(rp)` is the same domain,
 /// no trailing dot, at most [`MAX_RP_ID_LEN`] bytes), equal the host or be a
-/// dot-suffix of it, and have a registrable domain in the public suffix list.
+/// dot-suffix of it, have a registrable domain in the public suffix list, and
+/// lie at or under the host's registrable domain (so a tenant of a wildcard
+/// public suffix such as `*.platformsh.site` cannot claim the parent).
 ///
 /// # Errors
 /// [`RpIdError`], checked in this order: `InsecureOrigin`, `NotADomain`,
-/// `NotCanonical`, `NotASuffix`, `PublicSuffix`.
+/// `NotCanonical`, `NotASuffix` (not the host or a dot-suffix of it),
+/// `PublicSuffix` (the rp ID has no registrable domain), `NotASuffix` again
+/// (above the host's registrable domain).
 pub fn webauthn_rp_id(origin: &PageOrigin, requested: Option<&str>) -> Result<String, RpIdError> {
     if origin.is_http() {
         return Err(RpIdError::InsecureOrigin);
@@ -250,6 +255,16 @@ pub fn webauthn_rp_id(origin: &PageOrigin, requested: Option<&str>) -> Result<St
     }
     if registrable_domain(rp).is_none() {
         return Err(RpIdError::PublicSuffix);
+    }
+    // The rp ID must also lie at or under the host's own registrable domain:
+    // under a wildcard public suffix (`*.kawasaki.jp`, `*.platformsh.site`)
+    // the parent is registrable by itself, but it belongs to the platform,
+    // not to the tenant host below it.
+    let Some(site) = registrable_domain(host) else {
+        return Err(RpIdError::PublicSuffix);
+    };
+    if rp != site && !rp.ends_with(&format!(".{site}")) {
+        return Err(RpIdError::NotASuffix);
     }
     Ok(rp.to_owned())
 }

@@ -473,11 +473,12 @@ fn rp(origin: &str, requested: Option<&str>) -> Result<String, RpIdError> {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "one table of cases")]
 fn webauthn_rp_id_table() {
     use RpIdError::{InsecureOrigin, NotADomain, NotASuffix, NotCanonical, PublicSuffix};
 
     let ok = |s: &str| Ok(s.to_owned());
-    let cases: [(&str, Option<&str>, Result<String, RpIdError>); 20] = [
+    let cases: [(&str, Option<&str>, Result<String, RpIdError>); 25] = [
         ("https://example.com", None, ok("example.com")),
         (
             "https://login.example.com",
@@ -542,6 +543,35 @@ fn webauthn_rp_id_table() {
         ("https://[::1]", None, Err(NotADomain)),
         ("https://localhost", None, Err(NotADomain)),
         ("https://bank.test", None, ok("bank.test")),
+        // Wildcard public suffixes: the parent is registrable on its own but
+        // belongs to the platform, so a tenant host cannot claim it.
+        (
+            "https://a.b.kawasaki.jp",
+            Some("kawasaki.jp"),
+            Err(NotASuffix),
+        ),
+        (
+            "https://a.b.platformsh.site",
+            Some("platformsh.site"),
+            Err(NotASuffix),
+        ),
+        // `*.platformsh.site` makes `b.platformsh.site` a public suffix itself;
+        // the tenant's registrable domain is `a.b.platformsh.site`.
+        (
+            "https://a.b.platformsh.site",
+            Some("b.platformsh.site"),
+            Err(PublicSuffix),
+        ),
+        (
+            "https://a.b.platformsh.site",
+            Some("a.b.platformsh.site"),
+            ok("a.b.platformsh.site"),
+        ),
+        (
+            "https://www.city.kawasaki.jp",
+            Some("city.kawasaki.jp"),
+            ok("city.kawasaki.jp"),
+        ),
     ];
     for (origin, requested, expected) in cases {
         assert_eq!(rp(origin, requested), expected, "{origin} {requested:?}");
@@ -668,6 +698,10 @@ mod props {
                 let suffix = format!(".{rp}");
                 prop_assert!(host == rp || host.ends_with(&suffix));
                 prop_assert!(registrable_domain(&rp).is_some());
+                // At or under the host's registrable domain.
+                let site = registrable_domain(&host).unwrap();
+                let under_site = format!(".{site}");
+                prop_assert!(rp == site || rp.ends_with(&under_site));
             }
         }
 

@@ -1437,7 +1437,8 @@ WebAuthn rpId rules. T2 (native-messaging ops, desktop dialog), T3 (extension sh
   rule (imported `c > 0` signs `c + 1`, persisted first, saturating) is in `assert`. No
   origin policy, no vault access, no CBOR decoder.
 - **`mosaic-origin`**: `webauthn_rp_id` and `RpIdError` (https only, non-loopback domain,
-  canonical, host or dot-suffix, not a public suffix); 20-row table, order test, proptests.
+  canonical, host or dot-suffix, not a public suffix, at or under the host's registrable
+  domain); 25-row table, order test, proptests.
 - **Dependencies**: `p256` gains `alloc` and `pkcs8`; new crates `pkcs8` 0.11.0 and `spki` 0.8.1
   (stable releases, RustCrypto, pulled only through that feature). `cargo tree -i` shows nothing
   else uses them. No new JS dependency.
@@ -1445,13 +1446,30 @@ WebAuthn rpId rules. T2 (native-messaging ops, desktop dialog), T3 (extension sh
   low-S normalization). V5 agrees with Node's SHA-256. The fixture
   `crates/passkey/fixtures/vectors.json` is checked by the independent verifier
   `apps/extension/test/webauthn/verifier.ts` (own CBOR/COSE/authData parser, `node:crypto` only)
-  in `src/passkey/vectors.test.ts` (12 tests). V10's signature was pinned after both Rust
+  in `src/passkey/vectors.test.ts` (14 tests). V10's signature was pinned after both Rust
   `VerifyingKey::verify` and the Node verifier accepted it.
-- **Tests**: `mosaic-passkey` 28, `mosaic-origin` 25, `mosaic-ssh-agent` 55 + 8 (p256 feature
-  change), vitest vectors 12. Clippy (pedantic, `-D warnings`), fmt, `cargo deny` and
+- **Tests**: `mosaic-passkey` 31, `mosaic-origin` 25, `mosaic-ssh-agent` 55 + 8 (p256 feature
+  change), vitest vectors 14. Clippy (pedantic, `-D warnings`), fmt, `cargo deny` and
   `cargo audit --deny warnings` pass.
 - **Not done here**: `cargo llvm-cov -p mosaic-passkey` was skipped (memory on this machine); the
   coverage job (at least 90 %) comes with the CI change in T4. Crypto-reviewer pass is still due.
+- **Crypto-review follow-ups (T1)**:
+  - `webauthn_rp_id` now also requires the rp ID at or under the host's registrable domain, so a
+    tenant of a wildcard public suffix cannot claim the parent (`a.b.kawasaki.jp` cannot claim
+    `kawasaki.jp`, `evil.tenant.platformsh.site` cannot claim `platformsh.site`). Check order:
+    insecure, not a domain, not canonical, not a suffix, rp ID is a public suffix, above the
+    host's registrable domain (`NotASuffix`). **For T3:** write the stricter rule into ADR-0040
+    (it was not written yet); the rule text in CORE_API already says it.
+  - `Es256Key::sign`, `create_with` and `authenticator_data` are crate-private. `assert` returns
+    a `PendingAssertion` (private fields); the signature is released with `into_response(CountPersisted)`
+    after the store write, or `into_response_without_count()` (an error while a count is
+    pending). T2 must use this API.
+  - New: `crates/passkey/fuzz` (targets `b64url`, `pkcs8`; own workspace, excluded in the root
+    `Cargo.toml`; checked with `cargo check --manifest-path crates/passkey/fuzz/Cargo.toml --bins`).
+    **CI wiring for it (fuzz job) is still to do**, with the T4 CI change.
+  - V8 is cross-checked by an independent TypeScript CCDToString (`ccd` entry in the fixture);
+    PKCS#8 tests for secp256k1, P-384 and a mismatched embedded public key. `serdect` in the
+    lockfile is not built (ADR-0039).
 
 ## Open risks / findings
 

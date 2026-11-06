@@ -85,31 +85,30 @@ pub fn rp_id_hash(rp_id: &str) -> [u8; 32] {
 
 /// The authenticator data: `rpIdHash || flags || signCount (u32 BE)`, followed
 /// by the attested credential data (the AAGUID, a u16 BE length, the
-/// credential ID and the `COSE_Key`) when `attested` is given. The caller sets `flags::AT` with it.
-/// A credential ID longer than 65535 bytes is cut; the callers limit it to
-/// `MAX_CREDENTIAL_ID_LEN`.
-#[must_use]
-pub fn authenticator_data(
+/// credential ID and the `COSE_Key`) when `attested` is given. The caller sets
+/// `flags::AT` with it.
+///
+/// # Errors
+/// [`Error::InvalidInput`] if the credential ID is longer than 65535 bytes
+/// (the callers limit it to `MAX_CREDENTIAL_ID_LEN`).
+pub(crate) fn authenticator_data(
     rp_id: &str,
     flags: u8,
     sign_count: u32,
     attested: Option<(&[u8], &[u8; COSE_KEY_LEN])>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, Error> {
     let mut out = Vec::with_capacity(37 + 16 + 2 + 1023 + COSE_KEY_LEN);
     out.extend_from_slice(&rp_id_hash(rp_id));
     out.push(flags);
     out.extend_from_slice(&sign_count.to_be_bytes());
     if let Some((credential_id, cose_key)) = attested {
-        let credential_id = credential_id
-            .get(..usize::from(u16::MAX))
-            .unwrap_or(credential_id);
-        let len = u16::try_from(credential_id.len()).unwrap_or(u16::MAX);
+        let len = u16::try_from(credential_id.len()).map_err(|_| Error::InvalidInput)?;
         out.extend_from_slice(&AAGUID);
         out.extend_from_slice(&len.to_be_bytes());
         out.extend_from_slice(credential_id);
         out.extend_from_slice(cose_key);
     }
-    out
+    Ok(out)
 }
 
 /// The CBOR header of a byte string of `len` bytes (major type 2).

@@ -37,6 +37,7 @@ interface Fixture {
     clientDataJson: string;
     signature: string;
   };
+  ccd: { inputUtf8: string; outputUtf8: string };
 }
 
 const fixture = JSON.parse(
@@ -58,6 +59,31 @@ const RFC_TEST =
   "3045022100f1abb023518351cd71d881567b1ea663ed3efcf6c5132b354f28d3b0b7d383670220019f4113742a2b14bd25926b49c649155f267e60d3814b4c0cc84250e46f0083";
 const SPKI_PREFIX = "3059301306072a8648ce3d020106082a8648ce3d030107034200";
 
+/**
+ * CCDToString (WebAuthn L3, 5.8.1.1), written from the specification text and
+ * independent of the Rust code. Per code point: U+0020, U+0021, U+0023 to
+ * U+005B and U+005D to U+10FFFF are copied (so DEL and U+2028 stay raw),
+ * U+0022 becomes backslash-quote, U+005C becomes two backslashes, and every
+ * other code point (U+0000 to U+001F) becomes backslash-u and four lowercase
+ * hex digits.
+ */
+function ccdToString(input: string): string {
+  let out = '"';
+  for (const ch of input) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0x20 || cp === 0x21 || (cp >= 0x23 && cp <= 0x5b) || (cp >= 0x5d && cp <= 0x10ffff)) {
+      out += ch;
+    } else if (cp === 0x22) {
+      out += '\\"';
+    } else if (cp === 0x5c) {
+      out += "\\\\";
+    } else {
+      out += `\\u${cp.toString(16).padStart(4, "0")}`;
+    }
+  }
+  return `${out}"`;
+}
+
 const challenge = bytes(fixture.challenge);
 const expected = {
   expectedOrigin: fixture.origin,
@@ -66,6 +92,11 @@ const expected = {
 };
 
 describe("known-answer vectors", () => {
+  it("the fixture is for the documented origin and credential id", () => {
+    expect(fixture.origin).toBe("https://example.com");
+    expect(fixture.credentialId).toBe("000102030405060708090a0b0c0d0e0f");
+  });
+
   it("V1: the key is the RFC 6979 key and its COSE public key has the canonical layout", () => {
     expect(fixture.key.d).toBe(RFC_D);
     expect(fixture.key.x).toBe(RFC_X);
@@ -118,6 +149,22 @@ describe("known-answer vectors", () => {
     expect(Buffer.from(fixture.create.clientDataJson, "hex").toString("utf8")).toBe(make("webauthn.create"));
     expect(Buffer.from(fixture.get.clientDataJson, "hex").toString("utf8")).toBe(make("webauthn.get"));
     expect(Buffer.from(fixture.getImportedCount.clientDataJson, "hex").toString("utf8")).toBe(make("webauthn.get"));
+  });
+
+  it("V8: CCDToString of a hostile string matches an independent implementation", () => {
+    const input = Buffer.from(fixture.ccd.inputUtf8, "hex").toString("utf8");
+    // The fixture string really contains every hard case.
+    for (const needle of ['"', "\\", "\u0007", "\u007f", " ", "ü", "\u{1f600}"]) {
+      expect(input).toContain(needle);
+    }
+    const expectedOutput = ccdToString(input);
+    expect(Buffer.from(fixture.ccd.outputUtf8, "hex").toString("utf8")).toBe(expectedOutput);
+    expect(fixture.ccd.outputUtf8).toBe(Buffer.from(expectedOutput, "utf8").toString("hex"));
+    // Valid JSON that reads back as the original.
+    expect(JSON.parse(expectedOutput)).toBe(input);
+    // Controls are escaped in lowercase hex; DEL is copied raw (U+007F is in 0x5D..0x10FFFF).
+    expect(expectedOutput).toContain("\\u0007");
+    expect(expectedOutput).toContain("\u007f");
   });
 
   it("V9: the registration parses, verifies and has the exact layout", () => {

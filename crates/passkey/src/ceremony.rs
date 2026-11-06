@@ -89,7 +89,7 @@ pub fn create(input: &CreateInput<'_>) -> Result<Created, Error> {
     select_algorithm(input.algorithms)?;
     check_create_input(input)?;
     let key = Es256Key::generate()?;
-    create_with(input, &key, new_credential_id()?)
+    build_created(input, &key, new_credential_id()?)
 }
 
 fn check_create_input(input: &CreateInput<'_>) -> Result<(), Error> {
@@ -100,13 +100,23 @@ fn check_create_input(input: &CreateInput<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// [`create`] with a given key and credential ID (the known-answer tests and
-/// callers that generate the pair themselves).
+/// [`create`] with a given key and credential ID (the known-answer tests
+/// only; the public API always draws both fresh).
+#[cfg(test)]
+pub(crate) fn create_with(
+    input: &CreateInput<'_>,
+    key: &Es256Key,
+    credential_id: Vec<u8>,
+) -> Result<Created, Error> {
+    build_created(input, key, credential_id)
+}
+
+/// The registration for a given key and credential ID.
 ///
 /// # Errors
 /// As [`create`], and [`Error::InvalidInput`] for a credential ID outside
 /// `1..=MAX_CREDENTIAL_ID_LEN` bytes.
-pub fn create_with(
+fn build_created(
     input: &CreateInput<'_>,
     key: &Es256Key,
     credential_id: Vec<u8>,
@@ -121,7 +131,7 @@ pub fn create_with(
         base_flags(input.user_verified, flags::AT),
         0,
         Some((&credential_id, &key.cose_public_key())),
-    );
+    )?;
     Ok(Created {
         attestation_object: attestation_object_none(&authenticator_data)?,
         client_data_json: client_data_json(Ceremony::Create, input.challenge, input.origin),
@@ -146,8 +156,42 @@ pub struct GetInput<'a> {
     pub user_verified: bool,
 }
 
-/// The result of an assertion.
-pub struct Assertion {
+/// A signed assertion that is **not yet released**: its fields are private,
+/// so the signature cannot reach a relying party before the caller has dealt
+/// with the sign count (ADR-0039 D5).
+///
+/// 1. [`count_to_persist`](Self::count_to_persist): `Some(n)` means store
+///    `passkey.sign_count = n` (`ItemEdit::set_passkey_sign_count`), wait for
+///    the store write to succeed, then call
+///    [`into_response`](Self::into_response) with a [`CountPersisted`].
+/// 2. `None` (a counter that is, and stays, 0): call
+///    [`into_response_without_count`](Self::into_response_without_count).
+#[must_use = "an assertion is only released through `into_response*`"]
+pub struct PendingAssertion {
+    credential_id: Vec<u8>,
+    client_data_json: Vec<u8>,
+    authenticator_data: Vec<u8>,
+    signature: Vec<u8>,
+    user_handle: Vec<u8>,
+    persist_count: Option<u64>,
+}
+
+/// Proof that the new sign count is stored.
+#[derive(Clone, Copy, Debug)]
+#[must_use = "pass the token to `PendingAssertion::into_response`"]
+pub struct CountPersisted(());
+
+impl CountPersisted {
+    /// The token. Call only after `set_passkey_sign_count` succeeded and the
+    /// store write is done; the type cannot check that.
+    pub const fn after_store_write() -> Self {
+        Self(())
+    }
+}
+
+/// The released result of an assertion.
+#[derive(Debug)]
+pub struct AssertionResponse {
     /// The credential ID that signed.
     pub credential_id: Vec<u8>,
     /// The `clientDataJSON` bytes the relying party hashes.
@@ -158,10 +202,43 @@ pub struct Assertion {
     pub signature: Vec<u8>,
     /// The stored user handle.
     pub user_handle: Vec<u8>,
-    /// `Some(n)`: the caller must persist `passkey.sign_count = n`
-    /// (`ItemEdit::set_passkey_sign_count`) **before** it returns the
-    /// signature. `None` for a counter that is, and stays, 0.
-    pub persist_count: Option<u64>,
+}
+
+impl PendingAssertion {
+    /// The sign count to store before the response is released: `Some(n)`
+    /// for `passkey.sign_count = n`, `None` for a counter that stays 0.
+    #[must_use]
+    pub const fn count_to_persist(&self) -> Option<u64> {
+        self.persist_count
+    }
+
+    /// Releases the response after the count was stored.
+    #[must_use]
+    pub fn into_response(self, _persisted: CountPersisted) -> AssertionResponse {
+        self.release()
+    }
+
+    /// Releases the response of an assertion that has no count to store.
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] if a count is pending: it must be stored and
+    /// the response released with [`into_response`](Self::into_response).
+    pub fn into_response_without_count(self) -> Result<AssertionResponse, Error> {
+        if self.persist_count.is_some() {
+            return Err(Error::InvalidInput);
+        }
+        Ok(self.release())
+    }
+
+    fn release(self) -> AssertionResponse {
+        AssertionResponse {
+            credential_id: self.credential_id,
+            client_data_json: self.client_data_json,
+            authenticator_data: self.authenticator_data,
+            signature: self.signature,
+            user_handle: self.user_handle,
+        }
+    }
 }
 
 /// The sign count to put in the authenticator data and the value to persist
@@ -188,7 +265,7 @@ pub fn assert(
     input: &GetInput<'_>,
     credential: &PasskeyCredential,
     stored_count: u64,
-) -> Result<Assertion, Error> {
+) -> Result<PendingAssertion, Error> {
     check_common(input.rp_id, input.challenge)?;
     if credential.algorithm != COSE_ALG_ES256 {
         return Err(Error::UnsupportedAlgorithm);
@@ -200,10 +277,10 @@ pub fn assert(
     let key = Es256Key::from_pkcs8_der(credential.private_key.expose_secret())?;
     let (count, persist_count) = next_count(stored_count);
     let authenticator_data =
-        authenticator_data(input.rp_id, base_flags(input.user_verified, 0), count, None);
+        authenticator_data(input.rp_id, base_flags(input.user_verified, 0), count, None)?;
     let client_data_json = client_data_json(Ceremony::Get, input.challenge, input.origin);
     let signature = key.sign(&assertion_message(&authenticator_data, &client_data_json));
-    Ok(Assertion {
+    Ok(PendingAssertion {
         credential_id: credential.credential_id.clone(),
         user_handle: credential.user_handle.clone(),
         client_data_json,

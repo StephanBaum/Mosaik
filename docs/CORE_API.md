@@ -305,15 +305,26 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
 
 - `Es256Key` (not `Clone`, `Debug` prints `Es256Key([REDACTED])`, zeroized on
   drop): `generate`, `from_pkcs8_der`, `to_pkcs8_der` (a zeroizing `SecretVec`),
-  `cose_public_key` (77 bytes), `public_key_spki_der` (91 bytes), `sign` (DER).
-- `create(&CreateInput) -> Created` and `create_with` (a given key and credential
-  ID, for known-answer tests); `assert(&GetInput, &PasskeyCredential, stored_count)
-  -> Assertion`. `Assertion::persist_count` is `Some(n)` when the caller must
-  store `n` with `ItemEdit::set_passkey_sign_count` before it returns the
-  signature (ADR-0039 D5).
+  `cose_public_key` (77 bytes), `public_key_spki_der` (91 bytes). There is no
+  public `sign`: only `assert` signs, over the authenticator-data message, so the
+  key is no raw signing oracle.
+- `create(&CreateInput) -> Created` always draws a fresh key and credential ID
+  (a version with a given key and ID exists for the crate's own tests only).
+- `assert(&GetInput, &PasskeyCredential, stored_count) -> PendingAssertion`
+  (`#[must_use]`, private fields, so the signature cannot be used before the sign
+  count is dealt with, ADR-0039 D5). `count_to_persist() -> Option<u64>`: `Some(n)`
+  means store `n` with `ItemEdit::set_passkey_sign_count`, wait for the write, then
+  `into_response(CountPersisted) -> AssertionResponse`. `CountPersisted` is a
+  zero-sized token built with `CountPersisted::after_store_write()`, to be called
+  only after that write succeeded (the type cannot check it). `None` (a counter
+  that stays 0): `into_response_without_count() -> Result<AssertionResponse,
+  Error>`, which is `InvalidInput` if a count is pending. `AssertionResponse`
+  carries `credential_id`, `client_data_json`, `authenticator_data`, `signature`
+  and `user_handle`.
 - Encodings: `client_data_json`, `ccd_to_string`, `rp_id_hash`,
-  `authenticator_data`, `attestation_object_none`, `b64url`, `from_b64url`,
-  `new_credential_id`, `select_algorithm`; the `flags` module.
+  `attestation_object_none`, `b64url`, `from_b64url`, `new_credential_id`,
+  `select_algorithm`; the `flags` module. (`authenticator_data` is crate-private;
+  it returns `InvalidInput` for a credential ID over 65535 bytes.)
 - Constants: `COSE_ALG_ES256`, `AAGUID`, `CREDENTIAL_ID_LEN`, `MIN_CHALLENGE_LEN`,
   `MAX_CHALLENGE_LEN`, `MAX_ALLOW_LIST`; re-exports `MAX_CREDENTIAL_ID_LEN`,
   `MAX_USER_HANDLE_LEN` from the model. `Error` is `Rng`, `UnsupportedAlgorithm`,
@@ -321,7 +332,10 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
 
 `mosaic-origin` gains `webauthn_rp_id(&PageOrigin, Option<&str>) -> Result<String,
 RpIdError>` (additive): https only, host a non-loopback domain, rpId canonical,
-equal to the host or a dot-suffix of it, not a public suffix.
+equal to the host or a dot-suffix of it, not a public suffix, and at or under the
+host's registrable domain (so `evil.tenant.platformsh.site` cannot claim
+`platformsh.site`, which is registrable under a wildcard rule; `a.b.kawasaki.jp`
+cannot claim `kawasaki.jp`).
 
 ## Expected additions (pre-approved as additive)
 
