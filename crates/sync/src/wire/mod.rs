@@ -26,8 +26,9 @@ pub mod json;
 pub mod segment;
 
 use mosaic_core::sync_auth::FolderMacPurpose;
-use mosaic_core::{InstallId, SecretVec};
+use mosaic_core::{InstallId, SecretVec, VaultId};
 use mosaic_vault::session::UnlockedSession;
+pub use mosaic_vault::storage::OwnSeq;
 
 /// Why bytes were refused. No variant carries data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -64,10 +65,15 @@ pub enum WireError {
     /// kind.
     #[error("malformed ciphertext")]
     Ciphertext,
-    /// The session could not compute or open something (a key derivation
-    /// failed, or sealed bytes do not open).
+    /// The session could not compute, open or persist something (a key
+    /// derivation failed, sealed bytes do not open, or the store failed).
     #[error("cryptographic operation failed")]
     Crypto,
+    /// The session is locked: its keys are gone, so nothing can be computed
+    /// or verified. Nothing is remembered about the object that was being
+    /// read; it is read again after the next unlock.
+    #[error("session locked")]
+    Locked,
 }
 
 /// The keyed operations of the wire formats. `mosaic-sync` never holds
@@ -168,8 +174,209 @@ impl SyncCrypto for UnlockedSession {
     }
 }
 
-/// [`SyncCrypto`] over keys derived from an account key, for tests, the fuzz
-/// targets and the simulations that have no unlocked session.
+/// A shared handle on the unlocked session. The desktop keeps its session as
+/// `Arc<Mutex<Option<UnlockedSession>>>` (empty while locked) and implements
+/// this trait for it; the implementation for that shape is provided here.
+///
+/// Every call takes the session for that one call only. `None` means the
+/// session is locked: the transport then fails closed, because the keys went
+/// with the session ([`SessionCrypto`]).
+///
+/// A caller of the sync engine must not hold the session across a call into
+/// a transport (the engine never does), or the transport would wait for it.
+pub trait SessionHandle: Send + Sync {
+    /// Runs `f` on the unlocked session; `None` if the session is locked.
+    fn with_session<R>(&self, f: impl FnOnce(&UnlockedSession) -> R) -> Option<R>;
+
+    /// Runs `f` on the unlocked session with write access (the persisted
+    /// own-log state); `None` if the session is locked.
+    fn with_session_mut<R>(&self, f: impl FnOnce(&mut UnlockedSession) -> R) -> Option<R>;
+}
+
+impl SessionHandle for std::sync::Mutex<Option<UnlockedSession>> {
+    fn with_session<R>(&self, f: impl FnOnce(&UnlockedSession) -> R) -> Option<R> {
+        // A poisoned lock counts as locked: fail closed.
+        let guard = self.lock().ok()?;
+        guard.as_ref().map(f)
+    }
+
+    fn with_session_mut<R>(&self, f: impl FnOnce(&mut UnlockedSession) -> R) -> Option<R> {
+        let mut guard = self.lock().ok()?;
+        guard.as_mut().map(f)
+    }
+}
+
+impl<T: SessionHandle> SessionHandle for std::sync::Arc<T> {
+    fn with_session<R>(&self, f: impl FnOnce(&UnlockedSession) -> R) -> Option<R> {
+        (**self).with_session(f)
+    }
+
+    fn with_session_mut<R>(&self, f: impl FnOnce(&mut UnlockedSession) -> R) -> Option<R> {
+        (**self).with_session_mut(f)
+    }
+}
+
+/// [`SyncCrypto`] over a shared session handle (CRYPTO_SPEC §4): the
+/// checkpoint, folder and device-info keys are derived inside the session for
+/// every single operation and dropped again, so locking the session really
+/// drops them. Only the non-secret install and account IDs are cached.
+/// While the session is locked every operation fails with
+/// [`WireError::Locked`], and the folder transport reports
+/// [`TransportError::Locked`](crate::transport::TransportError::Locked).
+pub struct SessionCrypto<H: SessionHandle> {
+    handle: H,
+    install: InstallId,
+    account: mosaic_core::AccountId,
+}
+
+impl<H: SessionHandle> core::fmt::Debug for SessionCrypto<H> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SessionCrypto")
+            .field("keys", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl<H: SessionHandle> SessionCrypto<H> {
+    /// A crypto provider over `handle`, which must be unlocked now (its
+    /// install and account IDs are read).
+    ///
+    /// # Errors
+    /// [`WireError::Locked`].
+    pub fn new(handle: H) -> Result<Self, WireError> {
+        let (install, account) = handle
+            .with_session(|s| (s.install_id(), s.account_id()))
+            .ok_or(WireError::Locked)?;
+        Ok(Self {
+            handle,
+            install,
+            account,
+        })
+    }
+
+    /// The account.
+    #[must_use]
+    pub const fn account_id(&self) -> mosaic_core::AccountId {
+        self.account
+    }
+
+    /// One operation on the session. A session of another install or
+    /// account (the handle was refilled with a different one) counts as
+    /// locked.
+    fn run<R>(
+        &self,
+        f: impl FnOnce(&UnlockedSession) -> Result<R, mosaic_vault::session::Error>,
+    ) -> Result<R, WireError> {
+        let (install, account) = (self.install, self.account);
+        self.handle
+            .with_session(|s| {
+                if s.install_id() != install || s.account_id() != account {
+                    return Err(WireError::Locked);
+                }
+                f(s).map_err(|_| WireError::Crypto)
+            })
+            .ok_or(WireError::Locked)?
+    }
+
+    fn run_mut<R>(
+        &self,
+        f: impl FnOnce(&mut UnlockedSession) -> Result<R, mosaic_vault::session::Error>,
+    ) -> Result<R, WireError> {
+        let (install, account) = (self.install, self.account);
+        self.handle
+            .with_session_mut(|s| {
+                if s.install_id() != install || s.account_id() != account {
+                    return Err(WireError::Locked);
+                }
+                f(s).map_err(|_| WireError::Crypto)
+            })
+            .ok_or(WireError::Locked)?
+    }
+}
+
+impl<H: SessionHandle> SyncCrypto for SessionCrypto<H> {
+    fn install_id(&self) -> InstallId {
+        self.install
+    }
+
+    fn folder_mac(&self, purpose: FolderMacPurpose, msg: &[u8]) -> Result<[u8; 32], WireError> {
+        self.run(|s| s.folder_mac(purpose, msg))
+    }
+
+    fn verify_folder_mac(
+        &self,
+        purpose: FolderMacPurpose,
+        msg: &[u8],
+        mac: &[u8; 32],
+    ) -> Result<bool, WireError> {
+        self.run(|s| s.verify_folder_mac(purpose, msg, mac))
+    }
+
+    fn checkpoint_mac(&self, counter: u64, seen_digest: &[u8; 32]) -> Result<[u8; 32], WireError> {
+        self.run(|s| s.checkpoint_mac(counter, seen_digest))
+    }
+
+    fn verify_checkpoint_mac(
+        &self,
+        device: InstallId,
+        counter: u64,
+        seen_digest: &[u8; 32],
+        mac: &[u8; 32],
+    ) -> Result<bool, WireError> {
+        self.run(|s| s.verify_checkpoint_mac(device, counter, seen_digest, mac))
+    }
+
+    fn seal_device_info(&self, plaintext: &[u8]) -> Result<Vec<u8>, WireError> {
+        self.run(|s| s.seal_device_info(plaintext))
+    }
+
+    fn open_device_info(&self, device: InstallId, sealed: &[u8]) -> Result<SecretVec, WireError> {
+        self.run(|s| s.open_device_info(device, sealed))
+    }
+}
+
+impl<H: SessionHandle> OwnLogState for SessionCrypto<H> {
+    fn own_seq(&self, vault: VaultId) -> Result<OwnSeq, WireError> {
+        self.run(|s| s.own_seq(vault))
+    }
+
+    fn reserve_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError> {
+        self.run_mut(|s| s.reserve_own_seq(vault, through))
+    }
+
+    fn confirm_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError> {
+        self.run_mut(|s| s.confirm_own_seq(vault, through))
+    }
+}
+
+/// The persisted state of this install's own log in a folder vault
+/// (CRYPTO_SPEC §10.1): the highest sequence number that may have been used
+/// (reserved before a segment is written, so a rolled-back folder never makes
+/// the writer reuse one) and the highest written successfully.
+pub trait OwnLogState {
+    /// The persisted numbers (zeros if none).
+    ///
+    /// # Errors
+    /// [`WireError::Locked`], [`WireError::Crypto`].
+    fn own_seq(&self, vault: VaultId) -> Result<OwnSeq, WireError>;
+
+    /// Persists that sequence numbers up to `through` may be used.
+    ///
+    /// # Errors
+    /// [`WireError::Locked`], [`WireError::Crypto`].
+    fn reserve_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError>;
+
+    /// Persists that the segment `through` was written.
+    ///
+    /// # Errors
+    /// [`WireError::Locked`], [`WireError::Crypto`].
+    fn confirm_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError>;
+}
+
+/// [`SyncCrypto`] over keys derived once from an account key, for tests, the
+/// fuzz targets and the simulations (feature `test-util`). It is never used
+/// in production: it would keep the derived keys alive after the session
+/// locks. Its own-log state lives in memory.
 #[cfg(any(test, feature = "test-util"))]
 #[derive(Debug)]
 pub struct KeyedCrypto {
@@ -178,6 +385,7 @@ pub struct KeyedCrypto {
     checkpoint: mosaic_core::CheckpointKey,
     folder: mosaic_core::FolderMacKey,
     device: mosaic_core::DeviceInfoKey,
+    own: std::sync::Mutex<std::collections::BTreeMap<VaultId, OwnSeq>>,
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -197,7 +405,31 @@ impl KeyedCrypto {
             checkpoint: ak.checkpoint_key().map_err(|_| WireError::Crypto)?,
             folder: ak.folder_mac_key().map_err(|_| WireError::Crypto)?,
             device: ak.device_info_key().map_err(|_| WireError::Crypto)?,
+            own: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         })
+    }
+}
+
+#[cfg(any(test, feature = "test-util"))]
+impl OwnLogState for KeyedCrypto {
+    fn own_seq(&self, vault: VaultId) -> Result<OwnSeq, WireError> {
+        let map = self.own.lock().map_err(|_| WireError::Crypto)?;
+        Ok(map.get(&vault).copied().unwrap_or_default())
+    }
+
+    fn reserve_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError> {
+        let mut map = self.own.lock().map_err(|_| WireError::Crypto)?;
+        let e = map.entry(vault).or_default();
+        e.reserved = e.reserved.max(through);
+        Ok(())
+    }
+
+    fn confirm_own_seq(&self, vault: VaultId, through: u64) -> Result<(), WireError> {
+        let mut map = self.own.lock().map_err(|_| WireError::Crypto)?;
+        let e = map.entry(vault).or_default();
+        e.reserved = e.reserved.max(through);
+        e.written = e.written.max(through);
+        Ok(())
     }
 }
 
@@ -482,6 +714,58 @@ mod tests {
         assert_eq!(
             DeviceInfo::open(&sealed, install, &other),
             Err(WireError::Crypto)
+        );
+    }
+
+    /// A crypto provider over a shared handle computes what the session
+    /// computes, and fails closed once the session locks: the keys are
+    /// derived per operation, so none outlives the session.
+    #[test]
+    fn session_crypto_fails_closed_when_the_session_locks() {
+        use std::sync::{Arc, Mutex};
+
+        let (session, _) = sessions();
+        let expected = session
+            .folder_mac(FolderMacPurpose::Segment, b"msg")
+            .unwrap();
+        let handle = Arc::new(Mutex::new(Some(session)));
+        let crypto = SessionCrypto::new(Arc::clone(&handle)).unwrap();
+        assert_eq!(
+            crypto.folder_mac(FolderMacPurpose::Segment, b"msg"),
+            Ok(expected)
+        );
+        let vault = VaultId::new_v7().unwrap();
+        crypto.reserve_own_seq(vault, 3).unwrap();
+        assert_eq!(crypto.own_seq(vault).unwrap().reserved, 3);
+        assert!(format!("{crypto:?}").contains("[REDACTED]"));
+
+        // Lock: the session leaves the handle.
+        let locked = handle.lock().unwrap().take();
+        assert_eq!(
+            crypto.folder_mac(FolderMacPurpose::Segment, b"msg"),
+            Err(WireError::Locked)
+        );
+        assert_eq!(
+            crypto.verify_folder_mac(FolderMacPurpose::Segment, b"msg", &expected),
+            Err(WireError::Locked)
+        );
+        assert_eq!(crypto.seal_device_info(&[0; 8]), Err(WireError::Locked));
+        assert_eq!(crypto.own_seq(vault), Err(WireError::Locked));
+        assert_eq!(crypto.reserve_own_seq(vault, 4), Err(WireError::Locked));
+        assert!(SessionCrypto::new(Arc::clone(&handle)).is_err());
+
+        // Another account's session in the handle is not this crypto's.
+        let (_, other) = sessions();
+        *handle.lock().unwrap() = Some(other);
+        assert_eq!(
+            crypto.folder_mac(FolderMacPurpose::Segment, b"msg"),
+            Err(WireError::Locked)
+        );
+        // The same session again works.
+        *handle.lock().unwrap() = locked;
+        assert_eq!(
+            crypto.folder_mac(FolderMacPurpose::Segment, b"msg"),
+            Ok(expected)
         );
     }
 

@@ -5,7 +5,10 @@
 //! joining an account and changing the master password.
 //!
 //! Keys never leave the session: `mosaic-sync` builds the byte formats and
-//! asks the session for MACs and seals.
+//! asks the session for MACs and seals, one operation at a time. The
+//! accessors at the end persist the engine's own state (own sequence
+//! numbers, halt, peer checkpoints, lag timers, key observations,
+//! delete-marker times; schema v4).
 
 use mosaic_core::sync_auth::{self, FolderMacPurpose};
 use mosaic_core::{
@@ -20,7 +23,8 @@ use super::{
     UnlockedSession, reseal_below_current,
 };
 use crate::storage::{
-    AttachmentInfo, Error as StorageError, KeyOrigin, RecordEntry, SyncConfig, VaultKeyWrap,
+    AttachmentInfo, EngineState, Error as StorageError, KeyOrigin, MarkerStamp, OwnSeq,
+    PeerCheckpoint, RecordEntry, SyncConfig, SyncHalt, VaultKeyWrap,
 };
 
 /// What a vault still has to send to the backend.
@@ -250,6 +254,33 @@ impl LockedSession {
                 error,
             }),
         }
+    }
+
+    /// Whether `mac` is the folder MAC of `msg` for `purpose` under the account
+    /// key that `wrapped_ak` holds when opened with the derived keys. Nothing
+    /// is stored and the key is dropped at once: a joining device checks a
+    /// candidate account file (CRYPTO_SPEC §10.1) before it commits to it.
+    ///
+    /// # Errors
+    /// [`Error::UnlockFailed`] if `wrapped_ak` does not open under the keys;
+    /// [`Error::Core`].
+    pub fn verify_join_folder_mac(
+        &self,
+        wrapped_ak: &WrappedKey,
+        keys: &JoinKeys,
+        purpose: FolderMacPurpose,
+        msg: &[u8],
+        mac: &[u8; 32],
+    ) -> Result<bool> {
+        let ak = wrapped_ak
+            .unwrap_account_key(
+                &keys.keys.kek,
+                &keys.params.account_id,
+                &UnlockMethod::Password,
+            )
+            .map_err(unlock_error)?;
+        let folder = ak.folder_mac_key()?;
+        Ok(sync_auth::verify_folder_mac(&folder, purpose, msg, mac)?)
     }
 
     /// The backend choice stored with this account, if sync is set up.
@@ -676,6 +707,15 @@ impl UnlockedSession {
         })
     }
 
+    /// The size of the stored ciphertext of an attachment (`None` if this
+    /// store has none).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn attachment_ciphertext_len(&self, id: AttachmentId) -> Result<Option<u64>> {
+        Ok(self.store.attachment_info(&id)?.map(|i| i.size))
+    }
+
     /// The stored ciphertext of an attachment, for upload.
     ///
     /// # Errors
@@ -687,10 +727,12 @@ impl UnlockedSession {
 
     /// Stores an attachment ciphertext downloaded from the backend, not
     /// queued for upload. An item of `vault` (live or in the trash) must
-    /// refer to `id`.
+    /// refer to `id`, and the bytes must authenticate under that item's file
+    /// key (every chunk is opened before anything is stored).
     ///
     /// # Errors
     /// [`Error::UnknownAttachmentReference`], [`Error::UnknownVault`],
+    /// [`Error::Core`] for bytes that do not authenticate,
     /// [`Error::Store`] (`AttachmentMalformed`, `AttachmentExists`,
     /// `AttachmentsUnavailable`).
     pub fn store_remote_attachment(
@@ -700,13 +742,48 @@ impl UnlockedSession {
         id: AttachmentId,
         ct: &[u8],
     ) -> Result<()> {
-        let referenced = self.vault(vault)?.items.get(&item).is_some_and(|i| {
-            !i.is_deleted() && i.attachments().iter().any(|a| a.attachment_id == id)
-        });
-        if !referenced {
-            return Err(Error::UnknownAttachmentReference);
-        }
+        self.authenticate_remote_attachment(vault, item, id, ct)?;
         Ok(self.store.put_attachment(&vault, &item, &id, ct, false)?)
+    }
+
+    /// Opens every chunk of a downloaded attachment with the file key of the
+    /// referencing item (CRYPTO_SPEC §7.3): the bytes are the attachment
+    /// only if they authenticate.
+    fn authenticate_remote_attachment(
+        &self,
+        vault: VaultId,
+        item: ItemId,
+        id: AttachmentId,
+        ct: &[u8],
+    ) -> Result<()> {
+        let reference = self
+            .vault(vault)?
+            .items
+            .get(&item)
+            .filter(|i| !i.is_deleted())
+            .and_then(|i| i.attachments().into_iter().find(|a| a.attachment_id == id))
+            .ok_or(Error::UnknownAttachmentReference)?;
+        mosaic_core::open_attachment(&reference.key, &vault, &item, &id, ct)?;
+        Ok(())
+    }
+
+    /// Whether `ct` is the authentic ciphertext of an attachment an item
+    /// refers to (it opens under the item's file key).
+    ///
+    /// # Errors
+    /// [`Error::UnknownAttachmentReference`], [`Error::UnknownVault`].
+    pub fn remote_attachment_authentic(
+        &self,
+        vault: VaultId,
+        item: ItemId,
+        id: AttachmentId,
+        ct: &[u8],
+    ) -> Result<bool> {
+        match self.authenticate_remote_attachment(vault, item, id, ct) {
+            Ok(()) => Ok(true),
+            Err(Error::Core(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// Attachments waiting for upload, oldest first.
@@ -741,6 +818,202 @@ impl UnlockedSession {
     /// [`Error::Store`].
     pub fn mark_attachment_deletion_sent(&mut self, id: AttachmentId) -> Result<()> {
         Ok(self.store.mark_attachment_deletion_sent(&id)?)
+    }
+
+    // ---- Persisted engine state (schema v4) -------------------------------
+
+    /// This install's own sequence numbers in the vault's folder log.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn own_seq(&self, vault: VaultId) -> Result<OwnSeq> {
+        Ok(self.store.own_seq(&vault)?)
+    }
+
+    /// Persists that sequence numbers up to `through` may be used, before
+    /// the segment is written.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn reserve_own_seq(&mut self, vault: VaultId, through: u64) -> Result<()> {
+        Ok(self.store.reserve_own_seq(&vault, through)?)
+    }
+
+    /// Persists that the segment with sequence number `through` was written.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn confirm_own_seq(&mut self, vault: VaultId, through: u64) -> Result<()> {
+        Ok(self.store.confirm_own_seq(&vault, through)?)
+    }
+
+    /// The engine's persisted halt, last published counter and strikes.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn sync_engine_state(&self) -> Result<EngineState> {
+        Ok(self.store.engine_state()?)
+    }
+
+    /// Stops automatic sync until [`Self::clear_sync_halt`] (the first reason
+    /// stays).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_sync_halt(&mut self, halt: SyncHalt) -> Result<()> {
+        Ok(self.store.set_sync_halt(halt)?)
+    }
+
+    /// The user's acknowledgement of a halt (the desktop asks first): the
+    /// halt and the strikes are cleared, and the own logs count as unchecked
+    /// until written again. Reserved sequence numbers stay, so none is
+    /// reused.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn clear_sync_halt(&mut self) -> Result<()> {
+        Ok(self.store.clear_sync_halt()?)
+    }
+
+    /// Persists the counter of the checkpoint the backend accepted.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_last_published_counter(&mut self, counter: u64) -> Result<()> {
+        Ok(self.store.set_last_published_counter(counter)?)
+    }
+
+    /// Persists the checkpoint strikes.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_checkpoint_strikes(
+        &mut self,
+        count: u32,
+        first_ms: Option<u64>,
+        at_counter: Option<u64>,
+    ) -> Result<()> {
+        Ok(self
+            .store
+            .set_checkpoint_strikes(count, first_ms, at_counter)?)
+    }
+
+    /// The newest verified checkpoint of every other device.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn peer_checkpoints(&self) -> Result<Vec<PeerCheckpoint>> {
+        Ok(self.store.peer_checkpoints()?)
+    }
+
+    /// Stores a verified checkpoint of another device unless one with an
+    /// equal or higher counter is stored. Returns whether it was stored.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn put_peer_checkpoint(&mut self, checkpoint: &PeerCheckpoint) -> Result<bool> {
+        Ok(self.store.put_peer_checkpoint(checkpoint)?)
+    }
+
+    /// Since when each `(device, vault)` pair has lagged.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn sync_lag(&self) -> Result<Vec<(InstallId, VaultId, u64)>> {
+        Ok(self.store.sync_lag()?)
+    }
+
+    /// Replaces the lag timers.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_sync_lag(&mut self, lag: &[(InstallId, VaultId, u64)]) -> Result<()> {
+        Ok(self.store.set_sync_lag(lag)?)
+    }
+
+    /// Notes that `wrapped` was seen as the key of `generation`, written by
+    /// `device` (the lowest device seen for those bytes is kept).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn note_key_observation(
+        &mut self,
+        vault: VaultId,
+        generation: KeyGeneration,
+        wrapped: &WrappedKey,
+        device: InstallId,
+    ) -> Result<()> {
+        Ok(self
+            .store
+            .note_key_observation(&vault, generation, wrapped, &device)?)
+    }
+
+    /// Every key seen for the generation with the lowest device that wrote
+    /// exactly those bytes.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn key_observations(
+        &self,
+        vault: VaultId,
+        generation: KeyGeneration,
+    ) -> Result<Vec<(InstallId, WrappedKey)>> {
+        Ok(self.store.key_observations(&vault, generation)?)
+    }
+
+    /// Whether a key other than the held one was seen for `generation` of
+    /// the vault (a concurrent rotation).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn has_key_conflict(&self, vault: VaultId, generation: KeyGeneration) -> Result<bool> {
+        Ok(self.store.has_key_conflict(&vault, generation)?)
+    }
+
+    /// Whether any vault has a key conflict at its current generation.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn has_any_unresolved_key_conflict(&self) -> Result<bool> {
+        Ok(self.store.has_any_unresolved_key_conflict()?)
+    }
+
+    /// Forgets the keys seen for generations below the vault's current one.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn prune_key_observations(&mut self, vault: VaultId) -> Result<()> {
+        Ok(self.store.prune_key_observations(&vault)?)
+    }
+
+    /// When this device first saw each delete marker of the vault, by its own
+    /// clock, in the order of `markers`. Markers that are gone are forgotten.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn marker_first_seen(
+        &mut self,
+        vault: VaultId,
+        markers: &[MarkerStamp],
+        now: u64,
+    ) -> Result<Vec<u64>> {
+        Ok(self.store.marker_first_seen(&vault, markers, now)?)
+    }
+
+    /// Whether this device deleted the vault itself.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn vault_deleted_locally(&self, vault: VaultId) -> Result<bool> {
+        Ok(self.store.vault_deleted_locally(&vault)?)
+    }
+
+    /// Every vault ID this store holds (any protection).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn all_vault_ids(&self) -> Result<Vec<VaultId>> {
+        Ok(self.store.all_vault_ids()?)
     }
 
     /// The public values a joining device needs: the account parameters and

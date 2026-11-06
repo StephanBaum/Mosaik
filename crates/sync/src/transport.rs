@@ -19,6 +19,8 @@ use mosaic_core::{
 };
 use mosaic_vault::storage::RecordBody;
 
+use crate::wire::segment::SegmentObject;
+
 /// Which kind of backend a transport talks to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportKind {
@@ -95,8 +97,10 @@ pub struct PullUnit {
 pub struct PullPage {
     /// Wrapped keys, in the order the backend lists them.
     pub keys: Vec<PulledKey>,
-    /// The vault metadata, if it changed.
-    pub meta: Option<PulledMeta>,
+    /// Vault metadata objects, in the order the backend lists them (the
+    /// hosted backend sends at most one; a folder page can hold one per
+    /// segment, and the engine merges them).
+    pub metas: Vec<PulledMeta>,
     /// Records, oldest first.
     pub records: Vec<PulledRecord>,
     /// The cursor after the whole page.
@@ -248,6 +252,55 @@ pub enum TransportError {
     /// A local or network I/O failure.
     #[error("I/O error")]
     Io,
+    /// The session is locked, so the transport has no keys (the folder
+    /// transport derives them per operation from the session). The engine
+    /// reports it as `SyncError::Locked`.
+    #[error("session locked")]
+    Locked,
+}
+
+/// What a transport may ask the engine for while it maintains its storage
+/// ([`Transport::maintain`]). The engine answers each call with a short
+/// session step, so the session lock is never held across a transport call.
+pub trait MaintainContext {
+    /// The current time (ms since the Unix epoch).
+    fn now_ms(&self) -> u64;
+
+    /// The writer's current state of `vault` as segment objects: its current
+    /// key, its metadata, every readable item at the current generation, then
+    /// every tombstone (a snapshot, CRYPTO_SPEC §10.1).
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked or the store fails.
+    fn snapshot_objects(&mut self, vault: VaultId) -> Result<Vec<SegmentObject>, TransportError>;
+
+    /// Whether an item of a synced vault, live or in the trash, refers to the
+    /// attachment.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked.
+    fn attachment_referenced(&mut self, id: AttachmentId) -> Result<bool, TransportError>;
+
+    /// Whether this sync run saw no other device behind or missing files, no
+    /// unresolved key conflict and no object it could not explain. Purging
+    /// data other devices might still need waits for it.
+    fn caught_up(&self) -> bool;
+
+    /// When this device first saw each delete marker of `vault`, by its own
+    /// clock, in the order of `markers`; a marker seen for the first time (or
+    /// with another stamp) is first seen `now`. Markers not listed are
+    /// forgotten. A marker's age counts from this time, never from the
+    /// wall-clock time inside the marker, which anyone with the account key
+    /// (or a device with a skewed clock) could set.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked or the store fails.
+    fn marker_first_seen(
+        &mut self,
+        vault: VaultId,
+        markers: &[mosaic_vault::storage::MarkerStamp],
+        now: u64,
+    ) -> Result<Vec<u64>, TransportError>;
 }
 
 /// A sync backend. See the [module documentation](self).
@@ -335,6 +388,22 @@ pub trait Transport: Send {
         ciphertext: &[u8],
     ) -> Result<(), TransportError>;
 
+    /// Replaces an attachment ciphertext that does not authenticate with the
+    /// holder's authentic local copy. The default is [`Transport::put_attachment`];
+    /// the folder (blobs are write-once) overwrites through a temp file and a
+    /// rename, the one exception to the write-once rule (CRYPTO_SPEC §10.1).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        self.put_attachment(vault, id, ciphertext)
+    }
+
     /// Downloads an attachment ciphertext, `None` if the backend has none.
     ///
     /// # Errors
@@ -395,6 +464,49 @@ pub trait Transport: Send {
     /// # Errors
     /// [`TransportError`].
     fn devices(&mut self) -> Result<Vec<RemoteDevice>, TransportError>;
+
+    /// The `high_seq` of this device's checkpoint entry for `vault`: the
+    /// hosted default reads the 8-byte big-endian server sequence of the
+    /// device's `cursor`; the folder answers the highest segment sequence
+    /// this device wrote for the vault (0 if none).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn checkpoint_high_seq(
+        &mut self,
+        vault: VaultId,
+        cursor: &Cursor,
+    ) -> Result<u64, TransportError> {
+        let _ = vault;
+        match <[u8; 8]>::try_from(cursor.0.as_slice()) {
+            Ok(bytes) => Ok(u64::from_be_bytes(bytes)),
+            Err(_) if cursor.0.is_empty() => Ok(0),
+            Err(_) => Err(TransportError::Protocol),
+        }
+    }
+
+    /// Whether this install's own log of any of `vaults` lost segments it
+    /// wrote (a folder that was rolled back or had files deleted): `true`
+    /// means so. The engine then halts before it pushes anything. The default
+    /// (hosted) is `false`.
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {
+        let _ = vaults;
+        Ok(false)
+    }
+
+    /// Housekeeping after a sync run: the folder compacts its own log and
+    /// removes stale temp and conflict files and expired blobs. The default
+    /// does nothing.
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn maintain(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {
+        let _ = cx;
+        Ok(())
+    }
 
     /// Waits until the backend differs from `since` (or `timeout` passes)
     /// and returns the token to pass next time.
