@@ -12,7 +12,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
-| M5 Passkeys | 🔄 in progress (T1 authenticator, T2 desktop) |
+| M5 Passkeys | 🔄 in progress (T1–T3) |
 | M6 Sync server | — |
 | M7 Rotation | — |
 | M8 CLI | — |
@@ -1661,6 +1661,55 @@ CXF export (T4) follow.
   passkey's public fields without copying its key (`crates/core` was out of scope for this
   track); until then `Item::passkey()` copies the key (zeroizing) for each passkey item that is
   listed or planned. CRYPTO_SPEC §16 still names ADR-0040 as normative (it lands with T3).
+
+## M5 Passkeys — T3 browser interception (2026-11-06)
+
+Track T3 of the M5 plan (ADR-0040, `EXTENSION_SECURITY.md` §11): the opt-in passkey shim and
+bridge, the background service, the popup switch and the hostile-page suite. Extension and docs
+only; no Rust.
+
+- **Scripts** (`apps/extension/src/passkey/`): `main-world.ts` (+ `serialize.ts`, `credential.ts`;
+  entry `main-entry.ts` → `passkey-main.js`, main world) replaces `CredentialsContainer.prototype.create`
+  and `.get` with the same descriptor, takes every global it uses at load time, and falls back to the
+  saved native method with the page's original arguments and `this`; `bridge.ts` (entry
+  `bridge-entry.ts` → `passkey-bridge.js`, isolated world) listens only to its own window, takes the
+  exact message shapes, 2 requests in flight, focus and visibility, and sends the origin it reads from
+  `window.origin`. Both are registered at `document_start`, top frame only, after the opt-in
+  (`passkey-registry.ts`); `vite.passkey.config.ts` builds both (a nested build for the bridge),
+  added to every `build:*` script.
+- **Background**: `passkey.ts` (`PasskeyService`): sender rules (frame 0, tab, https, sender origin =
+  bridge origin = tab origin), `requestId` from `crypto.getRandomValues`, map by
+  `tab:document:pageRequestId`, the error mapping of spec §5.2, `passkeyCancel` on abort, tab
+  removed, replaced or navigated; `router.ts` routes the two passkey messages from content senders
+  (10 a second per tab) and answers through `sendResponse`; `native.ts` waits 305 s for
+  `passkeyCreate` and `passkeyGet`, and `passkeyCancel` is not held back by the in-flight cap.
+  Shared: `passkey-messages.ts` (strict validators), `passkey-limits.ts`, `b64url.ts`.
+- **Popup**: More-menu switch "Use Mosaic for passkeys" (`setPasskeys`, `PopupState.passkeys`),
+  DE and EN strings; the site access is shared with "Offer to save logins" and is given back only
+  when neither is on.
+- **E2E**: `e2e-passkey.ts` (fake `passkeyCreate`/`Get`/`Cancel`, fake rp ID rule labelled as a
+  fake), `test/webauthn/authenticator.ts` (WebCrypto P-256 signer, checked by the independent
+  verifier in `authenticator.test.ts`), hooks `setPasskeys`, `passkeyDecide`, `passkeyLog`,
+  `passkeyPending`; the hostile-site server gets `/passkey/rp.html`, `/passkey/challenge` (single
+  use) and `/passkey/verify` (the verifier is injected by the fixtures). `check-dist.mjs` checks
+  both scripts are shipped, not in the manifest, check `event.source`, use no extension API but
+  `runtime.sendMessage`, and that the new test hooks are absent.
+- **Docs**: `EXTENSION_SECURITY.md` v4 with §11 "Passkeys" (trust analysis and attack → mitigation →
+  test), ADR-0040 (proposed; includes the stricter rp ID rule from the T1 review), THREAT_MODEL §4.3
+  row and R47, NATIVE_MESSAGING extension-side note.
+- **Tests**: Vitest extension project 636 passed (new: `main-world.test.ts`, `bridge.test.ts`,
+  `passkey.test.ts` 44, `authenticator.test.ts`, `b64url.test.ts`, router and popup additions);
+  packages project 3926 passed; Playwright: the 17 `e2e/hostile/passkey-*.spec.ts` tests and
+  `e2e/passkeys.spec.ts` (3), full extension suite 102 passed (Chromium, e2e build).
+- **Beyond the spec** (each in ADR-0040): a bridge acknowledgement (`mosaic-passkey-ack`) with a 1 s
+  fallback, so a registered shim without a bridge cannot hang a page; requests with the PRF or
+  large-blob extension go to the browser; the entries are `main-entry.ts`/`bridge-entry.ts` so
+  `main-world.ts`/`bridge.ts` can be tested without side effects.
+- **Not verified / open**: Firefox (MAIN-world registration from 128 is from the documentation;
+  Playwright cannot load Firefox extensions); the real host and desktop end to end with a browser
+  (the suite uses the fake desktop; the Rust side is T2's `browser_tests.rs`); the
+  extension-attacker pass and the ux-reviewer pass of the popup switch are still due; the shim
+  does not mimic native `toString` (a page can see it is replaced, R47).
 
 ## Open risks / findings
 

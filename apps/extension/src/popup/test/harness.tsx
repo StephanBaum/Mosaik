@@ -81,6 +81,7 @@ export const baseState = (over: Partial<PopupState> = {}): PopupState => ({
   nextOtp: null,
   lastError: null,
   saveOffers: false,
+  passkeys: false,
   generatorFill: false,
   ...over,
 });

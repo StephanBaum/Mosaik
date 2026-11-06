@@ -4,7 +4,6 @@
  * the cases the hostile pages need: exact-origin string equality and the HTTP rule. Its log
  * holds ops and origins, never a credential.
  */
-import type { WireErrorCode } from "../shared/errors.ts";
 import { hostOf } from "../shared/origin.ts";
 import type {
   DesktopState,
@@ -16,6 +15,7 @@ import type {
   SearchHit,
 } from "../shared/protocol.ts";
 import { isOp, isRequestBody } from "../shared/validate.ts";
+import { FakePasskeys, Failure } from "./e2e-passkey.ts";
 import type { NativePort } from "./native.ts";
 
 export interface E2EItem {
@@ -66,21 +66,14 @@ export const defaultConfig = (): E2EConfig => ({
 
 type Body = Record<string, unknown>;
 
-class Failure extends Error {
-  readonly code: WireErrorCode;
-
-  constructor(code: WireErrorCode) {
-    super(code);
-    this.code = code;
-  }
-}
-
 const insecure = (origin: string): boolean => origin.startsWith("http:");
 
 export class FakeDesktop {
   config: E2EConfig = defaultConfig();
   readonly log: LogEntry[] = [];
   readonly proposals: SaveProposal[] = [];
+  /** The passkey half: dialog decisions, the request log and the credentials it made. */
+  readonly passkeys = new FakePasskeys();
   #generated = 0;
 
   /** A port the `NativeClient` can use in place of `connectNative`. */
@@ -97,16 +90,26 @@ export class FakeDesktop {
     return {
       postMessage: (raw) => {
         const request = raw as { id: number; op: string; body: unknown };
+        const succeed = (body: unknown): void => {
+          if (request.op === "hello") {
+            authenticated = (body as ResultMap["hello"]).paired;
+          }
+          reply({ v: 1, id: request.id, ok: true, body });
+        };
+        const fail = (error: unknown): void => {
+          reply({ v: 1, id: request.id, ok: false, error: error instanceof Failure ? error.code : "internal" });
+        };
+        // A passkey op waits for the test to decide in the pretend dialog, so its answer is a promise.
         const respond = (outcome: () => unknown): void => {
           try {
             const body = outcome();
-            if (request.op === "hello") {
-              authenticated = (body as ResultMap["hello"]).paired;
+            if (body instanceof Promise) {
+              body.then(succeed, fail);
+            } else {
+              succeed(body);
             }
-            reply({ v: 1, id: request.id, ok: true, body });
           } catch (error) {
-            const code = error instanceof Failure ? error.code : "internal";
-            reply({ v: 1, id: request.id, ok: false, error: code });
+            fail(error);
           }
         };
         respond(() => this.#handle(request, authenticated, reply));
@@ -182,6 +185,13 @@ export class FakeDesktop {
 
   #authenticated(op: Exclude<keyof RequestMap, "hello" | "pair" | "status" | "focus">, body: Body): unknown {
     switch (op) {
+      case "passkeyCreate":
+        return this.passkeys.create(body as unknown as RequestMap["passkeyCreate"]);
+      case "passkeyGet":
+        return this.passkeys.get(body as unknown as RequestMap["passkeyGet"]);
+      case "passkeyCancel":
+        this.passkeys.cancel((body as unknown as RequestMap["passkeyCancel"]).requestId);
+        return {};
       case "listForOrigin":
         return this.#list(body["origin"] as string);
       case "search":

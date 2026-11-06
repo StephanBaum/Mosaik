@@ -1,8 +1,10 @@
 # Extension security
 
-Status: v3 (M4 close). §10 maps every item of brief §4 to its mitigation and test. Normative
-companions: `THREAT_MODEL.md` §4.3, `NATIVE_MESSAGING.md`, ADR-0035 (architecture and gestures),
-ADR-0036 (channel) and ADR-0037 (fill policy).
+Status: v4 (M5 track T3: the opt-in passkey interception, §11, on top of v3 from the M4
+close, whose §10 maps every item of brief §4 to its mitigation and test). Normative
+companions: `THREAT_MODEL.md` §4.3, `NATIVE_MESSAGING.md`, ADR-0035 (architecture and
+gestures), ADR-0036 (channel), ADR-0037 (fill policy), ADR-0038 (save prompts) and ADR-0040
+(passkeys).
 
 The extension is the highest-risk part of Mosaic: it runs next to hostile pages. It holds no
 vault, no master password and no key of the vault. It sees a credential only when the user asks
@@ -43,7 +45,7 @@ extension`; `e2e/hostile/*.spec.ts` run in Chromium with the e2e build, see §7)
 | Another installed extension: `runtime.sendMessage` and `runtime.connect` (as `popup` and other names) to Mosaic, a fill-shaped `tabs.sendMessage` to the tab, reading Mosaic's content-script state | `externally_connectable: {ids: []}` and no external listeners: refused and disconnected; `tabs.sendMessage` reaches only the sender's own content scripts; each extension has its own isolated world | `e2e/hostile/other-extension.spec.ts` (with `test/evil-extension/`) |
 | A page reads the extension's files or pages | No `web_accessible_resources`; `externally_connectable: {ids: []}` | `scripts/manifest.test.ts`, `e2e/hostile/spoof-messages.spec.ts` |
 | A framework ignores a programmatic value (React, Vue) | The value is set with the DOM's own setter from the isolated world, then `input` (composed `InputEvent`) and `change` fire | `src/content/fill.test.ts`, `e2e/hostile/react-controlled.spec.ts` |
-| Test code in the shipped package | `excludeE2e` replaces `src/background/e2e.ts` outside `--mode e2e`; `check-dist.mjs` fails the build on `mosaicE2E`, `e2eTabId`, `FakeDesktop`, `pauseAfterProbe`, external listeners, `setAccessLevel` (content scripts keep no access to `storage.session`, where pending saves wait), `host_permissions`, `content_scripts`, `web_accessible_resources`, `optional_permissions`, `key`, a changed permission or optional-host list, or an `externally_connectable` other than `{ids: []}` (Chromium) / absent (Firefox) | `scripts/check-dist.mjs`, `scripts/manifest.test.ts` |
+| Test code in the shipped package | `excludeE2e` replaces `src/background/e2e.ts` outside `--mode e2e`; `check-dist.mjs` fails the build on `mosaicE2E`, `e2eTabId`, `FakeDesktop`, `FakePasskeys`, `passkeyDecide`, `passkeyPending`, `pauseAfterProbe`, external listeners, `setAccessLevel` (content scripts keep no access to `storage.session`, where pending saves wait), `host_permissions`, `content_scripts`, `web_accessible_resources`, `optional_permissions`, `key`, a changed permission or optional-host list, or an `externally_connectable` other than `{ids: []}` (Chromium) / absent (Firefox) | `scripts/check-dist.mjs`, `scripts/manifest.test.ts` |
 | Save capture (opt-in) reads what the user types, or a page makes it report a login | Off by default. On: the popup asks for the optional site access in the click, the background registers `capture.js` (never in the manifest; `check-dist.mjs` fails if `content_scripts` exist). The script reacts to trusted clicks on submit controls and the Enter key, not to `submit` (a script's `requestSubmit()` raises a trusted `submit`), reads only the submitted form, at most once per 2 s, and listens to no page message (`check-dist.mjs` greps for it). Origin and tab come from the browser; cross-origin, opaque and hidden-ancestry frames are dropped | `src/capture/capture.test.ts`, `src/background/save.test.ts`, `e2e/save.spec.ts` |
 | Clickjacking the capture: a same-origin frame holding a login the page filled in, laid invisibly (`opacity: 0`, `filter: opacity(0)`) over a harmless button, so the user's real click submits it. Found by the T4 attacker pass: the script checked only that the ancestors were same-origin, not that the frame was visible | The script reports only when `mayReport` holds: the top document, or a frame whose ancestors all have its origin and whose `<iframe>` elements all pass `isFillable` in their parents (`frameAncestry().frameVisible`), checked in the click handler | `e2e/hostile/capture-frames.spec.ts`, `src/capture/capture.test.ts` |
 | A login submitted in an opaque document with the site's URL: a page served with `Content-Security-Policy: sandbox`, the site's page in a sandboxed frame | Chromium's `sender.origin` is `"null"` there and the background drops it; the script itself also refuses when `window.origin` is `"null"` or differs from `location.origin`, for browsers that give the background only the URL (Firefox) | `e2e/hostile/capture-frames.spec.ts`, `src/capture/capture.test.ts` |
@@ -57,6 +59,7 @@ extension`; `e2e/hostile/*.spec.ts` run in Chromium with the e2e build, see §7)
 | The popup's generated password filled into another tab or site, or a different password than the one shown | The hold is bound to the tab and origin, is taken once, and the popup's Fill requires it (`generatedExpired` otherwise, never a new password); "this site" generation takes the host and the page's rules from the tab, not from the popup | `src/background/fill.test.ts`, `src/background/popup.test.ts`, `e2e/generator.spec.ts` |
 | The popup shows a vault password or a code | It never does: lists hold titles and user names, a fill or copy goes through the desktop, a code is filled or copied there, the save card hides the password, and the only secret on screen is the generated password (`data-secret`) | `src/popup/logins.test.tsx`, `src/popup/save-generator.test.tsx`, `e2e/popup.spec.ts` |
 | Inline UI or page-visible traces from the popup or capture | None: nothing is inserted into pages; the popup is an extension page under the extension CSP (no inline script or style: `src/popup/strings.test.ts` checks styles use tokens and no `style=`) | `scripts/check-dist.mjs`, `src/popup/strings.test.ts` |
+| Passkey interception (opt-in): a page tampers with the shim, forges its messages, asks for another site's passkey, or uses a frame | See §10: the shim is page-controlled and not trusted; origin and frame come from `MessageSender` and the bridge's `window.origin`, the desktop checks the rp ID and shows a dialog for each use | `e2e/hostile/passkey-*.spec.ts`, `src/background/passkey.test.ts`, `src/passkey/*.test.ts` |
 | Malformed or hostile replies from the host | Every message is validated with exact keys and the fixture samples of the Rust side; unknown keys, versions and events are dropped | `src/shared/protocol.test.ts` |
 
 ## 2. Gestures and the fill
@@ -83,14 +86,18 @@ submitted. A failed shortcut or menu fill is shown as the toolbar badge `!`, the
   extension id, with `sender.url` equal to our `popup.html` and no `sender.tab`
   (`router.ts`). Each message is validated with exact keys; anything else is dropped without a
   reply.
-- The single message a content script may send is `captured` (from `capture.js`), from our id
-  with a tab, with exactly the keys `type`, `username`, `password`, `newPassword` and
+- The messages a content script may send are `captured` (from `capture.js`), from our id with a
+  tab, with exactly the keys `type`, `username`, `password`, `newPassword` and
   `ancestorsSameOrigin` (a password of 1 to 1024 characters), at most 10 messages a second and
-  5 captures a minute per tab. Where the capture came from is read from the sender, never the
-  message.
+  5 captures a minute per tab, and, with passkeys on, the two passkey messages of the bridge
+  (`passkey`, `passkeyAbort`; exact keys and limits, §10), at most 10 messages a second per tab
+  in all. Where a capture or a passkey request came from is read from the sender, never the
+  message; a passkey request is answered through `sendResponse` and a request that is not
+  well-formed gets no answer.
 - The content script accepts `runtime` messages only from our background (`sender.id` equals our
-  id and no `sender.tab`) and validates them. It never listens to `message`, and the page
-  cannot reach `runtime` at all.
+  id and no `sender.tab`) and validates them. `content.js` and `capture.js` never listen to
+  `message`. Only the passkey bridge does (§10), and only for its own window
+  (`event.source === window`); the page cannot reach `runtime` at all.
 - No `onMessageExternal` or `onConnectExternal`; `externally_connectable` is `{ids: []}` on
   Chromium and absent on Firefox; no `web_accessible_resources`.
 
@@ -98,8 +105,9 @@ submitted. A failed shortcut or menu fill is shown as the toolbar badge `!`, the
 
 Production manifest (`scripts/manifest.ts`, enforced by `manifest.test.ts` and `check-dist.mjs`):
 `activeTab`, `scripting`, `nativeMessaging`, `contextMenus`, `storage`. `optional_host_permissions`
-(`https://*/*`, `http://*/*`) exist only for the opt-in save capture and are not granted
-by default. There are no `host_permissions` and no static `content_scripts`. The extension pages
+(`https://*/*`, `http://*/*`) exist only for the opt-in save capture and the opt-in passkey
+scripts (https only) and are not granted by default; the popup gives the access back when
+neither switch needs it. There are no `host_permissions` and no static `content_scripts`. The extension pages
 run under `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src
 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 
@@ -114,7 +122,7 @@ IndexedDB in the extension's origin, read by the background only: the pairing (`
 `K_pair`) and `neverSave:<origin>` (sites where saving is never offered). `chrome.storage.session`
 (memory): `lastFilled:<tabId>`, `lastError:<tabId>` (shown once), `pendingSave:<tabId>` (a captured
 or generated login, five minutes, with the password). Never
-`storage.local` or `storage.sync`. A secret leaves the desktop only inside a `fill` or
+`storage.local` or `storage.sync`. Passkey requests are kept nowhere: the worker holds only the IDs of the requests that are open (memory), and no passkey value, key or challenge is stored. A secret leaves the desktop only inside a `fill` or
 `generate` response and lives in locals of one call; JavaScript cannot wipe it (THREAT_MODEL R40).
 
 ## 6. Field detection
@@ -146,7 +154,11 @@ and `--ignore-certificate-errors`, and the hostile-site server
 `globalThis.mosaicE2E` in this build only: `reset` (the fake desktop's state), `log` (ops and
 origins, never a secret), `gesture` (runs the real shortcut, menu or popup handler on a tab),
 `popupState`, and a pause between probe and delivery. The fake desktop decides by exact origin
-string and the HTTP rule only; the real matching is `mosaic-origin` and is tested in Rust.
+string and the HTTP rule only; the real matching is `mosaic-origin` and is tested in Rust. For
+passkeys it also answers `passkeyCreate`, `passkeyGet` and `passkeyCancel` (§10.4): `passkeyDecide`,
+`passkeyLog`, `passkeyPending` and `setPasskeys` are the extra hooks, and the hostile-site server
+serves `/passkey/rp.html`, a single-use `/passkey/challenge` and `/passkey/verify` (the
+independent verifier). Run only the passkey specs with `playwright test e2e/hostile/passkey-`.
 Every page starts with a comment naming its attempts and records the values its scripts see
 arrive in `window.__mosaicLeaks`.
 
@@ -203,6 +215,12 @@ the impact stays within the page's own origin:
   injected or filled without a gesture all the same.
 - When the target is a frame of another site, the popup lists that frame's logins (titles and
   user names, never a secret) with every Fill disabled; only the user sees them.
+- With passkeys on, a page that is already open keeps its shim after the switch is turned off,
+  until it reloads; the background then answers a fallback to every request. A page can learn from
+  timing whether Mosaic holds a passkey for its own rp ID (R50), and can open a desktop dialog
+  for its own origin without a user gesture (the user can say no; one at a time, rate limited).
+- Firefox registers MAIN-world scripts from version 128 (documentation only, not covered by the
+  Playwright suite).
 - A page can stop fills on itself (for example `<img name="querySelectorAll">` or a focused field
   in a cross-origin ad frame); that is denial of service against itself, not a leak.
 
@@ -231,3 +249,111 @@ Verified only by hand (also listed in `docs/PROGRESS.md`):
   Firefox extensions).
 - The Windows registry install (`reg.exe`), and the Unix manifest paths on macOS and Linux.
 - Keyboard-only and screen-reader use of the popup (axe runs automatically in light and dark).
+
+## 11. Passkeys
+
+ADR-0040 (decision), ADR-0039 (authenticator), `NATIVE_MESSAGING.md` §5.2 (the ops),
+`THREAT_MODEL.md` §4.3 and R47, R50, R51. Off by default; the switch "Use Mosaic for passkeys"
+is in the popup's More menu.
+
+### 11.1 Trust analysis
+
+Two scripts exist only while the switch is on: `passkey-main.js` runs in the page's own
+JavaScript world and replaces `CredentialsContainer.prototype.create` and `.get`;
+`passkey-bridge.js` runs in the isolated world and is the only extension code that listens to
+page messages. Both are registered with `scripting.registerContentScripts` after the user granted
+the optional access to `https://*/*` (never in the manifest; `check-dist.mjs` fails if the
+manifest names them), at `document_start`, top frame only (`allFrames: false`).
+
+**The shim is not trusted.** It lives in the page's world: the page can replace it, route around
+it, read its messages and forge requests and answers. This is acceptable because everything the
+page can do through the shim it can already do with `navigator.credentials` for its **own**
+origin, and a forged answer only fools the page that forged it. The trust boundary is
+**bridge, background, desktop**:
+
+- **Origin and frame come from the browser.** The background takes the origin from
+  `MessageSender.origin` (Chromium) or the origin of `MessageSender.url` (Firefox); it must equal
+  the `window.origin` the bridge read in the isolated world (a view the page cannot redefine), be
+  https, and be the origin of the tab's current URL. Only `frameId` 0 is served. A cross-origin
+  child frame cannot post into the top window as `event.source === window`, and subframes get no
+  script at all.
+- **The request ID is made in the background** (16 random bytes as hex). The page's counter is
+  only a handle, stored with tab, document and frame, so one page cannot abort another's request.
+- **The desktop decides.** It checks the relying party ID with the public suffix list
+  (`webauthn_rp_id`: at or under the origin's registrable domain, ADR-0040), builds
+  `clientDataJSON` itself from the origin the browser reported, and shows a dialog for every
+  create and sign-in.
+- **Anything not handled goes to the browser's own WebAuthn**, with the page's original options
+  object and `this`: setting off, locked, not paired, no desktop, no matching passkey, unsupported
+  options, "Use another device", a request the desktop's rate windows refuse (`rateLimited`: the
+  windows belong to the pairing, so one site could spend them for every other), a page that is
+  not focused and visible, and a bridge that does not answer within 1 s. In the last case the shim
+  also posts `mosaic-passkey-abort`, so a bridge that was only late closes the desktop dialog it
+  may already have asked for.
+- **A request is held from the moment it arrives.** The background enters it under
+  `tab:document:pageRequestId` before it checks the tab and the link; an abort, a navigation or a
+  closed tab that comes meanwhile marks it, and the desktop is then never asked.
+
+The bridge listens only to its own window (`event.source === window`), accepts only the shim's
+exact message shapes within the shared limits (`src/shared/passkey-limits.ts`), keeps at most 2
+requests per page in flight, and sends the background `{kind: "passkey", op, pageRequestId,
+origin, options}` or `{kind: "passkeyAbort", pageRequestId}`. The router takes them only from our
+content scripts (a tab, our id), at most 10 messages a second per tab.
+
+### 11.2 Attack, mitigation, test
+
+| Attack | Mitigation | Test |
+|---|---|---|
+| A page asks for a passkey of another site (`rpId: "bank.test"` on `evil.test`) | The desktop is told the browser's origin and checks the rp ID in Rust; `rpIdMismatch` is a fallback, the browser's own WebAuthn then throws `SecurityError`; no credential is made. (The fake desktop of the e2e build checks host equality or dot-suffix only, labelled as a fake; the PSL rule is tested in Rust.) | `e2e/hostile/passkey-rpid-spoof.spec.ts`, `browser_tests.rs` |
+| A page forges a shim request with an origin of its choice, or for another site's rp ID | An extra member (`origin`) is not the shim's shape and is dropped without a reply; a well-formed forgery reaches the desktop as the page's own origin and is refused or needs the user's click | `e2e/hostile/passkey-shim-tamper.spec.ts`, `src/passkey/bridge.test.ts` |
+| A page replaces `postMessage`, `addEventListener` or `create`/`get` before or after the shim | The shim takes the originals at `document_start`, before page scripts run; replacing `get` afterwards only reaches the page's own function and never the desktop | `e2e/hostile/passkey-shim-tamper.spec.ts` |
+| A page (or another tab) forges an abort or an answer for another request | Aborts and answers are scoped to the sender's tab, document and frame; the background looks a request up by `tab:document:pageRequestId` from the sender; a forged answer only settles the forging page's own promise | `e2e/hostile/passkey-shim-tamper.spec.ts`, `src/background/passkey.test.ts` |
+| A frame (same-origin or cross-origin) calls WebAuthn hoping Mosaic answers | No script in subframes; the background refuses `frameId` other than 0; the frame's call goes to the browser | `e2e/hostile/passkey-iframe.spec.ts`, `src/background/passkey.test.ts` |
+| An http page, an opaque origin, or a tab that moved to another site gets a passkey | Only https origins are served, the sender origin must equal the bridge's and the tab's current origin; navigation cancels the open request | `src/background/passkey.test.ts` |
+| A captured assertion is replayed at the relying party | The challenge is the relying party's single-use value; two sign-ins never share one; Mosaic builds `clientDataJSON` per request with the challenge it was given | `e2e/hostile/passkey-replay.spec.ts` |
+| A request the user cannot see (a background tab) opens a dialog | The bridge answers a fallback unless the document has focus and is visible | `src/passkey/bridge.test.ts` |
+| A flood of requests | 2 per page in the bridge, 2 per tab and 10 messages a second per tab in the background, 4 requests in flight (`passkeyCancel` excepted), and the desktop's own limits and one dialog at a time (`busy`) | `src/passkey/bridge.test.ts`, `src/background/router.test.ts`, `src/background/passkey.test.ts` |
+| The page aborts, or the tab goes away, with a dialog open | The shim sends `mosaic-passkey-abort`; the background sends `passkeyCancel` for exactly that request ID; a closed, replaced or navigating tab cancels its open requests | `e2e/hostile/passkey-excluded-abort.spec.ts`, `src/background/passkey.test.ts` |
+| Registration of a credential Mosaic already has | `excludeCredentials` that hit open an informing dialog and end with `InvalidStateError` | `e2e/hostile/passkey-excluded-abort.spec.ts` |
+| Mosaic breaks a site it cannot serve (conditional mediation, security keys, PRF) | These and any size beyond the limits are left to the browser, and "Use another device" is in the dialog | `e2e/hostile/passkey-fallback.spec.ts`, `src/passkey/main-world.test.ts` |
+| The switch is off but a page keeps its shim | The background checks the setting on every request and answers a fallback; a reload removes the shim | `e2e/hostile/passkey-fallback.spec.ts` |
+| A page spends the desktop's per-pairing passkey windows (3 creates, 10 sign-ins a minute) with forged requests it refuses silently, so that another site's call fails for a minute | `rateLimited` is a fallback, not `NotAllowedError`: the other site's call goes to the browser's own WebAuthn | `e2e/hostile/passkey-budget.spec.ts`, `src/background/passkey.test.ts` |
+| A page aborts in the same task that started the call (or the tab moves, or closes) before the background has asked the desktop, so the abort finds nothing and a dialog opens for a call nobody waits for | The request is held from its arrival; a cancel before the desktop was asked marks it, and it is never sent | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/background/passkey.test.ts` |
+| A page keeps its main thread busy past the shim's 1 s wait: the shim hands the call to the browser while the bridge has already passed it on, and two prompts are open (approving Mosaic's would store a passkey the site never gets) | On the timeout the shim posts `mosaic-passkey-abort` before it falls back; the bridge passes it on and the request is cancelled | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/passkey/main-world.test.ts` |
+| A frame of another site, a sandboxed `srcdoc` frame, or a popup's opener posts well-formed requests into the window the bridge serves (directly, with a transferred `MessagePort`, or by reaching into its realm) | `event.source` is the posting window, not the bridge's; a cross-origin realm is out of reach | `e2e/hostile/passkey-forge-frames.spec.ts` |
+| The tab reloads or moves to another site while the desktop dialog is open, hoping the answer reaches the new page | The navigation cancels the request; the answer belongs to the old document's message channel, and the new page hears nothing | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/background/passkey.test.ts` |
+| The scripts reach more than the top frame of https pages | Registered with `matches: ["https://*/*"]`, `allFrames: false`, `document_start`, no `matchOriginAsFallback` or `matchAboutBlank`; only with the site access, gone when the switch goes off or the access is taken back | `src/background/passkey-registry.test.ts` |
+| Test code in the shipped package | `FakePasskeys`, `passkeyDecide` and `passkeyPending` join the strings `check-dist.mjs` forbids; both passkey scripts must be shipped, absent from the manifest, check `event.source` wherever they listen, and use no extension API but `runtime.sendMessage` | `scripts/check-dist.mjs` |
+
+### 11.3 Limits
+
+- **`busy` is still an error.** While a page's Mosaic dialog is open (the desktop shows one at a
+  time), another site's call ends with `NotAllowedError`. The dialog is visible and names the page,
+  and the user can close it.
+- **The `passkeyCancel` window (20 a minute per pairing) can be spent** by a page that cycles
+  requests and aborts. Another site's abort or navigation then leaves its dialog open until the user
+  closes it or 300 s pass; the answer goes nowhere, but a registration approved there is stored.
+- **A rate-limited call goes to the browser.** After a page spent the windows, a user whose passkey
+  is in Mosaic sees the browser's own prompt for up to a minute.
+- **A page can break its own path**: block the bridge's acknowledgements with a capturing
+  `message` listener and `stopImmediatePropagation`, or clobber `document.hasFocus` (the DOM is
+  shared with the isolated world). Its own calls then go to the browser; nothing reaches another
+  origin.
+- **Same-origin frames** can call the top window's `navigator.credentials` through `parent`; that
+  call is the top's, served as the top's origin, as the browser's own WebAuthn treats it.
+- **Not covered by the suite:** Firefox (no `documentId`: requests are told apart by tab and page
+  number only, and a navigation cancels them first), the back/forward cache (the message channel
+  closes when the page is stored; the restored page's call then falls back), prerendered pages
+  (hidden, so the bridge falls back), and real desktop dialogs (the fake desktop mirrors the
+  rate windows and the one-dialog rule).
+
+### 11.4 The e2e fake desktop
+
+`src/background/e2e-passkey.ts` answers `passkeyCreate`, `passkeyGet` and `passkeyCancel`, within
+the desktop's per-pairing rate windows (`NATIVE_MESSAGING.md`), with a software authenticator in `test/webauthn/authenticator.ts` (WebCrypto P-256, the encodings of
+CRYPTO_SPEC §16 written separately). `src/passkey/authenticator.test.ts` checks its output with
+the independent verifier (`test/webauthn/verifier.ts`), which also stands behind the hostile
+site's `/passkey/verify`. The hooks `passkeyDecide` (the answer in the pretend dialog),
+`passkeyLog` (request IDs, origins, rp IDs, results) and `passkeyPending` exist in the e2e build
+only. A CDP virtual authenticator (`WebAuthn.addVirtualAuthenticator`) stands for the browser's
+own WebAuthn, so a fallback is observable.

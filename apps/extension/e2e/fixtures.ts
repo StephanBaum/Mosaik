@@ -14,14 +14,17 @@ import {
   expect,
   test as base,
   type BrowserContext,
+  type Frame,
   type Page,
   type Worker,
 } from "@playwright/test";
 import type { E2EConfig, E2EItem, LogEntry, SaveProposal } from "../src/background/e2e-desktop.ts";
+import type { OpenPrompt, PasskeyDecision, PasskeyLogEntry } from "../src/background/e2e-passkey.ts";
 import type { E2EGesture } from "../src/background/e2e.ts";
 import type { FillOutcome } from "../src/background/fill.ts";
 import type { PopupRequest, PopupState } from "../src/shared/messages.ts";
 import { HTTP_PORT, HTTPS_PORT, startServer } from "../test/hostile-site/server.mjs";
+import { verifyAssertion, verifyRegistration } from "../test/webauthn/verifier.ts";
 
 const DIST = resolve(import.meta.dirname, "../dist/e2e");
 /** A second, hostile extension (test/evil-extension), loaded only where a test opts in. */
@@ -55,6 +58,10 @@ interface Hooks {
   popupRequest(tabId: number, request: PopupRequest): Promise<unknown>;
   setCapture(enabled: boolean): Promise<boolean>;
   saves(): SaveProposal[];
+  setPasskeys(enabled: boolean): Promise<boolean>;
+  passkeyDecide(decision: PasskeyDecision): void;
+  passkeyLog(): PasskeyLogEntry[];
+  passkeyPending(): OpenPrompt[];
   pauseAfterProbe(): void;
   isPaused(): boolean;
   release(): void;
@@ -73,6 +80,14 @@ export interface Fake {
   popupRequest(tabId: number, request: PopupRequest): Promise<unknown>;
   setCapture(enabled: boolean): Promise<boolean>;
   saves(): Promise<SaveProposal[]>;
+  /** "Use Mosaic for passkeys": registers (or removes) the passkey scripts; open the page after turning it on. */
+  setPasskeys(enabled: boolean): Promise<boolean>;
+  /** The answer in the fake desktop's passkey dialog; kept for the next dialog if none is open. */
+  passkeyDecide(decision: PasskeyDecision): Promise<void>;
+  /** Passkey requests the fake desktop received (ids and origins, never key material). */
+  passkeyLog(): Promise<PasskeyLogEntry[]>;
+  /** The dialog that is open now. */
+  passkeyPending(): Promise<OpenPrompt[]>;
   pauseAfterProbe(): Promise<void>;
   isPaused(): Promise<boolean>;
   release(): Promise<void>;
@@ -153,6 +168,11 @@ function makeFake(ext: Extension): Fake {
       run((a: { tabId: number; request: PopupRequest }) => (globalThis as unknown as WithHooks).mosaicE2E.popupRequest(a.tabId, a.request), { tabId, request }),
     setCapture: (enabled) => run((e: boolean) => (globalThis as unknown as WithHooks).mosaicE2E.setCapture(e), enabled),
     saves: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.saves()),
+    setPasskeys: (enabled) => run((e: boolean) => (globalThis as unknown as WithHooks).mosaicE2E.setPasskeys(e), enabled),
+    passkeyDecide: (decision) =>
+      run((d: PasskeyDecision) => { (globalThis as unknown as WithHooks).mosaicE2E.passkeyDecide(d); }, decision),
+    passkeyLog: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.passkeyLog()),
+    passkeyPending: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.passkeyPending()),
     pauseAfterProbe: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.pauseAfterProbe(); }),
     isPaused: () => run(() => (globalThis as unknown as WithHooks).mosaicE2E.isPaused()),
     release: () => run(() => { (globalThis as unknown as WithHooks).mosaicE2E.release(); }),
@@ -184,7 +204,7 @@ export const test = base.extend<{ fake: Fake; ext: Extension }, { shared: Extens
   evilExtension: [false, { scope: "worker", option: true }],
   shared: [
     async ({ evilExtension }, use) => {
-      const server = await startServer();
+      const server = await startServer({ passkeyVerifier: { verifyRegistration, verifyAssertion } });
       const ext = await launch(evilExtension);
       await use(ext);
       await ext.close();
@@ -281,3 +301,117 @@ export async function open(page: Page, url: string, frames = 1): Promise<number>
   }
   return frames;
 }
+
+/** A CDP virtual authenticator (CTAP2, internal, resident keys, user verified): what the browser's own WebAuthn answers with, so a fallback is observable. */
+export async function addVirtualAuthenticator(context: BrowserContext, page: Page) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  });
+  return {
+    /** The credentials the browser's own authenticator holds (ids in base64url; CDP reports padded base64). */
+    credentials: async (): Promise<{ credentialId: string; rpId: string }[]> => {
+      const { credentials } = await cdp.send("WebAuthn.getCredentials", { authenticatorId });
+      return credentials.map((c) => ({ credentialId: Buffer.from(c.credentialId, "base64").toString("base64url"), rpId: c.rpId ?? "" }));
+    },
+  };
+}
+
+/** The passkey relying-party page of an origin. */
+export const RP_PAGE = "/passkey/rp.html";
+export const bankRp = `${BANK}${RP_PAGE}`;
+export const evilRp = `${EVIL}${RP_PAGE}`;
+
+/** Waits for the fake desktop's passkey dialog. */
+export async function pendingDialog(fake: Fake): Promise<OpenPrompt> {
+  let found: OpenPrompt | undefined;
+  await expect
+    .poll(async () => {
+      found = (await fake.passkeyPending())[0];
+      return found !== undefined;
+    }, { message: "passkey dialog open" })
+    .toBe(true);
+  return found as unknown as OpenPrompt;
+}
+
+export interface RpOptions {
+  rpId?: string;
+  exclude?: string[];
+  allow?: string[];
+  noVerify?: boolean;
+  challenge?: string;
+}
+
+/** What `/passkey/verify` answered (the independent verifier on the relying-party server). */
+export interface Verified {
+  status: number;
+  ok: boolean;
+  flags?: number;
+  signCount?: number;
+  credentialId?: string;
+  error?: string;
+}
+
+/** What `rp.create` / `rp.get` (test/hostile-site/pages/passkey/rp.js) report: the call's outcome as the page saw it. */
+export interface RpResult {
+  error?: { name: string; message: string };
+  id?: string;
+  type?: string;
+  attachment?: string;
+  isPublicKeyCredential?: boolean;
+  extensions?: unknown;
+  clientDataJSON?: string;
+  attestationObject?: string;
+  authenticatorData?: string;
+  signature?: string;
+  userHandle?: string | null;
+  challenge?: string;
+  verify?: Verified;
+}
+
+interface RpPage {
+  rp: {
+    create(options: RpOptions): Promise<RpResult>;
+    get(options: RpOptions): Promise<RpResult>;
+    start(op: "create" | "get", options: RpOptions): void;
+    abort(): void;
+    result(): Promise<RpResult>;
+    verify(body: object): Promise<Verified>;
+  };
+}
+
+// The callbacks below run in the page: they use nothing but their argument and globals.
+export const rpCreate = (target: Page | Frame, options: RpOptions = {}): Promise<RpResult> =>
+  target.evaluate((o) => (window as unknown as RpPage).rp.create(o), options);
+export const rpGet = (target: Page | Frame, options: RpOptions = {}): Promise<RpResult> =>
+  target.evaluate((o) => (window as unknown as RpPage).rp.get(o), options);
+/** Starts a call without waiting (its promise stays in the page); `rpResult` waits for it. */
+export const rpStart = (target: Page | Frame, op: "create" | "get", options: RpOptions = {}): Promise<void> =>
+  target.evaluate((a) => { (window as unknown as RpPage).rp.start(a.op, a.options); }, { op, options });
+export const rpAbort = (target: Page | Frame): Promise<void> => target.evaluate(() => { (window as unknown as RpPage).rp.abort(); });
+export const rpResult = (target: Page | Frame): Promise<RpResult> => target.evaluate(() => (window as unknown as RpPage).rp.result());
+/** Sends an assertion a page got to the server's verifier (again, for a replay). */
+export const rpVerifyAssertion = (target: Page | Frame, got: RpResult): Promise<Verified> =>
+  target.evaluate(
+    (r) =>
+      (window as unknown as RpPage).rp.verify({
+        kind: "assertion",
+        credentialId: r.id,
+        challenge: r.challenge,
+        clientDataJSON: r.clientDataJSON,
+        authenticatorData: r.authenticatorData,
+        signature: r.signature,
+      }),
+    got,
+  );
+
+export const FLAGS_CREATE_UV = 0x5d;
+export const FLAGS_GET_UV = 0x1d;

@@ -1,0 +1,50 @@
+<!-- attempts: race the desktop dialog against the page's own lifecycle. `abortAtOnce` aborts a call in the same task that
+     started it, before the background has asked the desktop; `blockAfter` keeps the main thread busy past the shim's 1 s
+     wait for the bridge, so the shim falls back to the browser while the bridge has already passed the request on. Either
+     way a dialog must not stay open for a call nobody waits for (a registration the user approves there would store a
+     passkey the site never received). -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey abort race</title>
+<script src="/_leaks.js"></script>
+<script src="/passkey/rp.js"></script>
+<h1>Passkey abort race</h1>
+<script>
+  const bytes = (n, fill) => new Uint8Array(n).fill(fill);
+  const options = (op) =>
+    op === "create"
+      ? {
+          publicKey: {
+            rp: { name: "Race" },
+            user: { id: bytes(8, 1), name: "ada", displayName: "Ada" },
+            challenge: bytes(32, 2),
+            pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+            authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+          },
+        }
+      : { publicKey: { challenge: bytes(32, 3), userVerification: "preferred" } };
+  const outcome = (promise) =>
+    promise.then(
+      (credential) => ({ ok: true, id: credential.id }),
+      (error) => ({ ok: false, name: error?.name ?? "?" }),
+    );
+
+  window.race = {
+    /** Starts a call and aborts it before anything else can run. */
+    abortAtOnce(op) {
+      const controller = new AbortController();
+      const promise = navigator.credentials[op]({ ...options(op), signal: controller.signal });
+      controller.abort();
+      return outcome(promise);
+    },
+    /** Starts a call, then blocks the main thread for `ms` milliseconds (a slow page, or a page doing it on purpose). */
+    blockAfter(op, ms) {
+      const promise = navigator.credentials[op](options(op));
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        // busy
+      }
+      return outcome(promise);
+    },
+  };
+</script>
