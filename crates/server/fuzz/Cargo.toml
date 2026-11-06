@@ -1,0 +1,43 @@
+[package]
+name = "mosaic-server-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the sync server input: JSON request bodies, OPAQUE messages, record ciphertext envelopes and checkpoint uploads (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# To check without cargo-fuzz: cargo check --manifest-path
+# crates/server/fuzz/Cargo.toml --bins
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+# `opaque`: the OPAQUE message parsers the server runs on request bytes.
+mosaic-sync = { path = "../../sync", features = ["opaque"] }
+# The same versions and features as the main workspace.
+serde = { version = "=1.0.229", default-features = false, features = ["std"] }
+
+[[bin]]
+name = "request_bodies"
+path = "fuzz_targets/request_bodies.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint_upload"
+path = "fuzz_targets/checkpoint_upload.rs"
+test = false
+doc = false
+bench = false

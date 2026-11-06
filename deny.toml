@@ -18,6 +18,7 @@ ignore = [
     { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsound: no crate in the tree calls it (checked tao, wry, muda, tauri, webkit2gtk); Linux only; ADR-0019" },
     { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing variability: reached only through elliptic-curve 0.13 (opaque-ke 4.0.1 and voprf 0.5.0, the OPAQUE login of the sync server and client, ADR-0046); the ristretto255 suite does every secret group and scalar operation in curve25519-dalek and never calls crypto-bigint arithmetic; opaque-ke 4.1 pre-releases still use elliptic-curve 0.13; revisit when opaque-ke moves to elliptic-curve 0.14" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
 ]
 

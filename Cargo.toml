@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/passkey/fuzz", "crates/sync/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/passkey/fuzz", "crates/sync/fuzz", "crates/server/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]
@@ -143,6 +143,26 @@ win-screenshot = { version = "=4.0.14", default-features = false }
 x11rb = { version = "=0.13.2", default-features = false }
 # Test-only QR encoder for generated scan fixtures (zero dependencies).
 qrcodegen = "=1.8.0"
+# M6 sync server (ADR-0044, ADR-0046)
+# OPAQUE (RFC 9807) for the sync account login; CRYPTO_SPEC section 9, ADR-0046.
+# Meta-maintained, NCC Group audited. Exact pin of the latest stable 4.x release
+# (4.1 is still a pre-release); default features off, ristretto255 only.
+opaque-ke = { version = "=4.0.1", default-features = false, features = ["ristretto255"] }
+# opaque-ke 4.0 is written against the digest 0.10 generation, so its SHA-512
+# comes from sha2 0.10 (already in the tree through other crates).
+sha2_0_10 = { package = "sha2", version = "=0.10.9", default-features = false }
+# HTTP server for the sync server; no JSON/form extractors (bodies are parsed
+# with mosaic-sync::wire::json, which rejects unknown keys).
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "matched-path", "query"] }
+# Request body limit and timeout layers; already in the tree through Tauri.
+tower-http = { version = "=0.6.11", default-features = false, features = ["limit", "timeout"] }
+# `ServiceExt::oneshot` for the in-process API tests.
+tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+# Server config file (TOML), strict (`deny_unknown_fields`).
+toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde"] }
+# Structured logs of the server (method, route, status, duration; never bodies).
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -182,6 +202,9 @@ debug = false
 # Crypto primitives are unusably slow without optimization (Argon2id with
 # 128 MiB would take minutes in a debug build). Optimize them in dev/test
 # builds too; this does not change behavior, only speed.
+# OPAQUE (ristretto255) in the server tests: tens of group operations per login.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
 [profile.dev.package.argon2]
 opt-level = 3
 [profile.dev.package.blake2]

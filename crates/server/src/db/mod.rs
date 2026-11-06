@@ -1,0 +1,196 @@
+//! SQLite storage (ADR-0044): `rusqlite` with the amalgamation compiled in,
+//! WAL, foreign keys, STRICT tables, bound parameters only, one connection
+//! behind a mutex.
+//!
+//! The handlers call [`Db::run`] / [`Db::run_tx`] with a closure. On a
+//! multi-threaded runtime the closure runs inside `block_in_place`, so a slow
+//! query does not stall the other connections' tasks; on a current-thread
+//! runtime (the tests, which pause the clock) it runs inline.
+
+pub mod accounts;
+pub mod attachments;
+pub mod audit;
+pub mod checkpoints;
+pub mod devices;
+pub mod invites;
+pub mod records;
+pub mod schema;
+pub mod sessions;
+pub mod vaults;
+
+use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use rusqlite::{Connection, Transaction, TransactionBehavior};
+use tokio::runtime::{Handle, RuntimeFlavor};
+
+use crate::error::ApiError;
+
+/// Why the database could not be opened.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum DbError {
+    /// SQLite failed.
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// The database was written by a newer server.
+    #[error("the database schema is newer than this server")]
+    TooNew,
+}
+
+/// The database.
+pub struct Db {
+    conn: Mutex<Connection>,
+}
+
+impl Db {
+    /// Opens (and migrates) the database file `path`, creating it if needed.
+    ///
+    /// # Errors
+    /// [`DbError`].
+    pub fn open(path: &Path) -> Result<Self, DbError> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        Self::init(conn)
+    }
+
+    /// An in-memory database (tests).
+    ///
+    /// # Errors
+    /// [`DbError`].
+    pub fn open_in_memory() -> Result<Self, DbError> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(mut conn: Connection) -> Result<Self, DbError> {
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.pragma_update(None, "synchronous", "FULL")?;
+        conn.pragma_update(None, "trusted_schema", "OFF")?;
+        // Temporary tables and sort files stay in memory (a read-only container
+        // file system has no temp directory).
+        conn.pragma_update(None, "temp_store", "MEMORY")?;
+        // Deleted rows are overwritten, not left in free pages.
+        conn.pragma_update(None, "secure_delete", "ON")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        migrate(&mut conn)?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Runs `f` with the connection.
+    ///
+    /// # Errors
+    /// Whatever `f` returns.
+    pub fn run<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<R, ApiError>,
+    ) -> Result<R, ApiError> {
+        in_place(|| f(&self.lock()))
+    }
+
+    /// Runs `f` in one immediate transaction: committed if `f` returns `Ok`,
+    /// rolled back otherwise.
+    ///
+    /// # Errors
+    /// Whatever `f` returns, or a SQLite failure.
+    pub fn run_tx<R>(
+        &self,
+        f: impl FnOnce(&Transaction<'_>) -> Result<R, ApiError>,
+    ) -> Result<R, ApiError> {
+        in_place(|| {
+            let mut conn = self.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let out = f(&tx)?;
+            tx.commit()?;
+            Ok(out)
+        })
+    }
+
+    /// A consistent copy of the database to `dest` (`VACUUM INTO`).
+    ///
+    /// # Errors
+    /// [`DbError`].
+    pub fn backup_to(&self, dest: &Path) -> Result<(), DbError> {
+        let conn = self.lock();
+        let dest = dest.to_string_lossy();
+        conn.execute("VACUUM INTO ?1", [dest.as_ref()])?;
+        Ok(())
+    }
+}
+
+fn in_place<R>(f: impl FnOnce() -> R) -> R {
+    match Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
+
+fn migrate(conn: &mut Connection) -> Result<(), DbError> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let version = usize::try_from(version).unwrap_or(usize::MAX);
+    if version > schema::latest_version() {
+        return Err(DbError::TooNew);
+    }
+    for (n, sql) in schema::MIGRATIONS.iter().enumerate().skip(version) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(
+            None,
+            "user_version",
+            i64::try_from(n + 1).unwrap_or(i64::MAX),
+        )?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+/// A 16-byte ID column from a row.
+pub(crate) fn id16(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<[u8; 16]> {
+    let v: Vec<u8> = row.get(idx)?;
+    v.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
+/// A `u64` from an INTEGER column.
+pub(crate) fn u64_col(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<u64> {
+    let v: i64 = row.get(idx)?;
+    u64::try_from(v).map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
+/// A `u64` to an INTEGER parameter (saturating at `i64::MAX`).
+pub(crate) fn int(v: u64) -> i64 {
+    i64::try_from(v).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_and_reopens() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.sqlite");
+        {
+            let db = Db::open(&path).unwrap();
+            db.run(|c| {
+                let n: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+                assert_eq!(usize::try_from(n).unwrap(), schema::latest_version());
+                Ok(())
+            })
+            .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        db.backup_to(&dir.path().join("copy.sqlite")).unwrap();
+        let copy = Db::open(&dir.path().join("copy.sqlite")).unwrap();
+        copy.run(|c| {
+            let n: i64 = c.query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))?;
+            assert_eq!(n, 0);
+            Ok(())
+        })
+        .unwrap();
+    }
+}

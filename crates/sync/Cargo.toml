@@ -14,9 +14,9 @@ workspace = true
 default = []
 # In-memory and chaos transports for the simulations (M6 T2).
 test-util = []
-# The OPAQUE ciphersuite module (`wire::opaque`, M6 T3 and T4: it needs the
-# `opaque-ke` dependency, which ADR-0046 admits; T1 adds no crate for it).
-opaque = []
+# The OPAQUE ciphersuite module (`wire::opaque`, used by the server and the
+# HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
+opaque = ["dep:opaque-ke", "dep:sha2_0_10", "dep:getrandom"]
 # The HTTP transport (M6 T4); enables `opaque`. T1 has no reqwest code.
 http = ["opaque"]
 
@@ -34,3 +34,9 @@ sha2.workspace = true
 unicode-normalization.workspace = true
 idna.workspace = true
 thiserror.workspace = true
+# OPAQUE (CRYPTO_SPEC section 9.1, ADR-0046), only with feature `opaque`.
+opaque-ke = { workspace = true, optional = true }
+# SHA-512 of the TripleDH key exchange: opaque-ke 4.0 uses the digest 0.10 generation.
+sha2_0_10 = { workspace = true, optional = true }
+# The OS CSPRNG for opaque-ke's random number generator (ADR-0011).
+getrandom = { workspace = true, optional = true }

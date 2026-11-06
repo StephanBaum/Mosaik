@@ -12,8 +12,8 @@
 //! path are rejected. A decoder returns [`WireError`], which carries no
 //! data.
 //!
-//! The OPAQUE ciphersuite module (`wire::opaque`, feature `opaque`) comes
-//! with the server and client tracks of M6 (ADR-0046).
+//! The OPAQUE ciphersuite module (`wire::opaque`, feature `opaque`) is shared
+//! by the server and the HTTP client (ADR-0046).
 
 pub mod account_file;
 pub mod blob_delete;
@@ -23,6 +23,8 @@ pub mod device_info;
 pub mod email;
 pub mod folder_names;
 pub mod json;
+#[cfg(feature = "opaque")]
+pub mod opaque;
 pub mod segment;
 
 use mosaic_core::sync_auth::FolderMacPurpose;
