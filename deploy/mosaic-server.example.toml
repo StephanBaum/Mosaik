@@ -1,0 +1,36 @@
+# mosaic-server.toml, the example for the container setup (deploy/compose.yaml).
+# Unknown keys are an error. For a bare-metal install see docs/SERVER.md: use
+# listen = "127.0.0.1:8743" and your own paths.
+
+# Address to listen on. In the container the server listens on all interfaces
+# of the internal network; only the reverse proxy can reach it.
+listen = "0.0.0.0:8743"
+
+# The public address of the server, exactly as clients enter it:
+# https://host[:port], lowercase, no path. It is the OPAQUE server identity, so
+# changing it later locks every account out of the login (the vault data on the
+# devices is not affected, but every device has to sign in again after the
+# accounts are re-registered). Choose it once.
+canonical_origin = "https://sync.example.com"
+
+# The database and the attachments. The secret file holds the OPAQUE server
+# setup and the key of the pre-login fakes: back it up with the data.
+data_dir = "/data"
+secret_file = "/data/server.key"
+
+# Who may register: "invite" (codes from `mosaic-server invite create`),
+# "open" or "closed".
+registration = "invite"
+
+# Peers whose X-Forwarded-For header is believed (the reverse proxy). In
+# deploy/compose.yaml the proxy has this fixed address on the internal network.
+trusted_proxies = ["172.28.0.2"]
+
+[limits]
+max_request_bytes = 8388608
+account_attachment_bytes = 1073741824
+account_record_count = 50000
+account_record_bytes = 268435456
+session_idle_days = 30
+session_max_days = 180
+soft_delete_days = 30

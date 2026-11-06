@@ -1849,6 +1849,50 @@ first, in their own commit).
   were compiled, not run (Windows); the coverage figure above is from a local `cargo llvm-cov` run of
   `-p mosaic-sync` and CI measures it again.
 
+## M6 Sync — T3 server (2026-11-06)
+
+Spec: the M6 spec §6 and §11 T3 (ADR-0044, ADR-0046; amendments to both in `docs/DECISIONS.md`).
+
+- **`crates/server`** (`mosaic-server`, library and `mosaic-server` binary): axum 0.8 router
+  with every endpoint of §6.2; SQLite through `rusqlite` (bundled, WAL, `foreign_keys`, STRICT tables,
+  its own migration list, `secure_delete`); OPAQUE login and registration with the suite of
+  CRYPTO_SPEC §9.1 (`mosaic_sync::wire::opaque`, `opaque-ke =4.0.1`), pre-login fakes and a fake KE2
+  for unknown emails, login states in memory (60 s, 10 000), session tokens derived from the OPAQUE
+  session key and stored as SHA-256, idle and absolute lifetimes, a five-minute fresh-login window for
+  password change, TOTP, account deletion and device removal; TOTP sealed at rest under `K_totp`
+  with the replay guard (ADR-0008) and five attempts per pending session; per-record base-sequence
+  CAS, generation equality, key CAS with the optional head condition, items and tombstones;
+  checkpoints as raw bytes bound to the path device; attachments with soft delete, restore and the
+  hourly purge; a per-account long poll; quotas; in-memory token-bucket rate limits (IPv6 by /64,
+  `X-Forwarded-For` last hop only from `trusted_proxies`); TOML config and a hand-parsed CLI (`init`,
+  `serve`, `check-config`, `invite create`, `backup [--blobs]`, `account delete`).
+- **`mosaic-sync`**: `wire::opaque` (feature `opaque`): the suite, the context, the identifiers and
+  an `OsRng` over `getrandom`, with a round-trip and server-identity-binding test.
+- **Tests**: 10 unit tests and 37 integration tests in `crates/server/tests/it/` (`api_auth`,
+  `api_sync`, `api_limits`, `no_plaintext`, `cli`), including every test the spec names for T3; the
+  time-based ones use tokio `start_paused` and a manual server clock. `no_plaintext` scans the
+  database file, the WAL, the blobs and the log for the peer address, passwords, tokens and item
+  plaintext. `sim_hosted` and `malicious_server` belong to T4 (they need the HTTP transport).
+- **Fuzz**: `crates/server/fuzz` (`request_bodies`, `checkpoint_upload`, seeds), in the workspace
+  `exclude`, the `fuzz-smoke` matrix (with `max_len`) and the per-lockfile `cargo deny` and
+  `cargo audit` loops. Compiled on Windows with `cargo check --bins`, run in CI.
+- **Deployment**: `deploy/Dockerfile` (pinned digests, distroless non-root), `compose.yaml` (the
+  server on an internal network, Caddy with TLS 1.3), `Caddyfile`, `mosaic-server.example.toml`,
+  `README.md`, and `.dockerignore`. The CI job `server-image` builds the image and smoke-tests
+  `/v1/info` (nothing of it ran locally: there is no container runtime here); `mosaic-server` is in
+  the coverage matrix. `docs/SERVER.md` is the operator guide.
+- **Deviations from the spec**: handlers call the database inline (`block_in_place` on a
+  multi-threaded runtime instead of `spawn_blocking`, so a paused tokio clock cannot jump during a
+  query); per-account change counters; a device uploads only its own checkpoint (403 otherwise);
+  `register/start` has no invite code to check (the request has no field for it), so
+  `invalid_invite` comes at `finish`; a password change keeps the other sessions; the dependency
+  choices are in the ADR amendments.
+- **Needs follow-up (outside this track's write scope)**: `.cargo/audit.toml` must list
+  RUSTSEC-2026-0387 (`crypto-bigint 0.5.5` through `opaque-ke`; `deny.toml` already does, with the
+  reason) or `cargo audit --deny warnings` fails. Reviews due: crypto-reviewer (OPAQUE parameters,
+  fakes, token derivation, TOTP sealing, fresh-login checks), `/security-review`, test-engineer.
+  THREAT_MODEL R61 and R62 are new.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

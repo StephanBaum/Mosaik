@@ -876,6 +876,11 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   the vault's `head_seq`; one wrapped key per (vault, account, generation).
 - A client uploads every item of a run before any tombstone, so a moved
   item's copy reaches the server before the source's tombstone.
+- Checkpoint upload: the raw checkpoint bytes, filed under the device in the
+  path, which must be the session's own device. The server holds no key, so
+  it checks only the length, the shape, that the body names the path's device
+  and that the counter is above the stored one (`checkpoint_stale`); the
+  clients verify the MAC (§10).
 
 ## 11. Local storage
 

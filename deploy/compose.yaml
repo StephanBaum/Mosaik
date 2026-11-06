@@ -1,0 +1,68 @@
+# The Mosaic sync server behind Caddy (M6, ADR-0044). An example, built and
+# smoke-tested only in CI (the development machine has no Docker); copy it,
+# set your domain and read docs/SERVER.md first.
+#
+#   cp mosaic-server.example.toml mosaic-server.toml   # set canonical_origin
+#   export MOSAIC_DOMAIN=sync.example.com              # the same host
+#   docker compose run --rm mosaic-server init --config /config/mosaic-server.toml
+#   docker compose up -d
+#
+# The image is built from source (no image is published before M9). Run
+# these commands from this directory.
+name: mosaic-sync
+
+services:
+  mosaic-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: mosaic-server:local
+    command: ["serve", "--config", "/config/mosaic-server.toml"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - mosaic-data:/data
+      - ./mosaic-server.toml:/config/mosaic-server.toml:ro
+    expose: ["8743"]
+    # Only on the internal network: no route to the internet, and only the
+    # proxy can reach it.
+    networks:
+      internal:
+        ipv4_address: 172.28.0.3
+
+  caddy:
+    # caddy:2.11-alpine
+    image: caddy:2.11-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    restart: unless-stopped
+    depends_on: [mosaic-server]
+    environment:
+      MOSAIC_DOMAIN: ${MOSAIC_DOMAIN:?set MOSAIC_DOMAIN to the host of canonical_origin}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      # 172.28.0.2 is the address that trusted_proxies in the config names.
+      internal:
+        ipv4_address: 172.28.0.2
+      front: {}
+
+volumes:
+  mosaic-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/29
+  front: {}
