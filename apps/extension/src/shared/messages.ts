@@ -89,6 +89,8 @@ export interface PopupState {
   nextOtp: NextOtp | null;
   lastError: ErrorCode | null;
   saveOffers: boolean;
+  /** "Use Mosaic for passkeys" is on: the passkey scripts are registered and the site access is granted. */
+  passkeys: boolean;
   generatorFill: boolean;
 }
 
@@ -107,6 +109,7 @@ export type PopupRequest =
   | { op: "fillGenerated"; confirmFrame: FrameRef | null }
   | { op: "savePending"; action: SaveAction }
   | { op: "saveOffersChanged"; enabled: boolean }
+  | { op: "setPasskeys"; enabled: boolean }
   | { op: "unpair" };
 
 export interface PopupResults {
@@ -121,6 +124,7 @@ export interface PopupResults {
   fillGenerated: FillSummary;
   savePending: { outcome: "saved" | "updated" | "cancelled" | "dismissed" | "never" };
   saveOffersChanged: { saveOffers: boolean };
+  setPasskeys: { passkeys: boolean };
   unpair: Record<string, never>;
 }
 
@@ -162,6 +166,7 @@ const popupRequest: Guard<PopupRequest> = tagged<PopupRequest>("op", {
   fillGenerated: obj({ op: exactly("fillGenerated" as const), confirmFrame }),
   savePending: obj({ op: exactly("savePending" as const), action: lit("save", "dismiss", "never") }),
   saveOffersChanged: obj({ op: exactly("saveOffersChanged" as const), enabled: bool }),
+  setPasskeys: obj({ op: exactly("setPasskeys" as const), enabled: bool }),
   unpair: obj({ op: exactly("unpair" as const) }),
 });
 

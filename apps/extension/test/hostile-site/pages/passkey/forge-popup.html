@@ -1,0 +1,23 @@
+<!-- attempts: open bank.test's relying-party page as a popup and post forged shim requests into it through the
+     WindowProxy that window.open returned (this page is then the popup's opener and the messages' source). -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey forged popup</title>
+<script src="/_leaks.js"></script>
+<script>
+  const request = (id) => ({
+    type: "mosaic-passkey-req",
+    id,
+    op: "get",
+    options: { rpId: null, challenge: "AAAAAAAAAAAAAAAAAAAAAA", allowCredentials: [], userVerification: "preferred" },
+  });
+  window.popup = null;
+  window.openBank = () => {
+    window.popup = window.open(`${location.protocol}//bank.test:${location.port}/passkey/rp.html`, "bank");
+  };
+  window.forge = () => {
+    for (let id = 700; id < 704; id++) {
+      window.popup.postMessage(request(id), "*");
+    }
+  };
+</script>

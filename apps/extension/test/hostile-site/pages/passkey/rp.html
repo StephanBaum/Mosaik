@@ -1,0 +1,9 @@
+<!-- attempts: none by itself. The relying party of the passkey suite (served as bank.test and evil.test):
+     `window.rp` runs WebAuthn calls on the page's own origin, with a single-use challenge from
+     /passkey/challenge, and sends what it got to /passkey/verify (an independent verifier). The tests drive it. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Passkey relying party</title>
+<script src="/_leaks.js"></script>
+<h1>Passkey relying party</h1>
+<script src="/passkey/rp.js"></script>

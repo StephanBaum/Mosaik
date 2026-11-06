@@ -26,6 +26,11 @@ export const ext = {
   "ext.more.saveOffers": "Speichern von Logins anbieten",
   "ext.more.saveOffersHint":
     "Braucht Zugriff auf alle Websites, damit die Erweiterung ein abgeschicktes Login bemerkt. Gespeichert wird erst, wenn du es in der Mosaic-App bestätigst.",
+  "ext.passkeys.toggle": "Mosaic für Passkeys verwenden",
+  "ext.passkeys.hint":
+    "Mosaic beantwortet Passkey-Anfragen von Websites. Jede bestätigst du in der Mosaic-App.",
+  "ext.passkeys.permissionDenied":
+    "Mosaic braucht Zugriff auf Websites, um Passkey-Anfragen zu beantworten, und du hast ihn nicht erlaubt.",
   "ext.more.disconnect": "Von Mosaic trennen",
   "ext.more.disconnectTitle": "Diesen Browser trennen?",
   "ext.more.disconnectBody":

@@ -1,7 +1,7 @@
 /** The popup frame (mockups E01 to E07): header with the site and the two views, the page, the footer. */
 import { useState, type ReactNode } from "react";
 import { errorCodeOf } from "../../shared/errors.ts";
-import type { PopupState } from "../../shared/messages.ts";
+import type { PopupRequest, PopupState } from "../../shared/messages.ts";
 import { useI18n } from "../i18n.tsx";
 import { useActions } from "../useActions.ts";
 import { useServices } from "../usePopup.ts";
@@ -85,26 +85,38 @@ export function Header({
   );
 }
 
-/** "Offer to save logins": the site access is asked for here, in the click, then the background is told. */
-function useSaveOffersItem(state: PopupState): MenuItem {
-  const { t, errorText } = useI18n();
+/**
+ * A More-menu switch that needs the optional site access: the access is asked for here, in the
+ * click, then the background is told. The access is shared with the other switch, so it is
+ * given back only when neither needs it.
+ */
+function useSiteAccessItem(config: {
+  id: string;
+  label: string;
+  description: string;
+  denied: string | null;
+  on: boolean;
+  otherOn: boolean;
+  request: (enabled: boolean) => PopupRequest;
+}): MenuItem {
+  const { errorText } = useI18n();
   const { api, env, refresh } = useServices();
   const announce = useAnnounce();
   return {
-    id: "saveOffers",
-    label: t("ext.more.saveOffers"),
-    description: t("ext.more.saveOffersHint"),
-    checked: state.saveOffers,
+    id: config.id,
+    label: config.label,
+    description: config.description,
+    checked: config.on,
     onSelect: () => {
-      const enable = !state.saveOffers;
+      const enable = !config.on;
       void (async () => {
         try {
           if (enable && !(await env.requestSiteAccess())) {
-            announce(errorText("permissionDenied"));
+            announce(config.denied ?? errorText("permissionDenied"));
             return;
           }
-          await api.request({ op: "saveOffersChanged", enabled: enable });
-          if (!enable) {
+          await api.request(config.request(enable));
+          if (!enable && !config.otherOn) {
             await env.removeSiteAccess();
           }
           await refresh();
@@ -121,10 +133,27 @@ export function Footer({ state }: { state: PopupState }) {
   const { api, refresh } = useServices();
   const { openDesktop } = useActions();
   const [confirming, setConfirming] = useState(false);
-  const saveOffers = useSaveOffersItem(state);
+  const saveOffers = useSiteAccessItem({
+    id: "saveOffers",
+    label: t("ext.more.saveOffers"),
+    description: t("ext.more.saveOffersHint"),
+    denied: null,
+    on: state.saveOffers,
+    otherOn: state.passkeys,
+    request: (enabled) => ({ op: "saveOffersChanged", enabled }),
+  });
+  const passkeys = useSiteAccessItem({
+    id: "passkeys",
+    label: t("ext.passkeys.toggle"),
+    description: t("ext.passkeys.hint"),
+    denied: t("ext.passkeys.permissionDenied"),
+    on: state.passkeys,
+    otherOn: state.saveOffers,
+    request: (enabled) => ({ op: "setPasskeys", enabled }),
+  });
   const paired = state.connection === "locked" || state.connection === "unlocked";
   const items: MenuItem[] = [
-    ...(paired || state.connection === "desktopNotRunning" || state.connection === "error" ? [saveOffers] : []),
+    ...(paired || state.connection === "desktopNotRunning" || state.connection === "error" ? [saveOffers, passkeys] : []),
     ...(paired
       ? [
           {

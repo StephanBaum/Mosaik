@@ -2688,7 +2688,7 @@ DESKTOP_IPC.md §3 and §6.
 
 ## ADR-0035: Browser extension architecture, gestures and UI surface
 
-- Status: proposed (amended in T4 of M4)
+- Status: accepted (2026-11-06; amended in T4 of M4; reviewed by extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §2 and §4 (the most conservative options)
 - Milestone: M4 (browser extension)
@@ -2778,9 +2778,9 @@ React 19 and the two bundled fonts for the popup, the same versions as the deskt
 
 ## ADR-0036: Native messaging host, local endpoint and pairing
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer, findings fixed)
 - Date: 2026-11-05
-- Decided by: the principal engineer, from brief §4.7 (the most conservative options); needs the crypto review before it is accepted
+- Decided by: the principal engineer, from brief §4.7 (the most conservative options); accepted after the crypto review
 - Milestone: M4 (browser extension)
 
 ### Context
@@ -2830,7 +2830,7 @@ that needs one) is a crypto decision of its own.
   extension could confirm itself.
 
 ### Consequences
-The crypto review is required before this ADR is accepted. New residual risks R38 (same-user
+The crypto review was done before this ADR was accepted. New residual risks R38 (same-user
 malware), R39 (the dev ID), R42 (Windows endpoint identity) and R45 (no forward secrecy, the
 code is not a SAS) are recorded. The owner supplies the store IDs and confirms the Firefox
 add-on ID. The installer, signing and the pipe SDDL come in M9. The host is built on
@@ -2854,7 +2854,7 @@ being parsed.
 
 ## ADR-0037: Fill policy and origin matching in desktop Rust
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer and extension-attacker, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §4.1 to 4.3, 4.5 and 4.8 (the most conservative options)
 - Milestone: M4 (browser extension)
@@ -2918,7 +2918,7 @@ is only as new as the release.
 
 ## ADR-0038: Save and update prompts
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-05
 - Decided by: the principal engineer, from brief §9 and §4 (the most conservative options)
 - Milestone: M4 (browser extension)
@@ -3053,6 +3053,119 @@ built for any workspace member (lockfile-only). Residual risks R48 (synced passk
 clone detection), R49 (UV means "recently unlocked plus a dialog click") and R53 (imported
 counters keep incrementing). Follow-ups: biometric UV through a quick-unlock re-verification
 proof (needs a vault API and a crypto review); EdDSA if relying parties or imports need it.
+
+---
+
+## ADR-0040: Browser passkey interception
+
+- Status: proposed
+- Date: 2026-11-06
+- Decided by: the principal engineer, from brief section 5 "intercept safely, fall back to the platform authenticator" and M5 (the most conservative options)
+- Milestone: M5 (passkeys)
+
+### Context
+Mosaic is a software passkey authenticator (ADR-0039). To use it in a browser, something has to
+see the page's `navigator.credentials.create` and `.get` calls. Only the page's own JavaScript
+world can intercept them, and that world is hostile: the page can replace whatever runs there,
+watch its messages and forge answers. The interception must therefore be useful without being
+trusted, must not take over sites that Mosaic cannot serve, and must follow the rule of the save
+prompt (ADR-0038) and the SSH approval: Mosaic signs or writes only after its own window.
+
+### Decision
+1. **A main-world shim plus an isolated bridge, off by default** (D8). `passkey-main.js` (main
+   world) and `passkey-bridge.js` (isolated world) are registered with
+   `scripting.registerContentScripts` only after the user turns on "Use Mosaic for passkeys" in
+   the popup and grants the optional access to `https://*/*` (the pattern of ADR-0038). They
+   run at `document_start` in the top frame only (`allFrames: false`) of https pages, are never in
+   the manifest, and are unregistered when the switch goes off or the browser takes the access
+   back. A page that is already open keeps them until it reloads, so the background checks the
+   setting on every request.
+2. **The shim is not trusted** (the trust analysis). The shim runs in the page's context. The
+   page can disable it, route around it, observe its postMessage traffic and forge requests and
+   answers. All of that is acceptable because everything the page can do through the shim it can
+   already do with `navigator.credentials` for its own origin, and a forged answer fools only
+   the page that forged it. The trust boundary is **bridge, background, desktop**:
+   - The origin comes from the browser: `MessageSender.origin` (Chromium) or the origin of
+     `MessageSender.url` (Firefox), and it must equal the bridge's isolated-world
+     `window.origin`, which the page cannot redefine. It must be https, and the tab must still
+     show that origin.
+   - Only `frameId === 0` is served; a cross-origin child frame cannot post into the top window
+     with `event.source === window`, and subframes get no scripts at all.
+   - The request ID is made by the background (16 random bytes as hex), never taken from the
+     page; the page's own counter is only a handle that is bound to tab, document and frame.
+   - The relying party ID is checked in Rust (see 4); `clientDataJSON` is built in Rust from the
+     browser's origin; every create and every sign-in needs the desktop dialog.
+   - The bridge listens to its own window only (`event.source === window`) and answers only
+     messages of exactly the shim's shape and size. `content.js` and `capture.js` still listen to
+     no page message (`check-dist.mjs`).
+3. **Native fallback** (D11). When Mosaic does not handle a request, the shim calls the saved
+   native `create` or `get` with the page's original options object and `this`, so the browser
+   produces its correct native behaviour and errors. Not handled: the setting off, a locked
+   desktop, no pairing, no desktop, no matching credential, unsupported options (conditional or
+   silent mediation, a cross-platform authenticator, enterprise attestation, the PRF and
+   large-blob extensions, any size limit exceeded, serialization failures), any subframe, any
+   non-https page, a tab that is not focused and visible, and the user choosing "Use another
+   device or security key". The shim also falls back when the bridge does not acknowledge a
+   request within 1 s (a registered shim without a bridge must not hang the page).
+4. **The relying party ID rule is stricter than WebAuthn** (from the T1 review,
+   `mosaic_origin::webauthn_rp_id`). WebAuthn L3 5.1.3 step 8 lets a page use its host or a
+   registrable domain suffix of it. Mosaic additionally requires: https only; the host a domain,
+   not an IP address or loopback; a given rp ID ASCII-lowercase and canonical (no trailing dot, at
+   most 253 bytes); equal to the host or a dot-suffix of it; not a public suffix (it has a
+   registrable domain in the public suffix list); and **at or under the host's registrable
+   domain**, that is `rp == site || rp.ends_with("." + site)` where `site` is the registrable
+   domain of the host. The last condition keeps a tenant of a wildcard public suffix
+   (`a.b.platformsh.site`, `a.b.kawasaki.jp`) from claiming a parent that is shared with other
+   tenants, which a plain suffix test would allow. The fake desktop of the e2e build uses only
+   host equality or dot-suffix and is labelled as a fake; the real rule lives in Rust.
+5. **Messages and limits.** Page to bridge (`mosaic-passkey-req`, `-abort`; bridge to page
+   `-ack`, `-res`) and bridge to background (`passkey`, `passkeyAbort`) carry exactly the keys in
+   `src/shared/passkey-messages.ts`, with the limits of `src/shared/passkey-limits.ts` that equal
+   those of the desktop ops: challenge 16 to 1024 bytes, user ID 1 to 64 bytes, names at most 256
+   UTF-16 units, rp ID at most 253, at most 16 algorithms, lists of at most 64 credential IDs of
+   1 to 1023 bytes. The bridge allows 2 requests in flight per page; the background 10 messages a
+   second per tab. The extension waits 305 s for `passkeyCreate` and `passkeyGet` (the desktop
+   dialog's 300 s plus margin) and 20 s for everything else; `passkeyCancel` is never held back by
+   the in-flight cap and always answers `{}`.
+6. **Desktop approval** (D9). Every create and sign-in is approved in the desktop's
+   `BrowserPasskeyDialog` (1 s Allow guard, rp ID and origin shown, account picker, "Use another
+   device or security key"). The E06 content of the extension mockup moves into that desktop
+   dialog: an extension click is a page-adjacent surface, and phishing-resistant signatures are
+   not given on the strength of one.
+7. **Error mapping.** `cancelled`, `busy` and `timeout` end the page's call with
+   `NotAllowedError`; `passkeyExcluded` with `InvalidStateError`; `useAnotherDevice` and every
+   other code (`rateLimited`, `passkeyNotFound`, `passkeyUnsupported`, `rpIdMismatch`,
+   `insecureOrigin`, `crossOriginFrame`, `locked`, `notPaired`, `desktopNotRunning`,
+   `invalidRequest`, ...) hand the call to the browser. `rateLimited` is a fallback because the
+   desktop's windows belong to the pairing: as an error, one site could spend them silently and
+   make every other site's call fail for a minute (extension-attacker pass). A page that aborts
+   (`AbortSignal`) rejects with the signal's reason and the background sends `passkeyCancel` for
+   exactly that request; a closed, replaced or navigating tab cancels its open requests. The
+   background holds a request from its arrival, so a cancel that comes before the desktop was
+   asked stops it from being sent, and the shim posts an abort when it falls back for want of the
+   bridge's acknowledgement.
+8. **Not in M5** (D12): conditional mediation (passkey autofill UI), PRF, large blob, related
+   origins (`/.well-known/webauthn`), cross-origin iframes, OS passkey providers (ADR-0041).
+
+### Alternatives considered
+- `chrome.webAuthenticationProxy`: Chromium only, takes over every request in the browser with
+  no per-request fallback to the platform authenticator.
+- A content script only in the isolated world: it cannot see or replace the page's
+  `navigator.credentials`.
+- In-page or extension-window approval: it would trust an extension click with a phishing
+  resistant signature.
+- Serving same-origin iframes: rare and a larger trust question (which frame did the user
+  mean); not served, conservative.
+- Trusting the shim's origin or a page-chosen request ID: the page controls the shim.
+
+### Consequences
+Residual risks R47 (the page-controlled shim and two scripts on every https page), R50 (timing
+shows whether Mosaic holds a passkey for the page's own rp ID; conditional mediation is not
+supported) and R51 (the desktop trusts the extension's origin claim, as for `fill`, R43).
+Firefox registers MAIN-world scripts from version 128 (`strict_min_version` is 128); this is
+from the documentation and is not covered by the Playwright suite, which cannot load Firefox
+extensions. Chromium is covered by `e2e/hostile/passkey-*.spec.ts` with a CDP virtual
+authenticator standing for the browser's own WebAuthn.
 
 
 ## ADR-0041: Passkey import, CXF export and OS passkey providers

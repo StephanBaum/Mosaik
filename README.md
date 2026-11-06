@@ -9,9 +9,12 @@ crypto core. Your master password and a 128-bit Secret Key, which never leaves
 your devices, together unlock your vault. The sync server only ever stores
 ciphertext.
 
-**Status:** M3 desktop app in progress. Onboarding with the Emergency Kit, the vault,
-the generator, one-time codes, import, the offline security report and the SSH agent run
-in the desktop app; quick unlock, the browser extension and sync are not built yet. See
+**Status:** M3 desktop app and M4 browser extension built. Onboarding with the Emergency Kit,
+the vault, the generator, one-time codes, import, the offline security report, the SSH agent
+and quick unlock run in the desktop app. The browser extension (Chromium and Firefox, a
+toolbar popup that fills one login after a click, no inline UI) pairs with the desktop over
+a local, authenticated channel; it is a development build, not yet in any store. Sync is not
+built yet. See
 [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Documents
@@ -20,6 +23,7 @@ in the desktop app; quick unlock, the browser extension and sync are not built y
 - [Cryptography specification](docs/CRYPTO_SPEC.md)
 - [UX guidelines](docs/UX_GUIDELINES.md)
 - [Desktop IPC contract](docs/DESKTOP_IPC.md)
+- [Browser extension security](docs/EXTENSION_SECURITY.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Build brief](docs/BRIEF.md)
 

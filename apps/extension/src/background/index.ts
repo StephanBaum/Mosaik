@@ -12,6 +12,8 @@ import { e2eEnabled, e2ePortFactory, installE2E, testTabOf } from "./e2e.ts";
 import { GeneratedHold, type FillDeps } from "./fill.ts";
 import { createMenus, onCommand, onMenuClicked, type GestureDeps } from "./gestures.ts";
 import { NativeClient } from "./native.ts";
+import { PasskeyService } from "./passkey.ts";
+import { PasskeySwitch, chromePasskeyRegistry } from "./passkey-registry.ts";
 import { PairingStore } from "./pairing.ts";
 import { PopupService, type TabRef } from "./popup.ts";
 import { Router, type SenderInfo } from "./router.ts";
@@ -29,6 +31,12 @@ const router: Router = new Router({
   handlePopup: async (request, sender) => popup.handle(request, await tabFor(sender)),
   onCaptured: (message, sender) => {
     save.onCaptured(message, sender);
+  },
+  passkey: {
+    handle: (message, sender) => passkey.handle(message, sender),
+    abort: (message, sender) => {
+      passkey.abort(message, sender);
+    },
   },
 });
 
@@ -51,6 +59,15 @@ const native = new NativeClient({
   },
 });
 
+const passkeys = new PasskeySwitch(chromePasskeyRegistry());
+const passkey = new PasskeyService({
+  native,
+  tabs: { urlOf: async (tabId) => (await chrome.tabs.get(tabId)).url },
+  now: Date.now,
+  randomHex: (bytes) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, "0")).join(""),
+  enabled: () => passkeys.enabled(),
+});
+
 const session = chromeSession();
 const save = new SaveService({
   native,
@@ -70,7 +87,7 @@ const fillDeps: FillDeps = {
 };
 const hold = new GeneratedHold(Date.now);
 const gestures: GestureDeps = { fill: fillDeps, hold, activeTab };
-const popup = new PopupService({ native, fill: fillDeps, hold, save }, () => (native.state.pairing ? pairCode : null));
+const popup = new PopupService({ native, fill: fillDeps, hold, save, passkeys }, () => (native.state.pairing ? pairCode : null));
 
 /** The tab a popup request is about: the front tab (a test popup page names its own). */
 async function tabFor(sender: SenderInfo): Promise<TabRef | null> {
@@ -85,9 +102,8 @@ async function tabFor(sender: SenderInfo): Promise<TabRef | null> {
 chrome.runtime.onConnect.addListener((port) => {
   router.onConnect(port);
 });
-chrome.runtime.onMessage.addListener((message: unknown, sender) => {
-  router.onMessage(message, sender);
-});
+// Returns true for a passkey request: its answer comes through `sendResponse` when the desktop has answered.
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => router.onMessage(message, sender, sendResponse));
 chrome.commands.onCommand.addListener((command, tab) => {
   void onCommand(gestures, command, tab);
 });
@@ -101,15 +117,24 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   router.forgetTab(tabId);
   void fillDeps.session.remove(lastFilledKey(tabId), lastErrorKey(tabId));
   void save.drop(tabId);
+  passkey.onTabGone(tabId);
+});
+chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
+  passkey.onTabGone(removedTabId);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading") {
+    passkey.onNavigated(tabId);
+  }
   if (changeInfo.url !== undefined) {
     void save.onNavigated(tabId, changeInfo.url);
+    passkey.onNavigated(tabId, changeInfo.url);
   }
 });
-// The browser can take the optional site access back (browser settings): capture then switches itself off.
+// The browser can take the optional site access back (browser settings): capture and passkeys then switch themselves off.
 chrome.permissions.onRemoved.addListener(() => {
   void save.offersEnabled();
+  void passkeys.enabled();
 });
 
-installE2E({ native, pairings, popup, gestures, save, kv });
+installE2E({ native, pairings, popup, gestures, save, kv, passkeys });

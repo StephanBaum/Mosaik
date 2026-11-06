@@ -3,6 +3,7 @@ import type { FrameProbe } from "../shared/messages.ts";
 import { createMemoryStore } from "./db.ts";
 import { GeneratedHold, type FillDeps } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
+import { PasskeySwitch, type PasskeyRegistry } from "./passkey-registry.ts";
 import { PopupService } from "./popup.ts";
 import { SaveService } from "./save.ts";
 import { lastErrorKey, memorySession, pendingSaveKey } from "./session.ts";
@@ -79,7 +80,14 @@ function harness(): Harness {
   });
   fill.onGenerated = save.storeGenerated;
   const hold = new GeneratedHold(() => 1_000_000);
-  const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save }, () => null);
+  const registry: PasskeyRegistry = {
+    hasAccess: () => Promise.resolve(true),
+    isRegistered: () => Promise.resolve(false),
+    register: () => Promise.resolve(),
+    unregister: () => Promise.resolve(),
+  };
+  const passkeys = new PasskeySwitch(registry);
+  const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save, passkeys }, () => null);
   return { service, hold, save, requests, session, badge, setProbes: (p) => (probes = p) };
 }
 
@@ -156,6 +164,12 @@ describe("getState", () => {
 
   it("reports whether save capture is on", async () => {
     expect(await h.service.handle({ op: "getState" }, TAB)).toMatchObject({ saveOffers: false });
+  });
+
+  it("reports the passkey setting, which is off until the scripts are registered", async () => {
+    expect(await h.service.handle({ op: "getState" }, TAB)).toMatchObject({ passkeys: false });
+    expect(await h.service.handle({ op: "setPasskeys", enabled: true }, TAB)).toEqual({ passkeys: true });
+    expect(await h.service.handle({ op: "setPasskeys", enabled: false }, TAB)).toEqual({ passkeys: false });
   });
 });
 
