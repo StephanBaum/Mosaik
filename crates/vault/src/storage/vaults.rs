@@ -6,6 +6,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::error::{Error, Result};
 use super::records::check_pending;
+use super::sync_state::{KeyFlags, KeyOrigin, record_deletions};
 use super::{
     MAX_UNLOCK_PARAMS_LEN, PendingPolicy, Store, attachments, check_generation,
     generation_from_sql, now_ms, seq_from_sql, seq_to_sql, vault_id_from_sql,
@@ -125,15 +126,19 @@ fn read_floor(conn: &Connection, vault_id: &VaultId) -> Result<Option<KeyGenerat
     .transpose()
 }
 
+/// Inserts a wrapped key, or re-wraps the held one in place. A new row gets
+/// `flags`; an existing row keeps the sync flags it has.
 fn upsert_key(
     conn: &Connection,
     vault_id: &VaultId,
     generation: KeyGeneration,
     wrapped: &WrappedKey,
+    flags: KeyFlags,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at)
-         VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at,
+                                 upload_pending, local_origin)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT (vault_id, generation) DO UPDATE SET
              wrapped_vk = excluded.wrapped_vk,
              updated_at = excluded.updated_at",
@@ -141,7 +146,9 @@ fn upsert_key(
             vault_id.as_bytes(),
             generation.get(),
             wrapped.as_bytes(),
-            now_ms()
+            now_ms(),
+            flags.upload_pending,
+            flags.local_origin
         ],
     )?;
     Ok(())
@@ -225,6 +232,51 @@ impl Store {
         key_wrap: VaultKeyWrap,
         wrapped_vault_key: &WrappedKey,
     ) -> Result<VaultState> {
+        self.create_vault_flagged(
+            vault_id,
+            generation,
+            key_wrap,
+            wrapped_vault_key,
+            KeyFlags::NEUTRAL,
+            false,
+        )
+    }
+
+    /// [`Store::create_vault`] for the sync queue (schema v3). A
+    /// [`KeyOrigin::Local`] vault was created on this install: its first key
+    /// is queued for upload (`upload_pending`, `local_origin`) and the vault
+    /// does not exist on the backend yet. A [`KeyOrigin::Remote`] vault was
+    /// learned from the backend: nothing is queued and it is marked as
+    /// existing there.
+    ///
+    /// # Errors
+    /// As [`Store::create_vault_with`].
+    pub fn create_vault_origin(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+        origin: KeyOrigin,
+    ) -> Result<VaultState> {
+        self.create_vault_flagged(
+            vault_id,
+            generation,
+            VaultKeyWrap::AccountKey,
+            wrapped_vault_key,
+            KeyFlags::of(origin),
+            origin == KeyOrigin::Remote,
+        )
+    }
+
+    fn create_vault_flagged(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        key_wrap: VaultKeyWrap,
+        wrapped_vault_key: &WrappedKey,
+        flags: KeyFlags,
+        remote_created: bool,
+    ) -> Result<VaultState> {
         let tx = self.write()?;
         if read_vault(&tx, vault_id)?.is_some() {
             return Err(Error::VaultExists);
@@ -239,16 +291,24 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO vaults (vault_id, key_wrap, current_generation,
-                                 highest_accepted_generation, updated_at)
-             VALUES (?1, ?2, ?3, ?3, ?4)",
+                                 highest_accepted_generation, updated_at, remote_created)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
             params![
                 vault_id.as_bytes(),
                 key_wrap.code(),
                 generation.get(),
-                now_ms()
+                now_ms(),
+                remote_created
             ],
         )?;
-        upsert_key(&tx, vault_id, generation, wrapped_vault_key)?;
+        // A hardware-protected vault's keys never wait for upload (CRYPTO_SPEC
+        // 7.4: they stay on the device).
+        let flags = if key_wrap == VaultKeyWrap::AccountKey {
+            flags
+        } else {
+            KeyFlags::NEUTRAL
+        };
+        upsert_key(&tx, vault_id, generation, wrapped_vault_key, flags)?;
         tx.commit()?;
         Ok(VaultState {
             vault_id: *vault_id,
@@ -311,7 +371,13 @@ impl Store {
                 meta.key_generation().get()
             ],
         )?;
-        upsert_key(&tx, vault_id, generation, wrapped_vault_key)?;
+        upsert_key(
+            &tx,
+            vault_id,
+            generation,
+            wrapped_vault_key,
+            KeyFlags::NEUTRAL,
+        )?;
         tx.execute(
             "INSERT INTO tk_wrappings (vault_id, method_id, wrapped_tk, params, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -369,6 +435,61 @@ impl Store {
         generation: KeyGeneration,
         wrapped_vault_key: &WrappedKey,
     ) -> Result<VaultState> {
+        self.accept_vault_key_flagged(vault_id, generation, wrapped_vault_key, None)
+    }
+
+    /// [`Store::accept_vault_key`] for the sync queue (schema v3): a new
+    /// row of a vault under AK is stored as a [`KeyOrigin::Local`] key
+    /// (queued for upload, generated here) or a [`KeyOrigin::Remote`] one
+    /// (not queued). A hardware-protected vault's key is never queued.
+    ///
+    /// # Errors
+    /// As [`Store::accept_vault_key`].
+    pub fn accept_vault_key_origin(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+        origin: KeyOrigin,
+    ) -> Result<VaultState> {
+        self.accept_vault_key_flagged(
+            vault_id,
+            generation,
+            wrapped_vault_key,
+            Some(KeyFlags::of(origin)),
+        )
+    }
+
+    /// [`Store::accept_vault_key_origin`] for a key this install generated
+    /// and the backend has already accepted (a committed two-phase
+    /// rotation): `local_origin` is set and nothing is queued.
+    ///
+    /// # Errors
+    /// As [`Store::accept_vault_key`].
+    pub fn accept_uploaded_vault_key(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+    ) -> Result<VaultState> {
+        self.accept_vault_key_flagged(
+            vault_id,
+            generation,
+            wrapped_vault_key,
+            Some(KeyFlags {
+                upload_pending: false,
+                local_origin: true,
+            }),
+        )
+    }
+
+    fn accept_vault_key_flagged(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+        flags: Option<KeyFlags>,
+    ) -> Result<VaultState> {
         let tx = self.write()?;
         let mut state = require_vault(&tx, vault_id)?;
         if generation < state.highest_accepted_generation {
@@ -405,7 +526,11 @@ impl Store {
                 params![vault_id.as_bytes(), generation.get(), now_ms()],
             )?;
         }
-        upsert_key(&tx, vault_id, generation, wrapped_vault_key)?;
+        let flags = match flags {
+            Some(flags) if state.key_wrap == VaultKeyWrap::AccountKey => flags,
+            _ => KeyFlags::NEUTRAL,
+        };
+        upsert_key(&tx, vault_id, generation, wrapped_vault_key, flags)?;
         tx.commit()?;
         self.scrub_wal()?;
         Ok(state)
@@ -635,6 +760,7 @@ impl Store {
         };
         check_pending(&tx, policy, "vault_id = ?1", [vault_id.as_bytes()])?;
         let ids = attachments::ids_in_vault(&tx, vault_id)?;
+        record_deletions(&tx, "vault_id = ?1", [vault_id.as_bytes()])?;
         tx.execute(
             "INSERT INTO vault_generation_floors (vault_id, generation, updated_at)
              VALUES (?1, ?2, ?3)

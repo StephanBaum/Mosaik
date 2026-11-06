@@ -40,6 +40,11 @@ impl Label {
     pub(crate) const fn as_bytes(self) -> &'static [u8] {
         self.0.as_bytes()
     }
+
+    /// The label text, for [`ctx`].
+    pub(crate) const fn as_str(self) -> &'static str {
+        self.0
+    }
 }
 
 /// Every label used in this crate. Labels MUST NOT be reused for a
@@ -95,9 +100,28 @@ pub(crate) mod label {
     /// AAD of a browser channel frame (§15).
     pub(crate) const BROWSER_FRAME: Label = Label::new("browser/frame");
 
+    /// HKDF info of the checkpoint key `K_cp` (§10).
+    pub(crate) const CHECKPOINT_KEY: Label = Label::new("checkpoint-key");
+    /// Prefix of the checkpoint MAC input (§10).
+    pub(crate) const CHECKPOINT: Label = Label::new("checkpoint");
+    /// HKDF info of the sync session token (§9.2).
+    pub(crate) const SESSION: Label = Label::new("session");
+    /// HKDF info of the folder backend MAC key `K_fold` (§10.1).
+    pub(crate) const SYNC_FOLDER_MAC_KEY: Label = Label::new("sync/folder-mac-key");
+    /// Prefix of a folder segment MAC (§10.1).
+    pub(crate) const SYNC_FOLDER_SEGMENT: Label = Label::new("sync/folder-segment");
+    /// Prefix of a folder account file MAC (§10.1).
+    pub(crate) const SYNC_FOLDER_ACCOUNT: Label = Label::new("sync/folder-account");
+    /// Prefix of a folder blob delete marker MAC (§10.1).
+    pub(crate) const SYNC_FOLDER_BLOB_DELETE: Label = Label::new("sync/folder-blob-delete");
+    /// HKDF info of the folder device-info key `K_dev` (§10.1).
+    pub(crate) const SYNC_DEVICE_INFO_KEY: Label = Label::new("sync/device-info-key");
+    /// AAD of sealed device info (§10.1).
+    pub(crate) const SYNC_DEVICE_INFO: Label = Label::new("sync/device-info");
+
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 22] = [
+    pub(crate) const ALL: [Label; 31] = [
         SECRET_KEY,
         ROOT,
         KEK,
@@ -120,6 +144,15 @@ pub(crate) mod label {
         BROWSER_HANDSHAKE,
         BROWSER_SESSION,
         BROWSER_FRAME,
+        CHECKPOINT_KEY,
+        CHECKPOINT,
+        SESSION,
+        SYNC_FOLDER_MAC_KEY,
+        SYNC_FOLDER_SEGMENT,
+        SYNC_FOLDER_ACCOUNT,
+        SYNC_FOLDER_BLOB_DELETE,
+        SYNC_DEVICE_INFO_KEY,
+        SYNC_DEVICE_INFO,
     ];
 }
 

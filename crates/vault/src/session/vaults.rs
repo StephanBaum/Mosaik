@@ -8,7 +8,7 @@ use mosaic_core::{DeviceId, KeyGeneration, VaultId, VaultKey};
 
 use super::sync::key_acceptance_error;
 use super::{Error, OpenVault, Result, UnlockedSession, now, reseal_below_current};
-use crate::storage::VaultKeyWrap;
+use crate::storage::{KeyOrigin, VaultKeyWrap};
 
 /// A vault as listed by [`UnlockedSession::vaults`]. `Debug` does not show
 /// the name (user content, CRYPTO_SPEC §12), only whether there is one.
@@ -52,8 +52,14 @@ impl UnlockedSession {
         let wrapped = vk.wrap(&self.account_key, &self.account_id, &vault_id)?;
         let meta = VaultMeta::new(name, self.device, now())?;
         let meta_ct = meta.seal(&vk, &vault_id)?;
-        self.store
-            .create_vault(&vault_id, KeyGeneration::FIRST, &wrapped)?;
+        // Queued for the backend: the vault does not exist there yet, and its
+        // creation carries the first key and the metadata (M6).
+        self.store.create_vault_origin(
+            &vault_id,
+            KeyGeneration::FIRST,
+            &wrapped,
+            KeyOrigin::Local,
+        )?;
         self.store.set_vault_meta(&vault_id, &meta_ct)?;
         let mut ov = OpenVault::new(KeyGeneration::FIRST);
         ov.keys.insert(KeyGeneration::FIRST, vk);
@@ -114,7 +120,7 @@ impl UnlockedSession {
             VaultMeta::new(name, DeviceId::new_v7()?, now())?
         };
         let ct = meta.seal(vk, &vault_id)?;
-        self.store.set_vault_meta(&vault_id, &ct)?;
+        self.store.set_vault_meta_queued(&vault_id, &ct, true)?;
         ov.meta = Some(meta);
         // The unreadable row is replaced; received metadata now merges
         // with this rename instead of replacing it.
@@ -158,8 +164,11 @@ impl UnlockedSession {
             (None, VaultKeyWrap::TotpKey) => return Err(Error::VaultUnavailable),
             _ => vk.wrap(&self.account_key, &self.account_id, &vault_id)?,
         };
+        // A key generated here waits for upload (and so does the re-sealed
+        // metadata, `reseal_below_current`); the sync engine's two-phase
+        // rotation goes through `commit_vault_rotation` instead.
         self.store
-            .accept_vault_key(&vault_id, next, &wrapped)
+            .accept_vault_key_origin(&vault_id, next, &wrapped, KeyOrigin::Local)
             .map_err(key_acceptance_error)?;
         ov.keys.insert(next, vk);
         ov.generation = next;

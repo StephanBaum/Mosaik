@@ -5,6 +5,7 @@ use mosaic_core::{ItemCiphertext, ItemId, KeyGeneration, TombstoneCiphertext, Va
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::error::{Error, Result};
+use super::sync_state::record_deletions;
 use super::vaults::require_vault;
 use super::{
     PendingPolicy, Store, attachments, check_generation, generation_from_sql, now_ms, seq_from_sql,
@@ -250,7 +251,7 @@ fn check_server_seq(stored: Option<u64>, offered: u64) -> Result<()> {
     }
 }
 
-fn next_outbox_seq(conn: &Connection) -> Result<OutboxSeq> {
+pub(super) fn next_outbox_seq(conn: &Connection) -> Result<OutboxSeq> {
     let last: i64 = conn.query_row(
         "UPDATE outbox_counter SET last = last + 1 WHERE id = 1 RETURNING last",
         [],
@@ -412,6 +413,19 @@ impl Store {
         )
     }
 
+    /// [`Store::outbox`] for one vault: up to `limit` records of `vault_id`
+    /// with a pending local change, oldest change first.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn outbox_in(&self, vault_id: &VaultId, limit: usize) -> Result<Vec<RecordEntry>> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        self.list(
+            "WHERE vault_id = ?1 AND outbox_seq IS NOT NULL ORDER BY outbox_seq LIMIT ?2",
+            params![vault_id.as_bytes(), limit],
+        )
+    }
+
     /// The records of a vault sealed under a generation below
     /// `generation`, ordered by record ID; corrupt rows are reported as in
     /// [`Store::records`].
@@ -503,6 +517,7 @@ impl Store {
         let args = params![vault_id.as_bytes(), record_id.as_bytes()];
         check_pending(&tx, policy, "vault_id = ?1 AND record_id = ?2", args)?;
         let ids = attachments::ids_for_record(&tx, vault_id, record_id)?;
+        record_deletions(&tx, "vault_id = ?1 AND record_id = ?2", args)?;
         let n = tx.execute(
             "DELETE FROM records WHERE vault_id = ?1 AND record_id = ?2",
             args,

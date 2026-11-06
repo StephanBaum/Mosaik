@@ -24,6 +24,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::error::{Error, Result};
 use super::fs::{TMP_SUFFIX, remove_file_if_present, write_atomic};
+use super::sync_state::record_deletions;
 use super::{Store, now_ms, vault_id_from_sql};
 
 /// `version || alg || chunk_log2`.
@@ -249,6 +250,11 @@ impl Store {
         if exists {
             return Err(Error::AttachmentExists);
         }
+        // An ID stored again is live again: the backend is not told to delete it.
+        tx.execute(
+            "DELETE FROM attachment_deletions WHERE attachment_id = ?1",
+            [attachment_id.as_bytes()],
+        )?;
         let name = file_name(attachment_id);
         // The write lock is held, so no other connection writes this ID.
         write_atomic(&dir, &name, ciphertext)?;
@@ -363,15 +369,21 @@ impl Store {
     }
 
     /// Deletes an attachment's row, then its file. Returns whether it
-    /// existed.
+    /// existed. An attachment that had been uploaded is recorded in
+    /// `attachment_deletions` in the same transaction
+    /// ([`Store::pending_attachment_deletions`]): the backend still holds
+    /// its ciphertext. One that never was uploaded is not.
     ///
     /// # Errors
     /// [`Error::Database`], [`Error::Io`].
     pub fn delete_attachment(&mut self, attachment_id: &AttachmentId) -> Result<bool> {
-        let n = self.conn.execute(
+        let tx = self.write()?;
+        record_deletions(&tx, "attachment_id = ?1", [attachment_id.as_bytes()])?;
+        let n = tx.execute(
             "DELETE FROM attachments WHERE attachment_id = ?1",
             [attachment_id.as_bytes()],
         )?;
+        tx.commit()?;
         remove_files(self.attachment_dir.as_deref(), &[*attachment_id])?;
         Ok(n > 0)
     }

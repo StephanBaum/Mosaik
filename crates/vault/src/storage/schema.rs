@@ -258,6 +258,84 @@ CREATE TABLE settings_nonce (
 ) STRICT;
 ";
 
+/// Version 3: the sync state of M6 (CRYPTO_SPEC §10, ADR-0045). Additive:
+/// new columns with neutral defaults and new tables. Nothing here is derived
+/// from item plaintext (§11); the install ID is created by `Store::open`.
+const V3: &str = r"
+-- Upload queue of wrapped vault keys and vault metadata (M2-R1, M2-R11).
+-- `local_origin` marks a key this install generated (it names itself as the
+-- key's device in the canonical-winner rule, §10.1).
+ALTER TABLE vault_keys ADD COLUMN upload_pending INTEGER NOT NULL DEFAULT 0
+    CHECK (upload_pending IN (0, 1));
+ALTER TABLE vault_keys ADD COLUMN local_origin INTEGER NOT NULL DEFAULT 0
+    CHECK (local_origin IN (0, 1));
+ALTER TABLE vaults ADD COLUMN remote_created INTEGER NOT NULL DEFAULT 0
+    CHECK (remote_created IN (0, 1));
+ALTER TABLE vaults ADD COLUMN meta_upload_pending INTEGER NOT NULL DEFAULT 0
+    CHECK (meta_upload_pending IN (0, 1));
+ALTER TABLE vaults ADD COLUMN meta_server_seq INTEGER CHECK (meta_server_seq >= 0);
+
+-- This install's stable ID (CRYPTO_SPEC §10: checkpoints, folder paths, server
+-- device lists). Unlike the writer ID in `local_device` it is created once.
+CREATE TABLE install_identity (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    install_id  BLOB    NOT NULL
+                CHECK (length(install_id) = 16 AND install_id <> zeroblob(16)),
+    created_at  INTEGER NOT NULL
+) STRICT;
+
+-- Where this account syncs to (cleartext local metadata, §11). 1 = hosted,
+-- 2 = folder.
+CREATE TABLE sync_config (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    kind         INTEGER NOT NULL CHECK (kind IN (1, 2)),
+    server_url   TEXT    CHECK (server_url IS NULL OR length(server_url) <= 2048),
+    email        TEXT    CHECK (email IS NULL OR length(email) <= 320),
+    folder_path  TEXT    CHECK (folder_path IS NULL OR length(folder_path) <= 4096),
+    device_name  TEXT    NOT NULL CHECK (length(device_name) BETWEEN 1 AND 64),
+    updated_at   INTEGER NOT NULL,
+    CHECK ((kind = 1 AND server_url IS NOT NULL AND folder_path IS NULL)
+        OR (kind = 2 AND folder_path IS NOT NULL AND server_url IS NULL AND email IS NULL))
+) STRICT;
+
+-- Opaque per-vault pull cursors of either backend (the legacy `sync_cursors`
+-- table stays but M6 does not use it).
+CREATE TABLE sync_cursor_blobs (
+    vault_id    BLOB    PRIMARY KEY REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    cursor      BLOB    NOT NULL CHECK (length(cursor) <= 65536),
+    updated_at  INTEGER NOT NULL
+) STRICT;
+
+-- Device-local sequence numbers for backends without a server sequence. The
+-- stored value is the first number of the next block to reserve, so a crash
+-- skips numbers and never reuses one.
+CREATE TABLE sync_local_seq (
+    vault_id    BLOB    PRIMARY KEY REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    next_seq    INTEGER NOT NULL CHECK (next_seq >= 1)
+) STRICT;
+
+-- The checkpoint counter (§10); it never decreases.
+CREATE TABLE sync_checkpoint (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    counter  INTEGER NOT NULL CHECK (counter >= 0)
+) STRICT;
+
+INSERT INTO sync_checkpoint (id, counter) VALUES (1, 0);
+
+CREATE TRIGGER sync_checkpoint_monotonic
+BEFORE UPDATE ON sync_checkpoint
+WHEN NEW.counter < OLD.counter
+BEGIN SELECT RAISE(ABORT, 'mosaic: checkpoint counter decreased'); END;
+
+-- Attachments deleted here after they had been uploaded: the backend still
+-- has to be told (soft delete, M3-R25).
+CREATE TABLE attachment_deletions (
+    attachment_id  BLOB    PRIMARY KEY CHECK (length(attachment_id) = 16),
+    vault_id       BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    deleted_at     INTEGER NOT NULL
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -268,10 +346,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: V2,
     },
+    Migration {
+        version: 3,
+        sql: V3,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 2;
+pub const LATEST_VERSION: u32 = 3;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -364,7 +446,7 @@ mod tests {
         assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
     }
 
-    const V3_TEST: &str = "
+    const V4_TEST: &str = "
         ALTER TABLE vaults ADD COLUMN test_flag INTEGER NOT NULL DEFAULT 7;
         CREATE TABLE test_v2 (x INTEGER) STRICT;
     ";
@@ -393,10 +475,14 @@ mod tests {
             },
             Migration {
                 version: 3,
-                sql: V3_TEST,
+                sql: V3,
+            },
+            Migration {
+                version: 4,
+                sql: V4_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 3);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 4);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -410,11 +496,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 3,
-                supported: 2
+                found: 4,
+                supported: 3
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 3);
+        assert_eq!(user_version(&c).unwrap(), 4);
     }
 
     #[test]
@@ -432,11 +518,15 @@ mod tests {
             },
             Migration {
                 version: 3,
+                sql: V3,
+            },
+            Migration {
+                version: 4,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 2);
+        assert_eq!(user_version(&c).unwrap(), 3);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -452,7 +542,7 @@ mod tests {
         let mut c = conn();
         let gappy = [Migration {
             version: 2,
-            sql: V3_TEST,
+            sql: V4_TEST,
         }];
         assert!(matches!(migrate(&mut c, &gappy), Err(Error::Corrupt)));
         assert_eq!(user_version(&c).unwrap(), 0);
@@ -600,5 +690,122 @@ mod tests {
         check_generation_triggers(&c, v);
         check_floor_triggers(&c, v);
         check_account_and_cursor_triggers(&c, v);
+    }
+
+    /// A v2 store with a vault, a key, a record and an attachment row is
+    /// upgraded to v3: every row survives with neutral sync flags and the
+    /// new tables exist (the install ID is created by `Store::open`).
+    #[test]
+    fn migration_v2_to_v3_keeps_data() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..2]).unwrap(), 2);
+        let v = [7u8; 16];
+        c.execute_batch(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, meta, meta_generation, updated_at)
+             VALUES (x'07070707070707070707070707070707', 1, 2, 2, x'aa', 2, 5);
+             INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at)
+             VALUES (x'07070707070707070707070707070707', 2, zeroblob(74), 6);
+             INSERT INTO records (vault_id, record_id, kind, key_generation, ciphertext,
+                                  server_seq, outbox_seq, updated_at)
+             VALUES (x'07070707070707070707070707070707', x'09090909090909090909090909090909',
+                     1, 2, x'bb', 11, 3, 7);
+             INSERT INTO attachments (attachment_id, vault_id, record_id, size,
+                                      upload_pending, created_at)
+             VALUES (x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a', x'07070707070707070707070707070707',
+                     x'09090909090909090909090909090909', 100, 1, 8);
+             INSERT INTO sync_cursors (vault_id, server_seq, updated_at)
+             VALUES (x'07070707070707070707070707070707', 11, 9);",
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 3);
+        let flags: (i64, i64, i64, i64, Option<i64>, Vec<u8>, i64) = c
+            .query_row(
+                "SELECT k.upload_pending, k.local_origin, v.remote_created,
+                        v.meta_upload_pending, v.meta_server_seq, v.meta, v.updated_at
+                 FROM vaults v JOIN vault_keys k USING (vault_id) WHERE v.vault_id = ?1",
+                [v],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(flags, (0, 0, 0, 0, None, vec![0xAA], 5));
+        let record: (i64, i64, Vec<u8>) = c
+            .query_row(
+                "SELECT server_seq, outbox_seq, ciphertext FROM records",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(record, (11, 3, vec![0xBB]));
+        for (table, expected) in [
+            ("attachments", 1),
+            ("sync_cursors", 1),
+            ("sync_checkpoint", 1),
+            ("install_identity", 0),
+            ("sync_config", 0),
+            ("sync_cursor_blobs", 0),
+            ("sync_local_seq", 0),
+            ("attachment_deletions", 0),
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, expected, "{table}");
+        }
+        assert!(
+            c.execute("UPDATE vault_keys SET upload_pending = 2", [])
+                .is_err(),
+            "the new flag columns are checked"
+        );
+    }
+
+    #[test]
+    fn checkpoint_counter_monotonic_trigger() {
+        let mut c = conn();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        c.execute("UPDATE sync_checkpoint SET counter = 5", [])
+            .unwrap();
+        c.execute("UPDATE sync_checkpoint SET counter = 5", [])
+            .unwrap();
+        let e = c
+            .execute("UPDATE sync_checkpoint SET counter = 4", [])
+            .unwrap_err();
+        assert!(e.to_string().contains("mosaic:"), "{e}");
+        let n: i64 = c
+            .query_row("SELECT counter FROM sync_checkpoint", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 5);
+    }
+
+    #[test]
+    fn sync_config_check_enforces_the_backend_shape() {
+        let mut c = conn();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        for ok in [
+            "INSERT INTO sync_config (id, kind, server_url, email, device_name, updated_at)
+             VALUES (1, 1, 'https://x.example', NULL, 'Laptop', 0)",
+            "UPDATE sync_config SET kind = 2, server_url = NULL, email = NULL,
+                 folder_path = '/tmp/f'",
+        ] {
+            c.execute(ok, []).unwrap();
+        }
+        for bad in [
+            "UPDATE sync_config SET kind = 1",
+            "UPDATE sync_config SET email = 'a@b.example'",
+            "UPDATE sync_config SET kind = 3",
+            "UPDATE sync_config SET device_name = ''",
+        ] {
+            assert!(c.execute(bad, []).is_err(), "{bad}");
+        }
     }
 }

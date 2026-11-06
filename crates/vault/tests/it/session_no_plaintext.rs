@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::common::{PASSWORD, new_account_in, pw};
 use mosaic_core::SecretVec;
 use mosaic_core::model::{ItemType, LoginUrl, OtpConfig, SecretField, TextField};
-use mosaic_vault::session::LockedSession;
+use mosaic_vault::session::{LockedSession, SyncConfig, SyncKind};
 use mosaic_vault::storage::Store;
 
 const MARKER: &str = "MosaicMarker7c3f";
@@ -88,6 +88,33 @@ fn nothing_readable_reaches_the_disk() {
     let moved = s.move_item(personal, item, work).unwrap();
     s.rotate_vault_key(work).unwrap();
     s.trash_item(work, moved).unwrap();
+
+    // The schema v3 sync state (M6): configuration, queues, cursors, local
+    // sequence blocks, the checkpoint counter and attachment deletions hold
+    // IDs, flags and the user's own backend settings, never content.
+    s.set_sync_config(Some(&SyncConfig {
+        kind: SyncKind::Hosted,
+        server_url: Some("https://sync.example".to_owned()),
+        email: None,
+        folder_path: None,
+        device_name: "Test device".to_owned(),
+    }))
+    .unwrap();
+    for upload in s.pending_vault_uploads().unwrap() {
+        s.set_sync_cursor(upload.vault_id, b"opaque-cursor")
+            .unwrap();
+        s.allocate_local_seqs(upload.vault_id, 3).unwrap();
+    }
+    s.next_checkpoint_counter().unwrap();
+    let sealed = s
+        .seal_device_info(format!("{{\"name\":\"{}\"}}", m("device")).as_bytes())
+        .unwrap();
+    assert!(!contains(&sealed, MARKER.as_bytes()));
+    for att in s.pending_attachment_uploads().unwrap() {
+        s.mark_attachment_uploaded(att.attachment_id).unwrap();
+    }
+    s.reset_sync_state().unwrap();
+    s.set_sync_cursor(work, b"opaque-cursor").unwrap();
 
     let secret_display = created.emergency_kit.secret_key.expose_secret().to_owned();
     let needles = vec![

@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/passkey/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/passkey/fuzz", "crates/sync/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]

@@ -1,0 +1,1 @@
+{"results":[{"status":"accepted","recordId":"c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1","serverSeq":5},{"status":"conflict","recordId":"c2c2c2c2-c2c2-c2c2-c2c2-c2c2c2c2c2c2","currentSeq":9}]}

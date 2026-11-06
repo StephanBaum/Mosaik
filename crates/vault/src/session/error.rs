@@ -158,6 +158,12 @@ pub enum Error {
     /// (CRYPTO_SPEC §7.4).
     #[error("item type not allowed in this vault")]
     ItemTypeNotAllowed,
+
+    /// No item of the vault references the attachment, so a downloaded
+    /// ciphertext has nothing to belong to
+    /// ([`super::UnlockedSession::store_remote_attachment`]).
+    #[error("no item references the attachment")]
+    UnknownAttachmentReference,
 }
 
 impl From<mosaic_core::Error> for Error {

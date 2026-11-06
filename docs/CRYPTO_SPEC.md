@@ -815,7 +815,7 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     `aad = header || aad("sync/device-info", account_id, device_id)` with
     `header = "MDEV" || 1 || device_id`; the plaintext is canonical JSON
     (`createdAt`, `name`, `platform`), at most 512 bytes.
-  - Blob delete marker `.mdel` (93 bytes): `"MDEL" || 1 || attachment_id || device_id || deleted_at_ms:u64 || mac`,
+  - Blob delete marker `.mdel` (77 bytes): `"MDEL" || 1 || attachment_id || device_id || deleted_at_ms:u64 || mac`,
     `mac = HMAC(K_fold, ctx("sync/folder-blob-delete") || 0x00 || preceding bytes)`.
   - Checkpoint `head.mck`: as §10.
 - **Single-writer rule.** Every path is written by exactly one install (its
