@@ -146,6 +146,7 @@ const fn format_of(format: ImportFormat) -> Format {
         ImportFormat::Bitwarden => Format::Bitwarden,
         ImportFormat::Keepass => Format::Keepass,
         ImportFormat::OnePassword => Format::OnePassword,
+        ImportFormat::Cxf => Format::Cxf,
         ImportFormat::Csv => Format::Csv,
     }
 }
@@ -156,6 +157,7 @@ const fn wire_format(format: Format) -> ImportFormat {
         Format::Bitwarden => ImportFormat::Bitwarden,
         Format::Keepass => ImportFormat::Keepass,
         Format::OnePassword => ImportFormat::OnePassword,
+        Format::Cxf => ImportFormat::Cxf,
         Format::Csv => ImportFormat::Csv,
     }
 }
@@ -186,6 +188,9 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::Archived => ImportEntryWarning::Archived,
         EntryWarning::AttachmentQuota => ImportEntryWarning::AttachmentQuota,
         EntryWarning::TitleCleaned => ImportEntryWarning::TitleCleaned,
+        EntryWarning::PasskeyUnreadable => ImportEntryWarning::PasskeyUnreadable,
+        EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
+        EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
         _ => return None,
     })
 }
@@ -198,6 +203,9 @@ fn warning(warning: mosaic_import::ImportWarning) -> Option<ImportWarning> {
         W::EntriesSkipped => ImportWarning::EntriesSkipped,
         W::OtpUnreadable => ImportWarning::OtpUnreadable,
         W::PasskeysNotImported => ImportWarning::PasskeysNotImported,
+        W::PasskeyUnreadable => ImportWarning::PasskeyUnreadable,
+        W::PasskeyUnsupported => ImportWarning::PasskeyUnsupported,
+        W::PasskeysSkipped => ImportWarning::PasskeysSkipped,
         _ => return None,
     })
 }

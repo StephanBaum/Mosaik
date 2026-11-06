@@ -60,6 +60,7 @@
     "allow-import-preview",
     "allow-import-commit",
     "allow-import-cancel",
+    "allow-export-passkeys-cxf",
     "allow-ssh-agent-status",
     "allow-ssh-agent-set-enabled",
     "allow-ssh-respond",

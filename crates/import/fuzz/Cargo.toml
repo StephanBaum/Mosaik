@@ -25,6 +25,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
 libfuzzer-sys = "=0.4.10"
 mosaic-core = { path = "../../core" }
+mosaic-passkey = { path = "../../passkey" }
 mosaic-import = { path = ".." }
 
 [[bin]]
@@ -37,6 +38,13 @@ bench = false
 [[bin]]
 name = "bitwarden_json"
 path = "fuzz_targets/bitwarden_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cxf"
+path = "fuzz_targets/cxf.rs"
 test = false
 doc = false
 bench = false

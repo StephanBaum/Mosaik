@@ -4,7 +4,7 @@ use core::fmt;
 
 use mosaic_core::{SecretBytes, SecretVec};
 use p256::ecdsa::{Signature, SigningKey, signature::Signer};
-use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, ObjectIdentifier, PrivateKeyInfoRef};
 
 use crate::{COSE_KEY_LEN, CREDENTIAL_ID_LEN, Error};
 
@@ -135,6 +135,42 @@ impl Es256Key {
 impl fmt::Debug for Es256Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Es256Key([REDACTED])")
+    }
+}
+
+/// `id-ecPublicKey` (RFC 5480): the algorithm of an elliptic-curve key.
+const EC_PUBLIC_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+/// `secp256r1` (P-256).
+const SECP256R1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
+
+/// What [`pkcs8_kind`] found in a PKCS#8 structure.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+pub enum Pkcs8Kind {
+    /// A private key of the elliptic-curve algorithm on P-256. If
+    /// [`Es256Key::from_pkcs8_der`] refuses it, it is damaged (a mismatched
+    /// public key, a bad scalar), not unsupported.
+    P256,
+    /// A well-formed private key of another algorithm or curve (Ed25519,
+    /// RSA, P-384): valid, but not ES256.
+    Other,
+    /// Not a PKCS#8 private key.
+    NotPkcs8,
+}
+
+/// The algorithm and curve of a PKCS#8 private key, from its structure only
+/// (no key material is decoded or copied). An importer uses it to tell a key
+/// of another algorithm from a damaged P-256 key when
+/// [`Es256Key::from_pkcs8_der`] refuses it.
+#[must_use]
+pub fn pkcs8_kind(der: &[u8]) -> Pkcs8Kind {
+    let Ok(info) = PrivateKeyInfoRef::try_from(der) else {
+        return Pkcs8Kind::NotPkcs8;
+    };
+    if info.algorithm.oid == EC_PUBLIC_KEY && info.algorithm.parameters_oid() == Ok(SECP256R1) {
+        Pkcs8Kind::P256
+    } else {
+        Pkcs8Kind::Other
     }
 }
 

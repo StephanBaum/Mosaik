@@ -2,4 +2,5 @@
 
 mod commit;
 mod formats;
+mod passkeys;
 mod properties;

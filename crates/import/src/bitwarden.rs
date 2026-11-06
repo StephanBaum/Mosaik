@@ -17,20 +17,35 @@
 //! Types: 1 login, 2 secure note, 3 card, 4 identity, 5 SSH key; any other
 //! type becomes a secure note. Custom fields keep their kind (text, hidden,
 //! boolean as text; linked fields hold no value and are dropped). Folders
-//! and collections become tags. Passkeys (`fido2Credentials`) are not
-//! imported yet ([`crate::EntryWarning::PasskeysNotImported`]). A
-//! password-protected or account-encrypted export fails with
+//! and collections become tags. Passkeys (`fido2Credentials`) become
+//! `passkey` items:
+//!
+//! ```json
+//! { "credentialId": "<uuid>" | "b64.<base64url>", "keyType": "public-key",
+//!   "keyAlgorithm": "ECDSA", "keyCurve": "P-256", "keyValue": "<base64url PKCS#8>",
+//!   "rpId": "example.com", "userHandle": "<base64url>", "userName": "…",
+//!   "userDisplayName": "…", "counter": "0", "discoverable": "true",
+//!   "creationDate": "2024-05-01T12:30:00Z" }
+//! ```
+//!
+//! Only ES256 (ECDSA on P-256) is imported; another key type, algorithm or
+//! curve gives [`crate::EntryWarning::PasskeyUnsupported`], a member that is
+//! missing or does not decode (a null `userHandle` included) gives
+//! [`crate::EntryWarning::PasskeyUnreadable`]. A password-protected or account-encrypted export fails with
 //! [`Error::Encrypted`].
 
 use std::collections::HashMap;
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
+use mosaic_passkey::{MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN};
+use zeroize::Zeroizing;
 
-use crate::Format;
 use crate::draft::{Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import, SkipReason};
 use crate::error::{Error, Result};
 use crate::json::{self, Json};
+use crate::passkey::{self, Built, MAX_PKCS8_LEN, Parts, Problem};
+use crate::{Format, buf};
 
 /// Reads a Bitwarden JSON export.
 ///
@@ -39,6 +54,10 @@ use crate::json::{self, Json};
 /// the file is not JSON with an `items` array; [`Error::TooLarge`],
 /// [`Error::LimitExceeded`].
 pub fn parse(input: &[u8]) -> Result<Import> {
+    parse_into(input, Collector::new(Format::Bitwarden))
+}
+
+fn parse_into(input: &[u8], mut c: Collector) -> Result<Import> {
     if input.len() > crate::MAX_FILE_LEN {
         return Err(Error::TooLarge);
     }
@@ -57,10 +76,11 @@ pub fn parse(input: &[u8]) -> Result<Import> {
     };
     let folders = names("folders");
     let collections = names("collections");
-    let mut c = Collector::new(Format::Bitwarden);
     for item in items {
         match item.get("type").and_then(Json::as_i64) {
-            Some(ty) if item.is_object() => c.push(entry(item, ty, &folders, &collections))?,
+            Some(ty) if item.is_object() => {
+                c.push(entry(item, ty, &folders, &collections, c.passkey_room()))?;
+            }
             _ => c.skip(SkipReason::Malformed)?,
         }
     }
@@ -72,6 +92,7 @@ fn entry(
     ty: i64,
     folders: &HashMap<&str, &str>,
     collections: &HashMap<&str, &str>,
+    passkey_room: usize,
 ) -> Builder {
     let item_type = match ty {
         1 => ItemType::Login,
@@ -80,7 +101,7 @@ fn entry(
         5 => ItemType::SshKey,
         _ => ItemType::SecureNote,
     };
-    let mut b = Builder::new(item_type);
+    let mut b = Builder::new(item_type).with_passkey_room(passkey_room);
     if !(1..=5).contains(&ty) {
         b.warn(EntryWarning::UnknownCategory);
     }
@@ -159,9 +180,72 @@ fn login(b: &mut Builder, login: Option<&Json>) {
         b.url(u.str("uri").unwrap_or_default(), "URL");
     }
     b.otp_text(l.str("totp").unwrap_or_default(), "TOTP");
-    if !l.array("fido2Credentials").is_empty() {
-        b.warn(EntryWarning::PasskeysNotImported);
+    for credential in l.array("fido2Credentials") {
+        if b.wants_passkey() {
+            b.passkey(fido2_passkey(credential));
+        }
     }
+}
+
+/// The signature counter of a credential: absent is 0; otherwise a string of
+/// ASCII digits or a non-negative integer, at most `u32::MAX` (the counter of
+/// the authenticator data is 32 bits). A float, a flag, a sign or a space is
+/// unreadable.
+fn counter(c: &Json) -> core::result::Result<u64, Problem> {
+    let n = match c.get("counter") {
+        None => return Ok(0),
+        Some(Json::Str(s)) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => {
+            s.parse::<u32>().map_err(|_| Problem::Unreadable)?
+        }
+        Some(Json::Int(i)) => u32::try_from(*i).map_err(|_| Problem::Unreadable)?,
+        Some(Json::UInt(u)) => u32::try_from(*u).map_err(|_| Problem::Unreadable)?,
+        Some(_) => return Err(Problem::Unreadable),
+    };
+    Ok(u64::from(n))
+}
+
+/// One `fido2Credentials` member as a passkey draft.
+fn fido2_passkey(c: &Json) -> Built {
+    // Metadata first: a credential of another algorithm is unsupported even
+    // if its other members would not decode; one without the metadata is
+    // unreadable.
+    let meta = |key: &str| c.str(key).ok_or(Problem::Unreadable);
+    let (ty, alg, curve) = (meta("keyType")?, meta("keyAlgorithm")?, meta("keyCurve")?);
+    if (ty, alg, curve) != ("public-key", "ECDSA", "P-256") {
+        return Err(Problem::Unsupported);
+    }
+    let unreadable = |_| Problem::Unreadable;
+    let id = c.str("credentialId").ok_or(Problem::Unreadable)?;
+    let credential_id = if let Some(encoded) = id.strip_prefix("b64.") {
+        buf::base64url_decode(encoded, MAX_CREDENTIAL_ID_LEN).map_err(unreadable)?
+    } else {
+        let bytes = passkey::uuid_bytes(id).ok_or(Problem::Unreadable)?;
+        Zeroizing::new(bytes.to_vec())
+    };
+    let user_handle = buf::base64url_decode(
+        c.str("userHandle").ok_or(Problem::Unreadable)?,
+        MAX_USER_HANDLE_LEN,
+    )
+    .map_err(unreadable)?;
+    let private_key =
+        buf::base64url_decode(c.str("keyValue").ok_or(Problem::Unreadable)?, MAX_PKCS8_LEN)
+            .map_err(unreadable)?;
+    let sign_count = counter(c)?;
+    let discoverable = match c.get("discoverable") {
+        None => true,
+        Some(d) => d.as_flag().ok_or(Problem::Unreadable)?,
+    };
+    passkey::build(&Parts {
+        credential_id,
+        rp_id: c.str("rpId").ok_or(Problem::Unreadable)?,
+        user_handle,
+        user_name: c.str("userName").unwrap_or_default(),
+        user_display_name: c.str("userDisplayName").unwrap_or_default(),
+        private_key,
+        sign_count,
+        discoverable,
+        created_at: c.str("creationDate").and_then(passkey::parse_rfc3339),
+    })
 }
 
 fn card(b: &mut Builder, card: Option<&Json>) {

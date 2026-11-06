@@ -19,7 +19,7 @@ use mosaic_vault::session::ItemRef;
 use zeroize::Zeroizing;
 
 use crate::buf::Str;
-use crate::draft::EntryWarning;
+use crate::draft::{EntryWarning, ItemDraft};
 use crate::entries::{Import, SkippedEntry};
 use crate::url::site;
 
@@ -38,8 +38,17 @@ pub enum ImportWarning {
     /// Some one-time-password values were not understood (kept as hidden
     /// fields).
     OtpUnreadable,
-    /// Passkeys were left out (passkey import is M5).
+    /// Passkeys were left out: the format holds none of their private keys
+    /// (1PUX).
     PasskeysNotImported,
+    /// Some passkeys could not be read and are left out.
+    PasskeyUnreadable,
+    /// Some passkeys use an algorithm other than ES256 and are left out.
+    PasskeyUnsupported,
+    /// Some passkeys were left out: an entry held more than
+    /// [`crate::MAX_PASSKEYS_PER_ENTRY`], or the file more than
+    /// [`crate::MAX_IMPORT_PASSKEYS`].
+    PasskeysSkipped,
 }
 
 /// An existing item an entry looks like.
@@ -170,6 +179,62 @@ fn item_keys(item: &Item) -> Vec<Key> {
     )
 }
 
+fn count(counts: &mut Vec<(ItemType, u32)>, item_type: &ItemType) {
+    match counts.iter_mut().find(|(t, _)| t == item_type) {
+        Some((_, n)) => *n = n.saturating_add(1),
+        None => counts.push((item_type.clone(), 1)),
+    }
+}
+
+/// The file-level warning an entry warning rolls up into.
+const fn summary_warning(w: EntryWarning) -> Option<ImportWarning> {
+    match w {
+        EntryWarning::UnmappedFields | EntryWarning::UnknownCategory => {
+            Some(ImportWarning::UnmappedFields)
+        }
+        EntryWarning::AttachmentTooLarge
+        | EntryWarning::AttachmentMissing
+        | EntryWarning::AttachmentQuota => Some(ImportWarning::AttachmentsSkipped),
+        EntryWarning::OtpUnreadable => Some(ImportWarning::OtpUnreadable),
+        EntryWarning::PasskeysNotImported => Some(ImportWarning::PasskeysNotImported),
+        EntryWarning::PasskeyUnreadable => Some(ImportWarning::PasskeyUnreadable),
+        EntryWarning::PasskeyUnsupported => Some(ImportWarning::PasskeyUnsupported),
+        EntryWarning::PasskeysLimit => Some(ImportWarning::PasskeysSkipped),
+        _ => None,
+    }
+}
+
+/// For an entry of passkeys only: what `known` (existing passkey items, or the
+/// earlier entries of the file) holds for the first of its credentials, when
+/// it holds every one of them (same relying party and credential ID). Such an
+/// entry has no site and user name to compare.
+fn known_passkey_entry<T: Copy>(d: &ItemDraft, known: &HashMap<(String, Vec<u8>), T>) -> Option<T> {
+    if d.has_item() {
+        return None;
+    }
+    let mut found = d.passkeys.iter().map(|p| {
+        known
+            .get(&(
+                p.credential.rp_id.as_str().to_owned(),
+                p.credential.credential_id.clone(),
+            ))
+            .copied()
+    });
+    let first = found.next().flatten()?;
+    found.all(|f| f.is_some()).then_some(first)
+}
+
+/// Records the credentials of `d` as first held by entry `index`.
+fn note_passkeys(seen: &mut HashMap<(String, Vec<u8>), u32>, d: &ItemDraft, index: u32) {
+    for p in &d.passkeys {
+        seen.entry((
+            p.credential.rp_id.as_str().to_owned(),
+            p.credential.credential_id.clone(),
+        ))
+        .or_insert(index);
+    }
+}
+
 fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
@@ -180,7 +245,18 @@ impl Import {
     #[must_use]
     pub fn preview(&self, existing: &[ItemRef<'_>]) -> Preview {
         let mut known: HashMap<Key, Duplicate> = HashMap::new();
+        // Passkeys already in the account: relying party and credential ID
+        // (neither is secret; the private key is not read).
+        let mut known_passkeys: HashMap<(String, Vec<u8>), Duplicate> = HashMap::new();
         for r in existing {
+            if let Some(p) = r.item.passkey_public() {
+                known_passkeys
+                    .entry((p.rp_id.as_str().to_owned(), p.credential_id))
+                    .or_insert(Duplicate {
+                        vault_id: r.vault_id,
+                        item_id: r.item_id,
+                    });
+            }
             for k in item_keys(r.item) {
                 known.entry(k).or_insert(Duplicate {
                     vault_id: r.vault_id,
@@ -189,6 +265,9 @@ impl Import {
             }
         }
         let mut seen: HashMap<Key, u32> = HashMap::new();
+        // Passkeys of earlier entries of the file: relying party and
+        // credential ID, with the index of the entry that first held them.
+        let mut seen_passkeys: HashMap<(String, Vec<u8>), u32> = HashMap::new();
         let mut counts: Vec<(ItemType, u32)> = Vec::new();
         let mut warnings: Vec<ImportWarning> = Vec::new();
         let mut attachments = 0u32;
@@ -196,36 +275,44 @@ impl Import {
         let mut entries = Vec::with_capacity(self.entries.len());
         for e in &self.entries {
             let d = &e.draft;
-            let ks = keys(
-                &d.item_type,
-                d.title(),
-                d.text(TextField::Username),
-                d.urls.iter().map(Text::as_str),
-            );
-            let duplicate_of = ks.iter().find_map(|k| known.get(k).copied());
-            let duplicate_in_file = ks.iter().find_map(|k| seen.get(k).copied());
+            // An entry of passkeys only is a duplicate when the account
+            // already holds every one of its credentials; it has no site and
+            // user name to compare.
+            let ks = if d.has_item() {
+                keys(
+                    &d.item_type,
+                    d.title(),
+                    d.text(TextField::Username),
+                    d.urls.iter().map(Text::as_str),
+                )
+            } else {
+                Vec::new()
+            };
+            let duplicate_of = ks
+                .iter()
+                .find_map(|k| known.get(k).copied())
+                .or_else(|| known_passkey_entry(d, &known_passkeys));
+            let duplicate_in_file = ks
+                .iter()
+                .find_map(|k| seen.get(k).copied())
+                .or_else(|| known_passkey_entry(d, &seen_passkeys));
             for k in ks {
                 seen.entry(k).or_insert(e.index);
             }
-            match counts.iter_mut().find(|(t, _)| *t == d.item_type) {
-                Some((_, n)) => *n = n.saturating_add(1),
-                None => counts.push((d.item_type.clone(), 1)),
+            note_passkeys(&mut seen_passkeys, d, e.index);
+            // One item for the entry (unless it holds only passkeys) and one
+            // per passkey.
+            if d.has_item() {
+                count(&mut counts, &d.item_type);
+            }
+            for _ in &d.passkeys {
+                count(&mut counts, &ItemType::Passkey);
             }
             let n = to_u32(d.attachments.len());
             attachments = attachments.saturating_add(n);
             attachment_bytes = attachment_bytes.saturating_add(d.attachment_bytes());
             for w in &e.warnings {
-                let summary = match w {
-                    EntryWarning::UnmappedFields | EntryWarning::UnknownCategory => {
-                        Some(ImportWarning::UnmappedFields)
-                    }
-                    EntryWarning::AttachmentTooLarge
-                    | EntryWarning::AttachmentMissing
-                    | EntryWarning::AttachmentQuota => Some(ImportWarning::AttachmentsSkipped),
-                    EntryWarning::OtpUnreadable => Some(ImportWarning::OtpUnreadable),
-                    EntryWarning::PasskeysNotImported => Some(ImportWarning::PasskeysNotImported),
-                    _ => None,
-                };
+                let summary = summary_warning(*w);
                 if let Some(s) = summary
                     && !warnings.contains(&s)
                 {

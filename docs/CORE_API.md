@@ -231,7 +231,7 @@ Stable for every consumer:
   `conflict_copy: Option<Item>` before the fourth review),
   `FieldConflict`, `Entry`, `LoginUrl`, `UrlMatch`, `CustomField`,
   `CustomFieldValue`, `AttachmentRef`, `OtpConfig`, `OtpKind`,
-  `OtpAlgorithm`, `PasskeyCredential`, `SshKeyMaterial`, `VaultMeta`
+  `OtpAlgorithm`, `PasskeyCredential`, `PasskeyPublic`, `SshKeyMaterial`, `VaultMeta`
   (getters, `edit`, `merge`, `merge_and_repair` → `(VaultMeta,
   stamp_collision)`, `merge_and_repair_after_reuse`, `compare`,
   `conflicts`; `merge_and_repair` was added in the second M2 integration
@@ -396,6 +396,10 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
   `attestation_object_none`, `b64url`, `from_b64url`, `new_credential_id`,
   `select_algorithm`; the `flags` module. (`authenticator_data` is crate-private;
   it returns `InvalidInput` for a credential ID over 65535 bytes.)
+- `sanitize_name(&str) -> String` and `MAX_ACCOUNT_NAME_BYTES` (64): removes control and format
+  characters and cuts at a character boundary; for every name from a site, an import or sync.
+  `pkcs8_kind(&[u8]) -> Pkcs8Kind` (`P256`, `Other`, `NotPkcs8`): the algorithm and curve of a PKCS#8
+  private key from its structure (importers tell an unsupported key from a damaged P-256 key).
 - Constants: `COSE_ALG_ES256`, `AAGUID`, `CREDENTIAL_ID_LEN`, `MIN_CHALLENGE_LEN`,
   `MAX_CHALLENGE_LEN`, `MAX_ALLOW_LIST`; re-exports `MAX_CREDENTIAL_ID_LEN`,
   `MAX_USER_HANDLE_LEN` from the model. `Error` is `Rng`, `UnsupportedAlgorithm`,
@@ -407,6 +411,20 @@ equal to the host or a dot-suffix of it, not a public suffix, and at or under th
 host's registrable domain (so `evil.tenant.platformsh.site` cannot claim
 `platformsh.site`, which is registrable under a wildcard rule; `a.b.kawasaki.jp`
 cannot claim `kawasaki.jp`).
+
+`mosaic-core` gains `PasskeyPublic` (credential ID, rp ID, user handle, user name, display name,
+algorithm, discoverable, creation time: no private key) and `Item::passkey_public() ->
+Option<PasskeyPublic>` (additive, M5 T4). It validates like `PasskeyCredential` but never decodes
+or copies the key. Code that lists, filters or shows passkeys uses it; `Item::passkey()` is for the
+one credential that signs or is exported.
+
+`mosaic-import` gains (additive, M5 T4): `Format::Cxf`, `cxf::parse`, `PasskeyDraft` (credential,
+sign count, title), `ItemDraft::passkeys` and `ItemDraft::has_item`, `MAX_PASSKEYS_PER_ENTRY`,
+`MAX_IMPORT_PASSKEYS`, `EntryWarning::{PasskeyUnreadable, PasskeyUnsupported, PasskeysLimit}` and
+`ImportWarning::{PasskeyUnreadable, PasskeyUnsupported, PasskeysSkipped}`. `commit`
+adds each passkey as its own `passkey` item after its entry (counted in `CommitReport::imported`);
+a passkey already in the vault is skipped (`CommitReport::skipped`). `mosaic-origin` gains
+`canonical_rp_id`; `mosaic-passkey` gains `pkcs8_kind` and `Pkcs8Kind`.
 
 ## mosaic-sync (new in M6 T1; restricted: the M6 engine, desktop sync service and server)
 

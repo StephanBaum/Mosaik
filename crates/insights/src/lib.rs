@@ -451,7 +451,7 @@ fn totp_coverage(checked: &[Checked<'_>]) -> Coverage {
         passkey: HashSet::new(),
     };
     for c in checked {
-        if let Some(passkey) = c.item.passkey()
+        if let Some(passkey) = c.item.passkey_public()
             && let Some(site) = totp_site(passkey.rp_id.as_str())
         {
             covered.passkey.insert(site.domain());

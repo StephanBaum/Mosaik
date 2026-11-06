@@ -36,7 +36,8 @@ use super::doc::{
 };
 use super::tombstone::Tombstone;
 use super::types::{
-    AttachmentRef, CustomField, LoginUrl, OtpConfig, PasskeyCredential, SshKeyMaterial,
+    AttachmentRef, CustomField, LoginUrl, OtpConfig, PasskeyCredential, PasskeyPublic,
+    SshKeyMaterial,
 };
 use super::value::{Value, to_json};
 use crate::envelope::{ItemCiphertext, MAX_ITEM_PLAINTEXT_LEN};
@@ -583,6 +584,17 @@ impl Item {
         self.doc
             .value(PASSKEY)
             .and_then(|v| PasskeyCredential::from_value(v).ok())
+    }
+
+    /// The public fields of the passkey of a passkey item: no private key is
+    /// decoded or copied. Use this to list, filter and show passkeys; take
+    /// [`Item::passkey`] only for the one credential that signs or is
+    /// exported.
+    #[must_use]
+    pub fn passkey_public(&self) -> Option<PasskeyPublic> {
+        self.doc
+            .value(PASSKEY)
+            .and_then(|v| PasskeyPublic::from_value(v).ok())
     }
 
     /// The passkey signature counter (the largest value any device wrote).

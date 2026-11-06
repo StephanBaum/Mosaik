@@ -1,0 +1,70 @@
+{
+ "version": {
+  "major": 1,
+  "minor": 0
+ },
+ "exporterRpId": "seed.example",
+ "exporterDisplayName": "Seed",
+ "timestamp": 1714566600,
+ "accounts": [
+  {
+   "id": "YWNjdA",
+   "username": "",
+   "email": "",
+   "collections": [],
+   "items": [
+    {
+     "id": "aXRlbTE",
+     "creationAt": 1714566600,
+     "modifiedAt": 1714566600,
+     "title": "Example",
+     "tags": [
+      "Work"
+     ],
+     "favorite": false,
+     "scope": {
+      "urls": [
+       "https://example.com"
+      ],
+      "androidApps": []
+     },
+     "credentials": [
+      {
+       "type": "passkey",
+       "credentialId": "AAECAwQFBgcICQoLDA0ODw",
+       "rpId": "example.com",
+       "username": "alice",
+       "userDisplayName": "Alice",
+       "userHandle": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+       "key": "MEECAQAwEwYHKoZIzj0CAQYIKoZIzj0DAQcEJzAlAgEBBCDJr6nYRbp1FmtcIVdnsdaTTlDD2zbomxJ7imIrEg9nIQ"
+      },
+      {
+       "type": "basic-auth",
+       "username": {
+        "fieldType": "string",
+        "value": "alice"
+       },
+       "password": {
+        "fieldType": "concealed-string",
+        "value": "pw"
+       }
+      }
+     ]
+    },
+    {
+     "id": "aXRlbTI",
+     "title": "Note",
+     "credentials": [
+      {
+       "type": "note",
+       "content": {
+        "fieldType": "string",
+        "value": "hello"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

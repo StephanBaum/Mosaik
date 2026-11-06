@@ -14,6 +14,7 @@ pub mod attachments;
 pub mod browser;
 pub mod clipboard;
 pub mod draft;
+pub mod export;
 pub mod generator;
 pub mod import;
 pub mod insights;
@@ -96,6 +97,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         import::import_preview,
         import::import_commit,
         import::import_cancel,
+        export::export_passkeys_cxf,
         ssh::ssh_agent_status,
         ssh::ssh_agent_set_enabled,
         ssh::ssh_respond,

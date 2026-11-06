@@ -1208,6 +1208,20 @@ presence only. Residual risk: THREAT_MODEL R49.
 **Randomness.** The key scalar and the credential ID come from `mosaic_core`'s
 `random(n)` (§3, §13); the passkey crate has no CSPRNG of its own.
 
+**Import and export** (ADR-0041). Import adds no primitive. A private key
+arrives as base64url (the padded form is accepted too) or PEM `PRIVATE KEY`
+PKCS#8, decoded strictly into a zeroizing buffer, validated with
+`Es256Key::from_pkcs8_der` and stored as `to_pkcs8_der` (one encoding in the
+vault). ES256 only: a well-formed PKCS#8 key of another algorithm or curve is
+`passkeyUnsupported`, a damaged P-256 key or anything else is
+`passkeyUnreadable` (`pkcs8_kind` reads the structure only). The rpId is
+brought into canonical form by `mosaic_origin::canonical_rp_id`
+(ASCII-lowercase, one trailing dot removed, the `webauthn_rp_id` canonical
+domain check, a registrable domain in the public suffix list) or the passkey
+is unreadable. CXF export writes each key as base64url PKCS#8 under fresh
+random 16-byte account and item IDs per export (from `mosaic_core`'s `random`,
+§3), so the file carries neither the vault ID nor an item ID. THREAT_MODEL R52.
+
 **Known-answer tests** (`crates/passkey/fixtures/vectors.json`). The key is the
 RFC 6979 A.2.5 P-256 key,
 `d = C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721`.
