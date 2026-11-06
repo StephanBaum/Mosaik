@@ -286,7 +286,7 @@ origin, and a forged answer only fools the page that forged it. The trust bounda
 - **Anything not handled goes to the browser's own WebAuthn**, with the page's original options
   object and `this`: setting off, locked, not paired, no desktop, no matching passkey, unsupported
   options, "Use another device", a request the desktop's rate windows refuse (`rateLimited`: the
-  windows belong to the pairing, so one site could spend them for every other), a page that is
+  pairing's windows are shared, so the desktop also keeps a smaller one for each site), a page that is
   not focused and visible, and a bridge that does not answer within 1 s. In the last case the shim
   also posts `mosaic-passkey-abort`, so a bridge that was only late closes the desktop dialog it
   may already have asked for.
@@ -317,7 +317,7 @@ content scripts (a tab, our id), at most 10 messages a second per tab.
 | Registration of a credential Mosaic already has | `excludeCredentials` that hit open an informing dialog and end with `InvalidStateError` | `e2e/hostile/passkey-excluded-abort.spec.ts` |
 | Mosaic breaks a site it cannot serve (conditional mediation, security keys, PRF) | These and any size beyond the limits are left to the browser, and "Use another device" is in the dialog | `e2e/hostile/passkey-fallback.spec.ts`, `src/passkey/main-world.test.ts` |
 | The switch is off but a page keeps its shim | The background checks the setting on every request and answers a fallback; a reload removes the shim | `e2e/hostile/passkey-fallback.spec.ts` |
-| A page spends the desktop's per-pairing passkey windows (3 creates, 10 sign-ins a minute) with forged requests it refuses silently, so that another site's call fails for a minute | `rateLimited` is a fallback, not `NotAllowedError`: the other site's call goes to the browser's own WebAuthn | `e2e/hostile/passkey-budget.spec.ts`, `src/background/passkey.test.ts` |
+| A page spends the desktop's passkey windows (the pairing's 3 creates and 10 sign-ins a minute) with forged requests it refuses silently, so that another site's call fails for a minute | Each site (canonical origin) has smaller windows of its own, 2 creates and 6 sign-ins a minute per pairing, checked before the pairing's; a request one of them refuses counts against neither, so a page can spend at most 2 of the 3 and 6 of the 10 and another site's call still reaches the Mosaic dialog. `rateLimited` (the pairing's windows, when many sites spend them together) is a fallback, not `NotAllowedError`: the call goes to the browser's own WebAuthn | `e2e/hostile/passkey-budget.spec.ts`, `src/background/passkey.test.ts`, `browser_tests.rs` (`one_site_cannot_spend_the_passkey_windows_of_another`, `passkey_requests_are_rate_limited_per_pairing`), `ratelimit.rs` |
 | A page aborts in the same task that started the call (or the tab moves, or closes) before the background has asked the desktop, so the abort finds nothing and a dialog opens for a call nobody waits for | The request is held from its arrival; a cancel before the desktop was asked marks it, and it is never sent | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/background/passkey.test.ts` |
 | A page keeps its main thread busy past the shim's 1 s wait: the shim hands the call to the browser while the bridge has already passed it on, and two prompts are open (approving Mosaic's would store a passkey the site never gets) | On the timeout the shim posts `mosaic-passkey-abort` before it falls back; the bridge passes it on and the request is cancelled | `e2e/hostile/passkey-lifecycle.spec.ts`, `src/passkey/main-world.test.ts` |
 | A frame of another site, a sandboxed `srcdoc` frame, or a popup's opener posts well-formed requests into the window the bridge serves (directly, with a transferred `MessagePort`, or by reaching into its realm) | `event.source` is the posting window, not the bridge's; a cross-origin realm is out of reach | `e2e/hostile/passkey-forge-frames.spec.ts` |
@@ -333,8 +333,13 @@ content scripts (a tab, our id), at most 10 messages a second per tab.
 - **The `passkeyCancel` window (20 a minute per pairing) can be spent** by a page that cycles
   requests and aborts. Another site's abort or navigation then leaves its dialog open until the user
   closes it or 300 s pass; the answer goes nowhere, but a registration approved there is stored.
-- **A rate-limited call goes to the browser.** After a page spent the windows, a user whose passkey
-  is in Mosaic sees the browser's own prompt for up to a minute.
+- **A rate-limited call goes to the browser.** One page can spend only its own per-site windows (2
+  creates, 6 sign-ins a minute) and at most 2 of the pairing's 3 creates and 6 of its 10 sign-ins,
+  so it cannot lock another site out alone. Several sites together, or a page that hops between
+  origins it controls (each new origin has fresh windows, up to the pairing's), can still spend the
+  pairing's windows; a user whose passkey is in Mosaic then sees the browser's own prompt for up to
+  a minute. The desktop keeps at most 256 origins per pairing and bucket and drops the one with the
+  oldest request first.
 - **A page can break its own path**: block the bridge's acknowledgements with a capturing
   `message` listener and `stopImmediatePropagation`, or clobber `document.hasFocus` (the DOM is
   shared with the isolated world). Its own calls then go to the browser; nothing reaches another
@@ -345,12 +350,12 @@ content scripts (a tab, our id), at most 10 messages a second per tab.
   number only, and a navigation cancels them first), the back/forward cache (the message channel
   closes when the page is stored; the restored page's call then falls back), prerendered pages
   (hidden, so the bridge falls back), and real desktop dialogs (the fake desktop mirrors the
-  rate windows and the one-dialog rule).
+  rate windows, the pairing's and the site's, and the one-dialog rule).
 
 ### 11.4 The e2e fake desktop
 
 `src/background/e2e-passkey.ts` answers `passkeyCreate`, `passkeyGet` and `passkeyCancel`, within
-the desktop's per-pairing rate windows (`NATIVE_MESSAGING.md`), with a software authenticator in `test/webauthn/authenticator.ts` (WebCrypto P-256, the encodings of
+the desktop's per-pairing and per-origin rate windows (`NATIVE_MESSAGING.md`), with a software authenticator in `test/webauthn/authenticator.ts` (WebCrypto P-256, the encodings of
 CRYPTO_SPEC §16 written separately). `src/passkey/authenticator.test.ts` checks its output with
 the independent verifier (`test/webauthn/verifier.ts`), which also stands behind the hostile
 site's `/passkey/verify`. The hooks `passkeyDecide` (the answer in the pretend dialog),
