@@ -282,6 +282,9 @@ A request with `v` other than 1 gets `protocolVersion`.
 | `checkSave` | `{origin, topOrigin, username: string \| null, password: Secret}` | `{kind: "new" \| "update" \| "unchanged", itemTitle: string \| null}` |
 | `proposeSave` | `{origin, topOrigin, username: string \| null, password: Secret}` | `{outcome: "saved" \| "updated" \| "cancelled", vaultId \| null, itemId \| null}` |
 | `unpair` | `{}` | `{}` |
+| `passkeyCreate` | `{requestId, origin, topOrigin, rpId \| null, userId, userName, userDisplayName, challenge, algorithms: number[], excludeCredentials: string[], userVerification: "required" \| "preferred" \| "discouraged"}` | `{outcome: "created" \| "useAnotherDevice", credential: {credentialId, clientDataJson, attestationObject, authenticatorData, publicKeySpki, publicKeyAlgorithm, vaultId, itemId} \| null}` |
+| `passkeyGet` | `{requestId, origin, topOrigin, rpId \| null, challenge, allowCredentials: string[], userVerification}` | `{outcome: "asserted" \| "useAnotherDevice", assertion: {credentialId, clientDataJson, authenticatorData, signature, userHandle} \| null}` |
+| `passkeyCancel` | `{requestId}` | `{}` |
 
 - `hello` starts or restarts the host's session with the stored pairing and reports the
   desktop state. With `pairing: null` it asks for the lock state without a session
@@ -295,6 +298,25 @@ A request with `v` other than 1 gets `protocolVersion`.
 - `OriginWarning` = `{kind: "idn", unicodeHost}` | `{kind: "insecure"}` |
   `{kind: "lookalike", savedHost}`.
 - Limits: origin at most 2048 bytes, username 256, password 1024, title 256 characters.
+- Passkeys (ADR-0039, ADR-0040). Binary values are base64url without padding. `requestId` is 32
+  lowercase hex digits chosen by the extension; it names the request for `passkeyCancel` and is
+  the handle of the desktop dialog. `origin` and `topOrigin` come from the browser, never from the
+  page, and must be equal (`crossOriginFrame`) and https (`insecureOrigin`). `rpId` is the page's
+  request or `null` (the host); the desktop accepts it only if `mosaic-origin` does
+  (`webauthn_rp_id`: a domain at or under the origin's registrable domain, not a public suffix),
+  else `rpIdMismatch`. `challenge` is 16 to 1024 bytes, `userId` 1 to 64, `userName` and
+  `userDisplayName` at most 256 characters (the desktop removes control and format characters and
+  keeps 64 bytes), `algorithms` at most 16 COSE identifiers (no -7 in a non-empty list is
+  `passkeyUnsupported`), `excludeCredentials` and `allowCredentials` at most 64 IDs of 1 to 1023
+  bytes. Every create and every sign-in needs the desktop dialog (the 1 s Allow guard); the
+  desktop builds `clientDataJSON` itself from the browser's origin. The credential's private key
+  never leaves the desktop: a create returns only the new credential's public key (`publicKeySpki`).
+- `passkeyGet` with no stored passkey for the site answers `passkeyNotFound` **without** a dialog.
+  `passkeyCreate` with a listed `excludeCredentials` ID that Mosaic holds opens an informing dialog;
+  its acknowledgement answers `passkeyExcluded`. The user choosing "Use another device or security
+  key" answers `useAnotherDevice` (outcome, not an error); a cancel, a lock, the timeout or a
+  `passkeyCancel` leave `cancelled`. `passkeyCancel` always answers `{}` (whether a request was open
+  is not told) and closes only the prompt of the pairing that sent it; it works while locked.
 
 ### 5.3 Error codes
 
@@ -303,13 +325,21 @@ A request with `v` other than 1 gets `protocolVersion`.
 - Desktop: `invalidRequest`, `notPaired`, `protocolVersion`, `busy`, `locked`,
   `rateLimited`, `originMismatch`, `insecureOrigin`, `crossOriginFrame`, `itemNotFound`,
   `vaultUnavailable`, `noOtp`, `otpNotFillable`, `fieldEmpty`, `clipboardUnavailable`,
-  `cancelled`, `pairingDenied`, `pairingExpired`, `pairingConflict`, `pairingBlocked`,
-  `pairingLimit`, `internal`.
+  `cancelled`, `passkeyNotFound`, `passkeyExcluded`, `rpIdMismatch`, `passkeyUnsupported`,
+  `pairingDenied`, `pairingExpired`, `pairingConflict`, `pairingBlocked`, `pairingLimit`,
+  `internal`.
 - Host: `desktopNotRunning`, `desktopNotAuthentic`, `timeout`, `frameTooLarge`.
 - Extension-local, never on the wire: `hostMissing`, `hostForbidden`, `hostExited`,
   `unsupportedPage`, `noFields`, `noMatch`, `frameNeedsConfirmation`, `frameOpaque`,
   `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture was not
   granted), `generatedExpired` (the generated password the popup showed is no longer held).
+
+### 5.4 What no op does (passkeys)
+
+No op lists passkeys, returns a private key or any public key material other than the new
+credential's SPKI in a `passkeyCreate` answer, deletes or edits a passkey, or signs without the
+desktop dialog. There is no list or dump API; the allowlist (`Op::ALL`) is closed and
+`tests::the_op_allowlist_is_closed` names the ops that must stay absent.
 
 A host answer to a drop of the desktop is `desktopNotRunning`. An unknown or forbidden op,
 a body that does not parse and a request id already in flight are `invalidRequest`. A
@@ -325,6 +355,7 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 | `REQUEST_TIMEOUT` | 15 s (the extension waits 20 s) |
 | `PAIR_TIMEOUT` | 120 s |
 | `SAVE_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `proposeSave`, the extension 305 s) |
+| `PASSKEY_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `passkeyCreate` and `passkeyGet`, the extension 305 s) |
 | desktop idle close | 10 min |
 | extension port idle disconnect | 60 s with nothing in flight |
 | `MAX_CONNECTIONS` | 8 authenticated sessions (a ninth `hello` is refused `busy`). Connections that have not authenticated have their own 4 slots; a new one evicts the oldest, so idle connections cannot lock the host out. A session starts only while its pairing still exists, and ends (`notPaired`, then close) when it is removed |
@@ -333,14 +364,19 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 
 Rate limits are the desktop's, per pairing, as sliding windows: `fill` 10 per 10 s, `copy`
 20 per 60 s, `listForOrigin` and `search` together 60 per 60 s, `generate` 30 per 60 s,
-`checkSave` 10 per 60 s, `proposeSave` 3 per 60 s (a `proposeSave` also counts against the `checkSave` window); `focus` 1 per 2 s (global);
+`checkSave` 10 per 60 s, `proposeSave` 3 per 60 s (a `proposeSave` also counts against the `checkSave` window),
+`passkeyCreate` 3 per 60 s, `passkeyGet` 10 per 60 s, `passkeyCancel` 20 per 60 s; `focus` 1 per 2 s (global);
 `pairRequest` 3 per 60 s (global), and 3 denials within 10 min block pair requests for
 10 min (`pairingBlocked`).
 
 States. Desktop not running: `hello` says `notRunning`. Locked: the authenticated session
 stays up; `status`, `focus` and `unpair` work and every other op returns `locked`. Pairing
 while locked returns `locked`. State changes are pushed as `state` events. On lock, pending
-pair and save prompts close with reason `locked` and the held password is dropped.
+pair, save and passkey prompts close with reason `locked`, the held password is dropped, and a waiting
+passkey request is answered `cancelled`. One passkey prompt is open at a time (a second request is
+`busy`); it belongs to the pairing and the session that asked and closes when either goes away.
+Activity: only `fill`, `copy` and a **completed** passkey create or sign-in count as user activity
+for the auto-lock; requests that only open a dialog, are cancelled or fail do not.
 
 ## 7. Packaging (developer builds)
 

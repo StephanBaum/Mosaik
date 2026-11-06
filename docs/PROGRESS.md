@@ -12,7 +12,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
 | M4 Browser extension | 🔄 in progress (T1–T4 done; T5 close) |
-| M5 Passkeys | 🔄 in progress (T1 authenticator) |
+| M5 Passkeys | 🔄 in progress (T1 authenticator, T2 desktop) |
 | M6 Sync server | — |
 | M7 Rotation | — |
 | M8 CLI | — |
@@ -1540,6 +1540,70 @@ WebAuthn rpId rules. T2 (native-messaging ops, desktop dialog), T3 (extension sh
   - V8 is cross-checked by an independent TypeScript CCDToString (`ccd` entry in the fixture);
     PKCS#8 tests for secp256k1, P-384 and a mismatched embedded public key. `serdect` in the
     lockfile is not built (ADR-0039).
+
+## M5 Passkeys — T2 desktop (2026-11-06)
+
+Track T2 of the M5 plan (ADR-0039, ADR-0040 comes with T3): the native-messaging ops, the desktop
+handlers, the approval dialog and the passkey item view. The extension shim (T3) and the import and
+CXF export (T4) follow.
+
+- **`mosaic-native-messaging`**: ops `passkeyCreate`, `passkeyGet`, `passkeyCancel` (`Op::ALL` 15,
+  `FORWARDED_OPS` 13), error codes `passkeyNotFound`, `passkeyExcluded`, `rpIdMismatch`,
+  `passkeyUnsupported` (30), `PASSKEY_PROMPT_TIMEOUT_SECS` = 300 (the host waits 302 s for create and
+  get), strict bodies (`PasskeyCreateBody`, `PasskeyGetBody`, `PasskeyCancelBody`,
+  `PasskeyCreateResult`, `PasskeyGetResult`), fixtures regenerated. `NATIVE_MESSAGING.md` §5.2 to §6
+  and the new §5.4 ("what no op does").
+- **Desktop `browser/passkey.rs`**: planning (origin and top origin equal and https, `webauthn_rp_id`
+  from T1, inputs decoded within their limits, ES256 only, names stripped of control and format
+  characters and cut to 64 bytes, candidates = live ES256 passkeys of the rp ID in open,
+  non-hardware vaults, `allowCredentials` or discoverable only, exclusion) and applying (a create
+  writes the `passkey` item before it answers; an assertion uses T1's `PendingAssertion`: raise and
+  store the count with `set_passkey_sign_count`, then `into_response(CountPersisted)`, else
+  `into_response_without_count`). `passkeyNotFound` is answered **without** a dialog.
+- **Desktop `browser/passkey_prompt.rs`**: the passkey slot in `Prompts` (one at a time, `busy`),
+  owner pairing and connection (the prompt ends on disconnect, pairing removal, lock (the site is told
+  `cancelled`), expiry and `passkeyCancel` from the same pairing only), the 1 s Allow guard, the
+  attention hook, and `respond_passkey`. UV: `Backend.last_user_verification` is set in
+  `after_unlock` (password, quick unlock, security key) and by a right `reauthenticate`, cleared in
+  `after_lock`; `uv_recent()` is true within `PASSKEY_UV_WINDOW` = 300 s of the service clock; the
+  dialog asks for the master password when the site did not say `discouraged` and `!uv_recent()`
+  (`reauthenticate_master`, so wrong passwords count towards the five-failure lock).
+- **Activity policy (documented in `browser/mod.rs`, NATIVE_MESSAGING §6, DESKTOP_IPC)**: only `fill`,
+  `copy` and a **completed** passkey create or assertion call `touch()`; a request that only plans,
+  opens a dialog, is cancelled or answered "another device" does not, so a script cannot keep the vault
+  open by asking. The user's own answer (`browser_passkey_respond`) touches, like the other answers.
+- **IPC contract**: command `browser_passkey_respond` (capability `allow-browser-passkey-respond`),
+  events `browserPasskeyRequested` / `browserPasskeyClosed`, `BrowserCloseReason::AbortedByPage`,
+  `ItemDetail.passkey` (`PasskeySummary`, never a key), passkey `ItemSummary` (subtitle user name,
+  host rp ID), mock option `&browserPasskey=get|create|excluded|uv`; `DESKTOP_IPC.md`, fixtures
+  regenerated, TypeScript parity test extended.
+- **UI**: `BrowserPasskeyDialog` (get with account radios, create with vault select, exclusion with
+  OK, password field when `needsPassword`, "Use another device or security key", Cancel focused, Esc
+  cancels, the same expiry ring), `PasskeyDetails` (site, user name, display name, short credential
+  ID, algorithm, date, the note about the key), the editor of a passkey keeps title, tags and notes
+  (no custom fields, no files). i18n `browser.passkey.*`, `item.passkey.*`, `ext.error.*` (DE and EN).
+- **Extension validators** (`apps/extension/src/shared`): the three ops and four codes; the fixture
+  parity test passes. The interception itself is T3.
+- **Dependencies**: `mosaic-passkey` (path) in the desktop; `p256` as a desktop dev-dependency (the
+  signature checks in the tests; already in the tree). The desktop fuzz crate needs neither (the
+  contract module imports only serde and contract types); `cargo check --manifest-path
+  apps/desktop/src-tauri/fuzz/Cargo.toml --bins` passes.
+- **Tests**: `native-messaging` 98 + 5 (host binary); desktop Rust 18 new passkey tests in
+  `browser_tests.rs` (create and verify against the returned SPKI, get with allow list and
+  discoverable, no dialog for `passkeyNotFound`, rpId spoof, http, cross-origin frame, unsupported
+  algorithm, exclusion, another device, cancel, lock, expiry, disconnect, pairing removal, `busy`, a
+  cancel from another pairing, rate limits, the Allow guard, UV window and password path, the
+  five-failure lock, imported counter 41 to 42 to 43 stored before release, a hardware-protected
+  vault), unit tests in `passkey` (4) and `ratelimit` (1), two red-team tests (`redteam_tests.rs` and
+  `browser_tests.rs`, counted above: no view and no op answer holds the key in hex, base64 or base64url); Vitest
+  (`BrowserPasskeyDialog` 8, `PasskeyDetails` 5, the editor, contract parity, protocol 74);
+  Playwright `e2e/browser.spec.ts` (16 with the four new, light and dark, axe).
+- **Not verified / open**: the real OS endpoint with a passkey request end to end (that is T3's
+  hostile suite); axe in Vitest (there is no jsdom axe in the tree, the Playwright run covers it);
+  the crypto-reviewer pass of the handlers, UV and counter, and the ux-reviewer pass of the dialog,
+  are still due. Search does not index a passkey's user name (the list row shows it). A passkey that
+  the page aborts while its answer is being written is stored but not delivered (an orphan the user
+  can trash).
 
 ## Open risks / findings
 

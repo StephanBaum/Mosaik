@@ -149,6 +149,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `browser_remove_pairing` | `{ pairingId }` → the same status | `browserPairingNotFound` (also for an ID that is not 32 hex digits). The pairing's live sessions get `unpaired` and close | live |
 | `browser_pairing_respond` | `{ requestId, decision: "allow" \| "deny", label: string \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken), `invalidInput` (a label that is not 1 to 64 characters, or contains control, format or default-ignorable characters; the request stays open) | live |
 | `browser_save_respond` | `{ requestId, decision: { kind: "saveNew", vaultId, title, allowHttp } \| { kind: "update", vaultId, itemId } \| { kind: "cancel" } }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (as above; a cancel is always taken), `invalidInput` (a title that is not 1 to 256 characters or has spoofing characters), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an update of a login that is not one of the request's candidates, or gone), `locked`. The request stays open after all of them except the first | live |
+| `browser_passkey_respond` | `{ requestId, decision: { kind: "create", vaultId } \| { kind: "assert", vaultId, itemId } \| { kind: "useAnotherDevice" } \| { kind: "cancel" } \| { kind: "acknowledge" }, password: SecretIn \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (a create or an assert less than 1 s after the dialog appeared; the other answers are always taken), `reauthRequired` (the dialog asked for the password, `needsPassword`, and none came), `wrongCredentials` (counts towards the five-failure lock of `reauthenticate`), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an assert of a passkey that is not one of the request's candidates, or no longer an answer), `invalidInput` (an answer that does not fit the request: `create` for a sign-in, `acknowledge` when not `excluded`, `create` or `useAnotherDevice` for an exclusion), `locked`. The request stays open after all of them except the first | live |
 
 Notes per area:
 
@@ -169,6 +170,13 @@ Notes per area:
   otherwise the result is `invalidInput`, as for an unknown element ID. The text, secret
   and custom-field changes the UI sends are limited to the item's kind (ADR-0033); the
   contract itself accepts any field on any item.
+- **Passkeys.** `ItemDetail.passkey` is `null` or `{ rpId, userName, userDisplayName,
+  credentialId (base64url), algorithm: "es256" \| "other", createdAt, signCount }`. The private
+  key is part of the item's encrypted plaintext but not a `SecretFieldKey`: it appears in no
+  summary, detail, event, reveal or copy (the red-team tests search every view for it), and a
+  `passkey` item is edited only through its title, notes, tags and favorite in the app. For a
+  passkey `ItemSummary.subtitle` is the user name (or the display name) and `host` the
+  relying party ID. Passkeys are made and used through `browser_passkey_respond` (below).
 - **SSH keys.** `ItemDraft.sshKey` is `null` or `{ op: "set", privateKey }`, for `sshKey`
   items only (`invalidInput` otherwise). Rust parses the pasted OpenSSH key without
   decrypting it, derives the public key and the SHA-256 fingerprint and stores all three
@@ -280,6 +288,26 @@ Notes per area:
     exact-origin URL; `allowHttp` is honoured only when `insecure`); `update` changes the
     password only (the model moves the old one into the history). Only a candidate can be
     updated. Nothing is written without this answer.
+  - **Passkeys.** `passkeyCreate` and `passkeyGet` (ADR-0039, ADR-0040) open
+    `browserPasskeyRequested` after Rust checked the origin against the relying party ID and
+    decoded the inputs: `kind: "create" \| "get"`, the browser's `origin`, the accepted `rpId`,
+    for a create the sanitized `userName` and `userDisplayName` (else `null`), for a sign-in the
+    `candidates` (`{ vaultId, itemId, vaultName, userName, userDisplayName }`, never empty: with
+    no passkey the request is answered `passkeyNotFound` and no dialog opens), `excluded` (a
+    create that lists a passkey Mosaic holds: the dialog only informs), `needsPassword` (the
+    site asked for user verification and none happened in the last 300 s), `userVerification`
+    and the times. **The request carries no challenge and no key material.** The user answers
+    with `browser_passkey_respond`: the 1 s Allow guard applies to `create` and `assert`;
+    `password` (a `SecretIn`, `null` when `needsPassword` is false) is checked as
+    `reauthenticate` does, so wrong passwords count towards the five-failure lock; a right one
+    sets UV for 300 s. The answer is applied before the site is told: a create writes a new
+    `passkey` item (title: the relying party ID) and an assertion with an imported counter above
+    0 stores the raised counter first. One passkey request is open at a time; it ends on
+    cancel, expiry (300 s), lock (the site is told `cancelled`), the asking session closing, its
+    pairing being removed, or the page aborting (`passkeyCancel`, reason `abortedByPage`).
+    User verification: `last_user_verification` is set at every unlock (password, quick unlock)
+    and every right `reauthenticate`, cleared on lock; the UV flag is set only when the site did
+    not say `discouraged` and the user was verified within 300 s.
   - **Unreadable list.** If `browser-pairings.json` exists but cannot be read (damaged,
     oversized, locked, wrong version), `browser_status` reports `registry: "unreadable"` with
     an empty list. The list is then read-only: no pairing request is shown, and
@@ -288,12 +316,14 @@ Notes per area:
   - **Guards.** An allow less than 1 s after the prompt appeared is refused
     (`browserAllowTooSoon`); the UI also keeps its button disabled for 1 s, and again after the
     window regains focus. Labels and titles are checked with `is_spoofing_char`.
-  - **Activity.** Only `fill` and `copy` from the extension count as user activity (auto-lock).
-    The webview's own answers to these prompts do.
+  - **Activity.** Only `fill` and `copy` from the extension, and a **completed** passkey create or
+    sign-in, count as user activity (auto-lock); a passkey request that only opens a dialog, is
+    cancelled, answered "another device" or fails does not, so a script cannot keep the vault
+    open by asking. The webview's own answers to these prompts do.
   - **Events.** `browserPairingsChanged` follows every pairing, removal, connect and
-    disconnect: read `browser_status` again. `browserPairingClosed` and `browserSaveClosed`
-    close the dialog with the reason `answered`, `expired`, `conflict`, `locked` or
-    `disconnected`.
+    disconnect: read `browser_status` again. `browserPairingClosed`, `browserSaveClosed` and
+    `browserPasskeyClosed` close the dialog with the reason `answered`, `expired`, `conflict`,
+    `locked`, `disconnected` or (passkey only) `abortedByPage`.
   - `ErrorCode` gains `browserRequestExpired`, `browserAllowTooSoon` and
     `browserPairingNotFound`. Fixtures list the four commands and the five events; the
     contract module imports only `serde`, `mosaic-core` ids and contract types, because the
@@ -315,6 +345,8 @@ Notes per area:
 | `browserPairingClosed` | `{ requestId, reason: "answered" \| "expired" \| "conflict" \| "locked" \| "disconnected" }` | Close it. |
 | `browserSaveRequested` | `{ request: { requestId, pairingLabel, origin, host, username \| null, kind: "new" \| "update", candidates, suggestedTitle, insecure, requestedAt, expiresAt } }` | Show the save dialog. No password. |
 | `browserSaveClosed` | `{ requestId, reason }` | Close it. |
+| `browserPasskeyRequested` | `{ request: { requestId, pairingLabel, kind: "create" \| "get", origin, rpId, userName \| null, userDisplayName \| null, candidates: { vaultId, itemId, vaultName, userName, userDisplayName }[], excluded, needsPassword, userVerification: "required" \| "preferred" \| "discouraged", requestedAt, expiresAt } }` | Show the passkey dialog (account list or vault choice, password field when `needsPassword`, "Use another device or security key", Cancel). No challenge, no key. |
+| `browserPasskeyClosed` | `{ requestId, reason }` | Close it (`reason` may be `abortedByPage`). |
 | `browserPairingsChanged` | none | A browser was paired, removed, connected or disconnected: read `browser_status` again. |
 | `settingsReset` | none | The first unlock after the start found weaker protection settings in `settings.json` without a valid integrity MAC (edited outside Mosaic, or from before the MAC) and reset them to the defaults (ADR-0030). Show the toast `toast.settingsReset` once. Sent at most once per app start. |
 
@@ -350,7 +382,7 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code` |
 
 Preview pixels are a second Rust → webview flow of decrypted content. They are not a
@@ -406,6 +438,10 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   and `&attachSave=<errorCode>|cancel` make `attachment_add` and `attachment_save` fail with that
   code or cancel the dialog; by default an add stores a 1.2 MB `scan-2.png`, and the "Passport scan"
   document starts with a PNG (previewable) and a PDF. The mock preview is a 64 x 48 gradient.
+  Passkeys (ADR-0040): `&browserPasskey=get|create|excluded|uv` makes a browser ask 500 ms after
+  subscribing to sign in (`uv`: the site wants user verification, the master password is `mosaic`),
+  to create a passkey, or to create one that the vault already holds; the sign-in variants add two
+  passkeys for example.com (one per vault) to the sample items.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no
