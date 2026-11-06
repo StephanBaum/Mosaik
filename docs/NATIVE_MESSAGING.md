@@ -317,6 +317,15 @@ A request with `v` other than 1 gets `protocolVersion`.
   key" answers `useAnotherDevice` (outcome, not an error); a cancel, a lock, the timeout or a
   `passkeyCancel` leave `cancelled`. `passkeyCancel` always answers `{}` (whether a request was open
   is not told) and closes only the prompt of the pairing that sent it; it works while locked.
+- The extension side (ADR-0040): the background sets `origin` and `topOrigin` to the sender's
+  origin (from `MessageSender`, equal to the bridge's `window.origin`), only for the top frame of
+  an https page, and makes the `requestId`; it asks the desktop only when its link is paired and
+  unlocked, waits 305 s for `passkeyCreate` and `passkeyGet`, and sends `passkeyCancel` when the
+  page aborts or the tab closes, replaces its document or moves to another site (a cancel is
+  never held back by the extension's four-requests cap). `useAnotherDevice` and every error code
+  except `cancelled`, `busy`, `rateLimited`, `timeout` (the page's call fails with
+  `NotAllowedError`) and `passkeyExcluded` (`InvalidStateError`) send the page's call to the
+  browser's own WebAuthn.
 
 ### 5.3 Error codes
 
@@ -331,7 +340,7 @@ A request with `v` other than 1 gets `protocolVersion`.
 - Host: `desktopNotRunning`, `desktopNotAuthentic`, `timeout`, `frameTooLarge`.
 - Extension-local, never on the wire: `hostMissing`, `hostForbidden`, `hostExited`,
   `unsupportedPage`, `noFields`, `noMatch`, `frameNeedsConfirmation`, `frameOpaque`,
-  `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture was not
+  `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture or passkeys was not
   granted), `generatedExpired` (the generated password the popup showed is no longer held).
 
 ### 5.4 What no op does (passkeys)

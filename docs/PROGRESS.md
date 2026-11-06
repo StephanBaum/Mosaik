@@ -12,7 +12,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | 🔄 in progress (tracks merged and wired, merge commits `f54bd55`, `a737932`, `7d05f7b`, `b57f1cd`, `edacfea`; reviewed and fixed; CI green on all three OSes at `3c1ea16`; UI fidelity + WebGL holo merged 2026-11-03 (`235e903`); quick unlock (Windows Hello, Touch ID), re-auth without locking and hardware-protected code vaults merged 2026-11-03 (ADR-0028, PR #13); liquid-glass unlock and lock reveal 2026-11-04 (ADR-0032); open: security-key transport (owner, WP7), coverage run, manual hardware checks) |
 | M4 Browser extension | 🔄 in progress (T1–T4 done; T5 close) |
-| M5 Passkeys | 🔄 in progress (T1 authenticator, T2 desktop) |
+| M5 Passkeys | 🔄 in progress (T1–T3) |
 | M6 Sync server | — |
 | M7 Rotation | — |
 | M8 CLI | — |
@@ -1604,6 +1604,55 @@ CXF export (T4) follow.
   are still due. Search does not index a passkey's user name (the list row shows it). A passkey that
   the page aborts while its answer is being written is stored but not delivered (an orphan the user
   can trash).
+
+## M5 Passkeys — T3 browser interception (2026-11-06)
+
+Track T3 of the M5 plan (ADR-0040, `EXTENSION_SECURITY.md` §10): the opt-in passkey shim and
+bridge, the background service, the popup switch and the hostile-page suite. Extension and docs
+only; no Rust.
+
+- **Scripts** (`apps/extension/src/passkey/`): `main-world.ts` (+ `serialize.ts`, `credential.ts`;
+  entry `main-entry.ts` → `passkey-main.js`, main world) replaces `CredentialsContainer.prototype.create`
+  and `.get` with the same descriptor, takes every global it uses at load time, and falls back to the
+  saved native method with the page's original arguments and `this`; `bridge.ts` (entry
+  `bridge-entry.ts` → `passkey-bridge.js`, isolated world) listens only to its own window, takes the
+  exact message shapes, 2 requests in flight, focus and visibility, and sends the origin it reads from
+  `window.origin`. Both are registered at `document_start`, top frame only, after the opt-in
+  (`passkey-registry.ts`); `vite.passkey.config.ts` builds both (a nested build for the bridge),
+  added to every `build:*` script.
+- **Background**: `passkey.ts` (`PasskeyService`): sender rules (frame 0, tab, https, sender origin =
+  bridge origin = tab origin), `requestId` from `crypto.getRandomValues`, map by
+  `tab:document:pageRequestId`, the error mapping of spec §5.2, `passkeyCancel` on abort, tab
+  removed, replaced or navigated; `router.ts` routes the two passkey messages from content senders
+  (10 a second per tab) and answers through `sendResponse`; `native.ts` waits 305 s for
+  `passkeyCreate` and `passkeyGet`, and `passkeyCancel` is not held back by the in-flight cap.
+  Shared: `passkey-messages.ts` (strict validators), `passkey-limits.ts`, `b64url.ts`.
+- **Popup**: More-menu switch "Use Mosaic for passkeys" (`setPasskeys`, `PopupState.passkeys`),
+  DE and EN strings; the site access is shared with "Offer to save logins" and is given back only
+  when neither is on.
+- **E2E**: `e2e-passkey.ts` (fake `passkeyCreate`/`Get`/`Cancel`, fake rp ID rule labelled as a
+  fake), `test/webauthn/authenticator.ts` (WebCrypto P-256 signer, checked by the independent
+  verifier in `authenticator.test.ts`), hooks `setPasskeys`, `passkeyDecide`, `passkeyLog`,
+  `passkeyPending`; the hostile-site server gets `/passkey/rp.html`, `/passkey/challenge` (single
+  use) and `/passkey/verify` (the verifier is injected by the fixtures). `check-dist.mjs` checks
+  both scripts are shipped, not in the manifest, check `event.source`, use no extension API but
+  `runtime.sendMessage`, and that the new test hooks are absent.
+- **Docs**: `EXTENSION_SECURITY.md` v3 with §10 "Passkeys" (trust analysis and attack → mitigation →
+  test), ADR-0040 (proposed; includes the stricter rp ID rule from the T1 review), THREAT_MODEL §4.3
+  row and R47, NATIVE_MESSAGING extension-side note.
+- **Tests**: Vitest extension project 636 passed (new: `main-world.test.ts`, `bridge.test.ts`,
+  `passkey.test.ts` 44, `authenticator.test.ts`, `b64url.test.ts`, router and popup additions);
+  packages project 3926 passed; Playwright: the 17 `e2e/hostile/passkey-*.spec.ts` tests and
+  `e2e/passkeys.spec.ts` (3), full extension suite 102 passed (Chromium, e2e build).
+- **Beyond the spec** (each in ADR-0040): a bridge acknowledgement (`mosaic-passkey-ack`) with a 1 s
+  fallback, so a registered shim without a bridge cannot hang a page; requests with the PRF or
+  large-blob extension go to the browser; the entries are `main-entry.ts`/`bridge-entry.ts` so
+  `main-world.ts`/`bridge.ts` can be tested without side effects.
+- **Not verified / open**: Firefox (MAIN-world registration from 128 is from the documentation;
+  Playwright cannot load Firefox extensions); the real host and desktop end to end with a browser
+  (the suite uses the fake desktop; the Rust side is T2's `browser_tests.rs`); the
+  extension-attacker pass and the ux-reviewer pass of the popup switch are still due; the shim
+  does not mimic native `toString` (a page can see it is replaced, R47).
 
 ## Open risks / findings
 
