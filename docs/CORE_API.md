@@ -380,7 +380,7 @@ callers cannot inject an RNG (ADR-0011). Internal: the `fuzzing` module.
 
 The ES256 software authenticator of CRYPTO_SPEC section 16. Pure functions and one
 key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
-`mosaic_origin::webauthn_rp_id`, ADR-0040 (lands with M5 T3)).
+`mosaic_origin::webauthn_rp_id`, ADR-0040).
 
 - `Es256Key` (not `Clone`, `Debug` prints `Es256Key([REDACTED])`, zeroized on
   drop): `generate`, `from_pkcs8_der`, `to_pkcs8_der` (a zeroizing `SecretVec`),

@@ -7,7 +7,8 @@
 //! vault runs on the blocking pool.
 //!
 //! Before an op runs: the protocol version, that the pairing still exists
-//! (`notPaired`, and the connection closes), the per-pairing rate limit, and
+//! (`notPaired`, and the connection closes), the per-pairing rate limit (and, for the
+//! passkey ops, the smaller per-origin one), and
 //! the lock (every op except `status`, `focus` and `unpair` answers `locked`
 //! while the vault is locked).
 
@@ -27,10 +28,12 @@ use serde_json::value::RawValue;
 use zeroize::Zeroizing;
 
 use super::connection::Ctx;
+use super::fill::parse_origin;
 use super::passkey::PasskeyPlan;
 use super::passkey_prompt::PasskeyReply;
 use super::prompts::cancelled;
 use super::registry::RegistryError;
+use super::save::MAX_ORIGIN_BYTES;
 use super::{Bucket, Shared, unix_millis};
 use crate::contract::browser::BrowserCloseReason;
 use crate::state::Backend;
@@ -105,6 +108,41 @@ const fn buckets(op: Op) -> &'static [Bucket] {
     }
 }
 
+/// The canonical origin of a passkey request, for its per-origin rate window.
+/// `None` when the body has no origin that parses: the handler refuses it
+/// (`invalidRequest`), and only the pairing's window has counted it.
+fn passkey_origin(raw: &RawValue) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Origin {
+        origin: String,
+    }
+    let body: Origin = serde_json::from_str(raw.get()).ok()?;
+    if body.origin.len() > MAX_ORIGIN_BYTES {
+        return None;
+    }
+    parse_origin(&body.origin).ok().map(|page| page.serialize())
+}
+
+/// Counts a request against its rate-limit windows: `rateLimited` when one is full. A site
+/// spends its own, smaller passkey windows before the pairing's.
+fn count_request(ctx: &Ctx, op: Op, raw: &RawValue) -> Result<(), WireError> {
+    let origin = matches!(op, Op::PasskeyCreate | Op::PasskeyGet)
+        .then(|| passkey_origin(raw))
+        .flatten();
+    for &bucket in buckets(op) {
+        let allowed = super::lock(&ctx.shared.limiter)?.allow_for_origin(
+            bucket,
+            ctx.pairing,
+            origin.as_deref(),
+            ctx.shared.now(),
+        );
+        if !allowed {
+            return Err(WireError::RateLimited);
+        }
+    }
+    Ok(())
+}
+
 /// Ops that need the vault unlocked. `passkeyCancel` does not: a page that
 /// aborts while the vault locks must still be able to say so.
 const fn needs_unlock(op: Op) -> bool {
@@ -133,12 +171,7 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
     if !shared.is_paired(&ctx.pairing) {
         return Err(WireError::NotPaired);
     }
-    for &bucket in buckets(op) {
-        let allowed = super::lock(&shared.limiter)?.allow(bucket, Some(ctx.pairing), shared.now());
-        if !allowed {
-            return Err(WireError::RateLimited);
-        }
-    }
+    count_request(ctx, op, raw)?;
     if needs_unlock(op) && !shared.is_unlocked() {
         return Err(WireError::Locked);
     }

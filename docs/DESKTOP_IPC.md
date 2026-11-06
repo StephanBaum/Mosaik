@@ -306,7 +306,7 @@ Notes per area:
     exact-origin URL; `allowHttp` is honoured only when `insecure`); `update` changes the
     password only (the model moves the old one into the history). Only a candidate can be
     updated. Nothing is written without this answer.
-  - **Passkeys.** `passkeyCreate` and `passkeyGet` (ADR-0039, ADR-0040 (lands with M5 T3)) open
+  - **Passkeys.** `passkeyCreate` and `passkeyGet` (ADR-0039, ADR-0040) open
     `browserPasskeyRequested` after Rust checked the origin against the relying party ID and
     decoded the inputs: `kind: "create" \| "get"`, the browser's `origin`, the accepted `rpId`,
     for a create the sanitized `userName` and `userDisplayName` (else `null`), for a sign-in the
@@ -462,7 +462,7 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   and `&attachSave=<errorCode>|cancel` make `attachment_add` and `attachment_save` fail with that
   code or cancel the dialog; by default an add stores a 1.2 MB `scan-2.png`, and the "Passport scan"
   document starts with a PNG (previewable) and a PDF. The mock preview is a 64 x 48 gradient.
-  Passkeys (ADR-0040 (lands with M5 T3)): `&browserPasskey=get|create|excluded|uv|uvExpires` makes a browser ask 500 ms after
+  Passkeys (ADR-0040): `&browserPasskey=get|create|excluded|uv|uvExpires` makes a browser ask 500 ms after
   subscribing to sign in (`uv`: the site wants user verification, the master password is `mosaic`;
   `uvExpires`: the first click is answered `reauthRequired`, as when the 300 s window ran out),
   to create a passkey, or to create one that the vault already holds; the sign-in variants add two

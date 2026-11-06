@@ -21,6 +21,17 @@ async function openGitHub(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("item detail", () => {
+  it("offers no files on a passkey, which the other kinds do", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);
+    await user.click(await screen.findByRole("button", { name: /^example\.com/ }));
+    await screen.findByRole("article", { name: "example.com" });
+    expect(screen.getByText("Credential ID")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add file…" })).toBeNull();
+    await openGitHub(user);
+    expect(screen.getByRole("button", { name: "Add file…" })).toBeTruthy();
+  });
+
   it("reveals a secret on request and hides it again on lock", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc({ start: "unlocked" })} languages={["en"]} />);

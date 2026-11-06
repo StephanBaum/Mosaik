@@ -2,7 +2,7 @@
  * E2E builds only (never bundled into production, see `excludeE2e` and `check-dist.mjs`): the
  * passkey half of the fake desktop. It answers `passkeyCreate`, `passkeyGet` and `passkeyCancel`
  * like the real desktop at the points the hostile pages exercise: the origin and top-origin
- * rules, the per-pairing rate windows, a relying party ID check, a dialog that waits for the
+ * rules, the per-pairing and per-origin rate windows, a relying party ID check, a dialog that waits for the
  * test's decision, and a software authenticator (`test/webauthn/authenticator.ts`, WebCrypto)
  * whose output the independent verifier checks.
  *
@@ -59,6 +59,8 @@ interface Waiting extends OpenPrompt {
 const ID_BYTES = 16;
 /** The desktop's per-pairing windows for the passkey ops (docs/NATIVE_MESSAGING.md, "Rate limits"), checked before anything else. */
 const LIMITS = { passkeyCreate: 3, passkeyGet: 10, passkeyCancel: 20 } as const;
+/** And the per-(pairing, origin) windows of `passkeyCreate` and `passkeyGet`, which one site cannot spend for another. */
+const ORIGIN_LIMITS = { passkeyCreate: 2, passkeyGet: 6 } as const;
 const LIMIT_WINDOW_MS = 60_000;
 
 function bytesOf(value: string): Uint8Array {
@@ -94,12 +96,14 @@ export class FakePasskeys {
   #waiting: Waiting | null = null;
   readonly #queued: PasskeyDecision[] = [];
   readonly #spent: Record<keyof typeof LIMITS, number[]> = { passkeyCreate: [], passkeyGet: [], passkeyCancel: [] };
+  readonly #spentByOrigin = new Map<string, number[]>();
 
   reset(): void {
     this.log.length = 0;
     for (const times of Object.values(this.#spent)) {
       times.length = 0;
     }
+    this.#spentByOrigin.clear();
     this.credentials.length = 0;
     this.#queued.length = 0;
     this.#waiting?.settle({ kind: "cancel" });
@@ -121,17 +125,30 @@ export class FakePasskeys {
     }
   }
 
-  /** Like the desktop's dispatcher: a request beyond its window is `rateLimited` before it is looked at. */
-  #limit(op: keyof typeof LIMITS): void {
+  /**
+   * Like the desktop's dispatcher: a request beyond its window (the origin's first, then the
+   * pairing's) is `rateLimited` before it is looked at, and counts against neither.
+   */
+  #limit(op: keyof typeof LIMITS, origin: string | null): void {
     const now = Date.now();
-    const times = this.#spent[op];
-    while (times.length > 0 && (times[0] ?? 0) <= now - LIMIT_WINDOW_MS) {
-      times.shift();
-    }
-    if (times.length >= LIMITS[op]) {
+    const trimmed = (times: number[]): number[] => {
+      while (times.length > 0 && (times[0] ?? 0) <= now - LIMIT_WINDOW_MS) {
+        times.shift();
+      }
+      return times;
+    };
+    const times = trimmed(this.#spent[op]);
+    const originKey = `${op} ${origin ?? ""}`;
+    const originMax = op === "passkeyCancel" ? null : ORIGIN_LIMITS[op];
+    const perOrigin = originMax === null || origin === null ? null : trimmed(this.#spentByOrigin.get(originKey) ?? []);
+    if (times.length >= LIMITS[op] || (perOrigin !== null && originMax !== null && perOrigin.length >= originMax)) {
       throw new Failure("rateLimited");
     }
     times.push(now);
+    if (perOrigin !== null) {
+      perOrigin.push(now);
+      this.#spentByOrigin.set(originKey, perOrigin);
+    }
   }
 
   /** `passkeyCancel`: closes the dialog of that request (another request's id changes nothing). */
@@ -139,7 +156,7 @@ export class FakePasskeys {
     const entry: PasskeyLogEntry = { op: "passkeyCancel", requestId, origin: null, topOrigin: null, rpId: null, result: "cancel" };
     this.log.push(entry);
     try {
-      this.#limit("passkeyCancel");
+      this.#limit("passkeyCancel", null);
     } catch (error) {
       entry.result = "rateLimited";
       throw error;
@@ -193,7 +210,7 @@ export class FakePasskeys {
   }
 
   async #create(body: PasskeyCreateBody, entry: PasskeyLogEntry): Promise<ResultMap["passkeyCreate"]> {
-    this.#limit("passkeyCreate");
+    this.#limit("passkeyCreate", body.origin);
     checkOrigin(body.origin, body.topOrigin);
     const rpId = rpIdOf(body.origin, body.rpId);
     if (body.algorithms.length > 0 && !body.algorithms.includes(-7)) {
@@ -250,7 +267,7 @@ export class FakePasskeys {
   }
 
   async #get(body: PasskeyGetBody, entry: PasskeyLogEntry): Promise<ResultMap["passkeyGet"]> {
-    this.#limit("passkeyGet");
+    this.#limit("passkeyGet", body.origin);
     checkOrigin(body.origin, body.topOrigin);
     const rpId = rpIdOf(body.origin, body.rpId);
     const challenge = bytesOf(body.challenge);

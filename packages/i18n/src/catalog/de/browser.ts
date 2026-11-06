@@ -54,7 +54,7 @@ export const browser = {
   "browser.passkey.createBody": "Passkey für {rpId} in Mosaic erstellen?",
   "browser.passkey.excludedBody": "Du hast bereits einen Passkey für {rpId} in Mosaic.",
   "browser.passkey.uvNote":
-    "Die Website verlangt eine Bestätigung deiner Identität. Gib dein Master-Passwort ein, um zu bestätigen, dass du es bist.",
+    "Die Website verlangt eine Bestätigung. Gib dein Master-Passwort ein.",
   "browser.passkey.password": "Master-Passwort",
   "browser.passkey.account": "Konto",
   "browser.passkey.noName": "Kein Name",
@@ -63,7 +63,10 @@ export const browser = {
   "browser.passkey.save": "Passkey speichern",
   "browser.passkey.anotherDevice": "Anderes Gerät oder Sicherheitsschlüssel verwenden",
   "browser.passkey.cancel": "Abbrechen",
-  "browser.passkey.ok": "OK",
+  "browser.passkey.ok": "Verstanden",
+  "browser.passkey.escCloses": "zum Schließen",
+  "browser.passkey.passwordNeeded":
+    "Gib dein Master-Passwort ein, um zu bestätigen, dass du es bist.",
   "browser.settings.title": "Browser",
   "browser.settings.body":
     "Browser-Erweiterungen, die Logins aus dieser App ausfüllen. Jede Verbindung bestätigst du hier.",

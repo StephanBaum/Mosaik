@@ -60,7 +60,8 @@ describe("mock security report", () => {
     const result = await ipc.call("security_report", null);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.itemsChecked).toBe(sampleItems().length);
+      // The sample items and the one passkey a plain mock holds.
+      expect(result.value.itemsChecked).toBe(sampleItems().length + 1);
       expect(result.value.findings.map((f) => f.issues.map((i) => i.kind))).toEqual([["missingTotp"]]);
     }
   });

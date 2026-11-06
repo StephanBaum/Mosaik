@@ -2980,7 +2980,7 @@ screen yet; clearing the extension's data clears it. R43, R44.
 
 ## ADR-0039: Passkey authenticator, encodings and storage
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer, extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-06
 - Decided by: the principal engineer, from brief section 5 "Passkeys" and M5 (the most conservative options)
 - Milestone: M5 (passkeys)
@@ -3058,7 +3058,7 @@ proof (needs a vault API and a crypto review); EdDSA if relying parties or impor
 
 ## ADR-0040: Browser passkey interception
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer, extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-06
 - Decided by: the principal engineer, from brief section 5 "intercept safely, fall back to the platform authenticator" and M5 (the most conservative options)
 - Milestone: M5 (passkeys)
@@ -3167,10 +3167,16 @@ from the documentation and is not covered by the Playwright suite, which cannot 
 extensions. Chromium is covered by `e2e/hostile/passkey-*.spec.ts` with a CDP virtual
 authenticator standing for the browser's own WebAuthn.
 
+Amendment at the M5 close (2026-11-06, extension-attacker finding): the rate windows belong to the
+pairing, so one page could spend them for every site. The desktop now also keeps a window per
+(pairing, origin), 2 `passkeyCreate` and 6 `passkeyGet` a minute, checked before the pairing's; a
+request one of them refuses counts in neither. At most 256 origins are kept per pairing and bucket.
+`NATIVE_MESSAGING.md` section 6 and `EXTENSION_SECURITY.md` section 11.3 have the details.
+
 
 ## ADR-0041: Passkey import, CXF export and OS passkey providers
 
-- Status: proposed
+- Status: accepted (2026-11-06; reviewed by crypto-reviewer, extension-attacker and ux-reviewer, findings fixed)
 - Date: 2026-11-06
 - Decided by: the principal engineer, from brief section 5 "Passkeys" and M5 (the most conservative options)
 - Milestone: M5 (passkeys), track T4

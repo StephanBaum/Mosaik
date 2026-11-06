@@ -12,8 +12,8 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
-| M5 Passkeys | 🔄 in progress (T1–T4; close pending) |
-| M6 Sync | 🔄 in progress (T1 foundation) |
+| M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
+| M6 Sync | 🔄 in progress (T1 foundation merged, PR #33; T2 engine and folder transport next) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -1757,6 +1757,57 @@ leave as a CXF file. The milestone close follows separately.
   ux-reviewer pass of the export panel are still due; no CXF file from another implementation; the
   panel's visual check in light and dark and German (no Playwright run in this track).
 
+## M5 Passkeys — close (2026-11-06)
+
+Track T5 of the M5 plan: the review follow-ups, one more rate limit, CI, documents and the full
+gate. M5 is merged as PRs #28 (T1 authenticator), #30 (T2 desktop), #31 (T3 browser interception),
+#32 (T4 import, CXF export) and the close branch `chore/m5-close`.
+
+- **What shipped.** `mosaic-passkey` (the software WebAuthn authenticator: ES256, registration and
+  assertion ceremonies, strict encodings, `PendingAssertion` so the counter is stored before a
+  signature is released), the `passkey` item kind, the desktop's two browser ops with their
+  dialog, the extension's main-world shim and bridge (opt-in switch in the More menu), import from
+  Bitwarden, KeePassXC and FIDO CXF, and the CXF export (Settings, master password, plaintext
+  warning). ADR-0039 to 0041 are accepted.
+- **Reviews.** crypto-reviewer (T1, T2, T4 import and export), extension-attacker (T3 and the
+  desktop endpoint) and ux-reviewer (the passkey dialog, the item views, the export panel, the
+  popup switch, the import warnings); findings were fixed before merge or at the close.
+- **Close fixes (ux-reviewer).** The password field takes the focus when the dialog switches to
+  asking for it; a passkey-specific "enter your master password" message; the site's host at body
+  size in the dialog header; "Use another device" on its own row under Cancel and the primary
+  button; the exclusion dialog shows how to close it and no countdown; "Got it". The passkey note
+  says how to move a passkey (Settings, Export passkeys); the editor says why a passkey has few
+  fields; a passkey has no files section; German "Passkey-ID"; the credential ID is named in full
+  for screen readers; the export panel shows the plaintext warning as a callout above the vault
+  choice and "no passkeys" instead of it when the vault has none; radio accent colour; the
+  popup's menu hints are descriptions, not part of the item names, and say that all websites are
+  needed; the import preview says "keep your old app" once. The plain mock now holds one passkey.
+- **Per-origin passkey rate limit (extension-attacker).** The windows were the pairing's, so one
+  page could spend 3 registrations or 10 sign-ins for every site. The desktop now keeps a window
+  per (pairing, canonical origin): `passkeyCreate` 2 and `passkeyGet` 6 a minute, checked before
+  the pairing's, and a request refused by either counts in neither (a page can spend at most 2 of
+  3 and 6 of 10). At most 256 origins per pairing and bucket (expired windows first, then the one
+  with the oldest request); dropped with the pairing. A body whose origin does not parse is
+  refused `invalidRequest` and counts only against the pairing. `NATIVE_MESSAGING.md` section 6,
+  `EXTENSION_SECURITY.md` section 11.3 and ADR-0040 (amendment) say so; the e2e fake desktop mirrors
+  it and the hostile `passkey-budget` test now shows the other site still reaching the dialog.
+- **CI.** `crates/passkey/fuzz` joins the fuzz smoke (targets `b64url` and `pkcs8`, seeds
+  committed), the fuzz-manifest `cargo deny` check and the fuzz-lockfile `cargo audit`; the `cxf`
+  import target runs with the rest of `crates/import/fuzz` (the job runs every `cargo fuzz list`
+  target). `mosaic-passkey` joins the coverage matrix (>= 90 % lines).
+- **Coverage (local, `cargo llvm-cov -p mosaic-passkey`, Windows).** 99.0 % lines (294 of 297;
+  ceremony.rs 99.2, encode.rs 100, key.rs 97.4, name.rs 100).
+- **Gate (2026-11-06, one run).** fmt check, clippy with `-D warnings`, the workspace tests
+  (1288 passed, 0 failed, 7 ignored), `cargo deny check`, `cargo audit --deny warnings`,
+  `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` (99 files, 5564
+  tests; two desktop tests, `OnboardingFlow` and `HardwareVaultPanel`, hit the 5 s timeout under
+  the full parallel load and pass alone) and `pnpm audit`: all green. Playwright: desktop 63
+  passed, extension 108 passed (e2e build, Chromium headless). The ignored Rust tests
+  (release-mode, OpenSSH interop) run in CI.
+- **Open risks.** M5-R1 to M5-R9 in the register below.
+- **Open: manual checks and owner items.** See "Needs owner" ("M5 passkeys", "Manual checks for
+  M5").
+
 ## M6 Sync — T1 protocol foundation (2026-11-06)
 
 Spec: the M6 spec of the session (scope ADR-0042; folder format ADR-0043; server ADR-0044;
@@ -1863,6 +1914,16 @@ first, in their own commit).
 | M4-R10 | low | "Never for this site" has no screen to review or undo the list (`neverSave:<origin>` in IndexedDB), and is stored per exact origin | open, M9 UI polish |
 | M4-R11 | info | Flatpak and Snap browsers cannot run a native host; the extension is unsupported there | accepted, documented |
 | M4-R12 | info | One hostile-suite test (`race-after-probe`, rapid gestures) failed once under memory pressure; the desktop pairing test now waits for the session to register (`aca4aa6`). Playwright runs with one retry in CI | accepted |
+| M5-R1 | low | The main-world shim is page-controlled: a page can disable it, route around it or see that `navigator.credentials` is replaced (it does not mimic native `toString`) | accepted, THREAT_MODEL R47, ADR-0040 |
+| M5-R2 | medium | Synced passkeys can be copied: whoever holds the vault plaintext has every private key, and sign count 0 gives relying parties no clone detection | accepted, THREAT_MODEL R48, ADR-0039 |
+| M5-R3 | low | UV=1 means "unlocked or re-authenticated within 5 minutes plus a dialog click", not a per-operation biometric | accepted, THREAT_MODEL R49 |
+| M5-R4 | low | A page can tell from timing whether Mosaic holds a passkey for its own rp ID (`passkeyNotFound` without a dialog); no conditional mediation | accepted, THREAT_MODEL R50 |
+| M5-R5 | low | The desktop trusts the extension's origin claim, as for `fill`; a compromised extension context can open a dialog for any origin it makes up (the user still approves) | accepted, THREAT_MODEL R51 (R43) |
+| M5-R6 | medium | A CXF export is an unencrypted file with private keys; it needs the master password and shows a warning, but Mosaic cannot wipe the copy on disk | accepted, THREAT_MODEL R52, ADR-0041; the owner may drop the export ("Needs owner") |
+| M5-R7 | low | Imported credentials keep incrementing their counter; two devices signing at once can emit equal counters | accepted, THREAT_MODEL R53 |
+| M5-R8 | low | Many sites together (or a page on many origins it controls) can still spend the pairing's passkey windows (3 creates, 10 sign-ins a minute); a user then sees the browser's own prompt for up to a minute. A single page can no longer do it alone (per-origin windows) | accepted, EXTENSION_SECURITY section 11.3 |
+| M5-R9 | low | Not covered by an automated test: real relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration (from 128, documentation only), the real host and desktop end to end with a browser, a CXF file from another implementation. A passkey whose page aborts while the answer is written is stored but not delivered (an orphan the user can trash). Search does not index a passkey's user name. The import preview's passkey warnings carry no counts (the contract has none) | open, manual checks |
+| M5-R10 | info | Mosaic is not an OS passkey provider (Windows plugin authenticators need an unsafe exception, a macOS credential provider needs a Developer ID); passkeys work only through the browser extension | deferred, ADR-0041, "Needs owner" |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 
@@ -1899,4 +1960,16 @@ See the THREAT_MODEL §5 residual-risk register.
 - **Manual check of Save as overwrite confirmation (ADR-0034, 2026-11-05)**: on each OS (Windows `IFileSaveDialog`, macOS `NSSavePanel`, Linux GTK), saving an attachment onto an existing file must make the native dialog ask before replacing it; Mosaic relies on that prompt and adds none. Also check the Mark of the Web on a real NTFS volume.
 - **M4 browser extension (2026-11-06)**: (a) the Chrome Web Store and Edge Add-ons extension IDs (`STORE_CHROMIUM_EXTENSION_IDS`, now empty, so release hosts accept no Chromium extension yet) and an AMO listing for the gecko ID `mosaic@stephanbaum.github.io` (it is the one Firefox ID the host accepts); (b) the host name (`HOST_NAME`) and the gecko ID follow the bundle-identifier decision above, so settle that before the first listing; (c) D06 (desktop onboarding step 5) shows store links only once listings exist (`STORE_URLS` is null); (d) the extension store accounts (see Signing) and the M9 installer (sidecar `externalBin`, store IDs only, signing) replace the dev `mosaic-native-host install`; (e) two choices the owner may revisit: popup unlock (ADR-0035 item 4) and no inline UI (item 2). No blocking decision is open.
 - **Manual checks for M4 (2026-11-06)**, none can be automated here: (1) Windows Chrome and Edge: `pnpm --filter @mosaic/extension host:install` (registry), load `dist/dev`, pair, fill a login and a code, save; (2) Firefox 128+ as a temporary add-on (`dist/firefox`): pair, fill, one-time code, save with the optional site access; (3) macOS and Linux Chrome: manifest paths, socket permissions, pair and fill; (4) `activeTab` gating on the production build (`dist/chromium`, no host permissions): the shortcut and the popup fill work, and nothing is injected into a page before a gesture; (5) Flatpak and Snap browsers: confirm they are unsupported and that the popup says the host is missing; (6) keyboard-only and screen-reader pass through the popup (connect, locked, logins, frame confirmation, generator, save) and through the desktop's pairing and save dialogs.
+- **M5 passkeys (2026-11-06)**: (a) OS passkey providers (ADR-0041): on Windows the plugin
+  authenticator API needs an `unsafe` FFI exception (the project forbids unsafe code), on macOS a
+  credential provider extension needs an Apple Developer ID and entitlements; decide whether and
+  when. (b) A registered AAGUID for Mosaic (today the all-zero AAGUID, which relying parties that
+  check attestation treat as unknown). (c) Keep or drop the CXF export (it writes private keys in
+  plain text; R52): the export panel is built and ships unless dropped.
+- **Manual checks for M5 (2026-11-06)**, none can be automated here: (1) register and sign in with
+  Mosaic on real relying parties (for example webauthn.io, GitHub, Google) in Chrome, Edge and
+  Firefox 128+ with the extension and the desktop app; (2) Firefox: the passkey scripts register in
+  the MAIN world (temporary add-on); (3) import a CXF file from another app and a Bitwarden export
+  with passkeys, sign in with an imported passkey; (4) keyboard and screen-reader pass of the
+  passkey dialog and the Settings export panel in light, dark, German and English.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

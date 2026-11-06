@@ -46,12 +46,12 @@ Use pnpm, never npm. The Rust toolchain is pinned in `rust-toolchain.toml`.
 ## Layout
 
 - `crates/core`: crypto, vault model, item types, sync types (CRYPTO_SPEC)
-- `crates/{totp,generator,passkey,import,insights,ssh-agent,qr}`: feature crates on top of core (`qr` reads QR images into `otpauth://` entries)
+- `crates/{totp,generator,passkey,import,insights,ssh-agent,qr}`: feature crates on top of core (`qr` reads QR images into `otpauth://` entries; `passkey` is the software WebAuthn authenticator, ES256, M5)
 - `crates/origin`: exact-origin matching, HTTP rules, IDN and look-alike checks for fills. `crates/native-messaging`: the host `mosaic-native-host` and the extension channel (`docs/NATIVE_MESSAGING.md`)
 - `crates/server`: axum sync server. `crates/cli`: the `mosaic` binary
 - `packages/{design-tokens,i18n}`: shared TS for the apps
 - `apps/desktop`: Tauri v2 app (M3). IPC contract: `docs/DESKTOP_IPC.md`;
-  `apps/extension`: MV3 browser extension (M4), threats and tests in `docs/EXTENSION_SECURITY.md`;
+  `apps/extension`: MV3 browser extension (M4, passkey interception M5), threats and tests in `docs/EXTENSION_SECURITY.md`;
   `apps/mobile` follows in M10
 - `.claude/agents/`: crypto-reviewer, extension-attacker, sync-chaos,
   ux-reviewer, test-engineer. Run the relevant ones before each milestone

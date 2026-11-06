@@ -48,6 +48,9 @@ function MenuList({
           className="menu__item"
           role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
           aria-checked={item.checked}
+          // A description explains the item; it is not part of its name.
+          aria-labelledby={item.description === undefined ? undefined : `${id}-${item.id}-label`}
+          aria-describedby={item.description === undefined ? undefined : `${id}-${item.id}-description`}
           disabled={item.disabled}
           tabIndex={-1}
           onClick={() => {
@@ -55,8 +58,14 @@ function MenuList({
           }}
         >
           <span className="menu__text">
-            <span className="menu__label">{item.label}</span>
-            {item.description !== undefined && <span className="menu__description">{item.description}</span>}
+            <span id={`${id}-${item.id}-label`} className="menu__label">
+              {item.label}
+            </span>
+            {item.description !== undefined && (
+              <span id={`${id}-${item.id}-description`} className="menu__description">
+                {item.description}
+              </span>
+            )}
           </span>
           {item.checked !== undefined && (
             <span className={item.checked ? "menu__check is-on" : "menu__check"} aria-hidden="true">

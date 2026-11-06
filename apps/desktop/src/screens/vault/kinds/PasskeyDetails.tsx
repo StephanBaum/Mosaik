@@ -1,7 +1,8 @@
 /**
  * What the detail shows of a passkey: the site, the account, a short credential ID, the algorithm
  * and the creation date. The private key never comes back to the page: it is not a secret field,
- * so there is no reveal, copy or export for it (ADR-0039). A passkey is edited only through its
+ * so there is no reveal or copy for it (ADR-0039); the only way out is the CXF export in
+ * Settings (ADR-0041), which asks for the master password. A passkey is edited only through its
  * title, notes, tags and favorite; its fields come from the site that made it.
  */
 import { Callout } from "../../../components/Callout.tsx";
@@ -49,7 +50,13 @@ export function PasskeyDetails({ summary }: { summary: PasskeySummary }) {
       <div className="row">
         <div className="row__main">
           <span className="row__label">{t("item.passkey.credentialId")}</span>
-          <span className="row__value mono" title={summary.credentialId}>
+          {/* The group role lets the full ID, not the shortened text, name the value. */}
+          <span
+            className="row__value mono"
+            role="group"
+            aria-label={summary.credentialId}
+            title={summary.credentialId}
+          >
             {shortId(summary.credentialId)}
           </span>
         </div>

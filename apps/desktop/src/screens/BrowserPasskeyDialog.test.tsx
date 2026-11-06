@@ -97,7 +97,14 @@ describe("browser passkey dialog: sign in", () => {
       "textContent",
       expect.stringMatching(/master password/),
     );
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      "Enter your master password to confirm it's you.",
+    );
     const password = within(dialog).getByLabelText("Master password");
+    // The focus moves from the button to the field that just appeared.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(password);
+    });
     expect((signIn as HTMLButtonElement).disabled).toBe(true);
     await user.type(password, "mosaic");
     await user.click(signIn);
@@ -114,6 +121,25 @@ describe("browser passkey dialog: sign in", () => {
       expect(screen.queryByRole("dialog", { name: GET })).toBeNull();
     });
     expect(first.dialog.isConnected).toBe(false);
+  });
+
+  it("puts Cancel and the sign-in button on one row and the other device on its own", async () => {
+    const { dialog } = await open({ browserPasskey: "get" }, GET);
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    const signIn = within(dialog).getByRole("button", { name: "Sign in with passkey" });
+    const other = within(dialog).getByRole("button", { name: "Use another device or security key" });
+    expect(cancel.parentElement).toBe(signIn.parentElement);
+    expect(cancel.parentElement?.className).toBe("dialog__actions");
+    expect(other.parentElement).not.toBe(cancel.parentElement);
+    expect(other.className).toMatch(/button--ghost/);
+  });
+
+  it("names the site at body size and the browser quietly", async () => {
+    const { dialog } = await open({ browserPasskey: "get" }, GET);
+    const host = within(dialog).getByText("login.example.com");
+    expect(host.closest("p")?.className).toBe("body");
+    expect(host.closest(".muted")).toBeNull();
+    expect(within(dialog).getByText(/Chrome/).closest(".muted")).not.toBeNull();
   });
 
   it("closes on Esc and says so", async () => {
@@ -163,7 +189,11 @@ describe("browser passkey dialog: create", () => {
     expect(within(dialog).queryByRole("button", { name: "Save passkey" })).toBeNull();
     expect(within(dialog).queryByRole("radio")).toBeNull();
     // The acknowledge waits out the Allow guard like an Allow.
-    const ok = within(dialog).getByRole("button", { name: "OK" });
+    expect(within(dialog).getByText("to close")).toBeTruthy();
+    // Information only: no countdown, no "to cancel".
+    expect(within(dialog).queryByText(/Closes automatically/)).toBeNull();
+    expect(within(dialog).queryByText("to cancel")).toBeNull();
+    const ok = within(dialog).getByRole("button", { name: "Got it" });
     expect(ok.getAttribute("aria-disabled")).toBe("true");
     await user.click(ok);
     expect(screen.queryByRole("dialog", { name: EXCLUDED })).not.toBeNull();
@@ -192,5 +222,16 @@ describe("browser passkey dialog: German", () => {
     expect(within(dialog).getByText("Sichere Verbindung (https)")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Mit Passkey anmelden" })).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Anderes Gerät oder Sicherheitsschlüssel verwenden" })).toBeTruthy();
+  });
+
+  it("asks in German for the password when the site wants a confirmation", async () => {
+    const ipc = createMockIpc({ start: "unlocked", browserPasskey: "uv" });
+    render(<App ipc={ipc} languages={["de"]} />);
+    const dialog = await screen.findByRole(
+      "dialog",
+      { name: "Mit einem Passkey bei example.com anmelden" },
+      { timeout: 3000 },
+    );
+    expect(within(dialog).getByText("Die Website verlangt eine Bestätigung. Gib dein Master-Passwort ein.")).toBeTruthy();
   });
 });

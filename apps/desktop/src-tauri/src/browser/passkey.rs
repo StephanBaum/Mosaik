@@ -1,4 +1,4 @@
-//! Passkeys (M5, ADR-0039, ADR-0040 (lands with M5 T3)): planning and
+//! Passkeys (M5, ADR-0039, ADR-0040): planning and
 //! applying `passkeyCreate` and `passkeyGet`.
 //!
 //! The extension never signs or writes. A request is **planned** here (the

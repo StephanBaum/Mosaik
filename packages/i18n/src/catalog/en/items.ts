@@ -138,7 +138,9 @@ export const items = {
   "item.passkey.created": "Created",
   "item.passkey.createdValue": "{at, date, medium}",
   "item.passkey.note":
-    "This passkey is end-to-end encrypted and syncs with your vault. Its private key never leaves Mosaic.",
+    "This passkey is end-to-end encrypted and syncs with your vault. Its private key is never shown. You can only move it with Settings → Export passkeys.",
+  "editor.passkey.fixed":
+    "The website, account and key come from the site that made this passkey, so you can only change the title, tags and notes.",
   "editor.document.filesAfterSave": "Save the document first, then add files to it.",
   "editor.titleRequired": "Give this item a title.",
 } as const satisfies Record<string, string>;

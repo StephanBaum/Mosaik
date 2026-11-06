@@ -298,7 +298,7 @@ A request with `v` other than 1 gets `protocolVersion`.
 - `OriginWarning` = `{kind: "idn", unicodeHost}` | `{kind: "insecure"}` |
   `{kind: "lookalike", savedHost}`.
 - Limits: origin at most 2048 bytes, username 256, password 1024, title 256 characters.
-- Passkeys (ADR-0039, ADR-0040 (lands with M5 T3)). Binary values are base64url without padding.
+- Passkeys (ADR-0039, ADR-0040). Binary values are base64url without padding.
   `requestId` is 32 lowercase hex digits chosen by the extension; it names the request for
   `passkeyCancel` only. The desktop dialog has its own handle, made by the desktop. `origin` and `topOrigin` come from the browser, never from the
   page, and must be equal (`crossOriginFrame`) and https (`insecureOrigin`). `rpId` is the page's
@@ -325,8 +325,8 @@ A request with `v` other than 1 gets `protocolVersion`.
   never held back by the extension's four-requests cap). `useAnotherDevice` and every error code
   except `cancelled`, `busy`, `timeout` (the page's call fails with `NotAllowedError`) and
   `passkeyExcluded` (`InvalidStateError`) send the page's call to the browser's own WebAuthn;
-  `rateLimited` does too, since the windows are the pairing's and one site must not spend them
-  for another. A request the page aborts, or whose tab moves on, before the extension has sent it
+  `rateLimited` does too, since the pairing's windows are shared and the pages must not turn each
+  other's calls into errors. A request the page aborts, or whose tab moves on, before the extension has sent it
   is never sent.
 
 ### 5.3 Error codes
@@ -379,6 +379,14 @@ Rate limits are the desktop's, per pairing, as sliding windows: `fill` 10 per 10
 `passkeyCreate` 3 per 60 s, `passkeyGet` 10 per 60 s, `passkeyCancel` 20 per 60 s; `focus` 1 per 2 s (global);
 `pairRequest` 3 per 60 s (global), and 3 denials within 10 min block pair requests for
 10 min (`pairingBlocked`).
+
+`passkeyCreate` and `passkeyGet` also have a smaller window per (pairing, origin), so that one
+site cannot spend the pairing's windows for another: `passkeyCreate` 2 per 60 s and `passkeyGet`
+6 per 60 s for each canonical page origin (`origin` as `mosaic-origin` serializes it; a body whose
+origin does not parse is refused `invalidRequest` and counts only against the pairing). A request
+must fit the origin's window first and then the pairing's; one that does not is `rateLimited` and
+counts in neither. The desktop keeps at most 256 origins per pairing and bucket (expired windows
+go first, then the origin whose latest request is the oldest) and drops them with the pairing.
 
 States. Desktop not running: `hello` says `notRunning`. Locked: the authenticated session
 stays up; `status`, `focus` and `unpair` work and every other op returns `locked`. Pairing
