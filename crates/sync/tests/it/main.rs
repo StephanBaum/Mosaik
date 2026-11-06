@@ -2,6 +2,7 @@
 //! engine over simulated file-sync clients, rotations, joining from a
 //! folder and a hostile folder. Built as one binary.
 
+mod chaos;
 mod cloudsim;
 mod common;
 mod folder_transport;
