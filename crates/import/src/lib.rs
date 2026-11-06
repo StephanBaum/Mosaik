@@ -1,5 +1,5 @@
-//! Importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4, 1Password 1PUX
-//! and CSV (brief §5 "Import/export").
+//! Importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4, 1Password 1PUX,
+//! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export").
 //!
 //! Each importer reads an export file into an [`Import`]: one
 //! [`ImportEntry`] per item, each an [`ItemDraft`] that becomes a
@@ -35,6 +35,10 @@
 //!   parser is bounded ([`MAX_FILE_LEN`], [`MAX_ENTRIES`], nesting and
 //!   decompression limits, KDBX key-derivation limits in [`kdbx`]) and
 //!   fuzzed (`crates/import/fuzz`).
+//! - Passkeys are the one import that carries private keys: each key is
+//!   decoded strictly into a zeroizing buffer, validated and re-encoded by
+//!   `mosaic_passkey::Es256Key`, and kept in a zeroizing `SecretVec` until it
+//!   is stored. Only ES256 keys are imported ([`EntryWarning::PasskeyUnsupported`]).
 //! - Plaintext from the file lives in zeroizing buffers: the decrypted and
 //!   decompressed KDBX payload, archive members, decoded base64, the JSON
 //!   tree, every draft field. Residual: `serde_json`'s scratch copy of
@@ -56,11 +60,13 @@ mod entries;
 mod error;
 mod json;
 mod otp;
+mod passkey;
 mod preview;
 mod url;
 
 pub mod bitwarden;
 pub mod csv;
+pub mod cxf;
 pub mod enpass;
 pub mod kdbx;
 pub mod onepux;
@@ -70,7 +76,7 @@ use mosaic_core::SecretString;
 pub use commit::{CommitReport, commit};
 pub use draft::{
     Attachment, EntryWarning, ItemDraft, MAX_ATTACHMENTS_PER_ENTRY, MAX_FIELDS_PER_ENTRY,
-    MAX_IMPORT_ATTACHMENT_BYTES,
+    MAX_IMPORT_ATTACHMENT_BYTES, MAX_PASSKEYS_PER_ENTRY, PasskeyDraft,
 };
 pub use entries::{Import, ImportEntry, MAX_ENTRIES, SkipReason, SkippedEntry};
 pub use error::{Error, Result};
@@ -90,6 +96,8 @@ pub enum Format {
     Keepass,
     /// 1Password 1PUX.
     OnePassword,
+    /// FIDO Credential Exchange Format v1.0, JSON (passkeys and passwords).
+    Cxf,
     /// CSV with a header row; columns are mapped automatically
     /// ([`csv::CsvMapping::detect`]).
     Csv,
@@ -110,6 +118,7 @@ pub fn parse(format: Format, input: &[u8], password: Option<&SecretString>) -> R
         Format::Bitwarden => bitwarden::parse(input),
         Format::Keepass => kdbx::parse(input, password.ok_or(Error::PasswordRequired)?),
         Format::OnePassword => onepux::parse(input),
+        Format::Cxf => cxf::parse(input),
         Format::Csv => csv::parse(input, None),
     }
 }

@@ -5,6 +5,7 @@ export * from "./clipboard.ts";
 export * from "./commands.ts";
 export * from "./common.ts";
 export * from "./events.ts";
+export * from "./export.ts";
 export * from "./generator.ts";
 export * from "./import.ts";
 export * from "./insights.ts";

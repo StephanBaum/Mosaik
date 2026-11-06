@@ -26,6 +26,7 @@ use super::browser::{
 use super::clipboard;
 use super::errors::ErrorCode;
 use super::events::{self, LockReason, SyncStatus};
+use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
 use super::import::{
@@ -511,6 +512,15 @@ fn import_commands(f: &mut Fixtures) {
     );
 }
 
+/// The export commands.
+fn export_commands(f: &mut Fixtures) {
+    f.command(
+        "export_passkeys_cxf",
+        export::samples::requests(),
+        export::samples::results(),
+    );
+}
+
 /// The SSH agent commands.
 fn ssh_commands(f: &mut Fixtures) {
     f.command("ssh_agent_status", vec![()], ssh::samples::statuses());
@@ -679,6 +689,7 @@ pub(crate) fn build() -> Value {
     attachment_commands(&mut f, item_request);
     tool_commands(&mut f, item_request);
     import_commands(&mut f);
+    export_commands(&mut f);
     ssh_commands(&mut f);
     browser_commands(&mut f);
     let enums = enums();

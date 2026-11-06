@@ -25,6 +25,7 @@ import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
+import { PasskeyExportSettings } from "./PasskeyExportSettings.tsx";
 import { SshSettings } from "./SshSettings.tsx";
 
 const AUTO_LOCK = [1, 5, 10, 30, 60];
@@ -206,12 +207,13 @@ function KitSettings() {
   );
 }
 
-/** The groups for programs that use the vault: the SSH agent and browser extensions. */
+/** The groups for programs that use the vault (the SSH agent, browser extensions) and the passkey export. */
 function Integrations({ onError }: { onError: (error: IpcError | null) => void }) {
   return (
     <>
       <SshSettings onError={onError} />
       <BrowserSettings onError={onError} />
+      <PasskeyExportSettings />
     </>
   );
 }

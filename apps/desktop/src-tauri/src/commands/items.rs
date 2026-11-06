@@ -2,7 +2,7 @@
 //! secret that leaves here is the one `reveal_secret` was asked for.
 
 use mosaic_core::model::{
-    CustomFieldValue, Item, ItemType, OtpKind, PasskeyCredential, SecretField, TextField, UrlMatch,
+    CustomFieldValue, Item, ItemType, OtpKind, PasskeyPublic, SecretField, TextField, UrlMatch,
 };
 use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_vault::session::{ItemFilter, ItemRef, TrashFilter as CoreTrashFilter, UnlockedSession};
@@ -164,17 +164,17 @@ fn subtitle(kind: ItemKind, item: &Item) -> Option<String> {
     non_empty(item.text(field))
 }
 
-/// The passkey of a `passkey` item. Its private key is dropped (and
-/// zeroized) with the returned value; only the summary leaves this module.
-fn passkey_of(kind: ItemKind, item: &Item) -> Option<PasskeyCredential> {
+/// The public fields of a `passkey` item's credential. The private key is
+/// never decoded for a summary or a detail.
+fn passkey_of(kind: ItemKind, item: &Item) -> Option<PasskeyPublic> {
     (kind == ItemKind::Passkey)
-        .then(|| item.passkey())
+        .then(|| item.passkey_public())
         .flatten()
 }
 
 /// The first of the user name and the display name that is not blank, with
 /// control and format characters removed (the names come from the site).
-fn passkey_line(passkey: &PasskeyCredential) -> Option<String> {
+fn passkey_line(passkey: &PasskeyPublic) -> Option<String> {
     non_empty(Some(sanitize_name(passkey.user_name.as_str()).as_str())).or_else(|| {
         non_empty(Some(
             sanitize_name(passkey.user_display_name.as_str()).as_str(),
@@ -268,7 +268,7 @@ fn ssh_summary(item: &Item) -> Option<SshKeySummary> {
 /// a readable credential). The private key is not part of it, and the names
 /// (from the site) lose control and format characters.
 fn passkey_summary(item: &Item) -> Option<PasskeySummary> {
-    let passkey = item.passkey()?;
+    let passkey = item.passkey_public()?;
     Some(PasskeySummary {
         rp_id: passkey.rp_id.as_str().to_owned(),
         user_name: sanitize_name(passkey.user_name.as_str()),

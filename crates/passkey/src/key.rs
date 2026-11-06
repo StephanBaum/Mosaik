@@ -4,7 +4,7 @@ use core::fmt;
 
 use mosaic_core::{SecretBytes, SecretVec};
 use p256::ecdsa::{Signature, SigningKey, signature::Signer};
-use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, PrivateKeyInfoRef};
 
 use crate::{COSE_KEY_LEN, CREDENTIAL_ID_LEN, Error};
 
@@ -136,6 +136,15 @@ impl fmt::Debug for Es256Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Es256Key([REDACTED])")
     }
+}
+
+/// Whether `der` is a well-formed PKCS#8 private key of any key type. An
+/// importer uses it to tell a key of another algorithm (Ed25519, RSA: valid
+/// but unsupported) from garbage when [`Es256Key::from_pkcs8_der`] refuses it.
+/// It reads the structure only and copies nothing.
+#[must_use]
+pub fn is_pkcs8_private_key(der: &[u8]) -> bool {
+    PrivateKeyInfoRef::try_from(der).is_ok()
 }
 
 /// A fresh credential ID: [`CREDENTIAL_ID_LEN`] random bytes. Not secret.

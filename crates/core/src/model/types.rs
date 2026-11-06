@@ -645,6 +645,76 @@ impl PasskeyCredential {
     }
 }
 
+/// The public fields of a [`PasskeyCredential`]: everything but the private
+/// key. Reading it never copies the key, so code that only lists, filters or
+/// shows passkeys uses this ([`crate::model::Item::passkey_public`]) and
+/// takes the full credential only for the one it signs with or exports.
+#[derive(Debug)]
+pub struct PasskeyPublic {
+    /// The credential ID, 1 to 1023 bytes.
+    pub credential_id: Vec<u8>,
+    /// The relying party ID (a domain).
+    pub rp_id: Text,
+    /// The user handle, 1 to 64 bytes.
+    pub user_handle: Vec<u8>,
+    /// The user name shown by the relying party.
+    pub user_name: Text,
+    /// The user's display name.
+    pub user_display_name: Text,
+    /// The COSE algorithm identifier (-7 `ES256`, -8 `EdDSA`).
+    pub algorithm: i64,
+    /// Whether this is a discoverable (resident) credential.
+    pub discoverable: bool,
+    /// When the credential was created.
+    pub created_at: Timestamp,
+}
+
+impl PasskeyPublic {
+    /// Reads the public fields from the stored value, applying the same
+    /// checks as [`PasskeyCredential::validate`]. The `private_key` member
+    /// is only checked to be present; it is not decoded or copied.
+    pub(crate) fn from_value(v: &Value) -> Result<Self> {
+        let o = v.as_object().ok_or(Error::Malformed)?;
+        let get = |k: &str| o.get(k).ok_or(Error::Malformed);
+        let bytes = |k: &str| -> Result<Vec<u8>> {
+            Ok(get(k)?.to_secret_bytes()?.expose_secret().to_vec())
+        };
+        let text = |k: &str| -> Result<Text> {
+            match get(k)? {
+                Value::String(t) => Ok(t.dup()),
+                _ => Err(Error::Malformed),
+            }
+        };
+        let credential_id = bytes("credential_id")?;
+        let user_handle = bytes("user_handle")?;
+        let rp_id = text("rp_id")?;
+        let has_key = get("private_key")?.as_str().is_some_and(|s| !s.is_empty());
+        if !(1..=MAX_CREDENTIAL_ID_LEN).contains(&credential_id.len())
+            || !(1..=MAX_USER_HANDLE_LEN).contains(&user_handle.len())
+            || !has_key
+        {
+            return Err(Error::Malformed);
+        }
+        non_empty(&rp_id)?;
+        let discoverable = match o.get("discoverable") {
+            None => true,
+            Some(d) => d.as_bool().ok_or(Error::Malformed)?,
+        };
+        Ok(Self {
+            credential_id,
+            rp_id,
+            user_handle,
+            user_name: text("user_name")?,
+            user_display_name: text("user_display_name")?,
+            algorithm: get("alg")?.as_i64().ok_or(Error::Malformed)?,
+            discoverable,
+            created_at: Timestamp::from_unix_millis(
+                get("created_at")?.as_i64().ok_or(Error::Malformed)?,
+            ),
+        })
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SSH keys
 // ---------------------------------------------------------------------------
@@ -919,6 +989,57 @@ mod tests {
         assert_eq!(bad.validate(), Err(Error::Malformed));
         assert_eq!(
             PasskeyCredential::from_value(&bad.to_value()).unwrap_err(),
+            Error::Malformed
+        );
+    }
+
+    #[test]
+    fn passkey_public_has_the_fields_but_no_key() {
+        let mut p = PasskeyCredential::new(
+            vec![1, 2, 3],
+            Text::new("example.com"),
+            vec![9; 16],
+            sv(&[7; 32]),
+            -7,
+            Timestamp::from_unix_millis(5),
+        );
+        p.user_name = Text::new("alice");
+        p.user_display_name = Text::new("Alice");
+        p.discoverable = false;
+        let v = p.to_value();
+        let public = PasskeyPublic::from_value(&v).unwrap();
+        assert_eq!(public.credential_id, [1, 2, 3]);
+        assert_eq!(public.user_handle, [9; 16]);
+        assert_eq!(public.rp_id.as_str(), "example.com");
+        assert_eq!(public.user_name.as_str(), "alice");
+        assert_eq!(public.user_display_name.as_str(), "Alice");
+        assert_eq!(public.algorithm, -7);
+        assert!(!public.discoverable);
+        assert_eq!(public.created_at, Timestamp::from_unix_millis(5));
+        assert!(!format!("{public:?}").contains("private"));
+        // The same checks as the full credential.
+        for member in [
+            "credential_id",
+            "user_handle",
+            "rp_id",
+            "private_key",
+            "alg",
+        ] {
+            let mut bad = v.dup();
+            if let Value::Object(o) = &mut bad {
+                o.remove(member);
+            }
+            assert_eq!(
+                PasskeyPublic::from_value(&bad).unwrap_err(),
+                Error::Malformed
+            );
+        }
+        let mut empty_key = v.dup();
+        if let Value::Object(o) = &mut empty_key {
+            o.insert("private_key", Value::bytes(b""));
+        }
+        assert_eq!(
+            PasskeyPublic::from_value(&empty_key).unwrap_err(),
             Error::Malformed
         );
     }

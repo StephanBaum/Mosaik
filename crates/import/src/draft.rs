@@ -6,18 +6,22 @@ use core::fmt;
 
 use mosaic_core::model::{
     CustomField, CustomFieldValue, Item, ItemEdit, ItemType, LoginUrl, MAX_HISTORY, MAX_TAG_LEN,
-    OtpConfig, SecretField, SshKeyMaterial, Text, TextField,
+    OtpConfig, PasskeyCredential, SecretField, SshKeyMaterial, Text, TextField,
 };
 use mosaic_core::{DeviceId, MAX_ATTACHMENT_LEN, SecretString, SecretVec, Timestamp};
 
 use crate::buf::Str;
 use crate::otp;
+use crate::passkey::{Built, Problem};
 
 /// Most fields (of any kind) kept per entry; the rest are dropped with
 /// [`EntryWarning::FieldsDropped`].
 pub const MAX_FIELDS_PER_ENTRY: usize = 1_000;
 /// Most attachments kept per entry.
 pub const MAX_ATTACHMENTS_PER_ENTRY: usize = 100;
+/// Most passkeys kept per entry; the rest are dropped with
+/// [`EntryWarning::FieldsDropped`].
+pub const MAX_PASSKEYS_PER_ENTRY: usize = 100;
 /// Most attachment bytes one import keeps in memory: the account's
 /// attachment quota (1 GiB). An export can reference one stored file from
 /// many entries (KDBX binaries, 1PUX documents), so this bounds the copies,
@@ -75,8 +79,8 @@ pub enum EntryWarning {
     /// The password history was longer than Mosaic keeps; the oldest
     /// entries were left out.
     HistoryTruncated,
-    /// Passkeys cannot be imported from this format (M5); they were left
-    /// out.
+    /// The format holds passkeys without their private keys (1PUX), so they
+    /// cannot be imported; they were left out.
     PasskeysNotImported,
     /// The entry's category is unknown; it was imported as a secure note.
     UnknownCategory,
@@ -90,6 +94,12 @@ pub enum EntryWarning {
     /// The title had invisible or direction-changing characters (Unicode Cf
     /// and default-ignorable code points); they were removed.
     TitleCleaned,
+    /// A passkey in the entry could not be read (bad encoding, missing member,
+    /// a key or an identifier of the wrong size); it was left out.
+    PasskeyUnreadable,
+    /// A passkey in the entry uses an algorithm other than ES256 (ECDSA
+    /// P-256); it was left out.
+    PasskeyUnsupported,
 }
 
 /// An attachment file of an entry.
@@ -100,6 +110,27 @@ pub struct Attachment {
     pub mime: Text,
     /// The file contents.
     pub data: SecretVec,
+}
+
+/// One imported passkey. It becomes its own `passkey` item, written right
+/// after the entry it came with ([`crate::commit`]). The private key is
+/// PKCS#8 DER, validated and re-encoded by `mosaic_passkey::Es256Key`, and
+/// zeroizes on drop; `Debug` prints nothing of it.
+pub struct PasskeyDraft {
+    /// The credential: ID, relying party, user, ES256 key.
+    pub credential: PasskeyCredential,
+    /// The signature counter of the source (0 if it has none).
+    pub sign_count: u64,
+    /// The title of the new item: the entry's title, else the relying party.
+    pub title: Text,
+}
+
+impl fmt::Debug for PasskeyDraft {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PasskeyDraft")
+            .field("sign_count", &self.sign_count)
+            .finish_non_exhaustive()
+    }
 }
 
 impl fmt::Debug for Attachment {
@@ -142,6 +173,8 @@ pub struct ItemDraft {
     pub ssh_key: Option<SshKeyMaterial>,
     /// Attachment files, added after the item.
     pub attachments: Vec<Attachment>,
+    /// Passkeys, each added as its own `passkey` item after the item.
+    pub passkeys: Vec<PasskeyDraft>,
 }
 
 impl fmt::Debug for ItemDraft {
@@ -153,6 +186,7 @@ impl fmt::Debug for ItemDraft {
             .field("urls", &self.urls.len())
             .field("custom_fields", &self.custom_fields.len())
             .field("attachments", &self.attachments.len())
+            .field("passkeys", &self.passkeys.len())
             .finish_non_exhaustive()
     }
 }
@@ -172,7 +206,17 @@ impl ItemDraft {
             password_history: Vec::new(),
             ssh_key: None,
             attachments: Vec::new(),
+            passkeys: Vec::new(),
         }
+    }
+
+    /// Whether the draft makes an item of its own. A draft of type
+    /// `Passkey` holds only passkeys (an export entry with nothing but
+    /// passkeys): [`crate::commit`] adds the passkey items and no item for
+    /// the entry itself.
+    #[must_use]
+    pub fn has_item(&self) -> bool {
+        self.item_type != ItemType::Passkey
     }
 
     /// The value of a text field.
@@ -285,9 +329,12 @@ impl ItemDraft {
         Ok(item)
     }
 
-    /// Whether the draft holds nothing at all.
-    fn is_empty(&self) -> bool {
-        self.texts.is_empty()
+    /// Whether the draft holds nothing at all, passkeys apart. With
+    /// `title_counts` false a title alone does not count either.
+    fn lacks_content(&self, title_counts: bool) -> bool {
+        self.texts
+            .iter()
+            .all(|(f, _)| !title_counts && *f == TextField::Title)
             && self.secrets.is_empty()
             && self.urls.is_empty()
             && self.otp.is_none()
@@ -638,10 +685,39 @@ impl Builder {
         });
     }
 
-    /// The draft and its warnings; `None` if the entry holds nothing.
+    /// Adds a passkey read from the source, or the warning why it could not
+    /// be. At most [`MAX_PASSKEYS_PER_ENTRY`] are kept.
+    pub(crate) fn passkey(&mut self, passkey: Built) {
+        match passkey {
+            Ok(_) if self.draft.passkeys.len() >= MAX_PASSKEYS_PER_ENTRY => {
+                self.warn(EntryWarning::FieldsDropped);
+            }
+            Ok(p) => self.draft.passkeys.push(p),
+            Err(Problem::Unreadable) => self.warn(EntryWarning::PasskeyUnreadable),
+            Err(Problem::Unsupported) => self.warn(EntryWarning::PasskeyUnsupported),
+        }
+    }
+
+    /// The draft and its warnings; `None` if the entry holds nothing. An
+    /// entry with passkeys and no content besides its title becomes a draft
+    /// of type `Passkey` (no item of its own, see [`ItemDraft::has_item`]);
+    /// passkeys without a title get the entry's title, else their relying
+    /// party.
     pub(crate) fn finish(mut self) -> Option<(ItemDraft, Vec<EntryWarning>)> {
-        if self.draft.is_empty() {
+        if self.draft.lacks_content(true) && self.draft.passkeys.is_empty() {
             return None;
+        }
+        if !self.draft.passkeys.is_empty() && self.draft.lacks_content(false) {
+            self.draft.item_type = ItemType::Passkey;
+        }
+        let title = self.draft.title().map(Text::new);
+        for p in &mut self.draft.passkeys {
+            if p.title.is_empty() {
+                p.title = title.as_ref().map_or_else(
+                    || Text::new(p.credential.rp_id.as_str()),
+                    |t| Text::new(t.as_str()),
+                );
+            }
         }
         self.warnings.sort_unstable();
         Some((self.draft, self.warnings))

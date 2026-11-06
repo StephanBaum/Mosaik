@@ -82,6 +82,18 @@ export const settings = {
   "reauth.bodyQuick":
     "Das macht den Zugang zu Mosaic einfacher, deshalb braucht es dein Master-Passwort.",
   "reauth.bodyKey": "Um einen Schlüssel zu diesem Tresor hinzuzufügen, brauchst du dein Master-Passwort.",
+  "settings.passkeyExport": "Passkeys exportieren",
+  "settings.passkeyExport.body":
+    "Speichere die Passkeys eines Tresors in einer FIDO-CXF-Datei, um sie in eine andere App zu übertragen.",
+  "settings.passkeyExport.vault": "Tresor",
+  "settings.passkeyExport.warning":
+    "Die Datei enthält deine Passkeys unverschlüsselt. Wer die Datei hat, kann sich als du anmelden. Lösche sie nach dem Import.",
+  "settings.passkeyExport.none": "In diesem Tresor gibt es keine Passkeys zum Exportieren.",
+  "settings.passkeyExport.button": "Passkeys exportieren",
+  "settings.passkeyExport.reauth":
+    "Die Datei enthält deine Passkeys unverschlüsselt, deshalb braucht der Export dein Master-Passwort.",
+  "settings.passkeyExport.saved":
+    "{count, plural, one {# Passkey exportiert.} other {# Passkeys exportiert.}} Lösche die Datei nach dem Import.",
   "reauth.bodyMove":
     "Um einen Eintrag aus einem Tresor mit Sicherheitsschlüssel zu verschieben, brauchst du dein Master-Passwort.",
   "toast.settingsReset":

@@ -39,6 +39,12 @@ pub const IMAGES: FileFilter = FileFilter {
     extensions: &["png", "jpg", "jpeg"],
 };
 
+/// JSON files (the passkey export).
+pub const JSON: FileFilter = FileFilter {
+    name: "JSON",
+    extensions: &["json"],
+};
+
 /// Any file (attachments). An empty extension list adds no filter.
 pub const ANY_FILE: FileFilter = FileFilter {
     name: "All files",

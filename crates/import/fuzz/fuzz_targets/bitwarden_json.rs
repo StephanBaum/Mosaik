@@ -1,6 +1,7 @@
 //! The Bitwarden JSON importer: arbitrary input never panics, and whatever
 //! it accepts makes valid items (`common::check`). Seeds: the synthetic
-//! export in `crates/import/tests/fixtures/bitwarden.json`.
+//! export in `crates/import/tests/fixtures/bitwarden.json` and a login with a
+//! `fido2Credentials` passkey.
 #![no_main]
 
 mod common;

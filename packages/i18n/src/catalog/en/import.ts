@@ -4,6 +4,7 @@ export const importMessages = {
   "import.format.bitwarden": "Bitwarden (.json, unencrypted)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
+  "import.format.cxf": "FIDO Credential Exchange (.json): passkeys and passwords",
   "import.format.csv": "CSV file (.csv)",
   "import.keepassPassword": "Password of the KeePass database",
   "import.preview.ready":
@@ -21,7 +22,11 @@ export const importMessages = {
   "import.warning.otpUnreadable":
     "Some one-time code settings weren't recognized. They were kept as hidden fields, so set up the code again from them.",
   "import.warning.passkeysNotImported":
-    "Passkeys can't be imported yet. The rest of those items is imported; keep your old app until you've moved the passkeys.",
+    "This export format doesn't contain the private keys of passkeys, so they can't be imported. The rest of those items is imported; keep your old app until you've moved the passkeys.",
+  "import.warning.passkeyUnreadable":
+    "Some passkeys couldn't be read and were left out. Keep your old app until you've moved them.",
+  "import.warning.passkeyUnsupported":
+    "Some passkeys use a key type Mosaic doesn't support (only ES256 works) and were left out. Keep your old app until you've moved them.",
   "import.entry.unmappedFields":
     "Some fields have no matching field in Mosaic. They were kept as custom fields.",
   "import.entry.otpUnreadable":
@@ -33,7 +38,11 @@ export const importMessages = {
   "import.entry.attachmentQuota":
     "An attachment doesn't fit your 1 GiB of attachment storage and was left out.",
   "import.entry.passkeysNotImported":
-    "This item's passkey can't be imported yet. Keep your old app until you've moved it.",
+    "This export format doesn't contain the private key of this item's passkey, so it can't be imported. Keep your old app until you've moved it.",
+  "import.entry.passkeyUnreadable":
+    "A passkey of this item couldn't be read and was left out. Keep your old app until you've moved it.",
+  "import.entry.passkeyUnsupported":
+    "A passkey of this item uses a key type Mosaic doesn't support (only ES256 works) and was left out. Keep your old app until you've moved it.",
   "import.entry.historyTruncated": "Only the 32 most recent old passwords were kept.",
   "import.entry.tagsDropped": "Empty or overlong tags were left out.",
   "import.entry.archived": "Archived in your old app. It gets the tag \"archived\".",

@@ -279,7 +279,8 @@ fn bitwarden_check_login_entry(import: &Import) {
     assert_eq!(history(d), ["oldest-pw", "older-pw"]);
     assert_eq!(tags(d), ["Personal", "Team Shared"]);
     assert!(d.favorite);
-    assert_eq!(e.warnings, [EntryWarning::PasskeysNotImported]);
+    // The fixture's `fido2Credentials` member has no key: unreadable.
+    assert_eq!(e.warnings, [EntryWarning::PasskeyUnreadable]);
 }
 
 fn bitwarden_check_other_entries(import: &Import) {

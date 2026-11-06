@@ -10,6 +10,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use aes::cipher::{KeyIvInit, StreamCipher};
 use mosaic_core::model::{ItemType, SecretField, TextField};
+use mosaic_passkey::{MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN};
 
 use super::Cursor;
 use crate::Format;
@@ -18,6 +19,7 @@ use crate::draft::{AttachmentBudget, Builder, EntryWarning, Kind};
 use crate::entries::{Collector, Import};
 use crate::error::{Error, Result};
 use crate::otp::KeepassOtp;
+use crate::passkey::{self, Built, MAX_PKCS8_LEN, Parts, Problem};
 
 /// Most attachment binaries in the inner header.
 const MAX_BINARIES: usize = 100_000;
@@ -570,6 +572,7 @@ fn entry(
     let mut b = Builder::new(ty);
     let mut kp_otp = KeepassOtp::default();
     let mut otp_raw: Vec<&Field> = Vec::new();
+    let mut passkey_present = false;
     for f in &e.fields {
         let (k, v) = (f.key.as_str(), f.value.as_str());
         match k {
@@ -580,8 +583,9 @@ fn entry(
             "Notes" => b.notes(v),
             "otp" => b.otp_text(v, "One-time password"),
             _ if k.starts_with("KP2A_URL") => b.url(v, k),
+            // The passkey members are gathered and read together below.
             _ if k.starts_with("KPEX_PASSKEY_") || k.starts_with("KPXC_PASSKEY") => {
-                b.warn(EntryWarning::PasskeysNotImported);
+                passkey_present = true;
             }
             _ if kp_otp.take(k, v) => otp_raw.push(f),
             _ => {
@@ -604,6 +608,9 @@ fn entry(
             }
         }
     }
+    if passkey_present {
+        b.passkey(keepassxc_passkey(e));
+    }
     for old in &e.history {
         b.history(old);
     }
@@ -625,4 +632,44 @@ fn entry(
         b.tag(&path);
     }
     b
+}
+
+/// The `KeePassXC` passkey of an entry (`KPEX_PASSKEY_*` attributes): credential
+/// ID and user handle in base64url, the private key as a PEM `PRIVATE KEY`
+/// block (PKCS#8). The PEM text is stripped into a zeroizing buffer before it
+/// is decoded. A missing required attribute, or one that does not decode,
+/// makes the passkey unreadable; a valid key of another algorithm is
+/// unsupported.
+fn keepassxc_passkey(e: &RawEntry) -> Built {
+    let get = |k: &str| {
+        e.fields
+            .iter()
+            .find(|f| f.key.as_str() == k)
+            .map(|f| f.value.as_str())
+            .filter(|v| !v.trim().is_empty())
+            .ok_or(Problem::Unreadable)
+    };
+    let unreadable = |_| Problem::Unreadable;
+    let credential_id = buf::base64url_decode(
+        get("KPEX_PASSKEY_CREDENTIAL_ID")?.trim(),
+        MAX_CREDENTIAL_ID_LEN,
+    )
+    .map_err(unreadable)?;
+    let user_handle =
+        buf::base64url_decode(get("KPEX_PASSKEY_USER_HANDLE")?.trim(), MAX_USER_HANDLE_LEN)
+            .map_err(unreadable)?;
+    let private_key = buf::pem_private_key_der(get("KPEX_PASSKEY_PRIVATE_KEY_PEM")?, MAX_PKCS8_LEN)
+        .map_err(unreadable)?;
+    let user_name = get("KPEX_PASSKEY_USERNAME").unwrap_or_default();
+    passkey::build(&Parts {
+        credential_id,
+        rp_id: get("KPEX_PASSKEY_RELYING_PARTY")?,
+        user_handle,
+        user_name,
+        user_display_name: "",
+        private_key,
+        sign_count: 0,
+        discoverable: true,
+        created_at: None,
+    })
 }

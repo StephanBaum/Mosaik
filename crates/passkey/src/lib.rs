@@ -21,6 +21,7 @@ mod ceremony;
 mod encode;
 mod error;
 mod key;
+mod name;
 #[cfg(test)]
 mod tests;
 
@@ -32,8 +33,9 @@ pub use encode::{
     attestation_object_none, b64url, ccd_to_string, client_data_json, from_b64url, rp_id_hash,
 };
 pub use error::Error;
-pub use key::{Es256Key, new_credential_id};
+pub use key::{Es256Key, is_pkcs8_private_key, new_credential_id};
 pub use mosaic_core::model::{MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN};
+pub use name::{MAX_ACCOUNT_NAME_BYTES, sanitize_name};
 
 /// The COSE algorithm identifier of ES256 (ECDSA P-256 with SHA-256).
 pub const COSE_ALG_ES256: i64 = -7;
