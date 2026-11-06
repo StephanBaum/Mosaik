@@ -13,12 +13,16 @@ use mosaic_vault::session::{Error as SessionError, LockedSession, UnlockedSessio
 
 use super::init::{FolderContents, FolderError, inspect};
 use super::layout::Layout;
-use super::{FolderTransport, fsutil};
+use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
 use crate::transport::TransportError;
-use crate::wire::SyncCrypto;
 use crate::wire::account_file::{self, AccountFile, AccountFilePath};
 use crate::wire::folder_names::{self, FolderName};
 use mosaic_core::InstallId;
+use mosaic_core::sync_auth::FolderMacPurpose;
+
+/// The most account files a join tries: each costs one Argon2id derivation,
+/// and anyone with write access to the folder can plant files.
+const MAX_JOIN_CANDIDATES: usize = 8;
 
 /// The account files of a folder, best first: highest version, then lowest
 /// device ID. Each comes with the path IDs and the file's bytes.
@@ -148,40 +152,75 @@ pub fn join_from_folder(
             ));
         }
     }
-    let current = match current_account_file(root, account) {
-        Ok(Some(c)) => c,
-        Ok(None) => return Err(fail(JoinError::NoAccountFile, Some(session))),
-        Err(_) => {
-            return Err(fail(JoinError::Folder(FolderError::Io), Some(session)));
+    let Ok(all) = candidates(&Layout::new(root, &account), account) else {
+        return Err(fail(JoinError::Folder(FolderError::Io), Some(session)));
+    };
+    // Candidates in order (highest version, lowest device) until one unlocks
+    // and its MAC verifies. A file somebody planted (another version of the
+    // wrapped key, a copy with a bumped version) must not lock a device
+    // out, so a candidate that does not open is skipped, and one that
+    // opens but fails its MAC is remembered and skipped too.
+    let mut parsed = false;
+    let mut damaged = false;
+    for (path, bytes) in all.into_iter().take(MAX_JOIN_CANDIDATES) {
+        let Ok(file) = AccountFile::decode_for_join(&bytes, &path) else {
+            continue;
+        };
+        parsed = true;
+        let params = PasswordParams {
+            account_id: file.account_id,
+            salt: file.salt,
+            profile: file.profile,
+        };
+        let keys = match LockedSession::derive_join_keys(&params, password, secret_key) {
+            Ok(k) => k,
+            Err(e) => return Err(fail(JoinError::Session(e), Some(session))),
+        };
+        let Some((body, mac)) = bytes.split_last_chunk::<32>() else {
+            continue;
+        };
+        match session.verify_join_folder_mac(
+            &file.wrapped_ak,
+            &keys,
+            FolderMacPurpose::Account,
+            body,
+            mac,
+        ) {
+            Err(SessionError::UnlockFailed) => continue,
+            Err(other) => return Err(fail(JoinError::Session(other), Some(session))),
+            Ok(false) => {
+                damaged = true;
+                continue;
+            }
+            Ok(true) => {}
         }
-    };
-    let (file, bytes) = current;
-    let params = PasswordParams {
-        account_id: file.account_id,
-        salt: file.salt,
-        profile: file.profile,
-    };
-    let keys = match LockedSession::derive_join_keys(&params, password, secret_key) {
-        Ok(k) => k,
-        Err(e) => return Err(fail(JoinError::Session(e), Some(session))),
-    };
-    let unlocked = match session.join_account_with_keys(&file.wrapped_ak, keys) {
-        Ok(u) => u,
-        Err(failed) => {
-            let error = match failed.error {
-                SessionError::UnlockFailed => JoinError::WrongCredentials,
-                other => JoinError::Session(other),
-            };
-            return Err(fail(error, Some(failed.session)));
-        }
-    };
-    match AccountFile::verify_mac(&bytes, &unlocked) {
-        Ok(true) => Ok(unlocked),
-        Ok(false) | Err(_) => Err(fail(JoinError::FolderDamaged, None)),
+        let unlocked = match session.join_account_with_keys(&file.wrapped_ak, keys) {
+            Ok(u) => u,
+            Err(failed) => {
+                let error = match failed.error {
+                    SessionError::UnlockFailed => JoinError::WrongCredentials,
+                    other => JoinError::Session(other),
+                };
+                return Err(fail(error, Some(failed.session)));
+            }
+        };
+        // The same check once more on the unlocked session.
+        return match AccountFile::verify_mac(&bytes, &unlocked) {
+            Ok(true) => Ok(unlocked),
+            Ok(false) | Err(_) => Err(fail(JoinError::FolderDamaged, None)),
+        };
+    }
+    if damaged {
+        // The store was not touched: the session is still usable.
+        Err(fail(JoinError::FolderDamaged, Some(session)))
+    } else if parsed {
+        Err(fail(JoinError::WrongCredentials, Some(session)))
+    } else {
+        Err(fail(JoinError::NoAccountFile, Some(session)))
     }
 }
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+impl<C: FolderCrypto> FolderTransport<C> {
     /// Writes this install's account file for `version` (the first one is
     /// 1; a master password change writes the next) and removes this
     /// install's account files of lower versions.
@@ -204,7 +243,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         };
         let bytes = file
             .encode(&self.crypto)
-            .map_err(|_| TransportError::Protocol)?;
+            .map_err(|e| lock_or(e, TransportError::Protocol))?;
         let dir = self.layout.account_files();
         fsutil::write_atomic(
             &dir,
@@ -224,19 +263,32 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         Ok(())
     }
 
-    /// The highest account version in the folder (0 if there is none), by
-    /// file name.
+    /// The highest account version in the folder whose file verifies (0 if
+    /// there is none). A planted file does not count, however high its name.
     ///
     /// # Errors
     /// [`TransportError`].
     pub fn highest_account_version(&self) -> Result<u64, TransportError> {
-        Ok(fsutil::list(&self.layout.account_files())?
+        let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&self.layout.account_files())?
             .iter()
+            .filter(|e| !e.is_dir)
             .filter_map(|e| match folder_names::parse(&e.name) {
-                Some(FolderName::Account { version, .. }) => Some(version),
+                Some(FolderName::Account { version, device }) => Some((version, device)),
                 _ => None,
             })
-            .max()
-            .unwrap_or(0))
+            .collect();
+        found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        Ok(self.highest_verified_account_version(&found)?.unwrap_or(0))
+    }
+
+    /// The version the next master password change writes: one above the
+    /// highest verified version.
+    ///
+    /// # Errors
+    /// [`TransportError::Protocol`] if the counter would overflow.
+    pub fn next_account_version(&self) -> Result<u64, TransportError> {
+        self.highest_account_version()?
+            .checked_add(1)
+            .ok_or(TransportError::Protocol)
     }
 }

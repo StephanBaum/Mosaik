@@ -15,8 +15,9 @@ use mosaic_core::model::{ItemType, SecretField};
 use mosaic_core::{Argon2Profile, ItemId, VaultId};
 use mosaic_sync::engine::{SyncError, SyncWarning};
 use mosaic_sync::folder::{self, FolderContents, FolderError};
+use mosaic_sync::testutil::LocalSession;
 use mosaic_sync::transport::{Cursor, Transport, TransportError};
-use mosaic_sync::wire::KeyedCrypto;
+use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::checkpoint::Checkpoint;
 use mosaic_sync::wire::cursor::FolderCursor;
 use mosaic_sync::wire::folder_names::dir_name;
@@ -88,15 +89,22 @@ fn writes_are_tmp_then_rename() {
     let before = fs::read(&last).unwrap();
     let name = last.file_name().unwrap().to_string_lossy().into_owned();
     let seq = u64::from_str_radix(name.trim_end_matches(".mseg"), 16).unwrap();
-    let next = dir.join(format!("{:016x}.mseg", seq + 1));
-    // The next name is taken by a directory: the rename onto it fails.
-    fs::create_dir(&next).unwrap();
+    // The next names are taken by directories: the writer steps past a few
+    // taken names and then gives up, and never writes onto one.
+    let blockers: Vec<PathBuf> = (1..=16)
+        .map(|k| dir.join(format!("{:016x}.mseg", seq + k)))
+        .collect();
+    for b in &blockers {
+        fs::create_dir(b).unwrap();
+    }
     set_password(&mut w, 0, vault, item, "third");
     let err = w.try_sync(0).unwrap_err();
     assert!(matches!(err, SyncError::Transport(TransportError::Io)));
     assert_eq!(files_ending(&w.replica(0), ".mtmp").len(), 0);
     assert_eq!(fs::read(&last).unwrap(), before);
-    fs::remove_dir(&next).unwrap();
+    for b in &blockers {
+        fs::remove_dir(b).unwrap();
+    }
 
     // A checkpoint is replaced whole.
     let head = device_dir(&w, 0, 0).join("head.mck");
@@ -157,7 +165,7 @@ fn ignores_conflict_copies_of_every_provider() {
     // ignored, a verified one counts, and the highest counter wins.
     let head_dir = device_dir(&w, 1, 0);
     fs::write(head_dir.join("head (conflicted copy).mck"), b"junk").unwrap();
-    let mut t = open_transport(w.devs[1].s(), &w.replica(1), &w.clock, "probe");
+    let mut t = open_transport(&w.devs[1].access, &w.replica(1), &w.clock, "probe");
     let cps = t.checkpoints().unwrap();
     assert!(cps.len() >= 3, "head, the junk copy and the reader's own");
     assert!(w.try_sync(1).is_ok());
@@ -293,13 +301,24 @@ fn snapshot_heals_lost_segment() {
     // more that B reads.
     set_password(&mut w, 0, vault, item, "v0");
     w.sync(0);
+    // (Deleting it from A's own replica would be a rollback of A's log: A
+    // halts. The file is lost on the way to B instead.)
     let lost = segments(&log_dir(&w, 0, 0, vault)).pop().unwrap();
-    fs::remove_file(&lost).unwrap();
+    let a_dir = dir_name(w.devs[0].s().install_id().as_bytes());
+    let needle = format!(
+        "{}/log/{a_dir}/{}",
+        dir_name(vault.as_bytes()),
+        lost.file_name().unwrap().to_string_lossy()
+    );
+    w.cloud.set_config(mosaic_sync::testutil::SimConfig::CALM);
+    w.cloud.withhold(1, &needle, 1_000_000);
     for i in 1..=12 {
         set_password(&mut w, 0, vault, item, &format!("v{i}"));
         w.sync(0);
     }
-    w.cloud.settle().unwrap();
+    for _ in 0..3 {
+        w.cloud.round().unwrap();
+    }
     w.sync(1);
     w.advance(25 * HOUR_MS);
     let r = w.sync(1);
@@ -322,7 +341,9 @@ fn snapshot_heals_lost_segment() {
         "older segments were deleted: {}",
         files.len()
     );
-    w.cloud.settle().unwrap();
+    for _ in 0..3 {
+        w.cloud.round().unwrap();
+    }
     let r = w.sync(1);
     assert!(r.warnings.is_empty(), "the snapshot closed the gap: {r:?}");
     assert_eq!(password_of(&w, 1, vault, item), "v70");
@@ -355,7 +376,7 @@ fn compaction_deletes_only_own_older_segments() {
     assert_eq!(tree(&b_dir), b_before, "B's segments are untouched");
 
     // The newest segments are a complete snapshot set.
-    let keys = KeyedCrypto::from_keys(w.devs[0].s().sync_keys().unwrap());
+    let keys = SessionCrypto::new(w.devs[0].access.clone()).unwrap();
     let install = w.devs[0].s().install_id();
     let mut snapshots = 0;
     for p in &a_files {
@@ -388,13 +409,14 @@ fn own_conflicted_head_with_higher_counter_is_identity_duplicated() {
     // A verified checkpoint of this install with a counter this device never
     // reached, filed as a conflict copy: another profile writes under the
     // same install ID.
+    let own_install = w.devs[0].s().install_id();
     let forged = Checkpoint {
-        device_id: w.devs[0].s().install_id(),
+        device_id: own_install,
         counter: counter + 5,
         issued_at_ms: 1,
         entries: Vec::new(),
     }
-    .encode(w.devs[0].s())
+    .encode(&*w.devs[0].s())
     .unwrap();
     let dir = device_dir(&w, 0, 0);
     fs::write(dir.join("head (conflicted copy).mck"), forged).unwrap();
@@ -405,7 +427,8 @@ fn own_conflicted_head_with_higher_counter_is_identity_duplicated() {
         w.try_sync(0).unwrap_err(),
         SyncError::IdentityDuplicated
     ));
-    w.devs[0].engine.clear_halt();
+    let dev = &mut w.devs[0];
+    dev.engine.clear_halt(&mut dev.access).unwrap();
     fs::remove_file(dir.join("head (conflicted copy).mck")).unwrap();
     assert!(w.try_sync(0).is_ok());
 }
@@ -459,15 +482,15 @@ fn other_account_dirs_untouched() {
         LockedSession::open(Store::open(dir_b.path().join("b.db")).unwrap())
             .create_account(&pw(PASSWORD), Argon2Profile::Baseline)
             .unwrap();
-    let mut transport_b = open_transport(&session_b, &w.replica(0), &w.clock, "other");
-    let boot = session_b.account_bootstrap().unwrap();
+    let access_b = LocalSession::new(session_b);
+    let mut transport_b = open_transport(&access_b, &w.replica(0), &w.clock, "other");
+    let boot = access_b.session().unwrap().account_bootstrap().unwrap();
     transport_b
         .write_account_file(&boot.params, &boot.wrapped_ak, 1)
         .unwrap();
-    let other = w
-        .replica(0)
-        .join("a")
-        .join(dir_name(session_b.account_id().as_bytes()));
+    let other = w.replica(0).join("a").join(dir_name(
+        access_b.session().unwrap().account_id().as_bytes(),
+    ));
     let before = tree(&other);
     assert!(!before.is_empty());
 
@@ -500,16 +523,16 @@ fn non_empty_foreign_folder_refused() {
     assert_eq!(fs::read_dir(other.path()).unwrap().count(), 1);
 
     // Opening a transport on either refuses too.
-    let mut w = World::new(15, 1);
-    let session = w.devs[0].access.take().unwrap();
-    let keys = session.sync_keys().unwrap();
-    let account = keys.account_id;
-    let install = keys.install_id;
+    let w = World::new(15, 1);
+    let access = w.devs[0].access.clone();
+    let crypto = SessionCrypto::new(access.clone()).unwrap();
+    let account = crypto.account_id();
+    let install = mosaic_sync::SyncCrypto::install_id(&crypto);
     let opened = folder::FolderTransport::open(folder::FolderConfig {
         root: dir.path().to_owned(),
         account_id: account,
         install_id: install,
-        crypto: KeyedCrypto::from_keys(keys),
+        crypto,
         clock: std::sync::Arc::new(w.clock.clone()),
         device: mosaic_sync::wire::device_info::DeviceInfo {
             created_at_ms: 0,
@@ -520,7 +543,7 @@ fn non_empty_foreign_folder_refused() {
     assert!(matches!(opened, Err(TransportError::FolderUnavailable)));
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     // A cursor with garbage is a protocol error, not a panic.
-    let mut t = open_transport(&session, &w.replica(0), &w.clock, "x");
+    let mut t = open_transport(&access, &w.replica(0), &w.clock, "x");
     let bad = t.pull(VaultId::new_v7().unwrap(), &Cursor(vec![9, 9, 9]), 10);
     assert!(matches!(bad, Err(TransportError::Protocol)));
 }

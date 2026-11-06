@@ -8,7 +8,7 @@ use mosaic_core::{KeyGeneration, VaultId};
 use mosaic_vault::session::{ApplyOutcome, Error, RemoteRecord, UnlockedSession, VaultProtection};
 
 use super::consts::PULL_LIMIT;
-use super::{KeyBook, SessionAccess, SyncEngine, SyncError, SyncReport};
+use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::transport::{
     Cursor, PullPage, PulledKey, PulledMeta, PulledRecord, Transport, TransportKind,
 };
@@ -83,16 +83,17 @@ fn is_deferral(e: &Error) -> bool {
 }
 
 /// Counts an object that did not open; it is expected (not warned) while a
-/// concurrent rotation of its generation is being resolved.
+/// concurrent rotation of its generation is being resolved (the store holds
+/// a key other than the held one for that generation).
 fn count_undecryptable(
-    keys: &KeyBook,
+    s: &UnlockedSession,
     report: &mut SyncReport,
     stats: &mut RunStats,
     vault: VaultId,
     generation: KeyGeneration,
 ) {
     report.undecryptable += 1;
-    if !keys.conflicts.contains_key(&(vault, generation)) {
+    if !s.has_key_conflict(vault, generation).unwrap_or(false) {
         stats.unexplained += 1;
     }
 }
@@ -101,29 +102,22 @@ fn apply_key(
     s: &mut UnlockedSession,
     vault: VaultId,
     key: &PulledKey,
-    keys: &mut KeyBook,
     report: &mut SyncReport,
 ) -> Result<(), Error> {
     match s.apply_remote_vault_key(vault, key.generation, &key.wrapped) {
         Ok(()) => {
             // This install's own log repeats keys that others generated
-            // (a snapshot): never attributed to this install.
+            // (a snapshot): never attributed to this install. The store
+            // keeps the lowest device seen for the bytes.
             if key.device_id != s.install_id() {
-                keys.delivered
-                    .entry((vault, key.generation))
-                    .and_modify(|d| *d = (*d).min(key.device_id))
-                    .or_insert(key.device_id);
+                s.note_key_observation(vault, key.generation, &key.wrapped, key.device_id)?;
             }
             note_changed(report, vault);
         }
         Err(Error::VaultKeyConflict { .. }) => {
-            let list = keys.conflicts.entry((vault, key.generation)).or_default();
-            if !list
-                .iter()
-                .any(|(_, w)| w.as_bytes() == key.wrapped.as_bytes())
-            {
-                list.push((key.device_id, key.wrapped.clone()));
-            }
+            // Persisted: a run that fails after this, or a lock before the
+            // next run, must not forget the conflict.
+            s.note_key_observation(vault, key.generation, &key.wrapped, key.device_id)?;
         }
         Err(Error::KeyGenerationRollback { .. }) => {
             // This install's own older keys come back through its own log.
@@ -143,7 +137,6 @@ fn apply_record(
     s: &mut UnlockedSession,
     vault: VaultId,
     record: &PulledRecord,
-    keys: &KeyBook,
     report: &mut SyncReport,
     stats: &mut RunStats,
 ) -> Result<Applied, Error> {
@@ -173,7 +166,7 @@ fn apply_record(
             Ok(Applied::Done)
         }
         Err(e) if is_undecryptable(&e) => {
-            count_undecryptable(keys, report, stats, vault, record.body.key_generation());
+            count_undecryptable(s, report, stats, vault, record.body.key_generation());
             Ok(Applied::Done)
         }
         Err(e) => Err(e),
@@ -184,7 +177,6 @@ fn apply_meta(
     s: &mut UnlockedSession,
     vault: VaultId,
     meta: &PulledMeta,
-    keys: &KeyBook,
     report: &mut SyncReport,
     stats: &mut RunStats,
 ) -> Result<Applied, Error> {
@@ -209,7 +201,7 @@ fn apply_meta(
             Ok(Applied::Done)
         }
         Err(e) if is_undecryptable(&e) => {
-            count_undecryptable(keys, report, stats, vault, meta.ciphertext.key_generation());
+            count_undecryptable(s, report, stats, vault, meta.ciphertext.key_generation());
             Ok(Applied::Done)
         }
         Err(e) => Err(e),
@@ -261,7 +253,6 @@ fn advance_commit(
 }
 
 struct PageEnv<'a> {
-    keys: &'a mut KeyBook,
     report: &'a mut SyncReport,
     stats: &'a mut RunStats,
     kind: TransportKind,
@@ -283,11 +274,11 @@ fn apply_page(
         ))
     });
     for key in sorted {
-        apply_key(s, vault, key, env.keys, env.report)?;
+        apply_key(s, vault, key, env.report)?;
     }
     let mut meta_deferred = false;
     for meta in &page.metas {
-        match apply_meta(s, vault, meta, env.keys, env.report, env.stats)? {
+        match apply_meta(s, vault, meta, env.report, env.stats)? {
             Applied::Done => {}
             Applied::Deferred => {
                 vp.deferred_metas.push(meta.clone());
@@ -297,7 +288,7 @@ fn apply_page(
     }
     let mut deferred = Vec::new();
     for (i, record) in page.records.iter().enumerate() {
-        match apply_record(s, vault, record, env.keys, env.report, env.stats)? {
+        match apply_record(s, vault, record, env.report, env.stats)? {
             Applied::Done => {}
             Applied::Deferred => {
                 vp.deferred_records.push(record.clone());
@@ -322,13 +313,12 @@ fn retry_deferred(
     env: &mut PageEnv<'_>,
 ) -> Result<bool, Error> {
     for meta in core::mem::take(&mut vp.deferred_metas) {
-        if let Applied::Deferred = apply_meta(s, vault, &meta, env.keys, env.report, env.stats)? {
+        if let Applied::Deferred = apply_meta(s, vault, &meta, env.report, env.stats)? {
             vp.deferred_metas.push(meta);
         }
     }
     for record in core::mem::take(&mut vp.deferred_records) {
-        if let Applied::Deferred = apply_record(s, vault, &record, env.keys, env.report, env.stats)?
-        {
+        if let Applied::Deferred = apply_record(s, vault, &record, env.report, env.stats)? {
             vp.deferred_records.push(record);
         }
     }
@@ -390,7 +380,6 @@ impl<T: Transport> SyncEngine<T> {
         loop {
             let page = self.transport.pull(vault, &pull_cursor, PULL_LIMIT)?;
             let mut env = PageEnv {
-                keys: &mut self.keys,
                 report,
                 stats,
                 kind,
@@ -404,7 +393,6 @@ impl<T: Transport> SyncEngine<T> {
         }
         if !vp.deferred_records.is_empty() || !vp.deferred_metas.is_empty() {
             let mut env = PageEnv {
-                keys: &mut self.keys,
                 report,
                 stats,
                 kind,

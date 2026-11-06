@@ -6,18 +6,20 @@
 //! process a failure is remembered for the file's length and modification
 //! time, so a broken file is not re-read on every page.
 
+use std::collections::BTreeMap;
+
 use mosaic_core::{InstallId, KeyGeneration, VaultId};
 use mosaic_vault::storage::RecordBody;
 
 use super::fsutil::{self, Entry};
-use super::{FolderTransport, Outcome, ScanEntry};
+use super::{FolderCrypto, FolderTransport, Outcome, ScanEntry};
 use crate::transport::{
     Cursor, PullPage, PullUnit, PulledKey, PulledMeta, PulledRecord, RemoteVault, TransportError,
 };
-use crate::wire::SyncCrypto;
+use crate::wire::WireError;
 use crate::wire::cursor::{DeviceCursor, FolderCursor, MAX_ABOVE};
 use crate::wire::folder_names::{self, FolderName};
-use crate::wire::segment::{MAX_SEGMENT_LEN, Segment, SegmentObject, SegmentPath};
+use crate::wire::segment::{MAX_SEGMENT_LEN, Segment, SegmentObject, SegmentPath, SnapshotInfo};
 
 /// A segment file as a directory listing shows it.
 #[derive(Clone, Copy, Debug)]
@@ -76,7 +78,7 @@ fn dir_ids(entries: &[Entry]) -> Vec<[u8; 16]> {
         .collect()
 }
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+impl<C: FolderCrypto> FolderTransport<C> {
     /// The vault directories.
     pub(crate) fn vault_ids(&self) -> Result<Vec<VaultId>, TransportError> {
         let entries = fsutil::list(&self.layout.vaults_dir())?;
@@ -130,42 +132,51 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
     }
 
     /// Reads, verifies and parses one segment; `None` if it does not
-    /// verify or parse (to be retried). The outcome is cached.
+    /// verify or parse (to be retried). The outcome is cached, except while
+    /// the session is locked: then nothing can be concluded about the file.
+    ///
+    /// # Errors
+    /// [`TransportError::Locked`].
     pub(crate) fn read_segment(
         &mut self,
         vault: VaultId,
         device: InstallId,
         file: &SegmentFile,
-    ) -> Option<Segment> {
+    ) -> Result<Option<Segment>, TransportError> {
         let key = (vault, device, file.seq);
         if let Some(entry) = self.scan.get(&key)
             && entry.len == file.len
             && entry.modified == file.modified
             && matches!(entry.outcome, Outcome::Bad)
         {
-            return None;
+            return Ok(None);
         }
         let path = self
             .layout
             .log_dir(&vault, &device)
             .join(folder_names::segment_name(file.seq));
         let segment = match fsutil::read_capped(&path, MAX_SEGMENT_LEN as u64) {
-            Ok(Some(bytes)) => Segment::decode(
-                &bytes,
-                &SegmentPath {
-                    account_id: self.account,
-                    vault_id: vault,
-                    device_id: device,
-                    seq: file.seq,
-                },
-                &self.crypto,
-            )
-            .ok(),
+            Ok(Some(bytes)) => {
+                let decoded = Segment::decode(
+                    &bytes,
+                    &SegmentPath {
+                        account_id: self.account,
+                        vault_id: vault,
+                        device_id: device,
+                        seq: file.seq,
+                    },
+                    &self.crypto,
+                );
+                match decoded {
+                    Err(WireError::Locked) => return Err(TransportError::Locked),
+                    other => other.ok(),
+                }
+            }
             // Too long for a segment: bad content, remembered below.
             Err(TransportError::Protocol) => None,
-            // Gone, or locked by the sync client for the moment: not
-            // remembered, so the next sync tries again.
-            Ok(None) | Err(_) => return None,
+            // Gone, not a regular file, or locked by the sync client for the
+            // moment: not remembered, so the next sync tries again.
+            Ok(None) | Err(_) => return Ok(None),
         };
         let outcome = segment.as_ref().map_or(Outcome::Bad, |s| {
             let mut max_generation: Option<KeyGeneration> = None;
@@ -183,26 +194,30 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
             }
         });
         self.remember(key, file, outcome);
-        segment
+        Ok(segment)
     }
 
     /// The outcome of a segment file, from the cache when it is current.
+    ///
+    /// # Errors
+    /// [`TransportError::Locked`].
     pub(crate) fn probe(
         &mut self,
         vault: VaultId,
         device: InstallId,
         file: &SegmentFile,
-    ) -> Outcome {
+    ) -> Result<Outcome, TransportError> {
         if let Some(entry) = self.scan.get(&(vault, device, file.seq))
             && entry.len == file.len
             && entry.modified == file.modified
         {
-            return entry.outcome;
+            return Ok(entry.outcome);
         }
-        let _ = self.read_segment(vault, device, file);
-        self.scan
+        let _ = self.read_segment(vault, device, file)?;
+        Ok(self
+            .scan
             .get(&(vault, device, file.seq))
-            .map_or(Outcome::Bad, |e| e.outcome)
+            .map_or(Outcome::Bad, |e| e.outcome))
     }
 
     /// What the verified segments of a vault say. Stops reading as soon as
@@ -220,7 +235,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
                     max_generation,
                     has_key,
                     ..
-                } = self.probe(vault, device, &file)
+                } = self.probe(vault, device, &file)?
                 {
                     summary.verified = true;
                     summary.has_key |= has_key;
@@ -273,7 +288,8 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         };
         let mut objects = 0usize;
         'devices: for device in self.log_devices(&vault)? {
-            for file in self.segment_files(&vault, &device)? {
+            let files = self.segment_files(&vault, &device)?;
+            for file in &files {
                 if cur.device(&device).is_some_and(|d| d.has_read(file.seq)) {
                     continue;
                 }
@@ -281,12 +297,10 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
                     page.more = true;
                     break 'devices;
                 }
-                let Some(segment) = self.read_segment(vault, device, &file) else {
+                let Some(segment) = self.read_segment(vault, device, file)? else {
                     continue;
                 };
-                if !self.mark_segment_read(vault, device, &segment, &mut cur)? {
-                    continue;
-                }
+                self.mark_segment_read(vault, device, &segment, &files, &mut cur)?;
                 let first_record = page.records.len();
                 if device == self.install {
                     // This install's own log comes back for its vault keys
@@ -314,27 +328,65 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         Ok(page)
     }
 
-    /// Marks a verified segment read (and, when it completes a snapshot set,
-    /// every older segment of the device). `false` if the segment is refused.
+    /// Marks a verified segment read and, when it belongs to a snapshot set
+    /// whose parts are all on disk and verified, every older segment of the
+    /// device too (the numbers below the set's first part). The completeness is read from the folder each time a part
+    /// arrives, never from memory: the cursor commits only through the units
+    /// the engine applied, so a set that completes in a unit that is
+    /// deferred, or across a relock, completes the next time it is read.
     fn mark_segment_read(
         &mut self,
         vault: VaultId,
         device: InstallId,
         segment: &Segment,
+        files: &[SegmentFile],
         cur: &mut FolderCursor,
-    ) -> Result<bool, TransportError> {
-        let tracker = self.trackers.entry((vault, device)).or_default();
-        let Ok(complete) = tracker.add(segment) else {
-            // A part that contradicts the set it names: refused, retried.
-            self.scan.remove(&(vault, device, segment.seq));
-            return Ok(false);
+    ) -> Result<(), TransportError> {
+        let through = match segment.snapshot {
+            // The gaps below the set are closed: the set holds the writer's
+            // whole state. The parts themselves are read one by one (each is
+            // applied before its number is marked), never marked in advance.
+            Some(info) if self.snapshot_set_complete(vault, device, info, files)? => {
+                Some(info.base.saturating_sub(1))
+            }
+            _ => None,
         };
         let d = cur
             .device_mut(device)
             .map_err(|_| TransportError::Protocol)?;
         d.mark_read(segment.seq);
-        if let Some(last) = complete {
+        if let Some(last) = through {
             mark_read_through(d, last);
+        }
+        Ok(())
+    }
+
+    /// Whether every part `base ..= base + parts - 1` of the set is a listed
+    /// file that verifies and names this very set. Sets that overlap or
+    /// disagree cannot both be complete, because a sequence number is one
+    /// file.
+    fn snapshot_set_complete(
+        &mut self,
+        vault: VaultId,
+        device: InstallId,
+        info: SnapshotInfo,
+        files: &[SegmentFile],
+    ) -> Result<bool, TransportError> {
+        let by_seq: BTreeMap<u64, &SegmentFile> = files.iter().map(|f| (f.seq, f)).collect();
+        for offset in 0..u64::from(info.parts) {
+            let Some(seq) = info.base.checked_add(offset) else {
+                return Ok(false);
+            };
+            let Some(file) = by_seq.get(&seq) else {
+                return Ok(false);
+            };
+            match self.probe(vault, device, file)? {
+                Outcome::Good {
+                    snapshot: Some(found),
+                    ..
+                } if found == info => {}
+                _ => return Ok(false),
+            }
         }
         Ok(true)
     }

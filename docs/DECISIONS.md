@@ -3395,11 +3395,12 @@ Rules added while implementing the engine; none changes a byte format.
 - The transport trait gained `PullPage::metas` (a folder page can hold one metadata object per
   segment; the engine merges them), `checkpoint_high_seq` (the folder answers with the highest own
   segment sequence) and `maintain` (compaction, cleanup and blob purge, with the session answered
-  through `MaintainContext`). The folder transport gets its keys from `UnlockedSession::sync_keys`
-  and is dropped when the session locks.
-- An engine whose own checkpoint on the backend is below its counter counts one strike per counter
-  value and halts on the second (`RollbackDetected`); a verified checkpoint of its own install above
-  its counter halts at once (`IdentityDuplicated`). Both stay halted until `clear_halt`.
+  through `MaintainContext`). (Amended 2026-11-06: the folder transport holds no key; it derives them per operation from a shared
+  session handle, see the ADR-0045 amendment.)
+- An engine whose own checkpoint on the backend is below its last published counter counts one strike
+  per counter value and halts on the second (`RollbackDetected`); a verified checkpoint of its own
+  install above its counter halts at once (`IdentityDuplicated`). Both stay halted, across locks and
+  restarts, until `clear_halt` (the halt is stored; amended 2026-11-06).
 
 ## ADR-0044: Server stack and deployment
 
@@ -3462,6 +3463,44 @@ around rotations, delete races) without a trusted server and over a backend with
 ### Consequences
 Closes M2-R1, R2, R10, R11, R16 and M3-R25 (server part); mitigates M2-R7, R12 and R13 in hosted mode;
 leaves R55 for folder mode.
+
+### Amendment, 2026-11-06 (M6 T2 review: ADR-0043 and ADR-0045)
+The crypto review and the sync-chaos pass of M6 T2 changed these rules; CRYPTO_SPEC sections 4, 10, 10.1,
+11 and 12.1 carry the text.
+1. **Derived keys do not leave the session.** `UnlockedSession::sync_keys` and `SyncKeys` are removed.
+   The folder transport holds `SessionCrypto<H>` over a shared session handle (`SessionHandle`; the
+   desktop's `Arc<Mutex<Option<UnlockedSession>>>` implements it): `K_cp`, `K_fold` and `K_dev` are
+   derived per operation inside the session and gone on lock, and a locked session makes every operation
+   fail closed (`WireError::Locked`, `TransportError::Locked`, `SyncError::Locked`). `KeyedCrypto` is
+   test-only again (`test-util`). The engine still never holds the session across a transport call.
+2. **Persisted engine state** (store schema v4, additive): own sequence numbers, halt, strikes, last
+   published counter, peer checkpoints, lag timers, keys seen per generation, marker first-seen times. A
+   halt ends only through `clear_sync_halt` (a user action); a rollback or a lock cannot reset a strike
+   or a timer. Alternative rejected: keeping them in the engine and requiring the app to never rebuild
+   it, which an attacker who can make the app restart defeats.
+3. **Own sequence numbers (ADR-0043).** `reserved` is stored before a segment is written and `written`
+   after; numbering goes above the verified disk state and `reserved`; a log whose highest file is below
+   `written` is a rollback and halts the run before it writes (the compaction floor of the first draft
+   is not needed: a device never deletes its newest segment). Alternative rejected: checking that every
+   number up to `written` exists, which a planted name or a skipped number would turn into a false halt.
+4. **Planted names** in the own log are stepped past (16 attempts), never counted for the numbering or
+   the checkpoint, and removed after 24 hours.
+5. **Snapshot sets** complete from the folder state each time a part arrives, not from memory; a failed
+   set's range is reserved so the next set starts after it. The parts of a set are never marked read in
+   advance (only the numbers below `snap_base`).
+6. **Blobs** are authenticated with the item's file key before they are stored; a holder may overwrite a
+   blob that fails authentication (the one exception to write-once, via temp file and rename); purge
+   ages from the first-seen time of the marker on this device's clock and waits for no lag, no open key
+   conflict and no unexplained object.
+7. **Canonical winner** ranks every key, held or candidate, by the lowest device that wrote exactly its
+   bytes; the observations are stored.
+8. **Checkpoints**: strikes compare the seen own counter with the last published counter (one strike per
+   value, persisted); the highest verified checkpoint per other device is kept and a lower one is never
+   accepted; a checkpoint entry of a vault without a cursor counts as lag (unless deleted locally).
+9. **Hostile folder files**: symlinks and non-regular files are never read, reads are capped, at most 32
+   checkpoint candidates per device directory, the device list needs a verified file, and a join tries
+   account files in order (at most 8) until one unlocks and verifies.
+10. A lost or stolen device keeps `AK` and can forge folder objects until a re-key (M7); THREAT_MODEL R57.
 
 ## ADR-0046: Network and OPAQUE dependencies
 

@@ -16,8 +16,8 @@ use mosaic_sync::wire::folder_names::{blob_delete_name, blob_name, dir_name, seg
 use mosaic_sync::wire::segment::{Segment, SegmentObject};
 
 use super::util::{
-    DAY_MS, Faulty, HOUR_MS, add_login, password_of, relock, segment_needle, seq_of, set_password,
-    shows, warns_missing,
+    DAY_MS, Faulty, HOUR_MS, add_login, max_seq, password_of, relock, segment_needle, seq_of,
+    set_password, shows, warns_missing,
 };
 use crate::common::{World, account_dir, device_dir, is_idle, log_dir, open_transport, segments};
 
@@ -43,13 +43,13 @@ fn install(w: &World, d: usize) -> InstallId {
 // ---------------------------------------------------------------------------
 
 /// The provider rolls back A's log directory (a restore of an older folder
-/// state, or anyone with write access deleting A's newest segments). After a
-/// relock A numbers its next segments from what is on disk again, reusing
-/// sequence numbers the readers already marked read: they skip A's new
-/// edits for good, and A's checkpoint (`high_seq` at or below their
-/// `contiguous`) shows nothing missing.
+/// state, or anyone with write access deleting A's newest segments). A
+/// persisted its sequence numbers before it wrote them, so after a relock it
+/// notices that segments it wrote are gone and halts before it pushes
+/// anything or rewrites its checkpoint. Once the user acknowledges, it
+/// numbers its next segments above everything it ever used: the readers
+/// that marked the lost numbers read still get A's new edits.
 #[test]
-#[ignore = "M6-T2 chaos finding 1: a rolled-back device log makes the writer reuse sequence numbers readers marked read; its new edits are silently skipped"]
 fn rolled_back_device_log_reuses_sequence_numbers() {
     let (mut w, vault, item) = three_devices(301);
     for i in 0..4 {
@@ -62,6 +62,7 @@ fn rolled_back_device_log_reuses_sequence_numbers() {
     }
     // A's three newest segments vanish from the folder.
     let dir = log_dir(&w, 0, 0, vault);
+    let top = max_seq(&dir);
     let segs = segments(&dir);
     for p in &segs[segs.len() - 3..] {
         fs::remove_file(p).unwrap();
@@ -69,7 +70,33 @@ fn rolled_back_device_log_reuses_sequence_numbers() {
     w.cloud.settle().unwrap();
     relock(&mut w, 0);
     set_password(&mut w, 0, vault, item, "after the rollback");
+    let head_before = fs::read(device_dir(&w, 0, 0).join("head.mck")).unwrap();
+    let r = w.try_sync(0);
+    assert!(matches!(r, Err(SyncError::RollbackDetected)), "{r:?}");
+    assert!(max_seq(&dir) < top, "nothing was written");
+    assert_eq!(
+        fs::read(device_dir(&w, 0, 0).join("head.mck")).unwrap(),
+        head_before,
+        "the checkpoint was not rewritten"
+    );
+    // The halt survives a relock.
+    relock(&mut w, 0);
+    let r = w.try_sync(0);
+    assert!(matches!(r, Err(SyncError::RollbackDetected)), "{r:?}");
+    // The user acknowledges.
+    {
+        let dev = &mut w.devs[0];
+        assert!(dev.engine.halted(&mut dev.access).unwrap().is_some());
+        dev.engine.clear_halt(&mut dev.access).unwrap();
+    }
     w.sync(0);
+    assert!(
+        segments(&dir)
+            .iter()
+            .all(|p| seq_of(p) <= top - 3 || seq_of(p) > top),
+        "no sequence number of the lost segments was used again"
+    );
+    assert!(max_seq(&dir) > top);
     w.converge(1);
     w.advance(25 * HOUR_MS);
     let reports = w.sync_all();
@@ -89,12 +116,11 @@ fn rolled_back_device_log_reuses_sequence_numbers() {
 /// its counter for the second time and halts with `RollbackDetected`,
 /// although nothing was rolled back.
 #[test]
-#[ignore = "M6-T2 chaos finding 2: two failed checkpoint writes in a row halt sync with a false RollbackDetected"]
 fn two_failed_checkpoint_writes_are_not_a_rollback() {
     let (mut w, vault, item) = three_devices(302);
     let mut engine = SyncEngine::with_jitter(
         Faulty::new(open_transport(
-            w.devs[0].s(),
+            &w.devs[0].access,
             &w.replica(0),
             &w.clock,
             "device 0",
@@ -124,14 +150,13 @@ fn two_failed_checkpoint_writes_are_not_a_rollback() {
 /// withholding A's segment. The older checkpoint replaces the newer one, the
 /// lag is forgotten and the grace never runs out.
 #[test]
-#[ignore = "M6-T2 chaos finding 3: a replayed older checkpoint of another device resets freeze detection"]
 fn replayed_old_checkpoint_does_not_reset_freeze_detection() {
     let (mut w, vault, item) = three_devices(303);
     let a = install(&w, 0);
     let old_head = fs::read(device_dir(&w, 1, 0).join("head.mck")).unwrap();
     let mut engine = SyncEngine::with_jitter(
         MaliciousTransport::new(open_transport(
-            w.devs[1].s(),
+            &w.devs[1].access,
             &w.replica(1),
             &w.clock,
             "device 1",
@@ -171,7 +196,6 @@ fn replayed_old_checkpoint_does_not_reset_freeze_detection() {
 /// device that relocks (or restarts) more often than the 24-hour grace never
 /// reports files that stay missing.
 #[test]
-#[ignore = "M6-T2 chaos finding 4: lag timers live in memory; relocking within the grace hides missing files forever"]
 fn missing_files_are_reported_across_relocks() {
     let (mut w, vault, item) = three_devices(304);
     let a = install(&w, 0);
@@ -198,7 +222,6 @@ fn missing_files_are_reported_across_relocks() {
 /// B. A's checkpoint lists the vault, but B only compares entries of vaults
 /// it already holds, so nothing is ever reported.
 #[test]
-#[ignore = "M6-T2 chaos finding 5: a withheld new vault is never reported (checkpoint entries of unknown vaults are skipped)"]
 fn withheld_new_vault_is_reported() {
     let (mut w, _vault, _item) = three_devices(305);
     let a = install(&w, 0);
@@ -231,7 +254,6 @@ fn withheld_new_vault_is_reported() {
 /// without a warning (the run that saw it failed; the others count the
 /// loser's records as an expected conflict).
 #[test]
-#[ignore = "M6-T2 chaos finding 6: a key conflict learned in a failed run is forgotten on relock; the loser keeps its key and records stay unreadable"]
 fn key_conflict_survives_a_failed_run_and_relock() {
     let (mut w, vault, item) = three_devices(306);
     let other = add_login(&mut w, 0, vault, "second");
@@ -251,7 +273,7 @@ fn key_conflict_survives_a_failed_run_and_relock() {
     // winner's key, and the rotation it starts fails (call 2).
     let mut engine = SyncEngine::with_jitter(
         Faulty::new(open_transport(
-            w.devs[loser].s(),
+            &w.devs[loser].access,
             &w.replica(loser),
             &w.clock,
             "loser",
@@ -299,7 +321,6 @@ fn key_conflict_survives_a_failed_run_and_relock() {
 /// fails with `Io` from then on, and A cannot write again until a human
 /// removes the file (A never removes unverifiable files from its own log).
 #[test]
-#[ignore = "M6-T2 chaos finding 10: a junk file named ffffffffffffffff.mseg in a device's own log stops it from writing for good (no key needed)"]
 fn junk_file_at_the_top_of_the_sequence_range_does_not_stop_the_writer() {
     let (mut w, vault, item) = three_devices(319);
     let dir = log_dir(&w, 1, 0, vault);
@@ -366,17 +387,22 @@ fn conflict_copies_of_head_confuse_nobody() {
         "own conflict copies removed"
     );
     // The reader in replica 2 takes the newest checkpoint: A is not behind.
-    let mut t = open_transport(w.devs[2].s(), &w.replica(2), &w.clock, "probe");
+    let mut t = open_transport(&w.devs[2].access, &w.replica(2), &w.clock, "probe");
     let newest_counter = t
         .checkpoints()
         .unwrap()
         .into_iter()
         .filter(|(d, _)| *d == a)
-        .filter_map(|(d, b)| Checkpoint::decode(&b, d, w.devs[2].s()).ok())
+        .filter_map(|(d, b)| Checkpoint::decode(&b, d, &*w.devs[2].s()).ok())
         .map(|c| c.counter)
         .max()
         .unwrap();
-    assert!(newest_counter > Checkpoint::decode(&old, a, w.devs[2].s()).unwrap().counter);
+    assert!(
+        newest_counter
+            > Checkpoint::decode(&old, a, &*w.devs[2].s())
+                .unwrap()
+                .counter
+    );
     w.advance(25 * HOUR_MS);
     for r in w.sync_all() {
         assert!(r.warnings.is_empty(), "{r:?}");
@@ -558,7 +584,7 @@ fn backdated_valid_marker_cannot_purge_a_referenced_blob() {
     fs::write(
         bdir.join(blob_delete_name(id.as_bytes(), fake.as_bytes())),
         // The holder's session MACs with the real folder key.
-        marker.encode(w.devs[0].s()).unwrap(),
+        marker.encode(&*w.devs[0].s()).unwrap(),
     )
     .unwrap();
     for _ in 0..2 {
@@ -586,7 +612,7 @@ fn crash_between_push_and_commit_duplicates_harmlessly() {
     let (mut w, vault, item) = three_devices(316);
     let mut engine = SyncEngine::with_jitter(
         Faulty::new(open_transport(
-            w.devs[0].s(),
+            &w.devs[0].access,
             &w.replica(0),
             &w.clock,
             "device 0",
@@ -660,7 +686,7 @@ fn old_head_of_another_device_without_withheld_data_is_quiet() {
     let old_head = fs::read(device_dir(&w, 1, 0).join("head.mck")).unwrap();
     let mut engine = SyncEngine::with_jitter(
         MaliciousTransport::new(open_transport(
-            w.devs[1].s(),
+            &w.devs[1].access,
             &w.replica(1),
             &w.clock,
             "device 1",

@@ -3,7 +3,7 @@
 
 use mosaic_core::{AttachmentId, VaultId};
 use mosaic_vault::session::{Error, UnlockedSession};
-use mosaic_vault::storage::RecordBody;
+use mosaic_vault::storage::{MarkerStamp, RecordBody};
 
 use super::{SessionAccess, SyncEngine, SyncError};
 use crate::transport::{MaintainContext, Transport, TransportError};
@@ -73,7 +73,7 @@ impl<A: SessionAccess> Cx<'_, A> {
             }
             Err(e) => {
                 self.failure = Some(e);
-                Err(TransportError::Io)
+                Err(TransportError::Locked)
             }
         }
     }
@@ -99,20 +99,31 @@ impl<A: SessionAccess> MaintainContext for Cx<'_, A> {
     fn caught_up(&self) -> bool {
         self.caught_up
     }
+
+    fn marker_first_seen(
+        &mut self,
+        vault: VaultId,
+        markers: &[MarkerStamp],
+        now: u64,
+    ) -> Result<Vec<u64>, TransportError> {
+        self.step(|s| s.marker_first_seen(vault, markers, now))
+    }
 }
 
 impl<T: Transport> SyncEngine<T> {
     /// Lets the transport compact and clean up. Purging waits until no
-    /// device is behind.
+    /// device is behind (`caught_up`), no key conflict is open and nothing
+    /// was undecryptable for no known reason.
     pub(super) fn maintain(
         &mut self,
         access: &mut impl SessionAccess,
         now: u64,
+        caught_up: bool,
     ) -> Result<(), SyncError> {
         let mut cx = Cx {
             access,
             now,
-            caught_up: self.lag.is_empty(),
+            caught_up,
             failure: None,
         };
         let result = self.transport.maintain(&mut cx);

@@ -47,41 +47,51 @@ impl<T: Transport> SyncEngine<T> {
     /// After a pull: if another key of the current generation conflicted
     /// with the held one and the held one is not the canonical winner (the
     /// lowest `(device, wrapped bytes)`), rotates to the next generation.
+    ///
+    /// The conflicts are read from the store, where the pull noted every key
+    /// it saw for a generation with the lowest device that wrote exactly
+    /// those bytes: a conflict learned in a run that failed afterwards, or
+    /// before a lock, is resolved by the next run. Every key is ranked by the
+    /// lowest device seen for its bytes, the held one too (this install for
+    /// a key it generated, or a lower device that carried the same bytes),
+    /// so two devices with the same view agree on the winner.
     pub(super) fn resolve_key_conflict(
         &mut self,
         access: &mut impl SessionAccess,
         vault: VaultId,
     ) -> Result<(), SyncError> {
-        let Some(generation) = access.with(|s| {
-            s.vaults()
+        let loses = access.with(|s| -> Result<bool, Error> {
+            let Some(generation) = s
+                .vaults()
                 .into_iter()
                 .find(|v| v.vault_id == vault)
                 .map(|v| v.key_generation)
-        })?
-        else {
-            return Ok(());
-        };
-        let Some(candidates) = self.keys.conflicts.get(&(vault, generation)).cloned() else {
-            return Ok(());
-        };
-        let held = access.with(|s| held_key(s, vault, generation))??;
-        let Some((origin, wrapped, install)) = held else {
-            return Ok(());
-        };
-        let device = match origin {
-            KeyOrigin::Local => install,
-            KeyOrigin::Remote => self
-                .keys
-                .delivered
-                .get(&(vault, generation))
-                .copied()
-                // Unknown: assume the worst, so the device rotates (safe).
-                .unwrap_or(InstallId::from_bytes([0xff; 16]).unwrap_or(install)),
-        };
-        let held_rank = (*device.as_bytes(), wrapped.as_bytes().to_vec());
-        let loses = candidates
-            .iter()
-            .any(|(d, w)| (*d.as_bytes(), w.as_bytes().to_vec()) < held_rank);
+            else {
+                return Ok(false);
+            };
+            s.prune_key_observations(vault)?;
+            let seen = s.key_observations(vault, generation)?;
+            let Some((origin, held, install)) = held_key(s, vault, generation)? else {
+                return Ok(false);
+            };
+            let observed = seen
+                .iter()
+                .find(|(_, w)| w.as_bytes() == held.as_bytes())
+                .map(|(d, _)| *d);
+            let device = match (origin, observed) {
+                (KeyOrigin::Local, Some(d)) => d.min(install),
+                (KeyOrigin::Local, None) => install,
+                (KeyOrigin::Remote, Some(d)) => d,
+                // Unknown writer: assume the worst, so the device rotates
+                // (safe: a rotation loses nothing).
+                (KeyOrigin::Remote, None) => InstallId::from_bytes([0xff; 16]).unwrap_or(install),
+            };
+            let held_rank = (*device.as_bytes(), held.as_bytes().to_vec());
+            Ok(seen.iter().any(|(d, w)| {
+                w.as_bytes() != held.as_bytes()
+                    && (*d.as_bytes(), w.as_bytes().to_vec()) < held_rank
+            }))
+        })??;
         if loses {
             self.rotate_inner(access, vault)?;
         }

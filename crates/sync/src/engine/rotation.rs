@@ -2,7 +2,7 @@
 //! offered to the backend first and the rotation is committed locally only
 //! when the backend accepted it.
 
-use mosaic_core::VaultId;
+use mosaic_core::{KeyGeneration, VaultId};
 use mosaic_vault::session::{Error, PreparedRotation};
 
 use super::pull::RunStats;
@@ -27,6 +27,7 @@ impl<T: Transport> SyncEngine<T> {
         vault: VaultId,
     ) -> Result<RotationOutcome, SyncError> {
         let _ = clock;
+        self.check_own_logs(access)?;
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
         self.pull_vault(access, vault, &mut report, &mut stats)?;
@@ -43,11 +44,24 @@ impl<T: Transport> SyncEngine<T> {
         let install = access.with(|s| s.install_id())?;
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
+        let start = Self::current_generation(access, vault)?;
         let mut prepared: Option<PreparedRotation> = None;
+        let mut last_error = None;
         for _ in 0..ROTATION_ATTEMPTS {
             let p = match prepared.take() {
                 Some(p) => p,
-                None => access.with(|s| s.prepare_vault_rotation(vault))??,
+                None => match access.with(|s| s.prepare_vault_rotation(vault)) {
+                    Ok(Ok(p)) => p,
+                    // The session locked, or relocked, between two steps:
+                    // prepare again.
+                    Ok(Err(Error::PreparedStale)) => continue,
+                    Err(SyncError::Locked) => {
+                        last_error = Some(SyncError::Locked);
+                        continue;
+                    }
+                    Ok(Err(e)) => return Err(e.into()),
+                    Err(e) => return Err(e),
+                },
             };
             let generation = p.generation();
             let wrapped = p.wrapped().clone();
@@ -63,7 +77,18 @@ impl<T: Transport> SyncEngine<T> {
                 Some(&head),
             )? {
                 KeyPushResult::Accepted { .. } => {
-                    return self.commit_rotation(access, vault, p, &mut report, &mut stats);
+                    // `None`: the prepared key went stale (the session relocked
+                    // after the backend took it). The key is in this
+                    // install's own log; pulling it took it, and if it did
+                    // not arrive yet the next attempt prepares anew.
+                    if let Some(outcome) =
+                        self.commit_rotation(access, vault, p, &mut report, &mut stats)?
+                    {
+                        return Ok(outcome);
+                    }
+                    if Self::current_generation(access, vault)? > start {
+                        return Self::current_outcome(access, vault);
+                    }
                 }
                 KeyPushResult::GenerationTaken { .. } => {
                     drop(p);
@@ -78,11 +103,28 @@ impl<T: Transport> SyncEngine<T> {
                 }
             }
         }
-        Err(SyncError::Transport(
+        Err(last_error.unwrap_or(SyncError::Transport(
             crate::transport::TransportError::Protocol,
-        ))
+        )))
     }
 
+    fn current_generation(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+    ) -> Result<KeyGeneration, SyncError> {
+        access
+            .with(|s| {
+                s.vaults()
+                    .into_iter()
+                    .find(|v| v.vault_id == vault)
+                    .map(|v| v.key_generation)
+            })?
+            .ok_or(SyncError::Session(Error::UnknownVault))
+    }
+
+    /// Commits the prepared rotation. `Ok(None)` if it went stale (the
+    /// session relocked since it was prepared); the pull that follows takes
+    /// the key the backend already holds.
     fn commit_rotation(
         &mut self,
         access: &mut impl SessionAccess,
@@ -90,17 +132,21 @@ impl<T: Transport> SyncEngine<T> {
         p: PreparedRotation,
         report: &mut SyncReport,
         stats: &mut RunStats,
-    ) -> Result<RotationOutcome, SyncError> {
+    ) -> Result<Option<RotationOutcome>, SyncError> {
         match access.with(|s| s.commit_vault_rotation(p))? {
             Ok(generation) => {
                 self.push_phase(access, report, stats, Some(vault))?;
-                Ok(RotationOutcome::Rotated(generation))
+                Ok(Some(RotationOutcome::Rotated(generation)))
             }
             Err(Error::KeyGenerationRollback { .. }) => {
                 // The vault accepted that generation or a later one while
                 // the key was on its way: take what is there.
                 self.pull_vault(access, vault, report, stats)?;
-                Self::current_outcome(access, vault)
+                Self::current_outcome(access, vault).map(Some)
+            }
+            Err(Error::PreparedStale) => {
+                self.pull_vault(access, vault, report, stats)?;
+                Ok(None)
             }
             Err(e) => Err(e.into()),
         }

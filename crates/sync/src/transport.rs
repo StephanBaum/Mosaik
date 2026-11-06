@@ -252,6 +252,11 @@ pub enum TransportError {
     /// A local or network I/O failure.
     #[error("I/O error")]
     Io,
+    /// The session is locked, so the transport has no keys (the folder
+    /// transport derives them per operation from the session). The engine
+    /// reports it as `SyncError::Locked`.
+    #[error("session locked")]
+    Locked,
 }
 
 /// What a transport may ask the engine for while it maintains its storage
@@ -276,9 +281,26 @@ pub trait MaintainContext {
     /// [`TransportError::Io`] if the session is locked.
     fn attachment_referenced(&mut self, id: AttachmentId) -> Result<bool, TransportError>;
 
-    /// Whether this sync run saw no other device behind or missing files.
-    /// Purging data other devices might still need waits for it.
+    /// Whether this sync run saw no other device behind or missing files, no
+    /// unresolved key conflict and no object it could not explain. Purging
+    /// data other devices might still need waits for it.
     fn caught_up(&self) -> bool;
+
+    /// When this device first saw each delete marker of `vault`, by its own
+    /// clock, in the order of `markers`; a marker seen for the first time (or
+    /// with another stamp) is first seen `now`. Markers not listed are
+    /// forgotten. A marker's age counts from this time, never from the
+    /// wall-clock time inside the marker, which anyone with the account key
+    /// (or a device with a skewed clock) could set.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked or the store fails.
+    fn marker_first_seen(
+        &mut self,
+        vault: VaultId,
+        markers: &[mosaic_vault::storage::MarkerStamp],
+        now: u64,
+    ) -> Result<Vec<u64>, TransportError>;
 }
 
 /// A sync backend. See the [module documentation](self).
@@ -366,6 +388,22 @@ pub trait Transport: Send {
         ciphertext: &[u8],
     ) -> Result<(), TransportError>;
 
+    /// Replaces an attachment ciphertext that does not authenticate with the
+    /// holder's authentic local copy. The default is [`Transport::put_attachment`];
+    /// the folder (blobs are write-once) overwrites through a temp file and a
+    /// rename, the one exception to the write-once rule (CRYPTO_SPEC §10.1).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        self.put_attachment(vault, id, ciphertext)
+    }
+
     /// Downloads an attachment ciphertext, `None` if the backend has none.
     ///
     /// # Errors
@@ -445,6 +483,18 @@ pub trait Transport: Send {
             Err(_) if cursor.0.is_empty() => Ok(0),
             Err(_) => Err(TransportError::Protocol),
         }
+    }
+
+    /// Whether this install's own log of any of `vaults` lost segments it
+    /// wrote (a folder that was rolled back or had files deleted): `true`
+    /// means so. The engine then halts before it pushes anything. The default
+    /// (hosted) is `false`.
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {
+        let _ = vaults;
+        Ok(false)
     }
 
     /// Housekeeping after a sync run: the folder compacts its own log and

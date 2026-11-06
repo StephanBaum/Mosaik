@@ -108,6 +108,9 @@ Interoperability only (these read or serve third-party formats and never protect
 | `W_hw` (§7.4) | 256 bit | never stored | until `TK` is wrapped or unwrapped |
 | Hardware-vault key `TK` | 256 bit | wrapped per security key (§7.4) | while the hardware-protected vault is open, at most 5 minutes |
 | Settings MAC key `K_settings` (§11.1) | 256 bit | never stored | while unlocked |
+| Checkpoint MAC key `K_cp` (§10) | 256 bit | never stored | derived per operation inside the session; gone on lock |
+| Folder MAC key `K_fold` (§10.1) | 256 bit | never stored | derived per operation inside the session; gone on lock |
+| Device-info key `K_dev` (§10.1) | 256 bit | never stored | derived per operation inside the session; gone on lock |
 | Passkey private key (§16) | 256-bit scalar in PKCS#8 | item plaintext (encrypted under the item key, §7.2) | an `Es256Key` lives for one create or sign, then drops (zeroize on drop) |
 | Browser pairing key `K_pair` (§15) | 256 bit | the desktop's `browser-pairings.json` and the extension's IndexedDB; in host and desktop memory while used | while a browser is paired, until it is disconnected |
 | Browser channel auth key `K_auth` (§15) | 256 bit | never stored | during the handshake |
@@ -681,10 +684,25 @@ therefore cannot lock the user out.
     in the MAC input.
   - Own-counter rules: a verified checkpoint for the device's own
     `InstallId` with a counter above its stored counter means the install
-    identity is duplicated (a copied profile writing under this ID); the
-    newest own checkpoint below the local counter on two consecutive syncs
-    means the backend was rolled back (one lost upload is tolerated). Both
-    stop automatic sync until the user acts.
+    identity is duplicated (a copied profile writing under this ID). A
+    device persists the counter before it sends a checkpoint, and records a
+    counter as published only once the backend accepted it. The newest own
+    checkpoint below the last published counter is a strike, counted once
+    per published counter; the second strike means the backend was rolled
+    back (one lost upload is tolerated, and a failed upload is no strike:
+    the published counter did not move). Both rules stop automatic sync
+    until the user acts. The halt, the strike count and the time of the
+    first strike are stored (§11), so a lock, a restart or a new engine
+    neither ends a halt nor resets a strike; only the user's explicit
+    acknowledgement (`clear_sync_halt`) does.
+  - Other devices' checkpoints: a device keeps, per other device, the
+    verified checkpoint with the highest counter, with its entries (§11),
+    and never accepts a lower counter: a replayed older `head.mck` neither
+    replaces the newer one nor ends a lag. A checkpoint entry for a vault
+    this device has no cursor for counts as lag when its `high_seq` is above
+    0, unless this device deleted that vault itself or keeps it local
+    (hardware-protected): a withheld new vault is reported like any
+    withheld file. The time a device has lagged in a vault is stored (§11).
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
 - **Conflict model** (ADR-0009, encoding §7.5). Every field is a
   multi-value register; the merge of two replicas is a pure join
@@ -846,41 +864,111 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   `<attachment>.<device>.mdel` marker); blobs are write-once. A sync
   client's conflict copy can therefore only appear for `head.mck`,
   `info.mdev` and the two fixed top-level files, and readers accept only
-  strictly canonical names. A device removes only its own marker; a blob is
-  purged when a marker is older than the retention period, no live local
-  item refers to it, and the purging device's last sync run saw no other
-  device behind (a stale device must not purge what others still use). A
-  holder re-asserts a blob that a marker or a deletion put at risk: it
-  removes its own marker for every item reference it still has and uploads
-  its local copy again if the blob is gone.
+  strictly canonical names. A device removes only its own marker.
+  - **Purge.** A blob is purged when this device first saw its newest marker
+    more than the retention period (30 days) ago, no live local item refers
+    to it, and the purging device's last sync run saw no other device
+    behind, no unresolved key conflict and no object it could not explain
+    (a stale device must not purge what others still use, and a record that
+    cannot be read yet may refer to the blob). The age counts from the time
+    this device first saw the marker, by its own clock, never from the time
+    inside the marker: that time is whatever the writer's clock said, and a
+    clock running ahead would purge a just-deleted blob that a concurrent
+    edit restores. The first-seen time is stored per marker (§11) and starts
+    again when a marker of that device changes.
+  - **Re-assert and heal.** A holder re-asserts a blob that a marker or a
+    deletion put at risk: it removes its own marker for every item reference
+    it still has and uploads its local copy again if the blob is gone. A
+    holder also checks the blob against its own copy: a blob whose size
+    differs, or one of the same size it has not checked since it started, is
+    opened chunk by chunk with the file key of the item that refers to it
+    (§7.3), within the download budget of a run. A blob that does not
+    authenticate (anyone with write access can plant a file of valid layout)
+    is replaced by the holder's authentic copy through a temp file and a
+    rename: the one exception to the write-once rule, allowed only to a
+    holder with a copy that authenticates.
+  - **Fetch.** A device that downloads a blob opens every chunk with the file
+    key of the referencing item before it stores the file. A file that does
+    not authenticate is not stored: the attachment stays missing and the run
+    reports it.
 - **Canonical key winner.** Folder mode has no compare-and-swap, so when
   several devices rotate to one generation the winner is the lowest
   `(device_id, wrapped key bytes)`; a device that holds a different key for
-  that generation rotates again. The `device_id` of a key is the device
-  that wrote the segment carrying it (the lowest one if several carry the
-  same wrapped key); a device attributes a key it received to the writer,
-  never to itself, and a holder whose key came from an unknown writer
-  assumes the worst and rotates (safe: a rotation loses nothing).
+  that generation rotates again. The `device_id` of a key is the lowest
+  device that wrote a segment carrying exactly those wrapped bytes, and
+  every key is ranked that way, the held one and every candidate alike: for
+  a key this device generated that includes itself, and for a key it
+  received it never includes itself (a snapshot of this device's own log
+  repeats keys others generated). A holder whose key came from an unknown
+  writer assumes the worst and rotates (safe: a rotation loses nothing).
+  The keys seen per generation, with their lowest writer, are stored (§11):
+  a conflict learned in a run that failed afterwards, or before a lock, is
+  resolved by the next run. A rotation prepared before the session locked
+  is refused at its commit (the session tag); the engine drops it, takes
+  the key the backend already holds from the device's own log if it
+  was accepted, and otherwise prepares again.
 - **Own log.** A reader reads its own log too, for vault-key objects only:
   a rotation whose key was written but not committed before a crash is
   otherwise never learned. Its records and metadata are this device's own
   and are skipped.
+- **Own sequence numbers.** A device persists, per vault (§11), the highest
+  sequence number it may have used (`reserved`, stored before the segment is
+  written) and the highest it wrote successfully (`written`, stored after).
+  The next segment is numbered above the highest own segment on disk that
+  verifies, above `reserved` and above what the run wrote, so a folder that
+  was rolled back never makes a device reuse a number its readers already
+  marked read, and a failed snapshot set leaves the next set after its whole
+  range (`snap_base .. snap_base + snap_parts - 1` is reserved before the
+  first part is written). Files in the own log that do not verify (junk
+  anyone with write access plants, even `ffffffffffffffff.mseg`) never count
+  as segments: a name that is taken is stepped past, at most 16 times, and
+  the housekeeping then compacts the vault so the hole closes; unverifiable
+  files and directories on segment names older than 24 hours are removed
+  from the own log.
+- **Own log rollback.** Before a run writes anything, it checks every synced
+  vault: if the highest segment file in the own log is below `written`, the
+  newest segments this device wrote are gone (a restored older folder, or
+  deletions), and the run stops with a rollback halt before any push or
+  checkpoint write. A file listed at or above `written` counts as present,
+  even if it does not verify at the moment (the sync client may not have
+  delivered it whole). After the user acknowledges the halt, `written`
+  starts again at 0 and `reserved` stays: no number is ever reused.
+- **Hostile files.** Readers never follow a symlink or open a file that is not
+  a regular file; a file is read through a cap of its maximum length plus
+  one byte; at most 32 checkpoint candidates (`head.mck` first, then the
+  newest by modification time) are read per device directory; the device
+  list names only devices with a verified `head.mck` or `info.mdev`; a
+  device deletes a conflict copy of its own `head.mck` only if the same run
+  read it, and its own account files of a lower version once a verified file
+  of a higher version exists from any device.
+- **Joining.** The account files are tried in order (highest version, lowest
+  device, at most 8) until one unlocks and its MAC verifies. A file whose
+  wrapped key does not open is skipped; one that opens but fails its MAC is
+  remembered and skipped; the join reports `FolderDamaged` if any candidate
+  failed its MAC after unlocking and `WrongCredentials` only if none
+  unlocked. The highest account version counts only files whose MAC
+  verifies.
 - **Lag.** For another device's checkpoint entry `(vault, g, high_seq)` the
   folder reader counts the device as behind when `high_seq` is above the
   `contiguous` mark of that device in the vault's cursor. Behind for longer
-  than 24 hours is reported as missing files.
+  than 24 hours is reported as missing files. The time since which a device
+  is behind in a vault is stored (§11), so locking or restarting the app
+  does not restart the 24 hours.
 - Snapshots (segments with the snapshot flag) carry the writer's whole
   readable state and let a device compact its own log. A snapshot may span
   several parts (`snap_parts`, at most 65536), each a segment of its own
   with contiguous sequence numbers `snap_base ..= snap_base + snap_parts - 1`.
   A writer deletes old segments only after every part is written. A reader
-  applies the records of every verified part at once, like any segment. It
-  marks every sequence number of that device up to `snap_base + snap_parts - 1`
-  as read only when all `snap_parts` parts of one set are verified and
-  parsed; a set is identified by `(device, snap_base, snap_parts)` and every
-  part must carry the same values (a part that disagrees with a part seen
-  before, or whose range overlaps another set's, is refused). An incomplete
-  set marks only the sequence numbers of its own verified parts as read.
+  applies the records of every verified part, like any segment, and marks
+  the part's own number read once its unit is applied. When a verified part
+  arrives it looks at the folder: if every sequence number
+  `snap_base ..= snap_base + snap_parts - 1` is a listed file that verifies
+  and names the same `(snap_base, snap_parts)`, the set is complete, and
+  every number below `snap_base` is marked read (the set holds the writer's
+  whole state). Completeness is read from the folder each time, never kept
+  in memory, so it survives a lock, a deferred unit and a restart; sets that
+  overlap or disagree cannot both be complete, because a number is one file.
+  An incomplete set marks only the numbers of its own verified parts.
 
 ### 10.2 Hosted write rules
 
@@ -908,6 +996,18 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 - The sync configuration (server URL, email, folder path, device name), the
   per-install `InstallId`, sync cursors and the checkpoint counter are
   cleartext local metadata. None of it is derived from item plaintext.
+- The persisted state of the sync engine (schema v4) is cleartext local
+  sync metadata of the same kind: the own sequence numbers per vault
+  (`reserved`, `written`); the halt (rollback or identity duplicated), the
+  last published checkpoint counter and the checkpoint strikes (count, time
+  of the first, the counter it was counted at); the newest verified
+  checkpoint of every other device with its entries (vault ID, generation,
+  `high_seq`); the lag timers per (device, vault); the wrapped vault keys
+  seen per generation with the lowest device that wrote them (ciphertext
+  and IDs); and the time this device first saw each blob delete marker. All
+  are IDs, counters, times and ciphertext; nothing is derived from item
+  plaintext, and none holds a key. A change of backend clears them all but
+  the halt; the checkpoint counter only grows.
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -1001,7 +1101,7 @@ Quick-unlock wrappings (§6.2) never leave the device.
 | per-object lengths and object counts per segment and snapshot | `.mseg` |
 | segment `created_at_ms`, the snapshot flag and the snapshot part fields (`snap_base`, `snap_parts`) | `.mseg` header (MAC'd, not secret) |
 | blob delete markers: `deleted_at_ms` and the deleting device | `.mdel` (the file name and the MAC'd body) |
-| which device generated each wrapped vault key | the writing device's directory (`log/<device>/`) holds the key object |
+| which device wrote each wrapped vault key (the devices whose directory `log/<device>/` holds a key object with exactly those bytes; a device that repeats a key in a snapshot shows as a writer of it too) | the writing device's directory holds the key object |
 | size of `info.mdev`: constant (573 bytes), so the length of a device name is not visible | `.mdev` (padded plaintext, §10.1) |
 | file creation and modification times | edit timing |
 

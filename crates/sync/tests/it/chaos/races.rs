@@ -49,7 +49,6 @@ fn readable_somewhere(w: &World, vault: VaultId, item: ItemId, id: AttachmentId)
 /// (A device that held the file is safe: it writes its own marker with its
 /// own clock when it drops the file, and the newest marker counts.)
 #[test]
-#[ignore = "M6-T2 chaos finding 9: blob purge trusts the marker's wall-clock time; a device clock 31 days ahead purges a just-deleted blob a concurrent edit restores"]
 fn clock_ahead_does_not_purge_a_blob_a_concurrent_edit_restores() {
     purge_race(31 * DAY_MS);
 }
@@ -245,10 +244,8 @@ fn three_device_partition_warns_then_heals() {
             "device {d}: {:?}",
             w.devs[d].last.warnings
         );
-        assert_eq!(
-            w.devs[d].s().items(&everything()).len(),
-            w.devs[0].s().items(&everything()).len()
-        );
+        let items0 = w.devs[0].s().items(&everything()).len();
+        assert_eq!(w.devs[d].s().items(&everything()).len(), items0);
     }
 }
 

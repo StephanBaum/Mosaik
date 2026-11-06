@@ -130,9 +130,24 @@ offline use and queues its key); `checkpoint_mac` / `verify_checkpoint_mac`,
 (`Error::UnknownAttachmentReference` unless an item of the vault refers to
 the attachment), `pending_attachment_uploads`, `mark_attachment_uploaded`,
 `pending_attachment_deletions`, `mark_attachment_deletion_sent`;
-`sync_keys` (`SyncKeys`: the checkpoint, folder and device-info keys with the
-account and install IDs, for a transport that has no session; redacted
-`Debug`, no `Clone`; the owner drops the transport when the session locks);
+`remote_attachment_authentic` (whether downloaded bytes open under the file
+key of the item that refers to them) and `attachment_ciphertext_len`;
+`store_remote_attachment` now opens every chunk first (`Error::Core` for
+bytes that do not authenticate); `LockedSession::verify_join_folder_mac` (a
+candidate account file's MAC, checked before the join commits to it).
+The persisted engine state (store schema v4, CRYPTO_SPEC §11; `reset_sync_state`
+clears it except the halt): `own_seq` / `reserve_own_seq` / `confirm_own_seq`
+(per vault, `OwnSeq { reserved, written }`), `sync_engine_state`
+(`EngineState`: halt, last published counter, strikes), `set_sync_halt` and
+`clear_sync_halt` (the user's acknowledgement; for the desktop's T5 action),
+`set_last_published_counter`, `set_checkpoint_strikes`, `peer_checkpoints` /
+`put_peer_checkpoint` (a lower counter is never stored), `sync_lag` /
+`set_sync_lag`, `note_key_observation` / `key_observations` /
+`has_key_conflict` / `has_any_unresolved_key_conflict` /
+`prune_key_observations`, `marker_first_seen`, `vault_deleted_locally`,
+`all_vault_ids`. There is no accessor that hands out a derived key
+(`sync_keys` / `SyncKeys` of the first T2 draft are removed): the MACs and
+seals above are computed inside the session, one operation at a time.
 `account_bootstrap` (`AccountBootstrap`); `opaque_password` (`UnlockFailed`
 unless the derived `KEK` opens the stored wrapping);
 `prepare_master_password_change` → `PreparedPasswordChange` and
@@ -160,7 +175,7 @@ step with the vault in the same sync event.
 
 `Store::{open, open_in_memory, close, schema_version, integrity_check,
 attachment_dir}` and `LATEST_VERSION` (the schema version this build
-writes) are stable for every consumer (apps open the store and hand it to
+writes; 4 since the M6 T2 review: the engine state tables) are stable for every consumer (apps open the store and hand it to
 `LockedSession::open`). `Store::open` holds an exclusive lock on the store
 until it is dropped or closed; a second open fails with
 `storage::Error::StoreInUse` (added in the second M2 integration review,
@@ -443,8 +458,10 @@ a passkey already in the vault is skipped (`CommitReport::skipped`). `mosaic-ori
 is length-bounded, verifies its MAC in constant time before it parses and
 rejects trailing bytes, unknown versions, nil IDs and IDs that differ from
 the path (CRYPTO_SPEC §10.1, ADR-0043). `SyncCrypto` is the keyed side
-(`UnlockedSession` implements it; `KeyedCrypto` behind `test-util` is for
-tests and fuzzing), so the crate never holds `AK`. Items: `segment`
+(`UnlockedSession` implements it; `SessionCrypto<H: SessionHandle>` is the
+production provider for a transport, deriving every key per operation from a
+shared session handle; `KeyedCrypto` behind `test-util` is for tests and
+fuzzing), so the crate never holds `AK` or a key derived from it. Items: `segment`
 (`Segment`, `SegmentObject`, `SegmentPath`), `checkpoint` (`Checkpoint`,
 `CheckpointEntry`; `decode(bytes, expected_device, crypto)` refuses a body
 that names another device than the one it is filed under, `decode_unverified`
@@ -470,16 +487,29 @@ transport come with the server and client tracks, ADR-0046).
 `EngineConfig::for_kind`, `SyncReport`, `SyncWarning`, `SyncError`,
 `RotationOutcome`, `Jitter` / `SystemJitter`, `Backoff`, `consts`.
 `clock::{Clock, SystemClock}`.
-`folder::{FolderTransport<C: SyncCrypto + Send>, FolderConfig, init, inspect,
+`folder::{FolderTransport<C: FolderCrypto>, FolderConfig, init, inspect,
 list_accounts, FolderContents, FolderError, current_account_file,
-join_from_folder, JoinError, JoinFailure}`; `FolderTransport::write_account_file`
-and `highest_account_version` for the first publication and a password change.
-`wire::KeyedCrypto` is no longer test-only (`from_keys(SyncKeys)`; `new(ak, ..)`
-stays behind `test-util`). Transport trait changes: `PullPage::metas`
-(a `Vec`), `checkpoint_high_seq`, `maintain(&mut dyn MaintainContext)`.
-Feature `test-util`: `testutil::{CloudSim, SimConfig, ChaosTransport,
-ChaosConfig, MaliciousTransport, ManualClock, FixedJitter, SimRng,
-LocalSession}`. The server (T3) follows.
+join_from_folder, JoinError, JoinFailure}`; `FolderTransport::write_account_file`,
+`highest_account_version` (verified files only) and `next_account_version` for
+the first publication and a password change. `FolderCrypto` is
+`SyncCrypto + OwnLogState + Send` (blanket impl): `wire::SessionCrypto<H>`
+implements both traits over a `wire::SessionHandle` (`with_session` /
+`with_session_mut`; implemented for `Mutex<Option<UnlockedSession>>` and
+`Arc` of a handle, which is the desktop's shape). A locked handle makes every
+operation fail closed: `WireError::Locked`, `TransportError::Locked`,
+`SyncError::Locked`. `wire::KeyedCrypto` is test-only again (`new(ak, ..)`
+behind `test-util`, in-memory own-log state). Transport trait changes:
+`PullPage::metas` (a `Vec`), `checkpoint_high_seq`, `maintain(&mut dyn
+MaintainContext)` (which gained `marker_first_seen`), `replace_attachment`
+(default `put_attachment`; the folder overwrites a blob that fails
+authentication) and `own_logs_rolled_back(&[VaultId])` (default `false`).
+Engine: `halted(&mut access)` and `clear_halt(&mut access)` read and clear
+the persisted halt; `SyncReport` gained `attachments_rejected` and
+`attachments_healed`. Feature `test-util`: `testutil::{CloudSim, SimConfig,
+ChaosTransport, ChaosConfig, MaliciousTransport, ManualClock, FixedJitter,
+SimRng, LocalSession, SessionRef, SessionMut}` (`LocalSession` is a shared,
+clonable handle: the transport gets a clone as its `SessionHandle`). The
+server (T3) follows.
 
 ## Expected additions (pre-approved as additive)
 

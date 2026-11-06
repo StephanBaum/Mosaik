@@ -22,7 +22,7 @@ use mosaic_sync::testutil::{FixedJitter, MaliciousTransport};
 use mosaic_sync::transport::TransportKind;
 use mosaic_sync::wire::folder_names::segment_name;
 use mosaic_sync::wire::segment::{Segment, SegmentObject, SegmentPath};
-use mosaic_sync::wire::{KeyedCrypto, WireError};
+use mosaic_sync::wire::{KeyedCrypto, SessionCrypto, SyncCrypto, WireError};
 
 use crate::common::{World, account_dir, device_dir, is_idle, log_dir, open_transport, segments};
 
@@ -52,11 +52,10 @@ fn password_of(w: &World, d: usize, vault: VaultId, item: ItemId) -> String {
 
 /// What an item shows: its title and password.
 fn fingerprint(w: &World, d: usize, vault: VaultId, item: ItemId) -> (String, String) {
-    let it = w.devs[d].s().item(vault, item).unwrap();
-    (
-        it.title().unwrap_or_default().to_owned(),
-        password_of(w, d, vault, item),
-    )
+    let password = password_of(w, d, vault, item);
+    let session = w.devs[d].s();
+    let it = session.item(vault, item).unwrap();
+    (it.title().unwrap_or_default().to_owned(), password)
 }
 
 /// Two devices at rest sharing one vault with one item.
@@ -85,13 +84,14 @@ fn forged_segment(
     writer: usize,
     seq: u64,
     objects: Vec<SegmentObject>,
-    crypto: &KeyedCrypto,
+    crypto: &impl SyncCrypto,
 ) -> Vec<u8> {
+    let device_id = w.devs[writer].s().install_id();
     Segment {
         snapshot: None,
         account_id: w.account,
         vault_id: vault,
-        device_id: w.devs[writer].s().install_id(),
+        device_id,
         seq,
         created_at_ms: 1,
         objects,
@@ -156,14 +156,15 @@ fn segment_copied_to_other_device_dir_rejected() {
     fs::write(b_dir.join(&name), &bytes).unwrap();
 
     // The file says it is A's, filed under B's directory: refused.
-    let keys = KeyedCrypto::from_keys(w.devs[1].s().sync_keys().unwrap());
+    let keys = SessionCrypto::new(w.devs[1].access.clone()).unwrap();
+    let b_install = w.devs[1].s().install_id();
     let seq = u64::from_str_radix(name.to_string_lossy().trim_end_matches(".mseg"), 16).unwrap();
     let decoded = Segment::decode(
         &bytes,
         &SegmentPath {
             account_id: w.account,
             vault_id: vault,
-            device_id: w.devs[1].s().install_id(),
+            device_id: b_install,
             seq,
         },
         &keys,
@@ -248,7 +249,7 @@ fn swapped_record_between_vaults_fails_auth() {
         mosaic_vault::storage::RecordBody::Item(c) => c,
         mosaic_vault::storage::RecordBody::Tombstone(_) => panic!("an item"),
     };
-    let crypto = KeyedCrypto::from_keys(w.devs[0].s().sync_keys().unwrap());
+    let crypto = SessionCrypto::new(w.devs[0].access.clone()).unwrap();
     let dir_b = log_dir(&w, 1, 0, vault_b);
     let seq_b = next_seq(&dir_b);
     fs::write(
@@ -306,7 +307,7 @@ fn withheld_device_log_freeze_after_grace() {
     // checkpoints keep arriving.
     let mut engine = SyncEngine::with_jitter(
         MaliciousTransport::new(open_transport(
-            w.devs[1].s(),
+            &w.devs[1].access,
             &w.replica(1),
             &w.clock,
             "device 1",
@@ -400,7 +401,7 @@ fn forged_tombstone_rejected() {
     )
     .unwrap();
     // And a MAC-valid one with a key the vault does not use.
-    let insider = KeyedCrypto::from_keys(w.devs[0].s().sync_keys().unwrap());
+    let insider = SessionCrypto::new(w.devs[0].access.clone()).unwrap();
     let seq2 = seq + 1;
     fs::write(
         dir.join(segment_name(seq2)),

@@ -29,6 +29,9 @@ pub struct SystemJitter;
 impl Jitter for SystemJitter {
     fn permille(&mut self) -> u32 {
         let mut b = [0u8; 2];
+        // The fallback is acceptable: the jitter only spreads retries out, it
+        // is not secret and protects nothing. A failing random source gives
+        // the plain delay instead of an error.
         if getrandom::fill(&mut b).is_err() {
             return 1000;
         }

@@ -17,7 +17,7 @@ use mosaic_sync::transport::{
     RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError, TransportKind,
     VaultCreateResult,
 };
-use mosaic_sync::wire::KeyedCrypto;
+use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::folder_names::dir_name;
 use mosaic_sync::wire::segment::{Segment, SegmentPath, SnapshotInfo};
 
@@ -125,7 +125,7 @@ pub fn relock(w: &mut World, d: usize) {
 /// A relock with a device clock of its own.
 pub fn relock_with_clock(w: &mut World, d: usize, clock: &ManualClock) {
     let replica = w.replica(d);
-    let engine = make_engine(w.devs[d].s(), &replica, clock, &format!("device {d}"));
+    let engine = make_engine(&w.devs[d].access, &replica, clock, &format!("device {d}"));
     w.devs[d].engine = engine;
 }
 
@@ -175,7 +175,7 @@ pub fn snapshot_parts(
     writer: usize,
     vault: VaultId,
 ) -> Vec<(u64, SnapshotInfo, Vec<ItemId>)> {
-    let keys = KeyedCrypto::from_keys(w.devs[writer].s().sync_keys().unwrap());
+    let keys = SessionCrypto::new(w.devs[writer].access.clone()).unwrap();
     let install = w.devs[writer].s().install_id();
     let mut out = Vec::new();
     for p in segments(&crate::common::log_dir(w, replica, writer, vault)) {
@@ -215,8 +215,11 @@ pub fn max_seq(dir: &Path) -> u64 {
 }
 
 /// Which calls of a [`Faulty`] transport fail.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Faults {
+    /// Runs after a `push_vault_key` call took effect (a relock of the
+    /// session between the backend's answer and the local commit).
+    pub after_key_push: Option<Box<dyn FnMut() + Send>>,
     /// The next this many `put_checkpoint` calls fail with `Io` (nothing
     /// written).
     pub fail_put_checkpoint: u32,
@@ -309,8 +312,13 @@ impl<T: Transport> Transport for Faulty<T> {
         if self.faults.fail_push_key_call == Some(self.faults.push_key_calls) {
             return Err(TransportError::Io);
         }
-        self.inner
-            .push_vault_key(vault, generation, wrapped, device, expected_head)
+        let result = self
+            .inner
+            .push_vault_key(vault, generation, wrapped, device, expected_head);
+        if let Some(hook) = self.faults.after_key_push.as_mut() {
+            hook();
+        }
+        result
     }
 
     fn put_attachment(
@@ -320,6 +328,19 @@ impl<T: Transport> Transport for Faulty<T> {
         ciphertext: &[u8],
     ) -> Result<(), TransportError> {
         self.inner.put_attachment(vault, id, ciphertext)
+    }
+
+    fn replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        self.inner.replace_attachment(vault, id, ciphertext)
+    }
+
+    fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {
+        self.inner.own_logs_rolled_back(vaults)
     }
 
     fn get_attachment(

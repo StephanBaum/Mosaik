@@ -57,7 +57,8 @@ fn set_password(w: &mut World, d: usize, vault: VaultId, item: ItemId, value: &s
 }
 
 fn has_password(w: &World, d: usize, vault: VaultId, item: ItemId, value: &str) -> bool {
-    let it = w.devs[d].s().item(vault, item).unwrap();
+    let session = w.devs[d].s();
+    let it = session.item(vault, item).unwrap();
     it.secret(SecretField::Password)
         .unwrap()
         .is_some_and(|s| s.expose_secret() == value)
@@ -76,11 +77,11 @@ fn winner_and_loser(w: &World, a: usize, b: usize) -> (usize, usize) {
 }
 
 fn all_agree(w: &World, vault: VaultId) {
-    let reference = w.devs[0].s();
-    let keys0 = reference.store().vault_keys(&vault).unwrap();
+    let keys0 = w.devs[0].s().store().vault_keys(&vault).unwrap();
+    let items0 = w.devs[0].s().items(&everything()).len();
     for d in 1..w.devs.len() {
-        let s = w.devs[d].s();
         assert_eq!(generation(w, d, vault), generation(w, 0, vault));
+        let s = w.devs[d].s();
         // The key of the current generation is the same bytes everywhere.
         let current = |keys: &[(KeyGeneration, mosaic_core::WrappedKey)]| {
             keys.iter()
@@ -92,10 +93,7 @@ fn all_agree(w: &World, vault: VaultId) {
             current(&keys0),
             "device {d} holds another current key"
         );
-        assert_eq!(
-            s.items(&everything()).len(),
-            reference.items(&everything()).len()
-        );
+        assert_eq!(s.items(&everything()).len(), items0);
     }
 }
 
@@ -215,16 +213,18 @@ fn third_device_holding_loser_key_rotates() {
     // Device 2 held the losing key: it rotated.
     let g_now = generation(&w, 2, vault);
     assert!(g_now.get() >= 3, "device 2 moved on: {g_now:?}");
-    let rotated_here = w.devs[2]
-        .s()
-        .store()
-        .vault_keys(&vault)
-        .unwrap()
-        .iter()
-        .any(|(g, _)| {
-            g.get() >= 3
-                && w.devs[2].s().vault_key_origin(vault, *g).unwrap() == Some(KeyOrigin::Local)
-        });
+    let rotated_here = {
+        let session = w.devs[2].s();
+        session
+            .store()
+            .vault_keys(&vault)
+            .unwrap()
+            .iter()
+            .any(|(g, _)| {
+                g.get() >= 3
+                    && session.vault_key_origin(vault, *g).unwrap() == Some(KeyOrigin::Local)
+            })
+    };
     assert!(rotated_here, "device 2 generated a key of its own");
 
     set_password(&mut w, 2, vault, items[2], "edit by 2 after");

@@ -16,11 +16,11 @@ use crate::common::{World, log_dir, segments};
 
 /// More records than one segment holds (256 objects), so a snapshot of the
 /// vault needs two parts.
-const BIG: usize = 260;
+pub(super) const BIG: usize = 260;
 
 /// Two devices at rest sharing a vault of `BIG` items; returns the items in
 /// creation order.
-fn big_vault(seed: u64) -> (World, VaultId, Vec<ItemId>) {
+pub(super) fn big_vault(seed: u64) -> (World, VaultId, Vec<ItemId>) {
     let mut w = World::new(seed, 2);
     let vault = w.new_vault(0, "Big");
     let items: Vec<ItemId> = (0..BIG)
@@ -35,7 +35,7 @@ fn big_vault(seed: u64) -> (World, VaultId, Vec<ItemId>) {
 
 /// Device 0 edits `item` and syncs until its log holds a snapshot set;
 /// returns the last value written.
-fn edit_until_compacted(w: &mut World, vault: VaultId, item: ItemId) -> String {
+pub(super) fn edit_until_compacted(w: &mut World, vault: VaultId, item: ItemId) -> String {
     for i in 0..90 {
         let value = format!("edit {i}");
         set_password(w, 0, vault, item, &value);
@@ -48,7 +48,7 @@ fn edit_until_compacted(w: &mut World, vault: VaultId, item: ItemId) -> String {
 }
 
 /// Runs `rounds` rounds of a calm cloud (holds count down per round).
-fn rounds(w: &mut World, n: usize) {
+pub(super) fn rounds(w: &mut World, n: usize) {
     w.cloud.set_config(SimConfig::CALM);
     for _ in 0..n {
         w.cloud.round().unwrap();
@@ -67,7 +67,6 @@ fn snapshot_parts_across_two_syncs_close_the_gap() {
 /// set never completes, the deleted older segments stay a gap in the cursor
 /// and B reports A's files missing although it holds everything.
 #[test]
-#[ignore = "M6-T2 chaos finding 7: snapshot parts read before and after a relock never complete the set; false MissingFiles until the next compaction"]
 fn snapshot_parts_across_a_relock_close_the_gap() {
     snapshot_parts_in_two_pieces(402, true);
 }
@@ -129,7 +128,6 @@ fn snapshot_parts_in_two_pieces(seed: u64, relock_between: bool) {
 /// carries (A deleted the segment that had it) never arrives, and A's files
 /// are reported missing.
 #[test]
-#[ignore = "M6-T2 chaos finding 8: a snapshot retried after a failed part overlaps the failed set; readers refuse it until relock"]
 fn snapshot_retried_after_a_failed_part_is_accepted() {
     let (mut w, vault, items) = big_vault(403);
     let a_id = w.devs[0].s().install_id();

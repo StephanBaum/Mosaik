@@ -100,7 +100,7 @@ impl Run {
         run
     }
 
-    fn device(&self, d: usize) -> &UnlockedSession {
+    fn device(&self, d: usize) -> mosaic_sync::testutil::SessionRef<'_> {
         self.w.devs[d].s()
     }
 
@@ -192,7 +192,7 @@ impl Run {
         } else {
             self.vaults[0]
         };
-        let s = self.w.devs[d].s_mut();
+        let mut s = self.w.devs[d].s_mut();
         let op = match roll {
             0..40 => {
                 let v = format!("pw-{d}-{n}");
@@ -220,6 +220,7 @@ impl Run {
             }
             _ => {
                 let copy = s.move_item(vault, item, to).unwrap();
+                drop(s);
                 self.moved_from.insert(copy, item);
                 self.created(copy, to);
                 log.push((d, copy, Op::Copy));
@@ -255,14 +256,17 @@ impl Run {
     /// The devices agree on every record and nothing is queued or warned.
     fn assert_converged(&self) -> BTreeMap<ItemId, bool> {
         let mut state = BTreeMap::new();
+        let reference = self.device(0);
         for (id, vault) in &self.records {
-            let x = self.device(0).item(*vault, *id).unwrap();
+            let x = reference.item(*vault, *id).unwrap();
             for d in 1..DEVICES {
-                let y = self.device(d).item(*vault, *id).unwrap();
+                let other = self.device(d);
+                let y = other.item(*vault, *id).unwrap();
                 assert!(x == y, "devices 0 and {d} disagree on {id:?}");
             }
             state.insert(*id, x.is_deleted());
         }
+        drop(reference);
         let current_keys = |s: &UnlockedSession| -> Vec<(u32, Vec<u8>)> {
             self.vaults
                 .iter()
@@ -275,18 +279,22 @@ impl Run {
                 })
                 .collect()
         };
+        let (reference_keys, reference_items) = {
+            let reference = self.device(0);
+            (
+                current_keys(&reference),
+                reference.items(&everything()).len(),
+            )
+        };
         for d in 0..DEVICES {
             let s = self.device(d);
             assert_eq!(
-                current_keys(s),
-                current_keys(self.device(0)),
+                current_keys(&s),
+                reference_keys,
                 "device {d} holds another current key"
             );
             assert_eq!(s.pending_uploads(1).unwrap().len(), 0, "device {d} outbox");
-            assert_eq!(
-                s.items(&everything()).len(),
-                self.device(0).items(&everything()).len()
-            );
+            assert_eq!(s.items(&everything()).len(), reference_items);
             assert!(
                 self.w.devs[d].last.warnings.is_empty(),
                 "device {d} warns: {:?}",
@@ -337,7 +345,8 @@ impl Run {
             if deleted_chain.contains(&(*d, self.root(*item))) {
                 continue;
             }
-            let rows = self.device(0).items(&everything());
+            let reference = self.device(0);
+            let rows = reference.items(&everything());
             match op {
                 Op::Password(v) => assert!(
                     rows.iter().any(|r| has_password(r.item, v)),
@@ -356,7 +365,8 @@ impl Run {
     fn outcome(&self) -> Outcome {
         let mut out = Outcome::new();
         for (id, vault) in &self.records {
-            let item = self.device(0).item(*vault, *id).unwrap();
+            let session = self.device(0);
+            let item = session.item(*vault, *id).unwrap();
             let mut tags: Vec<String> = item.tags().iter().map(|t| (*t).to_owned()).collect();
             tags.sort();
             out.insert(

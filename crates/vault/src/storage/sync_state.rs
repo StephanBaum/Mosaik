@@ -650,7 +650,9 @@ impl Store {
     /// queued; the vaults count as not created on the backend; the cursors,
     /// the local sequence blocks and the pending attachment deletions are
     /// cleared. Hardware-protected vaults (they never sync) are left alone.
-    /// The checkpoint counter and the install ID are kept.
+    /// The persisted engine state of the old backend (own sequence numbers, peer
+    /// checkpoints, lag timers, key observations, marker times, strikes) is
+    /// cleared too. The checkpoint counter, the install ID and a halt are kept.
     ///
     /// # Errors
     /// [`Error::Database`], [`Error::SeqOutOfRange`].
@@ -692,6 +694,7 @@ impl Store {
         ] {
             tx.execute(&sql, [])?;
         }
+        Self::clear_engine_state_in(&tx)?;
         tx.commit()?;
         self.local_seq.clear();
         Ok(())

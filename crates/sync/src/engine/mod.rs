@@ -6,6 +6,13 @@
 //! The engine never holds the session lock while it calls the transport:
 //! every touch of the session is one short [`SessionAccess::with`] step.
 //! Nothing secret appears in an error or a report.
+//!
+//! What the engine must remember between runs lives in the vault store (the
+//! halt, the checkpoint strikes, the newest checkpoint of every other
+//! device, the lag timers, the vault keys seen per generation, the first
+//! time a blob delete marker was seen): the engine and its transport are
+//! rebuilt whenever the app locks or restarts, and an attacker who can make
+//! the app restart must not be able to reset a timer or a strike.
 
 mod access;
 mod attachments;
@@ -18,9 +25,11 @@ mod push;
 mod rotation;
 
 use core::time::Duration;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
-use mosaic_core::{InstallId, KeyGeneration, VaultId};
+use mosaic_core::{AttachmentId, InstallId, KeyGeneration, VaultId};
+use mosaic_vault::session::UnlockedSession;
+use mosaic_vault::storage::SyncHalt;
 
 pub use access::{Backoff, Jitter, SessionAccess, SystemJitter};
 
@@ -29,7 +38,6 @@ use self::consts::{
 };
 use crate::clock::Clock;
 use crate::transport::{ChangeToken, Transport, TransportError, TransportKind};
-use crate::wire::checkpoint::Checkpoint;
 
 /// What the engine needs to know besides the transport.
 #[derive(Clone, Copy, Debug)]
@@ -119,6 +127,12 @@ pub struct SyncReport {
     pub undecryptable: u32,
     /// Received objects below the accepted key generation, dropped.
     pub rollback_dropped: u32,
+    /// Downloaded attachment files that did not authenticate under the key
+    /// of the item that refers to them (they stay missing).
+    pub attachments_rejected: u32,
+    /// Attachment files on the backend that did not authenticate and were
+    /// replaced by this device's authentic copy.
+    pub attachments_healed: u32,
     /// Attachments uploaded.
     pub attachments_up: u32,
     /// Attachments downloaded.
@@ -136,9 +150,10 @@ pub enum SyncError {
     /// The session is locked.
     #[error("session locked")]
     Locked,
-    /// The backend failed.
+    /// The backend failed. A locked session is [`SyncError::Locked`], not
+    /// this.
     #[error("transport error")]
-    Transport(#[from] TransportError),
+    Transport(TransportError),
     /// The session failed.
     #[error("session error")]
     Session(#[from] mosaic_vault::session::Error),
@@ -158,31 +173,25 @@ pub enum SyncError {
     },
 }
 
-/// What the engine remembers about vault keys between pulls (the
-/// canonical-winner rule, M6 spec §5.5).
-#[derive(Debug, Default)]
-pub(crate) struct KeyBook {
-    /// Candidates that conflicted with the key held for a generation.
-    pub(crate) conflicts:
-        BTreeMap<(VaultId, KeyGeneration), Vec<(InstallId, mosaic_core::WrappedKey)>>,
-    /// Which device delivered the key held for a generation.
-    pub(crate) delivered: BTreeMap<(VaultId, KeyGeneration), InstallId>,
+impl From<TransportError> for SyncError {
+    fn from(e: TransportError) -> Self {
+        match e {
+            TransportError::Locked => Self::Locked,
+            other => Self::Transport(other),
+        }
+    }
 }
 
 /// The engine. See the [module documentation](self).
 pub struct SyncEngine<T: Transport> {
     pub(crate) transport: T,
     pub(crate) config: EngineConfig,
-    /// Since when another device lags in a vault.
-    pub(crate) lag: BTreeMap<(InstallId, VaultId), u64>,
     pub(crate) backoff: Backoff,
     pub(crate) jitter: Box<dyn Jitter>,
-    pub(crate) keys: KeyBook,
-    /// The latest verified checkpoint per other device.
-    pub(crate) others: BTreeMap<InstallId, Checkpoint>,
-    pub(crate) strikes: u32,
-    pub(crate) strike_at: Option<u64>,
-    pub(crate) halted: Option<Halt>,
+    /// Attachment files already checked against the item's key in this
+    /// engine's lifetime (the holder re-checks a blob once, see
+    /// `attachments`).
+    pub(crate) verified_blobs: BTreeSet<AttachmentId>,
     change_token: Option<ChangeToken>,
 }
 
@@ -193,6 +202,15 @@ pub enum Halt {
     Rollback,
     /// [`SyncError::IdentityDuplicated`].
     Identity,
+}
+
+impl From<SyncHalt> for Halt {
+    fn from(h: SyncHalt) -> Self {
+        match h {
+            SyncHalt::Rollback => Self::Rollback,
+            SyncHalt::Identity => Self::Identity,
+        }
+    }
 }
 
 impl<T: Transport> SyncEngine<T> {
@@ -208,14 +226,9 @@ impl<T: Transport> SyncEngine<T> {
         Self {
             transport,
             config,
-            lag: BTreeMap::new(),
             backoff: Backoff::default(),
             jitter,
-            keys: KeyBook::default(),
-            others: BTreeMap::new(),
-            strikes: 0,
-            strike_at: None,
-            halted: None,
+            verified_blobs: BTreeSet::new(),
             change_token: None,
         }
     }
@@ -231,17 +244,54 @@ impl<T: Transport> SyncEngine<T> {
         self.backoff.retry_at
     }
 
-    /// Why automatic sync is stopped, if it is.
-    #[must_use]
-    pub const fn halted(&self) -> Option<Halt> {
-        self.halted
+    /// Why automatic sync is stopped, if it is (persisted in the store: it
+    /// survives a lock and a restart).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Session`].
+    pub fn halted(&self, access: &mut impl SessionAccess) -> Result<Option<Halt>, SyncError> {
+        Ok(access
+            .with(|s| s.sync_engine_state())??
+            .halt
+            .map(Halt::from))
     }
 
-    /// The user acknowledged a halt (the desktop asks first, §7).
-    pub fn clear_halt(&mut self) {
-        self.halted = None;
-        self.strikes = 0;
-        self.strike_at = None;
+    /// The user acknowledged a halt (the desktop asks first, §7): the
+    /// persisted halt and strikes are cleared. After a rollback the own logs
+    /// count as unchecked until written again; sequence numbers already used
+    /// are never reused.
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Session`].
+    pub fn clear_halt(&mut self, access: &mut impl SessionAccess) -> Result<(), SyncError> {
+        access.with(UnlockedSession::clear_sync_halt)??;
+        self.backoff.reset();
+        Ok(())
+    }
+
+    /// Persists a halt and returns the error that reports it.
+    fn raise(access: &mut impl SessionAccess, halt: SyncHalt) -> SyncError {
+        match access.with(|s| s.set_sync_halt(halt)) {
+            Ok(Ok(())) => match halt {
+                SyncHalt::Rollback => SyncError::RollbackDetected,
+                SyncHalt::Identity => SyncError::IdentityDuplicated,
+            },
+            Ok(Err(e)) => SyncError::Session(e),
+            Err(e) => e,
+        }
+    }
+
+    /// Stops with a rollback halt if the own log of a synced vault lost
+    /// segments this install wrote.
+    pub(crate) fn check_own_logs(
+        &mut self,
+        access: &mut impl SessionAccess,
+    ) -> Result<(), SyncError> {
+        let vaults = access.with(|s| s.synced_vaults())?;
+        if self.transport.own_logs_rolled_back(&vaults)? {
+            return Err(Self::raise(access, SyncHalt::Rollback));
+        }
+        Ok(())
     }
 
     /// Waits until the backend changes or `timeout` passes.
@@ -269,9 +319,9 @@ impl<T: Transport> SyncEngine<T> {
         clock: &impl Clock,
     ) -> Result<SyncReport, SyncError> {
         let now = clock.now_ms();
-        match self.halted {
-            Some(Halt::Rollback) => return Err(SyncError::RollbackDetected),
-            Some(Halt::Identity) => return Err(SyncError::IdentityDuplicated),
+        match access.with(|s| s.sync_engine_state())??.halt {
+            Some(SyncHalt::Rollback) => return Err(SyncError::RollbackDetected),
+            Some(SyncHalt::Identity) => return Err(SyncError::IdentityDuplicated),
             None => {}
         }
         if let Some(retry_at_ms) = self.backoff.retry_at
@@ -300,8 +350,6 @@ impl<T: Transport> SyncEngine<T> {
                         .fail(now, floor, permille, BACKOFF_INITIAL_MS, BACKOFF_MAX_MS);
                 }
             }
-            Err(SyncError::RollbackDetected) => self.halted = Some(Halt::Rollback),
-            Err(SyncError::IdentityDuplicated) => self.halted = Some(Halt::Identity),
             Err(_) => {}
         }
         result
@@ -315,15 +363,19 @@ impl<T: Transport> SyncEngine<T> {
         let mut report = SyncReport::default();
         let mut stats = pull::RunStats::default();
         let now = clock.now_ms();
+        // Before anything is written to the backend.
+        self.check_own_logs(access)?;
         self.upload_vaults(access, &mut report)?;
-        self.verify_checkpoints(access)?;
+        self.verify_checkpoints(access, now)?;
         self.pull_phase(access, &mut report, &mut stats)?;
         self.push_phase(access, &mut report, &mut stats, None)?;
         self.push_metas(access, &mut stats, &mut report)?;
         self.attachments_phase(access, &mut report)?;
-        let warnings = self.evaluate_lag(access, now)?;
+        let (warnings, none_lagging) = self.evaluate_lag(access, now)?;
         self.publish_checkpoint(access, clock)?;
-        self.maintain(access, now)?;
+        let no_conflict = !access.with(|s| s.has_any_unresolved_key_conflict())??;
+        let caught_up = none_lagging && no_conflict && stats.unexplained == 0;
+        self.maintain(access, now, caught_up)?;
         Self::finish_report(access, &mut report, &stats, warnings)?;
         Ok(report)
     }

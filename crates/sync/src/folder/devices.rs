@@ -6,12 +6,11 @@ use std::time::Instant;
 use mosaic_core::InstallId;
 use sha2::{Digest, Sha256};
 
-use super::FolderTransport;
 use super::fsutil::{self, Entry};
-use super::layout::INFO_NAME;
+use super::layout::{HEAD_NAME, INFO_NAME};
+use super::{FolderCrypto, FolderTransport, decoded};
 use crate::engine::consts::FOLDER_POLL_INTERVAL;
 use crate::transport::{ChangeToken, RemoteDevice, TransportError};
-use crate::wire::SyncCrypto;
 use crate::wire::checkpoint::{Checkpoint, MAX_LEN};
 use crate::wire::device_info::DeviceInfo;
 use crate::wire::folder_names::{self, FolderName};
@@ -20,7 +19,12 @@ use crate::wire::folder_names::{self, FolderName};
 /// smaller; this only bounds a hostile file).
 const MAX_INFO_LEN: u64 = 4096;
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+/// The most checkpoint candidates (`head.mck` and conflict copies) read from
+/// one device directory: `head.mck` first, then the newest by modification
+/// time. A flood of planted `*.mck` files costs this much and no more.
+const MAX_CHECKPOINT_CANDIDATES: usize = 32;
+
+impl<C: FolderCrypto> FolderTransport<C> {
     /// The device directories under `d/`.
     fn device_ids(&self) -> Result<Vec<InstallId>, TransportError> {
         Ok(fsutil::list(&self.layout.devices_dir())?
@@ -37,41 +41,65 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         &mut self,
     ) -> Result<Vec<(InstallId, Vec<u8>)>, TransportError> {
         let mut out = Vec::new();
+        self.own_checkpoints_read.clear();
         for device in self.device_ids()? {
             let dir = self.layout.device_dir(&device);
-            for entry in fsutil::list(&dir)? {
-                if entry.is_dir || !folder_names::is_checkpoint_candidate(&entry.name) {
+            let mut candidates: Vec<Entry> = fsutil::list(&dir)?
+                .into_iter()
+                .filter(|e| !e.is_dir && folder_names::is_checkpoint_candidate(&e.name))
+                .collect();
+            candidates.sort_by(|a, b| {
+                (b.name == HEAD_NAME)
+                    .cmp(&(a.name == HEAD_NAME))
+                    .then(b.modified_ms().cmp(&a.modified_ms()))
+                    .then(a.name.cmp(&b.name))
+            });
+            candidates.truncate(MAX_CHECKPOINT_CANDIDATES);
+            for entry in candidates {
+                let Ok(Some(bytes)) = fsutil::read_capped(&dir.join(&entry.name), MAX_LEN as u64)
+                else {
                     continue;
+                };
+                if device == self.install {
+                    self.own_checkpoints_read
+                        .insert(entry.name.clone(), (entry.len, entry.modified));
                 }
-                if let Ok(Some(bytes)) = fsutil::read_capped(&dir.join(&entry.name), MAX_LEN as u64)
-                {
-                    out.push((device, bytes));
-                }
+                out.push((device, bytes));
             }
         }
         Ok(out)
     }
 
+    /// The devices that have a verified `head.mck` or `info.mdev`: a
+    /// directory somebody planted under `d/` is not a device.
     pub(super) fn folder_devices(&mut self) -> Result<Vec<RemoteDevice>, TransportError> {
         let candidates = self.folder_checkpoints()?;
         let mut out = Vec::new();
         for device in self.device_ids()? {
-            let info = fsutil::read_capped(
+            let info = match fsutil::read_capped(
                 &self.layout.device_dir(&device).join(INFO_NAME),
                 MAX_INFO_LEN,
-            )?
-            .and_then(|sealed| DeviceInfo::open(&sealed, device, &self.crypto).ok());
-            let last_seen_ms = candidates
-                .iter()
-                .filter(|(d, _)| *d == device)
-                .filter_map(|(d, bytes)| Checkpoint::decode(bytes, *d, &self.crypto).ok())
-                .max_by_key(|c| c.counter)
-                .map(|c| c.issued_at_ms);
+            ) {
+                Ok(Some(sealed)) => decoded(DeviceInfo::open(&sealed, device, &self.crypto))?,
+                Ok(None) => None,
+                Err(e) => return Err(e),
+            };
+            let mut last_seen: Option<Checkpoint> = None;
+            for (d, bytes) in candidates.iter().filter(|(d, _)| *d == device) {
+                if let Some(c) = decoded(Checkpoint::decode(bytes, *d, &self.crypto))?
+                    && last_seen.as_ref().is_none_or(|l| c.counter > l.counter)
+                {
+                    last_seen = Some(c);
+                }
+            }
+            if info.is_none() && last_seen.is_none() {
+                continue;
+            }
             out.push(RemoteDevice {
                 device_id: device,
                 name: info.as_ref().map(|i| i.name.clone()),
                 created_at_ms: info.as_ref().map(|i| i.created_at_ms),
-                last_seen_ms,
+                last_seen_ms: last_seen.map(|c| c.issued_at_ms),
             });
         }
         Ok(out)

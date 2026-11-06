@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub use chaos::{ChaosConfig, ChaosTransport};
 pub use cloudsim::{CloudSim, RoundStats, SimConfig};
 pub use malicious::MaliciousTransport;
-pub use session::LocalSession;
+pub use session::{LocalSession, SessionMut, SessionRef};
 
 use crate::clock::{Clock, SystemClock};
 use crate::engine::Jitter;

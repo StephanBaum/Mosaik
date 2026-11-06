@@ -7,7 +7,7 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{ErrorKind, Write as _};
+use std::io::{ErrorKind, Read as _, Write as _};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -55,8 +55,13 @@ pub(crate) fn list(dir: &Path) -> Result<Vec<Entry>, TransportError> {
     for item in read {
         let Ok(item) = item else { continue };
         // An entry that vanishes while it is listed (a sync client at work)
-        // is skipped.
+        // is skipped. `DirEntry::metadata` does not follow symlinks; Mosaic
+        // never writes one, so a link (anyone with write access to the folder
+        // can plant one) is not an entry at all.
         let Ok(meta) = item.metadata() else { continue };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
         out.push(Entry {
             name: item.file_name(),
             is_dir: meta.is_dir(),
@@ -68,10 +73,13 @@ pub(crate) fn list(dir: &Path) -> Result<Vec<Entry>, TransportError> {
     Ok(out)
 }
 
-/// Reads a regular file of at most `max` bytes; `None` if it is missing,
-/// `Err(Protocol)` if it is longer.
+/// Reads a regular file of at most `max` bytes; `None` if it is missing or
+/// not a regular file (a symlink, a directory, a device or a pipe is never
+/// followed or opened), `Err(Protocol)` if it is longer. The read itself is
+/// capped at `max + 1` bytes, so a file that grows or is swapped between the
+/// check and the read cannot make this allocate more.
 pub(crate) fn read_capped(path: &Path, max: u64) -> Result<Option<Vec<u8>>, TransportError> {
-    let meta = match fs::metadata(path) {
+    let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(io_error(&e)),
@@ -82,8 +90,14 @@ pub(crate) fn read_capped(path: &Path, max: u64) -> Result<Option<Vec<u8>>, Tran
     if meta.len() > max {
         return Err(TransportError::Protocol);
     }
-    match fs::read(path) {
-        Ok(bytes) if u64::try_from(bytes.len()).is_ok_and(|n| n <= max) => Ok(Some(bytes)),
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_error(&e)),
+    };
+    let mut bytes = Vec::new();
+    match file.take(max.saturating_add(1)).read_to_end(&mut bytes) {
+        Ok(_) if u64::try_from(bytes.len()).is_ok_and(|n| n <= max) => Ok(Some(bytes)),
         Ok(_) => Err(TransportError::Protocol),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_error(&e)),
@@ -139,11 +153,54 @@ pub(crate) fn write_atomic(
     })
 }
 
+/// Removes an empty directory; a missing or non-empty one is left alone.
+pub(crate) fn remove_empty_dir(path: &Path) {
+    let _ = fs::remove_dir(path);
+}
+
 /// Removes a file; a missing file is fine.
 pub(crate) fn remove(path: &Path) -> Result<(), TransportError> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(io_error(&e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_capped_reads_only_small_regular_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f");
+        fs::write(&file, b"12345").unwrap();
+        assert_eq!(read_capped(&file, 5).unwrap(), Some(b"12345".to_vec()));
+        assert_eq!(read_capped(&file, 4), Err(TransportError::Protocol));
+        assert_eq!(read_capped(&dir.path().join("missing"), 5).unwrap(), None);
+        // A directory is not a file.
+        assert_eq!(read_capped(dir.path(), 5).unwrap(), None);
+    }
+
+    /// A link is neither listed nor read, however large its target.
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_neither_listed_nor_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        fs::write(&target, b"secret").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let dev = dir.path().join("dev-zero");
+        std::os::unix::fs::symlink("/dev/zero", &dev).unwrap();
+        assert_eq!(read_capped(&link, 100).unwrap(), None);
+        assert_eq!(read_capped(&dev, 100).unwrap(), None);
+        let names: Vec<_> = list(dir.path())
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["target".to_owned()]);
     }
 }

@@ -4,8 +4,9 @@
 //! loss, convergence, no warning after full delivery, and a warning when
 //! files stay withheld.
 //!
-//! A scenario that breaks an invariant is kept as a regression test marked
-//! `#[ignore = "M6-T2 chaos finding N: ..."]` until the engine is fixed.
+//! A scenario that broke an invariant was kept as a regression test marked
+//! `#[ignore = "M6-T2 chaos finding N: ..."]` until the engine was fixed; the
+//! ten findings of the T2 review are fixed and their tests run.
 
 #![expect(
     clippy::unwrap_used,
@@ -17,5 +18,6 @@
 mod compaction;
 mod hostile;
 mod races;
+mod review;
 mod skew;
 mod util;

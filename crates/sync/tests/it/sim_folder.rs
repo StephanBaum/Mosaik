@@ -148,7 +148,7 @@ impl Sim {
         self.order.entry(id).or_insert(next);
     }
 
-    fn device(&self, d: usize) -> &UnlockedSession {
+    fn device(&self, d: usize) -> mosaic_sync::testutil::SessionRef<'_> {
         self.w.devs[d].s()
     }
 
@@ -213,7 +213,7 @@ impl Sim {
         let to = self.other_vault(vault);
         let n = self.counter + 1;
         self.counter += 1;
-        let s = self.w.devs[d].s_mut();
+        let mut s = self.w.devs[d].s_mut();
         let attachments = s.item(vault, item).unwrap().attachments();
         let op = match roll {
             0..36 => {
@@ -311,21 +311,29 @@ impl Sim {
             for (id, vault) in &self.records {
                 let x = reference.item(*vault, *id).unwrap();
                 for d in 1..DEVICES {
-                    let y = self.device(d).item(*vault, *id).unwrap();
+                    let other = self.device(d);
+                    let y = other.item(*vault, *id).unwrap();
                     assert!(x == y, "devices 0 and {d} disagree on {id:?}");
                 }
                 assert_eq!(x.unreadable_fields().len(), 0);
                 state.insert(*id, x.is_deleted());
             }
         }
-        for d in 0..DEVICES {
+        let (ref_live, ref_generations, ref_usage) = {
             let reference = self.device(0);
+            (
+                live(&reference),
+                generations(&reference),
+                reference.attachment_usage(),
+            )
+        };
+        for d in 0..DEVICES {
             let s = self.device(d);
-            assert_eq!(live(s), live(reference));
+            assert_eq!(live(&s), ref_live);
             assert_eq!(s.pending_uploads(1).unwrap().len(), 0, "device {d} outbox");
             assert_eq!(s.corrupt_records().len(), 0);
-            assert_eq!(generations(s), generations(reference));
-            assert_eq!(s.attachment_usage(), reference.attachment_usage());
+            assert_eq!(generations(&s), ref_generations);
+            assert_eq!(s.attachment_usage(), ref_usage);
             for v in s.vaults() {
                 for r in s.store().records(&v.vault_id).unwrap() {
                     assert_eq!(r.unwrap().body.key_generation(), v.key_generation);
@@ -333,7 +341,7 @@ impl Sim {
                 let meta = s.store().vault_meta(&v.vault_id).unwrap().unwrap();
                 assert_eq!(meta.key_generation(), v.key_generation);
             }
-            assert_attachments_complete(s, d);
+            assert_attachments_complete(&s, d);
             assert!(
                 s.pending_attachment_uploads().unwrap().is_empty(),
                 "device {d} attachment uploads"
@@ -602,14 +610,17 @@ fn concurrent_deletes_and_edits_of_one_item() {
     sim.sync(1);
     let state = sim.assert_converged();
     assert!(!state[&item]);
-    let it = sim.device(0).item(vault, item).unwrap();
-    assert!(has_password(it, "survivor"));
-    assert_eq!(
-        it.title(),
-        Some("item 0"),
-        "the editing device restored the title"
-    );
-    assert_eq!(it.deleted_concurrently().unwrap().deleted_by.len(), 2);
+    {
+        let session = sim.device(0);
+        let it = session.item(vault, item).unwrap();
+        assert!(has_password(it, "survivor"));
+        assert_eq!(
+            it.title(),
+            Some("item 0"),
+            "the editing device restored the title"
+        );
+        assert_eq!(it.deleted_concurrently().unwrap().deleted_by.len(), 2);
+    }
 
     // Deleting again, with no concurrent write, wins everywhere.
     sim.w.devs[1].s_mut().purge_item(vault, item).unwrap();
@@ -684,7 +695,7 @@ fn lost_responses_and_duplicates_still_converge() {
     let mut chaos = SyncEngine::with_jitter(
         ChaosTransport::new(
             crate::common::open_transport(
-                sim.device(0),
+                &sim.w.devs[0].access,
                 &sim.w.replica(0),
                 &sim.w.clock,
                 "device 0, chaotic",
@@ -736,7 +747,7 @@ fn backoff_doubles_with_the_jitter_and_resets() {
     let mut w = World::new(6, 1);
     let mut engine = SyncEngine::with_jitter(
         ChaosTransport::new(
-            crate::common::open_transport(w.devs[0].s(), &w.replica(0), &w.clock, "x"),
+            crate::common::open_transport(&w.devs[0].access, &w.replica(0), &w.clock, "x"),
             1,
             ChaosConfig {
                 fail_before_permille: 1000,

@@ -16,12 +16,14 @@ use std::sync::Arc;
 use mosaic_core::{AccountId, Argon2Profile, MasterPassword, SecretKey, VaultId};
 use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError, SyncReport};
 use mosaic_sync::folder::{self, FolderConfig, FolderTransport};
-use mosaic_sync::testutil::{CloudSim, FixedJitter, LocalSession, ManualClock, SimConfig, SimRng};
+use mosaic_sync::testutil::{
+    CloudSim, FixedJitter, LocalSession, ManualClock, SessionMut, SessionRef, SimConfig, SimRng,
+};
 use mosaic_sync::transport::TransportKind;
-use mosaic_sync::wire::KeyedCrypto;
+use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_sync::wire::folder_names::dir_name;
-use mosaic_vault::session::{ItemFilter, LockedSession, TrashFilter, UnlockedSession};
+use mosaic_vault::session::{ItemFilter, LockedSession, TrashFilter};
 use mosaic_vault::storage::Store;
 use std::collections::BTreeMap;
 
@@ -38,22 +40,28 @@ pub fn everything() -> ItemFilter {
     filter
 }
 
-pub type Engine = SyncEngine<FolderTransport<KeyedCrypto>>;
+pub type Crypto = SessionCrypto<LocalSession>;
 
-/// Opens a folder transport for a session in `replica`.
+pub type Engine = SyncEngine<FolderTransport<Crypto>>;
+
+/// Opens a folder transport for the session of `access` in `replica`. The
+/// transport holds no key: it shares the session handle.
 pub fn open_transport(
-    session: &UnlockedSession,
+    access: &LocalSession,
     replica: &Path,
     clock: &ManualClock,
     name: &str,
-) -> FolderTransport<KeyedCrypto> {
-    let keys = session.sync_keys().unwrap();
-    let (account_id, install_id) = (keys.account_id, keys.install_id);
+) -> FolderTransport<Crypto> {
+    let crypto = SessionCrypto::new(access.clone()).unwrap();
+    let (account_id, install_id) = (
+        crypto.account_id(),
+        mosaic_sync::SyncCrypto::install_id(&crypto),
+    );
     FolderTransport::open(FolderConfig {
         root: replica.to_owned(),
         account_id,
         install_id,
-        crypto: KeyedCrypto::from_keys(keys),
+        crypto,
         clock: Arc::new(clock.clone()),
         device: DeviceInfo {
             created_at_ms: mosaic_sync::clock::Clock::now_ms(clock),
@@ -65,13 +73,13 @@ pub fn open_transport(
 }
 
 pub fn make_engine(
-    session: &UnlockedSession,
+    access: &LocalSession,
     replica: &Path,
     clock: &ManualClock,
     name: &str,
 ) -> Engine {
     SyncEngine::with_jitter(
-        open_transport(session, replica, clock, name),
+        open_transport(access, replica, clock, name),
         EngineConfig::for_kind(TransportKind::Folder),
         Box::new(FixedJitter(1000)),
     )
@@ -85,11 +93,11 @@ pub struct Dev {
 }
 
 impl Dev {
-    pub fn s(&self) -> &UnlockedSession {
+    pub fn s(&self) -> SessionRef<'_> {
         self.access.session().unwrap()
     }
 
-    pub fn s_mut(&mut self) -> &mut UnlockedSession {
+    pub fn s_mut(&mut self) -> SessionMut<'_> {
         self.access.session_mut().unwrap()
     }
 }
@@ -125,15 +133,16 @@ impl World {
         folder::init(&dirs[0]).unwrap();
         let clock = ManualClock::new();
         let account = session.account_id();
-        let mut engine = make_engine(&session, &dirs[0], &clock, "device 0");
-        let boot = session.account_bootstrap().unwrap();
+        let access = LocalSession::new(session);
+        let mut engine = make_engine(&access, &dirs[0], &clock, "device 0");
+        let boot = access.session().unwrap().account_bootstrap().unwrap();
         engine
             .transport_mut()
             .write_account_file(&boot.params, &boot.wrapped_ak, 1)
             .unwrap();
         let mut world = Self {
             devs: vec![Dev {
-                access: LocalSession::new(session),
+                access,
                 engine,
                 last: SyncReport::default(),
             }],
@@ -164,14 +173,15 @@ impl World {
             &pw(password),
             &self.secret_key,
         )?;
+        let access = LocalSession::new(session);
         let engine = make_engine(
-            &session,
+            &access,
             self.cloud.replica(i),
             &self.clock,
             &format!("device {i}"),
         );
         self.devs.push(Dev {
-            access: LocalSession::new(session),
+            access,
             engine,
             last: SyncReport::default(),
         });

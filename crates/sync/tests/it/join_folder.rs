@@ -7,6 +7,8 @@ use mosaic_sync::folder::{self, FolderContents, JoinError};
 use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::Store;
 
+use mosaic_sync::testutil::LocalSession;
+
 use crate::common::{PASSWORD, World, everything, open_transport, pw};
 
 #[test]
@@ -28,10 +30,13 @@ fn new_device_joins_and_converges() {
     assert_eq!(w.devs[1].s().items(&everything()).len(), 0, "nothing yet");
     w.converge(2);
 
-    let a = w.devs[0].s().item(vault, item).unwrap();
-    let b = w.devs[1].s().item(vault, item).unwrap();
-    assert_eq!(a, b);
-    assert_eq!(b.title(), Some("bank"));
+    {
+        let (sa, sb) = (w.devs[0].s(), w.devs[1].s());
+        let a = sa.item(vault, item).unwrap();
+        let b = sb.item(vault, item).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(b.title(), Some("bank"));
+    }
     assert_eq!(
         w.devs[1]
             .s()
@@ -71,8 +76,9 @@ fn multiple_accounts_in_one_folder() {
             .create_account(&pw(PASSWORD), Argon2Profile::Baseline)
             .unwrap();
     let replica0 = w.replica(0);
-    let mut transport_b = open_transport(&session_b, &replica0, &w.clock, "other");
-    let boot = session_b.account_bootstrap().unwrap();
+    let access_b = LocalSession::new(session_b);
+    let mut transport_b = open_transport(&access_b, &replica0, &w.clock, "other");
+    let boot = access_b.session().unwrap().account_bootstrap().unwrap();
     transport_b
         .write_account_file(&boot.params, &boot.wrapped_ak, 1)
         .unwrap();
@@ -81,7 +87,7 @@ fn multiple_accounts_in_one_folder() {
     let accounts = folder::list_accounts(&w.replica(1));
     assert_eq!(accounts.len(), 2);
     assert!(accounts.contains(&w.account));
-    assert!(accounts.contains(&session_b.account_id()));
+    assert!(accounts.contains(&access_b.session().unwrap().account_id()));
 
     // The user picks the account on their Emergency Kit: the right one
     // joins, and the other account's file does not open with these keys.
@@ -97,7 +103,7 @@ fn multiple_accounts_in_one_folder() {
     let store = Store::open(dir_b.path().join("wrong.db")).unwrap();
     let failure = folder::join_from_folder(
         &w.replica(1),
-        session_b.account_id(),
+        access_b.session().unwrap().account_id(),
         LockedSession::open(store),
         &pw(PASSWORD),
         &w.secret_key,
@@ -118,8 +124,10 @@ fn password_change_writes_new_account_version_and_old_password_fails_join() {
     let new_password = "a completely different passphrase";
     {
         let dev = &mut w.devs[0];
-        let session = dev.access.session_mut().unwrap();
-        let prepared = session
+        let prepared = dev
+            .access
+            .session_mut()
+            .unwrap()
             .prepare_master_password_change(&pw(PASSWORD), &pw(new_password), &w.secret_key)
             .unwrap();
         let version = dev
@@ -133,7 +141,11 @@ fn password_change_writes_new_account_version_and_old_password_fails_join() {
             .transport_mut()
             .write_account_file(prepared.new_params(), prepared.new_wrapped_ak(), version)
             .unwrap();
-        session.commit_master_password_change(prepared).unwrap();
+        dev.access
+            .session_mut()
+            .unwrap()
+            .commit_master_password_change(prepared)
+            .unwrap();
     }
     // Only the new version is left in the writer's replica.
     let files: Vec<String> = std::fs::read_dir(

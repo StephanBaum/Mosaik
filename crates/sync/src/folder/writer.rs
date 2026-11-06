@@ -5,9 +5,8 @@
 use mosaic_core::{KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
 use mosaic_vault::storage::RecordBody;
 
-use super::{FolderTransport, fsutil};
+use super::{FolderCrypto, FolderTransport, fsutil, lock_or};
 use crate::transport::{KeyPushResult, PushRecord, PushResult, TransportError, VaultCreateResult};
-use crate::wire::SyncCrypto;
 use crate::wire::folder_names;
 use crate::wire::segment::{
     Segment, SegmentObject, SnapshotInfo, WRITE_MAX_OBJECTS, WRITE_MAX_SEGMENT_LEN,
@@ -15,6 +14,9 @@ use crate::wire::segment::{
 
 /// The bytes of a segment besides its objects, with room to spare.
 const SEGMENT_OVERHEAD: usize = 256;
+
+/// How many taken names the writer steps past before it gives up.
+const MAX_NAME_ATTEMPTS: u32 = 16;
 
 /// The encoded size of an object: kind, length and body.
 fn object_len(object: &SegmentObject) -> usize {
@@ -63,14 +65,30 @@ fn record_object(record: &PushRecord<'_>) -> SegmentObject {
     }
 }
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+impl<C: FolderCrypto> FolderTransport<C> {
+    /// The highest sequence number in this install's log of `vault` whose
+    /// segment verifies (0 if none). A file that does not verify (junk
+    /// planted by anyone with write access, a partial copy) does not count,
+    /// so a planted name can neither inflate the checkpoint nor overflow the
+    /// numbering.
+    fn own_verified_high(&mut self, vault: VaultId) -> Result<u64, TransportError> {
+        let install = self.install;
+        let files = self.segment_files(&vault, &install)?;
+        for file in files.iter().rev() {
+            if matches!(
+                self.probe(vault, install, file)?,
+                super::Outcome::Good { .. }
+            ) {
+                return Ok(file.seq);
+            }
+        }
+        Ok(0)
+    }
+
     /// The highest sequence number in this install's log of `vault` (0 if
-    /// none).
-    pub(crate) fn own_high_seq(&self, vault: VaultId) -> Result<u64, TransportError> {
-        let on_disk = self
-            .segment_files(&vault, &self.install)?
-            .last()
-            .map_or(0, |f| f.seq);
+    /// none), as the checkpoint reports it.
+    pub(crate) fn own_high_seq(&mut self, vault: VaultId) -> Result<u64, TransportError> {
+        let on_disk = self.own_verified_high(vault)?;
         let memo = self
             .own_next
             .get(&vault)
@@ -78,10 +96,76 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         Ok(on_disk.max(memo))
     }
 
-    fn next_own_seq(&self, vault: VaultId) -> Result<u64, TransportError> {
-        self.own_high_seq(vault)?
-            .checked_add(1)
-            .ok_or(TransportError::Io)
+    /// The next sequence number to write: above everything verified on disk,
+    /// everything reserved before (a folder that was rolled back, a snapshot
+    /// set that failed half-way) and everything written in this run. A name
+    /// that is taken by something unverified (planted junk, a directory) is
+    /// stepped past, at most [`MAX_NAME_ATTEMPTS`] times.
+    fn next_own_seq(&mut self, vault: VaultId) -> Result<u64, TransportError> {
+        let state = self
+            .crypto
+            .own_seq(vault)
+            .map_err(|e| lock_or(e, TransportError::Io))?;
+        let memo = self
+            .own_next
+            .get(&vault)
+            .map_or(0, |next| next.saturating_sub(1));
+        let floor = self.own_verified_high(vault)?.max(state.reserved).max(memo);
+        let mut seq = floor.checked_add(1).ok_or(TransportError::Io)?;
+        let dir = self.layout.log_dir(&vault, &self.install);
+        for attempt in 0..MAX_NAME_ATTEMPTS {
+            if !fsutil::exists(&dir.join(folder_names::segment_name(seq))) {
+                if attempt > 0 {
+                    self.force_compact.insert(vault);
+                }
+                return Ok(seq);
+            }
+            seq = seq.checked_add(1).ok_or(TransportError::Io)?;
+        }
+        Err(TransportError::Io)
+    }
+
+    /// Persists the reservation of `through` (before the write).
+    fn reserve(&self, vault: VaultId, through: u64) -> Result<(), TransportError> {
+        self.crypto
+            .reserve_own_seq(vault, through)
+            .map_err(|e| lock_or(e, TransportError::Io))
+    }
+
+    /// Persists that `seq` was written (after the write).
+    fn confirm(&self, vault: VaultId, seq: u64) -> Result<(), TransportError> {
+        self.crypto
+            .confirm_own_seq(vault, seq)
+            .map_err(|e| lock_or(e, TransportError::Io))
+    }
+
+    /// Whether the own log of any of `vaults` lost its newest segments: the
+    /// highest segment file of the log is below the highest sequence number
+    /// this install wrote successfully. Anything listed at or above it
+    /// (even a file that does not verify now) counts as present, so a file
+    /// the sync client has not fully delivered is no rollback.
+    pub(super) fn folder_own_logs_rolled_back(
+        &mut self,
+        vaults: &[VaultId],
+    ) -> Result<bool, TransportError> {
+        let install = self.install;
+        for vault in vaults {
+            let state = self
+                .crypto
+                .own_seq(*vault)
+                .map_err(|e| lock_or(e, TransportError::Io))?;
+            if state.written == 0 {
+                continue;
+            }
+            let listed_high = self
+                .segment_files(vault, &install)?
+                .last()
+                .map_or(0, |f| f.seq);
+            if listed_high < state.written {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn write_segment(
@@ -102,7 +186,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         };
         let bytes = segment
             .encode(&self.crypto)
-            .map_err(|_| TransportError::Protocol)?;
+            .map_err(|e| lock_or(e, TransportError::Protocol))?;
         fsutil::write_atomic(
             &self.layout.log_dir(&vault, &self.install),
             &folder_names::segment_name(seq),
@@ -119,7 +203,11 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
     ) -> Result<(), TransportError> {
         for objects in chunk(objects) {
             let seq = self.next_own_seq(vault)?;
+            // Persist the number before the file exists: if the folder is
+            // rolled back later, the number is never used again.
+            self.reserve(vault, seq)?;
             self.write_segment(vault, seq, None, objects)?;
+            self.confirm(vault, seq)?;
             self.own_next.insert(vault, seq.saturating_add(1));
         }
         Ok(())
@@ -136,9 +224,17 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         let parts = u32::try_from(chunks.len()).map_err(|_| TransportError::Protocol)?;
         let base = self.next_own_seq(vault)?;
         let info = SnapshotInfo { base, parts };
+        // The whole range is reserved before the first part is written: a
+        // set that fails half-way leaves the next set after its range, so the
+        // two never overlap.
+        let last = base
+            .checked_add(u64::from(parts.saturating_sub(1)))
+            .ok_or(TransportError::Io)?;
+        self.reserve(vault, last)?;
         let mut seq = base;
         for objects in chunks {
             self.write_segment(vault, seq, Some(info), objects)?;
+            self.confirm(vault, seq)?;
             seq = seq.checked_add(1).ok_or(TransportError::Io)?;
             self.own_next.insert(vault, seq);
         }

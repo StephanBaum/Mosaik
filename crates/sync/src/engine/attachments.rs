@@ -32,7 +32,7 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         self.upload_attachments(access, report)?;
         self.send_attachment_deletions(access)?;
-        self.reassert_attachments(access)?;
+        self.reassert_attachments(access, report)?;
         self.fetch_attachments(access, report)
     }
 
@@ -105,18 +105,24 @@ impl<T: Transport> SyncEngine<T> {
     }
 
     /// For every attachment an item still refers to: a delete marker is
-    /// undone (this device's own), and a file the backend lost is
-    /// uploaded again from the local copy.
-    fn reassert_attachments(&mut self, access: &mut impl SessionAccess) -> Result<(), SyncError> {
+    /// undone (this device's own), a file the backend lost is uploaded again
+    /// from the local copy, and a file on the backend that does not
+    /// authenticate under the item's key is replaced by the holder's copy.
+    fn reassert_attachments(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
         let refs = access.with(|s| s.attachment_references())?;
         let mut by_vault: BTreeMap<VaultId, Vec<AttachmentRef>> = BTreeMap::new();
         for r in refs {
             by_vault.entry(r.vault_id).or_default().push(r);
         }
+        let mut budget = ATTACHMENT_DOWNLOAD_BUDGET;
         for (vault, refs) in by_vault {
             let remote = self.transport.attachments(vault)?;
             for r in refs {
-                self.reassert_one(access, vault, &r, &remote)?;
+                self.reassert_one(access, vault, &r, &remote, &mut budget, report)?;
             }
         }
         Ok(())
@@ -129,6 +135,8 @@ impl<T: Transport> SyncEngine<T> {
         vault: VaultId,
         r: &AttachmentRef,
         remote: &[RemoteAttachment],
+        budget: &mut u64,
+        report: &mut SyncReport,
     ) -> Result<(), SyncError> {
         let id = r.attachment_id;
         let entry = remote.iter().find(|a| a.attachment_id == id);
@@ -149,7 +157,71 @@ impl<T: Transport> SyncEngine<T> {
             {
                 self.put_from_local(access, vault, id)?;
             }
+            Some(e)
+                if matches!(
+                    local,
+                    AttachmentFileState::Present {
+                        upload_pending: false
+                    }
+                ) =>
+            {
+                self.heal_one(access, vault, r, e.size, budget, report)?;
+            }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// The holder checks the backend's file against its own: a file whose
+    /// size differs is opened with the item's key (every chunk), and so is
+    /// one of the same size that this engine has not checked yet, within the
+    /// run's download budget. A file that does not authenticate (planted by
+    /// anyone who can write the folder, valid layout and all) is replaced by
+    /// the local copy, which is authentic.
+    fn heal_one(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        r: &AttachmentRef,
+        remote_size: u64,
+        budget: &mut u64,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        let id = r.attachment_id;
+        let local_len = access.with(|s| s.attachment_ciphertext_len(id))??;
+        let differs = local_len != Some(remote_size);
+        if !differs && self.verified_blobs.contains(&id) {
+            return Ok(());
+        }
+        if *budget < remote_size {
+            return Ok(());
+        }
+        *budget = budget.saturating_sub(remote_size);
+        let authentic = match self.transport.get_attachment(vault, id)? {
+            Some(bytes) => access.with(|s| {
+                s.remote_attachment_authentic(vault, r.item_id, id, &bytes)
+                    .unwrap_or(false)
+            })?,
+            // Not a valid layout: not an attachment.
+            None => false,
+        };
+        if authentic {
+            self.verified_blobs.insert(id);
+            return Ok(());
+        }
+        let local = match access.with(|s| s.attachment_ciphertext(id))? {
+            Ok(c) => c,
+            Err(e) if is_skippable(&e) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        let local_ok = access.with(|s| {
+            s.remote_attachment_authentic(vault, r.item_id, id, &local)
+                .unwrap_or(false)
+        })?;
+        if local_ok {
+            self.transport.replace_attachment(vault, id, &local)?;
+            self.verified_blobs.insert(id);
+            report.attachments_healed += 1;
         }
         Ok(())
     }
@@ -184,6 +256,10 @@ impl<T: Transport> SyncEngine<T> {
             match stored {
                 Ok(()) => report.attachments_down += 1,
                 Err(Error::Store(StorageError::AttachmentsUnavailable)) => break,
+                // Valid layout, but it does not open under the item's file
+                // key: not the attachment. It stays missing, and the holder
+                // heals the backend.
+                Err(Error::Core(_)) => report.attachments_rejected += 1,
                 // A file that is not a valid attachment, or one already
                 // stored: nothing to do now.
                 Err(Error::Store(_) | Error::UnknownAttachmentReference) => {}

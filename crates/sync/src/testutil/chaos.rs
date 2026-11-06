@@ -159,6 +159,19 @@ impl<T: Transport> Transport for ChaosTransport<T> {
         self.call(true, |t| t.put_attachment(vault, id, ciphertext))
     }
 
+    fn replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        self.inner.replace_attachment(vault, id, ciphertext)
+    }
+
+    fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {
+        self.inner.own_logs_rolled_back(vaults)
+    }
+
     fn get_attachment(
         &mut self,
         vault: VaultId,

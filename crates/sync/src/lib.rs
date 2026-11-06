@@ -22,9 +22,12 @@
 //!
 //! The HTTP transport follows in a later track of M6 (feature `http`).
 //!
-//! `mosaic-sync` never holds an account key. The keyed operations (MACs,
-//! sealed device info) go through [`wire::SyncCrypto`], which the unlocked
-//! vault session implements with keys derived inside `mosaic-core`.
+//! `mosaic-sync` never holds an account key or a key derived from it. The
+//! keyed operations (MACs, sealed device info) go through
+//! [`wire::SyncCrypto`], which the unlocked vault session implements with
+//! keys derived inside `mosaic-core`; a transport uses
+//! [`wire::SessionCrypto`] over a shared session handle, which derives them
+//! per operation and fails closed when the session locks.
 #![forbid(unsafe_code)]
 
 pub mod clock;

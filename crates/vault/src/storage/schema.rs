@@ -336,6 +336,73 @@ CREATE TABLE attachment_deletions (
 ) STRICT;
 ";
 
+/// Version 4: the persisted state of the sync engine (CRYPTO_SPEC §11,
+/// ADR-0045 amendment). Additive: new tables only, nothing is derived from
+/// item plaintext. Everything here is local cleartext sync metadata like the
+/// cursors: IDs, counters, times and wrapped keys (ciphertext).
+const V4: &str = r"
+-- This install's own log, per vault: `reserved` is the highest sequence
+-- number that may have been used (persisted before the segment is written, so
+-- a rolled-back folder never makes the writer reuse one); `written` is the
+-- highest that was written successfully (persisted after).
+CREATE TABLE sync_own_seq (
+    vault_id  BLOB    PRIMARY KEY CHECK (length(vault_id) = 16),
+    reserved  INTEGER NOT NULL DEFAULT 0 CHECK (reserved >= 0),
+    written   INTEGER NOT NULL DEFAULT 0 CHECK (written >= 0)
+) STRICT;
+
+-- The engine's halt, checkpoint and strike state (one row). `halt`: 0 none,
+-- 1 rollback detected, 2 install identity duplicated. `strike_counter` is the
+-- last published counter at which a strike was counted (one strike per value).
+CREATE TABLE sync_engine_state (
+    id                      INTEGER PRIMARY KEY CHECK (id = 1),
+    halt                    INTEGER NOT NULL DEFAULT 0 CHECK (halt IN (0, 1, 2)),
+    last_published_counter  INTEGER NOT NULL DEFAULT 0 CHECK (last_published_counter >= 0),
+    strike_count            INTEGER NOT NULL DEFAULT 0 CHECK (strike_count >= 0),
+    strike_first_ms         INTEGER CHECK (strike_first_ms IS NULL OR strike_first_ms >= 0),
+    strike_counter          INTEGER CHECK (strike_counter IS NULL OR strike_counter >= 0)
+) STRICT;
+
+INSERT INTO sync_engine_state (id) VALUES (1);
+
+-- The highest verified checkpoint of every other device. `entries` holds
+-- 28 bytes per vault (vault ID, generation, high sequence number).
+CREATE TABLE sync_peer_checkpoint (
+    device_id     BLOB    PRIMARY KEY CHECK (length(device_id) = 16),
+    counter       INTEGER NOT NULL CHECK (counter >= 0),
+    issued_at_ms  INTEGER NOT NULL CHECK (issued_at_ms >= 0),
+    entries       BLOB    NOT NULL CHECK (length(entries) <= 114688 AND length(entries) % 28 = 0)
+) STRICT;
+
+-- Since when another device lags in a vault (freeze / missing files).
+CREATE TABLE sync_lag (
+    device_id  BLOB    NOT NULL CHECK (length(device_id) = 16),
+    vault_id   BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    since_ms   INTEGER NOT NULL CHECK (since_ms >= 0),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT;
+
+-- Wrapped vault keys seen for a generation and the lowest device that wrote
+-- exactly those bytes (the canonical-winner rule, CRYPTO_SPEC §10.1).
+CREATE TABLE sync_key_candidate (
+    vault_id    BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    generation  INTEGER NOT NULL CHECK (generation >= 1),
+    wrapped     BLOB    NOT NULL CHECK (length(wrapped) BETWEEN 1 AND 256),
+    device_id   BLOB    NOT NULL CHECK (length(device_id) = 16),
+    PRIMARY KEY (vault_id, generation, wrapped)
+) STRICT;
+
+-- When this device first saw a blob delete marker, by its own clock.
+CREATE TABLE sync_marker_seen (
+    vault_id       BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    attachment_id  BLOB    NOT NULL CHECK (length(attachment_id) = 16),
+    device_id      BLOB    NOT NULL CHECK (length(device_id) = 16),
+    stamp_ms       INTEGER NOT NULL CHECK (stamp_ms >= 0),
+    first_seen_ms  INTEGER NOT NULL CHECK (first_seen_ms >= 0),
+    PRIMARY KEY (vault_id, attachment_id, device_id)
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -350,10 +417,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: V3,
     },
+    Migration {
+        version: 4,
+        sql: V4,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 3;
+pub const LATEST_VERSION: u32 = 4;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -446,7 +517,7 @@ mod tests {
         assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
     }
 
-    const V4_TEST: &str = "
+    const V5_TEST: &str = "
         ALTER TABLE vaults ADD COLUMN test_flag INTEGER NOT NULL DEFAULT 7;
         CREATE TABLE test_v2 (x INTEGER) STRICT;
     ";
@@ -479,10 +550,14 @@ mod tests {
             },
             Migration {
                 version: 4,
-                sql: V4_TEST,
+                sql: V4,
+            },
+            Migration {
+                version: 5,
+                sql: V5_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 4);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 5);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -496,11 +571,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 4,
-                supported: 3
+                found: 5,
+                supported: 4
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 4);
+        assert_eq!(user_version(&c).unwrap(), 5);
     }
 
     #[test]
@@ -522,11 +597,15 @@ mod tests {
             },
             Migration {
                 version: 4,
+                sql: V4,
+            },
+            Migration {
+                version: 5,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 3);
+        assert_eq!(user_version(&c).unwrap(), 4);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -542,7 +621,7 @@ mod tests {
         let mut c = conn();
         let gappy = [Migration {
             version: 2,
-            sql: V4_TEST,
+            sql: V5_TEST,
         }];
         assert!(matches!(migrate(&mut c, &gappy), Err(Error::Corrupt)));
         assert_eq!(user_version(&c).unwrap(), 0);
@@ -718,7 +797,7 @@ mod tests {
              VALUES (x'07070707070707070707070707070707', 11, 9);",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 3);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..3]).unwrap(), 3);
         let flags: (i64, i64, i64, i64, Option<i64>, Vec<u8>, i64) = c
             .query_row(
                 "SELECT k.upload_pending, k.local_origin, v.remote_created,
@@ -767,6 +846,68 @@ mod tests {
                 .is_err(),
             "the new flag columns are checked"
         );
+    }
+
+    /// A v3 store with sync data is upgraded to v4: the data survives, the
+    /// new tables are empty (the engine state has its one neutral row) and
+    /// their checks hold.
+    #[test]
+    fn migration_v3_to_v4_keeps_data_and_adds_neutral_state() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..3]).unwrap(), 3);
+        c.execute_batch(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (x'07070707070707070707070707070707', 1, 1, 1, 5);
+             INSERT INTO sync_cursor_blobs (vault_id, cursor, updated_at)
+             VALUES (x'07070707070707070707070707070707', x'0102', 6);
+             INSERT INTO sync_local_seq (vault_id, next_seq)
+             VALUES (x'07070707070707070707070707070707', 1025);
+             UPDATE sync_checkpoint SET counter = 9;",
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 4);
+        let kept: (Vec<u8>, i64, i64) = c
+            .query_row(
+                "SELECT c.cursor, l.next_seq, k.counter
+                 FROM sync_cursor_blobs c, sync_local_seq l, sync_checkpoint k",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(kept, (vec![1, 2], 1025, 9));
+        for table in [
+            "sync_own_seq",
+            "sync_peer_checkpoint",
+            "sync_lag",
+            "sync_key_candidate",
+            "sync_marker_seen",
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table}");
+        }
+        let state: (i64, i64, i64, Option<i64>, Option<i64>) = c
+            .query_row(
+                "SELECT halt, last_published_counter, strike_count, strike_first_ms,
+                        strike_counter
+                 FROM sync_engine_state WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(state, (0, 0, 0, None, None));
+        for bad in [
+            "UPDATE sync_engine_state SET halt = 3",
+            "INSERT INTO sync_own_seq (vault_id) VALUES (x'01')",
+            "INSERT INTO sync_peer_checkpoint (device_id, counter, issued_at_ms, entries)
+             VALUES (zeroblob(16), 1, 1, zeroblob(27))",
+            "INSERT INTO sync_key_candidate (vault_id, generation, wrapped, device_id)
+             VALUES (zeroblob(16), 0, x'01', zeroblob(16))",
+        ] {
+            assert!(c.execute(bad, []).is_err(), "{bad}");
+        }
     }
 
     #[test]

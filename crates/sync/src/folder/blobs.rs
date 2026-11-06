@@ -6,9 +6,8 @@ use std::collections::BTreeMap;
 use mosaic_core::{AttachmentId, InstallId, VaultId};
 use mosaic_vault::storage::validate_attachment_ciphertext;
 
-use super::{FolderTransport, fsutil};
+use super::{FolderCrypto, FolderTransport, decoded, fsutil, lock_or};
 use crate::transport::{RemoteAttachment, TransportError};
-use crate::wire::SyncCrypto;
 use crate::wire::blob_delete::{self, BlobDelete, BlobDeletePath};
 use crate::wire::folder_names::{self, FolderName};
 
@@ -16,7 +15,7 @@ use crate::wire::folder_names::{self, FolderName};
 /// STREAM overhead, rounded up).
 const MAX_BLOB_LEN: u64 = 52 * 1024 * 1024;
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+impl<C: FolderCrypto> FolderTransport<C> {
     pub(super) fn folder_put_attachment(
         &mut self,
         vault: VaultId,
@@ -34,6 +33,24 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
             &folder_names::blob_name(id.as_bytes()),
             ciphertext,
             false,
+        )
+    }
+
+    /// Overwrites a blob that does not authenticate with the holder's
+    /// authentic copy, through a temp file and a rename: the one exception to
+    /// the write-once rule (CRYPTO_SPEC §10.1).
+    pub(super) fn folder_replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        validate_attachment_ciphertext(ciphertext).map_err(|_| TransportError::Protocol)?;
+        fsutil::write_atomic(
+            &self.layout.blobs_dir(&vault),
+            &folder_names::blob_name(id.as_bytes()),
+            ciphertext,
+            true,
         )
     }
 
@@ -63,7 +80,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
         };
         let bytes = marker
             .encode(&self.crypto)
-            .map_err(|_| TransportError::Protocol)?;
+            .map_err(|e| lock_or(e, TransportError::Protocol))?;
         fsutil::write_atomic(
             &self.layout.blobs_dir(&vault),
             &folder_names::blob_delete_name(id.as_bytes(), self.install.as_bytes()),
@@ -113,7 +130,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
                 attachment_id,
                 device_id,
             };
-            if let Ok(marker) = BlobDelete::decode(&bytes, &expected, &self.crypto) {
+            if let Some(marker) = decoded(BlobDelete::decode(&bytes, &expected, &self.crypto))? {
                 out.entry(attachment_id)
                     .or_default()
                     .push((device_id, marker.deleted_at_ms));

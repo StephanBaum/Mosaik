@@ -90,7 +90,7 @@ pub use mosaic_core::sync_auth::FolderMacPurpose;
 pub use sync::{ApplyOutcome, RemoteRecord};
 pub use sync_support::{
     AccountBootstrap, AttachmentFileState, AttachmentRef, JoinKeys, PendingVaultUpload,
-    PreparedPasswordChange, PreparedRotation, SyncKeys,
+    PreparedPasswordChange, PreparedRotation,
 };
 use unlock_methods::QuickState;
 pub use unlock_methods::{

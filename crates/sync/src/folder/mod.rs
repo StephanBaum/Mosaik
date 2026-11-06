@@ -12,9 +12,13 @@
 //! every file's MAC before they parse it, and retry a file that fails (it
 //! may be a partial upload) on the next sync instead of skipping it.
 //!
-//! The transport holds the keys of [`SyncCrypto`]
-//! ([`crate::wire::KeyedCrypto`] in production) and so must be dropped when
-//! the session locks.
+//! The transport holds no key: its [`SyncCrypto`] is
+//! [`SessionCrypto`](crate::wire::SessionCrypto) over the shared session
+//! handle, which derives the keys per operation inside the session, so
+//! locking the session ends every operation of the transport
+//! ([`TransportError::Locked`]) and nothing needs to be dropped. The same
+//! handle persists this install's own sequence numbers
+//! ([`OwnLogState`]) before a segment is written.
 
 mod account;
 mod blobs;
@@ -26,7 +30,8 @@ mod maintain;
 mod reader;
 mod writer;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -43,11 +48,38 @@ use crate::transport::{
     RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError, TransportKind,
     VaultCreateResult,
 };
-use crate::wire::SyncCrypto;
 use crate::wire::device_info::DeviceInfo;
-use crate::wire::segment::{SnapshotInfo, SnapshotTracker};
+use crate::wire::segment::SnapshotInfo;
+use crate::wire::{OwnLogState, SyncCrypto, WireError};
 use core::time::Duration;
 use mosaic_core::{AttachmentId, VaultMetaCiphertext, WrappedKey};
+
+/// What the folder transport needs from its crypto provider: the keyed
+/// operations, the persisted own-log state, and to be sendable.
+pub trait FolderCrypto: SyncCrypto + OwnLogState + Send {}
+
+impl<T: SyncCrypto + OwnLogState + Send> FolderCrypto for T {}
+
+/// The transport error of a failed wire operation: a locked session is
+/// [`TransportError::Locked`], anything else `other`.
+pub(crate) fn lock_or(e: WireError, other: TransportError) -> TransportError {
+    if e == WireError::Locked {
+        TransportError::Locked
+    } else {
+        other
+    }
+}
+
+/// `Ok(Some(v))` for a decoded value, `Ok(None)` for bytes that do not
+/// verify or parse, and `Err(Locked)` if the session is locked (nothing may
+/// be concluded about the bytes then).
+pub(crate) fn decoded<T>(r: Result<T, WireError>) -> Result<Option<T>, TransportError> {
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(WireError::Locked) => Err(TransportError::Locked),
+        Err(_) => Ok(None),
+    }
+}
 
 /// What [`FolderTransport::open`] needs.
 pub struct FolderConfig<C> {
@@ -89,20 +121,27 @@ pub(crate) struct ScanEntry {
 }
 
 /// The folder transport. See the [module documentation](self).
-pub struct FolderTransport<C: SyncCrypto + Send> {
+pub struct FolderTransport<C: FolderCrypto> {
     pub(crate) layout: Layout,
     pub(crate) account: AccountId,
     pub(crate) install: InstallId,
     pub(crate) crypto: C,
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) scan: BTreeMap<(VaultId, InstallId, u64), ScanEntry>,
-    pub(crate) trackers: BTreeMap<(VaultId, InstallId), SnapshotTracker>,
     /// The next sequence number of this install's log per vault, so it never
-    /// goes back within a run even if the directory listing lags.
+    /// goes back within a run even if the directory listing lags (the
+    /// persisted reservation covers a restart).
     pub(crate) own_next: BTreeMap<VaultId, u64>,
+    /// Vaults whose own log skipped a planted name: the next housekeeping
+    /// compacts them, so the hole closes.
+    pub(crate) force_compact: BTreeSet<VaultId>,
+    /// The checkpoint candidates of this install's own directory that the
+    /// last [`Transport::checkpoints`] call read (name, length, time): only
+    /// conflict copies read in the run are deleted.
+    pub(crate) own_checkpoints_read: BTreeMap<OsString, (u64, Option<SystemTime>)>,
 }
 
-impl<C: SyncCrypto + Send> core::fmt::Debug for FolderTransport<C> {
+impl<C: FolderCrypto> core::fmt::Debug for FolderTransport<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FolderTransport")
             .field("account", &self.account)
@@ -111,7 +150,7 @@ impl<C: SyncCrypto + Send> core::fmt::Debug for FolderTransport<C> {
     }
 }
 
-impl<C: SyncCrypto + Send> FolderTransport<C> {
+impl<C: FolderCrypto> FolderTransport<C> {
     /// Opens a Mosaic folder (see [`init`]) for one account and publishes
     /// this device's sealed info.
     ///
@@ -135,8 +174,9 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
             crypto: config.crypto,
             clock: config.clock,
             scan: BTreeMap::new(),
-            trackers: BTreeMap::new(),
             own_next: BTreeMap::new(),
+            force_compact: BTreeSet::new(),
+            own_checkpoints_read: BTreeMap::new(),
         };
         transport.write_device_info(&config.device)?;
         Ok(transport)
@@ -155,7 +195,9 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
     }
 
     fn write_device_info(&self, info: &DeviceInfo) -> Result<(), TransportError> {
-        let sealed = info.seal(&self.crypto).map_err(|_| TransportError::Io)?;
+        let sealed = info
+            .seal(&self.crypto)
+            .map_err(|e| lock_or(e, TransportError::Io))?;
         fsutil::write_atomic(
             &self.layout.device_dir(&self.install),
             INFO_NAME,
@@ -169,7 +211,7 @@ impl<C: SyncCrypto + Send> FolderTransport<C> {
     }
 }
 
-impl<C: SyncCrypto + Send> Transport for FolderTransport<C> {
+impl<C: FolderCrypto> Transport for FolderTransport<C> {
     fn kind(&self) -> TransportKind {
         TransportKind::Folder
     }
@@ -236,6 +278,15 @@ impl<C: SyncCrypto + Send> Transport for FolderTransport<C> {
         self.folder_put_attachment(vault, id, ciphertext)
     }
 
+    fn replace_attachment(
+        &mut self,
+        vault: VaultId,
+        id: AttachmentId,
+        ciphertext: &[u8],
+    ) -> Result<(), TransportError> {
+        self.folder_replace_attachment(vault, id, ciphertext)
+    }
+
     fn get_attachment(
         &mut self,
         vault: VaultId,
@@ -290,6 +341,10 @@ impl<C: SyncCrypto + Send> Transport for FolderTransport<C> {
         _cursor: &Cursor,
     ) -> Result<u64, TransportError> {
         self.own_high_seq(vault)
+    }
+
+    fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {
+        self.folder_own_logs_rolled_back(vaults)
     }
 
     fn maintain(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {

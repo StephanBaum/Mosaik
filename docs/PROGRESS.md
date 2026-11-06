@@ -1825,8 +1825,8 @@ CRYPTO_SPEC §10 and §10.1, ADR-0043 and ADR-0045 (amendments in ADR-0043).
   responses, duplicates and backoff), `rotation_folder` (the 4 listed plus recovery of a pushed but
   uncommitted rotation), `join_folder` (the 3 listed plus folder states), `malicious_folder` (the 9
   listed), `cloudsim` (5).
-- **mosaic-vault**: one additive accessor, `UnlockedSession::sync_keys` (`SyncKeys`), so the folder
-  transport can verify files without the session lock. mosaic-core is unchanged.
+- **mosaic-vault**: additive accessors for the sync layer (see "T2 review follow-ups" for the final
+  set; the first draft's `sync_keys` is removed). mosaic-core is unchanged.
 - **Deviations from the spec**: `FolderTransport::open` takes a `FolderConfig` (crypto, clock, device
   info) instead of three arguments; `maintain` is a method of the `Transport` trait with a
   `MaintainContext` instead of `maintain(&mut self, access)`; `PullPage::meta` became `metas`
@@ -1834,10 +1834,32 @@ CRYPTO_SPEC §10 and §10.1, ADR-0043 and ADR-0045 (amendments in ADR-0043).
   `RemoteVault::generation` is a lower bound for the folder (the engine does not use it); a stale
   device does not purge blobs (new rule, ADR-0043 amendment). The simulation lets one device rotate
   per round (offline or online); concurrent rotations have their own tests.
-- **Open**: the sync-chaos and crypto-reviewer passes of the spec T2 review; the hosted branches of
-  the engine are untested until T4; a snapshot attributes its copy of the current key to the writer
-  of the snapshot (CRYPTO_SPEC §10.1: only conflicting keys of one generation are compared, and an
-  unknown writer rotates); the first pull of a process verifies every segment it reads.
+- **Open**: the hosted branches of the engine are untested until T4; the first pull of a process
+  verifies every segment it reads.
+- **T2 review follow-ups (2026-11-06).** The crypto-reviewer findings C-H1, C-M1 to C-M5, C-L1 to
+  C-L6 and the info items, and the ten sync-chaos findings S1 to S10, are fixed (ADR-0043 and
+  ADR-0045 amendment; CRYPTO_SPEC §4, §10, §10.1, §11, §12.1). Derived keys no longer leave the
+  session: `sync_keys` / `SyncKeys` are gone, the folder transport holds `SessionCrypto<H>` over a
+  shared session handle and fails closed (`Locked`) when the session locks; `KeyedCrypto` is
+  test-only again. The engine state that must outlive the engine is persisted in store schema v4
+  (an additive migration with a data test): own sequence numbers (`reserved` before a write,
+  `written` after), the halt (only `clear_sync_halt`, a T5 user action, clears it), the last
+  published checkpoint counter and the strikes, the newest checkpoint of every other device (never
+  a lower counter), lag timers, the vault keys seen per generation with their lowest writer, and
+  the first-seen time of blob delete markers. Behavior: a rolled-back own log halts before any
+  write and no number is reused; planted names are stepped past and removed; snapshot sets
+  complete from the folder state; blobs are authenticated on fetch and healed by the holder;
+  blob purge ages from the first-seen time on the purging device's clock and waits for no lag, no
+  key conflict and no unexplained object; the canonical winner ranks every key by its lowest
+  writer; a withheld new vault is reported; a join tries account files in order; hostile files
+  (symlinks, floods, phantom devices) are bounded. Regression tests: `chaos/review.rs` (one or
+  more per finding), the ten chaos tests run without `#[ignore]` (S1 was rewritten for the halt
+  design), vault tests for the migration, the accessors and the attachment check. Test helper
+  change: `LocalSession` is a shared handle (`Dev::s()` returns a guard; two guards of one device
+  in one statement panic instead of deadlocking). Deviations are listed in the review report:
+  the rollback check compares the highest listed own segment with `written` (no compaction floor),
+  and the holder checks a same-size blob once per engine lifetime instead of once per run.
+  `THREAT_MODEL` R57a records that a lost device keeps `AK` until re-key (M7).
 
 ## Open risks / findings
 

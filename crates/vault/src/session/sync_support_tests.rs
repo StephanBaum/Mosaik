@@ -703,36 +703,108 @@ fn sync_config_and_cursors_through_the_session() {
     assert_eq!(locked.sync_config().unwrap(), Some(config));
 }
 
-/// The keys a transport holds without a session compute what the session
-/// computes.
+/// A downloaded attachment is stored only if every chunk opens under the file
+/// key of the item that refers to it; a file of valid layout with a flipped
+/// byte is refused, and so is a file sealed under another key.
 #[test]
-fn sync_keys_match_the_session_operations() {
-    use mosaic_core::sync_auth;
-
-    let (s, _) = account();
-    let keys = s.sync_keys().unwrap();
-    assert_eq!(keys.account_id, s.account_id());
-    assert_eq!(keys.install_id, s.install_id());
-    let digest = [7u8; 32];
-    assert_eq!(
-        sync_auth::checkpoint_mac(&keys.checkpoint, &keys.install_id, 5, &digest).unwrap(),
-        s.checkpoint_mac(5, &digest).unwrap()
+fn remote_attachments_must_authenticate() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _) = account_in(file_store(&dir));
+    let v = s.create_vault("A").unwrap();
+    let item = login(&mut s, v, "with file");
+    let id = s
+        .add_attachment(v, item, "a.txt", "text/plain", b"attachment body")
+        .unwrap();
+    let ct = s.attachment_ciphertext(id).unwrap();
+    assert!(s.remote_attachment_authentic(v, item, id, &ct).unwrap());
+    let mut flipped = ct.clone();
+    let last = flipped.len() - 1;
+    flipped[last] ^= 1;
+    assert!(
+        !s.remote_attachment_authentic(v, item, id, &flipped)
+            .unwrap()
     );
-    assert_eq!(
-        sync_auth::folder_mac(&keys.folder, FolderMacPurpose::Segment, b"msg").unwrap(),
-        s.folder_mac(FolderMacPurpose::Segment, b"msg").unwrap()
-    );
-    let sealed = s.seal_device_info(&[0u8; 512]).unwrap();
-    let opened = sync_auth::open_device_info(
-        &keys.device_info,
-        &keys.account_id,
-        &keys.install_id,
-        &sealed,
+    // Same layout, other key.
+    let other = mosaic_core::seal_attachment(
+        &mosaic_core::AttachmentKey::generate().unwrap(),
+        &v,
+        &item,
+        &id,
+        b"attachment body",
     )
     .unwrap();
-    assert_eq!(opened.expose_secret().len(), 512);
-    assert!(
-        !format!("{keys:?}").contains("7, 7, 7"),
-        "debug is redacted"
-    );
+    assert_eq!(other.len(), ct.len());
+    assert!(!s.remote_attachment_authentic(v, item, id, &other).unwrap());
+    assert!(matches!(
+        s.store_remote_attachment(v, item, id, &other),
+        Err(Error::Core(_))
+    ));
+    // An attachment the item does not refer to.
+    let stranger = mosaic_core::AttachmentId::new_v7().unwrap();
+    assert!(matches!(
+        s.remote_attachment_authentic(v, item, stranger, &ct),
+        Err(Error::UnknownAttachmentReference)
+    ));
+}
+
+/// The persisted engine state survives a lock, `reset_sync_state` clears the
+/// state of the old backend but keeps a halt and the checkpoint counter, and
+/// `clear_sync_halt` keeps the reserved sequence numbers.
+#[test]
+fn engine_state_persists_and_resets_with_the_backend() {
+    use crate::storage::{PeerCheckpoint, PeerEntry, SyncHalt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, created) = account_in(file_store(&dir));
+    let v = s.create_vault("A").unwrap();
+    let device = mosaic_core::InstallId::new_v7().unwrap();
+    s.reserve_own_seq(v, 7).unwrap();
+    s.confirm_own_seq(v, 6).unwrap();
+    s.set_last_published_counter(3).unwrap();
+    s.set_checkpoint_strikes(1, Some(10), Some(3)).unwrap();
+    s.set_sync_halt(SyncHalt::Rollback).unwrap();
+    s.set_sync_lag(&[(device, v, 5)]).unwrap();
+    let cp = PeerCheckpoint {
+        device_id: device,
+        counter: 2,
+        issued_at_ms: 9,
+        entries: vec![PeerEntry {
+            vault_id: v,
+            generation: mosaic_core::KeyGeneration::FIRST,
+            high_seq: 4,
+        }],
+    };
+    assert!(s.put_peer_checkpoint(&cp).unwrap());
+    s.marker_first_seen(
+        v,
+        &[crate::storage::MarkerStamp {
+            attachment_id: mosaic_core::AttachmentId::new_v7().unwrap(),
+            device_id: device,
+            stamp_ms: 1,
+        }],
+        50,
+    )
+    .unwrap();
+    let mut s = s.lock().unlock(&pw(), &created.secret_key).unwrap();
+    assert_eq!(s.own_seq(v).unwrap().reserved, 7);
+    assert_eq!(s.own_seq(v).unwrap().written, 6);
+    assert_eq!(s.peer_checkpoints().unwrap(), vec![cp]);
+    assert_eq!(s.sync_lag().unwrap(), vec![(device, v, 5)]);
+    let st = s.sync_engine_state().unwrap();
+    assert_eq!(st.halt, Some(SyncHalt::Rollback));
+    assert_eq!((st.last_published_counter, st.strike_count), (3, 1));
+
+    s.reset_sync_state().unwrap();
+    assert_eq!(s.own_seq(v).unwrap().reserved, 0);
+    assert_eq!(s.peer_checkpoints().unwrap(), Vec::new());
+    assert_eq!(s.sync_lag().unwrap(), Vec::new());
+    let st = s.sync_engine_state().unwrap();
+    assert_eq!(st.halt, Some(SyncHalt::Rollback), "the halt stays");
+    assert_eq!(st.strike_count, 0);
+
+    s.reserve_own_seq(v, 4).unwrap();
+    s.confirm_own_seq(v, 4).unwrap();
+    s.clear_sync_halt().unwrap();
+    assert_eq!(s.sync_engine_state().unwrap().halt, None);
+    assert_eq!(s.own_seq(v).unwrap().reserved, 4);
 }
