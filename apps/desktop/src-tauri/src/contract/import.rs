@@ -2,6 +2,8 @@
 //! file itself, so the export's plaintext never enters JavaScript. The
 //! webview sees a preview with titles and duplicate hints, then commits or
 //! cancels; parsed data is dropped (zeroized) on commit, cancel or lock.
+//! Passkeys in an export become `passkey` items of their own (each counts in
+//! `counts` as `passkey`; M5, ADR-0041).
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +23,8 @@ wire_enum!(
         Keepass,
         /// 1Password 1PUX.
         OnePassword,
+        /// FIDO Credential Exchange Format v1.0 (JSON): passkeys and passwords.
+        Cxf,
         /// Generic CSV with a column mapping.
         Csv,
     }
@@ -37,8 +41,16 @@ wire_enum!(
         EntriesSkipped,
         /// Some one-time-password settings could not be read.
         OtpUnreadable,
-        /// Passkeys are left out (they come with M5).
+        /// Passkeys are left out: the format holds none of their private keys
+        /// (1PUX).
         PasskeysNotImported,
+        /// Some passkeys could not be read and are left out.
+        PasskeyUnreadable,
+        /// Some passkeys use an algorithm other than ES256 and are left out.
+        PasskeyUnsupported,
+        /// Some passkeys are left out: an entry held more than 100, or the
+        /// file more than 10,000.
+        PasskeysSkipped,
     }
 );
 
@@ -57,7 +69,7 @@ wire_enum!(
         TagsDropped,
         /// Older versions were dropped.
         HistoryTruncated,
-        /// A passkey is left out.
+        /// A passkey is left out: the format holds no private keys (1PUX).
         PasskeysNotImported,
         /// The category is unknown; the entry became a secure note.
         UnknownCategory,
@@ -70,6 +82,14 @@ wire_enum!(
         /// Invisible or direction-changing characters were removed from the
         /// title.
         TitleCleaned,
+        /// A passkey could not be read (bad encoding, a missing member) and is
+        /// left out.
+        PasskeyUnreadable,
+        /// A passkey uses an algorithm other than ES256 and is left out.
+        PasskeyUnsupported,
+        /// Passkeys over the limit (100 per entry, 10,000 per file) are left
+        /// out.
+        PasskeysLimit,
     }
 );
 

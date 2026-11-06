@@ -20,7 +20,7 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::model::{ItemType, PasskeyCredential, Text};
-use mosaic_core::{ItemId, Timestamp, VaultId, strip_spoofing};
+use mosaic_core::{ItemId, Timestamp, VaultId};
 use mosaic_native_messaging::bodies::{
     AssertionBody, CreateOutcome, CreatedCredential, GetOutcome, PasskeyCreateBody,
     PasskeyCreateResult, PasskeyGetBody, PasskeyGetResult, UserVerification,
@@ -30,6 +30,7 @@ use mosaic_origin::{RpIdError, webauthn_rp_id};
 use mosaic_passkey::{
     COSE_ALG_ES256, CountPersisted, CreateInput, GetInput, MAX_ALLOW_LIST, MAX_CHALLENGE_LEN,
     MAX_CREDENTIAL_ID_LEN, MAX_USER_HANDLE_LEN, MIN_CHALLENGE_LEN, b64url, from_b64url,
+    sanitize_name,
 };
 use mosaic_vault::session::{ItemFilter, UnlockedSession, VaultProtection};
 
@@ -62,9 +63,6 @@ pub(crate) fn uv_fresh(
             .duration_since(wall_at)
             .is_ok_and(|elapsed| elapsed < PASSKEY_UV_WINDOW)
 }
-
-/// The longest account name kept and shown, in bytes (WebAuthn L3 6.4.1).
-pub const MAX_ACCOUNT_NAME_BYTES: usize = 64;
 
 /// The longest name the extension may send, in characters.
 const MAX_NAME_CHARS: usize = 256;
@@ -210,22 +208,6 @@ impl PasskeyPlan {
     }
 }
 
-/// Removes control (Cc) and format (Cf, default-ignorable) characters from a
-/// name and cuts it to [`MAX_ACCOUNT_NAME_BYTES`] at a character boundary
-/// (WebAuthn L3 6.4.1: the authenticator truncates and the text must not
-/// hide or reorder itself).
-pub(crate) fn sanitize_name(name: &str) -> String {
-    let (stripped, _) = strip_spoofing(name);
-    let mut out = String::with_capacity(stripped.len().min(MAX_ACCOUNT_NAME_BYTES));
-    for c in stripped.chars().filter(|c| !c.is_control()) {
-        if out.len() + c.len_utf8() > MAX_ACCOUNT_NAME_BYTES {
-            break;
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// The origin, the top-level origin and the relying party ID of a request:
 /// both origins parse and are equal (`crossOriginFrame`), the page is secure
 /// (`insecureOrigin`), the rp ID is valid for the origin (`rpIdMismatch`).
@@ -322,9 +304,9 @@ fn passkeys_of(session: &UnlockedSession, rp_id: &str) -> Vec<Hit> {
                 .iter()
                 .find(|(id, _)| *id == entry.vault_id)
                 .map(|(_, name)| name.clone())?;
-            // The credential holds the private key; only the fields below
-            // leave this closure, and the key zeroizes with it.
-            let passkey = entry.item.passkey()?;
+            // Public fields only: the private key is not decoded here, so no
+            // key is copied for a credential that is merely a candidate.
+            let passkey = entry.item.passkey_public()?;
             (passkey.algorithm == COSE_ALG_ES256 && passkey.rp_id.as_str() == rp_id).then(|| Hit {
                 vault_id: entry.vault_id,
                 item_id: entry.item_id,
@@ -602,7 +584,7 @@ impl Backend {
 }
 
 /// The vault exists, is open here and holds passkeys (not hardware-protected).
-fn check_vault(session: &UnlockedSession, vault: VaultId) -> IpcResult<()> {
+pub(crate) fn check_vault(session: &UnlockedSession, vault: VaultId) -> IpcResult<()> {
     if !session.vaults().iter().any(|v| v.vault_id == vault) {
         return Err(IpcError::new(ErrorCode::VaultNotFound));
     }

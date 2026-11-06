@@ -43,11 +43,31 @@ pub fn check(result: Result<Import>) {
             .expect("an accepted entry makes an item");
         item.to_json().expect("an accepted entry fits the size limit");
         assert!(format!("{:?}", e.draft).starts_with("ItemDraft"));
+        // An accepted passkey is a valid ES256 credential: the key loads and
+        // re-encodes to what is stored.
+        for p in &e.draft.passkeys {
+            p.credential.validate().expect("an accepted passkey is valid");
+            assert_eq!(p.credential.algorithm, mosaic_passkey::COSE_ALG_ES256);
+            let key = mosaic_passkey::Es256Key::from_pkcs8_der(p.credential.private_key.expose_secret())
+                .expect("an accepted passkey has a P-256 key");
+            let der = key.to_pkcs8_der().expect("re-encodes");
+            assert_eq!(der.expose_secret(), p.credential.private_key.expose_secret());
+            assert!(!p.title.is_empty());
+            assert!(p.credential.user_name.len() <= mosaic_passkey::MAX_ACCOUNT_NAME_BYTES);
+        }
+        assert!(e.draft.has_item() || !e.draft.passkeys.is_empty());
     }
     let preview = import.preview(&[]);
     assert_eq!(preview.entries.len(), import.entries.len());
+    // One item per entry (none for an entry of passkeys only) and one per
+    // passkey.
     let counted: u32 = preview.counts.iter().map(|(_, n)| n).sum();
-    assert_eq!(counted as usize, import.entries.len());
+    let items: usize = import
+        .entries
+        .iter()
+        .map(|e| usize::from(e.draft.has_item()) + e.draft.passkeys.len())
+        .sum();
+    assert_eq!(counted as usize, items);
     for p in &preview.entries {
         assert!(p.duplicate_of.is_none());
         if let Some(earlier) = p.duplicate_in_file {

@@ -12,7 +12,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M2 Vault model + local store | ✅ done (2026-10-27, `2141a7d`, CI fix `9382cdc`; design work `54ea729`) |
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
-| M5 Passkeys | 🔄 in progress (T1–T3) |
+| M5 Passkeys | 🔄 in progress (T1–T4; close pending) |
 | M6 Sync server | — |
 | M7 Rotation | — |
 | M8 CLI | — |
@@ -1711,6 +1711,52 @@ only; no Rust.
   extension-attacker pass and the ux-reviewer pass of the popup switch are still due; the shim
   does not mimic native `toString` (a page can see it is replaced, R47).
 
+## M5 Passkeys — T4 import, CXF export and docs close (2026-11-06)
+
+Track T4 of the M5 plan (ADR-0041): passkeys come in from Bitwarden, KeePassXC and FIDO CXF, and
+leave as a CXF file. The milestone close follows separately.
+
+- **`mosaic-core`**: `PasskeyPublic` and `Item::passkey_public()` return the public fields of a
+  passkey (rp ID, user handle, names, credential ID, algorithm, discoverable, creation time) without
+  decoding or copying the private key. The desktop uses it for candidate planning (filter by rp ID
+  before any key is copied), item summaries and details; the key is copied only for the one
+  credential that signs or is exported (`CORE_API`).
+- **`mosaic-passkey`**: `sanitize_name` and `MAX_ACCOUNT_NAME_BYTES` moved here from the desktop (one
+  implementation, also used by the importers); `pkcs8_kind` tells a key of another
+  algorithm from a damaged P-256 key or garbage.
+- **`mosaic-import`**: depends on `mosaic-passkey`. `ItemDraft.passkeys: Vec<PasskeyDraft>`
+  (credential, sign count, title); each passkey becomes its own `passkey` item right after its entry
+  (with the entry's tags and trash state), an entry of passkeys only makes no item of its own
+  (`ItemDraft::has_item`); `Preview.counts` includes `passkey`; a passkey-only entry whose
+  credentials are already in the account is a duplicate. Warnings `passkeyUnreadable` and
+  `passkeyUnsupported` (entry and file level). Bitwarden `fido2Credentials` (UUID or `b64.` credential
+  IDs, `counter` carried over, RFC 3339 creation date), KeePassXC `KPEX_PASSKEY_*` (the PEM stripped
+  into a zeroizing buffer), the new `cxf` importer (`Format::Cxf`, `version.major == 1`, passkey,
+  basic-auth and note credentials). 1PUX is unchanged. Strict base64url (`buf::base64url_decode`,
+  size checked before allocation). Fuzz: new `cxf` target, seeds with a passkey, `common::check`
+  validates every accepted key; `cargo check --manifest-path crates/import/fuzz/Cargo.toml --bins`
+  passes.
+- **Desktop**: command `export_passkeys_cxf { vaultId, password | null }` (re-authentication taken and
+  spent, native save dialog, zeroizing buffer, atomic 0600 write with the Mark of the Web, ES256 only),
+  `ImportFormat::Cxf` with its dialog filter, the new warnings in the contract, TypeScript contract,
+  mock and fixtures. Settings has the "Export passkeys" panel (vault select, the plaintext warning,
+  the password dialog). i18n DE and EN for the panel, the CXF format and the four new warning texts;
+  the `passkeysNotImported` texts now say that the format holds no private keys (1PUX).
+- **CXF field names** were checked against the published v1.0 Proposed Standard (2025-08-14). The
+  spec text of the plan differed in two places (no `type` on the item; `basic-auth` URLs come from
+  the item's `scope`); ADR-0041 records them and the one thing not verified (no third-party CXF file
+  to test against).
+- **Tests**: `mosaic-import` 55 unit (KeePassXC passkeys, strict base64url and PEM, RFC 3339, UUIDs)
+  and 22 integration (`tests/it/passkeys.rs`: Bitwarden and CXF round trips with the imported key
+  signing an assertion that a separate `p256` verifier accepts and the counter 41 becoming 42, bad
+  keys, Ed25519, a missing user handle, commit into a vault, duplicates, the fuzz seeds); desktop
+  `handler_tests.rs` (export needs re-authentication and spends it, wrong password, cancel and failed
+  write hand it back, lock during the dialog, no passkey, round trip through the CXF importer);
+  Vitest (export panel 2, mock export 2).
+- **Not verified / open**: the crypto-reviewer pass of the import parsing and the export and the
+  ux-reviewer pass of the export panel are still due; no CXF file from another implementation; the
+  panel's visual check in light and dark and German (no Playwright run in this track).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -1757,7 +1803,7 @@ only; no Rust.
 | M3-R16 | low | Strength estimate: dictionary passwords outside the short word list score as brute force (`Tr0ub4dor&3` 72 bits); the bundled 2FA Directory data changes only with releases | accepted (ADR-0024, ADR-0023); a larger list with HIBP in M7 |
 | M3-R17 | low | The security report and the import commit run under the session lock; a large vault or import blocks other commands while they run | accepted (ADR-0024 item 5) |
 | M3-R18 | low | Windows: the agent pipe keeps the default DACL, so another local account can occupy the 32 connection slots; the agent cannot start while the OpenSSH Authentication Agent service runs | accepted (ADR-0025), R20 |
-| M3-R19 | info | Import: no KeePass key files, no Twofish or KDBX 3.1, no password-protected Bitwarden exports, passkeys left out (M5), no custom CSV column mapping in the UI | accepted (ADR-0021) |
+| M3-R19 | info | Import: no KeePass key files, no Twofish or KDBX 3.1, no password-protected Bitwarden exports, no custom CSV column mapping in the UI. Passkeys are imported from Bitwarden, KeePassXC and CXF since M5 (ES256 only; EdDSA and RSA keys are left out with a warning); 1PUX holds no private keys, so its passkeys stay out | accepted (ADR-0021, ADR-0041) |
 | M3-R20 | medium | `mosaic-core` proptest `model_sync::password_history_trim_by_edit_order` failed repeatedly on one saved input during the shell track (`replica_count = 3, offsets_days = [0, 0, 0]`; the steps were not kept) | resolved in `61a407e`: a test-oracle bug, not a core bug. Reproduced from CI seed `cc f4c785eb…` (now in `proptest-regressions/model_sync.txt`); minimal case: C changes the password, A syncs, B deletes, C repairs, A deletes and then applies C's repair, so A holds the item without a password and a change there rightly adds no history entry. The oracle now requires an unchanged history when nothing was replaced and, otherwise, one new entry under this edit's stamp holding the replaced value; deterministic test `a_password_set_after_the_own_delete_lost_the_race_replaces_nothing` |
 | M3-R21 | info | The fuzz smoke of the 13 new targets ran only in CI; locally they were only compiled (fuzzing does not run on Windows MSVC, M1-R4) | accepted |
 | M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |

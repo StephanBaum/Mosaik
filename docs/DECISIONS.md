@@ -3166,3 +3166,119 @@ Firefox registers MAIN-world scripts from version 128 (`strict_min_version` is 1
 from the documentation and is not covered by the Playwright suite, which cannot load Firefox
 extensions. Chromium is covered by `e2e/hostile/passkey-*.spec.ts` with a CDP virtual
 authenticator standing for the browser's own WebAuthn.
+
+
+## ADR-0041: Passkey import, CXF export and OS passkey providers
+
+- Status: proposed
+- Date: 2026-11-06
+- Decided by: the principal engineer, from brief section 5 "Passkeys" and M5 (the most conservative options)
+- Milestone: M5 (passkeys), track T4
+
+### Context
+Brief section 5 asks for passkey import and CXF import and export. Until M5 the importers only
+warned `passkeysNotImported` for Bitwarden `fido2Credentials`, KeePassXC `KPEX_PASSKEY_*` and 1PUX
+passkeys. Passkeys now exist as `passkey` items (ADR-0039), with an ES256 key as PKCS#8 DER.
+
+### Decision
+1. **Import** (D13). Passkeys come from three formats and each becomes **its own `passkey` item**,
+   written right after the entry it came with; the preview counts include them as `passkey`.
+   - Bitwarden JSON: each `fido2Credentials[]` member. `credentialId` is a UUID string (its 16 raw
+     bytes) or `b64.<base64url>`; `keyType` must be `public-key`, `keyAlgorithm` `ECDSA` and
+     `keyCurve` `P-256` (another value is `passkeyUnsupported`, a missing one is
+     `passkeyUnreadable`); `keyValue` is base64url PKCS#8; `userHandle` is base64url (null is
+     `passkeyUnreadable`); `counter` is a string of ASCII digits or a non-negative integer, at most
+     `u32::MAX`, and becomes the item's sign count (a float, a flag, a sign, a space or a larger
+     value is `passkeyUnreadable`);
+     `discoverable` is `"true"` or `"false"`; `creationDate` is RFC 3339 (the import time if absent
+     or unreadable).
+   - KeePassXC KDBX: the `KPEX_PASSKEY_*` attributes. `KPEX_PASSKEY_PRIVATE_KEY_PEM` is stripped of
+     its `BEGIN/END PRIVATE KEY` lines and whitespace **into a zeroizing buffer** and decoded with
+     strict standard base64; credential ID and user handle are base64url. A missing required
+     attribute is `passkeyUnreadable`.
+   - FIDO CXF v1.0 JSON (new `ImportFormat::Cxf`): see 3.
+   - 1PUX still holds no private key; it keeps `passkeysNotImported`.
+   - Every key goes through `mosaic_passkey::Es256Key::from_pkcs8_der` and is stored as
+     `to_pkcs8_der` (one encoding in the vault). A well-formed PKCS#8 key of another algorithm
+     (Ed25519, RSA, another curve) is `passkeyUnsupported`; a P-256 key that does not load (a
+     mismatched public key) and anything else that does not parse, and every size out of range
+     (credential ID 1 to 1023 bytes, user handle 1 to 64), is `passkeyUnreadable`
+     (`mosaic_passkey::pkcs8_kind` tells the two apart from the structure). Base64url is read
+     unpadded or padded (the padded form is accepted); anything else, such as the standard
+     alphabet, is refused. The **rp ID** is canonicalised by `mosaic_origin::canonical_rp_id`:
+     ASCII-lowercased, one trailing dot removed, then it must be a canonical domain name (the
+     check `webauthn_rp_id` applies: no U-label, IP address, URL, space, port or
+     direction-changing character, no empty label, at most 253 bytes) with a registrable domain in
+     the public suffix list (so `com` is refused). The canonical form is stored, so rp IDs that
+     differ only in case are one credential; anything else is `passkeyUnreadable`. A passkey item
+     without a title gets its rp ID, cleaned like a title (`strip_spoofing`). User names and display names go through
+     the same `mosaic_passkey::sanitize_name` the desktop applies to names from sites (moved from
+     the desktop into `mosaic-passkey`; one implementation).
+   - The parsers are hostile-input code: sizes are checked before anything is allocated, base64url
+     is decoded strictly (no whitespace, no non-canonical tails), keys live in zeroizing buffers,
+     nothing from the file is in an error. The import fuzz crate gets a `cxf` target and passkey
+     seeds.
+   - A passkey whose credential ID and rp ID are already in the account, or appeared earlier in the
+     file, marks a passkey-only entry as a duplicate in the preview (it starts unticked). `commit`
+     also skips such a passkey (in the vault or written earlier in the same commit) and counts it
+     in `skipped`, so a ticked duplicate never makes a second item. A favorite mark carries over to
+     passkey-only items.
+   - Caps: at most 100 passkeys per entry and 10,000 per import (`MAX_IMPORT_PASSKEYS`). The check
+     comes before a key is parsed, so a hostile file cannot cause elliptic-curve work for passkeys
+     that are dropped; the rest are left out with the entry warning `passkeysLimit` and the file
+     warning `passkeysSkipped`. A CXF item adds its `scope.urls` once, not once per `basic-auth`
+     credential (a file with thousands of both was quadratic).
+2. **Export** (D13). `export_passkeys_cxf { vaultId, password | null }` writes the ES256 passkeys
+   of one vault as a CXF v1.0 JSON file. It needs a right master password (a non-empty `password`
+   is checked first, wrong ones count towards the five-failure lock) and **takes** the two-minute
+   re-authentication (`take_reauth_grant`), so one password pays for one export; a cancelled dialog
+   or a failed write hands it back. Rust opens the native save dialog (ADR-0034 pattern, default
+   name `mosaic-passkeys-YYYY-MM-DD.json`), builds the file in one zeroizing buffer sized by a
+   counting pass (it never grows, so no stale copy of a key stays behind) only after the dialog
+   returned a path, and writes it with `write_file_atomic` (a temporary file next to the target,
+   mode 0600 on Unix, the folder's ACL is inherited on Windows, the Mark of the Web on Windows).
+   A crash between the write and the rename can leave a `.<hex>.mosaic-partial` file holding all
+   keys in the chosen folder (R52). The account ID and every item ID in the file are fresh random
+   16-byte values per export, so the file carries neither the vault ID nor an item ID. Nothing goes to the system temp directory. Settings
+   has an "Export passkeys" panel with the warning "The file contains your passkeys unencrypted.
+   Anyone with the file can sign in as you. Delete it after importing." and the password dialog.
+   A write error reuses `attachmentSaveFailed`; a vault with no ES256 passkey answers
+   `itemNotFound` before the password is spent.
+3. **CXF field names.** Checked against the published FIDO Credential Exchange Format v1.0
+   Proposed Standard (2025-08-14, `fidoalliance.org/specs/cx/cxf-v1.0-ps-20250814.html`). Header:
+   `version {major, minor}`, `exporterRpId`, `exporterDisplayName`, `timestamp` (Unix seconds),
+   `accounts[]`; account: `id`, `username`, `email`, `collections`, `items`; item: `id`,
+   `creationAt`, `modifiedAt` (seconds), `title`, `subtitle`, `favorite`, `scope {urls,
+   androidApps}`, `credentials[]`, `tags`; `type` is a member of each **credential**, not of the
+   item; passkey: `credentialId`, `rpId`, `username`, `userDisplayName`, `userHandle` (all
+   base64url) and `key` (base64url PKCS#8 DER); `basic-auth`: optional `username` and `password`
+   (`EditableField`: `fieldType`, `value`), the URLs come from the item's `scope.urls`; `note`:
+   `content`. The importer reads `version.major == 1` (else `importUnsupported`), passkeys,
+   `basic-auth` (as a login with the scope URLs), `note` (as the notes), item `tags` and
+   `favorite`; any other credential type is not imported and the entry gets `unmappedFields`.
+   Two deviations from the M5 spec text, which came from memory: there is no `type` on the item,
+   and `basic-auth` has no `urls` (they are the item's `scope`). Not verified: the standard
+   defines the data model in CDDL; the JSON used here is the serialization the member names imply,
+   and no CXF file from a third-party exporter was available to test against. A file from another
+   exporter may differ in details (extra members are ignored).
+4. **OS passkey providers are deferred.** Windows 11 third-party passkey plugin API is reachable
+   only through `webauthn.dll` COM/FFI, which needs `unsafe` (forbidden in every crate); macOS
+   needs a signed Credential Provider app extension (the Apple Developer ID is already an owner
+   item); Linux has no OS API. Mobile providers belong to M10.
+
+### Alternatives considered
+- An encrypted export: CXF has no encrypted file form (CXP is a working draft). The brief asks for
+  CXF, so the export is plaintext, gated and labelled.
+- Importing EdDSA and RSA keys: not implemented anywhere else (ADR-0039 D1); a key that cannot be
+  used would only look imported.
+- Writing the export through a temporary file in the system temp directory: plaintext keys would
+  leave the destination folder.
+
+### Consequences
+THREAT_MODEL R52 (an unencrypted export file holding private keys) and R53 (imported counters).
+PROGRESS M3-R19 is updated: passkeys are imported except from 1PUX. DESKTOP_IPC gets
+`export_passkeys_cxf`, the `cxf` import format and the warnings `passkeyUnreadable` and
+`passkeyUnsupported`. `mosaic-core` gains `PasskeyPublic` and `Item::passkey_public`, so code that
+lists or filters passkeys never copies a private key; the private key is copied only for the one
+credential being signed with or exported. Follow-ups: owner decision on dropping the export; a CXF
+file from a second implementation as a fixture when one is available.

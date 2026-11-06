@@ -47,6 +47,7 @@ pub mod events;
 pub mod keystore;
 pub mod navigation;
 pub mod otp_pending;
+pub mod passkey_export;
 pub mod persist;
 pub mod quick_unlock;
 pub mod screen_capture;

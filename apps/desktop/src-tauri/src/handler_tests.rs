@@ -2445,3 +2445,280 @@ fn unknown_attachment_maps_to_attachment_not_found() {
     let error = r.backend.attachment_preview(&req(nothing)).unwrap_err();
     assert_eq!(code(error), ErrorCode::ItemNotFound);
 }
+
+// ---------------------------------------------------------------------------
+// Passkey export (ADR-0041)
+// ---------------------------------------------------------------------------
+
+/// Adds a passkey item of `algorithm` to the vault; returns its credential ID.
+fn add_passkey(r: &DiskRig, rp_id: &str, algorithm: i64, trashed: bool) -> Vec<u8> {
+    use mosaic_core::model::{ItemType, PasskeyCredential, Text};
+    let key = mosaic_passkey::Es256Key::generate().unwrap();
+    let id = mosaic_passkey::new_credential_id().unwrap();
+    let mut credential = PasskeyCredential::new(
+        id.clone(),
+        Text::new(rp_id),
+        vec![9; 16],
+        key.to_pkcs8_der().unwrap(),
+        algorithm,
+        NOW,
+    );
+    credential.user_name = Text::new("alice");
+    let vault = r.backend.list_vaults().unwrap()[0].vault_id.get();
+    let mut slot = r.backend.slot().unwrap();
+    let session = slot.unlocked_mut().unwrap();
+    let item = session
+        .add_item(vault, &ItemType::Passkey, |e| {
+            e.set_title(rp_id)?;
+            e.set_passkey(&credential)
+        })
+        .unwrap();
+    if trashed {
+        let trash = |e: &mut mosaic_core::ItemEdit<'_>| e.trash();
+        session.update_item(vault, item, trash).unwrap();
+    }
+    id
+}
+
+fn export_request(vault: &str, password: Value) -> crate::contract::export::ExportPasskeysRequest {
+    req(json!({ "vaultId": vault, "password": password }))
+}
+
+#[test]
+fn passkey_export_needs_reauth_and_round_trips_through_cxf_import() {
+    use crate::contract::export::PasskeysExported;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    let id = add_passkey(&r, "example.com", -7, false);
+    // Not exported: another algorithm, and a trashed one.
+    add_passkey(&r, "ed.example", -8, false);
+    add_passkey(&r, "gone.example", -7, true);
+    let out = r.dir.path().join("passkeys.json");
+    r.picks.save(Some(&out));
+
+    // No password and no earlier verification: nothing happens, no dialog.
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ReauthRequired);
+    assert!(r.picks.suggested.lock().unwrap().is_empty());
+    assert!(!out.exists());
+    // A wrong password.
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, json!("not the password")))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::WrongCredentials);
+    assert!(!out.exists());
+
+    // The right password: saved, with the date in the suggested name.
+    let saved = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+        .unwrap();
+    assert_eq!(saved, PasskeysExported::Saved { count: 1 });
+    let suggested = r.picks.suggested.lock().unwrap().clone();
+    assert!(suggested[0].starts_with("mosaic-passkeys-"));
+    assert_eq!(
+        std::path::Path::new(&suggested[0]).extension().unwrap(),
+        "json"
+    );
+    assert_eq!(r.picks.filters.lock().unwrap()[0].0, "JSON");
+    let bytes = std::fs::read(&out).unwrap();
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    assert!(text.contains(r#""exporterRpId":"mosaic.local""#));
+    assert!(!text.contains("ed.example") && !text.contains("gone.example"));
+    // Only the file itself is left in the folder (no temp copy).
+    let names: Vec<_> = std::fs::read_dir(r.dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().all(|n| !n.ends_with(".mosaic-partial")),
+        "{names:?}"
+    );
+
+    // The re-authentication is spent: another export needs the password again.
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ReauthRequired);
+
+    // The file imports as CXF: the same credential, as a passkey item.
+    r.picks.open(Some(&out));
+    let token = chosen(&r.backend, "cxf");
+    let preview = preview_of(&r.backend, &token, "cxf", Value::Null).unwrap();
+    assert_eq!(preview.counts.len(), 1);
+    assert_eq!(preview.counts[0].count, 1);
+    assert_eq!(preview.entries.len(), 1);
+    assert!(
+        preview.entries[0].duplicate_of.is_some(),
+        "the passkey is already in the vault"
+    );
+    // The importer reads the same bytes: the credential ID matches.
+    let import = mosaic_import::parse(mosaic_import::Format::Cxf, &bytes, None).unwrap();
+    assert_eq!(
+        import.entries[0].draft.passkeys[0].credential.credential_id,
+        id
+    );
+    assert_eq!(
+        import.entries[0].draft.passkeys[0]
+            .credential
+            .rp_id
+            .as_str(),
+        "example.com"
+    );
+}
+
+#[test]
+fn passkey_export_cancel_and_failures_hand_the_reauthentication_back() {
+    use crate::contract::export::PasskeysExported;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    add_passkey(&r, "example.com", -7, false);
+    // A cancelled dialog writes nothing and keeps the grant.
+    r.picks.save(None);
+    let cancelled = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+        .unwrap();
+    assert_eq!(cancelled, PasskeysExported::Cancelled);
+    // A folder that does not exist: the write fails, the grant stays.
+    r.picks
+        .save(Some(&r.dir.path().join("no/such/folder/p.json")));
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::AttachmentSaveFailed);
+    // The vault locks while the dialog is open: nothing is built or written.
+    let later = r.dir.path().join("later.json");
+    r.picks.save(Some(&later));
+    lock_during_dialog(&r);
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
+    assert!(!later.exists());
+    *r.picks.during.lock().unwrap() = None;
+    unlock_again(&r.backend);
+    // After a fresh password it works.
+    let saved = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+        .unwrap();
+    assert_eq!(saved, PasskeysExported::Saved { count: 1 });
+    assert!(later.exists());
+}
+
+#[test]
+fn passkey_export_ids_are_random_per_export_and_not_the_vaults() {
+    use crate::contract::export::PasskeysExported;
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    add_passkey(&r, "example.com", -7, false);
+    add_passkey(&r, "example.org", -7, false);
+    let ids_of = |name: &str| -> Vec<String> {
+        let out = r.dir.path().join(name);
+        r.picks.save(Some(&out));
+        let saved = r
+            .backend
+            .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+            .unwrap();
+        assert_eq!(saved, PasskeysExported::Saved { count: 2 });
+        let doc: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+        let account = &doc["accounts"][0];
+        let mut ids = vec![account["id"].as_str().unwrap().to_owned()];
+        ids.extend(
+            account["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["id"].as_str().unwrap().to_owned()),
+        );
+        ids
+    };
+    let (first, second) = (ids_of("a.json"), ids_of("b.json"));
+    assert_eq!(first.len(), 3);
+    // Fresh IDs per export: no ID repeats, within a file or across files.
+    let all: std::collections::HashSet<&String> = first.iter().chain(&second).collect();
+    assert_eq!(all.len(), 6);
+    // 16 random bytes in base64url, and neither the vault ID nor an item ID.
+    let mut real = vec![mosaic_passkey::b64url(
+        r.backend.list_vaults().unwrap()[0]
+            .vault_id
+            .get()
+            .as_bytes(),
+    )];
+    {
+        let slot = r.backend.slot().unwrap();
+        let session = slot.unlocked().unwrap();
+        real.extend(
+            session
+                .items(&mosaic_vault::session::ItemFilter::default())
+                .iter()
+                .map(|i| mosaic_passkey::b64url(i.item_id.as_bytes())),
+        );
+    }
+    assert_eq!(real.len(), 3);
+    for id in first.iter().chain(&second) {
+        assert_eq!(
+            mosaic_passkey::from_b64url(id, 64).unwrap().len(),
+            16,
+            "{id}"
+        );
+        assert!(!real.contains(id), "{id}");
+    }
+}
+
+#[test]
+fn a_passkey_dialog_password_does_not_pay_for_a_passkey_export() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    add_passkey(&r, "example.com", -7, false);
+    let out = r.dir.path().join("passkeys.json");
+    r.picks.save(Some(&out));
+    // The passkey dialog verifies the master password without earning the
+    // two-minute re-authentication grant.
+    r.backend
+        .verify_master_only(&mosaic_core::MasterPassword::new(PASSWORD.to_owned()))
+        .unwrap();
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ReauthRequired);
+    assert!(r.picks.suggested.lock().unwrap().is_empty());
+    assert!(!out.exists());
+}
+
+#[test]
+fn passkey_export_refuses_empty_and_unknown_vaults() {
+    let _kdf = crate::test_support::kdf_permit();
+    let r = disk_rig();
+    // No passkey in the vault.
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, json!(PASSWORD)))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::ItemNotFound);
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(
+            "019a2b3c-0000-7000-8000-0000000000aa",
+            json!(PASSWORD),
+        ))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::VaultNotFound);
+    assert!(r.picks.suggested.lock().unwrap().is_empty());
+    // Nothing was verified, so a wrong request did not cost a password try.
+    r.backend.lock(LockReason::Manual).unwrap();
+    let error = r
+        .backend
+        .export_passkeys_cxf(export_request(&r.vault, Value::Null))
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::Locked);
+}

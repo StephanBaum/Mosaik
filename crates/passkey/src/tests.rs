@@ -547,6 +547,44 @@ fn pkcs8_on_another_curve_or_with_another_public_key_is_refused() {
 }
 
 #[test]
+fn pkcs8_kind_tells_damaged_p256_from_other_algorithms() {
+    const P256: [u8; 8] = hex!("2A8648CE3D030107");
+    const P384: [u8; 5] = hex!("2B81040022");
+    let point = |x: &[u8], y: &[u8]| [&[0x04][..], x, y].concat();
+    let valid = key().to_pkcs8_der().unwrap();
+    assert_eq!(pkcs8_kind(valid.expose_secret()), Pkcs8Kind::P256);
+
+    // P-256 with the public key of another scalar: damaged, but still P-256.
+    let other = Es256Key::from_scalar(&[7; 32]).cose_public_key();
+    let mismatched = pkcs8_ec(&P256, &D, Some(&point(&other[10..42], &other[45..77])));
+    assert!(Es256Key::from_pkcs8_der(&mismatched).is_err());
+    assert_eq!(pkcs8_kind(&mismatched), Pkcs8Kind::P256);
+
+    // Another curve is valid PKCS#8 but not ES256.
+    let p384 = pkcs8_ec(&P384, &[7; 48], Some(&point(&[1; 48], &[2; 48])));
+    assert_eq!(pkcs8_kind(&p384), Pkcs8Kind::Other);
+
+    // RSA: rsaEncryption with NULL parameters and a stand-in private key.
+    let mut algorithm = der(0x06, &hex!("2A864886F70D010101"));
+    algorithm.extend([0x05, 0x00]);
+    let mut info = der(0x02, &[0]);
+    info.extend(der(0x30, &algorithm));
+    info.extend(der(0x04, &der(0x30, &der(0x02, &[1]))));
+    let rsa = der(0x30, &info);
+    assert!(Es256Key::from_pkcs8_der(&rsa).is_err());
+    assert_eq!(pkcs8_kind(&rsa), Pkcs8Kind::Other);
+
+    for junk in [
+        &[][..],
+        &[0x30, 0x00],
+        b"not der at all",
+        &valid.expose_secret()[..40],
+    ] {
+        assert_eq!(pkcs8_kind(junk), Pkcs8Kind::NotPkcs8);
+    }
+}
+
+#[test]
 fn authenticator_data_refuses_a_credential_id_over_65535_bytes() {
     let cose = key().cose_public_key();
     let at_flags = base_flags(false, flags::AT);

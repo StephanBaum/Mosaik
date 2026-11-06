@@ -138,8 +138,10 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | **Import** | | | |
 | `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | live |
 | `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, format, entries: { index, kind, title \| null, subtitle \| null, duplicateOf: { vaultId, itemId } \| null, duplicateInFile \| null, attachments, warnings: ImportEntryWarning[] }[], skipped: { index, reason: "malformed" \| "empty" \| "tooLarge" }[], counts: { kind, count }[], attachments, attachmentBytes, warnings: ImportWarning[] }` | `importFileUnreadable`, `importFormatInvalid`, `importTooLarge`, `importUnsupported`, `importEncrypted`, `wrongCredentials` | live (mosaic-import, ADR-0021) |
-| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed }` | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
+| `import_commit` | `{ previewId, targetVaultId, skip }` → `{ imported, skipped, failed, attachments, attachmentsFailed }` (`imported` counts every item added, passkeys included) | `importPreviewExpired`, `vaultNotFound`, `vaultUnavailable` | live |
 | `import_cancel` | `{ previewId }` → `null` | | live |
+| **Export** | | | |
+| `export_passkeys_cxf` | `{ vaultId, password: SecretIn \| null }` → `{ kind: "saved", count } \| { kind: "cancelled" }` | `reauthRequired` (no `password` and no right `reauthenticate` in the last two minutes; a success spends the re-authentication, a cancel or a failed write hands it back), `wrongCredentials` (counts towards the five-failure lock), `vaultNotFound`, `vaultUnavailable` (closed or hardware-protected), `itemNotFound` (no ES256 passkey in the vault; answered before the password is checked), `attachmentSaveFailed` (the file could not be written there), `locked`, `internal` | live (M5 T4, ADR-0041: Rust opens the native save dialog, builds a FIDO CXF v1.0 JSON file with the ES256 passkeys of the vault in a zeroizing buffer and writes it atomically, mode 0600, Mark of the Web on Windows; the file holds the private keys unencrypted) |
 | **SSH agent** | | | |
 | `ssh_agent_status` | `null` → `{ enabled, running, endpoint \| null, keyCount, skipped: { vaultId, itemId, reason: "unsupported" \| "malformed" \| "duplicate" }[], error \| null }` | | live |
 | `ssh_agent_set_enabled` | `{ enabled }` → `SshAgentStatus` | `sshAgentUnavailable`, `sshAgentEndpointInUse`; turning it on needs unlocked | live (mosaic-ssh-agent, ADR-0025; off by default) |
@@ -252,8 +254,24 @@ Notes per area:
   with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
   `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
   `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
-  `attachmentQuota`, `titleCleaned`. `ImportWarning` is `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`,
-  `otpUnreadable` or `passkeysNotImported`.
+  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported` or `passkeysLimit`.
+  `ImportWarning` is
+  `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
+  `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
+  `onePassword`, `cxf` or `csv`.
+  Passkeys (M5, ADR-0041): Bitwarden, KeePassXC and CXF passkeys become `passkey` items of their own,
+  one per credential, written right after their entry; `counts` has a `passkey` entry and
+  `import_commit`'s `imported` counts them. An entry of passkeys only is listed with kind `passkey`
+  and makes no other item. `passkeysNotImported` remains for 1PUX only (it holds no private
+  keys); `passkeyUnreadable` means a passkey could not be decoded, `passkeyUnsupported` that its key
+  is not ES256, `passkeysSkipped` / `passkeysLimit` that passkeys over 100 per entry or 10,000 per
+  file were left out. A passkey already in the vault is skipped by `import_commit` and counted in
+  `skipped`. No warning carries a value from the file.
+- **Export** (ADR-0041). `export_passkeys_cxf` is the one command that writes private keys out of the
+  vault. The webview sends a vault ID and the master password and gets a count back; Rust opens the
+  save dialog, builds the file after the dialog returned a path, and writes it. The panel shows the
+  warning "The file contains your passkeys unencrypted. Anyone with the file can sign in as you.
+  Delete it after importing." before the password is asked for.
 - **SSH agent.** Off by default, and it runs only while unlocked. Each sign request arrives as
   `sshApprovalRequested`, carrying:
   - the key item and its fingerprint;
@@ -388,7 +406,7 @@ without its own code becomes `internal`, which leaks nothing.
 
 | Direction | Type | Where |
 |---|---|---|
-| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
+| webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, the `password` of `export_passkeys_cxf`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key` |
 | Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code` |
 
 Preview pixels are a second Rust → webview flow of decrypted content. They are not a

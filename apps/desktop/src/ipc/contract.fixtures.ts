@@ -62,6 +62,7 @@ export const fixtures = {
     "import_preview",
     "import_commit",
     "import_cancel",
+    "export_passkeys_cxf",
     "ssh_agent_status",
     "ssh_agent_set_enabled",
     "ssh_respond",
@@ -214,13 +215,17 @@ export const fixtures = {
       "fieldsDropped",
       "archived",
       "attachmentQuota",
-      "titleCleaned"
+      "titleCleaned",
+      "passkeyUnreadable",
+      "passkeyUnsupported",
+      "passkeysLimit"
     ],
     "importFormat": [
       "enpass",
       "bitwarden",
       "keepass",
       "onePassword",
+      "cxf",
       "csv"
     ],
     "importSkipReason": [
@@ -233,7 +238,10 @@ export const fixtures = {
       "attachmentsSkipped",
       "entriesSkipped",
       "otpUnreadable",
-      "passkeysNotImported"
+      "passkeysNotImported",
+      "passkeyUnreadable",
+      "passkeyUnsupported",
+      "passkeysSkipped"
     ],
     "insightAction": [
       "changePassword",
@@ -1175,6 +1183,12 @@ export const fixtures = {
         "pin": "246810"
       }
     ],
+    "export_passkeys_cxf": [
+      {
+        "password": null,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
     "generate_password": [
       {
         "digits": true,
@@ -1231,6 +1245,9 @@ export const fixtures = {
       },
       {
         "format": "onePassword"
+      },
+      {
+        "format": "cxf"
       },
       {
         "format": "csv"
@@ -2277,6 +2294,15 @@ export const fixtures = {
         "maxAgeDays": 30
       }
     ],
+    "export_passkeys_cxf": [
+      {
+        "count": 2,
+        "kind": "saved"
+      },
+      {
+        "kind": "cancelled"
+      }
+    ],
     "generate_password": [
       {
         "entropyBits": 131.1,
@@ -2545,7 +2571,10 @@ export const fixtures = {
               "fieldsDropped",
               "archived",
               "attachmentQuota",
-              "titleCleaned"
+              "titleCleaned",
+              "passkeyUnreadable",
+              "passkeyUnsupported",
+              "passkeysLimit"
             ]
           },
           {
@@ -2580,7 +2609,10 @@ export const fixtures = {
           "attachmentsSkipped",
           "entriesSkipped",
           "otpUnreadable",
-          "passkeysNotImported"
+          "passkeysNotImported",
+          "passkeyUnreadable",
+          "passkeyUnsupported",
+          "passkeysSkipped"
         ]
       }
     ],

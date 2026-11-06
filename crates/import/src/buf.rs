@@ -7,7 +7,7 @@
 
 use std::io::{ErrorKind, Read};
 
-use base64ct::{Base64, Base64Unpadded, Encoding};
+use base64ct::{Base64, Base64Unpadded, Base64Url, Base64UrlUnpadded, Encoding};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::{Error, Result};
@@ -87,6 +87,67 @@ pub(crate) fn base64_decode(text: &str) -> Result<Buf> {
     Ok(out)
 }
 
+/// Decodes base64url (RFC 4648 section 5) into a zeroizing buffer, strictly:
+/// no whitespace, no characters outside the alphabet, no non-zero trailing
+/// bits; padding is accepted but not required. The decoded size is checked
+/// against `max_len` **before** anything is allocated.
+///
+/// # Errors
+/// [`Error::TooLarge`] if the value decodes to more than `max_len` bytes,
+/// [`Error::Malformed`] for anything that is not canonical base64url.
+pub(crate) fn base64url_decode(text: &str, max_len: usize) -> Result<Buf> {
+    let max_chars = max_len.div_ceil(3).saturating_mul(4);
+    if text.len() > max_chars {
+        return Err(Error::TooLarge);
+    }
+    let mut out = with_capacity(max_chars / 4 * 3 + 3)?;
+    out.resize(max_chars / 4 * 3 + 3, 0);
+    let len = match Base64UrlUnpadded::decode(text, out.as_mut_slice()) {
+        Ok(d) => d.len(),
+        Err(_) => Base64Url::decode(text, out.as_mut_slice())
+            .map_err(|_| Error::Malformed)?
+            .len(),
+    };
+    if len > max_len {
+        return Err(Error::TooLarge);
+    }
+    out.truncate(len);
+    Ok(out)
+}
+
+/// The DER bytes of a PEM `PRIVATE KEY` (PKCS#8) block: the BEGIN and END
+/// lines are checked and removed, the base64 body is gathered **in a
+/// zeroizing buffer** and decoded strictly (standard alphabet, padded). Text
+/// before the BEGIN line or after the END line, any other label, and bodies
+/// over `max_len` bytes are refused.
+///
+/// # Errors
+/// [`Error::Malformed`], [`Error::TooLarge`].
+pub(crate) fn pem_private_key_der(pem: &str, max_len: usize) -> Result<Buf> {
+    const BEGIN: &str = "-----BEGIN PRIVATE KEY-----";
+    const END: &str = "-----END PRIVATE KEY-----";
+    let max_chars = max_len.div_ceil(3).saturating_mul(4);
+    // Whitespace between lines is allowed; bound the whole block first.
+    if pem.len() > max_chars.saturating_add(max_chars / 32 + 128) {
+        return Err(Error::TooLarge);
+    }
+    let rest = pem.trim().strip_prefix(BEGIN).ok_or(Error::Malformed)?;
+    let body = rest.strip_suffix(END).ok_or(Error::Malformed)?;
+    let mut compact = with_capacity(body.len())?;
+    compact.extend(body.bytes().filter(|b| !b.is_ascii_whitespace()));
+    if compact.len() > max_chars {
+        return Err(Error::TooLarge);
+    }
+    let max = compact.len() / 4 * 3 + 3;
+    let mut out = with_capacity(max)?;
+    out.resize(max, 0);
+    let len = Base64::decode(compact.as_slice(), out.as_mut_slice())
+        .map_err(|_| Error::Malformed)?
+        .len();
+    out.truncate(len);
+    Ok(out)
+}
+
 /// Moves the bytes of `buf` into a zeroizing string if they are UTF-8.
 pub(crate) fn into_string(mut buf: Buf) -> Result<Str> {
     let v = core::mem::take(&mut *buf);
@@ -156,6 +217,86 @@ mod tests {
         );
         assert!(base64_decode("").unwrap().is_empty());
         assert_eq!(base64_decode("a*==").unwrap_err(), Error::Malformed);
+    }
+
+    #[test]
+    fn base64url_is_strict_and_bounded() {
+        assert_eq!(
+            base64url_decode("aGVsbG8", 16).unwrap().as_slice(),
+            b"hello"
+        );
+        assert_eq!(
+            base64url_decode("aGVsbG8=", 16).unwrap().as_slice(),
+            b"hello"
+        );
+        assert_eq!(
+            base64url_decode("-_-_", 16).unwrap().as_slice(),
+            [0xfb, 0xff, 0xbf]
+        );
+        assert!(base64url_decode("", 16).unwrap().is_empty());
+        // Standard alphabet, whitespace, bad padding, non-canonical tail.
+        for bad in [
+            "+/+/",
+            "aGVs bG8",
+            "aGVsbG8==",
+            "aGVsbG9",
+            "a",
+            "aGVsbG8
+",
+        ] {
+            assert_eq!(
+                base64url_decode(bad, 16).unwrap_err(),
+                Error::Malformed,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(base64url_decode("aGVsbG8", 4).unwrap_err(), Error::TooLarge);
+        assert_eq!(
+            base64url_decode(&"A".repeat(100_000), 8).unwrap_err(),
+            Error::TooLarge
+        );
+    }
+
+    #[test]
+    fn pem_private_key_is_stripped_and_checked() {
+        let pem = "-----BEGIN PRIVATE KEY-----
+AAEC
+AwQF
+-----END PRIVATE KEY-----
+";
+        assert_eq!(
+            pem_private_key_der(pem, 16).unwrap().as_slice(),
+            [0, 1, 2, 3, 4, 5]
+        );
+        let crlf = "-----BEGIN PRIVATE KEY-----
+AAECAwQF
+-----END PRIVATE KEY-----";
+        assert_eq!(pem_private_key_der(crlf, 16).unwrap().len(), 6);
+        for bad in [
+            "AAECAwQF",
+            "-----BEGIN EC PRIVATE KEY-----
+AAECAwQF
+-----END EC PRIVATE KEY-----",
+            "junk -----BEGIN PRIVATE KEY-----
+AAECAwQF
+-----END PRIVATE KEY-----",
+            "-----BEGIN PRIVATE KEY-----
+AAECAwQF
+-----END PRIVATE KEY----- junk",
+            "-----BEGIN PRIVATE KEY-----
+AA*CAwQF
+-----END PRIVATE KEY-----",
+            "-----BEGIN PRIVATE KEY-----
+AAECAwQ
+-----END PRIVATE KEY-----",
+        ] {
+            assert_eq!(
+                pem_private_key_der(bad, 16).unwrap_err(),
+                Error::Malformed,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(pem_private_key_der(pem, 3).unwrap_err(), Error::TooLarge);
     }
 
     #[test]

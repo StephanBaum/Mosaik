@@ -16,6 +16,8 @@
 //! - [`idn_unicode`] and [`lookalike_of`]: warnings, never matches.
 //! - [`webauthn_rp_id`]: the WebAuthn relying party ID a page may use
 //!   (https only, a registrable-domain suffix of the host, ADR-0040).
+//! - [`canonical_rp_id`]: an rp ID read from a file (an import) brought into
+//!   the one canonical form [`webauthn_rp_id`] accepts.
 //!
 //! The public suffix list is a build-time snapshot of the `psl` crate.
 #![forbid(unsafe_code)]
@@ -214,6 +216,31 @@ pub enum RpIdError {
 /// The longest relying party ID [`webauthn_rp_id`] accepts, in bytes.
 pub const MAX_RP_ID_LEN: usize = 253;
 
+/// Whether `rp` is a canonical domain name: not empty, at most
+/// [`MAX_RP_ID_LEN`] bytes, no empty label (no leading, trailing or doubled
+/// dot), and `Host::parse(rp)` gives the same domain (so no U-labels, IP
+/// addresses, URLs, spaces or uppercase).
+fn is_canonical_domain(rp: &str) -> bool {
+    !rp.is_empty()
+        && rp.len() <= MAX_RP_ID_LEN
+        && rp.split('.').all(|label| !label.is_empty())
+        && Host::parse(rp) == Ok(Host::Domain(rp.to_owned()))
+}
+
+/// The canonical relying party ID for an rp ID read from a file (an import
+/// from another password manager), or `None` if it cannot be one: ASCII
+/// letters are lowercased and one trailing dot is removed; the result must
+/// be a canonical domain name (the check [`webauthn_rp_id`] applies: no
+/// U-labels, IP addresses, URLs, spaces or direction-changing characters, at
+/// most [`MAX_RP_ID_LEN`] bytes) with a registrable domain in the public
+/// suffix list (so `com` is refused).
+#[must_use]
+pub fn canonical_rp_id(raw: &str) -> Option<String> {
+    let prepared = raw.to_ascii_lowercase();
+    let rp = prepared.strip_suffix('.').unwrap_or(&prepared);
+    (is_canonical_domain(rp) && registrable_domain(rp).is_some()).then(|| rp.to_owned())
+}
+
 /// The WebAuthn relying party ID for a request from `origin` (WebAuthn L3
 /// 5.1.3 step 8 and 5.1.4.1 step 7), restricted (ADR-0040): `https` only;
 /// the host must be a domain, not loopback; the rp ID defaults to the host;
@@ -239,11 +266,7 @@ pub fn webauthn_rp_id(origin: &PageOrigin, requested: Option<&str>) -> Result<St
         return Err(RpIdError::NotADomain);
     }
     let rp = requested.unwrap_or(host.as_str());
-    if rp.is_empty()
-        || rp.len() > MAX_RP_ID_LEN
-        || rp.ends_with('.')
-        || Host::parse(rp) != Ok(Host::Domain(rp.to_owned()))
-    {
+    if !is_canonical_domain(rp) {
         return Err(RpIdError::NotCanonical);
     }
     let is_suffix = host == rp

@@ -2,7 +2,7 @@
 import type { ItemId, VaultId } from "./common.ts";
 import type { ItemKind } from "./items.ts";
 
-export const importFormats = ["enpass", "bitwarden", "keepass", "onePassword", "csv"] as const;
+export const importFormats = ["enpass", "bitwarden", "keepass", "onePassword", "cxf", "csv"] as const;
 export type ImportFormat = (typeof importFormats)[number];
 
 export const importWarnings = [
@@ -11,6 +11,9 @@ export const importWarnings = [
   "entriesSkipped",
   "otpUnreadable",
   "passkeysNotImported",
+  "passkeyUnreadable",
+  "passkeyUnsupported",
+  "passkeysSkipped",
 ] as const;
 export type ImportWarning = (typeof importWarnings)[number];
 
@@ -27,6 +30,9 @@ export const importEntryWarnings = [
   "archived",
   "attachmentQuota",
   "titleCleaned",
+  "passkeyUnreadable",
+  "passkeyUnsupported",
+  "passkeysLimit",
 ] as const;
 export type ImportEntryWarning = (typeof importEntryWarnings)[number];
 

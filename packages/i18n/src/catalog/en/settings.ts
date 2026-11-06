@@ -77,6 +77,18 @@ export const settings = {
     "Anyone with this key and its PIN can open your vault without your master password.",
   "reauth.bodyQuick": "This makes it easier to get into Mosaic, so it needs your master password.",
   "reauth.bodyKey": "Adding a key to this vault needs your master password.",
+  "settings.passkeyExport": "Export passkeys",
+  "settings.passkeyExport.body":
+    "Save the passkeys of a vault in a FIDO CXF file, to move them to another app.",
+  "settings.passkeyExport.vault": "Vault",
+  "settings.passkeyExport.warning":
+    "The file contains your passkeys unencrypted. Anyone with the file can sign in as you. Delete it after importing.",
+  "settings.passkeyExport.none": "This vault has no passkeys to export.",
+  "settings.passkeyExport.button": "Export passkeys",
+  "settings.passkeyExport.reauth":
+    "The file will hold your passkeys unencrypted, so exporting needs your master password.",
+  "settings.passkeyExport.saved":
+    "{count, plural, one {# passkey exported.} other {# passkeys exported.}} Delete the file after importing.",
   "reauth.bodyMove": "Moving an item out of a vault protected by a security key needs your master password.",
   "toast.settingsReset":
     "Your security settings were changed outside Mosaic and were reset to safe defaults.",

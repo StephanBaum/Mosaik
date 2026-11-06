@@ -424,7 +424,7 @@ fn check_login_entry_extras(e: &crate::entries::ImportEntry) {
         e.warnings,
         [
             EntryWarning::AttachmentMissing,
-            EntryWarning::PasskeysNotImported
+            EntryWarning::PasskeyUnreadable
         ]
     );
 }
@@ -902,5 +902,123 @@ fn leaf_text_joins_entities_cdata_and_crlf() {
             .unwrap()
             .expose_secret(),
         "a&b\ncAx"
+    );
+}
+
+/// PKCS#8 (RFC 8410) of an Ed25519 key with a fixed seed: well formed, but
+/// not ES256.
+fn ed25519_pkcs8() -> Vec<u8> {
+    let mut der = vec![
+        0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04,
+        0x20,
+    ];
+    der.extend_from_slice(&[7u8; 32]);
+    der
+}
+
+fn b64(bytes: &[u8]) -> String {
+    let mut out = vec![0u8; bytes.len() * 4 / 3 + 4];
+    Base64::encode(bytes, &mut out).unwrap().to_owned()
+}
+
+fn b64url(bytes: &[u8]) -> String {
+    mosaic_passkey::b64url(bytes)
+}
+
+fn pem(der: &[u8]) -> String {
+    let body = b64(der);
+    let lines: Vec<&str> = body
+        .as_bytes()
+        .chunks(64)
+        .map(|c| core::str::from_utf8(c).unwrap())
+        .collect();
+    format!(
+        "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
+        lines.join("\n")
+    )
+}
+
+fn passkey_entry(title: &str, id: &str, pem: Option<&str>, handle: &str) -> String {
+    let mut s = format!("<Entry><String><Key>Title</Key><Value>{title}</Value></String>");
+    for (k, v) in [
+        ("KPEX_PASSKEY_CREDENTIAL_ID", Some(id)),
+        ("KPEX_PASSKEY_PRIVATE_KEY_PEM", pem),
+        ("KPEX_PASSKEY_RELYING_PARTY", Some("example.com")),
+        ("KPEX_PASSKEY_USERNAME", Some("alice")),
+        ("KPEX_PASSKEY_USER_HANDLE", Some(handle)),
+        ("KPEX_PASSKEY_GENERATED_USER_ID", Some("ignored")),
+    ] {
+        if let Some(v) = v {
+            s.push_str(&format!(
+                "<String><Key>{k}</Key><Value Protected=\"False\">{v}</Value></String>"
+            ));
+        }
+    }
+    s.push_str("</Entry>");
+    s
+}
+
+#[test]
+fn keepassxc_passkeys() {
+    use mosaic_passkey::Es256Key;
+    let spec = Spec {
+        stream_id: 0,
+        ..Spec::default()
+    };
+    let key = Es256Key::generate().unwrap();
+    let der = key.to_pkcs8_der().unwrap();
+    let good_pem = pem(der.expose_secret());
+    let ed_pem = pem(&ed25519_pkcs8());
+    let id = b64url(&[1; 16]);
+    let handle = b64url(&[2; 32]);
+    let mut xml = String::from("<KeePassFile><Root><Group>");
+    xml.push_str(&passkey_entry("Good", &id, Some(&good_pem), &handle));
+    xml.push_str(&passkey_entry("NoKey", &id, None, &handle));
+    xml.push_str(&passkey_entry("Ed", &id, Some(&ed_pem), &handle));
+    xml.push_str(&passkey_entry(
+        "Garbage",
+        &id,
+        Some("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----"),
+        &handle,
+    ));
+    xml.push_str(&passkey_entry("BadHandle", &id, Some(&good_pem), "***"));
+    xml.push_str(&passkey_entry("BadId", "", Some(&good_pem), &handle));
+    xml.push_str("</Group></Root></KeePassFile>");
+    let import = super::parse_payload(&payload_of(&spec, &xml)).unwrap();
+    assert_eq!(import.entries.len(), 6);
+
+    // The good one is a passkey-only entry: no item of its own.
+    let d = &import.entries[0].draft;
+    assert_eq!(d.item_type, ItemType::Passkey);
+    assert!(!d.has_item());
+    assert!(import.entries[0].warnings.is_empty());
+    let p = &d.passkeys[0];
+    assert_eq!(p.title.as_str(), "Good");
+    assert_eq!(p.sign_count, 0);
+    assert_eq!(p.credential.credential_id, [1; 16]);
+    assert_eq!(p.credential.user_handle, [2; 32]);
+    assert_eq!(p.credential.rp_id.as_str(), "example.com");
+    assert_eq!(p.credential.user_name.as_str(), "alice");
+    assert_eq!(p.credential.algorithm, -7);
+    assert_eq!(
+        Es256Key::from_pkcs8_der(p.credential.private_key.expose_secret())
+            .unwrap()
+            .public_key_spki_der(),
+        key.public_key_spki_der()
+    );
+
+    let warnings: Vec<_> = import.entries[1..]
+        .iter()
+        .map(|e| (e.draft.passkeys.len(), e.warnings.clone()))
+        .collect();
+    assert_eq!(
+        warnings,
+        [
+            (0, vec![EntryWarning::PasskeyUnreadable]),
+            (0, vec![EntryWarning::PasskeyUnsupported]),
+            (0, vec![EntryWarning::PasskeyUnreadable]),
+            (0, vec![EntryWarning::PasskeyUnreadable]),
+            (0, vec![EntryWarning::PasskeyUnreadable]),
+        ]
     );
 }

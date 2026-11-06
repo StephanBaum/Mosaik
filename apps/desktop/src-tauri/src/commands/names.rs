@@ -71,6 +71,8 @@ pub const COMMANDS: &[&str] = &[
     "import_preview",
     "import_commit",
     "import_cancel",
+    // Export
+    "export_passkeys_cxf",
     // SSH agent
     "ssh_agent_status",
     "ssh_agent_set_enabled",

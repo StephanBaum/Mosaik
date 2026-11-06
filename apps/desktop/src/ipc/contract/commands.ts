@@ -12,6 +12,7 @@ import type {
   BrowserStatus,
 } from "./browser.ts";
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
+import type { ExportPasskeysRequest, PasskeysExported } from "./export.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
   ImportCancelRequest,
@@ -147,6 +148,8 @@ export interface Commands {
   import_preview: Command<ImportPreviewRequest, ImportPreview>;
   import_commit: Command<ImportCommitRequest, ImportResult>;
   import_cancel: Command<ImportCancelRequest, null>;
+  // Export
+  export_passkeys_cxf: Command<ExportPasskeysRequest, PasskeysExported>;
   // SSH agent
   ssh_agent_status: Command<null, SshAgentStatus>;
   ssh_agent_set_enabled: Command<SshSetEnabledRequest, SshAgentStatus>;
@@ -228,6 +231,7 @@ const commandSet = {
   import_preview: true,
   import_commit: true,
   import_cancel: true,
+  export_passkeys_cxf: true,
   ssh_agent_status: true,
   ssh_agent_set_enabled: true,
   ssh_respond: true,

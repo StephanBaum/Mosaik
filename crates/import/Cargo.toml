@@ -1,6 +1,6 @@
 [package]
 name = "mosaic-import"
-description = "Mosaic importers: Enpass, Bitwarden, KeePass KDBX 4, 1Password 1PUX, CSV"
+description = "Mosaic importers: Enpass, Bitwarden, KeePass KDBX 4, 1Password 1PUX, FIDO CXF, CSV"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 mosaic-core = { path = "../core" }
+mosaic-origin = { path = "../origin" }
+mosaic-passkey = { path = "../passkey" }
 mosaic-totp = { path = "../totp" }
 mosaic-vault = { path = "../vault" }
 thiserror.workspace = true
@@ -31,5 +33,7 @@ quick-xml.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+# Verifies imported passkeys with an independent ECDSA implementation (already in the tree).
+p256.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

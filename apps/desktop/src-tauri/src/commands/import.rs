@@ -70,6 +70,10 @@ pub const fn filter(format: ImportFormat) -> FileFilter {
             name: "1Password 1PUX",
             extensions: &["1pux"],
         },
+        ImportFormat::Cxf => FileFilter {
+            name: "FIDO CXF JSON",
+            extensions: &["json"],
+        },
         ImportFormat::Csv => FileFilter {
             name: "CSV",
             extensions: &["csv"],

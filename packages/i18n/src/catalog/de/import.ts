@@ -6,6 +6,7 @@ export const importMessages = {
   "import.format.bitwarden": "Bitwarden (.json, unverschlüsselt)",
   "import.format.keepass": "KeePass (.kdbx)",
   "import.format.onePassword": "1Password (.1pux)",
+  "import.format.cxf": "FIDO Credential Exchange (.json): Passkeys und Passwörter",
   "import.format.csv": "CSV-Datei (.csv)",
   "import.keepassPassword": "Passwort der KeePass-Datenbank",
   "import.preview.ready":
@@ -24,7 +25,13 @@ export const importMessages = {
   "import.warning.otpUnreadable":
     "Manche Einstellungen für Einmalcodes wurden nicht erkannt. Sie wurden als verborgene Felder übernommen; richte den Code damit neu ein.",
   "import.warning.passkeysNotImported":
-    "Passkeys lassen sich noch nicht importieren. Der Rest dieser Einträge wird importiert; behalte deine alte App, bis du die Passkeys umgezogen hast.",
+    "Dieses Exportformat enthält die privaten Schlüssel der Passkeys nicht, deshalb lassen sie sich nicht importieren. Der Rest dieser Einträge wird importiert; behalte deine alte App, bis du die Passkeys umgezogen hast.",
+  "import.warning.passkeyUnreadable":
+    "Manche Passkeys konnten nicht gelesen werden und wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
+  "import.warning.passkeyUnsupported":
+    "Manche Passkeys nutzen einen Schlüsseltyp, den Mosaic nicht unterstützt (nur ES256 funktioniert), und wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
+  "import.warning.passkeysSkipped":
+    "Manche Passkeys wurden ausgelassen, weil es zu viele sind (höchstens 100 pro Eintrag und 10.000 pro Datei). Behalte deine alte App, bis du sie umgezogen hast.",
   "import.entry.unmappedFields":
     "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
   "import.entry.otpUnreadable":
@@ -36,7 +43,11 @@ export const importMessages = {
   "import.entry.attachmentQuota":
     "Ein Anhang passt nicht mehr in deinen Anhang-Speicher von 1 GiB und wurde ausgelassen.",
   "import.entry.passkeysNotImported":
-    "Der Passkey dieses Eintrags lässt sich noch nicht importieren. Behalte deine alte App, bis du ihn umgezogen hast.",
+    "Dieses Exportformat enthält den privaten Schlüssel des Passkeys dieses Eintrags nicht, deshalb lässt er sich nicht importieren. Behalte deine alte App, bis du ihn umgezogen hast.",
+  "import.entry.passkeyUnreadable":
+    "Ein Passkey dieses Eintrags konnte nicht gelesen werden und wurde ausgelassen. Behalte deine alte App, bis du ihn umgezogen hast.",
+  "import.entry.passkeyUnsupported":
+    "Ein Passkey dieses Eintrags nutzt einen Schlüsseltyp, den Mosaic nicht unterstützt (nur ES256 funktioniert), und wurde ausgelassen. Behalte deine alte App, bis du ihn umgezogen hast.",
   "import.entry.historyTruncated": "Nur die 32 neuesten alten Passwörter wurden übernommen.",
   "import.entry.tagsDropped": "Leere oder zu lange Tags wurden ausgelassen.",
   "import.entry.titleCleaned":
@@ -44,6 +55,8 @@ export const importMessages = {
   "import.entry.archived":
     "In deiner alten App archiviert. Der Eintrag bekommt den Tag „archived“.",
   "import.entry.unknownCategory": "Unbekannter Eintragstyp. Er wird als sichere Notiz importiert.",
+  "import.entry.passkeysLimit":
+    "Dieser Eintrag hat mehr Passkeys, als ein Import übernimmt (100 pro Eintrag, 10.000 pro Datei). Die überzähligen Passkeys wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
   "import.entry.fieldsDropped":
     "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
   "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",

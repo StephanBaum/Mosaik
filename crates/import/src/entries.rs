@@ -5,7 +5,7 @@ use core::fmt;
 use mosaic_core::{DeviceId, Timestamp};
 
 use crate::Format;
-use crate::draft::{Builder, EntryWarning, ItemDraft};
+use crate::draft::{Builder, EntryWarning, ItemDraft, MAX_IMPORT_PASSKEYS};
 use crate::error::{Error, Result};
 
 /// Most entries one file may hold: 100,000.
@@ -81,6 +81,10 @@ pub(crate) struct Collector {
     entries: Vec<ImportEntry>,
     skipped: Vec<SkippedEntry>,
     next: u32,
+    /// Passkeys of the entries kept so far.
+    passkeys: usize,
+    /// The import-wide passkey cap ([`MAX_IMPORT_PASSKEYS`]; lower in tests).
+    passkey_cap: usize,
 }
 
 impl Collector {
@@ -90,7 +94,22 @@ impl Collector {
             entries: Vec::new(),
             skipped: Vec::new(),
             next: 0,
+            passkeys: 0,
+            passkey_cap: MAX_IMPORT_PASSKEYS,
         }
+    }
+
+    /// A collector with a different import-wide passkey cap, for tests.
+    #[cfg(test)]
+    pub(crate) const fn with_passkey_cap(mut self, cap: usize) -> Self {
+        self.passkey_cap = cap;
+        self
+    }
+
+    /// How many more passkeys the import has room for: the next entry's
+    /// builder gets this ([`Builder::with_passkey_room`]).
+    pub(crate) const fn passkey_room(&self) -> usize {
+        self.passkey_cap.saturating_sub(self.passkeys)
     }
 
     fn index(&mut self) -> Result<u32> {
@@ -124,11 +143,14 @@ impl Collector {
             return Ok(());
         };
         match fits(&draft) {
-            Ok(()) => self.entries.push(ImportEntry {
-                index,
-                draft,
-                warnings,
-            }),
+            Ok(()) => {
+                self.passkeys = self.passkeys.saturating_add(draft.passkeys.len());
+                self.entries.push(ImportEntry {
+                    index,
+                    draft,
+                    warnings,
+                });
+            }
             Err(reason) => self.skipped.push(SkippedEntry { index, reason }),
         }
         Ok(())
