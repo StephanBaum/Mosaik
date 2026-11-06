@@ -61,6 +61,11 @@ test("a page too busy to hear the bridge in time gets the browser, and Mosaic's 
   await fake.setPasskeys(true);
   await open(page, RACE);
   const authenticator = await addVirtualAuthenticator(context, page);
+  // After the busy loop two queued tasks race: the shim's 1 s timer (it falls back to the browser and
+  // cancels the bridged request) and the bridge's acknowledgement (Mosaic keeps the call and a
+  // dialog opens). Either is correct, never both. A queued "use another device" answers the dialog
+  // in the second case, so both end with exactly one credential from the browser's authenticator.
+  await fake.passkeyDecide({ kind: "useAnotherDevice" });
   const result = await page.evaluate(() => (window as unknown as RacePage).race.blockAfter("create", 1500));
   expect(result).toMatchObject({ ok: true });
   expect(await authenticator.credentials()).toHaveLength(1);
