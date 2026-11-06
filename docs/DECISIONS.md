@@ -3132,13 +3132,18 @@ prompt (ADR-0038) and the SSH approval: Mosaic signs or writes only after its ow
    device or security key"). The E06 content of the extension mockup moves into that desktop
    dialog: an extension click is a page-adjacent surface, and phishing-resistant signatures are
    not given on the strength of one.
-7. **Error mapping.** `cancelled`, `busy`, `rateLimited` and `timeout` end the page's call with
+7. **Error mapping.** `cancelled`, `busy` and `timeout` end the page's call with
    `NotAllowedError`; `passkeyExcluded` with `InvalidStateError`; `useAnotherDevice` and every
-   other code (`passkeyNotFound`, `passkeyUnsupported`, `rpIdMismatch`, `insecureOrigin`,
-   `crossOriginFrame`, `locked`, `notPaired`, `desktopNotRunning`, `invalidRequest`, ...) hand
-   the call to the browser. A page that aborts (`AbortSignal`) rejects with the signal's reason
-   and the background sends `passkeyCancel` for exactly that request; a closed, replaced or
-   navigating tab cancels its open requests.
+   other code (`rateLimited`, `passkeyNotFound`, `passkeyUnsupported`, `rpIdMismatch`,
+   `insecureOrigin`, `crossOriginFrame`, `locked`, `notPaired`, `desktopNotRunning`,
+   `invalidRequest`, ...) hand the call to the browser. `rateLimited` is a fallback because the
+   desktop's windows belong to the pairing: as an error, one site could spend them silently and
+   make every other site's call fail for a minute (extension-attacker pass). A page that aborts
+   (`AbortSignal`) rejects with the signal's reason and the background sends `passkeyCancel` for
+   exactly that request; a closed, replaced or navigating tab cancels its open requests. The
+   background holds a request from its arrival, so a cancel that comes before the desktop was
+   asked stops it from being sent, and the shim posts an abort when it falls back for want of the
+   bridge's acknowledgement.
 8. **Not in M5** (D12): conditional mediation (passkey autofill UI), PRF, large blob, related
    origins (`/.well-known/webauthn`), cross-origin iframes, OS passkey providers (ADR-0041).
 

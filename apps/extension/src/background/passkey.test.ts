@@ -268,9 +268,10 @@ describe("what the desktop answers", () => {
   const errors: [ErrorCode, unknown][] = [
     ["cancelled", { kind: "error", name: "NotAllowedError" }],
     ["busy", { kind: "error", name: "NotAllowedError" }],
-    ["rateLimited", { kind: "error", name: "NotAllowedError" }],
     ["timeout", { kind: "error", name: "NotAllowedError" }],
     ["passkeyExcluded", { kind: "error", name: "InvalidStateError" }],
+    // The desktop's rate windows are the pairing's, shared by every site: one site spending them must not fail another's call.
+    ["rateLimited", FALLBACK],
     ["passkeyNotFound", FALLBACK],
     ["passkeyUnsupported", FALLBACK],
     ["rpIdMismatch", FALLBACK],
@@ -351,6 +352,52 @@ describe("cancelling", () => {
     await open();
     h.service.onNavigated(7);
     expect(cancels()).toHaveLength(1);
+  });
+
+  it("never asks the desktop for a request the page aborted before it was sent", async () => {
+    const pending = h.service.handle(getMessage(), sender());
+    h.service.abort({ kind: "passkeyAbort", pageRequestId: 1 }, sender());
+    expect(await pending).toEqual({ kind: "error", name: "NotAllowedError" });
+    expect(h.requests).toEqual([]);
+  });
+
+  it("never asks the desktop for a request whose tab moved on before it was sent", async () => {
+    const moves = [
+      () => {
+        h.service.onNavigated(7);
+      },
+      () => {
+        h.service.onNavigated(7, "https://evil.test/");
+      },
+      () => {
+        h.service.onTabGone(7);
+      },
+    ];
+    for (const [n, move] of moves.entries()) {
+      const pending = h.service.handle(getMessage(n + 1), sender());
+      move();
+      expect(await pending).toEqual({ kind: "error", name: "NotAllowedError" });
+    }
+    expect(h.requests).toEqual([]);
+  });
+
+  it("keeps a request that moved within its own site before it was sent", async () => {
+    void h.service.handle(getMessage(), sender());
+    h.service.onNavigated(7, `${BANK}/other`);
+    await vi.waitFor(() => {
+      expect(h.requests.map((r) => r.op)).toEqual(["passkeyGet"]);
+    });
+  });
+
+  it("frees the page's slot when an unsent request is aborted", async () => {
+    const first = h.service.handle(getMessage(1), sender());
+    h.service.abort({ kind: "passkeyAbort", pageRequestId: 1 }, sender());
+    await first;
+    void h.service.handle(getMessage(2), sender());
+    void h.service.handle(getMessage(3), sender());
+    await vi.waitFor(() => {
+      expect(h.requests.filter((r) => r.op === "passkeyGet")).toHaveLength(2);
+    });
   });
 
   it("forgets requests that outlived the desktop's own timeout", async () => {

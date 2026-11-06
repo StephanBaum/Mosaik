@@ -323,9 +323,11 @@ A request with `v` other than 1 gets `protocolVersion`.
   unlocked, waits 305 s for `passkeyCreate` and `passkeyGet`, and sends `passkeyCancel` when the
   page aborts or the tab closes, replaces its document or moves to another site (a cancel is
   never held back by the extension's four-requests cap). `useAnotherDevice` and every error code
-  except `cancelled`, `busy`, `rateLimited`, `timeout` (the page's call fails with
-  `NotAllowedError`) and `passkeyExcluded` (`InvalidStateError`) send the page's call to the
-  browser's own WebAuthn.
+  except `cancelled`, `busy`, `timeout` (the page's call fails with `NotAllowedError`) and
+  `passkeyExcluded` (`InvalidStateError`) send the page's call to the browser's own WebAuthn;
+  `rateLimited` does too, since the windows are the pairing's and one site must not spend them
+  for another. A request the page aborts, or whose tab moves on, before the extension has sent it
+  is never sent.
 
 ### 5.3 Error codes
 

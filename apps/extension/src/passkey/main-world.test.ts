@@ -267,6 +267,22 @@ describe("a request Mosaic can answer", () => {
     await expect(acked).rejects.toMatchObject({ name: "NotAllowedError" });
   });
 
+  it("tells the bridge to drop a request it hands to the browser for want of an acknowledgement", async () => {
+    vi.useFakeTimers();
+    const page = install();
+    const late = create(page, createOptions());
+    await vi.advanceTimersByTimeAsync(BRIDGE_ACK_TIMEOUT_MS + 1);
+    expect(await late).toBe("native-create");
+    expect(page.posted.map((p) => p.message)).toEqual([
+      expect.objectContaining({ type: "mosaic-passkey-req", id: 1 }),
+      { type: "mosaic-passkey-abort", id: 1 },
+    ]);
+    // The late answer of a bridge that still forwarded it changes nothing.
+    page.deliver({ type: "mosaic-passkey-ack", id: 1 });
+    page.reply(1, { kind: "error", name: "NotAllowedError" });
+    expect(page.native.create).toHaveBeenCalledOnce();
+  });
+
   it.each(["NotAllowedError", "InvalidStateError"] as const)("turns the error %s into that DOMException", async (name) => {
     const page = install();
     const promise = create(page, createOptions());

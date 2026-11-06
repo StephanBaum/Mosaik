@@ -39,16 +39,23 @@ export interface PasskeyDeps {
 interface Open {
   requestId: string;
   tabId: number;
+  /** The sender's origin as the browser reports it (checked against the bridge and the tab before anything is sent). */
   origin: string;
   startedAt: number;
   cancelled: boolean;
+  /** The desktop was asked: only then does a cancel need `passkeyCancel`. */
+  sent: boolean;
 }
 
 const FALLBACK: PasskeyPageResult = { kind: "fallback" };
 const NOT_ALLOWED: PasskeyPageResult = { kind: "error", name: "NotAllowedError" };
 const REQUEST_ID_BYTES = 16;
-/** The codes that end the page's call with the browser's own error; every other code means the browser's WebAuthn takes over. */
-const REFUSED = new Set(["cancelled", "busy", "rateLimited", "timeout"]);
+/**
+ * The codes that end the page's call with the browser's own error; every other code means the browser's WebAuthn takes over.
+ * `rateLimited` is not one of them: the desktop's rate windows belong to the pairing, so one site could spend them and
+ * make another site's call fail outright.
+ */
+const REFUSED = new Set(["cancelled", "busy", "timeout"]);
 
 /** The sender's origin as the browser reports it: `sender.origin` (Chromium) or the origin of `sender.url` (Firefox). */
 export function senderOrigin(sender: SenderInfo): string | null {
@@ -129,30 +136,43 @@ export class PasskeyService {
   }
 
   async handle(message: PasskeyMessage, sender: SenderInfo): Promise<PasskeyPageResult> {
-    const site = await this.#origin(message.origin, sender);
-    if (site === null || !(await this.#ready())) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined || sender.frameId !== 0) {
       return FALLBACK;
     }
     this.#prune();
-    const key = this.#key(site.tabId, sender, message.pageRequestId);
-    const mine = [...this.#open.values()].filter((entry) => entry.tabId === site.tabId).length;
+    const key = this.#key(tabId, sender, message.pageRequestId);
+    const mine = [...this.#open.values()].filter((entry) => entry.tabId === tabId).length;
     if (this.#open.has(key) || mine >= PAGE_MAX_IN_FLIGHT) {
       return FALLBACK;
     }
+    // Held from the first moment, so an abort, a navigation or a closed tab that comes while the
+    // checks below wait is not lost: the desktop is then never asked.
     const open: Open = {
       requestId: this.#deps.randomHex(REQUEST_ID_BYTES),
-      tabId: site.tabId,
-      origin: site.origin,
+      tabId,
+      origin: senderOrigin(sender) ?? "",
       startedAt: this.#deps.now(),
       cancelled: false,
+      sent: false,
     };
     this.#open.set(key, open);
     try {
+      const site = await this.#origin(message.origin, sender);
+      if (site === null || !(await this.#ready())) {
+        return FALLBACK;
+      }
+      if (open.cancelled) {
+        return NOT_ALLOWED;
+      }
+      open.sent = true;
       return await this.#ask(message, open);
     } catch (error) {
       return errorResult(error);
     } finally {
-      this.#open.delete(key);
+      if (this.#open.get(key) === open) {
+        this.#open.delete(key);
+      }
     }
   }
 
@@ -203,6 +223,10 @@ export class PasskeyService {
       return;
     }
     open.cancelled = true;
+    if (!open.sent) {
+      // `handle` sees the flag before it asks the desktop.
+      return;
+    }
     // The answer to the open request follows (`cancelled`); a failed cancel leaves the dialog to expire.
     void this.#deps.native.request("passkeyCancel", { requestId: open.requestId }).catch(() => undefined);
   }

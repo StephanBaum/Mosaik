@@ -141,6 +141,9 @@ class Shim {
   #watch(entry: Pending): void {
     const c = this.#c;
     entry.ackTimer = c.setTimeout(() => {
+      // A bridge that is only late (a busy page) may have passed the request on already: it must
+      // not leave a desktop dialog open beside the browser's own.
+      this.#send({ type: PASSKEY_ABORT_TYPE, id: entry.id });
       this.#fallback(entry);
     }, BRIDGE_ACK_TIMEOUT_MS);
     const { signal } = entry;
