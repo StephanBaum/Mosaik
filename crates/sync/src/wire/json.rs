@@ -597,7 +597,6 @@ pub struct PasswordFinishRequest {
     pub salt: B64Fixed<16>,
     #[serde(with = "profile")]
     pub profile: Argon2Profile,
-    pub expected_account_version: u64,
 }
 
 /// `POST /v1/account/password/finish` response.
@@ -1001,8 +1000,8 @@ mod tests {
     fn the_longest_checkpoint_fits_the_json_cap() {
         use crate::wire::checkpoint::MAX_LEN;
         assert_eq!(MAX_CHECKPOINT_UPLOAD_LEN, MAX_LEN);
-        assert_eq!(MAX_LEN, 114_761);
-        assert_eq!(MAX_CHECKPOINT_JSON_LEN, 153_015);
+        assert_eq!(MAX_LEN, 245_833);
+        assert_eq!(MAX_CHECKPOINT_JSON_LEN, 327_778);
         let device = InstallId::new_v7().unwrap();
         let entry = CheckpointEntry {
             device_id: device,

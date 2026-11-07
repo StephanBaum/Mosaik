@@ -10,7 +10,7 @@ use mosaic_core::{
 };
 
 use super::sync::RemoteRecord;
-use super::{ApplyOutcome, Error, LockedSession, UnlockedSession, search::SearchIndex};
+use super::{ApplyOutcome, Error, KeyOrigin, LockedSession, UnlockedSession, search::SearchIndex};
 use crate::storage::{Error as StorageError, Origin, RecordBody, Store, VaultKeyWrap};
 
 fn pw() -> MasterPassword {
@@ -928,9 +928,11 @@ fn an_equal_version_under_a_newer_generation_replaces_the_old_ciphertext() {
 }
 
 #[test]
-fn an_equal_version_does_not_replace_a_pending_row() {
-    // The `!pending` arm: the local row is a queued change; its ciphertext
-    // is kept (it is re-sealed at the next unlock, not replaced).
+fn an_equal_version_settles_a_pending_row_with_the_received_ciphertext() {
+    // The `pending` arm: the local row is a queued change (here a re-seal);
+    // the server already holds the same version at the current generation,
+    // so the received ciphertext replaces the row and the change leaves the
+    // outbox: nothing is uploaded twice (CRYPTO_SPEC section 10).
     let (mut s, _) = account();
     let vault = s.create_vault("Personal").unwrap();
     let id = s
@@ -946,8 +948,12 @@ fn an_equal_version_does_not_replace_a_pending_row() {
         server_seq: 9,
     };
     assert_eq!(s.apply_remote_record(&rec).unwrap(), ApplyOutcome::Ignored);
-    assert_eq!(s.store.record(&vault, &id).unwrap().unwrap(), before);
-    assert_eq!(pending_ids(&s), [id]);
+    let after = s.store.record(&vault, &id).unwrap().unwrap();
+    assert_ne!(after.body, before.body);
+    assert_eq!(after.body, rec.body);
+    assert_eq!(after.server_seq, Some(9));
+    assert_eq!(after.outbox_seq, None);
+    assert_eq!(pending_ids(&s), Vec::<ItemId>::new());
 }
 
 #[test]
@@ -1427,4 +1433,136 @@ impl UnlockedSession {
         };
         Self::load(store, account_id, account_key, quick).unwrap()
     }
+}
+
+/// A backend key for `generation` of `vault`, wrapped under the account key.
+fn backend_key(
+    s: &UnlockedSession,
+    vault: VaultId,
+    generation: KeyGeneration,
+) -> (VaultKey, mosaic_core::WrappedKey) {
+    let vk = VaultKey::generate(generation).unwrap();
+    let wrapped = vk.wrap(&s.account_key, &s.account_id, &vault).unwrap();
+    (vk, wrapped)
+}
+
+#[test]
+fn adopting_the_backends_key_reseals_everything_atomically() {
+    use super::AdoptOutcome;
+    let (mut s, sk) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    s.mark_vault_created_remotely(vault).unwrap();
+    let a = s
+        .add_item(vault, &ItemType::Login, |e| e.set_title("a"))
+        .unwrap();
+    let b = s
+        .add_item(vault, &ItemType::Login, |e| e.set_title("b"))
+        .unwrap();
+    s.purge_item(vault, b).unwrap();
+    mark_all_uploaded(&mut s);
+    // An offline rotation: this device's own key for generation 2.
+    let g2 = s.rotate_vault_key(vault).unwrap();
+    mark_all_uploaded(&mut s);
+    assert_eq!(
+        s.vault_key_origin(vault, g2).unwrap(),
+        Some(KeyOrigin::Local)
+    );
+    let (_, wrapped) = backend_key(&s, vault, g2);
+    let theirs = wrapped
+        .unwrap_vault_key(&s.account_key, &s.account_id, &vault, g2)
+        .unwrap();
+
+    let outcome = s.adopt_remote_vault_key(vault, g2, &wrapped).unwrap();
+    assert_eq!(outcome, AdoptOutcome::Adopted { resealed: 2 });
+    // The key row is the backend's, no longer local, nothing to upload.
+    assert_eq!(
+        s.vault_key_origin(vault, g2).unwrap(),
+        Some(KeyOrigin::Remote)
+    );
+    assert_eq!(s.store.vault_key(&vault, g2).unwrap().unwrap(), wrapped);
+    assert!(
+        s.pending_vault_uploads()
+            .unwrap()
+            .iter()
+            .all(|p| p.keys.is_empty())
+    );
+    // Both records (the live item and the tombstone) are sealed under the
+    // adopted key and queued; the vault metadata is queued under it too.
+    let mut queued = pending_ids(&s);
+    queued.sort();
+    let mut both = vec![a, b];
+    both.sort();
+    assert_eq!(queued, both);
+    for r in s.store.records(&vault).unwrap() {
+        let r = r.unwrap();
+        assert_eq!(r.body.key_generation(), g2);
+        let copy = wrapped
+            .unwrap_vault_key(&s.account_key, &s.account_id, &vault, g2)
+            .unwrap();
+        let keys = std::collections::BTreeMap::from([(g2, copy)]);
+        assert!(super::open_record(&r.body, &keys, &vault, &r.record_id).is_ok());
+    }
+    assert!(s.pending_vault_uploads().unwrap()[0].meta.is_some());
+    assert_eq!(s.item(vault, a).unwrap().title(), Some("a"));
+    drop(theirs);
+    // The same key again is a no-op.
+    assert_eq!(
+        s.adopt_remote_vault_key(vault, g2, &wrapped).unwrap(),
+        AdoptOutcome::AlreadyHeld
+    );
+
+    // Everything survives a lock and an unlock: the swap and the re-seal
+    // were one transaction.
+    let s = LockedSession::open(s.lock().into_store())
+        .unlock(&pw(), &sk)
+        .unwrap();
+    assert_eq!(s.corrupt_records().len(), 0);
+    assert_eq!(s.item(vault, a).unwrap().title(), Some("a"));
+    assert!(s.item(vault, b).unwrap().is_deleted());
+}
+
+#[test]
+fn adoption_is_for_an_unconfirmed_local_key_of_the_current_generation_only() {
+    let (mut s, _) = account();
+    let vault = s.create_vault("Personal").unwrap();
+    let g2 = s.rotate_vault_key(vault).unwrap();
+    let (_, other) = backend_key(&s, vault, g2);
+
+    // A wrong generation is refused (the rule of section 7.1).
+    let g3 = g2.next().unwrap();
+    let (_, other3) = backend_key(&s, vault, g3);
+    assert!(matches!(
+        s.adopt_remote_vault_key(vault, g3, &other3),
+        Err(Error::KeyGenerationNotAccepted { .. })
+    ));
+    // A wrapping for another vault does not open.
+    let elsewhere = VaultId::new_v7().unwrap();
+    let (_, foreign) = backend_key(&s, elsewhere, g2);
+    assert!(matches!(
+        s.adopt_remote_vault_key(vault, g2, &foreign),
+        Err(Error::Core(mosaic_core::Error::Decryption))
+    ));
+    // A key the backend confirmed is never replaced: it contradicts itself.
+    s.mark_vault_key_confirmed(vault, g2).unwrap();
+    assert!(matches!(
+        s.adopt_remote_vault_key(vault, g2, &other),
+        Err(Error::VaultKeyConflict { generation: 2 })
+    ));
+    assert_eq!(
+        s.vault_key_origin(vault, g2).unwrap(),
+        Some(KeyOrigin::Local)
+    );
+
+    // Nor is a key that came from the backend in the first place.
+    let other_vault = s.create_vault("Other").unwrap();
+    let (_, remote1) = backend_key(&s, other_vault, KeyGeneration::FIRST);
+    let (_, remote1b) = backend_key(&s, other_vault, KeyGeneration::FIRST);
+    assert_ne!(remote1, remote1b);
+    s.store
+        .rewrap_vault_key(&other_vault, KeyGeneration::FIRST, &remote1)
+        .unwrap();
+    assert!(matches!(
+        s.adopt_remote_vault_key(other_vault, KeyGeneration::FIRST, &remote1b),
+        Err(Error::VaultKeyConflict { generation: 1 })
+    ));
 }

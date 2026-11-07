@@ -13,7 +13,8 @@ use mosaic_vault::storage::{RecordBody, RecordKind as StoredKind};
 use reqwest::Method;
 
 use super::client::{
-    ATTACHMENT_TIMEOUT, Body, Http, POLL_TIMEOUT, REQUEST_TIMEOUT, canonical_origin, json_body,
+    ATTACHMENT_TIMEOUT, Bearer, Body, Http, POLL_TIMEOUT, REQUEST_TIMEOUT, canonical_origin,
+    json_body,
 };
 use crate::transport::{
     ChangeToken, Cursor, KeyPushResult, PullPage, PulledKey, PulledMeta, PulledRecord, PushRecord,
@@ -42,9 +43,12 @@ const REQUEST_SLACK: usize = 1024;
 /// The hosted backend over HTTPS.
 pub struct HttpTransport {
     http: Http,
-    token: SessionToken,
+    /// The `Authorization` value, built once (sensitive, zeroizing source).
+    bearer: Bearer,
     max_request: usize,
-    own_device: Option<InstallId>,
+    /// This install's ID, from the engine (`connect`): the checkpoint path
+    /// and the own-checkpoint logic use it, not the server's `current` flag.
+    own_device: InstallId,
 }
 
 impl core::fmt::Debug for HttpTransport {
@@ -60,10 +64,19 @@ impl HttpTransport {
     /// client asked for (an account is bound to one server identity).
     ///
     /// # Errors
+    /// `install` is this device's own install ID: the engine's, which also
+    /// names the own checkpoint (the server's `current` device flag is not
+    /// consulted).
+    ///
+    /// # Errors
     /// [`TransportError::InsecureUrl`], [`TransportError::InvalidUrl`],
     /// [`TransportError::Incompatible`], [`TransportError::ServerMismatch`]
     /// and the errors of a request.
-    pub fn connect(base: &str, token: SessionToken) -> Result<Self, TransportError> {
+    pub fn connect(
+        base: &str,
+        token: &SessionToken,
+        install: InstallId,
+    ) -> Result<Self, TransportError> {
         let http = Http::new(&canonical_origin(base)?)?;
         let info = http.info()?;
         let max_request = usize::try_from(info.limits.max_request_bytes)
@@ -71,9 +84,9 @@ impl HttpTransport {
             .max(MIN_REQUEST_BYTES);
         Ok(Self {
             http,
-            token,
+            bearer: Bearer::new(token)?,
             max_request,
-            own_device: None,
+            own_device: install,
         })
     }
 
@@ -93,27 +106,12 @@ impl HttpTransport {
         request: Option<&Req>,
         ok: &[u16],
     ) -> Result<(u16, Resp), TransportError> {
-        self.http.call(method, path, Some(&self.token), request, ok)
+        self.http
+            .call(method, path, Some(&self.bearer), request, ok)
     }
 
     fn get<Resp: serde::de::DeserializeOwned>(&self, path: &str) -> Result<Resp, TransportError> {
         Ok(self.call(Method::GET, path, None::<&Empty>, &[200])?.1)
-    }
-
-    /// This install's ID, from the device list (the server marks the
-    /// session's device).
-    fn own_device(&mut self) -> Result<InstallId, TransportError> {
-        if let Some(d) = self.own_device {
-            return Ok(d);
-        }
-        let list: DevicesResponse = self.get("/v1/devices")?;
-        let mut current = list.devices.iter().filter(|d| d.current);
-        let device = current.next().ok_or(TransportError::Protocol)?.device_id;
-        if current.next().is_some() {
-            return Err(TransportError::Protocol);
-        }
-        self.own_device = Some(device);
-        Ok(device)
     }
 }
 
@@ -153,6 +151,12 @@ fn convert_page(
 ) -> Result<PullPage, TransportError> {
     let head = page.head_seq;
     let within = |seq: u64| seq > since && seq <= head;
+    // A head below what this device already read: the vault went back in
+    // time on the server (a restored backup). Not a protocol error: the
+    // engine reports it for this vault and goes on with the others.
+    if head < since && page.records.is_empty() && !page.more {
+        return Err(TransportError::HeadBelowCursor);
+    }
     if page.next_since < since || page.next_since > head || page.records.len() > limit {
         return Err(TransportError::Protocol);
     }
@@ -334,7 +338,7 @@ impl Transport for HttpTransport {
         let reply = self.http.send(
             Method::PUT,
             &path,
-            Some(&self.token),
+            Some(&self.bearer),
             json_body(Some(&request))?,
             REQUEST_TIMEOUT,
             MAX_RESPONSE_LEN,
@@ -371,7 +375,7 @@ impl Transport for HttpTransport {
         let reply = self.http.send(
             Method::PUT,
             &format!("/v1/vaults/{vault}/attachments/{id}"),
-            Some(&self.token),
+            Some(&self.bearer),
             Body::Bytes(ciphertext),
             ATTACHMENT_TIMEOUT,
             MAX_RESPONSE_LEN,
@@ -388,7 +392,7 @@ impl Transport for HttpTransport {
         let reply = self.http.send(
             Method::GET,
             &format!("/v1/vaults/{vault}/attachments/{id}"),
-            Some(&self.token),
+            Some(&self.bearer),
             Body::None,
             ATTACHMENT_TIMEOUT,
             cap,
@@ -444,11 +448,11 @@ impl Transport for HttpTransport {
         if bytes.len() > MAX_CHECKPOINT_UPLOAD_LEN {
             return Err(TransportError::Protocol);
         }
-        let device = self.own_device()?;
+        let device = self.own_device;
         let reply = self.http.send(
             Method::PUT,
             &format!("/v1/checkpoints/{device}"),
-            Some(&self.token),
+            Some(&self.bearer),
             Body::Bytes(bytes),
             REQUEST_TIMEOUT,
             MAX_RESPONSE_LEN,
@@ -502,7 +506,7 @@ impl Transport for HttpTransport {
         let reply = self.http.send(
             Method::GET,
             &format!("/v1/poll?since={since_counter}"),
-            Some(&self.token),
+            Some(&self.bearer),
             Body::None,
             wait,
             MAX_RESPONSE_LEN,

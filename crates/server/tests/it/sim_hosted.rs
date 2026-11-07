@@ -589,6 +589,9 @@ fn run(seed: u64, rounds: usize) {
             panic!("seed {seed}, round {round}: {message}");
         }
     }
+    // An honest server never earns a finding, not even under lost and
+    // repeated answers.
+    crate::hosted::assert_no_server_findings(&sim.w);
     // The merged state is what was persisted: a relocked device matches,
     // and unlocking finds nothing left to re-seal.
     let secret_key = &sim.w.secret_key;

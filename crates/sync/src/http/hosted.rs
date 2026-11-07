@@ -18,8 +18,9 @@ use mosaic_core::{
 };
 use mosaic_vault::session::{AccountBootstrap, JoinKeys, LockedSession, PreparedPasswordChange};
 use reqwest::Method;
+use zeroize::Zeroize;
 
-use super::client::{Http, canonical_origin};
+use super::client::{Bearer, Http, canonical_origin};
 use crate::transport::{Rejection, TransportError};
 use crate::wire::email;
 use crate::wire::json::{
@@ -28,6 +29,7 @@ use crate::wire::json::{
     PasswordStartRequest, PreloginRequest, PreloginResponse, RegisterFinishRequest,
     RegisterStartRequest, RegistrationStartResponse,
 };
+use crate::wire::opaque::ke::{ClientLoginFinishResult, ClientRegistrationFinishResult};
 use crate::wire::opaque::{
     LOGIN_CONTEXT, OsRng, Suite, identifiers,
     ke::{
@@ -103,6 +105,19 @@ impl core::fmt::Debug for PasswordChanged {
 }
 
 const OK_STATUS: [u16; 1] = [200];
+
+/// Wipes what a finished OPAQUE registration holds that this client never
+/// uses: opaque-ke keeps the export key in a plain array.
+fn wipe_registration(finished: &mut ClientRegistrationFinishResult<Suite>) {
+    finished.export_key.as_mut_slice().zeroize();
+}
+
+/// Wipes the session key and the export key of a finished OPAQUE login (the
+/// session token was derived from the first; the second is not used).
+fn wipe_login(finished: &mut ClientLoginFinishResult<Suite>) {
+    finished.session_key.as_mut_slice().zeroize();
+    finished.export_key.as_mut_slice().zeroize();
+}
 
 fn connect(base: &str) -> Result<Http, TransportError> {
     let http = Http::new(&canonical_origin(base)?)?;
@@ -195,6 +210,8 @@ pub fn register(
             ),
         )
         .map_err(|_| TransportError::Protocol)?;
+    let mut finished = finished;
+    wipe_registration(&mut finished);
     http.call::<_, Empty>(
         Method::POST,
         "/v1/register/finish",
@@ -285,7 +302,10 @@ fn login_with(
         // The password is wrong, or the server's response is not for this
         // account and origin: the same to the caller.
         .map_err(|_| TransportError::Rejected(Rejection::LoginFailed))?;
-    let token = session_token(&finished.session_key).map_err(|_| TransportError::Io)?;
+    let token = session_token(&finished.session_key);
+    let mut finished = finished;
+    wipe_login(&mut finished);
+    let token = token.map_err(|_| TransportError::Io)?;
     let (_, done): (u16, LoginResponse) = http.call(
         Method::POST,
         "/v1/login/finish",
@@ -317,10 +337,11 @@ pub fn login_totp(base: &str, token: &SessionToken, code: &str) -> Result<u64, T
 }
 
 fn login_totp_with(http: &Http, token: &SessionToken, code: &str) -> Result<u64, TransportError> {
+    let bearer = Bearer::new(token)?;
     let (_, r): (u16, LoginResponse) = http.call(
         Method::POST,
         "/v1/login/totp",
-        Some(token),
+        Some(&bearer),
         Some(&CodeRequest { code: code.into() }),
         &OK_STATUS,
     )?;
@@ -336,7 +357,8 @@ fn login_totp_with(http: &Http, token: &SessionToken, code: &str) -> Result<u64,
 /// [`TransportError`].
 pub fn logout(base: &str, token: &SessionToken) -> Result<(), TransportError> {
     let http = connect(base)?;
-    http.call::<Empty, Empty>(Method::POST, "/v1/logout", Some(token), None, &OK_STATUS)
+    let bearer = Bearer::new(token)?;
+    http.call::<Empty, Empty>(Method::POST, "/v1/logout", Some(&bearer), None, &OK_STATUS)
         .map(|_| ())
 }
 
@@ -394,10 +416,11 @@ pub fn join_fetch_account(
     keys: &JoinKeys,
 ) -> Result<JoinAccount, TransportError> {
     let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
     let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
         Method::GET,
         "/v1/account",
-        Some(token),
+        Some(&bearer),
         None::<&Empty>,
         &OK_STATUS,
     )?;
@@ -418,9 +441,17 @@ pub fn join_fetch_account(
 /// Changes the account's master password on the server (CRYPTO_SPEC §9.4):
 /// a fresh login with the old `OPW`, the second factor if the account has
 /// one, OPAQUE re-registration with the new `OPW`, and one upload of the new
-/// registration, salt, profile and wrapped account key, guarded by the
-/// account version. Commit the change locally only after this returned
+/// registration, salt, profile and wrapped account key. The server accepts
+/// the upload only if the account is still at the version this session
+/// logged in at, and ends every other session of the account with it.
+/// Commit the change locally only after this returned
 /// ([`mosaic_vault::session::UnlockedSession::commit_master_password_change`]).
+///
+/// A lost answer to the upload is recovered on the retry: if the old `OPW`
+/// no longer logs in but the new one does, and the account's wrapped `AK` on
+/// the server is byte-equal to the prepared one, the change went through and
+/// this returns as if it had just succeeded. Anything else is the original
+/// error.
 ///
 /// # Errors
 /// [`Rejection::LoginFailed`] for a wrong current password;
@@ -439,7 +470,7 @@ pub fn password_change(
     let http = connect(base)?;
     let origin = origin_of(base)?;
     let account_id = prepared.new_params().account_id;
-    let grant = login_with(
+    let grant = match login_with(
         &http,
         &origin,
         address,
@@ -447,14 +478,32 @@ pub fn password_change(
         prepared.old_opaque_password(),
         device,
         device_name,
-    )?;
+    ) {
+        Ok(grant) => grant,
+        Err(TransportError::Rejected(Rejection::LoginFailed)) => {
+            // The old password may no longer be the account's: the upload of
+            // an earlier attempt could have gone through with its answer
+            // lost.
+            return recover_applied_change(
+                &http,
+                &origin,
+                address,
+                prepared,
+                device,
+                device_name,
+                totp_code,
+            )
+            .map_err(|_| TransportError::Rejected(Rejection::LoginFailed));
+        }
+        Err(e) => return Err(e),
+    };
     let mut grant = grant;
     if grant.status == LoginStatus::TwoFactorRequired {
         let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
         grant.expires_at_ms = login_totp_with(&http, &grant.token, code)?;
         grant.status = LoginStatus::Ok;
     }
-    let token = &grant.token;
+    let bearer = Bearer::new(&grant.token)?;
     let mut rng = OsRng;
     let new_opw = prepared.new_opaque_password().expose_secret();
     let start =
@@ -462,7 +511,7 @@ pub fn password_change(
     let (_, started): (u16, RegistrationStartResponse) = http.call(
         Method::POST,
         "/v1/account/password/start",
-        Some(token),
+        Some(&bearer),
         Some(&PasswordStartRequest {
             registration_request: B64(start.message.serialize().to_vec()),
         }),
@@ -482,27 +531,18 @@ pub fn password_change(
             ),
         )
         .map_err(|_| TransportError::Protocol)?;
-    let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
-        Method::GET,
-        "/v1/account",
-        Some(token),
-        None::<&Empty>,
-        &OK_STATUS,
-    )?;
-    if account.account_id != account_id {
-        return Err(TransportError::Protocol);
-    }
+    let mut finished = finished;
+    wipe_registration(&mut finished);
     let new_params = prepared.new_params();
     let (_, done): (u16, PasswordFinishResponse) = http.call(
         Method::POST,
         "/v1/account/password/finish",
-        Some(token),
+        Some(&bearer),
         Some(&PasswordFinishRequest {
             registration_upload: B64(finished.message.serialize().to_vec()),
             wrapped_ak: prepared.new_wrapped_ak().clone(),
             salt: B64Fixed(*new_params.salt.as_bytes()),
             profile: new_params.profile,
-            expected_account_version: account.account_version,
         }),
         &OK_STATUS,
     )?;
@@ -510,4 +550,114 @@ pub fn password_change(
         account_version: done.account_version,
         grant,
     })
+}
+
+/// The retry after a lost answer to `password/finish`: the new `OPW` logs in
+/// and the account's wrapped `AK` is the prepared one.
+fn recover_applied_change(
+    http: &Http,
+    origin: &str,
+    address: &str,
+    prepared: &PreparedPasswordChange,
+    device: InstallId,
+    device_name: &str,
+    totp_code: Option<&str>,
+) -> Result<PasswordChanged, TransportError> {
+    let account_id = prepared.new_params().account_id;
+    let mut grant = login_with(
+        http,
+        origin,
+        address,
+        account_id,
+        prepared.new_opaque_password(),
+        device,
+        device_name,
+    )?;
+    if grant.status == LoginStatus::TwoFactorRequired {
+        let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        grant.expires_at_ms = login_totp_with(http, &grant.token, code)?;
+        grant.status = LoginStatus::Ok;
+    }
+    let bearer = Bearer::new(&grant.token)?;
+    let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
+        Method::GET,
+        "/v1/account",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    if account.account_id != account_id
+        || account.wrapped_ak.as_bytes() != prepared.new_wrapped_ak().as_bytes()
+    {
+        return Err(TransportError::Protocol);
+    }
+    Ok(PasswordChanged {
+        account_version: account.account_version,
+        grant,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wire::opaque::ke::{
+        ServerLogin, ServerLoginParameters, ServerRegistration, ServerSetup,
+    };
+
+    /// C-L1: the session key and the export key of a finished login, and the
+    /// export key of a finished registration, are zero after the wipe (and
+    /// were not before it).
+    #[test]
+    fn opaque_keys_are_wiped_after_use() {
+        let mut rng = OsRng;
+        let setup = ServerSetup::<Suite>::new(&mut rng);
+        let account = [7u8; 16];
+        let origin = b"https://sync.example.com";
+        let opw = [9u8; 32];
+        let ids = || identifiers(&account, origin);
+
+        let start = ClientRegistration::<Suite>::start(&mut rng, &opw).unwrap();
+        let resp = ServerRegistration::<Suite>::start(&setup, start.message, &account).unwrap();
+        let mut fin = start
+            .state
+            .finish(
+                &mut rng,
+                &opw,
+                resp.message,
+                ClientRegistrationFinishParameters::new(ids(), None),
+            )
+            .unwrap();
+        assert!(fin.export_key.iter().any(|b| *b != 0));
+        let record = ServerRegistration::<Suite>::finish(fin.message.clone());
+        wipe_registration(&mut fin);
+        assert!(fin.export_key.iter().all(|b| *b == 0));
+
+        let c = ClientLogin::<Suite>::start(&mut rng, &opw).unwrap();
+        let s = ServerLogin::start(
+            &mut rng,
+            &setup,
+            Some(record),
+            c.message,
+            &account,
+            ServerLoginParameters {
+                context: Some(LOGIN_CONTEXT),
+                identifiers: ids(),
+            },
+        )
+        .unwrap();
+        let mut done = c
+            .state
+            .finish(
+                &mut rng,
+                &opw,
+                s.message,
+                ClientLoginFinishParameters::new(Some(LOGIN_CONTEXT), ids(), None),
+            )
+            .unwrap();
+        assert!(done.session_key.iter().any(|b| *b != 0));
+        assert!(done.export_key.iter().any(|b| *b != 0));
+        wipe_login(&mut done);
+        assert!(done.session_key.iter().all(|b| *b == 0));
+        assert!(done.export_key.iter().all(|b| *b == 0));
+    }
 }

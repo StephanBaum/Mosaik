@@ -92,6 +92,24 @@ pub enum SyncWarning {
     },
     /// This device's own checkpoint went backwards.
     RollbackDetected,
+    /// The server contradicted itself for a vault (hosted): devices at the
+    /// same head were shown different contents, an upload was acknowledged
+    /// under a sequence number the device had already read, a record's base
+    /// stayed refused after a full re-read, or a second valid key appeared
+    /// for a generation the server had confirmed. Persisted until the user
+    /// acknowledges it ([`SyncEngine::clear_halt`]).
+    ServerInconsistent {
+        /// The vault.
+        vault: VaultId,
+    },
+    /// The server's head for a vault is below what this device already read
+    /// (hosted): the vault was rolled back on the server. Only that vault is
+    /// skipped. Persisted until the user acknowledges it
+    /// ([`SyncEngine::clear_halt`]).
+    ServerRollback {
+        /// The vault.
+        vault: VaultId,
+    },
     /// Another install writes under this install's ID.
     IdentityDuplicated,
     /// Records could not be decrypted for no known reason.
@@ -259,8 +277,10 @@ impl<T: Transport> SyncEngine<T> {
             .map(Halt::from))
     }
 
-    /// The user acknowledged a halt (the desktop asks first, §7): the
-    /// persisted halt and strikes are cleared. After a rollback the own logs
+    /// The user acknowledged a halt or a finding against the server (the
+    /// desktop asks first, §7): the persisted halt, the strikes and the
+    /// per-vault findings ([`SyncWarning::ServerInconsistent`],
+    /// [`SyncWarning::ServerRollback`]) are cleared. After a rollback the own logs
     /// count as unchecked until written again; sequence numbers already used
     /// are never reused.
     ///
@@ -291,6 +311,21 @@ impl<T: Transport> SyncEngine<T> {
             Ok(Err(e)) => SyncError::Session(e),
             Err(e) => e,
         }
+    }
+
+    /// Reads the vaults this run pushed to once more, so every accepted
+    /// record is read back and the served view is clean when the checkpoint
+    /// publishes its digest (hosted).
+    fn settle_pushed(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+        stats: &mut pull::RunStats,
+    ) -> Result<(), SyncError> {
+        for vault in core::mem::take(&mut stats.pushed_vaults) {
+            self.pull_vault(access, vault, report, stats)?;
+        }
+        Ok(())
     }
 
     /// Stops with a rollback halt if the own log of a synced vault lost
@@ -335,7 +370,14 @@ impl<T: Transport> SyncEngine<T> {
         if let Some(retry_at_ms) = self.backoff.retry_at
             && now < retry_at_ms
         {
-            return Err(SyncError::Backoff { retry_at_ms });
+            // A retry that lies further ahead than any delay the backoff
+            // can set (plus a server's floor) belongs to a clock that has
+            // since been set back: retry now instead of waiting for days.
+            if self.backoff.is_beyond_any_delay(now, BACKOFF_MAX_MS) {
+                self.backoff.retry_at = None;
+            } else {
+                return Err(SyncError::Backoff { retry_at_ms });
+            }
         }
         let result = self.run(access, clock);
         match &result {
@@ -376,11 +418,13 @@ impl<T: Transport> SyncEngine<T> {
         self.check_own_logs(access)?;
         self.verify_checkpoints(access, now)?;
         self.upload_vaults(access, &mut report)?;
-        self.pull_phase(access, &mut report, &mut stats)?;
+        self.pull_phase(access, &mut report, &mut stats, now)?;
         self.push_phase(access, &mut report, &mut stats, None)?;
         self.push_metas(access, &mut stats, &mut report)?;
         self.attachments_phase(access, &mut report)?;
+        self.settle_pushed(access, &mut report, &mut stats)?;
         let (warnings, none_lagging) = self.evaluate_lag(access, now)?;
+        self.check_views(access)?;
         self.publish_checkpoint(access, clock)?;
         let no_conflict = !access.with(|s| s.has_any_unresolved_key_conflict())??;
         let caught_up = none_lagging && no_conflict && stats.unexplained == 0;

@@ -44,6 +44,11 @@ use loopback::LoopbackServer;
 
 const PASSWORD: &str = "correct horse battery staple";
 
+/// An install ID for tests that never reach a session-bound endpoint.
+fn any_install() -> InstallId {
+    InstallId::from_bytes([0x0E; 16]).unwrap()
+}
+
 fn token(fill: u8) -> SessionToken {
     session_token(&[fill; 32]).unwrap()
 }
@@ -144,7 +149,7 @@ fn refuses_http_non_loopback() {
         "ftp://sync.example.com",
     ] {
         assert_eq!(
-            HttpTransport::connect(url, token(1)).err(),
+            HttpTransport::connect(url, &token(1), any_install()).err(),
             Some(TransportError::InsecureUrl),
             "{url}"
         );
@@ -158,7 +163,7 @@ fn refuses_http_non_loopback() {
         );
     }
     assert_eq!(
-        HttpTransport::connect("not a url", token(1)).err(),
+        HttpTransport::connect("not a url", &token(1), any_install()).err(),
         Some(TransportError::InvalidUrl)
     );
     // Loopback over http is the one exception, and https stays allowed.
@@ -172,7 +177,7 @@ fn refuses_http_non_loopback() {
 fn rejects_unknown_response_fields() {
     let server = RawServer::start(|_, origin| json_ok(&info_json(origin, ",\"surprise\":true")));
     assert_eq!(
-        HttpTransport::connect(&server.base, token(1)).err(),
+        HttpTransport::connect(&server.base, &token(1), any_install()).err(),
         Some(TransportError::Protocol)
     );
     // Missing keys are as bad as unknown ones.
@@ -192,7 +197,7 @@ fn rejects_unknown_response_fields() {
             )
         }
     });
-    let mut t = HttpTransport::connect(&server.base, token(1)).unwrap();
+    let mut t = HttpTransport::connect(&server.base, &token(1), any_install()).unwrap();
     assert_eq!(
         t.pull(VaultId::new_v7().unwrap(), &Cursor::default(), 10)
             .err(),
@@ -233,7 +238,7 @@ fn server_identity_mismatch_refused() {
     // The server names itself `localhost`; the client was told 127.0.0.1.
     let server = LoopbackServer::with_origin(RegistrationMode::Open, Some("localhost"));
     assert_eq!(
-        HttpTransport::connect(&server.base, token(1)).err(),
+        HttpTransport::connect(&server.base, &token(1), any_install()).err(),
         Some(TransportError::ServerMismatch)
     );
     assert_eq!(
@@ -289,7 +294,7 @@ fn retry_after_mapped() {
         (Some("99999999"), 86_400),
     ] {
         let server = limited(header);
-        let mut t = HttpTransport::connect(&server.base, token(1)).unwrap();
+        let mut t = HttpTransport::connect(&server.base, &token(1), any_install()).unwrap();
         assert_eq!(
             t.list_vaults().err(),
             Some(TransportError::RateLimited {
@@ -364,14 +369,14 @@ fn error_codes_map_to_transport_errors() {
     ];
     for (status, body, expected) in cases {
         let server = answer(status, body);
-        let mut t = HttpTransport::connect(&server.base, token(1)).unwrap();
+        let mut t = HttpTransport::connect(&server.base, &token(1), any_install()).unwrap();
         assert_eq!(t.list_vaults().err(), Some(expected), "{status} {body}");
     }
     let server = answer(
         "409 Conflict",
         "{\"error\":\"generation_mismatch\",\"detail\":{\"currentGeneration\":4}}",
     );
-    let mut t = HttpTransport::connect(&server.base, token(1)).unwrap();
+    let mut t = HttpTransport::connect(&server.base, &token(1), any_install()).unwrap();
     assert_eq!(
         t.list_vaults().err(),
         Some(TransportError::GenerationMismatch {
@@ -485,7 +490,7 @@ fn transport_round_trip_against_the_server() {
     let a = register(&server, "alice");
     let grant = login(&server, &a);
     assert_eq!(grant.status, LoginStatus::Ok);
-    let mut t = HttpTransport::connect(&server.base, grant.token).unwrap();
+    let mut t = HttpTransport::connect(&server.base, &grant.token, a.device).unwrap();
     let device = a.device;
     let v = Vault::new();
 
@@ -664,7 +669,7 @@ fn transport_round_trip_against_the_server() {
     // the second.
     let second = login(&server, &a);
     assert_eq!(t.list_vaults().err(), Some(TransportError::Unauthorized));
-    let mut t2 = HttpTransport::connect(&server.base, second.token).unwrap();
+    let mut t2 = HttpTransport::connect(&server.base, &second.token, a.device).unwrap();
     assert!(t2.list_vaults().is_ok());
 }
 
@@ -760,7 +765,7 @@ fn login_failures_and_totp_flow() {
     // The code of the step that enabled 2FA is spent; the next step's is not.
     server.advance_ms(30_000);
     hosted::login_totp(&server.base, &grant.token, &code_now()).unwrap();
-    let mut done = HttpTransport::connect(&server.base, grant.token).unwrap();
+    let mut done = HttpTransport::connect(&server.base, &grant.token, a.device).unwrap();
     assert_eq!(done.list_vaults().unwrap().len(), 0);
 }
 

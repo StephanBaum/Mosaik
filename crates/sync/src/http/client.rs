@@ -4,9 +4,13 @@
 //! [`TransportError`].
 //!
 //! Nothing here logs. The session token is sent as a sensitive header value
-//! and never appears in an error.
+//! and never appears in an error. The `Authorization` value is built in a
+//! zeroizing string and kept as one sensitive [`Bearer`] per transport; the
+//! copies that `reqwest` and `hyper` make while they send it are outside this
+//! crate's reach (`THREAT_MODEL` R57).
 
 use std::io::Read;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,12 +24,14 @@ use rustls::ClientConfig;
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use zeroize::Zeroizing;
 
 use crate::transport::{Rejection, TransportError};
 use crate::wire::json::{
     self, AccountVersionDetail, ErrorBody, GenerationDetail, InfoResponse, MAX_RESPONSE_LEN,
     PROTOCOL_VERSION, codes,
 };
+use crate::wire::origin;
 
 /// Connecting to the server.
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -42,72 +48,39 @@ const DEFAULT_RETRY_AFTER_S: u32 = 60;
 /// The most a `Retry-After` can ask for (one day).
 const MAX_RETRY_AFTER_S: u32 = 86_400;
 
-/// The canonical `https://host[:port]` origin of a server URL.
+/// The canonical `https://host[:port]` origin of a server URL
+/// ([`origin::canonical_origin`], shared with the server).
 ///
-/// Lowercase, no path, query, fragment or credentials. `http` is accepted
-/// only for `127.0.0.1`, `[::1]` and `localhost` (M6 spec §6.1).
+/// Lowercase, no path, query, fragment or credentials, the default port
+/// removed. `http` is accepted only for `127.0.0.1`, `[::1]` and
+/// `localhost` (M6 spec §6.1).
 ///
 /// # Errors
 /// [`TransportError::InsecureUrl`] for `http` to another host or any other
 /// scheme than `https`; [`TransportError::InvalidUrl`] for anything that is
 /// not `scheme://host[:port]`.
 pub fn canonical_origin(base: &str) -> Result<String, TransportError> {
-    let (scheme, rest) = base.split_once("://").ok_or(TransportError::InvalidUrl)?;
-    let scheme = scheme.to_ascii_lowercase();
-    if rest.is_empty()
-        || !rest.is_ascii()
-        || rest.contains(['/', '?', '#', '@', ' ', '\\', '%'])
-        || rest.chars().any(|c| c.is_ascii_control())
-    {
-        return Err(TransportError::InvalidUrl);
-    }
-    let rest = rest.to_ascii_lowercase();
-    let (host, port) = match rest.strip_prefix('[') {
-        Some(v6) => {
-            let (h, p) = v6.split_once(']').ok_or(TransportError::InvalidUrl)?;
-            let port = if p.is_empty() {
-                None
-            } else {
-                Some(p.strip_prefix(':').ok_or(TransportError::InvalidUrl)?)
-            };
-            if h.is_empty() || !h.chars().all(|c| c.is_ascii_hexdigit() || c == ':') {
-                return Err(TransportError::InvalidUrl);
-            }
-            (format!("[{h}]"), port)
-        }
-        None => match rest.split_once(':') {
-            Some((h, p)) => (h.to_owned(), Some(p)),
-            None => (rest.clone(), None),
-        },
-    };
-    let host_ok = !host.is_empty()
-        && !host.starts_with(['.', '-'])
-        && !host.ends_with(['.', '-'])
-        && (host.starts_with('[')
-            || host
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'));
-    if !host_ok {
-        return Err(TransportError::InvalidUrl);
-    }
-    if let Some(p) = port
-        && (p.is_empty()
-            || !p.chars().all(|c| c.is_ascii_digit())
-            || p.parse::<u16>().is_ok_and(|n| n == 0)
-            || p.parse::<u16>().is_err())
-    {
-        return Err(TransportError::InvalidUrl);
-    }
-    let loopback = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]");
-    match scheme.as_str() {
-        "https" => {}
-        "http" if loopback => {}
-        _ => return Err(TransportError::InsecureUrl),
-    }
-    Ok(match port {
-        Some(p) => format!("{scheme}://{host}:{p}"),
-        None => format!("{scheme}://{host}"),
+    origin::canonical_origin(base).map_err(|e| match e {
+        origin::OriginError::Insecure => TransportError::InsecureUrl,
+        _ => TransportError::InvalidUrl,
     })
+}
+
+/// The `Authorization: Bearer` header value of a session token: built in a
+/// zeroizing string, marked sensitive (reqwest keeps it out of its debug
+/// output and hpack tables) and kept for the life of the transport.
+pub(super) struct Bearer(HeaderValue);
+
+impl Bearer {
+    pub(super) fn new(token: &SessionToken) -> Result<Self, TransportError> {
+        let text = Zeroizing::new(format!(
+            "Bearer {}",
+            Base64UrlUnpadded::encode_string(token.expose())
+        ));
+        let mut value = HeaderValue::from_str(&text).map_err(|_| TransportError::Io)?;
+        value.set_sensitive(true);
+        Ok(Self(value))
+    }
 }
 
 /// The TLS versions of the client: 1.3 only (ADR-0046).
@@ -118,7 +91,9 @@ pub(super) fn tls_versions() -> &'static [&'static rustls::SupportedProtocolVers
 }
 
 /// The client's TLS configuration: the `ring` provider, TLS 1.3 only, the
-/// operating system's trust store and no client certificate.
+/// operating system's trust store and no client certificate. (`rustls` is
+/// built with its `tls12` feature, which hyper-rustls switches on; this
+/// configuration offers TLS 1.3 only whatever the features say.)
 pub(super) fn tls_config() -> Result<ClientConfig, TransportError> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     Ok(ClientConfig::builder_with_provider(provider)
@@ -252,6 +227,17 @@ fn map_reqwest(e: &reqwest::Error) -> TransportError {
     }
 }
 
+/// `localhost` and its port, if the origin names it: it is pinned to
+/// `127.0.0.1` (an IP literal origin needs no resolution).
+fn pinned_loopback(origin: &str) -> Option<(&'static str, u16)> {
+    let (scheme, rest) = origin.split_once("://")?;
+    let (host, port) = match rest.split_once(':') {
+        Some((h, p)) => (h, p.parse::<u16>().ok()?),
+        None => (rest, if scheme == "https" { 443 } else { 80 }),
+    };
+    (host == "localhost").then_some(("localhost", port))
+}
+
 /// A blocking client for one server origin.
 pub(super) struct Http {
     client: Client,
@@ -272,6 +258,11 @@ impl Http {
             // A loopback server is never behind a proxy.
             builder.no_proxy()
         };
+        if let Some((host, port)) = pinned_loopback(origin) {
+            // `localhost` is looked up by the system resolver otherwise,
+            // and a plain-http loopback connection must not depend on it.
+            builder = builder.resolve(host, SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
+        }
         let client = builder.build().map_err(|_| TransportError::Io)?;
         Ok(Self {
             client,
@@ -285,7 +276,7 @@ impl Http {
         &self,
         method: Method,
         path: &str,
-        token: Option<&SessionToken>,
+        auth: Option<&Bearer>,
         body: Body<'_>,
         timeout: Duration,
         cap: usize,
@@ -294,14 +285,8 @@ impl Http {
             .client
             .request(method, format!("{}{path}", self.origin))
             .timeout(timeout);
-        if let Some(token) = token {
-            let value = format!(
-                "Bearer {}",
-                Base64UrlUnpadded::encode_string(token.expose())
-            );
-            let mut value = HeaderValue::from_str(&value).map_err(|_| TransportError::Io)?;
-            value.set_sensitive(true);
-            request = request.header(AUTHORIZATION, value);
+        if let Some(bearer) = auth {
+            request = request.header(AUTHORIZATION, bearer.0.clone());
         }
         request = match body {
             Body::None => request,
@@ -331,14 +316,14 @@ impl Http {
         &self,
         method: Method,
         path: &str,
-        token: Option<&SessionToken>,
+        auth: Option<&Bearer>,
         request: Option<&Req>,
         ok: &[u16],
     ) -> Result<(u16, Resp), TransportError> {
         self.send(
             method,
             path,
-            token,
+            auth,
             json_body(request)?,
             REQUEST_TIMEOUT,
             MAX_RESPONSE_LEN,
@@ -463,6 +448,31 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn localhost_is_pinned_and_nothing_else() {
+        assert_eq!(
+            pinned_loopback("http://localhost:8743"),
+            Some(("localhost", 8743))
+        );
+        assert_eq!(pinned_loopback("http://localhost"), Some(("localhost", 80)));
+        assert_eq!(
+            pinned_loopback("https://localhost"),
+            Some(("localhost", 443))
+        );
+        assert_eq!(pinned_loopback("http://127.0.0.1:1"), None);
+        assert_eq!(pinned_loopback("http://[::1]:1"), None);
+        assert_eq!(pinned_loopback("https://sync.example.com"), None);
+    }
+
+    #[test]
+    fn the_bearer_value_is_sensitive() {
+        let token = mosaic_core::sync_auth::session_token(&[7; 64]).unwrap();
+        let bearer = Bearer::new(&token).unwrap();
+        assert!(bearer.0.is_sensitive());
+        assert!(bearer.0.as_bytes().starts_with(b"Bearer "));
+        assert_eq!(format!("{:?}", bearer.0), "Sensitive");
     }
 
     #[test]

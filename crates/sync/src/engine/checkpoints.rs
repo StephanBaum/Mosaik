@@ -5,14 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::{InstallId, KeyGeneration, VaultId};
 use mosaic_vault::session::{Error, UnlockedSession, VaultProtection};
-use mosaic_vault::storage::{PeerCheckpoint, PeerEntry, SyncHalt};
+use mosaic_vault::storage::{PeerCheckpoint, PeerEntry, SyncHalt, VaultFlag};
 
 use super::pull::RunStats;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
 use crate::clock::Clock;
 use crate::transport::{Cursor, Transport, TransportError, TransportKind};
 use crate::wire::WireError;
-use crate::wire::checkpoint::{Checkpoint, CheckpointEntry, MAX_ENTRIES};
+use crate::wire::checkpoint::{Checkpoint, CheckpointEntry, MAX_ENTRIES, NO_VIEW, view_digest};
 use crate::wire::cursor::FolderCursor;
 
 /// The verified checkpoint with the highest counter per device.
@@ -105,6 +105,46 @@ fn lagging_pairs(
     Ok(lagging)
 }
 
+/// The digest of this device's view of a hosted vault at `high_seq`, if the
+/// view is clean: the vault carries no finding against the server and no
+/// served record lies beyond `high_seq` (the cursor), so the view is exactly
+/// what the server showed up to that head.
+fn own_view(s: &UnlockedSession, vault: VaultId, high_seq: u64) -> Result<Option<[u8; 32]>, Error> {
+    if s.vault_flags()?.iter().any(|(v, _)| *v == vault) {
+        return Ok(None);
+    }
+    let rows = s.served_view(vault)?;
+    if rows.iter().any(|r| r.seq > high_seq) {
+        return Ok(None);
+    }
+    Ok(view_digest(&vault, high_seq, &rows).ok())
+}
+
+/// The hosted cursor of a vault as a sequence number.
+fn cursor_seq(cursor: Option<&[u8]>) -> u64 {
+    cursor
+        .and_then(|c| <[u8; 8]>::try_from(c).ok())
+        .map_or(0, u64::from_be_bytes)
+}
+
+/// Compares one peer entry (same generation, synced vault) with this
+/// device's view at the same head; a difference is a finding.
+fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<(), Error> {
+    if entry.view_digest == NO_VIEW {
+        return Ok(());
+    }
+    let cursor = s.sync_cursor(entry.vault_id)?;
+    if cursor_seq(cursor.as_deref()) != entry.high_seq {
+        return Ok(());
+    }
+    if let Some(mine) = own_view(s, entry.vault_id, entry.high_seq)?
+        && mine != entry.view_digest
+    {
+        s.set_vault_flag(entry.vault_id, VaultFlag::ServerInconsistent)?;
+    }
+    Ok(())
+}
+
 /// What the own checkpoint on the backend says about this install.
 enum Verdict {
     Fine,
@@ -143,8 +183,10 @@ impl<T: Transport> SyncEngine<T> {
                             vault_id: e.vault_id,
                             generation: e.generation,
                             high_seq: e.high_seq,
+                            view_digest: e.view_digest,
                         })
                         .collect(),
+                    digests_acknowledged: false,
                 })?;
             }
             let seen = best.get(&own).map_or(0, |c| c.counter);
@@ -198,9 +240,15 @@ impl<T: Transport> SyncEngine<T> {
                 .into_iter()
                 .map(|(d, v, t)| ((d, v), t))
                 .collect();
+            // A stored start in the future belongs to a clock that has since
+            // been set back: it counts from now (otherwise a freeze would
+            // stay unreported until the old clock time came round again).
             let next: BTreeMap<(InstallId, VaultId), u64> = lagging
                 .into_iter()
-                .map(|key| (key, stored.get(&key).copied().unwrap_or(now)))
+                .map(|key| {
+                    let since = stored.get(&key).copied().filter(|t| *t <= now);
+                    (key, since.unwrap_or(now))
+                })
                 .collect();
             if next != stored {
                 let list: Vec<_> = next.iter().map(|((d, v), t)| (*d, *v, *t)).collect();
@@ -230,6 +278,41 @@ impl<T: Transport> SyncEngine<T> {
         Ok(out)
     }
 
+    /// Compares this device's served view of every hosted vault with the
+    /// view digests other devices published for the same head (CRYPTO_SPEC
+    /// §10): the device's cursor equals the entry's `high_seq`, the
+    /// generations agree, and this device's view is clean. A different
+    /// digest means the server showed two devices different contents for the
+    /// same head; the vault is flagged (persisted).
+    pub(super) fn check_views(&mut self, access: &mut impl SessionAccess) -> Result<(), SyncError> {
+        if self.config.transport_kind != TransportKind::Hosted {
+            return Ok(());
+        }
+        access.with(|s| -> Result<(), Error> {
+            let generations: BTreeMap<VaultId, KeyGeneration> = s
+                .vaults()
+                .into_iter()
+                .map(|v| (v.vault_id, v.key_generation))
+                .collect();
+            let synced = s.synced_vaults();
+            let entries: Vec<PeerEntry> = s
+                .peer_checkpoints()?
+                .into_iter()
+                .filter(|cp| !cp.digests_acknowledged)
+                .flat_map(|cp| cp.entries)
+                .filter(|e| {
+                    synced.contains(&e.vault_id)
+                        && generations.get(&e.vault_id) == Some(&e.generation)
+                })
+                .collect();
+            for entry in &entries {
+                compare_view(s, entry)?;
+            }
+            Ok(())
+        })??;
+        Ok(())
+    }
+
     /// Step 8: publishes this device's checkpoint. The counter is persisted
     /// before the checkpoint is sent, and recorded as published once the
     /// backend accepted it.
@@ -253,13 +336,23 @@ impl<T: Transport> SyncEngine<T> {
             }
             Ok((counter, vaults))
         })??;
+        let hosted = self.config.transport_kind == TransportKind::Hosted;
         let mut entries = Vec::new();
         for (vault_id, generation, cursor) in vaults {
             let cursor = Cursor(cursor.unwrap_or_default());
+            let high_seq = self.transport.checkpoint_high_seq(vault_id, &cursor)?;
+            let view = if hosted {
+                access
+                    .with(|s| own_view(s, vault_id, high_seq))??
+                    .unwrap_or(NO_VIEW)
+            } else {
+                NO_VIEW
+            };
             entries.push(CheckpointEntry {
                 vault_id,
                 generation,
-                high_seq: self.transport.checkpoint_high_seq(vault_id, &cursor)?,
+                high_seq,
+                view_digest: view,
             });
         }
         entries.sort_by_key(|e| e.vault_id);
@@ -306,6 +399,12 @@ impl<T: Transport> SyncEngine<T> {
                 })
                 .count()
         })?;
+        for (vault, flag) in access.with(|s| s.vault_flags())?? {
+            warnings.push(match flag {
+                VaultFlag::ServerInconsistent => SyncWarning::ServerInconsistent { vault },
+                VaultFlag::ServerRolledBack => SyncWarning::ServerRollback { vault },
+            });
+        }
         if hardware > 0 {
             warnings.push(SyncWarning::HardwareVaultsLocal {
                 count: u32::try_from(hardware).unwrap_or(u32::MAX),

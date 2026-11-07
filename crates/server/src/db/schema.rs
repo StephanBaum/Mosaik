@@ -43,7 +43,8 @@ CREATE TABLE sessions (
     expires_at INTEGER NOT NULL,
     fresh_until INTEGER NOT NULL,
     pending_2fa INTEGER NOT NULL CHECK (pending_2fa IN (0, 1)),
-    totp_attempts INTEGER NOT NULL DEFAULT 0
+    totp_attempts INTEGER NOT NULL DEFAULT 0,
+    account_version INTEGER NOT NULL CHECK (account_version >= 1)
 ) STRICT;
 CREATE INDEX sessions_account ON sessions (account_id, device_id);
 CREATE INDEX sessions_expiry ON sessions (expires_at);
@@ -107,7 +108,7 @@ CREATE TABLE checkpoints (
     account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
     device_id BLOB NOT NULL CHECK (length(device_id) = 16),
     counter INTEGER NOT NULL CHECK (counter >= 0),
-    body BLOB NOT NULL CHECK (length(body) <= 65600),
+    body BLOB NOT NULL CHECK (length(body) <= 245833),
     received_at INTEGER NOT NULL,
     PRIMARY KEY (account_id, device_id)
 ) STRICT;

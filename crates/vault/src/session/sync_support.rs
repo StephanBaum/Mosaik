@@ -8,7 +8,8 @@
 //! asks the session for MACs and seals, one operation at a time. The
 //! accessors at the end persist the engine's own state (own sequence
 //! numbers, halt, peer checkpoints, lag timers, key observations,
-//! delete-marker times; schema v4).
+//! delete-marker times; schema v4; the served view, confirmed keys, findings
+//! against the server and rotation log; schema v5).
 
 use mosaic_core::sync_auth::{self, FolderMacPurpose};
 use mosaic_core::{
@@ -24,7 +25,7 @@ use super::{
 };
 use crate::storage::{
     AttachmentInfo, EngineState, Error as StorageError, KeyOrigin, MarkerStamp, OwnSeq,
-    PeerCheckpoint, RecordEntry, SyncConfig, SyncHalt, VaultKeyWrap,
+    PeerCheckpoint, RecordEntry, ServedRow, SyncConfig, SyncHalt, VaultFlag, VaultKeyWrap,
 };
 
 /// What a vault still has to send to the backend.
@@ -410,9 +411,113 @@ impl UnlockedSession {
             Some((g, m)) => (g, Some(m)),
             None => (self.vault(vault)?.generation, None),
         };
-        Ok(self
-            .store
-            .mark_vault_created(&vault, generation, meta.as_ref())?)
+        self.store
+            .mark_vault_created(&vault, generation, meta.as_ref())?;
+        // The backend holds the key the vault was created with.
+        self.store.mark_key_confirmed(&vault, generation)?;
+        Ok(())
+    }
+
+    /// Records that the backend accepted the wrapped key of generation `g`
+    /// (an accepted upload): the backend now holds exactly this key for the
+    /// generation, which decides the key-winner rule on the hosted backend
+    /// (CRYPTO_SPEC §10.2).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn mark_vault_key_confirmed(&mut self, vault: VaultId, g: KeyGeneration) -> Result<()> {
+        Ok(self.store.mark_key_confirmed(&vault, g)?)
+    }
+
+    /// Whether the backend confirmed the held vault key of generation `g`
+    /// (see [`Self::mark_vault_key_confirmed`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn vault_key_confirmed(&self, vault: VaultId, g: KeyGeneration) -> Result<bool> {
+        Ok(self.store.key_confirmed(&vault, g)?)
+    }
+
+    /// Overwrites the server's latest version of a record as this device
+    /// knows it: the `seq` the server served or accepted it under and the
+    /// SHA-256 of the exact ciphertext (hosted backend only; CRYPTO_SPEC
+    /// §10). Never a maximum: the last answer of the server wins.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn note_served(
+        &mut self,
+        vault: VaultId,
+        record: ItemId,
+        seq: u64,
+        ct_hash: [u8; 32],
+    ) -> Result<()> {
+        Ok(self.store.put_served(&vault, &record, seq, &ct_hash)?)
+    }
+
+    /// The `seq` under which the server last served or accepted the record
+    /// (the base of the next upload of it).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn served_seq(&self, vault: VaultId, record: ItemId) -> Result<Option<u64>> {
+        Ok(self.store.served(&vault, &record)?.map(|r| r.seq))
+    }
+
+    /// Every record of the vault as the server last served or accepted it,
+    /// sorted by record ID (the input of the view digest).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn served_view(&self, vault: VaultId) -> Result<Vec<ServedRow>> {
+        Ok(self.store.served_rows(&vault)?)
+    }
+
+    /// Stores a finding against the server for a vault; it is reported by
+    /// every run until the user acknowledges it ([`Self::clear_sync_halt`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_vault_flag(&mut self, vault: VaultId, flag: VaultFlag) -> Result<()> {
+        Ok(self.store.set_vault_flag(&vault, flag)?)
+    }
+
+    /// The findings against the server, by vault.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn vault_flags(&self) -> Result<Vec<(VaultId, VaultFlag)>> {
+        Ok(self.store.vault_flags()?)
+    }
+
+    /// Records a conflict-driven rotation of the vault at `now_ms` (rows
+    /// older than `window_ms` are dropped) and returns how many rotations
+    /// the window now holds, this one included.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn log_conflict_rotation(
+        &mut self,
+        vault: VaultId,
+        now_ms: u64,
+        window_ms: u64,
+    ) -> Result<u32> {
+        self.store.log_rotation(&vault, now_ms, window_ms)?;
+        Ok(self.store.recent_rotations(&vault, now_ms, window_ms)?)
+    }
+
+    /// How many conflict-driven rotations of the vault the window that ends
+    /// at `now_ms` holds.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn recent_conflict_rotations(
+        &self,
+        vault: VaultId,
+        now_ms: u64,
+        window_ms: u64,
+    ) -> Result<u32> {
+        Ok(self.store.recent_rotations(&vault, now_ms, window_ms)?)
     }
 
     /// Records that the backend stored the wrapped key of generation `g`.

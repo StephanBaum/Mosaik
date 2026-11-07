@@ -557,6 +557,19 @@ pub fn warns_freeze(r: &SyncReport) -> bool {
     })
 }
 
+/// The run reports the server contradicting itself or going back in time
+/// (a finding against the server, persisted by the engine), or one of the
+/// older freeze and rollback warnings.
+pub fn warns_server(r: &SyncReport) -> bool {
+    warns_freeze(r)
+        || r.warnings.iter().any(|w| {
+            matches!(
+                w,
+                SyncWarning::ServerInconsistent { .. } | SyncWarning::ServerRollback { .. }
+            )
+        })
+}
+
 /// The device's stored pull cursor of `vault` as a server sequence number.
 pub fn cursor_of(w: &World, d: usize, vault: VaultId) -> u64 {
     w.devs[d].s().sync_cursor(vault).unwrap().map_or(0, |c| {

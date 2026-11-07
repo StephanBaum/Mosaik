@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use mosaic_core::model::{ItemType, SecretField};
 use mosaic_core::{ItemId, KeyGeneration, VaultId};
 use mosaic_sync::TransportError;
-use mosaic_sync::engine::{EngineConfig, RotationOutcome, SyncEngine};
+use mosaic_sync::engine::{EngineConfig, RotationOutcome, SyncEngine, SyncError};
 use mosaic_sync::http::hosted;
 use mosaic_sync::testutil::{ChaosConfig, FixedJitter};
 use mosaic_sync::transport::{Rejection, Transport, TransportKind};
@@ -235,11 +235,12 @@ fn move_copy_uploaded_before_tombstone() {
 }
 
 /// A rotation made offline (queued) by two devices at once: the server takes
-/// one key per generation, the later device's key is refused, it rotates
-/// again and nothing readable is lost, whichever device is first and
+/// one key per generation, the later device's key is refused, it adopts the
+/// server's key for that generation (no further generation), re-seals what it
+/// holds under it and nothing readable is lost, whichever device is first and
 /// whichever has the lower install ID.
 #[test]
-fn legacy_offline_rotation_loser_rotates_again() {
+fn legacy_offline_rotation_loser_adopts_server_key() {
     for first in [0usize, 1] {
         let second = 1 - first;
         let (mut w, vault, items) = three_devices(41 + first as u64);
@@ -255,7 +256,7 @@ fn legacy_offline_rotation_loser_rotates_again() {
         w.converge(0);
 
         let g = generation(&w, 0, vault);
-        assert_eq!(g.get(), g0.get() + 2, "first {first}: one more rotation");
+        assert_eq!(g.get(), g0.get() + 1, "first {first}: no further rotation");
         for d in 0..3 {
             assert_eq!(generation(&w, d, vault), g);
             assert!(has_pw(&w, d, vault, items[0], "edit by 0"), "device {d}");
@@ -271,9 +272,14 @@ fn legacy_offline_rotation_loser_rotates_again() {
         }
         let origin = |d: usize| w.devs[d].s().vault_key_origin(vault, g).unwrap();
         assert_eq!(
-            origin(second),
+            origin(first),
             Some(KeyOrigin::Local),
-            "the loser's new key"
+            "the winner's own key"
+        );
+        assert_eq!(
+            origin(second),
+            Some(KeyOrigin::Remote),
+            "the loser adopted the server's key"
         );
         let current_key = |d: usize| {
             w.devs[d]
@@ -341,8 +347,28 @@ fn password_change_hosted_end_to_end() {
     assert_eq!(changed.account_version, 2);
     // The fresh login of the change replaced device 0's session (one per
     // device); device 0 goes on with it, no second login is needed.
-    let transport = crate::hosted::connect(&w.server, changed.grant);
+    let device0 = w.devs[0].device;
+    let transport = crate::hosted::connect(&w.server, &changed.grant, device0);
     w.devs[0].engine = w.engine_over(transport, 0);
+    // The change ended every other session of the account: device 1's token
+    // is dead, and it signs in again with the new password.
+    assert!(matches!(
+        w.try_sync(1),
+        Err(SyncError::Transport(TransportError::Unauthorized))
+    ));
+    w.server.advance_ms(60_000);
+    let device1 = w.devs[1].device;
+    let grant = hosted::login(
+        &w.server.base,
+        &w.email,
+        w.account,
+        prepared.new_opaque_password(),
+        device1,
+        "device 1",
+    )
+    .unwrap();
+    let transport = crate::hosted::connect(&w.server, &grant, device1);
+    w.devs[1].engine = w.engine_over(transport, 1);
     w.devs[0]
         .s_mut()
         .commit_master_password_change(prepared)
@@ -354,7 +380,7 @@ fn password_change_hosted_end_to_end() {
         "the old password no longer opens the account"
     );
     let d = w.try_join_with(new_password).unwrap();
-    // The devices that were signed in keep their sessions.
+    // Device 1 carries on with its new session.
     set_password(&mut w, 1, vault, item, "after the change");
     w.converge(0);
     for dev in 0..3 {
@@ -367,4 +393,56 @@ fn password_change_hosted_end_to_end() {
     let secret_key = &w.secret_key;
     let locked = w.devs[d].access.take().unwrap().lock();
     assert!(locked.unlock(&pw(new_password), secret_key).is_ok());
+}
+
+/// C-L3. The server stored a password change and its answer was lost. The
+/// retry cannot log in with the old password any more; it logs in with the
+/// new one, finds the prepared wrapped account key on the server and returns
+/// as if the change had just gone through, so the device commits it locally.
+/// A change that is not the one on the server stays the original error.
+#[test]
+fn password_change_lost_answer_is_recovered_on_retry() {
+    let (mut w, _vault, _item) = two_devices(62);
+    let new_password = "a passphrase for the lost answer";
+    let prepared = w.devs[0]
+        .s()
+        .prepare_master_password_change(&pw(PASSWORD), &pw(new_password), &w.secret_key)
+        .unwrap();
+    let stale = w.devs[0]
+        .s()
+        .prepare_master_password_change(&pw(PASSWORD), &pw("a third passphrase"), &w.secret_key)
+        .unwrap();
+    let device0 = w.devs[0].device;
+    let change = |w: &World, prepared: &mosaic_vault::session::PreparedPasswordChange| {
+        w.server.advance_ms(60_000);
+        hosted::password_change(
+            &w.server.base,
+            &w.email,
+            prepared,
+            device0,
+            "device 0",
+            None,
+        )
+    };
+    // The upload goes through; the device never sees the answer.
+    assert_eq!(change(&w, &prepared).unwrap().account_version, 2);
+    // The retry recovers: same version, a session for the new password.
+    let again = change(&w, &prepared).unwrap();
+    assert_eq!(again.account_version, 2);
+    let transport = crate::hosted::connect(&w.server, &again.grant, device0);
+    w.devs[0].engine = w.engine_over(transport, 0);
+    w.devs[0]
+        .s_mut()
+        .commit_master_password_change(prepared)
+        .unwrap();
+    let d = w.try_join_with(new_password).unwrap();
+    assert!(d >= 2);
+
+    // A change prepared before, for another password, is not what the server
+    // holds: neither the old password nor its own new one logs in, and the
+    // answer is the original error.
+    assert_eq!(
+        change(&w, &stale).err(),
+        Some(TransportError::Rejected(Rejection::LoginFailed))
+    );
 }

@@ -33,6 +33,7 @@ use mosaic_sync::transport::{
 use crate::chaos_net::{
     DAY_MS, FEngine, Fault, MINUTE_MS, Op, anywhere, assert_converged, cursor_of, faulty, frun,
     frun_at, fsync, fsync_at, restore_vault, server_head, settle, snapshot_vault, warns_freeze,
+    warns_server,
 };
 use crate::hosted::{Dev, World, everything, is_idle};
 use crate::scenarios::{add_login, generation, has_pw, set_password, three_devices, two_devices};
@@ -440,7 +441,6 @@ fn three_offline_rotations_converge_in_any_order() {
 /// never read. A device that joins afterwards takes generation 3 and drops
 /// every generation-2 record as a rollback: it sees an empty vault.
 #[test]
-#[ignore = "M6-T4 chaos finding 1: offline-rotation loser skips the winner's records; vault unreadable once the winner is gone"]
 fn offline_rotation_loser_after_winner_left() {
     let (mut w, vault, x) = two_devices(1320);
     let y = add_login(&mut w, 0, vault, "second");
@@ -811,7 +811,6 @@ fn clock_jumps_cause_no_false_warning() {
 /// goes back two days (it ran fast and was corrected). The engine refuses to
 /// sync for two days.
 #[test]
-#[ignore = "M6-T4 chaos finding 2: backoff retry time is absolute; a backward clock jump stalls sync for days"]
 fn backoff_survives_backward_clock_jump() {
     let (mut w, _vault, _item) = two_devices(1803);
     let mut e = faulty(&w, 0);
@@ -842,7 +841,6 @@ fn backoff_survives_backward_clock_jump() {
 /// the ten-minute grace) it should warn; it stays silent for three days,
 /// because the stored start of the lag is in the future.
 #[test]
-#[ignore = "M6-T4 chaos finding 3: lag start in the future after a backward clock jump suppresses FreezeSuspected for days"]
 fn freeze_warning_survives_backward_clock_jump() {
     let (mut w, vault, item) = two_devices(1804);
     let mut e = faulty(&w, 1);
@@ -872,7 +870,6 @@ fn freeze_warning_survives_backward_clock_jump() {
 /// number, so every later edit of the item is refused as a conflict, on
 /// every run, with no warning: it never reaches another device.
 #[test]
-#[ignore = "M6-T4 chaos finding 4: a replayed record with a forged seq raises the upload base; the item's edits never upload"]
 fn replayed_record_with_forged_seq_wedges_uploads() {
     let (mut w, vault, item) = two_devices(1901);
     let old = w.devs[0]
@@ -926,7 +923,6 @@ fn replayed_record_with_forged_seq_wedges_uploads() {
 /// gets exactly that number, is never pulled by device 1. Nothing warns
 /// (device 1's cursor is not behind anyone's checkpoint).
 #[test]
-#[ignore = "M6-T4 chaos finding 5: a forged head moves the cursor past an unused seq; the real record at that seq is skipped silently"]
 fn forged_head_skips_next_real_record() {
     let (mut w, vault, item) = two_devices(1902);
     let old = w.devs[0]
@@ -963,7 +959,7 @@ fn forged_head_skips_next_real_record() {
     settle(&mut w, &[0, 1]);
     w.advance(11 * MINUTE_MS);
     settle(&mut w, &[0, 1]);
-    let warned = warns_freeze(&w.devs[1].last) || warns_freeze(&w.devs[0].last);
+    let warned = warns_server(&w.devs[1].last) || warns_server(&w.devs[0].last);
     let arrived = w.devs[1].s().item(vault, late).is_ok();
     assert!(
         arrived || warned,
@@ -973,7 +969,11 @@ fn forged_head_skips_next_real_record() {
 
 /// The server answers an upload with a conflict and a made-up current
 /// sequence number, once after storing the upload and once without storing
-/// it. The engine ignores the number, pulls, and gets the edit through.
+/// it. The engine ignores the number, pulls, and gets the edit through. The
+/// first lie is explained by the pull (it brings the stored upload back); the
+/// second refuses a base the server itself served and that a full re-read
+/// does not change, so the device reports the server (a finding it keeps
+/// until the user acknowledges it) and delivers the edit on the next run.
 #[test]
 fn forged_conflict_current_seq_is_harmless() {
     let (mut w, vault, item) = two_devices(1903);
@@ -1000,10 +1000,21 @@ fn forged_conflict_current_seq_is_harmless() {
                 .collect()
         })
     }));
-    fsync(&mut w, &mut e, 1);
+    let lied_to = fsync(&mut w, &mut e, 1);
+    assert!(
+        lied_to
+            .warnings
+            .iter()
+            .any(|w| matches!(w, SyncWarning::ServerInconsistent { .. })),
+        "{lied_to:?}"
+    );
     fsync(&mut w, &mut e, 1);
     drop(e);
     w.relogin(1);
+    settle(&mut w, &[0, 1]);
+    // The user acknowledges the finding; the vault is read again.
+    let dev = &mut w.devs[1];
+    dev.engine.clear_halt(&mut dev.access).unwrap();
     settle(&mut w, &[0, 1]);
     assert_converged(&mut w, &[0, 1]);
     for d in [0, 1] {
@@ -1022,7 +1033,6 @@ fn forged_conflict_current_seq_is_harmless() {
 /// number and drops it. Device 0 clears its outbox; no other device ever
 /// receives the edit, and no device warns, before or after the grace.
 #[test]
-#[ignore = "M6-T4 chaos finding 6: an acknowledged-then-dropped upload is lost silently (no echo check, no warning)"]
 fn acknowledged_but_dropped_upload_is_detected() {
     let (mut w, vault, items) = three_devices(1904);
     set_password(&mut w, 0, vault, items[0], "dropped by the server");
@@ -1047,7 +1057,7 @@ fn acknowledged_but_dropped_upload_is_detected() {
     settle(&mut w, &ALL);
     w.advance(11 * MINUTE_MS);
     settle(&mut w, &ALL);
-    let warned = ALL.iter().any(|&d| warns_freeze(&w.devs[d].last));
+    let warned = ALL.iter().any(|&d| warns_server(&w.devs[d].last));
     let delivered = [1, 2]
         .iter()
         .all(|&d| has_pw(&w, d, vault, items[0], "dropped by the server"));
@@ -1120,7 +1130,6 @@ fn reordered_keys_in_a_page() {
 /// head and never asks for the missing records; its cursor is not behind
 /// any checkpoint, so nothing warns.
 #[test]
-#[ignore = "M6-T4 chaos finding 7: a page truncated with more=false loses records silently (high_seq cannot see gaps)"]
 fn truncated_page_is_detected() {
     let (mut w, vault, items) = three_devices(1907);
     set_password(&mut w, 0, vault, items[0], "first");
@@ -1143,7 +1152,7 @@ fn truncated_page_is_detected() {
     settle(&mut w, &ALL);
     let complete =
         has_pw(&w, 1, vault, items[0], "first") && has_pw(&w, 1, vault, items[1], "second");
-    let warned = ALL.iter().any(|&d| warns_freeze(&w.devs[d].last));
+    let warned = ALL.iter().any(|&d| warns_server(&w.devs[d].last));
     assert!(
         complete || warned,
         "a record was cut from a page and nothing warns"
@@ -1277,7 +1286,6 @@ fn foreign_key_for_current_generation_changes_nothing() {
 /// ends as soon as the reused numbers pass the old head, and an old
 /// device's own checkpoint never went back.
 #[test]
-#[ignore = "M6-T4 chaos finding 8: one-vault rollback with sequence reuse loses data silently on every device"]
 fn vault_rollback_with_seq_reuse_detected() {
     let (mut w, vault, x) = two_devices(1911);
     let other = w.new_vault(0, "Untouched");
@@ -1308,7 +1316,7 @@ fn vault_rollback_with_seq_reuse_detected() {
         }
         for dev in [0, 1, d] {
             outcomes.push(match w.try_sync(dev) {
-                Ok(r) => warns_freeze(&r),
+                Ok(r) => warns_server(&r),
                 Err(SyncError::RollbackDetected) => true,
                 Err(other) => panic!("device {dev}: {other:?}"),
             });
@@ -1465,6 +1473,9 @@ fn random_schedule(seed: u64, rounds: usize) {
         "seed {seed}: a run after full delivery still moved data"
     );
     assert_converged(&mut w, &ALL);
+    // No false `ServerInconsistent` from an honest server, whatever the
+    // schedule lost or repeated.
+    crate::hosted::assert_no_server_findings(&w);
     // A value survives unless its item was purged in or after the round it
     // was written in (a purge that saw the write wins; one that did not
     // loses, and the value is still there).
@@ -1485,7 +1496,6 @@ fn random_schedule(seed: u64, rounds: usize) {
 /// never gets `RollbackDetected` or `FreezeSuspected`, and the other vault
 /// (pulled after it) stops syncing too.
 #[test]
-#[ignore = "M6-T4 chaos finding 9: a head below the cursor aborts every run with Protocol; no rollback warning, other vaults stall"]
 fn stale_head_below_cursor_reported_and_isolated() {
     let (mut w, vault, x) = two_devices(1912);
     let other = w.new_vault(0, "Untouched");
@@ -1509,7 +1519,7 @@ fn stale_head_below_cursor_reported_and_isolated() {
     }
     let reported = outcomes
         .iter()
-        .any(|o| o.contains("RollbackDetected") || o.contains("FreezeSuspected"));
+        .any(|o| o.contains("ServerRollback") || o.contains("RollbackDetected"));
     let isolated = w.devs[1].s().item(other, fresh).is_ok();
     assert!(
         reported && isolated,
@@ -1558,7 +1568,6 @@ fn edit_after_lost_push_response_rebases() {
 /// then downloads every other device's copies. With `D` devices and `N`
 /// records a rotation costs about `D * N` uploads instead of `N`.
 #[test]
-#[ignore = "M6-T4 chaos finding 10: after a remote rotation every device re-uploads every record (D x N uploads)"]
 fn remote_rotation_does_not_reupload_everything() {
     let (mut w, vault, items) = three_devices(1915);
     for i in 0..7 {
@@ -1597,7 +1606,9 @@ fn remote_rotation_does_not_reupload_everything() {
 
 /// A deleted item stays deleted: the server replays its last live
 /// ciphertext (inside the page, at a plausible sequence number) to a device
-/// that holds the tombstone. The device ignores it and nobody resurrects it.
+/// that holds the tombstone. The device ignores it and nobody resurrects it;
+/// the replay shows in the device's served view, so the disagreement with the
+/// others' view digests is reported.
 #[test]
 fn replayed_live_version_does_not_resurrect() {
     let (mut w, vault, items) = three_devices(1916);
@@ -1631,6 +1642,19 @@ fn replayed_live_version_does_not_resurrect() {
     assert!(w.devs[1].s().item(vault, x).unwrap().is_deleted());
     drop(e);
     w.relogin(1);
+    settle(&mut w, &ALL);
+    // The replay put a version the server never held into device 1's served
+    // view: the devices' view digests disagree at the same head, which the
+    // engine reports (nothing is resurrected either way).
+    assert!(
+        ALL.iter().any(|&d| warns_server(&w.devs[d].last)),
+        "the replayed version went unreported"
+    );
+    // The user acknowledges; every vault is read again from the honest server.
+    for d in ALL {
+        let dev = &mut w.devs[d];
+        dev.engine.clear_halt(&mut dev.access).unwrap();
+    }
     settle(&mut w, &ALL);
     assert_converged(&mut w, &ALL);
     for d in ALL {

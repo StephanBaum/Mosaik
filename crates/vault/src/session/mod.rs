@@ -87,7 +87,7 @@ pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
-pub use sync::{ApplyOutcome, RemoteRecord};
+pub use sync::{AdoptOutcome, ApplyOutcome, RemoteRecord};
 pub use sync_support::{
     AccountBootstrap, AttachmentFileState, AttachmentRef, JoinKeys, PendingVaultUpload,
     PreparedPasswordChange, PreparedRotation,

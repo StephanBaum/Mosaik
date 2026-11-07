@@ -2018,6 +2018,44 @@ Spec: the M6 spec §6 and §11 T4 (ADR-0044, ADR-0045, ADR-0046; amendments in `
   (extends `sim_hosted` and `malicious_server`). The release `--ignored` run of the long simulation
   runs in CI. THREAT_MODEL R67 and R68 are new.
 
+### T4 review follow-ups (2026-11-07)
+
+The crypto-reviewer and sync-chaos reviews of T4 are applied (C-M1, C-M2, C-L1 to C-L4, C-Info, S1 to S10);
+spec first (CRYPTO_SPEC §9.4, §10, §10.2, §11, §12; ADR-0045 and ADR-0046 amendments in `docs/DECISIONS.md`).
+
+- **Served view and view digest (S4 to S8).** Store schema v5 (`sync_served`, `sync_key_confirmed`,
+  `sync_vault_flag`, `sync_rotation_log`; `sync_peer_checkpoint` recreated for 60-byte entries). A push is based
+  on the served `seq`; a refusal the next pull does not explain re-reads the vault once and then flags it. The
+  checkpoint (format v1 changed in place) carries a 32-byte `view_digest` per entry; devices at the same head
+  compare digests (`ServerInconsistent`), a head below the cursor is `ServerRollback` for that vault only.
+  `MAX_LEN` is 245,833 bytes; the server's checkpoint column check follows (it was 65,600, below the old
+  maximum); the KAT script and vectors, the fuzz seeds and the checkpoint tests are regenerated. Findings stay
+  until `clear_sync_halt`, which also rebuilds the flagged vaults' view.
+- **Hosted key winner (S1, C-M1).** The loser adopts the server's key (`adopt_remote_vault_key`, one store
+  transaction) instead of rotating again; a confirmed key that meets a second valid key warns and rotates by
+  rank at most three times per vault per day. Folder mode is unchanged.
+- **S2, S3, S9, S10.** Backoff and lag survive a backward clock jump; a rolled-back vault no longer aborts
+  the run; a rotation costs one upload per record (an equal received version settles the queued re-seal).
+- **Password change (C-M2, C-L3).** The session stores the account version at KE3; start and finish refuse
+  a stale session; a change ends the account's other sessions; a lost finish answer is recovered on retry.
+- **Client (C-L1, C-L2, C-Info).** OPAQUE session and export keys wiped after use; one sensitive bearer
+  header per transport; `localhost` pinned to `127.0.0.1`; one shared origin normalizer
+  (`wire::origin`, also used by the server config; the server's old one accepted `+443`); the transport takes
+  the engine's install ID; wrong comments and ADR/`deny.toml`/R67 texts about `tls12` and
+  `webpki-root-certs` corrected.
+- **Tests.** The ten `M6-T4 chaos finding` tests run without `#[ignore]` (expectations changed where a lying
+  server is now reported instead of silently tolerated: findings 5 to 9 accept `ServerInconsistent` or
+  `ServerRollback`, `forged_conflict_current_seq_is_harmless` and `replayed_live_version_does_not_resurrect`
+  expect the finding and acknowledge it); `legacy_offline_rotation_loser_adopts_server_key` replaces
+  `..._rotates_again`; new: `cross_served_keys_warn_and_the_rotations_are_capped`,
+  `password_change_lost_answer_is_recovered_on_retry`, the account-version race and session-ending test in
+  `api_auth.rs`, adoption and `settle` tests in `mosaic-vault`, the view digest KAT, the origin normalizer,
+  bearer, `localhost` pin and key-wipe unit tests; `sim_hosted` and the random fault schedule assert that an
+  honest server earns no finding (`assert_no_server_findings`).
+- **Open.** The desktop is not touched (it does not use `mosaic-sync` yet); the release `--ignored` runs are
+  CI's. The server's `sessions` and `checkpoints` tables changed in migration v1 in place (the server is unreleased,
+  no deployed database).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

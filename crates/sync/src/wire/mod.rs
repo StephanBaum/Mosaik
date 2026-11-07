@@ -25,6 +25,7 @@ pub mod folder_names;
 pub mod json;
 #[cfg(feature = "opaque")]
 pub mod opaque;
+pub mod origin;
 pub mod segment;
 
 use mosaic_core::sync_auth::FolderMacPurpose;
@@ -650,6 +651,7 @@ mod tests {
                 vault_id: vault,
                 generation: KeyGeneration::FIRST,
                 high_seq: 4,
+                view_digest: [0; 32],
             }],
         };
         let bytes = checkpoint.encode(&session).unwrap();

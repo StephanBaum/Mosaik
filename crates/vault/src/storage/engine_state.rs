@@ -1,21 +1,24 @@
-//! The persisted state of the sync engine (schema v4, CRYPTO_SPEC §11,
-//! ADR-0045 amendment): this install's own sequence numbers per vault, the
-//! halt and the checkpoint strikes, the latest checkpoint of every other
-//! device, the lag timers, the vault keys seen per generation, and when a
-//! blob delete marker was first seen.
+//! The persisted state of the sync engine (schema v4 and v5, CRYPTO_SPEC
+//! §11, ADR-0045 amendments): this install's own sequence numbers per vault,
+//! the halt and the checkpoint strikes, the latest checkpoint of every other
+//! device, the lag timers, the vault keys seen per generation, when a blob
+//! delete marker was first seen, and (v5) the served view of every hosted
+//! vault, the vault keys the server confirmed, the findings against the
+//! server that stay until acknowledged and the conflict-driven rotations of
+//! the last day.
 //!
 //! All of it is local cleartext sync metadata like the cursors: IDs,
 //! counters, times and wrapped keys (ciphertext). None of it is derived from
 //! item plaintext (§11).
 
-use mosaic_core::{AttachmentId, InstallId, KeyGeneration, VaultId, WrappedKey};
+use mosaic_core::{AttachmentId, InstallId, ItemId, KeyGeneration, VaultId, WrappedKey};
 use rusqlite::{OptionalExtension, params};
 
 use super::error::{Error, Result};
 use super::{Store, seq_from_sql, seq_to_sql, vault_id_from_sql};
 
 /// Bytes per vault in a stored peer checkpoint.
-const PEER_ENTRY_LEN: usize = 16 + 4 + 8;
+const PEER_ENTRY_LEN: usize = 16 + 4 + 8 + 32;
 /// The most vaults a stored peer checkpoint holds.
 const MAX_PEER_ENTRIES: usize = 4096;
 
@@ -83,6 +86,49 @@ pub struct PeerEntry {
     pub generation: KeyGeneration,
     /// The sequence number reached.
     pub high_seq: u64,
+    /// The device's view digest of the vault (all zero: none, see
+    /// CRYPTO_SPEC §10).
+    pub view_digest: [u8; 32],
+}
+
+/// What a device found wrong with the server for one vault. The finding is
+/// stored until the user acknowledges it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum VaultFlag {
+    /// The server showed contradicting views (devices at the same head see
+    /// different contents, an upload that cannot have happened, a second key
+    /// for a generation).
+    ServerInconsistent,
+    /// The server's head for the vault is below this device's cursor.
+    ServerRolledBack,
+}
+
+impl VaultFlag {
+    const fn code(self) -> i64 {
+        match self {
+            Self::ServerInconsistent => 1,
+            Self::ServerRolledBack => 2,
+        }
+    }
+
+    const fn from_code(code: i64) -> Result<Self> {
+        match code {
+            1 => Ok(Self::ServerInconsistent),
+            2 => Ok(Self::ServerRolledBack),
+            _ => Err(Error::Corrupt),
+        }
+    }
+}
+
+/// The server's latest version of a record as this device knows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServedRow {
+    /// The record.
+    pub record_id: ItemId,
+    /// The `server_seq` the server served or accepted it under.
+    pub seq: u64,
+    /// SHA-256 of the exact ciphertext bytes.
+    pub ct_hash: [u8; 32],
 }
 
 /// The newest verified checkpoint of another device.
@@ -96,6 +142,12 @@ pub struct PeerCheckpoint {
     pub issued_at_ms: u64,
     /// The entries, in the order they were published.
     pub entries: Vec<PeerEntry>,
+    /// The user acknowledged a finding against the server after this
+    /// checkpoint was stored ([`Store::clear_sync_halt`]): its view digests
+    /// are not compared any more (they describe the server's earlier
+    /// behaviour). Ignored by [`Store::put_peer_checkpoint`], which always
+    /// stores `false`.
+    pub digests_acknowledged: bool,
 }
 
 /// A blob delete marker as the folder shows it.
@@ -127,6 +179,7 @@ fn encode_entries(entries: &[PeerEntry]) -> Result<Vec<u8>> {
         out.extend_from_slice(e.vault_id.as_bytes());
         out.extend_from_slice(&e.generation.get().to_be_bytes());
         out.extend_from_slice(&e.high_seq.to_be_bytes());
+        out.extend_from_slice(&e.view_digest);
     }
     Ok(out)
 }
@@ -138,13 +191,15 @@ fn decode_entries(bytes: &[u8]) -> Result<Vec<PeerEntry>> {
         .iter()
         .map(|c| {
             let (vault, rest) = c.split_at_checked(16).ok_or(Error::Corrupt)?;
-            let (generation, high) = rest.split_at_checked(4).ok_or(Error::Corrupt)?;
+            let (generation, rest) = rest.split_at_checked(4).ok_or(Error::Corrupt)?;
+            let (high, digest) = rest.split_at_checked(8).ok_or(Error::Corrupt)?;
             let generation = u32::from_be_bytes(generation.try_into().map_err(|_| Error::Corrupt)?);
             let high = u64::from_be_bytes(high.try_into().map_err(|_| Error::Corrupt)?);
             Ok(PeerEntry {
                 vault_id: vault_id_from_sql(vault)?,
                 generation: KeyGeneration::new(generation).map_err(|_| Error::Corrupt)?,
                 high_seq: high,
+                view_digest: digest.try_into().map_err(|_| Error::Corrupt)?,
             })
         })
         .collect()
@@ -245,7 +300,9 @@ impl Store {
         Ok(())
     }
 
-    /// The user's acknowledgement of a halt: clears it and the strikes, and
+    /// The user's acknowledgement of a halt or of a finding against the
+    /// server: clears them (the vaults that were flagged are read again from
+    /// the start, see below) and the strikes, and
     /// forgets what was written to the own logs (`written` becomes 0, so the
     /// rolled-back state is accepted as the new truth) while `reserved`
     /// stays, so no sequence number is ever reused.
@@ -261,6 +318,22 @@ impl Store {
             [],
         )?;
         tx.execute("UPDATE sync_own_seq SET written = 0", [])?;
+        // The findings against the server are acknowledged: the served view
+        // and the cursor of every flagged vault are rebuilt from the server
+        // (the next run reads the vault again from the start), and the
+        // digests the peers published so far are not compared.
+        tx.execute(
+            "DELETE FROM sync_served
+             WHERE vault_id IN (SELECT vault_id FROM sync_vault_flag)",
+            [],
+        )?;
+        tx.execute(
+            "DELETE FROM sync_cursor_blobs
+             WHERE vault_id IN (SELECT vault_id FROM sync_vault_flag)",
+            [],
+        )?;
+        tx.execute("UPDATE sync_peer_checkpoint SET digest_ignored = 1", [])?;
+        tx.execute("DELETE FROM sync_vault_flag", [])?;
         tx.commit()?;
         Ok(())
     }
@@ -307,8 +380,8 @@ impl Store {
     /// [`Error::Corrupt`], [`Error::Database`].
     pub fn peer_checkpoints(&self) -> Result<Vec<PeerCheckpoint>> {
         let mut stmt = self.conn.prepare(
-            "SELECT device_id, counter, issued_at_ms, entries FROM sync_peer_checkpoint
-             ORDER BY device_id",
+            "SELECT device_id, counter, issued_at_ms, entries, digest_ignored
+             FROM sync_peer_checkpoint ORDER BY device_id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -316,15 +389,17 @@ impl Store {
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
                 r.get::<_, Vec<u8>>(3)?,
+                r.get::<_, bool>(4)?,
             ))
         })?;
         rows.map(|row| {
-            let (device, counter, issued, entries) = row?;
+            let (device, counter, issued, entries, ignored) = row?;
             Ok(PeerCheckpoint {
                 device_id: install_from_sql(&device)?,
                 counter: seq_from_sql(counter)?,
                 issued_at_ms: seq_from_sql(issued)?,
                 entries: decode_entries(&entries)?,
+                digests_acknowledged: ignored,
             })
         })
         .collect()
@@ -345,7 +420,8 @@ impl Store {
              ON CONFLICT (device_id) DO UPDATE SET
                  counter = excluded.counter,
                  issued_at_ms = excluded.issued_at_ms,
-                 entries = excluded.entries
+                 entries = excluded.entries,
+                 digest_ignored = 0
              WHERE excluded.counter > sync_peer_checkpoint.counter",
             params![
                 checkpoint.device_id.as_bytes(),
@@ -501,6 +577,176 @@ impl Store {
         Ok(())
     }
 
+    /// Overwrites the server's version of a record as this device knows it
+    /// (the latest served or accepted, never a maximum).
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn put_served(
+        &mut self,
+        vault_id: &VaultId,
+        record_id: &ItemId,
+        seq: u64,
+        ct_hash: &[u8; 32],
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO sync_served (vault_id, record_id, seq, ct_hash)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (vault_id, record_id) DO UPDATE SET
+                 seq = excluded.seq, ct_hash = excluded.ct_hash",
+            params![
+                vault_id.as_bytes(),
+                record_id.as_bytes(),
+                seq_to_sql(seq)?,
+                ct_hash.as_slice()
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The served version of one record.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn served(&self, vault_id: &VaultId, record_id: &ItemId) -> Result<Option<ServedRow>> {
+        let row: Option<(i64, Vec<u8>)> = self
+            .conn
+            .query_row(
+                "SELECT seq, ct_hash FROM sync_served WHERE vault_id = ?1 AND record_id = ?2",
+                params![vault_id.as_bytes(), record_id.as_bytes()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        row.map(|(seq, hash)| {
+            Ok(ServedRow {
+                record_id: *record_id,
+                seq: seq_from_sql(seq)?,
+                ct_hash: hash.as_slice().try_into().map_err(|_| Error::Corrupt)?,
+            })
+        })
+        .transpose()
+    }
+
+    /// Every served record of a vault, sorted by record ID.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn served_rows(&self, vault_id: &VaultId) -> Result<Vec<ServedRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT record_id, seq, ct_hash FROM sync_served
+             WHERE vault_id = ?1 ORDER BY record_id",
+        )?;
+        let rows = stmt.query_map([vault_id.as_bytes()], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (record, seq, hash) = row?;
+            Ok(ServedRow {
+                record_id: ItemId::from_slice(&record).map_err(|_| Error::Corrupt)?,
+                seq: seq_from_sql(seq)?,
+                ct_hash: hash.as_slice().try_into().map_err(|_| Error::Corrupt)?,
+            })
+        })
+        .collect()
+    }
+
+    /// Notes that the server confirmed this vault key (an accepted upload or
+    /// the vault's creation).
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn mark_key_confirmed(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO sync_key_confirmed (vault_id, generation) VALUES (?1, ?2)",
+            params![vault_id.as_bytes(), generation.get()],
+        )?;
+        Ok(())
+    }
+
+    /// Whether the server confirmed this vault key.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn key_confirmed(&self, vault_id: &VaultId, generation: KeyGeneration) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM sync_key_confirmed WHERE vault_id = ?1 AND generation = ?2",
+            params![vault_id.as_bytes(), generation.get()],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Stores a finding against the server for a vault.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn set_vault_flag(&mut self, vault_id: &VaultId, flag: VaultFlag) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO sync_vault_flag (vault_id, kind) VALUES (?1, ?2)",
+            params![vault_id.as_bytes(), flag.code()],
+        )?;
+        Ok(())
+    }
+
+    /// The findings against the server, by vault.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn vault_flags(&self) -> Result<Vec<(VaultId, VaultFlag)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT vault_id, kind FROM sync_vault_flag ORDER BY vault_id, kind")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)))?;
+        rows.map(|row| {
+            let (vault, kind) = row?;
+            Ok((vault_id_from_sql(&vault)?, VaultFlag::from_code(kind)?))
+        })
+        .collect()
+    }
+
+    /// Records a conflict-driven rotation at `now_ms`. Rows of the vault
+    /// older than `window_ms` are dropped.
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn log_rotation(&mut self, vault_id: &VaultId, now_ms: u64, window_ms: u64) -> Result<()> {
+        let tx = self.write()?;
+        let from = ms_to_sql(now_ms.saturating_sub(window_ms))?;
+        tx.execute(
+            "DELETE FROM sync_rotation_log WHERE vault_id = ?1 AND at_ms <= ?2",
+            params![vault_id.as_bytes(), from],
+        )?;
+        tx.execute(
+            "INSERT INTO sync_rotation_log (vault_id, at_ms) VALUES (?1, ?2)",
+            params![vault_id.as_bytes(), ms_to_sql(now_ms)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// How many conflict-driven rotations of the vault fall into the window
+    /// that ends at `now_ms`.
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn recent_rotations(&self, vault_id: &VaultId, now_ms: u64, window_ms: u64) -> Result<u32> {
+        let from = ms_to_sql(now_ms.saturating_sub(window_ms))?;
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM sync_rotation_log WHERE vault_id = ?1 AND at_ms > ?2",
+            params![vault_id.as_bytes(), from],
+            |r| r.get(0),
+        )?;
+        u32::try_from(n).map_err(|_| Error::Corrupt)
+    }
+
     /// When this device first saw each marker of `vault`, by its own clock,
     /// in the order of `markers` (a marker seen for the first time, or with
     /// another stamp, is first seen `now`). Rows of markers that are gone
@@ -613,6 +859,10 @@ impl Store {
             "DELETE FROM sync_lag",
             "DELETE FROM sync_key_candidate",
             "DELETE FROM sync_marker_seen",
+            "DELETE FROM sync_served",
+            "DELETE FROM sync_key_confirmed",
+            "DELETE FROM sync_vault_flag",
+            "DELETE FROM sync_rotation_log",
             "UPDATE sync_engine_state SET strike_count = 0, strike_first_ms = NULL,
                  strike_counter = NULL, last_published_counter = 0
              WHERE id = 1",
@@ -714,6 +964,7 @@ mod tests {
             vault_id: vault(3),
             generation: KeyGeneration::FIRST,
             high_seq: 12,
+            view_digest: [7; 32],
         };
         let cp = |counter, high| PeerCheckpoint {
             device_id: id(9),
@@ -723,6 +974,7 @@ mod tests {
                 high_seq: high,
                 ..entry
             }],
+            digests_acknowledged: false,
         };
         assert!(s.put_peer_checkpoint(&cp(5, 12)).unwrap());
         assert!(!s.put_peer_checkpoint(&cp(4, 99)).unwrap());
@@ -765,5 +1017,103 @@ mod tests {
             Vec::<u64>::new()
         );
         assert_eq!(s.marker_first_seen(&v, &[m(20)], 8000).unwrap(), vec![8000]);
+    }
+
+    fn record(n: u8) -> ItemId {
+        ItemId::from_bytes([n; 16]).unwrap()
+    }
+
+    #[test]
+    fn the_served_view_is_overwritten_never_maximised() {
+        let mut s = store();
+        let v = vault(1);
+        assert_eq!(s.served(&v, &record(9)).unwrap(), None);
+        s.put_served(&v, &record(9), 50, &[1; 32]).unwrap();
+        s.put_served(&v, &record(2), 7, &[2; 32]).unwrap();
+        // A lower sequence number replaces a higher one: the server's last
+        // answer wins.
+        s.put_served(&v, &record(9), 8, &[3; 32]).unwrap();
+        assert_eq!(
+            s.served(&v, &record(9)).unwrap(),
+            Some(ServedRow {
+                record_id: record(9),
+                seq: 8,
+                ct_hash: [3; 32]
+            })
+        );
+        // Sorted by record ID; other vaults are separate.
+        s.put_served(&vault(2), &record(1), 1, &[4; 32]).unwrap();
+        let rows = s.served_rows(&v).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.record_id, r.seq))
+                .collect::<Vec<_>>(),
+            vec![(record(2), 7), (record(9), 8)]
+        );
+    }
+
+    #[test]
+    fn confirmed_keys_flags_and_the_rotation_window() {
+        let mut s = store();
+        let v = vault(1);
+        let g2 = KeyGeneration::new(2).unwrap();
+        assert!(!s.key_confirmed(&v, g2).unwrap());
+        s.mark_key_confirmed(&v, g2).unwrap();
+        s.mark_key_confirmed(&v, g2).unwrap();
+        assert!(s.key_confirmed(&v, g2).unwrap());
+        assert!(!s.key_confirmed(&v, KeyGeneration::FIRST).unwrap());
+
+        assert_eq!(s.vault_flags().unwrap(), vec![]);
+        s.set_vault_flag(&v, VaultFlag::ServerRolledBack).unwrap();
+        s.set_vault_flag(&v, VaultFlag::ServerInconsistent).unwrap();
+        s.set_vault_flag(&v, VaultFlag::ServerInconsistent).unwrap();
+        assert_eq!(
+            s.vault_flags().unwrap(),
+            vec![
+                (v, VaultFlag::ServerInconsistent),
+                (v, VaultFlag::ServerRolledBack)
+            ]
+        );
+
+        let day = 86_400_000;
+        // Two rotations in one millisecond count twice.
+        for at in [1_000, 1_000, 2_000, 3_000] {
+            s.log_rotation(&v, at, day).unwrap();
+        }
+        assert_eq!(s.recent_rotations(&v, 3_000, day).unwrap(), 4);
+        // A day later the first ones fall out of the window and are dropped.
+        s.log_rotation(&v, 2_500 + day, day).unwrap();
+        assert_eq!(s.recent_rotations(&v, 2_500 + day, day).unwrap(), 2);
+        assert_eq!(s.recent_rotations(&vault(2), 3_000, day).unwrap(), 0);
+    }
+
+    #[test]
+    fn clearing_the_halt_forgets_the_findings_and_old_digests() {
+        let mut s = store();
+        let v = vault(1);
+        s.set_vault_flag(&v, VaultFlag::ServerInconsistent).unwrap();
+        s.put_served(&v, &record(1), 3, &[1; 32]).unwrap();
+        s.put_served(&vault(2), &record(1), 3, &[1; 32]).unwrap();
+        let cp = PeerCheckpoint {
+            device_id: id(9),
+            counter: 1,
+            issued_at_ms: 1,
+            entries: vec![],
+            digests_acknowledged: false,
+        };
+        assert!(s.put_peer_checkpoint(&cp).unwrap());
+        s.clear_sync_halt().unwrap();
+        assert_eq!(s.vault_flags().unwrap(), vec![]);
+        // The flagged vault's view is rebuilt; an unflagged one stays.
+        assert_eq!(s.served_rows(&v).unwrap(), vec![]);
+        assert_eq!(s.served_rows(&vault(2)).unwrap().len(), 1);
+        // The checkpoint that arrived before the acknowledgement is not
+        // compared any more; a newer one is.
+        assert!(s.peer_checkpoints().unwrap()[0].digests_acknowledged);
+        assert!(
+            s.put_peer_checkpoint(&PeerCheckpoint { counter: 2, ..cp })
+                .unwrap()
+        );
+        assert!(!s.peer_checkpoints().unwrap()[0].digests_acknowledged);
     }
 }

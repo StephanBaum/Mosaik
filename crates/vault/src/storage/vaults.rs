@@ -155,7 +155,7 @@ fn upsert_key(
 }
 
 /// Sets the sync flags of a held vault key (a no-op for a missing row).
-fn set_key_flags(
+pub(super) fn set_key_flags(
     conn: &Connection,
     vault_id: &VaultId,
     generation: KeyGeneration,

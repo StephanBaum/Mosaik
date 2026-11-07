@@ -285,6 +285,11 @@ pub enum TransportError {
     /// The backend answered something that is not the protocol.
     #[error("protocol error")]
     Protocol,
+    /// A pull page whose head is below the cursor the device already read:
+    /// the vault was rolled back on the backend (hosted). The engine reports
+    /// it for that vault and carries on with the others.
+    #[error("backend head below the cursor")]
+    HeadBelowCursor,
     /// The folder is not available (unplugged, not shared, not empty).
     #[error("folder unavailable")]
     FolderUnavailable,

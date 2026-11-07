@@ -7,7 +7,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use mosaic_core::{AccountId, Argon2Profile, SecretString, WrappedKey};
 use mosaic_sync::wire::json::{
-    AccountResponse, B64, B64Fixed, CodeRequest, DeleteAccountRequest, Empty,
+    AccountResponse, AccountVersionDetail, B64, B64Fixed, CodeRequest, DeleteAccountRequest, Empty,
     PasswordFinishRequest, PasswordFinishResponse, PasswordStartRequest, RegistrationStartResponse,
     SecretText, TotpSetupResponse, codes,
 };
@@ -21,12 +21,19 @@ use crate::AppState;
 use crate::auth::{Session, totp};
 use crate::db::accounts::{self, Account};
 use crate::db::audit;
+use crate::db::sessions;
 use crate::error::ApiError;
 
 const MAX_BODY: usize = 16 * 1024;
 
 fn two_factor_invalid() -> ApiError {
     ApiError::new(StatusCode::UNAUTHORIZED, codes::TWO_FACTOR_INVALID)
+}
+
+fn version_mismatch(current: u64) -> ApiError {
+    ApiError::conflict(codes::ACCOUNT_VERSION_MISMATCH).with_detail(&AccountVersionDetail {
+        account_version: current,
+    })
 }
 
 fn load(st: &AppState, id: &[u8; 16]) -> Result<Account, ApiError> {
@@ -79,6 +86,12 @@ pub async fn password_start(
 ) -> Result<Reply, ApiError> {
     let req: PasswordStartRequest = parse_body(&body, MAX_BODY)?;
     s.require_fresh()?;
+    // The account must still be at the version this session logged in at: a
+    // change made on another device since then is not overwritten.
+    let a = load(&st, &s.account_id)?;
+    if a.account_version != s.account_version {
+        return Err(version_mismatch(a.account_version));
+    }
     let request = RegistrationRequest::<Suite>::deserialize(&req.registration_request.0)
         .map_err(|_| ApiError::bad_request())?;
     let started = ServerRegistration::<Suite>::start(st.setup(), request, &s.account_id)
@@ -105,7 +118,7 @@ pub async fn password_finish(
         let v = accounts::update_password(
             tx,
             &s.account_id,
-            req.expected_account_version,
+            s.account_version,
             &record,
             req.wrapped_ak.as_bytes(),
             &req.salt.0,
@@ -118,6 +131,8 @@ pub async fn password_finish(
             audit::Kind::PasswordChanged,
             Some(&s.device_id),
         )?;
+        // Every other session of the account ends with the old password.
+        sessions::after_password_change(tx, &s.account_id, &s.token_hash, v)?;
         Ok(v)
     })?;
     Reply::ok(&PasswordFinishResponse {

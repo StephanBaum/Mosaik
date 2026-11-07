@@ -519,6 +519,33 @@ SimRng, LocalSession, SessionRef, SessionMut}` (`LocalSession` is a shared,
 clonable handle: the transport gets a clone as its `SessionHandle`). The
 server (T3) follows.
 
+**M6 T4 review follow-ups (additive).** `UnlockedSession::adopt_remote_vault_key(vault,
+generation, &WrappedKey) -> Result<AdoptOutcome>` with `AdoptOutcome::{AlreadyHeld,
+Adopted { resealed }}`: for the hosted backend, replaces the key this device generated for
+the vault's current generation and the backend never accepted by the backend's key. The
+swap, the re-seal of every record and of the metadata sealed under the replaced key and
+their queueing are one store transaction (`Store::adopt_vault_key`); the replaced key is
+dropped. Errors: `VaultKeyConflict` if the held key came from the backend or was confirmed
+by it, `KeyGenerationRollback` / `KeyGenerationNotAccepted` if `generation` is not the
+vault's current one, `Core(Decryption)` if the wrapping does not open, `VaultUnavailable`,
+`WrongVaultProtection`. The caller then resets the vault cursor (`set_sync_cursor(vault,
+&[])`) and pulls again. Also on the session (hosted engine state, schema v5):
+`note_served`, `served_seq`, `served_view` (`ServedRow`), `mark_vault_key_confirmed`,
+`vault_key_confirmed`, `set_vault_flag`, `vault_flags` (`VaultFlag::{ServerInconsistent,
+ServerRolledBack}`), `log_conflict_rotation`, `recent_conflict_rotations`. `clear_sync_halt`
+now also clears the findings, rebuilds the served view and cursor of the flagged vaults and
+marks the stored peer checkpoints as acknowledged (`PeerCheckpoint::digests_acknowledged`).
+`PeerEntry` and `CheckpointEntry` gain `view_digest: [u8; 32]` (`checkpoint::NO_VIEW`,
+`checkpoint::view_digest`, `CheckpointEntry::view`); the checkpoint is 60 bytes per entry
+and 245,833 bytes at most. `apply_remote_record`: a received version of equal content
+settles a queued change of the record (its ciphertext replaces the row and the change
+leaves the outbox), and a dominated one no longer raises the stored `server_seq`.
+`SyncWarning` gains `ServerInconsistent { vault }` and `ServerRollback { vault }`;
+`TransportError` gains `HeadBelowCursor`; `HttpTransport::connect(base, token, install)`
+takes the engine's install ID; `wire::origin::canonical_origin` is the shared origin
+normalizer; `PasswordFinishRequest` loses `expected_account_version` (the server uses the
+account version of the session's login).
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

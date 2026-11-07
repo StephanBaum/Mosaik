@@ -118,6 +118,13 @@ pub(crate) mod label {
     pub(crate) const SYNC_DEVICE_INFO_KEY: Label = Label::new("sync/device-info-key");
     /// AAD of sealed device info (§10.1).
     pub(crate) const SYNC_DEVICE_INFO: Label = Label::new("sync/device-info");
+    /// Prefix of the view digest in a hosted checkpoint (§10; computed in
+    /// `mosaic-sync`, which has no keys to bind: it is a plain SHA-256).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "registry entry: used in mosaic-sync")
+    )]
+    pub(crate) const SYNC_VIEW: Label = Label::new("sync/view");
 
     /// HKDF info of the server key of the pre-login fakes (`mosaic-server`).
     #[cfg_attr(
@@ -140,7 +147,7 @@ pub(crate) mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 34] = [
+    pub(crate) const ALL: [Label; 35] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -175,6 +182,7 @@ pub(crate) mod label {
         SYNC_FOLDER_BLOB_DELETE,
         SYNC_DEVICE_INFO_KEY,
         SYNC_DEVICE_INFO,
+        SYNC_VIEW,
     ];
 }
 

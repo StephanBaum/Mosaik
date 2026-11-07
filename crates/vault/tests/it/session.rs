@@ -1074,12 +1074,20 @@ fn an_equal_version_resealed_by_a_rotation_is_ignored() {
             .key_generation(),
         g2
     );
+    // B queued its own re-seal of the same version on taking the key; the
+    // server already holds it, so the received ciphertext replaces it and
+    // the queued copy goes (a rotation costs one upload per record).
     let queued = b.pending_uploads(usize::MAX).unwrap().len();
+    assert_eq!(queued, 1);
     assert_eq!(
         b.apply_remote_record(&rotated).unwrap(),
         ApplyOutcome::Ignored
     );
-    assert_eq!(b.pending_uploads(usize::MAX).unwrap().len(), queued);
+    assert_eq!(b.pending_uploads(usize::MAX).unwrap().len(), 0);
+    assert_eq!(
+        b.store().record(&vault, &item).unwrap().unwrap().body,
+        rotated.body
+    );
     assert_eq!(b.item(vault, item).unwrap(), a.item(vault, item).unwrap());
 }
 

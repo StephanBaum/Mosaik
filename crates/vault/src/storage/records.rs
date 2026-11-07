@@ -1,12 +1,15 @@
 //! Sync records: encrypted items and tombstones (CRYPTO_SPEC §7.2, §10),
 //! with the outbox of local changes waiting for upload.
 
-use mosaic_core::{ItemCiphertext, ItemId, KeyGeneration, TombstoneCiphertext, VaultId};
+use mosaic_core::{
+    ItemCiphertext, ItemId, KeyGeneration, TombstoneCiphertext, VaultId, VaultMetaCiphertext,
+    WrappedKey,
+};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::error::{Error, Result};
-use super::sync_state::record_deletions;
-use super::vaults::require_vault;
+use super::sync_state::{KeyFlags, KeyOrigin, record_deletions};
+use super::vaults::{require_vault, rewrap_key, set_key_flags};
 use super::{
     PendingPolicy, Store, attachments, check_generation, generation_from_sql, now_ms, seq_from_sql,
     seq_to_sql, vault_id_from_sql,
@@ -488,6 +491,114 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(cleared)
+    }
+
+    /// Replaces a pending local change by the server's ciphertext of the
+    /// same version: the stored row takes `body`, the change leaves the
+    /// outbox and `server_seq` is kept unless the row holds a later one. For
+    /// a change that the server already holds in an equivalent form (a
+    /// re-seal under the current generation that another device uploaded
+    /// first).
+    ///
+    /// # Errors
+    /// [`Error::UnknownRecord`], [`Error::KeyGenerationRollback`],
+    /// [`Error::KeyGenerationNotAccepted`], [`Error::SeqOutOfRange`].
+    pub fn settle_pending_as_served(
+        &mut self,
+        vault_id: &VaultId,
+        record_id: &ItemId,
+        body: &RecordBody,
+        server_seq: u64,
+    ) -> Result<()> {
+        let tx = self.write()?;
+        let vault = require_vault(&tx, vault_id)?;
+        check_generation(vault.highest_accepted_generation, body.key_generation())?;
+        let (stored_server, _) =
+            sync_columns(&tx, vault_id, record_id)?.ok_or(Error::UnknownRecord)?;
+        let seq = stored_server.map_or(server_seq, |s| s.max(server_seq));
+        tx.execute(
+            "UPDATE records SET kind = ?3, key_generation = ?4, ciphertext = ?5,
+                 server_seq = ?6, outbox_seq = NULL, updated_at = ?7
+             WHERE vault_id = ?1 AND record_id = ?2",
+            params![
+                vault_id.as_bytes(),
+                record_id.as_bytes(),
+                body.kind().code(),
+                body.key_generation().get(),
+                body.as_bytes(),
+                seq_to_sql(seq)?,
+                now_ms()
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Replaces the key this install generated for `generation` (never
+    /// accepted by the backend) by the backend's, in one transaction: the
+    /// key row takes `wrapped` (no longer local, nothing to upload), every
+    /// record in `resealed` takes its new ciphertext and is queued for
+    /// upload, and the vault's metadata, if given, is replaced and queued.
+    /// Either all of it is stored or none of it (a crash must never leave
+    /// records sealed under a key the store no longer holds).
+    ///
+    /// # Errors
+    /// [`Error::UnknownVault`], [`Error::UnknownVaultKey`],
+    /// [`Error::KeyGenerationRollback`], [`Error::KeyGenerationNotAccepted`]
+    /// if `generation` is not the vault's accepted one or a ciphertext
+    /// carries another generation, [`Error::UnknownRecord`].
+    pub fn adopt_vault_key(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped: &WrappedKey,
+        resealed: &[(ItemId, RecordBody)],
+        meta: Option<&VaultMetaCiphertext>,
+    ) -> Result<()> {
+        let tx = self.write()?;
+        let vault = require_vault(&tx, vault_id)?;
+        check_generation(vault.highest_accepted_generation, generation)?;
+        if !rewrap_key(&tx, vault_id, generation, wrapped)? {
+            return Err(Error::UnknownVaultKey);
+        }
+        set_key_flags(&tx, vault_id, generation, KeyFlags::of(KeyOrigin::Remote))?;
+        for (record_id, body) in resealed {
+            check_generation(vault.highest_accepted_generation, body.key_generation())?;
+            let outbox = next_outbox_seq(&tx)?;
+            let n = tx.execute(
+                "UPDATE records SET kind = ?3, key_generation = ?4, ciphertext = ?5,
+                     outbox_seq = ?6, updated_at = ?7
+                 WHERE vault_id = ?1 AND record_id = ?2",
+                params![
+                    vault_id.as_bytes(),
+                    record_id.as_bytes(),
+                    body.kind().code(),
+                    body.key_generation().get(),
+                    body.as_bytes(),
+                    seq_to_sql(outbox.0)?,
+                    now_ms()
+                ],
+            )?;
+            if n == 0 {
+                return Err(Error::UnknownRecord);
+            }
+        }
+        if let Some(meta) = meta {
+            check_generation(vault.highest_accepted_generation, meta.key_generation())?;
+            tx.execute(
+                "UPDATE vaults SET meta = ?2, meta_generation = ?3, meta_upload_pending = 1,
+                     updated_at = ?4
+                 WHERE vault_id = ?1",
+                params![
+                    vault_id.as_bytes(),
+                    meta.as_bytes(),
+                    meta.key_generation().get(),
+                    now_ms()
+                ],
+            )?;
+        }
+        tx.commit()?;
+        self.scrub_wal()
     }
 
     /// Raises a record's stored server sequence number to `server_seq`

@@ -192,7 +192,11 @@ up before upgrading.
 - The second factor guards access to the server account. It adds nothing to
   vault confidentiality (the master password and the Secret Key do that).
 - A stolen session token lets a thief download and upload ciphertext and
-  soft-delete attachments until the device is removed (R57).
+  soft-delete attachments until the device is removed or the master password
+  is changed: a password change ends every other session of the account (R57).
+  A session also remembers the account version it logged in at, and a
+  password change from a session whose version is out of date is refused
+  (`account_version_mismatch`).
 - Housekeeping runs every hour: expired sessions, audit events older than 365
   days and attachments deleted more than `soft_delete_days` ago.
 - Run one server process per data directory.

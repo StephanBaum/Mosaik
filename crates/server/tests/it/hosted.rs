@@ -85,9 +85,13 @@ pub struct World {
 }
 
 /// A transport to the server for the session of a login.
-pub fn connect(server: &LoopbackServer, grant: hosted::LoginGrant) -> LoopbackTransport {
+pub fn connect(
+    server: &LoopbackServer,
+    grant: &hosted::LoginGrant,
+    device: InstallId,
+) -> LoopbackTransport {
     assert_eq!(grant.status, LoginStatus::Ok);
-    HttpTransport::connect(&server.base, grant.token).unwrap()
+    HttpTransport::connect(&server.base, &grant.token, device).unwrap()
 }
 
 impl World {
@@ -165,7 +169,7 @@ impl World {
             name,
         )
         .unwrap();
-        connect(&self.server, grant)
+        connect(&self.server, &grant, device)
     }
 
     /// Signs device `d` in again and gives it a fresh engine. A login deletes
@@ -222,7 +226,7 @@ impl World {
             .map_err(|e| e.error)
             .unwrap();
         let access = LocalSession::new(session);
-        let transport = connect(&self.server, joined.grant);
+        let transport = connect(&self.server, &joined.grant, device);
         let engine = self.engine_over(transport, i);
         self.devs.push(Dev {
             access,
@@ -322,6 +326,27 @@ impl World {
             .s()
             .opaque_password(&pw(PASSWORD), &self.secret_key)
             .unwrap()
+    }
+}
+
+/// An honest server never earns a finding: no device carries a persisted
+/// `ServerInconsistent` or `ServerRollback` finding, and no report says so.
+pub fn assert_no_server_findings(w: &World) {
+    for (d, dev) in w.devs.iter().enumerate() {
+        assert!(
+            dev.s().vault_flags().unwrap().is_empty(),
+            "device {d} holds a finding against an honest server: {:?}",
+            dev.s().vault_flags().unwrap()
+        );
+        assert!(
+            !dev.last.warnings.iter().any(|w| matches!(
+                w,
+                mosaic_sync::engine::SyncWarning::ServerInconsistent { .. }
+                    | mosaic_sync::engine::SyncWarning::ServerRollback { .. }
+            )),
+            "device {d}: {:?}",
+            dev.last.warnings
+        );
     }
 }
 

@@ -326,3 +326,81 @@ fn injected_foreign_wrapped_key_rejected() {
     w.sync(1);
     assert_eq!(w.devs[1].last.warnings.len(), 0);
 }
+
+/// C-M1. A server that shows device 1 a second valid key for a generation it
+/// confirmed (cross-serving the keys of other devices) makes the device
+/// rotate by the rank rule, but at most three times a day: then the rotating
+/// stops, the warning stays and nothing readable is lost.
+#[test]
+fn cross_served_keys_warn_and_the_rotations_are_capped() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use mosaic_core::InstallId;
+
+    let (mut w, vault, item) = two_devices(79);
+    // Device 0 rotates offline six times and never syncs: it holds valid
+    // keys (wrapped under the account key) for generations 2 to 7 that the
+    // server never saw.
+    for _ in 0..6 {
+        w.devs[0].s_mut().rotate_vault_key(vault).unwrap();
+    }
+    let foreign = w.devs[0].s().store().vault_keys(&vault).unwrap();
+    let generation_of_1 = |w: &World| {
+        w.devs[1]
+            .s()
+            .vaults()
+            .iter()
+            .find(|v| v.vault_id == vault)
+            .unwrap()
+            .key_generation
+    };
+    // Device 1 rotates online through the hostile path: its key for
+    // generation 2 is accepted and confirmed by the server.
+    let mut engine = malicious_b(&w);
+    w.server.advance_ms(MINUTE_MS);
+    {
+        let dev = &mut w.devs[1];
+        engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+    }
+    assert_eq!(generation_of_1(&w).get(), 2);
+
+    // From now on the server also shows device 1 a different valid key of the
+    // device's current generation, as written by a device with a very low ID.
+    let current = Arc::new(AtomicU32::new(2));
+    let shown = current.clone();
+    let low = InstallId::from_bytes([1; 16]).unwrap();
+    engine.transport_mut().tamper_pull = Some(Box::new(move |page| {
+        let g = shown.load(Ordering::SeqCst);
+        if let Some((generation, wrapped)) = foreign.iter().find(|(gen_, _)| gen_.get() == g) {
+            page.keys.push(PulledKey {
+                generation: *generation,
+                wrapped: wrapped.clone(),
+                device_id: low,
+                seq: Some(head_of(&page.next)),
+            });
+        }
+    }));
+    let mut generations = Vec::new();
+    let mut warned = Vec::new();
+    for _ in 0..6 {
+        current.store(generation_of_1(&w).get(), Ordering::SeqCst);
+        let report = run(&mut w, &mut engine);
+        warned.push(
+            report
+                .warnings
+                .iter()
+                .any(|x| matches!(x, SyncWarning::ServerInconsistent { vault: v } if *v == vault)),
+        );
+        generations.push(generation_of_1(&w).get());
+    }
+    // Every run reports the server; the device rotated three times (rank
+    // rule) and then stopped, however often the server repeats itself.
+    assert!(warned.iter().all(|x| *x), "{warned:?}");
+    assert_eq!(generations, [3, 4, 5, 5, 5, 5], "{generations:?}");
+    // Nothing readable was lost along the way.
+    assert_eq!(w.devs[1].s().corrupt_records().len(), 0);
+    assert!(has_pw(&w, 1, vault, item, "pw"));
+}

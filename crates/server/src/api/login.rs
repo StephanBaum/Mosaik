@@ -150,6 +150,7 @@ pub async fn finish(State(st): State<AppState>, body: Bytes) -> Result<Reply, Ap
                 expires_at,
                 fresh_until: now.saturating_add(FRESH_MS),
                 pending,
+                account_version: account.account_version,
             },
         )?;
         // A pending session is not a login yet; it is audited at the code.

@@ -138,6 +138,8 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<Option<RotationOutcome>, SyncError> {
         match access.with(|s| s.commit_vault_rotation(p))? {
             Ok(generation) => {
+                // The backend accepted this key for the generation.
+                access.with(|s| s.mark_vault_key_confirmed(vault, generation))??;
                 self.push_phase(access, report, stats, Some(vault))?;
                 Ok(Some(RotationOutcome::Rotated(generation)))
             }

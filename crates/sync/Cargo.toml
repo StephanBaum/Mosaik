@@ -18,7 +18,7 @@ test-util = []
 # HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
 opaque = ["dep:opaque-ke", "dep:sha2_0_10"]
 # The HTTP transport and the hosted client functions (M6 T4); enables `opaque`.
-http = ["opaque", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier"]
+http = ["opaque", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier", "dep:zeroize"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
@@ -41,6 +41,9 @@ opaque-ke = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
+# Wipes OPAQUE's session and export keys and builds the bearer value (only
+# with feature `http`; the crate is already in the workspace).
+zeroize = { workspace = true, optional = true }
 # SHA-512 of the TripleDH key exchange: opaque-ke 4.0 uses the digest 0.10 generation.
 sha2_0_10 = { workspace = true, optional = true }
 # Random temp file names of the folder transport, the retry jitter and
