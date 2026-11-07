@@ -1,0 +1,12 @@
+/* Landing page stylesheet (design concept §2, §4, §6). All values come from
+   packages/design-tokens; the few named local properties below are the ones the concept
+   defines (motion tokens, grid, metric-matched font fallback, mosaic grid). The token
+   custom properties themselves come from `virtual:mosaic-tokens.css`, imported by main.ts. */
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "./fonts.css";
+@import "./base.css";
+@import "./buttons.css";
+@import "./header.css";
+@import "./hero.css";
+@import "./footer.css";

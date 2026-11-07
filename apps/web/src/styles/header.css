@@ -1,0 +1,245 @@
+/* Header (concept §6): 64 px, sticky; transparent over the hero, solid with a hairline after
+   8 px of scroll through a scroll-driven animation. Without support it stays solid. */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-sticky);
+  height: var(--size-header);
+  background-color: var(--color-bg);
+  box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
+}
+
+@supports (animation-timeline: scroll()) {
+  .site-header {
+    animation: header-solid linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 8px;
+  }
+}
+
+@keyframes header-solid {
+  from {
+    background-color: transparent;
+    box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 transparent;
+  }
+
+  to {
+    background-color: var(--color-bg);
+    box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
+  }
+}
+
+.site-header__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-7);
+  height: 100%;
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin-inline: auto;
+  padding-inline: var(--margin);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  border-radius: var(--radius-control);
+}
+
+.logo-mark-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.logo-mark {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+
+.logo-mark__tile {
+  fill: var(--color-text);
+}
+
+.logo-mark__tile--accent {
+  fill: var(--color-faint);
+}
+
+/* The fourth tile: 11/20 from the top left, 9/20 wide, corner radius 2.5/9 (as in the app). */
+.logo-mark__foil {
+  top: 55%;
+  left: 55%;
+  width: 45%;
+  height: 45%;
+  border-radius: 28%;
+}
+
+.logo-mark__foil.holo-surface--live ~ .logo-mark .logo-mark__tile--accent {
+  fill: none;
+}
+
+.site-nav {
+  flex: 1;
+}
+
+.site-nav__links {
+  display: flex;
+  gap: var(--space-6);
+}
+
+.site-nav__links a {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: color var(--motion-micro) var(--ease-standard);
+}
+
+.site-nav__links a:hover {
+  color: var(--color-text);
+}
+
+.site-header__end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-inline-start: auto;
+}
+
+.lang {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.lang li + li::before {
+  content: "/";
+  margin-inline: var(--space-1);
+  color: var(--color-faint);
+}
+
+.lang a {
+  display: inline-block;
+  min-width: var(--space-7);
+  padding: var(--space-1) 0;
+  color: var(--color-text-muted);
+  text-align: center;
+  text-decoration: none;
+  transition: color var(--motion-micro) var(--ease-standard);
+}
+
+.lang a:hover,
+.lang a[aria-current="page"] {
+  color: var(--color-text);
+}
+
+.menu-toggle {
+  display: none;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-toggle--nojs {
+  display: none !important;
+}
+
+@media (max-width: 899.98px) {
+  .site-nav,
+  .site-header__cta {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+@media (scripting: none) and (max-width: 899.98px) {
+  .menu-toggle {
+    display: none;
+  }
+
+  .menu-toggle--nojs {
+    display: inline-flex !important;
+  }
+}
+
+/* Full-screen menu (<900 px): links in h2 size. */
+.menu {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0 var(--margin) var(--space-8);
+  border: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.menu[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.menu::backdrop {
+  background: var(--color-scrim);
+}
+
+.menu__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--size-header);
+}
+
+.menu__close {
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu__links {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.menu__links a {
+  font-size: clamp(2.25rem, 1.5rem + 3.2vw, 5rem);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  text-decoration: none;
+}

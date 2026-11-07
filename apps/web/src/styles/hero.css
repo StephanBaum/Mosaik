@@ -1,0 +1,354 @@
+/* Hero (concept §3 M1, §4 page load, §6). Mobile first:
+   <600   label, headline, subhead, CTAs, an 8 x 3 strip of 40 px tiles, trust strip;
+   600+   the mosaic as a 3-row band above the text;
+   900+   text in columns 1–6, the mosaic from column 7 bleeding off the right edge (7 rows);
+   2200+  96 px tiles, 9 rows. */
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr min(100% - 2 * var(--margin), var(--content-max)) 1fr;
+  align-content: center;
+  min-height: max(100svh, 640px);
+  margin-top: calc(-1 * var(--size-header));
+  padding-block: calc(var(--size-header) + var(--space-7)) var(--space-8);
+  overflow-x: clip;
+}
+
+.hero__copy {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.hero__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+/* A single flat tile in front of the label, the mosaic in miniature. */
+.hero__label::before {
+  content: "";
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--space-1);
+  background: var(--color-faint);
+}
+
+/* The headline's width is the measure its size is computed from (container query units). */
+.hero__title-wrap {
+  container-type: inline-size;
+  width: 100%;
+}
+
+.hero__title {
+  font-size: clamp(3rem, 12.4cqi, 7.5rem);
+}
+
+.hero__title[data-measure="medium"] {
+  font-size: clamp(2.75rem, 9.4cqi, 6.25rem);
+}
+
+.hero__title[data-measure="long"] {
+  font-size: clamp(2.5rem, 7.6cqi, 5.25rem);
+}
+
+/* Each sentence rises from its own mask; the second arrives a beat later. */
+.line {
+  display: block;
+  overflow: hidden;
+  padding-block: 0.06em 0.1em;
+  margin-block: -0.06em -0.1em;
+}
+
+.line__inner {
+  display: block;
+  animation: line-rise var(--motion-reveal) var(--ease-enter) both;
+}
+
+.line--2 .line__inner {
+  animation-delay: 420ms;
+}
+
+@keyframes line-rise {
+  from {
+    transform: translateY(108%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+/* "ours" / "unserem" settles from 400 to 720 as the mosaic lands (`is-landed`, set by the
+   hero island). Without JS it settles on a timer; with JS a late safety timer covers a slow start. */
+.hero__emphasis {
+  font-style: normal;
+  font-weight: 400;
+  transition: font-weight 700ms var(--ease-standard);
+}
+
+.hero.is-landed .hero__emphasis {
+  font-weight: 720;
+}
+
+@media (scripting: none) {
+  .hero__emphasis {
+    animation: emphasis-settle 700ms var(--ease-standard) 1100ms both;
+  }
+}
+
+@media (scripting: enabled) {
+  .hero:not(.is-landed) .hero__emphasis {
+    animation: emphasis-settle 700ms var(--ease-standard) 2600ms both;
+  }
+}
+
+@keyframes emphasis-settle {
+  to {
+    font-weight: 720;
+  }
+}
+
+.hero__subhead {
+  margin-top: var(--space-6);
+}
+
+.hero__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+  width: 100%;
+  margin-top: var(--space-7);
+}
+
+.hero__subhead,
+.hero__actions {
+  animation: rise var(--motion-reveal) var(--ease-enter) both;
+}
+
+.hero__subhead {
+  animation-delay: 480ms;
+}
+
+.hero__actions {
+  animation-delay: 560ms;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-4));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Trust strip: mono facts; the audit line is honest and always visible (dashed = not yet). */
+.trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin-top: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.trust__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.trust__item::before {
+  content: "";
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-tag);
+  background: var(--color-faint);
+}
+
+.trust__item--audit {
+  color: var(--color-text-secondary);
+}
+
+.trust__item--audit::before {
+  background: none;
+  outline: var(--border-width-hairline) dashed var(--color-text-muted);
+  outline-offset: -1px;
+}
+
+/* The mosaic box. --tile-n, --gap-n and --rows are read by the hero island, so the canvas
+   and the flat fallback tiles share one grid. */
+.mosaic {
+  --tile-n: 40;
+  --gap-n: 4;
+  --rows: 3;
+  --tile: calc(var(--tile-n) * 1px);
+  --gap: calc(var(--gap-n) * 1px);
+  --pitch: calc(var(--tile) + var(--gap));
+
+  position: relative;
+  align-self: stretch;
+  height: calc(var(--rows) * var(--pitch) - var(--gap));
+  margin-top: var(--space-8);
+  margin-inline-end: calc(-1 * var(--margin));
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mosaic__flat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(var(--rows), var(--tile));
+  grid-auto-columns: var(--tile);
+  gap: var(--gap);
+  height: 100%;
+}
+
+.tile {
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--tile) / 6);
+  background: var(--tile-flat);
+}
+
+.tile__glyph {
+  width: 44%;
+  height: 44%;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mosaic__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity var(--motion-panel) var(--ease-standard);
+}
+
+.mosaic--live .mosaic__canvas {
+  opacity: 1;
+}
+
+.mosaic--live .mosaic__flat {
+  visibility: hidden;
+}
+
+/* With JS the flat tiles wait for the island: it either paints the foil or sweeps them in.
+   If the island never runs, they appear after a short delay. */
+@media (scripting: enabled) {
+  .mosaic:not(.mosaic--flat) .mosaic__flat {
+    animation: rise 400ms var(--ease-enter) 2500ms both;
+  }
+}
+
+.mosaic--flat .tile {
+  animation: tile-in 400ms var(--ease-enter) both;
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (min-width: 600px) {
+  .hero__actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    width: auto;
+  }
+
+  .mosaic {
+    --tile-n: 56;
+    --gap-n: 8;
+
+    order: -1;
+    margin-top: 0;
+    margin-bottom: var(--space-8);
+  }
+}
+
+@media (min-width: 900px) {
+  .hero__copy {
+    width: calc(50% - var(--gutter) / 2);
+  }
+
+  .hero__label {
+    margin-bottom: var(--space-6);
+  }
+
+  .hero__subhead {
+    margin-top: var(--space-7);
+  }
+
+  .hero__actions {
+    margin-top: var(--space-8);
+  }
+
+  .trust {
+    margin-top: var(--space-8);
+  }
+
+  .mosaic {
+    --tile-n: 72;
+    --rows: 7;
+
+    position: absolute;
+    top: calc(50% + var(--size-header) / 2 - var(--space-2));
+    right: 0;
+    left: calc(50% + var(--gutter) / 2);
+    order: 0;
+    margin: 0;
+    transform: translateY(-50%);
+  }
+}
+
+@media (min-width: 2200px) {
+  .mosaic {
+    --tile-n: 96;
+    --rows: 9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .line__inner,
+  .hero__subhead,
+  .hero__actions,
+  .mosaic--flat .tile {
+    animation: none;
+  }
+
+  .hero__emphasis,
+  .hero:not(.is-landed) .hero__emphasis {
+    font-weight: 720;
+    animation: none;
+    transition: none;
+  }
+}

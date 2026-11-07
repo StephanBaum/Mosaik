@@ -1,0 +1,200 @@
+/* Base: concept-defined local properties, document defaults, type styles, small details. */
+
+:root {
+  /* DM Sans first, then its metric-matched fallback, then the token stack. */
+  --font-sans: "DM Sans", "DM Sans Fallback", var(--font-ui);
+
+  /* Grid (concept §2): 4 / 8 / 12 columns, gutters 16 → 24 px, fluid margins. */
+  --margin: clamp(16px, 4vw, 64px);
+  --gutter: var(--space-5);
+  --content-max: 1280px;
+
+  /* Motion system (concept §4). micro / panel / standard easing are the app tokens. */
+  --motion-reveal: 600ms;
+  --motion-sequence: 900ms;
+  --motion-ripple: 1400ms;
+  --motion-glass: 1900ms;
+  --ease-standard: var(--motion-easing);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+
+  /* Flat tile fill (ciphertext and fallback tiles, concept §2). */
+  --tile-flat: var(--color-bg-selected);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tile-flat: var(--color-surface);
+  }
+}
+
+@media (min-width: 600px) {
+  :root {
+    --gutter: var(--space-6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-reveal: 0ms;
+    --motion-sequence: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scrollbar-color: var(--color-faint) var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+}
+
+main:focus {
+  outline: none;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+  hyphens: auto;
+  /* Only long words break, never "Ko-pie". */
+  hyphenate-limit-chars: 10 4 4;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--vault-color-1);
+  color: var(--color-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  ::selection {
+    color: var(--color-bg);
+  }
+}
+
+:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-focus-ring);
+  outline-offset: var(--border-width-focus);
+}
+
+/* Type (concept §2) */
+
+.display {
+  margin: 0;
+  font-weight: 640;
+  font-variation-settings: "opsz" 40;
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  hyphens: manual;
+}
+
+.lead {
+  font-size: clamp(1.125rem, 1rem + 0.4vw, 1.375rem);
+  line-height: 1.5;
+  max-width: 52ch;
+  color: var(--color-text-secondary);
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.text-link {
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-faint);
+  text-decoration-thickness: var(--border-width-hairline);
+  text-underline-offset: 0.18em;
+  transition:
+    text-decoration-color var(--motion-micro) var(--ease-standard),
+    text-decoration-thickness var(--motion-micro) var(--ease-standard);
+}
+
+.text-link:hover {
+  text-decoration-color: var(--color-text);
+  text-decoration-thickness: var(--border-width-focus);
+}
+
+.icon {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+  flex-shrink: 0;
+}
+
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.skip-link {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: var(--layer-toast);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(calc(-100% - var(--space-5)));
+  transition: transform var(--motion-panel) var(--ease-enter);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* 404 */
+
+.not-found {
+  display: grid;
+  gap: var(--space-6);
+  align-content: center;
+  min-height: calc(100svh - 2 * var(--size-header));
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-9) var(--margin);
+}
+
+.not-found__title {
+  font-size: clamp(2.75rem, 1.4rem + 5vw, 7rem);
+  max-width: 14ch;
+}

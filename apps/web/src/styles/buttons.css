@@ -1,0 +1,136 @@
+/* Buttons (concept §4 micro-interactions). Pills; they grow with their label and never truncate. */
+
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--size-control-md);
+  padding: var(--space-2) var(--space-5);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-micro) var(--ease-standard),
+    border-color var(--motion-micro) var(--ease-standard),
+    transform var(--motion-micro) var(--ease-standard);
+}
+
+.button--sm {
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+}
+
+.button--lg {
+  min-height: calc(var(--space-8) + var(--space-2));
+  padding: var(--space-3) var(--space-6);
+}
+
+/* Secondary: 1 px borderStrong outline, bgSelected on hover, 0.98 on press. */
+.button--outline {
+  border-color: var(--color-border-strong);
+}
+
+.button--outline:hover {
+  background: var(--color-bg-selected);
+}
+
+.button--outline:active {
+  transform: scale(0.98);
+}
+
+.icon--nudge {
+  transition: transform var(--motion-panel) var(--ease-enter);
+}
+
+.button:hover .icon--nudge {
+  transform: translateX(var(--space-1));
+}
+
+/* Holo primary action, ported from apps/desktop/src/styles/{app,holo}.css (ADR-0014). The
+   static token gradient is the fallback without WebGL2; the foil canvas bleeds 8 px + the
+   hairline past the pill so the outline can deform during the press ripple and focus waves. */
+.holo {
+  --holo-bleed: calc(var(--space-3) + var(--border-width-hairline));
+
+  isolation: isolate;
+  border-color: var(--primary-action-rim);
+  background: linear-gradient(
+    115deg,
+    var(--primary-action-fallback),
+    var(--primary-action-fallback-highlight),
+    var(--primary-action-fallback)
+  );
+  color: var(--primary-action-label);
+  text-shadow: var(--primary-action-label-shadow);
+}
+
+.holo__foil {
+  position: absolute;
+  inset: calc(-1 * var(--holo-bleed));
+  z-index: -1;
+  width: calc(100% + 2 * var(--holo-bleed));
+  height: calc(100% + 2 * var(--holo-bleed));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.holo .icon {
+  filter: var(--primary-action-icon-filter);
+}
+
+.holo.holo--live {
+  background: var(--primary-action-fallback);
+  border-color: transparent;
+}
+
+.holo.holo--live .holo__foil {
+  opacity: 1;
+}
+
+.holo.holo--pressed {
+  transform: scale(0.975);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo.holo--pressed,
+  .button--outline:active {
+    transform: none;
+  }
+}
+
+/* Static foil accents (ADR-0027): painted once, fade in when live, flat without WebGL2. */
+.holo-surface {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo-surface.holo-surface--live {
+  opacity: 1;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .holo-surface.holo-surface--live {
+    opacity: 0;
+  }
+}

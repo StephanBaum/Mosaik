@@ -1,0 +1,53 @@
+/* Footer (concept §6 chapter 10, minimal for this step): links, language, the pre-audit
+   line and the big wordmark in `faint`. */
+
+.site-footer {
+  border-top: var(--border-width-hairline) solid var(--color-border);
+  overflow: hidden;
+}
+
+.site-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5) var(--space-7);
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin-inline: auto;
+  padding: var(--space-8) var(--margin) var(--space-7);
+}
+
+.site-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+.site-footer__links a {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  text-decoration: none;
+}
+
+.site-footer__links a:hover {
+  color: var(--color-text);
+}
+
+.site-footer__note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin-inline-start: auto;
+}
+
+.site-footer__wordmark {
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin: 0 auto calc(-0.18 * clamp(5rem, 22vw, 20rem));
+  padding-inline: var(--margin);
+  color: var(--color-border);
+  font-size: clamp(5rem, 22vw, 20rem);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  user-select: none;
+}
