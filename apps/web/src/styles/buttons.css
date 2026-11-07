@@ -1,4 +1,4 @@
-/* Buttons. Squared-off blocks with a small radius; they grow with their label and never truncate. */
+/* Buttons. Pills that grow with their label and never truncate. */
 
 .button {
   position: relative;
@@ -6,12 +6,12 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  min-height: var(--size-control-md);
+  min-height: var(--size-control-lg);
   padding: var(--space-2) var(--space-5);
   border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-panel);
+  border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--color-text);
+  color: var(--paper);
   font: inherit;
   font-size: var(--font-size-md);
   line-height: var(--line-height-md);
@@ -19,10 +19,12 @@
   letter-spacing: -0.005em;
   text-align: center;
   text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background-color var(--motion-micro) var(--ease-standard),
     border-color var(--motion-micro) var(--ease-standard),
+    color var(--motion-micro) var(--ease-standard),
     transform var(--motion-micro) var(--ease-standard);
 }
 
@@ -34,21 +36,35 @@
 }
 
 .button--lg {
-  min-height: calc(var(--space-8) + var(--space-2));
+  min-height: var(--size-input-xl);
   padding: var(--space-3) var(--space-6);
+  font-size: 1.0625rem;
 }
 
-/* Secondary: 1 px borderStrong outline, bgSelected on hover, 0.98 on press. */
-.button--outline {
-  border-color: var(--color-border-strong);
+/* Quiet secondary: a hairline pill on the dark page, brighter rim on hover. */
+.button--line {
+  border-color: var(--rule-strong);
+  background: rgb(11 12 16 / 0.28);
+  backdrop-filter: blur(6px);
 }
 
-.button--outline:hover {
-  background: var(--color-bg-selected);
+.button--line:hover {
+  border-color: var(--paper-2);
+  background: rgb(243 239 231 / 0.06);
 }
 
-.button--outline:active {
+.button--line:active {
   transform: scale(0.98);
+}
+
+/* Solid off-white: the small header download and the menu's download. */
+.button--solid {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.button--solid:hover {
+  background: #fff;
 }
 
 .icon--nudge {
@@ -59,40 +75,64 @@
   transform: translateX(var(--space-1));
 }
 
-/* Primary: a loud solid block (lime on ink, ink on lavender) that steps to cyan on hover,
-   pixel-fashion, in four discrete steps. */
-.button--primary {
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-  transition:
-    background-color 200ms steps(4, end),
-    color 200ms steps(4, end),
-    transform var(--motion-micro) var(--ease-standard);
+/* Holo primary action, ported from apps/desktop/src/styles/{app,holo}.css (ADR-0014). The
+   static token gradient is the fallback without WebGL2; the foil canvas bleeds 8 px + the
+   hairline past the pill so the outline can deform during the press ripple and focus waves. */
+.holo {
+  --holo-bleed: calc(var(--space-3) + var(--border-width-hairline));
+
+  isolation: isolate;
+  border-color: var(--primary-action-rim);
+  background: linear-gradient(
+    115deg,
+    var(--primary-action-fallback),
+    var(--primary-action-fallback-highlight),
+    var(--primary-action-fallback)
+  );
+  color: var(--primary-action-label);
+  text-shadow: var(--primary-action-label-shadow);
 }
 
-.button--primary:hover {
-  background: var(--art-4);
-  color: var(--on-art);
+.holo__foil {
+  position: absolute;
+  inset: calc(-1 * var(--holo-bleed));
+  z-index: -1;
+  width: calc(100% + 2 * var(--holo-bleed));
+  height: calc(100% + 2 * var(--holo-bleed));
+  opacity: 0;
+  pointer-events: none;
 }
 
-.button--primary:active {
-  transform: scale(0.98);
+.holo__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-@media (prefers-color-scheme: dark) {
-  .button--primary {
-    background: var(--art-4);
-    color: var(--on-art);
-  }
+.holo .icon {
+  filter: var(--primary-action-icon-filter);
+}
 
-  .button--primary:hover {
-    background: var(--art-3);
-  }
+.holo.holo--live {
+  background: var(--primary-action-fallback);
+  border-color: transparent;
+}
+
+.holo.holo--live .holo__foil {
+  opacity: 1;
+}
+
+.holo.holo--pressed {
+  transform: scale(0.975);
+}
+
+.holo:focus-visible {
+  outline-offset: calc(var(--holo-bleed) + 2px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .button--primary:active,
-  .button--outline:active {
+  .holo.holo--pressed,
+  .button--line:active {
     transform: none;
   }
 }

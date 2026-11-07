@@ -1,0 +1,726 @@
+/* Sections: one grid, generous space, thin rules between sections instead of boxes. */
+
+.section__inner {
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin-inline: auto;
+  padding: var(--section-space) var(--margin);
+}
+
+.section + .section .section__inner {
+  background:
+    linear-gradient(var(--rule), var(--rule)) top / calc(100% - 2 * var(--margin)) var(--border-width-hairline) no-repeat;
+}
+
+.section__inner > * + * {
+  margin-top: clamp(56px, 6vw, 96px);
+}
+
+/* Section head: eyebrow, big title, optional intro. */
+.head {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 44rem;
+}
+
+.head--wide {
+  max-width: 62rem;
+}
+
+.head--center {
+  max-width: 64rem;
+  justify-items: center;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.head--center .eyebrow::after {
+  content: "";
+  width: var(--space-7);
+  height: var(--border-width-hairline);
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.head__title {
+  color: var(--paper);
+  font-size: clamp(2.25rem, 1.35rem + 3vw, 4.25rem);
+  line-height: 1.02;
+  font-weight: 680;
+  font-variation-settings: "opsz" 40;
+  letter-spacing: -0.035em;
+}
+
+/* Sentences wrap as units where they fit; a long one still wraps inside, balanced. */
+.sentence {
+  display: inline-block;
+  text-wrap: balance;
+}
+
+.head__intro {
+  max-width: 34em;
+  color: var(--paper-2);
+  font-size: clamp(1.0625rem, 0.98rem + 0.3vw, 1.25rem);
+  line-height: 1.6;
+}
+
+/* Two columns: head on the left, text on the right, bottoms aligned. */
+.split {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 900px) {
+  .split {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .split > :first-child {
+    grid-column: 1 / span 6;
+  }
+
+  .split__aside {
+    grid-column: 8 / span 5;
+  }
+
+  .split--top {
+    align-items: start;
+  }
+}
+
+.split > div > .body-lg,
+.teams__lead > .body-lg {
+  margin-top: var(--space-7);
+}
+
+/* Points: an icon, a short bold title and its text, each under a hairline. */
+.points {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 640px) {
+  .points--4,
+  .points--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1000px) {
+  .points--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: var(--space-9);
+  }
+}
+
+@media (min-width: 1100px) {
+  .points--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.point {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding-top: var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--rule);
+}
+
+.point__icon {
+  width: 26px;
+  height: 26px;
+  margin-bottom: var(--space-3);
+  color: var(--amber);
+}
+
+.point__title,
+.story__title,
+.step__title,
+.only__title,
+.unlike__title {
+  text-wrap: balance;
+}
+
+.point__title {
+  color: var(--paper);
+  font-size: 1.1875rem;
+  line-height: 1.35;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.point__text {
+  max-width: 34em;
+  color: var(--paper-2);
+  font-size: 1.0625rem;
+  line-height: 1.62;
+}
+
+.points--stack {
+  gap: 0;
+}
+
+.points--stack .point {
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-5);
+  padding-block: var(--space-6);
+}
+
+.points--stack .point__icon {
+  grid-row: span 2;
+  margin: 0;
+}
+
+.points--stack .point:last-child {
+  border-bottom: var(--border-width-hairline) solid var(--rule);
+}
+
+/* Where it lives: a sorted detail of the painting next to the argument, then two stories. */
+.where__lead {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .where__lead {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .where__art {
+    grid-column: 1 / span 5;
+  }
+
+  .where__text {
+    grid-column: 7 / span 6;
+  }
+}
+
+.where__art img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+}
+
+.where__text .body-lg {
+  margin-top: var(--space-7);
+}
+
+.stories {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 800px) {
+  .stories {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.story {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding-top: var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--rule-strong);
+}
+
+.story__year {
+  color: var(--amber);
+  font-size: clamp(2.75rem, 2rem + 2.4vw, 4.5rem);
+  line-height: 1;
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.story__title {
+  margin-top: var(--space-3);
+  font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+  line-height: 1.2;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+}
+
+.story__text {
+  max-width: 36em;
+  color: var(--paper-2);
+}
+
+.where .fineprint {
+  margin-top: var(--space-7);
+}
+
+/* How it works: three numbered steps. */
+.steps {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 960px) {
+  .steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.step {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding-top: var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--rule-strong);
+}
+
+.step__number {
+  color: var(--amber);
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.step__title {
+  font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+  line-height: 1.2;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+}
+
+.step__text {
+  color: var(--paper-2);
+}
+
+/* Step 3's sample: the app's warning in calm amber. */
+.sample {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.sample__tag {
+  justify-self: start;
+  padding: 0 var(--space-3);
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  color: var(--paper-3);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.sample__banner {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-5);
+  border: var(--border-width-hairline) solid var(--amber-line);
+  border-radius: var(--radius-card);
+  background: var(--amber-wash);
+  color: var(--paper);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.sample__icon {
+  margin-top: 1px;
+  color: var(--amber);
+}
+
+/* "For the technical": a quiet note under a hairline. */
+.technical {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 56rem;
+  padding-left: var(--space-6);
+  border-left: var(--border-width-hairline) solid var(--rule-strong);
+}
+
+.technical__label {
+  color: var(--paper-2);
+  font-size: 0.875rem;
+  font-weight: 620;
+}
+
+.technical__text {
+  color: var(--paper-3);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+/* Platform strip under the features. */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-7);
+  padding-top: var(--space-7);
+  border-top: var(--border-width-hairline) solid var(--rule);
+  color: var(--paper-2);
+  font-size: 1.0625rem;
+  font-weight: 500;
+}
+
+.strip li::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: var(--space-3);
+  border-radius: 50%;
+  background: var(--amber);
+  vertical-align: middle;
+  opacity: 0.8;
+}
+
+/* Only Mosaic: three large numbered claims, then the "unlike" list. */
+.only__list {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+}
+
+@media (min-width: 960px) {
+  .only__list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.only__item {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.only__index {
+  color: var(--amber);
+  font-size: clamp(4rem, 3rem + 3vw, 6.5rem);
+  line-height: 0.9;
+  font-weight: 250;
+  letter-spacing: -0.05em;
+}
+
+.only__title {
+  padding-top: var(--space-5);
+  border-top: var(--border-width-hairline) solid var(--rule-strong);
+  font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+  line-height: 1.2;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+}
+
+.only__text {
+  color: var(--paper-2);
+}
+
+.unlike {
+  display: grid;
+  gap: var(--space-6) var(--gutter);
+  padding-top: var(--space-8);
+  border-top: var(--border-width-hairline) solid var(--rule);
+}
+
+@media (min-width: 900px) {
+  .unlike {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .unlike__title {
+    grid-column: 1 / span 4;
+  }
+
+  .unlike .checks {
+    grid-column: 6 / span 7;
+  }
+}
+
+.unlike__title {
+  font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem);
+  line-height: 1.3;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.checks {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.checks li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-4);
+  color: var(--paper-2);
+}
+
+.checks__icon {
+  margin-top: 0.2em;
+  color: var(--amber);
+}
+
+/* Switch: icon-led sentences. */
+.inline-points {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.inline-point {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-5);
+  padding-top: var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--rule);
+  color: var(--paper-2);
+}
+
+.inline-point strong {
+  color: var(--paper);
+  font-weight: 620;
+}
+
+.inline-point__icon {
+  width: 26px;
+  height: 26px;
+  color: var(--amber);
+}
+
+/* Pricing: two equal cards; Hosted carries the amber rim. */
+.plans {
+  display: grid;
+  gap: var(--gutter);
+}
+
+@media (min-width: 860px) {
+  .plans {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: clamp(28px, 3vw, 44px);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: 20px;
+  background: var(--ink-raised);
+}
+
+.plan--hosted {
+  border-color: var(--amber-line);
+  background:
+    radial-gradient(120% 60% at 100% 0%, rgb(228 166 95 / 0.09), transparent 60%),
+    var(--ink-raised);
+}
+
+.plan__name {
+  color: var(--paper-2);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.plan--hosted .plan__name {
+  color: var(--amber);
+}
+
+.plan__price {
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(3rem, 2.4rem + 2vw, 4.25rem);
+  color: var(--paper);
+  font-size: clamp(3rem, 2.4rem + 2vw, 4.25rem);
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.plan__price--soon {
+  padding-bottom: 0.12em;
+  font-size: clamp(1.625rem, 1.3rem + 1vw, 2.125rem);
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.plan__tagline {
+  color: var(--paper-2);
+  font-size: 1.0625rem;
+}
+
+.plan__items {
+  gap: var(--space-4);
+  padding-top: var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--rule);
+  font-size: 1rem;
+}
+
+.plan__action {
+  margin-top: auto;
+  padding-top: var(--space-5);
+}
+
+.plan--hosted .button--line {
+  border-color: var(--amber-line);
+}
+
+.pricing__note {
+  text-align: center;
+  margin-inline: auto;
+}
+
+/* FAQ: the head stays in view while the answers scroll. */
+@media (min-width: 900px) {
+  .faq__head {
+    position: sticky;
+    top: calc(var(--size-header) + var(--space-8));
+  }
+}
+
+.faq__list {
+  border-bottom: var(--border-width-hairline) solid var(--rule);
+}
+
+.qa {
+  border-top: var(--border-width-hairline) solid var(--rule);
+}
+
+.qa__q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding-block: var(--space-6);
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+
+.qa__q::-webkit-details-marker {
+  display: none;
+}
+
+.qa__title {
+  color: var(--paper);
+  font-size: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
+  line-height: 1.4;
+  font-weight: 580;
+  letter-spacing: -0.01em;
+}
+
+.qa__icon {
+  color: var(--paper-3);
+  transition:
+    transform var(--motion-panel) var(--ease-enter),
+    color var(--motion-micro) var(--ease-standard);
+}
+
+.qa__q:hover .qa__icon,
+.qa[open] .qa__icon {
+  color: var(--amber);
+}
+
+.qa[open] .qa__icon {
+  transform: rotate(45deg);
+}
+
+.qa__a {
+  max-width: 40em;
+  padding-bottom: var(--space-7);
+  color: var(--paper-2);
+}
+
+/* Download: the sorted sky returns behind the closing call. */
+.download {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.download__sky {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -1;
+  height: min(72%, 760px);
+}
+
+.download__sky picture,
+.download__sky img {
+  width: 100%;
+  height: 100%;
+}
+
+.download__sky img {
+  object-fit: cover;
+  object-position: 50% 30%;
+  opacity: 0.55;
+  mask-image: linear-gradient(180deg, rgb(0 0 0 / 0) 0%, #000 34%, #000 52%, rgb(0 0 0 / 0) 100%);
+}
+
+.download .section__inner {
+  background: none;
+}
+
+.download__body {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.download .head__title {
+  font-size: clamp(2.5rem, 1.4rem + 3.8vw, 5rem);
+}
+
+.download .actions {
+  margin-top: var(--space-8);
+}
+
+.platforms {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  max-width: 60rem;
+  margin-top: clamp(56px, 6vw, 88px);
+}
+
+.platform {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: rgb(11 12 16 / 0.5);
+  color: var(--paper-2);
+  font-size: 0.9375rem;
+  font-weight: 540;
+}
+
+.platform__icon {
+  width: 18px;
+  height: 18px;
+  color: var(--paper-3);
+}
+
+.platform--detected {
+  flex-basis: 100%;
+  justify-content: center;
+  max-width: 22rem;
+  margin-inline: calc((100% - 22rem) / 2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-4) var(--space-7);
+  border-color: var(--amber-line);
+  background: var(--amber-wash);
+  color: var(--paper);
+  font-size: 1.125rem;
+}
+
+.platform--detected .platform__icon {
+  width: 22px;
+  height: 22px;
+  color: var(--amber);
+}
+
+.download__note {
+  margin-top: var(--space-7);
+  color: var(--paper-3);
+  font-size: 0.9375rem;
+}

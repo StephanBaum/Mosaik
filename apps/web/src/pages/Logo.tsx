@@ -1,4 +1,4 @@
-/** The Mosaic mark: three tiles and an accent tile (UX_GUIDELINES §2); the accent tile takes the art's lime. */
+/** The Mosaic mark: three tiles and an accent tile (UX_GUIDELINES §2); the accent takes the painting's horizon amber. */
 export function LogoMark() {
   return (
     <svg className="logo-mark" viewBox="0 0 20 20" aria-hidden="true" focusable="false">

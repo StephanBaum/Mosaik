@@ -1,39 +1,34 @@
-/* Header (concept §6): 64 px, sticky; transparent over the hero, solid with a hairline after
-   8 px of scroll through a scroll-driven animation. Without support it stays solid. */
+/* Header: 64 px, fixed. Transparent over the hero; dark and blurred with a hairline once the
+   page scrolls (menu.ts sets `is-scrolled`; without JS it is dark from the start). */
 
 .site-header {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  inset: 0 0 auto;
   z-index: var(--layer-sticky);
   height: var(--size-header);
-  background-color: var(--page-bg);
-  box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
+  transition:
+    background-color var(--motion-panel) var(--ease-standard),
+    box-shadow var(--motion-panel) var(--ease-standard),
+    backdrop-filter var(--motion-panel) var(--ease-standard);
 }
 
-@supports (animation-timeline: scroll()) {
+.site-header.is-scrolled {
+  background-color: rgb(11 12 16 / 0.72);
+  box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--rule);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+
+@media (scripting: none) {
   .site-header {
-    animation: header-solid linear both;
-    animation-timeline: scroll(root);
-    animation-range: 0 8px;
-  }
-}
-
-@keyframes header-solid {
-  from {
-    background-color: transparent;
-    box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 transparent;
-  }
-
-  to {
-    background-color: var(--page-bg);
-    box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
+    background-color: rgb(11 12 16 / 0.86);
+    backdrop-filter: blur(18px);
   }
 }
 
 .site-header__inner {
   display: flex;
   align-items: center;
-  gap: var(--space-7);
+  gap: var(--space-8);
   height: 100%;
   max-width: calc(var(--content-max) + 2 * var(--margin));
   margin-inline: auto;
@@ -44,10 +39,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
-  color: var(--color-text);
-  font-size: var(--font-size-lg);
+  color: var(--paper);
+  font-size: 1.1875rem;
   line-height: 1;
-  font-weight: 640;
+  font-weight: 650;
   letter-spacing: -0.02em;
   text-decoration: none;
   border-radius: var(--radius-control);
@@ -60,17 +55,11 @@
 }
 
 .logo-mark__tile {
-  fill: var(--color-text);
+  fill: var(--paper);
 }
 
 .logo-mark__tile--accent {
-  fill: var(--art-1);
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo-mark__tile--accent {
-    fill: var(--art-4);
-  }
+  fill: var(--amber);
 }
 
 .site-nav {
@@ -82,8 +71,9 @@
   gap: var(--space-6);
 }
 
-.site-nav__links a {
-  color: var(--color-text-secondary);
+.site-nav__links a,
+.lang a {
+  color: rgb(243 239 231 / 0.78);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
   font-weight: 500;
@@ -91,8 +81,10 @@
   transition: color var(--motion-micro) var(--ease-standard);
 }
 
-.site-nav__links a:hover {
-  color: var(--color-text);
+.site-nav__links a:hover,
+.lang a:hover,
+.lang a[aria-current="page"] {
+  color: var(--paper);
 }
 
 .site-header__end {
@@ -105,48 +97,43 @@
 .lang {
   display: flex;
   align-items: center;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
 }
 
 .lang li + li::before {
   content: "/";
-  margin-inline: var(--space-1);
-  color: var(--color-faint);
+  margin-inline: var(--space-2);
+  color: var(--paper-3);
 }
 
 .lang a {
   display: inline-block;
-  min-width: var(--space-7);
   padding: var(--space-1) 0;
-  color: var(--color-text-muted);
-  text-align: center;
-  text-decoration: none;
-  transition: color var(--motion-micro) var(--ease-standard);
 }
 
-.lang a:hover,
 .lang a[aria-current="page"] {
-  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--amber);
+  text-decoration-thickness: var(--border-width-hairline);
+  text-underline-offset: 0.35em;
 }
 
-.menu-toggle {
+.menu-toggle,
+.menu__close {
   display: none;
-  min-height: var(--size-control);
-  padding: var(--space-1) var(--space-4);
-  border: var(--border-width-hairline) solid var(--color-border-strong);
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-lg);
+  height: var(--size-control-lg);
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--rule-strong);
   border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-sm);
-  font-weight: 600;
-  text-decoration: none;
+  background: rgb(11 12 16 / 0.3);
+  color: var(--paper);
   cursor: pointer;
+}
+
+.menu__close {
+  display: inline-flex;
 }
 
 .menu-toggle--nojs {
@@ -155,13 +142,13 @@
 
 @media (max-width: 899.98px) {
   .site-nav,
-  .site-header__cta {
+  .site-header__cta,
+  .site-header__end > .lang {
     display: none;
   }
 
   .menu-toggle {
     display: inline-flex;
-    align-items: center;
   }
 }
 
@@ -175,7 +162,7 @@
   }
 }
 
-/* Full-screen menu (<900 px): links in h2 size. */
+/* Full-screen menu (<900 px). */
 .menu {
   width: 100%;
   max-width: none;
@@ -184,8 +171,8 @@
   margin: 0;
   padding: 0 var(--margin) var(--space-8);
   border: 0;
-  background: var(--page-bg);
-  color: var(--color-text);
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .menu[open] {
@@ -205,28 +192,25 @@
   height: var(--size-header);
 }
 
-.menu__close {
-  min-height: var(--size-control);
-  padding: var(--space-1) var(--space-4);
-  border: var(--border-width-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-
 .menu__links {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-2);
 }
 
 .menu__links a {
-  font-size: clamp(2.25rem, 1.5rem + 3.2vw, 5rem);
-  line-height: 1;
-  font-weight: 600;
+  display: block;
+  padding-block: var(--space-2);
+  font-size: clamp(2rem, 1.4rem + 3vw, 3.5rem);
+  line-height: 1.05;
+  font-weight: 650;
   letter-spacing: -0.03em;
   text-decoration: none;
+}
+
+.menu__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin-top: auto;
 }

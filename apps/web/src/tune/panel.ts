@@ -4,40 +4,26 @@
  * A developer tool: its labels are parameter names, not page copy.
  */
 import type { HeroController } from "../hero/index.ts";
-import { defaultParams, type ArtParams } from "../hero/params.ts";
+import { defaultParams, type SortParams } from "../hero/params.ts";
 import "./panel.css";
 
-type Group = keyof ArtParams;
+type Group = keyof SortParams;
 type Slider = readonly [group: Group, key: string, label: string, min: number, max: number, step: number];
 
 const SLIDERS: readonly Slider[] = [
-  ["block", "base", "Block size (px)", 8, 96, 1],
-  ["block", "split", "Random split", 0, 1, 0.01],
-  ["block", "snap", "Palette snap", 0, 1, 0.01],
-  ["block", "dither", "Dither jitter", 0, 0.3, 0.005],
-  ["block", "bevel", "Block bevel", 0, 0.2, 0.005],
-  ["gradient", "speed", "Gradient speed", 0, 3, 0.01],
-  ["gradient", "warp", "Warp", 0, 2.5, 0.01],
-  ["gradient", "chroma", "Chroma lift", 0.5, 2, 0.01],
-  ["gradient", "hueShift", "Hue rotate", 0, 5, 0.01],
-  ["grain", "amount", "Grain", 0, 0.25, 0.001],
-  ["grain", "fps", "Grain fps", 1, 60, 1],
-  ["mask", "radius", "Key radius (px)", 40, 420, 1],
-  ["mask", "inertia", "Key follow rate", 1, 30, 0.5],
-  ["mask", "softness", "Edge softness", 0.01, 0.8, 0.01],
-  ["mask", "lens", "Lens", 0, 0.8, 0.01],
-  ["mask", "ring", "Ring width (px)", 0, 6, 0.1],
-  ["mask", "ringAmount", "Ring amount", 0, 1, 0.01],
-  ["mask", "breathe", "Breathing reveal", 0, 1, 0.01],
-  ["sort", "length", "Sort length (px)", 20, 600, 1],
-  ["sort", "threshold", "Sort threshold", 0, 1, 0.01],
-  ["sort", "density", "Sort density", 0, 1, 0.01],
+  ["sort", "threshold", "Sort threshold", 0, 1, 0.005],
+  ["sort", "length", "Sort length (px)", 20, 700, 1],
   ["sort", "strength", "Sort strength", 0, 1, 0.01],
-  ["glitch", "amount", "Glitch amount", 0, 1, 0.01],
-  ["glitch", "rate", "Glitch rate (/s)", 0.5, 30, 0.5],
-  ["decode", "duration", "Decode (s)", 0.4, 4, 0.05],
-  ["decode", "hold", "Clear hold (s)", 0, 2, 0.05],
-  ["decode", "collapse", "Collapse (s)", 0.2, 3, 0.05],
+  ["band", "position", "Band position", -0.2, 1, 0.005],
+  ["band", "width", "Band width", 0.01, 0.6, 0.005],
+  ["band", "sky", "Sky strength", 0, 1, 0.01],
+  ["band", "edge", "Right edge strength", 0, 1, 0.01],
+  ["wind", "drift", "Drift speed (px/s)", 0, 120, 0.5],
+  ["cursor", "radius", "Cursor relax radius (px)", 40, 600, 1],
+  ["cursor", "inertia", "Cursor inertia (follow /s)", 0.5, 30, 0.5],
+  ["scroll", "gain", "Scroll gain", 0, 4, 0.05],
+  ["copy", "calm", "Calm behind copy", 0, 1, 0.01],
+  ["copy", "gradient", "Gradient strength", 0, 1.2, 0.01],
 ];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = ""): HTMLElementTagNameMap[K] {
@@ -47,11 +33,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, te
   return node;
 }
 
-function read(params: ArtParams, group: Group, key: string): number {
+function read(params: SortParams, group: Group, key: string): number {
   return (params[group] as unknown as Record<string, number>)[key] ?? 0;
 }
 
-function write(params: ArtParams, group: Group, key: string, value: number): void {
+function write(params: SortParams, group: Group, key: string, value: number): void {
   (params[group] as unknown as Record<string, number>)[key] = value;
 }
 
@@ -79,12 +65,8 @@ function sliderRow(hero: HeroController, slider: Slider, inputs: Map<string, () 
 
 function controls(hero: HeroController, inputs: Map<string, () => void>, out: HTMLPreElement): HTMLElement {
   const bar = el("div", "tune__bar");
-  const replay = el("button", "tune__button", "Replay decode");
   const reset = el("button", "tune__button", "Reset");
   const copy = el("button", "tune__button tune__button--primary", "Copy values");
-  replay.addEventListener("click", () => {
-    hero.replay();
-  });
   reset.addEventListener("click", () => {
     const fresh = defaultParams();
     for (const group of Object.keys(fresh) as Group[]) {
@@ -103,14 +85,14 @@ function controls(hero: HeroController, inputs: Map<string, () => void>, out: HT
       window.setTimeout(() => (copy.textContent = "Copy values"), 1400);
     });
   });
-  bar.append(replay, reset, copy);
+  bar.append(reset, copy);
   return bar;
 }
 
 export function mountTune(hero: HeroController): void {
   const panel = el("details", "tune");
   panel.open = true;
-  const summary = el("summary", "tune__summary", "Hero art tuning");
+  const summary = el("summary", "tune__summary", "Hero pixel sort");
   const stats = el("output", "tune__stats");
   stats.dataset["testid"] = "tune-stats";
   summary.append(stats);
@@ -133,7 +115,7 @@ export function mountTune(hero: HeroController): void {
   window.setInterval(() => {
     const s = hero.stats();
     if (s) {
-      stats.textContent = `${s.fps.toFixed(0)} fps · ${String(s.scale)}x · ${(s.pixels / 1e6).toFixed(2)} Mpx${s.still ? " · still" : ""}`;
+      stats.textContent = `${s.fps.toFixed(0)} fps · ${String(s.scale)}x · ${(s.pixels / 1e6).toFixed(2)} Mpx`;
       stats.dataset["fps"] = s.fps.toFixed(1);
     }
   }, 500);

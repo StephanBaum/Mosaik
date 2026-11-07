@@ -1,35 +1,41 @@
 /**
- * Client entry. HTML and CSS paint the page on their own; the headline shows as pixel blocks
- * at once. After first paint the hero island starts WebGL, the headline decodes and the art
- * fades in over its CSS still.
- * No React and no ICU code ship to the browser.
+ * Client entry. HTML and CSS paint the whole page on their own, the painting included. After
+ * first paint the islands start: the hero's pixel sort, the holo foil buttons, the download
+ * section's system detection and the menu. No React and no ICU code ship to the browser.
  */
 import "virtual:mosaic-tokens.css";
 import "./styles/index.css";
+import { wireDownloads } from "./downloads.ts";
 import { wireMenu } from "./menu.ts";
-import { wireType } from "./type.ts";
 
 wireMenu(document);
-const startHeadline = wireType(document);
+wireDownloads(document, navigator);
 
-function startHero(): void {
+function startIslands(): void {
+  void import("./holo/index.ts").then(({ bootHolo }) => {
+    bootHolo(document);
+  });
   void import("./hero/index.ts").then(async ({ bootHero }) => {
-    // bootHero creates the GL context synchronously (it can stall the main thread for a
-    // moment); the headline decode starts right after, so it never freezes mid-scramble.
-    const booting = bootHero(document);
-    startHeadline();
-    const hero = await booting;
-    // Dev only: the tuning panel. Statically false in builds, so the panel and its import
-    // are dropped from the production bundle.
-    if (import.meta.env.DEV && hero !== null && new URLSearchParams(location.search).get("tune") === "1") {
-      void import("./tune/panel.ts").then(({ mountTune }) => {
-        mountTune(hero);
-      });
+    const hero = await bootHero(document);
+    // Dev only: the tuning panel and the still baker. Statically false in builds, so neither
+    // they nor their imports reach the production bundle.
+    if (import.meta.env.DEV) {
+      const query = new URLSearchParams(location.search);
+      if (hero !== null && query.get("tune") === "1") {
+        void import("./tune/panel.ts").then(({ mountTune }) => {
+          mountTune(hero);
+        });
+      }
+      if (query.get("bake") === "1") {
+        void import("./hero/bake.ts").then(({ bake }) => {
+          (window as unknown as { mosaicBake?: typeof bake }).mosaicBake = bake;
+        });
+      }
     }
   });
 }
 
-// After first paint: two frames, so the headline's first frame is on screen before GL work.
+// After first paint: two frames, so the painting and the headline are on screen before GL work.
 requestAnimationFrame(() => {
-  requestAnimationFrame(startHero);
+  requestAnimationFrame(startIslands);
 });

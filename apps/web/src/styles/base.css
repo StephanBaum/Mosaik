@@ -1,65 +1,44 @@
-/* Base: concept-defined local properties, document defaults, type styles, small details. */
+/* Base: the page palette, document defaults, type styles and small details.
+   The page is dark only (`data-theme="dark"` on the root). Its palette comes from the hero
+   painting: a near-black with the storm sky's cool tint, warm off-white type, and the horizon
+   amber as the one accent, used sparingly. The token custom properties come from
+   `virtual:mosaic-tokens.css`, imported by main.ts. */
 
 :root {
+  color-scheme: dark;
+
   /* DM Sans first, then its metric-matched fallback, then the token stack. */
   --font-sans: "DM Sans", "DM Sans Fallback", var(--font-ui);
 
-  /* Grid (concept §2): 4 / 8 / 12 columns, gutters 16 → 24 px, fluid margins. */
-  --margin: clamp(16px, 4vw, 64px);
-  --gutter: var(--space-5);
-  --content-max: 1280px;
+  /* Painting palette. */
+  --ink: #0b0c10;
+  --ink-raised: #12131a;
+  --ink-deep: #08090c;
+  --paper: #f3efe7;
+  --paper-2: #c9c5cf;
+  --paper-3: #9a96a5;
+  --amber: #e4a65f;
+  --amber-line: rgb(228 166 95 / 0.42);
+  --amber-wash: rgb(228 166 95 / 0.07);
+  --sky: #a9a6c2;
+  --rule: rgb(226 221 240 / 0.11);
+  --rule-strong: rgb(226 221 240 / 0.22);
 
-  /* Motion system (concept §4). micro / panel / standard easing are the app tokens. */
-  --motion-reveal: 600ms;
-  --motion-sequence: 900ms;
-  --motion-ripple: 1400ms;
-  --motion-glass: 1900ms;
+  /* Grid: 4 / 8 / 12 columns, fluid margins. */
+  --margin: clamp(20px, 5vw, 72px);
+  --gutter: clamp(20px, 2.4vw, 40px);
+  --content-max: 1240px;
+  --section-space: clamp(96px, 10vw, 168px);
+
+  /* Motion. micro / panel / standard easing are the app tokens. */
+  --motion-reveal: 900ms;
   --ease-standard: var(--motion-easing);
   --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
-
-  /* Art palette of the landing page: one base (lavender here, ink in dark) and five loud
-     colours. The CSS still and the hero shader both read these (src/hero/palette.ts). */
-  --art-0: #ebe5ff;
-  --art-1: #5b1fd1;
-  --art-2: #2340ff;
-  --art-3: #9beffa;
-  --art-4: #a8f542;
-  --art-5: #ff4fcb;
-  /* Page base: fal-like lavender in light, the token ink in dark. */
-  --page-bg: #f3f0ff;
-  /* Difference-blend type is white: it shows near-black on lavender, white on ink and the
-     inverse of the art. The emphasis colour lands as electric purple on lavender, lime on ink. */
-  --blend-ink: #fff;
-  --emphasis: var(--art-4);
-  /* Label colour on the loud fills (the light-theme text token, in both themes). */
-  --on-art: #09090b;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --art-0: #0d0624;
-    --page-bg: var(--color-bg);
-  }
-}
-
-.tone-0 { --tone: var(--art-0); }
-.tone-1 { --tone: var(--art-1); }
-.tone-2 { --tone: var(--art-2); }
-.tone-3 { --tone: var(--art-3); }
-.tone-4 { --tone: var(--art-4); }
-.tone-5 { --tone: var(--art-5); }
-
-@media (min-width: 600px) {
-  :root {
-    --gutter: var(--space-6);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-reveal: 0ms;
-    --motion-sequence: 0ms;
   }
 }
 
@@ -70,22 +49,30 @@
 }
 
 html {
-  background: var(--page-bg);
-  color: var(--color-text);
+  background: var(--ink);
+  color: var(--paper);
   font-family: var(--font-sans);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  scrollbar-color: var(--color-faint) var(--page-bg);
+  scrollbar-color: var(--color-faint) var(--ink);
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--size-header) + var(--space-5));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-optical-sizing: auto;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 body {
   margin: 0;
   min-height: 100svh;
-  font-size: 1.125rem;
-  line-height: 1.6;
+  font-size: 1.0625rem;
+  line-height: 1.65;
   text-rendering: optimizeLegibility;
   font-kerning: normal;
 }
@@ -94,15 +81,20 @@ main:focus {
   outline: none;
 }
 
-p {
+h1,
+h2,
+h3,
+p,
+figure {
   margin: 0;
-  text-wrap: pretty;
-  hyphens: auto;
-  /* Only long words break, never "Ko-pie". */
-  hyphenate-limit-chars: 10 4 4;
 }
 
-ul {
+p {
+  text-wrap: pretty;
+}
+
+ul,
+ol {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -112,64 +104,74 @@ a {
   color: inherit;
 }
 
-::selection {
-  background: var(--vault-color-1);
-  color: var(--color-text);
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
-@media (prefers-color-scheme: dark) {
-  ::selection {
-    color: var(--color-bg);
-  }
+code {
+  padding: 0.05em 0.35em;
+  border-radius: var(--radius-tag);
+  background: rgb(243 239 231 / 0.08);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+::selection {
+  background: var(--amber);
+  color: var(--ink);
 }
 
 :focus-visible {
-  outline: var(--border-width-focus) solid var(--color-focus-ring);
-  outline-offset: var(--border-width-focus);
+  outline: var(--border-width-focus) solid var(--paper);
+  outline-offset: 3px;
 }
 
-/* Type (concept §2) */
+/* Type */
 
-.display {
-  margin: 0;
-  font-weight: 700;
-  font-variation-settings: "opsz" 40;
-  line-height: 0.95;
-  letter-spacing: -0.035em;
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--amber);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  font-weight: 560;
+  letter-spacing: 0.005em;
+}
+
+.eyebrow::before {
+  content: "";
+  width: var(--space-7);
+  height: var(--border-width-hairline);
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.body-lg {
+  max-width: 34em;
+  color: var(--paper-2);
+  font-size: clamp(1.0625rem, 0.98rem + 0.3vw, 1.25rem);
+  line-height: 1.62;
+}
+
+.statement {
+  max-width: 30em;
+  color: var(--paper);
+  font-size: clamp(1.375rem, 1.05rem + 1.1vw, 2rem);
+  line-height: 1.32;
+  font-weight: 480;
+  letter-spacing: -0.018em;
   text-wrap: balance;
-  hyphens: manual;
 }
 
-.lead {
-  font-size: clamp(1.125rem, 1rem + 0.4vw, 1.375rem);
-  line-height: 1.5;
-  max-width: 52ch;
-  color: var(--color-text-secondary);
-}
-
-.label {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.text-link {
-  text-decoration-line: underline;
-  text-decoration-color: var(--color-faint);
-  text-decoration-thickness: var(--border-width-hairline);
-  text-underline-offset: 0.18em;
-  transition:
-    text-decoration-color var(--motion-micro) var(--ease-standard),
-    text-decoration-thickness var(--motion-micro) var(--ease-standard);
-}
-
-.text-link:hover {
-  text-decoration-color: var(--color-text);
-  text-decoration-thickness: var(--border-width-focus);
+.fineprint {
+  max-width: 70em;
+  color: var(--paper-3);
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
 
 .icon {
@@ -190,42 +192,6 @@ a {
   border: 0;
 }
 
-/* Scramble-decode characters (src/scramble.ts). The real letter keeps its box and only its
-   paint is hidden; the glyph or pixel block is drawn over it, so nothing reflows. */
-.ch {
-  position: relative;
-}
-
-.ch.is-glyph,
-.ch.is-blk {
-  -webkit-text-fill-color: transparent;
-}
-
-.ch.is-glyph::after {
-  content: attr(data-g);
-  content: attr(data-g) / "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  letter-spacing: 0;
-  -webkit-text-fill-color: currentColor;
-}
-
-/* Before it decodes, a character is one square pixel on the x-height, centred in its own box. */
-.ch.is-blk::after {
-  content: "";
-  content: "" / "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0.34em;
-  height: 0.34em;
-  background: var(--tone);
-  transform: translate(-50%, -38%);
-}
-
 .skip-link {
   position: absolute;
   top: var(--space-3);
@@ -233,11 +199,11 @@ a {
   z-index: var(--layer-toast);
   padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  color: var(--color-accent-text);
+  background: var(--paper);
+  color: var(--ink);
   font-weight: 600;
   text-decoration: none;
-  transform: translateY(calc(-100% - var(--space-5)));
+  transform: translateY(calc(-100% - var(--space-6)));
   transition: transform var(--motion-panel) var(--ease-enter);
 }
 
@@ -251,13 +217,20 @@ a {
   display: grid;
   gap: var(--space-6);
   align-content: center;
-  min-height: calc(100svh - 2 * var(--size-header));
-  max-width: var(--content-max);
+  min-height: 100svh;
+  max-width: calc(var(--content-max) + 2 * var(--margin));
   margin-inline: auto;
   padding: var(--space-9) var(--margin);
 }
 
 .not-found__title {
-  font-size: clamp(2.75rem, 1.4rem + 5vw, 7rem);
   max-width: 14ch;
+  font-size: clamp(2.75rem, 1.4rem + 5vw, 6.5rem);
+  line-height: 0.95;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.not-found .body-lg {
+  margin-bottom: var(--space-4);
 }

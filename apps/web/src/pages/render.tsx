@@ -6,12 +6,16 @@
 import { colors } from "@mosaic/design-tokens";
 import type { Locale } from "@mosaic/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Download, Faq } from "./Closing.tsx";
 import { Footer } from "./Footer.tsx";
 import { Header } from "./Header.tsx";
 import { Hero } from "./Hero.tsx";
 import { homePath, translator, type Translate } from "./i18n.ts";
 import { NotFound } from "./NotFound.tsx";
+import { Pricing, Teams } from "./Plans.tsx";
+import { Features, OnlyMosaic, Switch } from "./Product.tsx";
 import { CSP_META } from "./security.ts";
+import { HowItWorks, Problem, WhereItLives } from "./Story.tsx";
 
 export type PageName = "home" | "notFound";
 
@@ -43,9 +47,8 @@ function Head({ t, request }: { t: Translate; request: PageRequest }) {
       <title>{t("web.meta.title")}</title>
       <meta name="description" content={t("web.meta.description")} />
       <meta name="referrer" content="no-referrer" />
-      <meta name="color-scheme" content="dark light" />
-      <meta name="theme-color" media="(prefers-color-scheme: dark)" content={colors.dark.bg} />
-      <meta name="theme-color" media="(prefers-color-scheme: light)" content={colors.light.bg} />
+      <meta name="color-scheme" content="dark" />
+      <meta name="theme-color" content={colors.dark.bg} />
       {page === "home" ? (
         <>
           <link rel="canonical" href={origin + homePath(locale)} />
@@ -73,11 +76,30 @@ function Head({ t, request }: { t: Translate; request: PageRequest }) {
   );
 }
 
+/** The landing page, every section of marketing/landing-page.*.md in its order. */
+function Home({ t }: { t: Translate }) {
+  return (
+    <>
+      <Hero t={t} />
+      <Problem t={t} />
+      <WhereItLives t={t} />
+      <HowItWorks t={t} />
+      <Features t={t} />
+      <OnlyMosaic t={t} />
+      <Switch t={t} />
+      <Pricing t={t} />
+      <Teams t={t} />
+      <Faq t={t} />
+      <Download t={t} />
+    </>
+  );
+}
+
 function Page({ request }: { request: PageRequest }) {
   const { locale, page } = request;
   const t = translator(locale);
   return (
-    <html lang={locale} dir="ltr">
+    <html lang={locale} dir="ltr" data-theme="dark">
       <Head t={t} request={request} />
       <body>
         <a className="skip-link" href="#main">
@@ -85,7 +107,7 @@ function Page({ request }: { request: PageRequest }) {
         </a>
         <Header t={t} locale={locale} />
         <main id="main" tabIndex={-1}>
-          {page === "home" ? <Hero t={t} /> : <NotFound t={t} locale={locale} />}
+          {page === "home" ? <Home t={t} /> : <NotFound t={t} locale={locale} />}
         </main>
         <Footer t={t} locale={locale} />
       </body>

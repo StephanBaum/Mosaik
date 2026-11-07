@@ -1,493 +1,171 @@
-/* Hero: decryption you can see. Mobile first:
-   <900   the art panel across the top, the label and headline overlapping its lower edge;
-   900+   the art panel bleeds off the right edge at full height, the headline runs across it.
-   The headline and label are white in difference blend: near-black on lavender, white on ink,
-   the inverse of the art where they cross it. */
+/* Hero: the painting full-bleed at the viewport's height, the copy on its darker left.
+   Layers, bottom to top: the painting (<img>), the baked sorted band (static fallback), the
+   live pixel-sort canvas, the shade, the copy. `--hero-focus` is the painting's
+   object-position; the island reads it, so the shader samples exactly what the <img> shows. */
 
 .hero {
-  --art-top: var(--size-header);
-  --art-height: min(56svh, 560px);
+  --hero-focus: 64% 50%;
+  --hero-shade: 0.85;
 
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: 1fr min(100% - 2 * var(--margin), var(--content-max)) 1fr;
-  align-content: start;
-  min-height: max(100svh, 640px);
-  margin-top: calc(-1 * var(--size-header));
-  padding-block: calc(var(--art-top) + var(--art-height) - var(--title-overlap, 0px)) var(--space-8);
-  overflow: clip;
-  background: var(--page-bg);
-}
-
-/* The art panel */
-
-.art {
-  position: absolute;
-  top: var(--art-top);
-  right: 0;
-  left: 0;
-  z-index: -1;
-  height: var(--art-height);
+  align-items: end;
+  min-height: max(640px, 100svh);
   overflow: hidden;
-  background: var(--art-0);
+  background: var(--ink);
 }
 
-.art__still,
-.art__canvas {
+.hero__media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.hero__media picture,
+.hero__img,
+.hero__still img,
+.hero__canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
 
-/* The designed still: the clear gradient (blended in OKLab where supported) and one
-   encrypted band with a few sorted streaks hanging from it. */
-.art__still {
-  background:
-    radial-gradient(52% 58% at 18% 26%, var(--art-1), transparent 86%),
-    radial-gradient(46% 52% at 80% 18%, var(--art-3), transparent 84%),
-    radial-gradient(54% 60% at 74% 80%, var(--art-4), transparent 86%),
-    radial-gradient(42% 50% at 22% 84%, var(--art-5), transparent 84%),
-    radial-gradient(70% 70% at 52% 50%, var(--art-2), transparent 92%),
-    var(--art-0);
-  background:
-    radial-gradient(52% 58% at 18% 26% in oklab, var(--art-1), transparent 86%),
-    radial-gradient(46% 52% at 80% 18% in oklab, var(--art-3), transparent 84%),
-    radial-gradient(54% 60% at 74% 80% in oklab, var(--art-4), transparent 86%),
-    radial-gradient(42% 50% at 22% 84% in oklab, var(--art-5), transparent 84%),
-    radial-gradient(70% 70% at 52% 50% in oklab, var(--art-2), transparent 92%),
-    var(--art-0);
+.hero__img,
+.hero__still img {
+  object-fit: cover;
+  object-position: var(--hero-focus);
 }
 
-.art__still::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: url("/grain.svg");
-  background-size: 180px;
-  mix-blend-mode: soft-light;
-  opacity: 0.5;
+.hero__still {
+  transition: opacity var(--motion-reveal) var(--ease-standard);
 }
 
-.art__band {
-  position: absolute;
-  top: 56%;
-  right: 0;
-  left: 0;
-  display: grid;
-  grid-template-columns: repeat(24, 1fr);
-}
-
-.art__cell {
-  aspect-ratio: 1;
-  background: var(--tone);
-}
-
-.art__streaks {
-  position: relative;
-  grid-column: 1 / -1;
-  height: 0;
-}
-
-.art__streak {
-  position: absolute;
-  top: 0;
-  width: calc(100% / 48);
-  height: var(--len, 120px);
-  background: linear-gradient(var(--tone), transparent);
-}
-
-.art__streak:nth-child(1) { left: 6.25%; --len: 140px; }
-.art__streak:nth-child(2) { left: 7.3%; --len: 90px; }
-.art__streak:nth-child(3) { left: 29.2%; --len: 180px; }
-.art__streak:nth-child(4) { left: 31.25%; --len: 110px; }
-.art__streak:nth-child(5) { left: 50%; --len: 70px; }
-.art__streak:nth-child(6) { left: 62.5%; --len: 160px; }
-.art__streak:nth-child(7) { left: 63.5%; --len: 120px; }
-.art__streak:nth-child(8) { left: 83.3%; --len: 200px; }
-.art__streak:nth-child(9) { left: 85.4%; --len: 90px; }
-
-.art__canvas {
+.hero__canvas {
   display: block;
   opacity: 0;
-  transition: opacity var(--motion-panel) var(--ease-standard);
+  transition: opacity var(--motion-reveal) var(--ease-standard);
 }
 
-.art--live .art__canvas {
+.hero--live .hero__canvas {
   opacity: 1;
 }
 
-/* The still stays under the canvas until the fade-in has finished. */
-.art--live .art__still {
-  visibility: hidden;
-  transition: visibility 0s linear var(--motion-panel);
-}
-
-/* Decorations: halftone blobs and rising pixels */
-
-.dither {
-  position: absolute;
-  z-index: -1;
-  width: clamp(140px, 18vw, 260px);
-  height: auto;
-  pointer-events: none;
-}
-
-.dither--a {
-  bottom: calc(-0.58 * clamp(140px, 18vw, 260px));
-  left: calc(-0.12 * clamp(140px, 18vw, 260px));
-  fill: var(--art-1);
-}
-
-@media (prefers-color-scheme: dark) {
-  .dither--a {
-    fill: var(--art-4);
-  }
-}
-
-.dither--b {
-  top: calc(var(--art-top) + var(--art-height) - clamp(100px, 13vw, 190px));
-  right: calc(-1 * var(--space-6));
-  fill: var(--page-bg);
-}
-
-.pixels {
-  position: absolute;
-  top: calc(var(--art-top) + var(--art-height) - 220px);
-  left: 0;
-  z-index: 0;
-  width: 100%;
-  height: 220px;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.px {
-  position: absolute;
-  bottom: 0;
-  width: var(--s, 8px);
-  height: var(--s, 8px);
-  background: var(--tone);
+.hero--live .hero__still {
   opacity: 0;
-  animation: px-rise var(--d, 7s) linear var(--delay, 0s) infinite;
 }
 
-.px:nth-child(1) { left: 8%; --s: 10px; --d: 7.5s; --delay: -1s; }
-.px:nth-child(2) { left: 17%; --s: 6px; --d: 9s; --delay: -4s; }
-.px:nth-child(3) { left: 29%; --s: 12px; --d: 8s; --delay: -6.5s; }
-.px:nth-child(4) { left: 38%; --s: 8px; --d: 10s; --delay: -2.5s; }
-.px:nth-child(5) { left: 47%; --s: 6px; --d: 7s; --delay: -5s; }
-.px:nth-child(6) { left: 58%; --s: 10px; --d: 11s; --delay: -8s; }
-.px:nth-child(7) { left: 66%; --s: 8px; --d: 8.5s; --delay: -0.5s; }
-.px:nth-child(8) { left: 75%; --s: 14px; --d: 9.5s; --delay: -3.5s; }
-.px:nth-child(9) { left: 86%; --s: 6px; --d: 7.8s; --delay: -7s; }
-.px:nth-child(10) { left: 93%; --s: 10px; --d: 10.5s; --delay: -9s; }
-
-@keyframes px-rise {
-  0% {
-    opacity: 0;
-    transform: translateY(0);
-  }
-
-  15% {
-    opacity: 0.95;
-  }
-
-  70% {
-    opacity: 0.9;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateY(-200px);
-  }
+/* Legibility: dark on the left behind the copy, a touch at the top for the header, and a fade
+   into the page at the bottom. */
+.hero__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(8 9 12 / calc(0.84 * var(--hero-shade))) 0%,
+      rgb(8 9 12 / calc(0.62 * var(--hero-shade))) 30%,
+      rgb(8 9 12 / calc(0.18 * var(--hero-shade))) 54%,
+      rgb(8 9 12 / 0) 70%
+    ),
+    linear-gradient(180deg, rgb(8 9 12 / 0.5) 0%, rgb(8 9 12 / 0) 16%),
+    linear-gradient(0deg, var(--ink) 0%, rgb(11 12 16 / 0) 24%);
 }
-
-/* Copy */
 
 .hero__copy {
-  grid-column: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
-}
-
-.hero__label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-  color: var(--blend-ink);
-  mix-blend-mode: difference;
-}
-
-/* A single pixel in front of the label. */
-.hero__label::before {
-  content: "";
-  width: var(--space-3);
-  height: var(--space-3);
-  background: currentColor;
-}
-
-/* The headline's width is the measure its size is computed from (container query units). */
-.hero__title-wrap {
-  container-type: inline-size;
   width: 100%;
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin-inline: auto;
+  padding: calc(var(--size-header) + var(--space-8)) var(--margin) clamp(72px, 13vh, 150px);
+}
+
+/* The text block hugs its widest line; the island keeps the sorting calm behind it. */
+.hero__text {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.hero__eyebrow {
+  color: rgb(243 239 231 / 0.82);
+  font-size: clamp(0.9375rem, 0.88rem + 0.2vw, 1.0625rem);
+  line-height: 1.4;
+  font-weight: 500;
+  letter-spacing: 0.005em;
 }
 
 .hero__title {
-  --fs: clamp(3rem, 17cqi, 6rem);
-
-  font-size: var(--fs);
-  font-weight: 700;
+  margin: var(--space-5) 0 var(--space-7);
+  color: var(--paper);
+  font-size: clamp(3.25rem, 1rem + 6.1vw, 7.5rem);
   line-height: 0.9;
-  letter-spacing: -0.05em;
-  color: var(--blend-ink);
-  mix-blend-mode: difference;
+  font-weight: 720;
+  font-variation-settings: "opsz" 40;
+  letter-spacing: -0.045em;
+  text-shadow: 0 2px 40px rgb(8 9 12 / 0.35);
 }
 
-.hero__title[data-measure="medium"] {
-  --fs: clamp(2.5rem, 13.4cqi, 5rem);
-}
-
-.hero__title[data-measure="long"] {
-  --fs: clamp(2.25rem, 11cqi, 4.25rem);
-}
-
-.line {
+.hero__beat {
   display: block;
 }
 
-.hero__emphasis {
-  font-style: normal;
-  color: var(--emphasis);
+.hero__sub {
+  max-width: 30em;
+  color: rgb(243 239 231 / 0.86);
+  font-size: clamp(1.0625rem, 0.98rem + 0.32vw, 1.3125rem);
+  line-height: 1.5;
 }
 
-/* The headline blends by difference against lavender in light mode: its decode pixels are
-   drawn inverted so they land in the palette colours, not in their muddy complements. */
-@media (prefers-color-scheme: light) {
-  .hero__title .ch.is-blk::after {
-    background: rgb(from var(--tone) calc(255 - r) calc(255 - g) calc(255 - b));
-  }
+.hero__sub span {
+  display: block;
 }
 
-/* With JS the headline waits for its decode (one frame); a late timer shows it if the
-   script never runs. Under reduced motion it is plain from the first frame. */
-@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
-  .hero__title:not(.is-split) {
-    visibility: hidden;
-    animation: show-late 1ms linear 1500ms both;
-  }
-}
-
-@keyframes show-late {
-  from {
-    visibility: hidden;
-  }
-
-  to {
-    visibility: visible;
-  }
-}
-
-.hero__foot {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  max-width: 34rem;
-}
-
-.hero__subhead {
-  margin-top: var(--space-6);
-  color: var(--color-text-secondary);
-}
-
-.hero__actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-4);
-  width: 100%;
-  margin-top: var(--space-7);
-}
-
-.hero__subhead,
-.hero__actions,
-.trust {
-  animation: rise var(--motion-reveal) var(--ease-enter) both;
-}
-
-.hero__subhead {
-  animation-delay: 650ms;
-}
-
-.hero__actions {
-  animation-delay: 760ms;
-}
-
-.trust {
-  animation-delay: 860ms;
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(var(--space-4));
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* Facts strip under a dotted rule. */
-.trust {
+.actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3) var(--space-6);
-  width: 100%;
-  margin-top: var(--space-7);
-  padding-top: var(--space-5);
-  background: radial-gradient(circle, var(--color-faint) 1px, transparent 1.6px) 0 0 / 6px 4px repeat-x;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.trust__item {
-  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-5);
+  margin-top: var(--space-8);
 }
 
-.trust__item::before {
-  content: "";
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  background: var(--art-4);
+.actions--center {
+  justify-content: center;
 }
 
-.trust__item:nth-child(2)::before {
-  background: var(--art-3);
+.hero__note {
+  margin-top: var(--space-6);
+  color: rgb(243 239 231 / 0.66);
+  font-size: 0.9375rem;
 }
 
-.trust__item:nth-child(3)::before {
-  background: var(--art-5);
-}
-
-/* Mobile: the label sits on the panel's top edge and the headline's first line on its
-   lower edge (one line up, in the title's own em). */
-@media (max-width: 899.98px) {
+/* Portrait phones: the painting fills the top two thirds with the barn in view; the copy sits
+   on the field and the page colour below it. */
+@media (max-width: 699.98px) {
   .hero {
-    --title-overlap: 0px;
+    --hero-focus: 82% 50%;
   }
 
-  /* On the small panel the label is a solid tag: difference blend over busy art is unreadable at 12 px. */
-  .hero__label {
-    position: absolute;
-    top: calc(var(--art-top) + var(--space-5));
-    left: var(--margin);
-    margin: 0;
-    padding: var(--space-2) var(--space-3);
-    background: var(--page-bg);
-    color: var(--color-text);
-    mix-blend-mode: normal;
+  .hero__media {
+    bottom: auto;
+    height: max(66svh, 420px);
   }
 
-  .hero__title {
-    margin-top: -0.94em;
-  }
-}
-
-@media (min-width: 600px) {
-  .hero__actions {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    width: auto;
-  }
-}
-
-@media (min-width: 900px) {
-  .hero {
-    --art-height: auto;
-
-    align-content: center;
-    padding-block: calc(var(--size-header) + var(--space-8)) var(--space-8);
+  .hero__shade {
+    background:
+      linear-gradient(180deg, rgb(8 9 12 / 0.55) 0%, rgb(8 9 12 / 0) 18%),
+      linear-gradient(0deg, var(--ink) 0%, rgb(11 12 16 / 0.6) 22%, rgb(11 12 16 / 0) 48%);
   }
 
-  .art {
-    bottom: var(--space-5);
-    left: 47%;
-    height: auto;
-    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+  .hero__copy {
+    padding-top: calc(max(66svh, 420px) - 9rem);
+    padding-bottom: var(--space-9);
   }
 
-  .hero__title {
-    --fs: clamp(4rem, 9.8cqi, 10rem);
+  .hero__sub span {
+    display: inline;
   }
 
-  .hero__title[data-measure="medium"] {
-    --fs: clamp(3.5rem, 7.4cqi, 7.5rem);
-  }
-
-  .hero__title[data-measure="long"] {
-    --fs: clamp(3rem, 6cqi, 6.25rem);
-  }
-
-  .hero__label {
-    margin-bottom: var(--space-6);
-  }
-
-  /* The copy under the headline stops short of the panel. */
-  .hero__foot {
-    max-width: calc(47vw - var(--margin) - var(--space-6));
-  }
-
-  .hero__subhead {
-    max-width: 34rem;
-  }
-
-  .hero__subhead {
-    margin-top: var(--space-7);
-  }
-
-  .hero__actions {
-    margin-top: var(--space-8);
-  }
-
-  .dither--b {
-    top: auto;
-    right: calc(-1 * var(--space-6));
-    bottom: calc(-1 * var(--space-4));
-  }
-
-  .pixels {
-    top: auto;
-    bottom: var(--space-5);
-    left: calc(47% - 56px);
-    width: 56px;
-    height: 60%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hero__subhead,
-  .hero__actions,
-  .trust {
-    animation: none;
-  }
-
-  .px {
-    animation: none;
-    opacity: 0;
+  .actions {
+    gap: var(--space-4);
   }
 }
