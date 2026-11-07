@@ -38,12 +38,9 @@ export const web = {
   "web.hero.trust.spec": "Kryptospezifikation öffentlich",
   "web.hero.trust.threatModel": "Bedrohungsmodell öffentlich",
   "web.hero.trust.telemetry": "Null Telemetrie",
-  "web.hero.trust.audit": "Noch kein unabhängiges Audit",
 
   // Footer
   "web.footer.label": "Fußzeile",
-  "web.footer.preAudit": "Software vor dem Audit.",
-  "web.footer.noCookies": "Keine Cookies, darum kein Banner.",
 
   // 404
   "web.notFound.title": "Diese Seite ist Chiffretext.",

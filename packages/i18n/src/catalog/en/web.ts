@@ -40,12 +40,9 @@ export const web = {
   "web.hero.trust.spec": "Published crypto spec",
   "web.hero.trust.threatModel": "Published threat model",
   "web.hero.trust.telemetry": "Zero telemetry",
-  "web.hero.trust.audit": "No independent audit yet",
 
   // Footer
   "web.footer.label": "Footer",
-  "web.footer.preAudit": "Pre-audit software.",
-  "web.footer.noCookies": "No cookies, so no banner.",
 
   // 404
   "web.notFound.title": "This page is ciphertext.",

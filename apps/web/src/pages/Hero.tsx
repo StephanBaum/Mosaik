@@ -1,14 +1,15 @@
 /**
- * Hero (design concept §1 chapter 1, §3 M1, §6). The copy is the rewrite in
- * marketing/landing-copy.*.md; every string comes from the `web` catalog. The headline is two
- * short sentences, each its own masked line and its own beat in the load sequence; the
- * emphasis word settles from weight 400 to 720 as the mosaic lands.
+ * Hero: decryption you can see. A full-height art panel (the island paints it; a CSS still
+ * stands in without JS or WebGL2), the headline across it in difference blend, then the
+ * subhead, the two CTAs and the facts strip. Every string comes from the `web` catalog. The
+ * headline is one bold weight from the first frame; its only entrance is the scramble-decode.
  */
-import { GlyphSprite, Icon } from "./Icon.tsx";
+import { Art, Dither, Pixels } from "./Art.tsx";
+import { Icon } from "./Icon.tsx";
 import type { Translate, WebKey } from "./i18n.ts";
-import { Mosaic } from "./Mosaic.tsx";
 
-const MARK = "";
+/** A private-use placeholder for the emphasis word while the line is split around it. */
+const MARK = "\uE000";
 
 /** Measure class of the headline from its longest line, so 3 to 8 words and German fit. */
 export function measure(lines: readonly string[]): "short" | "medium" | "long" {
@@ -26,15 +27,11 @@ function Title({ t }: { t: Translate }) {
   const { first, before, emphasis, after } = titleParts(t);
   return (
     <h1 id="hero-title" className="display hero__title" data-measure={measure([first, before + emphasis + after])}>
-      <span className="line line--1">
-        <span className="line__inner">{first}</span>
-      </span>{" "}
+      <span className="line line--1">{first}</span>{" "}
       <span className="line line--2">
-        <span className="line__inner">
-          {before}
-          <em className="hero__emphasis">{emphasis}</em>
-          {after}
-        </span>
+        {before}
+        <em className="hero__emphasis">{emphasis}</em>
+        {after}
       </span>
     </h1>
   );
@@ -53,47 +50,42 @@ export const HERO_KEYS = [
   "web.hero.trust.spec",
   "web.hero.trust.threatModel",
   "web.hero.trust.telemetry",
-  "web.hero.trust.audit",
 ] as const satisfies readonly WebKey[];
 
-const TRUST = [
-  "web.hero.trust.spec",
-  "web.hero.trust.threatModel",
-  "web.hero.trust.telemetry",
-  "web.hero.trust.audit",
-] as const;
+const TRUST = ["web.hero.trust.spec", "web.hero.trust.threatModel", "web.hero.trust.telemetry"] as const;
 
 export function Hero({ t }: { t: Translate }) {
   return (
     <section className="hero" aria-labelledby="hero-title">
-      <GlyphSprite />
+      <Art />
+      <Pixels />
+      <Dither seed={3} className="dither--a" />
+      <Dither seed={11} className="dither--b" />
       <div className="hero__copy">
         <p className="label hero__label">{t("web.hero.label")}</p>
         <div className="hero__title-wrap">
           <Title t={t} />
         </div>
-        <p className="lead hero__subhead">{t("web.hero.subhead")}</p>
-        <div className="hero__actions">
-          <a className="button button--lg holo" href="#download">
-            <canvas className="holo__foil" aria-hidden="true" />
-            <span className="holo__label">
+        <div className="hero__foot">
+          <p className="lead hero__subhead">{t("web.hero.subhead")}</p>
+          <div className="hero__actions">
+            <a className="button button--lg button--primary" href="#download">
               {t("web.hero.ctaPrimary")}
               <Icon name="download" />
-            </span>
-          </a>
-          <a className="button button--lg button--outline" href="#server-view">
-            {t("web.hero.ctaSecondary")}
-            <Icon name="arrowRight" className="icon--nudge" />
-          </a>
+            </a>
+            <a className="button button--lg button--outline" href="#server-view">
+              {t("web.hero.ctaSecondary")}
+              <Icon name="arrowRight" className="icon--nudge" />
+            </a>
+          </div>
+          <ul className="trust" aria-label={t("web.hero.trustLabel")}>
+            {TRUST.map((key) => (
+              <li key={key} className="trust__item">
+                {t(key)}
+              </li>
+            ))}
+          </ul>
         </div>
-        <Mosaic />
-        <ul className="trust" aria-label={t("web.hero.trustLabel")}>
-          {TRUST.map((key) => (
-            <li key={key} className={key === "web.hero.trust.audit" ? "trust__item trust__item--audit" : "trust__item"}>
-              {t(key)}
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );

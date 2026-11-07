@@ -6,7 +6,7 @@
   top: 0;
   z-index: var(--layer-sticky);
   height: var(--size-header);
-  background-color: var(--color-bg);
+  background-color: var(--page-bg);
   box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
 }
 
@@ -25,7 +25,7 @@
   }
 
   to {
-    background-color: var(--color-bg);
+    background-color: var(--page-bg);
     box-shadow: inset 0 calc(-1 * var(--border-width-hairline)) 0 var(--color-border);
   }
 }
@@ -53,14 +53,8 @@
   border-radius: var(--radius-control);
 }
 
-.logo-mark-wrap {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  line-height: 0;
-}
-
 .logo-mark {
+  flex-shrink: 0;
   width: var(--size-icon-lg);
   height: var(--size-icon-lg);
 }
@@ -70,20 +64,13 @@
 }
 
 .logo-mark__tile--accent {
-  fill: var(--color-faint);
+  fill: var(--art-1);
 }
 
-/* The fourth tile: 11/20 from the top left, 9/20 wide, corner radius 2.5/9 (as in the app). */
-.logo-mark__foil {
-  top: 55%;
-  left: 55%;
-  width: 45%;
-  height: 45%;
-  border-radius: 28%;
-}
-
-.logo-mark__foil.holo-surface--live ~ .logo-mark .logo-mark__tile--accent {
-  fill: none;
+@media (prefers-color-scheme: dark) {
+  .logo-mark__tile--accent {
+    fill: var(--art-4);
+  }
 }
 
 .site-nav {
@@ -197,7 +184,7 @@
   margin: 0;
   padding: 0 var(--margin) var(--space-8);
   border: 0;
-  background: var(--color-bg);
+  background: var(--page-bg);
   color: var(--color-text);
 }
 

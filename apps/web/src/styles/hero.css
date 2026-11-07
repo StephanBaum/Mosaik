@@ -1,25 +1,217 @@
-/* Hero (concept §3 M1, §4 page load, §6). Mobile first:
-   <600   label, headline, subhead, CTAs, an 8 x 3 strip of 40 px tiles, trust strip;
-   600+   the mosaic as a 3-row band above the text;
-   900+   text in columns 1–6, the mosaic from column 7 bleeding off the right edge (7 rows);
-   2200+  96 px tiles, 9 rows. */
+/* Hero: decryption you can see. Mobile first:
+   <900   the art panel across the top, the label and headline overlapping its lower edge;
+   900+   the art panel bleeds off the right edge at full height, the headline runs across it.
+   The headline and label are white in difference blend: near-black on lavender, white on ink,
+   the inverse of the art where they cross it. */
 
 .hero {
+  --art-top: var(--size-header);
+  --art-height: min(56svh, 560px);
+
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: 1fr min(100% - 2 * var(--margin), var(--content-max)) 1fr;
-  align-content: center;
+  align-content: start;
   min-height: max(100svh, 640px);
   margin-top: calc(-1 * var(--size-header));
-  padding-block: calc(var(--size-header) + var(--space-7)) var(--space-8);
-  overflow-x: clip;
+  padding-block: calc(var(--art-top) + var(--art-height) - var(--title-overlap, 0px)) var(--space-8);
+  overflow: clip;
+  background: var(--page-bg);
 }
+
+/* The art panel */
+
+.art {
+  position: absolute;
+  top: var(--art-top);
+  right: 0;
+  left: 0;
+  z-index: -1;
+  height: var(--art-height);
+  overflow: hidden;
+  background: var(--art-0);
+}
+
+.art__still,
+.art__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* The designed still: the clear gradient (blended in OKLab where supported) and one
+   encrypted band with a few sorted streaks hanging from it. */
+.art__still {
+  background:
+    radial-gradient(52% 58% at 18% 26%, var(--art-1), transparent 86%),
+    radial-gradient(46% 52% at 80% 18%, var(--art-3), transparent 84%),
+    radial-gradient(54% 60% at 74% 80%, var(--art-4), transparent 86%),
+    radial-gradient(42% 50% at 22% 84%, var(--art-5), transparent 84%),
+    radial-gradient(70% 70% at 52% 50%, var(--art-2), transparent 92%),
+    var(--art-0);
+  background:
+    radial-gradient(52% 58% at 18% 26% in oklab, var(--art-1), transparent 86%),
+    radial-gradient(46% 52% at 80% 18% in oklab, var(--art-3), transparent 84%),
+    radial-gradient(54% 60% at 74% 80% in oklab, var(--art-4), transparent 86%),
+    radial-gradient(42% 50% at 22% 84% in oklab, var(--art-5), transparent 84%),
+    radial-gradient(70% 70% at 52% 50% in oklab, var(--art-2), transparent 92%),
+    var(--art-0);
+}
+
+.art__still::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/grain.svg");
+  background-size: 180px;
+  mix-blend-mode: soft-light;
+  opacity: 0.5;
+}
+
+.art__band {
+  position: absolute;
+  top: 56%;
+  right: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+}
+
+.art__cell {
+  aspect-ratio: 1;
+  background: var(--tone);
+}
+
+.art__streaks {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 0;
+}
+
+.art__streak {
+  position: absolute;
+  top: 0;
+  width: calc(100% / 48);
+  height: var(--len, 120px);
+  background: linear-gradient(var(--tone), transparent);
+}
+
+.art__streak:nth-child(1) { left: 6.25%; --len: 140px; }
+.art__streak:nth-child(2) { left: 7.3%; --len: 90px; }
+.art__streak:nth-child(3) { left: 29.2%; --len: 180px; }
+.art__streak:nth-child(4) { left: 31.25%; --len: 110px; }
+.art__streak:nth-child(5) { left: 50%; --len: 70px; }
+.art__streak:nth-child(6) { left: 62.5%; --len: 160px; }
+.art__streak:nth-child(7) { left: 63.5%; --len: 120px; }
+.art__streak:nth-child(8) { left: 83.3%; --len: 200px; }
+.art__streak:nth-child(9) { left: 85.4%; --len: 90px; }
+
+.art__canvas {
+  display: block;
+  opacity: 0;
+  transition: opacity var(--motion-panel) var(--ease-standard);
+}
+
+.art--live .art__canvas {
+  opacity: 1;
+}
+
+/* The still stays under the canvas until the fade-in has finished. */
+.art--live .art__still {
+  visibility: hidden;
+  transition: visibility 0s linear var(--motion-panel);
+}
+
+/* Decorations: halftone blobs and rising pixels */
+
+.dither {
+  position: absolute;
+  z-index: -1;
+  width: clamp(140px, 18vw, 260px);
+  height: auto;
+  pointer-events: none;
+}
+
+.dither--a {
+  bottom: calc(-0.58 * clamp(140px, 18vw, 260px));
+  left: calc(-0.12 * clamp(140px, 18vw, 260px));
+  fill: var(--art-1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .dither--a {
+    fill: var(--art-4);
+  }
+}
+
+.dither--b {
+  top: calc(var(--art-top) + var(--art-height) - clamp(100px, 13vw, 190px));
+  right: calc(-1 * var(--space-6));
+  fill: var(--page-bg);
+}
+
+.pixels {
+  position: absolute;
+  top: calc(var(--art-top) + var(--art-height) - 220px);
+  left: 0;
+  z-index: 0;
+  width: 100%;
+  height: 220px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.px {
+  position: absolute;
+  bottom: 0;
+  width: var(--s, 8px);
+  height: var(--s, 8px);
+  background: var(--tone);
+  opacity: 0;
+  animation: px-rise var(--d, 7s) linear var(--delay, 0s) infinite;
+}
+
+.px:nth-child(1) { left: 8%; --s: 10px; --d: 7.5s; --delay: -1s; }
+.px:nth-child(2) { left: 17%; --s: 6px; --d: 9s; --delay: -4s; }
+.px:nth-child(3) { left: 29%; --s: 12px; --d: 8s; --delay: -6.5s; }
+.px:nth-child(4) { left: 38%; --s: 8px; --d: 10s; --delay: -2.5s; }
+.px:nth-child(5) { left: 47%; --s: 6px; --d: 7s; --delay: -5s; }
+.px:nth-child(6) { left: 58%; --s: 10px; --d: 11s; --delay: -8s; }
+.px:nth-child(7) { left: 66%; --s: 8px; --d: 8.5s; --delay: -0.5s; }
+.px:nth-child(8) { left: 75%; --s: 14px; --d: 9.5s; --delay: -3.5s; }
+.px:nth-child(9) { left: 86%; --s: 6px; --d: 7.8s; --delay: -7s; }
+.px:nth-child(10) { left: 93%; --s: 10px; --d: 10.5s; --delay: -9s; }
+
+@keyframes px-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+
+  15% {
+    opacity: 0.95;
+  }
+
+  70% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-200px);
+  }
+}
+
+/* Copy */
 
 .hero__copy {
   grid-column: 2;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .hero__label {
@@ -27,15 +219,16 @@
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-5);
+  color: var(--blend-ink);
+  mix-blend-mode: difference;
 }
 
-/* A single flat tile in front of the label, the mosaic in miniature. */
+/* A single pixel in front of the label. */
 .hero__label::before {
   content: "";
   width: var(--space-3);
   height: var(--space-3);
-  border-radius: var(--space-1);
-  background: var(--color-faint);
+  background: currentColor;
 }
 
 /* The headline's width is the measure its size is computed from (container query units). */
@@ -45,76 +238,70 @@
 }
 
 .hero__title {
-  font-size: clamp(3rem, 12.4cqi, 7.5rem);
+  --fs: clamp(3rem, 17cqi, 6rem);
+
+  font-size: var(--fs);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  color: var(--blend-ink);
+  mix-blend-mode: difference;
 }
 
 .hero__title[data-measure="medium"] {
-  font-size: clamp(2.75rem, 9.4cqi, 6.25rem);
+  --fs: clamp(2.5rem, 13.4cqi, 5rem);
 }
 
 .hero__title[data-measure="long"] {
-  font-size: clamp(2.5rem, 7.6cqi, 5.25rem);
+  --fs: clamp(2.25rem, 11cqi, 4.25rem);
 }
 
-/* Each sentence rises from its own mask; the second arrives a beat later. */
 .line {
   display: block;
-  overflow: hidden;
-  padding-block: 0.06em 0.1em;
-  margin-block: -0.06em -0.1em;
 }
 
-.line__inner {
-  display: block;
-  animation: line-rise var(--motion-reveal) var(--ease-enter) both;
-}
-
-.line--2 .line__inner {
-  animation-delay: 420ms;
-}
-
-@keyframes line-rise {
-  from {
-    transform: translateY(108%);
-  }
-
-  to {
-    transform: none;
-  }
-}
-
-/* "ours" / "unserem" settles from 400 to 720 as the mosaic lands (`is-landed`, set by the
-   hero island). Without JS it settles on a timer; with JS a late safety timer covers a slow start. */
 .hero__emphasis {
   font-style: normal;
-  font-weight: 400;
-  transition: font-weight 700ms var(--ease-standard);
+  color: var(--emphasis);
 }
 
-.hero.is-landed .hero__emphasis {
-  font-weight: 720;
-}
-
-@media (scripting: none) {
-  .hero__emphasis {
-    animation: emphasis-settle 700ms var(--ease-standard) 1100ms both;
+/* The headline blends by difference against lavender in light mode: its decode pixels are
+   drawn inverted so they land in the palette colours, not in their muddy complements. */
+@media (prefers-color-scheme: light) {
+  .hero__title .ch.is-blk::after {
+    background: rgb(from var(--tone) calc(255 - r) calc(255 - g) calc(255 - b));
   }
 }
 
-@media (scripting: enabled) {
-  .hero:not(.is-landed) .hero__emphasis {
-    animation: emphasis-settle 700ms var(--ease-standard) 2600ms both;
+/* With JS the headline waits for its decode (one frame); a late timer shows it if the
+   script never runs. Under reduced motion it is plain from the first frame. */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  .hero__title:not(.is-split) {
+    visibility: hidden;
+    animation: show-late 1ms linear 1500ms both;
   }
 }
 
-@keyframes emphasis-settle {
+@keyframes show-late {
+  from {
+    visibility: hidden;
+  }
+
   to {
-    font-weight: 720;
+    visibility: visible;
   }
+}
+
+.hero__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 34rem;
 }
 
 .hero__subhead {
   margin-top: var(--space-6);
+  color: var(--color-text-secondary);
 }
 
 .hero__actions {
@@ -127,16 +314,21 @@
 }
 
 .hero__subhead,
-.hero__actions {
+.hero__actions,
+.trust {
   animation: rise var(--motion-reveal) var(--ease-enter) both;
 }
 
 .hero__subhead {
-  animation-delay: 480ms;
+  animation-delay: 650ms;
 }
 
 .hero__actions {
-  animation-delay: 560ms;
+  animation-delay: 760ms;
+}
+
+.trust {
+  animation-delay: 860ms;
 }
 
 @keyframes rise {
@@ -151,12 +343,15 @@
   }
 }
 
-/* Trust strip: mono facts; the audit line is honest and always visible (dashed = not yet). */
+/* Facts strip under a dotted rule. */
 .trust {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3) var(--space-6);
-  margin-top: var(--space-6);
+  width: 100%;
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  background: radial-gradient(circle, var(--color-faint) 1px, transparent 1.6px) 0 0 / 6px 4px repeat-x;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-xs);
@@ -177,103 +372,38 @@
   flex-shrink: 0;
   width: 6px;
   height: 6px;
-  border-radius: var(--radius-tag);
-  background: var(--color-faint);
+  background: var(--art-4);
 }
 
-.trust__item--audit {
-  color: var(--color-text-secondary);
+.trust__item:nth-child(2)::before {
+  background: var(--art-3);
 }
 
-.trust__item--audit::before {
-  background: none;
-  outline: var(--border-width-hairline) dashed var(--color-text-muted);
-  outline-offset: -1px;
+.trust__item:nth-child(3)::before {
+  background: var(--art-5);
 }
 
-/* The mosaic box. --tile-n, --gap-n and --rows are read by the hero island, so the canvas
-   and the flat fallback tiles share one grid. */
-.mosaic {
-  --tile-n: 40;
-  --gap-n: 4;
-  --rows: 3;
-  --tile: calc(var(--tile-n) * 1px);
-  --gap: calc(var(--gap-n) * 1px);
-  --pitch: calc(var(--tile) + var(--gap));
-
-  position: relative;
-  align-self: stretch;
-  height: calc(var(--rows) * var(--pitch) - var(--gap));
-  margin-top: var(--space-8);
-  margin-inline-end: calc(-1 * var(--margin));
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.mosaic__flat {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(var(--rows), var(--tile));
-  grid-auto-columns: var(--tile);
-  gap: var(--gap);
-  height: 100%;
-}
-
-.tile {
-  display: grid;
-  place-items: center;
-  border-radius: calc(var(--tile) / 6);
-  background: var(--tile-flat);
-}
-
-.tile__glyph {
-  width: 44%;
-  height: 44%;
-  fill: none;
-  stroke: var(--color-text-muted);
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.mosaic__canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transition: opacity var(--motion-panel) var(--ease-standard);
-}
-
-.mosaic--live .mosaic__canvas {
-  opacity: 1;
-}
-
-.mosaic--live .mosaic__flat {
-  visibility: hidden;
-}
-
-/* With JS the flat tiles wait for the island: it either paints the foil or sweeps them in.
-   If the island never runs, they appear after a short delay. */
-@media (scripting: enabled) {
-  .mosaic:not(.mosaic--flat) .mosaic__flat {
-    animation: rise 400ms var(--ease-enter) 2500ms both;
-  }
-}
-
-.mosaic--flat .tile {
-  animation: tile-in 400ms var(--ease-enter) both;
-}
-
-@keyframes tile-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
+/* Mobile: the label sits on the panel's top edge and the headline's first line on its
+   lower edge (one line up, in the title's own em). */
+@media (max-width: 899.98px) {
+  .hero {
+    --title-overlap: 0px;
   }
 
-  to {
-    opacity: 1;
-    transform: none;
+  /* On the small panel the label is a solid tag: difference blend over busy art is unreadable at 12 px. */
+  .hero__label {
+    position: absolute;
+    top: calc(var(--art-top) + var(--space-5));
+    left: var(--margin);
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    background: var(--page-bg);
+    color: var(--color-text);
+    mix-blend-mode: normal;
+  }
+
+  .hero__title {
+    margin-top: -0.94em;
   }
 }
 
@@ -284,24 +414,46 @@
     align-items: center;
     width: auto;
   }
-
-  .mosaic {
-    --tile-n: 56;
-    --gap-n: 8;
-
-    order: -1;
-    margin-top: 0;
-    margin-bottom: var(--space-8);
-  }
 }
 
 @media (min-width: 900px) {
-  .hero__copy {
-    width: calc(50% - var(--gutter) / 2);
+  .hero {
+    --art-height: auto;
+
+    align-content: center;
+    padding-block: calc(var(--size-header) + var(--space-8)) var(--space-8);
+  }
+
+  .art {
+    bottom: var(--space-5);
+    left: 47%;
+    height: auto;
+    border-radius: var(--radius-dialog) 0 0 var(--radius-dialog);
+  }
+
+  .hero__title {
+    --fs: clamp(4rem, 9.8cqi, 10rem);
+  }
+
+  .hero__title[data-measure="medium"] {
+    --fs: clamp(3.5rem, 7.4cqi, 7.5rem);
+  }
+
+  .hero__title[data-measure="long"] {
+    --fs: clamp(3rem, 6cqi, 6.25rem);
   }
 
   .hero__label {
     margin-bottom: var(--space-6);
+  }
+
+  /* The copy under the headline stops short of the panel. */
+  .hero__foot {
+    max-width: calc(47vw - var(--margin) - var(--space-6));
+  }
+
+  .hero__subhead {
+    max-width: 34rem;
   }
 
   .hero__subhead {
@@ -312,43 +464,30 @@
     margin-top: var(--space-8);
   }
 
-  .trust {
-    margin-top: var(--space-8);
+  .dither--b {
+    top: auto;
+    right: calc(-1 * var(--space-6));
+    bottom: calc(-1 * var(--space-4));
   }
 
-  .mosaic {
-    --tile-n: 72;
-    --rows: 7;
-
-    position: absolute;
-    top: calc(50% + var(--size-header) / 2 - var(--space-2));
-    right: 0;
-    left: calc(50% + var(--gutter) / 2);
-    order: 0;
-    margin: 0;
-    transform: translateY(-50%);
-  }
-}
-
-@media (min-width: 2200px) {
-  .mosaic {
-    --tile-n: 96;
-    --rows: 9;
+  .pixels {
+    top: auto;
+    bottom: var(--space-5);
+    left: calc(47% - 56px);
+    width: 56px;
+    height: 60%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .line__inner,
   .hero__subhead,
   .hero__actions,
-  .mosaic--flat .tile {
+  .trust {
     animation: none;
   }
 
-  .hero__emphasis,
-  .hero:not(.is-landed) .hero__emphasis {
-    font-weight: 720;
+  .px {
     animation: none;
-    transition: none;
+    opacity: 0;
   }
 }

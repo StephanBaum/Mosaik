@@ -1,7 +1,7 @@
 /**
  * i18n coverage of the hero and the page shell: every hero string comes from the `web`
  * catalog in both locales, the rendered pages contain them, and the output keeps the
- * privacy and claims rules (no inline scripts or styles, no forbidden words).
+ * privacy and claims rules (no inline scripts or styles, no forbidden words, no meta lines).
  */
 import { catalogs, locales } from "@mosaic/i18n";
 import { describe, expect, it } from "vitest";
@@ -24,7 +24,9 @@ describe("web catalog", () => {
 
   it.each(locales)("%s never claims an audit or uses forbidden words", (locale) => {
     for (const key of webKeys(locale)) {
-      expect(catalogs[locale][key], key).not.toMatch(/audited|bank-grade|unhackable|geprüft von|unknackbar/i);
+      expect(catalogs[locale][key], key).not.toMatch(/audit|bank-grade|unhackable|geprüft von|unknackbar/i);
+      // The page sells: no meta lines about cookies, banners or what is not done yet.
+      expect(catalogs[locale][key], key).not.toMatch(/cookie|banner|not yet|noch kein|pre-audit/i);
       expect(catalogs[locale][key], key).not.toMatch(/\{NAME\}|\{DOMAIN\}/);
     }
   });
@@ -48,7 +50,7 @@ describe.each(locales)("hero (%s)", (locale) => {
     for (const text of [first, before, emphasis, after, t("web.hero.label"), t("web.hero.subhead")]) {
       expect(html).toContain(escaped(text));
     }
-    for (const key of ["web.hero.ctaPrimary", "web.hero.ctaSecondary", "web.hero.trust.audit"] as const) {
+    for (const key of ["web.hero.ctaPrimary", "web.hero.ctaSecondary"] as const) {
       expect(html).toContain(escaped(t(key)));
     }
   });
@@ -59,7 +61,13 @@ describe.each(locales)("hero (%s)", (locale) => {
   });
 
   it("marks the emphasis word inside the second line", () => {
-    expect(html).toMatch(/<span class="line line--2"><span class="line__inner">[^<]*<em class="hero__emphasis">/);
+    expect(html).toMatch(/<span class="line line--2">[^<]*<em class="hero__emphasis">/);
+  });
+
+  it("ships the art panel with its canvas and the CSS still, hidden from assistive tech", () => {
+    expect(html).toMatch(/<div class="art" aria-hidden="true"><div class="art__still">/);
+    expect(html).toContain('<canvas class="art__canvas">');
+    expect(html).not.toMatch(/holo|foil/);
   });
 
   it("sets the language and keeps scripts and styles external", () => {
