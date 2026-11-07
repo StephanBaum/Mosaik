@@ -87,9 +87,14 @@ jobs:
         crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server]
         include:
           # The folder, engine, HTTP and chaos tests of the sync crate need the
-          # test utilities.
+          # test utilities. The hosted engine paths are exercised by the server
+          # crate's integration tests (real server on loopback), so they run
+          # too; only crates/sync production files count (server files and the
+          # test utilities are excluded from the report).
           - crate: mosaic-sync
-            features: --features http,test-util
+            features: >-
+              -p mosaic-server --features mosaic-sync/http,mosaic-sync/test-util
+              --ignore-filename-regex '(crates/server/|/testutil/)'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
