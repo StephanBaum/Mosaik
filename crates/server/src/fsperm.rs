@@ -57,6 +57,10 @@ pub fn restrict_dir(_path: &Path) -> io::Result<()> {
 /// # Errors
 /// I/O errors.
 #[cfg(unix)]
+#[expect(
+    clippy::verbose_bit_mask,
+    reason = "a permission mask reads clearer than trailing_zeros"
+)]
 pub fn is_private(path: &Path) -> io::Result<bool> {
     use std::os::unix::fs::PermissionsExt as _;
     Ok(std::fs::metadata(path)?.permissions().mode() & 0o077 == 0)
