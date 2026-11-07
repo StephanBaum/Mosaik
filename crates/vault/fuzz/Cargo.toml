@@ -22,7 +22,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
-libfuzzer-sys = "=0.4.10"
+libfuzzer-sys = "=0.4.13"
 mosaic-core = { path = "../../core" }
 mosaic-vault = { path = ".." }
 
