@@ -20,7 +20,8 @@
 //! - `testutil` (feature `test-util`): a simulated sync client, a chaos and
 //!   a malicious transport and a manual clock.
 //!
-//! The HTTP transport follows in a later track of M6 (feature `http`).
+//! - `http` (feature `http`): the hosted backend ([`http::HttpTransport`]) and the
+//!   client side of the account protocol over OPAQUE ([`http::hosted`]).
 //!
 //! `mosaic-sync` never holds an account key or a key derived from it. The
 //! keyed operations (MACs, sealed device info) go through
@@ -33,6 +34,8 @@
 pub mod clock;
 pub mod engine;
 pub mod folder;
+#[cfg(feature = "http")]
+pub mod http;
 #[cfg(feature = "test-util")]
 pub mod testutil;
 pub mod transport;

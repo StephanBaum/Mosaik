@@ -45,6 +45,10 @@ allow = [
 # linked into Mosaic. See ADR-0007 item 10.
 exceptions = [
     { crate = "libfuzzer-sys", allow = ["NCSA"] },
+    # CDLA-Permissive-2.0 (permissive data licence): the Mozilla root certificate list that
+    # rustls-platform-verifier uses as a fallback store on Linux. Data only, no code, no
+    # obligation on Mosaic's code. ADR-0046 (T4 amendment).
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
     # MPL-2.0 (file-level copyleft; unmodified crates only, no obligation on Mosaic's
     # own code): Tauri's HTML/CSS handling at build time (tauri-utils -> kuchikiki) and
     # the `dirs` stack's option-ext. ADR-0019.

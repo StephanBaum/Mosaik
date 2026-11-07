@@ -490,6 +490,36 @@ impl Store {
         Ok(cleared)
     }
 
+    /// Raises a record's stored server sequence number to `server_seq`
+    /// without touching its body or its place in the outbox. A change that
+    /// is queued for upload is based on this number (the server accepts it
+    /// only on top of the version it holds), so a version of the record that
+    /// the device has seen and that its own state already contains (an echo
+    /// of its own upload whose response was lost, or an older version) must
+    /// move the base forward. Never lowers the number.
+    ///
+    /// # Errors
+    /// [`Error::UnknownRecord`], [`Error::SeqOutOfRange`].
+    pub fn raise_server_seq(
+        &mut self,
+        vault_id: &VaultId,
+        record_id: &ItemId,
+        server_seq: u64,
+    ) -> Result<()> {
+        let seq = seq_to_sql(server_seq)?;
+        let tx = self.write()?;
+        let (stored, _) = sync_columns(&tx, vault_id, record_id)?.ok_or(Error::UnknownRecord)?;
+        if stored.is_some_and(|s| s >= server_seq) {
+            return Ok(());
+        }
+        tx.execute(
+            "UPDATE records SET server_seq = ?3 WHERE vault_id = ?1 AND record_id = ?2",
+            params![vault_id.as_bytes(), record_id.as_bytes(), seq],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Removes a record's row and its attachments from this store. Returns
     /// whether the record existed. It also works on a corrupt row.
     ///
@@ -733,6 +763,33 @@ pub(crate) mod tests {
         let remote = check_merge_and_late_acks(&mut s, &f, &vk, &id, (q1, q2));
         let t = check_remote_apply(&mut s, &f, &vk, &id, &remote);
         check_range_errors_and_delete(&mut s, &f, &id, q1, &t);
+    }
+
+    /// The server sequence number of a queued change only moves forward and
+    /// the outbox is untouched.
+    #[test]
+    fn raise_server_seq_only_raises() {
+        let (mut s, f, vk) = store_with_vault();
+        let id = ItemId::new_v7().unwrap();
+        let q = s
+            .upsert_record(&f.vault, &id, &item(&f, &vk, &id, b"x"), Origin::Local)
+            .unwrap()
+            .unwrap();
+        s.mark_uploaded(&f.vault, &id, q, 5).unwrap();
+        let q2 = s
+            .upsert_record(&f.vault, &id, &item(&f, &vk, &id, b"y"), Origin::Local)
+            .unwrap()
+            .unwrap();
+        s.raise_server_seq(&f.vault, &id, 3).unwrap();
+        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert_eq!((r.server_seq, r.outbox_seq), (Some(5), Some(q2)));
+        s.raise_server_seq(&f.vault, &id, 8).unwrap();
+        let r = s.record(&f.vault, &id).unwrap().unwrap();
+        assert_eq!((r.server_seq, r.outbox_seq), (Some(8), Some(q2)));
+        assert!(matches!(
+            s.raise_server_seq(&f.vault, &ItemId::new_v7().unwrap(), 9),
+            Err(Error::UnknownRecord)
+        ));
     }
 
     /// BRIEF §5 "never silently lose data": a delete refuses to drop a

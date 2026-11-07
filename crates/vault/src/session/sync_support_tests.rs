@@ -816,3 +816,59 @@ fn engine_state_persists_and_resets_with_the_backend() {
 fn own(reserved: u64, written: u64) -> crate::storage::OwnSeq {
     crate::storage::OwnSeq { reserved, written }
 }
+
+/// The hosted server accepts a change only on top of the version it holds. A
+/// received version that this device's own record already contains moves the
+/// base forward (the cursor passes it and it is not sent again), and the
+/// echo of the device's own upload, whose response was lost, acknowledges
+/// the pending change.
+#[test]
+fn received_versions_already_contained_rebase_or_acknowledge_a_pending_change() {
+    use super::{ApplyOutcome, RemoteRecord};
+    use crate::storage::RecordBody;
+
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let id = login(&mut s, v, "one");
+    upload_all(&mut s, v, 5);
+    let seq = |s: &UnlockedSession| s.store().record(&v, &id).unwrap().unwrap().server_seq;
+    let outbox = |s: &UnlockedSession| s.store().record(&v, &id).unwrap().unwrap().outbox_seq;
+    let body =
+        |s: &UnlockedSession| -> RecordBody { s.store().record(&v, &id).unwrap().unwrap().body };
+    let first = body(&s);
+
+    // A local edit is queued on top of seq 5.
+    s.update_item(v, id, |e| e.set_title("two")).unwrap();
+    assert_eq!(seq(&s), Some(5));
+    assert!(outbox(&s).is_some());
+
+    // The server stored exactly that change and the response was lost: the
+    // pull brings it back at seq 9 and the change is acknowledged.
+    let echo = RemoteRecord {
+        vault_id: v,
+        record_id: id,
+        body: body(&s),
+        server_seq: 9,
+    };
+    assert_eq!(s.apply_remote_record(&echo).unwrap(), ApplyOutcome::Ignored);
+    assert_eq!(seq(&s), Some(9));
+    assert_eq!(outbox(&s), None, "nothing left to upload");
+
+    // A later edit is queued on top of 9. An older version of the record
+    // (the local state dominates it) arrives at seq 12, never to be sent
+    // again: the pending change is based on 12 from now on.
+    s.update_item(v, id, |e| e.set_title("three")).unwrap();
+    assert_eq!(seq(&s), Some(9));
+    let older = RemoteRecord {
+        vault_id: v,
+        record_id: id,
+        body: first,
+        server_seq: 12,
+    };
+    assert_eq!(
+        s.apply_remote_record(&older).unwrap(),
+        ApplyOutcome::Ignored
+    );
+    assert_eq!(seq(&s), Some(12));
+    assert!(outbox(&s).is_some(), "the change is still to be uploaded");
+}

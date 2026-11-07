@@ -86,10 +86,10 @@ jobs:
         # All are held to the same bar.
         crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server]
         include:
-          # The folder, engine and chaos tests of the sync crate need the
+          # The folder, engine, HTTP and chaos tests of the sync crate need the
           # test utilities.
           - crate: mosaic-sync
-            features: --features test-util
+            features: --features http,test-util
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

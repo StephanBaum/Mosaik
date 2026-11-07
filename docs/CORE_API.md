@@ -161,6 +161,14 @@ existing variant describes it). `Store::rewrap_vault_key` clears
 wrapping already.
 Deviation from the M6 spec: `pending_vault_uploads` takes `&mut self`.
 
+M6 T4 adds `Store::raise_server_seq(vault, record, seq)` (raises the stored server
+sequence number, the base of the next upload, without touching the body or the outbox;
+never lowers it) and changes `apply_remote_record`: a received version that the local
+record dominates or equals is still `Ignored`, but it now rebases a queued change onto
+the received sequence number, or acknowledges it when the received ciphertext is the
+queued change itself (the response to its upload was lost). `join_account_with_keys`
+takes `(wrapped_ak, keys)`: the parameters travel inside `JoinKeys`.
+
 ### `otp` (stable)
 
 `otp_from_config(&OtpConfig, hotp_counter)` → `mosaic_totp::Otp`,

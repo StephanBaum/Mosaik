@@ -192,11 +192,15 @@ impl UnlockedSession {
         };
 
         match local.compare(&received) {
-            Causality::Dominates => return Ok(ApplyOutcome::Ignored),
+            Causality::Dominates => {
+                self.rebase_on_seen(vault_id, item_id, record, &anchor)?;
+                return Ok(ApplyOutcome::Ignored);
+            }
             Causality::Equal if *local == received => {
                 // The same version re-encrypted under a newer generation
                 // (a rotation) replaces the older ciphertext.
                 self.replace_if_newer_generation(vault_id, item_id, record, &anchor)?;
+                self.rebase_on_seen(vault_id, item_id, record, &anchor)?;
                 return Ok(ApplyOutcome::Ignored);
             }
             Causality::Equal | Causality::DominatedBy | Causality::Concurrent => {}
@@ -271,6 +275,37 @@ impl UnlockedSession {
             pending,
             server_seq,
         })
+    }
+
+    /// A received version that this device's own state already contains
+    /// (the local record dominates it or equals it): later uploads of the
+    /// record are based on it from now on, because the server accepts a change
+    /// only on top of the version it holds and this device will not be sent
+    /// that version again (the pull cursor moves past it). If the received
+    /// ciphertext is the pending change itself (the server stored it and the
+    /// response was lost) the change is acknowledged instead. Without this a
+    /// change whose base went stale would be refused as a conflict on every
+    /// attempt.
+    fn rebase_on_seen(
+        &mut self,
+        vault_id: VaultId,
+        item_id: ItemId,
+        record: &RemoteRecord,
+        anchor: &LocalAnchor,
+    ) -> Result<()> {
+        let Some(stored) = anchor.stored.as_ref() else {
+            return Ok(());
+        };
+        match stored.outbox_seq {
+            Some(outbox) if stored.body.as_bytes() == record.body.as_bytes() => {
+                self.store
+                    .mark_uploaded(&vault_id, &item_id, outbox, anchor.server_seq)?;
+            }
+            _ => self
+                .store
+                .raise_server_seq(&vault_id, &item_id, anchor.server_seq)?,
+        }
+        Ok(())
     }
 
     /// The same version re-encrypted under a newer generation (a rotation)

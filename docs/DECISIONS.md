@@ -3633,3 +3633,83 @@ crates; the `opaque` module comes with the server and client tracks. No telemetr
   filter, no JSON, no exporters). The server also uses `hkdf`, `hmac`, `sha2` and `chacha20poly1305`
   directly for K_totp, the pre-login fakes, hashes and the sealed TOTP secrets: the CRYPTO_SPEC section 2
   primitives, nothing new. `cargo deny` needed no licence exception.
+
+### Amendment (2026-11-07, M6 T4: the HTTP client as built)
+Choices that the spec left open, each the most conservative one:
+- **Dependencies (ADR-0046 option 2).** `reqwest =0.13.5` has no ring-provider feature, so the workspace takes
+  `reqwest` with `blocking` and `rustls-no-provider` only (no default features: no cookies, redirects are off,
+  no compression, no HTTP/2), a direct `rustls =0.23.46` with the `ring` provider and `std` (no `tls12`
+  feature; 0.23.46 is the first release without RUSTSEC-2026-0285, -0346, -0348 and -0349, which
+  `cargo deny` reports for the 0.23.40 that Tauri's tree had cached) and `rustls-platform-verifier =0.7.0` (the OS trust store: SChannel, Security.framework, the
+  platform's certificate stores). `mosaic_sync::http` builds the `ClientConfig` itself and passes it to
+  reqwest as the preconfigured backend: `builder_with_provider(ring)`, `with_protocol_versions([TLS13])`,
+  `with_platform_verifier()`, no client certificate. A unit test pins the version list to TLS 1.3. `ring`
+  (ISC) and `rustls` are new to the lock file. `webpki-root-certs` (CDLA-Permissive-2.0, root certificate
+  data, pulled in by the platform verifier as the Linux fallback store) gets a crate-scoped licence
+  exception in `deny.toml`, as ADR-0046 foresaw; the licence list is not loosened otherwise. The crates are optional
+  and only built with the `http` feature of `mosaic-sync`.
+- **URL rule.** `canonical_origin`: `https://host[:port]` or `http://` for `127.0.0.1`, `[::1]` and
+  `localhost`; lowercase; no path, query, fragment, credentials, percent escapes or non-ASCII host
+  (punycode only); port 1 to 65535. `TransportError::InsecureUrl` for plain `http` to another host or another
+  scheme, `InvalidUrl` for everything else. The client sends the same origin string the OPAQUE login is bound
+  to, and `GET /v1/info` must name exactly that origin (`ServerMismatch`) and protocol 1 (`Incompatible`),
+  checked before every login, registration and session.
+- **`TransportError` grows** `Rejected(Rejection)` (the hosted codes with no variant of their own:
+  `AccountExists`, `RegistrationClosed`, `InvalidInvite`, `InvalidEmail`, `LoginFailed`, `DeviceRevoked`,
+  `TwoFactorInvalid`, `BadRequest`, `TooLarge`, `AttachmentExists`, `CheckpointStale`, `TooManyPolls`,
+  `DeviceIsCurrent`, `AccountVersionMismatch { account_version }`), `InsecureUrl` and `InvalidUrl`. They
+  carry no body, ID or address. `login_failed` stays one answer for a wrong password, an unknown email and a
+  server that names another identity (CRYPTO_SPEC §9.2).
+- **Responses are strict.** Unknown or missing JSON keys, wrong types, IDs that are not lowercase hyphenated
+  non-nil UUIDs and non-canonical base64url are `Protocol`. A success body is read up to its cap (16 MiB JSON;
+  the attachment ciphertext maximum) and refused before reading when `Content-Length` says more; an error
+  body is cut at 64 KiB. A page of changes must have strictly ascending sequence numbers above the cursor and
+  at most the head, a cursor that does not move back, `more` only with records, and every ciphertext must
+  decode as its kind; a records response must answer every record in order with its ID. `Retry-After` is
+  honoured as whole seconds (1 to 86 400, 60 when absent or in date form).
+- **Idempotent retries.** `checkpoint_stale` on the checkpoint upload counts as done (a repeated request; a
+  device whose counter fell behind the server's is caught by the engine's check of its own checkpoint, which
+  runs before anything is written). A records request is split to fit the server's `maxRequestBytes` (the
+  engine batches by ciphertext bytes, and base64 adds a third); the batches of one call are separate
+  requests, so a `generation_mismatch` in a later one leaves the earlier ones accepted, which the engine
+  resolves by its pull (their echo acknowledges them, ADR-0045 amendment below).
+- **Session token.** The bearer header is built from the token and marked sensitive; the token is never
+  in an error or a log, `HttpTransport` has no `Debug` output of it. The transport learns the device's
+  own install ID (for the checkpoint path) from `GET /v1/devices` (`current`), not from the caller.
+- **Client functions** (`mosaic_sync::http::hosted`): `prelogin`, `register`, `login`, `login_totp`,
+  `logout`, `join_login` (pre-login, the Argon2id derivation and the OPAQUE login) and
+  `join_fetch_account` (`GET /v1/account`, whose account ID, salt and profile must equal the keys'),
+  `password_change` (fresh login with the old `OPW`, the second factor when the account has one,
+  re-registration, one upload guarded by the account version read after the login). The join is two
+  functions instead of one because a pending session needs its TOTP code between them.
+- **Hosted pull cursor, change counter.** A cursor is the 8-byte big-endian `server_seq` (empty = 0);
+  the change token of the long poll is the 8-byte counter (none yet: a value the counter never has, so the
+  first call answers at once); a client-side timeout of the poll is "nothing changed".
+
+### Amendment (2026-11-07, M6 T4: engine rules found by the hosted simulations; ADR-0045)
+The hosted branches of the engine had never run against a server. Three rules were wrong or missing:
+- **A received version the device already contains moves the upload base forward.** The server accepts a
+  change only on top of the version it holds (`baseSeq`). `apply_remote_record` ignored a received record
+  that the local record dominates or equals, and left the stored `server_seq` (the next `baseSeq`) behind;
+  the pull cursor had passed that version, so the pending change was refused as a conflict on every attempt
+  and the devices never converged. Now the ignored record raises the stored sequence number
+  (`Store::raise_server_seq`, never lowering), and if its ciphertext is the pending change itself (the
+  server stored it and the response was lost, or the request was repeated) the change is acknowledged.
+- **Hosted: the server's key is the canonical key.** The canonical-winner rule by lowest device ID is
+  right for a folder, where every key reaches every device. The server keeps one key per generation: a
+  legacy key (an offline rotation) that lost the race for the slot never reaches another device, so a
+  device holding it must rotate again whatever the device IDs say; otherwise it keeps a key nobody else
+  has and every record either side seals is unreadable to the other. On the hosted backend any key of the
+  current generation that a pull brought in and that differs from the held one makes the held one lose.
+- Unchanged by this track and confirmed by the simulations: records are pushed items before tombstones; a
+  rotation offers its key on top of the head (`head_moved` pulls, pushes and retries the same key).
+
+### Amendment (2026-11-07, M6 T4: the T3 review changes the client respects)
+After the server's review fixes (one session per device, a login ends the device's other sessions, at most
+64 sessions per account, pending sessions of five minutes, per-session and per-account TOTP attempts, key
+uploads and vault creates only with the session's own device ID, long polls capped per account, per-route
+body limits and a global concurrency limit): the client sends the `deviceId` of its own install in every
+login, vault creation and key upload (the engine already does); a second login of a device ends the
+transport that holds the first session (`Unauthorized`), so the desktop keeps one transport per device and
+signs in again after `Unauthorized`; the second-factor code is a `SecretText` in the request. The
+simulations log in each device once and sign in again where a test opens a second path for a device.

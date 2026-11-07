@@ -17,8 +17,8 @@ test-util = []
 # The OPAQUE ciphersuite module (`wire::opaque`, used by the server and the
 # HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
 opaque = ["dep:opaque-ke", "dep:sha2_0_10"]
-# The HTTP transport (M6 T4); enables `opaque`. T1 has no reqwest code.
-http = ["opaque"]
+# The HTTP transport and the hosted client functions (M6 T4); enables `opaque`.
+http = ["opaque", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
@@ -36,6 +36,11 @@ idna.workspace = true
 thiserror.workspace = true
 # OPAQUE (CRYPTO_SPEC section 9.1, ADR-0046), only with feature `opaque`.
 opaque-ke = { workspace = true, optional = true }
+# HTTP client (ADR-0046), only with feature `http`: blocking reqwest over rustls
+# (ring provider, TLS 1.3 only, OS trust store through the platform verifier).
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
 # SHA-512 of the TripleDH key exchange: opaque-ke 4.0 uses the digest 0.10 generation.
 sha2_0_10 = { workspace = true, optional = true }
 # Random temp file names of the folder transport, the retry jitter and
@@ -51,6 +56,12 @@ libc = "0.2"
 [dev-dependencies]
 # Temporary folders for the folder transport tests and simulations.
 tempfile.workspace = true
+# The HTTP transport tests run the real server on 127.0.0.1 (a dev-dependency
+# cycle is fine: the library under test is the one the server links).
+mosaic-server = { path = "../server" }
+mosaic-totp = { path = "../totp" }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "macros"] }
 
 # The integration tests need the simulation utilities.
 [[test]]

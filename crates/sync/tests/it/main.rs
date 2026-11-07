@@ -6,6 +6,8 @@ mod chaos;
 mod cloudsim;
 mod common;
 mod folder_transport;
+#[cfg(feature = "http")]
+mod http_transport;
 mod join_folder;
 mod malicious_folder;
 mod rotation_folder;

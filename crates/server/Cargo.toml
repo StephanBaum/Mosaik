@@ -53,4 +53,4 @@ zeroize.workspace = true
 
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util"] }
-mosaic-sync = { path = "../sync", features = ["opaque", "test-util"] }
+mosaic-sync = { path = "../sync", features = ["opaque", "http", "test-util"] }

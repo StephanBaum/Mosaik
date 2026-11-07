@@ -13,7 +13,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
-| M6 Sync | 🔄 in progress (T1 and T2 merged, PRs #33 and #35; T3 server in review) |
+| M6 Sync | 🔄 in progress (T1 and T2 merged, PRs #33 and #35; T3 server in review; T4 HTTP transport and hosted simulations on `feat/m6-http`) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -1971,6 +1971,52 @@ Spec: the M6 spec §6 and §11 T3 (ADR-0044, ADR-0046; amendments to both in `do
   reason) or `cargo audit --deny warnings` fails. Reviews due: crypto-reviewer (OPAQUE parameters,
   fakes, token derivation, TOTP sealing, fresh-login checks), `/security-review`, test-engineer.
   THREAT_MODEL R61 and R62 are new.
+
+## M6 Sync — T4 HTTP transport and hosted simulations (2026-11-07)
+
+Spec: the M6 spec §6 and §11 T4 (ADR-0044, ADR-0045, ADR-0046; amendments in `docs/DECISIONS.md`).
+
+- **`mosaic_sync::http`** (feature `http`): `HttpTransport::{connect, info}` (the hosted `Transport`:
+  blocking `reqwest` over rustls, TLS 1.3 only, `ring` provider, OS trust store, redirects off, HTTPS only
+  except loopback), strict response parsing with size caps (16 MiB JSON, the attachment maximum, 64 KiB
+  of an error body), the error-code to `TransportError` mapping with `Retry-After`, a records push split
+  to the server's request limit, and `hosted::{prelogin, register, login, login_totp, logout, join_login,
+  join_fetch_account, password_change}` over OPAQUE (`TransportError` gained `Rejected(Rejection)`,
+  `InsecureUrl` and `InvalidUrl`). `connect` and every hosted function check `GET /v1/info`: protocol 1
+  and the origin the caller asked for.
+- **Engine bugs found by the hosted simulations and fixed** (the hosted branches had never run against a
+  server): (1) a received record that the local one dominates or equals left the pending change on a
+  stale `baseSeq`, so it was refused as a conflict on every attempt and devices never converged (fix in
+  `mosaic-vault`: `apply_remote_record` rebases, or acknowledges an echo of the device's own upload;
+  `Store::raise_server_seq`); (2) a legacy (offline) rotation that lost the race for the server's key
+  slot was resolved by the folder's lowest-device-ID rule, leaving a device with a key nobody else holds
+  (fix in `engine/keys.rs`: on the hosted backend the server's key is canonical).
+- **Tests**: `crates/sync/tests/it/http_transport.rs` (9: `refuses_http_non_loopback`,
+  `rejects_unknown_response_fields`, `response_size_capped`, `server_identity_mismatch_refused`,
+  `retry_after_mapped`, error-code mapping, the full transport against the real server, login
+  failures and the TOTP flow, join over the wire; `tls_config_is_tls13_only` and the URL rule are unit
+  tests in `http/client.rs`); `crates/server/tests/it/`: `sim_hosted.rs` (the folder simulation's
+  invariants over the HTTP transport in a chaos transport with 3 seeds x 6 rounds, 60 x 12 `#[ignore]`,
+  plus the delete and rotation scenarios of the folder sim), `scenarios.rs` (`rotation_head_cas_loses_no_edit`,
+  `delete_race_linearized_by_base_seq`, `move_copy_uploaded_before_tombstone`,
+  `legacy_offline_rotation_loser_rotates_again`, `join_new_device_hosted`,
+  `password_change_hosted_end_to_end`), `malicious_server.rs` (the seven named tests), with
+  `loopback.rs` (the real server on `127.0.0.1:0` on a thread of its own, also included by the sync
+  tests) and `hosted.rs` (the world: devices, engines, chaos, interception). Regression tests in
+  `mosaic-vault` for both engine fixes. No sleeps: the server clock and the engine clock are manual.
+- **Deviations**: `LoopbackTransport` is the HTTP transport connected to the loopback server (a socket,
+  not an in-process router); `connect` does not take the device ID (the checkpoint path's device is read
+  from the device list); the join is `join_login` plus `join_fetch_account` (a pending session needs its
+  code in between); the 60 x 12 run is not run locally (CI, release). The checkpoint upload treats
+  `checkpoint_stale` as done (repeated request).
+- **Dependencies**: `reqwest =0.13.5` (`blocking`, `rustls-no-provider`), `rustls =0.23.46` (`ring`,
+  `std`), `rustls-platform-verifier =0.7.0`, all optional behind the `http` feature; `ring` and
+  `webpki-root-certs` (licence exception) enter the lock file. Dev-dependencies of `mosaic-sync`:
+  `mosaic-server`, `mosaic-totp`, `axum`, `tokio`. CI: the `mosaic-sync` coverage job runs with
+  `--features http,test-util`.
+- **Open**: reviews due: crypto-reviewer (client OPAQUE, TLS config, token handling), sync-chaos
+  (extends `sim_hosted` and `malicious_server`). The release `--ignored` run of the long simulation
+  runs in CI. THREAT_MODEL R67 and R68 are new.
 
 ## Open risks / findings
 

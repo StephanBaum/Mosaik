@@ -5,7 +5,7 @@ use mosaic_core::{InstallId, KeyGeneration, VaultId, WrappedKey};
 use mosaic_vault::session::{Error, KeyOrigin, UnlockedSession};
 
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
-use crate::transport::{KeyPushResult, Transport};
+use crate::transport::{KeyPushResult, Transport, TransportKind};
 
 impl<T: Transport> SyncEngine<T> {
     /// Step 2: creates the vaults the backend does not have and sends the
@@ -55,11 +55,19 @@ impl<T: Transport> SyncEngine<T> {
     /// lowest device seen for its bytes, the held one too (this install for
     /// a key it generated, or a lower device that carried the same bytes),
     /// so two devices with the same view agree on the winner.
+    ///
+    /// On the hosted backend the server keeps exactly one key per
+    /// generation and it is the canonical one: a key of that generation that
+    /// the pull brought in and that differs from the held one is the
+    /// server's, and the held one (one that lost the race for the slot, as
+    /// an offline rotation can) never reaches any other device, so it loses
+    /// whatever the device IDs say.
     pub(super) fn resolve_key_conflict(
         &mut self,
         access: &mut impl SessionAccess,
         vault: VaultId,
     ) -> Result<(), SyncError> {
+        let hosted = self.config.transport_kind == TransportKind::Hosted;
         let loses = access.with(|s| -> Result<bool, Error> {
             let Some(generation) = s
                 .vaults()
@@ -89,7 +97,7 @@ impl<T: Transport> SyncEngine<T> {
             let held_rank = (*device.as_bytes(), held.as_bytes().to_vec());
             Ok(seen.iter().any(|(d, w)| {
                 w.as_bytes() != held.as_bytes()
-                    && (*d.as_bytes(), w.as_bytes().to_vec()) < held_rank
+                    && (hosted || (*d.as_bytes(), w.as_bytes().to_vec()) < held_rank)
             }))
         })??;
         if loses {
