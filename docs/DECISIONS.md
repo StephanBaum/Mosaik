@@ -3435,6 +3435,69 @@ CI.
 Single-node scale (thousands of accounts); backups through `VACUUM INTO`. THREAT_MODEL section 4.5 says
 rusqlite with bound parameters.
 
+### Amendment (2026-11-06, T3: the server as built)
+Choices that the spec left open, each the most conservative one:
+- **One connection, no `spawn_blocking`.** The database is one `rusqlite` connection behind a mutex. On a
+  multi-threaded runtime a query runs inside `block_in_place`; on a current-thread runtime (the tests, which
+  pause the tokio clock, where `spawn_blocking` would let the paused clock jump ahead) it runs inline.
+  `secure_delete` is on and temporary storage is in memory.
+- **Per-account change counters** for the long poll (a global counter would wake every client for every
+  write on the server and show one account the activity of the others). A counter starts at the clock, so a
+  restart never repeats a value a client holds. A second poll of a session is refused with
+  `too_many_polls` and releases the older one. Checkpoint uploads do not bump the counter (they would
+  start an endless round of syncs).
+- **A checkpoint is uploaded only by its own device** (path device = session device, else 403): the
+  server cannot verify the MAC, so it limits who can raise a device's counter. The counter only grows
+  (`checkpoint_stale`); a removed device's checkpoint is deleted.
+- **Page size.** A page of changes holds at most 500 records and at most 8 MiB of ciphertext (the client
+  reads at most 16 MiB of JSON), and always at least one record.
+- **Quotas** (`quota_exceeded` with `{kind}`): `recordCount`, `recordBytes`, `attachmentBytes`,
+  `devices` (32, not counting removed devices) and `vaults` (1000); a batch that would pass a record
+  quota fails as a whole.
+- **Rate limits** key IPv6 clients by their /64. `X-Forwarded-For` is read only from a peer in
+  `trusted_proxies`, and only its last hop.
+- **Invite codes** are 20 Crockford base32 characters (100 bits), stored as SHA-256, single use,
+  redeemed in the registration transaction. `register/start` takes no code (the request has no field
+  for it), so `invalid_invite` comes only from `register/finish`.
+- **Registration is stateless.** `register/start` answers the same for a registered and an
+  unregistered email; `account_exists` comes at `finish` (THREAT_MODEL R58).
+- **Attachments** are stored by `PUT` after the structural check of `validate_attachment_ciphertext`
+  (which accepts any canonical STREAM length: a truncation at a chunk boundary is found only by the
+  authentication tag at the client). An identical, soft-deleted attachment is restored by a repeated
+  `PUT`. Blobs are never served to another vault: a mismatch of vault is `not_found`.
+- **Password change** does not end the account's other sessions (the spec says nothing; ending them
+  would sign out devices that have not yet seen the new password). The change is audited.
+- **Image and compose**: base images are pinned by digest (builder `rust:1.99.1-bookworm`, runtime
+  `gcr.io/distroless/cc-debian12:nonroot`, proxy `caddy:2.11-alpine`); the server container sits on an
+  internal network without a route to the internet and with a fixed address for the proxy, which
+  `trusted_proxies` names.
+
+### Amendment (2026-11-07, T3 review follow-ups)
+- **Pre-login does not reveal an account (H1).** New account IDs are random UUIDv4
+  (`AccountId::new_random`) and a fake pre-login ID is a UUIDv4 from the HMAC, with no timestamp:
+  real and fake IDs are both uniform random. The backdating rule of the first amendment and
+  its `init_ms` input are gone. UUIDv7 account IDs from before this change (pre-release) stay valid.
+- **One key per purpose (I2).** `K_prelogin` and `K_totp` are HKDF subkeys of `server_secret` with the
+  labels `server/prelogin-key` and `server/totp-key`; `server/totp-at-rest` is only the AAD label of a
+  sealed secret, which now carries a version and algorithm byte (I3). Labels are in the core registry.
+- **TOTP limits (M1, L1)**: attempts counted atomically before the check (five per pending session),
+  ten failures per account per hour persisted, pending sessions expire after five minutes, the used
+  step is stored with a conditional update.
+- **Resource limits (M2, M3, L5, L8)**: rate-limit buckets are never dropped unless full, each scope
+  has its own capacity and a full map refuses new keys; per-route body limits before authentication
+  (4 KiB prelogin, 16 KiB register and login); a global concurrency limit (`max_concurrent_requests`,
+  default 512); 32 long-polls per account; pending OPAQUE logins capped per IP prefix (16) and evicted
+  oldest first.
+- **Sessions and devices (L2, L3, L4)**: key uploads and vault creates must carry the session's own
+  device ID; a login ends the same device's other sessions and at most 64 sessions per account exist
+  (the oldest idle one is evicted); at most 10 000 key generations per vault (`max_key_generations`).
+- **Files (L6)**: on Unix the data directory is 0700, the database, WAL, blobs and the secret file are
+  0600, and the server refuses a secret file that is group- or world-accessible.
+- **Deployment (L7)**: Caddy runs with `cap_drop: ALL`, `NET_BIND_SERVICE`, `no-new-privileges` and a
+  read-only root file system.
+- **Slowloris (I7)**: axum's `serve` offers no header read timeout; the reverse proxy is the
+  load-bearing defence (SERVER.md says so).
+
 ## ADR-0045: Sync engine rules
 
 - Status: accepted
@@ -3550,3 +3613,23 @@ names. Crypto dependencies need an ADR (CLAUDE.md).
 ### Consequences
 Each crate enters in the track that uses it: T1 (protocol foundation) adds none of the network or OPAQUE
 crates; the `opaque` module comes with the server and client tracks. No telemetry crate is added.
+
+### Amendment (2026-11-06, T3: the dependencies as pinned)
+- `opaque-ke =4.0.1` is the newest stable 4.x (4.1 is a pre-release). Its SHA-512 comes from `sha2 0.10`
+  (the digest 0.10 generation opaque-ke is written against), added as the renamed dependency
+  `sha2_0_10`; it was already in the tree. Features: `ristretto255` only (no `argon2`, `std` or
+  `serde`); the random number generator is Mosaic's own `OsRng` over `getrandom` (ADR-0011), so no
+  `rand` feature is switched on. `wire::opaque` in `mosaic-sync` (feature `opaque`) defines the suite,
+  the context and the identifiers once for client and server.
+- **RUSTSEC-2026-0387** (`crypto-bigint 0.5.5`, timing variability) enters through `elliptic-curve 0.13`
+  (`opaque-ke` and `voprf`). It is ignored in `deny.toml` (and must be in `.cargo/audit.toml`) with this
+  reason: the ristretto255 suite does every secret group and scalar operation in `curve25519-dalek` and
+  never calls the arithmetic of `crypto-bigint`; no released `opaque-ke` uses `elliptic-curve 0.14`.
+  Revisit with every `opaque-ke` release.
+- `axum =0.8.9` with `http1`, `tokio`, `matched-path` and `query` only (no `json`: bodies are parsed with
+  `mosaic_sync::wire::json`, which rejects unknown keys); `tower-http =0.6.11` with `limit` and
+  `timeout` (in the tree through Tauri); `tower =0.5.3` (`util`, tests); `toml =1.1.8` with `parse` and
+  `serde`; `tracing =0.1.44` and `tracing-subscriber =0.3.23` (`fmt`, `std`, `ansi`: no environment
+  filter, no JSON, no exporters). The server also uses `hkdf`, `hmac`, `sha2` and `chacha20poly1305`
+  directly for K_totp, the pre-login fakes, hashes and the sealed TOTP secrets: the CRYPTO_SPEC section 2
+  primitives, nothing new. `cargo deny` needed no licence exception.

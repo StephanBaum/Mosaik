@@ -232,7 +232,7 @@ pub(crate) fn create_account_with_cost(
     cost: Argon2Cost,
 ) -> Result<NewAccount> {
     let params = PasswordParams {
-        account_id: AccountId::new_v7()?,
+        account_id: AccountId::new_random()?,
         salt: AccountSalt::generate()?,
         profile,
     };
@@ -350,6 +350,19 @@ mod tests {
         MasterPassword::new(s.to_string())
     }
 
+    /// New accounts get a random `UUIDv4` ID: no timestamp, so a real ID cannot
+    /// be told from a fake pre-login ID (CRYPTO_SPEC §9.2).
+    #[test]
+    fn new_accounts_get_random_v4_ids() {
+        let a = create_account_with_cost(&pw("pw"), Argon2Profile::Baseline, TEST_COST).unwrap();
+        let b = a.params.account_id.as_bytes();
+        assert_eq!(b[6] >> 4, 4);
+        assert_eq!(b[8] >> 6, 0b10);
+        let other =
+            create_account_with_cost(&pw("pw"), Argon2Profile::Baseline, TEST_COST).unwrap();
+        assert_ne!(a.params.account_id, other.params.account_id);
+    }
+
     #[test]
     fn create_and_unlock() {
         let acct =
@@ -404,9 +417,9 @@ mod tests {
                 Err(Error::Decryption)
             );
         }
-        // The account ID is a fresh UUIDv7 (RFC 9562 version and variant).
+        // The account ID is a random UUIDv4 (RFC 9562 version and variant).
         let id = acct.params.account_id.as_bytes();
-        assert_eq!(id[6] >> 4, 7, "UUID version 7");
+        assert_eq!(id[6] >> 4, 4, "UUID version 4");
         assert_eq!(id[8] >> 6, 0b10, "RFC 9562 variant");
         let empty = unlock_with_cost(
             &pw(""),

@@ -119,9 +119,31 @@ pub(crate) mod label {
     /// AAD of sealed device info (§10.1).
     pub(crate) const SYNC_DEVICE_INFO: Label = Label::new("sync/device-info");
 
+    /// HKDF info of the server key of the pre-login fakes (`mosaic-server`).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "registry entry: derived in mosaic-server")
+    )]
+    pub(crate) const SERVER_PRELOGIN_KEY: Label = Label::new("server/prelogin-key");
+    /// HKDF info of the server key that seals TOTP secrets (`mosaic-server`).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "registry entry: derived in mosaic-server")
+    )]
+    pub(crate) const SERVER_TOTP_KEY: Label = Label::new("server/totp-key");
+    /// AAD label of a sealed TOTP secret (`mosaic-server`).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "registry entry: used in mosaic-server")
+    )]
+    pub(crate) const SERVER_TOTP_AT_REST: Label = Label::new("server/totp-at-rest");
+
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 31] = [
+    pub(crate) const ALL: [Label; 34] = [
+        SERVER_PRELOGIN_KEY,
+        SERVER_TOTP_KEY,
+        SERVER_TOTP_AT_REST,
         SECRET_KEY,
         ROOT,
         KEK,

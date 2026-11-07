@@ -79,7 +79,8 @@ Interoperability only (these read or serve third-party formats and never protect
 - Labels added for sync (§10, §10.1): `checkpoint-key`, `checkpoint`, `session`,
   `sync/folder-mac-key`, `sync/folder-segment`, `sync/folder-account`,
   `sync/folder-blob-delete`, `sync/device-info-key`, `sync/device-info`; and, in
-  the server only, `server/totp-at-rest` (§9.3). `mosaic-core` derives every
+  the server only, `server/prelogin-key`, `server/totp-key` and
+  `server/totp-at-rest` (§9.2, §9.3). `mosaic-core` derives every
   key from them; `mosaic-sync` and the server never see `AK`.
 - The nil UUID (`00…00`) is reserved and MUST be rejected as a vault, item,
   attachment or account ID.
@@ -604,15 +605,20 @@ from being reused across servers.
     domain to its lowercase IDNA A-label. Anything that is not a
     syntactically valid address is rejected.
   - For unknown emails, all three values are deterministic fakes:
-    `HMAC-SHA-256(server_secret, label || normalized_email)`, with the labels
+    `HMAC-SHA-256(K_prelogin, label || normalized_email)` with
+    `K_prelogin = HKDF(server_secret, "", ctx("server/prelogin-key"), 32)` (one
+    key per purpose), and the labels
     `"prelogin/account-id"`, `"prelogin/salt"` and `"prelogin/profile"`. The
     profile comes from mapping the HMAC output onto the server's real profile
     distribution, rounded to 5 % buckets. opaque-ke's fake credential
     response is used, so KE2 looks the same as for a real account.
-    A fake account ID is UUIDv7-shaped: the first 16 bytes of the HMAC with
-    the version and variant bits set and the 48-bit timestamp replaced by
-    `init_ms - (u48(h[6..12]) mod 15_552_000_000)`, a time in the 180 days
-    before the server was initialised (THREAT_MODEL R10 amendment, R58).
+    A fake account ID is a UUIDv4: the first 16 bytes of the HMAC with the
+    version nibble set to 4 and the variant bits to `10`. New real account IDs
+    are UUIDv4 too (`AccountId::new_random`: 122 bits from the OS CSPRNG, no
+    timestamp), so a real and a fake ID are both uniform random and cannot be
+    told apart. Nothing in a fake depends on the time the server was set up.
+    Account IDs created before this rule (UUIDv7, pre-release only) stay valid
+    (THREAT_MODEL R58).
   - Responses are rate-limited per IP and per normalized email. Residual:
     the profile distribution drifts over time and could give statistical
     hints. Accepted.
@@ -626,8 +632,14 @@ before it issues the `session_token`. This guards server access (for example,
 deleting the account or reading ciphertext) but adds nothing to vault
 confidentiality. The UI says so. TOTP secrets (SHA-1, 6 digits, 30 s, the
 replay guard of ADR-0008) are sealed at rest on the server:
-`K_totp = HKDF(server_secret, "", ctx("server/totp-at-rest"), 32)`,
-`sealed = nonce[24] || XChaCha20-Poly1305(K_totp, nonce, secret, aad = ctx("server/totp-at-rest") || 0x00 || account_id)`.
+`K_totp = HKDF(server_secret, "", ctx("server/totp-key"), 32)`,
+`sealed = header || nonce[24] || XChaCha20-Poly1305(K_totp, nonce, secret, aad = header || ctx("server/totp-at-rest") || 0x00 || account_id)`
+with the §3 header `version:u8 (1) || algorithm:u8 (1)`, so the AAD binds the
+format. Wrong codes are limited three ways: five per pending session (counted
+atomically before the code is checked), ten per account per hour from any
+session (`rate_limited`), and a pending session ends after five minutes. A
+matched time step is stored with a conditional update, so two concurrent
+requests cannot both accept one code (replay guard).
 WebAuthn for the sync account follows in M9.
 
 ### 9.4 Changing the registration
@@ -997,6 +1009,11 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   the vault's `head_seq`; one wrapped key per (vault, account, generation).
 - A client uploads every item of a run before any tombstone, so a moved
   item's copy reaches the server before the source's tombstone.
+- Checkpoint upload: the raw checkpoint bytes, filed under the device in the
+  path, which must be the session's own device. The server holds no key, so
+  it checks only the length, the shape, that the body names the path's device
+  and that the counter is above the stored one (`checkpoint_stale`); the
+  clients verify the MAC (§10).
 
 ## 11. Local storage
 

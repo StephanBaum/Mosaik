@@ -13,7 +13,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
-| M6 Sync | 🔄 in progress (T1 foundation merged, PR #33; T2 engine and folder transport in review, PR #35) |
+| M6 Sync | 🔄 in progress (T1 and T2 merged, PRs #33 and #35; T3 server in review) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -1927,6 +1927,50 @@ CRYPTO_SPEC §10 and §10.1, ADR-0043 and ADR-0045 (amendments in ADR-0043).
   latency); move it to a worker with a copy if it shows. M7 (re-key): own segments written under the
   old `K_fold` read as bad after a re-key and must not be deleted blindly by the unverifiable-file
   cleanup; revisit then.
+
+## M6 Sync — T3 server (2026-11-06)
+
+Spec: the M6 spec §6 and §11 T3 (ADR-0044, ADR-0046; amendments to both in `docs/DECISIONS.md`).
+
+- **`crates/server`** (`mosaic-server`, library and `mosaic-server` binary): axum 0.8 router
+  with every endpoint of §6.2; SQLite through `rusqlite` (bundled, WAL, `foreign_keys`, STRICT tables,
+  its own migration list, `secure_delete`); OPAQUE login and registration with the suite of
+  CRYPTO_SPEC §9.1 (`mosaic_sync::wire::opaque`, `opaque-ke =4.0.1`), pre-login fakes and a fake KE2
+  for unknown emails, login states in memory (60 s, 10 000), session tokens derived from the OPAQUE
+  session key and stored as SHA-256, idle and absolute lifetimes, a five-minute fresh-login window for
+  password change, TOTP, account deletion and device removal; TOTP sealed at rest under `K_totp`
+  with the replay guard (ADR-0008) and five attempts per pending session; per-record base-sequence
+  CAS, generation equality, key CAS with the optional head condition, items and tombstones;
+  checkpoints as raw bytes bound to the path device; attachments with soft delete, restore and the
+  hourly purge; a per-account long poll; quotas; in-memory token-bucket rate limits (IPv6 by /64,
+  `X-Forwarded-For` last hop only from `trusted_proxies`); TOML config and a hand-parsed CLI (`init`,
+  `serve`, `check-config`, `invite create`, `backup [--blobs]`, `account delete`).
+- **`mosaic-sync`**: `wire::opaque` (feature `opaque`): the suite, the context, the identifiers and
+  an `OsRng` over `getrandom`, with a round-trip and server-identity-binding test.
+- **Tests**: 10 unit tests and 37 integration tests in `crates/server/tests/it/` (`api_auth`,
+  `api_sync`, `api_limits`, `no_plaintext`, `cli`), including every test the spec names for T3; the
+  time-based ones use tokio `start_paused` and a manual server clock. `no_plaintext` scans the
+  database file, the WAL, the blobs and the log for the peer address, passwords, tokens and item
+  plaintext. `sim_hosted` and `malicious_server` belong to T4 (they need the HTTP transport).
+- **Fuzz**: `crates/server/fuzz` (`request_bodies`, `checkpoint_upload`, seeds), in the workspace
+  `exclude`, the `fuzz-smoke` matrix (with `max_len`) and the per-lockfile `cargo deny` and
+  `cargo audit` loops. Compiled on Windows with `cargo check --bins`, run in CI.
+- **Deployment**: `deploy/Dockerfile` (pinned digests, distroless non-root), `compose.yaml` (the
+  server on an internal network, Caddy with TLS 1.3), `Caddyfile`, `mosaic-server.example.toml`,
+  `README.md`, and `.dockerignore`. The CI job `server-image` builds the image and smoke-tests
+  `/v1/info` (nothing of it ran locally: there is no container runtime here); `mosaic-server` is in
+  the coverage matrix. `docs/SERVER.md` is the operator guide.
+- **Deviations from the spec**: handlers call the database inline (`block_in_place` on a
+  multi-threaded runtime instead of `spawn_blocking`, so a paused tokio clock cannot jump during a
+  query); per-account change counters; a device uploads only its own checkpoint (403 otherwise);
+  `register/start` has no invite code to check (the request has no field for it), so
+  `invalid_invite` comes at `finish`; a password change keeps the other sessions; the dependency
+  choices are in the ADR amendments.
+- **Needs follow-up (outside this track's write scope)**: `.cargo/audit.toml` must list
+  RUSTSEC-2026-0387 (`crypto-bigint 0.5.5` through `opaque-ke`; `deny.toml` already does, with the
+  reason) or `cargo audit --deny warnings` fails. Reviews due: crypto-reviewer (OPAQUE parameters,
+  fakes, token derivation, TOTP sealing, fresh-login checks), `/security-review`, test-engineer.
+  THREAT_MODEL R61 and R62 are new.
 
 ## Open risks / findings
 

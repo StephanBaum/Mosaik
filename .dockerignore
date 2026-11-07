@@ -1,0 +1,14 @@
+# The image build copies the repository; keep out what the server build does
+# not need (and anything large or private).
+.git
+.claude
+.github
+**/target
+**/node_modules
+**/dist
+apps/mobile
+apps/extension
+apps/desktop/src
+apps/desktop/public
+web
+*.log
