@@ -33,6 +33,9 @@ pub enum DbError {
     /// SQLite failed.
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    /// A file mode could not be set.
+    #[error("i/o error: {0}")]
+    Io(#[from] std::io::Error),
     /// The database was written by a newer server.
     #[error("the database schema is newer than this server")]
     TooNew,
@@ -50,6 +53,9 @@ impl Db {
     /// [`DbError`].
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let conn = Connection::open(path)?;
+        // Before WAL is on: the WAL and shared-memory files SQLite creates
+        // take the mode of the database file.
+        crate::fsperm::restrict_file(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         Self::init(conn)
     }

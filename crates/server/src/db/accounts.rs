@@ -178,11 +178,68 @@ pub fn clear_totp(conn: &Connection, id: &[u8; 16]) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Records the last accepted TOTP step (replay guard, ADR-0008).
-pub fn set_last_step(conn: &Connection, id: &[u8; 16], step: u64) -> Result<(), ApiError> {
-    conn.execute(
-        "UPDATE accounts SET totp_last_step = ?1 WHERE account_id = ?2",
+/// Records the used TOTP step (replay guard, ADR-0008) with a conditional
+/// update: false if a step at or above it is already stored, so two
+/// concurrent requests cannot both accept one code.
+pub fn set_last_step(conn: &Connection, id: &[u8; 16], step: u64) -> Result<bool, ApiError> {
+    let n = conn.execute(
+        "UPDATE accounts SET totp_last_step = ?1 WHERE account_id = ?2 \
+         AND (totp_last_step IS NULL OR totp_last_step < ?1)",
         params![int(step), id.as_slice()],
+    )?;
+    Ok(n == 1)
+}
+
+/// The window of the per-account TOTP failure budget.
+pub const TOTP_FAIL_WINDOW_MS: u64 = 3_600_000;
+/// Wrong TOTP codes allowed per account and window, from any session.
+pub const TOTP_FAIL_BUDGET: u64 = 10;
+
+/// Claims one attempt of the per-account budget before a code is checked:
+/// an atomic count, so concurrent guesses cannot exceed it. The attempt is
+/// given back with [`refund_totp_slot`] when the code was right. The error is
+/// the seconds until the window ends.
+pub fn claim_totp_slot(
+    conn: &Connection,
+    id: &[u8; 16],
+    now: u64,
+) -> Result<Result<(), u32>, ApiError> {
+    let n = conn.execute(
+        "UPDATE accounts SET \
+           totp_fail_count = CASE WHEN ?2 - totp_fail_window >= ?3 THEN 1 ELSE totp_fail_count + 1 END, \
+           totp_fail_window = CASE WHEN ?2 - totp_fail_window >= ?3 THEN ?2 ELSE totp_fail_window END \
+         WHERE account_id = ?1 AND (?2 - totp_fail_window >= ?3 OR totp_fail_count < ?4)",
+        params![
+            id.as_slice(),
+            int(now),
+            int(TOTP_FAIL_WINDOW_MS),
+            int(TOTP_FAIL_BUDGET)
+        ],
+    )?;
+    if n == 1 {
+        return Ok(Ok(()));
+    }
+    let window: i64 = conn
+        .query_row(
+            "SELECT totp_fail_window FROM accounts WHERE account_id = ?1",
+            [id.as_slice()],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    let end = u64::try_from(window)
+        .unwrap_or(0)
+        .saturating_add(TOTP_FAIL_WINDOW_MS);
+    Ok(Err(u32::try_from(end.saturating_sub(now).div_ceil(1000))
+        .unwrap_or(u32::MAX)
+        .max(1)))
+}
+
+/// Gives an attempt of the budget back (the code was right).
+pub fn refund_totp_slot(conn: &Connection, id: &[u8; 16]) -> Result<(), ApiError> {
+    conn.execute(
+        "UPDATE accounts SET totp_fail_count = MAX(totp_fail_count - 1, 0) WHERE account_id = ?1",
+        [id.as_slice()],
     )?;
     Ok(())
 }
@@ -241,4 +298,66 @@ pub fn usage(conn: &Connection, id: &[u8; 16]) -> Result<Usage, ApiError> {
         record_bytes: u(record_bytes),
         attachment_bytes: u(attachment_bytes),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Db;
+
+    const T: u64 = 1_800_000_000_000;
+
+    fn db() -> Db {
+        let db = Db::open_in_memory().unwrap();
+        db.run(|c| {
+            c.execute(
+                "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak, \
+                 account_version, created_at) VALUES (zeroblob(16), 'a@b.c', zeroblob(16), 1, x'00', \
+                 zeroblob(74), 1, 0)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    /// A step is stored only if it is above the stored one: the second of two
+    /// requests with one code loses.
+    #[test]
+    fn last_step_is_a_conditional_update() {
+        let db = db();
+        let id = [0u8; 16];
+        db.run(|c| {
+            assert!(set_last_step(c, &id, 5)?);
+            assert!(!set_last_step(c, &id, 5)?);
+            assert!(!set_last_step(c, &id, 4)?);
+            assert!(set_last_step(c, &id, 6)?);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// Ten claims per hour, then the seconds until the window ends; a refund
+    /// gives one back; a new window starts fresh.
+    #[test]
+    fn totp_budget_is_claimed_atomically() {
+        let db = db();
+        let id = [0u8; 16];
+        db.run(|c| {
+            for _ in 0..10 {
+                assert_eq!(claim_totp_slot(c, &id, T + 1_000)?, Ok(()));
+            }
+            assert_eq!(claim_totp_slot(c, &id, T + 61_000)?, Err(3_540));
+            refund_totp_slot(c, &id)?;
+            assert_eq!(claim_totp_slot(c, &id, T + 61_000)?, Ok(()));
+            assert!(claim_totp_slot(c, &id, T + 62_000)?.is_err());
+            assert_eq!(
+                claim_totp_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?,
+                Ok(())
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

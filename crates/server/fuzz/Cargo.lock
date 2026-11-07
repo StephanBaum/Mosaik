@@ -627,6 +627,7 @@ dependencies = [
  "base64ct",
  "getrandom",
  "idna",
+ "libc",
  "mosaic-core",
  "mosaic-vault",
  "opaque-ke",

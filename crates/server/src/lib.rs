@@ -21,6 +21,7 @@ mod clock;
 mod config;
 mod db;
 mod error;
+mod fsperm;
 mod polls;
 mod ratelimit;
 

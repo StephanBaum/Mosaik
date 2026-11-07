@@ -8,7 +8,7 @@ use mosaic_core::{AccountId, Argon2Profile};
 use mosaic_sync::wire::email;
 use mosaic_sync::wire::json::{B64Fixed, PreloginRequest, PreloginResponse, codes};
 
-use super::{ClientIp, Reply, parse_body};
+use super::{Gated, PreloginGate, Reply, parse_body};
 use crate::AppState;
 use crate::auth::prelogin::{self, DIST_TTL_MS, ProfileDist};
 use crate::db::accounts;
@@ -46,14 +46,11 @@ pub fn normalized_email(raw: &str) -> Result<String, ApiError> {
 
 pub async fn post(
     State(st): State<AppState>,
-    ip: ClientIp,
+    Gated(_ip, _): Gated<PreloginGate>,
     body: Bytes,
 ) -> Result<Reply, ApiError> {
     let req: PreloginRequest = parse_body(&body, MAX_BODY)?;
     let now = st.clock.now_ms();
-    st.rate
-        .check(now, Scope::PreloginIp, &ip.key(), ratelimit::PRELOGIN_IP)
-        .map_err(ApiError::rate_limited)?;
     let email = normalized_email(&req.email)?;
     st.rate
         .check(
@@ -69,10 +66,12 @@ pub async fn post(
         let profile = Argon2Profile::from_id(a.profile).map_err(|_| ApiError::internal())?;
         (a.account_id, a.salt, profile)
     } else {
-        let secret = &*st.keys.server_secret;
+        let key =
+            crate::auth::prelogin_key(&st.keys.server_secret).ok_or_else(ApiError::internal)?;
+        let secret = &*key;
         let dist = distribution(&st, now)?;
         (
-            prelogin::fake_account_id(secret, st.keys.init_ms, &email),
+            prelogin::fake_account_id(secret, &email),
             prelogin::fake_salt(secret, &email),
             prelogin::fake_profile(secret, &dist, &email),
         )

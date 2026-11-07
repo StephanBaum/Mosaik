@@ -44,10 +44,19 @@ fn check_code(
     code: &str,
     last_step: Option<u64>,
 ) -> Result<u64, ApiError> {
-    sealed
+    let step = sealed
         .and_then(|s| totp::open(&st.keys.server_secret, account_id, s))
         .and_then(|secret| totp::verify(&secret, code, st.clock.now_ms(), last_step))
-        .ok_or_else(two_factor_invalid)
+        .ok_or_else(two_factor_invalid)?;
+    // Conditional store: a code is accepted once even under parallel requests.
+    if st
+        .db
+        .run(|c| accounts::set_last_step(c, account_id, step))?
+    {
+        Ok(step)
+    } else {
+        Err(two_factor_invalid())
+    }
 }
 
 pub async fn get(State(st): State<AppState>, Session(s): Session) -> Result<Reply, ApiError> {
@@ -151,7 +160,7 @@ pub async fn totp_confirm(
         &st,
         &s.account_id,
         a.totp_pending_sealed.as_deref(),
-        &req.code,
+        req.code.expose_secret(),
         None,
     )?;
     let now = st.clock.now_ms();
@@ -180,7 +189,7 @@ pub async fn totp_disable(
         &st,
         &s.account_id,
         a.totp_sealed.as_deref(),
-        &req.code,
+        req.code.expose_secret(),
         a.totp_last_step,
     )?;
     let now = st.clock.now_ms();
@@ -206,7 +215,11 @@ pub async fn delete(
     s.require_fresh()?;
     let a = load(&st, &s.account_id)?;
     if a.totp_sealed.is_some() {
-        let code = req.code.as_deref().ok_or_else(two_factor_invalid)?;
+        let code = req
+            .code
+            .as_ref()
+            .ok_or_else(two_factor_invalid)?
+            .expose_secret();
         check_code(
             &st,
             &s.account_id,

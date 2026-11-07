@@ -54,6 +54,13 @@ pub async fn create(
     if meta.key_generation() != req.generation {
         return Err(ApiError::bad_request());
     }
+    // A vault is created by the device that signed in.
+    if *req.device_id.as_bytes() != s.device_id {
+        return Err(ApiError::forbidden());
+    }
+    if u64::from(req.generation.get()) > st.limits.max_key_generations {
+        return Err(crate::db::devices::quota("keyGenerations"));
+    }
     let now = st.clock.now_ms();
     let created = st.db.run_tx(|tx| {
         dbv::create(

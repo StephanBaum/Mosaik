@@ -151,6 +151,14 @@ pub async fn put_key(
         return Err(ApiError::bad_request());
     }
     let req: PutKeyRequest = parse_body(&body, 4096)?;
+    // A key is uploaded by the device that signed in (the canonical winner of
+    // two rotations is decided on this ID, CRYPTO_SPEC §10.1).
+    if *req.device_id.as_bytes() != s.device_id {
+        return Err(ApiError::forbidden());
+    }
+    if u64::from(generation) > st.limits.max_key_generations {
+        return Err(crate::db::devices::quota("keyGenerations"));
+    }
     let now = st.clock.now_ms();
     let server_seq = st.db.run_tx(|tx| {
         dbv::put_key(

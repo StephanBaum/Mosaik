@@ -11,7 +11,10 @@ use mosaic_sync::wire::json::RegistrationMode;
 
 use crate::common::{LoginResult, TestApp, TestVault, User};
 
-const PEER: &str = "203.0.113.77:5555";
+/// The peer of the test requests. The port is five digits that no timestamp or
+/// duration in a log line or a database page is likely to contain, and it is
+/// looked for only with its address or after a colon.
+const PEER: &str = "203.0.113.77:51873";
 const MARKER: &str = "PLAINTEXT-MARKER-4e1f9b2c-item-title";
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -36,6 +39,30 @@ fn stored_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
         }
     }
     out
+}
+
+/// The detector finds a peer address in the places a log line or a page would
+/// hold it, and does not fire on digits alone.
+#[test]
+fn detector_catches_a_logged_peer_address() {
+    let needles: [&[u8]; 3] = [b"203.0.113.77", b"203.0.113.77:51873", b":51873"];
+    for line in [
+        &b"INFO request peer=203.0.113.77:51873 status=200"[..],
+        b"connection from 203.0.113.77:51873",
+        b"addr: [203.0.113.77]:51873",
+    ] {
+        assert!(
+            needles.iter().any(|n| contains(line, n)),
+            "{}",
+            String::from_utf8_lossy(line)
+        );
+    }
+    for line in [
+        &b"ms=51873 route=/v1/login/start"[..],
+        b"1800000051873 duration=5555",
+    ] {
+        assert!(needles.iter().all(|n| !contains(line, n)));
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -89,7 +116,8 @@ async fn no_plaintext_and_no_ip_on_disk_or_in_logs() {
         ("peer IP text", b"203.0.113.77".to_vec()),
         ("peer IP prefix", b"203.0.113.".to_vec()),
         ("peer IP octets", vec![203, 0, 113, 77]),
-        ("peer port", b"5555".to_vec()),
+        ("peer address with port", b"203.0.113.77:51873".to_vec()),
+        ("peer port after a colon", b":51873".to_vec()),
         ("item plaintext", MARKER.as_bytes().to_vec()),
         ("OPAQUE password", u.opw.to_vec()),
         ("session token", token.to_vec()),

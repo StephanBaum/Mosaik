@@ -273,6 +273,38 @@ impl SecretText {
     }
 }
 
+impl From<&str> for SecretText {
+    /// Copies the text into a zeroizing buffer (a failed allocation yields
+    /// the empty secret).
+    fn from(v: &str) -> Self {
+        Self(SecretString::from_str_copy(v).unwrap_or_else(|_| SecretString::from(String::new())))
+    }
+}
+
+impl From<String> for SecretText {
+    /// Takes the allocation over: it is zeroized with the secret.
+    fn from(v: String) -> Self {
+        Self(SecretString::from(v))
+    }
+}
+
+/// Equality without an early exit (for tests and the fuzz targets).
+impl PartialEq for SecretText {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = (
+            self.0.expose_secret().as_bytes(),
+            other.0.expose_secret().as_bytes(),
+        );
+        let mut diff = a.len() ^ b.len();
+        for (x, y) in a.iter().zip(b) {
+            diff |= usize::from(x ^ y);
+        }
+        diff == 0
+    }
+}
+
+impl Eq for SecretText {}
+
 impl fmt::Debug for SecretText {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[REDACTED]")
@@ -517,18 +549,19 @@ pub struct LoginResponse {
 
 /// A request that carries one second-factor code: `login/totp`,
 /// `account/totp/confirm` and `account/totp/disable`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CodeRequest {
-    pub code: String,
+    /// The code: a zeroizing secret, redacted in `Debug`, not `Clone`.
+    pub code: SecretText,
 }
 
 /// `DELETE /v1/account`: the code is `null` unless 2FA is on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteAccountRequest {
     #[serde(deserialize_with = "required")]
-    pub code: Option<String>,
+    pub code: Option<SecretText>,
 }
 
 /// `GET /v1/account`.

@@ -432,11 +432,29 @@ impl TestApp {
 
     // ---- vaults ------------------------------------------------------
 
+    /// The device a session belongs to.
+    pub fn device_of(&self, token: &[u8; 32]) -> InstallId {
+        use sha2::{Digest, Sha256};
+        let hash: [u8; 32] = Sha256::digest(token).into();
+        let id: Vec<u8> = self
+            .state
+            .db()
+            .run(|c| {
+                Ok(c.query_row(
+                    "SELECT device_id FROM sessions WHERE token_hash = ?1",
+                    [hash.as_slice()],
+                    |r| r.get(0),
+                )?)
+            })
+            .expect("session");
+        InstallId::from_slice(&id).expect("device id")
+    }
+
     pub async fn create_vault(&self, token: &[u8; 32], v: &TestVault) -> Resp {
         self.put(
             &format!("/v1/vaults/{}", v.id),
             Some(token),
-            &v.create_request(),
+            &v.create_request(self.device_of(token)),
         )
         .await
     }
@@ -523,7 +541,7 @@ impl User {
         Self {
             email: email.to_owned(),
             opw,
-            account_id: AccountId::new_v7().expect("id"),
+            account_id: AccountId::new_random().expect("id"),
             device: InstallId::new_v7().expect("id"),
             salt,
         }
@@ -564,11 +582,11 @@ impl TestVault {
             .to_vec()
     }
 
-    pub fn create_request(&self) -> CreateVaultRequest {
+    pub fn create_request(&self, device: InstallId) -> CreateVaultRequest {
         CreateVaultRequest {
             generation: self.vk.generation(),
             wrapped_key: wrapped_key(u8::try_from(self.vk.generation().get()).unwrap()),
-            device_id: self.device,
+            device_id: device,
             meta: B64(self.meta()),
         }
     }

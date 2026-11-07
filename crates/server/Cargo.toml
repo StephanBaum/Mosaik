@@ -28,6 +28,7 @@ mosaic-sync = { path = "../sync", features = ["opaque"] }
 mosaic-totp = { path = "../totp" }
 axum.workspace = true
 tower-http.workspace = true
+tower.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net"] }
 rusqlite.workspace = true
 toml.workspace = true
@@ -49,7 +50,7 @@ subtle.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-tower.workspace = true
+
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util"] }
 mosaic-sync = { path = "../sync", features = ["opaque", "test-util"] }

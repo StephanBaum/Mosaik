@@ -19,6 +19,8 @@ CREATE TABLE accounts (
     totp_sealed BLOB CHECK (totp_sealed IS NULL OR length(totp_sealed) <= 256),
     totp_pending_sealed BLOB CHECK (totp_pending_sealed IS NULL OR length(totp_pending_sealed) <= 256),
     totp_last_step INTEGER,
+    totp_fail_count INTEGER NOT NULL DEFAULT 0,
+    totp_fail_window INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 ) STRICT;
 

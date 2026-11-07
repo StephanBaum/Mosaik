@@ -14,11 +14,10 @@ use mosaic_sync::wire::opaque::{
 };
 
 use super::prelogin::normalized_email;
-use super::{ClientIp, Reply, parse_body, valid_device_name};
+use super::{Gated, RegisterFinishGate, RegisterStartGate, Reply, parse_body, valid_device_name};
 use crate::AppState;
 use crate::db::{accounts, audit, devices, invites};
 use crate::error::ApiError;
-use crate::ratelimit::{self, Scope};
 
 const MAX_BODY: usize = 16 * 1024;
 
@@ -34,18 +33,10 @@ fn check_open(st: &AppState) -> Result<(), ApiError> {
 
 pub async fn start(
     State(st): State<AppState>,
-    ip: ClientIp,
+    _gate: Gated<RegisterStartGate>,
     body: Bytes,
 ) -> Result<Reply, ApiError> {
     let req: RegisterStartRequest = parse_body(&body, MAX_BODY)?;
-    st.rate
-        .check(
-            st.clock.now_ms(),
-            Scope::RegisterStartIp,
-            &ip.key(),
-            ratelimit::REGISTER_IP,
-        )
-        .map_err(ApiError::rate_limited)?;
     check_open(&st)?;
     normalized_email(&req.email)?;
     let request = RegistrationRequest::<Suite>::deserialize(&req.registration_request.0)
@@ -62,19 +53,11 @@ pub async fn start(
 
 pub async fn finish(
     State(st): State<AppState>,
-    ip: ClientIp,
+    _gate: Gated<RegisterFinishGate>,
     body: Bytes,
 ) -> Result<Reply, ApiError> {
     let req: RegisterFinishRequest = parse_body(&body, MAX_BODY)?;
     let now = st.clock.now_ms();
-    st.rate
-        .check(
-            now,
-            Scope::RegisterFinishIp,
-            &ip.key(),
-            ratelimit::REGISTER_IP,
-        )
-        .map_err(ApiError::rate_limited)?;
     check_open(&st)?;
     let email = normalized_email(&req.email)?;
     if !valid_device_name(&req.device_name) {

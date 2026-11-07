@@ -285,3 +285,75 @@ async fn account_delete_command_removes_the_account() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[test]
+fn new_limits_are_validated() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extra, what) in [
+        ("[limits]\nmax_concurrent_requests = 0\n", "no concurrency"),
+        (
+            "[limits]\nmax_concurrent_requests = 1000000\n",
+            "absurd concurrency",
+        ),
+        ("[limits]\nmax_key_generations = 0\n", "no key generations"),
+    ] {
+        let p = write_config(dir.path(), extra);
+        assert!(
+            matches!(Config::load(&p), Err(ConfigError::Invalid(_))),
+            "{what}"
+        );
+    }
+    let ok = Config::load(&write_config(dir.path(), "")).unwrap();
+    assert_eq!(ok.limits.max_concurrent_requests, 512);
+    assert_eq!(ok.limits.max_key_generations, 10_000);
+}
+
+#[cfg(unix)]
+#[test]
+fn files_are_private_and_a_readable_secret_file_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
+
+    use mosaic_server::{AppState, SecretFileError, ServerKeys, StartError, SystemClock};
+
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_config(dir.path(), "");
+    cli(&["init", "--config", path.to_str().unwrap()]).unwrap();
+    let config = Config::load(&path).unwrap();
+    assert_eq!(mode(&config.data_dir), 0o700);
+    assert_eq!(mode(&config.secret_file), 0o600);
+    let db = config.data_dir.join(DB_FILE);
+    assert_eq!(mode(&db), 0o600);
+
+    // The WAL and shared-memory files take the mode of the database file.
+    let state = AppState::open(&config, Arc::new(SystemClock)).unwrap();
+    state
+        .db()
+        .run(|c| {
+            c.execute("CREATE TABLE IF NOT EXISTS probe (x)", [])?;
+            Ok::<_, ApiError>(())
+        })
+        .unwrap();
+    for ext in ["-wal", "-shm"] {
+        let f = config.data_dir.join(format!("{DB_FILE}{ext}"));
+        if f.exists() {
+            assert_eq!(mode(&f), 0o600, "{ext}");
+        }
+    }
+
+    // A secret file that others can read is refused, by the loader and at start.
+    std::fs::set_permissions(&config.secret_file, std::fs::Permissions::from_mode(0o640)).unwrap();
+    assert!(matches!(
+        ServerKeys::load(&config.secret_file),
+        Err(SecretFileError::Permissions)
+    ));
+    assert!(matches!(
+        AppState::open(&config, Arc::new(SystemClock)),
+        Err(StartError::Secret(SecretFileError::Permissions))
+    ));
+    std::fs::set_permissions(&config.secret_file, std::fs::Permissions::from_mode(0o604)).unwrap();
+    assert!(ServerKeys::load(&config.secret_file).is_err());
+    std::fs::set_permissions(&config.secret_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(ServerKeys::load(&config.secret_file).is_ok());
+}

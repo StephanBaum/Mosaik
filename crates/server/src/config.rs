@@ -53,6 +53,10 @@ pub struct Limits {
     pub session_max_days: u64,
     /// Days a soft-deleted attachment is kept.
     pub soft_delete_days: u64,
+    /// Requests handled at once, server-wide (long polls excepted).
+    pub max_concurrent_requests: u64,
+    /// Key generations per vault.
+    pub max_key_generations: u64,
 }
 
 impl Default for Limits {
@@ -65,6 +69,8 @@ impl Default for Limits {
             session_idle_days: 30,
             session_max_days: 180,
             soft_delete_days: 30,
+            max_concurrent_requests: 512,
+            max_key_generations: 10_000,
         }
     }
 }
@@ -145,6 +151,16 @@ impl Config {
         }
         if l.session_max_days > 3650 || l.soft_delete_days == 0 || l.soft_delete_days > 3650 {
             return Err(ConfigError::Invalid("limits day counts (1 to 3650)"));
+        }
+        if !(1..=100_000).contains(&l.max_concurrent_requests) {
+            return Err(ConfigError::Invalid(
+                "limits.max_concurrent_requests (1 to 100000)",
+            ));
+        }
+        if !(1..=1_000_000).contains(&l.max_key_generations) {
+            return Err(ConfigError::Invalid(
+                "limits.max_key_generations (1 to 1000000)",
+            ));
         }
         Ok(())
     }

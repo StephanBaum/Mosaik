@@ -18,6 +18,8 @@ use tokio::sync::{Notify, watch};
 pub const POLL_TIMEOUT: Duration = Duration::from_secs(25);
 /// Polls waiting at once, server-wide.
 pub const MAX_POLLS: usize = 10_000;
+/// Polls waiting at once for one account.
+pub const MAX_POLLS_PER_ACCOUNT: usize = 32;
 
 /// Why a poll was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +30,7 @@ pub enum PollRefused {
 
 struct Active {
     id: u64,
+    account: [u8; 16],
     release: std::sync::Arc<Notify>,
 }
 
@@ -36,6 +39,7 @@ struct Active {
 pub struct Polls {
     counters: Mutex<HashMap<[u8; 16], watch::Sender<u64>>>,
     active: Mutex<HashMap<[u8; 32], Active>>,
+    per_account: Mutex<HashMap<[u8; 16], usize>>,
     next_id: AtomicU64,
 }
 
@@ -84,10 +88,17 @@ impl Polls {
             if active.len() >= MAX_POLLS {
                 return Err(PollRefused::TooMany);
             }
+            let mut counts = lock(&self.per_account);
+            let n = counts.entry(account).or_insert(0);
+            if *n >= MAX_POLLS_PER_ACCOUNT {
+                return Err(PollRefused::TooMany);
+            }
+            *n += 1;
             active.insert(
                 session,
                 Active {
                     id,
+                    account,
                     release: release.clone(),
                 },
             );
@@ -139,8 +150,63 @@ struct ActiveGuard<'a> {
 impl Drop for ActiveGuard<'_> {
     fn drop(&mut self) {
         let mut active = lock(&self.polls.active);
-        if active.get(&self.session).is_some_and(|a| a.id == self.id) {
-            active.remove(&self.session);
+        if active.get(&self.session).is_some_and(|a| a.id == self.id)
+            && let Some(gone) = active.remove(&self.session)
+        {
+            let mut counts = lock(&self.polls.per_account);
+            if let Some(n) = counts.get_mut(&gone.account) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    counts.remove(&gone.account);
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 33rd waiting poll of one account is refused; another account and
+    /// a freed slot are fine.
+    #[tokio::test(start_paused = true)]
+    async fn per_account_cap() {
+        let polls = std::sync::Arc::new(Polls::new());
+        let account = [1u8; 16];
+        let mut waiting = Vec::new();
+        for i in 0..MAX_POLLS_PER_ACCOUNT {
+            let p = polls.clone();
+            let session = [u8::try_from(i).unwrap(); 32];
+            waiting.push(tokio::spawn(async move {
+                p.wait(account, session, 1, 1, Duration::from_secs(25))
+                    .await
+            }));
+        }
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        let refused = polls
+            .wait(account, [200u8; 32], 1, 1, Duration::from_secs(25))
+            .await;
+        assert_eq!(refused, Err(PollRefused::TooMany));
+        // Another account has its own budget.
+        let p = polls.clone();
+        let other = tokio::spawn(async move {
+            p.wait([2u8; 16], [201u8; 32], 1, 1, Duration::from_secs(25))
+                .await
+        });
+        tokio::task::yield_now().await;
+        assert!(!other.is_finished());
+        // After the timeout the slots are free again.
+        tokio::time::sleep(Duration::from_secs(26)).await;
+        for w in waiting {
+            assert!(w.await.unwrap().is_ok());
+        }
+        assert!(
+            polls
+                .wait(account, [200u8; 32], 1, 1, Duration::from_millis(1))
+                .await
+                .is_ok()
+        );
     }
 }

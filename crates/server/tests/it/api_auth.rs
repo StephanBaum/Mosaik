@@ -238,16 +238,9 @@ async fn prelogin_unknown_email_deterministic_uuidv7_shaped() {
     assert_ne!(a.salt.0, c.salt.0);
 
     let id = *a.account_id.as_bytes();
-    assert_eq!(id[6] >> 4, 7, "UUID version");
+    // A UUIDv4 like every real account ID (random, no timestamp).
+    assert_eq!(id[6] >> 4, 4, "UUID version");
     assert_eq!(id[8] >> 6, 0b10, "UUID variant");
-    let mut ts = [0u8; 8];
-    ts[2..].copy_from_slice(&id[..6]);
-    let ts = u64::from_be_bytes(ts);
-    let init = T0 - 1000;
-    assert!(
-        ts <= init && init - ts < 15_552_000_000,
-        "within 180 days before init"
-    );
     // No accounts yet: the client's default profile.
     assert_eq!(a.profile, Argon2Profile::DEFAULT);
 
@@ -378,7 +371,9 @@ async fn totp_flow_replay_and_attempt_limit() {
         .post(
             "/v1/account/totp/confirm",
             Some(&token),
-            &CodeRequest { code: code.clone() },
+            &CodeRequest {
+                code: code.clone().into(),
+            },
         )
         .await;
     assert_eq!(
@@ -412,7 +407,11 @@ async fn totp_flow_replay_and_attempt_limit() {
 
     // A code of the step that confirmed the setup is a replay.
     let replay = app
-        .post("/v1/login/totp", Some(&pending), &CodeRequest { code })
+        .post(
+            "/v1/login/totp",
+            Some(&pending),
+            &CodeRequest { code: code.into() },
+        )
         .await;
     assert_eq!(replay.code(), "two_factor_invalid");
     // The next step's code works.
@@ -421,7 +420,9 @@ async fn totp_flow_replay_and_attempt_limit() {
         .post(
             "/v1/login/totp",
             Some(&pending),
-            &CodeRequest { code: code.clone() },
+            &CodeRequest {
+                code: code.clone().into(),
+            },
         )
         .await;
     assert_eq!(
@@ -441,7 +442,11 @@ async fn totp_flow_replay_and_attempt_limit() {
         panic!()
     };
     let reuse = app
-        .post("/v1/login/totp", Some(&second), &CodeRequest { code })
+        .post(
+            "/v1/login/totp",
+            Some(&second),
+            &CodeRequest { code: code.into() },
+        )
         .await;
     assert_eq!(reuse.code(), "two_factor_invalid");
 
@@ -460,11 +465,15 @@ async fn totp_flow_replay_and_attempt_limit() {
         assert_eq!(r.status, StatusCode::UNAUTHORIZED);
     }
     let gone = app
-        .post("/v1/login/totp", Some(&second), &CodeRequest { code: good })
+        .post(
+            "/v1/login/totp",
+            Some(&second),
+            &CodeRequest { code: good.into() },
+        )
         .await;
     assert_eq!(gone.code(), "unauthorized");
 
-    // A completed session cannot use the TOTP route.
+    // The first session was ended by the later logins of the same device.
     let r = app
         .post(
             "/v1/login/totp",
@@ -474,7 +483,7 @@ async fn totp_flow_replay_and_attempt_limit() {
             },
         )
         .await;
-    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test(start_paused = true)]
@@ -861,7 +870,7 @@ async fn account_delete_with_totp_removes_everything() {
         .post(
             "/v1/account/totp/confirm",
             Some(&token),
-            &CodeRequest { code },
+            &CodeRequest { code: code.into() },
         )
         .await;
     assert_eq!(confirm.status, StatusCode::OK);
@@ -933,4 +942,240 @@ async fn account_delete_with_totp_removes_everything() {
         app.register(&User::new(&u.email), None).await.status,
         StatusCode::CREATED
     );
+}
+
+async fn totp_user(app: &TestApp) -> (User, String) {
+    let (u, token) = app.user("alice").await;
+    let setup: TotpSetupResponse = app
+        .post("/v1/account/totp/setup", Some(&token), &Empty {})
+        .await
+        .json();
+    let secret = setup.secret.expose_secret().to_owned();
+    let code = code_for(&secret, T0 / 1000);
+    let r = app
+        .post(
+            "/v1/account/totp/confirm",
+            Some(&token),
+            &CodeRequest { code: code.into() },
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    (u, secret)
+}
+
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "reads naturally at the call sites"
+)]
+fn pending(r: LoginResult) -> [u8; 32] {
+    match r {
+        LoginResult::Ok {
+            token,
+            status: LoginStatus::TwoFactorRequired,
+            ..
+        } => token,
+        _ => panic!("expected a pending session"),
+    }
+}
+
+fn now_s(app: &TestApp) -> u64 {
+    use mosaic_server::Clock as _;
+    app.clock.now_ms() / 1000
+}
+
+#[tokio::test(start_paused = true)]
+async fn login_replaces_the_devices_other_sessions() {
+    let app = open_app();
+    let (u, first) = app.user("alice").await;
+    app.clock.advance_ms(13_000);
+    let other = app.login_device(&u, InstallId::new_v7().unwrap()).await;
+    app.clock.advance_ms(13_000);
+    let second = app.login_device(&u, u.device).await;
+    assert_eq!(
+        app.get("/v1/account", Some(&first)).await.status,
+        StatusCode::UNAUTHORIZED,
+        "the device session of the earlier login ended with the new login"
+    );
+    assert_eq!(
+        app.get("/v1/account", Some(&second)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.get("/v1/account", Some(&other)).await.status,
+        StatusCode::OK
+    );
+    let n: i64 = app
+        .state
+        .db()
+        .run(|c| Ok::<_, ApiError>(c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?))
+        .unwrap();
+    assert_eq!(n, 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_totp_guesses_on_one_session_are_capped_at_five() {
+    use std::sync::Arc;
+
+    let app = Arc::new(open_app());
+    let (u, _secret) = totp_user(&app).await;
+    app.clock.advance_ms(13_000);
+    let token = pending(app.login(&u).await);
+    let guesses: Vec<_> = (0..20)
+        .map(|_| {
+            let app = app.clone();
+            tokio::spawn(async move {
+                app.post(
+                    "/v1/login/totp",
+                    Some(&token),
+                    &CodeRequest {
+                        code: "000000".into(),
+                    },
+                )
+                .await
+            })
+        })
+        .collect();
+    let mut codes = Vec::new();
+    for g in guesses {
+        codes.push(g.await.unwrap().code());
+    }
+    assert_eq!(
+        codes.iter().filter(|c| *c == "two_factor_invalid").count(),
+        5
+    );
+    assert_eq!(codes.iter().filter(|c| *c == "unauthorized").count(), 15);
+}
+
+#[tokio::test(start_paused = true)]
+async fn totp_failure_budget_holds_across_sessions() {
+    let app = open_app();
+    let (u, secret) = totp_user(&app).await;
+    let wrong = |t: [u8; 32]| {
+        let app = &app;
+        async move {
+            app.post(
+                "/v1/login/totp",
+                Some(&t),
+                &CodeRequest {
+                    code: "000000".into(),
+                },
+            )
+            .await
+        }
+    };
+    // Two sessions use their five guesses each: ten failures in the hour.
+    for _ in 0..2 {
+        app.clock.advance_ms(13_000);
+        let t = pending(app.login(&u).await);
+        for _ in 0..5 {
+            assert_eq!(wrong(t).await.code(), "two_factor_invalid");
+        }
+    }
+    // A third session is refused at its first guess, even with the right code.
+    app.clock.advance_ms(13_000);
+    let t = pending(app.login(&u).await);
+    let r = wrong(t).await;
+    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(r.code(), "rate_limited");
+    let retry: u64 = r.headers["retry-after"].to_str().unwrap().parse().unwrap();
+    assert!((3_000..=3_600).contains(&retry), "{retry}");
+    let good = code_for(&secret, now_s(&app) + 30);
+    let r = app
+        .post(
+            "/v1/login/totp",
+            Some(&t),
+            &CodeRequest { code: good.into() },
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
+    // After the window the right code works (and the failures are forgotten).
+    app.clock.advance_ms(3_700_000);
+    let t = pending(app.login(&u).await);
+    let good = code_for(&secret, now_s(&app));
+    let r = app
+        .post(
+            "/v1/login/totp",
+            Some(&t),
+            &CodeRequest { code: good.into() },
+        )
+        .await;
+    assert_eq!(
+        r.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn pending_session_expires() {
+    let app = open_app();
+    let (u, secret) = totp_user(&app).await;
+    app.clock.advance_ms(60_000);
+    let t = pending(app.login(&u).await);
+    // The pending session does not slide with use.
+    app.clock.advance_ms(200_000);
+    let r = app
+        .post(
+            "/v1/login/totp",
+            Some(&t),
+            &CodeRequest {
+                code: "000000".into(),
+            },
+        )
+        .await;
+    assert_eq!(r.code(), "two_factor_invalid");
+    app.clock.advance_ms(101_000);
+    let good = code_for(&secret, now_s(&app));
+    let r = app
+        .post(
+            "/v1/login/totp",
+            Some(&t),
+            &CodeRequest { code: good.into() },
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(r.code(), "unauthorized");
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_code_is_accepted_once_across_sessions() {
+    use std::sync::Arc;
+
+    let app = Arc::new(open_app());
+    let (u, secret) = totp_user(&app).await;
+    app.clock.advance_ms(40_000);
+    let a = pending(app.login(&u).await);
+    app.clock.advance_ms(13_000);
+    let b = pending(
+        app.login_with(
+            &u.email,
+            &u.opw,
+            u.account_id,
+            InstallId::new_v7().unwrap(),
+            IP,
+        )
+        .await,
+    );
+    let code = code_for(&secret, now_s(&app));
+    let tasks: Vec<_> = [a, b]
+        .into_iter()
+        .map(|t| {
+            let (app, code) = (app.clone(), code.clone());
+            tokio::spawn(async move {
+                app.post(
+                    "/v1/login/totp",
+                    Some(&t),
+                    &CodeRequest { code: code.into() },
+                )
+                .await
+            })
+        })
+        .collect();
+    let mut statuses = Vec::new();
+    for t in tasks {
+        statuses.push(t.await.unwrap().status);
+    }
+    statuses.sort();
+    assert_eq!(statuses, vec![StatusCode::OK, StatusCode::UNAUTHORIZED]);
 }

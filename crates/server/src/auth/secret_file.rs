@@ -38,6 +38,9 @@ pub enum SecretFileError {
     /// The bytes are not a secret file of this version.
     #[error("the secret file is malformed")]
     Malformed,
+    /// The file can be read by group or others (Unix).
+    #[error("the secret file is accessible to other users: chmod 600")]
+    Permissions,
     /// The OS random number generator failed.
     #[error("the random number generator failed")]
     Randomness,
@@ -137,6 +140,9 @@ impl ServerKeys {
     /// [`SecretFileError`].
     pub fn load(path: &Path) -> Result<Self, SecretFileError> {
         let meta = fs::metadata(path).map_err(|_| SecretFileError::Io)?;
+        if !crate::fsperm::is_private(path).map_err(|_| SecretFileError::Io)? {
+            return Err(SecretFileError::Permissions);
+        }
         if meta.len() > MAX_LEN {
             return Err(SecretFileError::Malformed);
         }

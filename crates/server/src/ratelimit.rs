@@ -73,8 +73,13 @@ pub const SESSION: Rule = Rule::per_minute(600, 600);
 /// Attachment uploads: 60/min per session.
 pub const ATTACHMENT_PUT: Rule = Rule::per_minute(60, 60);
 
-/// Most buckets kept; beyond it, idle buckets are dropped.
-const MAX_BUCKETS: usize = 200_000;
+/// Most buckets of the IP scopes.
+const MAX_IP_BUCKETS: usize = 100_000;
+/// Most buckets of the email and session scopes (a separate map, so a flood
+/// of IP keys cannot crowd them out).
+const MAX_KEY_BUCKETS: usize = 200_000;
+/// Seconds a request must wait when the map is full of live buckets.
+const FULL_RETRY_S: u32 = 60;
 
 #[derive(Clone, Copy)]
 struct Bucket {
@@ -84,10 +89,33 @@ struct Bucket {
     full: u64,
 }
 
-/// The rate limiter.
-#[derive(Default)]
+type Buckets = HashMap<(Scope, [u8; 32]), Bucket>;
+
+const fn is_full(b: &Bucket, now_ms: u64) -> bool {
+    b.level.saturating_add(now_ms.saturating_sub(b.last)) >= b.full
+}
+
+/// The rate limiter. Buckets live in two maps with their own caps. A bucket
+/// is dropped only when it is full again (dropping it then forgets nothing);
+/// when a map is full of live buckets, a new key is refused.
 pub struct RateLimiter {
-    buckets: Mutex<HashMap<(Scope, [u8; 32]), Bucket>>,
+    ip: Mutex<Buckets>,
+    keyed: Mutex<Buckets>,
+    ip_cap: usize,
+    key_cap: usize,
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::with_caps(MAX_IP_BUCKETS, MAX_KEY_BUCKETS)
+    }
+}
+
+const fn is_ip_scope(scope: Scope) -> bool {
+    matches!(
+        scope,
+        Scope::PreloginIp | Scope::LoginIp | Scope::RegisterStartIp | Scope::RegisterFinishIp
+    )
 }
 
 impl RateLimiter {
@@ -97,6 +125,17 @@ impl RateLimiter {
         Self::default()
     }
 
+    /// A limiter with the given caps for the IP map and the other map.
+    #[must_use]
+    pub fn with_caps(ip_cap: usize, key_cap: usize) -> Self {
+        Self {
+            ip: Mutex::new(HashMap::new()),
+            keyed: Mutex::new(HashMap::new()),
+            ip_cap,
+            key_cap,
+        }
+    }
+
     /// Takes one token from the bucket for `(scope, key)`.
     ///
     /// # Errors
@@ -104,15 +143,18 @@ impl RateLimiter {
     pub fn check(&self, now_ms: u64, scope: Scope, key: &[u8], rule: Rule) -> Result<(), u32> {
         let key: [u8; 32] = Sha256::digest(key).into();
         let full = u64::from(rule.capacity).saturating_mul(rule.ms_per_token);
-        let mut map = self
-            .buckets
+        let (mutex, cap) = if is_ip_scope(scope) {
+            (&self.ip, self.ip_cap)
+        } else {
+            (&self.keyed, self.key_cap)
+        };
+        let mut map = mutex
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if map.len() >= MAX_BUCKETS && !map.contains_key(&(scope, key)) {
-            // Idle buckets are full again: dropping them forgets nothing.
-            map.retain(|_, b| b.level.saturating_add(now_ms.saturating_sub(b.last)) < b.full);
-            if map.len() >= MAX_BUCKETS {
-                map.clear();
+        if map.len() >= cap && !map.contains_key(&(scope, key)) {
+            map.retain(|_, b| !is_full(b, now_ms));
+            if map.len() >= cap {
+                return Err(FULL_RETRY_S);
             }
         }
         let bucket = map.entry((scope, key)).or_insert(Bucket {
@@ -136,11 +178,11 @@ impl RateLimiter {
 
     /// Drops buckets that are full again.
     pub fn prune(&self, now_ms: u64) {
-        let mut map = self
-            .buckets
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        map.retain(|_, b| b.level.saturating_add(now_ms.saturating_sub(b.last)) < b.full);
+        for m in [&self.ip, &self.keyed] {
+            m.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .retain(|_, b| !is_full(b, now_ms));
+        }
     }
 }
 
@@ -163,6 +205,43 @@ mod tests {
         assert!(l.check(12_000, Scope::LoginEmail, b"a", rule).is_ok());
         assert!(l.check(12_000, Scope::LoginEmail, b"a", rule).is_err());
         l.prune(10_000_000);
-        assert!(l.buckets.lock().unwrap().is_empty());
+        assert!(l.keyed.lock().unwrap().is_empty());
+    }
+
+    /// A flood of IP keys fills only the IP map: a live bucket of another
+    /// scope keeps its state and the flood's new keys are refused.
+    #[test]
+    fn ip_flood_leaves_email_bucket_intact() {
+        let l = RateLimiter::with_caps(10, 10);
+        let rule = Rule::per_minute(5, 5);
+        // The email bucket has spent one token (4 left).
+        assert!(l.check(0, Scope::LoginEmail, b"victim", rule).is_ok());
+        let mut refused = 0;
+        for i in 0..100u32 {
+            if l.check(0, Scope::LoginIp, &i.to_be_bytes(), LOGIN_IP)
+                .is_err()
+            {
+                refused += 1;
+            }
+        }
+        assert_eq!(
+            refused, 90,
+            "the IP map holds 10 live buckets, the rest is refused"
+        );
+        // A key already in the map is still served.
+        assert!(
+            l.check(0, Scope::LoginIp, &0u32.to_be_bytes(), LOGIN_IP)
+                .is_ok()
+        );
+        // The victim keeps exactly its 4 remaining tokens.
+        for _ in 0..4 {
+            assert!(l.check(0, Scope::LoginEmail, b"victim", rule).is_ok());
+        }
+        assert!(l.check(0, Scope::LoginEmail, b"victim", rule).is_err());
+        // Idle buckets are dropped once full again, so new keys fit later.
+        assert!(
+            l.check(3_600_000, Scope::LoginIp, &500u32.to_be_bytes(), LOGIN_IP)
+                .is_ok()
+        );
     }
 }

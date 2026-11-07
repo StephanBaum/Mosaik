@@ -37,6 +37,14 @@ services:
     # caddy:2.11-alpine
     image: caddy:2.11-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     restart: unless-stopped
+    # Hardened like the server: no capabilities but binding ports 80 and 443,
+    # no privilege gain, a read-only root file system. Caddy writes only to its
+    # two volumes (/data: certificates, /config) and /tmp.
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
     depends_on: [mosaic-server]
     environment:
       MOSAIC_DOMAIN: ${MOSAIC_DOMAIN:?set MOSAIC_DOMAIN to the host of canonical_origin}

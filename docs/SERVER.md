@@ -65,9 +65,11 @@ refuses to run if the secret file or the database already exists.
 | `[limits] account_attachment_bytes` | Attachment bytes per account, soft-deleted ones included (default 1 GiB). |
 | `[limits] account_record_count` / `account_record_bytes` | Records and record ciphertext per account (default 50 000 and 256 MiB). |
 | `[limits] session_idle_days` / `session_max_days` | A session ends after this many idle days (default 30) or this many days in all (default 180). |
+| `[limits] max_concurrent_requests` | Requests handled at once, server-wide; more wait in the queue (default 512). |
+| `[limits] max_key_generations` | Key generations per vault (default 10 000). |
 | `[limits] soft_delete_days` | A deleted attachment is kept this long, so a device can restore it (default 30). |
 
-Fixed limits: 32 devices and 1 000 vaults per account.
+Fixed limits: 32 devices, 64 sessions and 1 000 vaults per account, 32 waiting polls per account, and ten wrong TOTP codes per account per hour. On Unix the server creates the data directory with mode 0700 and the database, WAL and secret files with 0600, and refuses to start if the secret file is readable by group or others.
 
 ## Command line
 
@@ -159,6 +161,22 @@ the blobs under `data_dir/blobs/`, and the secret file at its path. Without the
 secret file nobody can log in (the OPAQUE server key is in it) and the vault
 data on the devices is unaffected. Treat backups like the live data: they hold
 the same ciphertext and the same secret.
+
+## The secret file cannot be rotated
+
+The OPAQUE server setup lives in the secret file. A new setup makes every stored
+registration record useless: every account would have to register again and
+every device join again. Rotation is therefore not supported; protect and back
+up the file instead. If it leaks, treat it as a server compromise (R61): start
+a new server with a new setup and migrate the users by having them register
+again from a device that holds the vault.
+
+## Slow clients
+
+The server limits request time, body size and concurrent requests, but has no
+header read timeout of its own. The reverse proxy is the defence against
+slow-header clients (slowloris): keep its read timeouts and per-IP connection
+limits on (Caddy and nginx do by default).
 
 ## Upgrades
 

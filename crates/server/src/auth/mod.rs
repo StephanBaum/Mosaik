@@ -20,13 +20,33 @@ use axum::http::StatusCode;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use base64ct::{Base64UrlUnpadded, Encoding};
+use hkdf::Hkdf;
+use mosaic_core::encoding::ctx;
 use mosaic_sync::wire::json::codes;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 use crate::AppState;
 use crate::db::sessions;
 use crate::error::ApiError;
 use crate::ratelimit::{self, Scope};
+
+/// A subkey of `server_secret`, one per purpose (CRYPTO_SPEC §9.2, §9.3):
+/// `HKDF(server_secret, "", ctx(label), 32)`.
+#[must_use]
+pub fn subkey(server_secret: &[u8; 32], label: &str) -> Option<Zeroizing<[u8; 32]>> {
+    let (mut prk, hkdf) = Hkdf::<Sha256>::extract(Some(&[]), server_secret);
+    zeroize::Zeroize::zeroize(prk.as_mut_slice());
+    let mut out = Zeroizing::new([0u8; 32]);
+    hkdf.expand(&ctx(label), out.as_mut_slice()).ok()?;
+    Some(out)
+}
+
+/// The key of the pre-login fakes.
+#[must_use]
+pub fn prelogin_key(server_secret: &[u8; 32]) -> Option<Zeroizing<[u8; 32]>> {
+    subkey(server_secret, "server/prelogin-key")
+}
 
 /// SHA-256 of a session token: what the database stores.
 #[must_use]

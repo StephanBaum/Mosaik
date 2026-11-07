@@ -152,6 +152,7 @@ fn init(config: &Config, out: &mut dyn Write) -> Result<(), CliError> {
         return Err(CliError::Exists("the database"));
     }
     std::fs::create_dir_all(config.data_dir.join("blobs"))?;
+    crate::fsperm::restrict_dir(&config.data_dir)?;
     if let Some(parent) = config.secret_file.parent() {
         std::fs::create_dir_all(parent)?;
     }

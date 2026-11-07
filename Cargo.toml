@@ -157,7 +157,7 @@ axum = { version = "=0.8.9", default-features = false, features = ["http1", "tok
 # Request body limit and timeout layers; already in the tree through Tauri.
 tower-http = { version = "=0.6.11", default-features = false, features = ["limit", "timeout"] }
 # `ServiceExt::oneshot` for the in-process API tests.
-tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+tower = { version = "=0.5.3", default-features = false, features = ["util", "limit"] }
 # Server config file (TOML), strict (`deny_unknown_fields`).
 toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde"] }
 # Structured logs of the server (method, route, status, duration; never bodies).

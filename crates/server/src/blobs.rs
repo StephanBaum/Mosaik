@@ -53,10 +53,14 @@ impl Blobs {
         getrandom::fill(&mut rnd).map_err(|_| io::Error::from(io::ErrorKind::Other))?;
         let tmp = dir.join(format!(".{}.tmp", hex(&rnd)));
         let result = (|| {
-            let mut f = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)?;
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut f = options.open(&tmp)?;
             f.write_all(bytes)?;
             f.sync_all()?;
             drop(f);

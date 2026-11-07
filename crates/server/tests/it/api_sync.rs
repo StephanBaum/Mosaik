@@ -37,7 +37,7 @@ async fn put_key(
         Some(token),
         &PutKeyRequest {
             wrapped_key: wrapped_key(u8::try_from(generation).unwrap()),
-            device_id: v.device,
+            device_id: app.device_of(token),
             expected_head_seq: expected_head,
         },
     )
@@ -73,14 +73,14 @@ async fn create_vault_idempotent_and_owner_checked() {
 
     // Metadata sealed under another generation than declared is refused.
     let bad = TestVault::new();
-    let mut req = bad.create_request();
+    let mut req = bad.create_request(app.device_of(&a));
     req.generation = KeyGeneration::new(2).unwrap();
     let r = app
         .put(&format!("/v1/vaults/{}", bad.id), Some(&a), &req)
         .await;
     assert_eq!(r.status, StatusCode::BAD_REQUEST);
     // Garbage metadata too.
-    let mut req = bad.create_request();
+    let mut req = bad.create_request(app.device_of(&a));
     req.meta = B64(vec![1, 2, 3]);
     assert_eq!(
         app.put(&format!("/v1/vaults/{}", bad.id), Some(&a), &req)
@@ -375,7 +375,7 @@ async fn one_key_per_generation() {
     assert_eq!(page.generation.get(), 2);
     let gens: Vec<u32> = page.keys.iter().map(|k| k.generation.get()).collect();
     assert_eq!(gens, vec![1, 2]);
-    assert!(page.keys.iter().all(|k| k.device_id == g1.device));
+    assert!(page.keys.iter().all(|k| k.device_id == app.device_of(&t)));
     // The database holds exactly one row per (vault, account, generation).
     let rows: i64 = app
         .state
@@ -390,7 +390,7 @@ async fn one_key_per_generation() {
 #[tokio::test(start_paused = true)]
 async fn key_cas_head_moved_and_generation_taken() {
     let app = app();
-    let (_, t) = app.user("alice").await;
+    let (u, t) = app.user("alice").await;
     let (g1, _) = rotated_vault(&app, &t).await;
     app.push_new_items(&t, &g1, 3).await; // head 5
 
@@ -408,13 +408,9 @@ async fn key_cas_head_moved_and_generation_taken() {
         StatusCode::OK
     );
     // Another device that rotated from the same state loses: taken.
-    let mut other = TestVault {
-        id: g1.id,
-        vk: VaultKey::generate(KeyGeneration::new(2).unwrap()).unwrap(),
-        device: InstallId::new_v7().unwrap(),
-    };
-    other.device = InstallId::new_v7().unwrap();
-    let r = put_key(&app, &t, &other, 2, Some(5)).await;
+    app.clock.advance_ms(13_000);
+    let t2 = app.login_device(&u, InstallId::new_v7().unwrap()).await;
+    let r = put_key(&app, &t2, &g1, 2, Some(5)).await;
     assert_eq!(r.code(), "generation_taken");
     // After the rotation the head is 6 and a stale condition for the next one moves.
     let r = put_key(&app, &t, &g1, 3, Some(5)).await;
@@ -1037,4 +1033,75 @@ async fn serves_info_over_tcp() {
     );
     assert!(text.contains("\"protocol\":1"));
     server.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn keys_and_vault_creates_must_carry_the_session_device() {
+    let app = app();
+    let (_, t) = app.user("alice").await;
+    let v = TestVault::new();
+    // A vault is created by the device that signed in.
+    let mut req = v.create_request(InstallId::new_v7().unwrap());
+    let r = app
+        .put(&format!("/v1/vaults/{}", v.id), Some(&t), &req)
+        .await;
+    assert_eq!(
+        (r.status, r.code().as_str()),
+        (StatusCode::FORBIDDEN, "forbidden")
+    );
+    req.device_id = app.device_of(&t);
+    assert_eq!(
+        app.put(&format!("/v1/vaults/{}", v.id), Some(&t), &req)
+            .await
+            .status,
+        StatusCode::CREATED
+    );
+    // So is a key: another device ID cannot win the canonical key race.
+    let r = app
+        .put(
+            &format!("/v1/vaults/{}/keys/2", v.id),
+            Some(&t),
+            &PutKeyRequest {
+                wrapped_key: wrapped_key(2),
+                device_id: InstallId::new_v7().unwrap(),
+                expected_head_seq: None,
+            },
+        )
+        .await;
+    assert_eq!(
+        (r.status, r.code().as_str()),
+        (StatusCode::FORBIDDEN, "forbidden")
+    );
+    assert_eq!(put_key(&app, &t, &v, 2, None).await.status, StatusCode::OK);
+}
+
+#[tokio::test(start_paused = true)]
+async fn key_generations_per_vault_are_capped() {
+    let app = TestApp::with(RegistrationMode::Open, |c| {
+        c.limits.max_key_generations = 3;
+    });
+    let (_, t) = app.user("alice").await;
+    let v = TestVault::new();
+    assert_eq!(app.create_vault(&t, &v).await.status, StatusCode::CREATED);
+    assert_eq!(put_key(&app, &t, &v, 2, None).await.status, StatusCode::OK);
+    assert_eq!(put_key(&app, &t, &v, 3, None).await.status, StatusCode::OK);
+    let r = put_key(&app, &t, &v, 4, None).await;
+    assert_eq!(
+        (r.status, r.code().as_str()),
+        (StatusCode::FORBIDDEN, "quota_exceeded")
+    );
+    assert_eq!(
+        r.error()
+            .detail_as::<mosaic_sync::wire::json::QuotaDetail>()
+            .unwrap()
+            .kind,
+        "keyGenerations"
+    );
+    // A vault cannot be created above the cap either.
+    let high = TestVault::at(KeyGeneration::new(4).unwrap());
+    let r = app.create_vault(&t, &high).await;
+    assert_eq!(r.code(), "quota_exceeded");
+    // The key list of a full vault fits one page by a wide margin.
+    let page: ChangesResponse = app.get(&changes_uri(&v, 0, 500), Some(&t)).await.json();
+    assert_eq!(page.keys.len(), 3);
 }

@@ -4,9 +4,10 @@
 //! registered.
 //!
 //! ```text
-//! h(label) = HMAC-SHA-256(server_secret, label || normalized_email)
-//! account_id: h("prelogin/account-id")[..16] as a UUIDv7 whose 48-bit
-//!             timestamp is init_ms - (u48(h[6..12]) mod 15_552_000_000)
+//! h(label) = HMAC-SHA-256(K_prelogin, label || normalized_email)
+//! account_id: h("prelogin/account-id")[..16] as a UUIDv4 (version nibble
+//!             4, variant bits 10), like a real account ID, which is a
+//!             random UUIDv4 too; independent of any time
 //! salt:       h("prelogin/salt")[..16]
 //! profile:    h("prelogin/profile") mapped onto the real profile
 //!             distribution, rounded to 5 % buckets
@@ -16,9 +17,6 @@ use hmac::{Hmac, KeyInit, Mac};
 use mosaic_core::Argon2Profile;
 use sha2::Sha256;
 
-/// 180 days in milliseconds: fake IDs carry a time this far before `init_ms`
-/// at most (THREAT_MODEL R10 amendment, R58).
-const BACKDATE_SPAN_MS: u64 = 15_552_000_000;
 /// How long a profile distribution is used before it is recomputed.
 pub const DIST_TTL_MS: u64 = 3_600_000;
 
@@ -32,24 +30,14 @@ fn h(secret: &[u8; 32], label: &str, email: &str) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
-/// The fake account ID of `email`.
+/// The fake account ID of `email`: a `UUIDv4` from the HMAC.
 #[must_use]
-pub fn fake_account_id(secret: &[u8; 32], init_ms: u64, email: &str) -> [u8; 16] {
-    let digest = h(secret, "prelogin/account-id", email);
+pub fn fake_account_id(key: &[u8; 32], email: &str) -> [u8; 16] {
+    let digest = h(key, "prelogin/account-id", email);
     let mut id = [0u8; 16];
     id.copy_from_slice(digest.get(..16).unwrap_or(&[0u8; 16]));
-    let mut ts = [0u8; 8];
-    if let Some(src) = digest.get(6..12) {
-        ts[2..].copy_from_slice(src);
-    }
-    let offset = u64::from_be_bytes(ts) % BACKDATE_SPAN_MS;
-    let stamp = init_ms.saturating_sub(offset);
-    let stamp = stamp.to_be_bytes();
-    if let (Some(dst), Some(src)) = (id.get_mut(..6), stamp.get(2..)) {
-        dst.copy_from_slice(src);
-    }
     if let Some(b) = id.get_mut(6) {
-        *b = (*b & 0x0F) | 0x70;
+        *b = (*b & 0x0F) | 0x40;
     }
     if let Some(b) = id.get_mut(8) {
         *b = (*b & 0x3F) | 0x80;
@@ -133,18 +121,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fake_id_is_deterministic_uuidv7_in_the_window() {
-        let secret = [5u8; 32];
-        let init = 1_800_000_000_000u64;
-        let a = fake_account_id(&secret, init, "a@example.com");
-        assert_eq!(a, fake_account_id(&secret, init, "a@example.com"));
-        assert_ne!(a, fake_account_id(&secret, init, "b@example.com"));
-        assert_eq!(a[6] >> 4, 7);
-        assert_eq!(a[8] >> 6, 0b10);
-        let mut ts = [0u8; 8];
-        ts[2..].copy_from_slice(&a[..6]);
-        let ts = u64::from_be_bytes(ts);
-        assert!(ts <= init && init - ts < BACKDATE_SPAN_MS, "{ts}");
+    fn fake_id_is_deterministic_uuidv4_and_independent_of_the_setup_time() {
+        let key = [5u8; 32];
+        let a = fake_account_id(&key, "a@example.com");
+        assert_eq!(a, fake_account_id(&key, "a@example.com"));
+        assert_ne!(a, fake_account_id(&key, "b@example.com"));
+        assert_ne!(a, fake_account_id(&[6u8; 32], "a@example.com"));
+        assert_eq!(a[6] >> 4, 4, "UUID version 4");
+        assert_eq!(a[8] >> 6, 0b10, "UUID variant");
+        // The first bytes are not a timestamp: the IDs of many emails spread
+        // over the whole range.
+        let firsts: std::collections::BTreeSet<u8> = (0..64)
+            .map(|i| fake_account_id(&key, &format!("u{i}@example.com"))[0])
+            .collect();
+        assert!(firsts.len() > 30);
     }
 
     #[test]

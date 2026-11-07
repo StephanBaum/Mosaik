@@ -178,7 +178,12 @@ async fn body_limit_413() {
             vec![b' '; 20 * 1024],
         )
         .await;
-    assert_eq!(r.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(
+        r.status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
     // A small body is fine; the attachment route has its own, larger limit.
     assert_eq!(app.push(&t, &v, vec![]).await.status, StatusCode::OK);
     let id = AttachmentId::new_v7().unwrap();
@@ -435,4 +440,59 @@ async fn trusted_proxy_header_is_believed_only_from_trusted_peers() {
     )
     .await;
     assert_eq!(r.status, StatusCode::OK);
+}
+
+#[tokio::test(start_paused = true)]
+async fn limits_apply_before_the_body_is_read() {
+    let app = TestApp::new(RegistrationMode::Open);
+    // The routes without a session have their own, small body limits (the
+    // global one is 8 MiB): the body is not read past them.
+    let big = |n: usize| vec![b' '; n];
+    let r = app
+        .send(Method::POST, "/v1/prelogin", None, IP, big(5 * 1024))
+        .await;
+    assert_eq!(
+        (r.status, r.code().as_str()),
+        (StatusCode::PAYLOAD_TOO_LARGE, "too_large")
+    );
+    for path in [
+        "/v1/register/start",
+        "/v1/register/finish",
+        "/v1/login/start",
+        "/v1/login/finish",
+    ] {
+        let r = app.send(Method::POST, path, None, IP, big(17 * 1024)).await;
+        assert_eq!(r.status, StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+    }
+    // A client over its per-IP limit is refused before its body is parsed:
+    // garbage gets 429, not 400.
+    let ip = "198.51.100.200:1";
+    for i in 0..20 {
+        let r = prelogin_from(&app, ip, &format!("g{i}@example.com"), &[]).await;
+        assert_eq!(r.status, StatusCode::OK, "{i}");
+    }
+    let r = app
+        .send(
+            Method::POST,
+            "/v1/prelogin",
+            None,
+            ip,
+            b"{not json".to_vec(),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS);
+    let r = app
+        .send(
+            Method::POST,
+            "/v1/prelogin",
+            None,
+            IP,
+            b"{not json".to_vec(),
+        )
+        .await;
+    assert_eq!(
+        r.status,
+        StatusCode::BAD_REQUEST,
+        "another client still gets the parse error"
+    );
 }

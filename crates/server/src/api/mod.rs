@@ -13,6 +13,7 @@ mod records;
 mod register;
 mod vaults;
 
+use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
@@ -26,12 +27,18 @@ use axum::routing::{get, post, put};
 use mosaic_sync::wire::json::{self, JsonError};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
 use crate::AppState;
 use crate::error::ApiError;
+use crate::ratelimit::{self, Rule, Scope};
 
+/// Body limit of `prelogin`, before any session exists.
+const PRELOGIN_BODY: usize = 4 * 1024;
+/// Body limit of the register and login routes.
+const AUTH_BODY: usize = 16 * 1024;
 /// Request timeout of the JSON routes.
 const JSON_TIMEOUT: Duration = Duration::from_secs(60);
 /// Request timeout of the attachment routes (client: 600 s).
@@ -186,6 +193,59 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
+/// A rate limit that is checked before the request body is read.
+pub trait Gate {
+    /// The bucket scope.
+    const SCOPE: Scope;
+    /// The bucket's size and rate.
+    const RULE: Rule;
+}
+
+macro_rules! gate {
+    ($name:ident, $scope:expr, $rule:expr) => {
+        /// A per-IP gate.
+        pub struct $name;
+        impl Gate for $name {
+            const SCOPE: Scope = $scope;
+            const RULE: Rule = $rule;
+        }
+    };
+}
+
+gate!(PreloginGate, Scope::PreloginIp, ratelimit::PRELOGIN_IP);
+gate!(LoginGate, Scope::LoginIp, ratelimit::LOGIN_IP);
+gate!(
+    RegisterStartGate,
+    Scope::RegisterStartIp,
+    ratelimit::REGISTER_IP
+);
+gate!(
+    RegisterFinishGate,
+    Scope::RegisterFinishIp,
+    ratelimit::REGISTER_IP
+);
+
+/// The client address after the per-IP rate limit `G` passed. As an
+/// extractor placed before the body, it makes a limited client cost no body
+/// read and no parsing.
+pub struct Gated<G>(pub ClientIp, PhantomData<G>);
+
+impl<G: Gate + Send + Sync> FromRequestParts<AppState> for Gated<G> {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let ip = ClientIp::from_request_parts(parts, state).await?;
+        state
+            .rate
+            .check(state.clock.now_ms(), G::SCOPE, &ip.key(), G::RULE)
+            .map_err(ApiError::rate_limited)?;
+        Ok(Self(ip, PhantomData))
+    }
+}
+
 /// Every response: `Cache-Control: no-store`, JSON for the body-limit layer's
 /// empty 413, and one log line without any user data.
 async fn finalize(req: Request, next: Next) -> Response {
@@ -228,19 +288,47 @@ async fn fallback() -> ApiError {
 }
 
 /// The router of the whole API.
+#[expect(clippy::too_many_lines, reason = "the route table")]
 pub fn router(state: AppState) -> Router {
     let max_json = usize::try_from(state.limits.max_request_bytes).unwrap_or(usize::MAX);
     let max_attachment = state.max_attachment;
 
-    let json_routes: Router<AppState> = Router::new()
+    // The routes that need no session (or only a pending one) have their own
+    // small body limits instead of the global one: limits are not nested
+    // (a nested limit hides the length error from the body reader).
+    let public_routes: Router<AppState> = Router::new()
         .route("/v1/info", get(info::get))
-        .route("/v1/prelogin", post(prelogin::post))
-        .route("/v1/register/start", post(register::start))
-        .route("/v1/register/finish", post(register::finish))
-        .route("/v1/login/start", post(login::start))
-        .route("/v1/login/finish", post(login::finish))
-        .route("/v1/login/totp", post(login::totp))
+        .route(
+            "/v1/prelogin",
+            post(prelogin::post).layer(RequestBodyLimitLayer::new(PRELOGIN_BODY)),
+        )
+        .route(
+            "/v1/register/start",
+            post(register::start).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/register/finish",
+            post(register::finish).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/login/start",
+            post(login::start).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/login/finish",
+            post(login::finish).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/login/totp",
+            post(login::totp).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
         .route("/v1/logout", post(login::logout))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            JSON_TIMEOUT,
+        ));
+
+    let json_routes: Router<AppState> = Router::new()
         .route("/v1/account", get(account::get).delete(account::delete))
         .route("/v1/account/password/start", post(account::password_start))
         .route(
@@ -280,7 +368,6 @@ pub fn router(state: AppState) -> Router {
             )),
         )
         .route("/v1/checkpoints", get(checkpoints::list))
-        .route("/v1/poll", get(poll::get))
         .layer(RequestBodyLimitLayer::new(max_json))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
@@ -298,8 +385,24 @@ pub fn router(state: AppState) -> Router {
             ATTACHMENT_TIMEOUT,
         ));
 
-    json_routes
+    // Long polls wait up to 25 s: they are not counted by the concurrency
+    // limit (they have their own caps per session, account and server).
+    let limited = json_routes
+        .merge(public_routes)
         .merge(attachment_routes)
+        .layer(ConcurrencyLimitLayer::new(
+            usize::try_from(state.limits.max_concurrent_requests).unwrap_or(usize::MAX),
+        ));
+    let poll_routes: Router<AppState> =
+        Router::new()
+            .route("/v1/poll", get(poll::get))
+            .layer(TimeoutLayer::with_status_code(
+                StatusCode::REQUEST_TIMEOUT,
+                JSON_TIMEOUT,
+            ));
+
+    limited
+        .merge(poll_routes)
         .fallback(fallback)
         .layer(middleware::from_fn(finalize))
         .with_state(state)

@@ -44,6 +44,19 @@ fn new_v7_bytes() -> Result<[u8; 16]> {
     Ok(uuid_v7_from(unix_ms, rng::array()?))
 }
 
+/// A random `UUIDv4` (RFC 9562 §5.4): 122 random bits from the OS CSPRNG with
+/// the version and variant bits set.
+fn new_v4_bytes() -> Result<[u8; 16]> {
+    let mut b: [u8; 16] = rng::array()?;
+    if let Some(v) = b.get_mut(6) {
+        *v = (*v & 0x0F) | 0x40;
+    }
+    if let Some(v) = b.get_mut(8) {
+        *v = (*v & 0x3F) | 0x80;
+    }
+    Ok(b)
+}
+
 fn fmt_uuid(bytes: &[u8; 16], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     for (i, b) in bytes.iter().enumerate() {
         if matches!(i, 4 | 6 | 8 | 10) {
@@ -88,6 +101,16 @@ macro_rules! uuid_id {
             /// [`Error::Randomness`] if the CSPRNG fails.
             pub fn new_v7() -> Result<Self> {
                 Self::from_bytes(new_v7_bytes()?)
+            }
+
+            /// A random `UUIDv4`: 122 bits from the OS CSPRNG, no timestamp. New
+            /// account IDs use it, so that a real ID cannot be told from the
+            /// server's fake pre-login IDs (CRYPTO_SPEC §9.2).
+            ///
+            /// # Errors
+            /// [`Error::Randomness`] if the CSPRNG fails.
+            pub fn new_random() -> Result<Self> {
+                Self::from_bytes(new_v4_bytes()?)
             }
 
             /// The raw 16 bytes, as used in AAD and HKDF salts.
@@ -220,6 +243,15 @@ mod tests {
         );
         // Timestamps are big-endian, so later IDs sort later.
         assert!(uuid_v7_from(1, [0; 10]) < uuid_v7_from(2, [0; 10]));
+    }
+
+    #[test]
+    fn random_ids_are_v4() {
+        let a = AccountId::new_random().unwrap();
+        let b = a.as_bytes();
+        assert_eq!(b[6] >> 4, 4, "version nibble");
+        assert_eq!(b[8] >> 6, 0b10, "RFC 9562 variant");
+        assert_ne!(a, AccountId::new_random().unwrap());
     }
 
     fn now_ms() -> u64 {

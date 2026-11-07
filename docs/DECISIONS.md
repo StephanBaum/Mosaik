@@ -3472,6 +3472,32 @@ Choices that the spec left open, each the most conservative one:
   internal network without a route to the internet and with a fixed address for the proxy, which
   `trusted_proxies` names.
 
+### Amendment (2026-11-07, T3 review follow-ups)
+- **Pre-login does not reveal an account (H1).** New account IDs are random UUIDv4
+  (`AccountId::new_random`) and a fake pre-login ID is a UUIDv4 from the HMAC, with no timestamp:
+  real and fake IDs are both uniform random. The backdating rule of the first amendment and
+  its `init_ms` input are gone. UUIDv7 account IDs from before this change (pre-release) stay valid.
+- **One key per purpose (I2).** `K_prelogin` and `K_totp` are HKDF subkeys of `server_secret` with the
+  labels `server/prelogin-key` and `server/totp-key`; `server/totp-at-rest` is only the AAD label of a
+  sealed secret, which now carries a version and algorithm byte (I3). Labels are in the core registry.
+- **TOTP limits (M1, L1)**: attempts counted atomically before the check (five per pending session),
+  ten failures per account per hour persisted, pending sessions expire after five minutes, the used
+  step is stored with a conditional update.
+- **Resource limits (M2, M3, L5, L8)**: rate-limit buckets are never dropped unless full, each scope
+  has its own capacity and a full map refuses new keys; per-route body limits before authentication
+  (4 KiB prelogin, 16 KiB register and login); a global concurrency limit (`max_concurrent_requests`,
+  default 512); 32 long-polls per account; pending OPAQUE logins capped per IP prefix (16) and evicted
+  oldest first.
+- **Sessions and devices (L2, L3, L4)**: key uploads and vault creates must carry the session's own
+  device ID; a login ends the same device's other sessions and at most 64 sessions per account exist
+  (the oldest idle one is evicted); at most 10 000 key generations per vault (`max_key_generations`).
+- **Files (L6)**: on Unix the data directory is 0700, the database, WAL, blobs and the secret file are
+  0600, and the server refuses a secret file that is group- or world-accessible.
+- **Deployment (L7)**: Caddy runs with `cap_drop: ALL`, `NET_BIND_SERVICE`, `no-new-privileges` and a
+  read-only root file system.
+- **Slowloris (I7)**: axum's `serve` offers no header read timeout; the reverse proxy is the
+  load-bearing defence (SERVER.md says so).
+
 ## ADR-0045: Sync engine rules
 
 - Status: accepted
