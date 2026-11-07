@@ -815,6 +815,72 @@ fn engine_state_persists_and_resets_with_the_backend() {
     assert_eq!(s.own_seq(v).unwrap().reserved, 7);
 }
 
+/// R-L3. The backend's acceptance of a key is recorded in the same
+/// transaction as the write that it accompanies: the creation of the vault,
+/// the accepted upload and the commit of a rotation.
+#[test]
+fn a_keys_confirmation_is_written_with_the_accepting_transaction() {
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let g1 = mosaic_core::KeyGeneration::FIRST;
+    assert!(!s.vault_key_confirmed(v, g1).unwrap());
+    s.mark_vault_created_remotely(v).unwrap();
+    assert!(s.vault_key_confirmed(v, g1).unwrap(), "creation");
+
+    // An offline rotation is unconfirmed until an accepted upload.
+    let g2 = s.rotate_vault_key(v).unwrap();
+    assert!(!s.vault_key_confirmed(v, g2).unwrap());
+    s.mark_vault_key_accepted(v, g2).unwrap();
+    assert!(s.vault_key_confirmed(v, g2).unwrap(), "accepted upload");
+    assert!(
+        s.pending_vault_uploads()
+            .unwrap()
+            .iter()
+            .all(|p| p.keys.is_empty())
+    );
+
+    // A two-phase rotation is confirmed by its commit.
+    let p = s.prepare_vault_rotation(v).unwrap();
+    let g3 = p.generation();
+    assert!(!s.vault_key_confirmed(v, g3).unwrap());
+    assert_eq!(s.commit_vault_rotation(p).unwrap(), g3);
+    assert!(s.vault_key_confirmed(v, g3).unwrap(), "commit");
+}
+
+/// R-L2. The status lists the halt and every finding; acknowledging the
+/// findings of vaults never touches the halt, the strikes or `written`.
+#[test]
+fn findings_are_listed_together_and_cleared_apart_from_the_halt() {
+    use crate::storage::VaultFlag;
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let device = mosaic_core::InstallId::new_v7().unwrap();
+    assert!(s.sync_findings().unwrap().is_clear());
+    s.reserve_own_seq(v, 3).unwrap();
+    s.confirm_own_seq(v, 3).unwrap();
+    s.set_checkpoint_strikes(1, Some(5), Some(2)).unwrap();
+    s.set_sync_halt(crate::storage::SyncHalt::Rollback).unwrap();
+    s.set_vault_flag(v, VaultFlag::ServerRolledBack).unwrap();
+    s.set_no_common_view(device, v, 9).unwrap();
+    let f = s.sync_findings().unwrap();
+    assert_eq!(f.halt, Some(crate::storage::SyncHalt::Rollback));
+    assert_eq!(f.vault_flags, vec![(v, VaultFlag::ServerRolledBack)]);
+    assert_eq!(f.no_common_view, vec![(device, v, 9)]);
+    assert_eq!(f.vaults(), vec![v]);
+
+    s.clear_vault_findings(&f.vaults()).unwrap();
+    let after = s.sync_findings().unwrap();
+    assert_eq!(after.halt, Some(crate::storage::SyncHalt::Rollback));
+    assert!(after.vault_flags.is_empty() && after.no_common_view.is_empty());
+    assert_eq!(s.sync_engine_state().unwrap().strike_count, 1);
+    assert_eq!(s.own_seq(v).unwrap().written, 3);
+    assert_eq!(s.rebuild_vaults().unwrap(), vec![v]);
+
+    s.clear_sync_halt().unwrap();
+    assert!(s.sync_findings().unwrap().is_clear());
+    assert_eq!(s.own_seq(v).unwrap().written, 0);
+}
+
 fn own(reserved: u64, written: u64) -> crate::storage::OwnSeq {
     crate::storage::OwnSeq { reserved, written }
 }

@@ -102,6 +102,20 @@ pub enum SyncWarning {
         /// The vault.
         vault: VaultId,
     },
+    /// A peer's checkpoints keep advancing, but for longer than the grace
+    /// this device has never been at the same head as the peer with a clean
+    /// view, so their view digests could not be compared (hosted): a server
+    /// that keeps the heads of two devices apart hides what it shows each of
+    /// them. Persisted until the user acknowledges it
+    /// ([`SyncEngine::clear_findings`]).
+    NoCommonView {
+        /// The peer.
+        device: InstallId,
+        /// The vault.
+        vault: VaultId,
+        /// Since when (ms since the Unix epoch): the last comparison.
+        since_ms: u64,
+    },
     /// The server's head for a vault is below what this device already read
     /// (hosted): the vault was rolled back on the server. Only that vault is
     /// skipped. Persisted until the user acknowledges it
@@ -277,10 +291,38 @@ impl<T: Transport> SyncEngine<T> {
             .map(Halt::from))
     }
 
-    /// The user acknowledged a halt or a finding against the server (the
-    /// desktop asks first, §7): the persisted halt, the strikes and the
-    /// per-vault findings ([`SyncWarning::ServerInconsistent`],
-    /// [`SyncWarning::ServerRollback`]) are cleared. After a rollback the own logs
+    /// The user acknowledged the findings against the server for `vaults`
+    /// ([`SyncWarning::ServerInconsistent`], [`SyncWarning::ServerRollback`],
+    /// [`SyncWarning::NoCommonView`]; the desktop asks first, §7): they are
+    /// cleared, and those vaults are read again from the server in the next
+    /// run; local records the server lacks are queued again afterwards. The
+    /// halt and the strikes are not touched ([`SyncEngine::clear_halt`]).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Session`].
+    pub fn clear_findings(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vaults: &[VaultId],
+    ) -> Result<(), SyncError> {
+        access.with(|s| s.clear_vault_findings(vaults))??;
+        Ok(())
+    }
+
+    /// The vaults that have a finding against the server (what
+    /// [`SyncEngine::clear_findings`] clears when the user acknowledges all).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Session`].
+    pub fn finding_vaults(
+        &self,
+        access: &mut impl SessionAccess,
+    ) -> Result<Vec<VaultId>, SyncError> {
+        Ok(access.with(|s| s.sync_findings())??.vaults())
+    }
+
+    /// The user acknowledged a halt (the desktop asks first, §7): the
+    /// persisted halt and strikes are cleared. After a rollback the own logs
     /// count as unchecked until written again; sequence numbers already used
     /// are never reused.
     ///
@@ -326,6 +368,19 @@ impl<T: Transport> SyncEngine<T> {
             self.pull_vault(access, vault, report, stats)?;
         }
         Ok(())
+    }
+
+    /// The vaults the server rolled back (a finding of this device): their
+    /// uploads and attachment transfers wait until the user acknowledges it.
+    pub(crate) fn rolled_back_vaults(
+        access: &mut impl SessionAccess,
+    ) -> Result<BTreeSet<VaultId>, SyncError> {
+        Ok(access
+            .with(|s| s.vault_flags())??
+            .into_iter()
+            .filter(|(_, f)| *f == mosaic_vault::storage::VaultFlag::ServerRolledBack)
+            .map(|(v, _)| v)
+            .collect())
     }
 
     /// Stops with a rollback halt if the own log of a synced vault lost
@@ -424,7 +479,7 @@ impl<T: Transport> SyncEngine<T> {
         self.attachments_phase(access, &mut report)?;
         self.settle_pushed(access, &mut report, &mut stats)?;
         let (warnings, none_lagging) = self.evaluate_lag(access, now)?;
-        self.check_views(access)?;
+        self.check_views(access, now)?;
         self.publish_checkpoint(access, clock)?;
         let no_conflict = !access.with(|s| s.has_any_unresolved_key_conflict())??;
         let caught_up = none_lagging && no_conflict && stats.unexplained == 0;

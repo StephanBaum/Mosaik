@@ -601,6 +601,32 @@ impl Store {
         self.scrub_wal()
     }
 
+    /// Queues the stored record for upload again (it is not in the outbox
+    /// yet): the ciphertext is unchanged. Returns whether it was queued.
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn requeue_record(&mut self, vault_id: &VaultId, record_id: &ItemId) -> Result<bool> {
+        let tx = self.write()?;
+        let Some((_, outbox)) = sync_columns(&tx, vault_id, record_id)? else {
+            return Ok(false);
+        };
+        if outbox.is_some() {
+            return Ok(false);
+        }
+        let next = next_outbox_seq(&tx)?;
+        tx.execute(
+            "UPDATE records SET outbox_seq = ?3 WHERE vault_id = ?1 AND record_id = ?2",
+            params![
+                vault_id.as_bytes(),
+                record_id.as_bytes(),
+                seq_to_sql(next.0)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Raises a record's stored server sequence number to `server_seq`
     /// without touching its body or its place in the outbox. A change that
     /// is queued for upload is based on this number (the server accepts it

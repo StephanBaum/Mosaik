@@ -3791,3 +3791,49 @@ rules. The normative text is CRYPTO_SPEC §9.4, §10 and §10.2.
 - **Own device.** `HttpTransport::connect(base, token, install)` takes the engine's install ID; the
   checkpoint path no longer depends on the server's `current` device flag.
 - **Corrected text.** See the notes in the T4 amendment above on `tls12` and on `webpki-root-certs`.
+
+### Amendment (2026-11-07, M6 T4 re-review follow-ups; ADR-0045, ADR-0046)
+The crypto re-review of the first follow-ups (R-M1 to R-M4, R-L1 to R-L7, I1 to I5) changes these rules; the
+normative text is CRYPTO_SPEC §10 and §10.2.
+- **The view digest commits to the key (R-M1).** Adoption could split a vault: a server that answers
+  `generation_taken` to two offline rotators and cross-serves their keys makes each adopt the other's, and
+  the served views still agree (the same records). The digest input gains
+  `key_commit = SHA-256(ctx("sync/view-key") || 0x00 || vault_id || generation || wrapped_key_bytes)` after
+  `high_seq`, over the wrapping the device holds for its current generation (the bytes the server served or
+  accepted). A key this install generated and the server never accepted publishes the all-zero digest.
+  The two formulas moved into `mosaic-core` (`sync_auth::view_digest`, `view_key_commit`; labels
+  `sync/view` and `sync/view-key` in the label registry): no literal context string in `mosaic-sync` (I2).
+  Checkpoint v1 is still unreleased, so it changed in place again; the KAT script, vectors and fuzz seeds
+  follow. A device keeps publishing the real digest while a finding is open (I1): the server must not learn
+  that it was caught.
+- **More than one candidate key is a contradiction (R-L4).** On hosted, two or more distinct verified keys
+  for one generation are a `ServerInconsistent` finding and nothing is adopted.
+- **Heads that never meet (R-M2).** Digests compare only at an equal head, so a server that keeps two
+  devices' heads one apart avoids them, and the lag rule does not see it either. A device stores, per
+  (peer, vault), since when its runs have failed to compare (the first such run starts the count, a
+  comparison ends it) and the peer's counter then; a peer whose counter has risen with failures spanning
+  48 hours of runs is `NoCommonView` (a single run after a long pause or a clock jump does not count) (persisted, cleared by
+  the user). Honest pairs meet at the same head after the settle pull.
+- **A login in flight does not survive a password change (R-M3).** The server's pending login records the
+  account version at `login/start`; `login/finish` refuses with `login_failed` if it moved, and a password
+  change drops the account's pending logins.
+- **Acknowledging a finding does not make the loss permanent (R-M4, R-L1, R-L2).** `clear_vault_findings`
+  (per vault: findings, `NoCommonView`, the served view, the cursor and the current-generation key
+  candidates; the vault is marked for a rebuild) is separate from `clear_sync_halt` (the halt, strikes and
+  `written`); `sync_findings` lists both so one UI action clears what is set. After the full re-read of a
+  marked vault, every local record at the current generation that the server does not hold as it is and
+  that is not queued is queued again. Digests of checkpoints stored before the acknowledgement, or while a
+  rebuild is open, are not compared (otherwise a peer's stale digest raised the finding again); the user
+  acknowledges on every device.
+- **Smaller (R-L3, R-L5, R-L6, R-L7).** The confirmed mark is written in the transaction of the vault's
+  creation, of the accepted key upload and of the rotation commit; the v5 migration seeds it for a key this
+  install generated with a clear upload flag at the vault's current generation (the conservative reading).
+  A vault flagged `ServerRollback` takes no record, metadata or attachment uploads. The v5 migration drops
+  hosted cursors (the served view starts empty; the next run reads the vaults again and no digest is
+  published from a half-known view). The bearer value is encoded straight into zeroizing buffers and the
+  OPAQUE results are `mut` from their creation.
+- **Forward constraint (I5).** Adoption must not resolve revocation rotations once sharing (§8, M6b)
+  ships; see CRYPTO_SPEC §10.2.
+- **Dev note (I3).** Server databases created before the first follow-ups edited migration v1 in place
+  (`sessions.account_version`, the checkpoint body limit) must be recreated; the server is unreleased.
+

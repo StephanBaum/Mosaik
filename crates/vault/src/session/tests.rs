@@ -1462,7 +1462,11 @@ fn adopting_the_backends_key_reseals_everything_atomically() {
     mark_all_uploaded(&mut s);
     // An offline rotation: this device's own key for generation 2.
     let g2 = s.rotate_vault_key(vault).unwrap();
-    mark_all_uploaded(&mut s);
+    for (seq, r) in (100..).zip(s.pending_uploads(usize::MAX).unwrap()) {
+        let r = r.unwrap();
+        s.mark_uploaded(r.vault_id, r.record_id, r.outbox_seq.unwrap(), seq)
+            .unwrap();
+    }
     assert_eq!(
         s.vault_key_origin(vault, g2).unwrap(),
         Some(KeyOrigin::Local)

@@ -10,7 +10,8 @@ with the Rust derivations.
 Inputs (fixed): AK = 0x11 x 32; device (install) ID = 0x0E x 16; checkpoint
 counter 7 with one entry (vault 0x0B x 16, generation 1, high_seq 8, the view
 digest of two served records: 0x0D x 16 at seq 3 with ciphertext hash
-SHA-256("first") and 0x0F x 16 at seq 8 with SHA-256("second")) issued at
+SHA-256("first") and 0x0F x 16 at seq 8 with SHA-256("second"), under the key
+commitment of generation 1 and the 74-byte wrapping 0x77 x 74) issued at
 1_700_000_000_000 ms; folder message "folder message"; session key = 0x22 x 64.
 
 It also writes complete byte vectors of the sync wire objects (CRYPTO_SPEC 10,
@@ -80,8 +81,14 @@ def main() -> None:
     vault = b"\x0b" * 16
     counter = 7
     issued_at_ms = 1_700_000_000_000
-    # View digest (CRYPTO_SPEC 10): SHA-256(ctx("sync/view") || 0x00 || vault
-    # || high_seq || n || n x (record_id || seq || ct_hash)).
+    # Key commitment and view digest (CRYPTO_SPEC 10):
+    #   key_commit = SHA-256(ctx("sync/view-key") || 0x00 || vault || generation
+    #                        || wrapped_key_bytes)
+    #   view_digest = SHA-256(ctx("sync/view") || 0x00 || vault || high_seq
+    #                         || key_commit || n || n x (record_id || seq || ct_hash))
+    key_commit = hashlib.sha256(
+        ctx("sync/view-key") + b"\x00" + vault + struct.pack(">I", 1) + b"\x77" * 74
+    ).digest()
     high_seq = 8
     served = [
         (b"\x0d" * 16, 3, hashlib.sha256(b"first").digest()),
@@ -92,6 +99,7 @@ def main() -> None:
         + b"\x00"
         + vault
         + struct.pack(">Q", high_seq)
+        + key_commit
         + struct.pack(">I", len(served))
         + b"".join(r + struct.pack(">Q", q) + h for r, q, h in served)
     ).digest()
@@ -184,6 +192,7 @@ def main() -> None:
     print(f"k_cp={k_cp.hex()}")
     print(f"k_fold={k_fold.hex()}")
     print(f"k_dev={k_dev.hex()}")
+    print(f"key_commit={key_commit.hex()}")
     print(f"view_digest={view_digest.hex()}")
     print(f"seen_digest={seen_digest.hex()}")
     print(f"checkpoint_mac={checkpoint_mac.hex()}")

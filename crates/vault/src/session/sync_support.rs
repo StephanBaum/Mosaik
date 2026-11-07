@@ -28,6 +28,41 @@ use crate::storage::{
     PeerCheckpoint, RecordEntry, ServedRow, SyncConfig, SyncHalt, VaultFlag, VaultKeyWrap,
 };
 
+/// Everything the sync engine has found wrong, for the user: see
+/// [`UnlockedSession::sync_findings`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SyncFindings {
+    /// The halt (rollback or duplicated install), if sync is stopped.
+    pub halt: Option<SyncHalt>,
+    /// The vaults the server contradicted itself for, or rolled back.
+    pub vault_flags: Vec<(VaultId, VaultFlag)>,
+    /// The `(device, vault, since_ms)` pairs whose heads never met.
+    pub no_common_view: Vec<(InstallId, VaultId, u64)>,
+}
+
+impl SyncFindings {
+    /// Whether nothing is set.
+    #[must_use]
+    pub fn is_clear(&self) -> bool {
+        self.halt.is_none() && self.vault_flags.is_empty() && self.no_common_view.is_empty()
+    }
+
+    /// The vaults that [`UnlockedSession::clear_vault_findings`] would
+    /// rebuild: every flagged vault and every vault with no common view.
+    #[must_use]
+    pub fn vaults(&self) -> Vec<VaultId> {
+        let mut out: Vec<VaultId> = self
+            .vault_flags
+            .iter()
+            .map(|(v, _)| *v)
+            .chain(self.no_common_view.iter().map(|(_, v, _)| *v))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+}
+
 /// What a vault still has to send to the backend.
 #[derive(Debug)]
 pub struct PendingVaultUpload {
@@ -411,11 +446,117 @@ impl UnlockedSession {
             Some((g, m)) => (g, Some(m)),
             None => (self.vault(vault)?.generation, None),
         };
-        self.store
-            .mark_vault_created(&vault, generation, meta.as_ref())?;
-        // The backend holds the key the vault was created with.
-        self.store.mark_key_confirmed(&vault, generation)?;
+        // The same transaction notes that the backend holds the key the
+        // vault was created with.
+        Ok(self
+            .store
+            .mark_vault_created(&vault, generation, meta.as_ref())?)
+    }
+
+    /// Records that the backend accepted the wrapped key of generation `g`:
+    /// the upload flag clears and the key counts as confirmed, in one
+    /// transaction (the hosted key-winner rule, CRYPTO_SPEC §10.2).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn mark_vault_key_accepted(&mut self, vault: VaultId, g: KeyGeneration) -> Result<()> {
+        self.store.mark_vault_key_accepted(&vault, g)?;
         Ok(())
+    }
+
+    /// Queues a stored record for upload again (see
+    /// [`crate::storage::Store::requeue_record`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn requeue_record(&mut self, vault: VaultId, record: ItemId) -> Result<bool> {
+        Ok(self.store.requeue_record(&vault, &record)?)
+    }
+
+    /// The vaults that must be read again completely before local records
+    /// the server lacks are queued ([`Self::clear_vault_findings`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn rebuild_vaults(&self) -> Result<Vec<VaultId>> {
+        Ok(self.store.rebuild_vaults()?)
+    }
+
+    /// Ends the rebuild mark of a vault.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn finish_rebuild(&mut self, vault: VaultId) -> Result<()> {
+        Ok(self.store.finish_rebuild(&vault)?)
+    }
+
+    /// Where the comparisons of view digests with `device` for `vault`
+    /// stand: since when they keep failing to happen (`None`: the last one
+    /// succeeded) and the peer's checkpoint counter then.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn view_compare(
+        &self,
+        device: InstallId,
+        vault: VaultId,
+    ) -> Result<Option<(Option<u64>, u64)>> {
+        Ok(self.store.view_compare(&device, &vault)?)
+    }
+
+    /// Stores where the comparisons stand (see [`Self::view_compare`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn put_view_compare(
+        &mut self,
+        device: InstallId,
+        vault: VaultId,
+        since_ms: Option<u64>,
+        counter: u64,
+    ) -> Result<()> {
+        Ok(self
+            .store
+            .put_view_compare(&device, &vault, since_ms, counter)?)
+    }
+
+    /// Stores the finding that the heads of `device` and this device never
+    /// met for `vault`.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn set_no_common_view(
+        &mut self,
+        device: InstallId,
+        vault: VaultId,
+        since_ms: u64,
+    ) -> Result<()> {
+        Ok(self.store.set_no_common_view(&device, &vault, since_ms)?)
+    }
+
+    /// What is wrong, as the user sees it: the halt and every finding against
+    /// the server. The desktop asks once and acknowledges what is set with
+    /// [`Self::clear_sync_halt`] and [`Self::clear_vault_findings`].
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn sync_findings(&self) -> Result<SyncFindings> {
+        Ok(SyncFindings {
+            halt: self.store.engine_state()?.halt,
+            vault_flags: self.store.vault_flags()?,
+            no_common_view: self.store.no_common_view()?,
+        })
+    }
+
+    /// Acknowledges the findings against the server for `vaults`: they are
+    /// cleared, the served view and cursor of those vaults are rebuilt from
+    /// the server and local records the server lacks are queued again. The
+    /// halt and the strikes are not touched ([`Self::clear_sync_halt`]).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn clear_vault_findings(&mut self, vaults: &[VaultId]) -> Result<()> {
+        Ok(self.store.clear_vault_findings(vaults)?)
     }
 
     /// Records that the backend accepted the wrapped key of generation `g`

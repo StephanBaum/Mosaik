@@ -135,6 +135,8 @@ pub async fn password_finish(
         sessions::after_password_change(tx, &s.account_id, &s.token_hash, v)?;
         Ok(v)
     })?;
+    // Logins that started against the old password end with it.
+    st.logins.drop_account(&s.account_id);
     Reply::ok(&PasswordFinishResponse {
         account_version: version,
     })

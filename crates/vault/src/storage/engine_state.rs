@@ -143,10 +143,11 @@ pub struct PeerCheckpoint {
     /// The entries, in the order they were published.
     pub entries: Vec<PeerEntry>,
     /// The user acknowledged a finding against the server after this
-    /// checkpoint was stored ([`Store::clear_sync_halt`]): its view digests
-    /// are not compared any more (they describe the server's earlier
-    /// behaviour). Ignored by [`Store::put_peer_checkpoint`], which always
-    /// stores `false`.
+    /// checkpoint was stored ([`Store::clear_vault_findings`]), or while a
+    /// vault was still being read again after it: its view digests are not
+    /// compared (they describe the server's earlier behaviour, and the peer
+    /// may not have acknowledged yet). Ignored by
+    /// [`Store::put_peer_checkpoint`], which sets it from the rebuild marks.
     pub digests_acknowledged: bool,
 }
 
@@ -300,9 +301,7 @@ impl Store {
         Ok(())
     }
 
-    /// The user's acknowledgement of a halt or of a finding against the
-    /// server: clears them (the vaults that were flagged are read again from
-    /// the start, see below) and the strikes, and
+    /// The user's acknowledgement of a halt: clears it and the strikes, and
     /// forgets what was written to the own logs (`written` becomes 0, so the
     /// rolled-back state is accepted as the new truth) while `reserved`
     /// stays, so no sequence number is ever reused.
@@ -318,24 +317,167 @@ impl Store {
             [],
         )?;
         tx.execute("UPDATE sync_own_seq SET written = 0", [])?;
-        // The findings against the server are acknowledged: the served view
-        // and the cursor of every flagged vault are rebuilt from the server
-        // (the next run reads the vault again from the start), and the
-        // digests the peers published so far are not compared.
-        tx.execute(
-            "DELETE FROM sync_served
-             WHERE vault_id IN (SELECT vault_id FROM sync_vault_flag)",
-            [],
-        )?;
-        tx.execute(
-            "DELETE FROM sync_cursor_blobs
-             WHERE vault_id IN (SELECT vault_id FROM sync_vault_flag)",
-            [],
-        )?;
-        tx.execute("UPDATE sync_peer_checkpoint SET digest_ignored = 1", [])?;
-        tx.execute("DELETE FROM sync_vault_flag", [])?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// The user's acknowledgement of the findings against the server for
+    /// `vaults` (`ServerInconsistent`, `ServerRolledBack`, no common view).
+    /// It never touches the halt, the strikes or `written`
+    /// ([`Store::clear_sync_halt`]). Per vault, in one transaction: the
+    /// findings go, the served view and the cursor are dropped (the next run
+    /// reads the vault again from the start; the vault is marked for the
+    /// re-queueing of local records the server lacks, see
+    /// [`Store::rebuild_vaults`]), the key candidates of the current
+    /// generation are forgotten (a cleared key finding does not come back by
+    /// itself) and the comparison times restart. The digests that peers
+    /// published so far are not compared any more.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn clear_vault_findings(&mut self, vaults: &[VaultId]) -> Result<()> {
+        let tx = self.write()?;
+        for vault in vaults {
+            let v = vault.as_bytes();
+            for sql in [
+                "DELETE FROM sync_served WHERE vault_id = ?1",
+                "DELETE FROM sync_cursor_blobs WHERE vault_id = ?1",
+                "DELETE FROM sync_vault_flag WHERE vault_id = ?1",
+                "DELETE FROM sync_no_common_view WHERE vault_id = ?1",
+                "DELETE FROM sync_view_compare WHERE vault_id = ?1",
+                "DELETE FROM sync_key_candidate
+                 WHERE vault_id = ?1 AND generation = COALESCE(
+                     (SELECT current_generation FROM vaults WHERE vault_id = ?1), 1)",
+                "INSERT OR IGNORE INTO sync_rebuild (vault_id)
+                 SELECT vault_id FROM vaults WHERE vault_id = ?1",
+            ] {
+                tx.execute(sql, [v])?;
+            }
+        }
+        tx.execute("UPDATE sync_peer_checkpoint SET digest_ignored = 1", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The vaults whose served view was dropped by an acknowledgement and
+    /// that have not been read again completely yet.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn rebuild_vaults(&self) -> Result<Vec<VaultId>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT vault_id FROM sync_rebuild ORDER BY vault_id")?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        rows.map(|row| vault_id_from_sql(&row?)).collect()
+    }
+
+    /// Ends the rebuild mark of a vault.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn finish_rebuild(&mut self, vault_id: &VaultId) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM sync_rebuild WHERE vault_id = ?1",
+            [vault_id.as_bytes()],
+        )?;
+        Ok(())
+    }
+
+    /// Where the comparisons of view digests with `device` for `vault`
+    /// stand: since when they keep failing to happen (`None`: the last one
+    /// succeeded) and the peer's checkpoint counter then.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn view_compare(
+        &self,
+        device: &InstallId,
+        vault_id: &VaultId,
+    ) -> Result<Option<(Option<u64>, u64)>> {
+        let row: Option<(Option<i64>, i64)> = self
+            .conn
+            .query_row(
+                "SELECT since_ms, counter FROM sync_view_compare
+                 WHERE device_id = ?1 AND vault_id = ?2",
+                params![device.as_bytes(), vault_id.as_bytes()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        row.map(|(t, c)| Ok((t.map(seq_from_sql).transpose()?, seq_from_sql(c)?)))
+            .transpose()
+    }
+
+    /// Stores where the comparisons stand (see [`Store::view_compare`]).
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn put_view_compare(
+        &mut self,
+        device: &InstallId,
+        vault_id: &VaultId,
+        since_ms: Option<u64>,
+        counter: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO sync_view_compare (device_id, vault_id, since_ms, counter)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (device_id, vault_id) DO UPDATE SET
+                 since_ms = excluded.since_ms, counter = excluded.counter",
+            params![
+                device.as_bytes(),
+                vault_id.as_bytes(),
+                since_ms.map(ms_to_sql).transpose()?,
+                seq_to_sql(counter)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Stores a finding that the heads of `device` and this device never
+    /// met for `vault` (since the time of the last comparison).
+    ///
+    /// # Errors
+    /// [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn set_no_common_view(
+        &mut self,
+        device: &InstallId,
+        vault_id: &VaultId,
+        since_ms: u64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO sync_no_common_view (device_id, vault_id, since_ms)
+             VALUES (?1, ?2, ?3)",
+            params![device.as_bytes(), vault_id.as_bytes(), ms_to_sql(since_ms)?],
+        )?;
+        Ok(())
+    }
+
+    /// The `(device, vault, since)` findings of heads that never met.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn no_common_view(&self) -> Result<Vec<(InstallId, VaultId, u64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT device_id, vault_id, since_ms FROM sync_no_common_view
+             ORDER BY device_id, vault_id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (d, v, t) = row?;
+            Ok((
+                install_from_sql(&d)?,
+                vault_id_from_sql(&v)?,
+                seq_from_sql(t)?,
+            ))
+        })
+        .collect()
     }
 
     /// Records the counter of the checkpoint the backend accepted (it never
@@ -415,13 +557,14 @@ impl Store {
     pub fn put_peer_checkpoint(&mut self, checkpoint: &PeerCheckpoint) -> Result<bool> {
         let entries = encode_entries(&checkpoint.entries)?;
         let changed = self.conn.execute(
-            "INSERT INTO sync_peer_checkpoint (device_id, counter, issued_at_ms, entries)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO sync_peer_checkpoint
+                 (device_id, counter, issued_at_ms, entries, digest_ignored)
+             VALUES (?1, ?2, ?3, ?4, EXISTS (SELECT 1 FROM sync_rebuild))
              ON CONFLICT (device_id) DO UPDATE SET
                  counter = excluded.counter,
                  issued_at_ms = excluded.issued_at_ms,
                  entries = excluded.entries,
-                 digest_ignored = 0
+                 digest_ignored = excluded.digest_ignored
              WHERE excluded.counter > sync_peer_checkpoint.counter",
             params![
                 checkpoint.device_id.as_bytes(),
@@ -863,6 +1006,9 @@ impl Store {
             "DELETE FROM sync_key_confirmed",
             "DELETE FROM sync_vault_flag",
             "DELETE FROM sync_rotation_log",
+            "DELETE FROM sync_view_compare",
+            "DELETE FROM sync_no_common_view",
+            "DELETE FROM sync_rebuild",
             "UPDATE sync_engine_state SET strike_count = 0, strike_first_ms = NULL,
                  strike_counter = NULL, last_published_counter = 0
              WHERE id = 1",
@@ -1088,10 +1234,14 @@ mod tests {
     }
 
     #[test]
-    fn clearing_the_halt_forgets_the_findings_and_old_digests() {
+    fn clearing_the_findings_rebuilds_the_flagged_vaults_and_leaves_the_halt_alone() {
         let mut s = store();
         let v = vault(1);
+        s.set_sync_halt(SyncHalt::Rollback).unwrap();
+        s.set_checkpoint_strikes(1, Some(5), Some(2)).unwrap();
         s.set_vault_flag(&v, VaultFlag::ServerInconsistent).unwrap();
+        s.set_no_common_view(&id(4), &v, 77).unwrap();
+        s.put_view_compare(&id(4), &v, Some(70), 3).unwrap();
         s.put_served(&v, &record(1), 3, &[1; 32]).unwrap();
         s.put_served(&vault(2), &record(1), 3, &[1; 32]).unwrap();
         let cp = PeerCheckpoint {
@@ -1102,7 +1252,15 @@ mod tests {
             digests_acknowledged: false,
         };
         assert!(s.put_peer_checkpoint(&cp).unwrap());
-        s.clear_sync_halt().unwrap();
+        s.clear_vault_findings(&[v]).unwrap();
+        // The halt and the strikes are not a finding against the server.
+        assert_eq!(s.engine_state().unwrap().halt, Some(SyncHalt::Rollback));
+        assert_eq!(s.engine_state().unwrap().strike_count, 1);
+        assert_eq!(s.no_common_view().unwrap(), vec![]);
+        assert_eq!(s.view_compare(&id(4), &v).unwrap(), None);
+        // (The rebuild mark of a vault that exists is tested through the
+        // session.)
+        s.finish_rebuild(&v).unwrap();
         assert_eq!(s.vault_flags().unwrap(), vec![]);
         // The flagged vault's view is rebuilt; an unflagged one stays.
         assert_eq!(s.served_rows(&v).unwrap(), vec![]);

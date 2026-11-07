@@ -197,6 +197,11 @@ up before upgrading.
   A session also remembers the account version it logged in at, and a
   password change from a session whose version is out of date is refused
   (`account_version_mismatch`).
+- A password change also ends the pending (not yet finished) logins of the
+  account, and a login that started before the change cannot finish after it.
+- Development note: databases created before the in-place edit of schema
+  version 1 (the `sessions.account_version` column, the checkpoint body
+  limit) must be recreated; the server is unreleased.
 - Housekeeping runs every hour: expired sessions, audit events older than 365
   days and attachments deleted more than `soft_delete_days` ago.
 - Run one server process per data directory.

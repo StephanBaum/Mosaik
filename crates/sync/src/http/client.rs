@@ -73,11 +73,15 @@ pub(super) struct Bearer(HeaderValue);
 
 impl Bearer {
     pub(super) fn new(token: &SessionToken) -> Result<Self, TransportError> {
-        let text = Zeroizing::new(format!(
-            "Bearer {}",
-            Base64UrlUnpadded::encode_string(token.expose())
-        ));
-        let mut value = HeaderValue::from_str(&text).map_err(|_| TransportError::Io)?;
+        // Straight into zeroizing buffers: no temporary `String`.
+        let mut text: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(64));
+        text.extend_from_slice(b"Bearer ");
+        let mut encoded = Zeroizing::new([0u8; 64]);
+        let n = Base64UrlUnpadded::encode(token.expose(), encoded.as_mut_slice())
+            .map_err(|_| TransportError::Io)?
+            .len();
+        text.extend_from_slice(encoded.get(..n).ok_or(TransportError::Io)?);
+        let mut value = HeaderValue::from_bytes(&text).map_err(|_| TransportError::Io)?;
         value.set_sensitive(true);
         Ok(Self(value))
     }

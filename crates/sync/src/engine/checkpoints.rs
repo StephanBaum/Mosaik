@@ -4,15 +4,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::{InstallId, KeyGeneration, VaultId};
-use mosaic_vault::session::{Error, UnlockedSession, VaultProtection};
+use mosaic_vault::session::{Error, KeyOrigin, UnlockedSession, VaultProtection};
 use mosaic_vault::storage::{PeerCheckpoint, PeerEntry, SyncHalt, VaultFlag};
 
+use super::consts::NO_COMMON_VIEW_GRACE_MS;
 use super::pull::RunStats;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
 use crate::clock::Clock;
 use crate::transport::{Cursor, Transport, TransportError, TransportKind};
 use crate::wire::WireError;
-use crate::wire::checkpoint::{Checkpoint, CheckpointEntry, MAX_ENTRIES, NO_VIEW, view_digest};
+use crate::wire::checkpoint::{
+    Checkpoint, CheckpointEntry, MAX_ENTRIES, NO_VIEW, view_digest, view_key_commit,
+};
 use crate::wire::cursor::FolderCursor;
 
 /// The verified checkpoint with the highest counter per device.
@@ -106,18 +109,43 @@ fn lagging_pairs(
 }
 
 /// The digest of this device's view of a hosted vault at `high_seq`, if the
-/// view is clean: the vault carries no finding against the server and no
-/// served record lies beyond `high_seq` (the cursor), so the view is exactly
-/// what the server showed up to that head.
+/// view is clean: no served record lies beyond `high_seq` (the cursor), so
+/// the view is exactly what the server showed up to that head. The digest
+/// commits to the vault key this device holds (the wrapping as the server
+/// serves it); a key this device generated and the server never accepted is
+/// not committed to at all (`None`: it is about to be replaced). An open
+/// finding does not stop the digest: the server should not learn that it was
+/// caught.
 fn own_view(s: &UnlockedSession, vault: VaultId, high_seq: u64) -> Result<Option<[u8; 32]>, Error> {
-    if s.vault_flags()?.iter().any(|(v, _)| *v == vault) {
+    let Some(generation) = s
+        .vaults()
+        .into_iter()
+        .find(|v| v.vault_id == vault)
+        .map(|v| v.key_generation)
+    else {
+        return Ok(None);
+    };
+    let Some(origin) = s.vault_key_origin(vault, generation)? else {
+        return Ok(None);
+    };
+    if origin == KeyOrigin::Local && !s.vault_key_confirmed(vault, generation)? {
         return Ok(None);
     }
+    let Some(wrapped) = s
+        .store()
+        .vault_keys(&vault)?
+        .into_iter()
+        .find(|(g, _)| *g == generation)
+        .map(|(_, w)| w)
+    else {
+        return Ok(None);
+    };
     let rows = s.served_view(vault)?;
     if rows.iter().any(|r| r.seq > high_seq) {
         return Ok(None);
     }
-    Ok(view_digest(&vault, high_seq, &rows).ok())
+    let commit = view_key_commit(&vault, generation, wrapped.as_bytes().as_slice());
+    Ok(view_digest(&vault, high_seq, &commit, &rows).ok())
 }
 
 /// The hosted cursor of a vault as a sequence number.
@@ -128,21 +156,54 @@ fn cursor_seq(cursor: Option<&[u8]>) -> u64 {
 }
 
 /// Compares one peer entry (same generation, synced vault) with this
-/// device's view at the same head; a difference is a finding.
-fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<(), Error> {
+/// device's view at the same head; a difference is a finding. Returns
+/// whether the digests could be compared (the peer published one, the heads
+/// are equal and this device's view is clean).
+fn compare_view(s: &mut UnlockedSession, entry: &PeerEntry) -> Result<bool, Error> {
     if entry.view_digest == NO_VIEW {
-        return Ok(());
+        return Ok(false);
     }
     let cursor = s.sync_cursor(entry.vault_id)?;
     if cursor_seq(cursor.as_deref()) != entry.high_seq {
-        return Ok(());
+        return Ok(false);
     }
-    if let Some(mine) = own_view(s, entry.vault_id, entry.high_seq)?
-        && mine != entry.view_digest
-    {
+    let Some(mine) = own_view(s, entry.vault_id, entry.high_seq)? else {
+        return Ok(false);
+    };
+    if mine != entry.view_digest {
         s.set_vault_flag(entry.vault_id, VaultFlag::ServerInconsistent)?;
     }
-    Ok(())
+    Ok(true)
+}
+
+/// The bookkeeping of one peer entry: a comparison ends the count; the
+/// first run that cannot compare starts it (with the peer counter then); a
+/// peer whose counter has risen since, with failures spanning the grace
+/// *across runs*, is reported (`NoCommonView`, persisted). A single run after
+/// a long pause (or a clock jump) that finds no peer at its head does not
+/// raise it: the runs that follow normally meet.
+fn track_comparison(
+    s: &mut UnlockedSession,
+    cp: &PeerCheckpoint,
+    entry: &PeerEntry,
+    compared: bool,
+    now: u64,
+) -> Result<(), Error> {
+    let (device, vault) = (cp.device_id, entry.vault_id);
+    if compared {
+        return s.put_view_compare(device, vault, None, cp.counter);
+    }
+    match s.view_compare(device, vault)? {
+        Some((Some(since), counter)) if since <= now => {
+            if cp.counter > counter && now - since > NO_COMMON_VIEW_GRACE_MS {
+                s.set_no_common_view(device, vault, since)?;
+            }
+            Ok(())
+        }
+        // First failure, or a count started in the future (the clock was set
+        // back): it starts now.
+        _ => s.put_view_compare(device, vault, Some(now), cp.counter),
+    }
 }
 
 /// What the own checkpoint on the backend says about this install.
@@ -284,7 +345,11 @@ impl<T: Transport> SyncEngine<T> {
     /// generations agree, and this device's view is clean. A different
     /// digest means the server showed two devices different contents for the
     /// same head; the vault is flagged (persisted).
-    pub(super) fn check_views(&mut self, access: &mut impl SessionAccess) -> Result<(), SyncError> {
+    pub(super) fn check_views(
+        &mut self,
+        access: &mut impl SessionAccess,
+        now: u64,
+    ) -> Result<(), SyncError> {
         if self.config.transport_kind != TransportKind::Hosted {
             return Ok(());
         }
@@ -295,18 +360,18 @@ impl<T: Transport> SyncEngine<T> {
                 .map(|v| (v.vault_id, v.key_generation))
                 .collect();
             let synced = s.synced_vaults();
-            let entries: Vec<PeerEntry> = s
+            let peers: Vec<PeerCheckpoint> = s
                 .peer_checkpoints()?
                 .into_iter()
                 .filter(|cp| !cp.digests_acknowledged)
-                .flat_map(|cp| cp.entries)
-                .filter(|e| {
-                    synced.contains(&e.vault_id)
-                        && generations.get(&e.vault_id) == Some(&e.generation)
-                })
                 .collect();
-            for entry in &entries {
-                compare_view(s, entry)?;
+            for cp in &peers {
+                for entry in cp.entries.iter().filter(|e| synced.contains(&e.vault_id)) {
+                    let same_generation =
+                        generations.get(&entry.vault_id) == Some(&entry.generation);
+                    let compared = same_generation && compare_view(s, entry)?;
+                    track_comparison(s, cp, entry, compared, now)?;
+                }
             }
             Ok(())
         })??;
@@ -399,6 +464,13 @@ impl<T: Transport> SyncEngine<T> {
                 })
                 .count()
         })?;
+        for (device, vault, since_ms) in access.with(|s| s.sync_findings())??.no_common_view {
+            warnings.push(SyncWarning::NoCommonView {
+                device,
+                vault,
+                since_ms,
+            });
+        }
         for (vault, flag) in access.with(|s| s.vault_flags())?? {
             warnings.push(match flag {
                 VaultFlag::ServerInconsistent => SyncWarning::ServerInconsistent { vault },

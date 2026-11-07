@@ -36,6 +36,10 @@ pub const COMPACT_BYTES: u64 = 32 * 1024 * 1024;
 pub const TEMP_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
 /// The most records one push pass fetches per vault.
 pub(crate) const PUSH_FETCH: usize = 4096;
+/// How long a peer's checkpoints may keep advancing without one successful
+/// comparison of view digests before the device reports that their heads
+/// never meet (48 hours).
+pub const NO_COMMON_VIEW_GRACE_MS: u64 = 48 * 60 * 60 * 1000;
 /// The most conflict-driven key rotations of one vault in
 /// [`CONFLICT_ROTATION_WINDOW_MS`] on the hosted backend (a server that
 /// keeps contradicting itself must not make devices rotate without end).

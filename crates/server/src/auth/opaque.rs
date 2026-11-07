@@ -23,6 +23,9 @@ pub struct LoginEntry {
     pub state: ServerLogin<Suite>,
     /// The account, `None` for a fake (unknown email).
     pub account_id: Option<[u8; 16]>,
+    /// The account version when the login started: `login/finish` refuses
+    /// if a password change moved it meanwhile.
+    pub account_version: u64,
     /// The identifier the OPAQUE messages were bound to.
     pub credential_id: [u8; 16],
     created_ms: u64,
@@ -104,10 +107,11 @@ impl LoginStates {
         ip: Vec<u8>,
         id: [u8; 16],
         state: ServerLogin<Suite>,
-        account_id: Option<[u8; 16]>,
+        account: Option<([u8; 16], u64)>,
         credential_id: [u8; 16],
         now_ms: u64,
     ) {
+        let (account_id, account_version) = account.map_or((None, 0), |(a, v)| (Some(a), v));
         let mut inner = self
             .inner
             .lock()
@@ -141,6 +145,7 @@ impl LoginStates {
             LoginEntry {
                 state,
                 account_id,
+                account_version,
                 credential_id,
                 created_ms: now_ms,
                 order,
@@ -160,6 +165,24 @@ impl LoginStates {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(id)?;
         (now_ms.saturating_sub(entry.created_ms) < LOGIN_TTL_MS).then_some(entry)
+    }
+
+    /// Drops every pending login of `account` (a password change ends them:
+    /// a login started against the old password must not complete).
+    pub fn drop_account(&self, account: &[u8; 16]) {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ids: Vec<[u8; 16]> = inner
+            .map
+            .iter()
+            .filter(|(_, e)| e.account_id.as_ref() == Some(account))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            inner.remove(&id);
+        }
     }
 
     /// Drops expired states.

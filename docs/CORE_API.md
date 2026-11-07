@@ -533,14 +533,27 @@ vault's current one, `Core(Decryption)` if the wrapping does not open, `VaultUna
 `note_served`, `served_seq`, `served_view` (`ServedRow`), `mark_vault_key_confirmed`,
 `vault_key_confirmed`, `set_vault_flag`, `vault_flags` (`VaultFlag::{ServerInconsistent,
 ServerRolledBack}`), `log_conflict_rotation`, `recent_conflict_rotations`. `clear_sync_halt`
-now also clears the findings, rebuilds the served view and cursor of the flagged vaults and
-marks the stored peer checkpoints as acknowledged (`PeerCheckpoint::digests_acknowledged`).
+clears only the halt, the strikes and `written` (as before); the findings against the server
+go through `clear_vault_findings(&[VaultId])` (engine: `clear_findings`), which clears them
+and `NoCommonView`, drops the served view, the cursor and the current-generation key
+candidates of those vaults and marks them for a rebuild (`rebuild_vaults`,
+`finish_rebuild`; after the full re-read the engine queues local records the server lacks
+with `requeue_record`) and marks the stored peer checkpoints as acknowledged
+(`PeerCheckpoint::digests_acknowledged`). `sync_findings() -> SyncFindings { halt,
+vault_flags, no_common_view }` lists both kinds (`is_clear`, `vaults`), so the desktop can
+offer one acknowledge action and call both clears depending on what is set.
+`mark_vault_key_accepted` records an accepted upload and its confirmation in one transaction
+(the creation and `commit_vault_rotation` confirm in theirs); `view_compare` and
+`put_view_compare` hold the comparison times. `mosaic_core::sync_auth` gains
+`view_key_commit`, `view_digest` and `ServedEntry`; the view digest has the key commitment
+(CRYPTO_SPEC §10). `HttpTransport::connect` takes `&SessionToken`.
 `PeerEntry` and `CheckpointEntry` gain `view_digest: [u8; 32]` (`checkpoint::NO_VIEW`,
 `checkpoint::view_digest`, `CheckpointEntry::view`); the checkpoint is 60 bytes per entry
 and 245,833 bytes at most. `apply_remote_record`: a received version of equal content
 settles a queued change of the record (its ciphertext replaces the row and the change
 leaves the outbox), and a dominated one no longer raises the stored `server_seq`.
-`SyncWarning` gains `ServerInconsistent { vault }` and `ServerRollback { vault }`;
+`SyncWarning` gains `ServerInconsistent { vault }`, `ServerRollback { vault }` and
+`NoCommonView { device, vault, since_ms }`;
 `TransportError` gains `HeadBelowCursor`; `HttpTransport::connect(base, token, install)`
 takes the engine's install ID; `wire::origin::canonical_origin` is the shared origin
 normalizer; `PasswordFinishRequest` loses `expected_account_version` (the server uses the

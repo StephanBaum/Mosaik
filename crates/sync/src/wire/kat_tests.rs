@@ -182,7 +182,9 @@ fn the_view_digest_matches_the_script() {
             ct_hash: Sha256::digest(b"second").into(),
         },
     ];
-    let digest = super::checkpoint::view_digest(&vault(), 8, &rows).unwrap();
+    let commit = super::checkpoint::view_key_commit(&vault(), KeyGeneration::FIRST, &[0x77; 74]);
+    assert_eq!(commit.as_slice(), k["key_commit"]);
+    let digest = super::checkpoint::view_digest(&vault(), 8, &commit, &rows).unwrap();
     assert_eq!(digest.as_slice(), k["view_digest"]);
 }
 

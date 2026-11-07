@@ -65,7 +65,7 @@ impl<T: Transport> SyncEngine<T> {
                     .push_vault_key(vault, *generation, wrapped, install, None)?
                 {
                     KeyPushResult::Accepted { .. } => {
-                        access.with(|s| accepted_key(s, vault, *generation))??;
+                        access.with(|s| s.mark_vault_key_accepted(vault, *generation))??;
                     }
                     // A taken generation is resolved by the key rules after
                     // the next pull, not by retrying. The key stays
@@ -145,16 +145,6 @@ impl<T: Transport> SyncEngine<T> {
     }
 }
 
-/// The server accepted the key: it is uploaded and confirmed.
-fn accepted_key(
-    s: &mut UnlockedSession,
-    vault: VaultId,
-    generation: KeyGeneration,
-) -> Result<(), Error> {
-    s.mark_vault_key_uploaded(vault, generation)?;
-    s.mark_vault_key_confirmed(vault, generation)
-}
-
 fn decide(
     s: &mut UnlockedSession,
     vault: VaultId,
@@ -181,17 +171,18 @@ fn decide(
     if differing.is_empty() {
         return Ok(Decision::Nothing);
     }
-    if hosted
-        && origin == KeyOrigin::Local
-        && !s.vault_key_confirmed(vault, generation)?
-        && let Some((_, wrapped)) = differing
-            .iter()
-            .min_by_key(|(d, w)| (*d.as_bytes(), w.as_bytes().to_vec()))
-    {
-        return Ok(Decision::Adopt {
-            generation,
-            wrapped: wrapped.clone(),
-        });
+    if hosted && origin == KeyOrigin::Local && !s.vault_key_confirmed(vault, generation)? {
+        // One server key for the generation: adopt it. More than one
+        // distinct verified candidate is the server contradicting itself:
+        // reported, nothing adopted.
+        if let [(_, wrapped)] = differing.as_slice() {
+            return Ok(Decision::Adopt {
+                generation,
+                wrapped: wrapped.clone(),
+            });
+        }
+        s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+        return Ok(Decision::Nothing);
     }
     if hosted {
         // The server delivered a second valid key for a generation it holds

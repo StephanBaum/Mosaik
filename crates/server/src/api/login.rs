@@ -71,7 +71,11 @@ pub async fn start(
         Some(a) => {
             let record = ServerRegistration::<Suite>::deserialize(&a.opaque_record)
                 .map_err(|_| ApiError::internal())?;
-            (Some(a.account_id), a.account_id, Some(record))
+            (
+                Some((a.account_id, a.account_version)),
+                a.account_id,
+                Some(record),
+            )
         }
         None => (
             None,
@@ -130,6 +134,10 @@ pub async fn finish(State(st): State<AppState>, body: Bytes) -> Result<Reply, Ap
 
     let (pending, expires_at) = st.db.run_tx(|tx| {
         let account = accounts::by_id(tx, &account_id)?.ok_or_else(login_failed)?;
+        // A password change since `login/start` ends this login.
+        if account.account_version != entry.account_version {
+            return Err(login_failed());
+        }
         devices::upsert_on_login(tx, &account_id, &device, &req.device_name, now)?;
         let pending = account.totp_sealed.is_some();
         // A pending session ends after five minutes.

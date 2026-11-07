@@ -1014,7 +1014,9 @@ fn forged_conflict_current_seq_is_harmless() {
     settle(&mut w, &[0, 1]);
     // The user acknowledges the finding; the vault is read again.
     let dev = &mut w.devs[1];
-    dev.engine.clear_halt(&mut dev.access).unwrap();
+    dev.engine
+        .clear_findings(&mut dev.access, &[vault])
+        .unwrap();
     settle(&mut w, &[0, 1]);
     assert_converged(&mut w, &[0, 1]);
     for d in [0, 1] {
@@ -1065,6 +1067,23 @@ fn acknowledged_but_dropped_upload_is_detected() {
         delivered || warned,
         "the acknowledged edit reached no other device and nothing warns"
     );
+    // R-M4: the user acknowledges everywhere. The vault is read again from
+    // the honest server, device 0 finds its edit missing there and queues it
+    // again: the acknowledgement does not make the loss permanent.
+    for d in ALL {
+        let dev = &mut w.devs[d];
+        dev.engine
+            .clear_findings(&mut dev.access, &[vault])
+            .unwrap();
+    }
+    settle(&mut w, &ALL);
+    assert_converged(&mut w, &ALL);
+    for d in ALL {
+        assert!(
+            has_pw(&w, d, vault, items[0], "dropped by the server"),
+            "device {d}"
+        );
+    }
 }
 
 /// The server withholds the new key from every page after a rotation:
@@ -1490,6 +1509,61 @@ fn random_schedule(seed: u64, rounds: usize) {
     }
 }
 
+/// R-M2. A server that keeps one device's head one behind the other's never
+/// lets their view digests be compared (equal heads are needed). Both
+/// checkpoints keep advancing, so after 48 hours without a comparison the
+/// devices report `NoCommonView` for each other. An honest pair meets at the
+/// same head after the settle pull, so the sims never see it.
+#[test]
+fn heads_kept_one_apart_raise_no_common_view_after_the_grace() {
+    use mosaic_sync::engine::consts::NO_COMMON_VIEW_GRACE_MS;
+    let (mut w, vault, item) = two_devices(1920);
+    let mut e = faulty(&w, 1);
+    // Device 1 is always shown a head one below the real one.
+    e.transport_mut().tamper_pull = Some(Box::new(|_, page: &mut PullPage| {
+        if let Some(last) = page.records.pop()
+            && let Some(seq) = last.seq
+        {
+            page.next = Cursor(seq.saturating_sub(1).to_be_bytes().to_vec());
+            page.more = false;
+        }
+    }));
+    let reports = |w: &mut World, e: &mut FEngine, round: usize| {
+        set_password(w, 0, vault, item, &format!("edit {round}"));
+        let r0 = w.sync(0);
+        let r1 = fsync(w, e, 1);
+        (r0, r1)
+    };
+    let no_common = |r: &mosaic_sync::engine::SyncReport| {
+        r.warnings
+            .iter()
+            .any(|x| matches!(x, SyncWarning::NoCommonView { vault: v, .. } if *v == vault))
+    };
+    for round in 0..3 {
+        let (r0, r1) = reports(&mut w, &mut e, round);
+        assert!(!no_common(&r0) && !no_common(&r1), "inside the grace");
+    }
+    w.advance(NO_COMMON_VIEW_GRACE_MS + MINUTE_MS);
+    let (mut seen0, mut seen1) = (false, false);
+    for round in 3..6 {
+        let (r0, r1) = reports(&mut w, &mut e, round);
+        seen0 |= no_common(&r0);
+        seen1 |= no_common(&r1);
+    }
+    assert!(seen0 && seen1, "device 0: {seen0}, device 1: {seen1}");
+    // The user acknowledges on both devices; the server is honest again.
+    drop(e);
+    w.relogin(1);
+    for d in [0, 1] {
+        let dev = &mut w.devs[d];
+        dev.engine
+            .clear_findings(&mut dev.access, &[vault])
+            .unwrap();
+    }
+    settle(&mut w, &[0, 1]);
+    assert_converged(&mut w, &[0, 1]);
+}
+
 /// Finding 9. One vault is rolled back on the server and a device syncs right
 /// away: the page's head is below the device's cursor. The run fails with a
 /// protocol error before it evaluates any lag, on every run, so the user
@@ -1525,6 +1599,30 @@ fn stale_head_below_cursor_reported_and_isolated() {
         reported && isolated,
         "reported {reported}, untouched vault still syncs {isolated}: {outcomes:?}"
     );
+    // R-L5: a rolled-back vault takes no uploads until the user acknowledges.
+    set_password(&mut w, 0, vault, x, "queued while rolled back");
+    w.sync(0);
+    assert_eq!(
+        w.devs[0].s().pending_uploads(8).unwrap().len(),
+        1,
+        "nothing was uploaded to the rolled-back vault"
+    );
+    // R-M4: acknowledged on both devices, both read the vault again, find
+    // what the restored server lacks and send it: the edits survive.
+    for d in [0, 1] {
+        let dev = &mut w.devs[d];
+        dev.engine
+            .clear_findings(&mut dev.access, &[vault])
+            .unwrap();
+    }
+    settle(&mut w, &[0, 1]);
+    assert_converged(&mut w, &[0, 1]);
+    for d in [0, 1] {
+        assert!(
+            has_pw(&w, d, vault, x, "queued while rolled back"),
+            "device {d}"
+        );
+    }
 }
 
 /// Around the stale-upload-base fix: the server stores an upload but the
@@ -1653,7 +1751,9 @@ fn replayed_live_version_does_not_resurrect() {
     // The user acknowledges; every vault is read again from the honest server.
     for d in ALL {
         let dev = &mut w.devs[d];
-        dev.engine.clear_halt(&mut dev.access).unwrap();
+        dev.engine
+            .clear_findings(&mut dev.access, &[vault])
+            .unwrap();
     }
     settle(&mut w, &ALL);
     assert_converged(&mut w, &ALL);

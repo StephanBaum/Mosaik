@@ -333,16 +333,17 @@ impl World {
 /// `ServerInconsistent` or `ServerRollback` finding, and no report says so.
 pub fn assert_no_server_findings(w: &World) {
     for (d, dev) in w.devs.iter().enumerate() {
+        let findings = dev.s().sync_findings().unwrap();
         assert!(
-            dev.s().vault_flags().unwrap().is_empty(),
-            "device {d} holds a finding against an honest server: {:?}",
-            dev.s().vault_flags().unwrap()
+            findings.is_clear(),
+            "device {d} holds a finding against an honest server: {findings:?}"
         );
         assert!(
             !dev.last.warnings.iter().any(|w| matches!(
                 w,
                 mosaic_sync::engine::SyncWarning::ServerInconsistent { .. }
                     | mosaic_sync::engine::SyncWarning::ServerRollback { .. }
+                    | mosaic_sync::engine::SyncWarning::NoCommonView { .. }
             )),
             "device {d}: {:?}",
             dev.last.warnings

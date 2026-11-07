@@ -450,6 +450,46 @@ CREATE TABLE sync_rotation_log (
     at_ms     INTEGER NOT NULL CHECK (at_ms >= 0)
 ) STRICT;
 CREATE INDEX sync_rotation_log_vault ON sync_rotation_log (vault_id, at_ms);
+
+-- Per (peer device, vault): since when this device's comparisons of view
+-- digests with the peer keep failing to happen (NULL: the last one
+-- succeeded) and the peer's checkpoint counter then; `sync_no_common_view` holds the findings that the
+-- heads never met (persisted until acknowledged); `sync_rebuild` marks the
+-- vaults whose served view was dropped by an acknowledgement and that must
+-- be read again from the start before local records the server lacks are
+-- queued again.
+CREATE TABLE sync_view_compare (
+    device_id        BLOB    NOT NULL CHECK (length(device_id) = 16),
+    vault_id         BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    since_ms         INTEGER CHECK (since_ms IS NULL OR since_ms >= 0),
+    counter          INTEGER NOT NULL CHECK (counter >= 0),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_no_common_view (
+    device_id  BLOB    NOT NULL CHECK (length(device_id) = 16),
+    vault_id   BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    since_ms   INTEGER NOT NULL CHECK (since_ms >= 0),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_rebuild (
+    vault_id  BLOB    PRIMARY KEY CHECK (length(vault_id) = 16)
+) STRICT, WITHOUT ROWID;
+
+-- Seeds for a store that synced before v5. A key this install generated
+-- whose upload flag is clear, at the vault's current generation, counts as
+-- confirmed (the conservative reading: it is not replaced by adoption). The
+-- hosted cursors are dropped, because the served view starts empty: the next
+-- run reads the vaults again from the start and rebuilds it, and no digest is
+-- published from a half-known view. Folder cursors stay.
+INSERT OR IGNORE INTO sync_key_confirmed (vault_id, generation)
+SELECT k.vault_id, k.generation FROM vault_keys k
+JOIN vaults v ON v.vault_id = k.vault_id AND v.current_generation = k.generation
+WHERE k.local_origin = 1 AND k.upload_pending = 0 AND v.key_wrap = 1;
+
+DELETE FROM sync_cursor_blobs
+WHERE EXISTS (SELECT 1 FROM sync_config WHERE kind = 1);
 ";
 
 /// All migrations, in order. Version `n` is at index `n - 1`.
@@ -1020,6 +1060,60 @@ mod tests {
         ] {
             assert!(c.execute(bad, []).is_err(), "{bad}");
         }
+    }
+
+    /// R-L3 and R-L6. The v5 migration seeds the confirmed mark for a key this
+    /// install generated whose upload flag is clear (the conservative
+    /// reading) and drops hosted cursors (the served view starts empty);
+    /// folder cursors stay.
+    #[test]
+    fn migration_v5_seeds_confirmed_keys_and_drops_hosted_cursors() {
+        let setup = |kind_sql: &str| {
+            let mut c = conn();
+            migrate(&mut c, &MIGRATIONS[..4]).unwrap();
+            c.execute_batch(
+                "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                     highest_accepted_generation, updated_at)
+                 VALUES (x'07070707070707070707070707070707', 1, 1, 1, 5),
+                        (x'08080808080808080808080808080808', 1, 1, 1, 5);
+                 INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at,
+                                         upload_pending, local_origin)
+                 VALUES (x'07070707070707070707070707070707', 1, zeroblob(74), 1, 0, 1),
+                        (x'08080808080808080808080808080808', 1, zeroblob(74), 1, 1, 1);
+                 INSERT INTO sync_cursor_blobs (vault_id, cursor, updated_at)
+                 VALUES (x'07070707070707070707070707070707', x'0102', 6),
+                        (x'08080808080808080808080808080808', x'0304', 6);",
+            )
+            .unwrap();
+            c.execute_batch(kind_sql).unwrap();
+            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 5);
+            c
+        };
+        let hosted = setup(
+            "INSERT INTO sync_config (id, kind, server_url, device_name, updated_at)
+             VALUES (1, 1, 'https://x.example', 'Laptop', 0);",
+        );
+        let confirmed: Vec<Vec<u8>> = hosted
+            .prepare("SELECT vault_id FROM sync_key_confirmed")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(confirmed, vec![vec![7u8; 16]], "only the uploaded key");
+        let cursors: i64 = hosted
+            .query_row("SELECT count(*) FROM sync_cursor_blobs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cursors, 0, "hosted cursors are dropped");
+
+        let folder = setup(
+            "INSERT INTO sync_config (id, kind, folder_path, device_name, updated_at)
+             VALUES (1, 2, '/tmp/f', 'Laptop', 0);",
+        );
+        let cursors: i64 = folder
+            .query_row("SELECT count(*) FROM sync_cursor_blobs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cursors, 2, "folder cursors stay");
     }
 
     #[test]

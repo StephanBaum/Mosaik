@@ -13,7 +13,7 @@ use mosaic_sync::transport::{PulledKey, PulledRecord, Transport};
 use mosaic_vault::storage::RecordBody;
 
 use crate::hosted::{LoopbackTransport, World, everything};
-use crate::scenarios::{add_login, engine_for, has_pw, set_password, two_devices};
+use crate::scenarios::{add_login, engine_for, has_pw, set_password, three_devices, two_devices};
 
 const MINUTE_MS: u64 = 60_000;
 
@@ -403,4 +403,151 @@ fn cross_served_keys_warn_and_the_rotations_are_capped() {
     // Nothing readable was lost along the way.
     assert_eq!(w.devs[1].s().corrupt_records().len(), 0);
     assert!(has_pw(&w, 1, vault, item, "pw"));
+}
+
+/// Device `d` reading through a transport the test controls (see
+/// [`malicious_b`]).
+fn malicious_for(w: &World, d: usize) -> Mal {
+    let (opw, device) = (w.opw(d), w.devs[d].device);
+    engine_for(MaliciousTransport::new(w.login_transport(
+        device,
+        "hostile path",
+        &opw,
+    )))
+}
+
+fn run_dev(w: &mut World, d: usize, engine: &mut Mal) -> SyncReport {
+    w.server.advance_ms(MINUTE_MS);
+    let dev = &mut w.devs[d];
+    engine.sync_once(&mut dev.access, &w.clock).unwrap()
+}
+
+/// The wrapped key a device holds for `generation` of `vault`.
+fn key_of(w: &World, d: usize, vault: VaultId, generation: u32) -> mosaic_core::WrappedKey {
+    w.devs[d]
+        .s()
+        .store()
+        .vault_keys(&vault)
+        .unwrap()
+        .into_iter()
+        .find(|(g, _)| g.get() == generation)
+        .map(|(_, k)| k)
+        .unwrap()
+}
+
+fn inconsistent(r: &SyncReport, vault: VaultId) -> bool {
+    r.warnings
+        .iter()
+        .any(|x| matches!(x, SyncWarning::ServerInconsistent { vault: v } if *v == vault))
+}
+
+/// A third device rotates the vault online, so the real server holds that
+/// key for generation 2; devices 0 and 1 rotated offline before and get
+/// `generation_taken` from the real server. Returns the keys of devices 0 and
+/// 1 for generation 2 and the vault.
+fn server_holds_a_third_key(w: &mut World, vault: VaultId) {
+    w.server.advance_ms(MINUTE_MS);
+    let clock = w.clock.clone();
+    let dev = &mut w.devs[2];
+    dev.engine
+        .rotate_vault(&mut dev.access, &clock, vault)
+        .unwrap();
+}
+
+/// A hostile path that shows the device `foreign` as the key of generation 2
+/// instead of what the server holds.
+fn show_instead(engine: &mut Mal, foreign: Vec<mosaic_core::WrappedKey>) {
+    let g2 = KeyGeneration::new(2).unwrap();
+    let low = mosaic_core::InstallId::from_bytes([1; 16]).unwrap();
+    engine.transport_mut().tamper_pull = Some(Box::new(move |page| {
+        page.keys.clear();
+        for key in &foreign {
+            page.keys.push(PulledKey {
+                generation: g2,
+                wrapped: key.clone(),
+                device_id: low,
+                seq: Some(head_of(&page.next)),
+            });
+        }
+    }));
+}
+
+/// R-M1. A server cross-serves the keys of two offline rotators: each adopts
+/// the other's key, and the two devices hold different keys for one
+/// generation. The vault holds no records, so the served views agree; only
+/// the key commitment in the view digest tells the devices apart. Both
+/// report the server once they are at the same head.
+#[test]
+fn key_equivocation_through_adoption_shows_in_the_view_digest() {
+    let (mut w, _first, _items) = three_devices(81);
+    let vault = w.new_vault(0, "Empty");
+    for d in [0, 1, 2] {
+        w.sync(d);
+    }
+    for d in [0, 1] {
+        w.devs[d].s_mut().rotate_vault_key(vault).unwrap();
+    }
+    let (k0, k1) = (key_of(&w, 0, vault, 2), key_of(&w, 1, vault, 2));
+    assert_ne!(k0, k1);
+    server_holds_a_third_key(&mut w, vault);
+    let mut engines = Vec::new();
+    for (d, foreign) in [(0usize, k1.clone()), (1, k0.clone())] {
+        let mut e = malicious_for(&w, d);
+        show_instead(&mut e, vec![foreign]);
+        engines.push(e);
+    }
+    let mut flagged = false;
+    for _ in 0..4 {
+        for d in [0, 1] {
+            let r = run_dev(&mut w, d, &mut engines[d]);
+            flagged |= inconsistent(&r, vault);
+        }
+    }
+    // Both adopted the other's key: one generation, two different keys.
+    assert_eq!(key_of(&w, 0, vault, 2), k1);
+    assert_eq!(key_of(&w, 1, vault, 2), k0);
+    assert!(flagged, "the key split went unreported");
+}
+
+/// R-L4 and R-L1. More than one distinct verified key for a generation is
+/// the server contradicting itself: it is reported and nothing is adopted. A
+/// finding the user cleared does not come back by itself.
+#[test]
+fn two_server_keys_for_one_generation_are_reported_not_adopted() {
+    let (mut w, _first, _items) = three_devices(82);
+    let vault = w.new_vault(0, "Empty");
+    for d in [0, 1, 2] {
+        w.sync(d);
+    }
+    for d in [0, 1] {
+        w.devs[d].s_mut().rotate_vault_key(vault).unwrap();
+    }
+    let (ka, kb) = (key_of(&w, 0, vault, 2), key_of(&w, 1, vault, 2));
+    server_holds_a_third_key(&mut w, vault);
+    let kc = key_of(&w, 2, vault, 2);
+    let g2 = KeyGeneration::new(2).unwrap();
+    let mut engine = malicious_for(&w, 1);
+    show_instead(&mut engine, vec![ka, kc.clone()]);
+    let r = run_dev(&mut w, 1, &mut engine);
+    assert!(inconsistent(&r, vault), "{r:?}");
+    assert_eq!(key_of(&w, 1, vault, 2), kb, "the held key was not replaced");
+    assert_eq!(
+        w.devs[1].s().vault_key_origin(vault, g2).unwrap(),
+        Some(mosaic_vault::session::KeyOrigin::Local)
+    );
+    // The user acknowledges; the server is honest again: the finding does
+    // not come back by itself.
+    let dev = &mut w.devs[1];
+    engine.clear_findings(&mut dev.access, &[vault]).unwrap();
+    engine.transport_mut().tamper_pull = None;
+    let mut warned = false;
+    for _ in 0..2 {
+        let r = run_dev(&mut w, 1, &mut engine);
+        warned |= inconsistent(&r, vault);
+    }
+    // The honest server shows its one key for the generation: the device
+    // adopts it (one candidate), and nothing is reported.
+    assert!(!warned);
+    assert_eq!(w.devs[1].s().vault_flags().unwrap(), vec![]);
+    assert_eq!(key_of(&w, 1, vault, 2), kc);
 }

@@ -699,6 +699,69 @@ async fn password_change_cas_account_version() {
     ));
 }
 
+/// R-M3: a login that started against the old password cannot finish after a
+/// password change; a login that starts after it works with the new one.
+#[tokio::test(start_paused = true)]
+async fn a_login_in_flight_does_not_survive_a_password_change() {
+    let app = open_app();
+    let (u, token) = app.user("alice").await;
+    let new_opw = [0x55u8; 32];
+    let mut rng = OsRng;
+    let start = ClientRegistration::<Suite>::start(&mut rng, &new_opw).unwrap();
+    let r = app
+        .post(
+            "/v1/account/password/start",
+            Some(&token),
+            &PasswordStartRequest {
+                registration_request: B64(start.message.serialize().to_vec()),
+            },
+        )
+        .await;
+    let resp: RegistrationStartResponse = r.json();
+    let fin = start
+        .state
+        .finish(
+            &mut rng,
+            &new_opw,
+            RegistrationResponse::deserialize(&resp.registration_response.0).unwrap(),
+            ClientRegistrationFinishParameters::new(
+                identifiers(u.account_id.as_bytes(), ORIGIN.as_bytes()),
+                None,
+            ),
+        )
+        .unwrap();
+    let change = PasswordFinishRequest {
+        registration_upload: B64(fin.message.serialize().to_vec()),
+        wrapped_ak: wrapped_key(9),
+        salt: json::B64Fixed([5; 16]),
+        profile: Argon2Profile::Strong,
+    };
+    app.clock.advance_ms(60_000);
+    let second = InstallId::new_v7().unwrap();
+    let result = app
+        .login_with_pause(&u.email, &u.opw, u.account_id, second, IP, async || {
+            // The change goes through between the two requests of the login.
+            let done = app
+                .post("/v1/account/password/finish", Some(&token), &change)
+                .await;
+            assert_eq!(done.status, StatusCode::OK);
+        })
+        .await;
+    match result {
+        LoginResult::Server(r) => {
+            assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+            assert_eq!(r.code(), "login_failed");
+        }
+        _ => panic!("the login in flight must be refused"),
+    }
+    app.clock.advance_ms(60_000);
+    assert!(matches!(
+        app.login_with(&u.email, &new_opw, u.account_id, second, IP)
+            .await,
+        LoginResult::Ok { .. }
+    ));
+}
+
 #[tokio::test(start_paused = true)]
 async fn logout_and_device_removal_revoke() {
     let app = open_app();

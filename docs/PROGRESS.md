@@ -2056,6 +2056,29 @@ spec first (CRYPTO_SPEC §9.4, §10, §10.2, §11, §12; ADR-0045 and ADR-0046 a
   CI's. The server's `sessions` and `checkpoints` tables changed in migration v1 in place (the server is unreleased,
   no deployed database).
 
+### T4 re-review follow-ups (2026-11-07)
+
+Crypto re-review of the first follow-ups (R-M1 to R-M4, R-L1 to R-L7, I1 to I5); see the ADR-0045/0046 amendment
+in `docs/DECISIONS.md` and CRYPTO_SPEC §10, §10.2.
+
+- **View digest and key commitment.** The digest binds the held key's wrapping (`key_commit`), so a key split by
+  adoption shows; the formulas live in `mosaic-core` (label registry, no literal context in `mosaic-sync`); a
+  key never accepted publishes the all-zero digest; an open finding does not switch the digest off. KAT
+  script, vectors and fuzz seeds regenerated. More than one candidate key is a finding, nothing is adopted.
+- **`NoCommonView`.** A peer whose checkpoints advance for 48 hours with no digest comparison is reported
+  (persisted); honest pairs never raise it (`assert_no_server_findings` in the sims).
+- **Login vs password change.** A pending login records the account version and ends with a password change.
+- **Acknowledging.** `clear_vault_findings` (per vault) is separate from `clear_sync_halt`; `sync_findings`
+  lists both; after the re-read, local records the server lacks are queued again (the S6 and S9 tests clear the
+  finding and assert that the dropped edit arrives). A cleared key finding does not return; peers' stale
+  digests are ignored until they republish.
+- **Smaller.** Confirmed mark written in the accepting transactions (v5 migration seeds it conservatively);
+  `ServerRollback` vaults take no uploads or attachment transfers; the v5 migration drops hosted cursors;
+  bearer encoded straight into zeroizing buffers.
+- **Dev note.** Server databases created before the in-place edit of migration v1 must be recreated (unreleased).
+- **Open for T5.** The desktop calls `clear_sync_halt` and `clear_vault_findings` behind one acknowledge action
+  (`sync_findings` says what is set).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

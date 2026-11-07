@@ -2,7 +2,7 @@
 //! records, deferring what is ahead of its key, and moving the stored
 //! cursor only past what was applied.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::{KeyGeneration, VaultId};
 use mosaic_vault::session::{ApplyOutcome, Error, RemoteRecord, UnlockedSession, VaultProtection};
@@ -103,6 +103,48 @@ fn count_undecryptable(
     if !s.has_key_conflict(vault, generation).unwrap_or(false) {
         stats.unexplained += 1;
     }
+}
+
+/// After the vault was read again completely following the user's
+/// acknowledgement of a finding: every local record at the current
+/// generation that the server does not hold as it is (no served row, or
+/// another ciphertext) and that is not queued already is queued again. The
+/// edit a lying server acknowledged and dropped, or a vault it rolled back,
+/// would otherwise stay lost for good. A re-sealed copy of equal content
+/// costs one upload.
+fn requeue_unserved(s: &mut UnlockedSession, vault: VaultId) -> Result<(), Error> {
+    if !s.rebuild_vaults()?.contains(&vault) {
+        return Ok(());
+    }
+    let Some(generation) = s
+        .vaults()
+        .into_iter()
+        .find(|v| v.vault_id == vault)
+        .map(|v| v.key_generation)
+    else {
+        return s.finish_rebuild(vault);
+    };
+    let served: BTreeMap<_, _> = s
+        .served_view(vault)?
+        .into_iter()
+        .map(|r| (r.record_id, r.ct_hash))
+        .collect();
+    let records: Vec<_> = s
+        .store()
+        .records(&vault)?
+        .into_iter()
+        .filter_map(mosaic_vault::storage::RecordEntry::ok)
+        .collect();
+    for record in records {
+        if record.outbox_seq.is_some() || record.body.key_generation() != generation {
+            continue;
+        }
+        let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
+        if served.get(&record.record_id) != Some(&hash) {
+            s.requeue_record(vault, record.record_id)?;
+        }
+    }
+    s.finish_rebuild(vault)
 }
 
 fn apply_key(
@@ -449,6 +491,9 @@ impl<T: Transport> SyncEngine<T> {
                 }
                 Ok(())
             })??;
+        }
+        if vp.deferred_records.is_empty() && vp.deferred_metas.is_empty() {
+            access.with(|s| requeue_unserved(s, vault))??;
         }
         Ok(())
     }

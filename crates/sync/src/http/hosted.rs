@@ -198,7 +198,7 @@ pub fn register(
     )?;
     let response = RegistrationResponse::deserialize(&started.registration_response.0)
         .map_err(|_| TransportError::Protocol)?;
-    let finished = start
+    let mut finished = start
         .state
         .finish(
             &mut rng,
@@ -210,7 +210,6 @@ pub fn register(
             ),
         )
         .map_err(|_| TransportError::Protocol)?;
-    let mut finished = finished;
     wipe_registration(&mut finished);
     http.call::<_, Empty>(
         Method::POST,
@@ -287,7 +286,7 @@ fn login_with(
     )?;
     let response = CredentialResponse::deserialize(&started.credential_response.0)
         .map_err(|_| TransportError::Protocol)?;
-    let finished = start
+    let mut finished = start
         .state
         .finish(
             &mut rng,
@@ -303,7 +302,6 @@ fn login_with(
         // account and origin: the same to the caller.
         .map_err(|_| TransportError::Rejected(Rejection::LoginFailed))?;
     let token = session_token(&finished.session_key);
-    let mut finished = finished;
     wipe_login(&mut finished);
     let token = token.map_err(|_| TransportError::Io)?;
     let (_, done): (u16, LoginResponse) = http.call(
@@ -519,7 +517,7 @@ pub fn password_change(
     )?;
     let response = RegistrationResponse::deserialize(&started.registration_response.0)
         .map_err(|_| TransportError::Protocol)?;
-    let finished = start
+    let mut finished = start
         .state
         .finish(
             &mut rng,
@@ -531,7 +529,6 @@ pub fn password_change(
             ),
         )
         .map_err(|_| TransportError::Protocol)?;
-    let mut finished = finished;
     wipe_registration(&mut finished);
     let new_params = prepared.new_params();
     let (_, done): (u16, PasswordFinishResponse) = http.call(

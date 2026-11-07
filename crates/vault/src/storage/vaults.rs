@@ -155,6 +155,19 @@ fn upsert_key(
 }
 
 /// Sets the sync flags of a held vault key (a no-op for a missing row).
+/// Notes that the backend confirmed the key of `generation`.
+pub(super) fn confirm_key(
+    conn: &Connection,
+    vault_id: &VaultId,
+    generation: KeyGeneration,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO sync_key_confirmed (vault_id, generation) VALUES (?1, ?2)",
+        params![vault_id.as_bytes(), generation.get()],
+    )?;
+    Ok(())
+}
+
 pub(super) fn set_key_flags(
     conn: &Connection,
     vault_id: &VaultId,
@@ -455,7 +468,7 @@ impl Store {
         generation: KeyGeneration,
         wrapped_vault_key: &WrappedKey,
     ) -> Result<VaultState> {
-        self.accept_vault_key_flagged(vault_id, generation, wrapped_vault_key, None, false)
+        self.accept_vault_key_flagged(vault_id, generation, wrapped_vault_key, None, false, false)
     }
 
     /// [`Store::accept_vault_key`] for the sync queue (schema v3): a new
@@ -477,6 +490,7 @@ impl Store {
             generation,
             wrapped_vault_key,
             Some(KeyFlags::of(origin)),
+            false,
             false,
         )
     }
@@ -504,6 +518,7 @@ impl Store {
                 local_origin: true,
             }),
             true,
+            true,
         )
     }
 
@@ -516,6 +531,7 @@ impl Store {
         wrapped_vault_key: &WrappedKey,
         flags: Option<KeyFlags>,
         update_held: bool,
+        confirm: bool,
     ) -> Result<VaultState> {
         let tx = self.write()?;
         let mut state = require_vault(&tx, vault_id)?;
@@ -539,6 +555,9 @@ impl Store {
                     && state.key_wrap == VaultKeyWrap::AccountKey
                 {
                     set_key_flags(&tx, vault_id, generation, flags)?;
+                    if confirm {
+                        confirm_key(&tx, vault_id, generation)?;
+                    }
                     tx.commit()?;
                     self.scrub_wal()?;
                 }
@@ -566,9 +585,35 @@ impl Store {
             _ => KeyFlags::NEUTRAL,
         };
         upsert_key(&tx, vault_id, generation, wrapped_vault_key, flags)?;
+        if confirm && state.key_wrap == VaultKeyWrap::AccountKey {
+            confirm_key(&tx, vault_id, generation)?;
+        }
         tx.commit()?;
         self.scrub_wal()?;
         Ok(state)
+    }
+
+    /// The backend accepted the key upload of `generation`: the upload flag
+    /// clears and the key counts as confirmed by the backend, in one
+    /// transaction (the hosted key-winner rule, CRYPTO_SPEC §10.2). Returns
+    /// whether the upload flag was set.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn mark_vault_key_accepted(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+    ) -> Result<bool> {
+        let tx = self.write()?;
+        let n = tx.execute(
+            "UPDATE vault_keys SET upload_pending = 0
+             WHERE vault_id = ?1 AND generation = ?2 AND upload_pending = 1",
+            params![vault_id.as_bytes(), generation.get()],
+        )?;
+        confirm_key(&tx, vault_id, generation)?;
+        tx.commit()?;
+        Ok(n > 0)
     }
 
     /// Replaces the wrapping of a vault key this store already holds, of

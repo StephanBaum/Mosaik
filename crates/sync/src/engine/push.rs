@@ -134,7 +134,8 @@ impl<T: Transport> SyncEngine<T> {
         // Vaults read again from the start in this phase, and vaults whose
         // records the server keeps refusing (left queued for the next run).
         let mut rebuilt = BTreeSet::new();
-        let mut stuck = BTreeSet::new();
+        // A rolled-back vault takes no uploads until the user acknowledges.
+        let mut stuck = Self::rolled_back_vaults(access)?;
         for _ in 0..64 {
             let (items, tombs) = access.with(|s| collect_pending(s, only, hosted, &stuck))??;
             if items.is_empty() && tombs.is_empty() {
@@ -262,8 +263,10 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         for _ in 0..=MAX_CONFLICT_ROUNDS {
             let uploads = access.with(UnlockedSession::pending_vault_uploads)??;
+            let rolled_back = Self::rolled_back_vaults(access)?;
             let metas: Vec<(VaultId, VaultMetaCiphertext, Option<u64>)> = uploads
                 .into_iter()
+                .filter(|u| !rolled_back.contains(&u.vault_id))
                 .filter_map(|u| u.meta.map(|(m, base)| (u.vault_id, m, base)))
                 .collect();
             if metas.is_empty() {

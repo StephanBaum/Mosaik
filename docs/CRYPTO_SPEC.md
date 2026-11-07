@@ -745,14 +745,26 @@ session token alone therefore cannot lock the user out.
     so does every accepted upload (what was pushed, under the accepted
     `seq`): the last answer of the server wins, never a maximum. The base of
     an upload is the row's `seq`. The `view_digest` of a vault is
-    `SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )`
+    `SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || key_commit[32] || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )`
     over every row of the vault sorted by `record_id`, with `high_seq` the
-    vault cursor. No key is involved; the server sees 32 opaque bytes per
-    vault (§12).
+    vault cursor and
+    `key_commit = SHA-256( ctx("sync/view-key") || 0x00 || vault_id || generation:u32 || wrapped_key_bytes )`,
+    where `wrapped_key_bytes` is the wrapping of the vault key the device
+    holds for its current generation, exactly as stored (the bytes the server
+    served or accepted). The commitment binds the key into the digest, so two
+    devices that adopted different keys for one generation (a server that
+    answers `generation_taken` to two offline rotators and cross-serves their
+    keys) disagree even when every record agrees. No secret is involved (the
+    wrapping is ciphertext the server holds); the server sees 32 opaque bytes
+    per vault (§12). Both formulas live in `mosaic-core` (`sync_auth`), which
+    owns the labels.
     - A device publishes a non-zero digest for a vault only when its view is
-      clean: no row has a `seq` above the cursor, and no finding against the
-      server is open for the vault. To make the steady state clean, a device
-      reads every vault it pushed to once more before it publishes.
+      clean (no row has a `seq` above the cursor) and it holds a key that the
+      server served or confirmed: a key this device generated that the server
+      never accepted gets the all-zero digest (it is about to be replaced,
+      §10.2). An open finding does **not** switch the digest off: the server
+      must not learn that it was caught. To make the steady state clean, a
+      device reads every vault it pushed to once more before it publishes.
     - When another device's stored checkpoint has a non-zero digest for a
       vault, the same generation and a `high_seq` equal to this device's
       cursor, and this device's view is clean, the digests must be equal.
@@ -762,8 +774,20 @@ session token alone therefore cannot lock the user out.
       until the user acknowledges it (not a halt). This detects a forged
       head that skips a record, an acknowledged upload that the server
       dropped, a page cut short and a vault rolled back with reused
-      sequence numbers, as soon as two devices reach the same head. Devices
-      that never reach the same head are caught by the lag rule above.
+      sequence numbers (and a key split), as soon as two devices reach the
+      same head.
+    - **Heads that never meet.** Digests are compared only at an equal head,
+      so a server that keeps two devices' heads apart (one behind the other
+      at every comparison) avoids the check; the lag rule above does not
+      catch it either, because every device is within one record of the
+      other's checkpoint. A device therefore stores, per (peer, vault), since
+      when its runs have failed to compare (the first run without a
+      comparison starts the count, a comparison ends it) and the peer's
+      checkpoint counter then. If the peer's counter has risen since, and
+      the failures span 48 hours of runs, the device records `NoCommonView` (device, vault, since) and
+      reports it on every run until the user acknowledges it. Honest devices
+      meet at the same head after the settle pull of a run, so they never
+      raise it.
     - An upload acknowledged under a `seq` at or below the device's own
       cursor is impossible from an honest server: it is not accepted
       locally (the change stays queued) and is recorded as a finding at
@@ -777,10 +801,26 @@ session token alone therefore cannot lock the user out.
       was rolled back on the server: the device records `ServerRollback`
       for that vault, skips only that vault and keeps syncing the others
       (it is not a protocol error).
-    - The user's acknowledgement (`clear_sync_halt`) clears the findings,
-      rebuilds the served view and cursor of the flagged vaults from the
-      server (the next run reads them again from the start), and makes the
-      device ignore the digests peers published before that moment.
+    - **Acknowledging a finding** (`clear_vault_findings(vaults)`, separate
+      from `clear_sync_halt`, which clears only the rollback or identity
+      halt, the strikes and `written`; a vault acknowledgement never touches
+      those) clears the findings and `NoCommonView` of the vaults, forgets
+      their key candidates of the current generation (a cleared key finding
+      does not come back by itself), drops their served view and cursor and
+      marks them for a rebuild. The next run reads each from the start; when
+      that read is complete, every local record at the current generation
+      that the server does not hold as it is (no served row, or another
+      ciphertext) and that is not queued is queued again, so an edit that a
+      lying server acknowledged and dropped, or that a rolled-back vault
+      lost, is uploaded again and the acknowledgement does not make the loss
+      permanent. Digests that peers published before the acknowledgement
+      (and checkpoints stored while a rebuild is open) are not compared, so a
+      peer's stale digest does not raise the finding again; the user
+      acknowledges on every device. A vault flagged `ServerRollback` takes no
+      uploads, metadata uploads or attachment transfers until then.
+    - Status for the user: the halt, every vault finding and every
+      `NoCommonView` are listed together (`sync_findings`), so one
+      "acknowledge" action can clear what is set.
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
 - **Conflict model** (ADR-0009, encoding §7.5). Every field is a
   multi-value register; the merge of two replicas is a pure join
@@ -1094,10 +1134,18 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 - **Hosted key winner.** The server keeps exactly one wrapped key per
   generation; it is canonical. A device remembers which of its vault keys
   the server confirmed (an accepted key upload, or the vault's creation).
+  - The confirmed mark is written in the same store transaction as what it
+    accompanies (the vault's creation, an accepted key upload, the commit of
+    a rotation). A store that predates the mark treats a key this install
+    generated, whose upload flag is clear and whose generation is the
+    vault's current one, as confirmed (so it is never replaced); after a
+    change of backend no key is confirmed until the new backend accepts it.
   - A device holds a key for generation `g` that it generated and the server
     never accepted (an offline rotation that got `generation_taken`) and
     learns the server's key for `g` (it arrives verified: it opens under
-    AK). The device **adopts** it: the server's key replaces its own as the
+    AK). If more than one distinct verified key for `g` is known the server
+    contradicts itself: it is a finding and nothing is adopted. Otherwise
+    the device **adopts** it: the server's key replaces its own as the
     key for `g`, every record and the vault metadata it sealed under its own
     key is re-sealed under the adopted key and queued, its own key is
     dropped, and the vault is read again from the start. All of that is one
@@ -1111,6 +1159,12 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     lowest device, then the lowest bytes wins) and rotates if it loses, but
     at most three times per vault per 24 hours (the log is stored, §11);
     after that the finding stays and the device stops rotating.
+  - Forward constraint (M6b): adoption replaces a key that was never shared
+    and that no other device could hold, which is only safe while rotation is
+    a hygiene step. Once sharing (§8) ships, a rotation that revokes a member
+    must not be resolved by adoption: the server's key for the generation may
+    be one the revoked party can read. Such rotations need their own rule
+    (spec and ADR first).
 
 ## 11. Local storage
 
@@ -1131,8 +1185,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   sync metadata of the same kind (v5 adds the served view `sync_served`:
   per hosted record the `server_seq` and the SHA-256 of the ciphertext the
   server last showed or accepted; the vault keys the server confirmed; the
-  findings against the server per vault; the conflict-driven rotations of
-  the last day; and 32 bytes of view digest per vault in the stored peer
+  findings against the server per vault (and the peers whose heads never
+  met, with the last comparison time per peer and vault); the conflict-driven
+  rotations of the last day; and 32 bytes of view digest per vault in the stored peer
   checkpoints): the own sequence numbers per vault
   (`reserved`, `written`); the halt (rollback or identity duplicated), the
   last published checkpoint counter and the checkpoint strikes (count, time
@@ -1217,7 +1272,7 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | attachment IDs and ciphertext sizes | storage quotas |
 | device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
 | IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
-| checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
+| checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records and to the vault key's wrapping the server already holds) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
 | record kind (item or tombstone, so that deletions are visible as events), per-object lengths and object counts per vault | storage, sync, quotas |
 | the device that generated each wrapped vault key (`device_id` of the key upload) | canonical key winner (§10.1), device list |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |

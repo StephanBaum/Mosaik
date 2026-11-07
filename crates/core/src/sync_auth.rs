@@ -16,13 +16,13 @@
 //! install) is sealed under `K_dev` with XChaCha20-Poly1305.
 
 use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use crate::aead;
 use crate::encoding::{Aad, Label, ctx, label, take};
 use crate::error::{Error, Result};
-use crate::ids::{AccountId, InstallId};
+use crate::ids::{AccountId, InstallId, KeyGeneration, VaultId};
 use crate::kdf::hkdf_ctx;
 use crate::secret::{
     AccountKey, CheckpointKey, DeviceInfoKey, FolderMacKey, SecretBytes, SecretVec, SessionToken,
@@ -273,6 +273,64 @@ pub fn session_token(session_key: &[u8]) -> Result<SessionToken> {
         return Err(Error::Malformed);
     }
     Ok(SessionToken(hkdf_ctx(session_key, &[], label::SESSION)?))
+}
+
+/// The key commitment of a hosted view digest (CRYPTO_SPEC §10):
+/// `SHA-256(ctx("sync/view-key") || 0x00 || vault_id || generation:u32 ||
+/// wrapped_key_bytes)`, where `wrapped_key_bytes` is the wrapping of the
+/// vault key as the server serves it. It binds the key a device holds into
+/// the digest, so two devices that were shown different keys for one
+/// generation disagree.
+#[must_use]
+pub fn view_key_commit(vault: &VaultId, generation: KeyGeneration, wrapped: &[u8]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(ctx(label::SYNC_VIEW_KEY.as_str()));
+    hash.update([0u8]);
+    hash.update(vault.as_bytes());
+    hash.update(generation.get().to_be_bytes());
+    hash.update(wrapped);
+    hash.finalize().into()
+}
+
+/// One served record in the input of [`view_digest`]: record ID, the
+/// `server_seq` it was served or accepted under, and the SHA-256 of its
+/// ciphertext.
+pub type ServedEntry = ([u8; 16], u64, [u8; 32]);
+
+/// The view digest of a hosted vault (CRYPTO_SPEC §10):
+/// `SHA-256(ctx("sync/view") || 0x00 || vault_id || high_seq:u64 ||
+/// key_commit[32] || n:u32 || n x (record_id[16] || seq:u64 || ct_hash[32]))`
+/// with `rows` sorted by record ID. No key is involved.
+///
+/// # Errors
+/// [`Error::Malformed`] if the rows are not strictly ascending by record ID
+/// or there are more than `u32::MAX`.
+pub fn view_digest(
+    vault: &VaultId,
+    high_seq: u64,
+    key_commit: &[u8; 32],
+    rows: &[ServedEntry],
+) -> Result<[u8; 32]> {
+    let n = u32::try_from(rows.len()).map_err(|_| Error::Malformed)?;
+    if rows
+        .windows(2)
+        .any(|w| w.first().map(|r| r.0) >= w.get(1).map(|r| r.0))
+    {
+        return Err(Error::Malformed);
+    }
+    let mut hash = Sha256::new();
+    hash.update(ctx(label::SYNC_VIEW.as_str()));
+    hash.update([0u8]);
+    hash.update(vault.as_bytes());
+    hash.update(high_seq.to_be_bytes());
+    hash.update(key_commit);
+    hash.update(n.to_be_bytes());
+    for (record, seq, ct_hash) in rows {
+        hash.update(record);
+        hash.update(seq.to_be_bytes());
+        hash.update(ct_hash);
+    }
+    Ok(hash.finalize().into())
 }
 
 impl SessionToken {
