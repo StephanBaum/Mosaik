@@ -2,15 +2,18 @@
 //! records, deferring what is ahead of its key, and moving the stored
 //! cursor only past what was applied.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::{KeyGeneration, VaultId};
 use mosaic_vault::session::{ApplyOutcome, Error, RemoteRecord, UnlockedSession, VaultProtection};
+use mosaic_vault::storage::VaultFlag;
+use sha2::{Digest, Sha256};
 
 use super::consts::PULL_LIMIT;
+use super::keys::Resolution;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::transport::{
-    Cursor, PullPage, PulledKey, PulledMeta, PulledRecord, Transport, TransportKind,
+    Cursor, PullPage, PulledKey, PulledMeta, PulledRecord, Transport, TransportError, TransportKind,
 };
 
 /// Counters of a run that are not part of the report.
@@ -18,6 +21,10 @@ use crate::transport::{
 pub(super) struct RunStats {
     /// Objects that did not open and that no known key conflict explains.
     pub(super) unexplained: u32,
+    /// Vaults the backend accepted records for in this run: they are pulled
+    /// once more before the checkpoint, so the device's view of them is
+    /// clean (every accepted record is read back).
+    pub(super) pushed_vaults: BTreeSet<VaultId>,
 }
 
 /// How a received object was handled.
@@ -96,6 +103,48 @@ fn count_undecryptable(
     if !s.has_key_conflict(vault, generation).unwrap_or(false) {
         stats.unexplained += 1;
     }
+}
+
+/// After the vault was read again completely following the user's
+/// acknowledgement of a finding: every local record at the current
+/// generation that the server does not hold as it is (no served row, or
+/// another ciphertext) and that is not queued already is queued again. The
+/// edit a lying server acknowledged and dropped, or a vault it rolled back,
+/// would otherwise stay lost for good. A re-sealed copy of equal content
+/// costs one upload.
+fn requeue_unserved(s: &mut UnlockedSession, vault: VaultId) -> Result<(), Error> {
+    if !s.rebuild_vaults()?.contains(&vault) {
+        return Ok(());
+    }
+    let Some(generation) = s
+        .vaults()
+        .into_iter()
+        .find(|v| v.vault_id == vault)
+        .map(|v| v.key_generation)
+    else {
+        return s.finish_rebuild(vault);
+    };
+    let served: BTreeMap<_, _> = s
+        .served_view(vault)?
+        .into_iter()
+        .map(|r| (r.record_id, r.ct_hash))
+        .collect();
+    let records: Vec<_> = s
+        .store()
+        .records(&vault)?
+        .into_iter()
+        .filter_map(mosaic_vault::storage::RecordEntry::ok)
+        .collect();
+    for record in records {
+        if record.outbox_seq.is_some() || record.body.key_generation() != generation {
+            continue;
+        }
+        let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
+        if served.get(&record.record_id) != Some(&hash) {
+            s.requeue_record(vault, record.record_id)?;
+        }
+    }
+    s.finish_rebuild(vault)
 }
 
 fn apply_key(
@@ -265,6 +314,17 @@ fn apply_page(
     vp: &mut VaultPull,
     env: &mut PageEnv<'_>,
 ) -> Result<(), Error> {
+    if env.kind == TransportKind::Hosted {
+        // The served view: what the server showed for every record of the
+        // page, whatever becomes of it (applied, ignored as dominated,
+        // deferred or unreadable). Overwritten, never a maximum.
+        for record in &page.records {
+            if let Some(seq) = record.seq {
+                let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
+                s.note_served(vault, record.record_id, seq, hash)?;
+            }
+        }
+    }
     let mut sorted: Vec<&PulledKey> = page.keys.iter().collect();
     sorted.sort_by(|a, b| {
         (a.generation, a.device_id, a.wrapped.as_bytes()).cmp(&(
@@ -333,6 +393,7 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
         stats: &mut RunStats,
+        now: u64,
     ) -> Result<(), SyncError> {
         let remote = self.transport.list_vaults()?;
         let (local, hardware) = access.with(|s| {
@@ -353,9 +414,27 @@ impl<T: Transport> SyncEngine<T> {
         vaults.extend(local);
         for vault in vaults.difference(&hardware).copied().collect::<Vec<_>>() {
             self.pull_vault(access, vault, report, stats)?;
-            self.resolve_key_conflict(access, vault)?;
+            if self.resolve_key_conflict(access, vault, now)? == Resolution::Adopted {
+                // The cursor was reset by the adoption: what the device
+                // skipped as unreadable opens under the adopted key.
+                self.pull_vault(access, vault, report, stats)?;
+            }
         }
         Ok(())
+    }
+
+    /// Reads a vault again from the start (the stored cursor is reset), for
+    /// a hosted device whose served view of a record no longer matches what
+    /// the server accepts.
+    pub(super) fn repull_vault(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+    ) -> Result<(), SyncError> {
+        access.with(|s| s.set_sync_cursor(vault, &[]))??;
+        self.pull_vault(access, vault, report, stats)
     }
 
     /// Pulls one vault until the backend has no more.
@@ -378,7 +457,16 @@ impl<T: Transport> SyncEngine<T> {
         let mut pull_cursor = stored;
         let kind = self.config.transport_kind;
         loop {
-            let page = self.transport.pull(vault, &pull_cursor, PULL_LIMIT)?;
+            let page = match self.transport.pull(vault, &pull_cursor, PULL_LIMIT) {
+                Ok(page) => page,
+                Err(TransportError::HeadBelowCursor) => {
+                    // The vault went back in time on the server: reported
+                    // for this vault, the others carry on.
+                    access.with(|s| s.set_vault_flag(vault, VaultFlag::ServerRolledBack))??;
+                    return Ok(());
+                }
+                Err(e) => return Err(e.into()),
+            };
             let mut env = PageEnv {
                 report,
                 stats,
@@ -403,6 +491,9 @@ impl<T: Transport> SyncEngine<T> {
                 }
                 Ok(())
             })??;
+        }
+        if vp.deferred_records.is_empty() && vp.deferred_metas.is_empty() {
+            access.with(|s| requeue_unserved(s, vault))??;
         }
         Ok(())
     }

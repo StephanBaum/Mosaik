@@ -9,6 +9,7 @@ use mosaic_core::{ItemId, KeyGeneration, VaultId, VaultKey, VaultMetaCiphertext,
 
 use super::{
     Error, OpenVault, Result, UnlockedSession, load_vault, open_record, reseal_below_current,
+    seal_record,
 };
 use crate::storage::{
     Error as StorageError, KeyOrigin, Origin, OutboxSeq, RecordBody, RecordEntry, StoredRecord,
@@ -81,6 +82,22 @@ pub enum ApplyOutcome {
         /// How many conflict copies the split has (some may have been
         /// stored earlier, by this device or as received from another).
         conflict_copies: usize,
+    },
+}
+
+/// What [`UnlockedSession::adopt_remote_vault_key`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AdoptOutcome {
+    /// The session already holds exactly this key for the generation.
+    AlreadyHeld,
+    /// The backend's key replaced the device's own, which the backend never
+    /// accepted.
+    Adopted {
+        /// How many records were re-sealed under the adopted key and queued
+        /// for upload (the vault metadata is queued too, if it was sealed
+        /// under the replaced key).
+        resealed: usize,
     },
 }
 
@@ -192,11 +209,30 @@ impl UnlockedSession {
         };
 
         match local.compare(&received) {
-            Causality::Dominates => return Ok(ApplyOutcome::Ignored),
+            Causality::Dominates => {
+                self.rebase_on_seen(vault_id, item_id, record, &anchor)?;
+                return Ok(ApplyOutcome::Ignored);
+            }
             Causality::Equal if *local == received => {
-                // The same version re-encrypted under a newer generation
-                // (a rotation) replaces the older ciphertext.
-                self.replace_if_newer_generation(vault_id, item_id, record, &anchor)?;
+                if pending {
+                    // The server holds this exact version at the current
+                    // generation: a queued change of equal content (a
+                    // re-seal after a rotation another device already
+                    // uploaded) has nothing left to say and leaves the
+                    // outbox, so a rotation costs one upload per record,
+                    // not one per device.
+                    self.store.settle_pending_as_served(
+                        &vault_id,
+                        &item_id,
+                        &record.body,
+                        anchor.server_seq,
+                    )?;
+                } else {
+                    // The same version re-encrypted under a newer
+                    // generation (a rotation) replaces the older
+                    // ciphertext.
+                    self.replace_if_newer_generation(vault_id, item_id, record, &anchor)?;
+                }
                 return Ok(ApplyOutcome::Ignored);
             }
             Causality::Equal | Causality::DominatedBy | Causality::Concurrent => {}
@@ -271,6 +307,32 @@ impl UnlockedSession {
             pending,
             server_seq,
         })
+    }
+
+    /// A received version that this device's own state already contains
+    /// (the local record dominates it): if the received ciphertext is the
+    /// pending change itself (the server stored it and the response was
+    /// lost) the change is acknowledged. The base of later uploads is not
+    /// kept here: the sync engine bases a push on the served view
+    /// (`sync_served`, CRYPTO_SPEC §10), which it overwrites with every
+    /// version the server shows.
+    fn rebase_on_seen(
+        &mut self,
+        vault_id: VaultId,
+        item_id: ItemId,
+        record: &RemoteRecord,
+        anchor: &LocalAnchor,
+    ) -> Result<()> {
+        let Some(stored) = anchor.stored.as_ref() else {
+            return Ok(());
+        };
+        if let Some(outbox) = stored.outbox_seq
+            && stored.body.as_bytes() == record.body.as_bytes()
+        {
+            self.store
+                .mark_uploaded(&vault_id, &item_id, outbox, anchor.server_seq)?;
+        }
+        Ok(())
     }
 
     /// The same version re-encrypted under a newer generation (a rotation)
@@ -426,6 +488,79 @@ impl UnlockedSession {
             reseal_below_current(&mut self.store, vault_id, ov)?;
         }
         Ok(())
+    }
+
+    /// Replaces the key this device generated for the vault's current
+    /// `generation` and that the backend never accepted (a rotation made
+    /// offline that lost the race for the generation) by the backend's key
+    /// for it. Every record (and the metadata) sealed under the replaced key
+    /// is re-sealed under the adopted one and queued for upload, in the same
+    /// store transaction that swaps the key; the replaced key is dropped. No
+    /// version this device holds is lost, and no further generation is
+    /// created (CRYPTO_SPEC §10.2, hosted backend). The caller then pulls the
+    /// vault again from the start: whatever was skipped as unreadable while
+    /// the keys differed opens now.
+    ///
+    /// # Errors
+    /// [`Error::Core`] with `Decryption` if the wrapping does not open under
+    /// the account key (or names another vault or generation);
+    /// [`Error::KeyGenerationRollback`] / [`Error::KeyGenerationNotAccepted`]
+    /// if `generation` is not the vault's current one;
+    /// [`Error::VaultKeyConflict`] if the held key came from the backend or
+    /// was confirmed by it (the backend contradicts itself: nothing is
+    /// replaced); [`Error::VaultUnavailable`], [`Error::UnknownVault`],
+    /// [`Error::WrongVaultProtection`] for a hardware-protected vault,
+    /// [`Error::Store`].
+    pub fn adopt_remote_vault_key(
+        &mut self,
+        vault_id: VaultId,
+        generation: KeyGeneration,
+        wrapped: &WrappedKey,
+    ) -> Result<AdoptOutcome> {
+        let vk =
+            wrapped.unwrap_vault_key(&self.account_key, &self.account_id, &vault_id, generation)?;
+        let ov = self.vaults.get(&vault_id).ok_or(Error::UnknownVault)?;
+        if ov.protection == VaultKeyWrap::TotpKey {
+            return Err(Error::WrongVaultProtection);
+        }
+        check_generation(ov.generation, generation)?;
+        let held = ov.keys.get(&generation).ok_or(Error::VaultUnavailable)?;
+        if *held == vk {
+            return Ok(AdoptOutcome::AlreadyHeld);
+        }
+        let local = self.store.vault_key_origin(&vault_id, generation)? == Some(KeyOrigin::Local);
+        if !local || self.store.key_confirmed(&vault_id, generation)? {
+            return Err(Error::VaultKeyConflict {
+                generation: generation.get(),
+            });
+        }
+        let mut resealed = Vec::new();
+        for entry in self.store.records(&vault_id)? {
+            let Some(record) = entry.ok() else { continue };
+            if record.body.key_generation() != generation {
+                continue;
+            }
+            if let Some(item) = ov.items.get(&record.record_id) {
+                resealed.push((
+                    record.record_id,
+                    seal_record(item, &vk, &vault_id, &record.record_id)?,
+                ));
+            }
+        }
+        let meta = match (&ov.meta, self.store.vault_meta(&vault_id)) {
+            (Some(meta), Ok(Some(ct))) if ct.key_generation() == generation => {
+                Some(meta.seal(&vk, &vault_id)?)
+            }
+            _ => None,
+        };
+        self.store
+            .adopt_vault_key(&vault_id, generation, wrapped, &resealed, meta.as_ref())
+            .map_err(key_acceptance_error)?;
+        let ov = self.vaults.get_mut(&vault_id).ok_or(Error::UnknownVault)?;
+        ov.keys.insert(generation, vk);
+        Ok(AdoptOutcome::Adopted {
+            resealed: resealed.len(),
+        })
     }
 
     /// [`Self::apply_remote_vault_key`] for a vault without its current

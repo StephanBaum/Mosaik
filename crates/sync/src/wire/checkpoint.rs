@@ -7,7 +7,8 @@
 //!
 //! ```text
 //! "MCKP" || 1 || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32
-//! || n x ( vault_id[16] || generation:u32 || high_seq:u64 ) || mac[32]
+//! || n x ( vault_id[16] || generation:u32 || high_seq:u64 || view_digest[32] )
+//! || mac[32]
 //! seen_digest = SHA-256(issued_at_ms:u64 || n:u32 || entries)
 //! mac = HMAC(K_cp, ctx("checkpoint") || device_id || counter:u64 || seen_digest)
 //! ```
@@ -15,9 +16,14 @@
 //! Entries are sorted by `vault_id` without duplicates. `high_seq` is, for
 //! the hosted backend, the device's cursor after the sync (the last
 //! `server_seq` applied), and for the folder backend the highest segment
-//! sequence the device wrote for the vault (0 if none).
+//! sequence the device wrote for the vault (0 if none). `view_digest` is,
+//! for the hosted backend, the digest of the served view at that head
+//! ([`view_digest`]), or 32 zero bytes if the device's view is not clean;
+//! the folder writes 32 zero bytes and readers ignore an all-zero digest
+//! ([`CheckpointEntry::view`]).
 
 use mosaic_core::{InstallId, KeyGeneration, VaultId};
+use mosaic_vault::storage::ServedRow;
 use sha2::{Digest, Sha256};
 
 use super::{Reader, SyncCrypto, WireError, split_mac};
@@ -26,7 +32,7 @@ const MAGIC: &[u8; 4] = b"MCKP";
 const VERSION: u8 = 1;
 /// `magic || version || device || counter || issued_at || n`.
 const HEADER_LEN: usize = 4 + 1 + 16 + 8 + 8 + 4;
-const ENTRY_LEN: usize = 16 + 4 + 8;
+const ENTRY_LEN: usize = 16 + 4 + 8 + 32;
 /// The most entries one checkpoint holds.
 pub const MAX_ENTRIES: usize = 4096;
 /// The longest checkpoint in bytes.
@@ -41,7 +47,53 @@ pub struct CheckpointEntry {
     pub generation: KeyGeneration,
     /// The sequence number reached (see the module documentation).
     pub high_seq: u64,
+    /// The view digest at that head, all zero if there is none.
+    pub view_digest: [u8; 32],
 }
+
+/// No view digest (folder, or a hosted view that is not clean).
+pub const NO_VIEW: [u8; 32] = [0; 32];
+
+impl CheckpointEntry {
+    /// The view digest, or `None` for the all-zero value.
+    #[must_use]
+    pub fn view(&self) -> Option<[u8; 32]> {
+        (self.view_digest != NO_VIEW).then_some(self.view_digest)
+    }
+}
+
+/// The digest of a vault's served view at `high_seq` (CRYPTO_SPEC §10):
+///
+/// ```text
+/// SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || key_commit[32]
+///          || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )
+/// ```
+///
+/// `key_commit` is [`view_key_commit`] of the vault key the device holds, and
+/// `rows` are every served record of the vault, sorted by record ID. No key
+/// is involved: two devices that were shown the same key and records compute
+/// the same digest, and the server sees only the 32 opaque bytes. The
+/// formula lives in `mosaic-core` ([`mosaic_core::sync_auth::view_digest`]),
+/// which owns the labels.
+///
+/// # Errors
+/// [`WireError::Order`] if the rows are not strictly ascending by record ID
+/// (or there are more than `u32::MAX`).
+pub fn view_digest(
+    vault_id: &VaultId,
+    high_seq: u64,
+    key_commit: &[u8; 32],
+    rows: &[ServedRow],
+) -> Result<[u8; 32], WireError> {
+    let entries: Vec<mosaic_core::sync_auth::ServedEntry> = rows
+        .iter()
+        .map(|r| (*r.record_id.as_bytes(), r.seq, r.ct_hash))
+        .collect();
+    mosaic_core::sync_auth::view_digest(vault_id, high_seq, key_commit, &entries)
+        .map_err(|_| WireError::Order)
+}
+
+pub use mosaic_core::sync_auth::view_key_commit;
 
 /// A checkpoint of one device.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +123,7 @@ impl Checkpoint {
             hash.update(e.vault_id.as_bytes());
             hash.update(e.generation.get().to_be_bytes());
             hash.update(e.high_seq.to_be_bytes());
+            hash.update(e.view_digest);
         }
         Ok(hash.finalize().into())
     }
@@ -113,6 +166,7 @@ impl Checkpoint {
             out.extend_from_slice(e.vault_id.as_bytes());
             out.extend_from_slice(&e.generation.get().to_be_bytes());
             out.extend_from_slice(&e.high_seq.to_be_bytes());
+            out.extend_from_slice(&e.view_digest);
         }
         let mac = crypto.checkpoint_mac(self.counter, &self.seen_digest()?)?;
         out.extend_from_slice(&mac);
@@ -201,6 +255,7 @@ impl Checkpoint {
                 vault_id: VaultId::from_bytes(r.array()?).map_err(|_| WireError::Id)?,
                 generation: KeyGeneration::new(r.u32()?).map_err(|_| WireError::Field)?,
                 high_seq: r.u64()?,
+                view_digest: r.array()?,
             });
         }
         r.finish()?;
@@ -241,6 +296,7 @@ mod tests {
                     vault_id: VaultId::from_bytes([i; 16]).unwrap(),
                     generation: KeyGeneration::new(u32::from(i)).unwrap(),
                     high_seq: u64::from(i) * 100,
+                    view_digest: [i; 32],
                 })
                 .collect(),
         }
@@ -271,6 +327,7 @@ mod tests {
             flat.extend_from_slice(e.vault_id.as_bytes());
             flat.extend_from_slice(&e.generation.get().to_be_bytes());
             flat.extend_from_slice(&e.high_seq.to_be_bytes());
+            flat.extend_from_slice(&e.view_digest);
         }
         assert_eq!(
             cp.seen_digest().unwrap(),
@@ -346,6 +403,70 @@ mod tests {
         assert_eq!(
             Checkpoint::decode_unverified(&huge, id),
             Err(WireError::Length)
+        );
+    }
+
+    #[test]
+    fn the_view_digest_is_the_spec_formula_and_binds_everything() {
+        use mosaic_core::ItemId;
+        let vault = VaultId::from_bytes([3; 16]).unwrap();
+        let row = |n: u8, seq: u64| ServedRow {
+            record_id: ItemId::from_bytes([n; 16]).unwrap(),
+            seq,
+            ct_hash: [n; 32],
+        };
+        let rows = [row(1, 4), row(2, 9)];
+        let commit = view_key_commit(&vault, KeyGeneration::FIRST, &[7; 74]);
+        let mut flat = mosaic_core::encoding::ctx("sync/view");
+        flat.push(0);
+        flat.extend_from_slice(vault.as_bytes());
+        flat.extend_from_slice(&9u64.to_be_bytes());
+        flat.extend_from_slice(&commit);
+        flat.extend_from_slice(&2u32.to_be_bytes());
+        for r in &rows {
+            flat.extend_from_slice(r.record_id.as_bytes());
+            flat.extend_from_slice(&r.seq.to_be_bytes());
+            flat.extend_from_slice(&r.ct_hash);
+        }
+        let digest = view_digest(&vault, 9, &commit, &rows).unwrap();
+        assert_eq!(digest, <[u8; 32]>::from(Sha256::digest(&flat)));
+        // Every input changes it: the head, the seq, a hash, a missing row,
+        // the vault.
+        let mut other_hash = rows;
+        other_hash[1].ct_hash[0] ^= 1;
+        let other_vault = VaultId::from_bytes([4; 16]).unwrap();
+        // The key too: another wrapping, another generation.
+        let other_key = view_key_commit(&vault, KeyGeneration::FIRST, &[8; 74]);
+        let other_gen = view_key_commit(&vault, KeyGeneration::new(2).unwrap(), &[7; 74]);
+        for changed in [
+            view_digest(&vault, 10, &commit, &rows).unwrap(),
+            view_digest(&vault, 9, &commit, &[row(1, 4), row(2, 10)]).unwrap(),
+            view_digest(&vault, 9, &commit, &other_hash).unwrap(),
+            view_digest(&vault, 9, &commit, &rows[..1]).unwrap(),
+            view_digest(&other_vault, 9, &commit, &rows).unwrap(),
+            view_digest(&vault, 9, &other_key, &rows).unwrap(),
+            view_digest(&vault, 9, &other_gen, &rows).unwrap(),
+        ] {
+            assert_ne!(changed, digest);
+        }
+        assert_eq!(
+            view_digest(&vault, 9, &commit, &[row(2, 9), row(1, 4)]),
+            Err(WireError::Order)
+        );
+        let none = CheckpointEntry {
+            vault_id: vault,
+            generation: KeyGeneration::FIRST,
+            high_seq: 0,
+            view_digest: NO_VIEW,
+        };
+        assert_eq!(none.view(), None);
+        assert_eq!(
+            CheckpointEntry {
+                view_digest: digest,
+                ..none
+            }
+            .view(),
+            Some(digest)
         );
     }
 
@@ -428,6 +549,7 @@ mod tests {
                 .unwrap(),
                 generation: KeyGeneration::FIRST,
                 high_seq: 0,
+                view_digest: NO_VIEW,
             })
             .collect();
         assert_eq!(cp.encode(&c), Err(WireError::Field));

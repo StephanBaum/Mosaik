@@ -772,7 +772,9 @@ fn engine_state_persists_and_resets_with_the_backend() {
             vault_id: v,
             generation: mosaic_core::KeyGeneration::FIRST,
             high_seq: 4,
+            view_digest: [0; 32],
         }],
+        digests_acknowledged: false,
     };
     assert!(s.put_peer_checkpoint(&cp).unwrap());
     s.marker_first_seen(
@@ -813,6 +815,130 @@ fn engine_state_persists_and_resets_with_the_backend() {
     assert_eq!(s.own_seq(v).unwrap().reserved, 7);
 }
 
+/// R-L3. The backend's acceptance of a key is recorded in the same
+/// transaction as the write that it accompanies: the creation of the vault,
+/// the accepted upload and the commit of a rotation.
+#[test]
+fn a_keys_confirmation_is_written_with_the_accepting_transaction() {
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let g1 = mosaic_core::KeyGeneration::FIRST;
+    assert!(!s.vault_key_confirmed(v, g1).unwrap());
+    s.mark_vault_created_remotely(v).unwrap();
+    assert!(s.vault_key_confirmed(v, g1).unwrap(), "creation");
+
+    // An offline rotation is unconfirmed until an accepted upload.
+    let g2 = s.rotate_vault_key(v).unwrap();
+    assert!(!s.vault_key_confirmed(v, g2).unwrap());
+    s.mark_vault_key_accepted(v, g2).unwrap();
+    assert!(s.vault_key_confirmed(v, g2).unwrap(), "accepted upload");
+    assert!(
+        s.pending_vault_uploads()
+            .unwrap()
+            .iter()
+            .all(|p| p.keys.is_empty())
+    );
+
+    // A two-phase rotation is confirmed by its commit.
+    let p = s.prepare_vault_rotation(v).unwrap();
+    let g3 = p.generation();
+    assert!(!s.vault_key_confirmed(v, g3).unwrap());
+    assert_eq!(s.commit_vault_rotation(p).unwrap(), g3);
+    assert!(s.vault_key_confirmed(v, g3).unwrap(), "commit");
+}
+
+/// R-L2. The status lists the halt and every finding; acknowledging the
+/// findings of vaults never touches the halt, the strikes or `written`.
+#[test]
+fn findings_are_listed_together_and_cleared_apart_from_the_halt() {
+    use crate::storage::VaultFlag;
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let device = mosaic_core::InstallId::new_v7().unwrap();
+    assert!(s.sync_findings().unwrap().is_clear());
+    s.reserve_own_seq(v, 3).unwrap();
+    s.confirm_own_seq(v, 3).unwrap();
+    s.set_checkpoint_strikes(1, Some(5), Some(2)).unwrap();
+    s.set_sync_halt(crate::storage::SyncHalt::Rollback).unwrap();
+    s.set_vault_flag(v, VaultFlag::ServerRolledBack).unwrap();
+    s.set_no_common_view(device, v, 9).unwrap();
+    let f = s.sync_findings().unwrap();
+    assert_eq!(f.halt, Some(crate::storage::SyncHalt::Rollback));
+    assert_eq!(f.vault_flags, vec![(v, VaultFlag::ServerRolledBack)]);
+    assert_eq!(f.no_common_view, vec![(device, v, 9)]);
+    assert_eq!(f.vaults(), vec![v]);
+
+    s.clear_vault_findings(&f.vaults()).unwrap();
+    let after = s.sync_findings().unwrap();
+    assert_eq!(after.halt, Some(crate::storage::SyncHalt::Rollback));
+    assert!(after.vault_flags.is_empty() && after.no_common_view.is_empty());
+    assert_eq!(s.sync_engine_state().unwrap().strike_count, 1);
+    assert_eq!(s.own_seq(v).unwrap().written, 3);
+    assert_eq!(s.rebuild_vaults().unwrap(), vec![v]);
+
+    s.clear_sync_halt().unwrap();
+    assert!(s.sync_findings().unwrap().is_clear());
+    assert_eq!(s.own_seq(v).unwrap().written, 0);
+}
+
 fn own(reserved: u64, written: u64) -> crate::storage::OwnSeq {
     crate::storage::OwnSeq { reserved, written }
+}
+
+/// The hosted server accepts a change only on top of the version it holds;
+/// the sync engine bases an upload on its served view, not on the stored
+/// number. A received version that this device's own record already contains
+/// changes nothing here, and the echo of the device's own upload, whose
+/// response was lost, acknowledges the pending change.
+#[test]
+fn received_versions_already_contained_rebase_or_acknowledge_a_pending_change() {
+    use super::{ApplyOutcome, RemoteRecord};
+    use crate::storage::RecordBody;
+
+    let (mut s, _) = account();
+    let v = s.create_vault("A").unwrap();
+    let id = login(&mut s, v, "one");
+    upload_all(&mut s, v, 5);
+    let seq = |s: &UnlockedSession| s.store().record(&v, &id).unwrap().unwrap().server_seq;
+    let outbox = |s: &UnlockedSession| s.store().record(&v, &id).unwrap().unwrap().outbox_seq;
+    let body =
+        |s: &UnlockedSession| -> RecordBody { s.store().record(&v, &id).unwrap().unwrap().body };
+    let first = body(&s);
+
+    // A local edit is queued on top of seq 5.
+    s.update_item(v, id, |e| e.set_title("two")).unwrap();
+    assert_eq!(seq(&s), Some(5));
+    assert!(outbox(&s).is_some());
+
+    // The server stored exactly that change and the response was lost: the
+    // pull brings it back at seq 9 and the change is acknowledged.
+    let echo = RemoteRecord {
+        vault_id: v,
+        record_id: id,
+        body: body(&s),
+        server_seq: 9,
+    };
+    assert_eq!(s.apply_remote_record(&echo).unwrap(), ApplyOutcome::Ignored);
+    assert_eq!(seq(&s), Some(9));
+    assert_eq!(outbox(&s), None, "nothing left to upload");
+
+    // A later edit is queued on top of 9. An older version of the record
+    // (the local state dominates it) arrives at seq 12: the pending change
+    // stays queued and the stored number does not move (the base of an
+    // upload is the served view the sync engine keeps, which this call does
+    // not touch: a forged number must not wedge the record).
+    s.update_item(v, id, |e| e.set_title("three")).unwrap();
+    assert_eq!(seq(&s), Some(9));
+    let older = RemoteRecord {
+        vault_id: v,
+        record_id: id,
+        body: first,
+        server_seq: 12,
+    };
+    assert_eq!(
+        s.apply_remote_record(&older).unwrap(),
+        ApplyOutcome::Ignored
+    );
+    assert_eq!(seq(&s), Some(9));
+    assert!(outbox(&s).is_some(), "the change is still to be uploaded");
 }

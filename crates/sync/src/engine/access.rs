@@ -43,6 +43,8 @@ impl Jitter for SystemJitter {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Backoff {
     failures: u32,
+    /// The floor of the last delay a server asked for (ms).
+    floor_ms: u64,
     /// When the next attempt may start (ms since the Unix epoch).
     pub retry_at: Option<u64>,
 }
@@ -51,7 +53,19 @@ impl Backoff {
     /// Forgets all failures.
     pub fn reset(&mut self) {
         self.failures = 0;
+        self.floor_ms = 0;
         self.retry_at = None;
+    }
+
+    /// Whether the scheduled retry lies further ahead of `now` than the
+    /// longest delay the backoff can set (`max_ms` plus the jitter of 20 %,
+    /// or the floor a server asked for, whichever is more): the clock was set
+    /// back since the failure.
+    #[must_use]
+    pub fn is_beyond_any_delay(&self, now: u64, max_ms: u64) -> bool {
+        let longest = (max_ms.saturating_mul(12) / 10).max(self.floor_ms);
+        self.retry_at
+            .is_some_and(|at| at.saturating_sub(now) > longest)
     }
 
     /// Notes a failure at `now`: the delay doubles from `initial_ms` up to
@@ -63,6 +77,7 @@ impl Backoff {
             .min(max_ms);
         let jittered = base.saturating_mul(u64::from(permille.clamp(800, 1200))) / 1000;
         let floor = u64::from(floor_s).saturating_mul(1000);
+        self.floor_ms = floor;
         self.retry_at = Some(now.saturating_add(jittered.max(floor)));
         self.failures = self.failures.saturating_add(1);
     }
@@ -91,6 +106,20 @@ mod tests {
         assert_eq!(b.retry_at, None);
         b.fail(0, 0, 0, 5_000, 900_000);
         assert_eq!(b.retry_at, Some(4_000));
+    }
+
+    #[test]
+    fn a_retry_beyond_any_delay_is_a_clock_set_back() {
+        let mut b = Backoff::default();
+        b.fail(500_000_000, 0, 1200, 5_000, 900_000);
+        assert!(!b.is_beyond_any_delay(500_000_000, 900_000));
+        // The clock goes back two days.
+        assert!(b.is_beyond_any_delay(500_000_000 - 172_800_000, 900_000));
+        // A long floor from the server is still honoured.
+        let mut b = Backoff::default();
+        b.fail(10_000_000_000, 7_200, 1000, 5_000, 900_000);
+        assert!(!b.is_beyond_any_delay(10_000_000_000, 900_000));
+        assert!(b.is_beyond_any_delay(1_000_000_000, 900_000));
     }
 
     #[test]

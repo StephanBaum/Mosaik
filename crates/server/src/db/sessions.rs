@@ -11,6 +11,9 @@ pub struct SessionRow {
     pub device_id: [u8; 16],
     pub fresh_until: u64,
     pub pending_2fa: bool,
+    /// The account version at the session's login (its KE3): a password
+    /// change is accepted only on top of it.
+    pub account_version: u64,
 }
 
 /// What a new session is created with.
@@ -22,13 +25,15 @@ pub struct NewSession<'a> {
     pub expires_at: u64,
     pub fresh_until: u64,
     pub pending: bool,
+    pub account_version: u64,
 }
 
 /// Stores a new session.
 pub fn insert(conn: &Connection, s: &NewSession<'_>) -> Result<(), ApiError> {
     conn.execute(
         "INSERT INTO sessions (token_hash, account_id, device_id, created_at, last_used_at, \
-         expires_at, fresh_until, pending_2fa, totp_attempts) VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, 0)",
+         expires_at, fresh_until, pending_2fa, totp_attempts, account_version) \
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, 0, ?8)",
         params![
             s.token_hash.as_slice(),
             s.account.as_slice(),
@@ -36,7 +41,8 @@ pub fn insert(conn: &Connection, s: &NewSession<'_>) -> Result<(), ApiError> {
             int(s.now),
             int(s.expires_at),
             int(s.fresh_until),
-            i64::from(s.pending)
+            i64::from(s.pending),
+            int(s.account_version)
         ],
     )?;
     Ok(())
@@ -53,8 +59,8 @@ pub fn lookup_and_touch(
 ) -> Result<Option<SessionRow>, ApiError> {
     let found = conn
         .query_row(
-            "SELECT account_id, device_id, created_at, expires_at, fresh_until, pending_2fa \
-             FROM sessions WHERE token_hash = ?1",
+            "SELECT account_id, device_id, created_at, expires_at, fresh_until, pending_2fa, \
+             account_version FROM sessions WHERE token_hash = ?1",
             [token_hash.as_slice()],
             |r| {
                 Ok((
@@ -63,6 +69,7 @@ pub fn lookup_and_touch(
                         device_id: id16(r, 1)?,
                         fresh_until: u64_col(r, 4)?,
                         pending_2fa: r.get::<_, i64>(5)? != 0,
+                        account_version: u64_col(r, 6)?,
                     },
                     u64_col(r, 2)?,
                     u64_col(r, 3)?,
@@ -95,6 +102,26 @@ pub fn delete(conn: &Connection, token_hash: &[u8; 32]) -> Result<(), ApiError> 
     conn.execute(
         "DELETE FROM sessions WHERE token_hash = ?1",
         [token_hash.as_slice()],
+    )?;
+    Ok(())
+}
+
+/// After a password change: deletes every other session of the account (a
+/// token stolen before the change dies with it) and moves the changing
+/// session to the new account version.
+pub fn after_password_change(
+    conn: &Connection,
+    account: &[u8; 16],
+    keep: &[u8; 32],
+    new_version: u64,
+) -> Result<(), ApiError> {
+    conn.execute(
+        "DELETE FROM sessions WHERE account_id = ?1 AND token_hash <> ?2",
+        params![account.as_slice(), keep.as_slice()],
+    )?;
+    conn.execute(
+        "UPDATE sessions SET account_version = ?2 WHERE token_hash = ?1",
+        params![keep.as_slice(), int(new_version)],
     )?;
     Ok(())
 }
@@ -206,6 +233,7 @@ mod tests {
             expires_at: now + 1_000_000,
             fresh_until: now,
             pending,
+            account_version: 1,
         }
     }
 

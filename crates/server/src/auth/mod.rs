@@ -73,6 +73,8 @@ pub struct Authed {
     pub token_hash: [u8; 32],
     /// Waiting for its TOTP code.
     pub pending: bool,
+    /// The account version at this session's login (its KE3).
+    pub account_version: u64,
     fresh_until: u64,
     now: u64,
 }
@@ -113,6 +115,7 @@ fn authenticate(parts: &Parts, state: &AppState) -> Result<Authed, ApiError> {
         device_id: row.device_id,
         token_hash: hash,
         pending: row.pending_2fa,
+        account_version: row.account_version,
         fresh_until: row.fresh_until,
         now,
     })

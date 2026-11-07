@@ -611,27 +611,77 @@ async fn password_change_cas_account_version() {
             ),
         )
         .unwrap();
-    let finish = |version: u64| PasswordFinishRequest {
+    let finish = || PasswordFinishRequest {
         registration_upload: B64(fin.message.serialize().to_vec()),
         wrapped_ak: wrapped_key(9),
         salt: json::B64Fixed([5; 16]),
         profile: Argon2Profile::Strong,
-        expected_account_version: version,
     };
+    // A second device is signed in when the first one changes the password.
+    let second = InstallId::new_v7().unwrap();
+    app.clock.advance_ms(13_000);
+    let token_b = app.login_device(&u, second).await;
     let ok = app
-        .post("/v1/account/password/finish", Some(&token), &finish(1))
+        .post("/v1/account/password/finish", Some(&token), &finish())
         .await;
     assert_eq!(ok.status, StatusCode::OK);
     assert_eq!(ok.json::<PasswordFinishResponse>().account_version, 2);
 
-    // The device that lost the race learns the current version.
-    let lost = app
-        .post("/v1/account/password/finish", Some(&token), &finish(1))
-        .await;
-    assert_eq!(lost.status, StatusCode::CONFLICT);
-    assert_eq!(lost.code(), "account_version_mismatch");
-    let detail: AccountVersionDetail = lost.error().detail_as().unwrap();
-    assert_eq!(detail.account_version, 2);
+    // The change ended every other session of the account (a stolen token
+    // does not outlive it); the changing session stays.
+    assert_eq!(
+        app.get("/v1/devices", Some(&token_b)).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        app.get("/v1/devices", Some(&token)).await.status,
+        StatusCode::OK
+    );
+
+    // A session that logged in before another change slipped in (here: the
+    // version moves under it without ending it) is refused at both steps and
+    // learns the current version.
+    app.clock.advance_ms(60_000);
+    let LoginResult::Ok { token: late, .. } = app
+        .login_with(&u.email, &new_opw, u.account_id, second, IP)
+        .await
+    else {
+        panic!("the new password logs in");
+    };
+    app.state
+        .db()
+        .run(|c| {
+            c.execute(
+                "UPDATE accounts SET account_version = account_version + 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    for refused in [
+        app.post(
+            "/v1/account/password/start",
+            Some(&late),
+            &PasswordStartRequest {
+                registration_request: B64(start.message.serialize().to_vec()),
+            },
+        )
+        .await,
+        app.post("/v1/account/password/finish", Some(&late), &finish())
+            .await,
+    ] {
+        assert_eq!(refused.status, StatusCode::CONFLICT);
+        assert_eq!(refused.code(), "account_version_mismatch");
+        let detail: AccountVersionDetail = refused.error().detail_as().unwrap();
+        assert_eq!(detail.account_version, 3);
+    }
+    app.state
+        .db()
+        .run(|c| {
+            c.execute("UPDATE accounts SET account_version = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
 
     let acc: AccountResponse = app.get("/v1/account", Some(&token)).await.json();
     assert_eq!(
@@ -644,6 +694,69 @@ async fn password_change_cas_account_version() {
     assert!(matches!(app.login(&u).await, LoginResult::ClientRejected));
     assert!(matches!(
         app.login_with(&u.email, &new_opw, u.account_id, u.device, IP)
+            .await,
+        LoginResult::Ok { .. }
+    ));
+}
+
+/// R-M3: a login that started against the old password cannot finish after a
+/// password change; a login that starts after it works with the new one.
+#[tokio::test(start_paused = true)]
+async fn a_login_in_flight_does_not_survive_a_password_change() {
+    let app = open_app();
+    let (u, token) = app.user("alice").await;
+    let new_opw = [0x55u8; 32];
+    let mut rng = OsRng;
+    let start = ClientRegistration::<Suite>::start(&mut rng, &new_opw).unwrap();
+    let r = app
+        .post(
+            "/v1/account/password/start",
+            Some(&token),
+            &PasswordStartRequest {
+                registration_request: B64(start.message.serialize().to_vec()),
+            },
+        )
+        .await;
+    let resp: RegistrationStartResponse = r.json();
+    let fin = start
+        .state
+        .finish(
+            &mut rng,
+            &new_opw,
+            RegistrationResponse::deserialize(&resp.registration_response.0).unwrap(),
+            ClientRegistrationFinishParameters::new(
+                identifiers(u.account_id.as_bytes(), ORIGIN.as_bytes()),
+                None,
+            ),
+        )
+        .unwrap();
+    let change = PasswordFinishRequest {
+        registration_upload: B64(fin.message.serialize().to_vec()),
+        wrapped_ak: wrapped_key(9),
+        salt: json::B64Fixed([5; 16]),
+        profile: Argon2Profile::Strong,
+    };
+    app.clock.advance_ms(60_000);
+    let second = InstallId::new_v7().unwrap();
+    let result = app
+        .login_with_pause(&u.email, &u.opw, u.account_id, second, IP, async || {
+            // The change goes through between the two requests of the login.
+            let done = app
+                .post("/v1/account/password/finish", Some(&token), &change)
+                .await;
+            assert_eq!(done.status, StatusCode::OK);
+        })
+        .await;
+    match result {
+        LoginResult::Server(r) => {
+            assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+            assert_eq!(r.code(), "login_failed");
+        }
+        _ => panic!("the login in flight must be refused"),
+    }
+    app.clock.advance_ms(60_000);
+    assert!(matches!(
+        app.login_with(&u.email, &new_opw, u.account_id, second, IP)
             .await,
         LoginResult::Ok { .. }
     ));

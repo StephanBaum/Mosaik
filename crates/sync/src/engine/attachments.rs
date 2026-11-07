@@ -30,16 +30,18 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
     ) -> Result<(), SyncError> {
-        self.upload_attachments(access, report)?;
-        self.send_attachment_deletions(access)?;
-        self.reassert_attachments(access, report)?;
-        self.fetch_attachments(access, report)
+        let skip = Self::rolled_back_vaults(access)?;
+        self.upload_attachments(access, report, &skip)?;
+        self.send_attachment_deletions(access, &skip)?;
+        self.reassert_attachments(access, report, &skip)?;
+        self.fetch_attachments(access, report, &skip)
     }
 
     fn upload_attachments(
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
+        skip: &BTreeSet<VaultId>,
     ) -> Result<(), SyncError> {
         let (pending, queued) = access.with(|s| -> Result<_, Error> {
             let pending = s.pending_attachment_uploads()?;
@@ -58,7 +60,7 @@ impl<T: Transport> SyncEngine<T> {
         for info in pending {
             // The record that refers to the file has to be on the backend
             // first.
-            if queued.contains(&(info.vault_id, info.record_id)) {
+            if queued.contains(&(info.vault_id, info.record_id)) || skip.contains(&info.vault_id) {
                 continue;
             }
             let id = info.attachment_id;
@@ -78,9 +80,13 @@ impl<T: Transport> SyncEngine<T> {
     fn send_attachment_deletions(
         &mut self,
         access: &mut impl SessionAccess,
+        skip: &BTreeSet<VaultId>,
     ) -> Result<(), SyncError> {
         let deletions = access.with(|s| s.pending_attachment_deletions())??;
         for (vault, id) in deletions {
+            if skip.contains(&vault) {
+                continue;
+            }
             self.transport.delete_attachment(vault, id)?;
             access.with(|s| s.mark_attachment_deletion_sent(id))??;
         }
@@ -112,10 +118,11 @@ impl<T: Transport> SyncEngine<T> {
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
+        skip: &BTreeSet<VaultId>,
     ) -> Result<(), SyncError> {
         let refs = access.with(|s| s.attachment_references())?;
         let mut by_vault: BTreeMap<VaultId, Vec<AttachmentRef>> = BTreeMap::new();
-        for r in refs {
+        for r in refs.into_iter().filter(|r| !skip.contains(&r.vault_id)) {
             by_vault.entry(r.vault_id).or_default().push(r);
         }
         let mut budget = ATTACHMENT_DOWNLOAD_BUDGET;
@@ -237,10 +244,14 @@ impl<T: Transport> SyncEngine<T> {
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
+        skip: &BTreeSet<VaultId>,
     ) -> Result<(), SyncError> {
         let missing: Vec<AttachmentRef> = access.with(|s| -> Result<_, Error> {
             let mut out = Vec::new();
             for r in s.attachment_references() {
+                if skip.contains(&r.vault_id) {
+                    continue;
+                }
                 if s.attachment_file_state(r.attachment_id)? == AttachmentFileState::Missing {
                     out.push(r);
                 }

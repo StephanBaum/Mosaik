@@ -3633,3 +3633,207 @@ crates; the `opaque` module comes with the server and client tracks. No telemetr
   filter, no JSON, no exporters). The server also uses `hkdf`, `hmac`, `sha2` and `chacha20poly1305`
   directly for K_totp, the pre-login fakes, hashes and the sealed TOTP secrets: the CRYPTO_SPEC section 2
   primitives, nothing new. `cargo deny` needed no licence exception.
+
+### Amendment (2026-11-07, M6 T4: the HTTP client as built)
+Choices that the spec left open, each the most conservative one:
+- **Dependencies (ADR-0046 option 2).** `reqwest =0.13.5` has no ring-provider feature, so the workspace takes
+  `reqwest` with `blocking` and `rustls-no-provider` only (no default features: no cookies, redirects are off,
+  no compression, no HTTP/2), a direct `rustls =0.23.46` with the `ring` provider and `std` (no `tls12`
+  feature of its own; hyper-rustls switches `tls12` on in the tree, and the config below stays TLS 1.3 only
+  whatever the features say (M6 T4 review follow-ups); 0.23.46 is the first release without RUSTSEC-2026-0285, -0346, -0348 and -0349, which
+  `cargo deny` reports for the 0.23.40 that Tauri's tree had cached) and `rustls-platform-verifier =0.7.0` (the OS trust store: SChannel, Security.framework, the
+  platform's certificate stores). `mosaic_sync::http` builds the `ClientConfig` itself and passes it to
+  reqwest as the preconfigured backend: `builder_with_provider(ring)`, `with_protocol_versions([TLS13])`,
+  `with_platform_verifier()`, no client certificate. A unit test pins the version list to TLS 1.3. `ring`
+  (ISC) and `rustls` are new to the lock file. `webpki-root-certs` (CDLA-Permissive-2.0, root certificate
+  data) gets a crate-scoped licence exception in `deny.toml`, as ADR-0046 foresaw. It is used only on
+  `wasm32` and in the platform verifier's own dev-dependencies, not as a Linux fallback (Linux reads the
+  system roots through `rustls-native-certs`; corrected in the T4 review follow-ups); the licence list is not loosened otherwise. The crates are optional
+  and only built with the `http` feature of `mosaic-sync`.
+- **URL rule.** `canonical_origin`: `https://host[:port]` or `http://` for `127.0.0.1`, `[::1]` and
+  `localhost`; lowercase; no path, query, fragment, credentials, percent escapes or non-ASCII host
+  (punycode only); port 1 to 65535. `TransportError::InsecureUrl` for plain `http` to another host or another
+  scheme, `InvalidUrl` for everything else. The client sends the same origin string the OPAQUE login is bound
+  to, and `GET /v1/info` must name exactly that origin (`ServerMismatch`) and protocol 1 (`Incompatible`),
+  checked before every login, registration and session.
+- **`TransportError` grows** `Rejected(Rejection)` (the hosted codes with no variant of their own:
+  `AccountExists`, `RegistrationClosed`, `InvalidInvite`, `InvalidEmail`, `LoginFailed`, `DeviceRevoked`,
+  `TwoFactorInvalid`, `BadRequest`, `TooLarge`, `AttachmentExists`, `CheckpointStale`, `TooManyPolls`,
+  `DeviceIsCurrent`, `AccountVersionMismatch { account_version }`), `InsecureUrl` and `InvalidUrl`. They
+  carry no body, ID or address. `login_failed` stays one answer for a wrong password, an unknown email and a
+  server that names another identity (CRYPTO_SPEC §9.2).
+- **Responses are strict.** Unknown or missing JSON keys, wrong types, IDs that are not lowercase hyphenated
+  non-nil UUIDs and non-canonical base64url are `Protocol`. A success body is read up to its cap (16 MiB JSON;
+  the attachment ciphertext maximum) and refused before reading when `Content-Length` says more; an error
+  body is cut at 64 KiB. A page of changes must have strictly ascending sequence numbers above the cursor and
+  at most the head, a cursor that does not move back, `more` only with records, and every ciphertext must
+  decode as its kind; a records response must answer every record in order with its ID. `Retry-After` is
+  honoured as whole seconds (1 to 86 400, 60 when absent or in date form).
+- **Idempotent retries.** `checkpoint_stale` on the checkpoint upload counts as done (a repeated request; a
+  device whose counter fell behind the server's is caught by the engine's check of its own checkpoint, which
+  runs before anything is written). A records request is split to fit the server's `maxRequestBytes` (the
+  engine batches by ciphertext bytes, and base64 adds a third); the batches of one call are separate
+  requests, so a `generation_mismatch` in a later one leaves the earlier ones accepted, which the engine
+  resolves by its pull (their echo acknowledges them, ADR-0045 amendment below).
+- **Session token.** The bearer header is built from the token and marked sensitive; the token is never
+  in an error or a log, `HttpTransport` has no `Debug` output of it. The transport learns the device's
+  own install ID (for the checkpoint path) from `GET /v1/devices` (`current`), not from the caller
+  (changed: `HttpTransport::connect` takes the engine's install ID, see the T4 review follow-ups).
+- **Client functions** (`mosaic_sync::http::hosted`): `prelogin`, `register`, `login`, `login_totp`,
+  `logout`, `join_login` (pre-login, the Argon2id derivation and the OPAQUE login) and
+  `join_fetch_account` (`GET /v1/account`, whose account ID, salt and profile must equal the keys'),
+  `password_change` (fresh login with the old `OPW`, the second factor when the account has one,
+  re-registration, one upload guarded by the account version of the session's login; see the T4 review
+  follow-ups). The join is two
+  functions instead of one because a pending session needs its TOTP code between them.
+- **Hosted pull cursor, change counter.** A cursor is the 8-byte big-endian `server_seq` (empty = 0);
+  the change token of the long poll is the 8-byte counter (none yet: a value the counter never has, so the
+  first call answers at once); a client-side timeout of the poll is "nothing changed".
+
+### Amendment (2026-11-07, M6 T4: engine rules found by the hosted simulations; ADR-0045)
+The hosted branches of the engine had never run against a server. Three rules were wrong or missing:
+- **(Superseded by the T4 review follow-ups below: the base is the served view.) A received version the
+  device already contains moves the upload base forward.** The server accepts a
+  change only on top of the version it holds (`baseSeq`). `apply_remote_record` ignored a received record
+  that the local record dominates or equals, and left the stored `server_seq` (the next `baseSeq`) behind;
+  the pull cursor had passed that version, so the pending change was refused as a conflict on every attempt
+  and the devices never converged. Now the ignored record raises the stored sequence number
+  (`Store::raise_server_seq`, never lowering), and if its ciphertext is the pending change itself (the
+  server stored it and the response was lost, or the request was repeated) the change is acknowledged.
+- **Hosted: the server's key is the canonical key.** The canonical-winner rule by lowest device ID is
+  right for a folder, where every key reaches every device. The server keeps one key per generation: a
+  legacy key (an offline rotation) that lost the race for the slot never reaches another device, so a
+  device holding it must rotate again whatever the device IDs say; otherwise it keeps a key nobody else
+  has and every record either side seals is unreadable to the other. On the hosted backend any key of the
+  current generation that a pull brought in and that differs from the held one makes the held one lose.
+  (Superseded: the loser adopts the server's key, see the T4 review follow-ups below.)
+- Unchanged by this track and confirmed by the simulations: records are pushed items before tombstones; a
+  rotation offers its key on top of the head (`head_moved` pulls, pushes and retries the same key).
+
+### Amendment (2026-11-07, M6 T4: the T3 review changes the client respects)
+After the server's review fixes (one session per device, a login ends the device's other sessions, at most
+64 sessions per account, pending sessions of five minutes, per-session and per-account TOTP attempts, key
+uploads and vault creates only with the session's own device ID, long polls capped per account, per-route
+body limits and a global concurrency limit): the client sends the `deviceId` of its own install in every
+login, vault creation and key upload (the engine already does); a second login of a device ends the
+transport that holds the first session (`Unauthorized`), so the desktop keeps one transport per device and
+signs in again after `Unauthorized`; the second-factor code is a `SecretText` in the request. The
+simulations log in each device once and sign in again where a test opens a second path for a device.
+
+### Amendment (2026-11-07, M6 T4 review follow-ups: served view, view digest, key winner; ADR-0045)
+The crypto and sync-chaos reviews of T4 (findings C-M1, C-M2, C-L1 to C-L4, C-Info, S1 to S10) change these
+rules. The normative text is CRYPTO_SPEC §9.4, §10 and §10.2.
+- **The base of an upload is the served view, not a maximum.** The store (schema v5) keeps
+  `sync_served(vault_id, record_id, seq, ct_hash)`: the latest `server_seq` and the SHA-256 of the ciphertext
+  the server served or accepted for each record. Every pulled record (applied, ignored as dominated,
+  deferred or unreadable) and every accepted upload overwrites the row. A push is based on the row's `seq`.
+  `raise_server_seq` no longer runs on a received record (a forged `seq` on a replayed old version wedged
+  the item's uploads for good, S4); an echo of the pending change still acknowledges it. A refused upload
+  whose following pull does not change the row makes the device read the vault again from the start, once
+  per run; still refused after that, the vault gets a `ServerInconsistent` finding and the change stays
+  queued. Stored sequence numbers in `records` stay as a local monotonic mark (folder uses them; the hosted
+  base does not).
+- **A view digest in every hosted checkpoint entry.** The checkpoint format (version 1, never released)
+  gains `view_digest[32]` per entry: `SHA-256(ctx("sync/view") || 0x00 || vault_id || high_seq || n || n x
+  (record_id || seq || ct_hash))` over the served rows sorted by record ID. A device publishes it only for a
+  clean view (no row beyond its cursor, no open finding) and reads every vault it pushed to once more before
+  it publishes. Devices at the same head with the same generation compare digests; a difference is a
+  persisted `ServerInconsistent` finding, not a halt. This closes the silent cases that the counters and
+  `high_seq` cannot see: a forged head (S5), an acknowledged but dropped upload (S6), a page cut short
+  (S7) and a vault rolled back with reused sequence numbers (S8). An all-zero digest means none (folder;
+  readers ignore it). The server sees one opaque 32-byte value per vault and checkpoint (CRYPTO_SPEC §12).
+  An upload acknowledged under a `seq` at or below the device's own cursor is impossible and is a finding at
+  once. A pull page whose head is below the cursor is a persisted `ServerRollback` for that vault only (S9);
+  the run no longer fails with `Protocol`, other protocol errors still do. Findings are cleared only by the
+  user (`clear_sync_halt`), which also rebuilds the served view and cursor of the flagged vaults and makes
+  the device ignore the digests peers published before that moment.
+  Schema v5 recreates `sync_peer_checkpoint` for the longer entries: the stored newest checkpoints of other
+  devices are lost once and fetched again by the next run (a replayed old checkpoint could be accepted in
+  that one run; the MAC and the own-counter rules are unchanged).
+- **Hosted key winner (S1, C-M1).** The server's key for a generation is canonical. A device holding a key it
+  generated and the server never accepted (an offline rotation that got `generation_taken`) **adopts** the
+  server's key (`UnlockedSession::adopt_remote_vault_key`): one store transaction swaps the key row, re-seals
+  every record and the metadata it sealed under its own key, queues them and drops its own key; the vault
+  cursor is reset and the vault is read again. No generation `g + 1` is made, so the loser neither rotates
+  again nor leaves records unreadable to the devices that never saw its key (the winner can be gone). A key
+  the server confirmed (an accepted upload; the vault's creation) is never replaced: a second valid key for
+  that generation is the server contradicting itself, reported as `ServerInconsistent`, resolved by the rank
+  rule of §10.1, with at most three such rotations per vault per 24 hours (persisted). Folder mode is
+  unchanged (canonical winner, loser rotates).
+- **Cheaper rotations (S10).** A received record of the same version at the current generation replaces a
+  queued re-seal of equal content and the queued copy leaves the outbox, so a rotation costs one upload per
+  record instead of one per device.
+- **Clock jumps (S2, S3).** A backoff retry time further ahead than the longest delay it can set (plus a
+  server's `Retry-After`) is dropped; a stored lag start in the future counts from now.
+- **Password change (C-M2, C-L3).** The session row stores the account version at KE3; `password/start` and
+  `password/finish` compare against it (`PasswordFinishRequest` loses `expectedAccountVersion`), and a
+  successful change deletes the account's other sessions in the same transaction. A retry after a lost
+  `password/finish` answer logs in with the new `OPW` and, if the account's wrapped AK equals the prepared
+  one, returns as success.
+
+### Amendment (2026-11-07, M6 T4 review follow-ups: the HTTP client; ADR-0046)
+- **Secrets (C-L1, C-L2).** opaque-ke's `session_key` and `export_key` are wiped right after use in login
+  and in both registrations. The bearer value is built in a `Zeroizing<String>` and kept as one sensitive
+  `HeaderValue` per `HttpTransport`; the copies `reqwest` and `hyper` make while they send are outside the
+  crate's reach (THREAT_MODEL R57). `zeroize` joins `mosaic-sync` behind the `http` feature (already in the
+  workspace).
+- **Resolution, proxies and roots (C-Info).** `localhost` is pinned to `127.0.0.1` with
+  `ClientBuilder::resolve`, so a plain-http loopback connection does not depend on the resolver. `reqwest`
+  honours `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` from the environment but not the system proxy
+  settings; on Linux `rustls-native-certs` reads `SSL_CERT_FILE` and `SSL_CERT_DIR`, which can add roots.
+  Both are accepted: the environment is the user's own (a process that sets it already runs as the user,
+  R57a), TLS 1.3 and the OPAQUE binding to the origin still apply, and pinning would break corporate and
+  self-hosted setups (THREAT_MODEL R67).
+- **One origin normalizer.** `mosaic_sync::wire::origin::canonical_origin` serves the client (the URL it is
+  given) and the server (`canonical_origin` of its config): lowercase, the default port removed (443 for
+  https, 80 for http loopback), and a port that is not 1 to 65535 in digits only (`0`, `+443` and any other
+  character are refused). The server's earlier normalizer accepted `+443`.
+- **Own device.** `HttpTransport::connect(base, token, install)` takes the engine's install ID; the
+  checkpoint path no longer depends on the server's `current` device flag.
+- **Corrected text.** See the notes in the T4 amendment above on `tls12` and on `webpki-root-certs`.
+
+### Amendment (2026-11-07, M6 T4 re-review follow-ups; ADR-0045, ADR-0046)
+The crypto re-review of the first follow-ups (R-M1 to R-M4, R-L1 to R-L7, I1 to I5) changes these rules; the
+normative text is CRYPTO_SPEC §10 and §10.2.
+- **The view digest commits to the key (R-M1).** Adoption could split a vault: a server that answers
+  `generation_taken` to two offline rotators and cross-serves their keys makes each adopt the other's, and
+  the served views still agree (the same records). The digest input gains
+  `key_commit = SHA-256(ctx("sync/view-key") || 0x00 || vault_id || generation || wrapped_key_bytes)` after
+  `high_seq`, over the wrapping the device holds for its current generation (the bytes the server served or
+  accepted). A key this install generated and the server never accepted publishes the all-zero digest.
+  The two formulas moved into `mosaic-core` (`sync_auth::view_digest`, `view_key_commit`; labels
+  `sync/view` and `sync/view-key` in the label registry): no literal context string in `mosaic-sync` (I2).
+  Checkpoint v1 is still unreleased, so it changed in place again; the KAT script, vectors and fuzz seeds
+  follow. A device keeps publishing the real digest while a finding is open (I1): the server must not learn
+  that it was caught.
+- **More than one candidate key is a contradiction (R-L4).** On hosted, two or more distinct verified keys
+  for one generation are a `ServerInconsistent` finding and nothing is adopted.
+- **Heads that never meet (R-M2).** Digests compare only at an equal head, so a server that keeps two
+  devices' heads one apart avoids them, and the lag rule does not see it either. A device stores, per
+  (peer, vault), since when its runs have failed to compare (the first such run starts the count, a
+  comparison ends it) and the peer's counter then; a peer whose counter has risen with failures spanning
+  48 hours of runs is `NoCommonView` (a single run after a long pause or a clock jump does not count) (persisted, cleared by
+  the user). Honest pairs meet at the same head after the settle pull.
+- **A login in flight does not survive a password change (R-M3).** The server's pending login records the
+  account version at `login/start`; `login/finish` refuses with `login_failed` if it moved, and a password
+  change drops the account's pending logins.
+- **Acknowledging a finding does not make the loss permanent (R-M4, R-L1, R-L2).** `clear_vault_findings`
+  (per vault: findings, `NoCommonView`, the served view, the cursor and the current-generation key
+  candidates; the vault is marked for a rebuild) is separate from `clear_sync_halt` (the halt, strikes and
+  `written`); `sync_findings` lists both so one UI action clears what is set. After the full re-read of a
+  marked vault, every local record at the current generation that the server does not hold as it is and
+  that is not queued is queued again. Digests of checkpoints stored before the acknowledgement, or while a
+  rebuild is open, are not compared (otherwise a peer's stale digest raised the finding again); the user
+  acknowledges on every device.
+- **Smaller (R-L3, R-L5, R-L6, R-L7).** The confirmed mark is written in the transaction of the vault's
+  creation, of the accepted key upload and of the rotation commit; the v5 migration seeds it for a key this
+  install generated with a clear upload flag at the vault's current generation (the conservative reading).
+  A vault flagged `ServerRollback` takes no record, metadata or attachment uploads. The v5 migration drops
+  hosted cursors (the served view starts empty; the next run reads the vaults again and no digest is
+  published from a half-known view). The bearer value is encoded straight into zeroizing buffers and the
+  OPAQUE results are `mut` from their creation.
+- **Forward constraint (I5).** Adoption must not resolve revocation rotations once sharing (§8, M6b)
+  ships; see CRYPTO_SPEC §10.2.
+- **Dev note (I3).** Server databases created before the first follow-ups edited migration v1 in place
+  (`sessions.account_version`, the checkpoint body limit) must be recreated; the server is unreleased.
+

@@ -489,6 +489,7 @@ fn outsider_planted_device_and_marker_change_nothing() {
             vault_id: vault,
             generation: KeyGeneration::FIRST,
             high_seq: 50,
+            view_digest: [0; 32],
         }],
     };
     fs::write(ddir.join("head.mck"), cp.encode(&outsider).unwrap()).unwrap();

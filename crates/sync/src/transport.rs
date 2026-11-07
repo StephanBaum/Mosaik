@@ -197,6 +197,45 @@ pub struct RemoteDevice {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChangeToken(pub Vec<u8>);
 
+/// Why the hosted server refused a request (a code of the protocol that has
+/// no variant of its own in [`TransportError`]). It carries no data of the
+/// request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Rejection {
+    /// Registration: the email is taken.
+    AccountExists,
+    /// Registration is closed on this server.
+    RegistrationClosed,
+    /// The invite code is missing, wrong or used.
+    InvalidInvite,
+    /// The email address is not valid.
+    InvalidEmail,
+    /// Login: wrong credentials (the server does not say which).
+    LoginFailed,
+    /// This device was removed from the account.
+    DeviceRevoked,
+    /// The second-factor code is wrong or its attempts are used up.
+    TwoFactorInvalid,
+    /// The server did not accept the request body.
+    BadRequest,
+    /// The request or object is larger than the server accepts.
+    TooLarge,
+    /// An attachment with this ID and another size exists.
+    AttachmentExists,
+    /// The checkpoint is not newer than the stored one.
+    CheckpointStale,
+    /// A second long poll on one session.
+    TooManyPolls,
+    /// A device cannot remove itself.
+    DeviceIsCurrent,
+    /// A password change raced another one.
+    AccountVersionMismatch {
+        /// The account version on the server.
+        account_version: u64,
+    },
+}
+
 /// Why a transport call failed. No variant carries a path, a body or an ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -246,12 +285,27 @@ pub enum TransportError {
     /// The backend answered something that is not the protocol.
     #[error("protocol error")]
     Protocol,
+    /// A pull page whose head is below the cursor the device already read:
+    /// the vault was rolled back on the backend (hosted). The engine reports
+    /// it for that vault and carries on with the others.
+    #[error("backend head below the cursor")]
+    HeadBelowCursor,
     /// The folder is not available (unplugged, not shared, not empty).
     #[error("folder unavailable")]
     FolderUnavailable,
     /// A local or network I/O failure.
     #[error("I/O error")]
     Io,
+    /// The server refused the request for a reason of its own (hosted).
+    #[error("request refused")]
+    Rejected(Rejection),
+    /// The server URL is `http` and not a loopback address, or uses another
+    /// scheme than `https`.
+    #[error("server URL is not https")]
+    InsecureUrl,
+    /// The server URL is not `https://host[:port]`.
+    #[error("invalid server URL")]
+    InvalidUrl,
     /// The session is locked, so the transport has no keys (the folder
     /// transport derives them per operation from the session). The engine
     /// reports it as `SyncError::Locked`.

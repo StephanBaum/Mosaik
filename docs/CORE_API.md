@@ -161,6 +161,14 @@ existing variant describes it). `Store::rewrap_vault_key` clears
 wrapping already.
 Deviation from the M6 spec: `pending_vault_uploads` takes `&mut self`.
 
+M6 T4 adds `Store::raise_server_seq(vault, record, seq)` (raises the stored server
+sequence number, the base of the next upload, without touching the body or the outbox;
+never lowers it) and changes `apply_remote_record`: a received version that the local
+record dominates or equals is still `Ignored`, but it now rebases a queued change onto
+the received sequence number, or acknowledges it when the received ciphertext is the
+queued change itself (the response to its upload was lost). `join_account_with_keys`
+takes `(wrapped_ak, keys)`: the parameters travel inside `JoinKeys`.
+
 ### `otp` (stable)
 
 `otp_from_config(&OtpConfig, hotp_counter)` → `mosaic_totp::Otp`,
@@ -510,6 +518,46 @@ ChaosTransport, ChaosConfig, MaliciousTransport, ManualClock, FixedJitter,
 SimRng, LocalSession, SessionRef, SessionMut}` (`LocalSession` is a shared,
 clonable handle: the transport gets a clone as its `SessionHandle`). The
 server (T3) follows.
+
+**M6 T4 review follow-ups (additive).** `UnlockedSession::adopt_remote_vault_key(vault,
+generation, &WrappedKey) -> Result<AdoptOutcome>` with `AdoptOutcome::{AlreadyHeld,
+Adopted { resealed }}`: for the hosted backend, replaces the key this device generated for
+the vault's current generation and the backend never accepted by the backend's key. The
+swap, the re-seal of every record and of the metadata sealed under the replaced key and
+their queueing are one store transaction (`Store::adopt_vault_key`); the replaced key is
+dropped. Errors: `VaultKeyConflict` if the held key came from the backend or was confirmed
+by it, `KeyGenerationRollback` / `KeyGenerationNotAccepted` if `generation` is not the
+vault's current one, `Core(Decryption)` if the wrapping does not open, `VaultUnavailable`,
+`WrongVaultProtection`. The caller then resets the vault cursor (`set_sync_cursor(vault,
+&[])`) and pulls again. Also on the session (hosted engine state, schema v5):
+`note_served`, `served_seq`, `served_view` (`ServedRow`), `mark_vault_key_confirmed`,
+`vault_key_confirmed`, `set_vault_flag`, `vault_flags` (`VaultFlag::{ServerInconsistent,
+ServerRolledBack}`), `log_conflict_rotation`, `recent_conflict_rotations`. `clear_sync_halt`
+clears only the halt, the strikes and `written` (as before); the findings against the server
+go through `clear_vault_findings(&[VaultId])` (engine: `clear_findings`), which clears them
+and `NoCommonView`, drops the served view, the cursor and the current-generation key
+candidates of those vaults and marks them for a rebuild (`rebuild_vaults`,
+`finish_rebuild`; after the full re-read the engine queues local records the server lacks
+with `requeue_record`) and marks the stored peer checkpoints as acknowledged
+(`PeerCheckpoint::digests_acknowledged`). `sync_findings() -> SyncFindings { halt,
+vault_flags, no_common_view }` lists both kinds (`is_clear`, `vaults`), so the desktop can
+offer one acknowledge action and call both clears depending on what is set.
+`mark_vault_key_accepted` records an accepted upload and its confirmation in one transaction
+(the creation and `commit_vault_rotation` confirm in theirs); `view_compare` and
+`put_view_compare` hold the comparison times. `mosaic_core::sync_auth` gains
+`view_key_commit`, `view_digest` and `ServedEntry`; the view digest has the key commitment
+(CRYPTO_SPEC §10). `HttpTransport::connect` takes `&SessionToken`.
+`PeerEntry` and `CheckpointEntry` gain `view_digest: [u8; 32]` (`checkpoint::NO_VIEW`,
+`checkpoint::view_digest`, `CheckpointEntry::view`); the checkpoint is 60 bytes per entry
+and 245,833 bytes at most. `apply_remote_record`: a received version of equal content
+settles a queued change of the record (its ciphertext replaces the row and the change
+leaves the outbox), and a dominated one no longer raises the stored `server_seq`.
+`SyncWarning` gains `ServerInconsistent { vault }`, `ServerRollback { vault }` and
+`NoCommonView { device, vault, since_ms }`;
+`TransportError` gains `HeadBelowCursor`; `HttpTransport::connect(base, token, install)`
+takes the engine's install ID; `wire::origin::canonical_origin` is the shared origin
+normalizer; `PasswordFinishRequest` loses `expected_account_version` (the server uses the
+account version of the session's login).
 
 ## Expected additions (pre-approved as additive)
 

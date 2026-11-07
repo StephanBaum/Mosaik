@@ -103,7 +103,9 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
-pub use engine_state::{EngineState, MarkerStamp, OwnSeq, PeerCheckpoint, PeerEntry, SyncHalt};
+pub use engine_state::{
+    EngineState, MarkerStamp, OwnSeq, PeerCheckpoint, PeerEntry, ServedRow, SyncHalt, VaultFlag,
+};
 pub use error::{Error, Result};
 pub use records::{
     CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,

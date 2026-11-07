@@ -344,6 +344,21 @@ impl TestApp {
         device: InstallId,
         ip: &str,
     ) -> LoginResult {
+        self.login_with_pause(email, opw, account_id, device, ip, async || {})
+            .await
+    }
+
+    /// A login that runs `pause` between `login/start` and `login/finish`
+    /// (something happens to the account while the login is in flight).
+    pub async fn login_with_pause(
+        &self,
+        email: &str,
+        opw: &[u8; 32],
+        account_id: AccountId,
+        device: InstallId,
+        ip: &str,
+        pause: impl AsyncFnOnce(),
+    ) -> LoginResult {
         let mut rng = OsRng;
         let start = ClientLogin::<Suite>::start(&mut rng, opw).expect("start");
         let r = self
@@ -363,6 +378,7 @@ impl TestApp {
             return LoginResult::Server(r);
         }
         let started: LoginStartResponse = r.json();
+        pause().await;
         let done = start.state.finish(
             &mut rng,
             opw,

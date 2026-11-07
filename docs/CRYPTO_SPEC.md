@@ -647,9 +647,24 @@ A request that re-registers OPAQUE, or that replaces or deletes the password
 wrapping of AK, is accepted only if it carries a **fresh OPAQUE login** (KE3
 completed within the last 5 minutes, in the same session) and passes account
 2FA when enabled. The write is a compare-and-swap on the account record
-version, so concurrent upgrades from two devices cannot interleave. The
-device that loses the race re-reads and retries. A stolen session token alone
-therefore cannot lock the user out.
+version, so concurrent upgrades from two devices cannot interleave. A stolen
+session token alone therefore cannot lock the user out.
+
+- **Version at login.** The server stores the account version in the session
+  row when the login completes (KE3). `password/start` and `password/finish`
+  are refused with `account_version_mismatch` (and the current version) if
+  the account version differs from the one stored in the session; the
+  compare-and-swap of the write uses the session's version, not a number the
+  client sends. A device whose session predates another device's change is
+  refused and logs in again.
+- **Other sessions end.** A successful change deletes every other session of
+  the account in the same transaction (a stolen token does not outlive the
+  change); the changing session stays and takes the new version.
+- **Lost answer.** If the answer to `password/finish` is lost, the retry
+  finds that the old `OPW` no longer logs in. It then logs in with the new
+  `OPW`; if the account's wrapped AK on the server is byte-equal to the one
+  it prepared, the change went through and the device commits it locally.
+  Any other outcome is the original error.
 
 ## 10. Sync protocol security
 
@@ -672,17 +687,19 @@ therefore cannot lock the user out.
   have not received for longer than the grace period (10 min hosted, 24 h
   folder).
   - Encoding (hosted upload body and folder `head.mck`, max 4096 entries):
-    `"MCKP" || version:u8 (1) || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32 || n x (vault_id[16] || generation:u32 || high_seq:u64) || mac[32]`
+    `"MCKP" || version:u8 (1) || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32 || n x (vault_id[16] || generation:u32 || high_seq:u64 || view_digest[32]) || mac[32]`
     with `seen_digest = SHA-256(issued_at_ms:u64 || n:u32 || entries)`.
+    (Version 1 was never released: the `view_digest` is part of it. The
+    folder writes 32 zero bytes and a reader ignores an all-zero digest.)
     Entries are sorted by `vault_id` without duplicates; a decoder rejects
     anything else, a nil ID, trailing bytes and a bad MAC (checked in constant
     time before parsing). `high_seq` is the device's vault cursor (the last
     `server_seq` applied) after the sync in hosted mode, and the highest
     segment sequence the device wrote for the vault (0 if none) in folder mode.
-    A checkpoint is longest at 4096 entries: 114,761 bytes (41-byte header,
-    28 bytes per entry, 32-byte MAC). The hosted body caps follow from that
-    (the raw `PUT` body at 114,761 bytes; the unpadded base64url text inside
-    a JSON response at 153,015 characters).
+    A checkpoint is longest at 4096 entries: 245,833 bytes (41-byte header,
+    60 bytes per entry, 32-byte MAC). The hosted body caps follow from that
+    (the raw `PUT` body at 245,833 bytes; the unpadded base64url text inside
+    a JSON response at 327,778 characters).
   - Transports carry a checkpoint as opaque bytes, filed under the device ID
     of its path (`d/<device>/head.mck`, or the hosted `deviceId`); they never
     decode it. A reader decodes it only together with that ID and rejects the
@@ -715,6 +732,95 @@ therefore cannot lock the user out.
     0, unless this device deleted that vault itself or keeps it local
     (hardware-protected): a withheld new vault is reported like any
     withheld file. The time a device has lagged in a vault is stored (§11).
+    A stored lag start that lies later than the device's clock now (the clock
+    was set back) counts from now, so a backward jump cannot suppress a
+    warning for days. A retry time of the backoff that lies further ahead
+    than the longest delay it can set (plus a server's `Retry-After`) is
+    dropped for the same reason.
+  - **Served view and view digest (hosted).** A device keeps, per vault and
+    record, the latest version the server showed it: the `server_seq` it was
+    served or accepted under and the SHA-256 of the exact ciphertext bytes
+    (`sync_served`, §11). Every record of a pull page overwrites its row,
+    whether it is applied, ignored as dominated, deferred or unreadable, and
+    so does every accepted upload (what was pushed, under the accepted
+    `seq`): the last answer of the server wins, never a maximum. The base of
+    an upload is the row's `seq`. The `view_digest` of a vault is
+    `SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || key_commit[32] || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )`
+    over every row of the vault sorted by `record_id`, with `high_seq` the
+    vault cursor and
+    `key_commit = SHA-256( ctx("sync/view-key") || 0x00 || vault_id || generation:u32 || wrapped_key_bytes )`,
+    where `wrapped_key_bytes` is the wrapping of the vault key the device
+    holds for its current generation, exactly as stored (the bytes the server
+    served or accepted). The commitment binds the key into the digest, so two
+    devices that adopted different keys for one generation (a server that
+    answers `generation_taken` to two offline rotators and cross-serves their
+    keys) disagree even when every record agrees. No secret is involved (the
+    wrapping is ciphertext the server holds); the server sees 32 opaque bytes
+    per vault (§12). Both formulas live in `mosaic-core` (`sync_auth`), which
+    owns the labels.
+    - A device publishes a non-zero digest for a vault only when its view is
+      clean (no row has a `seq` above the cursor) and it holds a key that the
+      server served or confirmed: a key this device generated that the server
+      never accepted gets the all-zero digest (it is about to be replaced,
+      §10.2). An open finding does **not** switch the digest off: the server
+      must not learn that it was caught. To make the steady state clean, a
+      device reads every vault it pushed to once more before it publishes.
+    - When another device's stored checkpoint has a non-zero digest for a
+      vault, the same generation and a `high_seq` equal to this device's
+      cursor, and this device's view is clean, the digests must be equal.
+      A difference means the server showed two devices different contents
+      for the same head; the device records a **server finding** for the
+      vault (`ServerInconsistent`; stored, §11) and reports it on every run
+      until the user acknowledges it (not a halt). This detects a forged
+      head that skips a record, an acknowledged upload that the server
+      dropped, a page cut short and a vault rolled back with reused
+      sequence numbers (and a key split), as soon as two devices reach the
+      same head.
+    - **Heads that never meet.** Digests are compared only at an equal head,
+      so a server that keeps two devices' heads apart (one behind the other
+      at every comparison) avoids the check; the lag rule above does not
+      catch it either, because every device is within one record of the
+      other's checkpoint. A device therefore stores, per (peer, vault), since
+      when its runs have failed to compare (the first run without a
+      comparison starts the count, a comparison ends it) and the peer's
+      checkpoint counter then. If the peer's counter has risen since, and
+      the failures span 48 hours of runs, the device records `NoCommonView` (device, vault, since) and
+      reports it on every run until the user acknowledges it. Honest devices
+      meet at the same head after the settle pull of a run, so they never
+      raise it.
+    - An upload acknowledged under a `seq` at or below the device's own
+      cursor is impossible from an honest server: it is not accepted
+      locally (the change stays queued) and is recorded as a finding at
+      once.
+    - A refused upload (`conflict`) whose following pull does not change the
+      record's row is not explained by another device's write: the device
+      reads the vault again from the start, once per run, and rebuilds the
+      rows from the server's answers. A record that is still refused after
+      that is a finding for the vault, and the change stays queued.
+    - A pull page whose head is below the device's cursor means the vault
+      was rolled back on the server: the device records `ServerRollback`
+      for that vault, skips only that vault and keeps syncing the others
+      (it is not a protocol error).
+    - **Acknowledging a finding** (`clear_vault_findings(vaults)`, separate
+      from `clear_sync_halt`, which clears only the rollback or identity
+      halt, the strikes and `written`; a vault acknowledgement never touches
+      those) clears the findings and `NoCommonView` of the vaults, forgets
+      their key candidates of the current generation (a cleared key finding
+      does not come back by itself), drops their served view and cursor and
+      marks them for a rebuild. The next run reads each from the start; when
+      that read is complete, every local record at the current generation
+      that the server does not hold as it is (no served row, or another
+      ciphertext) and that is not queued is queued again, so an edit that a
+      lying server acknowledged and dropped, or that a rolled-back vault
+      lost, is uploaded again and the acknowledgement does not make the loss
+      permanent. Digests that peers published before the acknowledgement
+      (and checkpoints stored while a rebuild is open) are not compared, so a
+      peer's stale digest does not raise the finding again; the user
+      acknowledges on every device. A vault flagged `ServerRollback` takes no
+      uploads, metadata uploads or attachment transfers until then.
+    - Status for the user: the halt, every vault finding and every
+      `NoCommonView` are listed together (`sync_findings`), so one
+      "acknowledge" action can clear what is set.
 - **Deletions** are encrypted tombstones, so the server cannot forge a delete.
 - **Conflict model** (ADR-0009, encoding §7.5). Every field is a
   multi-value register; the merge of two replicas is a pure join
@@ -787,7 +893,14 @@ therefore cannot lock the user out.
   rollback, a higher one waits for its wrapped key). It is decrypted with
   the vault ID and record ID it was filed under. A record the client has
   no state for is stored as received. A record whose vector the stored one
-  dominates or equals is ignored. Otherwise the repairing merge runs; a
+  dominates or equals does not change the stored version. It is not
+  forgotten, though: where the received ciphertext is exactly the pending
+  change (the server stored it and the answer was lost) the change is
+  acknowledged, and where the stored record is a queued change of equal
+  content (a re-seal after a rotation that another device already uploaded
+  at the current generation) the received ciphertext replaces it and the
+  change leaves the outbox. A received version never raises the base of an
+  upload; the served view does (above). Otherwise the repairing merge runs; a
   result equal to the received record is stored as received, any other
   result is sealed under the current key and queued for upload. A stored
   row that cannot be read (damaged, or sealed under a key the client no
@@ -1013,7 +1126,45 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   path, which must be the session's own device. The server holds no key, so
   it checks only the length, the shape, that the body names the path's device
   and that the counter is above the stored one (`checkpoint_stale`); the
-  clients verify the MAC (§10).
+  clients verify the MAC (§10). A client counts `checkpoint_stale` as
+  accepted: it means the server already holds this checkpoint or a newer
+  one (a repeated request after a lost answer); a device whose own
+  checkpoint fell behind is caught by the own-counter rules of §10, which
+  run before anything is written.
+- **Hosted key winner.** The server keeps exactly one wrapped key per
+  generation; it is canonical. A device remembers which of its vault keys
+  the server confirmed (an accepted key upload, or the vault's creation).
+  - The confirmed mark is written in the same store transaction as what it
+    accompanies (the vault's creation, an accepted key upload, the commit of
+    a rotation). A store that predates the mark treats a key this install
+    generated, whose upload flag is clear and whose generation is the
+    vault's current one, as confirmed (so it is never replaced); after a
+    change of backend no key is confirmed until the new backend accepts it.
+  - A device holds a key for generation `g` that it generated and the server
+    never accepted (an offline rotation that got `generation_taken`) and
+    learns the server's key for `g` (it arrives verified: it opens under
+    AK). If more than one distinct verified key for `g` is known the server
+    contradicts itself: it is a finding and nothing is adopted. Otherwise
+    the device **adopts** it: the server's key replaces its own as the
+    key for `g`, every record and the vault metadata it sealed under its own
+    key is re-sealed under the adopted key and queued, its own key is
+    dropped, and the vault is read again from the start. All of that is one
+    store transaction. No generation `g + 1` is created, so a lost rotation
+    costs no further rotation (the folder backend keeps the canonical
+    winner and the rotation of §10.1).
+  - A device holds a key that came from the server, or one the server
+    confirmed, and a second valid key for the same generation shows up: the
+    server contradicts itself. The device records a finding for the vault
+    (`ServerInconsistent`, §10), falls back to the rank rule of §10.1 (the
+    lowest device, then the lowest bytes wins) and rotates if it loses, but
+    at most three times per vault per 24 hours (the log is stored, §11);
+    after that the finding stays and the device stops rotating.
+  - Forward constraint (M6b): adoption replaces a key that was never shared
+    and that no other device could hold, which is only safe while rotation is
+    a hygiene step. Once sharing (§8) ships, a rotation that revokes a member
+    must not be resolved by adoption: the server's key for the generation may
+    be one the revoked party can read. Such rotations need their own rule
+    (spec and ADR first).
 
 ## 11. Local storage
 
@@ -1030,8 +1181,14 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 - The sync configuration (server URL, email, folder path, device name), the
   per-install `InstallId`, sync cursors and the checkpoint counter are
   cleartext local metadata. None of it is derived from item plaintext.
-- The persisted state of the sync engine (schema v4) is cleartext local
-  sync metadata of the same kind: the own sequence numbers per vault
+- The persisted state of the sync engine (schema v4, v5) is cleartext local
+  sync metadata of the same kind (v5 adds the served view `sync_served`:
+  per hosted record the `server_seq` and the SHA-256 of the ciphertext the
+  server last showed or accepted; the vault keys the server confirmed; the
+  findings against the server per vault (and the peers whose heads never
+  met, with the last comparison time per peer and vault); the conflict-driven
+  rotations of the last day; and 32 bytes of view digest per vault in the stored peer
+  checkpoints): the own sequence numbers per vault
   (`reserved`, `written`); the halt (rollback or identity duplicated), the
   last published checkpoint counter and the checkpoint strikes (count, time
   of the first, the counter it was counted at); the newest verified
@@ -1115,7 +1272,7 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | attachment IDs and ciphertext sizes | storage quotas |
 | device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
 | IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
-| checkpoints (device ID, counter, `issued_at_ms`, per vault generation and `high_seq`) | freeze and rollback detection (§10) |
+| checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records and to the vault key's wrapping the server already holds) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
 | record kind (item or tombstone, so that deletions are visible as events), per-object lengths and object counts per vault | storage, sync, quotas |
 | the device that generated each wrapped vault key (`device_id` of the key upload) | canonical key winner (§10.1), device list |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
@@ -1131,7 +1288,7 @@ Quick-unlock wrappings (§6.2) never leave the device.
 | vault IDs, record IDs, attachment IDs and ciphertext sizes, counts | file names and sizes |
 | ciphertext of records, tombstones, vault metadata, wrapped VKs, attachments | AEAD |
 | device install IDs | directory names; device names are sealed under `K_dev` |
-| checkpoint sequences, counters, vault generations and `issued_at_ms` | `head.mck` (MAC'd, not secret) |
+| checkpoint sequences, counters, vault generations and `issued_at_ms`; the view digest of each entry (32 zero bytes: the folder has no served view) | `head.mck` (MAC'd, not secret) |
 | record kind: the segment object kind byte shows item, tombstone, vault key and metadata objects, so deletions are visible as events | `.mseg` (the kind bytes are inside the MAC'd file, not encrypted) |
 | per-object lengths and object counts per segment and snapshot | `.mseg` |
 | segment `created_at_ms`, the snapshot flag and the snapshot part fields (`snap_base`, `snap_parts`) | `.mseg` header (MAC'd, not secret) |

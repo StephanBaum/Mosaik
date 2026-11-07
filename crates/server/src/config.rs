@@ -167,52 +167,17 @@ impl Config {
 }
 
 /// Validates the canonical origin and returns its canonical form:
-/// `https://host[:port]`, lowercase, no path. `http://` is accepted only for
-/// a loopback host (local testing).
+/// `https://host[:port]`, lowercase, no path, the default port removed.
+/// `http://` is accepted only for a loopback host (local testing). The
+/// function is the one the client uses for the URL it is given
+/// ([`mosaic_sync::wire::origin::canonical_origin`]), so both sides compute
+/// the same OPAQUE identity bytes.
 ///
 /// # Errors
 /// [`ConfigError::Invalid`].
 pub fn normalize_origin(origin: &str) -> Result<String, ConfigError> {
-    const BAD: ConfigError = ConfigError::Invalid("canonical_origin must be https://host[:port]");
-    let (scheme, rest) = origin.split_once("://").ok_or(BAD)?;
-    let scheme = scheme.to_ascii_lowercase();
-    if rest.is_empty() || rest.contains(['/', '?', '#', '@', ' ', '\\']) {
-        return Err(BAD);
-    }
-    let rest = rest.to_ascii_lowercase();
-    let (host, port) = match rest.strip_prefix('[') {
-        Some(v6) => {
-            let (h, p) = v6.split_once(']').ok_or(BAD)?;
-            let port = if p.is_empty() {
-                None
-            } else {
-                Some(p.strip_prefix(':').ok_or(BAD)?)
-            };
-            (format!("[{h}]"), port)
-        }
-        None => match rest.split_once(':') {
-            Some((h, p)) => (h.to_owned(), Some(p)),
-            None => (rest.clone(), None),
-        },
-    };
-    if host.is_empty() || host.starts_with('.') || host.ends_with('.') {
-        return Err(BAD);
-    }
-    if let Some(p) = port
-        && (p.is_empty() || p.parse::<u16>().is_err())
-    {
-        return Err(BAD);
-    }
-    let loopback = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]");
-    match scheme.as_str() {
-        "https" => {}
-        "http" if loopback => {}
-        _ => return Err(BAD),
-    }
-    Ok(match port {
-        Some(p) => format!("{scheme}://{host}:{p}"),
-        None => format!("{scheme}://{host}"),
-    })
+    mosaic_sync::wire::origin::canonical_origin(origin)
+        .map_err(|_| ConfigError::Invalid("canonical_origin must be https://host[:port]"))
 }
 
 #[cfg(test)]
@@ -254,6 +219,8 @@ registration = "invite"
             "https://",
             "https://u@h",
             "https://h:99999",
+            "https://h:+443",
+            "https://h:0",
         ] {
             assert!(normalize_origin(bad).is_err(), "{bad}");
         }
@@ -264,6 +231,11 @@ registration = "invite"
         assert_eq!(
             normalize_origin("http://[::1]:1").unwrap(),
             "http://[::1]:1"
+        );
+        // The same text as the client computes: lowercase, default port off.
+        assert_eq!(
+            normalize_origin("https://Sync.Example.com:443").unwrap(),
+            "https://sync.example.com"
         );
     }
 }

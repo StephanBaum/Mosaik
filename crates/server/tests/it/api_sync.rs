@@ -557,6 +557,7 @@ fn checkpoint_bytes(
             vault_id: vault,
             generation: KeyGeneration::FIRST,
             high_seq: 3,
+            view_digest: [0; 32],
         }],
     }
     .encode(crypto)

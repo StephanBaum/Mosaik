@@ -550,6 +550,8 @@ impl Store {
              WHERE vault_id = ?1 AND generation <= ?2",
             params![vault_id.as_bytes(), generation.get()],
         )?;
+        // The backend holds the key the vault was created with.
+        super::vaults::confirm_key(&tx, vault_id, generation)?;
         if let Some(meta) = meta {
             tx.execute(
                 "UPDATE vaults SET meta_upload_pending = 0 WHERE vault_id = ?1 AND meta = ?2",

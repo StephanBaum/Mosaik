@@ -165,6 +165,30 @@ fn vault() -> VaultId {
 }
 
 #[test]
+fn the_view_digest_matches_the_script() {
+    use mosaic_core::ItemId;
+    use mosaic_vault::storage::ServedRow;
+
+    let k = kat();
+    let rows = [
+        ServedRow {
+            record_id: ItemId::from_bytes([0x0D; 16]).unwrap(),
+            seq: 3,
+            ct_hash: Sha256::digest(b"first").into(),
+        },
+        ServedRow {
+            record_id: ItemId::from_bytes([0x0F; 16]).unwrap(),
+            seq: 8,
+            ct_hash: Sha256::digest(b"second").into(),
+        },
+    ];
+    let commit = super::checkpoint::view_key_commit(&vault(), KeyGeneration::FIRST, &[0x77; 74]);
+    assert_eq!(commit.as_slice(), k["key_commit"]);
+    let digest = super::checkpoint::view_digest(&vault(), 8, &commit, &rows).unwrap();
+    assert_eq!(digest.as_slice(), k["view_digest"]);
+}
+
+#[test]
 fn the_checkpoint_matches_the_script() {
     let k = kat();
     let crypto = KatCrypto::new(&k);
@@ -175,7 +199,8 @@ fn the_checkpoint_matches_the_script() {
         entries: vec![CheckpointEntry {
             vault_id: vault(),
             generation: KeyGeneration::FIRST,
-            high_seq: 5,
+            high_seq: 8,
+            view_digest: k["view_digest"].as_slice().try_into().unwrap(),
         }],
     };
     assert_eq!(cp.seen_digest().unwrap().as_slice(), k["seen_digest"]);

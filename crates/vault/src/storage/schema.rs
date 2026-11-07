@@ -403,6 +403,95 @@ CREATE TABLE sync_marker_seen (
 ) STRICT;
 ";
 
+/// Version 5: the served view and the engine's persisted server findings
+/// (CRYPTO_SPEC §10, ADR-0045 amendment 2). `sync_peer_checkpoint` is
+/// recreated for the 60-byte entries of checkpoint v1 (view digest added in
+/// place: v1 was never released); the newest checkpoints are fetched again
+/// by the next run. The other tables are new: the latest version of every
+/// record the server showed or accepted (`sync_served`), the vault keys the
+/// server confirmed (`sync_key_confirmed`), the per-vault server findings
+/// that stay until the user acknowledges them (`sync_vault_flag`: 1 server
+/// inconsistent, 2 server rolled back) and the conflict-driven rotations of
+/// the last day (`sync_rotation_log`).
+const V5: &str = r"
+DROP TABLE sync_peer_checkpoint;
+CREATE TABLE sync_peer_checkpoint (
+    device_id     BLOB    PRIMARY KEY CHECK (length(device_id) = 16),
+    counter       INTEGER NOT NULL CHECK (counter >= 0),
+    issued_at_ms  INTEGER NOT NULL CHECK (issued_at_ms >= 0),
+    entries       BLOB    NOT NULL CHECK (length(entries) <= 245760 AND length(entries) % 60 = 0),
+    -- 1: the user acknowledged a finding against the server after this
+    -- checkpoint arrived; its view digests are not compared any more.
+    digest_ignored INTEGER NOT NULL DEFAULT 0 CHECK (digest_ignored IN (0, 1))
+) STRICT;
+
+CREATE TABLE sync_served (
+    vault_id   BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    record_id  BLOB    NOT NULL CHECK (length(record_id) = 16),
+    seq        INTEGER NOT NULL CHECK (seq >= 0),
+    ct_hash    BLOB    NOT NULL CHECK (length(ct_hash) = 32),
+    PRIMARY KEY (vault_id, record_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_key_confirmed (
+    vault_id    BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    generation  INTEGER NOT NULL CHECK (generation >= 1),
+    PRIMARY KEY (vault_id, generation)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_vault_flag (
+    vault_id  BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    kind      INTEGER NOT NULL CHECK (kind IN (1, 2)),
+    PRIMARY KEY (vault_id, kind)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_rotation_log (
+    vault_id  BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    at_ms     INTEGER NOT NULL CHECK (at_ms >= 0)
+) STRICT;
+CREATE INDEX sync_rotation_log_vault ON sync_rotation_log (vault_id, at_ms);
+
+-- Per (peer device, vault): since when this device's comparisons of view
+-- digests with the peer keep failing to happen (NULL: the last one
+-- succeeded) and the peer's checkpoint counter then; `sync_no_common_view` holds the findings that the
+-- heads never met (persisted until acknowledged); `sync_rebuild` marks the
+-- vaults whose served view was dropped by an acknowledgement and that must
+-- be read again from the start before local records the server lacks are
+-- queued again.
+CREATE TABLE sync_view_compare (
+    device_id        BLOB    NOT NULL CHECK (length(device_id) = 16),
+    vault_id         BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    since_ms         INTEGER CHECK (since_ms IS NULL OR since_ms >= 0),
+    counter          INTEGER NOT NULL CHECK (counter >= 0),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_no_common_view (
+    device_id  BLOB    NOT NULL CHECK (length(device_id) = 16),
+    vault_id   BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    since_ms   INTEGER NOT NULL CHECK (since_ms >= 0),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE sync_rebuild (
+    vault_id  BLOB    PRIMARY KEY CHECK (length(vault_id) = 16)
+) STRICT, WITHOUT ROWID;
+
+-- Seeds for a store that synced before v5. A key this install generated
+-- whose upload flag is clear, at the vault's current generation, counts as
+-- confirmed (the conservative reading: it is not replaced by adoption). The
+-- hosted cursors are dropped, because the served view starts empty: the next
+-- run reads the vaults again from the start and rebuilds it, and no digest is
+-- published from a half-known view. Folder cursors stay.
+INSERT OR IGNORE INTO sync_key_confirmed (vault_id, generation)
+SELECT k.vault_id, k.generation FROM vault_keys k
+JOIN vaults v ON v.vault_id = k.vault_id AND v.current_generation = k.generation
+WHERE k.local_origin = 1 AND k.upload_pending = 0 AND v.key_wrap = 1;
+
+DELETE FROM sync_cursor_blobs
+WHERE EXISTS (SELECT 1 FROM sync_config WHERE kind = 1);
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -421,10 +510,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 4,
         sql: V4,
     },
+    Migration {
+        version: 5,
+        sql: V5,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 4;
+pub const LATEST_VERSION: u32 = 5;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -517,7 +610,7 @@ mod tests {
         assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
     }
 
-    const V5_TEST: &str = "
+    const V6_TEST: &str = "
         ALTER TABLE vaults ADD COLUMN test_flag INTEGER NOT NULL DEFAULT 7;
         CREATE TABLE test_v2 (x INTEGER) STRICT;
     ";
@@ -554,10 +647,14 @@ mod tests {
             },
             Migration {
                 version: 5,
-                sql: V5_TEST,
+                sql: V5,
+            },
+            Migration {
+                version: 6,
+                sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 5);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 6);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -571,11 +668,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 5,
-                supported: 4
+                found: 6,
+                supported: 5
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 5);
+        assert_eq!(user_version(&c).unwrap(), 6);
     }
 
     #[test]
@@ -601,11 +698,15 @@ mod tests {
             },
             Migration {
                 version: 5,
+                sql: V5,
+            },
+            Migration {
+                version: 6,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 4);
+        assert_eq!(user_version(&c).unwrap(), 5);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -621,7 +722,7 @@ mod tests {
         let mut c = conn();
         let gappy = [Migration {
             version: 2,
-            sql: V5_TEST,
+            sql: V6_TEST,
         }];
         assert!(matches!(migrate(&mut c, &gappy), Err(Error::Corrupt)));
         assert_eq!(user_version(&c).unwrap(), 0);
@@ -866,7 +967,7 @@ mod tests {
              UPDATE sync_checkpoint SET counter = 9;",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 4);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..4]).unwrap(), 4);
         let kept: (Vec<u8>, i64, i64) = c
             .query_row(
                 "SELECT c.cursor, l.next_seq, k.counter
@@ -908,6 +1009,111 @@ mod tests {
         ] {
             assert!(c.execute(bad, []).is_err(), "{bad}");
         }
+    }
+
+    /// A v4 store is upgraded to v5: the peer checkpoints are recreated for
+    /// the longer entries (empty, to be fetched again), the new tables are
+    /// empty and their checks hold, the other data survives.
+    #[test]
+    fn migration_v4_to_v5_recreates_peer_checkpoints_and_adds_the_served_view() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..4]).unwrap(), 4);
+        c.execute_batch(
+            "UPDATE sync_checkpoint SET counter = 9;
+             INSERT INTO sync_peer_checkpoint (device_id, counter, issued_at_ms, entries)
+             VALUES (zeroblob(16), 3, 1, zeroblob(28));",
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 5);
+        let counter: i64 = c
+            .query_row("SELECT counter FROM sync_checkpoint", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(counter, 9);
+        for table in [
+            "sync_peer_checkpoint",
+            "sync_served",
+            "sync_key_confirmed",
+            "sync_vault_flag",
+            "sync_rotation_log",
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table}");
+        }
+        c.execute(
+            "INSERT INTO sync_peer_checkpoint (device_id, counter, issued_at_ms, entries)
+             VALUES (zeroblob(16), 1, 1, zeroblob(120))",
+            [],
+        )
+        .unwrap();
+        for bad in [
+            "INSERT INTO sync_peer_checkpoint (device_id, counter, issued_at_ms, entries)
+             VALUES (x'01010101010101010101010101010101', 1, 1, zeroblob(28))",
+            "INSERT INTO sync_served (vault_id, record_id, seq, ct_hash)
+             VALUES (zeroblob(16), zeroblob(16), 1, zeroblob(31))",
+            "INSERT INTO sync_served (vault_id, record_id, seq, ct_hash)
+             VALUES (zeroblob(16), zeroblob(16), -1, zeroblob(32))",
+            "INSERT INTO sync_key_confirmed (vault_id, generation) VALUES (zeroblob(16), 0)",
+            "INSERT INTO sync_vault_flag (vault_id, kind) VALUES (zeroblob(16), 3)",
+            "INSERT INTO sync_rotation_log (vault_id, at_ms) VALUES (zeroblob(15), 1)",
+        ] {
+            assert!(c.execute(bad, []).is_err(), "{bad}");
+        }
+    }
+
+    /// R-L3 and R-L6. The v5 migration seeds the confirmed mark for a key this
+    /// install generated whose upload flag is clear (the conservative
+    /// reading) and drops hosted cursors (the served view starts empty);
+    /// folder cursors stay.
+    #[test]
+    fn migration_v5_seeds_confirmed_keys_and_drops_hosted_cursors() {
+        let setup = |kind_sql: &str| {
+            let mut c = conn();
+            migrate(&mut c, &MIGRATIONS[..4]).unwrap();
+            c.execute_batch(
+                "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                     highest_accepted_generation, updated_at)
+                 VALUES (x'07070707070707070707070707070707', 1, 1, 1, 5),
+                        (x'08080808080808080808080808080808', 1, 1, 1, 5);
+                 INSERT INTO vault_keys (vault_id, generation, wrapped_vk, updated_at,
+                                         upload_pending, local_origin)
+                 VALUES (x'07070707070707070707070707070707', 1, zeroblob(74), 1, 0, 1),
+                        (x'08080808080808080808080808080808', 1, zeroblob(74), 1, 1, 1);
+                 INSERT INTO sync_cursor_blobs (vault_id, cursor, updated_at)
+                 VALUES (x'07070707070707070707070707070707', x'0102', 6),
+                        (x'08080808080808080808080808080808', x'0304', 6);",
+            )
+            .unwrap();
+            c.execute_batch(kind_sql).unwrap();
+            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 5);
+            c
+        };
+        let hosted = setup(
+            "INSERT INTO sync_config (id, kind, server_url, device_name, updated_at)
+             VALUES (1, 1, 'https://x.example', 'Laptop', 0);",
+        );
+        let confirmed: Vec<Vec<u8>> = hosted
+            .prepare("SELECT vault_id FROM sync_key_confirmed")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(confirmed, vec![vec![7u8; 16]], "only the uploaded key");
+        let cursors: i64 = hosted
+            .query_row("SELECT count(*) FROM sync_cursor_blobs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cursors, 0, "hosted cursors are dropped");
+
+        let folder = setup(
+            "INSERT INTO sync_config (id, kind, folder_path, device_name, updated_at)
+             VALUES (1, 2, '/tmp/f', 'Laptop', 0);",
+        );
+        let cursors: i64 = folder
+            .query_row("SELECT count(*) FROM sync_cursor_blobs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cursors, 2, "folder cursors stay");
     }
 
     #[test]
