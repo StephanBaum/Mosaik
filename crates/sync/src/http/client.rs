@@ -66,18 +66,64 @@ pub fn canonical_origin(base: &str) -> Result<String, TransportError> {
     })
 }
 
+/// A session token as 32 bytes. [`SessionToken`] cannot be rebuilt from
+/// bytes, so a client that keeps the token between runs (the desktop's
+/// keystore) holds a `StoredToken`: zeroizing, redacted in `Debug`, not
+/// `Clone`. Both types are accepted wherever a token is.
+pub struct StoredToken(Zeroizing<[u8; 32]>);
+
+impl StoredToken {
+    /// Moves `bytes` in and zeroizes the source array.
+    #[must_use]
+    pub fn from_array(bytes: &mut [u8; 32]) -> Self {
+        let token = Self(Zeroizing::new(*bytes));
+        zeroize::Zeroize::zeroize(bytes);
+        token
+    }
+
+    /// A copy of a token the session just granted, for storing it.
+    #[must_use]
+    pub fn from_session(token: &SessionToken) -> Self {
+        Self(Zeroizing::new(*token.expose()))
+    }
+}
+
+impl core::fmt::Debug for StoredToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("StoredToken([REDACTED])")
+    }
+}
+
+/// A session token's bytes, for the `Authorization` header. Never log them.
+pub trait Token {
+    /// The 32 token bytes.
+    fn expose_bytes(&self) -> &[u8; 32];
+}
+
+impl Token for SessionToken {
+    fn expose_bytes(&self) -> &[u8; 32] {
+        self.expose()
+    }
+}
+
+impl Token for StoredToken {
+    fn expose_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// The `Authorization: Bearer` header value of a session token: built in a
 /// zeroizing string, marked sensitive (reqwest keeps it out of its debug
 /// output and hpack tables) and kept for the life of the transport.
 pub(super) struct Bearer(HeaderValue);
 
 impl Bearer {
-    pub(super) fn new(token: &SessionToken) -> Result<Self, TransportError> {
+    pub(super) fn new(token: &impl Token) -> Result<Self, TransportError> {
         // Straight into zeroizing buffers: no temporary `String`.
         let mut text: Zeroizing<Vec<u8>> = Zeroizing::new(Vec::with_capacity(64));
         text.extend_from_slice(b"Bearer ");
         let mut encoded = Zeroizing::new([0u8; 64]);
-        let n = Base64UrlUnpadded::encode(token.expose(), encoded.as_mut_slice())
+        let n = Base64UrlUnpadded::encode(token.expose_bytes(), encoded.as_mut_slice())
             .map_err(|_| TransportError::Io)?
             .len();
         text.extend_from_slice(encoded.get(..n).ok_or(TransportError::Io)?);

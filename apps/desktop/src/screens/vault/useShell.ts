@@ -13,7 +13,7 @@ export function useShell(onLocked: (session: SessionState) => void) {
   const ipc = useIpc();
   const platform = usePlatform();
   const reveal = useReveal();
-  const { setPaletteOpen } = useEvents();
+  const { setPaletteOpen, syncDataVersion } = useEvents();
   const [view, setView] = useState<View>("vault");
   const [vaultId, setVaultId] = useState<VaultId | null>(null);
   const [category, setCategory] = useState<Category>("all");
@@ -80,7 +80,8 @@ export function useShell(onLocked: (session: SessionState) => void) {
     itemCount,
     selected,
     editor,
-    reloadKey,
+    // A sync run that changed vaults reloads the lists like a local change does.
+    reloadKey: reloadKey + syncDataVersion,
     changed,
     go,
     open,

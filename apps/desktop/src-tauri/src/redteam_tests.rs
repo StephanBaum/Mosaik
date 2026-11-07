@@ -343,7 +343,21 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
     // unlocked, and the vault keeps its item.
     unlock_with_password(state.backend());
     // `verify_emergency_kit` is left out too: its fifth wrong answer locks (own test).
-    let after = run("unlocked", &["lock", "verify_emergency_kit"]);
+    // So are the sync commands that check the master password first (a fresh
+    // login, a password change): the fifth wrong password locks, like
+    // `reauthenticate` (own tests in `sync_handler_tests`).
+    let after = run(
+        "unlocked",
+        &[
+            "lock",
+            "verify_emergency_kit",
+            "sync_hosted_connect",
+            "sync_device_remove",
+            "sync_totp_begin",
+            "sync_totp_disable",
+            "change_master_password",
+        ],
+    );
     assert!(matches!(after, SessionState::Unlocked { .. }), "{after:?}");
     assert_eq!(
         state

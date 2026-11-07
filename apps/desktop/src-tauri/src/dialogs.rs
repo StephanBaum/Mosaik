@@ -64,6 +64,32 @@ pub trait Dialogs: Send + Sync {
     /// # Errors
     /// `internal` if no dialog can be shown.
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>>;
+
+    /// Asks which folder to use (the sync folder); `None` if the user
+    /// cancels or this build has no dialogs.
+    ///
+    /// # Errors
+    /// `internal` if no dialog can be shown.
+    fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
+        Ok(None)
+    }
+
+    /// Asks a yes/no question in a native dialog the webview cannot answer
+    /// for the user (the sync acknowledgement, ADR-0047). `true` only if the
+    /// user chose `confirm_label`. A build without dialogs answers `false`
+    /// (fails closed).
+    ///
+    /// # Errors
+    /// `internal` if no dialog can be shown.
+    fn confirm(
+        &self,
+        _title: &str,
+        _message: &str,
+        _confirm_label: &str,
+        _cancel_label: &str,
+    ) -> IpcResult<bool> {
+        Ok(false)
+    }
 }
 
 /// No dialogs (tests, headless): every request is cancelled.
@@ -136,5 +162,45 @@ impl<R: Runtime> Dialogs for NativeDialogs<R> {
 
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
         self.run(move |dialog| Box::pin(with_filter(dialog, filter).pick_file()))
+    }
+
+    fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
+        self.run(|dialog| Box::pin(dialog.pick_folder()))
+    }
+
+    fn confirm(
+        &self,
+        title: &str,
+        message: &str,
+        confirm_label: &str,
+        cancel_label: &str,
+    ) -> IpcResult<bool> {
+        let (tx, rx) = mpsc::channel();
+        let app = self.app.clone();
+        let (title, message) = (title.to_owned(), message.to_owned());
+        let (yes, no) = (confirm_label.to_owned(), cancel_label.to_owned());
+        let yes_label = yes.clone();
+        self.app
+            .run_on_main_thread(move || {
+                let mut dialog = rfd::AsyncMessageDialog::new()
+                    .set_title(title)
+                    .set_description(message)
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_buttons(rfd::MessageButtons::OkCancelCustom(yes, no));
+                if let Some(window) = app.get_webview_window("main") {
+                    dialog = dialog.set_parent(&window);
+                }
+                let future = dialog.show();
+                std::thread::spawn(move || {
+                    let _ = tx.send(tauri::async_runtime::block_on(future));
+                });
+            })
+            .map_err(|_| IpcError::INTERNAL)?;
+        let answer = rx.recv().map_err(|_| IpcError::INTERNAL)?;
+        Ok(match answer {
+            rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes => true,
+            rfd::MessageDialogResult::Custom(label) => label == yes_label,
+            _ => false,
+        })
     }
 }

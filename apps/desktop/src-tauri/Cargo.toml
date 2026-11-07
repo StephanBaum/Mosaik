@@ -26,6 +26,8 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 arboard = { workspace = true, features = ["image-data"] }
+# The session token in the keystore as base64url (already in the tree through mosaic-sync).
+base64ct = { workspace = true, features = ["alloc"] }
 getrandom.workspace = true
 keyring.workspace = true
 mosaic-core = { path = "../../../crates/core" }
@@ -37,6 +39,8 @@ mosaic-origin = { path = "../../../crates/origin" }
 mosaic-passkey = { path = "../../../crates/passkey" }
 mosaic-qr = { path = "../../../crates/qr" }
 mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
+# Sync: the engine, the folder backend and the hosted client (M6); `http` is the hosted backend.
+mosaic-sync = { path = "../../../crates/sync", features = ["http"] }
 mosaic-totp = { path = "../../../crates/totp" }
 mosaic-vault = { path = "../../../crates/vault" }
 pdf-writer.workspace = true
@@ -76,5 +80,10 @@ tempfile.workspace = true
 # Passkey tests verify the signatures with the same crate that makes them
 # (already in the tree through mosaic-passkey).
 p256.workspace = true
+# The sync tests run the real server on 127.0.0.1 (the loopback helper of the
+# server's tests is included by path; already in the tree through mosaic-sync's tests).
+mosaic-server = { path = "../../../crates/server" }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "macros"] }
 # The mock runtime for the command and ACL wiring test.
 tauri = { workspace = true, features = ["test"] }

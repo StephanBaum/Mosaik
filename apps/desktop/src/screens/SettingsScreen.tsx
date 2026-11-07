@@ -1,5 +1,5 @@
 /**
- * Settings (D17): auto-lock, clipboard, appearance, the SSH agent and the Emergency Kit.
+ * Settings (D17): auto-lock, clipboard, appearance, sync, the SSH agent and the Emergency Kit.
  * A change that weakens protection asks for the master password (`reauthRequired`).
  */
 import { useEffect, useState } from "react";
@@ -27,6 +27,7 @@ import { SettingsSection } from "./SettingsSection.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
 import { PasskeyExportSettings } from "./PasskeyExportSettings.tsx";
 import { SshSettings } from "./SshSettings.tsx";
+import { SyncSettings } from "./SyncSettings.tsx";
 
 const AUTO_LOCK = [1, 5, 10, 30, 60];
 const CLIPBOARD = [10, 30, 60, 120];
@@ -207,10 +208,11 @@ function KitSettings() {
   );
 }
 
-/** The groups for programs that use the vault (the SSH agent, browser extensions) and the passkey export. */
+/** Sync, the groups for programs that use the vault (the SSH agent, browser extensions) and the passkey export. */
 function Integrations({ onError }: { onError: (error: IpcError | null) => void }) {
   return (
     <>
+      <SyncSettings />
       <SshSettings onError={onError} />
       <BrowserSettings onError={onError} />
       <PasskeyExportSettings />

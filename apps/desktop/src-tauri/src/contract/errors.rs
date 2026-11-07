@@ -175,6 +175,56 @@ wire_enum!(
         BrowserAllowTooSoon,
         /// No browser pairing with that ID.
         BrowserPairingNotFound,
+        /// Sync is not set up.
+        SyncNotConfigured,
+        /// Sync is already set up; disconnect first.
+        SyncAlreadyConfigured,
+        /// The sync server cannot be reached.
+        SyncServerUnreachable,
+        /// The address is not a Mosaic server.
+        SyncServerInvalid,
+        /// The server address is not https.
+        SyncServerInsecure,
+        /// The server is not the one this account was set up with.
+        SyncServerMismatch,
+        /// The server speaks another protocol version.
+        SyncServerIncompatible,
+        /// The server does not accept new accounts.
+        SyncRegistrationClosed,
+        /// The invite code is missing or wrong.
+        SyncInviteInvalid,
+        /// A sync account with this email exists already.
+        SyncAccountExists,
+        /// The sync account is another account than the one on this device.
+        SyncAccountMismatch,
+        /// The sync account needs a second-factor code.
+        SyncTwoFactorRequired,
+        /// The second-factor code is wrong.
+        SyncTwoFactorInvalid,
+        /// This device is signed out of the sync server.
+        SyncSignedOut,
+        /// Too many requests; wait a moment.
+        SyncRateLimited,
+        /// The sync account's storage limit is reached.
+        SyncQuotaExceeded,
+        /// The sync folder cannot be read or written.
+        SyncFolderUnavailable,
+        /// The chosen folder has other files in it.
+        SyncFolderNotEmpty,
+        /// The folder has no Mosaic account to join.
+        SyncFolderNoAccount,
+        /// The folder's account file does not verify.
+        SyncFolderDamaged,
+        /// The master password can be changed only while the sync server is reachable.
+        SyncPasswordNeedsServer,
+        /// A device cannot remove itself.
+        SyncDeviceIsCurrent,
+        /// The chosen folder is no longer remembered; choose it again.
+        SyncChoiceExpired,
+        /// The password check for this change ran out; start again.
+        SyncFreshLoginExpired,
+        /// The master password was changed on the server or in the folder.
+        SyncPasswordChanged,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

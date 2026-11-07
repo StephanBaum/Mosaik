@@ -96,7 +96,7 @@ pub async fn subscribe_events(
     state.backend().subscribe(channel)
 }
 
-fn master_password(secret: SecretIn) -> MasterPassword {
+pub(crate) fn master_password(secret: SecretIn) -> MasterPassword {
     // The copy moves into the zeroizing `MasterPassword`; the `SecretIn`
     // buffer zeroizes when it drops at the end of this function.
     let password = MasterPassword::new(secret.expose_secret().to_owned());
@@ -104,7 +104,7 @@ fn master_password(secret: SecretIn) -> MasterPassword {
     password
 }
 
-fn validate_text(value: &str, max_len: usize) -> IpcResult<&str> {
+pub(crate) fn validate_text(value: &str, max_len: usize) -> IpcResult<&str> {
     let value = value.trim();
     if value.is_empty()
         || value.len() > max_len
@@ -128,7 +128,7 @@ impl Backend {
         self.state_of(&slot)
     }
 
-    fn secret_key_of(&self, account: AccountId) -> Option<SecretKey> {
+    pub(crate) fn secret_key_of(&self, account: AccountId) -> Option<SecretKey> {
         self.secret_keys.load(account).ok().flatten()
     }
 
@@ -172,6 +172,8 @@ impl Backend {
         // Unlocking (password, biometrics or a security key) verifies the user.
         self.note_user_verification();
         self.run_unlock_hooks();
+        // Sync starts when it is set up (a thread; nothing here waits for it).
+        self.sync_after_unlock(slot);
     }
 
     /// What this system can and cannot do.
@@ -416,6 +418,10 @@ impl Backend {
     /// wrong passwords would otherwise let the next Hello prompt reopen the
     /// guessing.
     fn lock_with(&self, reason: LockReason, require_password: bool) -> IpcResult<SessionState> {
+        // A master password change in flight finishes first (at most three
+        // minutes): locking between the server's answer and the local commit
+        // would leave the device with the old password.
+        self.sync.wait_for_change();
         let mut slot = self.slot()?;
         let mut locked_now = false;
         if matches!(*slot, Slot::Unlocked(_))
@@ -462,6 +468,8 @@ impl Backend {
         }
         self.adapters.import.clear();
         self.adapters.ssh.stop();
+        // The sync thread ends; the transport fails closed from here on.
+        self.sync_after_lock();
         let _ = self.clipboard.clear_if_ours();
         self.run_lock_hooks(reason);
         self.emit(&AppEvent::Locked { reason });
@@ -523,13 +531,20 @@ impl Backend {
             }
             Err(SessionError::UnlockFailed) => {
                 drop(slot);
-                if self.quick_unlock.reauth_failed() >= MAX_FAILED_REAUTH {
-                    let _ = self.lock_with(LockReason::Manual, true);
-                }
-                Err(IpcError::new(ErrorCode::WrongCredentials))
+                Err(self.count_wrong_master())
             }
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Counts a wrong master password towards the five-failure lock (the fifth
+    /// locks the vault and requires the password for the next unlock) and
+    /// returns the error to answer with.
+    pub(crate) fn count_wrong_master(&self) -> IpcError {
+        if self.quick_unlock.reauth_failed() >= MAX_FAILED_REAUTH {
+            let _ = self.lock_with(LockReason::Manual, true);
+        }
+        IpcError::new(ErrorCode::WrongCredentials)
     }
 
     /// The master password for a change that needs it: a non-empty

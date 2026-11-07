@@ -3,7 +3,10 @@
  * top-most dialog without extra code. Put `data-autofocus` on the control that should start
  * with focus (React's `autoFocus` runs before `showModal()` and is ignored by a closed dialog).
  * Tab and Shift+Tab wrap inside the dialog, so leaving it by keyboard never moves focus to the
- * page behind (the preview closes when the window loses focus).
+ * page behind (the preview closes when the window loses focus). When the control that opened
+ * the dialog is gone by the time it closes (the dialog that held it closed too, or the row it
+ * belonged to was removed), `returnFocus` names the control that takes focus instead; without
+ * it focus would fall back to the page.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n } from "../i18n/I18nProvider.tsx";
@@ -53,6 +56,7 @@ export function Dialog({
   hideTitle = false,
   closeButton = false,
   icon,
+  returnFocus,
 }: {
   title: string;
   onClose: () => void;
@@ -66,9 +70,15 @@ export function Dialog({
   closeButton?: boolean;
   /** A decorative tile above the title. */
   icon?: ReactNode;
+  /** Where focus goes on close when the control that opened the dialog is gone. */
+  returnFocus?: () => HTMLElement | null;
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
+  const returnFocusRef = useRef(returnFocus);
+  useEffect(() => {
+    returnFocusRef.current = returnFocus;
+  });
 
   // Read while rendering, before the dialog or its `autoFocus` control takes focus.
   const [opener] = useState(() => document.activeElement);
@@ -83,6 +93,8 @@ export function Dialog({
     return () => {
       if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
         opener.focus();
+      } else {
+        returnFocusRef.current?.()?.focus();
       }
     };
   }, [opener]);

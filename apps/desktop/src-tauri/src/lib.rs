@@ -54,6 +54,7 @@ pub mod screen_capture;
 pub mod settings_integrity;
 pub mod shortcut;
 pub mod state;
+pub mod sync;
 pub mod unlock_throttle;
 
 use std::sync::{Arc, Mutex};
@@ -103,6 +104,10 @@ pub(crate) fn context<R: tauri::Runtime>() -> tauri::Context<R> {
 ///
 /// # Errors
 /// Tauri's error if the app cannot start.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the composition root lists every service of the app once"
+)]
 pub fn run() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts
@@ -141,6 +146,7 @@ pub fn run() -> tauri::Result<()> {
                     })
                 })
                 .with_persistence(persistence)
+                .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
                 .with_screen_capture(Box::new(NativeScreenCapture::new(app.handle().clone())))
@@ -225,6 +231,8 @@ mod redteam_surface_tests;
 mod redteam_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
+#[cfg(test)]
+mod sync_handler_tests;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

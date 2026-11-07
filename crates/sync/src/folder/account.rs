@@ -324,6 +324,26 @@ impl<C: FolderCrypto> FolderTransport<C> {
         Ok(self.highest_verified_account_version(&found)?.unwrap_or(0))
     }
 
+    /// The highest-version account file whose MAC verifies under this
+    /// session's account key (`None` if there is none): what a device that
+    /// missed a master password change finds in the folder
+    /// ([`mosaic_vault::session::UnlockedSession::adopt_remote_password`]).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    pub fn verified_account_file(&self) -> Result<Option<AccountFile>, TransportError> {
+        let mut found: Vec<(u64, [u8; 16])> = fsutil::list(&self.layout.account_files())?
+            .iter()
+            .filter(|e| !e.is_dir)
+            .filter_map(|e| match folder_names::parse(&e.name) {
+                Some(FolderName::Account { version, device }) => Some((version, device)),
+                _ => None,
+            })
+            .collect();
+        found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        self.highest_verified_account_file(&found)
+    }
+
     /// The version the next master password change writes: one above the
     /// highest verified version.
     ///

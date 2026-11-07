@@ -29,7 +29,7 @@ wire_enum!(
 );
 
 wire_enum!(
-    /// Sync status for the status bar (sync itself is M6).
+    /// Sync status for the status bar.
     pub enum SyncStatus {
         /// No sync server set up.
         NotConfigured,
@@ -41,6 +41,8 @@ wire_enum!(
         UpToDate,
         /// The last sync failed (see `error`).
         Error,
+        /// The server ended this device's session; sign in again.
+        SignedOut,
     }
 );
 
@@ -154,6 +156,20 @@ pub enum AppEvent {
     /// A browser was paired or removed, or connected or disconnected: read
     /// `browser_status` again.
     BrowserPairingsChanged,
+    /// A sync run changed these vaults: read their items again.
+    SyncDataChanged {
+        /// The vaults.
+        vault_ids: Vec<WireVaultId>,
+    },
+    /// A sync run merged or repaired something the user may want to look at.
+    SyncAttention {
+        /// Records merged with a local change.
+        conflicts: u32,
+        /// Fields written back after a delete raced an edit.
+        restored: u32,
+        /// Unreadable local records replaced by the received version.
+        replaced_unreadable: u32,
+    },
 }
 
 #[cfg(test)]
@@ -164,23 +180,9 @@ pub(crate) mod samples {
     use crate::contract::ssh::samples as ssh;
 
     pub(crate) fn events() -> Vec<AppEvent> {
-        let all = vec![
+        let mut all = vec![
             AppEvent::Locked {
                 reason: LockReason::Idle,
-            },
-            AppEvent::SyncStateChanged {
-                state: SyncState {
-                    status: SyncStatus::Error,
-                    last_synced_at: Some(1_761_480_000_000),
-                    error: Some(ErrorCode::Internal),
-                },
-            },
-            AppEvent::SyncStateChanged {
-                state: SyncState {
-                    status: SyncStatus::NotConfigured,
-                    last_synced_at: None,
-                    error: None,
-                },
             },
             AppEvent::ClipboardCleared,
             AppEvent::SshApprovalRequested {
@@ -233,6 +235,7 @@ pub(crate) mod samples {
             },
             AppEvent::BrowserPairingsChanged,
         ];
+        all.extend(crate::contract::sync::samples::events());
         for event in &all {
             // Adding a variant fails to compile here until it has a sample.
             match event {
@@ -251,7 +254,9 @@ pub(crate) mod samples {
                 | AppEvent::BrowserSaveClosed { .. }
                 | AppEvent::BrowserPasskeyRequested { .. }
                 | AppEvent::BrowserPasskeyClosed { .. }
-                | AppEvent::BrowserPairingsChanged => {}
+                | AppEvent::BrowserPairingsChanged
+                | AppEvent::SyncDataChanged { .. }
+                | AppEvent::SyncAttention { .. } => {}
             }
         }
         all

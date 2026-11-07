@@ -1365,6 +1365,62 @@ impl UnlockedSession {
         if p.session_tag != self.session_tag {
             return Err(Error::PreparedStale);
         }
+        let removed_quick_unlock = self.store_password(&p.new_params, &p.new_wrapped_ak)?;
+        Ok(PasswordChanged {
+            params: p.new_params,
+            opaque_password: p.new_opaque_password,
+            removed_quick_unlock,
+        })
+    }
+
+    /// Recovers a master password change that another run of this device
+    /// applied to the backend only (CRYPTO_SPEC §9.4, "Change applied
+    /// elsewhere"): the server (or the account file) holds the new password
+    /// and its wrapping, this device the old ones. `keys` were derived with
+    /// [`LockedSession::derive_join_keys`] from the typed new password, the
+    /// Secret Key and the backend's `params`. They must open `wrapped_ak` to
+    /// this session's own account key (constant-time comparison); then the
+    /// parameters and the wrapping are stored exactly as
+    /// [`Self::commit_master_password_change`] stores them (a quick-unlock
+    /// wrapping is deleted in the same transaction). No new cryptography:
+    /// the join derivation plus an equality check.
+    ///
+    /// # Errors
+    /// [`Error::UnlockFailed`] for a wrong password or Secret Key, parameters
+    /// that do not belong to `keys`, a wrapping that does not open, or an
+    /// account key that is not this session's; nothing is stored then.
+    /// [`Error::Store`] (`AccountMismatch`, `ProfileDowngrade`).
+    pub fn adopt_remote_password(
+        &mut self,
+        keys: JoinKeys,
+        wrapped_ak: &WrappedKey,
+        params: PasswordParams,
+    ) -> Result<PasswordChanged> {
+        if keys.params != params {
+            return Err(Error::UnlockFailed);
+        }
+        let opened = wrapped_ak
+            .unwrap_account_key(&keys.keys.kek, &params.account_id, &UnlockMethod::Password)
+            .map_err(unlock_error)?;
+        if opened != self.account_key {
+            return Err(Error::UnlockFailed);
+        }
+        drop(opened);
+        let removed_quick_unlock = self.store_password(&params, wrapped_ak)?;
+        Ok(PasswordChanged {
+            params,
+            opaque_password: keys.keys.opaque_password,
+            removed_quick_unlock,
+        })
+    }
+
+    /// Stores new password parameters and wrapping and deletes every
+    /// quick-unlock wrapping in the same transaction (§6.2).
+    fn store_password(
+        &mut self,
+        params: &PasswordParams,
+        wrapped_ak: &WrappedKey,
+    ) -> Result<Option<QuickUnlockEnrollment>> {
         let quick: Vec<UnlockMethod> = self
             .store
             .unlock_methods()?
@@ -1372,17 +1428,12 @@ impl UnlockedSession {
             .map(|r| r.method)
             .filter(|m| matches!(m, UnlockMethod::QuickUnlock(_)))
             .collect();
-        let removed =
-            self.store
-                .update_password_removing(&p.new_params, &p.new_wrapped_ak, &quick)?;
-        let removed_quick_unlock = removed
+        let removed = self
+            .store
+            .update_password_removing(params, wrapped_ak, &quick)?;
+        Ok(removed
             .into_iter()
             .filter_map(QuickUnlockEnrollment::from_row)
-            .max_by_key(|e| *e.enrollment_id.as_bytes());
-        Ok(PasswordChanged {
-            params: p.new_params,
-            opaque_password: p.new_opaque_password,
-            removed_quick_unlock,
-        })
+            .max_by_key(|e| *e.enrollment_id.as_bytes()))
     }
 }
