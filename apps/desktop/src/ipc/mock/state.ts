@@ -18,6 +18,7 @@ import type {
   VaultSummary,
 } from "../contract/index.ts";
 import type { MockBrowser } from "./browser.ts";
+import type { MockSync } from "./syncData.ts";
 
 export interface MockAccount {
   accountId: string;
@@ -102,6 +103,8 @@ export interface MockState {
   sshEnabled: boolean;
   /** The browser extension endpoint (`mock/browser.ts`). */
   browser: MockBrowser;
+  /** Sync (`mock/sync.ts`): the backend, its status, warnings and devices. */
+  sync: MockSync;
   /** The import preview waiting for a commit. */
   heldImport: { previewId: string; entries: number[] } | null;
   vaults: VaultSummary[];

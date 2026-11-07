@@ -204,6 +204,7 @@ impl Backend {
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
         let vault_id = session.create_vault(name)?;
+        self.sync_poke();
         self.summary(session, vault_id)
     }
 
@@ -217,6 +218,7 @@ impl Backend {
         let mut slot = self.slot()?;
         let session = slot.unlocked_mut()?;
         session.rename_vault(request.vault_id.get(), name)?;
+        self.sync_poke();
         self.summary(session, request.vault_id.get())
     }
 

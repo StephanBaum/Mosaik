@@ -162,6 +162,12 @@ pub enum Error {
     #[error("prepared change belongs to an earlier session")]
     PreparedStale,
 
+    /// A backend offered a master password this device retired earlier (its
+    /// salt was replaced by a later change): a rollback to an old password
+    /// ([`super::UnlockedSession::adopt_remote_password`], CRYPTO_SPEC 9.4).
+    #[error("the backend offered a retired master password")]
+    PasswordRollback,
+
     /// A hardware-protected vault holds only one-time-code items
     /// (CRYPTO_SPEC §7.4).
     #[error("item type not allowed in this vault")]

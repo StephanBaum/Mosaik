@@ -50,6 +50,12 @@ use super::ssh::{
     self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest, SshSignFailReason,
     SshSkipReason,
 };
+use super::sync::{
+    self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
+    DevicePlatform, DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
+    HostedConnectRequest, HostedMode, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
+    RecoverPasswordRequest, RegistrationMode, TotpBeginRequest, TotpDisableRequest,
+};
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
 use crate::commands::names::COMMANDS;
@@ -622,6 +628,175 @@ fn browser_commands(f: &mut Fixtures) {
     );
 }
 
+/// The sync commands.
+fn sync_commands(f: &mut Fixtures) {
+    let url = || "https://sync.example.com".to_owned();
+    let device = || "Mosaic on Windows".to_owned();
+    f.command("sync_status", vec![()], sync::samples::overviews());
+    f.command(
+        "sync_check_server",
+        vec![CheckServerRequest { server_url: url() }],
+        sync::samples::checks(),
+    );
+    f.command(
+        "sync_hosted_connect",
+        HostedMode::ALL
+            .iter()
+            .map(|&mode| HostedConnectRequest {
+                server_url: url(),
+                mode,
+                password: sync::samples::pw(),
+                invite_code: (mode == HostedMode::Register)
+                    .then(|| SecretIn::test("INVITE-CODE-1234")),
+                device_name: device(),
+            })
+            .collect(),
+        sync::samples::overviews(),
+    );
+    f.command(
+        "sync_hosted_two_factor",
+        vec![CodeRequest {
+            code: SecretIn::test("492039"),
+        }],
+        sync::samples::overviews(),
+    );
+    f.command("sync_pick_folder", vec![()], sync::samples::choices());
+    f.command(
+        "sync_folder_connect",
+        vec![FolderConnectRequest {
+            choice_id: "choice-1".into(),
+            device_name: device(),
+        }],
+        sync::samples::overviews(),
+    );
+    f.command("sync_now", vec![()], sync::samples::overviews());
+    f.command("sync_disconnect", vec![()], sync::samples::overviews());
+    f.command("sync_devices", vec![()], sync::samples::devices());
+    f.command(
+        "sync_device_rename",
+        vec![DeviceRenameRequest {
+            device_id: ids::install(2),
+            name: "Work laptop".into(),
+        }],
+        vec![()],
+    );
+    f.command(
+        "sync_device_remove",
+        vec![
+            DeviceRemoveRequest {
+                device_id: ids::install(2),
+                password: sync::samples::pw(),
+                code: None,
+            },
+            DeviceRemoveRequest {
+                device_id: ids::install(2),
+                password: sync::samples::pw(),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "sync_totp_begin",
+        vec![TotpBeginRequest {
+            password: sync::samples::pw(),
+        }],
+        sync::samples::totp_setups(),
+    );
+    f.command(
+        "sync_totp_confirm",
+        vec![CodeRequest {
+            code: SecretIn::test("492039"),
+        }],
+        vec![()],
+    );
+    f.command(
+        "sync_totp_disable",
+        vec![TotpDisableRequest {
+            password: sync::samples::pw(),
+            code: SecretIn::test("492039"),
+        }],
+        vec![()],
+    );
+    sync_acknowledge_commands(f);
+    sync_join_commands(f);
+}
+
+/// The acknowledgement and the recovery of a missed password change.
+fn sync_acknowledge_commands(f: &mut Fixtures) {
+    f.command(
+        "sync_acknowledge",
+        vec![AcknowledgeRequest {}],
+        sync::samples::overviews(),
+    );
+    f.command(
+        "sync_recover_password",
+        vec![
+            RecoverPasswordRequest {
+                new_password: SecretIn::test("a new master password"),
+                code: None,
+            },
+            RecoverPasswordRequest {
+                new_password: SecretIn::test("a new master password"),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        sync::samples::overviews(),
+    );
+}
+
+/// The join commands and the master password change.
+fn sync_join_commands(f: &mut Fixtures) {
+    let url = || "https://sync.example.com".to_owned();
+    let device = || "Mosaic on Windows".to_owned();
+    let outcomes = || vec![JoinOutcome::Unlocked, JoinOutcome::TwoFactorRequired];
+    f.command(
+        "join_hosted",
+        vec![JoinHostedRequest {
+            server_url: url(),
+            email: "alex@example.com".into(),
+            password: sync::samples::pw(),
+            secret_key: SecretIn::test("M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2"),
+            device_name: device(),
+        }],
+        outcomes(),
+    );
+    f.command(
+        "join_hosted_two_factor",
+        vec![CodeRequest {
+            code: SecretIn::test("492039"),
+        }],
+        outcomes(),
+    );
+    f.command(
+        "join_folder",
+        vec![JoinFolderRequest {
+            choice_id: "choice-1".into(),
+            account_id: ids::account(),
+            password: sync::samples::pw(),
+            secret_key: SecretIn::test("M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2"),
+            device_name: device(),
+        }],
+        outcomes(),
+    );
+    f.command(
+        "change_master_password",
+        vec![
+            ChangePasswordRequest {
+                current_password: sync::samples::pw(),
+                new_password: SecretIn::test("a new master password"),
+                code: None,
+            },
+            ChangePasswordRequest {
+                current_password: sync::samples::pw(),
+                new_password: SecretIn::test("a new master password"),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+}
+
 /// Every string enum of the contract, by name.
 fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
@@ -667,6 +842,10 @@ fn enums() -> Map<String, Value> {
         ("passkeyAlgorithm", values(PasskeyAlgorithm::ALL)),
         ("lockReason", values(LockReason::ALL)),
         ("syncStatus", values(SyncStatus::ALL)),
+        ("registrationMode", values(RegistrationMode::ALL)),
+        ("hostedMode", values(HostedMode::ALL)),
+        ("folderState", values(FolderState::ALL)),
+        ("devicePlatform", values(DevicePlatform::ALL)),
     ] {
         enums.insert(name.to_owned(), all);
     }
@@ -692,6 +871,7 @@ pub(crate) fn build() -> Value {
     export_commands(&mut f);
     ssh_commands(&mut f);
     browser_commands(&mut f);
+    sync_commands(&mut f);
     let enums = enums();
 
     let listed: BTreeSet<&str> = f
@@ -767,6 +947,7 @@ fn fixtures_hold_secrets_only_where_the_contract_allows() {
                 | "generate_password"
                 | "totp_code"
                 | "otp_pending_code"
+                | "sync_totp_begin"
         );
         for secret in ["hunter2", "M1-7KQ4", "492039", "q7#Vt2", "JBSWY3DPEHPK3PXP"] {
             assert!(

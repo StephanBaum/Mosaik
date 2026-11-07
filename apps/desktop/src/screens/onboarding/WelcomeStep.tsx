@@ -1,5 +1,6 @@
-/** Step 1 (D02): create the account. */
+/** Step 1 (D02): create the account, or join an existing one ("I already use Mosaic"). */
 import { useState, type SyntheticEvent } from "react";
+import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { PasswordField } from "../../components/PasswordField.tsx";
@@ -43,7 +44,14 @@ function useCreateAccount(onCreated: (created: CreatedAccount) => void) {
   return { fields, setFields, busy, mismatch, error, submit };
 }
 
-export function WelcomeStep({ onCreated }: { onCreated: (created: CreatedAccount) => void }) {
+export function WelcomeStep({
+  onCreated,
+  onJoin,
+}: {
+  onCreated: (created: CreatedAccount) => void;
+  /** Opens "I already use Mosaic": add this device to an existing account. */
+  onJoin: () => void;
+}) {
   const { t } = useI18n();
   const { fields, setFields, busy, mismatch, error, submit } = useCreateAccount(onCreated);
 
@@ -98,6 +106,9 @@ export function WelcomeStep({ onCreated }: { onCreated: (created: CreatedAccount
             {t("onboarding.create.submit")}
           </HoloButton>
         </form>
+        <Button variant="ghost" size="lg" block className="button--muted" onClick={onJoin}>
+          {t("onboarding.join.link")}
+        </Button>
         <p className="caption auth__note">{t("app.preAudit")}</p>
       </div>
     </OnboardingShell>

@@ -665,6 +665,38 @@ session token alone therefore cannot lock the user out.
   `OPW`; if the account's wrapped AK on the server is byte-equal to the one
   it prepared, the change went through and the device commits it locally.
   Any other outcome is the original error.
+- **Change applied elsewhere.** The device can also lose a change without
+  any retry that could see it: it was locked, closed or killed between the
+  server accepting the change and its own commit. The server (or the folder's
+  account file) then holds the new password and its wrapping of AK, the
+  device the old ones. The user types the new password. The device derives
+  `KEK` and `OPW` from it and the Secret Key under the **backend's** current
+  parameters (the same derivation as a join, §5.4), logs in with `OPW` (and
+  the second factor if enabled) and fetches the wrapped AK. It adopts the
+  change only if that wrapping opens under the derived `KEK` **and the AK it
+  yields equals this unlocked session's own AK** (constant-time comparison).
+  Then it stores the backend's parameters and wrapping in the same
+  transaction as a local change commit (quick unlock removed, §6.2). Any
+  other outcome stores nothing. The rules, all checked before anything is
+  stored:
+  - **Account ID.** The parameters name this device's account
+    (`AccountMismatch` otherwise).
+  - **No downgrade.** The Argon2id profile is not weaker than the stored one
+    (`ProfileDowngrade`).
+  - **Retired salts.** Every salt a local commit or an adoption replaces is
+    kept (public data, schema v6). A backend that offers a retired salt is
+    offering an older password again and is refused (`PasswordRollback`,
+    shown as `syncPasswordRollback`).
+  - **Folder versions.** The device keeps the highest account-file version it
+    wrote or adopted; a folder file at or below it is refused.
+  - **Same key.** The wrapping opens to this session's own AK.
+
+  This adds no primitive: it is the join derivation plus these checks. It
+  cannot move the device to another account key, and it cannot return it to a
+  password it already replaced. A malicious backend can still offer a
+  password state this device never saw, but only one whose password the user
+  types and whose wrapping opens to the same AK, which needs the
+  Secret Key and the account's current or a newer password.
 
 ## 10. Sync protocol security
 

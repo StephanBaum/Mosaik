@@ -35,6 +35,7 @@ const SYNC_STATUS: Record<SyncStatusName, { dot: string; label: MessageKey }> = 
   syncing: { dot: "", label: "sync.status.syncing" },
   offline: { dot: " sync-dot--offline", label: "sync.status.offline" },
   error: { dot: " sync-dot--error", label: "sync.status.error" },
+  signedOut: { dot: " sync-dot--error", label: "sync.status.signedOut" },
 };
 
 function SyncStatus({ sync }: { sync: SyncState | null }) {
@@ -43,7 +44,9 @@ function SyncStatus({ sync }: { sync: SyncState | null }) {
   return (
     <span className="sidebar__sync">
       <span className={`sync-dot${dot}`} aria-hidden="true" />
-      <span className="sidebar__sync-text">{t(label)}</span>
+      <span className="sidebar__sync-text" role="status">
+        {t(label)}
+      </span>
     </span>
   );
 }

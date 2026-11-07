@@ -186,7 +186,7 @@ impl Monitor {
                         let _ = backend.lock(reason);
                     }
                     backend.close_expired_hardware_vaults(now, SystemTime::now(), slept);
-                    backend.purge_expired_pending();
+                    backend.housekeeping();
                 }
             })
             .ok();
@@ -358,6 +358,15 @@ mod linux {
             }
         }
         started
+    }
+}
+
+impl Backend {
+    /// What the idle tick cleans up: pending one-time-code setups past their
+    /// TTL, and expired pending sync logins, joins and folder choices.
+    pub(crate) fn housekeeping(&self) {
+        self.purge_expired_pending();
+        self.sync.sweep();
     }
 }
 

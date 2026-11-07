@@ -9,6 +9,7 @@ import {
 import { clearMockPending } from "./otp.ts";
 import { startBrowser } from "./browser.ts";
 import { startAgent } from "./ssh.ts";
+import { announceSync } from "./syncData.ts";
 import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
   type MockHandlers,
   type MockState,
@@ -25,7 +26,7 @@ function newSecretKey(): string {
   return ["M1", ...groups].join("-");
 }
 
-function normalizeKey(key: string): string {
+export function normalizeKey(key: string): string {
   return key.toUpperCase().replace(/[\s-]/g, "");
 }
 
@@ -138,6 +139,7 @@ export const sessionHandlers: MockHandlers = {
     state.quick.passwordUsed = true;
     startAgent(state);
     startBrowser(state);
+    announceSync(state);
     return sessionState(state);
   },
 
@@ -172,6 +174,7 @@ export const sessionAsyncHandlers: MockAsyncHandlers = {
     state.unlocked = true;
     startAgent(state);
     startBrowser(state);
+    announceSync(state);
     return sessionState(state);
   },
 };

@@ -1,9 +1,10 @@
 /**
  * Onboarding (UX_GUIDELINES §8, D02 to D06): create the account, save and verify the
  * Emergency Kit, import (skippable), the optional browser extension (D06) and into the vault.
+ * "I already use Mosaic" joins an existing account instead and ends the flow at once.
  * The flow holds the Secret Key only until the kit is verified.
  */
-import { useReducer } from "react";
+import { useReducer, useState } from "react";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Icon } from "../../components/icons.tsx";
@@ -12,6 +13,7 @@ import type { SessionState } from "../../ipc/contract/index.ts";
 import { ImportFlow } from "../import/ImportFlow.tsx";
 import { BrowserStep } from "./BrowserStep.tsx";
 import { flowReducer, initialFlow } from "./flow.ts";
+import { JoinStep } from "./JoinStep.tsx";
 import { KitStep } from "./KitStep.tsx";
 import { VerifyStep } from "./VerifyStep.tsx";
 import { OnboardingShell } from "./OnboardingShell.tsx";
@@ -19,12 +21,26 @@ import { WelcomeStep } from "./WelcomeStep.tsx";
 
 export function OnboardingFlow({ onDone }: { onDone: (session: SessionState) => void }) {
   const [state, dispatch] = useReducer(flowReducer, initialFlow);
+  const [view, setView] = useState<"create" | "join">("create");
 
   if (state.session === null) {
-    return (
+    return view === "join" ? (
+      <JoinStep
+        onBack={() => {
+          setView("create");
+        }}
+        onDone={(session) => {
+          // A joined account is already kit-verified: onboarding ends and the vault shows.
+          onDone(verified(session));
+        }}
+      />
+    ) : (
       <WelcomeStep
         onCreated={(account) => {
           dispatch({ type: "created", account });
+        }}
+        onJoin={() => {
+          setView("join");
         }}
       />
     );

@@ -492,6 +492,24 @@ DELETE FROM sync_cursor_blobs
 WHERE EXISTS (SELECT 1 FROM sync_config WHERE kind = 1);
 ";
 
+/// Version 6 (M6 T5 verify follow-up, CRYPTO_SPEC 9.4): the salts this device
+/// has retired (every master password change that commits or is adopted
+/// locally keeps the salt it replaces; public data, no key material) and the
+/// highest folder account-file version this device wrote or adopted. A
+/// backend that offers a retired salt or an older version is offering a
+/// rollback to an old master password. Additive: new tables only.
+const V6: &str = r"
+CREATE TABLE retired_salts (
+    salt        BLOB    PRIMARY KEY CHECK (length(salt) = 16),
+    retired_at  INTEGER NOT NULL CHECK (retired_at >= 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE folder_account_version (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    version  INTEGER NOT NULL CHECK (version >= 0)
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -514,10 +532,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 5,
         sql: V5,
     },
+    Migration {
+        version: 6,
+        sql: V6,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 5;
+pub const LATEST_VERSION: u32 = 6;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -651,10 +673,14 @@ mod tests {
             },
             Migration {
                 version: 6,
+                sql: V6,
+            },
+            Migration {
+                version: 7,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 6);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 7);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -668,11 +694,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 6,
-                supported: 5
+                found: 7,
+                supported: 6
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 6);
+        assert_eq!(user_version(&c).unwrap(), 7);
     }
 
     #[test]
@@ -702,11 +728,15 @@ mod tests {
             },
             Migration {
                 version: 6,
+                sql: V6,
+            },
+            Migration {
+                version: 7,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 5);
+        assert_eq!(user_version(&c).unwrap(), 6);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1024,7 +1054,7 @@ mod tests {
              VALUES (zeroblob(16), 3, 1, zeroblob(28));",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 5);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 6);
         let counter: i64 = c
             .query_row("SELECT counter FROM sync_checkpoint", [], |r| r.get(0))
             .unwrap();
@@ -1086,7 +1116,7 @@ mod tests {
             )
             .unwrap();
             c.execute_batch(kind_sql).unwrap();
-            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 5);
+            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 6);
             c
         };
         let hosted = setup(

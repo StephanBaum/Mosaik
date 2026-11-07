@@ -24,13 +24,16 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::settings::Settings;
 use crate::dialogs::{Dialogs, NoDialogs};
 use crate::events::Events;
-use crate::keystore::SecretKeyStore;
+use crate::keystore::{
+    LayeredSyncTokens, MemorySyncTokens, OsSyncTokens, SecretKeyStore, SyncTokenStore,
+};
 use crate::otp_pending::PendingOtps;
 use crate::persist::{AccountInfo, Persistence, StoredState};
 use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::{NoScreenCapture, ScreenCapture};
 use crate::settings_integrity::SettingsGuard;
 use crate::shortcut::ShortcutStatus;
+use crate::sync::SyncService;
 use crate::unlock_throttle::UnlockThrottle;
 
 /// Where the vault session is.
@@ -122,6 +125,13 @@ pub struct Backend {
     session: Mutex<Slot>,
     /// The Secret Key's home on this device (CORE_API: the OS keystore).
     pub secret_keys: Box<dyn SecretKeyStore>,
+    /// The sync session token's home on this device.
+    pub sync_tokens: Box<dyn SyncTokenStore>,
+    /// The sync thread and the pending sync flows (M6).
+    pub sync: SyncService,
+    /// The app data directory of the store (a failed join deletes the new
+    /// store there); `None` for an in-memory or test store.
+    pub(crate) store_dir: Option<PathBuf>,
     pub(crate) stored: Mutex<StoredState>,
     pub(crate) persistence: Persistence,
     /// Backoff between wrong master passwords.
@@ -202,6 +212,9 @@ impl Backend {
         Self {
             session: Mutex::new(session),
             secret_keys,
+            sync_tokens: Box::new(MemorySyncTokens::default()),
+            sync: SyncService::default(),
+            store_dir: None,
             stored: Mutex::new(StoredState::default()),
             persistence: Persistence::memory(),
             settings_guard: Mutex::new(SettingsGuard::default()),
@@ -243,6 +256,29 @@ impl Backend {
         self.stored = Mutex::new(state);
         self.settings_guard = Mutex::new(SettingsGuard::new(file));
         self.persistence = persistence;
+        self
+    }
+
+    /// Keeps the sync session token in `tokens`.
+    #[must_use]
+    pub fn with_sync_tokens(mut self, tokens: Box<dyn SyncTokenStore>) -> Self {
+        self.sync_tokens = tokens;
+        self
+    }
+
+    /// The app's sync storage: the session token in the OS keystore (under
+    /// `identifier`, with a memory fallback) and the app data directory of
+    /// the store.
+    #[must_use]
+    pub fn with_sync_storage(self, identifier: &str, dir: PathBuf) -> Self {
+        let tokens = LayeredSyncTokens::new(Box::new(OsSyncTokens::new(identifier)));
+        self.with_sync_tokens(Box::new(tokens)).with_store_dir(dir)
+    }
+
+    /// Names the app data directory of the store.
+    #[must_use]
+    pub fn with_store_dir(mut self, dir: PathBuf) -> Self {
+        self.store_dir = Some(dir);
         self
     }
 
@@ -408,6 +444,8 @@ impl Backend {
     /// successful item change, while the session is still held.
     pub(crate) fn items_changed(&self, session: &UnlockedSession) {
         self.adapters.ssh.keys_changed(session);
+        // A local change: the sync thread picks it up soon.
+        self.sync_poke();
     }
 
     /// The account of this install, as recorded in the state file.
@@ -463,7 +501,10 @@ impl AppState {
     /// Wraps a backend.
     #[must_use]
     pub fn new(backend: Backend) -> Self {
-        Self(Arc::new(backend))
+        let backend = Arc::new(backend);
+        // The sync service reaches the backend through a weak handle.
+        backend.sync.attach(Arc::downgrade(&backend));
+        Self(backend)
     }
 
     /// The backend, for synchronous work.

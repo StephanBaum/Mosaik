@@ -11,7 +11,14 @@ import type { SshApprovalRequest, SshCloseReason, SshSignFailReason } from "./ss
 export const lockReasons = ["manual", "idle", "sleep", "screenLock"] as const;
 export type LockReason = (typeof lockReasons)[number];
 
-export const syncStatuses = ["notConfigured", "offline", "syncing", "upToDate", "error"] as const;
+export const syncStatuses = [
+  "notConfigured",
+  "offline",
+  "syncing",
+  "upToDate",
+  "error",
+  "signedOut",
+] as const;
 export type SyncStatus = (typeof syncStatuses)[number];
 
 export interface SyncState {
@@ -48,4 +55,8 @@ export type AppEvent =
   | { type: "browserPasskeyRequested"; request: BrowserPasskeyRequest }
   | { type: "browserPasskeyClosed"; requestId: string; reason: BrowserCloseReason }
   /** A browser was paired, removed, connected or disconnected. */
-  | { type: "browserPairingsChanged" };
+  | { type: "browserPairingsChanged" }
+  /** A sync run changed these vaults: read their items again. */
+  | { type: "syncDataChanged"; vaultIds: VaultId[] }
+  /** A sync run merged or repaired something the user may want to look at. */
+  | { type: "syncAttention"; conflicts: number; restored: number; replacedUnreadable: number };

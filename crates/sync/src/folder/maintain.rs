@@ -232,6 +232,16 @@ impl<C: FolderCrypto> FolderTransport<C> {
         &self,
         found: &[(u64, [u8; 16])],
     ) -> Result<Option<u64>, TransportError> {
+        Ok(self
+            .highest_verified_account_file(found)?
+            .map(|file| file.account_version))
+    }
+
+    /// The highest-version file among `found` (newest first) that verifies.
+    pub(super) fn highest_verified_account_file(
+        &self,
+        found: &[(u64, [u8; 16])],
+    ) -> Result<Option<AccountFile>, TransportError> {
         let dir = self.layout.account_files();
         for (version, device) in found.iter().take(MAX_ACCOUNT_CANDIDATES) {
             let Ok(device_id) = InstallId::from_bytes(*device) else {
@@ -249,8 +259,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
                 account_version: *version,
                 device_id,
             };
-            if decoded(AccountFile::decode(&bytes, &path, &self.crypto))?.is_some() {
-                return Ok(Some(*version));
+            if let Some(file) = decoded(AccountFile::decode(&bytes, &path, &self.crypto))? {
+                return Ok(Some(file));
             }
         }
         Ok(None)
