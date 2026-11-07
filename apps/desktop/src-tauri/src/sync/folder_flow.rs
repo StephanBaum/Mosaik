@@ -7,25 +7,36 @@
 
 use std::sync::MutexGuard;
 
-use mosaic_core::{AccountId, InstallId, MasterPassword, SecretKey};
+use mosaic_core::{AccountId, InstallId, MasterPassword, PasswordParams, SecretKey};
 use mosaic_sync::folder::{
     self, FolderContents, FolderError, JoinError, JoinFailure, init, inspect,
 };
-use mosaic_sync::http::StoredToken;
-use mosaic_sync::transport::{RemoteDevice, Transport};
+use mosaic_sync::http::{StoredToken, hosted};
+use mosaic_sync::transport::{Rejection, RemoteDevice, Transport, TransportError};
 use mosaic_vault::session::{
-    PasswordChanged, PreparedPasswordChange, SyncConfig, SyncKind, UnlockedSession,
+    LockedSession, PasswordChanged, PreparedPasswordChange, SyncConfig, SyncKind, UnlockedSession,
 };
 
-use super::hosted_flow::device_name;
+use super::hosted_flow::{code_of, device_name};
 use super::open_folder;
 use crate::commands::session::{master_password, take_locked};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::sync::{
     ChangePasswordRequest, FolderChoice, FolderConnectRequest, FolderState, JoinFolderRequest,
-    JoinOutcome, SyncOverview,
+    JoinOutcome, RecoverPasswordRequest, SyncOverview,
 };
 use crate::state::{Backend, Slot};
+
+/// The longest `choiceId` the commands accept (the ones Rust hands out are
+/// 39 characters).
+const MAX_CHOICE_ID: usize = 64;
+
+fn choice_id(id: &str) -> IpcResult<&str> {
+    if id.len() > MAX_CHOICE_ID {
+        return Err(IpcError::new(ErrorCode::InvalidInput));
+    }
+    Ok(id)
+}
 
 impl Backend {
     /// `sync_pick_folder`: asks the user for a folder (a native dialog), looks
@@ -73,7 +84,7 @@ impl Backend {
     /// `syncAlreadyConfigured`, `invalidInput` (device name), `locked`.
     pub fn sync_folder_connect(&self, request: &FolderConnectRequest) -> IpcResult<SyncOverview> {
         let device = device_name(&request.device_name)?;
-        let root = self.sync.choice(&request.choice_id)?;
+        let root = self.sync.choice(choice_id(&request.choice_id)?)?;
         let (account, install, bootstrap) = self.with_unlocked(|session| {
             if session.sync_config()?.is_some() {
                 return Err(IpcError::new(ErrorCode::SyncAlreadyConfigured));
@@ -119,7 +130,7 @@ impl Backend {
     /// `emptyPassword`.
     pub fn join_folder(&self, request: JoinFolderRequest) -> IpcResult<JoinOutcome> {
         let device = device_name(&request.device_name)?;
-        let root = self.sync.choice(&request.choice_id)?;
+        let root = self.sync.choice(choice_id(&request.choice_id)?)?;
         let secret_key = SecretKey::parse(request.secret_key.expose_secret())?;
         let password = master_password(request.password);
         if password.expose_secret().is_empty() {
@@ -178,7 +189,7 @@ impl Backend {
             .set_sync_config(Some(config))
             .map_err(IpcError::from)
             .and_then(|()| self.secret_keys.save(account_id, secret_key))
-            .and_then(|()| token.map_or(Ok(()), |t| self.sync_tokens.save(account_id, t)));
+            .and_then(|()| token.map_or(Ok(()), |t| self.sync.save_token(self, account_id, t)));
         if let Err(error) = setup {
             // The account exists in the store; the user unlocks it with the
             // typed Secret Key.
@@ -260,6 +271,10 @@ impl Backend {
             return Err(IpcError::new(ErrorCode::EmptyPassword));
         }
         self.verify_master_only(&current)?;
+        // From here until the local commit a lock waits (at most three
+        // minutes): the device must not lock between the backend's change
+        // and its own.
+        let _change = self.sync.begin_change()?;
         let (account, install, config, prepared) = {
             let slot = self.slot()?;
             let session = slot.unlocked()?;
@@ -288,6 +303,166 @@ impl Backend {
         };
         self.remove_platform_key(&changed);
         Ok(())
+    }
+
+    /// `sync_recover_password`: finishes a master password change that the
+    /// server (or the folder) holds and this device missed: this device was
+    /// locked, closed or killed between the backend's change and its own
+    /// commit, or another device changed the password. The user types the new
+    /// password; the device derives the keys under the backend's parameters
+    /// and adopts them only if they open the backend's wrapping to this
+    /// session's own account key
+    /// ([`UnlockedSession::adopt_remote_password`], CRYPTO_SPEC §9.4). A wrong
+    /// password counts towards the five-failure lock.
+    ///
+    /// # Errors
+    /// `locked`, `syncNotConfigured`, `emptyPassword`, `invalidInput` (code),
+    /// `wrongCredentials`, `secretKeyRequired`, `syncTwoFactorRequired`,
+    /// `syncTwoFactorInvalid`, `syncFolderNoAccount`, and the transport's
+    /// `sync*` codes.
+    pub fn sync_recover_password(
+        &self,
+        request: &RecoverPasswordRequest,
+    ) -> IpcResult<SyncOverview> {
+        let new = MasterPassword::new(request.new_password.expose_secret().to_owned());
+        if new.expose_secret().is_empty() {
+            return Err(IpcError::new(ErrorCode::EmptyPassword));
+        }
+        let code = code_of(request.code.as_ref())?;
+        let epoch = self.sync.epoch();
+        let (account, install, config) = {
+            let slot = self.slot()?;
+            let session = slot.unlocked()?;
+            (
+                session.account_id(),
+                session.install_id(),
+                session
+                    .sync_config()?
+                    .ok_or(IpcError::new(ErrorCode::SyncNotConfigured))?,
+            )
+        };
+        let key = self
+            .secret_key_of(account)
+            .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
+        let changed = match config.kind {
+            SyncKind::Hosted => {
+                self.recover_hosted(&config, account, install, &new, &key, code, epoch)?
+            }
+            SyncKind::Folder => {
+                self.recover_folder(&config, account, install, &new, &key, epoch)?
+            }
+        };
+        drop(new);
+        self.quick_unlock.clear_reauth_failures();
+        self.remove_platform_key(&changed);
+        self.sync.update_view(|view| {
+            view.password_changed = false;
+            true
+        });
+        self.emit_sync_state();
+        self.sync_status()
+    }
+
+    /// The vault's answer to an adoption: a wrong password or another account
+    /// key counts like a wrong password anywhere else.
+    fn counted(&self, error: IpcError) -> IpcError {
+        if error.code == ErrorCode::WrongCredentials {
+            self.count_wrong_master()
+        } else {
+            error
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per thing the recovery reads from the stored account"
+    )]
+    fn recover_hosted(
+        &self,
+        config: &SyncConfig,
+        account: AccountId,
+        install: InstallId,
+        new: &MasterPassword,
+        key: &SecretKey,
+        code: Option<&str>,
+        epoch: u64,
+    ) -> IpcResult<PasswordChanged> {
+        let url = config
+            .server_url
+            .as_deref()
+            .ok_or(IpcError::new(ErrorCode::SyncNotConfigured))?;
+        let email = config.email.clone().unwrap_or_default();
+        // The login ends this device's older session.
+        self.sync.stop();
+        let result =
+            hosted::recover_password(url, &email, new, key, install, &config.device_name, code);
+        let outcome = (|| {
+            let recovered = match result {
+                Ok(recovered) => recovered,
+                Err(TransportError::Rejected(Rejection::LoginFailed)) => {
+                    return Err(self.count_wrong_master());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            self.sync.check_epoch(epoch)?;
+            let hosted::Recovered {
+                keys,
+                account: remote,
+                grant,
+            } = recovered;
+            let params = *keys.params();
+            let adopted = self
+                .with_unlocked(|session| {
+                    Ok(session.adopt_remote_password(keys, &remote.wrapped_ak, params)?)
+                })
+                .map_err(|e| self.counted(e))?;
+            let token = StoredToken::from_session(&grant.token);
+            if self.sync.save_token(self, account, &token).is_err() {
+                let _ = self.sync_tokens.delete(account);
+                self.sync_force_signed_out();
+            }
+            Ok(adopted)
+        })();
+        self.sync_restart();
+        outcome
+    }
+
+    fn recover_folder(
+        &self,
+        config: &SyncConfig,
+        account: AccountId,
+        install: InstallId,
+        new: &MasterPassword,
+        key: &SecretKey,
+        epoch: u64,
+    ) -> IpcResult<PasswordChanged> {
+        let root = config
+            .folder_path
+            .as_deref()
+            .ok_or(IpcError::new(ErrorCode::SyncNotConfigured))?;
+        let transport = open_folder(
+            self.sync.session()?,
+            root,
+            account,
+            install,
+            &config.device_name,
+        )?;
+        // Only a file whose MAC verifies under this account's own key counts.
+        let file = transport
+            .verified_account_file()?
+            .ok_or(IpcError::new(ErrorCode::SyncFolderNoAccount))?;
+        drop(transport);
+        let params = PasswordParams {
+            account_id: file.account_id,
+            salt: file.salt,
+            profile: file.profile,
+        };
+        let keys = LockedSession::derive_join_keys(&params, new, key)?;
+        self.sync.check_epoch(epoch)?;
+        self.with_unlocked(|session| {
+            Ok(session.adopt_remote_password(keys, &file.wrapped_ak, params)?)
+        })
+        .map_err(|e| self.counted(e))
     }
 
     fn change_password_folder(

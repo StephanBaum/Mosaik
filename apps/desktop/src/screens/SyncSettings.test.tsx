@@ -93,6 +93,7 @@ describe("sync settings: not set up", () => {
     const server = await checkServer(user, section);
     expect(await within(server).findByText(/doesn't accept new sync accounts/)).toBeTruthy();
     expect(within(server).queryByRole("button", { name: "Create sync account" })).toBeNull();
+    expect(within(server).queryByRole("radio")).toBeNull();
     expect(within(server).getByRole("button", { name: "Sign in" })).toBeTruthy();
   });
 
@@ -110,6 +111,7 @@ describe("sync settings: not set up", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }));
     const server = await checkServer(user, section);
     await user.type(await within(server).findByLabelText("Master password"), "mosaic");
+    await user.click(within(server).getByLabelText("I have a sync account"));
     await user.click(within(server).getByRole("button", { name: "Sign in" }));
     await within(server).findByRole("heading", { name: "Enter your code" });
     await user.type(within(server).getByLabelText("6-digit code"), "000000");
@@ -163,13 +165,29 @@ describe("sync settings: not set up", () => {
 describe("sync settings: connected", () => {
   it("shows the status, syncs now and lists the devices", async () => {
     const { user, section } = await openSync({ variant: "hosted" });
-    expect(await within(section).findByText(/Synced · Last synced 5 minutes ago/)).toBeTruthy();
+    expect(await within(section).findByText("Last synced 5 minutes ago")).toBeTruthy();
+    expect(within(section).getByText("Synced", { selector: "span[role=status]" })).toBeTruthy();
     expect(within(section).getByText("Mosaic on macOS")).toBeTruthy();
     expect(within(section).getByText("Unnamed device")).toBeTruthy();
     expect(within(section).getAllByText("This device").length).toBeGreaterThan(0);
     expect(within(section).getByText("Two-step verification is on.")).toBeTruthy();
     await user.click(within(section).getByRole("button", { name: "Sync now" }));
-    await within(section).findByText(/Last synced (now|0 seconds ago|in 0 seconds)/);
+    await within(section).findByText(/^Last synced (now|0 seconds ago|in 0 seconds)/);
+  });
+
+  it("lists the account and the status as rows, and announces only the status word", async () => {
+    const { section } = await openSync({ variant: "hosted" });
+    const rows = await waitFor(() => {
+      const list = section.querySelector("dl.rows.rows--closed");
+      expect(list).not.toBeNull();
+      return within(list as HTMLElement);
+    });
+    expect(rows.getByText("Server")).toBeTruthy();
+    expect(rows.getByText("alex@example.com")).toBeTruthy();
+    const status = rows.getByText("Synced");
+    expect(status.getAttribute("role")).toBe("status");
+    // The relative time is outside the live region: it changes with the clock.
+    expect(status.textContent).not.toMatch(/Last synced/);
   });
 
   it.each([
@@ -178,15 +196,22 @@ describe("sync settings: connected", () => {
     ["error", /Sync failed/],
   ] as const)("shows the %s state in a status region", async (variant, text) => {
     const { section } = await openSync({ variant });
-    const status = await within(section).findByText(text, { selector: "p[role=status]" });
+    const status = await within(section).findByText(text, { selector: "span[role=status]" });
     expect(status.getAttribute("aria-live")).toBe("polite");
   });
 
   it("shows an error code of the last run with what to do", async () => {
-    const { section } = await openSync({ variant: "offline" });
+    const { section } = await openSync({ variant: "error" });
     await waitFor(() => {
       expect(within(section).getAllByRole("alert").some((a) => /couldn't reach the server/.test(a.textContent))).toBe(true);
     });
+  });
+
+  it("says offline is fine in its own status message, not as an error", async () => {
+    const { section } = await openSync({ variant: "offline" });
+    const message = await within(section).findByText(/You're offline\. Your changes are saved on this device/);
+    expect(message.getAttribute("role")).toBe("status");
+    expect(within(section).queryAllByRole("alert").some((a) => /\S/.test(a.textContent))).toBe(false);
   });
 
   it("shows the failure of Sync now", async () => {
@@ -291,7 +316,10 @@ describe("sync settings: connected", () => {
     const { user, section } = await openSync({ variant: "signedOut" });
     expect(await within(section).findByRole("heading", { name: "This device is signed out" })).toBeTruthy();
     expect(within(section).queryByRole("button", { name: "Sync now" })).toBeNull();
-    expect(within(section).getByText(/^Signed out · /, { selector: "p[role=status]" })).toBeTruthy();
+    expect(within(section).getByText("Signed out", { selector: "span[role=status]" })).toBeTruthy();
+    // Signed out: the stored device name is kept, and nothing is renamed or removed.
+    expect(within(section).queryByLabelText("Name of this device")).toBeNull();
+    expect(within(section).queryByRole("button", { name: /^(Rename|Remove) / })).toBeNull();
     await user.type(within(section).getByLabelText("Master password"), "mosaic");
     await user.click(within(section).getByRole("button", { name: "Sign in again" }));
     await within(section).findByRole("heading", { name: "Enter your code" });
@@ -317,10 +345,19 @@ describe("sync settings: connected", () => {
 
 describe("sync settings: warnings", () => {
   const messages: readonly [string, RegExp][] = [
-    ["rollbackDetected", /^Your sync data looks older than this device\. Check the server or folder, then sync again\.$/],
+    [
+      "rollbackDetected",
+      /^Your sync data looks older than this device\. Check the server or folder, then choose \u201cI've checked\u201d\.$/,
+    ],
     ["identityDuplicated", /^Another copy of Mosaic is writing under this device's identity/],
-    ["serverInconsistent", /^The server showed this device different data than another device\. Check the server, then confirm\.$/],
-    ["serverRollback", /^The server's copy of .*Work.* is older than this device's\. Check the server, then confirm\.$/],
+    [
+      "serverInconsistent",
+      /^The server showed this device different data than another device\. Check the server, then choose \u201cI've checked\u201d\.$/,
+    ],
+    [
+      "serverRollback",
+      /^The server's copy of .*Work.* is older than this device's\. Check the server, then choose \u201cI've checked\u201d\.$/,
+    ],
     [
       "noCommonView",
       /^This device and .*Mosaic on macOS.* haven't seen the same server data for two days\. The server may be showing them different versions\.$/,
@@ -345,34 +382,157 @@ describe("sync settings: warnings", () => {
     const { section } = await openSync({ variant: "allWarnings" }, undefined, "de");
     const group = await within(section).findByRole("group", { name: "Sync-Warnungen" });
     expect(within(group).getAllByText(/\S/).length).toBeGreaterThanOrEqual(10);
-    expect(within(group).getByText(/^Zwischen diesem Gerät und .*Mosaic on macOS.*: Seit zwei Tagen/)).toBeTruthy();
+    expect(
+      within(group).getByText(/^Seit zwei Tagen stimmen die Serverdaten auf diesem Gerät und auf .*Mosaic on macOS.* nicht überein/),
+    ).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "Ich habe es geprüft…" })).toBeTruthy();
     expect(within(group).getByText(/^Hardwaregeschützte Tresore bleiben auf diesem Gerät/)).toBeTruthy();
   });
 
-  it("offers Acknowledge… for exactly the five halt and finding kinds", async () => {
+  it("offers one \u201cI've checked\u2026\u201d button for all the warnings that need a check", async () => {
     const { section } = await openSync({ variant: "allWarnings" });
     const group = await within(section).findByRole("group", { name: "Sync warnings" });
-    expect(within(group).getAllByRole("button", { name: "Acknowledge…" })).toHaveLength(5);
+    expect(within(group).getAllByRole("button", { name: "I've checked…" })).toHaveLength(1);
+    // The texts that point at the button name it.
+    expect(within(group).getAllByText(/choose \u201cI've checked\u201d/).length).toBeGreaterThanOrEqual(3);
   });
 
-  it("acknowledges after a confirmation that explains the risk", async () => {
+  it("asks the native confirmation through Rust (one call, the copy from the catalog) and clears the warnings", async () => {
     const { calls, ipc } = recording({ variant: "rollback" });
     const { user, section } = await openSync({}, ipc);
-    await user.click(await within(section).findByRole("button", { name: "Acknowledge…" }));
-    const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByText(/Only go on after you have checked the server or folder yourself/)).toBeTruthy();
-    expect(dialog.getByText("Do this on each of your devices.")).toBeTruthy();
-    // Cancel changes nothing.
-    await user.click(dialog.getByRole("button", { name: "Cancel" }));
-    expect(calls.some((call) => call.command === "sync_acknowledge")).toBe(false);
-    expect(within(section).getByText(/looks older than this device/)).toBeTruthy();
-
-    await user.click(within(section).getByRole("button", { name: "Acknowledge…" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Acknowledge and sync" }));
+    await user.click(await within(section).findByRole("button", { name: "I've checked…" }));
+    // No dialog in the page: the confirmation is Rust's.
+    expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => {
       expect(within(section).queryByText(/looks older than this device/)).toBeNull();
     });
-    expect(calls.filter((call) => call.command === "sync_acknowledge")).toHaveLength(1);
-    expect(within(section).getByText(/Synced/, { selector: "p[role=status]" })).toBeTruthy();
+    const asked = calls.filter((call) => call.command === "sync_acknowledge");
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.request).toMatchObject({
+      title: "Clear the sync warnings that need a check?",
+      confirmLabel: "Clear warnings and sync",
+      cancelLabel: "Cancel",
+    });
+    const message = (asked[0]?.request as { message: string }).message;
+    expect(message).toMatch(/Only go on after you have checked the server or folder yourself/);
+    expect(message).toMatch(/Do this on each of your devices\.$/);
+    expect(within(section).getByText("Synced", { selector: "span[role=status]" })).toBeTruthy();
+    // The button that had focus is gone: focus is on the section heading.
+    expect(document.activeElement).toBe(within(section).getByRole("heading", { name: "Sync" }));
   });
 });
+
+describe("sync settings: focus and keyboard", () => {
+  it("moves focus to the heading after connecting and after disconnecting", async () => {
+    const { user, section } = await openSync();
+    const heading = within(section).getByRole("heading", { name: "Sync" });
+    const server = await checkServer(user, section);
+    await user.type(await within(server).findByLabelText("Master password"), "mosaic");
+    await user.click(within(server).getByRole("button", { name: "Create sync account" }));
+    await within(section).findByRole("button", { name: "Sync now" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading);
+    });
+    await user.click(within(section).getByRole("button", { name: "Disconnect…" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }));
+    await within(section).findByRole("heading", { name: "Mosaic server" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(heading);
+    });
+  });
+
+  it("submits the credentials with Enter, with a radio choice instead of two buttons", async () => {
+    const { calls, ipc } = recording({});
+    const { user, section } = await openSync({}, ipc);
+    const server = await checkServer(user, section);
+    const radios = await within(server).findAllByRole("radio");
+    expect(radios.map((radio) => (radio as HTMLInputElement).checked)).toEqual([false, true]);
+    expect(within(server).getAllByRole("button", { name: /Create sync account|Sign in/ })).toHaveLength(1);
+    await user.type(within(server).getByLabelText("Master password"), "mosaic{Enter}");
+    await within(section).findByRole("button", { name: "Sync now" });
+    expect(calls.find((call) => call.command === "sync_hosted_connect")?.request).toMatchObject({
+      mode: "register",
+    });
+  });
+
+  it("gives the Rename button focus back after saving or cancelling, and Esc cancels", async () => {
+    const { user, section } = await openSync({ variant: "hosted" });
+    const rename = () => within(section).getByRole("button", { name: /^Rename / });
+    await user.click(await within(section).findByRole("button", { name: "Rename Mosaic on Windows" }));
+    await user.keyboard("{Escape}");
+    expect(within(section).queryByLabelText("New name for this device")).toBeNull();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Rename Mosaic on Windows" }));
+    });
+    await user.click(within(section).getByRole("button", { name: "Rename Mosaic on Windows" }));
+    const input = within(section).getByLabelText("New name for this device");
+    await user.clear(input);
+    await user.type(input, "Desk{Enter}");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Rename Desk" }));
+    });
+    expect(rename).toBeTruthy();
+  });
+
+  it("moves focus to the Devices heading after removing a device", async () => {
+    const { user, section } = await openSync({ variant: "hostedNoTotp" });
+    await user.click(await within(section).findByRole("button", { name: "Remove Mosaic on macOS" }));
+    const dialog = within(screen.getByRole("dialog"));
+    await user.type(dialog.getByLabelText("Master password"), "mosaic");
+    await user.click(dialog.getByRole("button", { name: "Remove device" }));
+    await waitFor(() => {
+      expect(within(section).queryByText("Mosaic on macOS")).toBeNull();
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(section).getByRole("heading", { name: "Devices" }));
+    });
+  });
+
+  it("returns focus to the two-step button after the setup dialog closes", async () => {
+    const { user, section } = await openSync({ variant: "hostedNoTotp" });
+    await user.click(await within(section).findByRole("button", { name: "Turn on…" }));
+    await user.type(within(screen.getByRole("dialog")).getByLabelText("Master password"), "mosaic");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Continue" }));
+    const secret = await within(screen.getByRole("dialog")).findByLabelText("Setup key");
+    // The setup key is a secret for the snapshot painter.
+    expect(secret.hasAttribute("data-secret")).toBe(true);
+    expect(secret.getAttribute("data-mask")).toMatch(/^\u2022+$/);
+    await user.type(within(screen.getByRole("dialog")).getByLabelText("6-digit code"), "123456");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Turn on" }));
+    await within(section).findByText("Two-step verification is on.");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Turn off…" }));
+    });
+  });
+});
+
+describe("sync settings: the master password was changed elsewhere", () => {
+  it("offers the new password, refuses a wrong one and brings the device back", async () => {
+    const { calls, ipc } = recording({ variant: "passwordChanged" });
+    const { user, section } = await openSync({}, ipc);
+    expect(await within(section).findByRole("heading", { name: "Your master password was changed" })).toBeTruthy();
+    // Signing in with the old password is refused with the matching sentence.
+    await user.type(within(section).getByLabelText("Master password"), "mosaic");
+    await user.click(within(section).getByRole("button", { name: "Sign in again" }));
+    expect(
+      (await within(section).findAllByRole("alert")).some((a) =>
+        /master password was changed on the server or in the folder/.test(a.textContent),
+      ),
+    ).toBe(true);
+
+    const recover = within(section).getByLabelText("New master password");
+    await user.type(recover, "wrong");
+    await user.click(within(section).getByRole("button", { name: "Update this device" }));
+    expect(
+      (await within(section).findAllByRole("alert")).some((a) => /master password or Secret Key didn't work/.test(a.textContent)),
+    ).toBe(true);
+    await user.type(within(section).getByLabelText("New master password"), "new correct horse battery staple");
+    // The sync account has a second factor: its code comes with the new password.
+    await user.type(within(section).getByLabelText("6-digit code"), "123456");
+    await user.click(within(section).getByRole("button", { name: "Update this device" }));
+    await within(section).findByRole("button", { name: "Sync now" });
+    expect(within(section).queryByRole("heading", { name: "Your master password was changed" })).toBeNull();
+    expect(calls.filter((call) => call.command === "sync_recover_password")).toHaveLength(2);
+  });
+});
+

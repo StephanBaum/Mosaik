@@ -7,6 +7,7 @@
 #![expect(clippy::too_many_lines, reason = "the scenarios are long")]
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -26,10 +27,11 @@ use crate::contract::events::{LockReason, SyncStatus};
 use crate::contract::secret::SecretIn;
 use crate::contract::session::{CreateAccountRequest, SessionState, UnlockRequest};
 use crate::contract::sync::{
-    ChangePasswordRequest, CheckServerRequest, CodeRequest, DeviceRemoveRequest,
-    DeviceRenameRequest, FolderConnectRequest, FolderState, HostedConnectRequest, HostedMode,
-    JoinFolderRequest, JoinHostedRequest, JoinOutcome, SyncConfigView, SyncOverview,
-    SyncWarningView, TotpBeginRequest, TotpDisableRequest,
+    AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
+    DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
+    HostedConnectRequest, HostedMode, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
+    RecoverPasswordRequest, SyncConfigView, SyncOverview, SyncWarningView, TotpBeginRequest,
+    TotpDisableRequest,
 };
 use crate::dialogs::{Dialogs, FileFilter};
 use crate::events::testing::{Log, recording_channel};
@@ -70,13 +72,16 @@ impl SecretKeyStore for SharedKeystore {
     }
 }
 
-struct SharedTokens(Arc<MemorySyncTokens>);
+struct SharedTokens(Arc<MemorySyncTokens>, Arc<AtomicBool>);
 
 impl SyncTokenStore for SharedTokens {
     fn load(&self, account: AccountId) -> IpcResult<Option<StoredToken>> {
         self.0.load(account)
     }
     fn save(&self, account: AccountId, token: &StoredToken) -> IpcResult<()> {
+        if self.1.load(Ordering::SeqCst) {
+            return Err(IpcError::INTERNAL);
+        }
         self.0.save(account, token)
     }
     fn delete(&self, account: AccountId) -> IpcResult<()> {
@@ -84,8 +89,13 @@ impl SyncTokenStore for SharedTokens {
     }
 }
 
-/// Answers the folder dialog with a fixed path.
-struct PickDialog(Arc<Mutex<Option<PathBuf>>>);
+/// Answers the folder dialog with a fixed path and the confirmation with a
+/// fixed answer (and remembers what it was asked).
+struct PickDialog(
+    Arc<Mutex<Option<PathBuf>>>,
+    Arc<AtomicBool>,
+    Arc<Mutex<Vec<String>>>,
+);
 
 impl Dialogs for PickDialog {
     fn save_file(&self, _: &str, _: FileFilter) -> IpcResult<Option<PathBuf>> {
@@ -97,6 +107,22 @@ impl Dialogs for PickDialog {
     fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
         Ok(self.0.lock().unwrap().clone())
     }
+    fn confirm(&self, title: &str, message: &str, ok: &str, cancel: &str) -> IpcResult<bool> {
+        self.2
+            .lock()
+            .unwrap()
+            .push(format!("{title}|{message}|{ok}|{cancel}"));
+        Ok(self.1.load(Ordering::SeqCst))
+    }
+}
+
+fn ack() -> AcknowledgeRequest {
+    AcknowledgeRequest {
+        title: "Clear the sync warnings that need a check?".into(),
+        message: "Only if you checked.\nDo this on each of your devices.".into(),
+        confirm_label: "Clear warnings and sync".into(),
+        cancel_label: "Cancel".into(),
+    }
 }
 
 struct Env {
@@ -105,6 +131,11 @@ struct Env {
     tokens: Arc<MemorySyncTokens>,
     keys: SharedKeystore,
     picked: Arc<Mutex<Option<PathBuf>>>,
+    /// What the native confirmation answers.
+    confirm: Arc<AtomicBool>,
+    asked: Arc<Mutex<Vec<String>>>,
+    /// Makes the keystore refuse every token save.
+    fail_saves: Arc<AtomicBool>,
 }
 
 impl Env {
@@ -115,14 +146,24 @@ impl Env {
     fn with_store(store: Store, dir: Option<PathBuf>) -> Self {
         let tokens = Arc::new(MemorySyncTokens::default());
         let picked = Arc::new(Mutex::new(None));
+        let confirm = Arc::new(AtomicBool::new(true));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let fail_saves = Arc::new(AtomicBool::new(false));
         let keys = SharedKeystore::default();
         let mut backend = Backend::new(
             Slot::Locked(LockedSession::open(store)),
             Box::new(keys.clone()),
             || Ok(Argon2Profile::Baseline),
         )
-        .with_sync_tokens(Box::new(SharedTokens(Arc::clone(&tokens))))
-        .with_dialogs(Box::new(PickDialog(Arc::clone(&picked))));
+        .with_sync_tokens(Box::new(SharedTokens(
+            Arc::clone(&tokens),
+            Arc::clone(&fail_saves),
+        )))
+        .with_dialogs(Box::new(PickDialog(
+            Arc::clone(&picked),
+            Arc::clone(&confirm),
+            Arc::clone(&asked),
+        )));
         if let Some(dir) = dir {
             backend = backend.with_store_dir(dir);
         }
@@ -135,6 +176,9 @@ impl Env {
             tokens,
             keys,
             picked,
+            confirm,
+            asked,
+            fail_saves,
         }
     }
 
@@ -274,7 +318,7 @@ fn every_command_locked_without_account_and_unlocked() {
         ErrorCode::Locked
     );
     assert_eq!(
-        code(e.b().sync_acknowledge().unwrap_err()),
+        code(e.b().sync_acknowledge(&ack()).unwrap_err()),
         ErrorCode::Locked
     );
     assert_eq!(code(e.b().sync_devices().unwrap_err()), ErrorCode::Locked);
@@ -348,7 +392,7 @@ fn every_command_locked_without_account_and_unlocked() {
         ErrorCode::SyncNotConfigured
     );
     assert_eq!(
-        code(e.b().sync_acknowledge().unwrap_err()),
+        code(e.b().sync_acknowledge(&ack()).unwrap_err()),
         ErrorCode::SyncNotConfigured
     );
     assert_eq!(
@@ -586,7 +630,26 @@ fn sync_acknowledge_clears_a_halt_and_syncs() {
     std::thread::sleep(Duration::from_millis(2_500));
     assert_eq!(e.status().state.status, SyncStatus::Error);
 
-    let acknowledged = e.b().sync_acknowledge().unwrap();
+    // The native confirmation says no: nothing is cleared, nothing runs.
+    e.confirm.store(false, Ordering::SeqCst);
+    let declined = e.b().sync_acknowledge(&ack()).unwrap();
+    assert!(
+        declined
+            .warnings
+            .contains(&SyncWarningView::RollbackDetected)
+    );
+    assert!(
+        e.b()
+            .with_unlocked(|s| Ok(s.sync_findings()?.halt.is_some()))
+            .unwrap()
+    );
+    assert_eq!(e.status().state.status, SyncStatus::Error);
+    // It said what the webview told it to, once.
+    assert_eq!(e.asked.lock().unwrap().len(), 1);
+    assert!(e.asked.lock().unwrap()[0].starts_with("Clear the sync warnings"));
+
+    e.confirm.store(true, Ordering::SeqCst);
+    let acknowledged = e.b().sync_acknowledge(&ack()).unwrap();
     assert!(
         !acknowledged
             .warnings
@@ -1039,4 +1102,526 @@ fn the_sync_token_stores_keep_a_copy_per_account() {
     tokens.delete(a).unwrap();
     assert!(tokens.load(a).unwrap().is_none());
     assert!(!format!("{token:?}").contains('7'));
+}
+
+// ---- the T5 review follow-ups ------------------------------------------------------
+
+fn hosted_sign_in(server: &LoopbackServer, password: &str) -> HostedConnectRequest {
+    HostedConnectRequest {
+        server_url: server.base.clone(),
+        mode: HostedMode::SignIn,
+        password: SecretIn::test(password),
+        invite_code: None,
+        device_name: DEVICE.into(),
+    }
+}
+
+/// C-M1: a lock request (manual, idle, sleep, screen lock) waits for a master
+/// password change in flight, and goes ahead after the cap.
+#[test]
+fn a_lock_during_a_password_change_is_deferred_until_it_ends() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let change = e.b().sync.begin_change().unwrap();
+    assert_eq!(
+        code(e.b().sync.begin_change().err().unwrap()),
+        ErrorCode::Busy,
+        "one change at a time"
+    );
+    let state = e.state.clone();
+    let locker = std::thread::spawn(move || state.backend().lock(LockReason::Idle));
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(e.b().is_unlocked(), "the lock waits for the change");
+    assert!(!locker.is_finished());
+    drop(change);
+    locker.join().unwrap().unwrap();
+    assert!(!e.b().is_unlocked());
+
+    // After the cap the lock goes ahead even if the change is still running.
+    e.unlock().unwrap();
+    e.b().sync.set_defer_cap(Duration::from_millis(300));
+    let _stuck = e.b().sync.begin_change().unwrap();
+    let started = Instant::now();
+    e.b().lock(LockReason::Manual).unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(250));
+    assert!(!e.b().is_unlocked());
+}
+
+/// C-M1: the server took the change, the device never committed it (killed,
+/// or locked past the cap). The new password brings the device back.
+#[test]
+fn a_password_change_the_device_missed_is_recovered_with_the_new_password() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    let account = e.account();
+    server.advance_ms(60_000);
+    let (install, prepared) = e
+        .b()
+        .with_unlocked(|s| {
+            let key = e.keys.load(s.account_id()).unwrap().unwrap();
+            let prepared = s.prepare_master_password_change(
+                &mosaic_core::MasterPassword::new(PASSWORD.to_owned()),
+                &mosaic_core::MasterPassword::new(NEW_PASSWORD.to_owned()),
+                &key,
+            )?;
+            Ok((s.install_id(), prepared))
+        })
+        .unwrap();
+    hosted::password_change(
+        &server.base,
+        "alex@example.com",
+        &prepared,
+        install,
+        DEVICE,
+        None,
+    )
+    .unwrap();
+    drop(prepared);
+
+    // The change ended this device's session.
+    e.b().sync_now().unwrap();
+    wait_for("the signed-out status", || {
+        e.status().state.status == SyncStatus::SignedOut
+    });
+    // Signing in with the password this device knows fails as "changed".
+    server.advance_ms(60_000);
+    let refused = e.b().sync_hosted_connect(hosted_sign_in(&server, PASSWORD));
+    assert_eq!(code(refused.unwrap_err()), ErrorCode::SyncPasswordChanged);
+    assert!(e.status().password_changed);
+    // A wrong new password is refused and counted.
+    server.advance_ms(60_000);
+    let wrong = e.b().sync_recover_password(&RecoverPasswordRequest {
+        new_password: SecretIn::test("not the new password"),
+        code: None,
+    });
+    assert_eq!(code(wrong.unwrap_err()), ErrorCode::WrongCredentials);
+    assert!(e.b().is_unlocked());
+    // An invalid code is refused before any network call.
+    let bad_code = e.b().sync_recover_password(&RecoverPasswordRequest {
+        new_password: SecretIn::test(NEW_PASSWORD),
+        code: Some(SecretIn::test("12a456")),
+    });
+    assert_eq!(code(bad_code.unwrap_err()), ErrorCode::InvalidInput);
+
+    server.advance_ms(60_000);
+    let recovered = e
+        .b()
+        .sync_recover_password(&RecoverPasswordRequest {
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    assert!(!recovered.password_changed);
+    assert!(e.tokens.load(account).unwrap().is_some());
+    e.b().sync_now().unwrap();
+    e.wait_synced();
+    // The device holds the new password now.
+    e.b().lock(LockReason::Manual).unwrap();
+    let old = e.b().unlock(UnlockRequest {
+        password: SecretIn::test(PASSWORD),
+        secret_key: None,
+    });
+    assert_eq!(code(old.unwrap_err()), ErrorCode::WrongCredentials);
+    assert!(
+        e.b()
+            .unlock(UnlockRequest {
+                password: SecretIn::test(NEW_PASSWORD),
+                secret_key: None,
+            })
+            .is_ok()
+    );
+}
+
+/// C-M1 (folder): another run wrote the new account file; the new password
+/// is adopted from the folder.
+#[test]
+fn a_folder_password_change_the_device_missed_is_recovered() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    let (account, install, prepared) = e
+        .b()
+        .with_unlocked(|s| {
+            let key = e.keys.load(s.account_id()).unwrap().unwrap();
+            let prepared = s.prepare_master_password_change(
+                &mosaic_core::MasterPassword::new(PASSWORD.to_owned()),
+                &mosaic_core::MasterPassword::new(NEW_PASSWORD.to_owned()),
+                &key,
+            )?;
+            Ok((s.account_id(), s.install_id(), prepared))
+        })
+        .unwrap();
+    // The folder gets the new account file; the commit never happens.
+    let mut transport = crate::sync::open_folder(
+        e.b().sync.session().unwrap(),
+        dir.path(),
+        account,
+        install,
+        DEVICE,
+    )
+    .unwrap();
+    let version = transport.next_account_version().unwrap();
+    transport
+        .write_account_file(prepared.new_params(), prepared.new_wrapped_ak(), version)
+        .unwrap();
+    drop((transport, prepared));
+
+    // The thread notices at its next connection; the flag appears.
+    e.b().sync_restart();
+    wait_for("the changed-password flag", || e.status().password_changed);
+    let wrong = e.b().sync_recover_password(&RecoverPasswordRequest {
+        new_password: SecretIn::test("not the new password"),
+        code: None,
+    });
+    assert_eq!(code(wrong.unwrap_err()), ErrorCode::WrongCredentials);
+    let recovered = e
+        .b()
+        .sync_recover_password(&RecoverPasswordRequest {
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    assert!(!recovered.password_changed);
+    e.b().lock(LockReason::Manual).unwrap();
+    assert!(
+        e.b()
+            .unlock(UnlockRequest {
+                password: SecretIn::test(NEW_PASSWORD),
+                secret_key: None,
+            })
+            .is_ok()
+    );
+}
+
+/// C-M1: the keystore refuses the token after the server accepted the
+/// change: the change stands and the device is signed out of sync.
+#[test]
+fn a_token_the_keystore_refuses_does_not_undo_a_password_change() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    e.fail_saves.store(true, Ordering::SeqCst);
+    server.advance_ms(60_000);
+    e.b()
+        .change_master_password(&ChangePasswordRequest {
+            current_password: SecretIn::test(PASSWORD),
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    wait_for("the signed-out status", || {
+        e.status().state.status == SyncStatus::SignedOut
+    });
+    e.b().lock(LockReason::Manual).unwrap();
+    assert!(
+        e.b()
+            .unlock(UnlockRequest {
+                password: SecretIn::test(NEW_PASSWORD),
+                secret_key: None,
+            })
+            .is_ok(),
+        "the local commit happened"
+    );
+}
+
+/// C-M2: a thread of an older generation, or one whose token was replaced by
+/// a newer login, changes neither the token nor the status.
+#[test]
+fn an_older_threads_401_keeps_the_new_token_and_the_status() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    let account = e.account();
+    let old = e.tokens.load(account).unwrap().unwrap();
+    let old_generation = e.b().sync.generation();
+
+    // A newer login replaced the token: the thread's 401 leaves it alone.
+    let mut bytes = [9u8; 32];
+    let newer = StoredToken::from_array(&mut bytes);
+    e.tokens.save(account, &newer).unwrap();
+    e.b().sync_signed_out(old_generation, Some(&old));
+    assert_eq!(
+        *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
+        [9u8; 32]
+    );
+    assert_eq!(e.status().state.status, SyncStatus::UpToDate);
+
+    // A thread that a restart replaced does nothing at all.
+    e.b().sync.stop();
+    e.b().sync_signed_out(old_generation, Some(&newer));
+    assert!(e.tokens.load(account).unwrap().is_some());
+    assert_eq!(e.status().state.status, SyncStatus::UpToDate);
+
+    // The current thread with its own token: deleted, signed out.
+    e.b().sync_signed_out(e.b().sync.generation(), Some(&newer));
+    assert!(e.tokens.load(account).unwrap().is_none());
+    assert_eq!(e.status().state.status, SyncStatus::SignedOut);
+}
+
+/// C-M3: signing in again to the same server keeps the sync state; another
+/// server starts clean.
+#[test]
+fn signing_in_again_keeps_the_sync_state_of_the_same_server() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let other = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    let account = e.account();
+    let token = e.tokens.load(account).unwrap().unwrap();
+    hosted::logout(&server.base, &token).unwrap();
+    e.b().sync_now().unwrap();
+    wait_for("the signed-out status", || {
+        e.status().state.status == SyncStatus::SignedOut
+    });
+    // What a reset would clear (the flag) and what it never clears (the halt).
+    e.b()
+        .with_unlocked(|s| {
+            let vault = s.vaults()[0].vault_id;
+            s.set_vault_flag(vault, mosaic_vault::storage::VaultFlag::ServerInconsistent)?;
+            Ok(s.set_sync_halt(SyncHalt::Rollback)?)
+        })
+        .unwrap();
+
+    server.advance_ms(60_000);
+    e.b()
+        .sync_hosted_connect(hosted_sign_in(&server, PASSWORD))
+        .unwrap();
+    assert_eq!(
+        e.b().with_unlocked(|s| Ok(s.vault_flags()?.len())).unwrap(),
+        1,
+        "the finding survived the new sign-in"
+    );
+    assert!(e.tokens.load(account).unwrap().is_some());
+
+    // Another server: the sync state starts again (the thread of the old
+    // sign-in is gone first, so it cannot write the status back).
+    e.b().sync.stop();
+    e.b().sync_force_signed_out();
+    e.b()
+        .sync_hosted_connect(HostedConnectRequest {
+            server_url: other.base.clone(),
+            mode: HostedMode::Register,
+            password: SecretIn::test(PASSWORD),
+            invite_code: None,
+            device_name: DEVICE.into(),
+        })
+        .unwrap();
+    assert_eq!(
+        e.b().with_unlocked(|s| Ok(s.vault_flags()?.len())).unwrap(),
+        0,
+        "another server starts from a clean sync state"
+    );
+}
+
+/// C-L1: a wrong second-factor code leaves the keystore alone, and the next
+/// code finishes the same login.
+#[test]
+fn a_wrong_code_leaves_the_keystore_alone_and_the_next_code_finishes_the_login() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    let account = e.account();
+    server.advance_ms(60_000);
+    let setup = e
+        .b()
+        .sync_totp_begin(&TotpBeginRequest {
+            password: SecretIn::test(PASSWORD),
+        })
+        .unwrap();
+    let uri = serde_json::to_value(&setup).unwrap()["otpauthUri"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    e.b()
+        .sync_totp_confirm(&CodeRequest {
+            code: SecretIn::test(&totp_code(&uri, &server)),
+        })
+        .unwrap();
+
+    // A second device of the account (to remove).
+    server.advance_ms(60_000);
+    let (opw, install) = e
+        .b()
+        .with_unlocked(|s| {
+            let key = e.keys.load(s.account_id()).unwrap().unwrap();
+            let opw =
+                s.opaque_password(&mosaic_core::MasterPassword::new(PASSWORD.to_owned()), &key)?;
+            Ok((opw, s.install_id()))
+        })
+        .unwrap();
+    let other = mosaic_core::InstallId::new_v7().unwrap();
+    let grant = hosted::login(
+        &server.base,
+        "alex@example.com",
+        account,
+        &opw,
+        other,
+        "Other",
+    )
+    .unwrap();
+    hosted::login_totp(&server.base, &grant.token, &totp_code(&uri, &server)).unwrap();
+    assert_ne!(other, install);
+
+    let before = *e.tokens.load(account).unwrap().unwrap().expose_bytes();
+    server.advance_ms(30_000);
+    e.b().sync.advance(Duration::from_secs(300));
+    let remove = |digits: String| {
+        e.b().sync_device_remove(&DeviceRemoveRequest {
+            device_id: crate::contract::ids::WireInstallId::from(other),
+            password: SecretIn::test(PASSWORD),
+            code: Some(SecretIn::test(&digits)),
+        })
+    };
+    let wrong = remove("000000".into());
+    assert_eq!(code(wrong.unwrap_err()), ErrorCode::SyncTwoFactorInvalid);
+    assert_eq!(
+        *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
+        before,
+        "the keystore is unchanged"
+    );
+    server.advance_ms(30_000);
+    remove(totp_code(&uri, &server)).unwrap();
+    assert_ne!(
+        *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
+        before,
+        "the finished login is kept"
+    );
+}
+
+/// C-L2: pending joins and choices that ran out are dropped by the sweep and
+/// by a lock; a flow that spans a lock drops its result.
+#[test]
+fn expired_pending_state_is_swept_and_a_flow_across_a_lock_writes_nothing() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    let choice = e.pick(dir.path());
+    e.b()
+        .sync
+        .set_pending(Some(crate::sync::PendingLogin::for_tests(
+            e.b().sync.now() + Duration::from_mins(5),
+        )));
+    e.b().sync.advance(Duration::from_mins(6));
+    e.b().sync.sweep();
+    assert!(
+        e.b().sync.take_pending().is_none(),
+        "the pending join is gone"
+    );
+    assert_eq!(
+        code(e.b().sync.choice(&choice.choice_id).unwrap_err()),
+        ErrorCode::SyncChoiceExpired
+    );
+
+    // A lock ends what a flow started before it.
+    let epoch = e.b().sync.epoch();
+    let kept = e.pick(dir.path());
+    e.b()
+        .sync
+        .set_pending(Some(crate::sync::PendingLogin::for_tests(
+            e.b().sync.now() + Duration::from_mins(5),
+        )));
+    e.b().lock(LockReason::Manual).unwrap();
+    assert_eq!(
+        code(e.b().sync.check_epoch(epoch).unwrap_err()),
+        ErrorCode::Locked
+    );
+    assert!(e.b().sync.take_pending().is_none(), "a lock drops it");
+    assert_eq!(
+        code(e.b().sync.choice(&kept.choice_id).unwrap_err()),
+        ErrorCode::SyncChoiceExpired
+    );
+}
+
+/// C-L3: the commands refuse oversized fields and malformed codes before
+/// any network call, and the probe is closed on a locked app with an account.
+#[test]
+fn bounds_codes_and_the_probe_oracle() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let long_url = format!("https://{}.example.com", "a".repeat(2100));
+    let connect = |url: String, invite: Option<String>| {
+        e.b().sync_hosted_connect(HostedConnectRequest {
+            server_url: url,
+            mode: HostedMode::Register,
+            password: SecretIn::test(PASSWORD),
+            invite_code: invite.map(|c| SecretIn::test(&c)),
+            device_name: DEVICE.into(),
+        })
+    };
+    assert_eq!(
+        code(connect(long_url.clone(), None).unwrap_err()),
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(
+        code(connect("http://127.0.0.1:1".into(), Some("i".repeat(129))).unwrap_err()),
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(
+        code(
+            e.b()
+                .sync_folder_connect(&FolderConnectRequest {
+                    choice_id: "c".repeat(65),
+                    device_name: DEVICE.into(),
+                })
+                .unwrap_err()
+        ),
+        ErrorCode::InvalidInput
+    );
+    assert_eq!(
+        code(
+            e.b()
+                .sync_check_server(&CheckServerRequest {
+                    server_url: long_url
+                })
+                .unwrap_err()
+        ),
+        ErrorCode::InvalidInput
+    );
+    for bad in ["", "12345", "123456789", "12a456", "１２３４５６"] {
+        let result = e.b().sync_hosted_two_factor(&CodeRequest {
+            code: SecretIn::test(bad),
+        });
+        assert_eq!(
+            code(result.unwrap_err()),
+            ErrorCode::InvalidInput,
+            "{bad:?}"
+        );
+    }
+    let long_name = e.b().sync_hosted_connect(HostedConnectRequest {
+        server_url: "http://127.0.0.1:1".into(),
+        mode: HostedMode::Register,
+        password: SecretIn::test(PASSWORD),
+        invite_code: None,
+        device_name: "d".repeat(65),
+    });
+    assert_eq!(code(long_name.unwrap_err()), ErrorCode::InvalidInput);
+
+    // Locked with an account: no probe.
+    e.b().lock(LockReason::Manual).unwrap();
+    let probe = e.b().sync_check_server(&CheckServerRequest {
+        server_url: "http://127.0.0.1:1".into(),
+    });
+    assert_eq!(code(probe.unwrap_err()), ErrorCode::Locked);
 }

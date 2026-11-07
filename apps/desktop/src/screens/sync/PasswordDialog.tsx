@@ -20,6 +20,7 @@ export function PasswordDialog({
   submitVariant = "secondary",
   onSubmit,
   onClose,
+  returnFocus,
 }: {
   title: string;
   body: string;
@@ -31,6 +32,8 @@ export function PasswordDialog({
   /** Runs the action; resolves to the error to show, or `null` when done (the dialog closes). */
   onSubmit: (password: string, code: string | null) => Promise<IpcError | null>;
   onClose: () => void;
+  /** Where focus goes on close when the control that opened the dialog is gone. */
+  returnFocus?: () => HTMLElement | null;
 }) {
   const { t } = useI18n();
   const [password, setPassword] = useState("");
@@ -52,7 +55,7 @@ export function PasswordDialog({
   }
 
   return (
-    <Dialog title={title} onClose={onClose}>
+    <Dialog title={title} onClose={onClose} {...(returnFocus === undefined ? {} : { returnFocus })}>
       <form className="stack" onSubmit={(event) => void submit(event)} noValidate>
         <p className="body muted">{body}</p>
         {extra}

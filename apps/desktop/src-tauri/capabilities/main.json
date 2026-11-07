@@ -78,6 +78,7 @@
     "allow-sync-now",
     "allow-sync-disconnect",
     "allow-sync-acknowledge",
+    "allow-sync-recover-password",
     "allow-sync-devices",
     "allow-sync-device-rename",
     "allow-sync-device-remove",

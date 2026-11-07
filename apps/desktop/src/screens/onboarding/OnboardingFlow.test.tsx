@@ -73,7 +73,7 @@ describe("onboarding", () => {
     await screen.findByRole("heading", { name: "Erstelle dein Konto" });
     await user.click(screen.getByRole("button", { name: "Ich nutze Mosaic schon" }));
     expect(await screen.findByRole("heading", { name: "Dieses Gerät zu deinem Konto hinzufügen" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Zurück zur Kontoerstellung" }));
+    await user.click(screen.getByRole("button", { name: "Stattdessen ein neues Konto erstellen" }));
     expect(await screen.findByRole("heading", { name: "Erstelle dein Konto" })).toBeTruthy();
   });
 

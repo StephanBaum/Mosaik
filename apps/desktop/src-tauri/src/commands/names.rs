@@ -93,6 +93,7 @@ pub const COMMANDS: &[&str] = &[
     "sync_now",
     "sync_disconnect",
     "sync_acknowledge",
+    "sync_recover_password",
     "sync_devices",
     "sync_device_rename",
     "sync_device_remove",

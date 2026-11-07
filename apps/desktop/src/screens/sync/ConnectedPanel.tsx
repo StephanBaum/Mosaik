@@ -1,5 +1,5 @@
 /** Sync is set up: status, Sync now, warnings, devices, two-step verification and Disconnect. */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
@@ -10,33 +10,50 @@ import type { IpcError, SyncConfigView, SyncOverview } from "../../ipc/contract/
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { DevicesCard } from "./DevicesCard.tsx";
 import { HostedForm } from "./HostedForm.tsx";
-import { useNow } from "./hooks.ts";
+import { useFocusSection, useNow } from "./hooks.ts";
+import { RecoverCard } from "./RecoverCard.tsx";
 import { TotpCard } from "./TotpCard.tsx";
 import { WarningList } from "./WarningList.tsx";
 
-function Backend({ config }: { config: SyncConfigView }) {
-  const { t } = useI18n();
-  const rows =
-    config.kind === "hosted"
-      ? [
-          [t("settings.sync.backend.server"), config.serverUrl],
-          [t("settings.sync.backend.account"), config.email],
-          [t("settings.sync.backend.device"), config.deviceName],
-        ]
-      : [
-          [t("settings.sync.backend.folder"), config.displayPath],
-          [t("settings.sync.backend.device"), config.deviceName],
-        ];
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <dl className="stack">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt className="row__label">{label}</dt>
-          <dd className="row__value">
-            <UserText>{value}</UserText>
-          </dd>
-        </div>
-      ))}
+    <div className="row">
+      <dt className="row__label">{label}</dt>
+      <dd className="row__value">{children}</dd>
+    </div>
+  );
+}
+
+/** The backend, this device and the status, as one list of rows like the other sections. */
+function Details({ config, state }: { config: SyncConfigView; state: SyncOverview["state"] }) {
+  const { t } = useI18n();
+  const { status } = state;
+  // Only the status word is announced: "last synced" changes with the clock.
+  const statusLabel = t(status === "notConfigured" ? "sync.status.local" : `sync.status.${status}`);
+  return (
+    <dl className="rows rows--closed">
+      {config.kind === "hosted" ? (
+        <>
+          <Row label={t("settings.sync.backend.server")}>
+            <UserText>{config.serverUrl}</UserText>
+          </Row>
+          <Row label={t("settings.sync.backend.account")}>
+            <UserText>{config.email}</UserText>
+          </Row>
+        </>
+      ) : (
+        <Row label={t("settings.sync.backend.folder")}>
+          <UserText>{config.displayPath}</UserText>
+        </Row>
+      )}
+      <Row label={t("settings.sync.backend.device")}>
+        <UserText>{config.deviceName}</UserText>
+      </Row>
+      <Row label={t("settings.sync.status.label")}>
+        <span role="status" aria-live="polite">
+          {statusLabel}
+        </span>
+      </Row>
     </dl>
   );
 }
@@ -50,6 +67,7 @@ function DisconnectDialog({
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
+  const focusSection = useFocusSection();
   const [error, setError] = useState<IpcError | null>(null);
 
   async function disconnect() {
@@ -57,6 +75,8 @@ function DisconnectDialog({
     if (result.ok) {
       onDone(result.value);
       onClose();
+      // The panel (and the Disconnect button that had focus) is replaced by the setup cards.
+      focusSection();
     } else {
       setError(result.error);
     }
@@ -85,7 +105,7 @@ function DisconnectDialog({
   );
 }
 
-/** The status in a live region, the error of the last run and Sync now. */
+/** When it last synced, what is wrong (offline is not an error) and Sync now. */
 function StatusBlock({
   state,
   onChange,
@@ -116,20 +136,22 @@ function StatusBlock({
     }
   }
 
-  const statusLabel = t(status === "notConfigured" ? "sync.status.local" : `sync.status.${status}`);
   return (
     <div className="stack">
-      <p className="row__label">{t("settings.sync.status.label")}</p>
-      <p className="body" role="status" aria-live="polite">
-        {statusLabel}
-        {" · "}
+      <p className="caption">
         {lastSyncedAt === null
           ? t("settings.sync.neverSynced")
           : t("settings.sync.lastSynced", {
               when: formatRelative(locale, lastSyncedAt, Math.max(now, lastSyncedAt)),
             })}
       </p>
-      {stateError !== null && !signedOut && <ErrorAlert error={{ code: stateError }} />}
+      {status === "offline" ? (
+        <p className="body" role="status">
+          {t("settings.sync.offline")}
+        </p>
+      ) : (
+        stateError !== null && !signedOut && <ErrorAlert error={{ code: stateError }} />
+      )}
       <ErrorAlert error={error} />
       {!signedOut && (
         <div className="actions">
@@ -160,11 +182,21 @@ export function ConnectedPanel({
 }) {
   const { t } = useI18n();
   const [disconnecting, setDisconnecting] = useState(false);
+  const signedOut = overview.state.status === "signedOut";
   return (
     <div className="stack">
-      <Backend config={config} />
+      <Details config={config} state={overview.state} />
       <StatusBlock state={overview.state} onChange={onChange} onRefresh={onRefresh} />
-      {overview.state.status === "signedOut" && config.kind === "hosted" && (
+      {overview.passwordChanged && (
+        <RecoverCard
+          config={config}
+          onRecovered={(next) => {
+            onChange(next);
+            onRefresh();
+          }}
+        />
+      )}
+      {signedOut && config.kind === "hosted" && (
         <div className="stack">
           <h3 className="subtitle">{t("settings.sync.signedOut.title")}</h3>
           <p className="caption">{t("settings.sync.signedOut.body")}</p>
@@ -178,7 +210,12 @@ export function ConnectedPanel({
         </div>
       )}
       <WarningList warnings={overview.warnings} onChange={onChange} />
-      <DevicesCard config={config} refreshKey={overview.state.lastSyncedAt} onRenamed={onRefresh} />
+      <DevicesCard
+        config={config}
+        signedOut={signedOut}
+        refreshKey={overview.state.lastSyncedAt}
+        onRenamed={onRefresh}
+      />
       {config.kind === "hosted" && <TotpCard enabled={config.totpEnabled} onChanged={onRefresh} />}
       <div className="actions">
         <Button

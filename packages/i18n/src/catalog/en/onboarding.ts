@@ -112,5 +112,5 @@ export const onboarding = {
   "onboarding.join.twoFactor.submit":
     "Verify",
   "onboarding.join.back":
-    "Back to create account",
+    "Create a new account instead",
 } as const satisfies Record<string, string>;

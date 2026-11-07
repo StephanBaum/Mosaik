@@ -1,18 +1,17 @@
 /**
  * What sync wants the user to know: one callout per warning with what to do. The warnings a
- * person has to look at (a halt, or the server showing different data) offer "Acknowledge…",
- * which opens a confirmation that explains the risk; it clears all of them at once, and has to
- * be done on every device.
+ * person has to look at (a halt, or the server showing different data) share one button below
+ * the list, "I've checked…". It clears all of them at once and has to be done on every device,
+ * so the risk is asked in a native dialog that Rust opens (the webview cannot skip it).
  */
 import { useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Callout } from "../../components/Callout.tsx";
-import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, SyncOverview, SyncWarningView } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
-import { isolate } from "./hooks.ts";
+import { isolate, useFocusSection } from "./hooks.ts";
 
 const ACKNOWLEDGEABLE: ReadonlySet<SyncWarningView["kind"]> = new Set([
   "rollbackDetected",
@@ -57,57 +56,6 @@ function useWarningText() {
   };
 }
 
-function AcknowledgeDialog({
-  onDone,
-  onClose,
-}: {
-  onDone: (overview: SyncOverview) => void;
-  onClose: () => void;
-}) {
-  const { t } = useI18n();
-  const ipc = useIpc();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<IpcError | null>(null);
-
-  async function acknowledge() {
-    setBusy(true);
-    const result = await ipc.call("sync_acknowledge", null);
-    setBusy(false);
-    if (result.ok) {
-      onDone(result.value);
-      onClose();
-    } else {
-      setError(result.error);
-    }
-  }
-
-  return (
-    <Dialog title={t("sync.acknowledge.title")} onClose={onClose}>
-      <div className="stack">
-        <p className="body">{t("sync.acknowledge.body")}</p>
-        <p className="body">
-          <strong>{t("sync.acknowledge.eachDevice")}</strong>
-        </p>
-        <ErrorAlert error={error} />
-        <div className="dialog__actions">
-          <Button data-autofocus="" onClick={onClose}>
-            {t("action.cancel")}
-          </Button>
-          <Button
-            variant="dangerSolid"
-            disabled={busy}
-            onClick={() => {
-              void acknowledge();
-            }}
-          >
-            {t("sync.acknowledge.confirm")}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  );
-}
-
 export function WarningList({
   warnings,
   onChange,
@@ -116,38 +64,57 @@ export function WarningList({
   onChange: (overview: SyncOverview) => void;
 }) {
   const { t } = useI18n();
+  const ipc = useIpc();
   const text = useWarningText();
-  const [asking, setAsking] = useState(false);
+  const focusSection = useFocusSection();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<IpcError | null>(null);
   if (warnings.length === 0) {
     return null;
   }
+
+  async function acknowledge() {
+    setBusy(true);
+    setError(null);
+    // Rust shows the confirmation; "no" returns the overview unchanged.
+    const result = await ipc.call("sync_acknowledge", {
+      title: t("sync.acknowledge.title"),
+      message: [t("sync.acknowledge.body"), t("sync.acknowledge.eachDevice")].join("\n\n"),
+      confirmLabel: t("sync.acknowledge.confirm"),
+      cancelLabel: t("action.cancel"),
+    });
+    setBusy(false);
+    if (result.ok) {
+      onChange(result.value);
+      if (!result.value.warnings.some((w) => ACKNOWLEDGEABLE.has(w.kind))) {
+        // The button that had focus is gone.
+        focusSection();
+      }
+    } else {
+      setError(result.error);
+    }
+  }
+
   return (
     <div className="stack" role="group" aria-label={t("sync.warning.region")}>
       {warnings.map((warning, index) => (
         <Callout key={`${warning.kind}-${String(index)}`} tone={warning.kind === "hardwareVaultsLocal" ? "info" : "warning"}>
           <p className="body">{text(warning)}</p>
-          {ACKNOWLEDGEABLE.has(warning.kind) && (
-            <div className="actions">
-              <Button
-                size="sm"
-                onClick={() => {
-                  setAsking(true);
-                }}
-              >
-                {t("sync.warning.acknowledge")}
-              </Button>
-            </div>
-          )}
         </Callout>
       ))}
-      {asking && (
-        <AcknowledgeDialog
-          onDone={onChange}
-          onClose={() => {
-            setAsking(false);
-          }}
-        />
+      {warnings.some((w) => ACKNOWLEDGEABLE.has(w.kind)) && (
+        <div className="actions">
+          <Button
+            disabled={busy}
+            onClick={() => {
+              void acknowledge();
+            }}
+          >
+            {t("sync.warning.acknowledge")}
+          </Button>
+        </div>
       )}
+      <ErrorAlert error={error} />
     </div>
   );
 }

@@ -3,7 +3,14 @@
  * from a Mosaic server or an own cloud folder; the master password and the Secret Key from the
  * Emergency Kit open it. The joined account is already kit-verified, so onboarding ends here.
  */
-import { useId, useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from "react";
 import { AuthShell } from "../../components/AuthShell.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
@@ -22,92 +29,7 @@ import type {
 } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { useDefaultDeviceName } from "../sync/hooks.ts";
-
-type Tab = "server" | "folder";
-const TABS: readonly Tab[] = ["server", "folder"];
-
-function Tabs({ id, tab, onTab }: { id: string; tab: Tab; onTab: (tab: Tab) => void }) {
-  const { t } = useI18n();
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      const next = tab === "server" ? "folder" : "server";
-      onTab(next);
-      document.getElementById(`${id}-${next}`)?.focus();
-    }
-  }
-  return (
-    <div className="segmented" role="tablist" aria-label={t("onboarding.join.tabs")} onKeyDown={onKeyDown}>
-      {TABS.map((each) => (
-        <button
-          key={each}
-          id={`${id}-${each}`}
-          type="button"
-          role="tab"
-          className="segmented__tab"
-          aria-selected={each === tab}
-          aria-controls={`${id}-panel`}
-          tabIndex={each === tab ? 0 : -1}
-          onClick={() => {
-            onTab(each);
-          }}
-        >
-          {t(`onboarding.join.tab.${each}`)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function CodeForm({
-  busy,
-  error,
-  onSubmit,
-  onBack,
-}: {
-  busy: boolean;
-  error: IpcError | null;
-  onSubmit: (code: string) => void;
-  onBack: () => void;
-}) {
-  const { t } = useI18n();
-  const [code, setCode] = useState("");
-  return (
-    <form
-      className="form-stack"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit(code);
-        setCode("");
-      }}
-      noValidate
-    >
-      <div className="auth__intro">
-        <h1 className="display">{t("onboarding.join.twoFactor.title")}</h1>
-        <p className="lede">{t("onboarding.join.twoFactor.body")}</p>
-      </div>
-      <TextField
-        size="lg"
-        label={t("onboarding.join.twoFactor.code")}
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        mono
-        autoFocus
-        value={code}
-        onChange={(event) => {
-          setCode(event.target.value);
-        }}
-      />
-      <ErrorAlert error={error} />
-      <HoloButton type="submit" size="lg" block disabled={busy}>
-        {t("onboarding.join.twoFactor.submit")}
-      </HoloButton>
-      <Button variant="ghost" size="lg" block className="button--muted" onClick={onBack}>
-        {t("action.back")}
-      </Button>
-    </form>
-  );
-}
+import { CodeForm, Tabs, type Tab } from "./JoinParts.tsx";
 
 interface Fields {
   serverUrl: string;
@@ -170,14 +92,17 @@ function FolderFields({
           <UserText>{choice.displayPath}</UserText>
         </p>
       )}
-      {choice?.accounts.length === 0 && <p className="alert">{t("onboarding.join.noAccounts")}</p>}
+      {choice?.accounts.length === 0 && (
+        <ErrorAlert error={{ code: "syncFolderNoAccount" }} message={t("onboarding.join.noAccounts")} />
+      )}
       {choice !== null && choice.accounts.length > 1 && (
         <Select
           label={t("onboarding.join.account")}
           value={accountId}
           options={choice.accounts.map((id) => ({
             value: id,
-            label: t("onboarding.join.accountOption", { id }),
+            // The first eight characters tell the accounts of one folder apart.
+            label: t("onboarding.join.accountOption", { id: id.slice(0, 8) }),
           }))}
           onChange={(event) => {
             onAccount(event.target.value);
@@ -273,6 +198,9 @@ function useJoinForm(flow: Flow) {
   const set: SetField = (key, value) => {
     setFields((current) => ({ ...current, [key]: value }));
   };
+  const clearPassword = useCallback(() => {
+    setFields((current) => ({ ...current, password: "" }));
+  }, []);
 
   async function chooseFolder() {
     flow.setError(null);
@@ -307,17 +235,37 @@ function useJoinForm(flow: Flow) {
   }
 
   const noAccount = tab === "folder" && (choice === null || choice.accounts.length === 0);
-  return { tab, setTab, fields, set, choice, accountId, setAccountId, chooseFolder, submit, noAccount };
+  return {
+    tab,
+    setTab,
+    fields,
+    set,
+    clearPassword,
+    choice,
+    accountId,
+    setAccountId,
+    chooseFolder,
+    submit,
+    noAccount,
+  };
 }
 
-function JoinForm({ flow, onBack }: { flow: Flow; onBack: () => void }) {
+type Form = ReturnType<typeof useJoinForm>;
+
+function JoinForm({ flow, form, onBack }: { flow: Flow; form: Form; onBack: () => void }) {
   const { t } = useI18n();
   const tabsId = useId();
-  const form = useJoinForm(flow);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // The screen changed (from the welcome step, or back from the code step): start at its title.
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
   return (
     <>
       <div className="auth__intro">
-        <h1 className="display">{t("onboarding.join.title")}</h1>
+        <h1 className="display" ref={heading} tabIndex={-1}>
+          {t("onboarding.join.title")}
+        </h1>
         <p className="lede">{t("onboarding.join.body")}</p>
       </div>
       <Tabs
@@ -373,6 +321,15 @@ export function JoinStep({
 }) {
   const ipc = useIpc();
   const flow = useJoinFlow(onDone);
+  // The form lives here, so the fields survive the code step; only the password is cleared.
+  const form = useJoinForm(flow);
+  const { clearPassword } = form;
+  // The password does not wait in memory while the code is asked for; the other fields stay.
+  useEffect(() => {
+    if (flow.needsCode) {
+      clearPassword();
+    }
+  }, [flow.needsCode, clearPassword]);
   return (
     <AuthShell>
       <div className="auth__main">
@@ -389,7 +346,7 @@ export function JoinStep({
             }}
           />
         ) : (
-          <JoinForm flow={flow} onBack={onBack} />
+          <JoinForm flow={flow} form={form} onBack={onBack} />
         )}
       </div>
     </AuthShell>

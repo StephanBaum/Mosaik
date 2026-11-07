@@ -3871,3 +3871,31 @@ leaves the lifetime of the token, the order of the fresh-login flows, the wait l
   refuses it (`syncPasswordNeedsServer`). The folder writes the new account file first. A password change leaves
   quick unlock removed, as before.
 - **The folder path** never reaches the webview as input: a random `choiceId` names it for five minutes (ADR-0034).
+
+### T5 review follow-ups (2026-11-07)
+- **Password change versus lock and crash.** A change in flight (`SyncService::begin_change`) defers a lock for up to
+  three minutes (`LOCK_DEFER_CAP`); then the lock goes ahead. The local commit follows the server's answer at once;
+  the token is saved after it and a refusing keystore does not undo the change (status `signedOut`). The change the
+  server holds and the device missed is recovered with the new password: CRYPTO_SPEC §9.4 "Change applied elsewhere",
+  `UnlockedSession::adopt_remote_password` (the join derivation plus a constant-time equality of the account key),
+  `hosted::recover_password`, `FolderTransport::verified_account_file`, the command `sync_recover_password` (a wrong
+  password counts towards the five-failure lock) and the flag `SyncOverview.passwordChanged` with the error
+  `syncPasswordChanged`. The lost-answer retry of §9.4 (byte-equal wrapped AK) stays: it covers a retry within one run.
+- **Older generations.** Every write of the sync thread checks its generation under the lock of the view; the token
+  delete of a 401 is a compare-and-delete (constant time) serialized with every token save, and leaves the status alone
+  when a newer login replaced the token.
+- **Signing in again keeps the sync state** (cursors, checkpoints, key observations, strikes, halt, findings) when the
+  server is the same; another server resets it, as before. The UI offers no other server while signed out, so no extra
+  confirmation was added.
+- **Incomplete logins.** A token is saved only after its session is complete. A login that waits for a code (device
+  removal, second-factor setup) is kept as `PendingKind::Fresh` for five minutes and the next call with a code
+  finishes it; whether the account has a second factor is read first when unknown. A failed save is an error.
+- **Locks and pending state.** A flow records the lock epoch (`SyncService::epoch`, counts locks and resets) and drops
+  its result if it changed. Expired pending logins and joins (with their keys and Secret Key), folder choices and the
+  fresh-login mark are swept on every sync command and on lock.
+- **Bounds.** Server address 2048 bytes, invite code 128, `choiceId` 64, device name 64, second-factor codes 6 to 8
+  ASCII digits, checked before any network call. `sync_check_server` works only while unlocked or while the app has no
+  account.
+- **Native confirmation.** `sync_acknowledge` asks in a native dialog (`Dialogs::confirm`), which the webview cannot
+  skip; the webview supplies the texts. The in-app dialog is gone: one button under the list of warnings that need a
+  check. The fresh-login reuse (four minutes) applies to `sync_totp_disable` only.

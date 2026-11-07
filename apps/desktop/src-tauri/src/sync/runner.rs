@@ -22,6 +22,7 @@ use mosaic_core::{InstallId, VaultId};
 use mosaic_sync::clock::{Clock, SystemClock};
 use mosaic_sync::engine::consts::{BACKOFF_INITIAL_MS, BACKOFF_MAX_MS, LOCAL_CHANGE_DEBOUNCE_MS};
 use mosaic_sync::engine::{Backoff, SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
+use mosaic_sync::http::StoredToken;
 use mosaic_sync::transport::{ChangeToken, Transport, TransportError};
 use mosaic_vault::storage::{SyncHalt, VaultFlag};
 
@@ -48,6 +49,9 @@ pub(super) struct Ctx {
     pub(super) weak: Weak<Backend>,
     pub(super) generation: u64,
     pub(super) hosted: bool,
+    /// The session token this thread runs with (hosted): a 401 deletes
+    /// exactly this one from the keystore, never a newer one.
+    pub(super) token: std::sync::OnceLock<StoredToken>,
 }
 
 impl Ctx {
@@ -257,9 +261,11 @@ fn run_and_publish<T: Transport>(
         st.retry_at = None;
     }
     st.forced = false;
-    backend.sync.set_status(backend, SyncStatus::Syncing, None);
+    backend
+        .sync
+        .set_status(backend, ctx.generation, SyncStatus::Syncing, None);
     let result = run_once(make, &mut st.engine, access, &mut st.connect_backoff);
-    let next = after_run(backend, ctx, result, &mut st.engine);
+    let next = after_run(ctx, result, &mut st.engine);
     st.last_run = Instant::now();
     st.finish_waiters();
     match next {
@@ -294,7 +300,7 @@ fn poll<T: Transport>(ctx: &Ctx, st: &mut State<T>, rx: &Receiver<Cmd>, slice: D
         Err(TransportError::Locked) => false,
         Err(TransportError::Unauthorized) => {
             if let Some(backend) = ctx.backend() {
-                backend.sync_signed_out();
+                backend.sync_signed_out(ctx.generation, ctx.token.get());
             }
             false
         }
@@ -348,12 +354,18 @@ fn run_once<T: Transport>(
 }
 
 /// Publishes what a run found and decides what the loop does next.
+///
+/// The network call took time: the backend and the generation are fetched
+/// again, and a thread of an older generation stops without writing.
 fn after_run<T: Transport>(
-    backend: &Arc<Backend>,
     ctx: &Ctx,
     result: Result<SyncReport, SyncError>,
     engine: &mut Option<SyncEngine<T>>,
 ) -> Next {
+    let Some(backend) = ctx.backend() else {
+        return Next::Stop;
+    };
+    let backend = &backend;
     match result {
         Ok(report) => {
             publish_report(backend, ctx, &report, engine);
@@ -362,16 +374,20 @@ fn after_run<T: Transport>(
         Err(SyncError::Locked) => Next::Stop,
         Err(SyncError::RollbackDetected | SyncError::IdentityDuplicated) => {
             let warnings = warnings_of(ctx, &[], 0, engine);
-            backend.sync.finish_halted(backend, warnings);
+            backend
+                .sync
+                .finish_halted(backend, ctx.generation, warnings);
             Next::Halted
         }
         Err(SyncError::Backoff { retry_at_ms }) => {
             let wait = until(retry_at_ms);
-            backend.sync.set_status(backend, SyncStatus::Offline, None);
+            backend
+                .sync
+                .set_status(backend, ctx.generation, SyncStatus::Offline, None);
             Next::Retry(wait)
         }
         Err(SyncError::Transport(TransportError::Unauthorized)) => {
-            backend.sync_signed_out();
+            backend.sync_signed_out(ctx.generation, ctx.token.get());
             Next::Stop
         }
         Err(SyncError::Transport(error)) => {
@@ -386,12 +402,14 @@ fn after_run<T: Transport>(
                     | TransportError::RateLimited { .. }
             ) || (ctx.hosted && error == TransportError::Io);
             if offline {
-                backend.sync.set_status(backend, SyncStatus::Offline, None);
+                backend
+                    .sync
+                    .set_status(backend, ctx.generation, SyncStatus::Offline, None);
             } else {
                 let code = transport_code(error);
                 backend
                     .sync
-                    .set_status(backend, SyncStatus::Error, Some(code));
+                    .set_status(backend, ctx.generation, SyncStatus::Error, Some(code));
             }
             Next::Retry(wait)
         }
@@ -399,7 +417,7 @@ fn after_run<T: Transport>(
             let code: ErrorCode = sync_code(&other);
             backend
                 .sync
-                .set_status(backend, SyncStatus::Error, Some(code));
+                .set_status(backend, ctx.generation, SyncStatus::Error, Some(code));
             Next::Retry(SESSION_RETRY)
         }
     }
@@ -423,7 +441,7 @@ fn publish_report<T: Transport>(
         report.attachments_heal_failed,
         engine,
     );
-    backend.sync.finish_ok(backend, warnings);
+    backend.sync.finish_ok(backend, ctx.generation, warnings);
     if !report.changed_vaults.is_empty() {
         backend.emit(&AppEvent::SyncDataChanged {
             vault_ids: report
@@ -595,13 +613,21 @@ fn warnings_of<T: Transport>(
 
 impl SyncService {
     /// Sets the status shown to the UI and tells the webview if it changed.
+    ///
+    /// Every write of the thread checks that `generation` is still current,
+    /// under the lock of the view: a thread that a lock, a disconnect or a
+    /// restart replaced writes nothing and tells nobody.
     pub(super) fn set_status(
         &self,
         backend: &Backend,
+        generation: u64,
         status: SyncStatus,
         error: Option<ErrorCode>,
     ) {
         if self.update_view(|view| {
+            if !self.is_current(generation) {
+                return false;
+            }
             let changed = view.status != status || view.error != error;
             view.status = status;
             view.error = error;
@@ -611,25 +637,43 @@ impl SyncService {
         }
     }
 
-    pub(super) fn finish_ok(&self, backend: &Backend, warnings: Vec<SyncWarningView>) {
+    pub(super) fn finish_ok(
+        &self,
+        backend: &Backend,
+        generation: u64,
+        warnings: Vec<SyncWarningView>,
+    ) {
         let now = SystemClock.now_ms();
-        self.update_view(|view| {
+        if self.update_view(|view| {
+            if !self.is_current(generation) {
+                return false;
+            }
             view.status = SyncStatus::UpToDate;
             view.error = None;
             view.last_synced_at = Some(millis(now));
             view.warnings = warnings;
             true
-        });
-        backend.emit_sync_state();
+        }) {
+            backend.emit_sync_state();
+        }
     }
 
-    pub(super) fn finish_halted(&self, backend: &Backend, warnings: Vec<SyncWarningView>) {
-        self.update_view(|view| {
+    pub(super) fn finish_halted(
+        &self,
+        backend: &Backend,
+        generation: u64,
+        warnings: Vec<SyncWarningView>,
+    ) {
+        if self.update_view(|view| {
+            if !self.is_current(generation) {
+                return false;
+            }
             view.status = SyncStatus::Error;
             view.error = None;
             view.warnings = warnings;
             true
-        });
-        backend.emit_sync_state();
+        }) {
+            backend.emit_sync_state();
+        }
     }
 }

@@ -48,6 +48,8 @@ export interface SyncOverview {
   config: SyncConfigView | null;
   state: SyncState;
   warnings: SyncWarningView[];
+  /** The server (or the folder) holds a master password this device does not know. */
+  passwordChanged: boolean;
 }
 
 export interface CheckServerRequest {
@@ -140,6 +142,20 @@ export interface JoinFolderRequest {
 }
 
 export type JoinOutcome = { state: "unlocked" } | { state: "twoFactorRequired" };
+
+/** `sync_recover_password`: the master password the server or folder holds now. */
+export interface RecoverPasswordRequest {
+  newPassword: string;
+  code: string | null;
+}
+
+/** `sync_acknowledge`: the text of the native confirmation (Rust shows the dialog). */
+export interface AcknowledgeRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+}
 
 export interface ChangePasswordRequest {
   currentPassword: string;

@@ -116,6 +116,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         sync::sync_now,
         sync::sync_disconnect,
         sync::sync_acknowledge,
+        sync::sync_recover_password,
         sync::sync_devices,
         sync::sync_device_rename,
         sync::sync_device_remove,

@@ -163,7 +163,7 @@ export const errors = {
   "error.syncInviteInvalid":
     "Dieser Einladungscode ist ungültig oder wurde schon benutzt. Prüfe ihn oder bitte den Betreiber des Servers um einen neuen.",
   "error.syncAccountExists":
-    "Auf diesem Server gibt es für dieses Konto schon ein Sync-Konto. Wähle stattdessen Anmelden.",
+    "Du hast auf diesem Server schon ein Sync-Konto. Wähle stattdessen „Anmelden“.",
   "error.syncAccountMismatch":
     "Das Sync-Konto auf diesem Server gehört zu einem anderen Mosaic-Konto. Prüfe die Adresse und deine E-Mail-Adresse.",
   "error.syncTwoFactorRequired":
@@ -192,4 +192,6 @@ export const errors = {
     "Die Ordnerauswahl ist abgelaufen. Wähle den Ordner noch einmal.",
   "error.syncFreshLoginExpired":
     "Die Passwortprüfung ist abgelaufen. Gib dein Master-Passwort noch einmal ein.",
+  "error.syncPasswordChanged":
+    "Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.",
 } satisfies Record<keyof typeof en, string>;

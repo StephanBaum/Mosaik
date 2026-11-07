@@ -254,7 +254,7 @@ pub trait SyncTokenStore: Send + Sync {
 }
 
 /// A copy of a token (it is deliberately not `Clone`).
-fn copy_token(token: &StoredToken) -> StoredToken {
+pub(crate) fn copy_token(token: &StoredToken) -> StoredToken {
     let mut bytes = *token.expose_bytes();
     StoredToken::from_array(&mut bytes)
 }

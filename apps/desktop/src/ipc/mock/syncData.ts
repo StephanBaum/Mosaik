@@ -1,7 +1,9 @@
 /**
  * The mock's sync state and the `?sync=<variant>` seeds (see the header of `mock.ts`). The
  * mock "server" accepts the sample account's master password and the one-time code
- * `123456`; the invite code it accepts is `MOCK-INVITE`.
+ * `123456`; the invite code it accepts is `MOCK-INVITE`. In the `passwordChanged` variant the
+ * server holds another master password (`MOCK_NEW_PASSWORD`): signing in with the one this
+ * device knows answers `syncPasswordChanged`, and `sync_recover_password` takes the new one.
  */
 import type {
   ErrorCode,
@@ -20,6 +22,7 @@ import { fail, type MockState } from "./state.ts";
 
 export const MOCK_TOTP_CODE = "123456";
 export const MOCK_INVITE_CODE = "MOCK-INVITE";
+export const MOCK_NEW_PASSWORD = "new correct horse battery staple";
 export const MOCK_SERVER_URL = "https://sync.example.com";
 export const MOCK_FOLDER_PATH = "C:\\Users\\alex\\Dropbox\\Mosaic";
 
@@ -32,6 +35,7 @@ export const syncVariants = [
   "offline",
   "error",
   "signedOut",
+  "passwordChanged",
   "rollback",
   "identity",
   "serverInconsistent",
@@ -73,6 +77,10 @@ export interface MockSync {
   registered: boolean;
   /** The sync account has a second factor. */
   totp: boolean;
+  /** The master password the server holds when it is not the device's (`null`: the same). */
+  serverPassword: string | null;
+  /** The device found out (or the backend says) that its master password is old. */
+  passwordChanged: boolean;
   /** `sync_totp_begin` ran and waits for `sync_totp_confirm`. */
   totpPending: boolean;
   pendingTwoFactor: PendingTwoFactor | null;
@@ -153,6 +161,7 @@ const STATUS_OF: Partial<Record<SyncVariant, SyncStatus>> = {
   syncing: "syncing",
   offline: "offline",
   signedOut: "signedOut",
+  passwordChanged: "signedOut",
   error: "error",
   rollback: "error",
   identity: "error",
@@ -163,6 +172,7 @@ const ERROR_OF: Partial<Record<SyncVariant, ErrorCode>> = {
   error: "syncServerUnreachable",
   offline: "syncServerUnreachable",
   signedOut: "syncSignedOut",
+  passwordChanged: "syncSignedOut",
 };
 
 function configFor(variant: SyncVariant, totp: boolean): SyncConfigView | null {
@@ -188,6 +198,8 @@ export function seedSync(options: MockSyncOptions, now: number): MockSync {
     devices: seedDevices(now, "Mosaic on Windows", !folder),
     registered: connected && !folder,
     totp,
+    serverPassword: variant === "passwordChanged" ? MOCK_NEW_PASSWORD : null,
+    passwordChanged: variant === "passwordChanged",
     totpPending: false,
     pendingTwoFactor: null,
     choices: new Map(),
@@ -208,6 +220,7 @@ export function overview(state: MockState): SyncOverview {
     config: sync.config,
     state: syncState(sync),
     warnings: sync.warnings,
+    passwordChanged: sync.passwordChanged,
   };
 }
 
@@ -269,6 +282,8 @@ export function settle(state: MockState, backend: Backend): SyncOverview {
   sync.warnings = [];
   sync.lastSyncedAt = state.now();
   sync.pendingTwoFactor = null;
+  sync.serverPassword = null;
+  sync.passwordChanged = false;
   sync.devices = seedDevices(state.now(), backend.deviceName, backend.kind === "hosted");
   return publish(state);
 }

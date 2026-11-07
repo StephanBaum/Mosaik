@@ -223,6 +223,8 @@ wire_enum!(
         SyncChoiceExpired,
         /// The password check for this change ran out; start again.
         SyncFreshLoginExpired,
+        /// The master password was changed on the server or in the folder.
+        SyncPasswordChanged,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

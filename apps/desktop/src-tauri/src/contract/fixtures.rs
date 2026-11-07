@@ -51,10 +51,10 @@ use super::ssh::{
     SshSkipReason,
 };
 use super::sync::{
-    self, ChangePasswordRequest, CheckServerRequest, CodeRequest, DevicePlatform,
-    DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
+    self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
+    DevicePlatform, DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
     HostedConnectRequest, HostedMode, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
-    RegistrationMode, TotpBeginRequest, TotpDisableRequest,
+    RecoverPasswordRequest, RegistrationMode, TotpBeginRequest, TotpDisableRequest,
 };
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
@@ -671,7 +671,6 @@ fn sync_commands(f: &mut Fixtures) {
     );
     f.command("sync_now", vec![()], sync::samples::overviews());
     f.command("sync_disconnect", vec![()], sync::samples::overviews());
-    f.command("sync_acknowledge", vec![()], sync::samples::overviews());
     f.command("sync_devices", vec![()], sync::samples::devices());
     f.command(
         "sync_device_rename",
@@ -719,7 +718,36 @@ fn sync_commands(f: &mut Fixtures) {
         }],
         vec![()],
     );
+    sync_acknowledge_commands(f);
     sync_join_commands(f);
+}
+
+/// The acknowledgement and the recovery of a missed password change.
+fn sync_acknowledge_commands(f: &mut Fixtures) {
+    f.command(
+        "sync_acknowledge",
+        vec![AcknowledgeRequest {
+            title: "Clear the sync warnings that need a check?".into(),
+            message: "Only do this if you checked. Do this on each of your devices.".into(),
+            confirm_label: "Clear warnings and sync".into(),
+            cancel_label: "Cancel".into(),
+        }],
+        sync::samples::overviews(),
+    );
+    f.command(
+        "sync_recover_password",
+        vec![
+            RecoverPasswordRequest {
+                new_password: SecretIn::test("a new master password"),
+                code: None,
+            },
+            RecoverPasswordRequest {
+                new_password: SecretIn::test("a new master password"),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        sync::samples::overviews(),
+    );
 }
 
 /// The join commands and the master password change.

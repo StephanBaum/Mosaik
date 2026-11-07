@@ -72,6 +72,42 @@ describe("join an existing account", () => {
     expect(await screen.findByText("GitHub")).toBeTruthy();
   });
 
+  it("keeps the form when going back from the code step, but not the password", async () => {
+    const user = await openJoin(joining({ join2fa: true }));
+    await user.type(screen.getByLabelText("Server address"), "https://sync.example.com");
+    await user.type(screen.getByLabelText("Sync account email"), "alex@example.com");
+    await fillSecrets(user);
+    await user.click(screen.getByRole("button", { name: "Add this device" }));
+    await screen.findByRole("heading", { name: "Enter your code" });
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    const title = await screen.findByRole("heading", { name: "Add this device to your account" });
+    expect(screen.getByLabelText<HTMLInputElement>("Server address").value).toBe("https://sync.example.com");
+    expect(screen.getByLabelText<HTMLInputElement>("Sync account email").value).toBe("alex@example.com");
+    expect(screen.getByLabelText<HTMLInputElement>("Secret Key").value).not.toBe("");
+    expect(screen.getByLabelText<HTMLInputElement>("Master password").value).toBe("");
+    // The screen changed: focus starts at its title.
+    expect(document.activeElement).toBe(title);
+  });
+
+  it("moves focus to the title when the join screen opens", async () => {
+    await openJoin(joining());
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Add this device to your account" }));
+  });
+
+  it("moves between the two tabs with the arrow, Home and End keys", async () => {
+    const user = await openJoin(joining());
+    const [server, folder] = screen.getAllByRole("tab");
+    server?.focus();
+    await user.keyboard("{End}");
+    expect(folder?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(folder);
+    await user.keyboard("{Home}");
+    expect(server?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(server);
+    await user.keyboard("{ArrowLeft}");
+    expect(folder?.getAttribute("aria-selected")).toBe("true");
+  });
+
   it("joins from a cloud folder", async () => {
     const user = await openJoin(joining({ folder: "mosaic" }));
     await user.click(screen.getByRole("tab", { name: "Cloud folder" }));
@@ -113,6 +149,8 @@ describe("join an existing account", () => {
     await user.click(screen.getByRole("button", { name: "Choose folder…" }));
     const select = await screen.findByLabelText<HTMLSelectElement>("Account");
     expect(within(select).getAllByRole("option")).toHaveLength(2);
+    // The ID is shortened to its first eight characters.
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toContain("Account 019a2b3c");
     await user.selectOptions(select, sampleAccount.accountId);
     await fillSecrets(user);
     await user.click(screen.getByRole("button", { name: "Add this device" }));
@@ -124,13 +162,15 @@ describe("join an existing account", () => {
     const user = await openJoin(joining({ folder: "empty" }));
     await user.click(screen.getByRole("tab", { name: "Cloud folder" }));
     await user.click(screen.getByRole("button", { name: "Choose folder…" }));
-    expect(await screen.findByText(/This folder holds no Mosaic account/)).toBeTruthy();
+    const message = await screen.findByText(/This folder holds no Mosaic account/);
+    // Announced: it is an alert, not a plain paragraph.
+    expect(message.getAttribute("role")).toBe("alert");
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add this device" }).disabled).toBe(true);
   });
 
   it("goes back to creating an account", async () => {
     const user = await openJoin(joining());
-    await user.click(screen.getByRole("button", { name: "Back to create account" }));
+    await user.click(screen.getByRole("button", { name: "Create a new account instead" }));
     expect(await screen.findByRole("heading", { name: "Create your account" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "I already use Mosaic" })).toBeTruthy();
   });

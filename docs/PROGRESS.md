@@ -2092,7 +2092,7 @@ acknowledgement). IPC: `docs/DESKTOP_IPC.md` §3 "Sync", §4, §5, §6.
   there is no `dyn Transport`), `hosted_flow.rs`, `folder_flow.rs`, `errors.rs`. New: `SyncTokenStore` in
   `keystore.rs` (`mosaic-sync-token-<account id>`, base64url, OS store with a memory fallback), `Dialogs::pick_folder`,
   `commands/sync.rs`, `contract/sync.rs`, the 19 commands in `names.rs` and `capabilities/main.json`, the 24 error
-  codes, `syncDataChanged` and `syncAttention`, `signedOut`. Mutating item and vault commands poke the thread
+  codes (T5 follow-ups: 20 commands, 25 codes), `syncDataChanged` and `syncAttention`, `signedOut`. Mutating item and vault commands poke the thread
   (debounced two seconds). Sync work is not user activity (test `sync_does_not_reset_idle_timer`).
 - **Folder choice (ADR-0034).** `sync_pick_folder` keeps the path in Rust under a random `choiceId` for five minutes;
   no request type has a path field (deny unknown fields; fuzz seeds for the attempts).
@@ -2134,6 +2134,28 @@ acknowledgement). IPC: `docs/DESKTOP_IPC.md` §3 "Sync", §4, §5, §6.
   whose second MAC check fails deletes the new store (`discard_new_store`); the first check fails before the store is
   touched, so the path is covered by the tampered-file test only up to that point. (d) The folder device list shows
   the platform of this device only (the folder keeps no platform).
+
+### M6 T5 review follow-ups (2026-11-07)
+
+Crypto/IPC review (C-M1 to C-I4) and UX review (U1 to U16) of the desktop sync work. ADR-0047 "T5 review follow-ups",
+CRYPTO_SPEC §9.4 "Change applied elsewhere", CORE_API (`adopt_remote_password`), THREAT_MODEL R69, DESKTOP_IPC §3.
+
+- **C-M1** busy guard (a lock waits for a password change, three minutes at most), local commit right after the
+  server's answer, a refusing keystore is not fatal, recovery with the new password (vault `adopt_remote_password`,
+  `hosted::recover_password`, `FolderTransport::verified_account_file`, `sync_recover_password`, `passwordChanged`,
+  `syncPasswordChanged`). **C-M2** generation checks on every thread write, compare-and-delete of the token.
+  **C-M3** signing in again to the same server keeps the sync state. **C-L1** tokens are saved after the session is
+  complete. **C-L2** lock epoch, sweep of expired pending state. **C-L3** bounds, codes of 6 to 8 digits, closed probe.
+  **C-I1** native confirmation for acknowledge. **C-I3/C-I4** docs match the code.
+- **U1 to U16** focus after screen changes (section heading, join title, Rename button, Dialog `returnFocus`), one
+  submit with a radio choice, one "I've checked…" button, offline as a status, the status word alone in the live
+  region, the sidebar status, the setup key as a secret, the join form kept across the code step, the details as
+  rows, Esc cancels a rename, announced folder messages, Home/End on the tabs, signed-out hides rename/remove and the
+  device name, long names wrap, copy fixes.
+- **Left open.** The UI has no settings screen for `change_master_password` yet, so "the UI shows the change as busy"
+  has nothing to show; the lock deferral is in Rust. The different-server confirmation of C-M3 has no UI (the signed-out
+  form is fixed to the server it was signed in to). The account option of a folder join shows the first eight
+  characters of the ID: neither an email nor a date exists on the Rust side.
 
 ## Open risks / findings
 

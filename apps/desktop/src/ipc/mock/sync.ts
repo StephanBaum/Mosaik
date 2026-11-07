@@ -89,6 +89,13 @@ export const syncHandlers: MockHandlers = {
     if (!sync.registered) {
       fail("wrongCredentials");
     }
+    if (sync.serverPassword !== null) {
+      // The device's password is right (checked above) and the server refuses it: the server
+      // holds a newer one.
+      sync.passwordChanged = true;
+      publish(state);
+      fail("syncPasswordChanged");
+    }
     if (sync.totp) {
       sync.pendingTwoFactor = { kind: "connect", serverUrl, deviceName: request.deviceName };
       fail("syncTwoFactorRequired");
@@ -168,9 +175,12 @@ export const syncHandlers: MockHandlers = {
     sync.warnings = [];
     sync.pendingTwoFactor = null;
     sync.totpPending = false;
+    sync.serverPassword = null;
+    sync.passwordChanged = false;
     return publish(state);
   },
 
+  // The real command asks in a native dialog first; the mock answers yes.
   sync_acknowledge: (state) => {
     requireUnlocked(state);
     const { sync } = state;
@@ -182,6 +192,30 @@ export const syncHandlers: MockHandlers = {
       sync.status = "upToDate";
       sync.lastSyncedAt = state.now();
     }
+    return publish(state);
+  },
+
+  sync_recover_password: (state, request) => {
+    requireUnlocked(state);
+    const config = connected(state);
+    const { sync } = state;
+    if (request.newPassword === "") {
+      fail("emptyPassword");
+    }
+    if (sync.serverPassword === null || request.newPassword !== sync.serverPassword) {
+      fail("wrongCredentials");
+    }
+    if (config.kind === "hosted" && sync.totp) {
+      checkCode(request.code);
+    }
+    if (state.account !== null) {
+      state.account.password = sync.serverPassword;
+    }
+    sync.serverPassword = null;
+    sync.passwordChanged = false;
+    sync.status = "upToDate";
+    sync.error = null;
+    sync.lastSyncedAt = state.now();
     return publish(state);
   },
 

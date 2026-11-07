@@ -25,6 +25,9 @@ export const sync = {
     "This server needs an invite code to create a sync account.",
   "settings.sync.server.registration.closed":
     "This server doesn't accept new sync accounts. You can still sign in to an existing one.",
+  "settings.sync.server.choice.label": "Sync account",
+  "settings.sync.server.choice.signIn": "I have a sync account",
+  "settings.sync.server.choice.create": "Create one",
   "settings.sync.server.invite": "Invite code",
   "settings.sync.server.create": "Create sync account",
   "settings.sync.server.signIn": "Sign in",
@@ -56,6 +59,8 @@ export const sync = {
   "settings.sync.status.label": "Status",
   "settings.sync.lastSynced": "Last synced {when}",
   "settings.sync.neverSynced": "Not synced yet",
+  "settings.sync.offline":
+    "You're offline. Your changes are saved on this device and will sync when you're back online.",
   "settings.sync.now": "Sync now",
   "settings.sync.backend.server": "Server",
   "settings.sync.backend.account": "Sync account",
@@ -64,6 +69,12 @@ export const sync = {
   "settings.sync.signedOut.title": "This device is signed out",
   "settings.sync.signedOut.body":
     "The server ended this device's session. Sign in again to keep syncing. Your changes are safe on this device.",
+
+  "settings.sync.recover.title": "Your master password was changed",
+  "settings.sync.recover.body":
+    "The server or the folder holds a newer master password than this device. Enter the new master password to bring this device up to date. Your vaults and your Secret Key stay the same.",
+  "settings.sync.recover.password": "New master password",
+  "settings.sync.recover.submit": "Update this device",
 
   "settings.sync.disconnect": "Disconnect…",
   "settings.sync.disconnect.title": "Disconnect sync?",
@@ -118,25 +129,25 @@ export const sync = {
   "sync.warning.noCommonView":
     "This device and {device} haven't seen the same server data for two days. The server may be showing them different versions.",
   "sync.warning.rollbackDetected":
-    "Your sync data looks older than this device. Check the server or folder, then sync again.",
+    "Your sync data looks older than this device. Check the server or folder, then choose “I've checked”.",
   "sync.warning.identityDuplicated":
-    "Another copy of Mosaic is writing under this device's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then confirm.",
+    "Another copy of Mosaic is writing under this device's identity, for example after a backup was restored. Syncing is paused. Make sure only one copy is in use, then choose “I've checked”.",
   "sync.warning.serverInconsistent":
-    "The server showed this device different data than another device. Check the server, then confirm.",
+    "The server showed this device different data than another device. Check the server, then choose “I've checked”.",
   "sync.warning.serverRollback":
-    "The server's copy of {vault} is older than this device's. Check the server, then confirm.",
+    "The server's copy of {vault} is older than this device's. Check the server, then choose “I've checked”.",
   "sync.warning.undecryptable":
     "{count, plural, one {# received item} other {# received items}} couldn't be read on this device. Update Mosaic on all your devices, then sync again.",
   "sync.warning.hardwareVaultsLocal":
     "Hardware-protected vaults stay on this device. {count, plural, one {# vault isn't} other {# vaults aren't}} synced.",
   "sync.warning.attachmentsNotRepaired":
     "{count, plural, one {# file} other {# files}} on the server or folder couldn't be repaired from this device. Open the item on a device that still has the file and add it again.",
-  "sync.warning.acknowledge": "Acknowledge…",
-  "sync.acknowledge.title": "Acknowledge this warning?",
+  "sync.warning.acknowledge": "I've checked…",
+  "sync.acknowledge.title": "Clear the sync warnings that need a check?",
   "sync.acknowledge.body":
-    "Only go on after you have checked the server or folder yourself. Acknowledging clears the warning and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards.",
+    "Only go on after you have checked the server or folder yourself. This clears every warning that needs a check, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards.",
   "sync.acknowledge.eachDevice": "Do this on each of your devices.",
-  "sync.acknowledge.confirm": "Acknowledge and sync",
+  "sync.acknowledge.confirm": "Clear warnings and sync",
 
   "toast.syncAttention":
     "Sync merged or repaired some items from another device. Have a look at what changed.",

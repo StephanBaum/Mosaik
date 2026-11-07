@@ -118,6 +118,20 @@ describe("mock sync: server", () => {
     expect(status.state.status).toBe("upToDate");
   });
 
+  it("tells a device with an old password that the server holds a newer one, and recovers", async () => {
+    const ipc = unlocked({ variant: "passwordChanged" });
+    expect((await value(ipc, "sync_status", null)).passwordChanged).toBe(true);
+    expect(await code(ipc, "sync_hosted_connect", connect("signIn"))).toBe("syncPasswordChanged");
+    const recover = (newPassword: string, otp: string | null) => ({ newPassword, code: otp });
+    expect(await code(ipc, "sync_recover_password", recover("nope", "123456"))).toBe("wrongCredentials");
+    expect(await code(ipc, "sync_recover_password", recover("new correct horse battery staple", null))).toBe(
+      "syncTwoFactorRequired",
+    );
+    const status = await value(ipc, "sync_recover_password", recover("new correct horse battery staple", "123456"));
+    expect(status.passwordChanged).toBe(false);
+    expect(status.state.status).toBe("upToDate");
+  });
+
   it("fails connects and syncs with the code from &syncFail", async () => {
     const ipc = unlocked({ fail: "syncRateLimited" });
     expect(await code(ipc, "sync_hosted_connect", connect("register"))).toBe("syncRateLimited");
@@ -187,7 +201,12 @@ describe("mock sync: status, warnings and acknowledge", () => {
     const before = await value(ipc, "sync_status", null);
     expect(before.warnings).toHaveLength(10);
     expect(before.state.status).toBe("error");
-    const after = await value(ipc, "sync_acknowledge", null);
+    const after = await value(ipc, "sync_acknowledge", {
+      title: "Clear the sync warnings that need a check?",
+      message: "Only if you checked.",
+      confirmLabel: "Clear warnings and sync",
+      cancelLabel: "Cancel",
+    });
     expect(after.warnings.map((warning) => warning.kind).sort()).toEqual(
       ["attachmentsNotRepaired", "freezeSuspected", "hardwareVaultsLocal", "missingFiles", "undecryptable"].sort(),
     );

@@ -587,6 +587,63 @@ pub fn join_fetch_account(
     })
 }
 
+/// What [`recover_password`] returns: the keys of the new password, the
+/// server's wrapped `AK` and the session of the login.
+pub struct Recovered {
+    /// The keys derived from the typed password under the server's
+    /// parameters ([`JoinKeys::params`] are those parameters), to hand to
+    /// [`mosaic_vault::session::UnlockedSession::adopt_remote_password`].
+    pub keys: JoinKeys,
+    /// The account values the server holds now.
+    pub account: JoinAccount,
+    /// The session (completed: the second factor, if any, was passed).
+    pub grant: LoginGrant,
+}
+
+impl core::fmt::Debug for Recovered {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Recovered")
+            .field("grant", &self.grant)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The server side of recovering a master password change that another run
+/// of this device applied to the server only (CRYPTO_SPEC §9.4, "Change
+/// applied elsewhere"): pre-login for the server's current parameters, the
+/// Argon2id derivation from the typed (new) password, an OPAQUE login, the
+/// second factor if the account has one, and `GET /v1/account`. The caller
+/// adopts the result with
+/// [`mosaic_vault::session::UnlockedSession::adopt_remote_password`], which
+/// refuses it unless it opens to the device's own account key.
+///
+/// # Errors
+/// As [`join_login`] and [`join_fetch_account`], plus
+/// [`TransportError::TwoFactorRequired`] if the account needs `totp_code`
+/// and none was given and [`Rejection::TwoFactorInvalid`].
+pub fn recover_password(
+    base: &str,
+    address: &str,
+    new_password: &MasterPassword,
+    secret_key: &SecretKey,
+    device: InstallId,
+    device_name: &str,
+    totp_code: Option<&str>,
+) -> Result<Recovered, TransportError> {
+    let mut login = join_login(base, address, new_password, secret_key, device, device_name)?;
+    if login.grant.status == LoginStatus::TwoFactorRequired {
+        let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        login.grant.expires_at_ms = login_totp(base, &login.grant.token, code)?;
+        login.grant.status = LoginStatus::Ok;
+    }
+    let account = join_fetch_account(base, &login.grant.token, &login.keys)?;
+    Ok(Recovered {
+        keys: login.keys,
+        account,
+        grant: login.grant,
+    })
+}
+
 /// Changes the account's master password on the server (CRYPTO_SPEC §9.4):
 /// a fresh login with the old `OPW`, the second factor if the account has
 /// one, OPAQUE re-registration with the new `OPW`, and one upload of the new

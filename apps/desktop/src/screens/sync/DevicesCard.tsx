@@ -3,7 +3,7 @@
  * only: it signs the device out but takes nothing from its copy). A folder has no way to lock
  * a device out, so it says what to do instead.
  */
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Chip } from "../../components/Chip.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
@@ -34,9 +34,22 @@ function RenameRow({
     setError(await onRename(name.trim()));
   }
 
+  // Esc cancels the rename (and not anything behind it).
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onCancel();
+    }
+  }
+
   return (
     <li className="row">
-      <form className="row__main stack" onSubmit={(event) => void save(event)} noValidate>
+      <form
+        className="row__main stack"
+        onSubmit={(event) => void save(event)}
+        onKeyDown={onKeyDown}
+        noValidate
+      >
         <TextField
           label={t("settings.sync.devices.renameLabel")}
           autoComplete="off"
@@ -64,13 +77,15 @@ function DeviceRow({
   device,
   now,
   canRename,
+  canRemove,
   onEdit,
   onRemove,
 }: {
   device: SyncDevice;
   now: number;
-  /** A folder can rename this device only. */
+  /** A folder can rename this device only; a signed-out device renames nothing. */
   canRename: boolean;
+  canRemove: boolean;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -79,7 +94,7 @@ function DeviceRow({
   return (
     <li className="row">
       <div className="row__main">
-        <p>
+        <p className="row__value">
           {device.name === null ? label : <UserText>{device.name}</UserText>}{" "}
           {device.current && <Chip>{t("settings.sync.devices.thisDevice")}</Chip>}
         </p>
@@ -93,6 +108,7 @@ function DeviceRow({
       </div>
       {canRename && (
         <Button
+          data-rename-for={device.deviceId}
           variant="ghost"
           size="sm"
           aria-label={t("settings.sync.devices.renameNamed", { name: label })}
@@ -101,7 +117,7 @@ function DeviceRow({
           {t("settings.sync.devices.rename")}
         </Button>
       )}
-      {device.canRemove && (
+      {canRemove && device.canRemove && (
         <Button
           variant="ghost"
           size="sm"
@@ -179,12 +195,107 @@ function RemoveDialog({
   );
 }
 
+/**
+ * Where focus goes when the control that had it is gone: the Rename button after an edit ended
+ * (saved, cancelled or Esc), the Devices heading after a device was removed.
+ */
+function useDeviceFocus(devices: readonly SyncDevice[], editing: string | null) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const afterEdit = useRef<string | null>(null);
+  const afterRemove = useRef(false);
+  useEffect(() => {
+    if (editing === null && afterEdit.current !== null) {
+      const id = afterEdit.current;
+      afterEdit.current = null;
+      Array.from(list.current?.querySelectorAll<HTMLElement>("[data-rename-for]") ?? [])
+        .find((button) => button.dataset["renameFor"] === id)
+        ?.focus();
+    }
+  }, [editing]);
+  useEffect(() => {
+    if (afterRemove.current) {
+      afterRemove.current = false;
+      heading.current?.focus();
+    }
+  }, [devices]);
+  return {
+    heading,
+    list,
+    /** The edit of this device ends: its Rename button gets focus when it is back. */
+    editEnded: (deviceId: string) => {
+      afterEdit.current = deviceId;
+    },
+    /** A device was removed: the list reloads, then the heading gets focus. */
+    removed: () => {
+      afterRemove.current = true;
+    },
+  };
+}
+
+function DeviceList({
+  devices,
+  config,
+  signedOut,
+  editing,
+  listRef,
+  onRename,
+  onEdit,
+  onStopEditing,
+  onRemove,
+}: {
+  devices: readonly SyncDevice[];
+  config: SyncConfigView;
+  signedOut: boolean;
+  editing: string | null;
+  listRef: Ref<HTMLUListElement>;
+  onRename: (device: SyncDevice, name: string) => Promise<IpcError | null>;
+  onEdit: (deviceId: string) => void;
+  onStopEditing: (deviceId: string) => void;
+  onRemove: (device: SyncDevice) => void;
+}) {
+  const now = useNow();
+  return (
+    <ul className="rows" ref={listRef}>
+      {devices.map((device) =>
+        editing === device.deviceId && !signedOut ? (
+          <RenameRow
+            key={device.deviceId}
+            device={device}
+            onRename={(name) => onRename(device, name)}
+            onCancel={() => {
+              onStopEditing(device.deviceId);
+            }}
+          />
+        ) : (
+          <DeviceRow
+            key={device.deviceId}
+            device={device}
+            now={now}
+            canRename={!signedOut && (device.current || config.kind === "hosted")}
+            canRemove={!signedOut}
+            onEdit={() => {
+              onEdit(device.deviceId);
+            }}
+            onRemove={() => {
+              onRemove(device);
+            }}
+          />
+        ),
+      )}
+    </ul>
+  );
+}
+
 export function DevicesCard({
   config,
+  signedOut,
   refreshKey,
   onRenamed,
 }: {
   config: SyncConfigView;
+  /** The server ended this device's session: renaming and removing wait for the sign-in. */
+  signedOut: boolean;
   /** Changes when a sync run finished, to read the list again. */
   refreshKey: number | null;
   /** This device's own name changed. */
@@ -192,17 +303,22 @@ export function DevicesCard({
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
-  const now = useNow();
   const { devices, error, reload } = useDevices(refreshKey);
   const [editing, setEditing] = useState<string | null>(null);
   const [removing, setRemoving] = useState<SyncDevice | null>(null);
+  const { heading, list, editEnded, removed } = useDeviceFocus(devices, editing);
+
+  function stopEditing(deviceId: string) {
+    editEnded(deviceId);
+    setEditing(null);
+  }
 
   async function rename(device: SyncDevice, name: string): Promise<IpcError | null> {
     const result = await ipc.call("sync_device_rename", { deviceId: device.deviceId, name });
     if (!result.ok) {
       return result.error;
     }
-    setEditing(null);
+    stopEditing(device.deviceId);
     reload();
     if (device.current) {
       onRenamed();
@@ -212,35 +328,21 @@ export function DevicesCard({
 
   return (
     <div className="stack">
-      <h3 className="subtitle">{t("settings.sync.devices.title")}</h3>
+      <h3 className="subtitle" ref={heading} tabIndex={-1}>
+        {t("settings.sync.devices.title")}
+      </h3>
       <ErrorAlert error={error} />
-      <ul className="rows">
-        {devices.map((device) =>
-          editing === device.deviceId ? (
-            <RenameRow
-              key={device.deviceId}
-              device={device}
-              onRename={(name) => rename(device, name)}
-              onCancel={() => {
-                setEditing(null);
-              }}
-            />
-          ) : (
-            <DeviceRow
-              key={device.deviceId}
-              device={device}
-              now={now}
-              canRename={device.current || config.kind === "hosted"}
-              onEdit={() => {
-                setEditing(device.deviceId);
-              }}
-              onRemove={() => {
-                setRemoving(device);
-              }}
-            />
-          ),
-        )}
-      </ul>
+      <DeviceList
+        devices={devices}
+        config={config}
+        signedOut={signedOut}
+        editing={editing}
+        listRef={list}
+        onRename={rename}
+        onEdit={setEditing}
+        onStopEditing={stopEditing}
+        onRemove={setRemoving}
+      />
       {config.kind === "folder" && (
         <p className="field__hint">{t("settings.sync.devices.folderNote")}</p>
       )}
@@ -248,7 +350,10 @@ export function DevicesCard({
         <RemoveDialog
           device={removing}
           needsCode={config.kind === "hosted" && config.totpEnabled}
-          onRemoved={reload}
+          onRemoved={() => {
+            removed();
+            reload();
+          }}
           onClose={() => {
             setRemoving(null);
           }}

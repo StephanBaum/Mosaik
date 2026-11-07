@@ -8,7 +8,10 @@
 //! ([`crate::keystore::SyncTokenStore`]). The server allows one session per
 //! device: every fresh login (second factor, device removal, password
 //! change) ends this device's running session, so the sync thread stops
-//! before it and starts again with the token the login granted.
+//! before it and starts again with the token the login granted. A token is
+//! saved only once its session is complete (a login that still waits for its
+//! second-factor code is held in memory, [`PendingLogin`]), and every flow
+//! drops its result if the app locked while it talked to the network.
 
 use std::time::{Duration, Instant};
 
@@ -38,6 +41,9 @@ use crate::state::{Backend, Slot};
 const PENDING_TTL: Duration = Duration::from_mins(5);
 /// Longest device name (the store's limit).
 const MAX_DEVICE_NAME: usize = 64;
+/// The longest server address and invite code the commands accept.
+const MAX_SERVER_URL: usize = 2048;
+const MAX_INVITE_CODE: usize = 128;
 
 /// What a login that waits for its code is for.
 pub(crate) enum PendingKind {
@@ -48,6 +54,9 @@ pub(crate) enum PendingKind {
         keys: JoinKeys,
         secret_key: SecretKey,
     },
+    /// A fresh login (device removal, second-factor setup) whose code was
+    /// missing or wrong: the next call with a code finishes it.
+    Fresh,
 }
 
 /// A hosted login that waits for its second-factor code.
@@ -59,6 +68,22 @@ pub(crate) struct PendingLogin {
     pub(crate) token: SessionToken,
     pub(crate) kind: PendingKind,
     pub(crate) expires: Instant,
+}
+
+#[cfg(test)]
+impl PendingLogin {
+    /// A pending login that waits for a code (tests).
+    pub(crate) fn for_tests(expires: Instant) -> Self {
+        Self {
+            url: "http://127.0.0.1:1".into(),
+            email: "alex@example.com".into(),
+            device_name: "Test".into(),
+            account: None,
+            token: mosaic_core::sync_auth::session_token(&[7u8; 32]).unwrap(),
+            kind: PendingKind::Fresh,
+            expires,
+        }
+    }
 }
 
 /// The stored hosted choice of the unlocked app.
@@ -84,15 +109,33 @@ pub(super) fn device_name(name: &str) -> IpcResult<String> {
 }
 
 fn canonical(url: &str) -> IpcResult<String> {
+    if url.len() > MAX_SERVER_URL {
+        return Err(IpcError::new(ErrorCode::InvalidInput));
+    }
     canonical_origin(url.trim()).map_err(IpcError::from)
+}
+
+/// A second-factor code: six to eight ASCII digits, checked before any
+/// network call.
+pub(super) fn valid_code(code: &str) -> IpcResult<&str> {
+    if (6..=8).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_digit()) {
+        Ok(code)
+    } else {
+        Err(IpcError::new(ErrorCode::InvalidInput))
+    }
 }
 
 fn secret_text(text: &str) -> SecretOut {
     SecretOut::new(SecretString::from(text.to_owned()))
 }
 
-fn code_of(code: Option<&SecretIn>) -> Option<&str> {
-    code.map(SecretIn::expose_secret).filter(|c| !c.is_empty())
+/// The code of an optional field: absent or empty is `None`, anything else
+/// must be a valid code.
+pub(super) fn code_of(code: Option<&SecretIn>) -> IpcResult<Option<&str>> {
+    code.map(SecretIn::expose_secret)
+        .filter(|c| !c.is_empty())
+        .map(valid_code)
+        .transpose()
 }
 
 impl Backend {
@@ -122,10 +165,24 @@ impl Backend {
 
     /// `sync_check_server`.
     ///
+    /// Allowed only while unlocked, or while the app has no account yet (the
+    /// onboarding): a locked app with an account would otherwise let the
+    /// webview probe addresses.
+    ///
     /// # Errors
-    /// `syncServerInvalid`, `syncServerInsecure`, `syncServerUnreachable`,
-    /// `syncServerMismatch`, `syncServerIncompatible`.
+    /// `locked`, `syncServerInvalid`, `syncServerInsecure`,
+    /// `syncServerUnreachable`, `syncServerMismatch`, `syncServerIncompatible`.
     pub fn sync_check_server(&self, request: &CheckServerRequest) -> IpcResult<ServerCheck> {
+        {
+            let slot = self.slot()?;
+            match &*slot {
+                Slot::Unlocked(_) => {}
+                Slot::Locked(locked) if !locked.has_account()? => {}
+                Slot::Locked(_) => return Err(IpcError::LOCKED),
+                Slot::Unavailable(code) => return Err(IpcError::new(*code)),
+                Slot::Taken => return Err(IpcError::new(ErrorCode::Busy)),
+            }
+        }
         let url = canonical(&request.server_url)?;
         let info = HttpTransport::info(&url)?;
         Ok(ServerCheck {
@@ -149,10 +206,19 @@ impl Backend {
     pub fn sync_hosted_connect(&self, request: HostedConnectRequest) -> IpcResult<SyncOverview> {
         let device = device_name(&request.device_name)?;
         let url = canonical(&request.server_url)?;
+        let invite = request
+            .invite_code
+            .as_ref()
+            .map(SecretIn::expose_secret)
+            .filter(|c| !c.is_empty());
+        if invite.is_some_and(|c| c.len() > MAX_INVITE_CODE) {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
         let password = master_password(request.password);
         if password.expose_secret().is_empty() {
             return Err(IpcError::new(ErrorCode::EmptyPassword));
         }
+        let epoch = self.sync.epoch();
         // Counts wrong passwords towards the five-failure lock, like every
         // check of the master password.
         self.verify_master_only(&password)?;
@@ -181,11 +247,6 @@ impl Backend {
             )
         };
         drop(password);
-        let invite = request
-            .invite_code
-            .as_ref()
-            .map(SecretIn::expose_secret)
-            .filter(|c| !c.is_empty());
         let grant = match request.mode {
             HostedMode::Register => {
                 hosted::register(&url, &email, invite, &bootstrap, &opw, install, &device)?;
@@ -196,9 +257,13 @@ impl Backend {
                 if params.account_id != account {
                     return Err(IpcError::new(ErrorCode::SyncAccountMismatch));
                 }
-                hosted::login(&url, &email, account, &opw, install, &device)?
+                // The password was just verified against this device: a login
+                // that fails now means the server holds another one.
+                hosted::login(&url, &email, account, &opw, install, &device)
+                    .map_err(|e| self.password_changed_error(e))?
             }
         };
+        self.sync.check_epoch(epoch)?;
         if grant.status == LoginStatus::TwoFactorRequired {
             self.sync.set_pending(Some(PendingLogin {
                 url,
@@ -211,25 +276,50 @@ impl Backend {
             }));
             return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
         }
-        self.finish_connect(account, &url, &email, &device, &grant.token)
+        self.finish_connect(epoch, account, &url, &email, &device, &grant.token)
+    }
+
+    /// The error for a failed hosted call after the local password was
+    /// verified: a login the server refuses then means the server holds a
+    /// master password this device does not know. The flag lets the settings
+    /// offer [`Backend::sync_recover_password`].
+    pub(super) fn password_changed_error(&self, error: TransportError) -> IpcError {
+        if error == TransportError::Rejected(Rejection::LoginFailed) {
+            self.sync.update_view(|view| {
+                view.password_changed = true;
+                true
+            });
+            self.emit_sync_state();
+            IpcError::new(ErrorCode::SyncPasswordChanged)
+        } else {
+            error.into()
+        }
     }
 
     /// The end of a connect: the token is kept, the choice is stored, the
-    /// local data is queued for the backend and the thread starts.
+    /// local data is queued for the backend and the thread starts. A device
+    /// that signs in again to the same server keeps its sync state (cursors,
+    /// checkpoints, observations, strikes, halt and findings): only the token
+    /// is replaced. Another server starts from a clean sync state.
     fn finish_connect(
         &self,
+        epoch: u64,
         account: AccountId,
         url: &str,
         email: &str,
         device: &str,
         token: &SessionToken,
     ) -> IpcResult<SyncOverview> {
+        self.sync.check_epoch(epoch)?;
         let stored = StoredToken::from_session(token);
-        self.sync_tokens.save(account, &stored)?;
+        self.sync.save_token(self, account, &stored)?;
         let stored_ok = self.with_unlocked(|session| {
             if session.account_id() != account {
                 return Err(IpcError::LOCKED);
             }
+            let same_server = session.sync_config()?.is_some_and(|c| {
+                c.kind == SyncKind::Hosted && c.server_url.as_deref() == Some(url)
+            });
             session.set_sync_config(Some(&SyncConfig {
                 kind: SyncKind::Hosted,
                 server_url: Some(url.to_owned()),
@@ -237,13 +327,19 @@ impl Backend {
                 folder_path: None,
                 device_name: device.to_owned(),
             }))?;
-            session.reset_sync_state()?;
+            if !same_server {
+                session.reset_sync_state()?;
+            }
             Ok(())
         });
         if let Err(error) = stored_ok {
             let _ = self.sync_tokens.delete(account);
             return Err(error);
         }
+        self.sync.update_view(|view| {
+            view.password_changed = false;
+            true
+        });
         // Best effort: whether the account has a second factor.
         if let Ok(info) = hosted::account_info(url, &stored) {
             self.sync.update_view(|view| {
@@ -262,11 +358,13 @@ impl Backend {
     /// `syncTwoFactorInvalid` (the login keeps waiting), and the
     /// transport's `sync*` codes.
     pub fn sync_hosted_two_factor(&self, request: &CodeRequest) -> IpcResult<SyncOverview> {
+        let code = valid_code(request.code.expose_secret())?;
+        let epoch = self.sync.epoch();
         let pending = self.take_waiting_login(false)?;
         let (Some(account), PendingKind::Connect) = (pending.account, &pending.kind) else {
             return Err(IpcError::new(ErrorCode::SyncSignedOut));
         };
-        match hosted::login_totp(&pending.url, &pending.token, request.code.expose_secret()) {
+        match hosted::login_totp(&pending.url, &pending.token, code) {
             Ok(_) => {}
             Err(error) => {
                 if error == TransportError::Rejected(Rejection::TwoFactorInvalid) {
@@ -276,6 +374,7 @@ impl Backend {
             }
         }
         self.finish_connect(
+            epoch,
             account,
             &pending.url,
             &pending.email,
@@ -291,7 +390,10 @@ impl Backend {
             .take_pending()
             .ok_or(IpcError::new(ErrorCode::SyncSignedOut))?;
         let is_join = matches!(pending.kind, PendingKind::Join { .. });
-        if pending.expires <= self.sync.now() || is_join != join {
+        if pending.expires <= self.sync.now()
+            || is_join != join
+            || matches!(pending.kind, PendingKind::Fresh)
+        {
             return Err(IpcError::new(ErrorCode::SyncSignedOut));
         }
         Ok(pending)
@@ -370,6 +472,7 @@ impl Backend {
     /// `syncSignedOut`, `syncTwoFactorInvalid` (the login keeps waiting), and
     /// the errors of `join_hosted`.
     pub fn join_hosted_two_factor(&self, request: &CodeRequest) -> IpcResult<JoinOutcome> {
+        let code = valid_code(request.code.expose_secret())?;
         let pending = self.take_waiting_login(true)?;
         let PendingLogin {
             url,
@@ -383,7 +486,7 @@ impl Backend {
         let PendingKind::Join { keys, secret_key } = kind else {
             return Err(IpcError::new(ErrorCode::SyncSignedOut));
         };
-        if let Err(error) = hosted::login_totp(&url, &token, request.code.expose_secret()) {
+        if let Err(error) = hosted::login_totp(&url, &token, code) {
             if error == TransportError::Rejected(Rejection::TwoFactorInvalid) {
                 self.sync.set_pending(Some(PendingLogin {
                     url,
@@ -586,9 +689,10 @@ impl Backend {
     /// `syncTwoFactorInvalid`, `syncFreshLoginExpired` (more than five
     /// minutes since `sync_totp_begin`), and the transport's `sync*` codes.
     pub fn sync_totp_confirm(&self, request: &CodeRequest) -> IpcResult<()> {
+        let code = valid_code(request.code.expose_secret())?;
         let ctx = self.hosted_ctx()?;
         let token = self.stored_token(ctx.account)?;
-        hosted::totp_confirm(&ctx.url, &token, request.code.expose_secret())?;
+        hosted::totp_confirm(&ctx.url, &token, code)?;
         self.sync.update_view(|view| {
             view.totp_enabled = Some(true);
             true
@@ -606,7 +710,7 @@ impl Backend {
     /// `syncTwoFactorRequired`, `syncTwoFactorInvalid`, `wrongCredentials`, and
     /// the transport's `sync*` codes.
     pub fn sync_totp_disable(&self, request: &TotpDisableRequest) -> IpcResult<()> {
-        let code = request.code.expose_secret();
+        let code = valid_code(request.code.expose_secret())?;
         self.with_fresh_hosted(&request.password, Some(&request.code), true, |fresh| {
             match hosted::totp_disable(&fresh.url, &fresh.token, code) {
                 Err(TransportError::Rejected(Rejection::TwoFactorInvalid)) if fresh.code_spent => {
@@ -625,8 +729,14 @@ impl Backend {
     /// A call that needs a fresh login of this device. The master password
     /// is checked first (and counted), the sync thread stops (the login ends
     /// its session), the login runs (with the second-factor code when the
-    /// account has one), the token it grants is kept at once, `op` runs, and
-    /// the thread starts again with the token in the keystore.
+    /// account has one), `op` runs, and the thread starts again.
+    ///
+    /// The token the login grants is saved only once its session is complete:
+    /// a login that waits for a code that was missing or wrong is held in
+    /// memory ([`PendingKind::Fresh`]) and the next call with a code finishes
+    /// it, without a second login. Whether the account has a second factor is
+    /// read first when it is not known, so a missing code is refused before
+    /// the login ends this device's session.
     fn with_fresh_hosted<R>(
         &self,
         password: &SecretIn,
@@ -635,14 +745,15 @@ impl Backend {
         op: impl FnOnce(&Fresh) -> Result<R, TransportError>,
     ) -> IpcResult<R> {
         let ctx = self.hosted_ctx()?;
+        let epoch = self.sync.epoch();
         let mp = MasterPassword::new(password.expose_secret().to_owned());
         if mp.expose_secret().is_empty() {
             return Err(IpcError::new(ErrorCode::EmptyPassword));
         }
         self.verify_master_only(&mp)?;
-        let code = code_of(code);
+        let code = code_of(code)?;
         let reuse = reuse && self.sync.fresh_recently();
-        if !reuse && self.sync.view().totp_enabled == Some(true) && code.is_none() {
+        if !reuse && code.is_none() && self.totp_enabled_of(&ctx) {
             return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
         }
         let opw: Option<OpaquePassword> = if reuse {
@@ -655,47 +766,109 @@ impl Backend {
         };
         drop(mp);
         self.sync.stop();
-        let result = (|| {
-            let (token, code_spent) = match &opw {
-                None => (
-                    self.sync_tokens
-                        .load(ctx.account)
-                        .ok()
-                        .flatten()
-                        .ok_or(TransportError::Unauthorized)?,
-                    false,
-                ),
-                Some(opw) => {
-                    let grant = hosted::login(
-                        &ctx.url,
-                        &ctx.email,
-                        ctx.account,
-                        opw,
-                        ctx.install,
-                        &ctx.device_name,
-                    )?;
-                    // The login ended this device's older session: keep the
-                    // new one before anything else can fail.
-                    let token = StoredToken::from_session(&grant.token);
-                    let _ = self.sync_tokens.save(ctx.account, &token);
-                    let mut spent = false;
-                    if grant.status == LoginStatus::TwoFactorRequired {
-                        let code = code.ok_or(TransportError::TwoFactorRequired)?;
-                        hosted::login_totp(&ctx.url, &grant.token, code)?;
-                        spent = true;
-                    }
-                    self.sync.note_fresh();
-                    (token, spent)
-                }
-            };
-            op(&Fresh {
+        let result = self
+            .fresh_session(&ctx, epoch, opw.as_ref(), code)
+            .and_then(|fresh| op(&fresh).map_err(IpcError::from));
+        self.sync_restart();
+        result
+    }
+
+    /// Whether the sync account has a second factor: the last known answer,
+    /// else the server's (with the stored token), else "no".
+    fn totp_enabled_of(&self, ctx: &HostedCtx) -> bool {
+        if let Some(known) = self.sync.view().totp_enabled {
+            return known;
+        }
+        let asked = self
+            .sync_tokens
+            .load(ctx.account)
+            .ok()
+            .flatten()
+            .and_then(|token| hosted::account_info(&ctx.url, &token).ok());
+        asked.is_some_and(|info| {
+            self.sync.update_view(|view| {
+                view.totp_enabled = Some(info.totp_enabled);
+                true
+            });
+            info.totp_enabled
+        })
+    }
+
+    /// The session of a fresh call: the stored one (`opw` is `None`), or a
+    /// new login that is completed with `code` when the account asks for one
+    /// and saved to the keystore only then.
+    fn fresh_session(
+        &self,
+        ctx: &HostedCtx,
+        epoch: u64,
+        opw: Option<&OpaquePassword>,
+        code: Option<&str>,
+    ) -> IpcResult<Fresh> {
+        let Some(opw) = opw else {
+            let token = self
+                .sync_tokens
+                .load(ctx.account)
+                .ok()
+                .flatten()
+                .ok_or(TransportError::Unauthorized)?;
+            return Ok(Fresh {
                 url: ctx.url.clone(),
                 token,
-                code_spent,
-            })
-        })();
-        self.sync_restart();
-        result.map_err(IpcError::from)
+                code_spent: false,
+            });
+        };
+        // A login that waits for its code from an earlier call, or a new one.
+        let (token, needs_code) =
+            if let Some(token) = code.and_then(|_| self.sync.take_fresh_pending(&ctx.url)) {
+                (token, true)
+            } else {
+                let grant = hosted::login(
+                    &ctx.url,
+                    &ctx.email,
+                    ctx.account,
+                    opw,
+                    ctx.install,
+                    &ctx.device_name,
+                )
+                .map_err(|e| self.password_changed_error(e))?;
+                (grant.token, grant.status == LoginStatus::TwoFactorRequired)
+            };
+        if needs_code {
+            let Some(code) = code else {
+                self.hold_fresh(ctx, token);
+                return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
+            };
+            if let Err(error) = hosted::login_totp(&ctx.url, &token, code) {
+                if error == TransportError::Rejected(Rejection::TwoFactorInvalid) {
+                    self.hold_fresh(ctx, token);
+                }
+                return Err(error.into());
+            }
+        }
+        // The session is complete: only now does the keystore change. A lock
+        // meanwhile drops the result and writes nothing.
+        self.sync.check_epoch(epoch)?;
+        let stored = StoredToken::from_session(&token);
+        self.sync.save_token(self, ctx.account, &stored)?;
+        self.sync.note_fresh();
+        Ok(Fresh {
+            url: ctx.url.clone(),
+            token: stored,
+            code_spent: needs_code,
+        })
+    }
+
+    /// Keeps a login that waits for a code, for the next call.
+    fn hold_fresh(&self, ctx: &HostedCtx, token: SessionToken) {
+        self.sync.set_pending(Some(PendingLogin {
+            url: ctx.url.clone(),
+            email: ctx.email.clone(),
+            device_name: ctx.device_name.clone(),
+            account: Some(ctx.account),
+            token,
+            kind: PendingKind::Fresh,
+            expires: self.sync.now() + PENDING_TTL,
+        }));
     }
 
     // ---- master password -----------------------------------------------------------
@@ -705,13 +878,20 @@ impl Backend {
     /// one, the new registration and the re-wrapped account key), the device
     /// afterwards. An unreachable server refuses the change
     /// (`syncPasswordNeedsServer`): nothing changed anywhere.
+    ///
+    /// The local commit runs at once after the server accepted. The token the
+    /// change brought is kept after it and is not fatal: if the keystore
+    /// refuses it, the change stands and the device is signed out of sync (it
+    /// signs in again). If the commit itself fails (the app locked past the
+    /// three-minute deferral), the server holds the new password and the
+    /// error is `syncPasswordChanged`: `sync_recover_password` finishes it.
     pub(super) fn change_password_hosted(
         &self,
         ctx: &HostedCtx,
         request: &ChangePasswordRequest,
         prepared: mosaic_vault::session::PreparedPasswordChange,
     ) -> IpcResult<mosaic_vault::session::PasswordChanged> {
-        let code = code_of(request.code.as_ref());
+        let code = code_of(request.code.as_ref())?;
         if self.sync.view().totp_enabled == Some(true) && code.is_none() {
             return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
         }
@@ -726,11 +906,19 @@ impl Backend {
         );
         let outcome = match result {
             Ok(changed) => {
-                // The change revoked every other session of the account; this
-                // device keeps the fresh one it got back.
+                // The device commits first; the change revoked every other
+                // session of the account.
+                let committed = self
+                    .with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?))
+                    .map_err(|_| IpcError::new(ErrorCode::SyncPasswordChanged));
                 let token = StoredToken::from_session(&changed.grant.token);
-                self.sync_tokens.save(ctx.account, &token)?;
-                self.with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?))
+                if self.sync.save_token(self, ctx.account, &token).is_err() {
+                    // The token the keystore refused is not the old one
+                    // either (the change ended that session): signed out.
+                    let _ = self.sync_tokens.delete(ctx.account);
+                    self.sync_force_signed_out();
+                }
+                committed
             }
             Err(TransportError::Unreachable | TransportError::Timeout) => {
                 Err(IpcError::new(ErrorCode::SyncPasswordNeedsServer))

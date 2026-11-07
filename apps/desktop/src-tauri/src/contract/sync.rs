@@ -160,6 +160,9 @@ pub struct SyncOverview {
     pub state: SyncState,
     /// What the user should know.
     pub warnings: Vec<SyncWarningView>,
+    /// The server (or the folder) holds a master password this device does
+    /// not know: `sync_recover_password` brings it in (CRYPTO_SPEC §9.4).
+    pub password_changed: bool,
 }
 
 /// `sync_check_server`.
@@ -358,6 +361,35 @@ pub enum JoinOutcome {
     TwoFactorRequired,
 }
 
+/// `sync_recover_password`: the master password the server or the folder
+/// holds now (changed by an earlier run of this device that did not finish).
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecoverPasswordRequest {
+    /// The new master password.
+    pub new_password: SecretIn,
+    /// A current second-factor code, when the sync account has one.
+    pub code: Option<SecretIn>,
+}
+
+/// `sync_acknowledge`: the text of the native confirmation (the webview
+/// owns the translation; Rust owns the dialog, so the confirmation cannot be
+/// skipped).
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcknowledgeRequest {
+    /// The dialog's title.
+    pub title: String,
+    /// The risk and the advice to do this on each device.
+    pub message: String,
+    /// The confirming button.
+    pub confirm_label: String,
+    /// The cancelling button.
+    pub cancel_label: String,
+}
+
 /// `change_master_password`.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
@@ -440,6 +472,7 @@ pub(crate) mod samples {
                     error: None,
                 },
                 warnings: vec![],
+                password_changed: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -450,6 +483,7 @@ pub(crate) mod samples {
                 }),
                 state: state(SyncStatus::UpToDate),
                 warnings: vec![],
+                password_changed: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Folder {
@@ -458,6 +492,7 @@ pub(crate) mod samples {
                 }),
                 state: state(SyncStatus::Syncing),
                 warnings: warnings(),
+                password_changed: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -472,6 +507,7 @@ pub(crate) mod samples {
                     error: Some(ErrorCode::SyncSignedOut),
                 },
                 warnings: vec![],
+                password_changed: true,
             },
         ]
     }

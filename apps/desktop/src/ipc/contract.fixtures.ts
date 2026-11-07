@@ -80,6 +80,7 @@ export const fixtures = {
     "sync_now",
     "sync_disconnect",
     "sync_acknowledge",
+    "sync_recover_password",
     "sync_devices",
     "sync_device_rename",
     "sync_device_remove",
@@ -248,6 +249,7 @@ export const fixtures = {
       "syncDeviceIsCurrent",
       "syncChoiceExpired",
       "syncFreshLoginExpired",
+      "syncPasswordChanged",
       "busy",
       "internal"
     ],
@@ -777,6 +779,9 @@ export const fixtures = {
     },
     {
       "code": "syncFreshLoginExpired"
+    },
+    {
+      "code": "syncPasswordChanged"
     },
     {
       "code": "busy"
@@ -1660,7 +1665,12 @@ export const fixtures = {
       }
     ],
     "sync_acknowledge": [
-      null
+      {
+        "cancelLabel": "Cancel",
+        "confirmLabel": "Clear warnings and sync",
+        "message": "Only do this if you checked. Do this on each of your devices.",
+        "title": "Clear the sync warnings that need a check?"
+      }
     ],
     "sync_check_server": [
       {
@@ -1723,6 +1733,16 @@ export const fixtures = {
     ],
     "sync_pick_folder": [
       null
+    ],
+    "sync_recover_password": [
+      {
+        "code": null,
+        "newPassword": "a new master password"
+      },
+      {
+        "code": "492039",
+        "newPassword": "a new master password"
+      }
     ],
     "sync_status": [
       null
@@ -3459,6 +3479,7 @@ export const fixtures = {
     "sync_acknowledge": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3474,6 +3495,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3487,6 +3509,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3544,6 +3567,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3605,6 +3629,7 @@ export const fixtures = {
     "sync_disconnect": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3620,6 +3645,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3633,6 +3659,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3690,6 +3717,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3701,6 +3729,7 @@ export const fixtures = {
     "sync_folder_connect": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3716,6 +3745,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3729,6 +3759,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3786,6 +3817,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3797,6 +3829,7 @@ export const fixtures = {
     "sync_hosted_connect": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3812,6 +3845,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3825,6 +3859,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3882,6 +3917,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3893,6 +3929,7 @@ export const fixtures = {
     "sync_hosted_two_factor": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3908,6 +3945,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3921,6 +3959,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3978,6 +4017,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3989,6 +4029,7 @@ export const fixtures = {
     "sync_now": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -4004,6 +4045,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4017,6 +4059,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4074,6 +4117,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -4105,9 +4149,10 @@ export const fixtures = {
         "displayPath": "D:\\Documents"
       }
     ],
-    "sync_status": [
+    "sync_recover_password": [
       {
         "config": null,
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -4123,6 +4168,7 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": true
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4136,6 +4182,7 @@ export const fixtures = {
           "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
           "kind": "folder"
         },
+        "passwordChanged": false,
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4193,6 +4240,107 @@ export const fixtures = {
           "serverUrl": "https://sync.example.com",
           "totpEnabled": false
         },
+        "passwordChanged": true,
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_status": [
+      {
+        "config": null,
+        "passwordChanged": false,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "passwordChanged": false,
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "passwordChanged": false,
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "passwordChanged": true,
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,

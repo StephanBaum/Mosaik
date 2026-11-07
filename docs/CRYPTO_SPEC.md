@@ -665,6 +665,23 @@ session token alone therefore cannot lock the user out.
   `OPW`; if the account's wrapped AK on the server is byte-equal to the one
   it prepared, the change went through and the device commits it locally.
   Any other outcome is the original error.
+- **Change applied elsewhere.** The device can also lose a change without
+  any retry that could see it: it was locked, closed or killed between the
+  server accepting the change and its own commit. The server (or the folder's
+  account file) then holds the new password and its wrapping of AK, the
+  device the old ones. The user types the new password. The device derives
+  `KEK` and `OPW` from it and the Secret Key under the **backend's** current
+  parameters (the same derivation as a join, §5.4), logs in with `OPW` (and
+  the second factor if enabled) and fetches the wrapped AK. It adopts the
+  change only if that wrapping opens under the derived `KEK` **and the AK it
+  yields equals this unlocked session's own AK** (constant-time comparison).
+  Then it stores the backend's parameters and wrapping in the same
+  transaction as a local change commit (quick unlock removed, §6.2). Any
+  other outcome (wrong password, a wrapping of another key, parameters that
+  do not belong to the keys) stores nothing. This adds no primitive: it is
+  the join derivation plus an equality check, and it cannot move the device
+  to another account key, so a malicious server gains nothing from it that a
+  malicious server could not already do by refusing the login.
 
 ## 10. Sync protocol security
 

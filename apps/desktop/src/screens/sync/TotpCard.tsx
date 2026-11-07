@@ -4,7 +4,7 @@
  * text: there is no QR component) and a code from the authenticator app; turning it off takes
  * the password and a code.
  */
-import { useState, type SyntheticEvent } from "react";
+import { useRef, useState, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
@@ -15,14 +15,19 @@ import type { IpcError, TotpSetupInfo } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { PasswordDialog } from "./PasswordDialog.tsx";
 
+/** What a hidden secret looks like to the snapshot painter (the same text as `SecretField`). */
+const MASK = "\u2022".repeat(16);
+
 function SetupDialog({
   setup,
   onDone,
   onClose,
+  returnFocus,
 }: {
   setup: TotpSetupInfo;
   onDone: () => void;
   onClose: () => void;
+  returnFocus: () => HTMLElement | null;
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -45,7 +50,7 @@ function SetupDialog({
   }
 
   return (
-    <Dialog title={t("settings.sync.totp.beginTitle")} onClose={onClose}>
+    <Dialog title={t("settings.sync.totp.beginTitle")} onClose={onClose} returnFocus={returnFocus}>
       <form className="stack" onSubmit={(event) => void confirm(event)} noValidate>
         <p className="body muted">{t("settings.sync.totp.setupBody")}</p>
         <TextField
@@ -53,6 +58,8 @@ function SetupDialog({
           mono
           readOnly
           autoComplete="off"
+          data-secret=""
+          data-mask={MASK}
           value={setup.secret}
           onFocus={(event) => {
             event.target.select();
@@ -87,6 +94,7 @@ export function TotpCard({ enabled, onChanged }: { enabled: boolean; onChanged: 
   const toast = useToast();
   const [asking, setAsking] = useState<"begin" | "disable" | null>(null);
   const [setup, setSetup] = useState<TotpSetupInfo | null>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="stack">
@@ -97,6 +105,7 @@ export function TotpCard({ enabled, onChanged }: { enabled: boolean; onChanged: 
           {t(enabled ? "settings.sync.totp.on" : "settings.sync.totp.off")}
         </p>
         <Button
+          ref={toggle}
           onClick={() => {
             setAsking(enabled ? "disable" : "begin");
           }}
@@ -152,6 +161,7 @@ export function TotpCard({ enabled, onChanged }: { enabled: boolean; onChanged: 
           onClose={() => {
             setSetup(null);
           }}
+          returnFocus={() => toggle.current}
         />
       )}
     </div>

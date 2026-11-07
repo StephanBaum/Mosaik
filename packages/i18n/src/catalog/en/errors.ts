@@ -145,7 +145,7 @@ export const errors = {
   "error.syncInviteInvalid":
     "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
   "error.syncAccountExists":
-    "A sync account for this account already exists on that server. Choose Sign in instead.",
+    "You already have a sync account on this server. Choose Sign in instead.",
   "error.syncAccountMismatch":
     "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
   "error.syncTwoFactorRequired":
@@ -174,4 +174,6 @@ export const errors = {
     "The folder choice timed out. Choose the folder again.",
   "error.syncFreshLoginExpired":
     "Your password check timed out. Enter your master password again.",
+  "error.syncPasswordChanged":
+    "Your master password was changed on the server or in the folder. Enter the new one below.",
 } as const satisfies Record<string, string>;

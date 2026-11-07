@@ -21,7 +21,7 @@
  * variants seed two passkeys for example.com.
  *
  * Sync (M6, `?mock=unlocked` shows Settings > Sync): `&sync=<variant>` seeds the sync state:
- * none (default: not set up), hosted, hostedNoTotp, folder, syncing, offline, error, signedOut,
+ * none (default: not set up), hosted, hostedNoTotp, folder, syncing, offline, error, signedOut, passwordChanged,
  * and the warnings rollback, identity, serverInconsistent, serverRollback, noCommonView, freeze,
  * missingFiles, undecryptable, hwLocal, notRepaired, allWarnings. `&syncServer=open|invite|closed`
  * is what `sync_check_server` answers (the invite code is `MOCK-INVITE`), `&syncFolder=empty|

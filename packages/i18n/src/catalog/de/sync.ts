@@ -13,13 +13,13 @@ export const sync = {
   "settings.sync.notSetUp":
     "Die Synchronisierung ist aus. Deine Tresore liegen nur auf diesem Gerät.",
   "settings.sync.deviceName": "Name dieses Geräts",
-  "settings.sync.deviceName.default": "Mosaic auf {platform}",
+  "settings.sync.deviceName.default": "Mosaic unter {platform}",
   "settings.sync.password": "Master-Passwort",
   "settings.sync.code": "6-stelliger Code",
 
   "settings.sync.server.title": "Mosaic-Server",
   "settings.sync.server.body":
-    "Synchronisiere über einen Mosaic-Server, den du oder jemand, dem du vertraust, betreibt.",
+    "Synchronisiere über einen Mosaic-Server, den du selbst betreibst oder dessen Betreiber du vertraust.",
   "settings.sync.server.url": "Serveradresse",
   "settings.sync.server.urlHint": "Zum Beispiel https://sync.example.com",
   "settings.sync.server.check": "Server prüfen",
@@ -30,13 +30,16 @@ export const sync = {
     "Für ein Sync-Konto auf diesem Server brauchst du einen Einladungscode.",
   "settings.sync.server.registration.closed":
     "Dieser Server nimmt keine neuen Sync-Konten an. Du kannst dich aber bei einem bestehenden anmelden.",
+  "settings.sync.server.choice.label": "Sync-Konto",
+  "settings.sync.server.choice.signIn": "Ich habe ein Sync-Konto",
+  "settings.sync.server.choice.create": "Eins erstellen",
   "settings.sync.server.invite": "Einladungscode",
   "settings.sync.server.create": "Sync-Konto erstellen",
   "settings.sync.server.signIn": "Anmelden",
   "settings.sync.server.signInAgain": "Erneut anmelden",
   "settings.sync.server.working": "Verbindung wird hergestellt…",
   "settings.sync.server.sees":
-    "Der Server sieht nur verschlüsselte Daten, die E-Mail-Adresse deines Kontos und wann du synchronisierst. Dein Master-Passwort und dein Secret Key bleiben ihm verborgen.",
+    "Der Server sieht nur verschlüsselte Daten, die E-Mail-Adresse deines Kontos und wann du synchronisierst. Dein Master-Passwort und dein Secret Key bekommt er nie zu sehen.",
 
   "settings.sync.twoFactor.title": "Code eingeben",
   "settings.sync.twoFactor.body":
@@ -56,11 +59,13 @@ export const sync = {
   "settings.sync.folder.connect": "Ordner verbinden",
   "settings.sync.folder.working": "Verbindung wird hergestellt…",
   "settings.sync.folder.sees":
-    "Dein Cloud-Anbieter und alle, die Zugriff auf den Ordner haben, sehen nur verschlüsselte Daten, die Konto-ID und wann sich Dateien ändern. Dein Master-Passwort und dein Secret Key bleiben ihnen verborgen.",
+    "Dein Cloud-Anbieter und alle, die Zugriff auf den Ordner haben, sehen nur verschlüsselte Daten, die Konto-ID und wann sich Dateien ändern. Dein Master-Passwort und dein Secret Key bekommen sie nie zu sehen.",
 
   "settings.sync.status.label": "Status",
   "settings.sync.lastSynced": "Zuletzt synchronisiert {when}",
   "settings.sync.neverSynced": "Noch nicht synchronisiert",
+  "settings.sync.offline":
+    "Du bist offline. Deine Änderungen sind auf diesem Gerät gespeichert und werden synchronisiert, sobald du wieder online bist.",
   "settings.sync.now": "Jetzt synchronisieren",
   "settings.sync.backend.server": "Server",
   "settings.sync.backend.account": "Sync-Konto",
@@ -69,6 +74,12 @@ export const sync = {
   "settings.sync.signedOut.title": "Dieses Gerät ist abgemeldet",
   "settings.sync.signedOut.body":
     "Der Server hat die Sitzung dieses Geräts beendet. Melde dich erneut an, um weiter zu synchronisieren. Deine Änderungen sind auf diesem Gerät sicher.",
+
+  "settings.sync.recover.title": "Dein Master-Passwort wurde geändert",
+  "settings.sync.recover.body":
+    "Auf dem Server oder im Ordner liegt ein neueres Master-Passwort als auf diesem Gerät. Gib das neue Master-Passwort ein, um dieses Gerät auf den neuesten Stand zu bringen. Deine Tresore und dein Secret Key bleiben gleich.",
+  "settings.sync.recover.password": "Neues Master-Passwort",
+  "settings.sync.recover.submit": "Dieses Gerät aktualisieren",
 
   "settings.sync.disconnect": "Trennen…",
   "settings.sync.disconnect.title": "Synchronisierung trennen?",
@@ -121,27 +132,27 @@ export const sync = {
   "sync.warning.missingFiles":
     "Dateien von {device} fehlen im Ordner. Lass deinen Cloud-Dienst fertig synchronisieren und synchronisiere dann erneut.",
   "sync.warning.noCommonView":
-    "Zwischen diesem Gerät und {device}: Seit zwei Tagen haben beide nicht dieselben Serverdaten gesehen. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.",
+    "Seit zwei Tagen stimmen die Serverdaten auf diesem Gerät und auf {device} nicht überein. Der Server zeigt ihnen vielleicht unterschiedliche Versionen.",
   "sync.warning.rollbackDetected":
-    "Deine Sync-Daten wirken älter als dieses Gerät. Prüfe den Server oder Ordner und synchronisiere dann erneut.",
+    "Deine Sync-Daten wirken älter als dieses Gerät. Prüfe den Server oder Ordner und wähle dann „Ich habe es geprüft“.",
   "sync.warning.identityDuplicated":
-    "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Geräts, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und bestätige dann.",
+    "Eine andere Kopie von Mosaic schreibt unter der Identität dieses Geräts, zum Beispiel nach dem Wiederherstellen einer Sicherung. Die Synchronisierung ist pausiert. Stelle sicher, dass nur eine Kopie benutzt wird, und wähle dann „Ich habe es geprüft“.",
   "sync.warning.serverInconsistent":
-    "Der Server hat diesem Gerät andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und bestätige dann.",
+    "Der Server hat diesem Gerät andere Daten gezeigt als einem anderen Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
   "sync.warning.serverRollback":
-    "Die Kopie von {vault} auf dem Server ist älter als die auf diesem Gerät. Prüfe den Server und bestätige dann.",
+    "Die Kopie von {vault} auf dem Server ist älter als die auf diesem Gerät. Prüfe den Server und wähle dann „Ich habe es geprüft“.",
   "sync.warning.undecryptable":
     "{count, plural, one {# empfangener Eintrag konnte} other {# empfangene Einträge konnten}} auf diesem Gerät nicht gelesen werden. Aktualisiere Mosaic auf allen deinen Geräten und synchronisiere dann erneut.",
   "sync.warning.hardwareVaultsLocal":
     "Hardwaregeschützte Tresore bleiben auf diesem Gerät. {count, plural, one {# Tresor wird} other {# Tresore werden}} nicht synchronisiert.",
   "sync.warning.attachmentsNotRepaired":
     "{count, plural, one {# Datei} other {# Dateien}} auf dem Server oder im Ordner {count, plural, one {konnte} other {konnten}} von diesem Gerät aus nicht repariert werden. Öffne den Eintrag auf einem Gerät, das die Datei noch hat, und füge sie erneut hinzu.",
-  "sync.warning.acknowledge": "Bestätigen…",
-  "sync.acknowledge.title": "Diese Warnung bestätigen?",
+  "sync.warning.acknowledge": "Ich habe es geprüft…",
+  "sync.acknowledge.title": "Sync-Warnungen zum Prüfen ausblenden?",
   "sync.acknowledge.body":
-    "Mach erst weiter, wenn du den Server oder Ordner selbst geprüft hast. Mit dem Bestätigen verschwindet die Warnung und die Synchronisierung läuft weiter. Wurden deine Daten tatsächlich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen.",
+    "Mach erst weiter, wenn du den Server oder Ordner selbst geprüft hast. Damit verschwinden alle Warnungen, die eine Prüfung brauchen, und die Synchronisierung läuft weiter. Wurden deine Daten tatsächlich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen.",
   "sync.acknowledge.eachDevice": "Mach das auf jedem deiner Geräte.",
-  "sync.acknowledge.confirm": "Bestätigen und synchronisieren",
+  "sync.acknowledge.confirm": "Warnungen ausblenden und synchronisieren",
 
   "toast.syncAttention":
     "Die Synchronisierung hat einige Einträge von einem anderen Gerät zusammengeführt oder repariert. Sieh nach, was sich geändert hat.",

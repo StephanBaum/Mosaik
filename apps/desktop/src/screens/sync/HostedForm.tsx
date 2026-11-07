@@ -1,6 +1,8 @@
 /**
  * Creating or signing in to the sync account on a Mosaic server, including the second-factor
- * step. `signInOnly` is the "Sign in again" form of a device the server signed out.
+ * step. The choice is a radio pair with one submit button, so Enter submits. `signInOnly` is the
+ * "Sign in again" form of a device the server signed out: it keeps the stored device name and
+ * asks for the password only.
  */
 import { useState, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
@@ -69,6 +71,39 @@ function TwoFactorForm({
   );
 }
 
+/** "I have a sync account" or "Create one" (only where creating is possible). */
+function ModeChoice({
+  mode,
+  onMode,
+}: {
+  mode: HostedMode;
+  onMode: (mode: HostedMode) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <fieldset className="fieldset">
+      <legend className="fieldset__legend">{t("settings.sync.server.choice.label")}</legend>
+      {(["signIn", "register"] as const).map((each) => (
+        <label key={each} className="check">
+          <input
+            type="radio"
+            name="sync-mode"
+            checked={mode === each}
+            onChange={() => {
+              onMode(each);
+            }}
+          />
+          {t(
+            each === "signIn"
+              ? "settings.sync.server.choice.signIn"
+              : "settings.sync.server.choice.create",
+          )}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function CredentialsForm({
   registration,
   signInOnly,
@@ -87,18 +122,29 @@ function CredentialsForm({
   const { t } = useI18n();
   const [fields, setFields] = useState<Credentials>({ password: "", invite: "", deviceName });
   const canCreate = !signInOnly && registration !== "closed";
+  const [chosen, setChosen] = useState<HostedMode>("register");
+  const mode: HostedMode = canCreate ? chosen : "signIn";
   const set = (key: keyof Credentials) => (event: { target: { value: string } }) => {
     setFields((current) => ({ ...current, [key]: event.target.value }));
   };
+  const submitLabel = signInOnly
+    ? "settings.sync.server.signInAgain"
+    : mode === "register"
+      ? "settings.sync.server.create"
+      : "settings.sync.server.signIn";
   return (
     <form
       className="stack"
       onSubmit={(event) => {
         event.preventDefault();
+        if (!busy) {
+          onSubmit(mode, fields);
+        }
       }}
       noValidate
     >
-      {canCreate && registration === "invite" && (
+      {canCreate && <ModeChoice mode={mode} onMode={setChosen} />}
+      {mode === "register" && registration === "invite" && (
         <TextField
           label={t("settings.sync.server.invite")}
           autoComplete="off"
@@ -113,34 +159,21 @@ function CredentialsForm({
         value={fields.password}
         onChange={set("password")}
       />
-      <TextField
-        label={t("settings.sync.deviceName")}
-        autoComplete="off"
-        value={fields.deviceName}
-        onChange={set("deviceName")}
-      />
+      {!signInOnly && (
+        <TextField
+          label={t("settings.sync.deviceName")}
+          autoComplete="off"
+          value={fields.deviceName}
+          onChange={set("deviceName")}
+        />
+      )}
       <ErrorAlert error={error} />
       <p className="status caption" role="status">
         {busy ? t("settings.sync.server.working") : ""}
       </p>
       <div className="actions">
-        {canCreate && (
-          <Button
-            disabled={busy}
-            onClick={() => {
-              onSubmit("register", fields);
-            }}
-          >
-            {t("settings.sync.server.create")}
-          </Button>
-        )}
-        <Button
-          disabled={busy}
-          onClick={() => {
-            onSubmit("signIn", fields);
-          }}
-        >
-          {t(signInOnly ? "settings.sync.server.signInAgain" : "settings.sync.server.signIn")}
+        <Button type="submit" disabled={busy}>
+          {t(submitLabel)}
         </Button>
       </div>
     </form>
@@ -210,7 +243,7 @@ export function HostedForm({
             mode,
             password: fields.password,
             inviteCode: mode === "register" && registration === "invite" ? fields.invite : null,
-            deviceName: fields.deviceName.trim(),
+            deviceName: (signInOnly ? (deviceName ?? defaultName) : fields.deviceName).trim(),
           }),
         );
       }}

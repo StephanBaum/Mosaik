@@ -44,7 +44,9 @@ function SyncStatus({ sync }: { sync: SyncState | null }) {
   return (
     <span className="sidebar__sync">
       <span className={`sync-dot${dot}`} aria-hidden="true" />
-      <span className="sidebar__sync-text">{t(label)}</span>
+      <span className="sidebar__sync-text" role="status">
+        {t(label)}
+      </span>
     </span>
   );
 }

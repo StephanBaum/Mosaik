@@ -117,5 +117,5 @@ export const onboarding = {
   "onboarding.join.twoFactor.submit":
     "Bestätigen",
   "onboarding.join.back":
-    "Zurück zur Kontoerstellung",
+    "Stattdessen ein neues Konto erstellen",
 } satisfies Record<keyof typeof en, string>;

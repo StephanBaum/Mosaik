@@ -1,10 +1,22 @@
 /** Hooks of the sync settings: the overview (read again on every state event) and the device name. */
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { SyncOverview } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { usePlatform } from "../../platform/platform.ts";
+
+const FocusSection = createContext<() => void>(() => {
+  // No section to focus (a component rendered on its own).
+});
+
+/** Provided by the sync section: moves focus to its heading after its content was replaced. */
+export const FocusSectionProvider = FocusSection.Provider;
+
+/** Moves focus to the section heading: for a change that removes the control that had it. */
+export function useFocusSection(): () => void {
+  return useContext(FocusSection);
+}
 
 /** `sync_status`, again whenever Rust reports `syncStateChanged` or `refresh` is called. */
 export function useSyncOverview() {

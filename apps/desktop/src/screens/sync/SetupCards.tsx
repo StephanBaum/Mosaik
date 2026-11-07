@@ -106,7 +106,9 @@ function FolderDetails({
         />
       ) : (
         <>
-          <p className="field__hint">{t(`settings.sync.folder.contents.${choice.contents}`)}</p>
+          <p className="field__hint" role="status">
+            {t(`settings.sync.folder.contents.${choice.contents}`)}
+          </p>
           <TextField
             label={t("settings.sync.deviceName")}
             autoComplete="off"

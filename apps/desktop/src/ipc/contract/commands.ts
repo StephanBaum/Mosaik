@@ -67,6 +67,7 @@ import type {
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
 import type { SshAgentStatus, SshRespondRequest, SshSetEnabledRequest } from "./ssh.ts";
 import type {
+  AcknowledgeRequest,
   ChangePasswordRequest,
   CheckServerRequest,
   CodeRequest,
@@ -78,6 +79,7 @@ import type {
   JoinFolderRequest,
   JoinHostedRequest,
   JoinOutcome,
+  RecoverPasswordRequest,
   ServerCheck,
   SyncDevices,
   SyncOverview,
@@ -188,7 +190,8 @@ export interface Commands {
   sync_folder_connect: Command<FolderConnectRequest, SyncOverview>;
   sync_now: Command<null, SyncOverview>;
   sync_disconnect: Command<null, SyncOverview>;
-  sync_acknowledge: Command<null, SyncOverview>;
+  sync_acknowledge: Command<AcknowledgeRequest, SyncOverview>;
+  sync_recover_password: Command<RecoverPasswordRequest, SyncOverview>;
   sync_devices: Command<null, SyncDevices>;
   sync_device_rename: Command<DeviceRenameRequest, null>;
   sync_device_remove: Command<DeviceRemoveRequest, null>;
@@ -288,6 +291,7 @@ const commandSet = {
   sync_now: true,
   sync_disconnect: true,
   sync_acknowledge: true,
+  sync_recover_password: true,
   sync_devices: true,
   sync_device_rename: true,
   sync_device_remove: true,

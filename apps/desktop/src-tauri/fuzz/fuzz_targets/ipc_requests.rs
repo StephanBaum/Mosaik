@@ -39,9 +39,10 @@ use contract::session::{
 use contract::settings::UpdateSettingsRequest;
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
 use contract::sync::{
-    ChangePasswordRequest, CheckServerRequest, CodeRequest, DeviceRemoveRequest,
-    DeviceRenameRequest, FolderConnectRequest, HostedConnectRequest, JoinFolderRequest,
-    JoinHostedRequest, TotpBeginRequest, TotpDisableRequest,
+    AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
+    DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, HostedConnectRequest,
+    JoinFolderRequest, JoinHostedRequest, RecoverPasswordRequest, TotpBeginRequest,
+    TotpDisableRequest,
 };
 use contract::vaults::{CreateVaultRequest, RenameVaultRequest, VaultRequest};
 
@@ -60,7 +61,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 45;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 47;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -141,6 +142,8 @@ fuzz_target!(|data: &[u8]| {
         41 => drop(parse::<TotpDisableRequest>(json)),
         42 => drop(parse::<JoinHostedRequest>(json)),
         43 => drop(parse::<JoinFolderRequest>(json)),
-        _ => drop(parse::<ChangePasswordRequest>(json)),
+        44 => drop(parse::<ChangePasswordRequest>(json)),
+        45 => drop(parse::<RecoverPasswordRequest>(json)),
+        _ => drop(parse::<AcknowledgeRequest>(json)),
     }
 });
