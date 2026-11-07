@@ -149,13 +149,8 @@ export interface RecoverPasswordRequest {
   code: string | null;
 }
 
-/** `sync_acknowledge`: the text of the native confirmation (Rust shows the dialog). */
-export interface AcknowledgeRequest {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  cancelLabel: string;
-}
+/** `sync_acknowledge`: no fields; Rust shows the native confirmation with its own texts. */
+export type AcknowledgeRequest = Record<string, never>;
 
 export interface ChangePasswordRequest {
   currentPassword: string;

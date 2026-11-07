@@ -28,6 +28,7 @@ mod errors;
 mod folder_flow;
 mod hosted_flow;
 mod runner;
+pub(crate) mod strings;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -540,18 +541,46 @@ impl SyncService {
 
     /// The token of a login that waits for its second-factor code (a fresh
     /// login of device removal or second-factor setup), if it is still valid
-    /// for `url`.
-    pub(crate) fn take_fresh_pending(&self, url: &str) -> Option<mosaic_core::SessionToken> {
+    /// for `url` and belongs to `account`.
+    pub(crate) fn take_fresh_pending(
+        &self,
+        url: &str,
+        account: AccountId,
+    ) -> Option<mosaic_core::SessionToken> {
         let now = self.now();
         let mut slot = self.pending_login.lock().ok()?;
         match slot.as_ref() {
             Some(p)
                 if matches!(p.kind, hosted_flow::PendingKind::Fresh)
                     && p.url == url
+                    && p.account == Some(account)
                     && p.expires > now => {}
             _ => return None,
         }
         slot.take().map(|p| p.token)
+    }
+
+    /// Keeps a pending login or join, but only if the lock epoch still is
+    /// `epoch` (a flow that spans a lock must not leave anything behind).
+    /// `false` if it was dropped.
+    pub(crate) fn set_pending_in(&self, epoch: u64, pending: PendingLogin) -> bool {
+        if self.epoch() != epoch {
+            return false;
+        }
+        self.set_pending(Some(pending));
+        true
+    }
+
+    /// Drops every pending login and join (and the keys and Secret Key a join
+    /// holds), whatever the state of the vault: every lock does it, also in
+    /// the onboarding where no vault is unlocked.
+    pub(crate) fn drop_pending(&self) {
+        if let Ok(mut pending) = self.pending_login.lock() {
+            *pending = None;
+        }
+        if let Ok(mut fresh) = self.fresh_at.lock() {
+            *fresh = None;
+        }
     }
 
     pub(crate) fn note_fresh(&self) {
@@ -571,22 +600,6 @@ impl SyncService {
             .and_then(|f| *f)
             .is_some_and(|at| now.saturating_duration_since(at) < FRESH_TTL)
     }
-}
-
-/// A text for the native dialog: not empty, at most `max` bytes, line breaks
-/// allowed, no other control character and no look-alike or bidi character.
-const LINE_BREAK: char = '\u{a}';
-
-fn dialog_text(text: &str, max: usize) -> IpcResult<()> {
-    if text.trim().is_empty()
-        || text.len() > max
-        || text
-            .chars()
-            .any(|c| (c.is_control() && c != LINE_BREAK) || crate::commands::is_spoofing_char(c))
-    {
-        return Err(IpcError::new(ErrorCode::InvalidInput));
-    }
-    Ok(())
 }
 
 fn current_platform() -> Platform {
@@ -624,6 +637,19 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
                     view.totp_enabled = Some(info.totp_enabled);
                     true
                 });
+                // A server that holds another master password than this
+                // device: sync pauses until the user brings the new one
+                // (`sync_recover_password`).
+                if password_differs(&backend, &info.wrapped_ak, &info.params) {
+                    backend.sync.set_password_changed(ctx.generation, true);
+                    backend.sync.set_status(
+                        &backend,
+                        ctx.generation,
+                        SyncStatus::Error,
+                        Some(ErrorCode::SyncPasswordChanged),
+                    );
+                    return;
+                }
             }
             let install = run.install;
             let make = || {
@@ -651,6 +677,21 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
     }
 }
 
+/// Whether the backend's wrapped AK and parameters differ from this device's.
+fn password_differs(
+    backend: &Backend,
+    wrapped_ak: &mosaic_core::WrappedKey,
+    params: &mosaic_core::PasswordParams,
+) -> bool {
+    backend
+        .with_unlocked(|session| Ok(session.account_bootstrap()?))
+        .is_ok_and(|local| {
+            local.wrapped_ak.as_bytes() != wrapped_ak.as_bytes()
+                || local.params.salt != params.salt
+                || local.params.profile != params.profile
+        })
+}
+
 /// Whether the folder holds a master password (account file) that differs
 /// from this device's: another run of this device changed it and did not
 /// finish. Sets the flag the settings show ([`View::password_changed`]); a
@@ -665,13 +706,12 @@ fn folder_password_check(
     let Some(backend) = ctx.session().current() else {
         return;
     };
-    let differs = backend
-        .with_unlocked(|session| Ok(session.account_bootstrap()?))
-        .is_ok_and(|local| {
-            local.wrapped_ak.as_bytes() != file.wrapped_ak.as_bytes()
-                || local.params.salt != file.salt
-                || local.params.profile != file.profile
-        });
+    let params = mosaic_core::PasswordParams {
+        account_id: file.account_id,
+        salt: file.salt,
+        profile: file.profile,
+    };
+    let differs = password_differs(&backend, &file.wrapped_ak, &params);
     if backend.sync.set_password_changed(ctx.generation, differs) {
         backend.emit_sync_state();
     }
@@ -894,37 +934,25 @@ impl Backend {
         self.sync_status()
     }
 
-    /// `sync_acknowledge`: asks with a **native** confirmation (the webview
-    /// supplies the text but cannot skip the dialog) whether the halt and the
-    /// findings against the server are known. On "yes" they are cleared
-    /// (`clear_sync_halt`, `clear_vault_findings`) and a sync starts; on "no"
-    /// nothing changes and the unchanged overview is returned.
+    /// `sync_acknowledge`: asks with a **native** confirmation (Rust owns the
+    /// dialog and its texts, English or German by the language setting; the
+    /// webview can neither skip, reword nor answer it) whether the halt and the
+    /// findings against the server are known. On "OK" they are cleared
+    /// (`clear_sync_halt`, `clear_vault_findings`) and a sync starts; on
+    /// "Cancel" nothing changes and the unchanged overview is returned.
     ///
     /// # Errors
-    /// `locked`, `syncNotConfigured`, `invalidInput` (a text longer than the
-    /// dialog takes), or the store's code.
-    pub fn sync_acknowledge(&self, request: &AcknowledgeRequest) -> IpcResult<SyncOverview> {
+    /// `locked`, `syncNotConfigured`, or the store's code.
+    pub fn sync_acknowledge(&self, _request: &AcknowledgeRequest) -> IpcResult<SyncOverview> {
         {
             let slot = self.slot()?;
             if slot.unlocked()?.sync_config()?.is_none() {
                 return Err(IpcError::new(ErrorCode::SyncNotConfigured));
             }
         }
-        for (text, longest) in [
-            (&request.title, 120),
-            (&request.message, 1000),
-            (&request.confirm_label, 60),
-            (&request.cancel_label, 60),
-        ] {
-            dialog_text(text, longest)?;
-        }
+        let texts = strings::acknowledge(self.settings_snapshot().language);
         // The slot is not held while the dialog is open.
-        if !self.dialogs.confirm(
-            &request.title,
-            &request.message,
-            &request.confirm_label,
-            &request.cancel_label,
-        )? {
+        if !self.dialogs.confirm(texts.title, &texts.message())? {
             return self.sync_status();
         }
         {

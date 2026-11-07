@@ -943,6 +943,36 @@ fn received_versions_already_contained_rebase_or_acknowledge_a_pending_change() 
     assert!(outbox(&s).is_some(), "the change is still to be uploaded");
 }
 
+/// Verify follow-up: the salt a committed change replaced is retired, and a
+/// backend that offers it again (a rollback to the old password) is refused.
+#[test]
+fn adopt_remote_password_refuses_a_retired_salt() {
+    let (mut s, created) = account_in(Store::open_in_memory().unwrap());
+    let sk = created.secret_key;
+    let old = s.account_bootstrap().unwrap();
+    let new = MasterPassword::new("a brand new password".to_owned());
+    let change = s.prepare_master_password_change(&pw(), &new, &sk).unwrap();
+    s.commit_master_password_change(change).unwrap();
+    // The backend now offers the first password and its wrapping again.
+    let keys = LockedSession::derive_join_keys(&old.params, &pw(), &sk).unwrap();
+    assert!(matches!(
+        s.adopt_remote_password(keys, &old.wrapped_ak, old.params),
+        Err(Error::PasswordRollback)
+    ));
+    // Nothing changed: the new password still unlocks.
+    assert!(s.lock().unlock(&new, &sk).is_ok());
+}
+
+/// The folder version only goes up.
+#[test]
+fn the_folder_account_version_never_goes_down() {
+    let (mut s, _) = account();
+    assert_eq!(s.folder_account_version().unwrap(), 0);
+    s.raise_folder_account_version(3).unwrap();
+    s.raise_folder_account_version(2).unwrap();
+    assert_eq!(s.folder_account_version().unwrap(), 3);
+}
+
 /// C-M1: a change the backend holds and this device missed is adopted only
 /// if the new password opens the backend's wrapping to this session's own
 /// account key.

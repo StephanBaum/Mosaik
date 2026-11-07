@@ -1,0 +1,130 @@
+//! The texts of the native acknowledgement dialog (C-I1). Rust owns them so
+//! the webview cannot reword the question; they equal the `sync.acknowledge.*`
+//! entries of `packages/i18n` (a test compares them with the catalog files).
+//! The language is the setting; `System` follows the OS locale.
+
+use crate::contract::settings::Language;
+
+/// The texts of one language.
+pub(crate) struct AcknowledgeTexts {
+    pub(crate) title: &'static str,
+    body: &'static str,
+    each_device: &'static str,
+}
+
+impl AcknowledgeTexts {
+    /// Body and the advice for every device, as the dialog shows them.
+    pub(crate) fn message(&self) -> String {
+        format!("{}\n\n{}", self.body, self.each_device)
+    }
+}
+
+const EN: AcknowledgeTexts = AcknowledgeTexts {
+    title: "Clear the sync warnings that need a check?",
+    body: "Only go on after you have checked the server or folder yourself. This clears every warning that needs a check, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards.",
+    each_device: "Do this on each of your devices.",
+};
+
+const DE: AcknowledgeTexts = AcknowledgeTexts {
+    title: "Sync-Warnungen zum Prüfen ausblenden?",
+    body: "Mach erst weiter, wenn du den Server oder Ordner selbst geprüft hast. Damit verschwinden alle Warnungen, die eine Prüfung brauchen, und die Synchronisierung läuft weiter. Wurden deine Daten tatsächlich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen.",
+    each_device: "Mach das auf jedem deiner Geräte.",
+};
+
+/// The texts for `language`; `System` reads the OS locale.
+pub(crate) fn acknowledge(language: Language) -> &'static AcknowledgeTexts {
+    let german = match language {
+        Language::De => true,
+        Language::En => false,
+        Language::System => os_locale_is_german(),
+    };
+    if german { &DE } else { &EN }
+}
+
+/// Whether a locale name (`de-DE`, `de_AT.UTF-8`) is German.
+fn is_german(locale: &str) -> bool {
+    let tag = locale.trim().to_ascii_lowercase();
+    tag == "de" || tag.starts_with("de-") || tag.starts_with("de_") || tag.starts_with("de.")
+}
+
+/// The user's language: the first Windows user language, else `LC_ALL`,
+/// `LC_MESSAGES`, `LANG` (Linux, and macOS where no system call is made).
+fn os_locale_is_german() -> bool {
+    #[cfg(windows)]
+    if let Some(tag) = windows_language() {
+        return is_german(&tag);
+    }
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.is_empty())
+        .is_some_and(|value| is_german(&value))
+}
+
+/// The first of the user's preferred languages (`WinRT`, safe API).
+#[cfg(windows)]
+fn windows_language() -> Option<String> {
+    use windows::System::UserProfile::GlobalizationPreferences;
+    let languages = GlobalizationPreferences::Languages().ok()?;
+    languages.GetAt(0).ok().map(|tag| tag.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The value of `key` in a catalog file: the string literal after it.
+    fn catalog_value(file: &str, key: &str) -> String {
+        let at = file.find(&format!("\"{key}\":")).unwrap();
+        let rest = &file[at + key.len() + 3..];
+        let start = rest.find('"').unwrap() + 1;
+        let mut out = String::new();
+        let mut chars = rest[start..].chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => return out,
+                '\\' => out.push(chars.next().unwrap()),
+                c => out.push(c),
+            }
+        }
+        panic!("unterminated string for {key}");
+    }
+
+    fn catalog(language: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../packages/i18n/src/catalog")
+            .join(language)
+            .join("sync.ts");
+        std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
+    }
+
+    /// The Rust texts are the catalog's, word for word, in both languages.
+    #[test]
+    fn the_dialog_texts_equal_the_i18n_catalog() {
+        for (language, texts) in [("en", &EN), ("de", &DE)] {
+            let file = catalog(language);
+            assert_eq!(texts.title, catalog_value(&file, "sync.acknowledge.title"));
+            assert_eq!(texts.body, catalog_value(&file, "sync.acknowledge.body"));
+            assert_eq!(
+                texts.each_device,
+                catalog_value(&file, "sync.acknowledge.eachDevice")
+            );
+        }
+    }
+
+    #[test]
+    fn the_language_setting_picks_the_texts() {
+        assert_eq!(acknowledge(Language::De).title, DE.title);
+        assert_eq!(acknowledge(Language::En).title, EN.title);
+    }
+
+    #[test]
+    fn german_locale_names() {
+        for yes in ["de", "de-DE", "de_AT.UTF-8", "DE-ch"] {
+            assert!(is_german(yes), "{yes}");
+        }
+        for no in ["en-US", "dec", "fr_DE", "", "C"] {
+            assert!(!is_german(no), "{no}");
+        }
+    }
+}

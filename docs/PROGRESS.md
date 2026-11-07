@@ -2157,6 +2157,13 @@ CRYPTO_SPEC §9.4 "Change applied elsewhere", CORE_API (`adopt_remote_password`)
   form is fixed to the server it was signed in to). The account option of a folder join shows the first eight
   characters of the ID: neither an email nor a date exists on the Rust side.
 
+### M6 T5 verify follow-ups (2026-11-07)
+
+Hosted password check at thread start and no new token on a failed commit; retired salts and folder versions (vault schema
+v6, `syncPasswordRollback`, CRYPTO_SPEC §9.4 rules); sleep is not deferred; native acknowledge with Rust-owned EN/DE texts
+and an empty request; pending state dropped by every lock and swept by the idle tick; `finish_ok` gates the events and a fresh
+login is bound to its account. ADR-0047 "T5 verify follow-ups".
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

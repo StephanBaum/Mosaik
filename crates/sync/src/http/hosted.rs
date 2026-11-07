@@ -362,12 +362,18 @@ pub fn logout(base: &str, token: &impl Token) -> Result<(), TransportError> {
 
 /// What `GET /v1/account` says about the signed-in account, for a client
 /// that already holds its keys.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct AccountInfo {
     /// The account version.
     pub account_version: u64,
     /// The account has a second factor.
     pub totp_enabled: bool,
+    /// The public parameters the server holds (account ID, salt, profile).
+    pub params: PasswordParams,
+    /// `AK` wrapped under the server's current password `KEK`: a device that
+    /// compares it with its own wrapping finds a master password change it
+    /// missed.
+    pub wrapped_ak: WrappedKey,
 }
 
 /// `GET /v1/account` with a completed session.
@@ -387,6 +393,12 @@ pub fn account_info(base: &str, token: &impl Token) -> Result<AccountInfo, Trans
     Ok(AccountInfo {
         account_version: account.account_version,
         totp_enabled: account.totp_enabled,
+        params: PasswordParams {
+            account_id: account.account_id,
+            salt: AccountSalt::from_bytes(account.salt.0),
+            profile: account.profile,
+        },
+        wrapped_ak: account.wrapped_ak,
     })
 }
 

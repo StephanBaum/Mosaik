@@ -225,6 +225,8 @@ wire_enum!(
         SyncFreshLoginExpired,
         /// The master password was changed on the server or in the folder.
         SyncPasswordChanged,
+        /// The backend offered an older master password than this device had.
+        SyncPasswordRollback,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.
@@ -291,6 +293,7 @@ impl From<SessionError> for IpcError {
             SessionError::InvalidHardwareKey => ErrorCode::HardwareKeyUnsupported,
             SessionError::WrongVaultProtection => ErrorCode::InvalidInput,
             SessionError::ItemTypeNotAllowed => ErrorCode::ItemTypeNotAllowed,
+            SessionError::PasswordRollback => ErrorCode::SyncPasswordRollback,
             SessionError::Store(store) => return store.into(),
             SessionError::Core(core) => return core.into(),
             _ => ErrorCode::Internal,

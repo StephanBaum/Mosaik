@@ -1386,7 +1386,8 @@ impl UnlockedSession {
     /// the join derivation plus an equality check.
     ///
     /// # Errors
-    /// [`Error::UnlockFailed`] for a wrong password or Secret Key, parameters
+    /// [`Error::PasswordRollback`] if `params.salt` is a salt this device
+    /// retired. [`Error::UnlockFailed`] for a wrong password or Secret Key, parameters
     /// that do not belong to `keys`, a wrapping that does not open, or an
     /// account key that is not this session's; nothing is stored then.
     /// [`Error::Store`] (`AccountMismatch`, `ProfileDowngrade`).
@@ -1398,6 +1399,10 @@ impl UnlockedSession {
     ) -> Result<PasswordChanged> {
         if keys.params != params {
             return Err(Error::UnlockFailed);
+        }
+        // A salt this device retired is a rollback to an old password.
+        if self.store.salt_retired(&params.salt)? {
+            return Err(Error::PasswordRollback);
         }
         let opened = wrapped_ak
             .unwrap_account_key(&keys.keys.kek, &params.account_id, &UnlockMethod::Password)
@@ -1412,6 +1417,25 @@ impl UnlockedSession {
             opaque_password: keys.keys.opaque_password,
             removed_quick_unlock,
         })
+    }
+
+    /// The highest folder account-file version this device wrote or adopted
+    /// (0 if none): a folder offering this version or a lower one offers a
+    /// rollback.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn folder_account_version(&self) -> Result<u64> {
+        Ok(self.store.folder_account_version()?)
+    }
+
+    /// Records a folder account-file version this device wrote or adopted
+    /// (never lowers the stored one).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn raise_folder_account_version(&mut self, version: u64) -> Result<()> {
+        Ok(self.store.raise_folder_account_version(version)?)
     }
 
     /// Stores new password parameters and wrapping and deletes every

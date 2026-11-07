@@ -677,11 +677,26 @@ session token alone therefore cannot lock the user out.
   yields equals this unlocked session's own AK** (constant-time comparison).
   Then it stores the backend's parameters and wrapping in the same
   transaction as a local change commit (quick unlock removed, §6.2). Any
-  other outcome (wrong password, a wrapping of another key, parameters that
-  do not belong to the keys) stores nothing. This adds no primitive: it is
-  the join derivation plus an equality check, and it cannot move the device
-  to another account key, so a malicious server gains nothing from it that a
-  malicious server could not already do by refusing the login.
+  other outcome stores nothing. The rules, all checked before anything is
+  stored:
+  - **Account ID.** The parameters name this device's account
+    (`AccountMismatch` otherwise).
+  - **No downgrade.** The Argon2id profile is not weaker than the stored one
+    (`ProfileDowngrade`).
+  - **Retired salts.** Every salt a local commit or an adoption replaces is
+    kept (public data, schema v6). A backend that offers a retired salt is
+    offering an older password again and is refused (`PasswordRollback`,
+    shown as `syncPasswordRollback`).
+  - **Folder versions.** The device keeps the highest account-file version it
+    wrote or adopted; a folder file at or below it is refused.
+  - **Same key.** The wrapping opens to this session's own AK.
+
+  This adds no primitive: it is the join derivation plus these checks. It
+  cannot move the device to another account key, and it cannot return it to a
+  password it already replaced. A malicious backend can still offer a
+  password state this device never saw, but only one whose password the user
+  types and whose wrapping opens to the same AK, which needs the
+  Secret Key and the account's current or a newer password.
 
 ## 10. Sync protocol security
 

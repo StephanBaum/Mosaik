@@ -119,6 +119,7 @@ export const errorCodes = [
   "syncChoiceExpired",
   "syncFreshLoginExpired",
   "syncPasswordChanged",
+  "syncPasswordRollback",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 

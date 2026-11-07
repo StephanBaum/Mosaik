@@ -71,7 +71,7 @@ rfd = { version = "=0.16.1", default-features = false, features = ["gtk3"] }
 pdf-writer = { version = "=0.15.0", default-features = false }
 # Windows Hello (KeyCredentialManager) for quick unlock; the version Tauri's
 # tree already carries, WinRT projections only.
-windows = { version = "=0.62.2", default-features = false, features = ["std", "Foundation", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }
+windows = { version = "=0.62.2", default-features = false, features = ["std", "Foundation", "Foundation_Collections", "System_UserProfile", "Security_Credentials", "Security_Cryptography", "Storage_Streams"] }
 # macOS Touch ID quick unlock (ADR-0028): Secure Enclave key + ECIES, safe API;
 # both already in the tree through keyring's apple-native backend.
 security-framework = { version = "=3.7.0", default-features = false, features = ["OSX_10_15"] }

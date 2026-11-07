@@ -97,7 +97,8 @@ impl Backend {
         })?;
         init(&root).map_err(folder_code)?;
         let mut transport = open_folder(self.sync.session()?, &root, account, install, &device)?;
-        if transport.highest_account_version()? == 0 {
+        let wrote_first = transport.highest_account_version()? == 0;
+        if wrote_first {
             transport.write_account_file(&bootstrap.params, &bootstrap.wrapped_ak, 1)?;
         }
         drop(transport);
@@ -110,6 +111,9 @@ impl Backend {
                 device_name: device.clone(),
             }))?;
             session.reset_sync_state()?;
+            if wrote_first {
+                session.raise_folder_account_version(1)?;
+            }
             Ok(())
         })?;
         self.sync.forget_choice(&request.choice_id);
@@ -452,6 +456,12 @@ impl Backend {
             .verified_account_file()?
             .ok_or(IpcError::new(ErrorCode::SyncFolderNoAccount))?;
         drop(transport);
+        // A file at or below the version this device wrote or adopted last is
+        // an older password offered again (CRYPTO_SPEC 9.4).
+        let last = self.with_unlocked(|session| Ok(session.folder_account_version()?))?;
+        if file.account_version <= last {
+            return Err(IpcError::new(ErrorCode::SyncPasswordRollback));
+        }
         let params = PasswordParams {
             account_id: file.account_id,
             salt: file.salt,
@@ -460,7 +470,9 @@ impl Backend {
         let keys = LockedSession::derive_join_keys(&params, new, key)?;
         self.sync.check_epoch(epoch)?;
         self.with_unlocked(|session| {
-            Ok(session.adopt_remote_password(keys, &file.wrapped_ak, params)?)
+            let changed = session.adopt_remote_password(keys, &file.wrapped_ak, params)?;
+            session.raise_folder_account_version(file.account_version)?;
+            Ok(changed)
         })
         .map_err(|e| self.counted(e))
     }
@@ -486,7 +498,11 @@ impl Backend {
         let version = transport.next_account_version()?;
         transport.write_account_file(prepared.new_params(), prepared.new_wrapped_ak(), version)?;
         drop(transport);
-        self.with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?))
+        self.with_unlocked(|session| {
+            let changed = session.commit_master_password_change(prepared)?;
+            session.raise_folder_account_version(version)?;
+            Ok(changed)
+        })
     }
 
     /// The platform key of a quick-unlock enrollment the change deleted.

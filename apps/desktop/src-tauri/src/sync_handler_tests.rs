@@ -107,22 +107,14 @@ impl Dialogs for PickDialog {
     fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
         Ok(self.0.lock().unwrap().clone())
     }
-    fn confirm(&self, title: &str, message: &str, ok: &str, cancel: &str) -> IpcResult<bool> {
-        self.2
-            .lock()
-            .unwrap()
-            .push(format!("{title}|{message}|{ok}|{cancel}"));
+    fn confirm(&self, title: &str, message: &str) -> IpcResult<bool> {
+        self.2.lock().unwrap().push(format!("{title}|{message}"));
         Ok(self.1.load(Ordering::SeqCst))
     }
 }
 
 fn ack() -> AcknowledgeRequest {
-    AcknowledgeRequest {
-        title: "Clear the sync warnings that need a check?".into(),
-        message: "Only if you checked.\nDo this on each of your devices.".into(),
-        confirm_label: "Clear warnings and sync".into(),
-        cancel_label: "Cancel".into(),
-    }
+    AcknowledgeRequest {}
 }
 
 struct Env {
@@ -646,7 +638,12 @@ fn sync_acknowledge_clears_a_halt_and_syncs() {
     assert_eq!(e.status().state.status, SyncStatus::Error);
     // It said what the webview told it to, once.
     assert_eq!(e.asked.lock().unwrap().len(), 1);
-    assert!(e.asked.lock().unwrap()[0].starts_with("Clear the sync warnings"));
+    // The texts are Rust's, English or German by the language setting.
+    let asked = e.asked.lock().unwrap()[0].clone();
+    assert!(
+        asked.starts_with("Clear the sync warnings") || asked.starts_with("Sync-Warnungen"),
+        "{asked}"
+    );
 
     e.confirm.store(true, Ordering::SeqCst);
     let acknowledged = e.b().sync_acknowledge(&ack()).unwrap();
@@ -1624,4 +1621,181 @@ fn bounds_codes_and_the_probe_oracle() {
         server_url: "http://127.0.0.1:1".into(),
     });
     assert_eq!(code(probe.unwrap_err()), ErrorCode::Locked);
+}
+
+// ---- the verify follow-ups ------------------------------------------------------------
+
+/// The request of `sync_acknowledge` has no fields: the webview cannot send
+/// the dialog's text.
+#[test]
+fn acknowledge_takes_no_fields() {
+    assert!(serde_json::from_value::<AcknowledgeRequest>(json!({})).is_ok());
+    assert!(serde_json::from_value::<AcknowledgeRequest>(json!({ "title": "x" })).is_err());
+}
+
+/// Verify 1: the app locked past the cap during a change, the server took it,
+/// the commit fails: the new token is not kept, the overview says the
+/// password changed, and the new password restores sync.
+#[test]
+fn a_change_cut_off_by_a_lock_is_offered_for_recovery_on_the_next_unlock() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    let account = e.account();
+    let old_token = *e.tokens.load(account).unwrap().unwrap().expose_bytes();
+    server.advance_ms(60_000);
+    let prepared = e
+        .b()
+        .with_unlocked(|s| {
+            let key = e.keys.load(s.account_id()).unwrap().unwrap();
+            Ok(s.prepare_master_password_change(
+                &mosaic_core::MasterPassword::new(PASSWORD.to_owned()),
+                &mosaic_core::MasterPassword::new(NEW_PASSWORD.to_owned()),
+                &key,
+            )?)
+        })
+        .unwrap();
+    // The lock goes ahead after the cap; the server's answer comes later.
+    e.b().lock(LockReason::Idle).unwrap();
+    e.unlock().unwrap();
+    let ctx = e.b().hosted_ctx().unwrap();
+    let outcome = e.b().change_password_hosted(
+        &ctx,
+        &ChangePasswordRequest {
+            current_password: SecretIn::test(PASSWORD),
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        },
+        prepared,
+    );
+    assert_eq!(code(outcome.err().unwrap()), ErrorCode::SyncPasswordChanged);
+    // The new token was not saved; the old one (revoked) stays.
+    assert_eq!(
+        *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
+        old_token
+    );
+    assert!(e.status().password_changed);
+
+    // Even after another lock and unlock the device still finds the change at
+    // its next sign-in (the old session is gone), and the new password
+    // brings it back.
+    wait_for("the signed-out status", || {
+        e.status().state.status == SyncStatus::SignedOut
+    });
+    server.advance_ms(60_000);
+    e.b()
+        .sync_recover_password(&RecoverPasswordRequest {
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    e.b().sync_now().unwrap();
+    e.wait_synced();
+    assert!(!e.status().password_changed);
+}
+
+/// Verify 2 (folder): a folder offering the version this device wrote last,
+/// or an older one, offers an old password again.
+#[test]
+fn a_folder_account_file_at_or_below_the_last_version_is_a_rollback() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    e.b()
+        .change_master_password(&ChangePasswordRequest {
+            current_password: SecretIn::test(PASSWORD),
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    // The folder holds the version this device wrote: nothing newer to adopt.
+    let result = e.b().sync_recover_password(&RecoverPasswordRequest {
+        new_password: SecretIn::test(NEW_PASSWORD),
+        code: None,
+    });
+    assert_eq!(code(result.unwrap_err()), ErrorCode::SyncPasswordRollback);
+}
+
+/// Verify 3: a sleep locks at once; any other reason waits for a change.
+#[test]
+fn a_sleep_lock_is_not_deferred() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let _change = e.b().sync.begin_change().unwrap();
+    let started = Instant::now();
+    e.b().lock(LockReason::Sleep).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(!e.b().is_unlocked());
+}
+
+/// Verify 5: every lock reason ends a pending login or join, also in the
+/// onboarding (no vault unlocked), and a result that comes after a lock is
+/// not kept.
+#[test]
+fn any_lock_drops_a_pending_join_and_a_late_result_is_not_kept() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    let pending =
+        || crate::sync::PendingLogin::for_tests(e.b().sync.now() + Duration::from_mins(5));
+    for reason in [LockReason::Sleep, LockReason::ScreenLock, LockReason::Idle] {
+        e.b().sync.set_pending(Some(pending()));
+        e.b().lock(reason).unwrap();
+        assert!(e.b().sync.take_pending().is_none(), "{reason:?}");
+    }
+    let epoch = e.b().sync.epoch();
+    e.create();
+    e.b().lock(LockReason::Manual).unwrap();
+    assert!(!e.b().sync.set_pending_in(epoch, pending()));
+    assert!(e.b().sync.take_pending().is_none());
+}
+
+/// Verify 5: the idle tick sweeps expired pending entries.
+#[test]
+fn the_idle_tick_sweeps_expired_pending_entries() {
+    let e = Env::new();
+    e.b()
+        .sync
+        .set_pending(Some(crate::sync::PendingLogin::for_tests(
+            e.b().sync.now() + Duration::from_mins(5),
+        )));
+    e.b().housekeeping();
+    assert!(e.b().sync.take_pending().is_some(), "not expired yet");
+    e.b()
+        .sync
+        .set_pending(Some(crate::sync::PendingLogin::for_tests(
+            e.b().sync.now() + Duration::from_mins(5),
+        )));
+    e.b().sync.advance(Duration::from_mins(6));
+    e.b().housekeeping();
+    assert!(e.b().sync.take_pending().is_none());
+}
+
+/// Verify 6: a thread of an older generation neither writes nor reports, and
+/// a waiting fresh login is taken only by the account it belongs to.
+#[test]
+fn an_older_generation_reports_nothing_and_a_fresh_login_belongs_to_its_account() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let generation = e.b().sync.generation();
+    assert!(!e.b().sync.finish_ok(e.b(), generation + 7, Vec::new()));
+    e.b()
+        .sync
+        .set_pending(Some(crate::sync::PendingLogin::for_tests(
+            e.b().sync.now() + Duration::from_mins(5),
+        )));
+    // The pending login has no account: another account's flow gets nothing.
+    assert!(
+        e.b()
+            .sync
+            .take_fresh_pending("http://127.0.0.1:1", e.account())
+            .is_none()
+    );
 }

@@ -3899,3 +3899,17 @@ leaves the lifetime of the token, the order of the fresh-login flows, the wait l
 - **Native confirmation.** `sync_acknowledge` asks in a native dialog (`Dialogs::confirm`), which the webview cannot
   skip; the webview supplies the texts. The in-app dialog is gone: one button under the list of warnings that need a
   check. The fresh-login reuse (four minutes) applies to `sync_totp_disable` only.
+
+### T5 verify follow-ups (2026-11-07)
+- The hosted thread compares the server's wrapped AK and parameters (`GET /v1/account`) with the device's at start; a
+  difference sets `passwordChanged` and pauses sync until `sync_recover_password`. A change whose local commit failed
+  (the app locked past the cap) keeps the old, revoked token, sets the flag and does not save the new token.
+- Retired salts and the folder account version (vault schema v6, public data) make a rollback to an older master
+  password refusable: `adopt_remote_password` refuses a retired salt (`syncPasswordRollback`), and a folder file at or
+  below the last version this device wrote or adopted. CRYPTO_SPEC §9.4 states the rules and corrects the closing claim.
+- A sleep lock is not deferred. Every lock drops pending logins and joins, also in the onboarding; the idle tick sweeps
+  expired ones; a result that comes after a lock is not kept (`set_pending_in`).
+- The native acknowledgement is OK/Cancel of the system's kind with texts that live in Rust (`sync/strings.rs`, equal to
+  the catalog), chosen by the language setting; the request has no fields. New `windows` features `Foundation_Collections`
+  and `System_UserProfile` read the user's first preferred language through the safe WinRT API (`GetUserDefaultLocaleName`
+  is unsafe, and the crate forbids unsafe code); Linux and macOS read `LC_ALL`, `LC_MESSAGES`, `LANG`.

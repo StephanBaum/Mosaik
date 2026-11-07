@@ -397,7 +397,7 @@ describe("sync settings: warnings", () => {
     expect(within(group).getAllByText(/choose \u201cI've checked\u201d/).length).toBeGreaterThanOrEqual(3);
   });
 
-  it("asks the native confirmation through Rust (one call, the copy from the catalog) and clears the warnings", async () => {
+  it("asks the native confirmation through Rust (one call, no texts from the page) and clears the warnings", async () => {
     const { calls, ipc } = recording({ variant: "rollback" });
     const { user, section } = await openSync({}, ipc);
     await user.click(await within(section).findByRole("button", { name: "I've checked…" }));
@@ -408,14 +408,8 @@ describe("sync settings: warnings", () => {
     });
     const asked = calls.filter((call) => call.command === "sync_acknowledge");
     expect(asked).toHaveLength(1);
-    expect(asked[0]?.request).toMatchObject({
-      title: "Clear the sync warnings that need a check?",
-      confirmLabel: "Clear warnings and sync",
-      cancelLabel: "Cancel",
-    });
-    const message = (asked[0]?.request as { message: string }).message;
-    expect(message).toMatch(/Only go on after you have checked the server or folder yourself/);
-    expect(message).toMatch(/Do this on each of your devices\.$/);
+    // The webview sends nothing: Rust owns the question and its texts.
+    expect(asked[0]?.request).toEqual({});
     expect(within(section).getByText("Synced", { selector: "span[role=status]" })).toBeTruthy();
     // The button that had focus is gone: focus is on the section heading.
     expect(document.activeElement).toBe(within(section).getByRole("heading", { name: "Sync" }));

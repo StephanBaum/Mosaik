@@ -64,7 +64,8 @@ store directly. The M6 sync client sits next to the session and uses its
 | `LockedSession::unlock(&MasterPassword, &SecretKey)` | Password unlock (§6.1). Failures return `UnlockError { session, error }`, the locked session unchanged; `Error::UnlockFailed` does not say which secret was wrong. |
 | `UnlockedSession::lock(self)` → `LockedSession` | Drops AK, every VK, the decrypted items and the search index (all zeroize). |
 | `UnlockedSession::lock_requiring_password(self)` → `LockedSession` | Like `lock`, and sets the failed-quick-attempt counter to `MAX_FAILED_QUICK_ATTEMPTS`: no quick method is offered or accepted until the next password unlock (ADR-0028 item 8; the app uses it for the five-wrong-reauthentications lock). |
-| `UnlockedSession::adopt_remote_password(JoinKeys, &WrappedKey, PasswordParams)` → `PasswordChanged` (M6 T5) | Recovers a master password change that the backend holds and this device missed (CRYPTO_SPEC §9.4, "Change applied elsewhere"). The `JoinKeys` come from `derive_join_keys` over the backend's parameters; the wrapping must open under them to this session's own account key (constant-time equality), else `UnlockFailed` and nothing is stored. Stores like `commit_master_password_change` (quick unlock removed in the same transaction). |
+| `UnlockedSession::adopt_remote_password(JoinKeys, &WrappedKey, PasswordParams)` → `PasswordChanged` (M6 T5) | Recovers a master password change that the backend holds and this device missed (CRYPTO_SPEC §9.4, "Change applied elsewhere"). The `JoinKeys` come from `derive_join_keys` over the backend's parameters; the wrapping must open under them to this session's own account key (constant-time equality), else `UnlockFailed` and nothing is stored. Stores like `commit_master_password_change` (quick unlock removed in the same transaction). Refuses a salt this device retired (`Error::PasswordRollback`). |
+| `UnlockedSession::{folder_account_version, raise_folder_account_version}` (M6 T5) | The highest folder account-file version this device wrote or adopted (monotonic); a folder file at or below it is a rollback. |
 | `account_id`, `device_id`, `store`, `corrupt_records` | State and diagnostics. `device_id` is this session's writer ID, fresh for every unlock (ADR-0015, third M2 integration review). |
 | `change_master_password(current, new, &SecretKey)` → `PasswordChanged` | §6.4; returns the new params and `OPW'` for M6. Since ADR-0028 it first runs `verify_master_password`, deletes every quick-unlock wrapping in the same transaction (`PasswordChanged::removed_quick_unlock`). The session API does not offer Secret Key rotation yet (`secret_key` must be the current one); when it does, it MUST also delete every quick-unlock wrapping. |
 | `rotate_device_id` | After `DeviceIdReused` (ADR-0009 item 7); then apply the record again. The old ID stays suspect for the session, so the re-applied record keeps both writers' values (ADR-0015). |
@@ -184,7 +185,7 @@ step with the vault in the same sync event.
 
 `Store::{open, open_in_memory, close, schema_version, integrity_check,
 attachment_dir}` and `LATEST_VERSION` (the schema version this build
-writes; 4 since the M6 T2 review: the engine state tables) are stable for every consumer (apps open the store and hand it to
+writes; 6 since the M6 T5 verify follow-up: v6 adds `retired_salts` (salts of replaced master passwords, public data) and `folder_account_version`, additive and STRICT) are stable for every consumer (apps open the store and hand it to
 `LockedSession::open`). `Store::open` holds an exclusive lock on the store
 until it is dropped or closed; a second open fails with
 `storage::Error::StoreInUse` (added in the second M2 integration review,

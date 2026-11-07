@@ -77,12 +77,7 @@ export function WarningList({
     setBusy(true);
     setError(null);
     // Rust shows the confirmation; "no" returns the overview unchanged.
-    const result = await ipc.call("sync_acknowledge", {
-      title: t("sync.acknowledge.title"),
-      message: [t("sync.acknowledge.body"), t("sync.acknowledge.eachDevice")].join("\n\n"),
-      confirmLabel: t("sync.acknowledge.confirm"),
-      cancelLabel: t("action.cancel"),
-    });
+    const result = await ipc.call("sync_acknowledge", {});
     setBusy(false);
     if (result.ok) {
       onChange(result.value);

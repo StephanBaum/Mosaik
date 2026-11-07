@@ -373,22 +373,13 @@ pub struct RecoverPasswordRequest {
     pub code: Option<SecretIn>,
 }
 
-/// `sync_acknowledge`: the text of the native confirmation (the webview
-/// owns the translation; Rust owns the dialog, so the confirmation cannot be
-/// skipped).
+/// `sync_acknowledge`: no fields. Rust owns the native confirmation and its
+/// texts (English or German, by the language setting), so the webview cannot
+/// skip, reword or answer it.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AcknowledgeRequest {
-    /// The dialog's title.
-    pub title: String,
-    /// The risk and the advice to do this on each device.
-    pub message: String,
-    /// The confirming button.
-    pub confirm_label: String,
-    /// The cancelling button.
-    pub cancel_label: String,
-}
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeRequest {}
 
 /// `change_master_password`.
 #[derive(Debug, Deserialize)]

@@ -192,6 +192,8 @@ export const errors = {
     "Die Ordnerauswahl ist abgelaufen. Wähle den Ordner noch einmal.",
   "error.syncFreshLoginExpired":
     "Die Passwortprüfung ist abgelaufen. Gib dein Master-Passwort noch einmal ein.",
+  "error.syncPasswordRollback":
+    "Der Server hat ein älteres Master-Passwort angeboten. Prüfe den Server.",
   "error.syncPasswordChanged":
     "Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.",
 } satisfies Record<keyof typeof en, string>;

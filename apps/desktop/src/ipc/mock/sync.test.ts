@@ -201,12 +201,7 @@ describe("mock sync: status, warnings and acknowledge", () => {
     const before = await value(ipc, "sync_status", null);
     expect(before.warnings).toHaveLength(10);
     expect(before.state.status).toBe("error");
-    const after = await value(ipc, "sync_acknowledge", {
-      title: "Clear the sync warnings that need a check?",
-      message: "Only if you checked.",
-      confirmLabel: "Clear warnings and sync",
-      cancelLabel: "Cancel",
-    });
+    const after = await value(ipc, "sync_acknowledge", {});
     expect(after.warnings.map((warning) => warning.kind).sort()).toEqual(
       ["attachmentsNotRepaired", "freezeSuspected", "hardwareVaultsLocal", "missingFiles", "undecryptable"].sort(),
     );

@@ -441,7 +441,10 @@ fn publish_report<T: Transport>(
         report.attachments_heal_failed,
         engine,
     );
-    backend.sync.finish_ok(backend, ctx.generation, warnings);
+    // A thread of an older generation tells nobody anything.
+    if !backend.sync.finish_ok(backend, ctx.generation, warnings) {
+        return;
+    }
     if !report.changed_vaults.is_empty() {
         backend.emit(&AppEvent::SyncDataChanged {
             vault_ids: report
@@ -637,14 +640,14 @@ impl SyncService {
         }
     }
 
-    pub(super) fn finish_ok(
+    pub(crate) fn finish_ok(
         &self,
         backend: &Backend,
         generation: u64,
         warnings: Vec<SyncWarningView>,
-    ) {
+    ) -> bool {
         let now = SystemClock.now_ms();
-        if self.update_view(|view| {
+        let wrote = self.update_view(|view| {
             if !self.is_current(generation) {
                 return false;
             }
@@ -653,9 +656,11 @@ impl SyncService {
             view.last_synced_at = Some(millis(now));
             view.warnings = warnings;
             true
-        }) {
+        });
+        if wrote {
             backend.emit_sync_state();
         }
+        wrote
     }
 
     pub(super) fn finish_halted(

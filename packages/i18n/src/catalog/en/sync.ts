@@ -147,7 +147,6 @@ export const sync = {
   "sync.acknowledge.body":
     "Only go on after you have checked the server or folder yourself. This clears every warning that needs a check, and syncing continues. If your data really was rolled back or changed, Mosaic can't tell afterwards.",
   "sync.acknowledge.eachDevice": "Do this on each of your devices.",
-  "sync.acknowledge.confirm": "Clear warnings and sync",
 
   "toast.syncAttention":
     "Sync merged or repaired some items from another device. Have a look at what changed.",

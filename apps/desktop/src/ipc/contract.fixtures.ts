@@ -250,6 +250,7 @@ export const fixtures = {
       "syncChoiceExpired",
       "syncFreshLoginExpired",
       "syncPasswordChanged",
+      "syncPasswordRollback",
       "busy",
       "internal"
     ],
@@ -782,6 +783,9 @@ export const fixtures = {
     },
     {
       "code": "syncPasswordChanged"
+    },
+    {
+      "code": "syncPasswordRollback"
     },
     {
       "code": "busy"
@@ -1665,12 +1669,7 @@ export const fixtures = {
       }
     ],
     "sync_acknowledge": [
-      {
-        "cancelLabel": "Cancel",
-        "confirmLabel": "Clear warnings and sync",
-        "message": "Only do this if you checked. Do this on each of your devices.",
-        "title": "Clear the sync warnings that need a check?"
-      }
+      {}
     ],
     "sync_check_server": [
       {

@@ -421,7 +421,14 @@ impl Backend {
         // A master password change in flight finishes first (at most three
         // minutes): locking between the server's answer and the local commit
         // would leave the device with the old password.
-        self.sync.wait_for_change();
+        // Sleep locks at once: a change cut off by it is recovered with the
+        // new password.
+        if reason != LockReason::Sleep {
+            self.sync.wait_for_change();
+        }
+        // Pending logins and joins (with their keys and Secret Key) end with
+        // every lock, also in the onboarding where no vault is unlocked.
+        self.sync.drop_pending();
         let mut slot = self.slot()?;
         let mut locked_now = false;
         if matches!(*slot, Slot::Unlocked(_))

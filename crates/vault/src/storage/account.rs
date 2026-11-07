@@ -222,6 +222,53 @@ impl Store {
             .map(drop)
     }
 
+    /// Whether `salt` was retired by an earlier password change.
+    ///
+    /// # Errors
+    /// [`Error`] on a storage failure.
+    pub fn salt_retired(&self, salt: &AccountSalt) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM retired_salts WHERE salt = ?1",
+            params![salt.as_bytes()],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// The highest folder account-file version this device wrote or adopted
+    /// (0 if none).
+    ///
+    /// # Errors
+    /// [`Error`] on a storage failure.
+    pub fn folder_account_version(&self) -> Result<u64> {
+        let v: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT version FROM folder_account_version WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(u64::try_from(v.unwrap_or(0)).unwrap_or(0))
+    }
+
+    /// Raises the stored folder account-file version to `version` (never
+    /// lowers it).
+    ///
+    /// # Errors
+    /// [`Error`] on a storage failure or a version that does not fit.
+    pub fn raise_folder_account_version(&mut self, version: u64) -> Result<()> {
+        let v = i64::try_from(version).map_err(|_| Error::Corrupt)?;
+        let tx = self.write()?;
+        tx.execute(
+            "INSERT INTO folder_account_version (id, version) VALUES (1, ?1)
+             ON CONFLICT (id) DO UPDATE SET version = MAX(version, excluded.version)",
+            params![v],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// §6.4 and §6.2 in one transaction: replaces the password parameters
     /// and wrapping and deletes the given other unlock methods (quick unlock
     /// does not survive a password change), then scrubs the WAL. Returns the
@@ -245,6 +292,13 @@ impl Store {
         let tx = self.write()?;
         let stored = read_account(&tx)?.ok_or(Error::NoAccount)?;
         check_params(params, &stored)?;
+        if stored.salt != params.salt {
+            // The salt this change replaces is retired for good (public data).
+            tx.execute(
+                "INSERT OR IGNORE INTO retired_salts (salt, retired_at) VALUES (?1, ?2)",
+                params![stored.salt.as_bytes(), now_ms()],
+            )?;
+        }
         update_account(&tx, params)?;
         upsert_unlock(
             &tx,

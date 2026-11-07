@@ -726,12 +726,7 @@ fn sync_commands(f: &mut Fixtures) {
 fn sync_acknowledge_commands(f: &mut Fixtures) {
     f.command(
         "sync_acknowledge",
-        vec![AcknowledgeRequest {
-            title: "Clear the sync warnings that need a check?".into(),
-            message: "Only do this if you checked. Do this on each of your devices.".into(),
-            confirm_label: "Clear warnings and sync".into(),
-            cancel_label: "Cancel".into(),
-        }],
+        vec![AcknowledgeRequest {}],
         sync::samples::overviews(),
     );
     f.command(

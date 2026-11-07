@@ -152,7 +152,6 @@ export const sync = {
   "sync.acknowledge.body":
     "Mach erst weiter, wenn du den Server oder Ordner selbst geprüft hast. Damit verschwinden alle Warnungen, die eine Prüfung brauchen, und die Synchronisierung läuft weiter. Wurden deine Daten tatsächlich zurückgesetzt oder verändert, kann Mosaic das danach nicht mehr erkennen.",
   "sync.acknowledge.eachDevice": "Mach das auf jedem deiner Geräte.",
-  "sync.acknowledge.confirm": "Warnungen ausblenden und synchronisieren",
 
   "toast.syncAttention":
     "Die Synchronisierung hat einige Einträge von einem anderen Gerät zusammengeführt oder repariert. Sieh nach, was sich geändert hat.",

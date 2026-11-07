@@ -174,6 +174,8 @@ export const errors = {
     "The folder choice timed out. Choose the folder again.",
   "error.syncFreshLoginExpired":
     "Your password check timed out. Enter your master password again.",
+  "error.syncPasswordRollback":
+    "The server offered an older master password. Check the server.",
   "error.syncPasswordChanged":
     "Your master password was changed on the server or in the folder. Enter the new one below.",
 } as const satisfies Record<string, string>;
