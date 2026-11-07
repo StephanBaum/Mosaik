@@ -97,7 +97,7 @@ jobs:
       - name: Install toolchain from rust-toolchain.toml (includes llvm-tools-preview)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
           tool: cargo-llvm-cov@0.9.1
       - run: cargo llvm-cov --locked -p ${{ matrix.crate }} ${{ matrix.features }} --summary-only --fail-under-lines 90
@@ -133,7 +133,7 @@ jobs:
         with: { persist-credentials: false }
       - name: Install pinned nightly (cargo-fuzz needs -Z sanitizer flags)
         run: rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
           tool: cargo-fuzz@0.13.2
       - name: Run every fuzz target for 60 s
@@ -274,7 +274,7 @@ jobs:
         with:
           command: check
           manifest-path: apps/desktop/src-tauri/fuzz/Cargo.toml
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
           tool: cargo-audit@0.22.2
       - run: cargo audit --deny warnings
