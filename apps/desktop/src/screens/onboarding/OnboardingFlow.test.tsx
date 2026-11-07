@@ -67,6 +67,16 @@ describe("onboarding", () => {
     expect(screen.getByText(/Your vault is empty/)).toBeTruthy();
   });
 
+  it("offers \"I already use Mosaic\" on the first step, in both languages", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={createMockIpc()} languages={["de-DE"]} />);
+    await screen.findByRole("heading", { name: "Erstelle dein Konto" });
+    await user.click(screen.getByRole("button", { name: "Ich nutze Mosaic schon" }));
+    expect(await screen.findByRole("heading", { name: "Dieses Gerät zu deinem Konto hinzufügen" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Zurück zur Kontoerstellung" }));
+    expect(await screen.findByRole("heading", { name: "Erstelle dein Konto" })).toBeTruthy();
+  });
+
   it("speaks German", async () => {
     const user = userEvent.setup();
     render(<App ipc={createMockIpc()} languages={["de-DE"]} />);

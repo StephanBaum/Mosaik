@@ -65,4 +65,52 @@ export const onboarding = {
   "kit.preview": "Emergency Kit preview",
   "kit.continueHint": "Save the kit to continue.",
   "kit.warning": "Without this kit and your master password, nobody can recover your vault, not even us.",
+  "onboarding.join.link":
+    "I already use Mosaic",
+  "onboarding.join.title":
+    "Add this device to your account",
+  "onboarding.join.body":
+    "Sign in with your master password and the Secret Key from your Emergency Kit. Your vaults are then downloaded and decrypted on this device.",
+  "onboarding.join.tabs":
+    "Where is your sync data?",
+  "onboarding.join.tab.server":
+    "Mosaic server",
+  "onboarding.join.tab.folder":
+    "Cloud folder",
+  "onboarding.join.serverUrl":
+    "Server address",
+  "onboarding.join.email":
+    "Sync account email",
+  "onboarding.join.password":
+    "Master password",
+  "onboarding.join.secretKey":
+    "Secret Key",
+  "onboarding.join.secretKeyHint":
+    "From your Emergency Kit. It starts with M1.",
+  "onboarding.join.deviceName":
+    "Name of this device",
+  "onboarding.join.chooseFolder":
+    "Choose folder…",
+  "onboarding.join.folder":
+    "Folder",
+  "onboarding.join.noAccounts":
+    "This folder holds no Mosaic account. Choose the folder your other device syncs to.",
+  "onboarding.join.account":
+    "Account",
+  "onboarding.join.accountOption":
+    "Account {id}",
+  "onboarding.join.submit":
+    "Add this device",
+  "onboarding.join.working":
+    "Signing in and downloading your vaults…",
+  "onboarding.join.twoFactor.title":
+    "Enter your code",
+  "onboarding.join.twoFactor.body":
+    "Your sync account uses two-step verification. Enter the 6-digit code from your authenticator app.",
+  "onboarding.join.twoFactor.code":
+    "6-digit code",
+  "onboarding.join.twoFactor.submit":
+    "Verify",
+  "onboarding.join.back":
+    "Back to create account",
 } as const satisfies Record<string, string>;

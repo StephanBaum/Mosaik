@@ -68,6 +68,25 @@
     "allow-browser-remove-pairing",
     "allow-browser-pairing-respond",
     "allow-browser-save-respond",
-    "allow-browser-passkey-respond"
+    "allow-browser-passkey-respond",
+    "allow-sync-status",
+    "allow-sync-check-server",
+    "allow-sync-hosted-connect",
+    "allow-sync-hosted-two-factor",
+    "allow-sync-pick-folder",
+    "allow-sync-folder-connect",
+    "allow-sync-now",
+    "allow-sync-disconnect",
+    "allow-sync-acknowledge",
+    "allow-sync-devices",
+    "allow-sync-device-rename",
+    "allow-sync-device-remove",
+    "allow-sync-totp-begin",
+    "allow-sync-totp-confirm",
+    "allow-sync-totp-disable",
+    "allow-join-hosted",
+    "allow-join-hosted-two-factor",
+    "allow-join-folder",
+    "allow-change-master-password"
   ]
 }

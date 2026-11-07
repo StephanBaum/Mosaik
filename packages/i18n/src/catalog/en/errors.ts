@@ -126,4 +126,52 @@ export const errors = {
   "error.otpClipboardNoImage":
     "The clipboard has no image. Take a screenshot of the QR code, then paste it here.",
   "error.otpPendingExpired": "The scanned code is no longer available. Scan it again.",
+  "error.syncNotConfigured":
+    "Sync isn't set up on this device yet. Set it up in Settings first.",
+  "error.syncAlreadyConfigured":
+    "Sync is already set up. Disconnect first to use a different server or folder.",
+  "error.syncServerUnreachable":
+    "Mosaic couldn't reach the server. Check the address and your internet connection, then try again.",
+  "error.syncServerInvalid":
+    "This doesn't look like a Mosaic server. Check the address; it should look like https://sync.example.com.",
+  "error.syncServerInsecure":
+    "Mosaic only connects to servers over https, so nobody on the way can read or change your data. Use an https:// address.",
+  "error.syncServerMismatch":
+    "This isn't the server this account syncs with. Check the address.",
+  "error.syncServerIncompatible":
+    "This server runs a version that doesn't match your Mosaic. Update Mosaic or ask the server's owner to update it.",
+  "error.syncRegistrationClosed":
+    "This server isn't accepting new sync accounts. Sign in to an existing one or ask the server's owner.",
+  "error.syncInviteInvalid":
+    "This invite code isn't valid or was already used. Check it or ask the server's owner for a new one.",
+  "error.syncAccountExists":
+    "A sync account for this account already exists on that server. Choose Sign in instead.",
+  "error.syncAccountMismatch":
+    "The sync account on that server belongs to a different Mosaic account. Check the address and your email.",
+  "error.syncTwoFactorRequired":
+    "This sync account needs a code from your authenticator app. Enter the 6-digit code.",
+  "error.syncTwoFactorInvalid":
+    "That code isn't right or has expired. Enter the current 6-digit code from your authenticator app.",
+  "error.syncSignedOut":
+    "The server signed this device out. Sign in again to keep syncing. Your changes are safe on this device.",
+  "error.syncRateLimited":
+    "Too many attempts. Wait a few minutes, then try again.",
+  "error.syncQuotaExceeded":
+    "The server or folder has no room left for your data. Free up space or ask the server's owner for more.",
+  "error.syncFolderUnavailable":
+    "Mosaic can't use this folder. Check that it exists, that your cloud service has finished syncing it and that Mosaic may write to it.",
+  "error.syncFolderNotEmpty":
+    "This folder holds other files, so Mosaic won't write there. Choose an empty folder or create a new one.",
+  "error.syncFolderNoAccount":
+    "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
+  "error.syncFolderDamaged":
+    "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+  "error.syncPasswordNeedsServer":
+    "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
+  "error.syncDeviceIsCurrent":
+    "You can't remove the device you're using. Use Disconnect instead.",
+  "error.syncChoiceExpired":
+    "The folder choice timed out. Choose the folder again.",
+  "error.syncFreshLoginExpired":
+    "Your password check timed out. Enter your master password again.",
 } as const satisfies Record<string, string>;

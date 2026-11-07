@@ -32,6 +32,10 @@ import {
   shortcutStates,
   sshCloseReasons,
   browserCloseReasons,
+  devicePlatforms,
+  folderStates,
+  hostedModes,
+  registrationModes,
   browserEndpointStates,
   browserRegistryStates,
   browserFamilies,
@@ -111,6 +115,10 @@ describe("contract parity with Rust", () => {
     lockReason: lockReasons,
     syncStatus: syncStatuses,
     vaultProtection: vaultProtections,
+    registrationMode: registrationModes,
+    hostedMode: hostedModes,
+    folderState: folderStates,
+    devicePlatform: devicePlatforms,
   };
 
   it.each(Object.entries(enums))("%s has the same values", (name, values) => {

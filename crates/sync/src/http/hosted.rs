@@ -20,7 +20,7 @@ use mosaic_vault::session::{AccountBootstrap, JoinKeys, LockedSession, PreparedP
 use reqwest::Method;
 use zeroize::Zeroize;
 
-use super::client::{Bearer, Http, canonical_origin};
+use super::client::{Bearer, Http, Token, canonical_origin};
 use crate::transport::{Rejection, TransportError};
 use crate::wire::email;
 use crate::wire::json::{
@@ -329,12 +329,12 @@ fn login_with(
 /// # Errors
 /// [`Rejection::TwoFactorInvalid`] (five wrong codes delete the pending
 /// session: log in again) and the other [`TransportError`]s.
-pub fn login_totp(base: &str, token: &SessionToken, code: &str) -> Result<u64, TransportError> {
+pub fn login_totp(base: &str, token: &impl Token, code: &str) -> Result<u64, TransportError> {
     let http = connect(base)?;
     login_totp_with(&http, token, code)
 }
 
-fn login_totp_with(http: &Http, token: &SessionToken, code: &str) -> Result<u64, TransportError> {
+fn login_totp_with(http: &Http, token: &impl Token, code: &str) -> Result<u64, TransportError> {
     let bearer = Bearer::new(token)?;
     let (_, r): (u16, LoginResponse) = http.call(
         Method::POST,
@@ -353,11 +353,162 @@ fn login_totp_with(http: &Http, token: &SessionToken, code: &str) -> Result<u64,
 ///
 /// # Errors
 /// [`TransportError`].
-pub fn logout(base: &str, token: &SessionToken) -> Result<(), TransportError> {
+pub fn logout(base: &str, token: &impl Token) -> Result<(), TransportError> {
     let http = connect(base)?;
     let bearer = Bearer::new(token)?;
     http.call::<Empty, Empty>(Method::POST, "/v1/logout", Some(&bearer), None, &OK_STATUS)
         .map(|_| ())
+}
+
+/// What `GET /v1/account` says about the signed-in account, for a client
+/// that already holds its keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccountInfo {
+    /// The account version.
+    pub account_version: u64,
+    /// The account has a second factor.
+    pub totp_enabled: bool,
+}
+
+/// `GET /v1/account` with a completed session.
+///
+/// # Errors
+/// [`TransportError`].
+pub fn account_info(base: &str, token: &impl Token) -> Result<AccountInfo, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
+        Method::GET,
+        "/v1/account",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    Ok(AccountInfo {
+        account_version: account.account_version,
+        totp_enabled: account.totp_enabled,
+    })
+}
+
+/// The secret of a second factor being set up: the base32 secret and the
+/// `otpauth://` link that holds it. Zeroizing, redacted in `Debug`.
+pub struct TotpSetup {
+    /// The base32 secret.
+    pub secret: crate::wire::json::SecretText,
+    /// The `otpauth://` link.
+    pub otpauth_uri: crate::wire::json::SecretText,
+}
+
+impl core::fmt::Debug for TotpSetup {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("TotpSetup([REDACTED])")
+    }
+}
+
+/// `POST /v1/account/totp/setup`: the server creates a pending second-factor
+/// secret. Needs a fresh login (the session of [`login`] within five
+/// minutes).
+///
+/// # Errors
+/// [`TransportError::FreshLoginRequired`] and the other [`TransportError`]s.
+pub fn totp_setup(base: &str, token: &impl Token) -> Result<TotpSetup, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r): (u16, crate::wire::json::TotpSetupResponse) = http.call(
+        Method::POST,
+        "/v1/account/totp/setup",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    Ok(TotpSetup {
+        secret: r.secret,
+        otpauth_uri: r.otpauth_uri,
+    })
+}
+
+/// `POST /v1/account/totp/confirm`: turns the pending second factor on once
+/// the code from the authenticator app is right. Needs a fresh login.
+///
+/// # Errors
+/// [`Rejection::TwoFactorInvalid`], [`TransportError::FreshLoginRequired`]
+/// and the other [`TransportError`]s.
+pub fn totp_confirm(base: &str, token: &impl Token, code: &str) -> Result<(), TransportError> {
+    totp_code_call(base, token, "/v1/account/totp/confirm", code)
+}
+
+/// `POST /v1/account/totp/disable`: turns the second factor off. Needs a fresh
+/// login and a current code.
+///
+/// # Errors
+/// As [`totp_confirm`].
+pub fn totp_disable(base: &str, token: &impl Token, code: &str) -> Result<(), TransportError> {
+    totp_code_call(base, token, "/v1/account/totp/disable", code)
+}
+
+fn totp_code_call(
+    base: &str,
+    token: &impl Token,
+    path: &str,
+    code: &str,
+) -> Result<(), TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    http.call::<_, Empty>(
+        Method::POST,
+        path,
+        Some(&bearer),
+        Some(&CodeRequest { code: code.into() }),
+        &OK_STATUS,
+    )
+    .map(|_| ())
+}
+
+/// `PATCH /v1/devices/{device}`: renames a device of the account.
+///
+/// # Errors
+/// [`TransportError::NotFound`] and the other [`TransportError`]s.
+pub fn device_rename(
+    base: &str,
+    token: &impl Token,
+    device: InstallId,
+    name: &str,
+) -> Result<(), TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    http.call::<_, Empty>(
+        Method::PATCH,
+        &format!("/v1/devices/{device}"),
+        Some(&bearer),
+        Some(&crate::wire::json::RenameDeviceRequest {
+            name: name.to_owned(),
+        }),
+        &OK_STATUS,
+    )
+    .map(|_| ())
+}
+
+/// `DELETE /v1/devices/{device}`: ends the device's sessions and refuses its
+/// later logins. Needs a fresh login; a device cannot remove itself.
+///
+/// # Errors
+/// [`Rejection::DeviceIsCurrent`], [`TransportError::FreshLoginRequired`]
+/// and the other [`TransportError`]s.
+pub fn device_remove(
+    base: &str,
+    token: &impl Token,
+    device: InstallId,
+) -> Result<(), TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    http.call::<Empty, Empty>(
+        Method::DELETE,
+        &format!("/v1/devices/{device}"),
+        Some(&bearer),
+        None,
+        &OK_STATUS,
+    )
+    .map(|_| ())
 }
 
 /// The first half of joining an account from a new device: pre-login for the
@@ -410,7 +561,7 @@ pub fn join_login(
 /// pre-login's; the other [`TransportError`]s.
 pub fn join_fetch_account(
     base: &str,
-    token: &SessionToken,
+    token: &impl Token,
     keys: &JoinKeys,
 ) -> Result<JoinAccount, TransportError> {
     let http = connect(base)?;

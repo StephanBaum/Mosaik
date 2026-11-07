@@ -66,6 +66,25 @@ import type {
 } from "./session.ts";
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
 import type { SshAgentStatus, SshRespondRequest, SshSetEnabledRequest } from "./ssh.ts";
+import type {
+  ChangePasswordRequest,
+  CheckServerRequest,
+  CodeRequest,
+  DeviceRemoveRequest,
+  DeviceRenameRequest,
+  FolderChoice,
+  FolderConnectRequest,
+  HostedConnectRequest,
+  JoinFolderRequest,
+  JoinHostedRequest,
+  JoinOutcome,
+  ServerCheck,
+  SyncDevices,
+  SyncOverview,
+  TotpBeginRequest,
+  TotpDisableRequest,
+  TotpSetupInfo,
+} from "./sync.ts";
 import type { TotpCode } from "./totp.ts";
 import type {
   CreateHardwareVaultRequest,
@@ -160,6 +179,26 @@ export interface Commands {
   browser_pairing_respond: Command<BrowserPairingRespondRequest, null>;
   browser_save_respond: Command<BrowserSaveRespondRequest, null>;
   browser_passkey_respond: Command<BrowserPasskeyRespondRequest, null>;
+  // Sync
+  sync_status: Command<null, SyncOverview>;
+  sync_check_server: Command<CheckServerRequest, ServerCheck>;
+  sync_hosted_connect: Command<HostedConnectRequest, SyncOverview>;
+  sync_hosted_two_factor: Command<CodeRequest, SyncOverview>;
+  sync_pick_folder: Command<null, FolderChoice | null>;
+  sync_folder_connect: Command<FolderConnectRequest, SyncOverview>;
+  sync_now: Command<null, SyncOverview>;
+  sync_disconnect: Command<null, SyncOverview>;
+  sync_acknowledge: Command<null, SyncOverview>;
+  sync_devices: Command<null, SyncDevices>;
+  sync_device_rename: Command<DeviceRenameRequest, null>;
+  sync_device_remove: Command<DeviceRemoveRequest, null>;
+  sync_totp_begin: Command<TotpBeginRequest, TotpSetupInfo>;
+  sync_totp_confirm: Command<CodeRequest, null>;
+  sync_totp_disable: Command<TotpDisableRequest, null>;
+  join_hosted: Command<JoinHostedRequest, JoinOutcome>;
+  join_hosted_two_factor: Command<CodeRequest, JoinOutcome>;
+  join_folder: Command<JoinFolderRequest, JoinOutcome>;
+  change_master_password: Command<ChangePasswordRequest, null>;
 }
 
 export type CommandName = keyof Commands;
@@ -240,6 +279,25 @@ const commandSet = {
   browser_pairing_respond: true,
   browser_save_respond: true,
   browser_passkey_respond: true,
+  sync_status: true,
+  sync_check_server: true,
+  sync_hosted_connect: true,
+  sync_hosted_two_factor: true,
+  sync_pick_folder: true,
+  sync_folder_connect: true,
+  sync_now: true,
+  sync_disconnect: true,
+  sync_acknowledge: true,
+  sync_devices: true,
+  sync_device_rename: true,
+  sync_device_remove: true,
+  sync_totp_begin: true,
+  sync_totp_confirm: true,
+  sync_totp_disable: true,
+  join_hosted: true,
+  join_hosted_two_factor: true,
+  join_folder: true,
+  change_master_password: true,
 } as const satisfies Record<CommandName, true>;
 
 export const commandNames = Object.keys(commandSet) as CommandName[];

@@ -144,4 +144,52 @@ export const errors = {
     "In der Zwischenablage ist kein Bild. Mach einen Screenshot vom QR-Code und füge ihn hier ein.",
   "error.otpPendingExpired":
     "Der gescannte Code ist nicht mehr verfügbar. Scann ihn noch einmal.",
+  "error.syncNotConfigured":
+    "Die Synchronisierung ist auf diesem Gerät noch nicht eingerichtet. Richte sie zuerst in den Einstellungen ein.",
+  "error.syncAlreadyConfigured":
+    "Die Synchronisierung ist schon eingerichtet. Trenne sie zuerst, um einen anderen Server oder Ordner zu nutzen.",
+  "error.syncServerUnreachable":
+    "Mosaic konnte den Server nicht erreichen. Prüfe die Adresse und deine Internetverbindung und versuche es dann noch einmal.",
+  "error.syncServerInvalid":
+    "Das sieht nicht nach einem Mosaic-Server aus. Prüfe die Adresse; sie sollte so aussehen: https://sync.example.com.",
+  "error.syncServerInsecure":
+    "Mosaic verbindet sich nur per https mit Servern, damit unterwegs niemand deine Daten lesen oder ändern kann. Nimm eine Adresse mit https://.",
+  "error.syncServerMismatch":
+    "Das ist nicht der Server, mit dem dieses Konto synchronisiert. Prüfe die Adresse.",
+  "error.syncServerIncompatible":
+    "Dieser Server läuft in einer Version, die nicht zu deinem Mosaic passt. Aktualisiere Mosaic oder bitte den Betreiber des Servers, ihn zu aktualisieren.",
+  "error.syncRegistrationClosed":
+    "Dieser Server nimmt keine neuen Sync-Konten an. Melde dich bei einem bestehenden an oder frag den Betreiber des Servers.",
+  "error.syncInviteInvalid":
+    "Dieser Einladungscode ist ungültig oder wurde schon benutzt. Prüfe ihn oder bitte den Betreiber des Servers um einen neuen.",
+  "error.syncAccountExists":
+    "Auf diesem Server gibt es für dieses Konto schon ein Sync-Konto. Wähle stattdessen Anmelden.",
+  "error.syncAccountMismatch":
+    "Das Sync-Konto auf diesem Server gehört zu einem anderen Mosaic-Konto. Prüfe die Adresse und deine E-Mail-Adresse.",
+  "error.syncTwoFactorRequired":
+    "Dieses Sync-Konto braucht einen Code aus deiner Authenticator-App. Gib den 6-stelligen Code ein.",
+  "error.syncTwoFactorInvalid":
+    "Dieser Code stimmt nicht oder ist abgelaufen. Gib den aktuellen 6-stelligen Code aus deiner Authenticator-App ein.",
+  "error.syncSignedOut":
+    "Der Server hat dieses Gerät abgemeldet. Melde dich erneut an, um weiter zu synchronisieren. Deine Änderungen sind auf diesem Gerät sicher.",
+  "error.syncRateLimited":
+    "Zu viele Versuche. Warte ein paar Minuten und versuche es dann noch einmal.",
+  "error.syncQuotaExceeded":
+    "Auf dem Server oder im Ordner ist kein Platz mehr für deine Daten. Schaffe Platz oder bitte den Betreiber des Servers um mehr.",
+  "error.syncFolderUnavailable":
+    "Mosaic kann diesen Ordner nicht verwenden. Prüfe, ob er existiert, ob dein Cloud-Dienst ihn fertig synchronisiert hat und ob Mosaic dort schreiben darf.",
+  "error.syncFolderNotEmpty":
+    "In diesem Ordner liegen andere Dateien, deshalb schreibt Mosaic dort nichts. Wähle einen leeren Ordner oder lege einen neuen an.",
+  "error.syncFolderNoAccount":
+    "In diesem Ordner liegen keine Sync-Daten für dieses Konto. Wähle den Ordner, mit dem dein anderes Gerät synchronisiert.",
+  "error.syncFolderDamaged":
+    "Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal.",
+  "error.syncPasswordNeedsServer":
+    "Zum Ändern deines Master-Passworts wird dein Sync-Server gebraucht, und er ist nicht erreichbar. Prüfe deine Internetverbindung und versuche es noch einmal.",
+  "error.syncDeviceIsCurrent":
+    "Du kannst das Gerät, das du gerade benutzt, nicht entfernen. Nutze stattdessen Trennen.",
+  "error.syncChoiceExpired":
+    "Die Ordnerauswahl ist abgelaufen. Wähle den Ordner noch einmal.",
+  "error.syncFreshLoginExpired":
+    "Die Passwortprüfung ist abgelaufen. Gib dein Master-Passwort noch einmal ein.",
 } satisfies Record<keyof typeof en, string>;

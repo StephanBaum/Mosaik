@@ -64,6 +64,15 @@ pub trait Dialogs: Send + Sync {
     /// # Errors
     /// `internal` if no dialog can be shown.
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>>;
+
+    /// Asks which folder to use (the sync folder); `None` if the user
+    /// cancels or this build has no dialogs.
+    ///
+    /// # Errors
+    /// `internal` if no dialog can be shown.
+    fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
+        Ok(None)
+    }
 }
 
 /// No dialogs (tests, headless): every request is cancelled.
@@ -136,5 +145,9 @@ impl<R: Runtime> Dialogs for NativeDialogs<R> {
 
     fn open_file(&self, filter: FileFilter) -> IpcResult<Option<PathBuf>> {
         self.run(move |dialog| Box::pin(with_filter(dialog, filter).pick_file()))
+    }
+
+    fn pick_folder(&self) -> IpcResult<Option<PathBuf>> {
+        self.run(|dialog| Box::pin(dialog.pick_folder()))
     }
 }

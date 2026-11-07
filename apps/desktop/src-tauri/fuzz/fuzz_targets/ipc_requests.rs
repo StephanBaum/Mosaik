@@ -38,6 +38,11 @@ use contract::session::{
 };
 use contract::settings::UpdateSettingsRequest;
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
+use contract::sync::{
+    ChangePasswordRequest, CheckServerRequest, CodeRequest, DeviceRemoveRequest,
+    DeviceRenameRequest, FolderConnectRequest, HostedConnectRequest, JoinFolderRequest,
+    JoinHostedRequest, TotpBeginRequest, TotpDisableRequest,
+};
 use contract::vaults::{CreateVaultRequest, RenameVaultRequest, VaultRequest};
 
 fn parse<'a, T: serde::Deserialize<'a>>(json: &'a [u8]) -> Option<T> {
@@ -55,7 +60,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 34;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 45;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -118,6 +123,24 @@ fuzz_target!(|data: &[u8]| {
         30 => drop(parse::<SshRespondRequest>(json)),
         31 => drop(parse::<OtpScanRequest>(json)),
         32 => drop(parse::<OtpParseRequest>(json)),
-        _ => drop(parse::<OtpPendingRequest>(json)),
+        33 => drop(parse::<OtpPendingRequest>(json)),
+        34 => drop(parse::<CheckServerRequest>(json)),
+        35 => drop(parse::<HostedConnectRequest>(json)),
+        36 => drop(parse::<CodeRequest>(json)),
+        37 => {
+            // The webview never sends a folder path (ADR-0034): a request that
+            // names one is not a request.
+            if parse::<FolderConnectRequest>(json).is_some() {
+                let text = String::from_utf8_lossy(json);
+                assert!(!text.contains("\"path\""));
+            }
+        }
+        38 => drop(parse::<DeviceRenameRequest>(json)),
+        39 => drop(parse::<DeviceRemoveRequest>(json)),
+        40 => drop(parse::<TotpBeginRequest>(json)),
+        41 => drop(parse::<TotpDisableRequest>(json)),
+        42 => drop(parse::<JoinHostedRequest>(json)),
+        43 => drop(parse::<JoinFolderRequest>(json)),
+        _ => drop(parse::<ChangePasswordRequest>(json)),
     }
 });

@@ -70,7 +70,26 @@ export const fixtures = {
     "browser_remove_pairing",
     "browser_pairing_respond",
     "browser_save_respond",
-    "browser_passkey_respond"
+    "browser_passkey_respond",
+    "sync_status",
+    "sync_check_server",
+    "sync_hosted_connect",
+    "sync_hosted_two_factor",
+    "sync_pick_folder",
+    "sync_folder_connect",
+    "sync_now",
+    "sync_disconnect",
+    "sync_acknowledge",
+    "sync_devices",
+    "sync_device_rename",
+    "sync_device_remove",
+    "sync_totp_begin",
+    "sync_totp_confirm",
+    "sync_totp_disable",
+    "join_hosted",
+    "join_hosted_two_factor",
+    "join_folder",
+    "change_master_password"
   ],
   "enums": {
     "biometricPlatformKind": [
@@ -124,6 +143,11 @@ export const fixtures = {
       "phone",
       "date",
       "otp"
+    ],
+    "devicePlatform": [
+      "windows",
+      "macos",
+      "linux"
     ],
     "errorCode": [
       "notImplemented",
@@ -200,8 +224,41 @@ export const fixtures = {
       "browserRequestExpired",
       "browserAllowTooSoon",
       "browserPairingNotFound",
+      "syncNotConfigured",
+      "syncAlreadyConfigured",
+      "syncServerUnreachable",
+      "syncServerInvalid",
+      "syncServerInsecure",
+      "syncServerMismatch",
+      "syncServerIncompatible",
+      "syncRegistrationClosed",
+      "syncInviteInvalid",
+      "syncAccountExists",
+      "syncAccountMismatch",
+      "syncTwoFactorRequired",
+      "syncTwoFactorInvalid",
+      "syncSignedOut",
+      "syncRateLimited",
+      "syncQuotaExceeded",
+      "syncFolderUnavailable",
+      "syncFolderNotEmpty",
+      "syncFolderNoAccount",
+      "syncFolderDamaged",
+      "syncPasswordNeedsServer",
+      "syncDeviceIsCurrent",
+      "syncChoiceExpired",
+      "syncFreshLoginExpired",
       "busy",
       "internal"
+    ],
+    "folderState": [
+      "empty",
+      "mosaic",
+      "other"
+    ],
+    "hostedMode": [
+      "register",
+      "signIn"
     ],
     "importEntryWarning": [
       "unmappedFields",
@@ -321,6 +378,11 @@ export const fixtures = {
       "biometric",
       "hardwareKey"
     ],
+    "registrationMode": [
+      "open",
+      "invite",
+      "closed"
+    ],
     "secretFieldKey": [
       "password",
       "cardNumber",
@@ -373,7 +435,8 @@ export const fixtures = {
       "offline",
       "syncing",
       "upToDate",
-      "error"
+      "error",
+      "signedOut"
     ],
     "textFieldKey": [
       "title",
@@ -644,6 +707,78 @@ export const fixtures = {
       "code": "browserPairingNotFound"
     },
     {
+      "code": "syncNotConfigured"
+    },
+    {
+      "code": "syncAlreadyConfigured"
+    },
+    {
+      "code": "syncServerUnreachable"
+    },
+    {
+      "code": "syncServerInvalid"
+    },
+    {
+      "code": "syncServerInsecure"
+    },
+    {
+      "code": "syncServerMismatch"
+    },
+    {
+      "code": "syncServerIncompatible"
+    },
+    {
+      "code": "syncRegistrationClosed"
+    },
+    {
+      "code": "syncInviteInvalid"
+    },
+    {
+      "code": "syncAccountExists"
+    },
+    {
+      "code": "syncAccountMismatch"
+    },
+    {
+      "code": "syncTwoFactorRequired"
+    },
+    {
+      "code": "syncTwoFactorInvalid"
+    },
+    {
+      "code": "syncSignedOut"
+    },
+    {
+      "code": "syncRateLimited"
+    },
+    {
+      "code": "syncQuotaExceeded"
+    },
+    {
+      "code": "syncFolderUnavailable"
+    },
+    {
+      "code": "syncFolderNotEmpty"
+    },
+    {
+      "code": "syncFolderNoAccount"
+    },
+    {
+      "code": "syncFolderDamaged"
+    },
+    {
+      "code": "syncPasswordNeedsServer"
+    },
+    {
+      "code": "syncDeviceIsCurrent"
+    },
+    {
+      "code": "syncChoiceExpired"
+    },
+    {
+      "code": "syncFreshLoginExpired"
+    },
+    {
       "code": "busy"
     },
     {
@@ -654,22 +789,6 @@ export const fixtures = {
     {
       "reason": "idle",
       "type": "locked"
-    },
-    {
-      "state": {
-        "error": "internal",
-        "lastSyncedAt": 1761480000000,
-        "status": "error"
-      },
-      "type": "syncStateChanged"
-    },
-    {
-      "state": {
-        "error": null,
-        "lastSyncedAt": null,
-        "status": "notConfigured"
-      },
-      "type": "syncStateChanged"
     },
     {
       "type": "clipboardCleared"
@@ -849,6 +968,35 @@ export const fixtures = {
     },
     {
       "type": "browserPairingsChanged"
+    },
+    {
+      "state": {
+        "error": "internal",
+        "lastSyncedAt": 1761480000000,
+        "status": "error"
+      },
+      "type": "syncStateChanged"
+    },
+    {
+      "state": {
+        "error": null,
+        "lastSyncedAt": null,
+        "status": "notConfigured"
+      },
+      "type": "syncStateChanged"
+    },
+    {
+      "type": "syncDataChanged",
+      "vaultIds": [
+        "019a2b3c-4d5e-7010-8000-000000000001",
+        "019a2b3c-4d5e-7010-8000-000000000002"
+      ]
+    },
+    {
+      "conflicts": 2,
+      "replacedUnreadable": 0,
+      "restored": 1,
+      "type": "syncAttention"
     }
   ],
   "requests": {
@@ -1052,6 +1200,18 @@ export const fixtures = {
     ],
     "browser_status": [
       null
+    ],
+    "change_master_password": [
+      {
+        "code": null,
+        "currentPassword": "correct horse battery staple",
+        "newPassword": "a new master password"
+      },
+      {
+        "code": "492039",
+        "currentPassword": "correct horse battery staple",
+        "newPassword": "a new master password"
+      }
     ],
     "clear_clipboard": [
       null
@@ -1274,6 +1434,29 @@ export const fixtures = {
         "password": null
       }
     ],
+    "join_folder": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
+        "choiceId": "choice-1",
+        "deviceName": "Mosaic on Windows",
+        "password": "correct horse battery staple",
+        "secretKey": "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2"
+      }
+    ],
+    "join_hosted": [
+      {
+        "deviceName": "Mosaic on Windows",
+        "email": "alex@example.com",
+        "password": "correct horse battery staple",
+        "secretKey": "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2",
+        "serverUrl": "https://sync.example.com"
+      }
+    ],
+    "join_hosted_two_factor": [
+      {
+        "code": "492039"
+      }
+    ],
     "list_items": [
       {
         "favoritesOnly": true,
@@ -1474,6 +1657,90 @@ export const fixtures = {
       {
         "decision": "deny",
         "requestId": "ssh-1"
+      }
+    ],
+    "sync_acknowledge": [
+      null
+    ],
+    "sync_check_server": [
+      {
+        "serverUrl": "https://sync.example.com"
+      }
+    ],
+    "sync_device_remove": [
+      {
+        "code": null,
+        "deviceId": "019a2b3c-4d5e-7050-8000-000000000002",
+        "password": "correct horse battery staple"
+      },
+      {
+        "code": "492039",
+        "deviceId": "019a2b3c-4d5e-7050-8000-000000000002",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_device_rename": [
+      {
+        "deviceId": "019a2b3c-4d5e-7050-8000-000000000002",
+        "name": "Work laptop"
+      }
+    ],
+    "sync_devices": [
+      null
+    ],
+    "sync_disconnect": [
+      null
+    ],
+    "sync_folder_connect": [
+      {
+        "choiceId": "choice-1",
+        "deviceName": "Mosaic on Windows"
+      }
+    ],
+    "sync_hosted_connect": [
+      {
+        "deviceName": "Mosaic on Windows",
+        "inviteCode": "INVITE-CODE-1234",
+        "mode": "register",
+        "password": "correct horse battery staple",
+        "serverUrl": "https://sync.example.com"
+      },
+      {
+        "deviceName": "Mosaic on Windows",
+        "inviteCode": null,
+        "mode": "signIn",
+        "password": "correct horse battery staple",
+        "serverUrl": "https://sync.example.com"
+      }
+    ],
+    "sync_hosted_two_factor": [
+      {
+        "code": "492039"
+      }
+    ],
+    "sync_now": [
+      null
+    ],
+    "sync_pick_folder": [
+      null
+    ],
+    "sync_status": [
+      null
+    ],
+    "sync_totp_begin": [
+      {
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_totp_confirm": [
+      {
+        "code": "492039"
+      }
+    ],
+    "sync_totp_disable": [
+      {
+        "code": "492039",
+        "password": "correct horse battery staple"
       }
     ],
     "totp_code": [
@@ -2137,6 +2404,9 @@ export const fixtures = {
         "registry": "unreadable"
       }
     ],
+    "change_master_password": [
+      null
+    ],
     "clear_clipboard": [
       null
     ],
@@ -2614,6 +2884,30 @@ export const fixtures = {
           "passkeyUnsupported",
           "passkeysSkipped"
         ]
+      }
+    ],
+    "join_folder": [
+      {
+        "state": "unlocked"
+      },
+      {
+        "state": "twoFactorRequired"
+      }
+    ],
+    "join_hosted": [
+      {
+        "state": "unlocked"
+      },
+      {
+        "state": "twoFactorRequired"
+      }
+    ],
+    "join_hosted_two_factor": [
+      {
+        "state": "unlocked"
+      },
+      {
+        "state": "twoFactorRequired"
       }
     ],
     "list_items": [
@@ -3160,6 +3454,763 @@ export const fixtures = {
       }
     ],
     "ssh_respond": [
+      null
+    ],
+    "sync_acknowledge": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_check_server": [
+      {
+        "registration": "open",
+        "serverUrl": "https://sync.example.com"
+      },
+      {
+        "registration": "invite",
+        "serverUrl": "https://sync.example.com"
+      },
+      {
+        "registration": "closed",
+        "serverUrl": "https://sync.example.com"
+      }
+    ],
+    "sync_device_remove": [
+      null
+    ],
+    "sync_device_rename": [
+      null
+    ],
+    "sync_devices": [
+      {
+        "devices": [
+          {
+            "canRemove": false,
+            "current": true,
+            "deviceId": "019a2b3c-4d5e-7050-8000-000000000001",
+            "lastSeenAt": 1761480000000,
+            "name": "Mosaic on Windows",
+            "platform": "windows"
+          },
+          {
+            "canRemove": true,
+            "current": false,
+            "deviceId": "019a2b3c-4d5e-7050-8000-000000000002",
+            "lastSeenAt": 1761476400000,
+            "name": "Mosaic on macOS",
+            "platform": null
+          },
+          {
+            "canRemove": false,
+            "current": false,
+            "deviceId": "019a2b3c-4d5e-7050-8000-000000000003",
+            "lastSeenAt": null,
+            "name": null,
+            "platform": null
+          }
+        ]
+      }
+    ],
+    "sync_disconnect": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_folder_connect": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_hosted_connect": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_hosted_two_factor": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_now": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_pick_folder": [
+      null,
+      {
+        "accounts": [
+          "019a2b3c-4d5e-7030-8000-000000000001"
+        ],
+        "choiceId": "choice-1",
+        "contents": "mosaic",
+        "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic"
+      },
+      {
+        "accounts": [],
+        "choiceId": "choice-2",
+        "contents": "empty",
+        "displayPath": "D:\\Sync"
+      },
+      {
+        "accounts": [],
+        "choiceId": "choice-3",
+        "contents": "other",
+        "displayPath": "D:\\Documents"
+      }
+    ],
+    "sync_status": [
+      {
+        "config": null,
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_totp_begin": [
+      {
+        "otpauthUri": "otpauth://totp/Mosaic%20sync:alex@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Mosaic%20sync",
+        "secret": "JBSWY3DPEHPK3PXP"
+      }
+    ],
+    "sync_totp_confirm": [
+      null
+    ],
+    "sync_totp_disable": [
       null
     ],
     "totp_code": [

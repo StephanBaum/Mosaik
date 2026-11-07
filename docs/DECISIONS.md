@@ -3837,3 +3837,37 @@ normative text is CRYPTO_SPEC §10 and §10.2.
 - **Dev note (I3).** Server databases created before the first follow-ups edited migration v1 in place
   (`sessions.account_version`, the checkpoint body limit) must be recreated; the server is unreleased.
 
+
+## ADR-0047: Sync in the desktop app
+
+- Status: accepted
+- Date: 2026-11-07
+- Decided by: the implementing engineer, from ADR-0042 to ADR-0046 and the T5 brief
+- Milestone: M6 (sync)
+
+### Context
+The desktop runs the engine, keeps a session token and takes the folder choice from a native dialog. The brief
+leaves the lifetime of the token, the order of the fresh-login flows, the wait loop and the acknowledgement open.
+
+### Decision
+- **The token** is kept in the OS keystore (`mosaic-sync-token-<account id>`, base64url, memory fallback), never in
+  the vault store or the settings file. `SessionToken` cannot be rebuilt from bytes, so `mosaic-sync::http` has
+  `StoredToken` (zeroizing, redacted, not `Clone`) and a `Token` trait that `connect` and the hosted functions
+  accept. It is deleted on disconnect, on a 401 and when the device is removed.
+- **One session per device (ADR-0044)** means every fresh login of this device replaces its running session. The
+  flows that need a fresh login (second-factor setup, device removal, password change) stop the sync thread
+  first, store the token the login granted before anything else can fail, and start the thread again from the
+  keystore. A device whose second factor is on needs the code before the login, not after (a login without it
+  would end the session for nothing). The server accepts a second-factor code once, so removing the second
+  factor takes two codes: the first attempt answers `syncTwoFactorRequired` and the next one reuses the fresh
+  session for four minutes.
+- **Lock** ends the thread by generation: a handle of an older generation fails closed with `Locked`, whatever the
+  slot holds; the next unlock builds a new engine from the persisted state. Sync work never touches the idle
+  timer.
+- **Waiting** is done in slices (five seconds for the server, two for a folder) so that a poked local change is
+  seen within the slice; the long poll of the server cannot be interrupted. A halt stops the automatic runs until
+  `sync_acknowledge`, which clears the halt and the findings against the server behind one confirm and syncs.
+- **The master password change** goes to the server first and to the device afterwards; an unreachable server
+  refuses it (`syncPasswordNeedsServer`). The folder writes the new account file first. A password change leaves
+  quick unlock removed, as before.
+- **The folder path** never reaches the webview as input: a random `choiceId` names it for five minutes (ADR-0034).

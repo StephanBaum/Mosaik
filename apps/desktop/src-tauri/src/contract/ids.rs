@@ -4,7 +4,7 @@
 
 use core::fmt;
 
-use mosaic_core::{AccountId, AttachmentId, ItemId, VaultId};
+use mosaic_core::{AccountId, AttachmentId, InstallId, ItemId, VaultId};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -57,6 +57,10 @@ macro_rules! wire_id {
 wire_id!(
     /// An account ID on the wire.
     WireAccountId => AccountId
+);
+wire_id!(
+    /// A sync install (device) ID on the wire.
+    WireInstallId => InstallId
 );
 wire_id!(
     /// A vault ID on the wire.
@@ -115,6 +119,10 @@ pub(crate) mod samples {
 
     pub(crate) fn account() -> WireAccountId {
         WireAccountId(AccountId::from_bytes(bytes(0x30, 1)).unwrap())
+    }
+
+    pub(crate) fn install(n: u8) -> WireInstallId {
+        WireInstallId(InstallId::from_bytes(bytes(0x50, n)).unwrap())
     }
 
     pub(crate) fn attachment(n: u8) -> WireAttachmentId {

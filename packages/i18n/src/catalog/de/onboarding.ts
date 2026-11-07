@@ -70,4 +70,52 @@ export const onboarding = {
   "kit.preview": "Vorschau des Emergency Kit",
   "kit.continueHint": "Speichere das Kit, um fortzufahren.",
   "kit.warning": "Ohne dieses Kit und dein Master-Passwort kann niemand deinen Tresor wiederherstellen, auch wir nicht.",
+  "onboarding.join.link":
+    "Ich nutze Mosaic schon",
+  "onboarding.join.title":
+    "Dieses Gerät zu deinem Konto hinzufügen",
+  "onboarding.join.body":
+    "Melde dich mit deinem Master-Passwort und dem Secret Key aus deinem Emergency Kit an. Danach werden deine Tresore auf dieses Gerät geladen und hier entschlüsselt.",
+  "onboarding.join.tabs":
+    "Wo liegen deine Sync-Daten?",
+  "onboarding.join.tab.server":
+    "Mosaic-Server",
+  "onboarding.join.tab.folder":
+    "Cloud-Ordner",
+  "onboarding.join.serverUrl":
+    "Serveradresse",
+  "onboarding.join.email":
+    "E-Mail-Adresse des Sync-Kontos",
+  "onboarding.join.password":
+    "Master-Passwort",
+  "onboarding.join.secretKey":
+    "Secret Key",
+  "onboarding.join.secretKeyHint":
+    "Aus deinem Emergency Kit. Er beginnt mit M1.",
+  "onboarding.join.deviceName":
+    "Name dieses Geräts",
+  "onboarding.join.chooseFolder":
+    "Ordner wählen…",
+  "onboarding.join.folder":
+    "Ordner",
+  "onboarding.join.noAccounts":
+    "In diesem Ordner liegt kein Mosaic-Konto. Wähle den Ordner, mit dem dein anderes Gerät synchronisiert.",
+  "onboarding.join.account":
+    "Konto",
+  "onboarding.join.accountOption":
+    "Konto {id}",
+  "onboarding.join.submit":
+    "Dieses Gerät hinzufügen",
+  "onboarding.join.working":
+    "Du wirst angemeldet und deine Tresore werden geladen…",
+  "onboarding.join.twoFactor.title":
+    "Code eingeben",
+  "onboarding.join.twoFactor.body":
+    "Dein Sync-Konto nutzt die Bestätigung in zwei Schritten. Gib den 6-stelligen Code aus deiner Authenticator-App ein.",
+  "onboarding.join.twoFactor.code":
+    "6-stelliger Code",
+  "onboarding.join.twoFactor.submit":
+    "Bestätigen",
+  "onboarding.join.back":
+    "Zurück zur Kontoerstellung",
 } satisfies Record<keyof typeof en, string>;

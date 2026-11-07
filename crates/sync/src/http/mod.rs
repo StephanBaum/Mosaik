@@ -16,4 +16,4 @@ mod client;
 pub mod hosted;
 
 pub use backend::HttpTransport;
-pub use client::canonical_origin;
+pub use client::{StoredToken, Token, canonical_origin};

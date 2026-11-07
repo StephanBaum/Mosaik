@@ -2914,6 +2914,8 @@ name = "mosaic-desktop"
 version = "0.0.0"
 dependencies = [
  "arboard",
+ "axum",
+ "base64ct",
  "getrandom 0.4.3",
  "keyring",
  "mosaic-core",
@@ -2924,7 +2926,9 @@ dependencies = [
  "mosaic-origin",
  "mosaic-passkey",
  "mosaic-qr",
+ "mosaic-server",
  "mosaic-ssh-agent",
+ "mosaic-sync",
  "mosaic-totp",
  "mosaic-vault",
  "p256",

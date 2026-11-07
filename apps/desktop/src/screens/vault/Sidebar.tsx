@@ -35,6 +35,7 @@ const SYNC_STATUS: Record<SyncStatusName, { dot: string; label: MessageKey }> = 
   syncing: { dot: "", label: "sync.status.syncing" },
   offline: { dot: " sync-dot--offline", label: "sync.status.offline" },
   error: { dot: " sync-dot--error", label: "sync.status.error" },
+  signedOut: { dot: " sync-dot--error", label: "sync.status.signedOut" },
 };
 
 function SyncStatus({ sync }: { sync: SyncState | null }) {

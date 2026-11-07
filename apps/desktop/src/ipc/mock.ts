@@ -19,15 +19,28 @@
  * `&browserPasskey=get|create|excluded|uv|uvExpires` makes it ask to sign in (`uv`: with the master
  * password; `uvExpires`: the verification runs out while the dialog is open) or to create a passkey, or to create one the vault already holds; the sign-in
  * variants seed two passkeys for example.com.
+ *
+ * Sync (M6, `?mock=unlocked` shows Settings > Sync): `&sync=<variant>` seeds the sync state:
+ * none (default: not set up), hosted, hostedNoTotp, folder, syncing, offline, error, signedOut,
+ * and the warnings rollback, identity, serverInconsistent, serverRollback, noCommonView, freeze,
+ * missingFiles, undecryptable, hwLocal, notRepaired, allWarnings. `&syncServer=open|invite|closed`
+ * is what `sync_check_server` answers (the invite code is `MOCK-INVITE`), `&syncFolder=empty|
+ * mosaic|other|cancel` is what the folder picker answers (`mosaic` lists the sample account),
+ * `&syncFail=<errorCode>` makes `sync_now` and the two connect commands fail with that code.
+ * The mock server takes the master password `mosaic` and the one-time code `123456`. Joining
+ * from `?mock=noAccount` takes alex@example.com, `mosaic` and the sample Secret Key;
+ * `&syncJoin2fa=1` asks for the code first.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import {
   biometricPlatformKinds,
   errorCodes,
+  registrationModes,
   type BiometricPlatformKind,
   type CommandName,
   type ErrorCode,
-  type IpcResult, type RequestOf,
+  type IpcResult,
+  type RequestOf,
   type ResponseOf,
 } from "./contract/index.ts";
 import { appHandlers } from "./mock/app.ts";
@@ -63,6 +76,14 @@ import {
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
+import { syncHandlers } from "./mock/sync.ts";
+import {
+  announceSync,
+  seedSync,
+  syncVariants,
+  type MockFolderAnswer,
+  type MockSyncOptions,
+} from "./mock/syncData.ts";
 import {
   MockFailure,
   type MockAsyncHandlers,
@@ -100,6 +121,8 @@ export interface MockOptions extends QuickOptions {
   attachAdd?: ErrorCode | "cancel";
   /** Fail `attachment_save` with this code, or cancel the save dialog (`?attachSave=cancel`). */
   attachSave?: ErrorCode | "cancel";
+  /** Sync seeds and answers (`&sync=`, `&syncServer=`, `&syncFolder=`, `&syncFail=`, `&syncJoin2fa=1`). */
+  sync?: MockSyncOptions;
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
   bulkItems?: number;
   now?: () => number;
@@ -123,6 +146,7 @@ const handlers: MockHandlers = {
   ...insightHandlers,
   ...sshHandlers,
   ...browserHandlers,
+  ...syncHandlers,
 };
 
 function quickOptionsFromParams(params: URLSearchParams): MockOptions {
@@ -190,6 +214,26 @@ function attachOptionsFromParams(params: URLSearchParams): MockOptions {
   };
 }
 
+function syncOptionsFromParams(params: URLSearchParams): MockOptions {
+  const variant = syncVariants.find((name) => name === params.get("sync"));
+  const server = registrationModes.find((mode) => mode === params.get("syncServer"));
+  const folderParam = params.get("syncFolder");
+  const folder: MockFolderAnswer | undefined =
+    folderParam === "empty" || folderParam === "mosaic" || folderParam === "other" || folderParam === "cancel"
+      ? folderParam
+      : undefined;
+  const failParam = params.get("syncFail");
+  const failCode = errorCodes.find((code) => code === failParam);
+  const sync: MockSyncOptions = {
+    ...(variant === undefined ? {} : { variant }),
+    ...(server === undefined ? {} : { server }),
+    ...(folder === undefined ? {} : { folder }),
+    ...(failCode === undefined ? {} : { fail: failCode }),
+    ...(params.get("syncJoin2fa") === "1" ? { join2fa: true } : {}),
+  };
+  return Object.keys(sync).length === 0 ? {} : { sync };
+}
+
 export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
@@ -203,6 +247,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...(params.get("kit") === "unverified" ? { kitUnverified: true } : {}),
     ...otpOptionsFromParams(params),
     ...attachOptionsFromParams(params),
+    ...syncOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
@@ -256,6 +301,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       saveOnStart: options.browserSave ?? null,
       passkeyOnStart: options.browserPasskey ?? null,
     },
+    sync: seedSync(start === "noAccount" ? { ...options.sync, variant: "none" } : (options.sync ?? {}), now()),
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
     items: initialItems(start, options),
@@ -315,6 +361,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     subscribe(listener) {
       listeners.add(listener);
       startBrowser(state);
+      announceSync(state);
       return Promise.resolve(() => {
         listeners.delete(listener);
       });

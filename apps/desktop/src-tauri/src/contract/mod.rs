@@ -34,6 +34,7 @@ pub mod secret;
 pub mod session;
 pub mod settings;
 pub mod ssh;
+pub mod sync;
 pub mod totp;
 pub mod vaults;
 

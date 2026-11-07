@@ -7,13 +7,13 @@ use core::time::Duration;
 
 use mosaic_core::attachment::{MAX_ATTACHMENT_LEN, ciphertext_len};
 use mosaic_core::{
-    AttachmentId, InstallId, KeyGeneration, SessionToken, VaultId, VaultMetaCiphertext, WrappedKey,
+    AttachmentId, InstallId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey,
 };
 use mosaic_vault::storage::{RecordBody, RecordKind as StoredKind};
 use reqwest::Method;
 
 use super::client::{
-    ATTACHMENT_TIMEOUT, Bearer, Body, Http, POLL_TIMEOUT, REQUEST_TIMEOUT, canonical_origin,
+    ATTACHMENT_TIMEOUT, Bearer, Body, Http, POLL_TIMEOUT, REQUEST_TIMEOUT, Token, canonical_origin,
     json_body,
 };
 use crate::transport::{
@@ -74,7 +74,7 @@ impl HttpTransport {
     /// and the errors of a request.
     pub fn connect(
         base: &str,
-        token: &SessionToken,
+        token: &impl Token,
         install: InstallId,
     ) -> Result<Self, TransportError> {
         let http = Http::new(&canonical_origin(base)?)?;

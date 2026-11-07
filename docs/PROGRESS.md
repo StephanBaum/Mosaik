@@ -2079,6 +2079,62 @@ in `docs/DECISIONS.md` and CRYPTO_SPEC §10, §10.2.
 - **Open for T5.** The desktop calls `clear_sync_halt` and `clear_vault_findings` behind one acknowledge action
   (`sync_findings` says what is set).
 
+## M6 Sync — T5 desktop (2026-11-07)
+
+Spec: `m6-spec.md` §7 and §11 T5, with the T5 brief (the session handle, the lock behaviour, the findings and the
+acknowledgement). IPC: `docs/DESKTOP_IPC.md` §3 "Sync", §4, §5, §6.
+
+- **Rust** (`apps/desktop/src-tauri/src/sync/`): `SyncService` (one thread per unlocked generation: it starts on
+  unlock when `sync_config` is set and ends on lock; the engine and the transport are dropped, every handle of the
+  old generation fails closed with `Locked`, and the next unlock rebuilds the service from the persisted engine state),
+  `access.rs` (`BackendSession` implements both `SessionHandle` and `SessionAccess` over the session slot: the
+  slot is locked per closure and never across a network call), `runner.rs` (the loop, generic over the transport so
+  there is no `dyn Transport`), `hosted_flow.rs`, `folder_flow.rs`, `errors.rs`. New: `SyncTokenStore` in
+  `keystore.rs` (`mosaic-sync-token-<account id>`, base64url, OS store with a memory fallback), `Dialogs::pick_folder`,
+  `commands/sync.rs`, `contract/sync.rs`, the 19 commands in `names.rs` and `capabilities/main.json`, the 24 error
+  codes, `syncDataChanged` and `syncAttention`, `signedOut`. Mutating item and vault commands poke the thread
+  (debounced two seconds). Sync work is not user activity (test `sync_does_not_reset_idle_timer`).
+- **Folder choice (ADR-0034).** `sync_pick_folder` keeps the path in Rust under a random `choiceId` for five minutes;
+  no request type has a path field (deny unknown fields; fuzz seeds for the attempts).
+- **Hosted flows.** register, sign-in (the server's account ID must be this device's: `syncAccountMismatch`), the second
+  factor at login, join (`derive_join_keys`, login, `GET /v1/account`, `join_account_with_keys`; the Secret Key goes to the
+  keystore, the settings account block gets `kitVerified = true`), devices, the sync account's own second factor, and
+  `change_master_password` (server first, then local; an unreachable server answers `syncPasswordNeedsServer`).
+  The server allows one session per device, so every fresh login (second factor, device removal, password change)
+  stops the thread, stores the token it got and starts the thread again.
+- **Acknowledge.** `sync_acknowledge` reads `sync_findings()`, calls `clear_sync_halt()` for a halt and
+  `clear_vault_findings(findings.vaults())` for the findings against the server (the engine's `clear_findings` wraps
+  the same session call), then runs a sync. A halt stops the automatic runs (status `error`, no retry) until then.
+  The UI confirm says to do it on each device.
+- **`mosaic-sync` additions** (`http`): `Token`/`StoredToken` (a `SessionToken` cannot be rebuilt from bytes, so the
+  keystore holds a `StoredToken`; `connect` and the hosted functions take either), `hosted::{account_info, totp_setup,
+  totp_confirm, totp_disable, device_rename, device_remove}`.
+- **Tests**: `sync_handler_tests.rs` (every command locked, without account and unlocked; `path_never_accepted_from_webview`;
+  the choice expires after five minutes; a foreign folder is refused and not written; the token is stored, deleted on
+  disconnect, on a 401 and on removal; `sync_does_not_reset_idle_timer`; `change_password_with_hosted_unreachable_refused`
+  and the hosted change end to end; `join_folder_then_unlock_flow` (data arrives, the new device unlocks);
+  `join_hosted_with_totp` against the real server; the tampered account file; `sync_acknowledge` clears a halt and syncs;
+  locking stops the service and a transport operation fails closed), error mapping, contract fixtures, fuzz seeds.
+  TypeScript: `SyncSettings.test.tsx` (28), `JoinStep.test.tsx` (7), `mock/sync.test.ts` (31), `EventsProvider.sync.test.tsx`
+  (3), the onboarding flow test, i18n parity. Gate: 16 sync tests in 383 desktop Rust tests (1 ignored: the OS keystore), 1046 desktop and 4610 i18n
+  vitest tests, lint, typecheck, clippy (desktop and `mosaic-sync`), the fuzz crate builds.
+- **Deviations from the spec.** (1) The response type `SyncStatus` is named `SyncOverview` (the name is taken by the status
+  enum). (2) The warning kinds also have `noCommonView` and `attachmentsNotRepaired`; `serverInconsistent` and
+  `serverRollback` carry the vault's name. (3) `sync_device_remove` and `change_master_password` take an optional
+  `code`, and `sync_totp_disable` can answer `syncTwoFactorRequired`: the server accepts a second-factor code once, a
+  fresh login of an account with two-step verification spends one, and those calls need a second. (4) Two more error
+  codes: `syncChoiceExpired`, `syncFreshLoginExpired`. (5) A change of the hosted account by another device that the
+  user did not ask for is shown as `signedOut`, not as a separate state. (6) `change_master_password` is a command with
+  no settings screen yet. (7) A device the server signed out may sign in again with `sync_hosted_connect` (any other
+  configured device gets `syncAlreadyConfigured`). ADR-0047 records these decisions; THREAT_MODEL R69 the token.
+- **Known items.** (a) The sync thread waits for a backend change in slices (five seconds hosted, two seconds
+  folder), because a blocking long poll cannot be interrupted by a local change; an idle device sends about twelve
+  poll requests a minute. (b) The engine verifies a downloaded attachment under the session lock (up to 50 MiB of
+  decryption): a command can wait for that long; it is a short stall, not redesigned here. (c) A failed folder join
+  whose second MAC check fails deletes the new store (`discard_new_store`); the first check fails before the store is
+  touched, so the path is covered by the tampered-file test only up to that point. (d) The folder device list shows
+  the platform of this device only (the folder keeps no platform).
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |

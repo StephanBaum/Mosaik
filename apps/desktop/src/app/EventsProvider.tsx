@@ -1,7 +1,8 @@
 /**
  * The one subscription to Rust events, fanned out to the app: lock (hide secrets, reload
  * the session), clipboard cleared and settings reset (toasts), SSH approvals (a queue) and the quick-search
- * shortcut (opens the palette). The browser extension's prompts live in `useBrowserPrompts`.
+ * shortcut (opens the palette). Sync: the last state, a counter that changes when a sync run
+ * changed vaults (the vault screens reload on it) and a toast when it merged or repaired items. The browser extension's prompts live in `useBrowserPrompts`.
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "../components/ToastProvider.tsx";
@@ -24,6 +25,8 @@ interface EventsContextValue {
   clearLockReason: () => void;
   /** The last sync state Rust reported; `null` until the first event. */
   sync: SyncState | null;
+  /** Changes whenever a sync run changed vault data (`syncDataChanged`). */
+  syncDataVersion: number;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -43,6 +46,7 @@ export function EventsProvider({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
+  const [syncDataVersion, setSyncDataVersion] = useState(0);
 
   useIpcEvent((event: AppEvent) => {
     if (browser.apply(event)) {
@@ -78,6 +82,12 @@ export function EventsProvider({
       case "syncStateChanged":
         setSync(event.state);
         break;
+      case "syncDataChanged":
+        setSyncDataVersion((n) => n + 1);
+        break;
+      case "syncAttention":
+        toast(t("toast.syncAttention"));
+        break;
     }
   });
 
@@ -95,8 +105,9 @@ export function EventsProvider({
         setLockReason(null);
       },
       sync,
+      syncDataVersion,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync],
+    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

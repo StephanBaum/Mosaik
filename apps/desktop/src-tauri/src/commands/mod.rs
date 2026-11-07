@@ -26,6 +26,7 @@ pub mod quick_unlock;
 pub mod session;
 pub mod settings;
 pub mod ssh;
+pub mod sync;
 pub mod totp;
 pub mod vaults;
 
@@ -106,5 +107,24 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         browser::browser_pairing_respond,
         browser::browser_save_respond,
         browser::browser_passkey_respond,
+        sync::sync_status,
+        sync::sync_check_server,
+        sync::sync_hosted_connect,
+        sync::sync_hosted_two_factor,
+        sync::sync_pick_folder,
+        sync::sync_folder_connect,
+        sync::sync_now,
+        sync::sync_disconnect,
+        sync::sync_acknowledge,
+        sync::sync_devices,
+        sync::sync_device_rename,
+        sync::sync_device_remove,
+        sync::sync_totp_begin,
+        sync::sync_totp_confirm,
+        sync::sync_totp_disable,
+        sync::join_hosted,
+        sync::join_hosted_two_factor,
+        sync::join_folder,
+        sync::change_master_password,
     ]
 }

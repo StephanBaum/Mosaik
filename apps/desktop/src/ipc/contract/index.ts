@@ -15,5 +15,6 @@ export * from "./session.ts";
 export * from "./settings.ts";
 export * from "./quickUnlock.ts";
 export * from "./ssh.ts";
+export * from "./sync.ts";
 export * from "./totp.ts";
 export * from "./vaults.ts";
