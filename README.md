@@ -9,14 +9,15 @@ crypto core. Your master password and a 128-bit Secret Key, which never leaves
 your devices, together unlock your vault. The sync server only ever stores
 ciphertext.
 
-**Status:** M3 desktop app, M4 browser extension and M5 passkeys built. Onboarding with the Emergency Kit,
+**Status:** M3 desktop app, M4 browser extension, M5 passkeys and M6 sync built. Onboarding with the Emergency Kit,
 the vault, the generator, one-time codes, import, the offline security report, the SSH agent
 and quick unlock run in the desktop app. The browser extension (Chromium and Firefox, a
 toolbar popup that fills one login after a click, no inline UI) pairs with the desktop over
 a local, authenticated channel; it is a development build, not yet in any store. Mosaic also
 stores passkeys (ES256) and answers passkey requests in the browser after you confirm each one
 in the desktop app; passkeys can be imported (Bitwarden, KeePassXC, FIDO CXF) and exported as a
-CXF file. Sync is not built yet. See
+CXF file. Sync runs through a folder in your own cloud storage or the self-hostable
+server; it is off by default and unreleased. See
 [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Documents
@@ -26,6 +27,7 @@ CXF file. Sync is not built yet. See
 - [UX guidelines](docs/UX_GUIDELINES.md)
 - [Desktop IPC contract](docs/DESKTOP_IPC.md)
 - [Browser extension security](docs/EXTENSION_SECURITY.md)
+- [Security review log](docs/SECURITY_REVIEW_LOG.md) (internal, AI-assisted review; not an independent audit)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Build brief](docs/BRIEF.md)
 

@@ -1,7 +1,8 @@
 # Progress
 
 Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
-`docs/DECISIONS.md`.
+`docs/DECISIONS.md`. Internal review ledger: `docs/SECURITY_REVIEW_LOG.md` (each
+milestone close appends its section there).
 
 ## Status
 
@@ -13,7 +14,7 @@ Resume from here in every session. Requirements: `docs/BRIEF.md`. Decisions:
 | M3 Desktop app | ✅ done (2026-11-06; merge commits `f54bd55` to `edacfea`, then PRs #13 to #22 and #24: UI fidelity and holo, quick unlock, red-team passes, virtual list, one-time-code setup, unlock reveal, item kinds and custom fields, attachments, UX fixes; open, owner: security-key transport (WP7), manual hardware checks (Hello, Touch ID, QR on two monitors, Save-as overwrite prompt), holo button polish after the build-out) |
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
-| M6 Sync | 🔄 in progress (T1 and T2 merged, PRs #33 and #35; T3 server in review; T4 HTTP transport and hosted simulations on `feat/m6-http`) |
+| M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -2164,6 +2165,80 @@ v6, `syncPasswordRollback`, CRYPTO_SPEC §9.4 rules); sleep is not deferred; nat
 and an empty request; pending state dropped by every lock and swept by the idle tick; `finish_ok` gates the events and a fresh
 login is bound to its account. ADR-0047 "T5 verify follow-ups".
 
+## M6 Sync — close (2026-11-07)
+
+Track T6 of the M6 plan: the review follow-ups, documents, the full gate and the milestone
+reviews. M6 is merged as PRs #33 (T1 protocol foundation), #35 (T2 engine and folder transport),
+#36 (T3 server), #37 (T4 HTTP transport and hosted simulations), #38 (T5 desktop) and the close
+branch `chore/m6-close` (#39). Scope: ADR-0042 (sharing, organisations and emergency access move
+to M6b), ADR-0043 (folder format), ADR-0044 (server), ADR-0045 (engine rules), ADR-0046
+(dependencies), ADR-0047 (desktop).
+
+- **What shipped.**
+  - **T1, protocol foundation.** `mosaic-core` sync labels, `InstallId` and `sync_auth` (checkpoint,
+    folder and device-info keys, MACs, sealed device info, session token), known answers from the
+    independent `sync_kat.py`; `mosaic-vault` store schema v3 and the sync session API (the upload
+    queue for wrapped vault keys and vault metadata, cursors, local sequence blocks, the checkpoint
+    counter, two-phase rotation, join and password change split in two halves); the new crate
+    `mosaic-sync` with every wire format (`segment`, `checkpoint`, `account_file`, `blob_delete`,
+    `device_info`, `cursor`, `folder_names`, `json`) and the `Transport` trait; eight fuzz targets.
+  - **T2, engine and folder transport.** `sync_once` in the spec order (pull, push with every item
+    before any tombstone, metadata, attachments, own checkpoint, housekeeping), deferral of records
+    ahead of their key, the canonical-winner rule, rollback and duplicated-identity detection with a
+    persisted halt, the folder transport (single-writer paths, tmp-and-rename writes, snapshots,
+    compaction, blob delete markers and purge), joining from a folder, and the cloud-folder
+    simulators (`CloudSim`, `ChaosTransport`, `MaliciousTransport`); store schema v4 for the engine
+    state that must outlive the engine.
+  - **T3, server.** `mosaic-server`: axum router for every endpoint of the protocol, SQLite, OPAQUE
+    login and registration, session tokens stored as hashes, TOTP sealed at rest with a replay guard,
+    per-record base-sequence and key compare-and-swap, checkpoints as raw bytes, attachments with soft
+    delete and an hourly purge, a long poll, quotas, rate limits, a TOML config and the CLI (`init`,
+    `serve`, `check-config`, `invite create`, `backup`, `account delete`); the container and Caddy
+    deployment and `docs/SERVER.md`; two fuzz targets.
+  - **T4, HTTP transport and hosted simulations.** `mosaic_sync::http` (blocking `reqwest` over
+    rustls, TLS 1.3 only, OS trust store, HTTPS except loopback) and the hosted client over OPAQUE;
+    the hosted simulations against the real server, which found and fixed two engine bugs (a dominated
+    received record left a stale base sequence, so devices never converged; an offline rotation that
+    lost the race for the server's key slot left a device with a key nobody else holds). The review
+    follow-ups added the served view and a view digest in every checkpoint (`ServerInconsistent`,
+    `ServerRollback`, `NoCommonView`), hosted key adoption, and store schema v5.
+  - **T5, desktop.** `SyncService` (one thread per unlocked generation, folder and hosted flows),
+    the OS-keystore session token, 20 commands and 25 error codes, the sync settings, the join flow
+    in onboarding, the native confirmation for acknowledging findings, recovery of a master password
+    change applied elsewhere (`adopt_remote_password`), and store schema v6 (retired salts, folder
+    account-file version).
+- **Reviews.** Seven fix rounds covered T1 to T5: crypto-reviewer on T1, T2 (with a re-review) and
+  T4 (with a re-review), a server review of T3, a crypto/IPC review and a UX review of T5 with a
+  verify pass; sync-chaos on T2 and T4. The counts per pass are in `docs/SECURITY_REVIEW_LOG.md` and
+  the THREAT_MODEL §6 log (graded T1 to T5: 3 High, 24 Medium, 38 Low, 32 Info, plus 36 findings
+  with no recorded severity). All were fixed or recorded as residuals (M6-R1 to M6-R17 below). This
+  is internal, AI-assisted review, not an independent audit. Milestone passes (a crypto-reviewer
+  pass over the whole of M6 and a final sync-chaos long run over both transports):
+  {MILESTONE_REVIEWS}.
+- **Gate (2026-11-07).** {GATE}
+- **Documents.** `docs/CRYPTO_SPEC.md` §9, §10, §10.1, §10.2, §11, §12, §12.1 (amended spec first in
+  every track), `docs/CORE_API.md` (sync APIs of the session, the hosted client and the engine's
+  findings calls), `docs/DESKTOP_IPC.md` §3, `docs/SERVER.md`, `docs/THREAT_MODEL.md` (R54 to R69,
+  the hosted client table, the M6 review log), `docs/SECURITY_REVIEW_LOG.md` (new).
+- **Risks closed or retargeted at the close.** M2-R1, M2-R2 and M2-R10 are resolved; M2-R12 is
+  resolved for the hosted backend and stays accepted for folder mode; M2-R11, M2-R16 and the local
+  half of M3-R25 are retargeted to M9 (see the register). New residuals: M6-R1 to M6-R17.
+- **Known items (not defects, recorded so nobody rediscovers them).**
+  - The engine verifies a downloaded attachment (STREAM open of up to 50 MiB) and the holder's
+    check under the session lock, so a command can wait for that long. Move it to a worker with a
+    copy if it shows.
+  - An idle hosted device polls in five-second slices (about twelve requests a minute) because a
+    blocking long poll cannot be interrupted by a local change; a folder device waits in two-second
+    slices.
+  - There is no settings screen for `change_master_password` (the command, the busy guard and the
+    recovery exist in Rust). The different-server confirmation of the T5 review has no UI, and the
+    account option of a folder join shows the first eight characters of the account ID.
+  - At re-key (M7), own segments written under the old `K_fold` read as bad and must not be deleted
+    blindly by the unverifiable-file cleanup.
+  - Server databases created before the in-place edit of migration v1 must be recreated (the server
+    is unreleased).
+- **Open: manual checks and owner items.** See "Needs owner" ("M6 sync", "Manual checks for M6").
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -2174,20 +2249,20 @@ login is bound to its account. ADR-0047 "T5 verify follow-ups".
 | M1-R4 | low | Fuzzing cannot run natively on Windows MSVC (ASan runtime mismatch); local runs use Docker, CI runs on Linux | accepted |
 | M1-R5 | info | The main-workspace `cargo deny check` warns `license-exception-not-encountered` for the `libfuzzer-sys` NCSA exception, which only applies to the fuzz lockfile | accepted |
 | M1-R6 | low | Constant-time unpadding is best-effort at the source level (`subtle` selects, no early exit). The compiler gives no hard guarantee. Code that later processes the unpadded plaintext (M2 item parsing) takes time proportional to its length. Only a local attacker who can time client-side decryption could exploit this | accepted |
-| M2-R1 | medium | Wrapped vault keys and vault metadata have no upload queue: only records and attachments go through the outbox. A vault created or renamed offline reaches other devices only once M6 uploads them | open, M6 (ADR-0012 consequences, CORE_API "Expected additions") |
-| M2-R2 | low | After a key rotation, other devices reject records sealed under the old generation (§7.1). Every device re-seals what it holds when it accepts the new key (ADR-0012 item 7), so no version is lost, but the server should still refuse uploads below a vault's current generation and accept one wrapped key per generation (ADR-0013) | open, M6 |
+| M2-R1 | medium | Wrapped vault keys and vault metadata have no upload queue: only records and attachments go through the outbox. A vault created or renamed offline reaches other devices only once M6 uploads them | resolved in M6 (T1 `65bfe97`, T2 `2b4ab0c`): wrapped vault keys and vault metadata have an upload queue (store schema v3, `pending_vault_uploads`, the engine's vault-creation, key and metadata steps; CRYPTO_SPEC §10, ADR-0045) |
+| M2-R2 | low | After a key rotation, other devices reject records sealed under the old generation (§7.1). Every device re-seals what it holds when it accepts the new key (ADR-0012 item 7), so no version is lost, but the server should still refuse uploads below a vault's current generation and accept one wrapped key per generation (ADR-0013) | resolved in M6 (T3 `4a1ca4b`, ADR-0044 and ADR-0045): hosted, the server refuses uploads whose generation is not the vault's current one and accepts one wrapped key per generation (key compare-and-swap with the optional head condition); folder, the canonical winner (lowest writer) decides (CRYPTO_SPEC §10.2) |
 | M2-R3 | low | Writer-ID reuse: fixed in the third review round by fresh writer IDs per unlock and collision-safe merges (ADR-0015). Left: two sessions on one store through a hard link (the lock follows the resolved path) can still overwrite each other's upsert from a stale cache, each under its own ID | accepted (hard links only), THREAT_MODEL R13 |
 | M2-R4 | info | A move that races an edit of the source on another device leaves the moved copy and the surviving source (the source carries a "deleted on another device" notice, the copy the old values) | accepted, ADR-0012 item 6; see M2-R9 |
 | M2-R7 | medium | A delete racing an edit can lose a newer value, depending on delivery order: a device that has not seen the newest value restores its own stale one under fresh stamps, and the newer version is then dominated (sync review: P1 lost when the tombstone arrives first). The fix needs the deleter's pre-delete state (in the tombstone or kept by the deleting device) and restores into history or conflict copies, which changes CRYPTO_SPEC §7.2/§10 | accepted for M2, THREAT_MODEL R15; designed with the M6 protocol (spec and ADR first) |
 | M2-R8 | medium | A delete racing a move of the same item is undone without a notice: the delete merges into the source's tombstone, the copy stays live and unflagged. Needs move pointers (`moved_to` in the source tombstone, `moved_from` in the copy) so a concurrent delete flags the copy | accepted for M2, THREAT_MODEL R15; spec and ADR with M6 |
 | M2-R9 | low | Concurrent moves of one item leave two live copies without a "moved concurrently" notice, and a move racing an edit splits the values between the revived source and the copy. Same move pointers as M2-R8 | accepted for M2, THREAT_MODEL R15 |
-| M2-R10 | low | A delete or move that loses against a concurrent edit has already pruned the attachment files on its device; the revived item references files only the editing device holds | open, M6: GC blobs only when no live version references them, fetch missing files (ADR-0012 consequences) |
-| M2-R11 | info | Vault metadata renames are not part of the 3-device simulation (metadata has no upload queue yet, M2-R1); concurrent renames, renames under a shared device ID and renames of damaged metadata are covered by session tests, and metadata now merges with `VaultMeta::merge_and_repair` | open, M6 with the metadata queue |
-| M2-R12 | medium | An edit the server accepted under generation `n` is lost if another device rotates to `n + 1` before pulling it and the editor never returns; peers that accept `n + 1` first refuse the record as a rollback, so the outcome depends on delivery order (sync review t4, test `a_record_in_flight_during_a_rotation_is_refused_by_peers`). A move into a vault that a peer rotates concurrently makes the whole item vanish on that peer without a notice (it refuses the copy and fast-forwards to the source tombstone) until the mover accepts `n + 1` and re-seals the copy (fourth review, `characterization_a_move_into_a_concurrently_rotated_vault_vanishes_on_the_rotator`). Fix in the M6 protocol: rotation conditional on the vault head (CAS on generation plus last-seen `server_seq`), no uploads below the current generation, a move's tombstone uploaded only after the server accepted the copy, and a peer that cannot read the copy flags the source instead of fast-forwarding | accepted for M2, THREAT_MODEL R16; spec and ADR with M6 |
+| M2-R10 | low | A delete or move that loses against a concurrent edit has already pruned the attachment files on its device; the revived item references files only the editing device holds | resolved in M6 (T2 `2b4ab0c`, T3 `4a1ca4b`; CRYPTO_SPEC §10.1, ADR-0043, ADR-0044): the engine fetches missing attachment files and the holder heals a bad blob; a blob is purged only after the 30-day retention counted from this device's first sight of the delete marker, and only with no live local reference, no lag, no key conflict and no unexplained object; the server soft-deletes, can restore, and purges hourly. The local prune on delete or move is unchanged |
+| M2-R11 | info | Vault metadata renames are not part of the 3-device simulation (metadata has no upload queue yet, M2-R1); concurrent renames, renames under a shared device ID and renames of damaged metadata are covered by session tests, and metadata now merges with `VaultMeta::merge_and_repair` | partly resolved in M6: the metadata upload queue exists (M2-R1) and the 3-device simulations check metadata key generations; renames appear in single scenario tests (`crates/server/tests/it/chaos_hosted.rs`, `chaos_net.rs`) but the random simulations do not rename. Left: add concurrent renames to `sim_folder` and `sim_hosted`; retargeted to M9 (test hardening), low value until sharing |
+| M2-R12 | medium | An edit the server accepted under generation `n` is lost if another device rotates to `n + 1` before pulling it and the editor never returns; peers that accept `n + 1` first refuse the record as a rollback, so the outcome depends on delivery order (sync review t4, test `a_record_in_flight_during_a_rotation_is_refused_by_peers`). A move into a vault that a peer rotates concurrently makes the whole item vanish on that peer without a notice (it refuses the copy and fast-forwards to the source tombstone) until the mover accepts `n + 1` and re-seals the copy (fourth review, `characterization_a_move_into_a_concurrently_rotated_vault_vanishes_on_the_rotator`). Fix in the M6 protocol: rotation conditional on the vault head (CAS on generation plus last-seen `server_seq`), no uploads below the current generation, a move's tombstone uploaded only after the server accepted the copy, and a peer that cannot read the copy flags the source instead of fast-forwarding | resolved for the hosted backend in M6 (T3 `4a1ca4b`, T4 `fe2db40`; ADR-0045): rotation is conditional on the vault head, uploads below the current generation are refused, items go before tombstones (tests `rotation_head_cas_loses_no_edit`, `move_copy_uploaded_before_tombstone`). Folder mode has no compare-and-swap: accepted as M6-R2 (THREAT_MODEL R55, R16). A peer flagging the source when it cannot read a moved copy is deferred to M7 (ADR-0042) |
 | M2-R13 | low | Whether the delete-race repair runs depends on which versions a device receives: if the device that won the race dismisses the notice before a third device pulls, and the server coalesces versions, the third device never sees the deletion and silently keeps the deleter's state (sync review c2). Same root as M2-R7 (the repair needs to see the deletion) | accepted for M2, folded into the M2-R7 redesign (THREAT_MODEL R15) |
 | M2-R14 | low | The `apply_remote` fuzz target builds its sessions from OS randomness (keys, IDs, nonces; the session has no seeded mode and the crypto core takes no injected RNG), so a failure that depends on ID order or key bytes may not reproduce from the saved input. Documented in the target; the substituted IDs are derived from the input. The same holds for the sync simulation's seeds: items are picked in creation order now, but random device IDs break ties between concurrent writes, so a seed is not an exact replay; failures get a deterministic test (as for seed 229651) | accepted |
 | M2-R15 | medium | A revocation (§8.3) must re-seal every attachment under a fresh ID and FK, or a removed member and the server can replace attachment contents (ADR-0017). Not reachable in M2: no other account holds a vault key, and `rotate_vault_key` is not a revocation | open, M6/M7 with sharing and the revoke flow; THREAT_MODEL R18 |
-| M2-R16 | low | Vault metadata merges are not split like items (ADR-0016): a metadata merge above 64 KiB still fails. It needs tens of kilobytes of concurrent names or descriptions | accepted; M6 caps metadata values with the metadata queue (M2-R1) |
+| M2-R16 | low | Vault metadata merges are not split like items (ADR-0016): a metadata merge above 64 KiB still fails. It needs tens of kilobytes of concurrent names or descriptions | retargeted to M9: not done in M6 although ADR-0042 listed it. M6 added no cap on metadata values (only the wire object cap `MAX_META_LEN`, 65,600 bytes, which matches the padded metadata size), so a metadata merge above 64 KiB still fails. Reason for M9: it needs tens of kilobytes of concurrent names or descriptions, and the fix is a format and merge change that belongs with the hardening pass |
 | M2-R17 | low | A local record or metadata row that cannot be read has no rollback anchor; the received replacement is reported (`ReplacedUnreadable`, for metadata since the fourth review) but not verified | accepted, THREAT_MODEL R17; M6 can require checkpoint evidence |
 | M2-R18 | info | Fresh writer IDs add one version-vector entry (about 44 bytes) per session that edits a record; an HOTP item grows by one per session that shows a code. Collision repairs can bring back superseded values as conflict copies. An oversized split leaves one conflict-copy item per value that left the record (copies have no type of their own; the UI shows the original's through `conflict_copy_of`); devices at different key generations derive different copy IDs and can leave a duplicate | accepted (ADR-0015, ADR-0016 and its amendment); vector pruning is a future format change |
 | M2-R19 | low | Writer-ID reuse is detected only where it shows (equal vectors with different contents, a counter above the replica's own, one stamp with two contents in a field). An honest device that merges two colliding versions showing none of these before the writers meet drops both writers' values (`reuse_that_shows_nowhere_is_not_detected`). Needs a forged or corrupted record or a UUIDv7 collision, since writer IDs are fresh per unlock | accepted (ADR-0015 amendment); the randomized test covers the case where the writers meet first |
@@ -2216,7 +2291,7 @@ login is bound to its account. ADR-0047 "T5 verify follow-ups".
 | M3-R22 | low | When the OS keystore write fails, the Secret Key stays in process memory (zeroizing) until exit so the Emergency Kit can still be saved; a memory or crash dump of such a process yields SK (CRYPTO_SPEC §4 lifetime exceeded in this failure case only) | accepted (ADR-0020 item 1 amendment), R21 |
 | M3-R23 | medium | Settings integrity (ADR-0030): a joint rollback of the vault store and `settings.json` to an earlier consistent pair still verifies (the nonce rolls back with the file). Needs the same local write access as the attack it would undo | accepted until M6: settings as a synced record under CRYPTO_SPEC §10; THREAT_MODEL R28 |
 | M3-R24 | info | Names and titles refuse variation selectors (U+FE00 to U+FE0F) and ZWJ (U+200D), so an emoji sequence that needs them (for example a heart with U+FE0F) cannot be typed; imports strip them from titles | accepted (ADR-0030 red-team follow-up); revisit if users report it |
-| M3-R25 | low | Attachment quota and garbage collection are local only: the 1 GiB account quota counts live items, while trashed items keep their files (`crates/vault/src/session/attachments.rs:21-28`); and when `delete_attachment` fails after a failed `update_item`, the error is lost and an orphan blob stays queued (`:68-71`) | open, M6 (server-side quota and garbage collection) |
+| M3-R25 | low | Attachment quota and garbage collection are local only: the 1 GiB account quota counts live items, while trashed items keep their files (`crates/vault/src/session/attachments.rs:21-28`); and when `delete_attachment` fails after a failed `update_item`, the error is lost and an orphan blob stays queued (`:68-71`) | half resolved in M6 (T3 `4a1ca4b`, ADR-0044): the server counts attachment bytes per account (soft-deleted ones count until purged) and purges after the retention. Retargeted to M9: the local quota still counts live items only (trashed items keep their files), and when `delete_attachment` fails after a failed `update_item` in `add_attachment` the original error is lost and an orphan blob stays queued (`crates/vault/src/session/attachments.rs`); low severity, no data exposure |
 | M4-R1 | medium | Same-user malware can rewrite the per-user host manifest or registry key, replace the host, read `K_pair` and then request fills while the vault is unlocked. Pairing and the handshake stop other OS users and sandboxed processes, not P5 | accepted (ADR-0036), THREAT_MODEL R38; M9: installer-owned manifests and a signed host |
 | M4-R2 | low | Debug hosts accept the dev Chromium ID (any unpacked extension carrying our public `key`); a temporary Firefox add-on with our gecko ID reaches a release host. Both need developer mode and a new pairing | accepted, R39 |
 | M4-R3 | low | Fill credentials, codes and captured passwords pass through the background heap, the isolated world, `storage.session` and the page DOM; JavaScript cannot wipe them, and the host's serde and stdio buffers keep unwiped residue | accepted, R40 |
@@ -2239,6 +2314,23 @@ login is bound to its account. ADR-0047 "T5 verify follow-ups".
 | M5-R8 | low | Many sites together (or a page on many origins it controls) can still spend the pairing's passkey windows (3 creates, 10 sign-ins a minute); a user then sees the browser's own prompt for up to a minute. A single page can no longer do it alone (per-origin windows) | accepted, EXTENSION_SECURITY section 11.3 |
 | M5-R9 | low | Not covered by an automated test: real relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration (from 128, documentation only), the real host and desktop end to end with a browser, a CXF file from another implementation. A passkey whose page aborts while the answer is written is stored but not delivered (an orphan the user can trash). Search does not index a passkey's user name. The import preview's passkey warnings carry no counts (the contract has none) | open, manual checks |
 | M5-R10 | info | Mosaic is not an OS passkey provider (Windows plugin authenticators need an unsafe exception, a macOS credential provider needs a Developer ID); passkeys work only through the browser extension | deferred, ADR-0041, "Needs owner" |
+| M6-R1 | low | Folder backend observers (the cloud provider, its admins, other members of a shared or team folder) see the CRYPTO_SPEC §12.1 table and can delete, withhold or roll back files; cloud version history keeps old ciphertext and old password wrappings of AK | accepted, THREAT_MODEL R54, ADR-0043 |
+| M6-R2 | medium | No compare-and-swap in folder mode: concurrent rotations are resolved by the canonical winner; the delete race (M2-R7) and an edit lost to a rotation (M2-R12) remain there; a lost segment heals only when its writer compacts; the hosted `PulledKey.device_id` is not authenticated, so a malicious server can steer the rank rule and cause rotation churn (capped at three per vault per day) | accepted, THREAT_MODEL R55, ADR-0045 |
+| M6-R3 | medium | Freeze detection is heuristic: a server or folder that withholds data consistently from every device, checkpoints included, is noticed only through a device's own counter or by the user; the view digest needs two devices at the same head, otherwise `NoCommonView` after 48 hours; findings stay until acknowledged on every device | accepted, THREAT_MODEL R56, CRYPTO_SPEC §10 |
+| M6-R4 | low | The session token is a bearer credential in the OS keystore: same-user malware can download and upload ciphertext and soft-delete attachments; removing a device signs it out but does not take back keys it holds; `reqwest` and `hyper` copy the `Authorization` value while sending | accepted, THREAT_MODEL R57 |
+| M6-R5 | medium | A lost or stolen device keeps AK and every vault key it holds: whoever unlocks it can forge folder objects every other device accepts, and reuse the install ID, until the account is re-keyed; removing it from the list or a halt elsewhere does not take the key back | accepted until re-key (M7), THREAT_MODEL R57a |
+| M6-R6 | low | Open registration reveals whether an email is registered (invite mode, the default, limits this); real and fake pre-login IDs are indistinguishable, but account IDs created before the UUIDv4 rule show their creation time (no released users) | accepted, THREAT_MODEL R58, ADR-0044 |
+| M6-R7 | low | The sync configuration (server URL, folder path) is not authenticated: a local writer can redirect sync, and only ciphertext and the CRYPTO_SPEC §12 metadata would go to the attacker's location | accepted, THREAT_MODEL R59 |
+| M6-R8 | low | Hardware-protected (TK) vaults are not synced in M6: they exist only on their device, so losing it loses them | accepted until a CTAP transport (M3-R6), THREAT_MODEL R60 |
+| M6-R9 | medium | Theft of the server's secret file with its database: no vault is exposed (OPAQUE records need the password and Secret Key), but the thief can tell registered from unregistered emails, learns the sealed TOTP secrets and can impersonate the server to a client that trusts its origin; rotating the OPAQUE server setup is not supported | accepted, THREAT_MODEL R61, ADR-0044 |
+| M6-R10 | low | Availability of the hosted server: one node and one SQLite connection, rate limits in memory and keyed by IP address, and a holder of a stolen token can upload a checkpoint with a huge counter that makes that device's real checkpoints stale until it signs in with a new install ID | accepted, THREAT_MODEL R62 |
+| M6-R11 | low | Memory residue of the OPAQUE login and the HTTP stack: request and response buffers are ordinary heap memory, freed and not wiped | accepted, THREAT_MODEL R63 (as R11 and R40) |
+| M6-R12 | low | Slow-header and slow-body clients can hold connections open; axum has no header read timeout, so the reverse proxy is the defence | accepted, THREAT_MODEL R64 |
+| M6-R13 | info | The server's clock decides session lifetimes, fresh-login windows, TOTP steps and rate limits; rate-limit and pending-login state is in memory and lost at a restart | accepted, THREAT_MODEL R65 |
+| M6-R14 | info | A server operator sees activity patterns the protocol needs (when an account syncs, record counts and sizes per vault, device names, poll wake-ups): the CRYPTO_SPEC §12 metadata, no content | accepted, THREAT_MODEL R66 |
+| M6-R15 | low | The hosted client trusts the OS certificate store (TLS 1.3 only, no pinning): a CA the OS trusts, or one added by malware or an employer, can terminate TLS; `HTTPS_PROXY`, `ALL_PROXY` and `SSL_CERT_FILE` are the user's own environment; plain http only for loopback | accepted, THREAT_MODEL R67, ADR-0046 |
+| M6-R16 | medium | The hosted pull is only as honest as the server within the checks the client can make; a server that never contradicts a device's own checkpoints and keeps devices apart is noticed only by the freeze, rollback and `NoCommonView` rules | accepted, THREAT_MODEL R68, CRYPTO_SPEC §10 |
+| M6-R17 | low | The desktop keeps the hosted token in the OS keystore with a memory fallback; same-user malware can read it; a second-factor code is accepted once, so removing the second factor takes two codes; a master password change the server took and the device missed is recovered by typing the new password | accepted, THREAT_MODEL R69, ADR-0047 |
 | M2-R5 | low | `serde_json` scratch copies of escaped strings during plaintext parsing | accepted, THREAT_MODEL R14 |
 | M2-R6 | info | Hardware-protected TOTP vaults (§7.4) | resolved in the vault and desktop layers 2026-11-03 (TK, open ≤ 5 min on a wall-clock and monotonic deadline, closed on sleep); usable once a security-key transport exists (M3-R6) |
 
@@ -2287,4 +2379,24 @@ See the THREAT_MODEL §5 residual-risk register.
   the MAIN world (temporary add-on); (3) import a CXF file from another app and a Bitwarden export
   with passkeys, sign in with an imported passkey; (4) keyboard and screen-reader pass of the
   passkey dialog and the Settings export panel in light, dark, German and English.
+- **M6 sync (2026-11-07)**: (a) the hosted default domain: `HOSTED_DEFAULT_URL` is `None` (ADR-0042
+  item 4), so a user types a server address until the owner picks a domain; set it with the first
+  hosted deployment and the web landing page (M9). (b) The scope split: sharing, organisations, team
+  vaults and emergency access (CRYPTO_SPEC §8) moved to M6b (ADR-0042); decide when M6b starts (it
+  needs `hpke` vetting and the revocation flow, R18, M2-R15). (c) The license: the AGPL question for
+  the server is still open (see License above), and it now also gates applying to the free audit
+  programs, so decide it before that. (d) Publishing the server image waits for M9; the container
+  deployment is built and smoke-tested only in CI.
+- **Manual checks for M6 (2026-11-07)**, none can be automated here: (1) the folder backend on real
+  Dropbox, iCloud Drive and OneDrive folders (including a Dropbox Business team folder) on Windows,
+  macOS and Linux: set up, join a second device, edit on both, watch provider conflict copies and
+  partial files settle, offline then online; (2) the hosted server behind Caddy on a VPS (the compose
+  file has never run locally): TLS 1.3, `trusted_proxies`, registration with an invite, login with and
+  without two-step verification, backup and restore; (3) two physical devices over each backend:
+  convergence, a master password change on one while the other is online, offline and locked,
+  rotation, device removal, the acknowledge dialog after a deliberate fault; (4) the keystore token
+  on each OS (Windows Credential Manager, macOS Keychain, Linux kernel keyring): stored, replaced by a
+  fresh login, deleted on disconnect and on a 401; the memory fallback when the keystore refuses;
+  (5) keyboard-only and screen-reader pass through the sync settings, the join flow and the native
+  acknowledge dialog in light, dark, German and English.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.
