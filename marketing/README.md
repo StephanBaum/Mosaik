@@ -1,35 +1,36 @@
 # Marketing documents
 
-> **Working title.** "Mosaic" is not the final name. Written 2026-11-07 from `docs/PROGRESS.md`, `docs/BRIEF.md`, `docs/CRYPTO_SPEC.md` and `docs/THREAT_MODEL.md`. Competitor facts were researched in 2026-11 and need re-checking before publication.
+> **Working title.** "Mosaic" is not the final name. Sources: `docs/PROGRESS.md`, `docs/BRIEF.md`, `docs/CRYPTO_SPEC.md`, `docs/THREAT_MODEL.md` and the landing page design concept on `feat/web`. Competitor facts were researched in 2026-11 and must be re-checked before publication.
+>
+> **Framing (owner direction, 2026-11-07):** written for launch day of the finished product, with every milestone through M10 shipped; confident, premium tone; differentiation first. Nothing outside the docs is promised. On publication day, every feature line is checked against `docs/PROGRESS.md` and anything not shipped is cut or labeled.
 
 ## Index
 
 | File | Content |
 |---|---|
-| [positioning.md](positioning.md) | ideal customer profile, problem and alternatives, value proposition, three one-liners, messaging pillars with proof, tone of voice, claims table |
-| [landing-copy.en.md](landing-copy.en.md) | landing page copy, English |
-| [landing-copy.de.md](landing-copy.de.md) | landing page copy, German (informal "du") |
-| [comparison.md](comparison.md) | matrix against 1Password, Bitwarden, Proton Pass and KeePassXC, honest takes, sources |
-| [launch-plan.md](launch-plan.md) | phases, channels, assets, checklist, measures, risks |
+| [positioning.md](positioning.md) | finished feature set, ICP, value proposition, one-liners, the verified "only Mosaic" list with evidence, "unlike most" list, pillars, tone, claims table |
+| [landing-copy.en.md](landing-copy.en.md) | landing page copy in the design concept's scroll order, 5 hero candidates (1 recommended), kinetic lines and labels, two new chapters |
+| [landing-copy.de.md](landing-copy.de.md) | the same in German (du) |
+| [comparison.md](comparison.md) | matrix against 1Password, Bitwarden, Proton Pass, KeePassXC and Enpass, what only Mosaic does, honest takes, sources |
+| [launch-plan.md](launch-plan.md) | phases, channels, assets, checklist, risks. **Predates the finished-app framing**; update it once the decisions below are made |
 
 ## Hard rules applied
 
-No "audited", "bank-grade", "military-grade", "unhackable" or "100% secure". No telemetry or analytics, including in the launch plan. No license named, no "open source" claim (the brief does not say so). Planned features carry their milestone.
+No "audited" (until a published report exists), "bank-grade", "military-grade", "unhackable", "uncrackable" or "100 % secure". No telemetry or analytics. No license named and no "open source" claim. "Only Mosaic" only for the three verified items and their combination, always scoped to the managers we compared; everything else is "unlike most password managers". Two secrets alone is never sold as unique (1Password has a Secret Key).
 
 ## Open owner decisions
 
-1. **Product name** (Mosaic is a working title; the repo is "Mosaik"): copy uses `{NAME}`. Includes a trademark check.
-2. **Domain** (`{DOMAIN}`).
-3. **Hosted sync price and billing period** (`{PRICE}`, `{PERIOD}`), and whether there is a trial or a family tier.
-4. **License and the "open source" claim** (`{LICENSE_STATEMENT}`). The docs do not decide it. The task brief calls the product open source, but `docs/BRIEF.md` does not, so the copy avoids the phrase.
-5. **External audit**: the docs only prepare for one (M9 `AUDIT_PREP.md`). Copy says "we intend to commission one before 1.0". Confirm, and decide on timing, auditor and whether to publish the report.
-6. **Origin story / "made in Germany"**: press angle only if true; confirm.
-7. **Company or person behind the product**, imprint (`{IMPRINT}`) and contact channel (`{CONTACT_CHANNEL}`). No emails are in these files.
-8. **Waiting-list tool** for teams and beta: self-hosted form or plain mailbox, no third-party tracking.
-9. **Beta policy**: who may use real secrets, and when hosted sync opens (needs a deployed, operated server).
-10. **Team timing** (M6b): no date is promised in the copy.
-11. **Launch timing**: public beta after M9, Product Hunt kept for 1.0; confirm.
-12. **Store listings** (Chrome, Edge, Firefox): store IDs are existing owner items in PROGRESS.
-13. **Whether to mention Secret Key and Emergency Kit** prominently in the hero (they are a friction as well as a strength).
-14. **Competitor claims** marked "n/v" in `comparison.md` need verification or removal.
-15. **Mobile gap** messaging: decide whether to delay public beta until M10 or launch desktop-first as written.
+1. **Hero headline.** Recommended: "Trust no server. Not even ours." / "Vertrau keinem Server. Nicht mal unserem." This replaces the design concept's "Two secrets. Only you hold both." (`docs/superpowers/specs/2026-11-07-landing-page-design.md` §1 and §10.1 on `feat/web` need the same change, plus the kinetic word: "ours" / "unserem" instead of "both" / "beide").
+2. **Two new landing chapters:** "Caught lying" (3b, a possible sixth signature moment) and "Only {NAME}" (6b, differentiation without competitor names). Approve, and decide whether 3b gets a motion design or stays static.
+3. **Comparison page:** publish `comparison.md` as its own page linked from 6b (the design concept rules out a competitor table on the landing page itself). Every n/v cell must be resolved first.
+4. **Audit.** Copy says "Not yet independently audited" in the hero, section 7, FAQ and footer. Decide whether to commission an audit before launch, the timing, the auditor, and whether the report is published. The wording switches only when a report exists.
+5. **Product name** (`{NAME}`) and trademark check; **domain** (`{DOMAIN}`).
+6. **Pricing and plans** (`{PRICE}`, `{TEAM_PRICE}`, `{PERIOD}`, the `{TBD}` cells): is emergency access free, are team vaults in your own team folder free or paid, is self-hosting allowed for teams, is there a family plan or a trial.
+7. **License and the "open source" claim** (`{LICENSE_STATEMENT}`).
+8. **CXF export.** PROGRESS lists "keep or drop the CXF export" as an owner item; copy only claims CXF passkey **import**.
+9. **Desktop OS passkey providers** are deferred in PROGRESS (Windows, macOS); copy only claims passkey providers on iOS and Android. Confirm, or add desktop once it ships.
+10. **Launch timing** and the beta policy: launch after M10 as this copy assumes, or a desktop-first beta with milestone labels put back.
+11. **Company or person behind the product**, imprint (`{IMPRINT}`), contact channel (`{CONTACT_CHANNEL}`), origin story ("made in Germany" only if true).
+12. **Team sign-up without third parties** ("Start a team"): `mailto:`, our own endpoint, or the hosted server's own registration.
+13. **Store listings** (Chrome, Edge, Firefox, App Store, Play Store): IDs are open owner items in PROGRESS.
+14. **Re-verify before publishing:** the "only Mosaic" claim O2 (lying-server detection) depends on vendors not documenting such a feature; re-read their security docs on launch day.
