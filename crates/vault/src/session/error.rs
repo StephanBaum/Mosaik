@@ -291,6 +291,56 @@ pub enum Error {
     /// ([`super::UnlockedSession::store_remote_attachment`]).
     #[error("no item references the attachment")]
     UnknownAttachmentReference,
+
+    /// The backend offered an account-key epoch below this device's: a
+    /// rollback of a re-key (CRYPTO_SPEC §6.7).
+    #[error("the backend offered account-key epoch {offered}, below {stored}")]
+    EpochRollback {
+        /// This device's epoch.
+        stored: u32,
+        /// The epoch offered.
+        offered: u32,
+    },
+
+    /// The epoch is above the stored one by more than one: nothing moves the
+    /// device to it (CRYPTO_SPEC §6.7).
+    #[error("account-key epoch {offered} does not follow {stored}")]
+    EpochNotNext {
+        /// This device's epoch.
+        stored: u32,
+        /// The epoch offered.
+        offered: u32,
+    },
+
+    /// The epoch cannot be raised any more.
+    #[error("account-key epoch exhausted")]
+    EpochExhausted,
+
+    /// A re-key needs a new master password; this one opens the current
+    /// wrapping (CRYPTO_SPEC §6.6).
+    #[error("the new master password is the current one")]
+    PasswordUnchanged,
+
+    /// The new Secret Key is the current one (a re-key and a Secret Key
+    /// rotation need a new one), or the one typed for an adoption is the
+    /// current or a retired one (CRYPTO_SPEC §6.7).
+    #[error("the Secret Key is not new")]
+    SecretKeyUnchanged,
+
+    /// A key rotation job is open (CRYPTO_SPEC §6.6).
+    #[error("a key rotation is in progress")]
+    RotationInProgress,
+
+    /// A re-key needs a clean sync: no halt (other than a re-key marker), no
+    /// finding against the server or about sharing, no pending revocation,
+    /// and every owned vault created on a hosted backend.
+    #[error("sync is not clean")]
+    RekeyNotClean,
+
+    /// The backend offered an account version below the highest this device
+    /// has seen (CRYPTO_SPEC §9.4).
+    #[error("the backend offered an older account version")]
+    AccountVersionRollback,
 }
 
 impl From<mosaic_core::Error> for Error {
@@ -301,7 +351,10 @@ impl From<mosaic_core::Error> for Error {
 
 impl From<crate::storage::Error> for Error {
     fn from(e: crate::storage::Error) -> Self {
-        Self::Store(e)
+        match e {
+            crate::storage::Error::RotationInProgress => Self::RotationInProgress,
+            other => Self::Store(other),
+        }
     }
 }
 

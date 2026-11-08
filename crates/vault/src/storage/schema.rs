@@ -617,6 +617,121 @@ CREATE TABLE sharing_findings (
 ) STRICT;
 ";
 
+/// Version 9 (M7 T2, CRYPTO_SPEC 6.4 to 6.7, 10.1): key rotation. The
+/// account-key epoch (public, monotone), the rotation journal (one row, never a
+/// secret), the attachment re-seal queue, the pre-re-key own-segment floors of
+/// the folder backend, and the `MemberRekeyed` revocation reason. The identity
+/// key gets a replacement counter: a re-key is the only thing that may replace
+/// a published identity key, and it raises the counter in the same statement
+/// (the two v8 triggers that froze the key now allow exactly that). Strict and
+/// additive apart from the rebuilt `pending_revocations` and the two
+/// recreated identity triggers.
+const V9: &str = r"
+ALTER TABLE account ADD COLUMN ak_epoch INTEGER NOT NULL DEFAULT 1 CHECK (ak_epoch >= 1);
+
+CREATE TRIGGER account_epoch_monotone
+BEFORE UPDATE OF ak_epoch ON account
+WHEN NEW.ak_epoch < OLD.ak_epoch
+BEGIN SELECT RAISE(ABORT, 'mosaic: ak_epoch decreased'); END;
+
+ALTER TABLE identity_key ADD COLUMN epoch INTEGER NOT NULL DEFAULT 1 CHECK (epoch >= 1);
+
+CREATE TRIGGER identity_key_epoch_monotone
+BEFORE UPDATE OF epoch ON identity_key
+WHEN NEW.epoch < OLD.epoch
+BEGIN SELECT RAISE(ABORT, 'mosaic: identity key epoch decreased'); END;
+
+DROP TRIGGER identity_key_published_monotonic;
+CREATE TRIGGER identity_key_published_monotonic
+BEFORE UPDATE OF published ON identity_key
+WHEN OLD.published = 1 AND NEW.published = 0 AND NEW.epoch = OLD.epoch
+BEGIN SELECT RAISE(ABORT, 'mosaic: identity key publication cannot be undone'); END;
+
+DROP TRIGGER identity_key_frozen_once_published;
+CREATE TRIGGER identity_key_frozen_once_published
+BEFORE UPDATE OF ipk ON identity_key
+WHEN OLD.published = 1 AND NEW.ipk <> OLD.ipk AND NEW.epoch = OLD.epoch
+BEGIN SELECT RAISE(ABORT, 'mosaic: a published identity key is replaced only by a re-key'); END;
+
+-- The rotation journal: kind 1 secret key, 2 re-key, 3 profile, 4 vault; phase
+-- 1 prepared, 2 backend started, 3 backend accepted, 4 folder written, 5 local
+-- committed, 6 attachments, 7 uploading. No secret is ever stored here.
+CREATE TABLE rotation_job (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    kind            INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 4),
+    phase           INTEGER NOT NULL CHECK (phase BETWEEN 1 AND 7),
+    started_at      INTEGER NOT NULL CHECK (started_at >= 0),
+    from_epoch      INTEGER CHECK (from_epoch IS NULL OR from_epoch >= 1),
+    to_epoch        INTEGER CHECK (to_epoch IS NULL OR to_epoch >= 1),
+    target_version  INTEGER CHECK (target_version IS NULL OR target_version >= 0),
+    folder_marker   BLOB    CHECK (folder_marker IS NULL OR length(folder_marker) = 93),
+    done            INTEGER NOT NULL DEFAULT 0 CHECK (done >= 0),
+    total           INTEGER NOT NULL DEFAULT 0 CHECK (total >= 0)
+) STRICT;
+
+-- One row per attachment to re-seal: 0 todo, 1 sealed (reserved: a step is one
+-- transaction, so this state is never stored today), 2 swapped, 3 unreachable
+-- (neither held nor fetchable; it keeps its old file key).
+CREATE TABLE reseal_attachments (
+    old_id    BLOB    PRIMARY KEY CHECK (length(old_id) = 16),
+    vault_id  BLOB    NOT NULL CHECK (length(vault_id) = 16),
+    item_id   BLOB    NOT NULL CHECK (length(item_id) = 16),
+    new_id    BLOB    CHECK (new_id IS NULL OR length(new_id) = 16),
+    state     INTEGER NOT NULL CHECK (state BETWEEN 0 AND 3)
+) STRICT, WITHOUT ROWID;
+
+-- The folder backend: this device's own segments up to `floor_seq` were sealed
+-- under the previous epoch. They are removed only after a complete snapshot set
+-- of the new epoch exists and the retention time has passed.
+CREATE TABLE folder_rekey_floor (
+    vault_id       BLOB    PRIMARY KEY CHECK (length(vault_id) = 16),
+    floor_seq      INTEGER NOT NULL CHECK (floor_seq >= 0),
+    rekey_at       INTEGER NOT NULL CHECK (rekey_at >= 0),
+    snapshot_done  INTEGER NOT NULL DEFAULT 0 CHECK (snapshot_done IN (0, 1))
+) STRICT, WITHOUT ROWID;
+
+-- Commitments of Secret Keys this device replaced (CRYPTO_SPEC 6.7):
+-- SHA-256(ctx(secret-key/retired) || 0x00 || account_id || SK). Never deleted.
+-- Adoption refuses a typed Secret Key that matches one of them.
+CREATE TABLE retired_secret_keys (
+    commitment  BLOB    PRIMARY KEY CHECK (length(commitment) = 32),
+    retired_at  INTEGER NOT NULL CHECK (retired_at >= 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE TRIGGER retired_secret_keys_permanent
+BEFORE DELETE ON retired_secret_keys
+BEGIN SELECT RAISE(ABORT, 'mosaic: retired Secret Key commitments are permanent'); END;
+
+-- Unverifiable higher-epoch account files the user dismissed (by path and
+-- SHA-256): they never raise a finding again (CRYPTO_SPEC 10.1).
+CREATE TABLE rekey_dismissed_files (
+    path          TEXT    NOT NULL CHECK (length(path) <= 4096),
+    sha256        BLOB    NOT NULL CHECK (length(sha256) = 32),
+    dismissed_at  INTEGER NOT NULL CHECK (dismissed_at >= 0),
+    PRIMARY KEY (path, sha256)
+) STRICT, WITHOUT ROWID;
+
+-- A verified re-key marker names this device's epoch (CRYPTO_SPEC 10.1): the
+-- account was re-keyed elsewhere. A flag of its own, so it is not a halt that
+-- an acknowledgement clears; adopting the re-key clears it.
+ALTER TABLE sync_engine_state ADD COLUMN rekey_pending INTEGER NOT NULL DEFAULT 0
+    CHECK (rekey_pending IN (0, 1));
+
+-- pending_revocations: reason 6 is MemberRekeyed (nobody is revoked).
+CREATE TABLE pending_revocations_v9 (
+    vault_id      BLOB    NOT NULL CHECK (length(vault_id) = 16)
+                          REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    account_id    BLOB    NOT NULL CHECK (length(account_id) = 16),
+    reason        INTEGER NOT NULL CHECK (reason BETWEEN 1 AND 6),
+    requested_at  INTEGER NOT NULL CHECK (requested_at >= 0),
+    PRIMARY KEY (vault_id, account_id)
+) STRICT;
+INSERT INTO pending_revocations_v9 (vault_id, account_id, reason, requested_at)
+SELECT vault_id, account_id, reason, requested_at FROM pending_revocations;
+DROP TABLE pending_revocations;
+ALTER TABLE pending_revocations_v9 RENAME TO pending_revocations;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -651,10 +766,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 8,
         sql: V8,
     },
+    Migration {
+        version: 9,
+        sql: V9,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 8;
+pub const LATEST_VERSION: u32 = 9;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -800,10 +919,14 @@ mod tests {
             },
             Migration {
                 version: 9,
+                sql: V9,
+            },
+            Migration {
+                version: 10,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 9);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 10);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -817,11 +940,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 9,
-                supported: 8
+                found: 10,
+                supported: 9
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 9);
+        assert_eq!(user_version(&c).unwrap(), 10);
     }
 
     #[test]
@@ -863,11 +986,15 @@ mod tests {
             },
             Migration {
                 version: 9,
+                sql: V9,
+            },
+            Migration {
+                version: 10,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 8);
+        assert_eq!(user_version(&c).unwrap(), 9);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1328,8 +1455,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 8);
-        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..8]).unwrap(), 8);
         let vaults: i64 = c
             .query_row("SELECT count(*) FROM vaults", [], |r| r.get(0))
             .unwrap();
@@ -1384,5 +1510,111 @@ mod tests {
             .unwrap();
         c.execute("UPDATE vault_sharing SET own_role = 3", [])
             .unwrap();
+    }
+    #[test]
+    fn migration_v8_to_v9() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..8]).unwrap(), 8);
+        c.execute_batch(
+            "INSERT INTO account (id, account_id, salt, profile, updated_at)
+                 VALUES (1, x'01010101010101010101010101010101', zeroblob(16), 2, 0);
+             INSERT INTO identity_key (id, wrapped_isk, ipk, created_at, published)
+                 VALUES (1, zeroblob(74), zeroblob(32), 0, 1);
+             INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+                 VALUES (x'02020202020202020202020202020202', 1, 1, 1, 0);
+             INSERT INTO pending_revocations (vault_id, account_id, reason, requested_at)
+                 VALUES (x'02020202020202020202020202020202',
+                         x'03030303030303030303030303030303', 5, 7);",
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 9);
+        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        // Existing rows survive and start at epoch 1.
+        let epoch: i64 = c
+            .query_row("SELECT ak_epoch FROM account", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(epoch, 1);
+        let id_epoch: i64 = c
+            .query_row("SELECT epoch FROM identity_key", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(id_epoch, 1);
+        let (reason, at): (i64, i64) = c
+            .query_row(
+                "SELECT reason, requested_at FROM pending_revocations",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((reason, at), (5, 7));
+        for table in ["rotation_job", "reseal_attachments", "folder_rekey_floor"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} starts empty");
+        }
+        // The rebuilt table takes reason 6 and refuses 7.
+        c.execute(
+            "INSERT INTO pending_revocations (vault_id, account_id, reason, requested_at)
+             VALUES (x'02020202020202020202020202020202', x'04040404040404040404040404040404', 6, 0)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            c.execute(
+                "INSERT INTO pending_revocations (vault_id, account_id, reason, requested_at)
+                 VALUES (x'02020202020202020202020202020202', x'05050505050505050505050505050505', 7, 0)",
+                [],
+            )
+            .is_err()
+        );
+        // The vault delete still cascades into the rebuilt table.
+        c.execute("DELETE FROM vaults", []).unwrap_err();
+    }
+
+    #[test]
+    fn epoch_triggers_refuse_decrease_and_freeze_identity() {
+        let mut c = conn();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        c.execute_batch(
+            "INSERT INTO account (id, account_id, salt, profile, updated_at)
+                 VALUES (1, x'01010101010101010101010101010101', zeroblob(16), 2, 0);
+             INSERT INTO identity_key (id, wrapped_isk, ipk, created_at, published)
+                 VALUES (1, zeroblob(74), zeroblob(32), 0, 1);",
+        )
+        .unwrap();
+        c.execute("UPDATE account SET ak_epoch = 2", []).unwrap();
+        for sql in [
+            "UPDATE account SET ak_epoch = 1",
+            "UPDATE account SET ak_epoch = 0",
+            "UPDATE identity_key SET published = 0",
+            "UPDATE identity_key SET ipk = x'0101010101010101010101010101010101010101010101010101010101010101'",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        // The replacement counter must rise with the key.
+        c.execute(
+            "UPDATE identity_key SET ipk = x'0101010101010101010101010101010101010101010101010101010101010101',
+                 published = 0, epoch = epoch + 1",
+            [],
+        )
+        .unwrap();
+        assert!(c.execute("UPDATE identity_key SET epoch = 1", []).is_err());
+        // The job table only takes its kinds, phases and a 93-byte marker.
+        for sql in [
+            "INSERT INTO rotation_job (id, kind, phase, started_at) VALUES (1, 5, 1, 0)",
+            "INSERT INTO rotation_job (id, kind, phase, started_at) VALUES (1, 1, 8, 0)",
+            "INSERT INTO rotation_job (id, kind, phase, started_at) VALUES (2, 1, 1, 0)",
+            "INSERT INTO rotation_job (id, kind, phase, started_at, folder_marker)
+             VALUES (1, 2, 1, 0, zeroblob(92))",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO rotation_job (id, kind, phase, started_at, folder_marker)
+             VALUES (1, 2, 1, 0, zeroblob(93))",
+            [],
+        )
+        .unwrap();
     }
 }

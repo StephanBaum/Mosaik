@@ -1093,6 +1093,10 @@ impl Store {
             "DELETE FROM sync_no_common_view",
             "DELETE FROM sync_rebuild",
             "DELETE FROM sync_digest_skip",
+            // Folder-only state of the old backend (schema v9); the retired
+            // Secret Key commitments and `ak_epoch` stay.
+            "DELETE FROM folder_rekey_floor",
+            "DELETE FROM rekey_dismissed_files",
             // The folder account version belongs to one folder; the retired
             // salts stay (they still catch a rollback to an old password).
             "DELETE FROM folder_account_version",

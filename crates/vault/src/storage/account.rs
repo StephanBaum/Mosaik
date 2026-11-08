@@ -58,7 +58,7 @@ pub struct AccountRekey {
     pub vault_keys: Vec<(VaultId, KeyGeneration, WrappedKey)>,
 }
 
-fn check_params(params: &PasswordParams, stored: &PasswordParams) -> Result<()> {
+pub(super) fn check_params(params: &PasswordParams, stored: &PasswordParams) -> Result<()> {
     if stored.account_id != params.account_id {
         return Err(Error::AccountMismatch);
     }
@@ -68,7 +68,7 @@ fn check_params(params: &PasswordParams, stored: &PasswordParams) -> Result<()> 
     Ok(())
 }
 
-fn update_account(conn: &Connection, params: &PasswordParams) -> Result<()> {
+pub(super) fn update_account(conn: &Connection, params: &PasswordParams) -> Result<()> {
     conn.execute(
         "UPDATE account SET salt = ?1, profile = ?2, updated_at = ?3 WHERE id = 1",
         params![params.salt.as_bytes(), params.profile.id(), now_ms()],
@@ -86,7 +86,7 @@ fn check_other_method(method: &UnlockMethod, params: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn read_account(conn: &Connection) -> Result<Option<PasswordParams>> {
+pub(super) fn read_account(conn: &Connection) -> Result<Option<PasswordParams>> {
     let row: Option<(Vec<u8>, Vec<u8>, i64)> = conn
         .query_row(
             "SELECT account_id, salt, profile FROM account WHERE id = 1",
@@ -122,9 +122,9 @@ fn decode_method(account_id: &AccountId, method: i64, method_id: &[u8]) -> Resul
     }
 }
 
-type UnlockRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, i64);
+pub(super) type UnlockRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, i64);
 
-fn decode_unlock(account_id: &AccountId, row: UnlockRow) -> Result<StoredUnlockMethod> {
+pub(super) fn decode_unlock(account_id: &AccountId, row: UnlockRow) -> Result<StoredUnlockMethod> {
     let (method, method_id, wrapped, params, updated_at_ms) = row;
     Ok(StoredUnlockMethod {
         method: decode_method(account_id, method, &method_id)?,
@@ -134,7 +134,7 @@ fn decode_unlock(account_id: &AccountId, row: UnlockRow) -> Result<StoredUnlockM
     })
 }
 
-fn upsert_unlock(
+pub(super) fn upsert_unlock(
     conn: &Connection,
     account_id: &AccountId,
     method: &UnlockMethod,
@@ -286,6 +286,23 @@ impl Store {
         password_wrapping: &WrappedKey,
         remove: &[UnlockMethod],
     ) -> Result<Vec<StoredUnlockMethod>> {
+        self.update_password_retiring(params, password_wrapping, remove, None)
+    }
+
+    /// [`Store::update_password_removing`] that also keeps the retired
+    /// commitment of the Secret Key this change replaces (CRYPTO_SPEC §6.5,
+    /// §6.7), in the same transaction, and moves a Secret Key or profile
+    /// rotation job to phase 5 (local committed).
+    ///
+    /// # Errors
+    /// As for [`Store::update_password_removing`].
+    pub fn update_password_retiring(
+        &mut self,
+        params: &PasswordParams,
+        password_wrapping: &WrappedKey,
+        remove: &[UnlockMethod],
+        retire_secret_key: Option<&[u8; 32]>,
+    ) -> Result<Vec<StoredUnlockMethod>> {
         if remove.iter().any(|m| matches!(m, UnlockMethod::Password)) {
             return Err(Error::PasswordMethodReserved);
         }
@@ -306,6 +323,17 @@ impl Store {
             &UnlockMethod::Password,
             password_wrapping,
             &[],
+        )?;
+        if let Some(c) = retire_secret_key {
+            tx.execute(
+                "INSERT OR IGNORE INTO retired_secret_keys (commitment, retired_at)
+                 VALUES (?1, ?2)",
+                params![c, now_ms()],
+            )?;
+        }
+        tx.execute(
+            "UPDATE rotation_job SET phase = 5 WHERE kind IN (1, 3) AND phase < 5",
+            [],
         )?;
         let mut removed = Vec::new();
         for method in remove {

@@ -162,11 +162,14 @@ pub struct AccountBootstrap {
 #[derive(Debug)]
 pub struct PreparedPasswordChange {
     /// The tag of the session that prepared it.
-    session_tag: [u8; 16],
-    old_opaque_password: OpaquePassword,
-    new_opaque_password: OpaquePassword,
-    new_params: PasswordParams,
-    new_wrapped_ak: WrappedKey,
+    pub(super) session_tag: [u8; 16],
+    pub(super) old_opaque_password: OpaquePassword,
+    pub(super) new_opaque_password: OpaquePassword,
+    pub(super) new_params: PasswordParams,
+    pub(super) new_wrapped_ak: WrappedKey,
+    /// The retired commitment of the Secret Key this change replaces (a
+    /// Secret Key rotation), kept at the commit (CRYPTO_SPEC §6.7).
+    pub(super) retire_secret_key: Option<[u8; 32]>,
 }
 
 impl PreparedPasswordChange {
@@ -204,8 +207,8 @@ impl PreparedPasswordChange {
 /// is no session yet at this point, so it has no session tag.
 #[derive(Debug)]
 pub struct JoinKeys {
-    keys: DerivedKeys,
-    params: PasswordParams,
+    pub(super) keys: DerivedKeys,
+    pub(super) params: PasswordParams,
 }
 
 impl JoinKeys {
@@ -812,7 +815,7 @@ impl UnlockedSession {
         Ok(self.account_key.checkpoint_key()?)
     }
 
-    fn folder_key(&self) -> Result<mosaic_core::FolderMacKey> {
+    pub(super) fn folder_key(&self) -> Result<mosaic_core::FolderMacKey> {
         Ok(self.account_key.folder_mac_key()?)
     }
 
@@ -1318,7 +1321,7 @@ impl UnlockedSession {
     /// Derives the keys of `password` and `secret_key` under the stored
     /// parameters and checks that they open the stored password wrapping to
     /// this session's account key.
-    fn verified_keys(
+    pub(super) fn verified_keys(
         &self,
         password: &MasterPassword,
         secret_key: &SecretKey,
@@ -1369,21 +1372,15 @@ impl UnlockedSession {
         new: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<PreparedPasswordChange> {
-        let (params, old_keys) = self.verified_keys(current, secret_key)?;
-        let change = mosaic_core::change_master_password(
-            &self.account_key,
-            new,
+        self.prepare_credential_change(
+            current,
             secret_key,
-            &params,
-            params.profile,
-        )?;
-        Ok(PreparedPasswordChange {
-            session_tag: self.session_tag,
-            old_opaque_password: old_keys.opaque_password,
-            new_opaque_password: change.opaque_password,
-            new_params: change.params,
-            new_wrapped_ak: change.wrapped_account_key,
-        })
+            &mosaic_core::CredentialChange {
+                new_password: Some(new),
+                new_secret_key: None,
+                profile: self.account_profile()?,
+            },
+        )
     }
 
     /// The second half of [`Self::change_master_password`]: stores the new
@@ -1401,7 +1398,11 @@ impl UnlockedSession {
         if p.session_tag != self.session_tag {
             return Err(Error::PreparedStale);
         }
-        let removed_quick_unlock = self.store_password(&p.new_params, &p.new_wrapped_ak)?;
+        let removed_quick_unlock = self.store_password(
+            &p.new_params,
+            &p.new_wrapped_ak,
+            p.retire_secret_key.as_ref(),
+        )?;
         Ok(PasswordChanged {
             params: p.new_params,
             opaque_password: p.new_opaque_password,
@@ -1447,7 +1448,7 @@ impl UnlockedSession {
             return Err(Error::UnlockFailed);
         }
         drop(opened);
-        let removed_quick_unlock = self.store_password(&params, wrapped_ak)?;
+        let removed_quick_unlock = self.store_password(&params, wrapped_ak, None)?;
         Ok(PasswordChanged {
             params,
             opaque_password: keys.keys.opaque_password,
@@ -1490,6 +1491,7 @@ impl UnlockedSession {
         &mut self,
         params: &PasswordParams,
         wrapped_ak: &WrappedKey,
+        retire_secret_key: Option<&[u8; 32]>,
     ) -> Result<Option<QuickUnlockEnrollment>> {
         let quick: Vec<UnlockMethod> = self
             .store
@@ -1498,9 +1500,9 @@ impl UnlockedSession {
             .map(|r| r.method)
             .filter(|m| matches!(m, UnlockMethod::QuickUnlock(_)))
             .collect();
-        let removed = self
-            .store
-            .update_password_removing(params, wrapped_ak, &quick)?;
+        let removed =
+            self.store
+                .update_password_retiring(params, wrapped_ak, &quick, retire_secret_key)?;
         Ok(removed
             .into_iter()
             .filter_map(QuickUnlockEnrollment::from_row)

@@ -694,6 +694,91 @@ vault (`Error::AdoptionForbidden`) and `prepare_vault_rotation` too
   `request_emergency`, `respond_emergency`, `claim_emergency` and
   `sharing_findings`.
 
+## M7: key rotation (core, vault; additive)
+
+Everything below is new in M7 and additive, apart from the three changes called
+out (`change_credentials` takes the stored wrapping, `adopt_remote_rekey` takes
+one struct, and the claim rule compares the owner entry of the new roster).
+
+### `mosaic-core` (T1 and its review follow-ups)
+
+- `keys`: `CredentialChange`, `change_credentials(ak, current_password,
+  current_sk, current_params, current_wrapped, change)` (one prepare path for a
+  password change, a Secret Key rotation and a KDF profile upgrade; always a new
+  salt; verifies the current password and Secret Key against the stored wrapping
+  first, `Error::Decryption` otherwise; weaker profile: `ProfileDowngrade` before
+  any Argon2id work). `change_master_password` stays and does **not** verify the
+  current password. `RekeyedAccount`, `rekey_account`.
+- `SecretKey::retired_commitment(account)` and `SecretKey::is_retired(account,
+  &[commitment])` (constant time): the retired-Secret-Key commitment of CRYPTO_SPEC
+  §6.7, label `secret-key/retired`. `SecretKey` has constant-time equality.
+- `sync_auth`: `FolderMacPurpose::Rekey`, `folder_rekey_mac`,
+  `verify_folder_rekey_mac`.
+
+### `mosaic-vault` (T2; `session`, restricted to the sync client and the desktop)
+
+Store schema **v9** (strict, additive; `LATEST_VERSION = 9`): `account.ak_epoch`
+(trigger: never decreases), `identity_key.epoch` (a published identity key changes
+only in a statement that raises it: the v8 freeze triggers are recreated),
+`rotation_job` (one row, never a secret), `reseal_attachments`,
+`folder_rekey_floor`, `retired_secret_keys` (permanent), `rekey_dismissed_files`,
+`sync_engine_state.rekey_pending`, and `pending_revocations` rebuilt with reason 6
+(`RevocationReason::MemberRekeyed`). `reset_sync_state` clears the floors and the
+dismissed files, never `ak_epoch` or the retired commitments. `set_sync_config`
+refuses a backend change while a job exists.
+
+`UnlockedSession`:
+
+- Epoch and versions: `ak_epoch`, `check_backend_epoch(offered)`
+  (`Error::EpochRollback` below the device's), `highest_account_version`,
+  `check_account_version` (`Error::AccountVersionRollback`),
+  `note_account_version`, `retired_secret_keys`, `rekey_pending`,
+  `set_rekey_pending`. `LockedSession::ak_epoch`.
+- Credentials: `prepare_credential_change(current_password, current_sk,
+  &CredentialChange)` → `PreparedPasswordChange` (the commit is
+  `commit_master_password_change`: quick unlock deleted, hardware-key wrappings
+  kept, the replaced Secret Key's commitment kept, a kind 1 or 3 job moved to phase
+  5). A new Secret Key that is the current or a retired one: `Error::SecretKeyUnchanged`.
+  `prepare_master_password_change` calls it.
+- Re-key: `rekey_review` → `RekeyReview`; `prepare_rekey(RekeyRequest)` →
+  `PreparedRekey` (`RekeyPlan`, `FolderRekeyPlan`; accessors `old_opaque_password`,
+  `new_opaque_password`, `new_params`, `new_wrapped_ak`, `to_epoch`, `identity`,
+  `vault_keys`, `shared_rotations` (`SharedRekeyOut`), `member_rewraps`,
+  `emergency_seals`, `folder_marker`); `commit_rekey` → `RekeyCommitted` (one
+  store transaction; the session holds the new AK afterwards).
+  Errors: `PasswordUnchanged`, `SecretKeyUnchanged`, `RekeyNotClean`, `PlanMismatch`,
+  `EpochExhausted`, `PreparedStale`.
+- Adoption: `adopt_remote_rekey(RekeyAdoption)` → `RekeyAdopted`. Only epoch
+  `current + 1` (equal: `UnlockFailed`, lower: `EpochRollback`, else `EpochNotNext`);
+  refuses a retired salt (`PasswordRollback`) and a typed Secret Key that is the
+  current or a retired one (`SecretKeyUnchanged`); stores the backend's own wrapping
+  of each member vault's current key after checking it opens to the held key. There
+  is no adoption at an equal epoch.
+- Attachments: `reseal_next_attachment(Option<&[u8]>)` → `ResealStep`,
+  `mark_attachment_unreachable`, `unreachable_attachments`,
+  `queue_vault_attachment_reseal`.
+- Journal: `rotation_job` (`RotationJob`, `RotationKind`, `RotationPhase`),
+  `begin_rotation_job`, `set_rotation_phase`, `finish_rotation_job`,
+  `abandon_rotation_job`; folder: `folder_rekey_floors`, `note_folder_rekey_floor`,
+  `mark_folder_rekey_snapshot`, `dismiss_unverifiable_file`, `file_dismissed`.
+- Errors added: `EpochRollback`, `EpochNotNext`, `EpochExhausted`,
+  `PasswordUnchanged`, `SecretKeyUnchanged`, `RotationInProgress`, `RekeyNotClean`,
+  `AccountVersionRollback`; storage: `RotationInProgress`, `NoRotationJob`,
+  `RotationNotFinished`, `InvalidRotationPhase`, `RotationTooFar`, `EpochMismatch`.
+- Behaviour change in the claim rule (`open_share_chain`): the owner entry of the
+  **new** roster must name the key that sealed the share (before: the held roster's
+  entry), because an owner's re-key replaces that key; the verified contact pin is
+  still required (THREAT_MODEL R84).
+- `storage` (restricted): `Store::{ak_epoch, rotation_job, begin_rotation_job,
+  set_rotation_phase, finish_rotation_job, abandon_rotation_job,
+  queue_attachment_reseal, reseal_rows, next_reseal_todo, mark_reseal_unreachable,
+  mark_reseal_obsolete, swap_attachment, commit_rekey, adopt_rekey,
+  folder_rekey_floors, note_folder_rekey_floor, mark_folder_rekey_snapshot,
+  rekey_pending, set_rekey_pending, retired_secret_keys, dismiss_unverifiable_file,
+  file_dismissed, update_password_retiring}`.
+
+`SyncHalt` is unchanged: the re-key marker sets the `rekey_pending` flag, not a halt.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

@@ -21,20 +21,20 @@ use super::{
 };
 use crate::storage::{Error as StorageError, Store};
 
-fn pw() -> MasterPassword {
+pub(super) fn pw() -> MasterPassword {
     MasterPassword::new("unit test password".to_owned())
 }
 
-fn g(n: u32) -> KeyGeneration {
+pub(super) fn g(n: u32) -> KeyGeneration {
     KeyGeneration::new(n).unwrap()
 }
 
 /// One account with an unlocked session and an identity key.
-struct User {
-    s: UnlockedSession,
-    id: AccountId,
-    ipk: IdentityPublicKey,
-    secret: SecretKey,
+pub(super) struct User {
+    pub(super) s: UnlockedSession,
+    pub(super) id: AccountId,
+    pub(super) ipk: IdentityPublicKey,
+    pub(super) secret: SecretKey,
 }
 
 fn user_in(store: Store, email: &str) -> User {
@@ -58,11 +58,11 @@ fn user_in(store: Store, email: &str) -> User {
     }
 }
 
-fn user(email: &str) -> User {
+pub(super) fn user(email: &str) -> User {
     user_in(Store::open_in_memory().unwrap(), email)
 }
 
-fn fpr(u: &User) -> Fingerprint {
+pub(super) fn fpr(u: &User) -> Fingerprint {
     Fingerprint::of(&u.id, &u.ipk)
 }
 
@@ -131,7 +131,7 @@ fn current_roster(owner: &User, vault: VaultId) -> VaultRosterCiphertext {
 
 /// A vault of `a` shared with `b` (write) and `c` (read), all in sync at
 /// generation 1.
-fn trio() -> (User, User, User, VaultId) {
+pub(super) fn trio() -> (User, User, User, VaultId) {
     let (mut a, mut b, mut c) = (user("a@x"), user("b@x"), user("c@x"));
     let v = a.s.create_vault("Team").unwrap();
     let sent_b = invite(&mut a, v, &b, Role::Write);

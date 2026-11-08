@@ -250,18 +250,21 @@ impl Store {
         if let Some(c) = config {
             c.validate()?;
         }
-        // A backend change is refused while shared vaults are reachable
-        // (CRYPTO_SPEC §10.2): only the account and device names may change.
-        if self.live_shared_vaults()? > 0 {
-            let same_backend = match (self.sync_config()?, config) {
-                (Some(old), Some(new)) => {
-                    old.kind == new.kind
-                        && old.server_url == new.server_url
-                        && old.folder_path == new.folder_path
-                }
-                _ => false,
-            };
-            if !same_backend {
+        // Only the account and device names may change while a rotation job
+        // is open (CRYPTO_SPEC §6.6) or shared vaults are reachable (§10.2).
+        let same_backend = match (self.sync_config()?, config) {
+            (Some(old), Some(new)) => {
+                old.kind == new.kind
+                    && old.server_url == new.server_url
+                    && old.folder_path == new.folder_path
+            }
+            _ => false,
+        };
+        if !same_backend {
+            if self.rotation_job()?.is_some() {
+                return Err(Error::RotationInProgress);
+            }
+            if self.live_shared_vaults()? > 0 {
                 return Err(Error::HasSharedVaults);
             }
         }

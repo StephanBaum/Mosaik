@@ -728,7 +728,7 @@ impl Store {
     }
 }
 
-fn write_roster(
+pub(super) fn write_roster(
     conn: &rusqlite::Connection,
     vault_id: &VaultId,
     ciphertext: &VaultRosterCiphertext,

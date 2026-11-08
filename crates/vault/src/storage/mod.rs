@@ -19,6 +19,7 @@
 //! | `settings_nonce` | local-only random nonce bound into the settings-file MAC (§11.1); never in the outbox, never synced |
 //! | `install_identity`, `sync_config`, `sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint`, `attachment_deletions` | local sync state of M6 (schema v3): install ID, backend choice, cursors, local sequence blocks, checkpoint counter, attachment deletions still to send |
 //! | `identity_key`, `contacts_doc`, `vault_sharing`, `vault_roster`, `pending_revocations`, `sharing_findings` | sharing (schema v8): the wrapped identity key, the synced contact book, the monotone `shared` flag with this account's role, the roster, revocations still to carry out, findings |
+//! | `rotation_job`, `reseal_attachments`, `folder_rekey_floor`, `retired_secret_keys`, `rekey_dismissed_files` | key rotation (schema v9): the account-key epoch (a column of `account`), the journal of a running rotation, the attachment re-seal queue, folder floors, commitments of replaced Secret Keys, dismissed account files |
 //! | `sync_own_seq`, `sync_engine_state`, `sync_peer_checkpoint`, `sync_lag`, `sync_key_candidate`, `sync_marker_seen` | persisted engine state (schema v4): own sequence numbers, halt and strikes, peer checkpoints, lag timers, vault keys seen per generation, delete-marker first-seen times |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
@@ -89,6 +90,7 @@ mod engine_state;
 mod error;
 mod fs;
 mod records;
+mod rotation;
 mod schema;
 mod settings_nonce;
 mod sharing;
@@ -111,6 +113,11 @@ pub use engine_state::{
 pub use error::{Error, Result};
 pub use records::{
     CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,
+};
+pub use rotation::{
+    AttachmentSwap, EpochSwitch, FOLDER_MARKER_LEN, FolderRekeyFloor, IdentityWrite,
+    NewRotationJob, RekeyWrite, ResealRow, ResealState, RotatedVaultWrite, RotationJob,
+    RotationKind, RotationPhase,
 };
 pub use schema::LATEST_VERSION;
 pub use sharing::{
@@ -351,6 +358,12 @@ impl Store {
         self.conn
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
         self.conn.close().map_err(|(_, e)| Error::Database(e))
+    }
+
+    /// Runs raw SQL (tests only: fault injection through triggers).
+    #[cfg(test)]
+    pub(crate) fn exec_raw(&self, sql: &str) -> Result<()> {
+        Ok(self.conn.execute_batch(sql)?)
     }
 
     /// Begins an `IMMEDIATE` write transaction.
