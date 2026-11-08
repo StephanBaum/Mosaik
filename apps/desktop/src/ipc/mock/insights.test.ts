@@ -5,6 +5,7 @@ import { sampleItems, sampleVaults } from "./data.ts";
 import { defaultQuick } from "./quickUnlock.ts";
 import { mockSecurityReport } from "./insights.ts";
 import { defaultSettings } from "./settings.ts";
+import { seedSharing } from "./sharingData.ts";
 import { seedSync } from "./syncData.ts";
 import type { MockItem, MockState } from "./state.ts";
 
@@ -19,6 +20,7 @@ function state(items: MockItem[]): MockState {
     sshEnabled: false,
     sshRequest: false,
     browser: defaultBrowser(() => NOW),
+    sharing: seedSharing(undefined),
     sync: seedSync({}, NOW),
     heldImport: null,
     vaults: sampleVaults(),

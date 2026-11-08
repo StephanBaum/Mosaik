@@ -20,6 +20,10 @@ import { ImportFlow } from "../import/ImportFlow.tsx";
 import { SecurityDashboard } from "../SecurityDashboard.tsx";
 import { SettingsScreen } from "../SettingsScreen.tsx";
 import { ApprovalDialogs } from "../ApprovalDialogs.tsx";
+import { EmergencyRequestBanner } from "../sharing/EmergencyRequestBanner.tsx";
+import { InvitesInbox } from "../sharing/InvitesInbox.tsx";
+import { SharingFindings } from "../sharing/SharingFindings.tsx";
+import { useVaultSharing } from "../sharing/useVaultSharing.tsx";
 import { ListView } from "./ListView.tsx";
 import { CreateVaultDialog } from "./CreateVaultDialog.tsx";
 import { Sidebar, vaultLabel } from "./Sidebar.tsx";
@@ -34,7 +38,7 @@ import {
 } from "./useVaultData.ts";
 import { titleOrUntitled } from "./title.ts";
 
-export type View = "vault" | "trash" | "security" | "generator" | "settings" | "import";
+export type View = "vault" | "trash" | "security" | "generator" | "settings" | "import" | "invites";
 
 export type Editor = { mode: "closed" } | { mode: "new" } | { mode: "edit"; detail: Detail };
 
@@ -60,6 +64,27 @@ function editorTitleOf(editor: Editor, t: Translate): string | null {
   return editor.mode === "edit" ? (titleOrUntitled(editor.detail.summary.title, t("vault.untitled"))) : null;
 }
 
+/** The pages that are not a list: security, generator, settings, import and the invites. */
+function Page({ view, shell }: { view: View; shell: Shell }) {
+  return (
+    <div className="page">
+      {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
+      {view === "generator" && <GeneratorPanel />}
+      {view === "settings" && <SettingsScreen />}
+      {view === "invites" && <InvitesInbox />}
+      {view === "import" && (
+        <ImportFlow
+          embedded
+          onClose={() => {
+            shell.changed();
+            shell.go("vault");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function MainArea({
   shell,
   vaults,
@@ -74,6 +99,10 @@ function MainArea({
   const mainId = useLandmarkId("main");
   return (
     <main id={mainId} tabIndex={-1} className="vault__main">
+      <div className="vault__notices">
+        <EmergencyRequestBanner />
+        <SharingFindings />
+      </div>
       {listing && (
         <ListView
           vaults={vaults}
@@ -101,28 +130,18 @@ function MainArea({
           onLoaded={shell.setItemCount}
         />
       )}
-      {!listing && (
-        <div className="page">
-          {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
-          {view === "generator" && <GeneratorPanel />}
-          {view === "settings" && <SettingsScreen />}
-          {view === "import" && (
-            <ImportFlow
-              embedded
-              onClose={() => {
-                shell.changed();
-                shell.go("vault");
-              }}
-            />
-          )}
-        </div>
-      )}
+      {!listing && <Page view={view} shell={shell} />}
     </main>
   );
 }
 
 function labelOf(vault: VaultSummary | undefined, t: Translate): string {
   return vault === undefined ? t("vault.unnamed") : vaultLabel(vault, t);
+}
+
+/** The name the breadcrumb and the sidebar show for the open vault (or all of them). */
+function nameOf(vaults: readonly VaultSummary[], vaultId: string | null, t: Translate): string {
+  return vaultId === null ? t("vault.allVaults") : labelOf(vaults.find((v) => v.vaultId === vaultId), t);
 }
 
 export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) => void }) {
@@ -132,13 +151,11 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
   const { view, vaultId, category, query, editor, itemCount } = shell;
   const vaults = useVaults(shell.reloadKey);
   const [creating, setCreating] = useState(false);
+  const share = useVaultSharing(vaults, vaultId, view === "vault", shell.changed);
   useHardwareVaultClosed(shell);
   const counts = useCategoryCounts(vaultId, shell.reloadKey);
   const findings = useFindings(view === "security");
-  const vaultName =
-    vaultId === null
-      ? t("vault.allVaults")
-      : labelOf(vaults.find((vault) => vault.vaultId === vaultId), t);
+  const vaultName = nameOf(vaults, vaultId, t);
 
   return (
     <div className="vault">
@@ -176,6 +193,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
         onPalette={() => {
           events.setPaletteOpen(true);
         }}
+        onShare={share.open}
       />
       <MainArea shell={shell} vaults={vaults} findings={findings} />
       {events.paletteOpen && (
@@ -201,6 +219,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
           }}
         />
       )}
+      {share.dialog}
       <ApprovalDialogs />
     </div>
   );

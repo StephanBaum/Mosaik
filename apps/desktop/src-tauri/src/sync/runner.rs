@@ -454,12 +454,39 @@ fn publish_report<T: Transport>(
                 .collect(),
         });
     }
+    note_sharing(backend, ctx, report);
     let conflicts = report.merged.saturating_add(report.split_copies);
     if conflicts > 0 || report.restored_fields > 0 || report.replaced_unreadable > 0 {
         backend.emit(&AppEvent::SyncAttention {
             conflicts,
             restored: report.restored_fields,
             replaced_unreadable: report.replaced_unreadable,
+        });
+    }
+}
+
+/// The sharing part of a finished run: the invites and emergency requests
+/// that wait for the user (an event when they changed) and the attachments
+/// a key change of a shared vault could not protect.
+fn note_sharing(backend: &Arc<Backend>, ctx: &Ctx, report: &SyncReport) {
+    for vault in &report.rotated_vaults {
+        let count = report
+            .unreachable_attachments
+            .iter()
+            .filter(|(v, _)| v == vault)
+            .count();
+        backend
+            .sync
+            .set_unprotected(*vault, u32::try_from(count).unwrap_or(u32::MAX));
+    }
+    if backend.sync.set_sharing_counts(
+        ctx.generation,
+        report.invites_incoming,
+        report.emergency_requests,
+    ) {
+        backend.emit(&AppEvent::SharingChanged {
+            invites: report.invites_incoming,
+            emergency_requests: report.emergency_requests,
         });
     }
 }
@@ -577,6 +604,9 @@ fn warnings_of<T: Transport>(
             SyncWarning::HardwareVaultsLocal { count } => {
                 Some(SyncWarningView::HardwareVaultsLocal { count: *count })
             }
+            SyncWarning::RotationBlocked { vault: v } => Some(SyncWarningView::RotationBlocked {
+                vault_name: vault(v),
+            }),
             // A warning a later version adds: not shown.
             _ => None,
         })

@@ -28,6 +28,7 @@ mod errors;
 mod folder_flow;
 mod hosted_flow;
 mod runner;
+mod sharing_flow;
 pub(crate) mod strings;
 
 use std::collections::BTreeMap;
@@ -38,7 +39,7 @@ use std::sync::mpsc::{self, Sender, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use mosaic_core::{AccountId, InstallId};
+use mosaic_core::{AccountId, InstallId, VaultId};
 use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, SyncEngine};
 use mosaic_sync::folder::{FolderConfig, FolderTransport};
@@ -162,6 +163,10 @@ pub struct SyncService {
     change_done: Condvar,
     /// Serializes saving and compare-and-deleting the session token.
     token_lock: Mutex<()>,
+    /// The invites and emergency requests the last event told the webview about.
+    sharing_counts: Mutex<(u32, u32)>,
+    /// Attachments the last key change of a shared vault could not protect.
+    unprotected: Mutex<BTreeMap<VaultId, u32>>,
 }
 
 impl Default for SyncService {
@@ -180,6 +185,8 @@ impl Default for SyncService {
             change: Mutex::new(false),
             change_done: Condvar::new(),
             token_lock: Mutex::new(()),
+            sharing_counts: Mutex::new((0, 0)),
+            unprotected: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -274,6 +281,45 @@ impl SyncService {
         if let Ok(mut fresh) = self.fresh_at.lock() {
             *fresh = None;
         }
+        if let Ok(mut counts) = self.sharing_counts.lock() {
+            *counts = (0, 0);
+        }
+        if let Ok(mut unprotected) = self.unprotected.lock() {
+            unprotected.clear();
+        }
+    }
+
+    /// Notes the sharing counts a run found; `true` if they differ from what
+    /// the webview was told last (only the current generation may).
+    pub(crate) fn set_sharing_counts(&self, generation: u64, invites: u32, requests: u32) -> bool {
+        let Ok(mut counts) = self.sharing_counts.lock() else {
+            return false;
+        };
+        if !self.is_current(generation) || *counts == (invites, requests) {
+            return false;
+        }
+        *counts = (invites, requests);
+        true
+    }
+
+    /// Notes how many attachments the key change of `vault` could not protect.
+    pub(crate) fn set_unprotected(&self, vault: VaultId, count: u32) {
+        if let Ok(mut map) = self.unprotected.lock() {
+            if count == 0 {
+                map.remove(&vault);
+            } else {
+                map.insert(vault, count);
+            }
+        }
+    }
+
+    /// The attachments of `vault` the last key change could not protect.
+    pub(crate) fn unprotected(&self, vault: VaultId) -> u32 {
+        self.unprotected
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&vault).copied())
+            .unwrap_or(0)
     }
 
     /// The lock epoch: a flow records it before it talks to anything and
@@ -874,6 +920,7 @@ impl Backend {
                     error: None,
                 },
                 warnings: Vec::new(),
+                sharing_findings: Vec::new(),
                 password_changed: false,
             };
         }
@@ -882,6 +929,7 @@ impl Backend {
             config,
             state: self.sync.state(),
             warnings: view.warnings,
+            sharing_findings: sharing_flow::findings_view(session),
             password_changed: view.password_changed,
         }
     }
@@ -924,6 +972,11 @@ impl Backend {
             let config = session
                 .sync_config()?
                 .ok_or(IpcError::new(ErrorCode::SyncNotConfigured))?;
+            // A backend change is refused while shared vaults are reachable
+            // (CRYPTO_SPEC §10.2): nothing is signed out or forgotten first.
+            if sharing_flow::has_live_shared_vaults(session) {
+                return Err(IpcError::new(ErrorCode::SyncHasSharedVaults));
+            }
             (session.account_id(), config)
         };
         // The thread ends first: its handles fail from here on.
@@ -981,6 +1034,7 @@ impl Backend {
             if !vaults.is_empty() {
                 session.clear_vault_findings(&vaults)?;
             }
+            session.clear_sharing_findings()?;
         }
         // What the findings showed is gone until a run finds it again.
         self.sync.update_view(|view| {

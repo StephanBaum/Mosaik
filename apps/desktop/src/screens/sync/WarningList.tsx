@@ -25,6 +25,8 @@ function useWarningText() {
   const { t } = useI18n();
   const device = (name: string | null) =>
     name === null ? t("sync.warning.unknownDevice") : isolate(name);
+  const vault = (name: string | null) =>
+    name === null ? t("sync.warning.unknownVault") : isolate(name);
   return (warning: SyncWarningView): string => {
     switch (warning.kind) {
       case "freezeSuspected":
@@ -34,12 +36,7 @@ function useWarningText() {
       case "noCommonView":
         return t("sync.warning.noCommonView", { device: device(warning.deviceName) });
       case "serverRollback":
-        return t("sync.warning.serverRollback", {
-          vault:
-            warning.vaultName === null
-              ? t("sync.warning.unknownVault")
-              : isolate(warning.vaultName),
-        });
+        return t("sync.warning.serverRollback", { vault: vault(warning.vaultName) });
       case "serverInconsistent":
         return t("sync.warning.serverInconsistent");
       case "rollbackDetected":
@@ -52,6 +49,8 @@ function useWarningText() {
         return t("sync.warning.hardwareVaultsLocal", { count: warning.count });
       case "attachmentsNotRepaired":
         return t("sync.warning.attachmentsNotRepaired", { count: warning.count });
+      case "rotationBlocked":
+        return t("sharing.finding.rotationBlocked", { vault: vault(warning.vaultName) });
     }
   };
 }

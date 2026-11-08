@@ -2,7 +2,8 @@
  * The one subscription to Rust events, fanned out to the app: lock (hide secrets, reload
  * the session), clipboard cleared and settings reset (toasts), SSH approvals (a queue) and the quick-search
  * shortcut (opens the palette). Sync: the last state, a counter that changes when a sync run
- * changed vaults (the vault screens reload on it) and a toast when it merged or repaired items. The browser extension's prompts live in `useBrowserPrompts`.
+ * changed vaults (the vault screens reload on it) and a toast when it merged or repaired items.
+ * Sharing: how many invites and emergency requests wait (`useSharingEvents`). The browser extension's prompts live in `useBrowserPrompts`.
  */
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { useToast } from "../components/ToastProvider.tsx";
@@ -10,6 +11,7 @@ import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
 import { useBrowserPrompts, type BrowserPrompts } from "./useBrowserPrompts.ts";
+import { useSharingEvents, type SharingEvents } from "./useSharingEvents.ts";
 import { useSecrets } from "./SecretsContext.tsx";
 
 interface EventsContextValue {
@@ -27,6 +29,8 @@ interface EventsContextValue {
   sync: SyncState | null;
   /** Changes whenever a sync run changed vault data (`syncDataChanged`). */
   syncDataVersion: number;
+  /** Invites and emergency-access requests that wait for this account. */
+  sharing: SharingEvents;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -47,6 +51,7 @@ export function EventsProvider({
   const [lockReason, setLockReason] = useState<LockReason | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
   const [syncDataVersion, setSyncDataVersion] = useState(0);
+  const sharing = useSharingEvents();
 
   useIpcEvent((event: AppEvent) => {
     if (browser.apply(event)) {
@@ -106,8 +111,9 @@ export function EventsProvider({
       },
       sync,
       syncDataVersion,
+      sharing,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion],
+    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, sharing],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

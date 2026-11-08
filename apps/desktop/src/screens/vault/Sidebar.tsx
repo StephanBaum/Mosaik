@@ -11,6 +11,7 @@ import { useRail } from "../../hooks/useRail.ts";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { SyncState, SyncStatus as SyncStatusName, VaultId, VaultSummary } from "../../ipc/contract/index.ts";
 import { usePlatform } from "../../platform/platform.ts";
+import { useBackendKind } from "../sharing/hooks.ts";
 import { ariaKeyshortcuts, format, SHORTCUTS } from "../../platform/shortcuts.ts";
 import { CATEGORIES, type Category } from "./useVaultData.ts";
 import type { View } from "./VaultLayout.tsx";
@@ -152,6 +153,11 @@ function BottomGroup({ view, findingCount, onView }: SidebarProps) {
   const { t } = useI18n();
   const platform = usePlatform();
   const rail = useRail();
+  // The "Invites" entry shows where sharing works (the Mosaic server) or while invites wait.
+  const { sharing } = useEvents();
+  const { kind } = useBackendKind();
+  const invites = sharing.invites;
+  const sharingAvailable = kind === "hosted";
   const tip = (target: View, label: string) =>
     !rail ? undefined : target === "settings" ? `${label} (${format(SHORTCUTS.settings, platform, t)})` : label;
   const entry = (target: View, icon: IconName, label: string, extra?: ReactNode) => (
@@ -186,6 +192,20 @@ function BottomGroup({ view, findingCount, onView }: SidebarProps) {
           </>
         ),
       )}
+      {(sharingAvailable || invites > 0) &&
+        entry(
+          "invites",
+          "users",
+          t("sharing.inbox.nav"),
+          invites > 0 && (
+            <>
+              <span className="chip nav-item__alert" aria-hidden="true">
+                {invites}
+              </span>
+              <span className="visually-hidden">{t("sharing.inbox.navCount", { count: invites })}</span>
+            </>
+          ),
+        )}
       {entry("trash", "trash", t("nav.trash"))}
       {entry("generator", "refresh", t("nav.generator"))}
       {entry("settings", "sliders", t("nav.settings"), <Kbd shortcut="settings" hidden />)}

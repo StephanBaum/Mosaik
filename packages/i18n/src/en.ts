@@ -21,6 +21,7 @@ import { otp } from "./catalog/en/otp.ts";
 import { files } from "./catalog/en/files.ts";
 import { ext } from "./catalog/en/ext.ts";
 import { sync } from "./catalog/en/sync.ts";
+import { sharing } from "./catalog/en/sharing.ts";
 
 export const en = {
   ...app,
@@ -42,6 +43,7 @@ export const en = {
   ...files,
   ...ext,
   ...sync,
+  ...sharing,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

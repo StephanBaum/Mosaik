@@ -90,7 +90,28 @@ export const fixtures = {
     "join_hosted",
     "join_hosted_two_factor",
     "join_folder",
-    "change_master_password"
+    "change_master_password",
+    "sharing_identity",
+    "sharing_lookup",
+    "sharing_verify_contact",
+    "sharing_accept_key_change",
+    "sharing_contacts",
+    "vault_share",
+    "vault_members",
+    "vault_member_set_role",
+    "vault_member_remove",
+    "vault_invite_cancel",
+    "vault_leave",
+    "invites_list",
+    "invite_preview",
+    "invite_accept",
+    "invite_decline",
+    "emergency_overview",
+    "emergency_grant",
+    "emergency_revoke",
+    "emergency_request",
+    "emergency_respond",
+    "emergency_claim"
   ],
   "enums": {
     "biometricPlatformKind": [
@@ -136,6 +157,13 @@ export const fixtures = {
       "new",
       "update"
     ],
+    "contactStatus": [
+      "new",
+      "pinned",
+      "verified",
+      "changed",
+      "conflicting"
+    ],
     "customFieldKind": [
       "text",
       "hidden",
@@ -149,6 +177,16 @@ export const fixtures = {
       "windows",
       "macos",
       "linux"
+    ],
+    "emergencyDecision": [
+      "decline",
+      "approve"
+    ],
+    "emergencyState": [
+      "idle",
+      "waiting",
+      "approved",
+      "released"
     ],
     "errorCode": [
       "notImplemented",
@@ -252,6 +290,24 @@ export const fixtures = {
       "syncPasswordChanged",
       "syncPasswordRollback",
       "syncPasswordOutcomeUnknown",
+      "sharingNotHosted",
+      "sharingContactUnverified",
+      "sharingKeyChanged",
+      "sharingRoleForbidden",
+      "sharingInviteExists",
+      "sharingInviteStale",
+      "sharingInviteExpired",
+      "sharingInviteUnreadable",
+      "sharingInviteNotInRoster",
+      "sharingOwnerCannotLeave",
+      "sharingAlreadyMember",
+      "sharingReinviteBlocked",
+      "sharingInviteLimit",
+      "sharingVaultKnown",
+      "syncHasSharedVaults",
+      "emergencyWaiting",
+      "emergencyCooldown",
+      "emergencyNotGranted",
       "busy",
       "internal"
     ],
@@ -345,6 +401,18 @@ export const fixtures = {
       "sleep",
       "screenLock"
     ],
+    "memberOriginKind": [
+      "owner",
+      "invite",
+      "emergency"
+    ],
+    "memberRowState": [
+      "member",
+      "invited",
+      "unconfirmed",
+      "dropped",
+      "removing"
+    ],
     "otpAlgorithm": [
       "sha1",
       "sha256",
@@ -397,6 +465,12 @@ export const fixtures = {
       "nationalId",
       "apiKeySecret",
       "wifiPassword"
+    ],
+    "shareRole": [
+      "owner",
+      "manage",
+      "write",
+      "read"
     ],
     "shortcutState": [
       "registered",
@@ -792,6 +866,60 @@ export const fixtures = {
       "code": "syncPasswordOutcomeUnknown"
     },
     {
+      "code": "sharingNotHosted"
+    },
+    {
+      "code": "sharingContactUnverified"
+    },
+    {
+      "code": "sharingKeyChanged"
+    },
+    {
+      "code": "sharingRoleForbidden"
+    },
+    {
+      "code": "sharingInviteExists"
+    },
+    {
+      "code": "sharingInviteStale"
+    },
+    {
+      "code": "sharingInviteExpired"
+    },
+    {
+      "code": "sharingInviteUnreadable"
+    },
+    {
+      "code": "sharingInviteNotInRoster"
+    },
+    {
+      "code": "sharingOwnerCannotLeave"
+    },
+    {
+      "code": "sharingAlreadyMember"
+    },
+    {
+      "code": "sharingReinviteBlocked"
+    },
+    {
+      "code": "sharingInviteLimit"
+    },
+    {
+      "code": "sharingVaultKnown"
+    },
+    {
+      "code": "syncHasSharedVaults"
+    },
+    {
+      "code": "emergencyWaiting"
+    },
+    {
+      "code": "emergencyCooldown"
+    },
+    {
+      "code": "emergencyNotGranted"
+    },
+    {
       "code": "busy"
     },
     {
@@ -981,6 +1109,16 @@ export const fixtures = {
     },
     {
       "type": "browserPairingsChanged"
+    },
+    {
+      "emergencyRequests": 0,
+      "invites": 1,
+      "type": "sharingChanged"
+    },
+    {
+      "emergencyRequests": 2,
+      "invites": 0,
+      "type": "sharingChanged"
     },
     {
       "state": {
@@ -1338,6 +1476,62 @@ export const fixtures = {
         "name": "Work"
       }
     ],
+    "emergency_claim": [
+      {
+        "grantorAccountId": "019a2b3c-4d5e-7030-8000-000000000004"
+      }
+    ],
+    "emergency_grant": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "code": null,
+        "password": "correct horse battery staple",
+        "scope": {
+          "kind": "all"
+        },
+        "waitDays": 7
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "code": "492039",
+        "password": "correct horse battery staple",
+        "scope": {
+          "kind": "vaults",
+          "vaultIds": [
+            "019a2b3c-4d5e-7010-8000-000000000001",
+            "019a2b3c-4d5e-7010-8000-000000000002"
+          ]
+        },
+        "waitDays": 30
+      }
+    ],
+    "emergency_overview": [
+      null
+    ],
+    "emergency_request": [
+      {
+        "grantorAccountId": "019a2b3c-4d5e-7030-8000-000000000004"
+      }
+    ],
+    "emergency_respond": [
+      {
+        "code": null,
+        "decision": "decline",
+        "granteeAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "password": null
+      },
+      {
+        "code": "492039",
+        "decision": "approve",
+        "granteeAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "emergency_revoke": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002"
+      }
+    ],
     "enroll_biometric": [
       {
         "password": null
@@ -1446,6 +1640,34 @@ export const fixtures = {
         "format": "enpass",
         "password": null
       }
+    ],
+    "invite_accept": [
+      {
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000002",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V"
+      },
+      {
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000002",
+        "safetyCode": null
+      }
+    ],
+    "invite_decline": [
+      {
+        "block": false,
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000002"
+      },
+      {
+        "block": true,
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000002"
+      }
+    ],
+    "invite_preview": [
+      {
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000002"
+      }
+    ],
+    "invites_list": [
+      null
     ],
     "join_folder": [
       {
@@ -1648,6 +1870,29 @@ export const fixtures = {
         "favorite": true,
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "sharing_accept_key_change": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V"
+      }
+    ],
+    "sharing_contacts": [
+      null
+    ],
+    "sharing_identity": [
+      null
+    ],
+    "sharing_lookup": [
+      {
+        "email": "sam@example.com"
+      }
+    ],
+    "sharing_verify_contact": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V"
       }
     ],
     "ssh_agent_set_enabled": [
@@ -2063,6 +2308,51 @@ export const fixtures = {
           "quickUnlockMaxAgeDays": 30,
           "theme": "dark"
         }
+      }
+    ],
+    "vault_invite_cancel": [
+      {
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000001"
+      }
+    ],
+    "vault_leave": [
+      {
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_member_remove": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_member_set_role": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "role": "read",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_members": [
+      {
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_share": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "role": "manage",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "role": "write",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "role": "read",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
     "verify_emergency_kit": [
@@ -2513,6 +2803,81 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000003"
       }
     ],
+    "emergency_claim": [
+      {
+        "vaults": 2
+      }
+    ],
+    "emergency_grant": [
+      null
+    ],
+    "emergency_overview": [
+      {
+        "granted": [
+          {
+            "email": "sam@example.com",
+            "granteeAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+            "releaseAt": 1762084800000,
+            "requestedAt": 1761480000000,
+            "scope": {
+              "kind": "all"
+            },
+            "state": "waiting",
+            "waitDays": 7
+          },
+          {
+            "email": "kim@example.com",
+            "granteeAccountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "releaseAt": null,
+            "requestedAt": null,
+            "scope": {
+              "kind": "vaults",
+              "vaultIds": [
+                "019a2b3c-4d5e-7010-8000-000000000001",
+                "019a2b3c-4d5e-7010-8000-000000000002"
+              ]
+            },
+            "state": "idle",
+            "waitDays": 30
+          }
+        ],
+        "received": [
+          {
+            "cooldownUntil": null,
+            "email": "lee@example.com",
+            "grantorAccountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "releaseAt": 1761480000000,
+            "requestedAt": 1761480000000,
+            "state": "released",
+            "waitDays": 14
+          },
+          {
+            "cooldownUntil": 1761566400000,
+            "email": "max@example.com",
+            "grantorAccountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "releaseAt": null,
+            "requestedAt": null,
+            "state": "idle",
+            "waitDays": 2
+          }
+        ]
+      },
+      {
+        "granted": [],
+        "received": []
+      }
+    ],
+    "emergency_request": [
+      {
+        "releaseAt": 1762084800000
+      }
+    ],
+    "emergency_respond": [
+      null
+    ],
+    "emergency_revoke": [
+      null
+    ],
     "enroll_biometric": [
       {
         "biometric": {
@@ -2906,6 +3271,73 @@ export const fixtures = {
           "passkeyUnreadable",
           "passkeyUnsupported",
           "passkeysSkipped"
+        ]
+      }
+    ],
+    "invite_accept": [
+      null
+    ],
+    "invite_decline": [
+      null
+    ],
+    "invite_preview": [
+      {
+        "ownerAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "ownerCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "ownerEmail": "sam@example.com",
+        "ownerStatus": "pinned",
+        "role": "write",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "senderAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "senderEmail": "sam@example.com",
+        "senderStatus": "pinned",
+        "vaultName": "Family"
+      },
+      {
+        "ownerAccountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "ownerCode": "2B9MQ 7XK4D RT6W0 ZNCF8 V3HJ4P",
+        "ownerEmail": "sam@example.com",
+        "ownerStatus": "new",
+        "role": "read",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "senderAccountId": "019a2b3c-4d5e-7030-8000-000000000003",
+        "senderEmail": "kim@example.com",
+        "senderStatus": "verified",
+        "vaultName": null
+      }
+    ],
+    "invites_list": [
+      {
+        "incoming": [
+          {
+            "expiresAt": 1761566400000,
+            "inviteId": "019a2b3c-4d5e-7060-8000-000000000002",
+            "role": "write",
+            "senderEmail": "sam@example.com"
+          }
+        ],
+        "outgoing": [
+          {
+            "expiresAt": 1761566400000,
+            "inviteId": "019a2b3c-4d5e-7060-8000-000000000001",
+            "recipientEmail": "kim@example.com",
+            "role": "read",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          }
+        ]
+      },
+      {
+        "incoming": [],
+        "outgoing": [
+          {
+            "expiresAt": 1761480000000,
+            "inviteId": "019a2b3c-4d5e-7060-8000-000000000003",
+            "recipientEmail": null,
+            "role": "manage",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          }
         ]
       }
     ],
@@ -3428,6 +3860,77 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
+    "sharing_accept_key_change": [
+      null
+    ],
+    "sharing_contacts": [
+      {
+        "contacts": [
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+            "changed": false,
+            "email": "sam@example.com",
+            "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+            "verified": true
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "changed": true,
+            "email": "kim@example.com",
+            "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+            "verified": false
+          }
+        ]
+      },
+      {
+        "contacts": []
+      }
+    ],
+    "sharing_identity": [
+      {
+        "published": true,
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V"
+      },
+      {
+        "published": false,
+        "safetyCode": null
+      }
+    ],
+    "sharing_lookup": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "email": "sam@example.com",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "status": "new"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "email": "sam@example.com",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "status": "pinned"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "email": "sam@example.com",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "status": "verified"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "email": "sam@example.com",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "status": "changed"
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+        "email": "sam@example.com",
+        "safetyCode": "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V",
+        "status": "conflicting"
+      }
+    ],
+    "sharing_verify_contact": [
+      null
+    ],
     "ssh_agent_set_enabled": [
       {
         "enabled": true,
@@ -3483,6 +3986,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3499,6 +4003,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3513,6 +4018,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3559,6 +4097,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -3571,6 +4113,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3633,6 +4176,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3649,6 +4193,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3663,6 +4208,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3709,6 +4287,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -3721,6 +4303,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3733,6 +4316,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3749,6 +4333,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3763,6 +4348,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3809,6 +4427,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -3821,6 +4443,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3833,6 +4456,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3849,6 +4473,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3863,6 +4488,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3909,6 +4567,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -3921,6 +4583,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -3933,6 +4596,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -3949,6 +4613,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -3963,6 +4628,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4009,6 +4707,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -4021,6 +4723,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -4033,6 +4736,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -4049,6 +4753,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4063,6 +4768,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4109,6 +4847,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -4121,6 +4863,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -4156,6 +4899,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -4172,6 +4916,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4186,6 +4931,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4232,6 +5010,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -4244,6 +5026,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -4256,6 +5039,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": null,
@@ -4272,6 +5056,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "sharingFindings": [],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4286,6 +5071,39 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
         "state": {
           "error": null,
           "lastSyncedAt": 1761480000000,
@@ -4332,6 +5150,10 @@ export const fixtures = {
           {
             "count": 2,
             "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
           }
         ]
       },
@@ -4344,6 +5166,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
           "lastSyncedAt": 1761480000000,
@@ -4527,6 +5350,101 @@ export const fixtures = {
         "lockOnSleep": false,
         "quickUnlockMaxAgeDays": 30,
         "theme": "dark"
+      }
+    ],
+    "vault_invite_cancel": [
+      null
+    ],
+    "vault_leave": [
+      null
+    ],
+    "vault_member_remove": [
+      {
+        "unreachableAttachments": 0
+      },
+      {
+        "unreachableAttachments": 3
+      }
+    ],
+    "vault_member_set_role": [
+      null
+    ],
+    "vault_members": [
+      {
+        "members": [
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
+            "email": "alex@example.com",
+            "origin": "owner",
+            "role": "owner",
+            "state": "member",
+            "verified": true
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000002",
+            "email": "sam@example.com",
+            "origin": "invite",
+            "role": "write",
+            "state": "member",
+            "verified": true
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "origin": null,
+            "role": "read",
+            "state": "invited",
+            "verified": false
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": null,
+            "origin": "emergency",
+            "role": "manage",
+            "state": "unconfirmed",
+            "verified": false
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": "lee@example.com",
+            "origin": null,
+            "role": "read",
+            "state": "dropped",
+            "verified": true
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000006",
+            "email": "max@example.com",
+            "origin": "invite",
+            "role": "read",
+            "state": "removing",
+            "verified": true
+          }
+        ],
+        "ownRole": "owner",
+        "pendingRotation": true,
+        "unprotectedAttachments": 2
+      },
+      {
+        "members": [
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
+            "email": "alex@example.com",
+            "origin": "owner",
+            "role": "owner",
+            "state": "member",
+            "verified": true
+          }
+        ],
+        "ownRole": "manage",
+        "pendingRotation": false,
+        "unprotectedAttachments": 0
+      }
+    ],
+    "vault_share": [
+      {
+        "expiresAt": 1762084800000,
+        "inviteId": "019a2b3c-4d5e-7060-8000-000000000001"
       }
     ],
     "verify_emergency_kit": [

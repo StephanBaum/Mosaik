@@ -26,6 +26,8 @@ import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
 import { PasskeyExportSettings } from "./PasskeyExportSettings.tsx";
+import { EmergencySettings } from "./sharing/EmergencySettings.tsx";
+import { SharingSettings } from "./sharing/SharingSettings.tsx";
 import { SshSettings } from "./SshSettings.tsx";
 import { SyncSettings } from "./SyncSettings.tsx";
 
@@ -213,6 +215,8 @@ function Integrations({ onError }: { onError: (error: IpcError | null) => void }
   return (
     <>
       <SyncSettings />
+      <SharingSettings />
+      <EmergencySettings />
       <SshSettings onError={onError} />
       <BrowserSettings onError={onError} />
       <PasskeyExportSettings />

@@ -25,6 +25,7 @@ pub mod otp;
 pub mod quick_unlock;
 pub mod session;
 pub mod settings;
+pub mod sharing;
 pub mod ssh;
 pub mod sync;
 pub mod totp;
@@ -41,6 +42,10 @@ pub(crate) const fn is_spoofing_char(c: char) -> bool {
 
 /// The invoke handler with every command of [`names::COMMANDS`], in the
 /// same order. `tests::every_command_is_registered` checks the two agree.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one line per command, in the order of docs/DESKTOP_IPC.md"
+)]
 pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
 {
     tauri::generate_handler![
@@ -127,5 +132,26 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         sync::join_hosted_two_factor,
         sync::join_folder,
         sync::change_master_password,
+        sharing::sharing_identity,
+        sharing::sharing_lookup,
+        sharing::sharing_verify_contact,
+        sharing::sharing_accept_key_change,
+        sharing::sharing_contacts,
+        sharing::vault_share,
+        sharing::vault_members,
+        sharing::vault_member_set_role,
+        sharing::vault_member_remove,
+        sharing::vault_invite_cancel,
+        sharing::vault_leave,
+        sharing::invites_list,
+        sharing::invite_preview,
+        sharing::invite_accept,
+        sharing::invite_decline,
+        sharing::emergency_overview,
+        sharing::emergency_grant,
+        sharing::emergency_revoke,
+        sharing::emergency_request,
+        sharing::emergency_respond,
+        sharing::emergency_claim,
     ]
 }

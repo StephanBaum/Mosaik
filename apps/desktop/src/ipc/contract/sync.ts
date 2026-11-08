@@ -1,6 +1,7 @@
 /** Sync contract: mirrors `src-tauri/src/contract/sync.rs` (docs/DESKTOP_IPC.md §3 "Sync"). */
 import type { AccountId, UnixMillis } from "./common.ts";
 import type { SyncState } from "./events.ts";
+import type { SharingFindingView } from "./sharing.ts";
 
 /** Who may create an account on a server. */
 export const registrationModes = ["open", "invite", "closed"] as const;
@@ -39,7 +40,8 @@ export type SyncWarningView =
   | { kind: "serverRollback"; vaultName: string | null }
   | { kind: "undecryptable"; count: number }
   | { kind: "hardwareVaultsLocal"; count: number }
-  | { kind: "attachmentsNotRepaired"; count: number };
+  | { kind: "attachmentsNotRepaired"; count: number }
+  | { kind: "rotationBlocked"; vaultName: string | null };
 
 export type SyncWarningKind = SyncWarningView["kind"];
 
@@ -48,6 +50,8 @@ export interface SyncOverview {
   config: SyncConfigView | null;
   state: SyncState;
   warnings: SyncWarningView[];
+  /** What sharing wants the user to look at; `sync_acknowledge` clears the findings. */
+  sharingFindings: SharingFindingView[];
   /** The server (or the folder) holds a master password this device does not know. */
   passwordChanged: boolean;
 }

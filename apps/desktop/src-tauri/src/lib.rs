@@ -232,6 +232,8 @@ mod redteam_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
 #[cfg(test)]
+mod sharing_tests;
+#[cfg(test)]
 mod sync_handler_tests;
 #[cfg(test)]
 mod test_support;

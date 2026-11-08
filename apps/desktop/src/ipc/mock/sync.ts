@@ -188,6 +188,7 @@ export const syncHandlers: MockHandlers = {
     const clear = [...HALT_KINDS, ...FINDING_KINDS] as readonly string[];
     const halted = sync.warnings.some((warning) => (HALT_KINDS as readonly string[]).includes(warning.kind));
     sync.warnings = sync.warnings.filter((warning) => !clear.includes(warning.kind));
+    state.sharing.findings = [];
     if (halted && sync.status === "error") {
       sync.status = "upToDate";
       sync.lastSyncedAt = state.now();

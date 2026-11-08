@@ -11,6 +11,7 @@ use super::events::SyncState;
 use super::ids::{UnixMillis, WireAccountId, WireInstallId};
 use super::macros::wire_enum;
 use super::secret::{SecretIn, SecretOut};
+use super::sharing::SharingFindingView;
 
 wire_enum!(
     /// Who may create an account on a server (`GET /v1/info`).
@@ -147,6 +148,12 @@ pub enum SyncWarningView {
         /// How many.
         count: u32,
     },
+    /// A shared vault's key could not be changed after a removal (this device
+    /// owns the vault): the removed person still holds the old key.
+    RotationBlocked {
+        /// The vault's name (`null` if unknown).
+        vault_name: Option<String>,
+    },
 }
 
 /// The `sync_status` response, and what most sync commands return. (The spec
@@ -160,6 +167,9 @@ pub struct SyncOverview {
     pub state: SyncState,
     /// What the user should know.
     pub warnings: Vec<SyncWarningView>,
+    /// What sharing wants the user to look at (`sync_acknowledge` clears the
+    /// ones that are findings, not states).
+    pub sharing_findings: Vec<SharingFindingView>,
     /// The server (or the folder) holds a master password this device does
     /// not know: `sync_recover_password` brings it in (CRYPTO_SPEC §9.4).
     pub password_changed: bool,
@@ -434,6 +444,9 @@ pub(crate) mod samples {
             SyncWarningView::Undecryptable { count: 3 },
             SyncWarningView::HardwareVaultsLocal { count: 1 },
             SyncWarningView::AttachmentsNotRepaired { count: 2 },
+            SyncWarningView::RotationBlocked {
+                vault_name: Some("Family".into()),
+            },
         ];
         for warning in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -447,7 +460,8 @@ pub(crate) mod samples {
                 | SyncWarningView::ServerRollback { .. }
                 | SyncWarningView::Undecryptable { .. }
                 | SyncWarningView::HardwareVaultsLocal { .. }
-                | SyncWarningView::AttachmentsNotRepaired { .. } => {}
+                | SyncWarningView::AttachmentsNotRepaired { .. }
+                | SyncWarningView::RotationBlocked { .. } => {}
             }
         }
         all
@@ -463,6 +477,7 @@ pub(crate) mod samples {
                     error: None,
                 },
                 warnings: vec![],
+                sharing_findings: vec![],
                 password_changed: false,
             },
             SyncOverview {
@@ -474,6 +489,7 @@ pub(crate) mod samples {
                 }),
                 state: state(SyncStatus::UpToDate),
                 warnings: vec![],
+                sharing_findings: vec![],
                 password_changed: false,
             },
             SyncOverview {
@@ -483,6 +499,7 @@ pub(crate) mod samples {
                 }),
                 state: state(SyncStatus::Syncing),
                 warnings: warnings(),
+                sharing_findings: crate::contract::sharing::samples::findings(),
                 password_changed: false,
             },
             SyncOverview {
@@ -498,6 +515,7 @@ pub(crate) mod samples {
                     error: Some(ErrorCode::SyncSignedOut),
                 },
                 warnings: vec![],
+                sharing_findings: vec![],
                 password_changed: true,
             },
         ]

@@ -30,6 +30,10 @@
  * The mock server takes the master password `mosaic` and the one-time code `123456`. Joining
  * from `?mock=noAccount` takes alex@example.com, `mosaic` and the sample Secret Key;
  * `&syncJoin2fa=1` asks for the code first.
+ *
+ * Sharing (M6b): `&sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|
+ * rotation` seeds contacts, members, invites and emergency grants (see `docs/DESKTOP_IPC.md` §7) and, unless
+ * `&sync=` is given, a hosted sync account. `&sync=folder` or `&sync=none` shows why sharing is off.
  */
 import type { EventListener, MosaicIpc } from "./client.ts";
 import {
@@ -76,6 +80,8 @@ import {
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
+import { sharingHandlers } from "./mock/sharing.ts";
+import { announceSharing, seedSharing, sharingVariants, type SharingVariant } from "./mock/sharingData.ts";
 import { syncHandlers } from "./mock/sync.ts";
 import {
   announceSync,
@@ -123,6 +129,8 @@ export interface MockOptions extends QuickOptions {
   attachSave?: ErrorCode | "cancel";
   /** Sync seeds and answers (`&sync=`, `&syncServer=`, `&syncFolder=`, `&syncFail=`, `&syncJoin2fa=1`). */
   sync?: MockSyncOptions;
+  /** Sharing seed (`&sharing=<variant>`); implies a hosted sync account unless `&sync=` says otherwise. */
+  sharing?: SharingVariant;
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
   bulkItems?: number;
   now?: () => number;
@@ -147,6 +155,7 @@ const handlers: MockHandlers = {
   ...sshHandlers,
   ...browserHandlers,
   ...syncHandlers,
+  ...sharingHandlers,
 };
 
 function quickOptionsFromParams(params: URLSearchParams): MockOptions {
@@ -234,6 +243,16 @@ function syncOptionsFromParams(params: URLSearchParams): MockOptions {
   return Object.keys(sync).length === 0 ? {} : { sync };
 }
 
+function sharingOptionsFromParams(params: URLSearchParams): MockOptions {
+  const variant = sharingVariants.find((name) => name === params.get("sharing"));
+  if (variant === undefined) {
+    return {};
+  }
+  // Sharing needs the Mosaic server: seed a hosted sync account when none was asked for.
+  const sync = params.get("sync") === null ? { sync: { variant: "hosted" as const } } : {};
+  return { sharing: variant, ...sync };
+}
+
 export function mockOptionsFromUrl(search: string): MockOptions {
   const params = new URLSearchParams(search);
   const start = params.get("mock");
@@ -248,6 +267,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...otpOptionsFromParams(params),
     ...attachOptionsFromParams(params),
     ...syncOptionsFromParams(params),
+    ...sharingOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
@@ -284,6 +304,15 @@ function setupOptions(options: MockOptions): MockSetupOptions {
   };
 }
 
+function seededBrowser(options: MockOptions, now: () => number): MockState["browser"] {
+  return {
+    ...defaultBrowser(now),
+    pairOnStart: options.browserPair === true,
+    saveOnStart: options.browserSave ?? null,
+    passkeyOnStart: options.browserPasskey ?? null,
+  };
+}
+
 export function createMockIpc(options: MockOptions = {}): MosaicIpc {
   const listeners = new Set<EventListener>();
   let counter = 0;
@@ -295,12 +324,8 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     unlocked: start === "unlocked",
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
-    browser: {
-      ...defaultBrowser(now),
-      pairOnStart: options.browserPair === true,
-      saveOnStart: options.browserSave ?? null,
-      passkeyOnStart: options.browserPasskey ?? null,
-    },
+    browser: seededBrowser(options, now),
+    sharing: seedSharing(options.sharing),
     sync: seedSync(start === "noAccount" ? { ...options.sync, variant: "none" } : (options.sync ?? {}), now()),
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
@@ -362,6 +387,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       listeners.add(listener);
       startBrowser(state);
       announceSync(state);
+      announceSharing(state);
       return Promise.resolve(() => {
         listeners.delete(listener);
       });

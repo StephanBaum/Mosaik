@@ -81,7 +81,8 @@ tables).
 | M4 | not recorded | not recorded | not recorded | not recorded | 7 (extension-attacker breaks) |
 | M5 | not recorded | not recorded | not recorded | not recorded | not recorded |
 | M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
-| **Overall (M0 to M6)** | **19** | **111** | **169** | **38** | **51 recorded** |
+| M6b (T1 review and milestone review; verify pass and T5 UX review pending) | 5 | 5 | 7 | 6 | none |
+| **Overall (M0 to M6b)** | **24** | **116** | **176** | **44** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -215,6 +216,28 @@ counter made the halt loop (the published counter does not advance on
 digest leaves out vault metadata (accepted, R70, target M6b). Every fixed item
 has one regression test. **Pending:** the final sync-chaos long run over both
 transports.
+
+## M6b Sharing and emergency access
+
+Sources: the M6b fix decision files (`m6b-t1-fix.md`, `m6b-fix.md`, kept by the orchestrator), the commit
+messages named in the table and `docs/PROGRESS.md` ("M6b"). The reviewer reports themselves are not in the
+repository. The T2 to T4 track reviews were not counted separately in the sources: the milestone review
+covered them together.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-08 | T1 core: crypto-reviewer (`b388cc6..eddbb84`) | opus | 1 / 1 / 3 / 5 | none | Fixed, `976e910`: only the owner issues rotation shares (`authorizes_rotation`), rosters bound to their generation, the owner entry fixed at creation, ADR-0049 facts, KAT with the standard library only |
+| 2026-11-08 | M6b milestone review: crypto-reviewer over `b388cc6..6501920` | opus | 4 / 4 / 4 / 1 | none | All fixed in `8e3b495` with a regression test each; deviations documented (ADR-0055, R71, R72, R77, R79, R82) |
+| 2026-11-08 | Verify pass over the milestone review fixes | pending | pending | pending | pending |
+| 2026-11-08 | T5 desktop: UX review (ux-reviewer) | not run yet | not run yet | not run yet | to be run before the milestone commit |
+
+Total so far: High 5, Medium 5, Low 7, Info 6 (T1 review and milestone review, counted by item in the
+decision files). The verify pass and the UX review are not counted yet.
+
+The headline limits after the fixes (THREAT_MODEL R71 to R82): a member who still holds an old key can forge
+roster entries at the old generation (the defence is owner-only rotation plus fingerprint pinning); a
+revocation waits for the owner's device; the server keeps the emergency wait, so whoever controls the server
+can skip it (the grant dialog says so); vault keys only are covered by emergency access.
 
 ## Appending a milestone
 

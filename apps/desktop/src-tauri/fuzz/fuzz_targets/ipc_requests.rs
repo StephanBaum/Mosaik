@@ -1,4 +1,4 @@
-//! The IPC request types: the first byte (minus `A`, modulo 31) picks the
+//! The IPC request types: the first byte (minus `A`, modulo the number of types) picks the
 //! type, the rest is the JSON body. Deserializing never panics, and
 //! `draft::prepare` refuses a bad draft with `invalidInput` (or
 //! `otpPendingExpired` for a `setPending` without a slot) only.
@@ -37,6 +37,11 @@ use contract::session::{
     CreateAccountRequest, QuickUnlockRequest, ReauthenticateRequest, SaveKitRequest, UnlockRequest, VerifyKitRequest,
 };
 use contract::settings::UpdateSettingsRequest;
+use contract::sharing::{
+    ContactCodeRequest, EmergencyClaimRequest, EmergencyGrantRequest, EmergencyRequestRequest,
+    EmergencyRespondRequest, EmergencyRevokeRequest, InviteAcceptRequest, InviteDeclineRequest,
+    InviteRequest, LookupRequest, MemberRequest, SetRoleRequest, ShareVaultRequest,
+};
 use contract::ssh::{SshRespondRequest, SshSetEnabledRequest};
 use contract::sync::{
     AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
@@ -61,7 +66,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 47;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 60;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -144,6 +149,27 @@ fuzz_target!(|data: &[u8]| {
         43 => drop(parse::<JoinFolderRequest>(json)),
         44 => drop(parse::<ChangePasswordRequest>(json)),
         45 => drop(parse::<RecoverPasswordRequest>(json)),
-        _ => drop(parse::<AcknowledgeRequest>(json)),
+        46 => drop(parse::<AcknowledgeRequest>(json)),
+        // Sharing and emergency access (M6b).
+        47 => drop(parse::<LookupRequest>(json)),
+        48 => drop(parse::<ContactCodeRequest>(json)),
+        49 => drop(parse::<ShareVaultRequest>(json)),
+        50 => drop(parse::<MemberRequest>(json)),
+        51 => drop(parse::<SetRoleRequest>(json)),
+        52 => drop(parse::<InviteRequest>(json)),
+        53 => drop(parse::<InviteAcceptRequest>(json)),
+        54 => drop(parse::<InviteDeclineRequest>(json)),
+        55 => {
+            // A grant names its scope as a tagged union; whatever parses must
+            // serialize back to the same kind.
+            if let Some(r) = parse::<EmergencyGrantRequest>(json) {
+                let text = serde_json::to_string(&r.scope).unwrap_or_default();
+                assert!(text.contains("\"kind\""));
+            }
+        }
+        56 => drop(parse::<EmergencyRevokeRequest>(json)),
+        57 => drop(parse::<EmergencyRequestRequest>(json)),
+        58 => drop(parse::<EmergencyRespondRequest>(json)),
+        _ => drop(parse::<EmergencyClaimRequest>(json)),
     }
 });

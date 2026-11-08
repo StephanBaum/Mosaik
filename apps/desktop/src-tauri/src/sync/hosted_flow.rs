@@ -96,12 +96,12 @@ pub(crate) struct HostedCtx {
 }
 
 /// A fresh session of this device.
-struct Fresh {
-    url: String,
-    token: StoredToken,
+pub(super) struct Fresh {
+    pub(super) url: String,
+    pub(super) token: StoredToken,
     /// The code was spent on the login (a second one is needed for a call
     /// that checks a code of its own).
-    code_spent: bool,
+    pub(super) code_spent: bool,
 }
 
 pub(super) fn device_name(name: &str) -> IpcResult<String> {
@@ -157,7 +157,7 @@ impl Backend {
         }
     }
 
-    fn stored_token(&self, account: AccountId) -> IpcResult<StoredToken> {
+    pub(super) fn stored_token(&self, account: AccountId) -> IpcResult<StoredToken> {
         self.sync_tokens
             .load(account)?
             .ok_or(IpcError::new(ErrorCode::SyncSignedOut))
@@ -764,6 +764,20 @@ impl Backend {
         reuse: bool,
         op: impl FnOnce(&Fresh) -> Result<R, TransportError>,
     ) -> IpcResult<R> {
+        self.with_fresh_hosted_ipc(password, code, reuse, |fresh| {
+            op(fresh).map_err(IpcError::from)
+        })
+    }
+
+    /// [`Self::with_fresh_hosted`] for an operation that fails with an IPC
+    /// error of its own (the sharing calls that need a fresh login).
+    pub(super) fn with_fresh_hosted_ipc<R>(
+        &self,
+        password: &SecretIn,
+        code: Option<&SecretIn>,
+        reuse: bool,
+        op: impl FnOnce(&Fresh) -> IpcResult<R>,
+    ) -> IpcResult<R> {
         let ctx = self.hosted_ctx()?;
         let epoch = self.sync.epoch();
         let mp = MasterPassword::new(password.expose_secret().to_owned());
@@ -788,7 +802,7 @@ impl Backend {
         self.sync.stop();
         let result = self
             .fresh_session(&ctx, epoch, opw.as_ref(), code)
-            .and_then(|fresh| op(&fresh).map_err(IpcError::from));
+            .and_then(|fresh| op(&fresh));
         self.sync_restart();
         result
     }

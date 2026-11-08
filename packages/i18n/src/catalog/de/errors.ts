@@ -198,4 +198,40 @@ export const errors = {
     "Der Server hat ein älteres Master-Passwort angeboten. Prüfe den Server.",
   "error.syncPasswordChanged":
     "Dein Master-Passwort wurde auf dem Server oder im Ordner geändert. Gib unten das neue ein.",
+  "error.sharingNotHosted":
+    "Zum Teilen brauchst du einen Mosaic-Server. Verbinde zuerst in den Sync-Einstellungen einen.",
+  "error.sharingContactUnverified":
+    "Vergleiche zuerst den Sicherheitscode dieser Person. Mosaic teilt nur mit Personen, die du geprüft hast.",
+  "error.sharingKeyChanged":
+    "Der Schlüssel dieser Person hat sich geändert, oder der Code stimmt nicht. Schlage sie noch einmal nach und vergleiche den neuen Code, bevor du weitermachst.",
+  "error.sharingRoleForbidden":
+    "Deine Rolle in diesem Tresor erlaubt das nicht. Frag den Eigentümer oder einen Verwalter.",
+  "error.sharingInviteExists":
+    "Für diese Person und diesen Tresor wartet schon eine Einladung. Ziehe sie zuerst zurück, wenn du eine neue senden willst.",
+  "error.sharingInviteStale":
+    "Die Einladung hat sich inzwischen geändert, zum Beispiel nach einem Schlüsselwechsel. Öffne sie noch einmal.",
+  "error.sharingInviteExpired":
+    "Diese Einladung ist abgelaufen oder wurde zurückgezogen. Bitte den Absender, dich erneut einzuladen.",
+  "error.sharingInviteUnreadable":
+    "Diese Einladung lässt sich nicht öffnen. Sie ist vielleicht beschädigt oder nicht für dieses Konto bestimmt. Bitte den Absender, dich erneut einzuladen.",
+  "error.sharingInviteNotInRoster":
+    "Die Mitgliederliste des Tresors passt nicht zu dieser Einladung, deshalb hat Mosaic sie nicht geöffnet. Bitte den Absender, dich erneut einzuladen.",
+  "error.sharingOwnerCannotLeave":
+    "Der Eigentümer kann einen Tresor nicht verlassen. Entferne stattdessen die anderen Personen.",
+  "error.sharingAlreadyMember":
+    "Diese Person ist schon Mitglied des Tresors.",
+  "error.sharingReinviteBlocked":
+    "Du hast diese Person vor Kurzem entfernt. Du kannst sie wieder einladen, sobald der Tresorschlüssel gewechselt wurde. Synchronisiere und versuche es dann erneut.",
+  "error.sharingInviteLimit":
+    "Zu viele Einladungen warten. Warte auf Antworten oder ziehe einige zurück.",
+  "error.sharingVaultKnown":
+    "Dieses Gerät hat den Tresor schon, deshalb hat Mosaic keinen Schlüssel dafür angenommen. Frag den Absender, welchen Tresor er geteilt hat.",
+  "error.syncHasSharedVaults":
+    "Solange geteilte Tresore auf diesem Gerät sind, kannst du den Server nicht wechseln. Verlasse zuerst die geteilten Tresore oder lass dich von ihren Eigentümern entfernen.",
+  "error.emergencyWaiting":
+    "Eine Anfrage wartet, deshalb lässt sich das jetzt nicht ändern. Lehne sie ab oder warte sie ab.",
+  "error.emergencyCooldown":
+    "Deine letzte Anfrage wurde abgelehnt. Du kannst nach der Sperrzeit von einem Tag erneut anfragen.",
+  "error.emergencyNotGranted":
+    "Es gibt nichts abzuholen: Keine Anfrage ist offen, oder die Person hat dir keinen Zugriff erteilt.",
 } satisfies Record<keyof typeof en, string>;

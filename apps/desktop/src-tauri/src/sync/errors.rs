@@ -41,6 +41,19 @@ fn rejection_code(rejection: Rejection) -> ErrorCode {
         Rejection::TwoFactorInvalid => ErrorCode::SyncTwoFactorInvalid,
         Rejection::DeviceIsCurrent => ErrorCode::SyncDeviceIsCurrent,
         Rejection::TooLarge => ErrorCode::SyncQuotaExceeded,
+        Rejection::RoleForbidden | Rejection::EmergencyOwnerOnly => ErrorCode::SharingRoleForbidden,
+        Rejection::InviteExists => ErrorCode::SharingInviteExists,
+        Rejection::InviteStale { .. } => ErrorCode::SharingInviteStale,
+        Rejection::InviteExpired => ErrorCode::SharingInviteExpired,
+        Rejection::InviteLimit => ErrorCode::SharingInviteLimit,
+        Rejection::AlreadyMember => ErrorCode::SharingAlreadyMember,
+        Rejection::ReinviteBlocked => ErrorCode::SharingReinviteBlocked,
+        Rejection::OwnerCannotLeave => ErrorCode::SharingOwnerCannotLeave,
+        Rejection::EmergencyWaiting { .. } => ErrorCode::EmergencyWaiting,
+        Rejection::EmergencyCooldown { .. } => ErrorCode::EmergencyCooldown,
+        Rejection::EmergencyNotRequested | Rejection::EmergencyReleased | Rejection::NoShare => {
+            ErrorCode::EmergencyNotGranted
+        }
         _ => ErrorCode::Internal,
     }
 }
@@ -48,6 +61,23 @@ fn rejection_code(rejection: Rejection) -> ErrorCode {
 impl From<TransportError> for IpcError {
     fn from(error: TransportError) -> Self {
         Self::new(transport_code(error))
+    }
+}
+
+/// The error of a failed sharing command. A session error keeps its own
+/// code (`IpcError::from`); `not_found` is what an unknown invite or grant
+/// means for the command; the server refusing a vault to this account is
+/// `sharingRoleForbidden`.
+#[must_use]
+pub fn sharing_error(error: SyncError, not_found: ErrorCode) -> IpcError {
+    match error {
+        SyncError::Session(session) => IpcError::from(session),
+        SyncError::SharingUnavailable => IpcError::new(ErrorCode::SharingNotHosted),
+        SyncError::Transport(TransportError::NotFound) => IpcError::new(not_found),
+        SyncError::Transport(TransportError::Forbidden) => {
+            IpcError::new(ErrorCode::SharingRoleForbidden)
+        }
+        other => IpcError::new(sync_code(&other)),
     }
 }
 
@@ -65,6 +95,31 @@ pub fn sync_code(error: &SyncError) -> ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sharing_errors_keep_their_meaning() {
+        let nf = ErrorCode::SharingInviteExpired;
+        assert_eq!(
+            sharing_error(SyncError::Transport(TransportError::NotFound), nf).code,
+            nf
+        );
+        assert_eq!(
+            sharing_error(SyncError::SharingUnavailable, nf).code,
+            ErrorCode::SharingNotHosted
+        );
+        assert_eq!(
+            sharing_error(
+                SyncError::Session(mosaic_vault::session::Error::ContactUnverified),
+                nf
+            )
+            .code,
+            ErrorCode::SharingContactUnverified
+        );
+        assert_eq!(
+            sharing_error(SyncError::Transport(TransportError::Forbidden), nf).code,
+            ErrorCode::SharingRoleForbidden
+        );
+    }
 
     #[test]
     fn transport_failures_map_to_the_codes_the_ui_acts_on() {
@@ -111,6 +166,22 @@ mod tests {
             ),
             (TransportError::Locked, ErrorCode::Locked),
             (TransportError::Forbidden, ErrorCode::Internal),
+            (
+                TransportError::Rejected(Rejection::InviteExists),
+                ErrorCode::SharingInviteExists,
+            ),
+            (
+                TransportError::Rejected(Rejection::ReinviteBlocked),
+                ErrorCode::SharingReinviteBlocked,
+            ),
+            (
+                TransportError::Rejected(Rejection::EmergencyWaiting { release_at: None }),
+                ErrorCode::EmergencyWaiting,
+            ),
+            (
+                TransportError::Rejected(Rejection::EmergencyNotRequested),
+                ErrorCode::EmergencyNotGranted,
+            ),
         ];
         for (error, code) in cases {
             assert_eq!(transport_code(error), code, "{error:?}");

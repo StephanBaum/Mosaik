@@ -20,6 +20,8 @@ export interface TopBarProps {
   onQuery: (query: string) => void;
   onNew: () => void;
   onPalette: () => void;
+  /** Opens the sharing dialog of the open vault (`undefined`: no single vault is open). */
+  onShare?: (() => void) | undefined;
 }
 
 function useCrumbs({ view, category, editorTitle, vaultName }: TopBarProps): string[] {
@@ -31,6 +33,7 @@ function useCrumbs({ view, category, editorTitle, vaultName }: TopBarProps): str
     generator: t("nav.generator"),
     settings: t("nav.settings"),
     import: t("import.flow.title"),
+    invites: t("sharing.inbox.title"),
   }[view];
   return [vaultName, page, ...(editorTitle === null ? [] : [editorTitle])];
 }
@@ -86,6 +89,12 @@ export function TopBar(props: TopBarProps) {
           <Kbd shortcut="palette" />
         </button>
       </div>
+      {props.onShare !== undefined && (
+        <Button className="topbar__share" onClick={props.onShare}>
+          <Icon name="users" />
+          <span className="topbar__new-label">{t("sharing.share.open")}</span>
+        </Button>
+      )}
       <NewButton
         data-new-item=""
         className="topbar__new"

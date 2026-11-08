@@ -33,6 +33,7 @@ pub mod quick_unlock;
 pub mod secret;
 pub mod session;
 pub mod settings;
+pub mod sharing;
 pub mod ssh;
 pub mod sync;
 pub mod totp;

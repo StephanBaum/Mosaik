@@ -58,5 +58,7 @@ export type AppEvent =
   | { type: "browserPairingsChanged" }
   /** A sync run changed these vaults: read their items again. */
   | { type: "syncDataChanged"; vaultIds: VaultId[] }
+  /** The invites or emergency requests waiting for this account changed. */
+  | { type: "sharingChanged"; invites: number; emergencyRequests: number }
   /** A sync run merged or repaired something the user may want to look at. */
   | { type: "syncAttention"; conflicts: number; restored: number; replacedUnreadable: number };
