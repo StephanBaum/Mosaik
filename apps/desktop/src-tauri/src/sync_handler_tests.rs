@@ -602,7 +602,10 @@ fn an_idle_folder_sync_does_not_run_again() {
     std::thread::sleep(Duration::from_millis(1500));
     let after = e.status().state;
     assert_eq!(after.status, SyncStatus::UpToDate);
-    assert_eq!(after.last_synced_at, before, "an idle folder sync ran again");
+    assert_eq!(
+        after.last_synced_at, before,
+        "an idle folder sync ran again"
+    );
 }
 
 #[test]
