@@ -611,3 +611,71 @@ fn waiting_for_a_change_returns_a_new_token_after_a_write() {
             .all(|d| d.name.is_some() && d.last_seen_ms.is_some())
     );
 }
+
+fn token(w: &mut World, d: usize) -> mosaic_sync::transport::ChangeToken {
+    use core::time::Duration;
+    w.devs[d]
+        .engine
+        .transport_mut()
+        .wait_for_change(None, Duration::ZERO)
+        .unwrap()
+}
+
+#[test]
+fn a_devices_own_writes_do_not_change_its_token() {
+    let (mut w, vault, item) = two_devices();
+    w.sync(1);
+    let before = token(&mut w, 1);
+    // A run with nothing new rewrites this device's checkpoint; a local
+    // change adds to its own log. Neither is news to the device itself.
+    w.sync(1);
+    set_password(&mut w, 1, vault, item, "mine");
+    w.sync(1);
+    assert!(files_ending(&w.replica(1), ".mck").len() >= 2);
+    assert_eq!(before, token(&mut w, 1));
+}
+
+#[test]
+fn every_foreign_path_changes_the_token() {
+    let (mut w, vault, item) = two_devices();
+    // Another device's checkpoint alone (a run with nothing new).
+    let before = token(&mut w, 1);
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    let after_head = token(&mut w, 1);
+    assert_ne!(before, after_head, "foreign checkpoint");
+    // Another device's log.
+    set_password(&mut w, 0, vault, item, "theirs");
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    let after_log = token(&mut w, 1);
+    assert_ne!(after_head, after_log, "foreign log");
+    // An account file rewritten (size or time changes).
+    let account = files_ending(&w.replica(1), ".macct")
+        .pop()
+        .expect("an account file");
+    let file = fs::OpenOptions::new().write(true).open(&account).unwrap();
+    file.set_modified(std::time::SystemTime::now() + core::time::Duration::from_secs(5))
+        .unwrap();
+    drop(file);
+    assert_ne!(after_log, token(&mut w, 1), "account file");
+    // Another device's snapshot or marker files sit in its own directories
+    // and in the logs and blobs: all are listed, none is skipped.
+    let others = files_ending(&w.replica(1), ".mck").len();
+    assert!(others >= 2, "both devices have a checkpoint");
+}
+
+#[test]
+fn a_foreign_write_during_a_run_is_noticed_on_the_next_poll() {
+    let (mut w, vault, item) = two_devices();
+    w.sync(1);
+    // The token the runner holds when its run starts.
+    let held = token(&mut w, 1);
+    // A foreign write lands while the run is going on; the run's own writes
+    // follow.
+    set_password(&mut w, 0, vault, item, "during");
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    w.sync(1);
+    assert_ne!(held, token(&mut w, 1));
+}

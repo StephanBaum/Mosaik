@@ -265,16 +265,6 @@ fn run_and_publish<T: Transport>(
         .sync
         .set_status(backend, ctx.generation, SyncStatus::Syncing, None);
     let result = run_once(make, &mut st.engine, access, &mut st.connect_backoff);
-    if !ctx.hosted {
-        // A folder run writes to the folder itself (its checkpoint, every
-        // run). Those writes are not news: take the folder's state as it is
-        // now, or the next poll sees the run's own write as a foreign
-        // change and starts another run, without end.
-        st.change = st
-            .engine
-            .as_mut()
-            .and_then(|e| e.transport_mut().wait_for_change(None, Duration::ZERO).ok());
-    }
     let next = after_run(ctx, result, &mut st.engine);
     st.last_run = Instant::now();
     st.finish_waiters();

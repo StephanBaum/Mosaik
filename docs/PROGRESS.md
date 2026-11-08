@@ -2320,6 +2320,14 @@ sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309
   settings; a question before "Request access" and before "Decline and block sender". Deviations: the engine
   has no unblock command in the desktop contract, so the block question says it can't be undone in Mosaic;
   "Dismiss" for a lost vault hides it until the app starts again (no stored acknowledgement exists).
+- **Folder sync loop (2026-11-08, fixed in M6b)**: since M6 T5 a folder-mode sync ran again right after every run
+  (about every 17 ms, without end, a battery and disk bug). The run rewrites its own head checkpoint, the change
+  digest included it, and the runner took it for a foreign change. Found through the failing
+  `folder_connect_syncs_lists_devices_and_renames` (not caused by `e8653b9`, which only made runs slower; hosted
+  is not affected: the server counter is not bumped by checkpoints). `change_digest` now skips this device's own
+  `d/<self>/` and its own logs; tests: `a_devices_own_writes_do_not_change_its_token`,
+  `every_foreign_path_changes_the_token`, `a_foreign_write_during_a_run_is_noticed_on_the_next_poll`,
+  `an_idle_folder_sync_does_not_run_again`.
 - **Manual checks for M6b (2026-11-08)**, none can be automated here: (1) two real accounts on a real
   server: look up, compare codes on the phone, invite, accept, edit on both, remove, watch the key change
   on the owner's device; (2) a manager removing a member while the owner is offline, then the owner's
