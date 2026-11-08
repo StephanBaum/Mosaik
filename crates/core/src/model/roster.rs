@@ -6,10 +6,21 @@
 //! `{"email":E,"fpr":HEX64,"role":R,"since":G}` with `R` one of `owner`,
 //! `manage`, `write`, `read`, `removed` and `G` a key generation.
 //!
+//! # Generation and owner
+//!
+//! A roster belongs to the key generation it is sealed under and to one vault
+//! owner, both fixed when it is created or opened. Rosters of different
+//! generations never merge ([`Error::KeyGenerationMismatch`]); a rotation moves
+//! a roster to the next generation explicitly ([`VaultRoster::advance`]). The
+//! owner's entry is fixed at creation: later writes to `member:<owner>` are
+//! ignored, never make the roster invalid, and the owner always shows as
+//! `owner`. No roster entry grants rotation authority
+//! ([`VaultRoster::authorizes_rotation`], ADR-0050).
+//!
 //! # Merge rule
 //!
-//! The merge of two replicas is the document merge, so it is commutative,
-//! associative and idempotent. Member registers can hold several concurrent
+//! The merge of two replicas of one generation is the document merge, so it is
+//! commutative, associative and idempotent. Member registers can hold several concurrent
 //! values; the *effective* value is not the largest stamp but:
 //!
 //! 1. the highest `since`;
@@ -25,9 +36,10 @@
 //!
 //! # Validity
 //!
-//! [`VaultRoster::validate`] is run on every open: every member value parses,
-//! `since` is at most the roster's own generation, and exactly one member is
-//! `owner`, the vault's owner as the server reports it.
+//! [`VaultRoster::validate`] is run on every open and checks every entry of
+//! every register: every member value parses, `since` is at most the roster's
+//! own generation, the owner's register exists and no other account is
+//! `owner`.
 
 use core::fmt;
 
@@ -254,33 +266,119 @@ fn effective(reg: &super::doc::Register) -> Option<Parsed> {
         .map(|(_, p)| p)
 }
 
-/// A decrypted vault roster.
+/// The owner's entry: the newest value with role `owner` if there is one,
+/// else (the register was overwritten) the newest value that parses, shown
+/// as `owner` since the first generation. Writes to the owner's register
+/// never change the role.
+fn effective_owner(reg: &super::doc::Register) -> Option<Parsed> {
+    let all: Vec<(Stamp, Parsed)> = reg
+        .entries()
+        .filter_map(|e| parse_value(e.value()).ok().map(|p| (e.stamp(), p)))
+        .collect();
+    if let Some((_, p)) = all
+        .iter()
+        .filter(|(_, p)| p.role == Role::Owner)
+        .max_by_key(|(stamp, p)| (p.since, *stamp))
+    {
+        return Some(Parsed {
+            role: Role::Owner,
+            since: p.since,
+            fingerprint: p.fingerprint,
+            email: p.email.clone(),
+        });
+    }
+    all.into_iter()
+        .max_by_key(|(stamp, p)| (p.since, *stamp))
+        .map(|(_, p)| Parsed {
+            role: Role::Owner,
+            since: KeyGeneration::FIRST,
+            fingerprint: p.fingerprint,
+            email: p.email,
+        })
+}
+
+/// A decrypted vault roster of one key generation and one vault owner.
 #[derive(PartialEq, Eq)]
 pub struct VaultRoster {
     doc: Doc,
+    generation: KeyGeneration,
+    owner: AccountId,
 }
 
 impl fmt::Debug for VaultRoster {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VaultRoster")
+            .field("generation", &self.generation)
             .field("version", self.doc.vv())
             .finish_non_exhaustive()
     }
 }
 
-impl Default for VaultRoster {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl VaultRoster {
-    /// An empty roster. A vault that was never shared has none; the owner's
-    /// first invite creates it with the owner's entry and the invitee's.
+    /// An empty roster of `generation` for a vault owned by `owner`. A vault
+    /// that was never shared has none; the owner's first invite creates it
+    /// with the owner's entry and the invitee's.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(generation: KeyGeneration, owner: AccountId) -> Self {
         Self {
             doc: Doc::default(),
+            generation,
+            owner,
+        }
+    }
+
+    /// The key generation this roster belongs to.
+    #[must_use]
+    pub const fn generation(&self) -> KeyGeneration {
+        self.generation
+    }
+
+    /// The vault owner this roster was created or opened for.
+    #[must_use]
+    pub const fn owner(&self) -> AccountId {
+        self.owner
+    }
+
+    /// The same roster moved to the later `generation` of a rotation. The
+    /// content is carried over; the caller writes the removals at the new
+    /// generation and seals under the new key.
+    ///
+    /// # Errors
+    /// [`Error::KeyGenerationMismatch`] unless `generation` is above the
+    /// current one.
+    pub fn advance(self, generation: KeyGeneration) -> Result<Self> {
+        if generation <= self.generation {
+            return Err(Error::KeyGenerationMismatch);
+        }
+        Ok(Self { generation, ..self })
+    }
+
+    /// Whether a rotation share for the vault comes from an authorized
+    /// sender (CRYPTO_SPEC §8.3): only the vault owner, with the sender
+    /// fingerprint equal to the verified contact pin of the owner, and for
+    /// the generation `g` this roster is held at. No roster entry, role or
+    /// fingerprint grants authority; the roster only has to be the one of the
+    /// held generation and of the same owner.
+    ///
+    /// # Errors
+    /// [`Error::NotAuthorized`] for any other sender, a fingerprint that is
+    /// not the pin, an owner other than the roster's, or another generation.
+    pub fn authorizes_rotation(
+        &self,
+        sender: &AccountId,
+        sender_fpr: &Fingerprint,
+        owner: &AccountId,
+        owner_pinned_fpr: &Fingerprint,
+        g: KeyGeneration,
+    ) -> Result<()> {
+        let ok = sender == owner
+            && *owner == self.owner
+            && sender_fpr == owner_pinned_fpr
+            && g == self.generation;
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::NotAuthorized)
         }
     }
 
@@ -303,7 +401,11 @@ impl VaultRoster {
             .registers()
             .filter_map(|(key, reg)| {
                 let account_id = parse_member_key(key)?;
-                let p = effective(reg)?;
+                let p = if account_id == self.owner {
+                    effective_owner(reg)?
+                } else {
+                    effective(reg)?
+                };
                 Some(RosterMember {
                     account_id,
                     role: p.role,
@@ -325,43 +427,65 @@ impl VaultRoster {
             .find(|m| m.account_id == *account)
     }
 
-    /// Checks the §8.2 validity rules for the roster of generation
-    /// `generation` of a vault owned by `owner`.
+    /// Checks the §8.2 validity rules over every entry of every register.
     ///
     /// # Errors
-    /// [`Error::RosterInvalid`] if a member key or value is malformed, a
-    /// `since` is above `generation`, or the entries do not hold exactly one
-    /// `owner`, equal to `owner`.
-    pub fn validate(&self, owner: &AccountId, generation: KeyGeneration) -> Result<()> {
-        let mut owners = 0usize;
+    /// [`Error::RosterInvalid`] if a member key or any value of a register
+    /// is malformed, a `since` is above the roster's generation, another
+    /// account than the owner has the role `owner` (an entry of the owner's
+    /// own register is never invalid for its role), or the owner's register
+    /// is missing.
+    pub fn validate(&self) -> Result<()> {
+        let mut owner_seen = false;
         for (key, reg) in self.doc.registers() {
             let Some(account) = parse_member_key(key) else {
                 return Err(Error::RosterInvalid);
             };
-            let p = effective(reg).ok_or(Error::RosterInvalid)?;
-            if p.since > generation {
-                return Err(Error::RosterInvalid);
-            }
-            if p.role == Role::Owner {
-                owners += 1;
-                if account != *owner {
+            let mut any = false;
+            for entry in reg.entries() {
+                let p = parse_value(entry.value()).map_err(|_| Error::RosterInvalid)?;
+                if p.since > self.generation {
                     return Err(Error::RosterInvalid);
                 }
+                if p.role == Role::Owner && account != self.owner {
+                    return Err(Error::RosterInvalid);
+                }
+                any = true;
+            }
+            if !any {
+                return Err(Error::RosterInvalid);
+            }
+            if account == self.owner {
+                owner_seen = true;
             }
         }
-        if owners == 1 {
+        if owner_seen {
             Ok(())
         } else {
             Err(Error::RosterInvalid)
         }
     }
 
-    /// Merges two replicas (a pure join).
-    #[must_use]
-    pub fn merge(&self, other: &Self) -> Self {
-        Self {
-            doc: self.doc.merge(&other.doc),
+    fn same_scope(&self, other: &Self) -> Result<()> {
+        if self.generation == other.generation && self.owner == other.owner {
+            Ok(())
+        } else {
+            Err(Error::KeyGenerationMismatch)
         }
+    }
+
+    /// Merges two replicas of one generation (a pure join).
+    ///
+    /// # Errors
+    /// [`Error::KeyGenerationMismatch`] if the generations (or owners)
+    /// differ.
+    pub fn merge(&self, other: &Self) -> Result<Self> {
+        self.same_scope(other)?;
+        Ok(Self {
+            doc: self.doc.merge(&other.doc),
+            generation: self.generation,
+            owner: self.owner,
+        })
     }
 
     /// Merges `received` into this local replica as
@@ -370,8 +494,10 @@ impl VaultRoster {
     /// conflicts.
     ///
     /// # Errors
+    /// [`Error::KeyGenerationMismatch`] for a roster of another generation,
     /// [`Error::DeviceIdReused`], [`Error::ClockOverflow`].
     pub fn merge_and_repair(&self, received: &Self, device: DeviceId) -> Result<(Self, bool)> {
+        self.same_scope(received)?;
         if received.doc.vv().get(&device) > self.doc.vv().get(&device) {
             return Err(Error::DeviceIdReused);
         }
@@ -379,7 +505,14 @@ impl VaultRoster {
         if repair.own_stamp_collision {
             return Err(Error::DeviceIdReused);
         }
-        Ok((Self { doc }, repair.stamp_collision))
+        Ok((
+            Self {
+                doc,
+                generation: self.generation,
+                owner: self.owner,
+            },
+            repair.stamp_collision,
+        ))
     }
 
     /// The canonical plaintext.
@@ -397,38 +530,51 @@ impl VaultRoster {
         )
     }
 
-    /// Strictly decodes roster plaintext.
+    /// Strictly decodes roster plaintext of `generation` and `owner`.
     ///
     /// # Errors
     /// [`Error::SizeLimit`], [`Error::UnsupportedVersion`],
     /// [`Error::Malformed`].
-    pub fn from_json(bytes: &[u8]) -> Result<Self> {
+    pub fn from_json(bytes: &[u8], generation: KeyGeneration, owner: AccountId) -> Result<Self> {
         if bytes.len() > MAX_ROSTER_PLAINTEXT_LEN {
             return Err(Error::SizeLimit);
         }
         Ok(Self {
             doc: decode(bytes, Format::Document)?,
+            generation,
+            owner,
         })
     }
 
-    /// Encrypts the roster of `vault_id` under `vk`.
+    /// Encrypts the roster of `vault_id` under `vk`, which must be the key of
+    /// the roster's generation.
     ///
     /// # Errors
-    /// [`Error::SizeLimit`], [`Error::Allocation`], [`Error::Randomness`].
+    /// [`Error::KeyGenerationMismatch`], [`Error::SizeLimit`],
+    /// [`Error::Allocation`], [`Error::Randomness`].
     pub fn seal(&self, vk: &VaultKey, vault_id: &VaultId) -> Result<VaultRosterCiphertext> {
+        if vk.generation() != self.generation {
+            return Err(Error::KeyGenerationMismatch);
+        }
         let pt = self.to_json()?;
         VaultRosterCiphertext::seal(vk, vault_id, pt.expose_secret())
     }
 
-    /// Decrypts and decodes the roster of `vault_id`. The caller still runs
-    /// [`VaultRoster::validate`].
+    /// Decrypts and decodes the roster of `vault_id`, which belongs to the
+    /// generation of `ct`, for the vault owned by `owner`. The caller still
+    /// runs [`VaultRoster::validate`].
     ///
     /// # Errors
     /// [`Error::KeyGenerationMismatch`], [`Error::Decryption`], and the
     /// errors of [`VaultRoster::from_json`].
-    pub fn open(ct: &VaultRosterCiphertext, vk: &VaultKey, vault_id: &VaultId) -> Result<Self> {
+    pub fn open(
+        ct: &VaultRosterCiphertext,
+        vk: &VaultKey,
+        vault_id: &VaultId,
+        owner: AccountId,
+    ) -> Result<Self> {
         let pt = ct.open(vk, vault_id)?;
-        Self::from_json(pt.expose_secret())
+        Self::from_json(pt.expose_secret(), ct.key_generation(), owner)
     }
 }
 
@@ -538,12 +684,17 @@ mod tests {
     }
 
     fn copy(r: &VaultRoster) -> VaultRoster {
-        VaultRoster::from_json(r.to_json().unwrap().expose_secret()).unwrap()
+        VaultRoster::from_json(
+            r.to_json().unwrap().expose_secret(),
+            r.generation(),
+            r.owner(),
+        )
+        .unwrap()
     }
 
     /// Owner 1 and member 2 (role `Write`) at generation 1.
     fn base() -> VaultRoster {
-        let mut r = VaultRoster::new();
+        let mut r = VaultRoster::new(kg(1), acct(1));
         let mut e = r.edit(dev(1), at());
         e.set_member(&acct(1), Role::Owner, kg(1), &fpr(1), "o@x")
             .unwrap();
@@ -555,15 +706,18 @@ mod tests {
     #[test]
     fn removed_beats_concurrent_role_change() {
         let b = base();
-        let (mut a, mut c) = (copy(&b), copy(&b));
-        // The manager removes member 2 with the rotation to generation 2 ...
+        let (mut a, c) = (copy(&b), copy(&b));
+        // The owner removes member 2 with the rotation to generation 2 ...
         a.edit(dev(1), at()).remove_member(&acct(2), kg(2)).unwrap();
-        // ... while another manager, still at generation 1, promotes them.
+        // ... while a manager, still at generation 1, promotes them. (Both
+        // rosters are read at the same generation here to exercise the rule.)
+        let a = a.advance(kg(2)).unwrap();
+        let mut c = c.advance(kg(2)).unwrap();
         c.edit(dev(3), at())
             .set_member(&acct(2), Role::Manage, kg(1), &fpr(2), "m@x")
             .unwrap();
-        let ab = a.merge(&c);
-        assert_eq!(ab, c.merge(&a));
+        let ab = a.merge(&c).unwrap();
+        assert_eq!(ab, c.merge(&a).unwrap());
         let m = ab.member(&acct(2)).unwrap();
         assert_eq!(m.role, Role::Removed);
         assert_eq!(m.since, kg(2));
@@ -576,6 +730,7 @@ mod tests {
         let b = base();
         let mut a = copy(&b);
         a.edit(dev(1), at()).remove_member(&acct(2), kg(2)).unwrap();
+        let mut a = a.advance(kg(3)).unwrap();
         assert_eq!(a.member(&acct(2)).unwrap().role, Role::Removed);
         // Re-invited at generation 3.
         let mut again = copy(&a);
@@ -584,24 +739,30 @@ mod tests {
             .set_member(&acct(2), Role::Read, kg(3), &fpr(2), "m@x")
             .unwrap();
         // A replica that only knows the removal merges to the re-invite.
-        let merged = a.merge(&again);
-        assert_eq!(merged, again.merge(&a));
+        let merged = a.merge(&again).unwrap();
+        assert_eq!(merged, again.merge(&a).unwrap());
         let m = merged.member(&acct(2)).unwrap();
         assert_eq!((m.role, m.since), (Role::Read, kg(3)));
         // Equal `since`: the most restrictive role wins.
         let (mut x, mut y) = (copy(&b), copy(&b));
         x.edit(dev(4), at())
-            .set_member(&acct(2), Role::Manage, kg(2), &fpr(2), "m@x")
+            .set_member(&acct(2), Role::Manage, kg(1), &fpr(2), "m@x")
             .unwrap();
         y.edit(dev(5), at())
-            .set_member(&acct(2), Role::Read, kg(2), &fpr(2), "m@x")
+            .set_member(&acct(2), Role::Read, kg(1), &fpr(2), "m@x")
             .unwrap();
-        assert_eq!(x.merge(&y).member(&acct(2)).unwrap().role, Role::Read);
-        assert_eq!(y.merge(&x).member(&acct(2)).unwrap().role, Role::Read);
+        assert_eq!(
+            x.merge(&y).unwrap().member(&acct(2)).unwrap().role,
+            Role::Read
+        );
+        assert_eq!(
+            y.merge(&x).unwrap().member(&acct(2)).unwrap().role,
+            Role::Read
+        );
         // Removing an unknown account is refused.
         assert_eq!(
             a.edit(dev(1), at())
-                .remove_member(&acct(9), kg(2))
+                .remove_member(&acct(9), kg(3))
                 .unwrap_err(),
             Error::RosterInvalid
         );
@@ -610,63 +771,166 @@ mod tests {
     #[test]
     fn single_owner_enforced() {
         let r = base();
-        r.validate(&acct(1), kg(1)).unwrap();
+        r.validate().unwrap();
+        // A second owner is invalid, whoever the owner is.
         let mut two = copy(&r);
         two.edit(dev(1), at())
             .set_member(&acct(2), Role::Owner, kg(1), &fpr(2), "m@x")
             .unwrap();
+        assert_eq!(two.validate().unwrap_err(), Error::RosterInvalid);
+        // An empty roster has no owner register.
         assert_eq!(
-            two.validate(&acct(1), kg(1)).unwrap_err(),
+            VaultRoster::new(kg(1), acct(1)).validate().unwrap_err(),
             Error::RosterInvalid
         );
-        assert_eq!(
-            two.validate(&acct(2), kg(1)).unwrap_err(),
-            Error::RosterInvalid
-        );
-        // No owner at all, and an empty roster.
-        let mut none = copy(&r);
-        none.edit(dev(1), at())
-            .set_member(&acct(1), Role::Removed, kg(1), &fpr(1), "o@x")
+        // A roster without the owner's entry is invalid.
+        let mut no_owner = VaultRoster::new(kg(1), acct(1));
+        no_owner
+            .edit(dev(1), at())
+            .set_member(&acct(2), Role::Write, kg(1), &fpr(2), "m@x")
             .unwrap();
-        assert_eq!(
-            none.validate(&acct(1), kg(1)).unwrap_err(),
-            Error::RosterInvalid
-        );
-        assert_eq!(
-            VaultRoster::new().validate(&acct(1), kg(1)).unwrap_err(),
-            Error::RosterInvalid
-        );
+        assert_eq!(no_owner.validate().unwrap_err(), Error::RosterInvalid);
         // A `since` from the future.
         let mut future = copy(&r);
         future
             .edit(dev(1), at())
             .set_member(&acct(2), Role::Read, kg(5), &fpr(2), "m@x")
             .unwrap();
-        assert_eq!(
-            future.validate(&acct(1), kg(2)).unwrap_err(),
-            Error::RosterInvalid
-        );
-        future.validate(&acct(1), kg(5)).unwrap();
+        assert_eq!(future.validate().unwrap_err(), Error::RosterInvalid);
+        let later = future.advance(kg(5)).unwrap();
+        later.validate().unwrap();
     }
 
     #[test]
     fn owner_change_invalid() {
-        // The server's owner is fixed at creation: a roster that names another
-        // account as the owner is invalid, however it got there.
-        let r = base();
-        assert_eq!(
-            r.validate(&acct(2), kg(1)).unwrap_err(),
-            Error::RosterInvalid
-        );
-        let mut swapped = VaultRoster::new();
+        // The owner is fixed: a roster in which another account is `owner`
+        // is invalid, whatever the owner's own entry says.
+        let mut swapped = VaultRoster::new(kg(1), acct(1));
         let mut e = swapped.edit(dev(1), at());
         e.set_member(&acct(2), Role::Owner, kg(1), &fpr(2), "m@x")
             .unwrap();
         e.set_member(&acct(1), Role::Write, kg(1), &fpr(1), "o@x")
             .unwrap();
+        assert_eq!(swapped.validate().unwrap_err(), Error::RosterInvalid);
+    }
+
+    /// L2: later writes to the owner's register are ignored and never make
+    /// the roster invalid.
+    #[test]
+    fn owner_entry_fixed_at_creation() {
+        let mut r = base();
+        r.edit(dev(2), at())
+            .set_member(&acct(1), Role::Removed, kg(1), &fpr(1), "evil@x")
+            .unwrap();
+        r.validate().unwrap();
+        let o = r.member(&acct(1)).unwrap();
+        assert_eq!(o.role, Role::Owner);
+        assert_eq!(o.since, kg(1));
+        // A concurrent demotion by another device changes nothing either.
+        let (mut a, mut b) = (copy(&base()), copy(&base()));
+        a.edit(dev(3), at())
+            .set_member(&acct(1), Role::Read, kg(1), &fpr(1), "o@x")
+            .unwrap();
+        b.edit(dev(4), at())
+            .set_member(&acct(1), Role::Removed, kg(1), &fpr(1), "o@x")
+            .unwrap();
+        let m = a.merge(&b).unwrap();
+        m.validate().unwrap();
+        assert_eq!(m.member(&acct(1)).unwrap().role, Role::Owner);
+    }
+
+    /// L1: every entry of a register must parse, not just the winning one.
+    #[test]
+    fn validate_checks_every_entry() {
+        let (mut a, mut b) = (copy(&base()), copy(&base()));
+        a.edit(dev(3), at())
+            .set_member(&acct(2), Role::Read, kg(1), &fpr(2), "m@x")
+            .unwrap();
+        // A concurrent junk value that would lose against the real one.
+        let stamp = b.doc.tick(dev(4)).unwrap();
+        b.doc
+            .write(
+                &member_key(&acct(2)),
+                stamp,
+                at(),
+                Value::text("junk"),
+                false,
+            )
+            .unwrap();
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.member(&acct(2)).unwrap().role, Role::Read);
+        assert_eq!(merged.validate().unwrap_err(), Error::RosterInvalid);
+    }
+
+    /// M1: rosters are bound to their generation.
+    #[test]
+    fn rosters_of_other_generations_do_not_merge() {
+        let g1 = base();
+        let g2 = copy(&g1).advance(kg(2)).unwrap();
+        assert_eq!(g1.generation(), kg(1));
+        assert_eq!(g2.generation(), kg(2));
+        assert_eq!(g1.merge(&g2).unwrap_err(), Error::KeyGenerationMismatch);
         assert_eq!(
-            swapped.validate(&acct(1), kg(1)).unwrap_err(),
-            Error::RosterInvalid
+            g2.merge_and_repair(&g1, dev(1)).unwrap_err(),
+            Error::KeyGenerationMismatch
+        );
+        // Advancing is forward only.
+        assert_eq!(
+            copy(&g2).advance(kg(2)).unwrap_err(),
+            Error::KeyGenerationMismatch
+        );
+        assert_eq!(
+            copy(&g2).advance(kg(1)).unwrap_err(),
+            Error::KeyGenerationMismatch
+        );
+        // Sealing needs the key of the roster's generation.
+        let vault = VaultId::from_bytes([0x0B; 16]).unwrap();
+        let vk1 = VaultKey::generate(kg(1)).unwrap();
+        assert_eq!(
+            g2.seal(&vk1, &vault).unwrap_err(),
+            Error::KeyGenerationMismatch
+        );
+        // A roster opens at the generation of its ciphertext.
+        let vk2 = VaultKey::generate(kg(2)).unwrap();
+        let ct = g2.seal(&vk2, &vault).unwrap();
+        assert_eq!(
+            VaultRoster::open(&ct, &vk2, &vault, acct(1))
+                .unwrap()
+                .generation(),
+            kg(2)
+        );
+    }
+
+    /// H1: only the owner, with the pinned fingerprint and for the held
+    /// generation, authorizes a rotation; no roster role does.
+    #[test]
+    fn authorizes_rotation_owner_only() {
+        let mut r = base();
+        // The roster calls account 2 a manager, and even lists a fingerprint.
+        r.edit(dev(1), at())
+            .set_member(&acct(2), Role::Manage, kg(1), &fpr(2), "m@x")
+            .unwrap();
+        let ok = r.authorizes_rotation(&acct(1), &fpr(1), &acct(1), &fpr(1), kg(1));
+        assert_eq!(ok, Ok(()));
+        // A manager is refused, with their own fingerprint and the roster's.
+        assert_eq!(
+            r.authorizes_rotation(&acct(2), &fpr(2), &acct(1), &fpr(1), kg(1)),
+            Err(Error::NotAuthorized)
+        );
+        // The owner's account with a fingerprint other than the pin.
+        assert_eq!(
+            r.authorizes_rotation(&acct(1), &fpr(2), &acct(1), &fpr(1), kg(1)),
+            Err(Error::NotAuthorized)
+        );
+        // Another generation than the roster's.
+        assert_eq!(
+            r.authorizes_rotation(&acct(1), &fpr(1), &acct(1), &fpr(1), kg(2)),
+            Err(Error::NotAuthorized)
+        );
+        // An owner other than the roster's.
+        assert_eq!(
+            r.authorizes_rotation(&acct(2), &fpr(2), &acct(2), &fpr(2), kg(1)),
+            Err(Error::NotAuthorized)
         );
     }
 
@@ -676,10 +940,10 @@ mod tests {
         let vault = VaultId::from_bytes([0x0B; 16]).unwrap();
         let vk = VaultKey::generate(kg(1)).unwrap();
         let ct = r.seal(&vk, &vault).unwrap();
-        assert_eq!(VaultRoster::open(&ct, &vk, &vault).unwrap(), r);
+        assert_eq!(VaultRoster::open(&ct, &vk, &vault, acct(1)).unwrap(), r);
         let other = VaultId::from_bytes([0x0A; 16]).unwrap();
         assert_eq!(
-            VaultRoster::open(&ct, &vk, &other).unwrap_err(),
+            VaultRoster::open(&ct, &vk, &other, acct(1)).unwrap_err(),
             Error::Decryption
         );
         // A roster ciphertext is not vault metadata, and vice versa.
@@ -736,7 +1000,7 @@ mod tests {
     }
 
     fn replica(device: u8, ops: &Ops) -> VaultRoster {
-        let mut r = VaultRoster::new();
+        let mut r = VaultRoster::new(kg(4), acct(1));
         apply(&mut r, device, ops);
         r
     }
@@ -749,12 +1013,13 @@ mod tests {
         #[test]
         fn merge_commutative_associative_idempotent(a in ops(), b in ops(), c in ops()) {
             let (ra, rb, rc) = (replica(1, &a), replica(2, &b), replica(3, &c));
-            prop_assert_eq!(ra.merge(&rb), rb.merge(&ra));
-            prop_assert_eq!(ra.merge(&rb).merge(&rc), ra.merge(&rb.merge(&rc)));
-            prop_assert_eq!(ra.merge(&ra), copy(&ra));
+            let m = |x: &VaultRoster, y: &VaultRoster| x.merge(y).unwrap();
+            prop_assert_eq!(m(&ra, &rb), m(&rb, &ra));
+            prop_assert_eq!(m(&m(&ra, &rb), &rc), m(&ra, &m(&rb, &rc)));
+            prop_assert_eq!(m(&ra, &ra), copy(&ra));
             // The effective view is a function of the merged document.
-            prop_assert_eq!(ra.merge(&rb).members(), rb.merge(&ra).members());
-            prop_assert_eq!(ra.merge(&rb).merge(&rc).members(), rc.merge(&rb).merge(&ra).members());
+            prop_assert_eq!(m(&ra, &rb).members(), m(&rb, &ra).members());
+            prop_assert_eq!(m(&m(&ra, &rb), &rc).members(), m(&m(&rc, &rb), &ra).members());
         }
     }
 }

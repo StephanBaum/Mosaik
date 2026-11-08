@@ -4019,6 +4019,10 @@ and `rand_core` out of Mosaic's own code.
    exactly this suite) through the crate, and `crates/core/tests/vectors/share_kat.py`, a stdlib-only implementation of
    X25519, ChaCha20-Poly1305 and HPKE Auth, reproduces the same vector and the Mosaic seals.
 7. `deny.toml` needs no exception: all new crates are permissive (MIT, Apache-2.0, BSD-3-Clause).
+8. **Facts about the crate's assurance** (T1 review L3). The crate has had no paid audit. The only outside review we
+   know of is Cloudflare's internal review of 0.8. 0.15.0 is new and changed the X25519 private-key serialization (the
+   clamped form, item 5). The release date matches the changelog (2026-10-27 for 0.15.0, 2026-10-28 for 0.15.1). The
+   guard against a silent behaviour change is the RFC 9180 A.2.3 known-answer test (item 6), which runs on every build.
 
 ### Alternatives considered
 - `=0.13.0` as the spec draft said: older RustCrypto generation, a second `rand_core` and `generic-array` in the tree.
@@ -4054,13 +4058,20 @@ rotation chain after a revocation must not depend on the server's word.
 3. **Validity** on every open: values parse, `fpr` is 32 bytes, `since` at most the roster's generation, exactly one
    `owner` and it is the server's `owner_account_id`. An invalid roster is the finding `RosterInvalid`; the vault stays
    readable and no rotation share is accepted for it.
-4. **Acceptance rule.** Roles stay server-enforced. The one cryptographic boundary is the claim rule (CRYPTO_SPEC §8.3):
-   a rotation share is accepted only from a sender the previous roster lists as `owner` or `manage` with a `since` at
-   most the held generation, whose served `ipk` matches the roster `fpr` and the pin.
+4. **Acceptance rule (amended after the T1 crypto review).** Roles stay server-enforced. The one cryptographic
+   boundary is the claim rule (CRYPTO_SPEC §8.3): a rotation share is accepted only from the vault **owner**, the
+   account fixed at accept, whose served `ipk` matches the verified contact pin (`VaultRoster::authorizes_rotation`).
+   No roster data can grant rotation authority: every member who holds an old key can write a roster entry at the old
+   generation, so a roster-based "manager may rotate" rule would let a removed manager (or any member promoting
+   themself) mint the next key. Managers still invite (an invite carries the current key and makes no generation).
+   Limit: a revocation waits for the owner's device; while the owner is offline the removed member keeps the key.
+   Rosters are bound to their generation (merging two generations is an error), the owner's entry is fixed at
+   creation (later writes to it are ignored), and `validate` checks every entry of every register.
 5. The server keeps the current roster and the last roster of each generation, and lets only `owner` and `manage` write
    it by compare-and-swap.
 
 ### Alternatives considered
+- A manager may rotate when the previous roster lists them: rejected (above).
 - Largest stamp wins: a stale role change could beat a removal.
 - Per-member signatures: a v2 candidate (R7).
 

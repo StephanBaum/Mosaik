@@ -109,6 +109,12 @@ pub enum Error {
     #[error("contact key changed")]
     ContactChanged,
 
+    /// An act reserved for the vault owner (a rotation share, CRYPTO_SPEC
+    /// §8.3) came from another account, from the owner with a fingerprint
+    /// that is not the verified pin, or for another generation.
+    #[error("sender is not authorized")]
+    NotAuthorized,
+
     /// A received record carries edits under this device's ID that this
     /// replica never made: another process or install uses the same
     /// `DeviceId`, or local state was restored from a backup. Rotate the

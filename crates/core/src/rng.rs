@@ -46,12 +46,10 @@ impl HpkeRng {
     /// # Errors
     /// [`Error::Randomness`] if the CSPRNG fails.
     pub(crate) fn from_os() -> Result<Self> {
-        Ok(Self::fixed(array()?))
+        Ok(Self::with_bytes(array()?))
     }
 
-    /// A generator that serves `bytes`. Used by [`HpkeRng::from_os`] and,
-    /// in tests, to reproduce a known ephemeral key.
-    pub(crate) fn fixed(bytes: [u8; 32]) -> Self {
+    fn with_bytes(bytes: [u8; 32]) -> Self {
         Self {
             buf: zeroize::Zeroizing::new(bytes),
             used: 0,
@@ -59,12 +57,21 @@ impl HpkeRng {
         }
     }
 
-    /// Fails if `hpke` asked for more bytes than were drawn.
+    /// A generator that serves `bytes`, to reproduce a known ephemeral key
+    /// in tests. Production code only draws from the OS CSPRNG.
+    #[cfg(test)]
+    pub(crate) fn fixed(bytes: [u8; 32]) -> Self {
+        Self::with_bytes(bytes)
+    }
+
+    /// Fails unless `hpke` used exactly the 32 bytes that were drawn: a
+    /// shortfall (zeros were served) or an unused buffer means the
+    /// construction is not the one this module was written for.
     ///
     /// # Errors
-    /// [`Error::Randomness`] on a shortfall.
+    /// [`Error::Randomness`].
     pub(crate) fn check(&self) -> Result<()> {
-        if self.starved {
+        if self.starved || self.used != 32 {
             Err(Error::Randomness)
         } else {
             Ok(())
@@ -127,6 +134,11 @@ mod tests {
         r.fill_bytes(&mut a);
         assert_eq!(a, [7; 32]);
         r.check().unwrap();
+        // A generator that was not used (or used partly) does not pass.
+        assert_eq!(
+            HpkeRng::fixed([7; 32]).check().unwrap_err(),
+            Error::Randomness
+        );
         let mut b = [1u8; 4];
         r.fill_bytes(&mut b);
         assert_eq!(b, [0; 4]);

@@ -448,6 +448,37 @@ mod tests {
         }
     }
 
+    /// I2: a label that is a prefix of another is a new pair to review. AAD
+    /// labels are followed by `0x00`, so those are always prefix-free; labels
+    /// used as bare HKDF info or hash input are injective on the full string,
+    /// so these pairs (all older than M6b or reviewed in T1) are safe, but each
+    /// new pair has to be added here on purpose.
+    #[test]
+    fn label_prefix_pairs_are_reviewed() {
+        const REVIEWED: [(&str, &str); 8] = [
+            ("secret-key", "secret-key-checksum"),
+            ("wrap/vault", "wrap/vault-under-tk"),
+            ("checkpoint", "checkpoint-key"),
+            ("sync/device-info", "sync/device-info-key"),
+            ("sync/view", "sync/view-key"),
+            ("sync/view", "sync/view2"),
+            ("sync/view", "sync/view-meta"),
+            ("contacts", "contacts-key"),
+        ];
+        let mut found = Vec::new();
+        for (i, a) in label::ALL.iter().enumerate() {
+            for (j, b) in label::ALL.iter().enumerate() {
+                if i != j && b.as_str().starts_with(a.as_str()) {
+                    found.push((a.as_str(), b.as_str()));
+                }
+            }
+        }
+        found.sort_unstable();
+        let mut expected = REVIEWED.to_vec();
+        expected.sort_unstable();
+        assert_eq!(found, expected);
+    }
+
     /// L2: the labels other crates take from here keep their wire bytes
     /// (a change would change derived values), including the pre-login
     /// labels, which have no `mosaic/v1/` prefix (CRYPTO_SPEC §3).

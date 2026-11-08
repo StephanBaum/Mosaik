@@ -611,14 +611,18 @@ and the sender's `ipk`, then re-wraps VK under their own AK (§7.1). Auth mode s
 server from injecting a vault key it made up and claiming it came from a sender.
 
 **Roles.** `owner` (1), `manage` (2), `write` (3), `read` (4) on the wire and in the server.
-Owner: everything, can't be removed or leave. Manage: invite (role at most its own), change
-roles below `owner`, remove, rotate, write the roster. Write: push records, metadata,
+Owner: everything, can't be removed or leave, and the **only** role that issues rotation
+shares (§8.3). Manage: invite (role at most its own; an invite carries the current key, so it
+makes no new generation), change roles below `owner`, request a removal, write the roster.
+Write: push records, metadata,
 attachments. Read: pull. The only **cryptographic** line is "holds the current VK or not".
 Within the holders every member can create validly encrypted items, metadata and rosters.
 Read-only roles are enforced by the server only, and so is the roster: a read member, or a
 write member who promotes themself in the roster, needs a malicious or compromised server
 to get that write accepted (THREAT_MODEL R72). The one cryptographic role check is the claim
-rule below: a rotation share is accepted only from a roster manager.
+rule below: a rotation share is accepted only from the vault owner, whose account is fixed
+when the vault is accepted and whose fingerprint is the verified contact pin. No roster
+entry can grant rotation authority.
 
 **Roster.** A per-vault replicated document (§7.5 layout) sealed under VK,
 ```
@@ -630,6 +634,14 @@ aad    = header || aad("vault-roster", vault_id, key_generation:u32)
 `member:<account_id as 32 lowercase hex digits>` and its values
 `{"email":E,"fpr":HEX64,"role":R,"since":G}` with `R` one of `owner`, `manage`, `write`,
 `read`, `removed` and `G` a key generation (u32, at least 1).
+- **Bound to its generation.** A roster belongs to the key generation it is sealed under.
+  Two rosters merge only if they have the same generation (anything else is an error); the
+  current roster never merges a roster of another generation, and older rosters are
+  read-only inputs. A rotation moves the roster to `g + 1` explicitly (the content is carried
+  over and the removals are written at `g + 1`).
+- **Owner entry.** The owner's account is fixed when the roster is created (the vault's
+  owner). The owner's entry is the one written at creation: later writes to
+  `member:<owner>` are ignored and never make the roster invalid.
 - **Merge rule** (ADR-0050). The merge of two replicas is the document merge of §10. The
   *effective* value of a `member:*` register that holds several concurrent values is the one
   with the highest `since`; on a tie the most restrictive role (`removed` > `read` > `write` >
@@ -638,9 +650,10 @@ aad    = header || aad("vault-roster", vault_id, key_generation:u32)
   the rotation that locks the member out, never a deletion of the key. A concurrent role
   change made at `g` therefore cannot bring a removed member back, and a re-invite writes
   `since = ` the then-current generation, which is higher than the removal.
-- **Validity**, checked on every open: every member value parses; `fpr` is 32 bytes; `since`
-  is at most the roster's own generation; exactly one entry has role `owner`, and it is the
-  account that the server reports as the vault's owner (which never changes after creation).
+- **Validity**, checked on every open over every entry of every register: every member value
+  parses; `fpr` is 32 bytes; `since` is at most the roster's own generation; the owner's
+  register exists, and no other account has the role `owner`. The owner is the account the
+  server reports as the vault's owner (which never changes after creation).
   An invalid roster raises the finding `RosterInvalid`: the vault stays readable, and no
   rotation share is accepted for it.
 - **Created** by the owner's first invite: the owner's entry plus the invitee's. A vault that
@@ -688,27 +701,33 @@ manager wrote into the roster (THREAT_MODEL R71).
 - The server distributes `ipk`. At first contact it can hand out its own key; only the
   safety-code comparison catches that, which is why verification is required before any
   seal. We have no key-transparency log.
+- A member who still holds an old key can forge roster entries at that old generation (the
+  roster is sealed under a key every member holds). The defence is not the roster: only the
+  owner issues rotation shares, and the owner is identified by the pinned fingerprint
+  (§8.3). A revocation waits for the owner's device; while the owner is offline the
+  removed member keeps the current key.
 
 ### 8.3 Revoking access
 A shared vault's key is never replaced by a key the server picks: **adoption (§10.2) does not
 apply to a vault with the `shared` flag.** Revocation is a rotation of VK.
 
-**Triggers** (kept as pending revocations on the manager's device until the rotation is
-accepted): removal of a member by a manager; leave by a member (seen as a membership
+**Triggers** (kept as pending revocations on the owner's device until the rotation is
+accepted; a manager's removal request waits there): removal of a member by the owner or a
+manager; leave by a member (seen as a membership
 change); an invite that was declined or cancelled after its seal was delivered (the recipient
 may hold `VK_g`); and the server listing a member who is not in the roster, after a user
 prompt (§8.3 "membership consistency").
 
-**Revocation rotation** (on a device with role `owner` or `manage`):
+**Revocation rotation** (on a device of the vault **owner** only; there is no manager
+rotation in v1, and a revocation waits while the owner is offline):
 1. Pull the vault to its head and fetch every attachment of the vault that is not local.
    Attachments that can't be fetched are listed in the revoke UI and keep their old ID and
    FK (they are not protected against the removed member until they are re-sealed).
 2. Prepare, without changing the store: a new VK of generation `g + 1`; its wrapping under
-   the manager's AK; a `ShareSeal` for every remaining member and for every pending invite
+   the owner's AK; a `ShareSeal` for every remaining member and for every pending invite
    (each `ipk` must match the roster `fpr` and, for a contact, the pin; a mismatch is a hard
    error and no seal is made); a new roster at `g + 1` with the revoked members marked
-   `removed, since: g + 1`; and, when the manager is the owner, emergency seals for the
-   grants that cover the vault (§8.4).
+   `removed, since: g + 1`; and emergency seals for the grants that cover the vault (§8.4).
 3. Send **one atomic rotate request**: key row, member seals, refreshed invite seals, roster,
    membership removals, generation and head bump, conditional on the vault's current
    generation and head. The server refuses it (`members_mismatch`) unless the seals plus the
@@ -736,9 +755,12 @@ that path for a vault with more than one member or a pending invite.
 
 **Claim rule** (member side). The pull page of a vault lists the key shares addressed to
 this account. For the lowest share above the held generation g, from sender S:
-1. Fetch S's `ipk` by account ID. It must equal `fpr_S` in the roster this device holds at
-   generation g, and S's pin, if any.
-2. That roster must list S with role `owner` or `manage` and a `since` of at most g.
+1. Fetch S's `ipk` by account ID. `Fingerprint::of(S, ipk_S)` must equal S's pin (the
+   verified contact pin of the owner) and `fpr_S` in the roster this device holds at
+   generation g.
+2. S must be the vault owner: the account fixed when this device accepted the vault
+   (`VaultRoster::authorizes_rotation`). No roster role or entry can authorize any other
+   sender.
 3. Open the seal (HPKE Auth with the own `isk` and `ipk_S`). The key's generation is the
    share's.
 4. Open the roster of `g + 1` with the new key and repeat for the next share. Only the final
@@ -748,7 +770,7 @@ Any failed step is the finding `ShareUntrusted`: the vault stays at g and its hi
 records stay deferred. This is what stops a removed member who colludes with the server: the
 member is `removed` in the roster at `g + 1`, so a share of theirs for `g + 2` is refused.
 The one cryptographic role check of the design is that a rotation share is accepted only from
-a roster manager.
+the vault owner, identified by the pinned fingerprint.
 
 **Membership consistency.** Each run compares the server's member list with the roster. A
 member the server lists but the roster does not (an emergency release, or an account the
