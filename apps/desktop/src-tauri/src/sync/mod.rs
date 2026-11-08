@@ -529,6 +529,8 @@ impl SyncService {
 
     // ---- pending flows ----------------------------------------------------------
 
+    /// Test hook: production flows go through the epoch-checked `set_pending_in`.
+    #[cfg(test)]
     pub(crate) fn set_pending(&self, pending: Option<PendingLogin>) {
         if let Ok(mut slot) = self.pending_login.lock() {
             *slot = pending;
@@ -564,11 +566,20 @@ impl SyncService {
     /// `epoch` (a flow that spans a lock must not leave anything behind).
     /// `false` if it was dropped.
     pub(crate) fn set_pending_in(&self, epoch: u64, pending: PendingLogin) -> bool {
-        if self.epoch() != epoch {
+        // Set under the lock, then check the epoch: a lock bumps the epoch
+        // before it drops the pending state, so either the check sees the
+        // bump (and the login is taken back here) or the drop that follows
+        // the bump finds it. A check before the store would leave a gap.
+        let Ok(mut slot) = self.pending_login.lock() else {
             return false;
+        };
+        *slot = Some(pending);
+        if self.epoch() == epoch {
+            true
+        } else {
+            *slot = None;
+            false
         }
-        self.set_pending(Some(pending));
-        true
     }
 
     /// Drops every pending login and join (and the keys and Secret Key a join
@@ -667,8 +678,8 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
                     run.install,
                     &run.device_name,
                 )
-                .map(|t| {
-                    folder_password_check(ctx, &t);
+                .map(|mut t| {
+                    folder_password_check(ctx, &mut t);
                     SyncEngine::new(t, EngineConfig::for_kind(TransportKind::Folder))
                 })
             };
@@ -692,27 +703,28 @@ fn password_differs(
         })
 }
 
-/// Whether the folder holds a master password (account file) that differs
-/// from this device's: another run of this device changed it and did not
-/// finish. Sets the flag the settings show ([`View::password_changed`]); a
-/// folder that cannot be read leaves it as it was.
+/// Reconciles the folder's account file with this device's password
+/// (CRYPTO_SPEC §10.1, "Reconnecting to a folder"): a file that holds a
+/// retired password, or an older version, is replaced by this device's own
+/// at a higher version (the folder never keeps a superseded password live);
+/// a newer file that is not retired is another device's change, and sets
+/// the flag the settings show ([`View::password_changed`]). A folder that
+/// cannot be read leaves everything as it was.
 fn folder_password_check(
     ctx: &runner::Ctx,
-    transport: &FolderTransport<SessionCrypto<BackendSession>>,
+    transport: &mut FolderTransport<SessionCrypto<BackendSession>>,
 ) {
-    let Ok(Some(file)) = transport.verified_account_file() else {
-        return;
-    };
     let Some(backend) = ctx.session().current() else {
         return;
     };
-    let params = mosaic_core::PasswordParams {
-        account_id: file.account_id,
-        salt: file.salt,
-        profile: file.profile,
+    let Ok(found) = backend.reconcile_folder_account(transport, None) else {
+        return;
     };
-    let differs = password_differs(&backend, &file.wrapped_ak, &params);
-    if backend.sync.set_password_changed(ctx.generation, differs) {
+    if let Some(version) = found.version() {
+        let _ = backend.with_unlocked(|s| Ok(s.raise_folder_account_version(version)?));
+    }
+    let changed = found == folder_flow::FolderAccount::Changed;
+    if backend.sync.set_password_changed(ctx.generation, changed) {
         backend.emit_sync_state();
     }
 }

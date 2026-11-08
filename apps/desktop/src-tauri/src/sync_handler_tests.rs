@@ -1799,3 +1799,191 @@ fn an_older_generation_reports_nothing_and_a_fresh_login_belongs_to_its_account(
             .is_none()
     );
 }
+
+// ---- the milestone review (M2, M3, I2) ----------------------------------------
+
+fn change_request() -> ChangePasswordRequest {
+    ChangePasswordRequest {
+        current_password: SecretIn::test(PASSWORD),
+        new_password: SecretIn::test(NEW_PASSWORD),
+        code: None,
+    }
+}
+
+fn unlocks_with_the_new_password_only(e: &Env) {
+    e.b().lock(LockReason::Manual).unwrap();
+    assert!(e.unlock().is_err(), "the old password no longer unlocks");
+    assert!(
+        e.b()
+            .unlock(UnlockRequest {
+                password: SecretIn::test(NEW_PASSWORD),
+                secret_key: None,
+            })
+            .is_ok()
+    );
+}
+
+/// M2: the answer to `password/finish` is lost after the server committed.
+/// The device checks at once with the new password and commits the change
+/// locally in the same call.
+#[test]
+fn a_lost_finish_answer_is_recovered_in_the_same_call() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    server.advance_ms(60_000);
+    server.faults.lose_finish_answers.store(1, Ordering::SeqCst);
+    e.b().change_master_password(&change_request()).unwrap();
+    assert_eq!(server.faults.lose_finish_answers.load(Ordering::SeqCst), 0);
+    assert!(!e.status().password_changed);
+    unlocks_with_the_new_password_only(&e);
+}
+
+/// M2: the answer is lost and the check cannot reach the server either. The
+/// outcome is unknown: the device keeps both passwords, sets
+/// `passwordChanged`, and the recovery with the new password settles it.
+#[test]
+fn an_unconfirmed_password_change_is_unknown_and_the_recovery_settles_it() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    e.create();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    server.advance_ms(60_000);
+    server.faults.lose_finish_answers.store(1, Ordering::SeqCst);
+    server
+        .faults
+        .outage_after_loss
+        .store(true, Ordering::SeqCst);
+    let result = e.b().change_master_password(&change_request());
+    assert_eq!(
+        code(result.unwrap_err()),
+        ErrorCode::SyncPasswordOutcomeUnknown
+    );
+    assert!(e.status().password_changed);
+    // The server is back; it holds the new password and this device the old.
+    server.faults.outage.store(false, Ordering::SeqCst);
+    server.advance_ms(60_000);
+    e.b()
+        .sync_recover_password(&RecoverPasswordRequest {
+            new_password: SecretIn::test(NEW_PASSWORD),
+            code: None,
+        })
+        .unwrap();
+    assert!(!e.status().password_changed);
+    unlocks_with_the_new_password_only(&e);
+}
+
+/// The verified account file of the folder, read the way the app reads it.
+fn folder_account_file(
+    e: &Env,
+    dir: &std::path::Path,
+) -> mosaic_sync::wire::account_file::AccountFile {
+    let (install, account) = e
+        .b()
+        .with_unlocked(|s| Ok((s.install_id(), s.account_id())))
+        .unwrap();
+    crate::sync::open_folder(e.b().sync.session().unwrap(), dir, account, install, DEVICE)
+        .unwrap()
+        .verified_account_file()
+        .unwrap()
+        .unwrap()
+}
+
+/// M3: the password changed while the device used another backend. The old
+/// folder still holds the retired password; reconnecting replaces it with
+/// the device's own at a higher version, so a join with the old password
+/// fails.
+#[test]
+fn reconnecting_a_folder_replaces_a_password_this_device_retired() {
+    let _kdf = kdf_permit();
+    let server = LoopbackServer::start();
+    let e = Env::new();
+    let secret_key = e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    let old_salt = folder_account_file(&e, dir.path()).salt;
+    e.b().sync_disconnect().unwrap();
+    e.connect_hosted(&server);
+    e.wait_synced();
+    server.advance_ms(60_000);
+    e.b().change_master_password(&change_request()).unwrap();
+    e.b().sync_disconnect().unwrap();
+    // The folder still offers the retired password at version 1.
+    assert_eq!(folder_account_file(&e, dir.path()).salt, old_salt);
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    let file = folder_account_file(&e, dir.path());
+    assert_eq!(file.account_version, 2);
+    assert_ne!(file.salt, old_salt);
+    assert!(!e.status().password_changed);
+    // A new device cannot join with the old password any more.
+    let b = Env::new();
+    let choice = b.pick(dir.path());
+    let join = |password: &str| {
+        b.b().join_folder(JoinFolderRequest {
+            choice_id: choice.choice_id.clone(),
+            account_id: choice.accounts[0],
+            password: SecretIn::test(password),
+            secret_key: SecretIn::test(&secret_key),
+            device_name: "Laptop".into(),
+        })
+    };
+    assert_eq!(
+        code(join(PASSWORD).unwrap_err()),
+        ErrorCode::WrongCredentials
+    );
+    assert_eq!(join(NEW_PASSWORD).unwrap(), JoinOutcome::Unlocked);
+}
+
+/// M3: another device of the folder changed the password. This device sees
+/// it when its folder thread starts and offers the recovery.
+#[test]
+fn a_password_change_by_another_folder_device_is_noticed_at_thread_start() {
+    let _kdf = kdf_permit();
+    let a = Env::new();
+    let secret_key = a.create();
+    let dir = tempfile::tempdir().unwrap();
+    a.connect_folder(dir.path());
+    a.wait_synced();
+    let b = Env::new();
+    let choice = b.pick(dir.path());
+    b.b()
+        .join_folder(JoinFolderRequest {
+            choice_id: choice.choice_id,
+            account_id: choice.accounts[0],
+            password: SecretIn::test(PASSWORD),
+            secret_key: SecretIn::test(&secret_key),
+            device_name: "Laptop".into(),
+        })
+        .unwrap();
+    b.wait_synced();
+    assert!(!b.status().password_changed);
+    a.b().change_master_password(&change_request()).unwrap();
+    // The folder thread of device b starts again with its next unlock.
+    b.b().lock(LockReason::Manual).unwrap();
+    b.unlock().unwrap();
+    wait_for("the changed-password flag on the second device", || {
+        b.status().password_changed
+    });
+}
+
+/// I2: a pending login is stored under the lock and the lock epoch checked
+/// after it; one stored for an epoch that has passed is not kept.
+#[test]
+fn a_pending_login_is_not_kept_for_an_epoch_that_has_passed() {
+    let e = Env::new();
+    let pending =
+        || crate::sync::PendingLogin::for_tests(e.b().sync.now() + Duration::from_mins(5));
+    let epoch = e.b().sync.epoch();
+    assert!(e.b().sync.set_pending_in(epoch, pending()));
+    assert!(e.b().sync.take_pending().is_some());
+    e.b().sync.reset();
+    assert!(!e.b().sync.set_pending_in(epoch, pending()));
+    assert!(e.b().sync.take_pending().is_none());
+}

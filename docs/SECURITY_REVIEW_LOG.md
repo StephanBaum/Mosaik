@@ -80,8 +80,8 @@ tables).
 | M3 | 3 | 24 | 36 | not recorded | 8 (insights track) |
 | M4 | not recorded | not recorded | not recorded | not recorded | 7 (extension-attacker breaks) |
 | M5 | not recorded | not recorded | not recorded | not recorded | not recorded |
-| M6 (T1 to T5; milestone passes pending) | 3 | 24 | 38 | 32 | 36 |
-| **Overall (M0 to M6)** | **19** | **108** | **165** | **34** | **51 recorded** |
+| M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
+| **Overall (M0 to M6)** | **19** | **111** | **169** | **38** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -187,6 +187,7 @@ the repository.
 | 2026-11-07 | T5 desktop: crypto/IPC review (agent not recorded) | not recorded | 0 / 3 / 3 / 3 listed (C-I1, C-I3, C-I4) | none | Fixed, `f682a34`; R69 accepted |
 | 2026-11-07 | T5: UX review (agent not recorded) | not recorded | not recorded | 16 (U1 to U16) | All accepted and fixed, `f682a34` |
 | 2026-11-07 | T5 verify pass over the fixes (agent and counts not recorded) | not recorded | not recorded | not recorded | Fixes applied, `655a423` |
+| 2026-11-07 | M6 milestone review: crypto-reviewer over the whole milestone | opus | 0 / 3 / 4 / 4 | none | M1 to M3, L1 to L3 and I1 to I3 fixed with a regression test each, in the M6 close fix commit (see below); L4 fixed with the trade-off recorded in R62; I4 accepted as R70 (target M6b) |
 
 Total for T1 to T5: High 3, Medium 24, Low 38, Info 32 (counted by ID in the
 decision files), plus 36 ungraded (10 + 10 sync-chaos, 16 UX), plus the T5
@@ -200,9 +201,20 @@ Known limits left after the fixes: no settings screen for `change_master_passwor
 different-server confirmation, the folder join account option shows the first
 eight characters of the account ID (`docs/PROGRESS.md`, "Known items").
 
-**Pending at the time of writing:** the M6 milestone crypto-reviewer pass over
-the whole milestone and the final sync-chaos long run over both transports.
-Their rows and totals are added to this section when the M6 close lands.
+**M6 milestone review (opus), 0 High, 3 Medium, 4 Low, 4 Info.** Medium: M1 a
+rebuild that never ends switched the digest check off for every vault (now per
+peer and vault, bounded by the 48-hour grace), M2 a password change with an
+unknown outcome (checked at once, `syncPasswordOutcomeUnknown`), M3 reconnecting
+to a folder kept a superseded password live (reconciled at connect and thread
+start). Low: L1 the folder account version was global (reset on a change of
+backend), L2 label registry (typed constants for every label, byte values
+unchanged), L3 documentation drift (§12, SERVER.md, §11), L4 a forged checkpoint
+counter made the halt loop (the published counter does not advance on
+`checkpoint_stale`; trade-off in R62). Info: I1 M6b forward constraint extended
+(§10.2), I2 pending-login epoch race, I3 `SecretText` equality comment, I4 view
+digest leaves out vault metadata (accepted, R70, target M6b). Every fixed item
+has one regression test. **Pending:** the final sync-chaos long run over both
+transports.
 
 ## Appending a milestone
 

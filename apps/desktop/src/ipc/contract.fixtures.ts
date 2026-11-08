@@ -251,6 +251,7 @@ export const fixtures = {
       "syncFreshLoginExpired",
       "syncPasswordChanged",
       "syncPasswordRollback",
+      "syncPasswordOutcomeUnknown",
       "busy",
       "internal"
     ],
@@ -786,6 +787,9 @@ export const fixtures = {
     },
     {
       "code": "syncPasswordRollback"
+    },
+    {
+      "code": "syncPasswordOutcomeUnknown"
     },
     {
       "code": "busy"

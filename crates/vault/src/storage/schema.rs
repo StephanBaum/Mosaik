@@ -510,6 +510,29 @@ CREATE TABLE folder_account_version (
 ) STRICT;
 ";
 
+/// Version 7 (M6 milestone review M1, CRYPTO_SPEC 10): the skip of stale view
+/// digests is kept per (peer, vault) instead of per peer (it replaces the
+/// per-peer `sync_peer_checkpoint.digest_ignored`, which stays only for a
+/// store that wrote it before; nothing writes it any more), and a rebuild
+/// remembers whether a record is still deferred and since when, so it can be
+/// bounded. Additive: one table and two columns.
+const V7: &str = r"
+CREATE TABLE sync_digest_skip (
+    device_id  BLOB NOT NULL CHECK (length(device_id) = 16),
+    vault_id   BLOB NOT NULL CHECK (length(vault_id) = 16),
+    PRIMARY KEY (device_id, vault_id)
+) STRICT, WITHOUT ROWID;
+
+ALTER TABLE sync_rebuild ADD COLUMN deferred INTEGER NOT NULL DEFAULT 0 CHECK (deferred IN (0, 1));
+ALTER TABLE sync_rebuild ADD COLUMN deferred_since_ms INTEGER CHECK (deferred_since_ms IS NULL OR deferred_since_ms >= 0);
+
+-- A rebuild that was open under v6 keeps its skips (per peer, for the vaults
+-- being rebuilt).
+INSERT OR IGNORE INTO sync_digest_skip (device_id, vault_id)
+SELECT p.device_id, r.vault_id FROM sync_peer_checkpoint p, sync_rebuild r
+WHERE p.digest_ignored = 1;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -536,10 +559,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 6,
         sql: V6,
     },
+    Migration {
+        version: 7,
+        sql: V7,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 6;
+pub const LATEST_VERSION: u32 = 7;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -677,10 +704,14 @@ mod tests {
             },
             Migration {
                 version: 7,
+                sql: V7,
+            },
+            Migration {
+                version: 8,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 7);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 8);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -694,11 +725,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 7,
-                supported: 6
+                found: 8,
+                supported: 7
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 7);
+        assert_eq!(user_version(&c).unwrap(), 8);
     }
 
     #[test]
@@ -732,11 +763,15 @@ mod tests {
             },
             Migration {
                 version: 7,
+                sql: V7,
+            },
+            Migration {
+                version: 8,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 6);
+        assert_eq!(user_version(&c).unwrap(), 7);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1054,7 +1089,7 @@ mod tests {
              VALUES (zeroblob(16), 3, 1, zeroblob(28));",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 6);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         let counter: i64 = c
             .query_row("SELECT counter FROM sync_checkpoint", [], |r| r.get(0))
             .unwrap();
@@ -1116,7 +1151,7 @@ mod tests {
             )
             .unwrap();
             c.execute_batch(kind_sql).unwrap();
-            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 6);
+            assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
             c
         };
         let hosted = setup(

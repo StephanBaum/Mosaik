@@ -311,6 +311,12 @@ pub enum TransportError {
     /// reports it as `SyncError::Locked`.
     #[error("session locked")]
     Locked,
+    /// A master password change was sent, its answer was lost (timeout,
+    /// unreachable, 5xx) and the check with the new password could not
+    /// confirm it either: the server may or may not hold the new password
+    /// (CRYPTO_SPEC §9.4, "Lost answer").
+    #[error("password change outcome unknown")]
+    OutcomeUnknown,
 }
 
 /// What a transport may ask the engine for while it maintains its storage
@@ -498,7 +504,9 @@ pub trait Transport: Send {
     /// never decodes them.
     ///
     /// # Errors
-    /// [`TransportError`].
+    /// [`TransportError`]; hosted: `Rejected(Rejection::CheckpointStale)`
+    /// when the server already holds a checkpoint with this counter or a
+    /// higher one (the engine does not count it as published).
     fn put_checkpoint(&mut self, bytes: &[u8]) -> Result<(), TransportError>;
 
     /// Every device's latest checkpoint as raw bytes, each with the

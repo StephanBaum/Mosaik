@@ -490,6 +490,34 @@ impl UnlockedSession {
         Ok(self.store.finish_rebuild(&vault)?)
     }
 
+    /// Notes that a record of `vault` is still deferred after the vault was
+    /// read again (a no-op unless the vault is being rebuilt).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn mark_rebuild_deferred(&mut self, vault: VaultId) -> Result<()> {
+        Ok(self.store.mark_rebuild_deferred(&vault)?)
+    }
+
+    /// Ends the rebuilds whose deferred record has outlived `grace_ms` and
+    /// returns their vaults (the caller records a finding for each).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn expire_rebuild_deferrals(&mut self, now: u64, grace_ms: u64) -> Result<Vec<VaultId>> {
+        Ok(self.store.expire_rebuild_deferrals(now, grace_ms)?)
+    }
+
+    /// The (peer, vault) pairs whose stored view digests are not compared
+    /// (an acknowledgement of the vault, or a rebuild that was open when the
+    /// peer's checkpoint arrived).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn digest_skips(&self) -> Result<Vec<(InstallId, VaultId)>> {
+        Ok(self.store.digest_skips()?)
+    }
+
     /// Where the comparisons of view digests with `device` for `vault`
     /// stand: since when they keep failing to happen (`None`: the last one
     /// succeeded) and the peer's checkpoint counter then.
@@ -1427,6 +1455,16 @@ impl UnlockedSession {
     /// [`Error::Store`].
     pub fn folder_account_version(&self) -> Result<u64> {
         Ok(self.store.folder_account_version()?)
+    }
+
+    /// Whether `salt` was retired by a master password change that this
+    /// device committed or adopted (a backend that offers it offers an older
+    /// password).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn salt_retired(&self, salt: &mosaic_core::AccountSalt) -> Result<bool> {
+        Ok(self.store.salt_retired(salt)?)
     }
 
     /// Records a folder account-file version this device wrote or adopted

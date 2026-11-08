@@ -1,4 +1,4 @@
-//! The persisted state of the sync engine (schema v4 and v5, CRYPTO_SPEC
+//! The persisted state of the sync engine (schema v4 to v7, CRYPTO_SPEC
 //! §11, ADR-0045 amendments): this install's own sequence numbers per vault,
 //! the halt and the checkpoint strikes, the latest checkpoint of every other
 //! device, the lag timers, the vault keys seen per generation, when a blob
@@ -142,13 +142,6 @@ pub struct PeerCheckpoint {
     pub issued_at_ms: u64,
     /// The entries, in the order they were published.
     pub entries: Vec<PeerEntry>,
-    /// The user acknowledged a finding against the server after this
-    /// checkpoint was stored ([`Store::clear_vault_findings`]), or while a
-    /// vault was still being read again after it: its view digests are not
-    /// compared (they describe the server's earlier behaviour, and the peer
-    /// may not have acknowledged yet). Ignored by
-    /// [`Store::put_peer_checkpoint`], which sets it from the rebuild marks.
-    pub digests_acknowledged: bool,
 }
 
 /// A blob delete marker as the folder shows it.
@@ -331,7 +324,8 @@ impl Store {
     /// [`Store::rebuild_vaults`]), the key candidates of the current
     /// generation are forgotten (a cleared key finding does not come back by
     /// itself) and the comparison times restart. The digests that peers
-    /// published so far are not compared any more.
+    /// published so far are not compared any more **for these vaults**
+    /// ([`Store::digest_skips`]); every other vault keeps comparing.
     ///
     /// # Errors
     /// [`Error::Database`].
@@ -348,13 +342,15 @@ impl Store {
                 "DELETE FROM sync_key_candidate
                  WHERE vault_id = ?1 AND generation = COALESCE(
                      (SELECT current_generation FROM vaults WHERE vault_id = ?1), 1)",
-                "INSERT OR IGNORE INTO sync_rebuild (vault_id)
-                 SELECT vault_id FROM vaults WHERE vault_id = ?1",
+                "INSERT OR IGNORE INTO sync_digest_skip (device_id, vault_id)
+                 SELECT device_id, ?1 FROM sync_peer_checkpoint",
+                "INSERT INTO sync_rebuild (vault_id)
+                 SELECT vault_id FROM vaults WHERE vault_id = ?1 AND true
+                 ON CONFLICT (vault_id) DO UPDATE SET deferred = 0, deferred_since_ms = NULL",
             ] {
                 tx.execute(sql, [v])?;
             }
         }
-        tx.execute("UPDATE sync_peer_checkpoint SET digest_ignored = 1", [])?;
         tx.commit()?;
         Ok(())
     }
@@ -382,6 +378,79 @@ impl Store {
             [vault_id.as_bytes()],
         )?;
         Ok(())
+    }
+
+    /// Notes that a record of `vault` is still deferred after the vault was
+    /// read again (no effect if the vault is not being rebuilt).
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn mark_rebuild_deferred(&mut self, vault_id: &VaultId) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sync_rebuild SET deferred = 1 WHERE vault_id = ?1",
+            [vault_id.as_bytes()],
+        )?;
+        Ok(())
+    }
+
+    /// Bounds the rebuilds that keep a deferred record: the first time a
+    /// rebuild is seen deferred starts its clock (a clock set back restarts
+    /// it); one that has been deferred for more than `grace_ms` ends here
+    /// and is returned, so the caller records a finding for the vault. A
+    /// rebuild that is not deferred is left alone.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::SeqOutOfRange`], [`Error::Database`].
+    pub fn expire_rebuild_deferrals(&mut self, now: u64, grace_ms: u64) -> Result<Vec<VaultId>> {
+        let tx = self.write()?;
+        let rows: Vec<(Vec<u8>, Option<i64>)> = {
+            let mut stmt = tx.prepare(
+                "SELECT vault_id, deferred_since_ms FROM sync_rebuild
+                 WHERE deferred = 1 ORDER BY vault_id",
+            )?;
+            let it = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            it.collect::<rusqlite::Result<_>>()?
+        };
+        let mut expired = Vec::new();
+        for (vault, since) in rows {
+            let since = since.map(seq_from_sql).transpose()?.filter(|s| *s <= now);
+            match since {
+                Some(since) if now - since > grace_ms => {
+                    tx.execute("DELETE FROM sync_rebuild WHERE vault_id = ?1", [&vault])?;
+                    expired.push(vault_id_from_sql(&vault)?);
+                }
+                Some(_) => {}
+                None => {
+                    tx.execute(
+                        "UPDATE sync_rebuild SET deferred_since_ms = ?2 WHERE vault_id = ?1",
+                        params![vault, ms_to_sql(now)?],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(expired)
+    }
+
+    /// The (peer, vault) pairs whose stored digests are not compared: the
+    /// peer's checkpoint was stored before an acknowledgement of the vault,
+    /// or while the vault was being rebuilt. A newer checkpoint of the peer
+    /// that is stored while the vault is not being rebuilt ends the skip.
+    ///
+    /// # Errors
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn digest_skips(&self) -> Result<Vec<(InstallId, VaultId)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT device_id, vault_id FROM sync_digest_skip ORDER BY device_id, vault_id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        rows.map(|row| {
+            let (device, vault) = row?;
+            Ok((install_from_sql(&device)?, vault_id_from_sql(&vault)?))
+        })
+        .collect()
     }
 
     /// Where the comparisons of view digests with `device` for `vault`
@@ -522,7 +591,7 @@ impl Store {
     /// [`Error::Corrupt`], [`Error::Database`].
     pub fn peer_checkpoints(&self) -> Result<Vec<PeerCheckpoint>> {
         let mut stmt = self.conn.prepare(
-            "SELECT device_id, counter, issued_at_ms, entries, digest_ignored
+            "SELECT device_id, counter, issued_at_ms, entries
              FROM sync_peer_checkpoint ORDER BY device_id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -531,17 +600,15 @@ impl Store {
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
                 r.get::<_, Vec<u8>>(3)?,
-                r.get::<_, bool>(4)?,
             ))
         })?;
         rows.map(|row| {
-            let (device, counter, issued, entries, ignored) = row?;
+            let (device, counter, issued, entries) = row?;
             Ok(PeerCheckpoint {
                 device_id: install_from_sql(&device)?,
                 counter: seq_from_sql(counter)?,
                 issued_at_ms: seq_from_sql(issued)?,
                 entries: decode_entries(&entries)?,
-                digests_acknowledged: ignored,
             })
         })
         .collect()
@@ -556,15 +623,15 @@ impl Store {
     /// [`Error::SeqOutOfRange`], [`Error::Database`].
     pub fn put_peer_checkpoint(&mut self, checkpoint: &PeerCheckpoint) -> Result<bool> {
         let entries = encode_entries(&checkpoint.entries)?;
-        let changed = self.conn.execute(
+        let tx = self.write()?;
+        let changed = tx.execute(
             "INSERT INTO sync_peer_checkpoint
-                 (device_id, counter, issued_at_ms, entries, digest_ignored)
-             VALUES (?1, ?2, ?3, ?4, EXISTS (SELECT 1 FROM sync_rebuild))
+                 (device_id, counter, issued_at_ms, entries)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (device_id) DO UPDATE SET
                  counter = excluded.counter,
                  issued_at_ms = excluded.issued_at_ms,
-                 entries = excluded.entries,
-                 digest_ignored = excluded.digest_ignored
+                 entries = excluded.entries
              WHERE excluded.counter > sync_peer_checkpoint.counter",
             params![
                 checkpoint.device_id.as_bytes(),
@@ -573,6 +640,22 @@ impl Store {
                 entries
             ],
         )?;
+        if changed > 0 {
+            // The new checkpoint is compared again, except for the vaults
+            // that are being rebuilt right now (per peer and vault, so an
+            // open rebuild of one vault never switches off the others).
+            let device = checkpoint.device_id.as_bytes();
+            tx.execute(
+                "DELETE FROM sync_digest_skip WHERE device_id = ?1",
+                [device],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO sync_digest_skip (device_id, vault_id)
+                 SELECT ?1, vault_id FROM sync_rebuild",
+                [device],
+            )?;
+        }
+        tx.commit()?;
         Ok(changed > 0)
     }
 
@@ -1009,6 +1092,10 @@ impl Store {
             "DELETE FROM sync_view_compare",
             "DELETE FROM sync_no_common_view",
             "DELETE FROM sync_rebuild",
+            "DELETE FROM sync_digest_skip",
+            // The folder account version belongs to one folder; the retired
+            // salts stay (they still catch a rollback to an old password).
+            "DELETE FROM folder_account_version",
             "UPDATE sync_engine_state SET strike_count = 0, strike_first_ms = NULL,
                  strike_counter = NULL, last_published_counter = 0
              WHERE id = 1",
@@ -1120,7 +1207,6 @@ mod tests {
                 high_seq: high,
                 ..entry
             }],
-            digests_acknowledged: false,
         };
         assert!(s.put_peer_checkpoint(&cp(5, 12)).unwrap());
         assert!(!s.put_peer_checkpoint(&cp(4, 99)).unwrap());
@@ -1249,7 +1335,6 @@ mod tests {
             counter: 1,
             issued_at_ms: 1,
             entries: vec![],
-            digests_acknowledged: false,
         };
         assert!(s.put_peer_checkpoint(&cp).unwrap());
         s.clear_vault_findings(&[v]).unwrap();
@@ -1266,12 +1351,57 @@ mod tests {
         assert_eq!(s.served_rows(&v).unwrap(), vec![]);
         assert_eq!(s.served_rows(&vault(2)).unwrap().len(), 1);
         // The checkpoint that arrived before the acknowledgement is not
-        // compared any more; a newer one is.
-        assert!(s.peer_checkpoints().unwrap()[0].digests_acknowledged);
+        // compared any more for the acknowledged vault (and only for it); a
+        // newer one is compared again.
+        assert_eq!(s.digest_skips().unwrap(), vec![(id(9), v)]);
         assert!(
             s.put_peer_checkpoint(&PeerCheckpoint { counter: 2, ..cp })
                 .unwrap()
         );
-        assert!(!s.peer_checkpoints().unwrap()[0].digests_acknowledged);
+        assert_eq!(s.digest_skips().unwrap(), vec![]);
+    }
+
+    /// M1: an open rebuild skips the digests of its own vault only, and a
+    /// rebuild that keeps a deferred record ends after the grace.
+    #[test]
+    fn a_rebuild_skips_only_its_vault_and_is_bounded() {
+        let mut s = store();
+        let (v1, v2) = (vault(1), vault(2));
+        for v in [&v1, &v2] {
+            s.conn
+                .execute(
+                    "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                         highest_accepted_generation, updated_at)
+                     VALUES (?1, 1, 1, 1, 0)",
+                    [v.as_bytes()],
+                )
+                .unwrap();
+        }
+        let cp = PeerCheckpoint {
+            device_id: id(9),
+            counter: 1,
+            issued_at_ms: 1,
+            entries: vec![],
+        };
+        assert!(s.put_peer_checkpoint(&cp).unwrap());
+        s.clear_vault_findings(&[v1]).unwrap();
+        assert_eq!(s.rebuild_vaults().unwrap(), vec![v1]);
+        // A checkpoint stored while v1 is rebuilt skips v1, not v2.
+        assert!(
+            s.put_peer_checkpoint(&PeerCheckpoint { counter: 2, ..cp })
+                .unwrap()
+        );
+        assert_eq!(s.digest_skips().unwrap(), vec![(id(9), v1)]);
+        // Not deferred: nothing expires, however long it takes.
+        assert_eq!(s.expire_rebuild_deferrals(10, 100).unwrap(), vec![]);
+        s.mark_rebuild_deferred(&v1).unwrap();
+        // The first sight starts the clock; inside the grace nothing ends.
+        assert_eq!(s.expire_rebuild_deferrals(1_000, 100).unwrap(), vec![]);
+        assert_eq!(s.expire_rebuild_deferrals(1_100, 100).unwrap(), vec![]);
+        assert_eq!(s.rebuild_vaults().unwrap(), vec![v1]);
+        // A clock set back restarts the count.
+        assert_eq!(s.expire_rebuild_deferrals(500, 100).unwrap(), vec![]);
+        assert_eq!(s.expire_rebuild_deferrals(601, 100).unwrap(), vec![v1]);
+        assert_eq!(s.rebuild_vaults().unwrap(), vec![]);
     }
 }

@@ -35,7 +35,10 @@ impl CipherSuite for Suite {
 }
 
 /// The `context` of login and registration finish (CRYPTO_SPEC §9.1).
-pub const LOGIN_CONTEXT: &[u8] = b"mosaic/v1/opaque-login";
+///
+/// `ctx(label::OPAQUE_LOGIN)`, built from the registry of `mosaic-core`.
+pub static LOGIN_CONTEXT: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| mosaic_core::encoding::label::OPAQUE_LOGIN.ctx());
 
 /// The identifiers of a login or registration: the client is the account ID
 /// (16 raw bytes) and the server is its canonical origin
@@ -123,7 +126,7 @@ mod tests {
                 c.message,
                 &account,
                 ServerLoginParameters {
-                    context: Some(LOGIN_CONTEXT),
+                    context: Some(LOGIN_CONTEXT.as_slice()),
                     identifiers: identifiers(&account, server_origin),
                 },
             )
@@ -133,7 +136,7 @@ mod tests {
                 &opw,
                 s.message,
                 ClientLoginFinishParameters::new(
-                    Some(LOGIN_CONTEXT),
+                    Some(LOGIN_CONTEXT.as_slice()),
                     identifiers(&account, origin),
                     None,
                 ),
@@ -146,7 +149,7 @@ mod tests {
             .finish(
                 ok.message,
                 ServerLoginParameters {
-                    context: Some(LOGIN_CONTEXT),
+                    context: Some(LOGIN_CONTEXT.as_slice()),
                     identifiers: identifiers(&account, origin),
                 },
             )

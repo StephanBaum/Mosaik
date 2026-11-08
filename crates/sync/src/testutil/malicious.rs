@@ -18,6 +18,9 @@ use crate::transport::{
 /// A function that rewrites a pulled page.
 pub type PageTamper = Box<dyn FnMut(&mut PullPage) + Send>;
 
+/// A function that rewrites a pulled page of a given vault.
+pub type VaultPageTamper = Box<dyn FnMut(VaultId, &mut PullPage) + Send>;
+
 /// See the [module documentation](self).
 pub struct MaliciousTransport<T: Transport> {
     inner: T,
@@ -30,6 +33,8 @@ pub struct MaliciousTransport<T: Transport> {
     pub withhold_pulls: bool,
     /// Rewrites every pulled page.
     pub tamper_pull: Option<PageTamper>,
+    /// Like `tamper_pull`, and told which vault the page is of.
+    pub tamper_pull_of: Option<VaultPageTamper>,
 }
 
 impl<T: Transport> MaliciousTransport<T> {
@@ -41,6 +46,7 @@ impl<T: Transport> MaliciousTransport<T> {
             replace_checkpoints: Vec::new(),
             withhold_pulls: false,
             tamper_pull: None,
+            tamper_pull_of: None,
         }
     }
 
@@ -90,6 +96,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
         let mut page = self.inner.pull(vault, cursor, limit)?;
         if let Some(tamper) = &mut self.tamper_pull {
             tamper(&mut page);
+        }
+        if let Some(tamper) = &mut self.tamper_pull_of {
+            tamper(vault, &mut page);
         }
         Ok(page)
     }

@@ -494,6 +494,10 @@ impl<T: Transport> SyncEngine<T> {
         }
         if vp.deferred_records.is_empty() && vp.deferred_metas.is_empty() {
             access.with(|s| requeue_unserved(s, vault))??;
+        } else {
+            // A rebuild with a record that stays deferred is bounded
+            // (`check_views`, CRYPTO_SPEC §10).
+            access.with(|s| s.mark_rebuild_deferred(vault))??;
         }
         Ok(())
     }

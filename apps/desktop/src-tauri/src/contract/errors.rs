@@ -227,6 +227,8 @@ wire_enum!(
         SyncPasswordChanged,
         /// The backend offered an older master password than this device had.
         SyncPasswordRollback,
+        /// The master password change was sent but its outcome could not be confirmed.
+        SyncPasswordOutcomeUnknown,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.

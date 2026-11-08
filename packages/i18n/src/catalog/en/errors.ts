@@ -166,6 +166,8 @@ export const errors = {
     "This folder holds no sync data for this account. Choose the folder your other device syncs to.",
   "error.syncFolderDamaged":
     "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
+  "error.syncPasswordOutcomeUnknown":
+    "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
   "error.syncPasswordNeedsServer":
     "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
   "error.syncDeviceIsCurrent":

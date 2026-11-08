@@ -265,16 +265,25 @@ impl Backend {
         };
         self.sync.check_epoch(epoch)?;
         if grant.status == LoginStatus::TwoFactorRequired {
-            self.sync.set_pending(Some(PendingLogin {
-                url,
-                email,
-                device_name: device,
-                account: Some(account),
-                token: grant.token,
-                kind: PendingKind::Connect,
-                expires: self.sync.now() + PENDING_TTL,
+            // Stored and the epoch checked again under the same lock: a lock
+            // between the check above and the store drops the login.
+            let kept = self.sync.set_pending_in(
+                epoch,
+                PendingLogin {
+                    url,
+                    email,
+                    device_name: device,
+                    account: Some(account),
+                    token: grant.token,
+                    kind: PendingKind::Connect,
+                    expires: self.sync.now() + PENDING_TTL,
+                },
+            );
+            return Err(IpcError::new(if kept {
+                ErrorCode::SyncTwoFactorRequired
+            } else {
+                ErrorCode::Locked
             }));
-            return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
         }
         self.finish_connect(epoch, account, &url, &email, &device, &grant.token)
     }
@@ -893,7 +902,11 @@ impl Backend {
     /// login with the old password, the second factor if the account has
     /// one, the new registration and the re-wrapped account key), the device
     /// afterwards. An unreachable server refuses the change
-    /// (`syncPasswordNeedsServer`): nothing changed anywhere.
+    /// (`syncPasswordNeedsServer`) as long as the change was not sent: nothing
+    /// changed anywhere. Once it was sent, a lost answer is checked with the
+    /// new password at once; if that fails too the error is
+    /// `syncPasswordOutcomeUnknown` and `passwordChanged` is set
+    /// (`sync_recover_password` settles it).
     ///
     /// The local commit runs at once after the server accepted. The token the
     /// change brought is kept after it and is not fatal: if the keystore
@@ -951,6 +964,16 @@ impl Backend {
             }
             Err(TransportError::Unreachable | TransportError::Timeout) => {
                 Err(IpcError::new(ErrorCode::SyncPasswordNeedsServer))
+            }
+            Err(TransportError::OutcomeUnknown) => {
+                // The server may hold the new password and this device the
+                // old one: both stay, the settings offer the recovery.
+                self.sync.update_view(|view| {
+                    view.password_changed = true;
+                    true
+                });
+                self.emit_sync_state();
+                Err(IpcError::new(ErrorCode::SyncPasswordOutcomeUnknown))
             }
             Err(error) => Err(error.into()),
         };

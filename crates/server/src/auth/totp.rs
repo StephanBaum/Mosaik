@@ -13,14 +13,14 @@
 use crate::auth::subkey;
 use chacha20poly1305::aead::{AeadInOut, KeyInit};
 use chacha20poly1305::{Tag, XChaCha20Poly1305, XNonce};
-use mosaic_core::encoding::ctx;
+use mosaic_core::encoding::{Label, label};
 use mosaic_totp::{Algorithm, Digits, Otp, OtpAuth, OtpKind, OtpSecret, Period, SecretText};
 use zeroize::Zeroizing;
 
 /// The AAD label of a sealed secret.
-const LABEL: &str = "server/totp-at-rest";
+const LABEL: Label = label::SERVER_TOTP_AT_REST;
 /// The HKDF label of `K_totp`.
-const KEY_LABEL: &str = "server/totp-key";
+const KEY_LABEL: Label = label::SERVER_TOTP_KEY;
 /// Length of the TOTP secret in bytes.
 pub const SECRET_LEN: usize = 20;
 const NONCE_LEN: usize = 24;
@@ -33,7 +33,7 @@ const HEADER: [u8; 2] = [1, 1];
 
 fn aad(account_id: &[u8; 16]) -> Vec<u8> {
     let mut aad = HEADER.to_vec();
-    aad.extend_from_slice(&ctx(LABEL));
+    aad.extend_from_slice(&LABEL.ctx());
     aad.push(0);
     aad.extend_from_slice(account_id);
     aad

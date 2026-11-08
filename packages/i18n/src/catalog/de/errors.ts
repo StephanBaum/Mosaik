@@ -184,6 +184,8 @@ export const errors = {
     "In diesem Ordner liegen keine Sync-Daten für dieses Konto. Wähle den Ordner, mit dem dein anderes Gerät synchronisiert.",
   "error.syncFolderDamaged":
     "Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal.",
+  "error.syncPasswordOutcomeUnknown":
+    "Wir konnten nicht bestätigen, ob der Server dein Master-Passwort geändert hat. Behalte beide Passwörter, bis der Sync bestätigt, welches gilt.",
   "error.syncPasswordNeedsServer":
     "Zum Ändern deines Master-Passworts wird dein Sync-Server gebraucht, und er ist nicht erreichbar. Prüfe deine Internetverbindung und versuche es noch einmal.",
   "error.syncDeviceIsCurrent":

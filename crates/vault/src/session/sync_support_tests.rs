@@ -774,7 +774,6 @@ fn engine_state_persists_and_resets_with_the_backend() {
             high_seq: 4,
             view_digest: [0; 32],
         }],
-        digests_acknowledged: false,
     };
     assert!(s.put_peer_checkpoint(&cp).unwrap());
     s.marker_first_seen(
@@ -971,6 +970,22 @@ fn the_folder_account_version_never_goes_down() {
     s.raise_folder_account_version(3).unwrap();
     s.raise_folder_account_version(2).unwrap();
     assert_eq!(s.folder_account_version().unwrap(), 3);
+}
+
+/// L1: the folder account version belongs to one folder: a change of backend
+/// clears it, and the retired salts stay (they still catch a rollback).
+#[test]
+fn a_change_of_backend_clears_the_folder_account_version_and_keeps_retired_salts() {
+    let (mut s, sk) = account();
+    let old_salt = s.account_bootstrap().unwrap().params.salt;
+    let new = MasterPassword::new("a brand new password".to_owned());
+    let change = s.prepare_master_password_change(&pw(), &new, &sk).unwrap();
+    s.commit_master_password_change(change).unwrap();
+    s.raise_folder_account_version(5).unwrap();
+    assert!(s.salt_retired(&old_salt).unwrap());
+    s.reset_sync_state().unwrap();
+    assert_eq!(s.folder_account_version().unwrap(), 0);
+    assert!(s.salt_retired(&old_salt).unwrap());
 }
 
 /// C-M1: a change the backend holds and this device missed is adopted only

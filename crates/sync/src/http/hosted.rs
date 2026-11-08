@@ -293,7 +293,7 @@ fn login_with(
             opaque_password.expose_secret(),
             response,
             ClientLoginFinishParameters::new(
-                Some(LOGIN_CONTEXT),
+                Some(LOGIN_CONTEXT.as_slice()),
                 identifiers(account_id.as_bytes(), origin.as_bytes()),
                 None,
             ),
@@ -665,11 +665,12 @@ pub fn recover_password(
 /// Commit the change locally only after this returned
 /// ([`mosaic_vault::session::UnlockedSession::commit_master_password_change`]).
 ///
-/// A lost answer to the upload is recovered on the retry: if the old `OPW`
-/// no longer logs in but the new one does, and the account's wrapped `AK` on
-/// the server is byte-equal to the prepared one, the change went through and
-/// this returns as if it had just succeeded. Anything else is the original
-/// error.
+/// A lost answer to the upload is recovered at once, and again on a retry:
+/// if the new `OPW` logs in and the account's wrapped `AK` on the server is
+/// byte-equal to the prepared one, the change went through and this returns
+/// as if it had just succeeded. If the check fails too, the result is
+/// [`TransportError::OutcomeUnknown`]; a failure before the upload was sent
+/// is the original error (nothing changed).
 ///
 /// # Errors
 /// [`Rejection::LoginFailed`] for a wrong current password;
@@ -750,11 +751,44 @@ pub fn password_change(
         )
         .map_err(|_| TransportError::Protocol)?;
     wipe_registration(&mut finished);
+    let sent = send_finish(&http, &bearer, prepared, &finished);
+    match sent {
+        Ok(done) => Ok(PasswordChanged {
+            account_version: done.account_version,
+            grant,
+        }),
+        // The request left, so the server may have committed: a timeout, an
+        // unreachable server or a 5xx is not "nothing changed". Check at
+        // once with the new password (byte-equal wrapped AK, §9.4); if that
+        // fails too, the outcome is unknown.
+        Err(TransportError::Timeout | TransportError::Unreachable | TransportError::Io) => {
+            recover_applied_change(
+                &http,
+                &origin,
+                address,
+                prepared,
+                device,
+                device_name,
+                totp_code,
+            )
+            .map_err(|_| TransportError::OutcomeUnknown)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// `POST /v1/account/password/finish` with the new registration upload.
+fn send_finish(
+    http: &Http,
+    bearer: &Bearer,
+    prepared: &PreparedPasswordChange,
+    finished: &ClientRegistrationFinishResult<Suite>,
+) -> Result<PasswordFinishResponse, TransportError> {
     let new_params = prepared.new_params();
-    let (_, done): (u16, PasswordFinishResponse) = http.call(
+    http.call::<_, PasswordFinishResponse>(
         Method::POST,
         "/v1/account/password/finish",
-        Some(&bearer),
+        Some(bearer),
         Some(&PasswordFinishRequest {
             registration_upload: B64(finished.message.serialize().to_vec()),
             wrapped_ak: prepared.new_wrapped_ak().clone(),
@@ -762,11 +796,8 @@ pub fn password_change(
             profile: new_params.profile,
         }),
         &OK_STATUS,
-    )?;
-    Ok(PasswordChanged {
-        account_version: done.account_version,
-        grant,
-    })
+    )
+    .map(|(_, done)| done)
 }
 
 /// The retry after a lost answer to `password/finish`: the new `OPW` logs in
@@ -857,7 +888,7 @@ mod tests {
             c.message,
             &account,
             ServerLoginParameters {
-                context: Some(LOGIN_CONTEXT),
+                context: Some(LOGIN_CONTEXT.as_slice()),
                 identifiers: ids(),
             },
         )
@@ -868,7 +899,7 @@ mod tests {
                 &mut rng,
                 &opw,
                 s.message,
-                ClientLoginFinishParameters::new(Some(LOGIN_CONTEXT), ids(), None),
+                ClientLoginFinishParameters::new(Some(LOGIN_CONTEXT.as_slice()), ids(), None),
             )
             .unwrap();
         assert!(done.session_key.iter().any(|b| *b != 0));

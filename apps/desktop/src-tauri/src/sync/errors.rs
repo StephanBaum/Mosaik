@@ -22,6 +22,7 @@ pub fn transport_code(error: TransportError) -> ErrorCode {
         TransportError::InsecureUrl => ErrorCode::SyncServerInsecure,
         TransportError::FolderUnavailable | TransportError::Io => ErrorCode::SyncFolderUnavailable,
         TransportError::Locked => ErrorCode::Locked,
+        TransportError::OutcomeUnknown => ErrorCode::SyncPasswordOutcomeUnknown,
         TransportError::Rejected(rejection) => rejection_code(rejection),
         // Forbidden, NotFound, GenerationMismatch, HeadBelowCursor and the
         // variants a later version adds: nothing the user can act on.

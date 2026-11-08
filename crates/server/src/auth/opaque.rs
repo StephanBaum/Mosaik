@@ -202,12 +202,12 @@ impl LoginStates {
 
 /// The server-side parameters of login start and finish.
 #[must_use]
-pub const fn login_params<'a>(
+pub fn login_params<'a>(
     credential_id: &'a [u8; 16],
     origin: &'a str,
 ) -> ServerLoginParameters<'static, 'a> {
     ServerLoginParameters {
-        context: Some(LOGIN_CONTEXT),
+        context: Some(LOGIN_CONTEXT.as_slice()),
         identifiers: identifiers(credential_id.as_slice(), origin.as_bytes()),
     }
 }

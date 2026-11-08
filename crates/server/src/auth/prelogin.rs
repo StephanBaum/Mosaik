@@ -15,12 +15,14 @@
 
 use hmac::{Hmac, KeyInit, Mac};
 use mosaic_core::Argon2Profile;
+use mosaic_core::encoding::Label;
+use mosaic_core::encoding::label;
 use sha2::Sha256;
 
 /// How long a profile distribution is used before it is recomputed.
 pub const DIST_TTL_MS: u64 = 3_600_000;
 
-fn h(secret: &[u8; 32], label: &str, email: &str) -> [u8; 32] {
+fn h(secret: &[u8; 32], label: Label, email: &str) -> [u8; 32] {
     // A 32-byte key is always valid for HMAC.
     let Ok(mut mac) = <Hmac<Sha256> as KeyInit>::new_from_slice(secret) else {
         return [0u8; 32];
@@ -33,7 +35,7 @@ fn h(secret: &[u8; 32], label: &str, email: &str) -> [u8; 32] {
 /// The fake account ID of `email`: a `UUIDv4` from the HMAC.
 #[must_use]
 pub fn fake_account_id(key: &[u8; 32], email: &str) -> [u8; 16] {
-    let digest = h(key, "prelogin/account-id", email);
+    let digest = h(key, label::PRELOGIN_ACCOUNT_ID, email);
     let mut id = [0u8; 16];
     id.copy_from_slice(digest.get(..16).unwrap_or(&[0u8; 16]));
     if let Some(b) = id.get_mut(6) {
@@ -48,7 +50,7 @@ pub fn fake_account_id(key: &[u8; 32], email: &str) -> [u8; 16] {
 /// The fake salt of `email`.
 #[must_use]
 pub fn fake_salt(secret: &[u8; 32], email: &str) -> [u8; 16] {
-    let digest = h(secret, "prelogin/salt", email);
+    let digest = h(secret, label::PRELOGIN_SALT, email);
     let mut salt = [0u8; 16];
     salt.copy_from_slice(digest.get(..16).unwrap_or(&[0u8; 16]));
     salt
@@ -110,7 +112,7 @@ impl ProfileDist {
 /// The fake profile of `email`.
 #[must_use]
 pub fn fake_profile(secret: &[u8; 32], dist: &ProfileDist, email: &str) -> Argon2Profile {
-    let digest = h(secret, "prelogin/profile", email);
+    let digest = h(secret, label::PRELOGIN_PROFILE, email);
     let mut four = [0u8; 4];
     four.copy_from_slice(digest.get(..4).unwrap_or(&[0u8; 4]));
     dist.pick(u32::from_be_bytes(four) % 100)
