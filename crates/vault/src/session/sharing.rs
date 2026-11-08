@@ -29,7 +29,9 @@ use mosaic_core::{
     seal_attachment, seal_emergency_vault_key, seal_vault_key,
 };
 
-use super::{Error, Result, UnlockedSession, dup_item, now, seal_record, sync::check_generation};
+use super::{
+    Error, OpenVault, Result, UnlockedSession, dup_item, now, seal_record, sync::check_generation,
+};
 use crate::storage::{SharedRotationWrite, Store, VaultKeyWrap};
 
 /// How long an opened invite waits for the user's accept.
@@ -728,6 +730,49 @@ impl UnlockedSession {
         Ok(())
     }
 
+    /// Records `vault` in the account's set of owned vaults (the contact
+    /// book, sealed under the account key; M6b verify H3). Returns whether
+    /// the book changed and is queued for upload. Called when a vault is
+    /// created and before it first becomes shared.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub(super) fn record_owned(&mut self, vault: VaultId) -> Result<bool> {
+        let mut book = self.contact_book()?;
+        if !book.mark_owned(self.device, now(), &vault)? {
+            return Ok(false);
+        }
+        self.save_contact_book(&book)?;
+        Ok(true)
+    }
+
+    /// Records a vault this account owns in the set of owned vaults (see
+    /// [`Self::record_owned`]) before it is shared, for the sync layer.
+    /// Returns whether the set changed. A vault that this account does not
+    /// own, or whose key is not account-key protected, is left alone
+    /// (`Ok(false)`).
+    ///
+    /// # Errors
+    /// [`Error::UnknownVault`], [`Error::Core`], [`Error::Store`].
+    pub fn ensure_vault_owned(&mut self, vault: VaultId) -> Result<bool> {
+        let ov = self.vault(vault)?;
+        if ov.protection != VaultKeyWrap::AccountKey
+            || self.vault_own_role(vault)? != Role::Owner
+            || self.vault_owner(vault)? != self.account_id
+        {
+            return Ok(false);
+        }
+        self.record_owned(vault)
+    }
+
+    /// Whether `vault` is in the account's set of owned vaults.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub fn vault_recorded_owned(&self, vault: VaultId) -> Result<bool> {
+        Ok(self.contact_book()?.is_owned(&vault))
+    }
+
     /// What the contact book says about `account` when the server serves
     /// `ipk` for it.
     ///
@@ -1005,6 +1050,12 @@ impl UnlockedSession {
         {
             return Err(Error::OwnerMismatch);
         }
+        // A vault this account owns, as the account-key-sealed set says: no
+        // roster names another owner, whatever the server's grant list or
+        // this device's missing sharing row suggest (M6b verify H3).
+        if *owner != self.account_id && self.contact_book()?.is_owned(&vault) {
+            return Err(Error::OwnerMismatch);
+        }
         let received = VaultRoster::open(ct, vk, &vault, *owner)?;
         if let Err(e) = received.validate() {
             self.record_sharing_finding(SharingFinding::RosterInvalid { vault })?;
@@ -1163,6 +1214,9 @@ impl UnlockedSession {
         {
             return Err(Error::NotOwner);
         }
+        // Recorded as owned before anything of it can be shared (H3).
+        self.record_owned(vault)?;
+        let ov = self.vault(vault)?;
         if self.load_roster(vault)?.is_none() {
             let g = ov.generation;
             let vk = ov.current_key()?;
@@ -1577,9 +1631,29 @@ impl UnlockedSession {
         // The check and the key acceptance follow each other under this
         // exclusive borrow; the store refuses a vault that exists as well.
         self.check_vault_unknown(&vault_id, owner)?;
-        self.apply_remote_vault_key(vault_id, generation, &wrapped)?;
-        self.store
-            .set_vault_sharing(&vault_id, role_number(role)?, owner, true)?;
+        let number = role_number(role)?;
+        if self.vaults.contains_key(&vault_id) {
+            // A vault this device lost access to and gets back: it exists.
+            self.apply_remote_vault_key(vault_id, generation, &wrapped)?;
+            self.store
+                .set_vault_sharing(&vault_id, number, owner, true)?;
+        } else {
+            // A new vault: the vault, its key and the sharing row are stored
+            // in one transaction, so no crash leaves a vault that is not
+            // marked shared (M6b verify H1).
+            let vk = wrapped.unwrap_vault_key(
+                &self.account_key,
+                &self.account_id,
+                &vault_id,
+                generation,
+            )?;
+            self.store
+                .create_shared_vault_remote(&vault_id, generation, &wrapped, number, owner)
+                .map_err(super::sync::key_acceptance_error)?;
+            let mut ov = OpenVault::new(generation);
+            ov.keys.insert(generation, vk);
+            self.vaults.insert(vault_id, ov);
+        }
         if let Some(id) = invite_id {
             self.pending_invites.remove(&id);
         }

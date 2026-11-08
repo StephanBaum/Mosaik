@@ -19,8 +19,7 @@ use mosaic_vault::session::{Error, InviteId, InvitePreview, RevocationReason, Sh
 use super::pull::RunStats;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::sharing::{
-    GrantInfo, GrantScope, GrantState, ListedInvite, MemberOrigin, NewInvite, OutgoingInvite,
-    ReceivedGrant,
+    GrantInfo, GrantScope, ListedInvite, MemberOrigin, NewInvite, OutgoingInvite, ReceivedGrant,
 };
 use crate::transport::{Rejection, Transport, TransportError};
 
@@ -172,6 +171,12 @@ impl<T: Transport> SyncEngine<T> {
         }
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
+        // A vault of this account that is about to be shared is in the
+        // account's set of owned vaults, and the set is on the server,
+        // before the roster goes up (M6b verify H3).
+        if access.with(|s| s.ensure_vault_owned(vault))?? {
+            self.sync_contacts(access, &mut report)?;
+        }
         for _ in 0..3 {
             let prepared =
                 access.with(|s| s.prepare_invite(vault, account, &entry.ipk, email, role))??;
@@ -564,13 +569,22 @@ impl<T: Transport> SyncEngine<T> {
             GrantScope::All => Self::owned_vaults(access)?.into_keys().collect(),
             GrantScope::Selected => vaults.to_vec(),
         };
+        // The covered vaults are shared vaults from now on (H3): the owner
+        // roster, the sharing row and the entry in the account's set of owned
+        // vaults come BEFORE the seals and the grant, so no crash leaves a
+        // grant on a vault another device still takes for unshared.
+        let mut recorded = false;
+        for vault in &chosen {
+            recorded |= Self::ensure_owner_roster(access, *vault)?;
+        }
+        if recorded {
+            // The set reaches the account's other devices before the grant
+            // can be released.
+            self.sync_contacts(access, &mut SyncReport::default())?;
+        }
         let seals = access.with(|s| s.seal_emergency(grantee, &entry.ipk, &chosen))??;
         self.sharing_tx()?
             .put_grant(grantee, wait_days, scope, &seals)?;
-        // The covered vaults are shared vaults from now on (H3).
-        for vault in chosen {
-            Self::ensure_owner_roster(access, vault)?;
-        }
         Ok(())
     }
 
@@ -586,53 +600,31 @@ impl<T: Transport> SyncEngine<T> {
         grantee: &AccountId,
     ) -> Result<(), SyncError> {
         let (given, _) = self.sharing_tx()?.emergency()?;
-        let released = given
-            .iter()
-            .any(|g| g.grantee == *grantee && g.state == GrantState::Released);
-        // The revocations are queued while the server still lists the
-        // grantee as a member: deleting the grant deletes the memberships,
-        // keys and shares the release made (H3).
-        let mut affected = Vec::new();
-        if released {
-            for vault in Self::owned_vaults(access)?.into_keys() {
-                if self.revoke_emergency_member(access, vault, grantee)? {
-                    affected.push(vault);
-                }
-            }
+        // Every vault the grant covered is rotated, whatever the server says
+        // about the release state or the membership: the server may have
+        // handed the seals over early and report the grant as not released
+        // (M6b verify H3b). A grant the server does not list is taken as
+        // covering everything this account owns.
+        let covered: Vec<VaultId> = {
+            let grant = given.iter().find(|g| g.grantee == *grantee);
+            Self::owned_vaults(access)?
+                .into_keys()
+                .filter(|v| grant.is_none_or(|g| super::sharing::covers(g, *v)))
+                .collect()
+        };
+        for vault in &covered {
+            Self::ensure_owner_roster(access, *vault)?;
+            access.with(|s| s.request_revocation(*vault, grantee, RevocationReason::Removed))??;
         }
         self.sharing_tx()?.delete_grant(grantee)?;
-        // The key the grantee holds is replaced at once.
+        // The key the grantee may hold is replaced at once.
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
-        for vault in affected {
+        for vault in covered {
             let explicit: BTreeSet<AccountId> = BTreeSet::from([*grantee]);
             self.rotate_shared(access, vault, &explicit, &mut report, &mut stats)?;
         }
         Ok(())
-    }
-
-    /// Queues the revocation of `grantee` if it became a member of `vault`
-    /// through an emergency release.
-    fn revoke_emergency_member(
-        &mut self,
-        access: &mut impl SessionAccess,
-        vault: VaultId,
-        grantee: &AccountId,
-    ) -> Result<bool, SyncError> {
-        let view = match self.sharing_tx()?.members(vault) {
-            Ok(view) => view,
-            Err(TransportError::Forbidden | TransportError::NotFound) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
-        let member = view
-            .members
-            .iter()
-            .any(|m| m.account_id == *grantee && m.origin == MemberOrigin::Emergency);
-        if member {
-            Self::ensure_owner_roster(access, vault)?;
-            access.with(|s| s.request_revocation(vault, grantee, RevocationReason::Removed))??;
-        }
-        Ok(member)
     }
 
     /// Asks a grantor for emergency access: when the wait ends (ms since the

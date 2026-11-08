@@ -223,7 +223,7 @@ impl<T: Transport> SyncEngine<T> {
 
     /// Merges the server's contact book into the local one and uploads a
     /// local change (compare-and-swap, merge on conflict).
-    fn sync_contacts(
+    pub(super) fn sync_contacts(
         &mut self,
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
@@ -813,17 +813,21 @@ impl<T: Transport> SyncEngine<T> {
             // A member nobody here compared codes with (a roster entry a
             // manager, or a removed member, wrote) is unconfirmed: no key
             // is sealed to them, the rotation locks them out, and the
-            // finding tells the user. A changed key stays a hard stop.
-            // A key that is not the roster's fingerprint stays a hard stop
-            // (the session refuses to seal to it and the rotation waits).
+            // finding tells the user. A served key that is not the roster's
+            // fingerprint, or a pin that is Changed or Conflicting, is the
+            // same: the member is revoked and the finding recorded, and the
+            // rotation goes ahead (a key mismatch never stops it).
             let state = access.with(|s| s.contact_state(account, &ipk))??;
             let roster_key = active
                 .get(account)
                 .is_some_and(|m| m.fingerprint == Fingerprint::of(account, &ipk));
-            if roster_key
-                && matches!(
+            if !roster_key
+                || matches!(
                     state,
-                    ContactState::Unknown | ContactState::Pinned { verified: false }
+                    ContactState::Unknown
+                        | ContactState::Pinned { verified: false }
+                        | ContactState::Changed
+                        | ContactState::Conflicting
                 )
             {
                 Self::note_finding(
@@ -853,17 +857,19 @@ impl<T: Transport> SyncEngine<T> {
             let usable = match &entry {
                 Some(e) if e.account_id == account => {
                     let state = access.with(|s| s.contact_state(&account, &e.ipk))??;
-                    match state {
-                        ContactState::Pinned { verified: true }
-                        | ContactState::Changed
-                        | ContactState::Conflicting => true,
-                        ContactState::Unknown | ContactState::Pinned { .. } => {
-                            Self::note_finding(
-                                access,
-                                SharingFinding::MemberUnverified { vault, account },
-                            )?;
-                            false
-                        }
+                    let roster_key = active
+                        .get(&account)
+                        .is_some_and(|m| m.fingerprint == Fingerprint::of(&account, &e.ipk));
+                    // A changed or conflicting pin, or a key that is not the
+                    // roster's, cancels the invite like an unverified one.
+                    if roster_key && state == (ContactState::Pinned { verified: true }) {
+                        true
+                    } else {
+                        Self::note_finding(
+                            access,
+                            SharingFinding::MemberUnverified { vault, account },
+                        )?;
+                        false
                     }
                 }
                 _ => false,
@@ -1049,16 +1055,19 @@ impl<T: Transport> SyncEngine<T> {
 
     /// Makes sure a vault this account owns has its owner-only roster and
     /// sharing row.
+    ///
+    /// Returns whether the account's set of owned vaults changed (and so
+    /// has to be uploaded).
     pub(super) fn ensure_owner_roster(
         access: &mut impl SessionAccess,
         vault: VaultId,
-    ) -> Result<(), SyncError> {
+    ) -> Result<bool, SyncError> {
+        let before = access.with(|s| s.vault_recorded_owned(vault))??;
         match access.with(|s| s.ensure_owner_roster(vault))? {
             // Done; or not an account-key vault of this account's, or no
             // identity key yet: nothing a grant could cover.
-            Ok(()) | Err(Error::WrongVaultProtection | Error::NotOwner | Error::NoIdentity) => {
-                Ok(())
-            }
+            Ok(()) => Ok(!before),
+            Err(Error::WrongVaultProtection | Error::NotOwner | Error::NoIdentity) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }
@@ -1130,7 +1139,7 @@ impl<T: Transport> SyncEngine<T> {
 }
 
 /// Whether an emergency grant covers `vault`.
-fn covers(g: &GrantInfo, vault: VaultId) -> bool {
+pub(super) fn covers(g: &GrantInfo, vault: VaultId) -> bool {
     match g.scope {
         GrantScope::All => true,
         GrantScope::Selected => g.vaults.iter().any(|(v, _)| *v == vault),

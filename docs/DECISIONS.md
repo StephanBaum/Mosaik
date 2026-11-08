@@ -4247,3 +4247,17 @@ the code. Every fix below is accepted as the reviewer proposed it, with the devi
 
 ### Consequences
 THREAT_MODEL R71, R72, R77, R79 are updated and R82 is added.
+
+## ADR-0056: M6b verify follow-ups (owned-vault set, grant-delete rotation)
+
+### Context
+The verify pass on ADR-0055 found: a second device of the grantor trusts the server's grant list when it sees a first roster for a vault it never saw shared (High); deleting a grant rotated only if the server reported the grant as released (Medium); a key mismatch of one member stopped the whole revocation rotation.
+
+### Decision
+- The vaults this account owns are recorded in the contact book document (`owned:<vault_id>`, sealed under `K_contacts`, never removed), on creation and before a vault is first shared. Devices that learn the set refuse any roster naming another owner for such a vault. The engine's grant-list check stays as an extra. The owner roster, the sharing row and the set entry are made before the seals and `put_grant`.
+- Deleting a grant queues a revocation and rotates every owned vault the grant covered (the grant's scope; all owned vaults if the server does not list it), whatever the server says about state or membership.
+- A new member vault and its sharing row are stored in one store transaction.
+- A remaining member with a key mismatch, or an invitee with a Changed or Conflicting pin, is revoked or cancelled and recorded as `MemberUnverified` (no new finding kind, no schema change). The rotation goes ahead. The session still refuses to seal to a mismatching key.
+
+### Consequences
+A malicious server can lock a member out by serving a wrong key (it could already drop memberships); the finding tells the owner. THREAT_MODEL R72 and R82 are updated.

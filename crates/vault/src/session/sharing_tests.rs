@@ -1045,4 +1045,32 @@ fn first_roster_with_another_owner_needs_a_verified_contact() {
         Err(Error::OwnerMismatch)
     ));
     assert!(!a.s.vault_shared(v).unwrap());
+    // Even a verified contact does not get a vault this account owns, as
+    // its account-key-sealed set of owned vaults says (M6b verify H3).
+    assert!(a.s.vault_recorded_owned(v).unwrap());
+    a.s.verify_contact(&b.id, &fpr(&b)).unwrap();
+    assert!(matches!(
+        a.s.apply_remote_roster(v, g(1), &ct, 1, &b.id),
+        Err(Error::OwnerMismatch)
+    ));
+    assert!(!a.s.vault_shared(v).unwrap());
+}
+
+#[test]
+fn owned_set_is_recorded_on_creation_and_queued_for_upload() {
+    let mut a = user("a@x");
+    assert!(a.s.pending_contacts_upload().unwrap().is_none());
+    let v = a.s.create_vault("V").unwrap();
+    let w = VaultId::new_v7().unwrap();
+    assert!(a.s.vault_recorded_owned(v).unwrap());
+    assert!(!a.s.vault_recorded_owned(w).unwrap());
+    let (ct, _) = a.s.pending_contacts_upload().unwrap().unwrap();
+    // The set is in the document the other devices apply.
+    let book =
+        mosaic_core::model::ContactBook::open(&ct, &a.s.account_key.contacts_key().unwrap(), &a.id)
+            .unwrap();
+    assert!(book.is_owned(&v) && !book.is_owned(&w));
+    // Ensuring an owner roster records a vault created before the set
+    // existed, once.
+    assert!(!a.s.ensure_vault_owned(v).unwrap());
 }

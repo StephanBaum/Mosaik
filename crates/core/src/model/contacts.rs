@@ -13,6 +13,13 @@
 //! `fpr` values, which is [`ContactState::Conflicting`]. Both block every
 //! seal to and from that account until the user decides
 //! ([`ContactBook::replace_pin`]).
+//!
+//! The same document records the vaults this account owns (`owned:<vault_id
+//! as 32 hex digits>`, value `true`, never removed; M6b verify H3). It is
+//! sealed under the account key like the pins, so the server cannot forge
+//! an entry, and every device of the account learns it on sync: a device
+//! that never saw a vault shared still refuses a roster that names another
+//! account as its owner.
 
 use core::fmt;
 
@@ -23,10 +30,11 @@ use super::value::{Object, Value, to_json};
 use crate::envelope::{ContactsCiphertext, MAX_CONTACTS_PLAINTEXT_LEN};
 use crate::error::{Error, Result};
 use crate::identity::Fingerprint;
-use crate::ids::{AccountId, DeviceId};
+use crate::ids::{AccountId, DeviceId, VaultId};
 use crate::secret::{ContactsKey, SecretVec};
 
 const CONTACT_PREFIX: &str = "contact:";
+const OWNED_PREFIX: &str = "owned:";
 
 /// What the book knows about an account's key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +88,10 @@ struct Parsed {
 
 fn contact_key(account: &AccountId) -> String {
     format!("{CONTACT_PREFIX}{}", to_hex(account.as_bytes()))
+}
+
+fn owned_key(vault: &VaultId) -> String {
+    format!("{OWNED_PREFIX}{}", to_hex(vault.as_bytes()))
 }
 
 fn parse_contact_key(key: &str) -> Option<AccountId> {
@@ -326,6 +338,29 @@ impl ContactBook {
         )
     }
 
+    /// Whether `vault` is recorded as owned by this account.
+    #[must_use]
+    pub fn is_owned(&self, vault: &VaultId) -> bool {
+        self.doc.register(&owned_key(vault)).is_some()
+    }
+
+    /// Records `vault` as owned by this account. Returns whether the book
+    /// changed (an entry that exists is left alone). An entry is never
+    /// removed: a deleted vault stays recorded, which is the conservative
+    /// side.
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn mark_owned(&mut self, device: DeviceId, at: Timestamp, vault: &VaultId) -> Result<bool> {
+        if self.is_owned(vault) {
+            return Ok(false);
+        }
+        let stamp = self.doc.tick(device)?;
+        self.doc
+            .write(&owned_key(vault), stamp, at, Value::Bool(true), false)?;
+        Ok(true)
+    }
+
     /// Merges two replicas (a pure join).
     #[must_use]
     pub fn merge(&self, other: &Self) -> Self {
@@ -458,6 +493,23 @@ mod tests {
         assert_eq!(b.check(&a, &f1), ContactState::Changed);
         assert_eq!(b.contacts().len(), 1);
         assert!(format!("{:?}", b.contacts()[0]).starts_with("Contact"));
+    }
+
+    #[test]
+    fn owned_vaults_are_recorded_merged_and_not_contacts() {
+        let v = VaultId::from_bytes([9; 16]).unwrap();
+        let w = VaultId::from_bytes([8; 16]).unwrap();
+        let (mut one, mut two) = (ContactBook::new(), ContactBook::new());
+        assert!(!one.is_owned(&v));
+        assert!(one.mark_owned(dev(1), at(1), &v).unwrap());
+        assert!(!one.mark_owned(dev(1), at(2), &v).unwrap());
+        two.mark_owned(dev(2), at(3), &w).unwrap();
+        let merged = one.merge(&two);
+        assert!(merged.is_owned(&v) && merged.is_owned(&w));
+        assert_eq!(merged.contacts(), Vec::new());
+        let again = copy(&merged);
+        assert!(again.is_owned(&v) && again.is_owned(&w));
+        assert!(!again.is_owned(&VaultId::from_bytes([7; 16]).unwrap()));
     }
 
     #[test]

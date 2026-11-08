@@ -239,7 +239,10 @@ pub fn delete_grant(
     // go with the grant, with their keys and shares (M6b review H3): the
     // grantor's client then rotates the vault key.
     let mut stmt = tx.prepare(
-        "SELECT m.vault_id, v.current_generation FROM memberships m          JOIN memberships o ON o.vault_id = m.vault_id AND o.account_id = ?1 AND o.role = 1          JOIN vaults v ON v.vault_id = m.vault_id          WHERE m.account_id = ?2 AND m.origin = 2",
+        "SELECT m.vault_id, v.current_generation FROM memberships m \
+             JOIN memberships o ON o.vault_id = m.vault_id AND o.account_id = ?1 AND o.role = 1 \
+             JOIN vaults v ON v.vault_id = m.vault_id \
+             WHERE m.account_id = ?2 AND m.origin = 2",
     )?;
     let rows: Vec<([u8; 16], u32)> = stmt
         .query_map(params![grantor.as_slice(), grantee.as_slice()], |r| {

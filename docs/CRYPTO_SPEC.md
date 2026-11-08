@@ -650,8 +650,9 @@ aad    = header || aad("vault-roster", vault_id, key_generation:u32)
   owner). A device that has no sharing row for the vault accepts a first roster only if its
   owner is this account, or a contact this account verified with the roster's fingerprint
   (ADR-0055): a vault that was never shared is not handed to whoever holds its key and
-  forges a roster. The engine also refuses the roster when the owner is an emergency
-  grantee of this account. The owner's entry is the one written at creation: later writes to
+  forges a roster. A vault in the account's set of owned vaults (§8.5) never accepts a roster
+  that names another owner, on any device, whatever the server's grant list says (ADR-0056).
+  The engine also refuses the roster when the owner is an emergency grantee of this account. The owner's entry is the one written at creation: later writes to
   `member:<owner>` are ignored and never make the roster invalid.
 - **Merge rule** (ADR-0050). The merge of two replicas is the document merge of §10. The
   *effective* value of a `member:*` register that holds several concurrent values is the one
@@ -878,7 +879,13 @@ The effective state of a contact when the server serves `fpr`:
 `Conflicting` (a register with two distinct `fpr` values, from concurrent pins on different
 devices). `Changed` and `Conflicting` block as in §8.2. Verifying writes one entry that
 supersedes the others of the same fingerprint; accepting a key change replaces the pin with
-an unverified one. A server that withholds the newest contact book from a new device lets that
+an unverified one. The same document holds the set of vaults this account owns:
+`owned:<vault_id hex32>` → `true`, written when a vault is created and before it first
+becomes shared (an invite or an emergency grant), never removed. It is sealed under
+`K_contacts`, so the server cannot forge an entry, and every device learns it on sync
+(ADR-0056). Rotation plans never stop on a key mismatch: a remaining member whose served key
+is not the roster's fingerprint, or whose pin is `Changed` or `Conflicting`, is revoked (an
+invitee is cancelled) and a `MemberUnverified` finding is recorded (ADR-0056). A server that withholds the newest contact book from a new device lets that
 device pin again for a contact it pinned meanwhile; the roster still catches it for members
 of a shared vault (THREAT_MODEL R80). The server sees the ciphertext and its length (§12).
 
