@@ -551,3 +551,114 @@ fn two_server_keys_for_one_generation_are_reported_not_adopted() {
     assert_eq!(w.devs[1].s().vault_flags().unwrap(), vec![]);
     assert_eq!(key_of(&w, 1, vault, 2), kc);
 }
+
+/// M1 (milestone review). After the user acknowledged a finding for one
+/// vault, a junk record that claims a future generation keeps that vault's
+/// rebuild open (the record stays deferred). That must not switch off the
+/// digest comparison of the other vaults, and the rebuild must end: after the
+/// grace the vault itself gets a finding.
+#[test]
+fn a_rebuild_held_open_by_junk_is_bounded_and_spares_other_vaults() {
+    use mosaic_sync::engine::consts::NO_COMMON_VIEW_GRACE_MS;
+    let (mut w, vault, _item) = two_devices(94);
+    let other = w.new_vault(0, "Other");
+    let other_item = add_login(&mut w, 0, other, "x");
+    for _ in 0..2 {
+        w.sync(0);
+        w.sync(1);
+    }
+    let old = stored_body(&w, 0, other, other_item);
+    set_password(&mut w, 0, other, other_item, "v2");
+    w.sync(0);
+    let key = VaultKey::generate(KeyGeneration::new(99).unwrap()).unwrap();
+    let junk_id = ItemId::new_v7().unwrap();
+    let junk = TombstoneCiphertext::seal(&key, &vault, &junk_id, b"{}").unwrap();
+    let mut engine = malicious_b(&w);
+    // The user acknowledged a finding for `vault` on device 1.
+    let dev = &mut w.devs[1];
+    engine.clear_findings(&mut dev.access, &[vault]).unwrap();
+    engine.transport_mut().tamper_pull_of = Some(Box::new(move |v, page| {
+        if v == other {
+            // The server shows an older version of a record at its head,
+            // so device 1's view differs from device 0's.
+            for r in &mut page.records {
+                if r.record_id == other_item {
+                    r.body = old.clone();
+                }
+            }
+        } else if v == vault {
+            // Junk that claims a generation nobody holds, on every page.
+            let seq = head_of(&page.next) + 1;
+            page.records.push(PulledRecord {
+                record_id: junk_id,
+                body: RecordBody::Tombstone(junk.clone()),
+                seq: Some(seq),
+            });
+        }
+    }));
+    let r = run(&mut w, &mut engine);
+    assert!(
+        inconsistent(&r, other),
+        "the open rebuild of another vault must not hide this one: {r:?}"
+    );
+    assert!(!inconsistent(&r, vault), "{r:?}");
+    // Inside the grace the rebuild stays open without a finding.
+    let r = run(&mut w, &mut engine);
+    assert!(!inconsistent(&r, vault), "{r:?}");
+    // The junk never goes away: after the grace the rebuild ends with a
+    // finding for the vault.
+    w.advance(NO_COMMON_VIEW_GRACE_MS + MINUTE_MS);
+    let r = run(&mut w, &mut engine);
+    assert!(inconsistent(&r, vault), "{r:?}");
+    assert_eq!(w.devs[1].s().rebuild_vaults().unwrap(), vec![]);
+}
+
+/// L4 (milestone review, R62). A holder of a stolen session token files a
+/// checkpoint with a huge counter and no valid MAC under a device's name. The
+/// device's real checkpoints then answer `checkpoint_stale`; it must not
+/// count them as published, or its own checkpoint "going missing" turns into
+/// strikes and a halt that comes back after every acknowledgement.
+#[test]
+fn a_forged_high_checkpoint_counter_causes_no_halt_loop() {
+    let (mut w, _vault, _item) = two_devices(95);
+    w.sync(1);
+    w.sync(0);
+    w.sync(1);
+    let me = w.devs[1].device;
+    let published = w.devs[1]
+        .s()
+        .sync_engine_state()
+        .unwrap()
+        .last_published_counter;
+    let mut forged = w.devs[1]
+        .engine
+        .transport_mut()
+        .inner_mut()
+        .checkpoints()
+        .unwrap()
+        .into_iter()
+        .find(|(d, _)| *d == me)
+        .map(|(_, bytes)| bytes)
+        .unwrap();
+    // "MCKP" || version || device_id[16] || counter:u64 ...: a huge counter,
+    // and a last byte of the MAC that no longer fits.
+    forged[21..29].copy_from_slice(&(1u64 << 40).to_be_bytes());
+    let last = forged.len() - 1;
+    forged[last] ^= 1;
+    let opw = w.opw(1);
+    let mut thief = w.login_transport(me, "thief", &opw);
+    thief.put_checkpoint(&forged).unwrap();
+    drop(thief);
+    w.relogin(1);
+    for _ in 0..6 {
+        let r = w.try_sync(1);
+        assert!(r.is_ok(), "{r:?}");
+    }
+    let state = w.devs[1].s().sync_engine_state().unwrap();
+    assert_eq!(state.halt, None);
+    assert!(state.strike_count < 2, "{state:?}");
+    assert_eq!(
+        state.last_published_counter, published,
+        "a stale answer is not a published checkpoint"
+    );
+}

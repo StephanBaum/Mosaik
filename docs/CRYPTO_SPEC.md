@@ -78,10 +78,24 @@ Interoperability only (these read or serve third-party formats and never protect
   under a different version or algorithm.
 - Labels added for sync (§10, §10.1): `checkpoint-key`, `checkpoint`, `session`,
   `sync/folder-mac-key`, `sync/folder-segment`, `sync/folder-account`,
-  `sync/folder-blob-delete`, `sync/device-info-key`, `sync/device-info`; and, in
-  the server only, `server/prelogin-key`, `server/totp-key` and
-  `server/totp-at-rest` (§9.2, §9.3). `mosaic-core` derives every
-  key from them; `mosaic-sync` and the server never see `AK`.
+  `sync/folder-blob-delete`, `sync/device-info-key`, `sync/device-info`,
+  `sync/view` and `sync/view-key` (the plain SHA-256 prefixes of the view digest
+  and its key commitment, §10); and, in the server only, `server/prelogin-key`,
+  `server/totp-key` and `server/totp-at-rest` (§9.2, §9.3). `mosaic-core` derives
+  every key from them; `mosaic-sync` and the server never see `AK`.
+- **One registry.** Every label that any crate uses is a typed constant
+  `mosaic_core::encoding::label::*` and is listed in `label::ALL`, which the
+  uniqueness test covers; `mosaic-sync` and the server take their labels from
+  there (the server's `subkey()` takes the typed label) and hold no label
+  string literal. This includes `opaque-login` (the OPAQUE context, §9.1) and
+  the three pre-login labels below.
+- **Exception: the pre-login labels.** `prelogin/account-id`, `prelogin/salt` and
+  `prelogin/profile` (§9.2) are fed to the HMAC as the raw label bytes, **without**
+  the `mosaic/v1/` prefix (`HMAC(K_prelogin, label || normalized_email)`). They
+  are registered and unique like the others, but their byte values are fixed as
+  they are: a change would change every fake the server has answered with, and
+  a returning client would see its fake salt change. The exception is
+  deliberate, not a rule for new labels.
 - The nil UUID (`00…00`) is reserved and MUST be rejected as a vault, item,
   attachment or account ID.
 - `random(n)` is `n` bytes from the OS CSPRNG. If the CSPRNG fails, the
@@ -660,11 +674,21 @@ session token alone therefore cannot lock the user out.
 - **Other sessions end.** A successful change deletes every other session of
   the account in the same transaction (a stolen token does not outlive the
   change); the changing session stays and takes the new version.
-- **Lost answer.** If the answer to `password/finish` is lost, the retry
-  finds that the old `OPW` no longer logs in. It then logs in with the new
-  `OPW`; if the account's wrapped AK on the server is byte-equal to the one
-  it prepared, the change went through and the device commits it locally.
-  Any other outcome is the original error.
+- **Lost answer.** Once `password/finish` has been sent, a timeout, an
+  unreachable server or a 5xx answer is not "nothing changed": the server may
+  have committed. The device then checks at once, in the same call: it logs
+  in with the new `OPW` (and the second factor if enabled) and, if the
+  account's wrapped AK on the server is byte-equal to the one it prepared, the
+  change went through and the device commits it locally like any success. If
+  the check fails too, the outcome is unknown: the device reports it as such
+  (`syncPasswordOutcomeUnknown`), keeps the password-changed flag set and does
+  not commit; the user keeps both passwords until the recovery below
+  (`sync_recover_password`) settles which one applies. The same byte-equal
+  check is also the first step of a later retry: if the old `OPW` no longer
+  logs in, the device tries the new one. Before `password/finish` is sent
+  (the login, the second factor, the registration start), an unreachable
+  server means nothing changed (`syncPasswordNeedsServer`). Any other outcome
+  is the original error.
 - **Change applied elsewhere.** The device can also lose a change without
   any retry that could see it: it was locked, closed or killed between the
   server accepting the change and its own commit. The server (or the folder's
@@ -688,7 +712,9 @@ session token alone therefore cannot lock the user out.
     offering an older password again and is refused (`PasswordRollback`,
     shown as `syncPasswordRollback`).
   - **Folder versions.** The device keeps the highest account-file version it
-    wrote or adopted; a folder file at or below it is refused.
+    wrote or adopted (reset with the other sync state when the backend
+    changes; the retired salts stay and still catch a rollback); a folder
+    file at or below it is refused.
   - **Same key.** The wrapping opens to this session's own AK.
 
   This adds no primitive: it is the join derivation plus these checks. It
@@ -747,7 +773,16 @@ session token alone therefore cannot lock the user out.
     `InstallId` with a counter above its stored counter means the install
     identity is duplicated (a copied profile writing under this ID). A
     device persists the counter before it sends a checkpoint, and records a
-    counter as published only once the backend accepted it. The newest own
+    counter as published only once the backend accepted it. A hosted
+    `checkpoint_stale` answer is **not** an acceptance: it means the server
+    holds a checkpoint with an equal or higher counter, which an honest
+    device never causes (it sends a higher counter every run), so it is a
+    repeated request or a forged upload (a stolen session token can file a
+    checkpoint with a huge counter under the device's name; the server cannot
+    verify the MAC, R62). The engine treats it as handled for the outbox (the
+    run goes on and nothing is retried in a loop) but leaves the published
+    counter where it is, so the published counter never exceeds what this
+    device really had accepted. The newest own
     checkpoint below the last published counter is a strike, counted once
     per published counter; the second strike means the backend was rolled
     back (one lost upload is tolerated, and a failed upload is no strike:
@@ -846,9 +881,18 @@ session token alone therefore cannot lock the user out.
       lying server acknowledged and dropped, or that a rolled-back vault
       lost, is uploaded again and the acknowledgement does not make the loss
       permanent. Digests that peers published before the acknowledgement
-      (and checkpoints stored while a rebuild is open) are not compared, so a
-      peer's stale digest does not raise the finding again; the user
-      acknowledges on every device. A vault flagged `ServerRollback` takes no
+      (and checkpoints stored while a rebuild is open) are not compared **for
+      that vault**, so a peer's stale digest does not raise the finding
+      again; the user acknowledges on every device. The skip is kept per
+      (peer, vault) and only for the vaults being rebuilt: the digests of
+      every other vault keep being compared, and a peer's next checkpoint
+      stored while its vault is no longer being rebuilt compares again.
+      The rebuild is bounded: a record that is still deferred (it does not
+      open, or claims a generation the device has no key for) after
+      `NO_COMMON_VIEW_GRACE_MS` (48 hours of runs) ends the rebuild of that
+      vault and is recorded as `ServerInconsistent` for it, so a server that
+      plants such a record cannot keep a vault out of the comparison for
+      good. A vault flagged `ServerRollback` takes no
       uploads, metadata uploads or attachment transfers until then.
     - Status for the user: the halt, every vault finding and every
       `NoCommonView` are listed together (`sync_findings`), so one
@@ -1122,6 +1166,19 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   is refused (`WrongCredentials`), so a re-planted old file does not revive a
   superseded password. The highest account version counts only files whose
   MAC verifies.
+- **Reconnecting to a folder** (a connect, and the start of the folder's sync
+  thread). The device compares the highest verified account file with its
+  stored parameters and wrapping (the folder's account file as a backend, §9.4
+  "Change applied elsewhere"): equal parameters, nothing to do. Different, and
+  the file's salt is retired, or its version is at or below the device's
+  stored folder account version: the folder offers an older password, so the
+  device writes its own parameters and wrapping as a new account file at the
+  highest version plus one, and records that version (a master password
+  changed while the device used another backend, or the folder's old file,
+  never stays live there; a join with the old password then fails). Different,
+  newer and not retired: another device of the folder changed the password;
+  the device sets the password-changed flag and the recovery of §9.4 finishes
+  it.
 - **Lag.** For another device's checkpoint entry `(vault, g, high_seq)` the
   folder reader counts the device as behind when `high_seq` is above the
   `contiguous` mark of that device in the vault's cursor. Behind for longer
@@ -1158,11 +1215,11 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   path, which must be the session's own device. The server holds no key, so
   it checks only the length, the shape, that the body names the path's device
   and that the counter is above the stored one (`checkpoint_stale`); the
-  clients verify the MAC (§10). A client counts `checkpoint_stale` as
-  accepted: it means the server already holds this checkpoint or a newer
-  one (a repeated request after a lost answer); a device whose own
-  checkpoint fell behind is caught by the own-counter rules of §10, which
-  run before anything is written.
+  clients verify the MAC (§10). A client does not count `checkpoint_stale` as
+  published: it means the server already holds a checkpoint with this counter
+  or a higher one. The run goes on, but the device's published counter
+  stays, so a forged high counter filed by a stolen token (R62) causes no
+  strike loop (§10, own-counter rules).
 - **Hosted key winner.** The server keeps exactly one wrapped key per
   generation; it is canonical. A device remembers which of its vault keys
   the server confirmed (an accepted key upload, or the vault's creation).
@@ -1196,7 +1253,13 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     a hygiene step. Once sharing (§8) ships, a rotation that revokes a member
     must not be resolved by adoption: the server's key for the generation may
     be one the revoked party can read. Such rotations need their own rule
-    (spec and ADR first).
+    (spec and ADR first). Two constraints go with it: adoption must not apply
+    to a revocation rotation at all (the rotation that follows a revoked
+    member is never replaced by the server's key for its generation, whoever
+    holds it), and a change of backend must not make a key adoptable once
+    sharing ships (the keys a device confirmed or generated before the switch
+    keep their origin; "no key is confirmed after a switch" must not turn a
+    key shared with a member into one that adoption may replace).
 
 ## 11. Local storage
 
@@ -1231,7 +1294,12 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   are IDs, counters, times and ciphertext; nothing is derived from item
   plaintext, and none holds a key. A change of backend clears them all but
   the halt and the reserved own sequence numbers (written starts again at
-  0); the checkpoint counter only grows.
+  0); the checkpoint counter only grows. Store v6 adds the salts this device
+  retired (public values, kept across backends: they catch a rollback to an
+  old master password) and the highest folder account-file version it wrote
+  or adopted (cleared with the sync state on a change of backend); v7 adds the
+  per-(peer, vault) skip of stale digests and the time since which a rebuild
+  has had a deferred record (§10).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -1295,13 +1363,13 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | Field | Why the server needs it |
 |---|---|
 | account email | login identifier, contact for emergency access |
-| `account_id`, `account_salt`, Argon2 parameters | new-device derivation |
+| `account_id`, `account_salt`, Argon2 parameters, `account_version` (a counter of registration changes; a session remembers the version it logged in at, §9.4) | new-device derivation, compare-and-swap of a password change |
 | OPAQUE registration record | login |
 | identity public key `ipk` | sharing |
 | wrapped AK (password and PRF methods, with the PRF methods' public parameters: PRF salt, RP ID, credential ID), TK wrappings of hardware-protected vaults with their public parameters, wrapped VKs, HPKE share seals | multi-device unlock, sharing |
 | vault IDs, membership (`account_id` → `vault_id`, role) | access control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
-| attachment IDs and ciphertext sizes | storage quotas |
+| attachment IDs, ciphertext sizes and `deleted_at` (the soft-delete time, until the housekeeping removes the file) | storage quotas, soft delete |
 | device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
 | IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
 | checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records and to the vault key's wrapping the server already holds) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |

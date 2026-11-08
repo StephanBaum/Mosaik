@@ -8,15 +8,18 @@
 use std::sync::MutexGuard;
 
 use mosaic_core::{AccountId, InstallId, MasterPassword, PasswordParams, SecretKey};
+use mosaic_sync::folder::FolderTransport;
 use mosaic_sync::folder::{
     self, FolderContents, FolderError, JoinError, JoinFailure, init, inspect,
 };
 use mosaic_sync::http::{StoredToken, hosted};
 use mosaic_sync::transport::{Rejection, RemoteDevice, Transport, TransportError};
+use mosaic_sync::wire::SessionCrypto;
 use mosaic_vault::session::{
     LockedSession, PasswordChanged, PreparedPasswordChange, SyncConfig, SyncKind, UnlockedSession,
 };
 
+use super::access::BackendSession;
 use super::hosted_flow::{code_of, device_name};
 use super::open_folder;
 use crate::commands::session::{master_password, take_locked};
@@ -98,9 +101,18 @@ impl Backend {
         init(&root).map_err(folder_code)?;
         let mut transport = open_folder(self.sync.session()?, &root, account, install, &device)?;
         let wrote_first = transport.highest_account_version()? == 0;
-        if wrote_first {
+        // The version to record once the old backend's state is cleared.
+        let known = if wrote_first {
             transport.write_account_file(&bootstrap.params, &bootstrap.wrapped_ak, 1)?;
-        }
+            Some(1)
+        } else {
+            // A folder that already holds this account: a password this
+            // device retired (or an older one) is replaced by this device's
+            // own, a newer one is left for the recovery (the folder thread
+            // flags it). The stored version belongs to the old backend.
+            self.reconcile_folder_account(&mut transport, Some(0))?
+                .version()
+        };
         drop(transport);
         self.with_unlocked(|session| {
             session.set_sync_config(Some(&SyncConfig {
@@ -111,8 +123,8 @@ impl Backend {
                 device_name: device.clone(),
             }))?;
             session.reset_sync_state()?;
-            if wrote_first {
-                session.raise_folder_account_version(1)?;
+            if let Some(version) = known {
+                session.raise_folder_account_version(version)?;
             }
             Ok(())
         })?;
@@ -254,6 +266,45 @@ impl Backend {
             &config.device_name,
         )?;
         Ok(transport.devices()?)
+    }
+
+    /// Compares the folder's highest verified account file with this
+    /// device's stored parameters and wrapping (CRYPTO_SPEC §10.1,
+    /// "Reconnecting to a folder"). `stored` overrides the stored folder
+    /// account version (a connect passes 0: the version belongs to the
+    /// backend that is being left). Writes nothing to the store; the caller
+    /// records [`FolderAccount::version`].
+    ///
+    /// # Errors
+    /// The transport's codes, `locked`.
+    pub(crate) fn reconcile_folder_account(
+        &self,
+        transport: &mut FolderTransport<SessionCrypto<BackendSession>>,
+        stored: Option<u64>,
+    ) -> IpcResult<FolderAccount> {
+        let Some(file) = transport.verified_account_file()? else {
+            return Ok(FolderAccount::InSync(None));
+        };
+        let (local, retired, stored_version) = self.with_unlocked(|session| {
+            Ok((
+                session.account_bootstrap()?,
+                session.salt_retired(&file.salt)?,
+                session.folder_account_version()?,
+            ))
+        })?;
+        let same = local.wrapped_ak.as_bytes() == file.wrapped_ak.as_bytes()
+            && local.params.salt == file.salt
+            && local.params.profile == file.profile;
+        if same {
+            return Ok(FolderAccount::InSync(Some(file.account_version)));
+        }
+        let stored = stored.unwrap_or(stored_version);
+        if retired || file.account_version <= stored {
+            let next = transport.next_account_version()?;
+            transport.write_account_file(&local.params, &local.wrapped_ak, next)?;
+            return Ok(FolderAccount::Rewrote(next));
+        }
+        Ok(FolderAccount::Changed)
     }
 
     // ---- master password -----------------------------------------------------------
@@ -511,6 +562,31 @@ impl Backend {
             && let Some(platform) = self.quick_unlock.biometric()
         {
             let _ = platform.remove(&enrollment.platform_params);
+        }
+    }
+}
+
+/// What [`Backend::reconcile_folder_account`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FolderAccount {
+    /// The folder holds this device's parameters (at that version), or no
+    /// account file at all.
+    InSync(Option<u64>),
+    /// The folder held a retired or older password: this device's own was
+    /// written at that version.
+    Rewrote(u64),
+    /// Another device of the folder changed the password (a newer file that
+    /// is not retired): the recovery finishes it.
+    Changed,
+}
+
+impl FolderAccount {
+    /// The folder account version to record, if there is one.
+    pub(crate) const fn version(self) -> Option<u64> {
+        match self {
+            Self::InSync(v) => v,
+            Self::Rewrote(v) => Some(v),
+            Self::Changed => None,
         }
     }
 }

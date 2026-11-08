@@ -23,7 +23,7 @@ pub const CTX_PREFIX: &str = "mosaic/v1/";
 /// only constructor is a `const fn` that rejects NUL. Labels are `const`
 /// items, so a bad label is a compile-time error, never a runtime panic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Label(&'static str);
+pub struct Label(&'static str);
 
 impl Label {
     /// A label; use only to define `const` items.
@@ -37,19 +37,28 @@ impl Label {
     }
 
     /// The label bytes.
-    pub(crate) const fn as_bytes(self) -> &'static [u8] {
+    #[must_use]
+    pub const fn as_bytes(self) -> &'static [u8] {
         self.0.as_bytes()
     }
 
     /// The label text, for [`ctx`].
-    pub(crate) const fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         self.0
+    }
+
+    /// `ctx(label)` as bytes.
+    #[must_use]
+    pub fn ctx(self) -> Vec<u8> {
+        ctx(self.0)
     }
 }
 
-/// Every label used in this crate. Labels MUST NOT be reused for a
-/// different purpose (CRYPTO_SPEC §3).
-pub(crate) mod label {
+/// Every label used by Mosaic, in this crate or in another one that takes it
+/// from here (the server's keys, the OPAQUE context, the pre-login HMACs).
+/// Labels MUST NOT be reused for a different purpose (CRYPTO_SPEC §3).
+pub mod label {
     use super::Label;
 
     /// HKDF info for `S` (§5.4).
@@ -125,27 +134,25 @@ pub(crate) mod label {
     pub(crate) const SYNC_VIEW_KEY: Label = Label::new("sync/view-key");
 
     /// HKDF info of the server key of the pre-login fakes (`mosaic-server`).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "registry entry: derived in mosaic-server")
-    )]
-    pub(crate) const SERVER_PRELOGIN_KEY: Label = Label::new("server/prelogin-key");
+    pub const SERVER_PRELOGIN_KEY: Label = Label::new("server/prelogin-key");
     /// HKDF info of the server key that seals TOTP secrets (`mosaic-server`).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "registry entry: derived in mosaic-server")
-    )]
-    pub(crate) const SERVER_TOTP_KEY: Label = Label::new("server/totp-key");
+    pub const SERVER_TOTP_KEY: Label = Label::new("server/totp-key");
     /// AAD label of a sealed TOTP secret (`mosaic-server`).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "registry entry: used in mosaic-server")
-    )]
-    pub(crate) const SERVER_TOTP_AT_REST: Label = Label::new("server/totp-at-rest");
+    pub const SERVER_TOTP_AT_REST: Label = Label::new("server/totp-at-rest");
+    /// The `context` of the OPAQUE login and registration finish (§9.1);
+    /// the wire value is `ctx(OPAQUE_LOGIN)`.
+    pub const OPAQUE_LOGIN: Label = Label::new("opaque-login");
+    /// Input of the pre-login fake account ID (§9.2). Used as raw HMAC
+    /// input **without** the `mosaic/v1/` prefix (§3 exception).
+    pub const PRELOGIN_ACCOUNT_ID: Label = Label::new("prelogin/account-id");
+    /// Input of the pre-login fake salt (§9.2); raw, like the others.
+    pub const PRELOGIN_SALT: Label = Label::new("prelogin/salt");
+    /// Input of the pre-login fake profile (§9.2); raw, like the others.
+    pub const PRELOGIN_PROFILE: Label = Label::new("prelogin/profile");
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 36] = [
+    pub(crate) const ALL: [Label; 40] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -182,6 +189,10 @@ pub(crate) mod label {
         SYNC_DEVICE_INFO,
         SYNC_VIEW,
         SYNC_VIEW_KEY,
+        OPAQUE_LOGIN,
+        PRELOGIN_ACCOUNT_ID,
+        PRELOGIN_SALT,
+        PRELOGIN_PROFILE,
     ];
 }
 
@@ -400,6 +411,34 @@ mod tests {
             for b in label::ALL.iter().skip(i + 1) {
                 assert_ne!(a, b);
             }
+        }
+    }
+
+    /// L2: the labels other crates take from here keep their wire bytes
+    /// (a change would change derived values), including the pre-login
+    /// labels, which have no `mosaic/v1/` prefix (CRYPTO_SPEC §3).
+    #[test]
+    fn exported_labels_keep_their_bytes() {
+        assert_eq!(label::OPAQUE_LOGIN.ctx(), b"mosaic/v1/opaque-login");
+        assert_eq!(label::SERVER_PRELOGIN_KEY.as_str(), "server/prelogin-key");
+        assert_eq!(label::SERVER_TOTP_KEY.as_str(), "server/totp-key");
+        assert_eq!(label::SERVER_TOTP_AT_REST.as_str(), "server/totp-at-rest");
+        assert_eq!(
+            label::PRELOGIN_ACCOUNT_ID.as_bytes(),
+            b"prelogin/account-id"
+        );
+        assert_eq!(label::PRELOGIN_SALT.as_bytes(), b"prelogin/salt");
+        assert_eq!(label::PRELOGIN_PROFILE.as_bytes(), b"prelogin/profile");
+        for l in [
+            label::OPAQUE_LOGIN,
+            label::SERVER_PRELOGIN_KEY,
+            label::SERVER_TOTP_KEY,
+            label::SERVER_TOTP_AT_REST,
+            label::PRELOGIN_ACCOUNT_ID,
+            label::PRELOGIN_SALT,
+            label::PRELOGIN_PROFILE,
+        ] {
+            assert!(label::ALL.contains(&l));
         }
     }
 

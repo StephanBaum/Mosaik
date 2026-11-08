@@ -238,7 +238,10 @@ impl From<String> for SecretText {
 }
 
 impl PartialEq for SecretText {
-    /// Constant time in the contents; lengths are not secret.
+    /// Compares the bytes in constant time when the lengths are equal; texts
+    /// of different length compare unequal at once (the length is not secret
+    /// here). For tests and the dedup of imported entries, never for
+    /// authenticating anything.
     fn eq(&self, other: &Self) -> bool {
         self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
     }

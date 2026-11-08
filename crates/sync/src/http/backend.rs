@@ -18,7 +18,7 @@ use super::client::{
 };
 use crate::transport::{
     ChangeToken, Cursor, KeyPushResult, PullPage, PulledKey, PulledMeta, PulledRecord, PushRecord,
-    PushResult, Rejection, RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError,
+    PushResult, RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError,
     TransportKind, VaultCreateResult,
 };
 use crate::wire::json::{
@@ -457,14 +457,10 @@ impl Transport for HttpTransport {
             REQUEST_TIMEOUT,
             MAX_RESPONSE_LEN,
         )?;
-        match reply.json::<Empty>(&[200]) {
-            // `checkpoint_stale`: the server holds this checkpoint or a
-            // newer one (a repeated request). A device whose counter fell
-            // behind the server's is caught by the engine's check of its
-            // own checkpoint, which runs before anything is written.
-            Ok(_) | Err(TransportError::Rejected(Rejection::CheckpointStale)) => Ok(()),
-            Err(e) => Err(e),
-        }
+        // `checkpoint_stale` is passed on: the server holds a checkpoint
+        // with this counter or a higher one, which the engine does not count
+        // as published (CRYPTO_SPEC §10).
+        reply.json::<Empty>(&[200]).map(drop)
     }
 
     fn checkpoints(&mut self) -> Result<Vec<(InstallId, Vec<u8>)>, TransportError> {

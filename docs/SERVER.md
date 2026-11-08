@@ -22,8 +22,9 @@ Only what CRYPTO_SPEC §12 lists:
 - vault IDs, wrapped vault keys, the encrypted vault metadata, records as
   ciphertext with their kind (item or tombstone), size and sequence number, and
   attachments as ciphertext files;
-- each device's latest checkpoint (device ID, counter, per-vault generation and
-  sequence, the MAC the clients check);
+- each device's latest checkpoint (device ID, counter, `issued_at_ms`,
+  per-vault generation, sequence and an opaque 32-byte `view_digest`, and the
+  MAC the clients check; CRYPTO_SPEC §12 is the source of this list);
 - the TOTP secret of a second factor, sealed under a key derived from the
   secret file.
 

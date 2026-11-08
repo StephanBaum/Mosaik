@@ -95,9 +95,12 @@ Contracts the apps must keep:
   alike) is an attack or a stale server and is dropped, never retried.
 - On `Error::VaultKeyConflict` keep going with the held key: another
   device rotated the same vault concurrently. M6 resolves it (the server
-  accepts one key per generation, the losing device rotates again,
-  ADR-0013); records sealed under the other key fail with `ItemCorrupted`
-  meanwhile and change nothing.
+  accepts one key per generation; on the hosted backend a device whose own
+  key the server never accepted adopts the server's key with
+  `adopt_remote_vault_key`, in a folder the key of the lowest writer wins and
+  the loser rotates again; ADR-0013, ADR-0045, CRYPTO_SPEC §10.2); records
+  sealed under the other key fail with `ItemCorrupted` meanwhile and change
+  nothing.
 - One store per install and per writing process: the desktop app and the
   extension never share one, and the store lock refuses a second session
   on the same file, whatever path or symbolic link names it
@@ -487,8 +490,9 @@ the blocking, object-safe `Transport` trait and `TransportError`
 (`put_checkpoint(&[u8])` and `checkpoints() -> Vec<(InstallId, Vec<u8>)>`:
 transports carry checkpoints as opaque bytes). `json::TotpSetupResponse` holds
 its secret and URI in `SecretText` (redacted `Debug`, no `Clone`). Features:
-`test-util`; `opaque` and `http` are reserved (the OPAQUE module and the HTTP
-transport come with the server and client tracks, ADR-0046).
+`test-util`; `opaque` (the OPAQUE ciphersuite module `wire::opaque`, shared by the
+server and the client) and `http` (the HTTP transport and the hosted client
+functions, enables `opaque`) are real since T3 and T4, ADR-0046.
 
 **M6 T2 (engine and folder transport).** `engine::SyncEngine<T: Transport>`
 (`new`, `with_jitter`, `sync_once(&mut impl SessionAccess, &impl Clock)`,
@@ -561,6 +565,25 @@ takes the engine's install ID; `wire::origin::canonical_origin` is the shared or
 normalizer; `PasswordFinishRequest` loses `expected_account_version` (the server uses the
 account version of the session's login).
 
+**M6 T3 to T5 (hosted client and desktop additions, additive).** `wire::opaque`
+(feature `opaque`: `Suite`, the context and identifiers of CRYPTO_SPEC §9.1, an
+`OsRng` over `getrandom`, `opaque_ke` re-exported as `ke`), shared by
+`mosaic-server` and the client. `wire::origin` is the one origin normalizer.
+`http::{HttpTransport, Token, StoredToken, canonical_origin}` (feature `http`):
+`Token` is implemented by `SessionToken` and `StoredToken` (a `SessionToken`
+cannot be rebuilt from bytes, so the desktop's keystore holds a `StoredToken`;
+`connect` and the hosted functions take either). `http::hosted`: `prelogin`,
+`register`, `login` (`LoginGrant`), `login_totp`, `logout`, `join_login` and
+`join_fetch_account` (`JoinLogin`, `JoinAccount`), `password_change`
+(`PasswordChanged`), `recover_password` (`Recovered`; the hosted half of
+`UnlockedSession::adopt_remote_password`), `account_info` (`AccountInfo`),
+`totp_setup` (`TotpSetup`), `totp_confirm`, `totp_disable`, `device_rename` and
+`device_remove`. `FolderTransport::verified_account_file` returns the newest
+account file whose MAC verifies (the folder half of the password recovery).
+`SyncEngine::{halted, clear_halt, clear_findings, finding_vaults}` wrap the
+session's `clear_sync_halt`, `clear_vault_findings` and `sync_findings`; the desktop reads
+`sync_findings()` and acknowledges both behind one action.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on
@@ -571,8 +594,8 @@ account version of the session's login).
   (brief §4).
 - M5: `mosaic-passkey` on top of `PasskeyCredential` and
   `ItemEdit::set_passkey_sign_count`.
-- M6: the upload queue for wrapped vault keys and vault metadata, the
-  checkpoint keys and the sync session API landed in T1 (above); the engine,
-  the folder transport, the server, the HTTP transport and the desktop
-  integration follow in T2 to T5. Sharing and emergency access (§8) move to
-  M6b (ADR-0042).
+- M6: done (T1 to T5, all described above): the upload queue for wrapped
+  vault keys and vault metadata, the checkpoint keys and the sync session API,
+  the engine, the folder transport, the server, the HTTP transport and the
+  desktop integration. Sharing and emergency access (§8) move to M6b
+  (ADR-0042).

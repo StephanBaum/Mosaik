@@ -11,7 +11,7 @@ use super::consts::NO_COMMON_VIEW_GRACE_MS;
 use super::pull::RunStats;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
 use crate::clock::Clock;
-use crate::transport::{Cursor, Transport, TransportError, TransportKind};
+use crate::transport::{Cursor, Rejection, Transport, TransportError, TransportKind};
 use crate::wire::WireError;
 use crate::wire::checkpoint::{
     Checkpoint, CheckpointEntry, MAX_ENTRIES, NO_VIEW, view_digest, view_key_commit,
@@ -206,6 +206,28 @@ fn track_comparison(
     }
 }
 
+/// Compares one peer's entries with this device's views. Per (peer, vault):
+/// the digest of a vault that was acknowledged or is being rebuilt is not
+/// compared; the others are.
+fn compare_peer(
+    s: &mut UnlockedSession,
+    cp: &PeerCheckpoint,
+    synced: &[VaultId],
+    generations: &BTreeMap<VaultId, KeyGeneration>,
+    skips: &[(InstallId, VaultId)],
+    now: u64,
+) -> Result<(), Error> {
+    for entry in cp.entries.iter().filter(|e| synced.contains(&e.vault_id)) {
+        if skips.contains(&(cp.device_id, entry.vault_id)) {
+            continue;
+        }
+        let same = generations.get(&entry.vault_id) == Some(&entry.generation);
+        let compared = same && compare_view(s, entry)?;
+        track_comparison(s, cp, entry, compared, now)?;
+    }
+    Ok(())
+}
+
 /// What the own checkpoint on the backend says about this install.
 enum Verdict {
     Fine,
@@ -247,7 +269,6 @@ impl<T: Transport> SyncEngine<T> {
                             view_digest: e.view_digest,
                         })
                         .collect(),
-                    digests_acknowledged: false,
                 })?;
             }
             let seen = best.get(&own).map_or(0, |c| c.counter);
@@ -360,18 +381,16 @@ impl<T: Transport> SyncEngine<T> {
                 .map(|v| (v.vault_id, v.key_generation))
                 .collect();
             let synced = s.synced_vaults();
-            let peers: Vec<PeerCheckpoint> = s
-                .peer_checkpoints()?
-                .into_iter()
-                .filter(|cp| !cp.digests_acknowledged)
-                .collect();
+            let peers = s.peer_checkpoints()?;
+            let skips = s.digest_skips()?;
+            // A rebuild that keeps a deferred record ends here, with a
+            // finding for its vault (CRYPTO_SPEC §10): the skip of stale
+            // digests must not outlive the rebuild for good.
+            for vault in s.expire_rebuild_deferrals(now, NO_COMMON_VIEW_GRACE_MS)? {
+                s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+            }
             for cp in &peers {
-                for entry in cp.entries.iter().filter(|e| synced.contains(&e.vault_id)) {
-                    let same_generation =
-                        generations.get(&entry.vault_id) == Some(&entry.generation);
-                    let compared = same_generation && compare_view(s, entry)?;
-                    track_comparison(s, cp, entry, compared, now)?;
-                }
+                compare_peer(s, cp, &synced, &generations, &skips, now)?;
             }
             Ok(())
         })??;
@@ -436,8 +455,18 @@ impl<T: Transport> SyncEngine<T> {
                 WireError::Locked => SyncError::Locked,
                 _ => SyncError::Transport(TransportError::Protocol),
             })?;
-        self.transport.put_checkpoint(&bytes)?;
-        access.with(|s| s.set_last_published_counter(counter))??;
+        match self.transport.put_checkpoint(&bytes) {
+            Ok(()) => access.with(|s| s.set_last_published_counter(counter))??,
+            // The server holds this counter or a higher one: no honest
+            // device causes that (it sends a higher counter every run), so
+            // it is a repeat or a forged upload from a stolen token (R62).
+            // The run goes on, but the published counter stays where it
+            // was: counting it would turn the forged checkpoint's absence
+            // from the verified ones into strikes and a halt that comes
+            // back after every acknowledgement.
+            Err(TransportError::Rejected(Rejection::CheckpointStale)) => {}
+            Err(e) => return Err(e.into()),
+        }
         Ok(())
     }
 

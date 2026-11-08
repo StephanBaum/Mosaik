@@ -3868,9 +3868,26 @@ leaves the lifetime of the token, the order of the fresh-login flows, the wait l
   seen within the slice; the long poll of the server cannot be interrupted. A halt stops the automatic runs until
   `sync_acknowledge`, which clears the halt and the findings against the server behind one confirm and syncs.
 - **The master password change** goes to the server first and to the device afterwards; an unreachable server
-  refuses it (`syncPasswordNeedsServer`). The folder writes the new account file first. A password change leaves
-  quick unlock removed, as before.
+  refuses it (`syncPasswordNeedsServer`) as long as `password/finish` has not been sent. After that a timeout, an
+  unreachable server or a 5xx is an unknown outcome, not "nothing changed" (milestone review M2): the device
+  checks at once with the new password and commits locally if the server's wrapped AK is byte-equal to the prepared
+  one; if the check fails too the error is `syncPasswordOutcomeUnknown` with `passwordChanged` set, and
+  `sync_recover_password` settles it. The folder writes the new account file first. A password change leaves quick
+  unlock removed, as before.
 - **The folder path** never reaches the webview as input: a random `choiceId` names it for five minutes (ADR-0034).
+
+### M6 milestone review follow-ups (2026-11-07)
+- **Reconnecting a folder** (M3): on a connect and at the start of the folder thread the device compares the highest
+  verified account file with its stored parameters. A retired salt, or a version at or below the stored one with
+  other parameters, is replaced by the device's own parameters at the highest version plus one; a newer file that is
+  not retired sets `passwordChanged` (CRYPTO_SPEC §10.1). The stored folder account version is cleared on every change
+  of backend (L1); the retired salts stay and still catch a rollback.
+- **Pending logins and locks** (I2): `set_pending_in` rechecks the lock epoch after it sets and undoes the pending
+  login if it moved; the second-factor connect path takes the same route.
+- **Digest skip and rebuild bound** (M1), **`checkpoint_stale`** (L4) and the label registry (L2): CRYPTO_SPEC §3, §10.
+  The published counter does not advance on a stale answer: a forged high counter from a stolen token then costs one
+  strike and no halt loop. The price: a device whose own checkpoint was shadowed that way stays stale until it is
+  removed and signs in again (R62), and its rollback detection is suppressed meanwhile.
 
 ### T5 review follow-ups (2026-11-07)
 - **Password change versus lock and crash.** A change in flight (`SyncService::begin_change`) defers a lock for up to
@@ -3880,7 +3897,8 @@ leaves the lifetime of the token, the order of the fresh-login flows, the wait l
   `UnlockedSession::adopt_remote_password` (the join derivation plus a constant-time equality of the account key),
   `hosted::recover_password`, `FolderTransport::verified_account_file`, the command `sync_recover_password` (a wrong
   password counts towards the five-failure lock) and the flag `SyncOverview.passwordChanged` with the error
-  `syncPasswordChanged`. The lost-answer retry of §9.4 (byte-equal wrapped AK) stays: it covers a retry within one run.
+  `syncPasswordChanged`. The lost-answer check of §9.4 (byte-equal wrapped AK) stays, and now also runs straight after a finish whose
+  answer was lost (milestone review M2), not only on a later retry.
 - **Older generations.** Every write of the sync thread checks its generation under the lock of the view; the token
   delete of a 401 is a compare-and-delete (constant time) serialized with every token save, and leaves the status alone
   when a newer login replaced the token.

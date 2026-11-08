@@ -384,7 +384,7 @@ impl TestApp {
             opw,
             CredentialResponse::deserialize(&started.credential_response.0).expect("resp"),
             ClientLoginFinishParameters::new(
-                Some(LOGIN_CONTEXT),
+                Some(LOGIN_CONTEXT.as_slice()),
                 identifiers(account_id.as_bytes(), ORIGIN.as_bytes()),
                 None,
             ),

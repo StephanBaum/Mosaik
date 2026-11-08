@@ -12,7 +12,13 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::JoinHandle;
+
+use axum::extract::{Request, State};
+use axum::http::StatusCode;
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 
 use mosaic_server::{AppState, Config, Db, ManualClock, ServerKeys, app};
 use mosaic_sync::wire::json::RegistrationMode;
@@ -20,8 +26,44 @@ use mosaic_sync::wire::json::RegistrationMode;
 /// The server clock at the start (Unix ms).
 pub const SERVER_T0: u64 = 1_800_000_000_000;
 
+/// Faults a test can switch on: the network between client and server, not
+/// the server (what it committed stays committed).
+#[derive(Default)]
+pub struct Faults {
+    /// How many answers to `POST /v1/account/password/finish` are lost: the
+    /// server handles the request and commits, the client gets a 503.
+    pub lose_finish_answers: AtomicU32,
+    /// Whether losing such an answer also starts an `outage` (the check that
+    /// follows cannot reach the server either).
+    pub outage_after_loss: AtomicBool,
+    /// While set, every request answers 503 without reaching the server.
+    pub outage: AtomicBool,
+}
+
+async fn apply_faults(State(faults): State<Arc<Faults>>, request: Request, next: Next) -> Response {
+    if faults.outage.load(Ordering::SeqCst) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    let finish = request.uri().path() == "/v1/account/password/finish";
+    let response = next.run(request).await;
+    if finish
+        && faults
+            .lose_finish_answers
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+    {
+        if faults.outage_after_loss.load(Ordering::SeqCst) {
+            faults.outage.store(true, Ordering::SeqCst);
+        }
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    response
+}
+
 /// A running server. Dropping it stops the server.
 pub struct LoopbackServer {
+    /// The network faults of this server.
+    pub faults: Arc<Faults>,
     /// `http://127.0.0.1:<port>`, the server's canonical origin.
     pub base: String,
     /// The application state (database, invites).
@@ -73,7 +115,11 @@ impl LoopbackServer {
             clock.clone(),
         );
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-        let router = app(state.clone());
+        let faults = Arc::new(Faults::default());
+        let router = app(state.clone()).layer(middleware::from_fn_with_state(
+            Arc::clone(&faults),
+            apply_faults,
+        ));
         let thread = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -92,6 +138,7 @@ impl LoopbackServer {
             });
         });
         Self {
+            faults,
             base,
             state,
             clock,
