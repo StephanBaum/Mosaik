@@ -46,6 +46,8 @@ pub(super) struct Collected {
     pub(super) shares: Vec<PulledShare>,
     pub(super) rosters: Vec<PulledRoster>,
     pub(super) role: Option<Role>,
+    /// The owner's page said a member that re-keyed asked for a rotation (M7).
+    pub(super) rotation_requested: bool,
 }
 
 impl Collected {
@@ -63,6 +65,7 @@ impl Collected {
         if page.role.is_some() {
             self.role = page.role;
         }
+        self.rotation_requested |= page.rotation_requested;
     }
 }
 
@@ -280,6 +283,9 @@ impl<T: Transport> SyncEngine<T> {
         stats: &mut RunStats,
         follow: bool,
     ) -> Result<(), SyncError> {
+        if collected.rotation_requested {
+            stats.rotation_requested.insert(vault);
+        }
         if !self.sharing_offered() {
             return Ok(());
         }
@@ -530,7 +536,37 @@ impl<T: Transport> SyncEngine<T> {
         let outgoing = self.sync_invites(access, report)?;
         self.push_pending_rosters(access, report, stats)?;
         self.process_revocations(access, report, stats, &outgoing)?;
+        self.process_rotation_requests(access, report, stats)?;
         self.refresh_emergency(access, report)
+    }
+
+    /// Rotates the shared vaults this account owns whose pull said a member
+    /// re-keyed and asked for a rotation (M7, CRYPTO_SPEC §6.6): the old
+    /// account key of that member still opens the vault until the owner
+    /// rotates. Nobody is locked out by this: the plan is strict, so a member
+    /// whose new identity key nobody here has verified yet (or whose key does
+    /// not match the roster) keeps the rotation waiting
+    /// ([`SyncWarning::RotationBlocked`]) instead of being revoked. The
+    /// request is advisory (THREAT_MODEL R86): the server cannot force it.
+    fn process_rotation_requests(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+    ) -> Result<(), SyncError> {
+        for vault in core::mem::take(&mut stats.rotation_requested) {
+            let owned =
+                access.with(|s| -> Result<bool, Error> {
+                    Ok(s.vault_shared(vault)?
+                        && !s.vault_access_lost(vault)?
+                        && s.owns_vault(vault)?)
+                })??;
+            if !owned || report.rotated_vaults.contains(&vault) {
+                continue;
+            }
+            self.rotate_shared(access, vault, &BTreeSet::new(), true, report, stats)?;
+        }
+        Ok(())
     }
 
     /// Counts the invites waiting for this account and turns a delivered
@@ -710,7 +746,7 @@ impl<T: Transport> SyncEngine<T> {
             if explicit.is_empty() && left.is_empty() {
                 continue;
             }
-            self.rotate_shared(access, vault, &explicit, report, stats)?;
+            self.rotate_shared(access, vault, &explicit, false, report, stats)?;
         }
         Ok(())
     }
@@ -767,17 +803,22 @@ impl<T: Transport> SyncEngine<T> {
 
     /// The rotation plan of `vault` from the roster, the server's members
     /// and the emergency grants; `None` if a key the plan needs is not
-    /// available (the rotation waits).
+    /// available (the rotation waits). A `strict` plan (the rotation a
+    /// member's re-key asked for, and the re-key itself) locks nobody out and
+    /// cancels no invite: where the normal plan would revoke a member or drop
+    /// an invite because a key is unverified or does not match, it returns
+    /// `None` instead.
     #[expect(
         clippy::too_many_lines,
         reason = "the plan of one rotation: members, invitees, grants and their checks belong together"
     )]
-    fn build_plan(
+    pub(super) fn build_plan(
         &mut self,
         access: &mut impl SessionAccess,
         vault: VaultId,
         explicit: &BTreeSet<AccountId>,
         members: &MembersView,
+        strict: bool,
     ) -> Result<Option<RotationPlan>, SyncError> {
         let own = access.with(|s| s.account_id())?;
         let Some(roster) = access.with(|s| s.vault_roster(vault))?? else {
@@ -808,6 +849,9 @@ impl<T: Transport> SyncEngine<T> {
         let mut invites: Vec<(InviteId, AccountId)> = Vec::new();
         for inv in &members.invites {
             if revoked.contains(&inv.recipient) || !active.contains_key(&inv.recipient) {
+                if strict {
+                    return Ok(None);
+                }
                 // An invite that cannot be sealed under the new key.
                 self.drop_invite(&inv.invite_id)?;
             } else {
@@ -828,6 +872,9 @@ impl<T: Transport> SyncEngine<T> {
                         account: *account,
                     },
                 )?;
+                if strict {
+                    return Ok(None);
+                }
                 revoked.insert(*account);
                 continue;
             };
@@ -858,6 +905,9 @@ impl<T: Transport> SyncEngine<T> {
                     SharingFinding::MemberUnverified { vault, account }
                 };
                 Self::note_finding(access, finding)?;
+                if strict {
+                    return Ok(None);
+                }
                 revoked.insert(account);
                 continue;
             }
@@ -904,6 +954,7 @@ impl<T: Transport> SyncEngine<T> {
             };
             match entry {
                 Some(e) if usable => plan.invites.push((invite, account, e.ipk)),
+                _ if strict => return Ok(None),
                 _ => {
                     self.drop_invite(&invite)?;
                     revoked.insert(account);
@@ -945,6 +996,7 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         vault: VaultId,
         explicit: &BTreeSet<AccountId>,
+        strict: bool,
         report: &mut SyncReport,
         stats: &mut RunStats,
     ) -> Result<Option<KeyGeneration>, SyncError> {
@@ -957,7 +1009,7 @@ impl<T: Transport> SyncEngine<T> {
                 Err(e) => return Err(e.into()),
             };
             self.fetch_vault_attachments(access, vault)?;
-            let Some(plan) = self.build_plan(access, vault, explicit, &members)? else {
+            let Some(plan) = self.build_plan(access, vault, explicit, &members, strict)? else {
                 report.warnings.push(SyncWarning::RotationBlocked { vault });
                 return Ok(None);
             };

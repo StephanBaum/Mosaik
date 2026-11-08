@@ -28,6 +28,7 @@ mod init;
 mod layout;
 mod maintain;
 mod reader;
+mod rekey;
 mod writer;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -45,8 +46,8 @@ use self::layout::{HEAD_NAME, INFO_NAME, Layout};
 use crate::clock::Clock;
 use crate::transport::{
     ChangeToken, Cursor, KeyPushResult, MaintainContext, PullPage, PushRecord, PushResult,
-    RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError, TransportKind,
-    VaultCreateResult,
+    RekeyCandidate, RekeyPublish, RekeySignals, RemoteAttachment, RemoteDevice, RemoteVault,
+    Transport, TransportError, TransportKind, VaultCreateResult,
 };
 use crate::wire::device_info::DeviceInfo;
 use crate::wire::segment::SnapshotInfo;
@@ -139,6 +140,14 @@ pub struct FolderTransport<C: FolderCrypto> {
     /// last [`Transport::checkpoints`] call read (name, length, time): only
     /// conflict copies read in the run are deleted.
     pub(crate) own_checkpoints_read: BTreeMap<OsString, (u64, Option<SystemTime>)>,
+    /// This device's name and platform, published again as `info.mdev` after
+    /// a re-key (the sealed file is under the account key of its epoch).
+    pub(crate) device: DeviceInfo,
+    /// The account-key epoch the verification results in `scan` belong to
+    /// (0 before the first look): a segment that verified under the previous
+    /// epoch's keys does not verify under the new ones, so the cache is
+    /// dropped when the epoch changes (M7).
+    pub(crate) scan_epoch: u32,
 }
 
 impl<C: FolderCrypto> core::fmt::Debug for FolderTransport<C> {
@@ -177,6 +186,8 @@ impl<C: FolderCrypto> FolderTransport<C> {
             own_next: BTreeMap::new(),
             force_compact: BTreeSet::new(),
             own_checkpoints_read: BTreeMap::new(),
+            device: config.device.clone(),
+            scan_epoch: 0,
         };
         transport.write_device_info(&config.device)?;
         Ok(transport)
@@ -208,6 +219,20 @@ impl<C: FolderCrypto> FolderTransport<C> {
 
     pub(crate) fn now_ms(&self) -> u64 {
         self.clock.now_ms()
+    }
+
+    /// Drops the cached verification results when the account-key epoch of
+    /// the session changed since they were made.
+    pub(crate) fn refresh_epoch(&mut self) -> Result<(), TransportError> {
+        let epoch = self
+            .crypto
+            .ak_epoch()
+            .map_err(|e| lock_or(e, TransportError::Io))?;
+        if epoch != self.scan_epoch {
+            self.scan.clear();
+            self.scan_epoch = epoch;
+        }
+        Ok(())
     }
 }
 
@@ -349,6 +374,30 @@ impl<C: FolderCrypto> Transport for FolderTransport<C> {
 
     fn maintain(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {
         self.folder_maintain(cx)
+    }
+
+    fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
+        self.folder_rekey_signals(epoch)
+    }
+
+    fn rekey_candidates(
+        &mut self,
+        epoch: u32,
+        limit: usize,
+    ) -> Result<Vec<RekeyCandidate>, TransportError> {
+        self.folder_rekey_candidates(epoch, limit)
+    }
+
+    fn next_folder_account_version(&mut self) -> Result<Option<u64>, TransportError> {
+        self.next_account_version().map(Some)
+    }
+
+    fn publish_rekey(
+        &mut self,
+        cx: &mut dyn MaintainContext,
+        publish: &RekeyPublish<'_>,
+    ) -> Result<(), TransportError> {
+        self.folder_publish_rekey(cx, publish)
     }
 
     fn wait_for_change(

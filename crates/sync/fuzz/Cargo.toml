@@ -3,7 +3,7 @@ name = "mosaic-sync-fuzz"
 version = "0.0.0"
 edition = "2024"
 publish = false
-description = "cargo-fuzz targets for the mosaic-sync wire decoders: segments, checkpoints, account files, delete markers, cursors, file names, email normalization and the hosted JSON bodies (nightly only)"
+description = "cargo-fuzz targets for the mosaic-sync wire decoders: segments, checkpoints, account files, re-key markers, delete markers, cursors, file names, email normalization and the hosted JSON bodies (nightly only)"
 
 [package.metadata]
 cargo-fuzz = true
@@ -47,6 +47,13 @@ bench = false
 [[bin]]
 name = "account_file_decode"
 path = "fuzz_targets/account_file_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rekey_marker_decode"
+path = "fuzz_targets/rekey_marker_decode.rs"
 test = false
 doc = false
 bench = false

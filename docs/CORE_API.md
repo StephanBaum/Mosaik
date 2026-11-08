@@ -779,6 +779,72 @@ refuses a backend change while a job exists.
 
 `SyncHalt` is unchanged: the re-key marker sets the `rekey_pending` flag, not a halt.
 
+### `mosaic-sync` (T4: account re-key in the engine, hosted and folder)
+
+- `wire::account_file`: `AccountFile` gains `ak_epoch`; `encode` writes v2 (172
+  bytes, `LEN`), the decoders also read v1 (168 bytes, `LEN_V1`) as epoch 1.
+  `wire::rekey_marker` (new): `RekeyMarker`, `RekeyMarkerPath`, `LEN` (93 bytes);
+  `decode` verifies the MAC under the keys behind the `SyncCrypto` it is given (the
+  epoch the marker leaves). `wire::folder_names`: `FolderName::RekeyMarker`,
+  `rekey_marker_name`. `SyncCrypto::ak_epoch()` (default 1; the session
+  reports its epoch); `KeyedCrypto::with_epoch`. Byte vectors: the script and checked-in
+  output in `crates/sync/tests/vectors/` (`sync_kat.py [--check]`, `sync_kat.txt`).
+- `wire::json::rekey` (new): `RekeyStartRequest`, `RekeyFinishRequest`
+  (`RekeyVaultEntry`, `RekeyMemberRewrap`, `RekeyEmergencySeal`),
+  `RekeyFinishResponse`, `AccountWithEpoch` (`GET /v1/account?epoch=1`,
+  `akEpoch` and optional `identity`), `EpochMismatchDetail`, `RekeyMismatchDetail`;
+  codes `EPOCH_MISMATCH`, `PROFILE_DOWNGRADE`, `REKEY_MISMATCH`.
+  `SharingChangesResponse.rotation_requested` (`?sharing=1&rotation=1`, the owner's
+  page). `transport::Rejection` gains `EpochMismatch { current_epoch }`,
+  `ProfileDowngrade` and `RekeyMismatch { set: RekeySet }`; `PullPage` gains
+  `rotation_requested`.
+- `transport`: `Transport::{rekey_signals(epoch), rekey_candidates(epoch, limit),
+  next_folder_account_version, publish_rekey(cx, &RekeyPublish)}` (defaults: nothing;
+  the folder implements them; wrappers pass them on) with `RekeySignals`,
+  `RekeyMarkerSeen`, `UnverifiedAccountFile`, `RekeyCandidate`, `RekeyPublish`.
+  `MaintainContext` gains `rekey_floors` and `mark_rekey_snapshot` (defaults: none).
+- `http::hosted`: `rekey(base, address, &PreparedRekey, device, name, totp, on_stage)`
+  (fresh login, `rekey/start`, atomic `rekey/finish`, lost-answer probe by byte-equal
+  wrapped AK at the target epoch; `RekeyStage::{Started, Accepted}` drive the
+  journal; `RekeyOutcome::{Done(RekeyFinished), Refused(RekeyRefusal)}`),
+  `recover_rekey(&RecoverRequest)` (login with the typed new password and Secret
+  Key, `GET /v1/account?epoch=1&identity=1`, the key rows the server serves for the
+  member vaults; `RekeyRecovered`), `account_epoch`.
+- `engine`: `SyncError::AccountRekeyed` (a verified `.mrek` for this device's epoch;
+  the persisted re-key-pending flag, not a `Halt`; nothing is written or purged while
+  it is set; checked before any write), `SyncWarning::UnverifiedAccountFile { name,
+  sha256, epoch }` (an account file that does not verify and names this epoch (after a
+  re-key) or a higher one: a finding, never a halt; `SyncEngine::dismiss_account_file`
+  remembers it by name and SHA-256), `RekeyError`, `RekeySecrets`, `RekeyProgress`.
+  `SyncEngine::rekey_hosted(access, clock, &HostedRekey, &RekeySecrets)` →
+  `HostedRekeyDone` (run to head; a strict plan that locks nobody out; prepare; send;
+  commit; at most three attempts on `head_moved`/`generation_taken`; the transport
+  must be connected with the returned grant afterwards), `rekey_folder(access, clock,
+  &RekeySecrets)` (prepare builds the marker, commit, then the v2 account file at the
+  highest verified version + 1, a snapshot set of every vault, the marker and the
+  device info), `rekey_continue` (finishes a folder publication, re-seals attachments
+  within the download budget, uploads, closes the job; `RekeyProgress`),
+  `rekey_finish_if_clean`, `resume_hosted_rekey(access, &HostedRekey, new_password,
+  pending_secret_key, current_secret_key, typed_last_group)` → `ResumeOutcome::{Adopted,
+  NotApplied}` (**the user retypes the last group of the new Secret Key**:
+  `RekeyError::KitGroupMismatch` otherwise; the desktop owns that screen),
+  `adopt_hosted_rekey(access, &HostedRekey, password, typed_sk, current_sk, device)`
+  and `SyncEngine::adopt_folder_rekey(access, clock, password, typed_sk, current_sk)`
+  (candidates ranked: the file a verified marker names first, then by version, at
+  most eight Argon2id derivations; the MAC is checked under the key the typed
+  credentials open before the vault adopts; floors of the own logs are recorded
+  first; this device then writes its own snapshot sets). Adoption is only at epoch
+  + 1; an equal-epoch conflict is resolved by re-keying again from a device that
+  holds the current AK.
+- Folder retention (CRYPTO_SPEC §10.1): own segments up to a vault's re-key floor
+  are never removed by the 24-hour rule or by compaction; they go when the vault's
+  `snapshot_done` is set and `BLOB_RETENTION_MS` (30 days) passed since `rekey_at`.
+  The folder transport drops its verification cache when the epoch changes, and
+  the own-log rollback check skips vaults whose floor has no snapshot yet.
+- `SyncWarning::RotationBlocked` is also raised for a rotation a member's re-key
+  asked for (`rotation_requested`) when a member's key is unverified or does not match
+  the roster (the plan is strict: nobody is locked out, no invite is cancelled).
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

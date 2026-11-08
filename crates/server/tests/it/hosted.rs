@@ -374,7 +374,8 @@ use std::sync::{Arc, Mutex};
 use mosaic_core::{AttachmentId, KeyGeneration, VaultMetaCiphertext, WrappedKey};
 use mosaic_sync::transport::{
     ChangeToken, Cursor, KeyPushResult, MaintainContext, PullPage, PushRecord, PushResult,
-    RemoteAttachment, RemoteDevice, RemoteVault, TransportError, VaultCreateResult,
+    RekeyCandidate, RekeyPublish, RekeySignals, RemoteAttachment, RemoteDevice, RemoteVault,
+    TransportError, VaultCreateResult,
 };
 use mosaic_vault::storage::RecordKind;
 
@@ -523,6 +524,30 @@ impl<T: Transport> Transport for Intercept<T> {
 
     fn devices(&mut self) -> Result<Vec<RemoteDevice>, TransportError> {
         self.inner.devices()
+    }
+
+    fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
+        self.inner.rekey_signals(epoch)
+    }
+
+    fn rekey_candidates(
+        &mut self,
+        epoch: u32,
+        limit: usize,
+    ) -> Result<Vec<RekeyCandidate>, TransportError> {
+        self.inner.rekey_candidates(epoch, limit)
+    }
+
+    fn next_folder_account_version(&mut self) -> Result<Option<u64>, TransportError> {
+        self.inner.next_folder_account_version()
+    }
+
+    fn publish_rekey(
+        &mut self,
+        cx: &mut dyn MaintainContext,
+        publish: &RekeyPublish<'_>,
+    ) -> Result<(), TransportError> {
+        self.inner.publish_rekey(cx, publish)
     }
 
     fn maintain(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {

@@ -18,6 +18,7 @@
 mod compaction;
 mod hostile;
 mod races;
+mod rekey;
 mod review;
 mod skew;
 mod util;

@@ -29,6 +29,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+pub mod rekey;
 pub mod sharing;
 
 /// The most a client reads of a JSON response.
@@ -953,6 +954,10 @@ pub mod codes {
     pub const ROLE_FORBIDDEN: &str = "role_forbidden";
     pub const MEMBERS_MISMATCH: &str = "members_mismatch";
     pub const IDENTITY_EXISTS: &str = "identity_exists";
+    // Account re-key (M7).
+    pub const EPOCH_MISMATCH: &str = "epoch_mismatch";
+    pub const PROFILE_DOWNGRADE: &str = "profile_downgrade";
+    pub const REKEY_MISMATCH: &str = "rekey_mismatch";
     pub const CONFLICT: &str = "conflict";
     pub const INVITE_EXISTS: &str = "invite_exists";
     pub const INVITE_STALE: &str = "invite_stale";

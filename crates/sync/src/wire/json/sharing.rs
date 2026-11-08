@@ -510,4 +510,8 @@ pub struct SharingChangesResponse {
     pub role: u8,
     pub shares: Vec<ChangeShare>,
     pub rosters: Vec<ChangeRoster>,
+    /// The owner's page only (`rotation=1`, M7): a member re-keyed and asked
+    /// for a rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_requested: Option<bool>,
 }

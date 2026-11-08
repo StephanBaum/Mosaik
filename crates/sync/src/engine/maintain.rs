@@ -3,7 +3,7 @@
 
 use mosaic_core::{AttachmentId, VaultId};
 use mosaic_vault::session::{Error, UnlockedSession};
-use mosaic_vault::storage::{MarkerStamp, RecordBody};
+use mosaic_vault::storage::{FolderRekeyFloor, MarkerStamp, RecordBody};
 
 use super::{SessionAccess, SyncEngine, SyncError};
 use crate::transport::{MaintainContext, Transport, TransportError};
@@ -53,14 +53,30 @@ fn snapshot_objects(s: &UnlockedSession, vault: VaultId) -> Result<Vec<SegmentOb
     Ok(objects)
 }
 
-struct Cx<'a, A: SessionAccess> {
+pub(super) struct Cx<'a, A: SessionAccess> {
     access: &'a mut A,
     now: u64,
     caught_up: bool,
     failure: Option<SyncError>,
 }
 
-impl<A: SessionAccess> Cx<'_, A> {
+impl<'a, A: SessionAccess> Cx<'a, A> {
+    /// A context that is not part of a housekeeping run (the re-key
+    /// publication, M7): nothing is purged, so it is never `caught_up`.
+    pub(super) const fn new(access: &'a mut A, now: u64) -> Self {
+        Self {
+            access,
+            now,
+            caught_up: false,
+            failure: None,
+        }
+    }
+
+    /// The session or locking failure a step recorded, if any.
+    pub(super) fn take_failure(&mut self) -> Option<SyncError> {
+        self.failure.take()
+    }
+
     fn step<R>(
         &mut self,
         f: impl FnOnce(&mut UnlockedSession) -> Result<R, Error>,
@@ -107,6 +123,14 @@ impl<A: SessionAccess> MaintainContext for Cx<'_, A> {
         now: u64,
     ) -> Result<Vec<u64>, TransportError> {
         self.step(|s| s.marker_first_seen(vault, markers, now))
+    }
+
+    fn rekey_floors(&mut self) -> Result<Vec<FolderRekeyFloor>, TransportError> {
+        self.step(|s| s.folder_rekey_floors())
+    }
+
+    fn mark_rekey_snapshot(&mut self, vault: VaultId) -> Result<(), TransportError> {
+        self.step(|s| s.mark_folder_rekey_snapshot(vault))
     }
 }
 

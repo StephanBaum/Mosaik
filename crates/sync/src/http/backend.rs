@@ -227,6 +227,7 @@ fn convert_page(
         shares,
         rosters,
         role: Some(role),
+        rotation_requested: page.rotation_requested.unwrap_or(false),
     })
 }
 
@@ -325,9 +326,9 @@ impl Transport for HttpTransport {
         let limit = limit.clamp(1, MAX_PAGE);
         // `sharing=1`: the page also carries the role, the key shares for
         // this account and the rosters (the M6 page stays strict for older
-        // clients).
+        // clients); `rotation=1` adds `rotationRequested` to the owner's page.
         let page: SharingChangesResponse = self.get(&format!(
-            "/v1/vaults/{vault}/changes?since={since}&limit={limit}&sharing=1"
+            "/v1/vaults/{vault}/changes?since={since}&limit={limit}&sharing=1&rotation=1"
         ))?;
         convert_page(page, since, limit)
     }

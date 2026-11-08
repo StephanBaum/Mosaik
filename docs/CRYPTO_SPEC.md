@@ -445,7 +445,7 @@ addressed to it, cancels its incoming pending invites, files a rotation request
 for each owner of a vault it is a member of, ends every other session and
 audits it. `rekey/finish` also ends pending OPAQUE and second-factor logins,
 enforces the version-at-login rule of §9.4, and deletes server-held
-hardware-key (PRF) AK wrappings, which belong to the old AK. A lost answer is
+hardware-key (PRF) AK wrappings, which belong to the old AK (this build stores none on the server, §12). A lost answer is
 settled by a login with the new `OPW`: if the
 wrapped AK equals the prepared one byte for byte and the epoch is the target,
 the device commits; otherwise the next resume probes again or adopts.
@@ -1924,7 +1924,7 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | `ak_epoch` (§6.7), retired-Secret-Key commitments (local only), rotation requests (vault, requester, time) and invites cancelled by a re-key | which AK a wrapping belongs to, owner notice of a member's re-key |
 | OPAQUE registration record | login |
 | identity public key `ipk` and the wrapped `isk` (§8.1) | sharing, adoption on a new device |
-| wrapped AK (password and PRF methods, with the PRF methods' public parameters: PRF salt, RP ID, credential ID), TK wrappings of hardware-protected vaults with their public parameters, wrapped VKs, HPKE share seals | multi-device unlock, sharing |
+| wrapped AK (password method only; this build stores no PRF-wrapped AK and no PRF parameters (PRF salt, RP ID, credential ID) on the server: hardware-key unlock wrappings and hardware-protected vaults with their TK wrappings stay on the device, §6.3, §7.4), wrapped VKs, HPKE share seals | multi-device unlock, sharing |
 | vault IDs, membership (`account_id` → `vault_id`, role, origin `owner`, `invite` or `emergency`) | access control |
 | invites (sender, recipient, vault, role, generation, seal, times, delivered time), key-share seals until claimed, block lists | sharing (§8.2, §8.3), spam control |
 | roster ciphertext per vault and generation (§8.2), contact book ciphertext and its length (§8.5) | sharing, pin sync across devices |

@@ -5,6 +5,9 @@
 //! part. The encoders must produce exactly these bytes and the decoders must
 //! accept them.
 //!
+//! The M7 objects (the v2 account file and the re-key marker) have their own
+//! script, `crates/sync/tests/vectors/sync_kat.py`, and checked-in output.
+//!
 //! The MACs come from [`KatCrypto`], which computes HMAC-SHA-256 under the
 //! script's derived keys with a few lines of RFC 2104 over `sha2`; it shares
 //! nothing with `mosaic-core` but the key bytes read from the vector file
@@ -33,7 +36,19 @@ fn kat() -> BTreeMap<String, Vec<u8>> {
         .join("tests")
         .join("vectors")
         .join("sync_kat.txt");
-    let text = std::fs::read_to_string(path).unwrap();
+    parse_kat(&std::fs::read_to_string(path).unwrap())
+}
+
+/// The vectors of the sync crate's own script (the M7 wire objects).
+fn kat_m7() -> BTreeMap<String, Vec<u8>> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("vectors")
+        .join("sync_kat.txt");
+    parse_kat(&std::fs::read_to_string(path).unwrap())
+}
+
+fn parse_kat(text: &str) -> BTreeMap<String, Vec<u8>> {
     text.lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .map(|l| {
@@ -100,6 +115,7 @@ impl KatCrypto {
             FolderMacPurpose::Segment => "sync/folder-segment",
             FolderMacPurpose::Account => "sync/folder-account",
             FolderMacPurpose::BlobDelete => "sync/folder-blob-delete",
+            FolderMacPurpose::Rekey => "sync/folder-rekey",
         };
         let mut full = ctx(label);
         full.push(0);
@@ -260,14 +276,16 @@ fn the_account_file_matches_the_script() {
     let file = AccountFile {
         account_id: account(),
         account_version: 2,
+        ak_epoch: 1,
         device_id: install(),
         salt: AccountSalt::from_bytes([0x66; 16]),
         profile: Argon2Profile::Baseline,
         wrapped_ak: WrappedKey::from_bytes(&wrapped).unwrap(),
     };
-    let bytes = file.encode(&crypto).unwrap();
+    // The v1 vector of the core script: a v2 decoder reads it as epoch 1,
+    // and the encoder writes v2 now (the M7 vector below).
+    let bytes = k["account_file_bytes"].clone();
     assert_eq!(bytes.len(), 168);
-    assert_eq!(bytes, k["account_file_bytes"]);
     let path = AccountFilePath {
         account_id: account(),
         account_version: 2,
@@ -351,5 +369,88 @@ fn the_snapshot_part_matches_the_script() {
     assert_eq!(
         Segment::decode(&bytes, &wrong, &crypto),
         Err(WireError::Path)
+    );
+}
+
+fn crypto_of(k: &BTreeMap<String, Vec<u8>>, key: &str) -> KatCrypto {
+    KatCrypto {
+        k_cp: [0; 32],
+        k_fold: k[key].as_slice().try_into().unwrap(),
+        install: install(),
+    }
+}
+
+#[test]
+fn the_v2_account_file_matches_the_script() {
+    let k = kat_m7();
+    // The old folder key is the core vector's.
+    assert_eq!(k["k_fold_old"], kat()["k_fold"]);
+    let new = crypto_of(&k, "k_fold_new");
+    let mut wrapped = vec![0x01, 0x01];
+    wrapped.extend_from_slice(&[0x77; 72]);
+    let file = AccountFile {
+        account_id: account(),
+        account_version: 2,
+        ak_epoch: 2,
+        device_id: install(),
+        salt: AccountSalt::from_bytes([0x66; 16]),
+        profile: Argon2Profile::Baseline,
+        wrapped_ak: WrappedKey::from_bytes(&wrapped).unwrap(),
+    };
+    let bytes = file.encode(&new).unwrap();
+    assert_eq!(bytes.len(), 172);
+    assert_eq!(bytes, k["account_file_v2_bytes"]);
+    let path = AccountFilePath {
+        account_id: account(),
+        account_version: 2,
+        device_id: install(),
+    };
+    assert_eq!(AccountFile::decode(&bytes, &path, &new).unwrap(), file);
+    // The old epoch's key does not verify it.
+    let old = crypto_of(&k, "k_fold_old");
+    assert_eq!(
+        AccountFile::decode(&bytes, &path, &old),
+        Err(WireError::Mac)
+    );
+    // The v1 file rebuilt by this script decodes as epoch 1 under the old key.
+    let v1 = &k["account_file_v1_as_epoch_1_bytes"];
+    assert_eq!(v1, &kat()["account_file_bytes"]);
+    let decoded = AccountFile::decode(v1, &path, &old).unwrap();
+    assert_eq!(decoded.ak_epoch, 1);
+    assert_eq!(decoded.salt, file.salt);
+}
+
+#[test]
+fn the_rekey_marker_matches_the_script() {
+    use super::rekey_marker::{RekeyMarker, RekeyMarkerPath};
+    let k = kat_m7();
+    let old = crypto_of(&k, "k_fold_old");
+    let new = crypto_of(&k, "k_fold_new");
+    let marker = RekeyMarker {
+        account_id: account(),
+        from_epoch: 1,
+        to_epoch: 2,
+        to_account_version: 2,
+        device_id: install(),
+        created_at_ms: 1_700_000_200_000,
+    };
+    let bytes = marker.encode(&old).unwrap();
+    assert_eq!(bytes.len(), 93);
+    assert_eq!(bytes, k["rekey_marker_bytes"]);
+    let path = RekeyMarkerPath {
+        account_id: account(),
+        from_epoch: 1,
+        device_id: install(),
+    };
+    assert_eq!(RekeyMarker::decode(&bytes, &path, &old).unwrap(), marker);
+    // Under the new epoch's key the same message has another MAC, and the
+    // marker does not verify.
+    assert_eq!(
+        RekeyMarker::decode(&bytes, &path, &new),
+        Err(WireError::Mac)
+    );
+    assert_ne!(
+        &bytes[bytes.len() - 32..],
+        k["rekey_marker_mac_under_new_epoch"].as_slice()
     );
 }

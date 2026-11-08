@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use libfuzzer_sys::fuzz_target;
 use mosaic_core::{AccountId, AccountKey, InstallId};
 use mosaic_sync::wire::KeyedCrypto;
-use mosaic_sync::wire::account_file::{AccountFile, AccountFilePath, LEN};
+use mosaic_sync::wire::account_file::{AccountFile, AccountFilePath, LEN, LEN_V1};
 
 fn key() -> &'static (AccountKey, AccountId) {
     static KEY: OnceLock<(AccountKey, AccountId)> = OnceLock::new();
@@ -22,10 +22,12 @@ fn key() -> &'static (AccountKey, AccountId) {
 
 fn path_of(data: &[u8]) -> Option<AccountFilePath> {
     let id = |at: usize| data.get(at..at + 16)?.try_into().ok();
+    // v2 carries the epoch between the version and the device.
+    let device_at = if data.get(4) == Some(&2) { 33 } else { 29 };
     Some(AccountFilePath {
         account_id: AccountId::from_bytes(id(5)?).ok()?,
         account_version: u64::from_be_bytes(data.get(21..29)?.try_into().ok()?),
-        device_id: InstallId::from_bytes(id(29)?).ok()?,
+        device_id: InstallId::from_bytes(id(device_at)?).ok()?,
     })
 }
 
@@ -41,7 +43,13 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(file) = AccountFile::decode_for_join(data, &path) {
         let bytes = file.encode(&crypto).expect("a decoded file encodes");
         assert_eq!(bytes.len(), LEN);
-        assert_eq!(bytes.get(..LEN - 32), data.get(..LEN - 32), "one file, one encoding");
+        // A v1 file re-encodes as v2 (epoch 1); a v2 file is one encoding.
+        if data.len() == LEN {
+            assert_eq!(bytes.get(..LEN - 32), data.get(..LEN - 32), "one file, one encoding");
+        } else {
+            assert_eq!(data.len(), LEN_V1);
+            assert_eq!(file.ak_epoch, 1);
+        }
         assert_eq!(
             AccountFile::decode(&bytes, &path, &crypto).expect("our own MAC verifies"),
             file

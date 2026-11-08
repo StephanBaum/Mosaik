@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use mosaic_core::{AttachmentId, InstallId, VaultId};
-use mosaic_vault::storage::MarkerStamp;
+use mosaic_vault::storage::{FolderRekeyFloor, MarkerStamp};
 
 use super::fsutil::{self, TEMP_EXTENSION};
 use super::layout::{HEAD_NAME, INFO_NAME};
@@ -27,8 +27,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
         &mut self,
         cx: &mut dyn MaintainContext,
     ) -> Result<(), TransportError> {
-        self.compact_own_logs(cx)?;
-        self.clean_own_dirs(cx.now_ms())?;
+        let floors = cx.rekey_floors()?;
+        self.compact_own_logs(cx, &floors)?;
+        self.clean_own_dirs(cx.now_ms(), &floors)?;
         self.clean_account_files()?;
         self.purge_blobs(cx)
     }
@@ -92,7 +93,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
         Ok(false)
     }
 
-    fn compact_own_logs(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {
+    fn compact_own_logs(
+        &mut self,
+        cx: &mut dyn MaintainContext,
+        floors: &[FolderRekeyFloor],
+    ) -> Result<(), TransportError> {
         for vault in self.vault_ids()? {
             let forced = self.force_compact.contains(&vault) || self.own_log_has_hole(vault)?;
             let (count, bytes) = self.active_segments(vault)?;
@@ -108,8 +113,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
             self.force_compact.remove(&vault);
             let install = self.install;
             let dir = self.layout.log_dir(&vault, &install);
+            let now = cx.now_ms();
             for file in self.segment_files(&vault, &install)? {
-                if file.seq < base {
+                if file.seq < base && removable(floors, vault, file.seq, now) {
                     fsutil::remove(&dir.join(folder_names::segment_name(file.seq)))?;
                     self.scan.remove(&(vault, install, file.seq));
                 }
@@ -136,7 +142,14 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ///   segment name) that never verified and are older than
     ///   `TEMP_MAX_AGE`: junk anyone with write access can plant, which the
     ///   writer never needs.
-    fn clean_own_dirs(&mut self, now_ms: u64) -> Result<(), TransportError> {
+    ///
+    /// Own segments up to a re-key floor are not junk (they were sealed under
+    /// the previous epoch and fail the MAC now): see [`removable`].
+    fn clean_own_dirs(
+        &mut self,
+        now_ms: u64,
+        floors: &[FolderRekeyFloor],
+    ) -> Result<(), TransportError> {
         let install = self.install;
         let device_dir = self.layout.device_dir(&install);
         for entry in fsutil::list(&device_dir)? {
@@ -156,13 +169,18 @@ impl<C: FolderCrypto> FolderTransport<C> {
             }
         }
         for vault in self.vault_ids()? {
-            self.clean_own_log(vault, now_ms)?;
+            self.clean_own_log(vault, now_ms, floors)?;
         }
         Ok(())
     }
 
     /// The cleanup of one own log (see [`Self::clean_own_dirs`]).
-    fn clean_own_log(&mut self, vault: VaultId, now_ms: u64) -> Result<(), TransportError> {
+    fn clean_own_log(
+        &mut self,
+        vault: VaultId,
+        now_ms: u64,
+        floors: &[FolderRekeyFloor],
+    ) -> Result<(), TransportError> {
         let install = self.install;
         let dir = self.layout.log_dir(&vault, &install);
         for entry in fsutil::list(&dir)? {
@@ -186,6 +204,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let Some(seq) = segment.filter(|_| old) else {
                 continue;
             };
+            if !removable(floors, vault, seq, now_ms) {
+                continue;
+            }
             let file = SegmentFile {
                 seq,
                 len: entry.len,
@@ -322,6 +343,31 @@ impl<C: FolderCrypto> FolderTransport<C> {
         }
         fsutil::remove(&self.layout.marker_path(&vault, &attachment, &self.install))
     }
+}
+
+/// Whether this install's own segment `seq` of `vault` may be removed by the
+/// housekeeping (CRYPTO_SPEC §10.1, "Pre-re-key own segments"): a segment at
+/// or below the vault's re-key floor was sealed under the previous epoch, so
+/// it fails the MAC now but is not junk. Stale devices that still read the old
+/// epoch need it, so it stays until a complete snapshot set of the new epoch
+/// exists in the own log **and** [`BLOB_RETENTION_MS`] have passed since the
+/// re-key. Segments above the floor, and vaults without one, follow the
+/// ordinary rules. The 24-hour rule for unverifiable files never applies to
+/// the pre-floor segments.
+pub(super) fn removable(
+    floors: &[FolderRekeyFloor],
+    vault: VaultId,
+    seq: u64,
+    now_ms: u64,
+) -> bool {
+    let Some(floor) = floors.iter().find(|f| f.vault_id == vault) else {
+        return true;
+    };
+    if seq > floor.floor_seq {
+        return true;
+    }
+    let rekey_at = u64::try_from(floor.rekey_at_ms).unwrap_or(u64::MAX);
+    floor.snapshot_done && now_ms.saturating_sub(rekey_at) > BLOB_RETENTION_MS
 }
 
 /// A temp file (`.<hex>.mtmp`) older than `TEMP_MAX_AGE`.
