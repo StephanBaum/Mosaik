@@ -647,13 +647,16 @@ aad    = header || aad("vault-roster", vault_id, key_generation:u32)
   read-only inputs. A rotation moves the roster to `g + 1` explicitly (the content is carried
   over and the removals are written at `g + 1`).
 - **Owner entry.** The owner's account is fixed when the roster is created (the vault's
-  owner). A device that has no sharing row for the vault accepts a first roster only if its
-  owner is this account, or a contact this account verified with the roster's fingerprint
-  (ADR-0055): a vault that was never shared is not handed to whoever holds its key and
-  forges a roster. A vault in the account's set of owned vaults (§8.5) never accepts a roster
-  that names another owner, on any device, whatever the server's grant list says (ADR-0056).
-  The engine also refuses the roster when the owner is an emergency grantee of this account. The owner's entry is the one written at creation: later writes to
-  `member:<owner>` are ignored and never make the roster invalid.
+  owner). A device that has no sharing row for the vault accepts a first roster only on
+  positive evidence from the account's contact book (§8.5): an `owned:` entry for the vault
+  and the roster's owner is this account, or a `member:` entry whose owner is the roster's
+  owner. A vault with neither entry (or both) is of unknown ownership and is HELD: no roster
+  or share is applied, a `VaultHeld` finding is recorded and the roster is fetched again on
+  later syncs, once the contact book brings an entry (ADR-0056). There is no default owner
+  for a vault without a sharing row, and neither a verified contact pin nor the server's
+  grant list is a substitute. The engine also refuses the roster when the owner is an
+  emergency grantee of this account. The owner's entry is the one written at creation:
+  later writes to `member:<owner>` are ignored and never make the roster invalid.
 - **Merge rule** (ADR-0050). The merge of two replicas is the document merge of §10. The
   *effective* value of a `member:*` register that holds several concurrent values is the one
   with the highest `since`; on a tie the most restrictive role (`removed` > `read` > `write` >
@@ -879,13 +882,23 @@ The effective state of a contact when the server serves `fpr`:
 `Conflicting` (a register with two distinct `fpr` values, from concurrent pins on different
 devices). `Changed` and `Conflicting` block as in §8.2. Verifying writes one entry that
 supersedes the others of the same fingerprint; accepting a key change replaces the pin with
-an unverified one. The same document holds the set of vaults this account owns:
-`owned:<vault_id hex32>` → `true`, written when a vault is created and before it first
-becomes shared (an invite or an emergency grant), never removed. It is sealed under
-`K_contacts`, so the server cannot forge an entry, and every device learns it on sync
-(ADR-0056). Rotation plans never stop on a key mismatch: a remaining member whose served key
-is not the roster's fingerprint, or whose pin is `Changed` or `Conflicting`, is revoked (an
-invitee is cancelled) and a `MemberUnverified` finding is recorded (ADR-0056). A server that withholds the newest contact book from a new device lets that
+an unverified one. The same document holds ownership, as three kinds of entry (ADR-0056):
+`owned:<vault_id hex32>` → `true`, written when a vault is created here (and for a vault of
+this device's own creation found without any entry, once, on upgrade) and before it first
+becomes shared; `member:<vault_id hex32>` → the owner's account ID (hex32), written when this
+account accepts a share or an emergency release, before the vault is stored; and
+`emergency:<grantee account_id hex32>` → `*` or the comma-separated vault IDs a grant
+covers, written before its seals are made. Entries are never removed. They are sealed under
+`K_contacts`, so the server cannot forge one (it can only withhold or freeze the book, and
+then the vault is held, not accepted). No `owned:` entry is written for a vault with a
+`member:` entry. Before a seal or a grant goes out, the book is uploaded and nothing may
+remain pending, else the operation stops with a retryable error. Deleting a grant rotates
+exactly the vaults its `emergency:` entry names (every vault with a positive `owned:` entry
+if there is none), whatever scope or list the server reports. Rotation plans never stop on
+a key mismatch: a remaining member whose served key is not the roster's fingerprint, whom
+the directory does not serve, or whose pin is `Changed` or `Conflicting` is revoked (an
+invitee is cancelled) and a `MemberKeyMismatch` finding is recorded; a member nobody
+verified gets a `MemberUnverified` finding (ADR-0056). A server that withholds the newest contact book from a new device lets that
 device pin again for a contact it pinned meanwhile; the roster still catches it for members
 of a shared vault (THREAT_MODEL R80). The server sees the ciphertext and its length (§12).
 

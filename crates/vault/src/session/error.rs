@@ -231,6 +231,12 @@ pub enum Error {
     #[error("owner mismatch")]
     OwnerMismatch,
 
+    /// Nothing on this device or in the account's contact book says who
+    /// owns the vault: it is held until an `owned:` or `member:` entry
+    /// arrives (M6b verify round 3).
+    #[error("vault owner unknown")]
+    OwnerUnknown,
+
     /// The vault is already known on this device (open, a generation floor
     /// or a sharing row): an invite or an emergency release may not hand it
     /// a key (M6b review H1).

@@ -4248,16 +4248,20 @@ the code. Every fix below is accepted as the reviewer proposed it, with the devi
 ### Consequences
 THREAT_MODEL R71, R72, R77, R79 are updated and R82 is added.
 
-## ADR-0056: M6b verify follow-ups (owned-vault set, grant-delete rotation)
+Amended by ADR-0056: the rule that a first roster may name a verified contact as owner is replaced by positive owner authorization from the contact book, and a key mismatch no longer blocks a rotation.
+
+## ADR-0056: M6b verify follow-ups (positive owner authorization, grant-delete rotation)
 
 ### Context
-The verify pass on ADR-0055 found: a second device of the grantor trusts the server's grant list when it sees a first roster for a vault it never saw shared (High); deleting a grant rotated only if the server reported the grant as released (Medium); a key mismatch of one member stopped the whole revocation rotation.
+The verify passes on ADR-0055 found: a second device of the grantor trusts the server's grant list when it sees a first roster for a vault it never saw shared (High), and a check that fails open when the `owned:` entry is missing (the server can freeze the contact book); a vault accepted on another device defaulting to owner = this account; deleting a grant rotated only what the server reported; a key mismatch of one member stopped the whole revocation rotation.
 
 ### Decision
-- The vaults this account owns are recorded in the contact book document (`owned:<vault_id>`, sealed under `K_contacts`, never removed), on creation and before a vault is first shared. Devices that learn the set refuse any roster naming another owner for such a vault. The engine's grant-list check stays as an extra. The owner roster, the sharing row and the set entry are made before the seals and `put_grant`.
-- Deleting a grant queues a revocation and rotates every owned vault the grant covered (the grant's scope; all owned vaults if the server does not list it), whatever the server says about state or membership.
+- Ownership is positive evidence in the contact book (sealed under `K_contacts`): `owned:<vault>` on creation and before a vault is first shared, `member:<vault>` = owner at accept (invite or emergency release), `emergency:<grantee>` = the grant's cover before its seals. There is no default owner for a vault without a sharing row. A first roster is accepted only from the owner an entry names; a vault with no entry is held (finding `VaultHeld`, retried on later syncs). The verified-contact exception and the engine's grant-list check no longer decide. On upgrade, only vaults whose first key this device generated are marked owned; everything else stays unknown until an entry arrives.
+- `owned:` is never written for a vault with a `member:` entry; `owned_vaults` and every owner-only path use `owns_vault`, which needs a positive entry or a sharing row naming this account.
+- The owner roster, the sharing row, the set entry and the grant cover are written before the seals and `put_grant`; the contact book is uploaded and nothing may stay pending, or the grant stops with a retryable conflict.
+- Deleting a grant queues a revocation and rotates exactly the vaults its recorded cover names (all positively owned vaults if there is no record), ignoring the server's state, scope and list.
 - A new member vault and its sharing row are stored in one store transaction.
-- A remaining member with a key mismatch, or an invitee with a Changed or Conflicting pin, is revoked or cancelled and recorded as `MemberUnverified` (no new finding kind, no schema change). The rotation goes ahead. The session still refuses to seal to a mismatching key.
+- A remaining member with a key mismatch, a member the directory does not serve, or an invitee with a Changed or Conflicting pin is revoked or cancelled and recorded as `MemberKeyMismatch` (schema v8 gained the kind in place, as it is unreleased; so did `VaultHeld`). The rotation goes ahead. The session still refuses to seal to a mismatching key.
 
 ### Consequences
-A malicious server can lock a member out by serving a wrong key (it could already drop memberships); the finding tells the owner. THREAT_MODEL R72 and R82 are updated.
+A malicious server can lock a member out by serving a wrong key (it could already drop memberships); the finding tells the owner, and the two kinds say whether it looks like a man in the middle. It can also keep a second device from using a vault by withholding the contact book; the finding says so. THREAT_MODEL R72 and R82 are updated.

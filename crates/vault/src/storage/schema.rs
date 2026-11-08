@@ -610,7 +610,7 @@ CREATE TABLE pending_revocations (
 
 CREATE TABLE sharing_findings (
     vault_id    BLOB    CHECK (vault_id IS NULL OR length(vault_id) = 16),
-    kind        INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 5),
+    kind        INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 7),
     generation  INTEGER CHECK (generation IS NULL OR generation >= 1),
     account_id  BLOB    CHECK (account_id IS NULL OR length(account_id) = 16),
     at          INTEGER NOT NULL CHECK (at >= 0)

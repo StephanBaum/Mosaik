@@ -197,6 +197,9 @@ impl<T: Transport> SyncEngine<T> {
         if Self::sharing_blocked(access)? {
             return Ok(());
         }
+        // Vaults this device created before the contact book held ownership
+        // (positive authorization, M6b verify round 3).
+        access.with(UnlockedSession::record_local_ownership)??;
         self.sync_contacts(access, report)
     }
 
@@ -289,6 +292,15 @@ impl<T: Transport> SyncEngine<T> {
             return Ok(());
         }
         let first_roster = collected.rosters.iter().filter_map(|r| r.seq).min();
+        // Nothing says who owns the vault (no sharing row, no `owned:` or
+        // `member:` entry): held, nothing applied, retried on later syncs
+        // once the contact book brings an entry (M6b verify round 3).
+        if !access.with(|s| s.vault_owner_known(vault))?? {
+            if let Some(seq) = first_roster {
+                Self::rewind_cursor(access, vault, seq)?;
+            }
+            return Self::note_finding(access, SharingFinding::VaultHeld { vault });
+        }
         let result = self.sharing_step(access, vault, collected, report, stats, follow);
         if result.is_err()
             && let Some(seq) = first_roster
@@ -400,6 +412,10 @@ impl<T: Transport> SyncEngine<T> {
             // roster; an owner the server changed is the same finding.
             Err(Error::OwnerMismatch) => {
                 Self::note_finding(access, SharingFinding::RosterInvalid { vault })?;
+            }
+            Err(Error::OwnerUnknown) => {
+                Self::rewind_cursor(access, vault, seq)?;
+                Self::note_finding(access, SharingFinding::VaultHeld { vault })?;
             }
             Err(Error::Core(_)) => report.undecryptable += 1,
             Err(e) => return Err(e.into()),
@@ -654,11 +670,7 @@ impl<T: Transport> SyncEngine<T> {
             let pending = s.pending_revocations()?;
             let mut owned = Vec::new();
             for v in s.synced_vaults() {
-                if s.vault_shared(v)?
-                    && !s.vault_access_lost(v)?
-                    && s.vault_own_role(v)? == Role::Owner
-                    && s.vault_owner(v)? == own
-                {
+                if s.vault_shared(v)? && !s.vault_access_lost(v)? && s.owns_vault(v)? {
                     owned.push(v);
                 }
             }
@@ -806,8 +818,18 @@ impl<T: Transport> SyncEngine<T> {
             if *account == own || revoked.contains(account) || !on_server.contains(account) {
                 continue;
             }
+            // A member the directory does not serve is handled like one whose
+            // key does not match: revoked, a finding, the rotation goes ahead.
             let Some(ipk) = self.sharing_tx()?.directory(account)? else {
-                return Ok(None);
+                Self::note_finding(
+                    access,
+                    SharingFinding::MemberKeyMismatch {
+                        vault,
+                        account: *account,
+                    },
+                )?;
+                revoked.insert(*account);
+                continue;
             };
             // Only a contact this account verified gets the new key (H2).
             // A member nobody here compared codes with (a roster entry a
@@ -821,23 +843,22 @@ impl<T: Transport> SyncEngine<T> {
             let roster_key = active
                 .get(account)
                 .is_some_and(|m| m.fingerprint == Fingerprint::of(account, &ipk));
-            if !roster_key
+            let mismatch =
+                !roster_key || matches!(state, ContactState::Changed | ContactState::Conflicting);
+            if mismatch
                 || matches!(
                     state,
-                    ContactState::Unknown
-                        | ContactState::Pinned { verified: false }
-                        | ContactState::Changed
-                        | ContactState::Conflicting
+                    ContactState::Unknown | ContactState::Pinned { verified: false }
                 )
             {
-                Self::note_finding(
-                    access,
-                    SharingFinding::MemberUnverified {
-                        vault,
-                        account: *account,
-                    },
-                )?;
-                revoked.insert(*account);
+                let account = *account;
+                let finding = if mismatch {
+                    SharingFinding::MemberKeyMismatch { vault, account }
+                } else {
+                    SharingFinding::MemberUnverified { vault, account }
+                };
+                Self::note_finding(access, finding)?;
+                revoked.insert(account);
                 continue;
             }
             plan.remaining.push((*account, ipk));
@@ -861,18 +882,25 @@ impl<T: Transport> SyncEngine<T> {
                         .get(&account)
                         .is_some_and(|m| m.fingerprint == Fingerprint::of(&account, &e.ipk));
                     // A changed or conflicting pin, or a key that is not the
-                    // roster's, cancels the invite like an unverified one.
-                    if roster_key && state == (ContactState::Pinned { verified: true }) {
-                        true
-                    } else {
-                        Self::note_finding(
-                            access,
-                            SharingFinding::MemberUnverified { vault, account },
-                        )?;
-                        false
+                    // roster's, cancels the invite and is a key-mismatch
+                    // finding; an unverified one is cancelled like a
+                    // member nobody compared codes with.
+                    let finding = invitee_finding(roster_key, state, vault, account);
+                    if let Some(f) = &finding {
+                        Self::note_finding(access, *f)?;
                     }
+                    finding.is_none()
                 }
-                _ => false,
+                // The address no longer resolves to this account: handled
+                // like a wrong key.
+                Some(_) => {
+                    Self::note_finding(
+                        access,
+                        SharingFinding::MemberKeyMismatch { vault, account },
+                    )?;
+                    false
+                }
+                None => false,
             };
             match entry {
                 Some(e) if usable => plan.invites.push((invite, account, e.ipk)),
@@ -1038,14 +1066,10 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
     ) -> Result<BTreeMap<VaultId, KeyGeneration>, SyncError> {
         Ok(access.with(|s| -> Result<_, Error> {
-            let own = s.account_id();
             let mut out = BTreeMap::new();
             for summary in s.vaults() {
                 let v = summary.vault_id;
-                if s.synced_vaults().contains(&v)
-                    && s.vault_own_role(v)? == Role::Owner
-                    && s.vault_owner(v)? == own
-                {
+                if s.synced_vaults().contains(&v) && s.owns_vault(v)? {
                     out.insert(v, summary.key_generation);
                 }
             }
@@ -1135,6 +1159,24 @@ impl<T: Transport> SyncEngine<T> {
             tolerate(self.sharing_tx()?.put_grant_seals(&g.grantee, &seals))?;
         }
         Ok(())
+    }
+}
+
+/// Why an invitee gets no seal, if it does not: `None` for a verified pin and
+/// the roster's key.
+fn invitee_finding(
+    roster_key: bool,
+    state: ContactState,
+    vault: VaultId,
+    account: AccountId,
+) -> Option<SharingFinding> {
+    match state {
+        ContactState::Pinned { verified: true } if roster_key => None,
+        ContactState::Changed | ContactState::Conflicting => {
+            Some(SharingFinding::MemberKeyMismatch { vault, account })
+        }
+        _ if !roster_key => Some(SharingFinding::MemberKeyMismatch { vault, account }),
+        _ => Some(SharingFinding::MemberUnverified { vault, account }),
     }
 }
 

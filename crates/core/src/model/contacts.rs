@@ -20,6 +20,16 @@
 //! an entry, and every device of the account learns it on sync: a device
 //! that never saw a vault shared still refuses a roster that names another
 //! account as its owner.
+//!
+//! Positive authorization (M6b verify round 3): `member:<vault_id hex32>` →
+//! the owner's account ID as 32 hex digits is written when this account
+//! accepts a share or an emergency release, so a second device accepts the
+//! vault's first roster only from that owner. A vault with neither an
+//! `owned:` nor a `member:` entry is of unknown ownership and is held.
+//! `emergency:<grantee account hex32>` → `*` (every owned vault) or the
+//! comma-separated vault IDs the grant covers, written before the seals are
+//! made, so deleting the grant rotates what it covered whatever the server
+//! reports.
 
 use core::fmt;
 
@@ -35,6 +45,8 @@ use crate::secret::{ContactsKey, SecretVec};
 
 const CONTACT_PREFIX: &str = "contact:";
 const OWNED_PREFIX: &str = "owned:";
+const MEMBER_PREFIX: &str = "member:";
+const EMERGENCY_PREFIX: &str = "emergency:";
 
 /// What the book knows about an account's key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,6 +104,23 @@ fn contact_key(account: &AccountId) -> String {
 
 fn owned_key(vault: &VaultId) -> String {
     format!("{OWNED_PREFIX}{}", to_hex(vault.as_bytes()))
+}
+
+fn member_key(vault: &VaultId) -> String {
+    format!("{MEMBER_PREFIX}{}", to_hex(vault.as_bytes()))
+}
+
+fn emergency_key(grantee: &AccountId) -> String {
+    format!("{EMERGENCY_PREFIX}{}", to_hex(grantee.as_bytes()))
+}
+
+/// What an emergency grant covers, as this account recorded it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GrantCover {
+    /// Every vault this account owns.
+    All,
+    /// These vaults.
+    Vaults(Vec<VaultId>),
 }
 
 fn parse_contact_key(key: &str) -> Option<AccountId> {
@@ -361,6 +390,87 @@ impl ContactBook {
         Ok(true)
     }
 
+    /// The owner recorded for a vault this account accepted a share or an
+    /// emergency release of.
+    #[must_use]
+    pub fn member_owner(&self, vault: &VaultId) -> Option<AccountId> {
+        let reg = self.doc.register(&member_key(vault))?;
+        let value = reg.winner()?.value().as_str()?.to_owned();
+        AccountId::from_bytes(from_hex::<16>(&value).ok()?).ok()
+    }
+
+    /// Records that `vault` was accepted as a member of `owner`'s. Returns
+    /// whether the book changed. The entry is written once and never
+    /// replaced by another owner.
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn mark_member(
+        &mut self,
+        device: DeviceId,
+        at: Timestamp,
+        vault: &VaultId,
+        owner: &AccountId,
+    ) -> Result<bool> {
+        if self.member_owner(vault).is_some() {
+            return Ok(false);
+        }
+        let stamp = self.doc.tick(device)?;
+        self.doc.write(
+            &member_key(vault),
+            stamp,
+            at,
+            Value::text(&to_hex(owner.as_bytes())),
+            false,
+        )?;
+        Ok(true)
+    }
+
+    /// Records what the grant to `grantee` covers (replacing an earlier
+    /// record of a grant to the same account).
+    ///
+    /// # Errors
+    /// [`Error::ClockOverflow`].
+    pub fn set_grant_cover(
+        &mut self,
+        device: DeviceId,
+        at: Timestamp,
+        grantee: &AccountId,
+        cover: &GrantCover,
+    ) -> Result<()> {
+        let text = match cover {
+            GrantCover::All => "*".to_owned(),
+            GrantCover::Vaults(v) => v
+                .iter()
+                .map(|v| to_hex(v.as_bytes()))
+                .collect::<Vec<_>>()
+                .join(","),
+        };
+        let stamp = self.doc.tick(device)?;
+        self.doc.write(
+            &emergency_key(grantee),
+            stamp,
+            at,
+            Value::text(&text),
+            false,
+        )
+    }
+
+    /// What the grant to `grantee` covers, if this account recorded it.
+    #[must_use]
+    pub fn grant_cover(&self, grantee: &AccountId) -> Option<GrantCover> {
+        let reg = self.doc.register(&emergency_key(grantee))?;
+        let value = reg.winner()?.value().as_str()?.to_owned();
+        if value == "*" {
+            return Some(GrantCover::All);
+        }
+        let mut out = Vec::new();
+        for part in value.split(',').filter(|p| !p.is_empty()) {
+            out.push(VaultId::from_bytes(from_hex::<16>(part).ok()?).ok()?);
+        }
+        Some(GrantCover::Vaults(out))
+    }
+
     /// Merges two replicas (a pure join).
     #[must_use]
     pub fn merge(&self, other: &Self) -> Self {
@@ -510,6 +620,30 @@ mod tests {
         let again = copy(&merged);
         assert!(again.is_owned(&v) && again.is_owned(&w));
         assert!(!again.is_owned(&VaultId::from_bytes([7; 16]).unwrap()));
+    }
+
+    #[test]
+    fn member_and_grant_cover_entries_round_trip() {
+        let (v, w) = (
+            VaultId::from_bytes([9; 16]).unwrap(),
+            VaultId::from_bytes([8; 16]).unwrap(),
+        );
+        let mut b = ContactBook::new();
+        assert!(b.member_owner(&v).is_none());
+        assert!(b.mark_member(dev(1), at(1), &v, &acct(5)).unwrap());
+        assert!(!b.mark_member(dev(1), at(2), &v, &acct(6)).unwrap());
+        assert_eq!(b.member_owner(&v), Some(acct(5)));
+        assert!(!b.is_owned(&v));
+        assert!(b.grant_cover(&acct(3)).is_none());
+        b.set_grant_cover(dev(1), at(3), &acct(3), &GrantCover::All)
+            .unwrap();
+        assert_eq!(b.grant_cover(&acct(3)), Some(GrantCover::All));
+        let both = GrantCover::Vaults(vec![v, w]);
+        b.set_grant_cover(dev(1), at(4), &acct(3), &both).unwrap();
+        let again = copy(&b);
+        assert_eq!(again.grant_cover(&acct(3)), Some(both));
+        assert_eq!(again.member_owner(&v), Some(acct(5)));
+        assert_eq!(again.contacts(), Vec::new());
     }
 
     #[test]

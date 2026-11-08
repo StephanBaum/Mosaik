@@ -20,7 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use mosaic_core::model::{
-    AttachmentRef, Contact, ContactBook, ContactState, Role, RosterMember, Text, VaultRoster,
+    AttachmentRef, Contact, ContactBook, ContactState, GrantCover, Role, RosterMember, Text,
+    VaultRoster,
 };
 use mosaic_core::{
     AccountId, AttachmentId, AttachmentKey, ContactsCiphertext, Fingerprint, IdentityPublicKey,
@@ -32,7 +33,7 @@ use mosaic_core::{
 use super::{
     Error, OpenVault, Result, UnlockedSession, dup_item, now, seal_record, sync::check_generation,
 };
-use crate::storage::{SharedRotationWrite, Store, VaultKeyWrap};
+use crate::storage::{KeyOrigin, SharedRotationWrite, Store, VaultKeyWrap};
 
 /// How long an opened invite waits for the user's accept.
 const PENDING_INVITE_TTL: Duration = Duration::from_secs(300);
@@ -175,6 +176,21 @@ pub enum SharingFinding {
         /// The member.
         account: AccountId,
     },
+    /// A member or invitee whose served key is not the roster's fingerprint,
+    /// whose pin changed, or whom the directory does not serve: revoked or
+    /// cancelled, and possibly a man in the middle.
+    MemberKeyMismatch {
+        /// The vault.
+        vault: VaultId,
+        /// The member.
+        account: AccountId,
+    },
+    /// A vault with rosters or shares whose owner nothing here authorizes:
+    /// held, nothing applied, retried on later syncs.
+    VaultHeld {
+        /// The vault.
+        vault: VaultId,
+    },
     /// A roster member the server no longer lists.
     MemberDropped {
         /// The vault.
@@ -182,6 +198,16 @@ pub enum SharingFinding {
         /// The member.
         account: AccountId,
     },
+}
+
+/// Who owns a vault, as far as this device can tell.
+enum Ownership {
+    /// This account.
+    This,
+    /// Another account, as recorded when this account accepted the vault.
+    Of(AccountId),
+    /// Nothing says.
+    Unknown,
 }
 
 /// An invite as the server lists it for this account.
@@ -667,6 +693,10 @@ impl UnlockedSession {
             SharingFinding::MemberUnverified { vault, account } => {
                 (5, Some(*vault), None, Some(*account))
             }
+            SharingFinding::MemberKeyMismatch { vault, account } => {
+                (6, Some(*vault), None, Some(*account))
+            }
+            SharingFinding::VaultHeld { vault } => (7, Some(*vault), None, None),
         };
         Ok(self
             .store
@@ -694,6 +724,10 @@ impl UnlockedSession {
                 (5, Some(vault), _, Some(account)) => {
                     SharingFinding::MemberUnverified { vault, account }
                 }
+                (6, Some(vault), _, Some(account)) => {
+                    SharingFinding::MemberKeyMismatch { vault, account }
+                }
+                (7, Some(vault), ..) => SharingFinding::VaultHeld { vault },
                 _ => return Err(Error::Store(crate::storage::Error::Corrupt)),
             };
             out.push(finding);
@@ -732,13 +766,17 @@ impl UnlockedSession {
 
     /// Records `vault` in the account's set of owned vaults (the contact
     /// book, sealed under the account key; M6b verify H3). Returns whether
-    /// the book changed and is queued for upload. Called when a vault is
-    /// created and before it first becomes shared.
+    /// the book changed and is queued for upload. Refuses a vault the book
+    /// holds a `member:` entry for: a vault someone else owns is never
+    /// recorded as owned.
     ///
     /// # Errors
-    /// [`Error::Core`], [`Error::Store`].
+    /// [`Error::NotOwner`], [`Error::Core`], [`Error::Store`].
     pub(super) fn record_owned(&mut self, vault: VaultId) -> Result<bool> {
         let mut book = self.contact_book()?;
+        if book.member_owner(&vault).is_some() {
+            return Err(Error::NotOwner);
+        }
         if !book.mark_owned(self.device, now(), &vault)? {
             return Ok(false);
         }
@@ -746,23 +784,114 @@ impl UnlockedSession {
         Ok(true)
     }
 
-    /// Records a vault this account owns in the set of owned vaults (see
-    /// [`Self::record_owned`]) before it is shared, for the sync layer.
-    /// Returns whether the set changed. A vault that this account does not
-    /// own, or whose key is not account-key protected, is left alone
+    /// Who owns a vault, as far as this device can tell (positive
+    /// authorization, M6b verify round 3): the sharing row if there is one;
+    /// otherwise the account's contact book, which holds `owned:` for a
+    /// vault created by this account and `member:` for one accepted from
+    /// another owner. A vault with neither (or both) is unknown.
+    fn ownership(&self, vault: VaultId) -> Result<Ownership> {
+        if let Some(row) = self.store.vault_sharing(&vault)? {
+            return Ok(if row.owner_account == self.account_id {
+                Ownership::This
+            } else {
+                Ownership::Of(row.owner_account)
+            });
+        }
+        let book = self.contact_book()?;
+        Ok(match (book.is_owned(&vault), book.member_owner(&vault)) {
+            (true, None) => Ownership::This,
+            (false, Some(owner)) => Ownership::Of(owner),
+            _ => Ownership::Unknown,
+        })
+    }
+
+    /// Whether this account owns the vault, on positive evidence: a sharing
+    /// row naming it, or an `owned:` entry. A vault of unknown ownership is
+    /// not owned.
+    ///
+    /// # Errors
+    /// [`Error::UnknownVault`], [`Error::Core`], [`Error::Store`].
+    pub fn owns_vault(&self, vault: VaultId) -> Result<bool> {
+        self.vault(vault)?;
+        Ok(matches!(self.ownership(vault)?, Ownership::This)
+            && self.vault_own_role(vault)? == Role::Owner)
+    }
+
+    /// Whether this device can tell who owns the vault (see
+    /// [`Self::owns_vault`]); the sync layer holds a vault that has rosters
+    /// and nothing that says who owns it.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub fn vault_owner_known(&self, vault: VaultId) -> Result<bool> {
+        Ok(!matches!(self.ownership(vault)?, Ownership::Unknown))
+    }
+
+    /// Records a vault this account owns in the set of owned vaults before
+    /// it is shared, for the sync layer. A vault of unknown ownership whose
+    /// first key this device generated (created here through
+    /// [`Self::create_vault`] before the set existed) is recorded too.
+    /// Returns whether the set changed; anything else is left alone
     /// (`Ok(false)`).
     ///
     /// # Errors
     /// [`Error::UnknownVault`], [`Error::Core`], [`Error::Store`].
     pub fn ensure_vault_owned(&mut self, vault: VaultId) -> Result<bool> {
         let ov = self.vault(vault)?;
-        if ov.protection != VaultKeyWrap::AccountKey
-            || self.vault_own_role(vault)? != Role::Owner
-            || self.vault_owner(vault)? != self.account_id
-        {
+        if ov.protection != VaultKeyWrap::AccountKey {
             return Ok(false);
         }
-        self.record_owned(vault)
+        match self.ownership(vault)? {
+            Ownership::This => self.record_owned(vault),
+            Ownership::Of(_) => Ok(false),
+            Ownership::Unknown => {
+                if self.store.vault_key_origin(&vault, KeyGeneration::FIRST)?
+                    == Some(KeyOrigin::Local)
+                {
+                    self.record_owned(vault)
+                } else {
+                    Ok(false)
+                }
+            }
+        }
+    }
+
+    /// Migration for stores from before the contact book held ownership:
+    /// records the vaults this device created (first key generated here,
+    /// no sharing history) as owned, and the owner of every vault with a
+    /// sharing row that names another account as `member:`. Everything else
+    /// stays unknown until an entry arrives from another device. Returns
+    /// whether the book changed.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub fn record_local_ownership(&mut self) -> Result<bool> {
+        let mut book = self.contact_book()?;
+        let mut changed = false;
+        let ids: Vec<VaultId> = self.vaults.keys().copied().collect();
+        for vault in ids {
+            if self.vault(vault)?.protection != VaultKeyWrap::AccountKey {
+                continue;
+            }
+            match self.store.vault_sharing(&vault)? {
+                Some(row) if row.owner_account != self.account_id => {
+                    changed |= book.mark_member(self.device, now(), &vault, &row.owner_account)?;
+                }
+                Some(_) => changed |= book.mark_owned(self.device, now(), &vault)?,
+                None => {
+                    if book.member_owner(&vault).is_none()
+                        && self.store.vault_key_origin(&vault, KeyGeneration::FIRST)?
+                            == Some(KeyOrigin::Local)
+                    {
+                        changed |= book.mark_owned(self.device, now(), &vault)?;
+                    }
+                }
+            }
+        }
+        if changed {
+            self.save_contact_book(&book)?;
+        }
+        Ok(changed)
     }
 
     /// Whether `vault` is in the account's set of owned vaults.
@@ -771,6 +900,26 @@ impl UnlockedSession {
     /// [`Error::Core`], [`Error::Store`].
     pub fn vault_recorded_owned(&self, vault: VaultId) -> Result<bool> {
         Ok(self.contact_book()?.is_owned(&vault))
+    }
+
+    /// Records what the emergency grant to `grantee` covers, before its
+    /// seals are made (M6b verify H3b). Queued for upload with the contact
+    /// book.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub fn record_grant_cover(&mut self, grantee: &AccountId, cover: &GrantCover) -> Result<()> {
+        let mut book = self.contact_book()?;
+        book.set_grant_cover(self.device, now(), grantee, cover)?;
+        self.save_contact_book(&book)
+    }
+
+    /// What the grant to `grantee` covers, as this account recorded it.
+    ///
+    /// # Errors
+    /// [`Error::Core`], [`Error::Store`].
+    pub fn grant_cover(&self, grantee: &AccountId) -> Result<Option<GrantCover>> {
+        Ok(self.contact_book()?.grant_cover(grantee))
     }
 
     /// What the contact book says about `account` when the server serves
@@ -956,17 +1105,18 @@ impl UnlockedSession {
         }
     }
 
-    /// The vault's owner as this device knows it (this account for a vault
-    /// that is not shared). The sync layer checks it against the owner the
-    /// server names.
+    /// The vault's owner as this device knows it: the sharing row, or the
+    /// contact book's `owned:` or `member:` entry. There is no default
+    /// (M6b verify round 3).
     ///
     /// # Errors
-    /// [`Error::Store`].
+    /// [`Error::OwnerUnknown`], [`Error::Core`], [`Error::Store`].
     pub fn vault_owner(&self, vault: VaultId) -> Result<AccountId> {
-        Ok(self
-            .store
-            .vault_sharing(&vault)?
-            .map_or(self.account_id, |s| s.owner_account))
+        match self.ownership(vault)? {
+            Ownership::This => Ok(self.account_id),
+            Ownership::Of(owner) => Ok(owner),
+            Ownership::Unknown => Err(Error::OwnerUnknown),
+        }
     }
 
     /// Whether the server refused this device the vault.
@@ -1050,32 +1200,25 @@ impl UnlockedSession {
         {
             return Err(Error::OwnerMismatch);
         }
-        // A vault this account owns, as the account-key-sealed set says: no
-        // roster names another owner, whatever the server's grant list or
-        // this device's missing sharing row suggest (M6b verify H3).
-        if *owner != self.account_id && self.contact_book()?.is_owned(&vault) {
-            return Err(Error::OwnerMismatch);
+        // No sharing row: this device has never seen the vault shared. Only
+        // the account-key-sealed contact book can say who owns it: `owned:`
+        // (this account) or `member:` (the owner recorded when the share
+        // was accepted). A first roster naming anyone else is refused, and a
+        // vault with neither entry is held until one arrives; the server's
+        // grant list and the contact pins are no substitute (M6b verify
+        // round 3).
+        if row.is_none() {
+            match self.ownership(vault)? {
+                Ownership::This if *owner == self.account_id => {}
+                Ownership::Of(known) if known == *owner => {}
+                Ownership::Unknown => return Err(Error::OwnerUnknown),
+                _ => return Err(Error::OwnerMismatch),
+            }
         }
         let received = VaultRoster::open(ct, vk, &vault, *owner)?;
         if let Err(e) = received.validate() {
             self.record_sharing_finding(SharingFinding::RosterInvalid { vault })?;
             return Err(e.into());
-        }
-        // No sharing row: this device has never seen the vault shared. The
-        // first roster fixes the owner, so it may name another account than
-        // this one only if that account is a contact this account verified,
-        // with the fingerprint the roster holds (H3): a vault that was never
-        // shared must not be handed to whoever holds its key and forges a
-        // roster.
-        if row.is_none() && *owner != self.account_id {
-            let pinned = received.member(owner).is_some_and(|m| {
-                self.contact_book().is_ok_and(|b| {
-                    b.check(owner, &m.fingerprint) == ContactState::Pinned { verified: true }
-                })
-            });
-            if !pinned {
-                return Err(Error::OwnerMismatch);
-            }
         }
         // An older roster is a read-only input: only the one of this
         // generation merges.
@@ -1210,8 +1353,7 @@ impl UnlockedSession {
         if ov.protection != VaultKeyWrap::AccountKey {
             return Err(Error::WrongVaultProtection);
         }
-        if self.vault_own_role(vault)? != Role::Owner || self.vault_owner(vault)? != self.account_id
-        {
+        if !self.owns_vault(vault)? {
             return Err(Error::NotOwner);
         }
         // Recorded as owned before anything of it can be shared (H3).
@@ -1279,6 +1421,10 @@ impl UnlockedSession {
         }
         let vk = ov.current_key()?;
         let g = ov.generation;
+        if self.store.vault_sharing(&vault)?.is_none() && !self.owns_vault(vault)? {
+            // A vault nothing says this account owns is not shared from here.
+            return Err(Error::NotOwner);
+        }
         let own = self.vault_own_role(vault)?;
         if !own.can_manage() || !may_grant(own, role) || *recipient == self.account_id {
             return Err(Error::RoleForbidden);
@@ -1632,6 +1778,17 @@ impl UnlockedSession {
         // exclusive borrow; the store refuses a vault that exists as well.
         self.check_vault_unknown(&vault_id, owner)?;
         let number = role_number(role)?;
+        // The owner goes into the account's contact book first, so every
+        // other device accepts this vault's first roster only from them.
+        {
+            let mut book = self.contact_book()?;
+            if book.is_owned(&vault_id) {
+                return Err(Error::OwnerMismatch);
+            }
+            if book.mark_member(self.device, now(), &vault_id, owner)? {
+                self.save_contact_book(&book)?;
+            }
+        }
         if self.vaults.contains_key(&vault_id) {
             // A vault this device lost access to and gets back: it exists.
             self.apply_remote_vault_key(vault_id, generation, &wrapped)?;
@@ -1736,8 +1893,7 @@ impl UnlockedSession {
             return Err(Error::WrongVaultProtection);
         }
         ov.current_key()?;
-        if self.vault_own_role(vault)? != Role::Owner || self.vault_owner(vault)? != self.account_id
-        {
+        if !self.owns_vault(vault)? {
             return Err(Error::NotOwner);
         }
         let roster = self.load_roster(vault)?.ok_or(Error::NoRoster)?;
@@ -2242,9 +2398,7 @@ impl UnlockedSession {
             if ov.protection != VaultKeyWrap::AccountKey {
                 return Err(Error::WrongVaultProtection);
             }
-            if self.vault_own_role(*vault)? != Role::Owner
-                || self.vault_owner(*vault)? != self.account_id
-            {
+            if !self.owns_vault(*vault)? {
                 return Err(Error::NotOwner);
             }
             let vk = ov.current_key()?;

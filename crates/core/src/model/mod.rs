@@ -59,7 +59,7 @@ mod value;
 mod vault_meta;
 
 pub use clock::{Causality, Stamp, Timestamp, VersionVector};
-pub use contacts::{Contact, ContactBook, ContactState};
+pub use contacts::{Contact, ContactBook, ContactState, GrantCover};
 pub use doc::{Entry, FieldConflict, MAX_FIELD_KEY_LEN, SCHEMA_VERSION};
 pub use item::{
     DeletionInfo, ElementId, HistoryEntry, Item, ItemEdit, ItemType, MAX_HISTORY, MAX_TAG_LEN,
