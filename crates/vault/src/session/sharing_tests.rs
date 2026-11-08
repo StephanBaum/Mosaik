@@ -643,6 +643,54 @@ fn member_key_mismatch_blocks_rotation() {
     ));
 }
 
+#[test]
+fn owner_verification_of_a_rekeyed_member_writes_the_new_fingerprint() {
+    let (mut a, b, c, v) = trio();
+    let (_, new_ipk) = IdentitySecret::generate().unwrap();
+    let new_fpr = Fingerprint::of(&b.id, &new_ipk);
+    let roster_fpr = |a: &User| {
+        a.s.vault_roster(v)
+            .unwrap()
+            .unwrap()
+            .into_iter()
+            .find(|m| m.account_id == b.id)
+            .unwrap()
+            .fingerprint
+    };
+    let plan = |ipk| RotationPlan {
+        remaining: vec![(b.id, ipk)],
+        revoked: vec![c.id],
+        ..RotationPlan::default()
+    };
+    // Accepting the changed key alone (unverified) writes nothing: the
+    // rotation stays blocked.
+    a.s.accept_key_change(&b.id, &new_ipk, "b@x").unwrap();
+    assert_eq!(roster_fpr(&a), fpr(&b));
+    assert!(matches!(
+        a.s.prepare_shared_rotation(v, &plan(new_ipk)),
+        Err(Error::MemberKeyMismatch)
+    ));
+    // A code that is not the pin's is refused and writes nothing.
+    assert!(a.s.verify_contact(&b.id, &fpr(&b)).is_err());
+    assert_eq!(roster_fpr(&a), fpr(&b));
+    // The owner's verified acceptance writes the new fingerprint.
+    a.s.verify_contact(&b.id, &new_fpr).unwrap();
+    assert_eq!(roster_fpr(&a), new_fpr);
+    assert!(a.s.pending_roster_upload(v).unwrap().is_some());
+    a.s.prepare_shared_rotation(v, &plan(new_ipk)).unwrap();
+}
+
+#[test]
+fn member_verification_never_writes_a_roster() {
+    // B is not the owner: verifying A's code changes no roster entry.
+    let (a, mut b, _c, v) = trio();
+    let before = b.s.vault_roster(v).unwrap().unwrap();
+    let a_fpr = fpr(&a);
+    b.s.verify_contact(&a.id, &a_fpr).ok();
+    assert_eq!(b.s.vault_roster(v).unwrap().unwrap(), before);
+    assert!(b.s.pending_roster_upload(v).unwrap().is_none());
+}
+
 /// Rotation by A that removes C and keeps B; what B's page would show.
 fn rotate_remove_c(
     a: &mut User,

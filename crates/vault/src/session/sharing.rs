@@ -976,7 +976,58 @@ impl UnlockedSession {
     pub fn verify_contact(&mut self, account: &AccountId, expected: &Fingerprint) -> Result<()> {
         let mut book = self.contact_book()?;
         book.verify(self.device, now(), account, expected)?;
-        self.save_contact_book(&book)
+        self.save_contact_book(&book)?;
+        self.refresh_member_fingerprint(account, expected)
+    }
+
+    /// The owner's verified acceptance of a member's new safety code (a
+    /// member re-keyed, CRYPTO_SPEC §6.6) writes the new fingerprint into the
+    /// roster entry of that member in every vault this account owns, at the
+    /// vault's current generation, queued for upload. Only here: the
+    /// fingerprint is the one the user just compared and the pin now holds.
+    /// Entries of the owner, removed members and unchanged entries stay.
+    fn refresh_member_fingerprint(
+        &mut self,
+        account: &AccountId,
+        verified: &Fingerprint,
+    ) -> Result<()> {
+        if *account == self.account_id {
+            return Ok(());
+        }
+        let ids: Vec<VaultId> = self.vaults.keys().copied().collect();
+        for vault in ids {
+            if self.vault(vault)?.protection != VaultKeyWrap::AccountKey
+                || !self.owns_vault(vault)?
+            {
+                continue;
+            }
+            let Some(mut roster) = self.load_roster(vault)? else {
+                continue;
+            };
+            let Some(entry) = roster.member(account) else {
+                continue;
+            };
+            if matches!(entry.role, Role::Owner | Role::Removed) || entry.fingerprint == *verified {
+                continue;
+            }
+            let ov = self.vault(vault)?;
+            let g = ov.generation;
+            let vk = ov.current_key()?;
+            if roster.generation() < g {
+                roster = roster.advance(g)?;
+            }
+            roster.edit(self.device, now()).set_member(
+                account,
+                entry.role,
+                g,
+                verified,
+                &entry.email,
+            )?;
+            let ct = roster.seal(vk, &vault)?;
+            let seq = self.store.vault_roster(&vault)?.and_then(|r| r.seq);
+            self.store.put_vault_roster(&vault, &ct, seq, true)?;
+        }
+        Ok(())
     }
 
     /// The user saw the key-change warning and accepts the new key (or

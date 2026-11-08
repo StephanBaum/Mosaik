@@ -225,6 +225,10 @@ fn cursor_head(cursor: Option<&[u8]>) -> u64 {
         .map_or(0, u64::from_be_bytes)
 }
 
+/// How far above its own epoch an unverifiable account file may name one and
+/// still count for the target epoch of a re-key.
+const UNVERIFIED_EPOCH_JUMP: u32 = 8;
+
 /// Opens the journal at phase 1 for a re-key, or takes back one that stopped
 /// before the backend learned anything.
 fn open_job(s: &mut UnlockedSession, target_version: Option<u64>) -> Result<(), Error> {
@@ -530,6 +534,8 @@ impl<T: Transport> SyncEngine<T> {
             .ok_or(RekeyError::WrongBackend)?;
         let seen = access.with(|s| s.highest_account_version())??;
         let version = next.max(seen.checked_add(1).ok_or(RekeyError::WrongBackend)?);
+        let own_epoch = access.with(|s| s.ak_epoch())?;
+        let seen_epoch = self.highest_epoch_seen(own_epoch)?;
         access.with(|s| open_job(s, Some(version)))??;
         let now = clock.now_ms();
         let prepared = match access.with(|s| {
@@ -544,6 +550,7 @@ impl<T: Transport> SyncEngine<T> {
                         to_account_version: version,
                         created_at_ms: now,
                     }),
+                    seen_epoch,
                     ..RekeyPlan::default()
                 },
             })
@@ -560,6 +567,22 @@ impl<T: Transport> SyncEngine<T> {
         access.with(|s| s.note_account_version(version))??;
         self.publish_folder_rekey(access, now)?;
         Ok(committed)
+    }
+
+    /// The highest epoch the folder shows: a verified marker, and an
+    /// unverifiable account file whose (unauthenticated) epoch is at most
+    /// `UNVERIFIED_EPOCH_JUMP` above `own`, so a planted huge epoch cannot
+    /// push a re-key out of reach. 0 if there is none.
+    fn highest_epoch_seen(&mut self, own: u32) -> Result<u32, RekeyError> {
+        let signals = self.transport.rekey_signals(own)?;
+        let limit = own.saturating_add(UNVERIFIED_EPOCH_JUMP);
+        let marker = signals.marker.map(|m| m.to_epoch);
+        let files = signals
+            .unverified
+            .iter()
+            .map(|f| f.epoch)
+            .filter(|e| *e <= limit);
+        Ok(marker.into_iter().chain(files).max().unwrap_or(0))
     }
 
     /// Writes the new account file, the snapshot sets and the marker of the

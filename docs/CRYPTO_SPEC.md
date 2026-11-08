@@ -467,6 +467,24 @@ deletes the seals addressed to the account, and each grantor re-seals on the
 next run after verifying the new code. Contact pins of the re-keying account
 are kept.
 
+**Target epoch.** A re-key moves to `max(own epoch, highest epoch seen in the
+backend) + 1` with checked arithmetic (a device halted on a verified marker
+re-keys past it). An unverifiable account file counts only up to 8 epochs above
+the own one, so a planted file cannot push the target out of reach.
+
+**Ownership.** Re-key needs to know which vaults the account owns. A vault
+whose owner nothing records counts as owned if this device created it, or if
+the backend is a **folder**: sharing is impossible there, so a device that
+joined the folder re-keys every vault. On **hosted** it stays unknown and the
+re-key refuses (`OwnerUnknown`, the fail-closed rule of §8.3).
+
+**Re-keyed members.** When a member re-keyed, the owner's verified acceptance
+of the member's new safety code (`verify_contact` after `accept_key_change`)
+writes that fingerprint into the member's roster entry of every vault the owner
+owns, at the vault's current generation, queued for upload. Accepting the key
+alone writes nothing, and only the owner's device writes it, so the next
+rotation's served-key check passes only for a code the owner compared.
+
 **Folder.** See §10.1 "Re-key": an account file at the next version with the new
 epoch, a full snapshot set under the new `K_fold`, a marker for devices of the
 old epoch.
@@ -1533,6 +1551,10 @@ session token alone therefore cannot lock the user out.
   `written` are kept, so the checkpoint counter only grows across epochs.
 
 ### 10.1 Folder backend (ADR-0043)
+
+Ownership on a folder: sharing is impossible on this backend, so every vault
+of the account counts as owned for a re-key, including those a joined device
+did not create (§6.6). The re-key's target epoch is `max(own, highest seen) + 1`.
 
 The folder backend stores the same ciphertext objects as the server in a
 directory that a file-sync client replicates (Dropbox, OneDrive, iCloud Drive,

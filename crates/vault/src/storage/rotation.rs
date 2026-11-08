@@ -429,7 +429,9 @@ fn switch_epoch(tx: &Transaction<'_>, sw: &EpochSwitch<'_>) -> Result<Vec<Stored
     let stored = read_account(tx)?.ok_or(Error::NoAccount)?;
     check_params(sw.params, &stored)?;
     let stored_epoch = read_epoch(tx)?;
-    if stored_epoch.checked_add(1) != Some(sw.to_epoch) {
+    // A re-key may jump past the epochs it saw elsewhere (CRYPTO_SPEC §6.6);
+    // the session checks that an adoption moves by exactly one.
+    if sw.to_epoch <= stored_epoch {
         return Err(Error::EpochMismatch {
             stored: stored_epoch,
             offered: sw.to_epoch,

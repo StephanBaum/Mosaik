@@ -301,6 +301,82 @@ fn rekey_needs_clean_sync() {
     assert!(s.rekey_review().is_ok());
 }
 
+// ---- ownership on a folder and the target epoch -----------------------------------
+
+/// An account on `kind` that holds a vault it did not create (a device that
+/// joined: the key came from the backend, no ownership is recorded).
+fn joined_vault(kind: SyncKind) -> (UnlockedSession, SecretKey, VaultId) {
+    let (mut s, sk) = account();
+    s.set_sync_config(Some(&SyncConfig {
+        kind,
+        server_url: (kind == SyncKind::Hosted).then(|| "https://one.example".to_owned()),
+        email: None,
+        folder_path: (kind == SyncKind::Folder).then(|| std::env::temp_dir().join("mosaic-f")),
+        device_name: "Laptop".to_owned(),
+    }))
+    .unwrap();
+    let w = VaultId::new_v7().unwrap();
+    let vk = mosaic_core::VaultKey::generate(g(1)).unwrap();
+    let wrapped = vk.wrap(&s.account_key, &s.account_id, &w).unwrap();
+    s.apply_remote_vault_key(w, g(1), &wrapped).unwrap();
+    (s, sk, w)
+}
+
+#[test]
+fn folder_joined_device_can_rekey_all_vaults() {
+    let (mut s, sk, w) = joined_vault(SyncKind::Folder);
+    let mine = s.create_vault("mine").unwrap();
+    let review = s.rekey_review().unwrap();
+    assert!(review.owned_vaults.contains(&w) && review.owned_vaults.contains(&mine));
+    assert_eq!(review.member_vaults.len(), 0);
+    rekey(&mut s, &sk, RekeyPlan::default());
+    assert_eq!(s.vault(w).unwrap().generation, g(2));
+}
+
+#[test]
+fn hosted_unknown_ownership_stays_unknown_for_rekey() {
+    let (s, sk, _w) = joined_vault(SyncKind::Hosted);
+    let new_sk = SecretKey::generate().unwrap();
+    assert!(matches!(
+        prepare(&s, &sk, &new_sk, RekeyPlan::default()),
+        Err(Error::OwnerUnknown)
+    ));
+    assert!(matches!(s.rekey_review(), Err(Error::OwnerUnknown)));
+}
+
+#[test]
+fn rekey_targets_the_highest_epoch_seen_plus_one() {
+    let (mut s, sk) = account();
+    let new_sk = SecretKey::generate().unwrap();
+    let plan = |seen| RekeyPlan {
+        seen_epoch: seen,
+        ..RekeyPlan::default()
+    };
+    // Nothing seen, or only lower epochs: own + 1.
+    assert_eq!(prepare(&s, &sk, &new_sk, plan(0)).unwrap().to_epoch(), 2);
+    assert_eq!(prepare(&s, &sk, &new_sk, plan(1)).unwrap().to_epoch(), 2);
+    // A higher epoch seen elsewhere: max + 1, and the commit follows.
+    let p = prepare(&s, &sk, &new_sk, plan(5)).unwrap();
+    assert_eq!(p.to_epoch(), 6);
+    s.set_rekey_pending(true).unwrap();
+    s.commit_rekey(p).unwrap();
+    assert_eq!(s.ak_epoch(), 6);
+    assert!(!s.rekey_pending().unwrap());
+    // Checked arithmetic.
+    let again = SecretKey::generate().unwrap();
+    let err = s
+        .prepare_rekey(RekeyRequest {
+            current_password: &pw2(),
+            current_secret_key: &new_sk,
+            new_password: &pw(),
+            new_secret_key: &again,
+            profile: Argon2Profile::Baseline,
+            plan: plan(u32::MAX),
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::EpochExhausted));
+}
+
 // ---- the commit -------------------------------------------------------------------
 
 /// One account with a synced vault, an item, a contact book and an identity
@@ -407,6 +483,7 @@ fn rekey_reseals_records_meta_roster_under_next_generation() {
         )],
         heads: vec![(v, 7)],
         folder: None,
+        seen_epoch: 0,
     };
     let new_sk = SecretKey::generate().unwrap();
     let p =

@@ -632,14 +632,10 @@ fn member_rekey_rotation_request_reaches_the_owner_and_waits_for_verification() 
 /// The owner compares the member's new safety code, accepts the change and
 /// verifies; the next run rotates and the member converges.
 ///
-/// Fails today: the rotation plan checks the member's served identity key
-/// against the fingerprint in the vault roster, and nothing writes the new
-/// fingerprint of a re-keyed member into the roster (the owner's next
-/// roster has to carry it). T2 gap in `mosaic-vault`
-/// (`check_rotation_plan`, `prepare_shared_rotation`), reported in the T4
-/// hand-off.
+/// The rotation plan checks the member's served identity key against the
+/// roster fingerprint; the owner's verified acceptance of the member's new
+/// safety code writes the new fingerprint into the roster.
 #[test]
-#[ignore = "M7-T2 gap: a re-keyed member's new identity key never matches the roster fingerprint"]
 fn member_rekey_triggers_owner_rotation_after_verification() {
     let (mut w, vault, item) = shared_world(33);
     let before = w.generation(0, 0, vault);
@@ -670,4 +666,28 @@ fn member_rekey_triggers_owner_rotation_after_verification() {
         assert!(w.has(1, d, vault, item));
     }
     no_findings(&w);
+}
+
+/// Without the owner's verification of the new safety code the roster keeps
+/// the old fingerprint and the rotation stays blocked.
+#[test]
+fn member_rekey_without_owner_verification_blocks_rotation() {
+    let (mut w, vault, _item) = shared_world(34);
+    let before = w.generation(0, 0, vault);
+    let new_sk = SecretKey::generate().unwrap();
+    rekey_acct(&mut w, 1, 0, &new_sk);
+    adopt_acct(&mut w, 1, 1, &new_sk);
+    w.sync(0, 0);
+    let email = w.email(1);
+    {
+        let dev = &mut w.accts[0].devs[0];
+        let found = dev.engine.lookup_contact(&mut dev.access, &email).unwrap();
+        // Accepting the changed key is not verifying it.
+        dev.s_mut()
+            .accept_key_change(&found.account_id, &found.ipk, &email)
+            .unwrap();
+    }
+    let report = w.sync(0, 0);
+    assert!(!report.rotated_vaults.contains(&vault));
+    assert_eq!(w.generation(0, 0, vault), before);
 }

@@ -619,7 +619,7 @@ meaning, with one exception that is not part of the frozen surface:
 `adopt_remote_identity`, `own_fingerprint`; `record_sharing_finding`,
 `sharing_findings`, `clear_sharing_findings` (`SharingFinding`);
 contacts: `contact_state`, `pin_contact`, `verify_contact`,
-`accept_key_change`, `contacts`, `apply_remote_contacts`,
+`accept_key_change`, `contacts` (`verify_contact` by the owner also writes the member's new fingerprint into the owned vaults' rosters), `apply_remote_contacts`,
 `pending_contacts_upload`, `mark_contacts_uploaded`; roster and roles:
 `vault_shared`, `vault_own_role`, `vault_owner`, `vault_access_lost`,
 `roster_seq`, `vault_roster`, `apply_remote_roster` (takes the server's
@@ -741,7 +741,7 @@ refuses a backend change while a job exists.
   5). A new Secret Key that is the current or a retired one: `Error::SecretKeyUnchanged`.
   `prepare_master_password_change` calls it.
 - Re-key: `rekey_review` → `RekeyReview`; `prepare_rekey(RekeyRequest)` →
-  `PreparedRekey` (`RekeyPlan`, `FolderRekeyPlan`; accessors `old_opaque_password`,
+  `PreparedRekey` (`RekeyPlan` with `seen_epoch`: the target is `max(own, seen) + 1`; `FolderRekeyPlan`; accessors `old_opaque_password`,
   `new_opaque_password`, `new_params`, `new_wrapped_ak`, `to_epoch`, `identity`,
   `vault_keys`, `shared_rotations` (`SharedRekeyOut`), `member_rewraps`,
   `emergency_seals`, `folder_marker`); `commit_rekey` → `RekeyCommitted` (one

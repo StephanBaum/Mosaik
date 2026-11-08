@@ -57,6 +57,10 @@ pub struct RekeyPlan {
     pub heads: Vec<(VaultId, u64)>,
     /// A folder re-key: what the marker and the account file need.
     pub folder: Option<FolderRekeyPlan>,
+    /// The highest account-key epoch this device saw in its backend (a
+    /// verified marker, or a plausible unverifiable file); 0 if none. The
+    /// re-key targets `max(own epoch, seen_epoch) + 1`.
+    pub seen_epoch: u32,
 }
 
 /// The inputs of [`UnlockedSession::prepare_rekey`].
@@ -533,10 +537,14 @@ impl UnlockedSession {
                     false
                 }
                 // A vault created here before the contact book recorded
-                // ownership: the same rule as `ensure_vault_owned`.
+                // ownership: the same rule as `ensure_vault_owned`. On a
+                // folder backend nothing can be shared, so a vault of unknown
+                // ownership (a device that joined the folder) is owned; on
+                // hosted it stays unknown (fail closed, CRYPTO_SPEC §6.6).
                 Ownership::Unknown => {
                     if self.store.vault_key_origin(id, KeyGeneration::FIRST)?
                         == Some(crate::storage::KeyOrigin::Local)
+                        || self.unknown_ownership_is_owned()?
                     {
                         true
                     } else {
@@ -581,6 +589,12 @@ impl UnlockedSession {
             }
         }
         Ok(())
+    }
+
+    /// The backend's rule for a vault whose owner nothing records: only a
+    /// folder backend, where sharing is impossible, counts it as owned.
+    fn unknown_ownership_is_owned(&self) -> Result<bool> {
+        Ok(matches!(self.store.sync_config()?, Some(c) if c.kind == SyncKind::Folder))
     }
 
     fn hosted(&self) -> Result<bool> {
@@ -839,9 +853,11 @@ impl UnlockedSession {
     /// [`Error::PlanMismatch`], [`Error::MemberKeyMismatch`],
     /// [`Error::ContactUnverified`] if the plan does not cover the owned
     /// shared vaults as the roster and the pins say;
-    /// [`Error::EpochExhausted`]; [`Error::VaultUnavailable`],
-    /// [`Error::OwnerUnknown`], [`Error::NoIdentity`]; [`Error::Core`]
-    /// (`ProfileDowngrade`, an empty password); [`Error::Store`].
+    /// [`Error::EpochExhausted`] (the target `max(own epoch,
+    /// plan.seen_epoch) + 1` overflows); [`Error::VaultUnavailable`],
+    /// [`Error::OwnerUnknown`] (hosted only), [`Error::NoIdentity`];
+    /// [`Error::Core`] (`ProfileDowngrade`, an empty password);
+    /// [`Error::Store`].
     pub fn prepare_rekey(&self, req: RekeyRequest<'_>) -> Result<PreparedRekey> {
         let RekeyRequest {
             current_password,
@@ -851,7 +867,11 @@ impl UnlockedSession {
             profile,
             plan,
         } = req;
-        let to_epoch = self.ak_epoch.checked_add(1).ok_or(Error::EpochExhausted)?;
+        let to_epoch = self
+            .ak_epoch
+            .max(plan.seen_epoch)
+            .checked_add(1)
+            .ok_or(Error::EpochExhausted)?;
         if profile < self.account_profile()? {
             return Err(Error::Core(mosaic_core::Error::ProfileDowngrade));
         }
