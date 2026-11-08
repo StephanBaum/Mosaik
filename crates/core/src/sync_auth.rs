@@ -300,7 +300,9 @@ pub type ServedEntry = ([u8; 16], u64, [u8; 32]);
 /// The view digest of a hosted vault (CRYPTO_SPEC §10):
 /// `SHA-256(ctx("sync/view") || 0x00 || vault_id || high_seq:u64 ||
 /// key_commit[32] || n:u32 || n x (record_id[16] || seq:u64 || ct_hash[32]))`
-/// with `rows` sorted by record ID. No key is involved.
+/// with `rows` sorted by record ID. No key is involved. **Retired** by
+/// [`view_digest2`] (M6b, ADR-0048); kept for the label registry and the
+/// old known-answer test until the sync engine has moved over.
 ///
 /// # Errors
 /// [`Error::Malformed`] if the rows are not strictly ascending by record ID
@@ -324,6 +326,72 @@ pub fn view_digest(
     hash.update(vault.as_bytes());
     hash.update(high_seq.to_be_bytes());
     hash.update(key_commit);
+    hash.update(n.to_be_bytes());
+    for (record, seq, ct_hash) in rows {
+        hash.update(record);
+        hash.update(seq.to_be_bytes());
+        hash.update(ct_hash);
+    }
+    Ok(hash.finalize().into())
+}
+
+/// One versioned object in the metadata commitment of [`view_meta_commit`]:
+/// the `server_seq` it was served or accepted under and the SHA-256 of its
+/// ciphertext. An object that does not exist is [`ABSENT_OBJECT`].
+pub type ServedObject = (u64, [u8; 32]);
+
+/// A vault object that does not exist: sequence 0 and a zero hash.
+pub const ABSENT_OBJECT: ServedObject = (0, [0u8; 32]);
+
+/// The metadata commitment of a hosted view digest (CRYPTO_SPEC §10,
+/// ADR-0048): `SHA-256(ctx("sync/view-meta") || 0x00 || vault_id ||
+/// meta_seq:u64 || meta_ct_hash[32] || roster_seq:u64 || roster_ct_hash[32])`.
+/// It puts the vault metadata and the roster into the digest, so two devices
+/// that were shown different ones disagree (R70).
+#[must_use]
+pub fn view_meta_commit(vault: &VaultId, meta: &ServedObject, roster: &ServedObject) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(ctx(label::SYNC_VIEW_META.as_str()));
+    hash.update([0u8]);
+    hash.update(vault.as_bytes());
+    hash.update(meta.0.to_be_bytes());
+    hash.update(meta.1);
+    hash.update(roster.0.to_be_bytes());
+    hash.update(roster.1);
+    hash.finalize().into()
+}
+
+/// The view digest of a hosted vault, version 2 (CRYPTO_SPEC §10):
+/// `SHA-256(ctx("sync/view2") || 0x00 || vault_id || high_seq:u64 ||
+/// key_commit[32] || meta_commit[32] || n:u32 ||
+/// n x (record_id[16] || seq:u64 || ct_hash[32]))` with `rows` sorted by
+/// record ID. It replaces [`view_digest`], whose label `sync/view` is
+/// retired; checkpoints of version 1 carry this digest.
+///
+/// # Errors
+/// [`Error::Malformed`] if the rows are not strictly ascending by record ID
+/// or there are more than `u32::MAX`.
+pub fn view_digest2(
+    vault: &VaultId,
+    high_seq: u64,
+    key_commit: &[u8; 32],
+    meta_commit: &[u8; 32],
+    rows: &[ServedEntry],
+) -> Result<[u8; 32]> {
+    let n = u32::try_from(rows.len()).map_err(|_| Error::Malformed)?;
+    if rows
+        .windows(2)
+        .any(|w| w.first().map(|r| r.0) >= w.get(1).map(|r| r.0))
+    {
+        return Err(Error::Malformed);
+    }
+    let mut hash = Sha256::new();
+    hash.update(ctx(label::SYNC_VIEW2.as_str()));
+    hash.update([0u8]);
+    hash.update(vault.as_bytes());
+    hash.update(high_seq.to_be_bytes());
+    hash.update(key_commit);
+    hash.update(meta_commit);
     hash.update(n.to_be_bytes());
     for (record, seq, ct_hash) in rows {
         hash.update(record);
@@ -582,5 +650,50 @@ mod tests {
                 .checkpoint_key()
                 .unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod kat {
+    use super::*;
+    use crate::share::test_support::vector;
+
+    /// `share_kat.txt` (script `share_kat.py`): the metadata commitment and the
+    /// version 2 view digest of two served rows.
+    #[test]
+    fn view2_digest() {
+        let vault = VaultId::from_bytes([0x0B; 16]).unwrap();
+        let sha = |s: &[u8]| -> [u8; 32] { Sha256::digest(s).into() };
+        let meta = (5, sha(b"meta"));
+        let roster = (6, sha(b"roster"));
+        let meta_commit = view_meta_commit(&vault, &meta, &roster);
+        assert_eq!(meta_commit.as_slice(), vector("meta_commit"));
+        let rows: [ServedEntry; 2] = [
+            ([0x0D; 16], 3, sha(b"first")),
+            ([0x0F; 16], 8, sha(b"second")),
+        ];
+        let digest = view_digest2(&vault, 8, &[0x44; 32], &meta_commit, &rows).unwrap();
+        assert_eq!(digest.as_slice(), vector("view2_digest"));
+        // The digest depends on every input, including the roster and the
+        // metadata (R70) and the order of the rows.
+        let other_roster = view_meta_commit(&vault, &meta, &(7, sha(b"roster")));
+        let other_meta = view_meta_commit(&vault, &(5, sha(b"other")), &roster);
+        let absent = view_meta_commit(&vault, &ABSENT_OBJECT, &ABSENT_OBJECT);
+        for m in [other_roster, other_meta, absent] {
+            assert_ne!(m, meta_commit);
+            assert_ne!(
+                view_digest2(&vault, 8, &[0x44; 32], &m, &rows).unwrap(),
+                digest
+            );
+        }
+        let mut swapped = rows;
+        swapped.swap(0, 1);
+        assert_eq!(
+            view_digest2(&vault, 8, &[0x44; 32], &meta_commit, &swapped).unwrap_err(),
+            Error::Malformed
+        );
+        // The version 2 digest differs from the retired version 1 digest.
+        let old = view_digest(&vault, 8, &[0x44; 32], &rows).unwrap();
+        assert_ne!(old, digest);
     }
 }

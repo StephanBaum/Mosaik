@@ -3931,3 +3931,258 @@ leaves the lifetime of the token, the order of the fresh-login flows, the wait l
   the catalog), chosen by the language setting; the request has no fields. New `windows` features `Foundation_Collections`
   and `System_UserProfile` read the user's first preferred language through the safe WinRT API (`GetUserDefaultLocaleName`
   is unsafe, and the crate forbids unsafe code); Linux and macOS read `LC_ALL`, `LC_MESSAGES`, `LANG`.
+
+## ADR-0048: M6b scope: sharing and emergency access on the hosted server
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer, from the M6b spec and ADR-0004, ADR-0042
+- Milestone: M6b (sharing and emergency access)
+
+### Context
+ADR-0042 deferred sharing, organisations, team vaults and emergency access to M6b. M6 ships two transports (the
+hosted server and a cloud folder). CRYPTO_SPEC §8 existed as a design sketch. THREAT_MODEL R3, R7, R18 and R70 point
+at this milestone.
+
+### Decision
+1. **Hosted only.** Vault sharing and emergency access exist on the hosted server and nowhere else. A folder store
+   cannot share, receive shares, or grant or receive emergency access, and never holds identity keys, rosters or the
+   contact book. Reasons (CRYPTO_SPEC §8.6): (1) every folder integrity key derives from one account's AK, so a second
+   account cannot verify or write a segment; (2) there is no compare-and-swap (R55), so in a revocation the canonical
+   winner rule can pick a concurrent rotation by the member being removed; (3) nothing can stop a removed member
+   writing, and members and admins of a team folder keep write access (R54); (4) there is no directory or mailbox for
+   keys and seals, and planted files would make trust on first use worthless; (5) nothing can enforce a waiting period,
+   and a pre-wrapped escrow is just a share. Owner decision OD1 may revisit this with new folder formats. `s/` stays
+   reserved.
+2. **Item sharing is moving an item into a shared vault** (CRYPTO_SPEC §7.2). There are no per-item ACLs. A "team" is
+   a shared vault with several members.
+3. **Emergency access covers vault keys only** (content type `0x02`). AK is never sealed: content type `0x01` is
+   reserved and decoders reject it (OD2). Only vaults the grantor owns, and not hardware-protected (TK) vaults.
+4. **Verification is required** before any invite, grant or accepted invite (a one-click attestation after comparing
+   safety codes; OD3 may relax it for invites). Opening an emergency release from an unverified grantor is allowed
+   after a warning, because that can only inject fake vault keys.
+5. **R70 is closed in M6b with `sync/view2`.** The hosted view digest also commits to the vault metadata and the new
+   roster through `meta_commit`. M6 is unreleased, so the checkpoint version stays 1 and the label `sync/view` is
+   retired (it stays in the registry; `view_digest` stays in `mosaic-core` until the engine moved to `view_digest2`).
+6. **Safety code display** is `5-5-5-5-6` groups, because 26 characters do not split into groups of 5. The QR payload
+   `mosaic-contact:1:<account_id hex32>:<fpr hex64>` is defined for the mobile app and not used on the desktop, which
+   has no camera.
+7. Out of scope: organisations, admin policies, ownership transfer and groups (OD6); full re-key and identity key
+   rotation (M7); per-author item signatures (R7, v2).
+
+### Alternatives considered
+- Folder sharing with per-vault folder keys: a new spec chapter and still no revocation guarantee (R54).
+- Emergency sealing of AK: a release would hand over the whole account, including future vaults and sessions, with
+  one server-enforced wait; vault keys keep the blast radius to the vaults named.
+- Trust on first use without verification: the server could substitute a key at first contact unnoticed (R71).
+
+### Consequences
+THREAT_MODEL R71 to R81 are added; R3, R7, R18 and R70 are updated. The folder backend is unchanged.
+
+## ADR-0049: The `hpke` dependency and the HPKE random number generator
+
+- Status: accepted (amends ADR-0004 vetting and ADR-0011)
+- Date: 2026-11-08
+- Decided by: the principal engineer; vetted by the T1 implementer from the crate source and registry metadata
+- Milestone: M6b
+
+### Context
+ADR-0004 chose HPKE (RFC 9180) mode Auth and said the `hpke` crate needs vetting in M6. CRYPTO_SPEC §2 fixes the suite:
+DHKEM(X25519, HKDF-SHA256) (`0x0020`), HKDF-SHA256 (`0x0001`), ChaCha20-Poly1305 (`0x0003`). ADR-0011 keeps `rand`
+and `rand_core` out of Mosaic's own code.
+
+### Decision
+1. **Crate and pin.** `hpke = "=0.15.1"` (rozbb/rust-hpke, MIT or Apache-2.0, published 2026-10-28 and the latest
+   release when pinned, 16 million downloads; checksum
+   `8f512e325a1a71bf3273fb9b7fc9e5d96dac136fb4a95d0e6637001b12ea3e09`). The M6b spec text named `=0.13.0` before
+   the latest release was checked; 0.13 is built on `rand_core` 0.9 and `generic-array`, the previous RustCrypto
+   generation, while 0.15 uses `aead` 0.6, `chacha20poly1305` 0.11, `hkdf` 0.13, `sha2` 0.11 and `rand_core` 0.10,
+   the same versions as the rest of the tree. 0.15 also serializes X25519 private keys clamped and pulls in the
+   `crypto-bigint` and `ctutils` fixes (RUSTSEC-2026-0387 and -0385), which only the unused NIST-curve features reach.
+2. **Features.** `default-features = false, features = ["alloc", "x25519", "chacha"]`. That drops `getrandom`,
+   `mlkem`, `aes`, `nistp` and `shake`, so the build contains exactly the §2 suite: X25519 (`x25519-dalek` 3 and
+   `curve25519-dalek` 5, BSD-3-Clause, already allowed), HKDF-SHA256, ChaCha20-Poly1305. The crate's own source
+   contains no `unsafe`. No other KEM, KDF or AEAD is compiled in.
+3. **Only mode Auth, only single-shot.** The code calls `single_shot_seal_with_rng` and `single_shot_open` with
+   `OpModeS::Auth` and `OpModeR::Auth`, never Base, PSK or the streaming contexts.
+4. **Randomness without an infallible adapter.** `hpke` takes a `rand_core::CryptoRng`, whose methods can't fail. The
+   spec draft proposed an `HpkeRng` that aborts the process when the CSPRNG fails. Instead, `mosaic_core::rng::HpkeRng`
+   serves exactly the 32 bytes of one ephemeral `ikm`, drawn beforehand with `rng::fill` (the usual
+   `Error::Randomness`), from a buffer. `hpke` draws exactly 32 bytes per seal (`gen_keypair_with_rng` reads the `ikm`
+   of one X25519 key). If a future version ever asked for more, the shortfall is zero bytes plus a flag and the seal
+   fails with `Error::Randomness`; a seal is never made from weak bytes and the process never aborts. The buffer is
+   zeroized on drop, and tests inject a fixed `ikm` through the same type, so KATs need no extra code path. `rand_core`
+   is therefore a transitive dependency only; Mosaic's code still calls `getrandom` directly (ADR-0011).
+5. **Private keys.** `isk` is stored as the 32 clamped bytes `hpke` serializes, in Mosaic's own zeroizing container;
+   an `hpke` private key exists only for the duration of one operation.
+6. **Known-answer tests.** The unit test `share::kat::rfc9180_a23_auth` reproduces RFC 9180 A.2.3 (the Auth vector of
+   exactly this suite) through the crate, and `crates/core/tests/vectors/share_kat.py`, a stdlib-only implementation of
+   X25519, ChaCha20-Poly1305 and HPKE Auth, reproduces the same vector and the Mosaic seals.
+7. `deny.toml` needs no exception: all new crates are permissive (MIT, Apache-2.0, BSD-3-Clause).
+
+### Alternatives considered
+- `=0.13.0` as the spec draft said: older RustCrypto generation, a second `rand_core` and `generic-array` in the tree.
+- Hand-written HPKE on `x25519-dalek`: invented crypto, forbidden.
+- An aborting `fill_bytes` (the spec draft): a process abort inside a password manager on a CSPRNG failure; the buffered
+  draw returns an error to the caller instead.
+
+### Consequences
+Adds `hpke`, `x25519-dalek`, `curve25519-dalek`, `hybrid-array` and their small dependencies. CRYPTO_SPEC §2 names the
+crate, its pin and features.
+
+## ADR-0050: Roster object, merge rule and acceptance rule
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+A shared vault needs a member list that every member can check. Roles can be enforced by the server only (R72), but the
+rotation chain after a revocation must not depend on the server's word.
+
+### Decision
+1. **The roster** is a replicated document (CRYPTO_SPEC §7.5 layout) sealed under VK as `VaultRosterCiphertext`, exactly
+   the `VaultMeta` construction with the label `vault-roster`. Keys `member:<account_id hex32>`, values
+   `{"email","fpr","role","since"}` with roles `owner`, `manage`, `write`, `read`, `removed`.
+2. **Merge rule.** The document merge decides what is kept. The effective value of a member register is the entry with
+   the highest `since`, then the most restrictive role (`removed` > `read` > `write` > `manage` > `owner`), then the
+   largest stamp. Member registers never show as conflicts. A removal writes `removed` with `since = g + 1`, never a key
+   deletion, so a concurrent role change at `g` can't resurrect a removed member and a re-invite (`since` = the current
+   generation) beats the removal. The effective view is a function of the merged document, so the merge stays
+   commutative, associative and idempotent (property test).
+3. **Validity** on every open: values parse, `fpr` is 32 bytes, `since` at most the roster's generation, exactly one
+   `owner` and it is the server's `owner_account_id`. An invalid roster is the finding `RosterInvalid`; the vault stays
+   readable and no rotation share is accepted for it.
+4. **Acceptance rule.** Roles stay server-enforced. The one cryptographic boundary is the claim rule (CRYPTO_SPEC §8.3):
+   a rotation share is accepted only from a sender the previous roster lists as `owner` or `manage` with a `since` at
+   most the held generation, whose served `ipk` matches the roster `fpr` and the pin.
+5. The server keeps the current roster and the last roster of each generation, and lets only `owner` and `manage` write
+   it by compare-and-swap.
+
+### Alternatives considered
+- Largest stamp wins: a stale role change could beat a removal.
+- Per-member signatures: a v2 candidate (R7).
+
+### Consequences
+R72 and R79 record the limits. The roster joins the view digest (`meta_commit`, R70).
+
+## ADR-0051: Shared-vault rotation, claims and the `shared` flag
+
+- Status: accepted (amends ADR-0013 and ADR-0045 for shared vaults)
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+M6 resolves concurrent rotations by adoption: the server's key for a generation replaces the device's own, because that
+key was never shared. For a shared vault the server's key for a generation could be one a removed member can read, and
+the CRYPTO_SPEC §10.2 forward constraint said such rotations need their own rule.
+
+### Decision
+1. **Triggers.** A removal by a manager, a leave, an invite that was declined or cancelled after delivery (OD4), and a
+   server-listed member the roster lacks (after a user prompt). They persist as pending revocations until accepted.
+2. **One atomic rotate request.** The new key row, the shares for every remaining member and pending invite, the new
+   roster, the membership removals, the generation and the head bump go in one request, conditional on the current
+   generation and head. The server refuses it (`members_mismatch`) unless the shares plus the revoked accounts cover the
+   other members and the pending invites.
+3. **No adoption.** After `generation_taken` or `head_moved` the device pulls, accepts the winner's next generation only
+   through the claim rule, and prepares again at the next generation. At most three attempts per vault per run.
+4. **Attachments** are re-sealed under fresh IDs and file keys in the same store transaction as the key swap (ADR-0017);
+   old blobs are deleted only after the referencing records are accepted. Unfetchable ones are listed (R76).
+5. **The `shared` flag** is monotone and outlives the vault and backend changes, like the generation floor. Adoption is
+   forbidden for a vault that has it; a backend change is refused while any shared vault is live. A backend switch
+   therefore can't make a shared key adoptable (the second §10.2 constraint).
+6. Unshared vaults keep the M6 path; the server refuses it for a vault with several members or a pending invite.
+
+### Alternatives considered
+- Adoption with a membership filter: still lets the server pick the key for the generation.
+- A multi-request rotation: a crash between requests leaves some members without the new key.
+
+### Consequences
+CRYPTO_SPEC §8.3 and §10.2 state the rule. R75 and R76 record what remains.
+
+## ADR-0052: Directory and invite abuse controls
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+Inviting by email address needs a directory. A directory that answers only for registered accounts is an enumeration
+oracle, and invites can be used for spam.
+
+### Decision
+1. **Fakes.** The lookup answers every valid email with `(account_id, ipk)`. For an unknown address the account ID is
+   the pre-login fake (the same HMAC, so the pre-login and directory answers agree) and the `ipk` is
+   `HMAC-SHA-256(K_dir, ctx("server/directory-ipk") || normalized_email)` with the top bit cleared, where
+   `K_dir = HKDF(server_secret, "", ctx("server/directory-key"), 32)`. A registered account without a published key gets
+   its real ID and the fake `ipk`. Invites to fakes are stored like real ones and expire.
+2. **Limits.** Lookups per session and per account, invites per account, 50 members per vault, 200 pending outgoing and
+   100 pending incoming invites per account (extra incoming invites are dropped silently), 20 grants given and received.
+3. **Blocks.** A recipient can decline with a block; blocked senders' invites vanish silently.
+4. **No email.** Invites go to the account address plus a safety-code comparison; clients pull their inbox. No mail is
+   sent. There is no message text, only the vault name inside the ciphertext. Logs never hold lookup targets.
+
+### Alternatives considered
+- Answer only for existing accounts: enumeration for free.
+- Email invitations: a new outbound channel and a new secret in the server.
+
+### Consequences
+R74 and R77 record the residuals (timing, unaccepted invites). The two labels live in `mosaic_core::encoding::label`.
+
+## ADR-0053: Emergency access state machine and limits
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+Brief §emergency access asks for a waiting period the grantor can refuse. Without email, the server can't notify a
+grantor.
+
+### Decision
+1. **States** `idle`, `waiting`, `approved`, `released`; transitions as in CRYPTO_SPEC §8.4, enforced by the server. A
+   decline returns to `idle` with a 24 hour cooldown; approve needs a fresh login; `released` is final until the grantor
+   deletes the grant, which also queues revocations of the emergency memberships.
+2. **Waits** of 1, 2, 7, 14 or 30 days (default 7), the grantor's choice, fixed while `waiting` (OD5).
+3. **Notification** through the server's inbox counter, which wakes the long poll; the desktop shows a persistent banner
+   with Refuse and Approve now. The grant dialog tells the grantor to open the app within the wait.
+4. **Scope** all owned vaults (kept fresh automatically) or selected ones; one `EmergencySeal` per vault; the server
+   adds a `read` membership with origin `emergency` at release.
+5. **Not recovery.** Account recovery stays with the Emergency Kit.
+
+### Alternatives considered
+- Immediate release with notification only: no chance to refuse.
+- Sealing AK (OD2): hands over the whole account.
+
+### Consequences
+R73 records that the wait and the refusal depend on the server and the grantor's attention.
+
+## ADR-0054: The contact book as a synced, AK-derived AEAD object
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+Pins must follow the user across devices, or a new device would pin again and a server could substitute a key there.
+Storing pins as plaintext would show whom the user talks to.
+
+### Decision
+The contact book is an account-level replicated document (§7.5 layout) sealed under `K_contacts = HKDF(AK, "",
+ctx("contacts-key"), 32)` as `ContactsCiphertext` (label `contacts`, bound to the account ID, at most 256 KiB padded)
+and synced through the server with compare-and-swap and a merge. `K_contacts` is derived per operation and never
+stored. Entries `contact:<account_id hex32>` hold email, first seen, `fpr` and `verified`. Concurrent pins of different
+fingerprints leave two values in a register, which is `Conflicting` and blocks like a key change; concurrent pins of the
+same fingerprint agree and the verified flag wins.
+
+### Alternatives considered
+- Pins in the local store only: every new device would start from trust on first use.
+- Plaintext pins on the server: the server would learn the contact list's keys.
+
+### Consequences
+R80 records that a server can withhold the newest book from a new device; the roster still catches it for vault members.

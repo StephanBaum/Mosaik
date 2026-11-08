@@ -34,7 +34,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Key derivation | HKDF-SHA-256 | RFC 5869 | `hkdf`, `sha2` |
 | AEAD | XChaCha20-Poly1305 | draft-irtf-cfrg-xchacha, RFC 8439 | `chacha20poly1305` |
 | Streaming AEAD (attachments) | STREAM (big-endian 32-bit counter) over XChaCha20-Poly1305 | Hoang, Reyhanitabar, Rogaway, Vizár 2015 | `chacha20poly1305` / `aead::stream` |
-| Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` |
+| Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` (exact `=0.15.1` pin, features `alloc`, `x25519`, `chacha`, nothing else; mode Auth through the single-shot API only; the ephemeral key is one `random(32)` draw, ADR-0049) |
 | Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` (4.x, exact `=` pin, ADR-0046) |
 | Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`); `sha2` (rpIdHash, clientDataJSON hash); `base64ct` (base64url) |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
@@ -42,7 +42,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Sync checkpoints and folder backend (§10, §10.1, ADR-0043) | HMAC-SHA-256 under HKDF-derived keys; XChaCha20-Poly1305 for device info | RFC 2104, 5869, draft-irtf-cfrg-xchacha | `hmac`, `hkdf`, `sha2`, `chacha20poly1305` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
 | Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
-| Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no `rand` / `rand_core`, ADR-0011) |
+| Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no direct `rand` / `rand_core` use, ADR-0011; `hpke` brings `rand_core` as a transitive dependency and is fed from a buffered `getrandom` draw, ADR-0049) |
 | Constant-time compare | — | — | `subtle` |
 | Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
@@ -83,6 +83,16 @@ Interoperability only (these read or serve third-party formats and never protect
   and its key commitment, §10); and, in the server only, `server/prelogin-key`,
   `server/totp-key` and `server/totp-at-rest` (§9.2, §9.3). `mosaic-core` derives
   every key from them; `mosaic-sync` and the server never see `AK`.
+- Labels added for sharing and emergency access (§8, M6b): `wrap/identity` (§8.1),
+  `share/vault`, `fingerprint`, `vault-roster` (§8.2), `emergency` (§8.4), `contacts-key`,
+  `contacts` (§8.5), `sync/view2` and `sync/view-meta` (the plain SHA-256 prefixes of the
+  version 2 view digest and its metadata commitment, §10); and, in the server only,
+  `server/directory-key` and `server/directory-ipk` (§8.2, ADR-0052). `sync/view`
+  is **retired** (version 1 of the view digest, never released with sharing): it stays in the
+  registry, so it can't be reused for another purpose.
+- **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
+  `0x03` the HPKE seal of §8.2 and §8.4 (mode Auth, KEM `0x0020`, KDF `0x0001`, AEAD `0x0003`).
+  `0x02` is unused. A decoder refuses any other value.
 - **One registry.** Every label that any crate uses is a typed constant
   `mosaic_core::encoding::label::*` and is listed in `label::ALL`, which the
   uniqueness test covers; `mosaic-sync` and the server take their labels from
@@ -116,7 +126,9 @@ Interoperability only (these read or serve third-party formats and never protect
 | Key-encryption key `KEK` | 256 bit | never stored | until AK is unwrapped |
 | Account key `AK` | 256 bit | wrapped (§6) | while unlocked |
 | Vault key `VK` | 256 bit | wrapped by AK (§7); in a hardware-protected vault by `TK` (§7.4) | while unlocked; in a hardware-protected vault only while it is open |
-| Identity key pair `(isk, ipk)` | X25519 | `isk` wrapped by AK | while unlocked |
+| Identity key pair `(isk, ipk)` (§8.1) | X25519 | `isk` wrapped by AK (`wrap/identity`); `ipk` public | `isk` while unlocked; an HPKE private key exists for one seal or open only |
+| Contact-book key `K_contacts` (§8.5) | 256 bit | never stored | derived per operation inside the session; gone on lock |
+| Opened share VK (§8.2, pending slot) | 256 bit | memory only | from opening an invite until it is accepted or dropped, at most 5 minutes, and gone on lock |
 | Attachment key `FK` | 256 bit | inside its item's plaintext | while the file is processed |
 | Quick-unlock `W` | 256 bit | released by the platform key (§6.2), never stored in the clear | until AK is wrapped (enrollment) or unwrapped (unlock) |
 | Security-key PRF output | 256 bit | on the security key | until `W` or `W_hw` is derived |
@@ -385,6 +397,16 @@ aad       = header || aad("vault-meta", vault_id, key_generation:u32)
 ```
 The padded metadata is at most 64 KiB (ADR-0007).
 
+A shared vault (§8.2) has one more object of the same construction under its own label, the
+member roster:
+```
+VaultRoster = header || nonce[24] || AEAD(VK, nonce, pad(roster), aad)
+header      = version:u8 || alg:u8 || key_generation:u32
+aad         = header || aad("vault-roster", vault_id, key_generation:u32)
+```
+The padded roster is at most 64 KiB. Its fields, merge rule and validity are in §8.2; membership
+roles are `owner`, `manage`, `write` and `read` (server numbers 1 to 4).
+
 ### 7.2 Item records
 Every item is encrypted on its own with its vault's key:
 
@@ -527,67 +549,295 @@ ENTRY = {"at":ms,"c":counter,"d":DEVICE_ID,"v":VALUE, EXTRA...}
 
 ## 8. Sharing and emergency access
 
+Sharing and emergency access exist **on the hosted server only** (§8.6, ADR-0048).
+Every construction below uses the primitives of §2 and no others.
+
 ### 8.1 Identity keys
-Each account has an X25519 key pair. `isk` is stored wrapped under AK
-(`aad("wrap/identity", account_id)`). `ipk` is published on the server.
+Each account has an X25519 key pair `(isk, ipk)` for HPKE (DHKEM(X25519,
+HKDF-SHA256), RFC 9180 §7.1.3).
+
+- **Generation.** `ikm = random(32)`, then `(isk, ipk) = DeriveKeyPair(ikm)`
+  (RFC 9180 §7.1.3). `ikm` is zeroized after the call. The 32 bytes kept as `isk` are
+  the clamped scalar, which is how the `hpke` crate serializes the private key.
+- **Storage.** `WrappedIdentityKey = WrappedKey` (§6 format, 74 bytes) with `W = AK` and
+  `aad = header || aad("wrap/identity", account_id)`. `isk` is in memory only while the
+  vault is unlocked (§11). `ipk` is public.
+- **When.** Lazily, at the first hosted sync run of an unlocked session that has none.
+  A folder store never generates one (§8.6).
+- **Publication.** `ipk` and the wrapped `isk` are published on the hosted server, which
+  stores both if none is set; the same pair again is accepted; a different pair is refused
+  (`identity_exists`) and the stored pair is returned. A device **adopts** the served pair
+  only if (a) its own key was never published, (b) the served wrapping opens under AK with
+  the AAD above, and (c) the public key derived from the opened `isk` equals the served
+  `ipk` (constant time). Otherwise it records the finding `IdentityMismatch` and sharing
+  stays disabled until the user acknowledges. Adoption is safe because an unpublished key
+  was never used for any seal. Every run compares the served identity with the local one;
+  a difference after publication is `IdentityMismatch`.
+- **No replacement before M7.** The server refuses to replace a published identity key. It
+  changes only with a full re-key (§6.6, M7), which also invalidates the seals made with it.
 
 ### 8.2 Sharing a vault
-For each recipient, the sender seals VK with HPKE mode **Auth**, using the
-sender's `isk` as the authentication key:
+
+Sharing is account to account on one hosted server. A "team" is a shared vault with
+several members. There are no per-item ACLs: sharing an item means moving it into a shared
+vault (§7.2, "Moving an item").
+
+**Fingerprint and safety code.**
 ```
+fpr = SHA-256(ctx("fingerprint") || account_id || ipk)        (32 bytes, stored in full)
+```
+The **safety code** is the first 130 bits of `fpr` as 26 Crockford Base32 characters
+(alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, most significant bits first). It is displayed in
+groups `5-5-5-5-6` (26 characters do not split into groups of 5). Comparison accepts any
+case, ignores spaces and hyphens and accepts the Crockford aliases (`I`, `L` for `1`, `O`
+for `0`). The desktop has no camera, so verification is by reading the code aloud or on
+the phone. The QR payload for mobile (M10) is `mosaic-contact:1:<account_id hex32>:<fpr hex64>`;
+M6b defines it and does not use it.
+
+**ShareSeal.** For each recipient the sender seals VK with HPKE mode **Auth**, using the
+sender's `isk` as the authentication key, the suite fixed by §2 (KEM `0x0020`, KDF `0x0001`,
+AEAD `0x0003`):
+```
+ShareSeal (82 bytes) = version:u8 (1) || alg:u8 (0x03) || enc[32] || ct[48]
+ct   = HPKE.SealAuth(pkR = ipk_recipient, info, aad, pt = VK[32], skS = isk_sender)
 info = ctx("share/vault") || vault_id || sender_account_id || recipient_account_id
-aad  = aad("share/vault", vault_id, key_generation:u32)
+aad  = header || aad("share/vault", vault_id, key_generation:u32)        header = version || alg
 ```
-The recipient opens the seal with their `isk` and the sender's `ipk`, then
-re-wraps VK under their own AK. Auth mode stops the server from injecting a
-vault key it made up and claiming it came from a sender.
+`alg = 0x03` names "HPKE mode Auth with the §2 suite". A decoder rejects a version other
+than 1, an alg other than `0x03` and any length other than 82 before any crypto; every
+failure to open is the single `Decryption` error. The seal draws one `random(32)` for the
+ephemeral key (§2: the OS CSPRNG, ADR-0049). The recipient opens the seal with their `isk`
+and the sender's `ipk`, then re-wraps VK under their own AK (§7.1). Auth mode stops the
+server from injecting a vault key it made up and claiming it came from a sender.
 
-**Public-key authenticity:** the server distributes `ipk`. A malicious server
-could hand out its own key (MITM). As mitigation, the UI shows a 130-bit safety
-code for each contact. The code is the first 130 bits of
-`SHA-256(ctx("fingerprint") || account_id || ipk)` as 26 Crockford Base32
-characters, shown in groups of 5. An optional "verify in person" step
-compares the codes by QR scan or by reading them aloud. Pinning starts at
-the first share, and a key change triggers a warning. Recorded as residual risk
-in the threat model.
+**Roles.** `owner` (1), `manage` (2), `write` (3), `read` (4) on the wire and in the server.
+Owner: everything, can't be removed or leave. Manage: invite (role at most its own), change
+roles below `owner`, remove, rotate, write the roster. Write: push records, metadata,
+attachments. Read: pull. The only **cryptographic** line is "holds the current VK or not".
+Within the holders every member can create validly encrypted items, metadata and rosters.
+Read-only roles are enforced by the server only, and so is the roster: a read member, or a
+write member who promotes themself in the roster, needs a malicious or compromised server
+to get that write accepted (THREAT_MODEL R72). The one cryptographic role check is the claim
+rule below: a rotation share is accepted only from a roster manager.
 
-**Known limits of v1 (THREAT_MODEL R7):**
+**Roster.** A per-vault replicated document (§7.5 layout) sealed under VK,
+```
+VaultRosterCiphertext = header || nonce[24] || AEAD(VK, nonce, pad(roster), aad)
+header = version:u8 || alg:u8 || key_generation:u32
+aad    = header || aad("vault-roster", vault_id, key_generation:u32)
+```
+(exactly the `VaultMeta` construction of §7.1; padded plaintext at most 64 KiB). Its keys are
+`member:<account_id as 32 lowercase hex digits>` and its values
+`{"email":E,"fpr":HEX64,"role":R,"since":G}` with `R` one of `owner`, `manage`, `write`,
+`read`, `removed` and `G` a key generation (u32, at least 1).
+- **Merge rule** (ADR-0050). The merge of two replicas is the document merge of §10. The
+  *effective* value of a `member:*` register that holds several concurrent values is the one
+  with the highest `since`; on a tie the most restrictive role (`removed` > `read` > `write` >
+  `manage` > `owner`); then the largest stamp. Member registers are never shown as
+  conflicts. A removal is a write of `role:"removed"` with `since = g + 1`, the generation of
+  the rotation that locks the member out, never a deletion of the key. A concurrent role
+  change made at `g` therefore cannot bring a removed member back, and a re-invite writes
+  `since = ` the then-current generation, which is higher than the removal.
+- **Validity**, checked on every open: every member value parses; `fpr` is 32 bytes; `since`
+  is at most the roster's own generation; exactly one entry has role `owner`, and it is the
+  account that the server reports as the vault's owner (which never changes after creation).
+  An invalid roster raises the finding `RosterInvalid`: the vault stays readable, and no
+  rotation share is accepted for it.
+- **Created** by the owner's first invite: the owner's entry plus the invitee's. A vault that
+  was never shared has no roster.
+- **Server**: keeps one current roster per vault plus the last roster of every generation.
+  Only `owner` and `manage` may write it, by compare-and-swap, sealed under the current
+  generation.
+
+**Invite and accept.** Sender A (role `owner` or `manage`), recipient B, vault V at
+generation g:
+1. A looks B up by email at the directory, which returns `(account_id, ipk)`. A pins B's `fpr`
+   (§8.5), shows B's safety code, and requires the pin to be **verified** (the user compared
+   the codes and confirmed). No seal is made to an unverified contact.
+2. A writes `member:B = {email, fpr_B, role, since: g}` into the roster (creating it), seals
+   `VK_g` to B as a `ShareSeal`, pushes the roster **first**, then stores the invite.
+3. B lists the invites. The preview fetches A's `ipk` by account ID, checks A's pin (an
+   unknown A is pinned unverified and B is shown A's code), opens the seal, then decrypts the
+   vault metadata and the roster with `VK_g` from the objects the server serves to a
+   pending invitee read-only. The preview fails unless the roster lists B with the invited
+   role, a `since` of at most g, and B's own `fpr`. The opened VK waits in a pending slot
+   bound to the session for at most 5 minutes.
+4. B accepts with a user gesture and a verified pin of A, re-wraps `VK_g` under `AK_B` (§7.1)
+   and the server adds the membership. The next run pulls the vault from the start.
+5. If the vault rotated since the invite, the accept fails (`invite_stale`); A's next rotation
+   refreshes every pending invite (§8.3), so the sender never re-invites by hand.
+6. Declining, or the sender cancelling an invite, after the seal was delivered leaves B
+   holding `VK_g`: A's devices queue a revocation of B (§8.3).
+
+**Required verification and key changes.** The first use of a contact (invite, grant,
+accepting an invite) needs a verified pin. The one exception is opening an emergency release
+from an unverified grantor, which is allowed after a warning (§8.4). A **key change** (the
+server serves an `ipk` whose `fpr` differs from the pin) or conflicting pins blocks every
+seal to that account and every seal from it until the user compares the new code and accepts
+it; the new pin then starts unverified. Until a full re-key (M7) exists, any change is
+presumed hostile and the dialog says so. The roster adds cross-member detection: every
+member's client checks the served `ipk` of every other member against the `fpr` the inviting
+manager wrote into the roster (THREAT_MODEL R71).
+
+**Known limits of v1 (THREAT_MODEL R7, R71, R72):**
 - HPKE Auth mode is not resistant to key-compromise impersonation. Anyone
   holding a recipient's `isk` can forge shares *to* that recipient.
-- Every member holding VK can create validly encrypted items in that vault.
-  Read-only roles are enforced by the server only. Per-author item signatures
-  are a candidate for a v2 format.
+- Every member holding VK can create validly encrypted items, metadata and rosters in that
+  vault. Read-only roles and roster writes are enforced by the server only. Per-author item
+  signatures are a candidate for a v2 format.
+- The server distributes `ipk`. At first contact it can hand out its own key; only the
+  safety-code comparison catches that, which is why verification is required before any
+  seal. We have no key-transparency log.
 
 ### 8.3 Revoking access
-To revoke a member, rotate VK: generate a new VK, re-encrypt every item in the
-vault, re-seal every attachment of the vault under a fresh `attachment_id`
-and a fresh FK (as for a move, §7.2; the revoking client fetches every
-attachment first and updates the references in the same pass, and the old
-ciphertexts are deleted on the server), re-share the new VK with the
-remaining members, and increment `key_generation`. Until the rotation
-finishes, the removed member keeps whatever they already downloaded. This
-cannot be avoided and is stated in the UI.
+A shared vault's key is never replaced by a key the server picks: **adoption (§10.2) does not
+apply to a vault with the `shared` flag.** Revocation is a rotation of VK.
 
-The attachment re-seal is required: the FK sits in item plaintext the removed
-member has read, and the attachment AAD carries no key generation, so without
-a fresh FK the removed member and the server together could replace an
-attachment's ciphertext with one that authenticates (ADR-0017). An attachment
-the revoking client cannot fetch is listed in the revoke UI and is not
-protected against the removed member until it is re-sealed. A key rotation
-without a revocation (no other account holds VK, as in M2) MAY keep
-attachments as they are.
+**Triggers** (kept as pending revocations on the manager's device until the rotation is
+accepted): removal of a member by a manager; leave by a member (seen as a membership
+change); an invite that was declined or cancelled after its seal was delivered (the recipient
+may hold `VK_g`); and the server listing a member who is not in the roster, after a user
+prompt (§8.3 "membership consistency").
+
+**Revocation rotation** (on a device with role `owner` or `manage`):
+1. Pull the vault to its head and fetch every attachment of the vault that is not local.
+   Attachments that can't be fetched are listed in the revoke UI and keep their old ID and
+   FK (they are not protected against the removed member until they are re-sealed).
+2. Prepare, without changing the store: a new VK of generation `g + 1`; its wrapping under
+   the manager's AK; a `ShareSeal` for every remaining member and for every pending invite
+   (each `ipk` must match the roster `fpr` and, for a contact, the pin; a mismatch is a hard
+   error and no seal is made); a new roster at `g + 1` with the revoked members marked
+   `removed, since: g + 1`; and, when the manager is the owner, emergency seals for the
+   grants that cover the vault (§8.4).
+3. Send **one atomic rotate request**: key row, member seals, refreshed invite seals, roster,
+   membership removals, generation and head bump, conditional on the vault's current
+   generation and head. The server refuses it (`members_mismatch`) unless the seals plus the
+   revoked accounts cover every other member and every pending invite, and never revokes the
+   owner.
+4. On acceptance, commit: swap the key (as generated and uploaded), re-seal every record, the
+   metadata and the roster under `g + 1`, re-seal every fetched attachment under a **fresh
+   `attachment_id` and a fresh FK** (ADR-0017: the FK sits in item plaintext the removed
+   member has read, and the attachment AAD carries no key generation), update the item
+   references in the same transaction, queue the new blob uploads, and queue the old blob
+   deletions only after the referencing records are accepted. All of this is one store
+   transaction.
+5. If the rotation is refused (`generation_taken`, `head_moved`) the device **never adopts**:
+   it pulls, accepts the winner's `g + 1` only through the claim rule below, and prepares
+   again at the next generation. The revocation intent persists, so a revocation is not
+   lost to a race. At most three attempts per vault per run.
+
+Until the rotation is accepted and the old key is gone, the removed member keeps whatever
+they already downloaded. This cannot be avoided and the UI says so, in the sentence "<email>
+keeps whatever they already downloaded. Mosaic changes the vault key now, and they can't
+read anything new."
+
+An unshared vault keeps the M6 path (key upload with adoption, §10.2); the server refuses
+that path for a vault with more than one member or a pending invite.
+
+**Claim rule** (member side). The pull page of a vault lists the key shares addressed to
+this account. For the lowest share above the held generation g, from sender S:
+1. Fetch S's `ipk` by account ID. It must equal `fpr_S` in the roster this device holds at
+   generation g, and S's pin, if any.
+2. That roster must list S with role `owner` or `manage` and a `since` of at most g.
+3. Open the seal (HPKE Auth with the own `isk` and `ipk_S`). The key's generation is the
+   share's.
+4. Open the roster of `g + 1` with the new key and repeat for the next share. Only the final
+   key is claimed: its AK wrapping is uploaded, and the account's other devices then receive
+   it as a normal key row.
+Any failed step is the finding `ShareUntrusted`: the vault stays at g and its higher-generation
+records stay deferred. This is what stops a removed member who colludes with the server: the
+member is `removed` in the roster at `g + 1`, so a share of theirs for `g + 2` is refused.
+The one cryptographic role check of the design is that a rotation share is accepted only from
+a roster manager.
+
+**Membership consistency.** Each run compares the server's member list with the roster. A
+member the server lists but the roster does not (an emergency release, or an account the
+server injected) is shown as "unconfirmed"; the next rotation revokes them unless a manager
+verifies them and adds them to the roster. A member in the roster but not on the server is
+the finding `MemberDropped`. A removed member's device gets `not_member`; the vault becomes
+`access_lost` locally and its copy stays readable until the user removes it. The owner
+leaving is refused.
 
 ### 8.4 Emergency access
-The grantor seals AK, or selected VKs, to the grantee's `ipk` with HPKE Auth:
+Emergency access hands over **vault keys** to another account. It never recovers the
+grantor's account: account recovery is only through the Emergency Kit.
+
+The grantor seals the keys of vaults in scope to the grantee's `ipk` with HPKE Auth, one
+`EmergencySeal` per vault, in the layout of a `ShareSeal`:
 ```
 info = ctx("emergency") || grantor_account_id || grantee_account_id
-aad  = aad("emergency", content_type:u8 (0x01 = AK, 0x02 = VK), vault_id or nil, key_generation:u32 or 0)
+aad  = header || aad("emergency", content_type:u8 = 0x02, vault_id, key_generation:u32)
 ```
-A full re-key (§6.6) or a VK rotation invalidates existing seals, and they are
-re-created automatically. The server holds the sealed blob and releases it only
-after the waiting period, unless the grantor declines. The *waiting period* is
-enforced by the server, not by crypto. A server colluding with the grantee
-could release the blob early. Recorded as accepted risk.
+Content type `0x02` is a vault key. Content type `0x01` (the account key) is **reserved**:
+no decoder accepts it, and a grant never contains AK (ADR-0048). Scope is `all` (every
+AK-wrapped vault the grantor owns, including later ones) or `selected`. Only vaults where
+the grantor is `owner` can be covered; vaults shared to the grantor are excluded, and the
+server enforces that. Hardware-protected vaults (§7.4) cannot be covered.
+
+**State machine (server-enforced).** `idle` → (grantee request) → `waiting` with
+`release_at = requested_at + wait_days`. From `waiting`: the grantor declines (back to
+`idle`, with a 24 hour cooldown before the next request); the grantor approves after a fresh
+login (`approved`); or the grantee releases at `release_at` (`released`). From `approved` the
+grantee releases at any time. `released` is final until the grantor deletes the grant, which
+is allowed in any state and removes the seals; when the grant was `released`, the grantor's
+client then queues revocations for the memberships that came through the release.
+`wait_days` is one of 1, 2, 7, 14, 30 (default 7), chosen by the grantor, and can't be
+changed while `waiting`. The server notifies both accounts through its inbox counter; there
+is no email. The wait must be long enough for a living grantor to open the app.
+
+**Seal refresh.** Every hosted run on a grantor device re-seals, for each grant, every vault
+in scope whose seal generation is below the local one (or that is missing under scope `all`),
+and a revocation rotation includes the seals of the new generation.
+
+**Release.** The grantee's release returns the seals; the server adds a `read` membership
+with origin `emergency` to every vault in scope. The client checks the grantor pin (verified,
+or a warning: an unverified grantor can only inject fake vault keys, not read anything),
+opens each seal with the `info` and `aad` above, claims the keys (the claim accepts an
+emergency membership plus a seal of the current generation) and syncs the vaults read-only.
+
+The *waiting period* is enforced by the server, not by crypto. A server colluding with the
+grantee could release the blob early, and a grantor who does not open the app within the
+wait does not refuse. Both are recorded as accepted risk (THREAT_MODEL R73). A release still
+needs the grantor's real seal, which the server cannot forge (it holds no `isk`).
+
+### 8.5 Contact book
+The contact book is an account-level replicated document (§7.5 layout) of pins, synced
+through the hosted server so that every device of the account shares them:
+```
+ContactsCiphertext = header || nonce[24] || AEAD(K_contacts, nonce, pad(book), aad)
+header     = version:u8 || alg:u8
+K_contacts = HKDF(AK, "", ctx("contacts-key"), 32)          (never stored)
+aad        = header || aad("contacts", account_id)          (padded plaintext at most 256 KiB)
+```
+Entries: `contact:<account_id hex32>` → `{"email":E,"firstSeen":ms,"fpr":HEX64,"verified":bool}`.
+The effective state of a contact when the server serves `fpr`:
+`Unknown` (no pin), `Pinned{verified}` (same `fpr`), `Changed` (different `fpr`), or
+`Conflicting` (a register with two distinct `fpr` values, from concurrent pins on different
+devices). `Changed` and `Conflicting` block as in §8.2. Verifying writes one entry that
+supersedes the others of the same fingerprint; accepting a key change replaces the pin with
+an unverified one. A server that withholds the newest contact book from a new device lets that
+device pin again for a contact it pinned meanwhile; the roster still catches it for members
+of a shared vault (THREAT_MODEL R80). The server sees the ciphertext and its length (§12).
+
+### 8.6 Folder backend: no sharing, no emergency access
+A folder store cannot share, receive shares, or grant or receive emergency access, and
+never holds identity keys, rosters or the contact book (ADR-0048). The reasons, all from the
+current design:
+1. Every folder integrity key (`K_fold`, `K_cp`, `K_dev`) is derived from one account's AK
+   (§10.1). A second account could neither verify nor write a segment without new per-vault
+   folder keys and formats.
+2. There is no compare-and-swap (THREAT_MODEL R55). In a revocation the canonical-winner
+   rule could pick a concurrent rotation by the member being removed, so the removed member
+   would keep the key. The hosted server stops this with a membership check before the
+   compare-and-swap.
+3. No authority can stop a removed member writing. Members of a team folder, and its admin,
+   keep write access to the files (R54).
+4. There is no directory or mailbox for `ipk` and seals. Files that anyone with folder access
+   can plant would make trust on first use worthless.
+5. Nothing can enforce a waiting period. A pre-wrapped escrow in a folder means immediate
+   access, which is just a share.
+A user who wants sharing uses a hosted server. Team folders keep holding separate personal
+accounts side by side (ADR-0042). The folder path `s/` stays reserved (§10.1). THREAT_MODEL R81.
 
 ## 9. Account authentication (OPAQUE)
 
@@ -747,8 +997,9 @@ session token alone therefore cannot lock the user out.
   - Encoding (hosted upload body and folder `head.mck`, max 4096 entries):
     `"MCKP" || version:u8 (1) || device_id[16] || counter:u64 || issued_at_ms:u64 || n:u32 || n x (vault_id[16] || generation:u32 || high_seq:u64 || view_digest[32]) || mac[32]`
     with `seen_digest = SHA-256(issued_at_ms:u64 || n:u32 || entries)`.
-    (Version 1 was never released: the `view_digest` is part of it. The
-    folder writes 32 zero bytes and a reader ignores an all-zero digest.)
+    (Version 1 was never released: the `view_digest` is part of it, and its definition changed
+    again in M6b, before release, to `sync/view2`. The folder writes 32 zero bytes and a reader
+    ignores an all-zero digest.)
     Entries are sorted by `vault_id` without duplicates; a decoder rejects
     anything else, a nil ID, trailing bytes and a bad MAC (checked in constant
     time before parsing). `high_seq` is the device's vault cursor (the last
@@ -812,9 +1063,12 @@ session token alone therefore cannot lock the user out.
     so does every accepted upload (what was pushed, under the accepted
     `seq`): the last answer of the server wins, never a maximum. The base of
     an upload is the row's `seq`. The `view_digest` of a vault is
-    `SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || key_commit[32] || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )`
+    `SHA-256( ctx("sync/view2") || 0x00 || vault_id || high_seq:u64 || key_commit[32] || meta_commit[32] || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )`
     over every row of the vault sorted by `record_id`, with `high_seq` the
-    vault cursor and
+    vault cursor,
+    `meta_commit = SHA-256( ctx("sync/view-meta") || 0x00 || vault_id || meta_seq:u64 || meta_ct_hash[32] || roster_seq:u64 || roster_ct_hash[32] )`
+    (the vault metadata and the roster, §8.2, as served or accepted: an absent object counts as
+    sequence 0 with a zero hash; this closes THREAT_MODEL R70) and
     `key_commit = SHA-256( ctx("sync/view-key") || 0x00 || vault_id || generation:u32 || wrapped_key_bytes )`,
     where `wrapped_key_bytes` is the wrapping of the vault key the device
     holds for its current generation, exactly as stored (the bytes the server
@@ -1248,18 +1502,15 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     lowest device, then the lowest bytes wins) and rotates if it loses, but
     at most three times per vault per 24 hours (the log is stored, §11);
     after that the finding stays and the device stops rotating.
-  - Forward constraint (M6b): adoption replaces a key that was never shared
-    and that no other device could hold, which is only safe while rotation is
-    a hygiene step. Once sharing (§8) ships, a rotation that revokes a member
-    must not be resolved by adoption: the server's key for the generation may
-    be one the revoked party can read. Such rotations need their own rule
-    (spec and ADR first). Two constraints go with it: adoption must not apply
-    to a revocation rotation at all (the rotation that follows a revoked
-    member is never replaced by the server's key for its generation, whoever
-    holds it), and a change of backend must not make a key adoptable once
-    sharing ships (the keys a device confirmed or generated before the switch
-    keep their origin; "no key is confirmed after a switch" must not turn a
-    key shared with a member into one that adoption may replace).
+  - **Shared vaults never adopt** (M6b, ADR-0051). Adoption replaces a key that was never
+    shared and that no other device could hold. It applies only to a vault without the local
+    `shared` flag. A vault that is shared, or that has a pending invite, rotates through §8.3
+    (an atomic rotate request, the claim rule, no adoption); the server refuses the plain
+    key-upload path for it. The `shared` flag is monotone: it is set when the first invite
+    is sent or the vault is accepted, and it outlives the vault's deletion and a change of
+    backend, like the generation floor (§7.1). A change of backend is refused while any
+    shared vault is live, and a reset of the sync state never clears the flag, so a backend
+    switch can't turn a key shared with a member into one that adoption may replace.
 
 ## 11. Local storage
 
@@ -1299,7 +1550,10 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   old master password) and the highest folder account-file version it wrote
   or adopted (cleared with the sync state on a change of backend); v7 adds the
   per-(peer, vault) skip of stale digests and the time since which a rebuild
-  has had a deferred record (§10).
+  has had a deferred record (§10); v8 adds the identity key (`isk` wrapped, `ipk`, a published
+  flag), the contact book ciphertext, the per-vault sharing state (the monotone `shared` flag, the own
+  role, the owner account and the time access was lost), the roster ciphertext, the pending
+  revocations and the sharing findings (all public data or ciphertext; none holds a key in the clear).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -1365,14 +1619,18 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | account email | login identifier, contact for emergency access |
 | `account_id`, `account_salt`, Argon2 parameters, `account_version` (a counter of registration changes; a session remembers the version it logged in at, §9.4) | new-device derivation, compare-and-swap of a password change |
 | OPAQUE registration record | login |
-| identity public key `ipk` | sharing |
+| identity public key `ipk` and the wrapped `isk` (§8.1) | sharing, adoption on a new device |
 | wrapped AK (password and PRF methods, with the PRF methods' public parameters: PRF salt, RP ID, credential ID), TK wrappings of hardware-protected vaults with their public parameters, wrapped VKs, HPKE share seals | multi-device unlock, sharing |
-| vault IDs, membership (`account_id` → `vault_id`, role) | access control |
+| vault IDs, membership (`account_id` → `vault_id`, role, origin `owner`, `invite` or `emergency`) | access control |
+| invites (sender, recipient, vault, role, generation, seal, times, delivered time), key-share seals until claimed, block lists | sharing (§8.2, §8.3), spam control |
+| roster ciphertext per vault and generation (§8.2), contact book ciphertext and its length (§8.5) | sharing, pin sync across devices |
+| emergency grants: grantor, grantee, wait days, scope, vault IDs and generations, state, request, decision and release times, seals (§8.4) | the waiting period, release |
+| directory lookups (counted for rate limits, not logged) | abuse control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
 | attachment IDs, ciphertext sizes and `deleted_at` (the soft-delete time, until the housekeeping removes the file) | storage quotas, soft delete |
 | device IDs (per-install), device names (user-chosen, MAY be left generic), last-seen | session management |
 | IP addresses: held in memory for rate limiting only, never written to disk (M6, stricter than the earlier 7 days) | rate limiting, abuse defense |
-| checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records and to the vault key's wrapping the server already holds) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
+| checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records, the vault key's wrapping the server already holds, and the vault metadata and roster) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
 | record kind (item or tombstone, so that deletions are visible as events), per-object lengths and object counts per vault | storage, sync, quotas |
 | the device that generated each wrapped vault key (`device_id` of the key upload) | canonical key winner (§10.1), device list |
 | 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
@@ -1400,6 +1658,9 @@ Quick-unlock wrappings (§6.2) never leave the device.
 The provider, its admins and the other members of a shared folder can also
 delete, withhold or roll back files, and a provider's version history keeps
 old ciphertext and old password wrappings of AK (THREAT_MODEL R54).
+
+In short, the hosted server sees the sharing graph (THREAT_MODEL R74). A folder store never holds identity keys,
+rosters, the contact book or emergency grants (§8.6): §12.1 is unchanged.
 
 The server **cannot** see item titles, URLs, usernames, item types (beyond
 size buckets), tags, vault names, or attachment names.

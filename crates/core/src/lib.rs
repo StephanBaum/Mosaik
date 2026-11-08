@@ -50,6 +50,7 @@ pub mod browser_channel;
 pub mod encoding;
 pub mod envelope;
 mod error;
+pub mod identity;
 mod ids;
 pub mod kdf;
 mod keys;
@@ -58,6 +59,7 @@ mod rng;
 mod secret;
 mod secret_key;
 mod settings_mac;
+pub mod share;
 mod spoofing;
 pub mod sync_auth;
 pub mod unlock;
@@ -67,9 +69,11 @@ mod golden;
 
 pub use attachment::{MAX_ATTACHMENT_LEN, open_attachment, seal_attachment};
 pub use envelope::{
-    ItemCiphertext, TombstoneCiphertext, UnlockMethod, VaultMetaCiphertext, WrappedKey,
+    ContactsCiphertext, ItemCiphertext, TombstoneCiphertext, UnlockMethod, VaultMetaCiphertext,
+    VaultRosterCiphertext, WrappedKey,
 };
 pub use error::{Error, Result};
+pub use identity::{Fingerprint, IdentityPublicKey, IdentitySecret};
 pub use ids::{AccountId, AttachmentId, DeviceId, InstallId, ItemId, KeyGeneration, VaultId};
 pub use kdf::{AccountSalt, Argon2Profile, DerivedKeys};
 pub use keys::{
@@ -77,13 +81,16 @@ pub use keys::{
     derive_password_keys, unlock_with_password,
 };
 pub use model::{
-    Causality, Item, ItemEdit, ItemType, MergeOutcome, Stamp, Timestamp, Tombstone, VaultMeta,
-    VersionVector,
+    Causality, Contact, ContactBook, ContactState, Item, ItemEdit, ItemType, MergeOutcome, Stamp,
+    Timestamp, Tombstone, VaultMeta, VersionVector,
 };
 pub use secret::{
-    AccountKey, AttachmentKey, CheckpointKey, DeviceInfoKey, FolderMacKey, Kek, MasterPassword,
-    OpaquePassword, SecretBytes, SecretKey, SecretString, SecretVec, SessionToken, SettingsMacKey,
-    VaultKey,
+    AccountKey, AttachmentKey, CheckpointKey, ContactsKey, DeviceInfoKey, FolderMacKey, Kek,
+    MasterPassword, OpaquePassword, SecretBytes, SecretKey, SecretString, SecretVec, SessionToken,
+    SettingsMacKey, VaultKey,
 };
 pub use settings_mac::{SETTINGS_MAC_LEN, SETTINGS_NONCE_LEN, new_settings_nonce};
+pub use share::{
+    ShareSeal, open_emergency_vault_key, open_vault_key, seal_emergency_vault_key, seal_vault_key,
+};
 pub use spoofing::{has_spoofing_char, is_spoofing_char, strip_spoofing};
