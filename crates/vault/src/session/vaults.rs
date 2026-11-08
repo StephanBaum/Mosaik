@@ -65,6 +65,10 @@ impl UnlockedSession {
         ov.keys.insert(KeyGeneration::FIRST, vk);
         ov.meta = Some(meta);
         self.vaults.insert(vault_id, ov);
+        // The account's set of owned vaults (M6b verify H3): another device
+        // learns it on sync and then refuses a roster that gives the vault
+        // to someone else.
+        self.record_owned(vault_id)?;
         Ok(vault_id)
     }
 

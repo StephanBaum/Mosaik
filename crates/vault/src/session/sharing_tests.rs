@@ -1045,4 +1045,88 @@ fn first_roster_with_another_owner_needs_a_verified_contact() {
         Err(Error::OwnerMismatch)
     ));
     assert!(!a.s.vault_shared(v).unwrap());
+    // Even a verified contact does not get a vault this account owns, as
+    // its account-key-sealed set of owned vaults says (M6b verify H3).
+    assert!(a.s.vault_recorded_owned(v).unwrap());
+    a.s.verify_contact(&b.id, &fpr(&b)).unwrap();
+    assert!(matches!(
+        a.s.apply_remote_roster(v, g(1), &ct, 1, &b.id),
+        Err(Error::OwnerMismatch)
+    ));
+    assert!(!a.s.vault_shared(v).unwrap());
+}
+
+#[test]
+fn owned_set_is_recorded_on_creation_and_queued_for_upload() {
+    let mut a = user("a@x");
+    assert!(a.s.pending_contacts_upload().unwrap().is_none());
+    let v = a.s.create_vault("V").unwrap();
+    let w = VaultId::new_v7().unwrap();
+    assert!(a.s.vault_recorded_owned(v).unwrap());
+    assert!(!a.s.vault_recorded_owned(w).unwrap());
+    let (ct, _) = a.s.pending_contacts_upload().unwrap().unwrap();
+    // The set is in the document the other devices apply.
+    let book =
+        mosaic_core::model::ContactBook::open(&ct, &a.s.account_key.contacts_key().unwrap(), &a.id)
+            .unwrap();
+    assert!(book.is_owned(&v) && !book.is_owned(&w));
+    // Ensuring an owner roster records a vault created before the set
+    // existed, once.
+    assert!(!a.s.ensure_vault_owned(v).unwrap());
+}
+
+#[test]
+fn an_accepted_vault_is_recorded_as_a_members_never_as_owned() {
+    // M6b verify round 3: the owner goes into the contact book at accept, and
+    // no `owned:` entry is ever written for a vault someone else owns.
+    let (mut a, mut b) = (user("a@x"), user("b@x"));
+    let v = a.s.create_vault("V").unwrap();
+    let sent = invite(&mut a, v, &b, Role::Write);
+    accept(&mut b, &a, &sent, Role::Write);
+    assert_eq!(b.s.vault_owner(v).unwrap(), a.id);
+    assert!(!b.s.vault_recorded_owned(v).unwrap());
+    assert!(!b.s.owns_vault(v).unwrap());
+    assert!(!b.s.ensure_vault_owned(v).unwrap());
+    assert!(matches!(b.s.ensure_owner_roster(v), Err(Error::NotOwner)));
+    assert!(matches!(b.s.record_owned(v), Err(Error::NotOwner)));
+    assert!(!b.s.vault_recorded_owned(v).unwrap());
+    // The owner's side: owned, and the owner of the vault is this account.
+    assert!(a.s.owns_vault(v).unwrap());
+}
+
+#[test]
+fn a_vault_of_unknown_ownership_has_no_owner_and_is_not_owned() {
+    // Remote origin, no sharing row, no entry: unknown means held.
+    let mut a = user("a@x");
+    let w = VaultId::new_v7().unwrap();
+    let vk = VaultKey::generate(g(1)).unwrap();
+    let wrapped = vk.wrap(&a.s.account_key, &a.id, &w).unwrap();
+    a.s.apply_remote_vault_key(w, g(1), &wrapped).unwrap();
+    assert!(!a.s.vault_owner_known(w).unwrap());
+    assert!(matches!(a.s.vault_owner(w), Err(Error::OwnerUnknown)));
+    assert!(!a.s.owns_vault(w).unwrap());
+    assert!(!a.s.ensure_vault_owned(w).unwrap());
+    assert!(!a.s.record_local_ownership().unwrap());
+    assert!(!a.s.vault_recorded_owned(w).unwrap());
+    // Even a roster that names this account as owner is held.
+    let ct = {
+        let vk = a.s.vaults.get(&w).unwrap().current_key().unwrap();
+        let mut roster = VaultRoster::new(g(1), a.id);
+        roster
+            .edit(
+                mosaic_core::DeviceId::new_v7().unwrap(),
+                mosaic_core::model::Timestamp::from_unix_millis(1),
+            )
+            .set_member(&a.id, Role::Owner, g(1), &fpr(&a), "a@x")
+            .unwrap();
+        roster.seal(vk, &w).unwrap()
+    };
+    assert!(matches!(
+        a.s.apply_remote_roster(w, g(1), &ct, 1, &a.id),
+        Err(Error::OwnerUnknown)
+    ));
+    // A vault created here before the set existed is migrated; this one is
+    // not (its key came from elsewhere).
+    let own = a.s.create_vault("mine").unwrap();
+    assert!(a.s.owns_vault(own).unwrap());
 }

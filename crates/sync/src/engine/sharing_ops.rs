@@ -12,15 +12,16 @@
 
 use std::collections::BTreeSet;
 
-use mosaic_core::model::{ContactState, Role};
+use mosaic_core::model::{ContactState, GrantCover, Role};
 use mosaic_core::{AccountId, IdentityPublicKey, VaultId};
-use mosaic_vault::session::{Error, InviteId, InvitePreview, RevocationReason, SharingFinding};
+use mosaic_vault::session::{
+    Error, InviteId, InvitePreview, RevocationReason, SharingFinding, UnlockedSession,
+};
 
 use super::pull::RunStats;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::sharing::{
-    GrantInfo, GrantScope, GrantState, ListedInvite, MemberOrigin, NewInvite, OutgoingInvite,
-    ReceivedGrant,
+    GrantInfo, GrantScope, ListedInvite, MemberOrigin, NewInvite, OutgoingInvite, ReceivedGrant,
 };
 use crate::transport::{Rejection, Transport, TransportError};
 
@@ -102,6 +103,27 @@ fn stricter(a: Role, b: Role) -> Role {
 }
 
 impl<T: Transport> SyncEngine<T> {
+    /// Uploads the contact book and requires that nothing is left pending:
+    /// the ownership entries and grant covers must be on the server before
+    /// a seal or a grant goes out. `sync_contacts` can end with an upload
+    /// still pending after compare-and-swap conflicts; that is a retryable
+    /// error here, nothing is sealed.
+    pub(super) fn publish_contacts(
+        &mut self,
+        access: &mut impl SessionAccess,
+    ) -> Result<(), SyncError> {
+        self.sync_contacts(access, &mut SyncReport::default())?;
+        if access
+            .with(UnlockedSession::pending_contacts_upload)??
+            .is_some()
+        {
+            return Err(SyncError::Transport(TransportError::Rejected(
+                Rejection::Conflict { current_seq: None },
+            )));
+        }
+        Ok(())
+    }
+
     /// Looks an email address up in the server's directory and pins the key
     /// it serves (trust on first use, unverified). The user compares the
     /// safety code with the person before any seal is made.
@@ -172,6 +194,12 @@ impl<T: Transport> SyncEngine<T> {
         }
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
+        // A vault of this account that is about to be shared is in the
+        // account's set of owned vaults, and the set is on the server,
+        // before the roster goes up (M6b verify H3).
+        if access.with(|s| s.ensure_vault_owned(vault))?? {
+            self.publish_contacts(access)?;
+        }
         for _ in 0..3 {
             let prepared =
                 access.with(|s| s.prepare_invite(vault, account, &entry.ipk, email, role))??;
@@ -480,7 +508,7 @@ impl<T: Transport> SyncEngine<T> {
             if *account == s.vault_owner(vault)? {
                 return Err(Error::OwnerCannotBeRevoked);
             }
-            let is_owner = own == Role::Owner && s.vault_owner(vault)? == s.account_id();
+            let is_owner = own == Role::Owner && s.owns_vault(vault)?;
             if is_owner {
                 s.request_revocation(vault, account, RevocationReason::Removed)?;
             }
@@ -564,13 +592,24 @@ impl<T: Transport> SyncEngine<T> {
             GrantScope::All => Self::owned_vaults(access)?.into_keys().collect(),
             GrantScope::Selected => vaults.to_vec(),
         };
+        // The covered vaults are shared vaults from now on (H3): the owner
+        // roster, the sharing row and the entry in the account's set of owned
+        // vaults come BEFORE the seals and the grant, so no crash leaves a
+        // grant on a vault another device still takes for unshared. The
+        // grant's cover is recorded the same way (H3b): deleting the grant
+        // rotates exactly that, whatever the server reports.
+        for vault in &chosen {
+            Self::ensure_owner_roster(access, *vault)?;
+        }
+        let cover = match scope {
+            GrantScope::All => GrantCover::All,
+            GrantScope::Selected => GrantCover::Vaults(chosen.clone()),
+        };
+        access.with(|s| s.record_grant_cover(grantee, &cover))??;
+        self.publish_contacts(access)?;
         let seals = access.with(|s| s.seal_emergency(grantee, &entry.ipk, &chosen))??;
         self.sharing_tx()?
             .put_grant(grantee, wait_days, scope, &seals)?;
-        // The covered vaults are shared vaults from now on (H3).
-        for vault in chosen {
-            Self::ensure_owner_roster(access, vault)?;
-        }
         Ok(())
     }
 
@@ -585,54 +624,35 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         grantee: &AccountId,
     ) -> Result<(), SyncError> {
-        let (given, _) = self.sharing_tx()?.emergency()?;
-        let released = given
-            .iter()
-            .any(|g| g.grantee == *grantee && g.state == GrantState::Released);
-        // The revocations are queued while the server still lists the
-        // grantee as a member: deleting the grant deletes the memberships,
-        // keys and shares the release made (H3).
-        let mut affected = Vec::new();
-        if released {
-            for vault in Self::owned_vaults(access)?.into_keys() {
-                if self.revoke_emergency_member(access, vault, grantee)? {
-                    affected.push(vault);
-                }
+        // Every vault the grant covered is rotated, whatever the server says
+        // about the release state, the membership, the scope or the vault
+        // list: the cover was recorded in the contact book before the seals
+        // were made (M6b verify H3b). A grant this account has no record of
+        // is taken as covering every vault it positively owns.
+        let cover = access.with(|s| s.grant_cover(grantee))??;
+        let covered: Vec<VaultId> = {
+            let owned = Self::owned_vaults(access)?;
+            match cover {
+                Some(GrantCover::Vaults(vaults)) => vaults
+                    .into_iter()
+                    .filter(|v| owned.contains_key(v))
+                    .collect(),
+                Some(GrantCover::All) | None => owned.into_keys().collect(),
             }
+        };
+        for vault in &covered {
+            Self::ensure_owner_roster(access, *vault)?;
+            access.with(|s| s.request_revocation(*vault, grantee, RevocationReason::Removed))??;
         }
         self.sharing_tx()?.delete_grant(grantee)?;
-        // The key the grantee holds is replaced at once.
+        // The key the grantee may hold is replaced at once.
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
-        for vault in affected {
+        for vault in covered {
             let explicit: BTreeSet<AccountId> = BTreeSet::from([*grantee]);
             self.rotate_shared(access, vault, &explicit, &mut report, &mut stats)?;
         }
         Ok(())
-    }
-
-    /// Queues the revocation of `grantee` if it became a member of `vault`
-    /// through an emergency release.
-    fn revoke_emergency_member(
-        &mut self,
-        access: &mut impl SessionAccess,
-        vault: VaultId,
-        grantee: &AccountId,
-    ) -> Result<bool, SyncError> {
-        let view = match self.sharing_tx()?.members(vault) {
-            Ok(view) => view,
-            Err(TransportError::Forbidden | TransportError::NotFound) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
-        let member = view
-            .members
-            .iter()
-            .any(|m| m.account_id == *grantee && m.origin == MemberOrigin::Emergency);
-        if member {
-            Self::ensure_owner_roster(access, vault)?;
-            access.with(|s| s.request_revocation(vault, grantee, RevocationReason::Removed))??;
-        }
-        Ok(member)
     }
 
     /// Asks a grantor for emergency access: when the wait ends (ms since the

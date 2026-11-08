@@ -19,11 +19,11 @@ use mosaic_core::{
     AccountId, DeviceId, Fingerprint, IdentityPublicKey, IdentitySecret, KeyGeneration, VaultId,
     VaultKey, seal_emergency_vault_key, seal_vault_key,
 };
-use mosaic_sync::engine::{SyncEngine, SyncError, SyncReport, SyncWarning};
+use mosaic_sync::engine::{SyncEngine, SyncError, SyncReport};
 use mosaic_sync::http::HttpTransport;
 use mosaic_sync::sharing::{GrantScope, NewInvite};
 use mosaic_sync::testutil::MaliciousTransport;
-use mosaic_sync::transport::{PulledRoster, PulledShare, Transport};
+use mosaic_sync::transport::{PulledRoster, PulledShare, Rejection, Transport, TransportError};
 use mosaic_vault::session::{Error, SharingFinding};
 
 use crate::scenarios::engine_for;
@@ -211,29 +211,40 @@ fn key_substitution_after_pin_blocks_seal() {
 }
 
 #[test]
-fn roster_fpr_mismatch_blocks_rotation_seal() {
+fn roster_fpr_mismatch_revokes_the_member_and_the_rotation_goes_ahead() {
+    // A key that is not the roster's fingerprint never stops a revocation
+    // (M6b verify, key mismatch): the member is revoked, a finding is
+    // recorded, no seal goes to the served key, and the removed member gets
+    // nothing.
     let (mut w, vault, _items) = trio_with(32, Role::Manage, Role::Write);
-    let real = own_ipk(&w, 1);
+    let (b, c) = (w.id(1), w.id(2));
     // The server serves another key for B to its co-members.
     substitute(&w, 1, &attacker().1);
     w.remove(0, 0, vault, 2).unwrap();
-    let report = w.sync(0, 0);
-    assert!(
-        report
-            .warnings
-            .iter()
-            .any(|x| matches!(x, SyncWarning::RotationBlocked { vault: v } if *v == vault)),
-        "{:?}",
-        report.warnings
-    );
-    // No rotation, no share sealed to the attacker's key.
-    assert_eq!(w.generation(0, 0, vault).get(), 1);
-    assert_eq!(count(&w, "SELECT COUNT(*) FROM key_shares"), 0);
-    // With the honest key back, the revocation goes through.
-    substitute(&w, 1, &real);
-    w.converge();
     assert_eq!(w.generation(0, 0, vault).get(), 2);
-    assert_eq!(w.generation(1, 0, vault).get(), 2);
+    assert!(
+        w.dev(0, 0)
+            .s()
+            .sharing_findings()
+            .unwrap()
+            .contains(&SharingFinding::MemberKeyMismatch { vault, account: b })
+    );
+    w.converge();
+    // No share was sealed to anyone: C is removed, B is locked out.
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM key_shares"), 0);
+    assert_eq!(w.generation(1, 0, vault).get(), 1);
+    assert_eq!(w.generation(2, 0, vault).get(), 1);
+    let roster = w.dev(0, 0).s().vault_roster(vault).unwrap().unwrap();
+    assert!(
+        roster
+            .iter()
+            .all(|m| m.account_id == w.id(0) || m.role == Role::Removed)
+    );
+    assert!(
+        roster
+            .iter()
+            .any(|m| m.account_id == c && m.role == Role::Removed)
+    );
 }
 
 #[test]
@@ -700,21 +711,23 @@ fn contacts_book_withheld_new_device_tofu() {
         w.dev(0, d).s().contacts().unwrap().is_empty(),
         "the new device has no pins"
     );
-    // The roster, which the inviting manager wrote under the vault key,
-    // still holds B's fingerprint: the new device refuses to seal to the
-    // substituted key.
-    w.remove(0, d, vault, 2).unwrap();
-    let report = w.sync(0, d);
+    // Without the contact book the new device has no positive evidence of
+    // who owns the vault: it holds it and does not rotate (M6b verify round
+    // 3), so nothing is sealed to the substituted key either.
+    let refused = w.remove(0, d, vault, 2);
     assert!(
-        report
-            .warnings
-            .iter()
-            .any(|x| matches!(x, SyncWarning::RotationBlocked { vault: v } if *v == vault)),
-        "{:?}",
-        report.warnings
+        matches!(refused, Err(SyncError::Session(Error::OwnerUnknown))),
+        "{refused:?}"
     );
     assert_eq!(w.generation(0, d, vault).get(), 1);
     assert_eq!(count(&w, "SELECT COUNT(*) FROM key_shares"), 0);
+    assert!(
+        w.dev(0, d)
+            .s()
+            .sharing_findings()
+            .unwrap()
+            .contains(&SharingFinding::VaultHeld { vault })
+    );
     let _ = AccountId::from_bytes([1; 16]);
 }
 
@@ -1283,4 +1296,348 @@ fn l3_a_grant_to_an_unknown_account_answers_like_a_real_one() {
     }
     // Only the real grantee holds a grant.
     assert_eq!(count(&w, "SELECT COUNT(*) FROM emergency_grants"), 1);
+}
+
+// ---- M6b verify follow-ups (fix round 2) -------------------------------------
+
+#[test]
+fn h3_second_device_refuses_a_forged_owner_without_the_grant_list() {
+    // The grantor's second device never saw the vault shared, and the server
+    // omits the grant. The account's set of owned vaults, sealed under the
+    // account key, still says the vault is this account's.
+    let (mut w, vault, _item) = granted(81);
+    let (a, b) = (w.id(0), w.id(1));
+    // The roster, the owned set and B's pin reach the server.
+    w.sync(0, 0);
+    wait_is_over(&w);
+    {
+        let dev = w.dev(1, 0);
+        dev.engine.claim_emergency(&mut dev.access, &a).unwrap();
+    }
+    let key = vault_key_of(&w, 1, vault);
+    let mut roster = VaultRoster::new(KeyGeneration::FIRST, b);
+    {
+        let mut edit = roster.edit(DeviceId::new_v7().unwrap(), Timestamp::from_unix_millis(1));
+        for (account, role) in [(1, Role::Owner), (0, Role::Manage)] {
+            edit.set_member(
+                &w.id(account),
+                role,
+                KeyGeneration::FIRST,
+                &Fingerprint::of(&w.id(account), &own_ipk(&w, account)),
+                "x@example.com",
+            )
+            .unwrap();
+        }
+    }
+    let forged = PulledRoster {
+        generation: KeyGeneration::FIRST,
+        ciphertext: roster.seal(&key, &vault).unwrap(),
+        seq: Some(9_999),
+    };
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            // The grant is gone from the server's list, and it names B the
+            // owner.
+            c.execute("DELETE FROM emergency_grants", [])?;
+            c.execute(
+                "UPDATE memberships SET role = 2 WHERE account_id = ?1 AND role = 1",
+                [a.as_bytes().as_slice()],
+            )?;
+            c.execute(
+                "UPDATE memberships SET role = 1 WHERE account_id = ?1",
+                [b.as_bytes().as_slice()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    // A's second device joins now; B is a verified contact there too.
+    let d = w.join(0);
+    let mut engine = hostile(&mut w, 0, d);
+    engine.transport_mut().tamper_pull = Some(Box::new(move |page| {
+        page.rosters.push(forged.clone());
+    }));
+    run(&mut w, 0, d, &mut engine);
+    let s = w.dev(0, d).s();
+    assert!(s.vault_recorded_owned(vault).unwrap());
+    assert!(!s.vault_shared(vault).unwrap());
+    assert_eq!(s.vault_owner(vault).unwrap(), a);
+    assert!(
+        s.sharing_findings()
+            .unwrap()
+            .contains(&SharingFinding::RosterInvalid { vault })
+    );
+}
+
+#[test]
+fn h3_a_grant_that_fails_still_leaves_the_vault_with_its_owner_roster() {
+    // No crash window: the roster, the sharing row and the owned-set entry
+    // come before the seals and the grant. A grant without the fresh login
+    // fails at the server, after them.
+    let mut w = SWorld::with_accounts(82, 2);
+    let vault = w.new_vault(0, 0, "Estate");
+    w.add_login(0, 0, vault, "will");
+    w.sync_all();
+    w.verify(0, 0, 1);
+    let (b, b_email) = (w.id(1), w.email(1));
+    w.server.advance_ms(400_000);
+    let dev = w.dev(0, 0);
+    let refused =
+        dev.engine
+            .grant_emergency(&mut dev.access, &b, &b_email, GrantScope::All, 7, &[]);
+    assert!(refused.is_err(), "no fresh login");
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM emergency_grants"), 0);
+    let s = w.dev(0, 0).s();
+    assert!(s.vault_shared(vault).unwrap());
+    assert!(s.vault_recorded_owned(vault).unwrap());
+    assert!(s.vault_roster(vault).unwrap().is_some());
+}
+
+#[test]
+fn h3b_deleting_a_grant_rotates_whatever_the_server_reports() {
+    // The server hands the seals over early, then denies the release (the
+    // grant shows as not released): the key still rotates on delete.
+    let (mut w, vault, item) = granted(83);
+    let (a, b) = (w.id(0), w.id(1));
+    w.sync(0, 0);
+    wait_is_over(&w);
+    {
+        let dev = w.dev(1, 0);
+        assert_eq!(dev.engine.claim_emergency(&mut dev.access, &a).unwrap(), 1);
+    }
+    w.converge();
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute("UPDATE emergency_grants SET state = 0", [])?;
+            Ok(())
+        })
+        .unwrap();
+    {
+        let dev = w.dev(0, 0);
+        dev.engine.revoke_emergency(&mut dev.access, &b).unwrap();
+    }
+    let later = w.add_login(0, 0, vault, "after the delete");
+    w.converge();
+    assert_eq!(w.generation(0, 0, vault).get(), 2);
+    assert_eq!(w.generation(1, 0, vault).get(), 1);
+    assert!(w.has(1, 0, vault, item));
+    assert!(!w.has(1, 0, vault, later));
+}
+
+// ---- M6b verify round 3 -------------------------------------------------------
+
+/// A forged first roster naming B (who holds the key after a release) as the
+/// owner, as the server would serve it.
+fn forged_owner_roster(w: &SWorld, vault: VaultId) -> PulledRoster {
+    let b = w.id(1);
+    let key = vault_key_of(w, 1, vault);
+    let mut roster = VaultRoster::new(KeyGeneration::FIRST, b);
+    {
+        let mut edit = roster.edit(DeviceId::new_v7().unwrap(), Timestamp::from_unix_millis(1));
+        for (account, role) in [(1, Role::Owner), (0, Role::Manage)] {
+            edit.set_member(
+                &w.id(account),
+                role,
+                KeyGeneration::FIRST,
+                &Fingerprint::of(&w.id(account), &own_ipk(w, account)),
+                "x@example.com",
+            )
+            .unwrap();
+        }
+    }
+    PulledRoster {
+        generation: KeyGeneration::FIRST,
+        ciphertext: roster.seal(&key, &vault).unwrap(),
+        seq: Some(9_999),
+    }
+}
+
+#[test]
+fn r3_a_frozen_contact_book_holds_the_vault_and_applies_no_forged_owner() {
+    // The server freezes the account's contact book at a version without the
+    // `owned:` entry (here: withholds it). The second device has no positive
+    // evidence of who owns the vault, so it holds it: nothing is applied,
+    // not even a roster that names the grantee as owner with a verified pin.
+    let (mut w, vault, _item) = granted(91);
+    let (a, b) = (w.id(0), w.id(1));
+    w.sync(0, 0);
+    wait_is_over(&w);
+    {
+        let dev = w.dev(1, 0);
+        dev.engine.claim_emergency(&mut dev.access, &a).unwrap();
+    }
+    let forged = forged_owner_roster(&w, vault);
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute("DELETE FROM emergency_grants", [])?;
+            c.execute("UPDATE accounts SET contacts_ct = NULL", [])?;
+            c.execute(
+                "UPDATE memberships SET role = 2 WHERE account_id = ?1 AND role = 1",
+                [a.as_bytes().as_slice()],
+            )?;
+            c.execute(
+                "UPDATE memberships SET role = 1 WHERE account_id = ?1",
+                [b.as_bytes().as_slice()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let d = w.join(0);
+    let mut engine = hostile(&mut w, 0, d);
+    engine.transport_mut().tamper_pull = Some(Box::new(move |page| {
+        page.rosters.push(forged.clone());
+    }));
+    run(&mut w, 0, d, &mut engine);
+    let s = w.dev(0, d).s();
+    assert!(!s.vault_shared(vault).unwrap());
+    assert!(!s.owns_vault(vault).unwrap());
+    assert!(matches!(s.vault_owner(vault), Err(Error::OwnerUnknown)));
+    assert!(
+        s.sharing_findings()
+            .unwrap()
+            .contains(&SharingFinding::VaultHeld { vault })
+    );
+}
+
+#[test]
+fn r3_an_accepted_share_on_device_one_is_a_member_entry_on_device_two() {
+    let (mut w, vault, items) = trio_with(92, Role::Write, Role::Read);
+    let a = w.id(0);
+    // B accepted on device 0. Device 1 of B learns the vault, the owner from
+    // the contact book, and then accepts the real roster.
+    let d = w.join(1);
+    w.sync(1, d);
+    w.sync(1, d);
+    {
+        let s = w.dev(1, d).s();
+        assert!(
+            s.vault_shared(vault).unwrap(),
+            "the real roster was applied"
+        );
+        assert_eq!(s.vault_owner(vault).unwrap(), a);
+        assert!(!s.vault_recorded_owned(vault).unwrap());
+        assert!(
+            !s.sharing_findings()
+                .unwrap()
+                .contains(&SharingFinding::VaultHeld { vault })
+        );
+    }
+    assert!(w.has(1, d, vault, items[0]));
+    // No `owned:` entry exists for a vault of another owner, on any device.
+    assert!(!w.dev(1, 0).s().vault_recorded_owned(vault).unwrap());
+}
+
+#[test]
+fn r3_h3b_a_grant_the_server_shrinks_still_rotates_everything_it_covered() {
+    let mut w = SWorld::with_accounts(93, 2);
+    let (v1, v2) = (w.new_vault(0, 0, "One"), w.new_vault(0, 0, "Two"));
+    w.add_login(0, 0, v1, "a");
+    w.add_login(0, 0, v2, "b");
+    w.sync_all();
+    w.verify(0, 0, 1);
+    let (b, b_email) = (w.id(1), w.email(1));
+    w.fresh(0, 0);
+    {
+        let dev = w.dev(0, 0);
+        dev.engine
+            .grant_emergency(&mut dev.access, &b, &b_email, GrantScope::All, 7, &[])
+            .unwrap();
+    }
+    w.sync(0, 0);
+    // The server reports a Selected grant with only the first vault.
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute("UPDATE emergency_grants SET scope = 2", [])?;
+            c.execute(
+                "DELETE FROM emergency_seals WHERE vault_id = ?1",
+                [v2.as_bytes().as_slice()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    {
+        let dev = w.dev(0, 0);
+        dev.engine.revoke_emergency(&mut dev.access, &b).unwrap();
+    }
+    w.converge();
+    assert_eq!(w.generation(0, 0, v1).get(), 2);
+    assert_eq!(w.generation(0, 0, v2).get(), 2);
+}
+
+#[test]
+fn r3_a_grant_waits_for_the_contact_book_upload() {
+    // The server holds a contact book this account cannot open, so the
+    // upload never lands: no seal and no grant go out, and the error is the
+    // retryable conflict.
+    let mut w = SWorld::with_accounts(94, 2);
+    let vault = w.new_vault(0, 0, "Estate");
+    w.add_login(0, 0, vault, "will");
+    let _other = w.new_vault(1, 0, "Theirs");
+    w.sync_all();
+    w.verify(0, 0, 1);
+    let (a, b, b_email) = (w.id(0), w.id(1), w.email(1));
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "UPDATE accounts SET contacts_seq = 9, contacts_ct = \
+                 (SELECT contacts_ct FROM accounts WHERE account_id = ?2) WHERE account_id = ?1",
+                [a.as_bytes().as_slice(), b.as_bytes().as_slice()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    w.fresh(0, 0);
+    let dev = w.dev(0, 0);
+    let refused =
+        dev.engine
+            .grant_emergency(&mut dev.access, &b, &b_email, GrantScope::All, 7, &[]);
+    assert!(
+        matches!(
+            refused,
+            Err(SyncError::Transport(TransportError::Rejected(
+                Rejection::Conflict { .. }
+            )))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM emergency_grants"), 0);
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM emergency_seals"), 0);
+}
+
+#[test]
+fn r3_a_member_the_directory_does_not_serve_is_revoked_and_the_rotation_goes_ahead() {
+    let (mut w, vault, _items) = trio_with(95, Role::Write, Role::Write);
+    let b = w.id(1);
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "UPDATE accounts SET ipk = NULL WHERE account_id = ?1",
+                [b.as_bytes().as_slice()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    w.remove(0, 0, vault, 2).unwrap();
+    assert_eq!(w.generation(0, 0, vault).get(), 2);
+    assert!(
+        w.dev(0, 0)
+            .s()
+            .sharing_findings()
+            .unwrap()
+            .contains(&SharingFinding::MemberKeyMismatch { vault, account: b })
+    );
+    w.converge();
+    assert_eq!(count(&w, "SELECT COUNT(*) FROM key_shares"), 0);
+    assert_eq!(w.generation(2, 0, vault).get(), 1);
 }
