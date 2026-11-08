@@ -23,6 +23,9 @@ mod maintain;
 mod pull;
 mod push;
 mod rotation;
+mod served;
+mod sharing;
+mod sharing_ops;
 
 use core::time::Duration;
 use std::collections::BTreeSet;
@@ -32,6 +35,7 @@ use mosaic_vault::session::UnlockedSession;
 use mosaic_vault::storage::SyncHalt;
 
 pub use access::{Backoff, Jitter, SessionAccess, SystemJitter};
+pub use sharing_ops::{ContactLookup, InviteSentInfo, MemberState, MemberView, VaultMembers};
 
 use self::consts::{
     BACKOFF_INITIAL_MS, BACKOFF_MAX_MS, FREEZE_GRACE_FOLDER_MS, FREEZE_GRACE_HOSTED_MS,
@@ -136,6 +140,13 @@ pub enum SyncWarning {
         /// How many.
         count: u32,
     },
+    /// The owner's revocation rotation of a shared vault cannot be done now
+    /// (a key the roster or a pin does not support, a member list that keeps
+    /// changing): the revocations stay queued (M6b).
+    RotationBlocked {
+        /// The vault.
+        vault: VaultId,
+    },
 }
 
 /// What one sync run did.
@@ -176,6 +187,18 @@ pub struct SyncReport {
     pub changed_vaults: Vec<VaultId>,
     /// Warnings.
     pub warnings: Vec<SyncWarning>,
+    /// Invites waiting for this account (hosted, M6b).
+    pub invites_incoming: u32,
+    /// Emergency-access requests waiting for this account's answer (hosted,
+    /// M6b).
+    pub emergency_requests: u32,
+    /// Shared vaults this run rotated (the owner's device, M6b).
+    pub rotated_vaults: Vec<VaultId>,
+    /// Shared vaults whose new key this run claimed from a share (M6b).
+    pub claimed_vaults: Vec<VaultId>,
+    /// Attachments a rotation could not re-seal because this device does not
+    /// hold them: they keep their old ID and key (CRYPTO_SPEC §8.3).
+    pub unreachable_attachments: Vec<(VaultId, AttachmentId)>,
 }
 
 /// Why a sync run failed.
@@ -206,6 +229,9 @@ pub enum SyncError {
         /// When the next attempt may start (ms since the Unix epoch).
         retry_at_ms: u64,
     },
+    /// The backend cannot share (the folder, CRYPTO_SPEC §8.6).
+    #[error("the backend cannot share")]
+    SharingUnavailable,
 }
 
 impl From<TransportError> for SyncError {
@@ -383,6 +409,29 @@ impl<T: Transport> SyncEngine<T> {
             .collect())
     }
 
+    /// The vaults that take no uploads: the ones the server rolled back
+    /// (until the user acknowledges it), the ones it refuses this device and
+    /// the ones where this account may only read (M6b).
+    pub(crate) fn write_blocked_vaults(
+        access: &mut impl SessionAccess,
+    ) -> Result<BTreeSet<VaultId>, SyncError> {
+        let mut blocked = Self::rolled_back_vaults(access)?;
+        blocked.extend(access.with(
+            |s| -> Result<Vec<VaultId>, mosaic_vault::session::Error> {
+                let mut out = Vec::new();
+                for v in s.synced_vaults() {
+                    if s.vault_access_lost(v)?
+                        || s.vault_own_role(v)? == mosaic_core::model::Role::Read
+                    {
+                        out.push(v);
+                    }
+                }
+                Ok(out)
+            },
+        )??);
+        Ok(blocked)
+    }
+
     /// Stops with a rollback halt if the own log of a synced vault lost
     /// segments this install wrote.
     pub(crate) fn check_own_logs(
@@ -473,7 +522,9 @@ impl<T: Transport> SyncEngine<T> {
         self.check_own_logs(access)?;
         self.verify_checkpoints(access, now)?;
         self.upload_vaults(access, &mut report)?;
+        self.sharing_identity_phase(access, &mut report)?;
         self.pull_phase(access, &mut report, &mut stats, now)?;
+        self.sharing_phase(access, &mut report, &mut stats)?;
         self.push_phase(access, &mut report, &mut stats, None)?;
         self.push_metas(access, &mut stats, &mut report)?;
         self.attachments_phase(access, &mut report)?;

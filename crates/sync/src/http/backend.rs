@@ -6,8 +6,10 @@
 use core::time::Duration;
 
 use mosaic_core::attachment::{MAX_ATTACHMENT_LEN, ciphertext_len};
+use mosaic_core::model::Role;
 use mosaic_core::{
-    AttachmentId, InstallId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey,
+    AttachmentId, InstallId, KeyGeneration, ShareSeal, VaultId, VaultMetaCiphertext,
+    VaultRosterCiphertext, WrappedKey,
 };
 use mosaic_vault::storage::{RecordBody, RecordKind as StoredKind};
 use reqwest::Method;
@@ -16,17 +18,18 @@ use super::client::{
     ATTACHMENT_TIMEOUT, Bearer, Body, Http, POLL_TIMEOUT, REQUEST_TIMEOUT, Token, canonical_origin,
     json_body,
 };
+use crate::sharing::SharingTransport;
 use crate::transport::{
-    ChangeToken, Cursor, KeyPushResult, PullPage, PulledKey, PulledMeta, PulledRecord, PushRecord,
-    PushResult, RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError,
-    TransportKind, VaultCreateResult,
+    ChangeToken, Cursor, KeyPushResult, PullPage, PulledKey, PulledMeta, PulledRecord,
+    PulledRoster, PulledShare, PushRecord, PushResult, RemoteAttachment, RemoteDevice, RemoteVault,
+    Transport, TransportError, TransportKind, VaultCreateResult,
 };
+use crate::wire::json::sharing::{ChangeRoster, ChangeShare, SharingChangesResponse};
 use crate::wire::json::{
-    self, AttachmentsResponse, B64, ChangesResponse, CheckpointsResponse, DevicesResponse, Empty,
-    HeadMovedDetail, HeadResponse, InfoResponse, MAX_CHECKPOINT_UPLOAD_LEN, MAX_RESPONSE_LEN,
-    MetaResult, PollResponse, PushMetaRequest, PushRecordsRequest, PushRecordsResponse,
-    PutKeyRequest, PutKeyResponse, RecordKind, RecordResult, RestoreResponse, VaultsResponse,
-    codes,
+    self, AttachmentsResponse, B64, CheckpointsResponse, DevicesResponse, Empty, HeadMovedDetail,
+    HeadResponse, InfoResponse, MAX_CHECKPOINT_UPLOAD_LEN, MAX_RESPONSE_LEN, MetaResult,
+    PollResponse, PushMetaRequest, PushRecordsRequest, PushRecordsResponse, PutKeyRequest,
+    PutKeyResponse, RecordKind, RecordResult, RestoreResponse, VaultsResponse, codes,
 };
 
 /// The most records the server returns per page.
@@ -42,9 +45,9 @@ const REQUEST_SLACK: usize = 1024;
 
 /// The hosted backend over HTTPS.
 pub struct HttpTransport {
-    http: Http,
+    pub(super) http: Http,
     /// The `Authorization` value, built once (sensitive, zeroizing source).
-    bearer: Bearer,
+    pub(super) bearer: Bearer,
     max_request: usize,
     /// This install's ID, from the engine (`connect`): the checkpoint path
     /// and the own-checkpoint logic use it, not the server's `current` flag.
@@ -99,7 +102,15 @@ impl HttpTransport {
         Http::new(&canonical_origin(base)?)?.info()
     }
 
-    fn call<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+    pub(super) const fn http(&self) -> &Http {
+        &self.http
+    }
+
+    pub(super) const fn bearer(&self) -> &Bearer {
+        &self.bearer
+    }
+
+    pub(super) fn call<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -110,7 +121,10 @@ impl HttpTransport {
             .call(method, path, Some(&self.bearer), request, ok)
     }
 
-    fn get<Resp: serde::de::DeserializeOwned>(&self, path: &str) -> Result<Resp, TransportError> {
+    pub(super) fn get<Resp: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<Resp, TransportError> {
         Ok(self.call(Method::GET, path, None::<&Empty>, &[200])?.1)
     }
 }
@@ -145,7 +159,7 @@ const fn wire_kind(body: &RecordBody) -> RecordKind {
 
 /// A checked page of `changes`.
 fn convert_page(
-    page: ChangesResponse,
+    page: SharingChangesResponse,
     since: u64,
     limit: usize,
 ) -> Result<PullPage, TransportError> {
@@ -201,6 +215,8 @@ fn convert_page(
     if page.more && (records.is_empty() || page.next_since != previous) {
         return Err(TransportError::Protocol);
     }
+    let role = Role::from_number(page.role).map_err(|_| TransportError::Protocol)?;
+    let (shares, rosters) = convert_sharing(page.shares, page.rosters, since, head)?;
     Ok(PullPage {
         keys,
         metas,
@@ -208,7 +224,52 @@ fn convert_page(
         next: seq_cursor(page.next_since),
         more: page.more,
         units: Vec::new(),
+        shares,
+        rosters,
+        role: Some(role),
     })
+}
+
+/// The shares and rosters of a sharing-aware page: a share may be any age (it
+/// stays until claimed) but not beyond the head; a roster is newer than the
+/// cursor.
+fn convert_sharing(
+    shares: Vec<ChangeShare>,
+    rosters: Vec<ChangeRoster>,
+    since: u64,
+    head: u64,
+) -> Result<(Vec<PulledShare>, Vec<PulledRoster>), TransportError> {
+    let shares = shares
+        .into_iter()
+        .map(|sh| {
+            if sh.seq > head {
+                return Err(TransportError::Protocol);
+            }
+            Ok(PulledShare {
+                generation: KeyGeneration::new(sh.generation)
+                    .map_err(|_| TransportError::Protocol)?,
+                sender: sh.sender,
+                seal: ShareSeal::from_bytes(&sh.seal.0).map_err(|_| TransportError::Protocol)?,
+                seq: Some(sh.seq),
+            })
+        })
+        .collect::<Result<Vec<_>, TransportError>>()?;
+    let rosters = rosters
+        .into_iter()
+        .map(|r| {
+            if r.seq <= since || r.seq > head {
+                return Err(TransportError::Protocol);
+            }
+            Ok(PulledRoster {
+                generation: KeyGeneration::new(r.generation)
+                    .map_err(|_| TransportError::Protocol)?,
+                ciphertext: VaultRosterCiphertext::from_bytes(&r.ciphertext.0)
+                    .map_err(|_| TransportError::Protocol)?,
+                seq: Some(r.seq),
+            })
+        })
+        .collect::<Result<Vec<_>, TransportError>>()?;
+    Ok((shares, rosters))
 }
 
 impl Transport for HttpTransport {
@@ -262,8 +323,11 @@ impl Transport for HttpTransport {
     ) -> Result<PullPage, TransportError> {
         let since = cursor_seq(cursor)?;
         let limit = limit.clamp(1, MAX_PAGE);
-        let page: ChangesResponse = self.get(&format!(
-            "/v1/vaults/{vault}/changes?since={since}&limit={limit}"
+        // `sharing=1`: the page also carries the role, the key shares for
+        // this account and the rosters (the M6 page stays strict for older
+        // clients).
+        let page: SharingChangesResponse = self.get(&format!(
+            "/v1/vaults/{vault}/changes?since={since}&limit={limit}&sharing=1"
         ))?;
         convert_page(page, since, limit)
     }
@@ -482,6 +546,10 @@ impl Transport for HttpTransport {
                 last_seen_ms: Some(d.last_seen_at),
             })
             .collect())
+    }
+
+    fn sharing(&mut self) -> Option<&mut dyn SharingTransport> {
+        Some(self)
     }
 
     fn wait_for_change(

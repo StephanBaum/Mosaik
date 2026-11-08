@@ -1,0 +1,1022 @@
+//! Sharing in the sync run (M6b spec §6.4, CRYPTO_SPEC §8): the identity
+//! key, the contact book, the key shares and rosters of a pulled vault (the
+//! claim rule), invites, role changes, revocation rotations by the vault
+//! owner and the emergency seals.
+//!
+//! Order inside [`SyncEngine::sync_once`](super::SyncEngine::sync_once):
+//! identity and contact book before the pull (the pull needs the identity key
+//! and the pins), the per-vault sharing step at the end of every vault pull,
+//! and the account-level steps (invites, queued roster uploads, revocations,
+//! emergency seals) between the pull and the push.
+//!
+//! Only the vault owner rotates a shared vault (ADR-0050): a revocation that
+//! a manager asked for waits for the owner's device. A rotation is offered to
+//! the server as one atomic request and committed locally only when the
+//! server accepted it; a shared vault never adopts a key (CRYPTO_SPEC §10.2).
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use mosaic_core::model::{ContactState, Role, RosterMember};
+use mosaic_core::{AccountId, IdentityPublicKey, KeyGeneration, ShareSeal, VaultId};
+use mosaic_vault::session::{
+    Error, InviteId, PulledShareView, RevocationReason, RotationPlan, SharingFinding,
+    UnlockedSession,
+};
+
+use super::consts::ATTACHMENT_DOWNLOAD_BUDGET;
+use super::pull::RunStats;
+use super::{SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
+use crate::sharing::{
+    CasResult, GrantInfo, GrantScope, GrantState, IdentityPut, InviteState, MembersView,
+    OutgoingInvite, RotateRequest, RotateResult, SharingTransport,
+};
+use crate::transport::{
+    PullPage, PulledRoster, PulledShare, Rejection, Transport, TransportError, TransportKind,
+};
+
+/// Attempts at one revocation rotation per run (a head that moves, a member
+/// list that changes under it).
+const ROTATION_ATTEMPTS: usize = 3;
+/// Attempts at one compare-and-swap upload per run.
+const CAS_ATTEMPTS: usize = 3;
+
+/// What the pages of one vault pull held for the sharing step.
+#[derive(Default)]
+pub(super) struct Collected {
+    pub(super) shares: Vec<PulledShare>,
+    pub(super) rosters: Vec<PulledRoster>,
+    pub(super) role: Option<Role>,
+}
+
+impl Collected {
+    pub(super) fn absorb(&mut self, page: &PullPage) {
+        for share in &page.shares {
+            if !self.shares.contains(share) {
+                self.shares.push(share.clone());
+            }
+        }
+        for roster in &page.rosters {
+            if !self.rosters.contains(roster) {
+                self.rosters.push(roster.clone());
+            }
+        }
+        if page.role.is_some() {
+            self.role = page.role;
+        }
+    }
+}
+
+/// The server sequence a cursor holds (empty is 0).
+fn cursor_head(cursor: Option<&[u8]>) -> u64 {
+    cursor
+        .and_then(|c| <[u8; 8]>::try_from(c).ok())
+        .map_or(0, u64::from_be_bytes)
+}
+
+fn is_lost(e: &TransportError) -> bool {
+    matches!(e, TransportError::Forbidden | TransportError::NotFound)
+}
+
+/// A refusal of an upload that the next run makes again is not an error.
+fn tolerate(result: Result<(), TransportError>) -> Result<(), SyncError> {
+    match result {
+        Ok(())
+        | Err(TransportError::Rejected(_) | TransportError::Forbidden | TransportError::NotFound) => {
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The server accepted `ct` as the roster of `vault` under `seq`.
+fn roster_uploaded(
+    s: &mut UnlockedSession,
+    vault: VaultId,
+    ct: &mosaic_core::VaultRosterCiphertext,
+    seq: u64,
+) -> Result<(), Error> {
+    s.mark_roster_uploaded(vault, ct, seq)?;
+    super::served::note_roster(s, vault, seq, ct.as_bytes())
+}
+
+impl<T: Transport> SyncEngine<T> {
+    /// The sharing calls of the backend.
+    pub(super) fn sharing_tx(&mut self) -> Result<&mut dyn SharingTransport, SyncError> {
+        self.transport
+            .sharing()
+            .ok_or(SyncError::SharingUnavailable)
+    }
+
+    fn sharing_offered(&mut self) -> bool {
+        self.config.transport_kind == TransportKind::Hosted && self.transport.sharing().is_some()
+    }
+
+    /// Whether a finding stops sharing until the user acknowledges it (the
+    /// server serves this account another identity key).
+    fn sharing_blocked(access: &mut impl SessionAccess) -> Result<bool, SyncError> {
+        Ok(access
+            .with(|s| s.sharing_findings())??
+            .contains(&SharingFinding::IdentityMismatch))
+    }
+
+    /// Records a finding unless the same one is stored.
+    pub(super) fn note_finding(
+        access: &mut impl SessionAccess,
+        finding: SharingFinding,
+    ) -> Result<(), SyncError> {
+        access.with(|s| -> Result<(), Error> {
+            if !s.sharing_findings()?.contains(&finding) {
+                s.record_sharing_finding(finding)?;
+            }
+            Ok(())
+        })??;
+        Ok(())
+    }
+
+    /// Whether the account-level sharing steps run: a hosted backend, an
+    /// identity key and no finding that blocks sharing.
+    fn sharing_ready(&mut self, access: &mut impl SessionAccess) -> Result<bool, SyncError> {
+        if !self.sharing_offered() {
+            return Ok(false);
+        }
+        if access.with(|s| s.identity())??.is_none() {
+            return Ok(false);
+        }
+        Ok(!Self::sharing_blocked(access)?)
+    }
+
+    // ---- identity and contact book (before the pull) ---------------------
+
+    /// Makes the identity key if there is none, publishes it or adopts the
+    /// one another device published (CRYPTO_SPEC §8.1), and syncs the contact
+    /// book. A key the server serves for this account that is not the local
+    /// one, after publication, is the finding `IdentityMismatch`.
+    pub(super) fn sharing_identity_phase(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        if !self.sharing_offered() {
+            return Ok(());
+        }
+        match access.with(UnlockedSession::ensure_identity_key)? {
+            Ok(_) => {}
+            Err(Error::IdentityMismatch) => {
+                return Self::note_finding(access, SharingFinding::IdentityMismatch);
+            }
+            Err(e) => return Err(e.into()),
+        }
+        let Some((ipk, wrapped, published)) = access.with(|s| s.identity())?? else {
+            return Ok(());
+        };
+        match self.sharing_tx()?.account_identity()? {
+            Some((served, _)) if served == ipk => {
+                if !published {
+                    access.with(UnlockedSession::mark_identity_published)??;
+                }
+            }
+            Some((served, served_wrapped)) => {
+                Self::take_served_identity(access, published, &served, &served_wrapped)?;
+            }
+            None => match self.sharing_tx()?.put_identity(&ipk, &wrapped)? {
+                IdentityPut::Stored => access.with(UnlockedSession::mark_identity_published)??,
+                IdentityPut::Exists {
+                    ipk: served,
+                    wrapped: served_wrapped,
+                } => {
+                    if served == ipk {
+                        access.with(UnlockedSession::mark_identity_published)??;
+                    } else {
+                        Self::take_served_identity(access, published, &served, &served_wrapped)?;
+                    }
+                }
+            },
+        }
+        if Self::sharing_blocked(access)? {
+            return Ok(());
+        }
+        self.sync_contacts(access, report)
+    }
+
+    /// The server holds another identity pair than this device's: adopt it
+    /// if this device's own was never published and the served one opens
+    /// under the account key to a matching `isk`; otherwise it is a finding.
+    fn take_served_identity(
+        access: &mut impl SessionAccess,
+        published: bool,
+        served: &IdentityPublicKey,
+        wrapped: &mosaic_core::WrappedKey,
+    ) -> Result<(), SyncError> {
+        if published {
+            return Self::note_finding(access, SharingFinding::IdentityMismatch);
+        }
+        match access.with(|s| s.adopt_remote_identity(wrapped, served))? {
+            Ok(()) => Ok(()),
+            Err(Error::IdentityMismatch) => {
+                Self::note_finding(access, SharingFinding::IdentityMismatch)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Merges the server's contact book into the local one and uploads a
+    /// local change (compare-and-swap, merge on conflict).
+    fn sync_contacts(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        self.pull_contacts(access, report)?;
+        for _ in 0..CAS_ATTEMPTS {
+            let Some((ct, base)) = access.with(UnlockedSession::pending_contacts_upload)?? else {
+                break;
+            };
+            match self.sharing_tx()?.put_contacts(&ct, base.unwrap_or(0))? {
+                CasResult::Stored { seq } => {
+                    access.with(|s| s.mark_contacts_uploaded(seq))??;
+                    break;
+                }
+                CasResult::Conflict { .. } => self.pull_contacts(access, report)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn pull_contacts(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        let (ct, seq) = self.sharing_tx()?.get_contacts()?;
+        if let Some(ct) = ct {
+            match access.with(|s| s.apply_remote_contacts(&ct, seq))? {
+                Ok(()) => {}
+                // Does not authenticate under this account's key.
+                Err(Error::Core(_)) => report.undecryptable += 1,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+
+    // ---- the sharing step of a vault pull --------------------------------
+
+    /// After a vault was pulled: applies the rosters of the held generation,
+    /// claims the key shares that pass the claim rule and notes the members
+    /// the server lists. If the step fails, the cursor goes back before the
+    /// rosters it did not apply (a roster is served only newer than the
+    /// cursor).
+    pub(super) fn after_pull_sharing(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        collected: &Collected,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+        follow: bool,
+    ) -> Result<(), SyncError> {
+        if !self.sharing_offered() {
+            return Ok(());
+        }
+        let shared = access.with(|s| s.vault_shared(vault))??;
+        let relevant = shared
+            || !collected.shares.is_empty()
+            || !collected.rosters.is_empty()
+            || collected.role.is_some_and(|r| r != Role::Owner);
+        if !relevant || Self::sharing_blocked(access)? {
+            return Ok(());
+        }
+        let first_roster = collected.rosters.iter().filter_map(|r| r.seq).min();
+        let result = self.sharing_step(access, vault, collected, report, stats, follow);
+        if result.is_err()
+            && let Some(seq) = first_roster
+        {
+            let back = seq.saturating_sub(1);
+            // Best effort: the original error is the one to report.
+            let _ = access.with(|s| -> Result<(), Error> {
+                if cursor_head(s.sync_cursor(vault)?.as_deref()) > back {
+                    s.set_sync_cursor(vault, &back.to_be_bytes())?;
+                }
+                Ok(())
+            });
+        }
+        result
+    }
+
+    fn sharing_step(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        collected: &Collected,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+        follow: bool,
+    ) -> Result<(), SyncError> {
+        let members = match self.sharing_tx()?.members(vault) {
+            Ok(m) => m,
+            Err(e) if is_lost(&e) => {
+                access.with(|s| -> Result<(), Error> {
+                    if s.vault_shared(vault)? {
+                        s.mark_access_lost(vault)?;
+                    }
+                    Ok(())
+                })??;
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let Some(owner) = members.owner() else {
+            return Ok(());
+        };
+        stats.members.insert(vault, members);
+        let held = Self::current_generation(access, vault)?;
+        let mut current: Vec<&PulledRoster> = collected
+            .rosters
+            .iter()
+            .filter(|r| r.generation == held)
+            .collect();
+        current.sort_by_key(|r| r.seq);
+        for roster in current {
+            Self::apply_roster(access, vault, roster, &owner, report)?;
+        }
+        let newer: Vec<PulledShare> = collected
+            .shares
+            .iter()
+            .filter(|s| s.generation > held)
+            .cloned()
+            .collect();
+        if newer.is_empty() {
+            return Ok(());
+        }
+        if self.claim_shares(access, vault, collected, &newer, &owner, report)? && follow {
+            // The records that waited for the key.
+            self.pull_vault_inner(access, vault, report, stats, false)?;
+        }
+        Ok(())
+    }
+
+    /// Applies one pulled roster of the held generation.
+    fn apply_roster(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        roster: &PulledRoster,
+        owner: &AccountId,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        let Some(seq) = roster.seq else {
+            return Ok(());
+        };
+        let applied = access.with(|s| {
+            s.apply_remote_roster(vault, roster.generation, &roster.ciphertext, seq, owner)
+        })?;
+        match applied {
+            // Applied; or not a member of that roster (an emergency release,
+            // an account the server injected); or another generation than
+            // the held one, which waits for the key.
+            Ok(())
+            | Err(
+                Error::NotInRoster
+                | Error::KeyGenerationRollback { .. }
+                | Error::KeyGenerationNotAccepted { .. },
+            ) => {}
+            // The session recorded `RosterInvalid` itself for an invalid
+            // roster; an owner the server changed is the same finding.
+            Err(Error::OwnerMismatch) => {
+                Self::note_finding(access, SharingFinding::RosterInvalid { vault })?;
+            }
+            Err(Error::Core(_)) => report.undecryptable += 1,
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    }
+
+    /// The claim rule (CRYPTO_SPEC §8.3): opens the chain of shares above the
+    /// held generation, claims the final key on the server and stores it.
+    /// Returns whether a key was claimed.
+    fn claim_shares(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        collected: &Collected,
+        newer: &[PulledShare],
+        owner: &AccountId,
+        report: &mut SyncReport,
+    ) -> Result<bool, SyncError> {
+        let install = access.with(|s| s.install_id())?;
+        let mut ipks: BTreeMap<AccountId, IdentityPublicKey> = BTreeMap::new();
+        for sender in newer.iter().map(|s| s.sender).collect::<BTreeSet<_>>() {
+            if let Some(ipk) = self.sharing_tx()?.directory(&sender)? {
+                ipks.insert(sender, ipk);
+            }
+        }
+        let views: Vec<PulledShareView> = newer
+            .iter()
+            .map(|s| PulledShareView {
+                generation: s.generation,
+                sender: s.sender,
+                seal: s.seal.clone(),
+            })
+            .collect();
+        let history: Vec<_> = collected
+            .rosters
+            .iter()
+            .map(|r| (r.generation, r.ciphertext.clone()))
+            .collect();
+        let opened = access
+            .with(|s| s.open_share_chain(vault, &views, &history, &|a| ipks.get(a).copied()))?;
+        let chain = match opened {
+            Ok(chain) => chain,
+            Err(Error::ShareUntrusted { generation }) => {
+                let generation =
+                    KeyGeneration::new(generation).map_err(|e| SyncError::Session(e.into()))?;
+                let sender = newer
+                    .iter()
+                    .find(|s| s.generation == generation)
+                    .or_else(|| newer.first())
+                    .map(|s| s.sender);
+                if let Some(sender) = sender {
+                    Self::note_finding(
+                        access,
+                        SharingFinding::ShareUntrusted {
+                            vault,
+                            generation,
+                            sender,
+                        },
+                    )?;
+                }
+                return Ok(false);
+            }
+            Err(Error::NothingToClaim | Error::NoIdentity | Error::NoRoster) => return Ok(false),
+            Err(e) => return Err(e.into()),
+        };
+        let wrapped = access.with(|s| s.claim_wrap(&chain))??;
+        let generation = chain.generation();
+        match self
+            .sharing_tx()?
+            .claim_key(vault, generation, &wrapped, install)
+        {
+            Ok(_) => {}
+            // Claimed by another device of the account meanwhile, or the
+            // vault moved on: the key arrives as a key row.
+            Err(
+                TransportError::Rejected(Rejection::NoShare)
+                | TransportError::GenerationMismatch { .. },
+            ) => return Ok(false),
+            Err(e) => return Err(e.into()),
+        }
+        access.with(|s| s.commit_claimed_key(chain, &wrapped))??;
+        if let Some(roster) = collected
+            .rosters
+            .iter()
+            .find(|r| r.generation == generation)
+        {
+            Self::apply_roster(access, vault, roster, owner, report)?;
+        }
+        if !report.claimed_vaults.contains(&vault) {
+            report.claimed_vaults.push(vault);
+        }
+        if !report.changed_vaults.contains(&vault) {
+            report.changed_vaults.push(vault);
+        }
+        Ok(true)
+    }
+
+    // ---- account-level steps between pull and push ----------------------
+
+    /// Invites, queued roster uploads, revocation rotations and emergency
+    /// seals.
+    pub(super) fn sharing_phase(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+    ) -> Result<(), SyncError> {
+        if !self.sharing_ready(access)? {
+            return Ok(());
+        }
+        let outgoing = self.sync_invites(access, report)?;
+        self.push_pending_rosters(access, report, stats)?;
+        self.process_revocations(access, report, stats, &outgoing)?;
+        self.refresh_emergency(access, report)
+    }
+
+    /// Counts the invites waiting for this account and turns a delivered
+    /// invite that was declined or cancelled into a queued revocation (the
+    /// recipient may hold the key; CRYPTO_SPEC §8.3), then removes it from
+    /// the sender's list.
+    fn sync_invites(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<Vec<OutgoingInvite>, SyncError> {
+        let (incoming, outgoing) = self.sharing_tx()?.list_invites()?;
+        report.invites_incoming = u32::try_from(incoming.len()).unwrap_or(u32::MAX);
+        for o in &outgoing {
+            let reason = match o.state {
+                InviteState::Declined => RevocationReason::InviteDeclined,
+                InviteState::Cancelled => RevocationReason::InviteCancelled,
+                _ => continue,
+            };
+            if !o.delivered {
+                continue;
+            }
+            match access.with(|s| s.request_revocation(o.vault_id, &o.recipient, reason))? {
+                Ok(()) => {}
+                Err(e @ Error::Store(_)) => return Err(e.into()),
+                // Not a vault of this device, or not one this account manages.
+                Err(_) => continue,
+            }
+            match self.sharing_tx()?.cancel_invite(&o.invite_id) {
+                Ok(()) => {}
+                Err(e) if is_lost(&e) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(outgoing)
+    }
+
+    /// Uploads the rosters that wait for it (a role change, a merge the
+    /// server lacks); a conflict pulls the vault, which merges.
+    fn push_pending_rosters(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+    ) -> Result<(), SyncError> {
+        let vaults = access.with(|s| -> Result<Vec<VaultId>, Error> {
+            let mut out = Vec::new();
+            for v in s.synced_vaults() {
+                if s.vault_shared(v)? && !s.vault_access_lost(v)? {
+                    out.push(v);
+                }
+            }
+            Ok(out)
+        })??;
+        for vault in vaults {
+            for _ in 0..CAS_ATTEMPTS {
+                let Some((ct, base)) = access.with(|s| s.pending_roster_upload(vault))?? else {
+                    break;
+                };
+                match self
+                    .sharing_tx()?
+                    .put_roster(vault, ct.key_generation(), &ct, base)
+                {
+                    Ok(CasResult::Stored { seq }) => {
+                        access.with(|s| roster_uploaded(s, vault, &ct, seq))??;
+                        break;
+                    }
+                    Ok(CasResult::Conflict { current_seq }) => {
+                        // The roster the server holds is served only above
+                        // the cursor: step back to it, read it and merge.
+                        Self::rewind_cursor(access, vault, current_seq)?;
+                        self.pull_vault(access, vault, report, stats)?;
+                    }
+                    // Not allowed to write it (a role change on the server
+                    // side): it stays queued.
+                    Err(TransportError::Rejected(Rejection::RoleForbidden)) => break,
+                    Err(e) if is_lost(&e) => break,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Roster members that count: not removed.
+    fn active_members(roster: Vec<RosterMember>) -> BTreeMap<AccountId, RosterMember> {
+        roster
+            .into_iter()
+            .filter(|m| m.role != Role::Removed)
+            .map(|m| (m.account_id, m))
+            .collect()
+    }
+
+    /// Roster members (not the owner) the server neither lists as a member
+    /// nor as an open invite: they left, or their invite ended. With
+    /// `skip_ghosts` the ones whose delivered-never invite ended are left
+    /// out (nothing was handed to them, so nothing triggers a rotation).
+    fn left_members(
+        own: &AccountId,
+        roster: Vec<RosterMember>,
+        members: &MembersView,
+        outgoing: &[OutgoingInvite],
+        vault: VaultId,
+        skip_ghosts: bool,
+    ) -> BTreeSet<AccountId> {
+        let ghosts: BTreeSet<AccountId> = outgoing
+            .iter()
+            .filter(|o| {
+                o.vault_id == vault
+                    && !o.delivered
+                    && matches!(o.state, InviteState::Declined | InviteState::Cancelled)
+            })
+            .map(|o| o.recipient)
+            .collect();
+        let on_server: BTreeSet<AccountId> = members.members.iter().map(|m| m.account_id).collect();
+        let invited: BTreeSet<AccountId> = members.invites.iter().map(|i| i.recipient).collect();
+        Self::active_members(roster)
+            .into_keys()
+            .filter(|a| {
+                let ghost = skip_ghosts && ghosts.contains(a);
+                a != own && !on_server.contains(a) && !invited.contains(a) && !ghost
+            })
+            .collect()
+    }
+
+    /// Rotates the vaults this account owns whose revocations are queued or
+    /// whose roster lists a member the server no longer has.
+    fn process_revocations(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+        outgoing: &[OutgoingInvite],
+    ) -> Result<(), SyncError> {
+        let (own, pending, vaults) = access.with(|s| -> Result<_, Error> {
+            let own = s.account_id();
+            let pending = s.pending_revocations()?;
+            let mut owned = Vec::new();
+            for v in s.synced_vaults() {
+                if s.vault_shared(v)?
+                    && !s.vault_access_lost(v)?
+                    && s.vault_own_role(v)? == Role::Owner
+                    && s.vault_owner(v)? == own
+                {
+                    owned.push(v);
+                }
+            }
+            Ok((own, pending, owned))
+        })??;
+        for vault in vaults {
+            let explicit: BTreeSet<AccountId> = pending
+                .iter()
+                .filter(|(v, _, _)| *v == vault)
+                .map(|(_, a, _)| *a)
+                .collect();
+            let members = match stats.members.get(&vault) {
+                Some(m) => m.clone(),
+                None => match self.sharing_tx()?.members(vault) {
+                    Ok(m) => m,
+                    Err(e) if is_lost(&e) => continue,
+                    Err(e) => return Err(e.into()),
+                },
+            };
+            let roster = access.with(|s| s.vault_roster(vault))??.unwrap_or_default();
+            let left = Self::left_members(&own, roster, &members, outgoing, vault, true);
+            if explicit.is_empty() && left.is_empty() {
+                continue;
+            }
+            self.rotate_shared(access, vault, &explicit, report, stats)?;
+        }
+        Ok(())
+    }
+
+    /// Downloads the attachments of `vault` this device does not hold, so
+    /// the rotation re-seals them (CRYPTO_SPEC §8.3). What cannot be fetched
+    /// is listed by the session and keeps its old ID.
+    fn fetch_vault_attachments(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+    ) -> Result<(), SyncError> {
+        let missing = access.with(|s| -> Result<Vec<_>, Error> {
+            let mut out = Vec::new();
+            for r in s.attachment_references() {
+                if r.vault_id == vault
+                    && s.attachment_file_state(r.attachment_id)?
+                        == mosaic_vault::session::AttachmentFileState::Missing
+                {
+                    out.push(r);
+                }
+            }
+            Ok(out)
+        })??;
+        let mut budget = ATTACHMENT_DOWNLOAD_BUDGET;
+        for r in missing {
+            if budget == 0 {
+                break;
+            }
+            let Some(ct) = self.transport.get_attachment(vault, r.attachment_id)? else {
+                continue;
+            };
+            budget = budget.saturating_sub(u64::try_from(ct.len()).unwrap_or(u64::MAX));
+            match access
+                .with(|s| s.store_remote_attachment(vault, r.item_id, r.attachment_id, &ct))?
+            {
+                Err(Error::Store(mosaic_vault::storage::Error::AttachmentsUnavailable)) => break,
+                Ok(())
+                | Err(Error::Core(_) | Error::UnknownAttachmentReference | Error::Store(_)) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+
+    /// The rotation plan of `vault` from the roster, the server's members
+    /// and the emergency grants; `None` if a key the plan needs is not
+    /// available (the rotation waits).
+    fn build_plan(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        explicit: &BTreeSet<AccountId>,
+        members: &MembersView,
+    ) -> Result<Option<RotationPlan>, SyncError> {
+        let own = access.with(|s| s.account_id())?;
+        let Some(roster) = access.with(|s| s.vault_roster(vault))?? else {
+            return Ok(None);
+        };
+        let active = Self::active_members(roster.clone());
+        let on_server: BTreeSet<AccountId> = members
+            .members
+            .iter()
+            .map(|m| m.account_id)
+            .filter(|a| *a != own)
+            .collect();
+        let mut revoked: BTreeSet<AccountId> = explicit.clone();
+        // Left, or a declined invite: in the roster, nowhere on the server.
+        revoked.extend(Self::left_members(&own, roster, members, &[], vault, false));
+        // Listed by the server but not in the roster (an emergency release,
+        // an account the server added): unconfirmed, revoked with the next
+        // rotation.
+        revoked.extend(
+            on_server
+                .iter()
+                .filter(|a| !active.contains_key(a))
+                .copied(),
+        );
+        revoked.remove(&own);
+
+        let mut plan = RotationPlan::default();
+        let mut invites: Vec<(InviteId, AccountId)> = Vec::new();
+        for inv in &members.invites {
+            if revoked.contains(&inv.recipient) || !active.contains_key(&inv.recipient) {
+                // An invite that cannot be sealed under the new key.
+                match self.sharing_tx()?.cancel_invite(&inv.invite_id) {
+                    Ok(()) => {}
+                    Err(e) if is_lost(&e) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            } else {
+                invites.push((inv.invite_id, inv.recipient));
+            }
+        }
+        for account in active.keys() {
+            if *account == own || revoked.contains(account) || !on_server.contains(account) {
+                continue;
+            }
+            let Some(ipk) = self.sharing_tx()?.directory(account)? else {
+                return Ok(None);
+            };
+            plan.remaining.push((*account, ipk));
+        }
+        for (invite, account) in invites {
+            // The directory does not serve by ID the key of an account this
+            // account invited (it would tell a real recipient from a fake
+            // one): the key comes from the email lookup, with the address
+            // the roster holds, and must be for the same account.
+            let Some(email) = active.get(&account).map(|m| m.email.clone()) else {
+                return Ok(None);
+            };
+            let entry = self.sharing_tx()?.lookup(&email)?;
+            if entry.account_id != account {
+                return Ok(None);
+            }
+            plan.invites.push((invite, account, entry.ipk));
+        }
+        plan.revoked = revoked.into_iter().collect();
+
+        let (granted, _) = self.sharing_tx()?.emergency()?;
+        for g in granted.iter().filter(|g| covers(g, vault)) {
+            let Some(ipk) = self.sharing_tx()?.directory(&g.grantee)? else {
+                continue;
+            };
+            let verified = access.with(|s| s.contact_state(&g.grantee, &ipk))??
+                == ContactState::Pinned { verified: true };
+            if verified {
+                plan.grants.push((g.grantee, ipk));
+            }
+        }
+        Ok(Some(plan))
+    }
+
+    /// The owner's revocation rotation of a shared vault (CRYPTO_SPEC §8.3).
+    /// `explicit` are the accounts a user or a declined invite queued; the
+    /// plan adds members that left and members the roster does not list.
+    /// Returns the new generation, or `None` if the rotation could not be
+    /// done now (not the owner, a key the plan needs is missing, the server
+    /// kept refusing): the revocations stay queued.
+    ///
+    /// # Errors
+    /// [`SyncError`].
+    #[expect(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "one rotation: prepare, offer, commit and the follow-up belong together"
+    )]
+    pub(super) fn rotate_shared(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        explicit: &BTreeSet<AccountId>,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+    ) -> Result<Option<KeyGeneration>, SyncError> {
+        let install = access.with(|s| s.install_id())?;
+        for _ in 0..ROTATION_ATTEMPTS {
+            self.pull_vault(access, vault, report, stats)?;
+            let members = match self.sharing_tx()?.members(vault) {
+                Ok(m) => m,
+                Err(e) if is_lost(&e) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            self.fetch_vault_attachments(access, vault)?;
+            let Some(plan) = self.build_plan(access, vault, explicit, &members)? else {
+                report.warnings.push(SyncWarning::RotationBlocked { vault });
+                return Ok(None);
+            };
+            let prepared = match access.with(|s| s.prepare_shared_rotation(vault, &plan))? {
+                Ok(p) => p,
+                Err(Error::PreparedStale) => continue,
+                // A served key that does not match the roster or the pin, an
+                // unverified grantee, a plan the roster does not support: the
+                // rotation waits for the user.
+                Err(
+                    Error::MemberKeyMismatch
+                    | Error::ContactUnverified
+                    | Error::ContactKeyChanged
+                    | Error::PlanMismatch
+                    | Error::NoRoster,
+                ) => {
+                    report.warnings.push(SyncWarning::RotationBlocked { vault });
+                    return Ok(None);
+                }
+                // Not the owner: only the owner's device rotates.
+                Err(Error::NotOwner | Error::OwnerCannotBeRevoked) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            let head = cursor_head(access.with(|s| s.sync_cursor(vault))??.as_deref());
+            let on_server: BTreeSet<AccountId> =
+                members.members.iter().map(|m| m.account_id).collect();
+            let emergency: Vec<(AccountId, ShareSeal)> = prepared.emergency_seals().to_vec();
+            let generation = prepared.generation();
+            let result = {
+                let request = RotateRequest {
+                    generation,
+                    wrapped: prepared.wrapped(),
+                    device: install,
+                    expected_head: head,
+                    roster: prepared.roster(),
+                    seals: prepared.seals().to_vec(),
+                    invite_seals: prepared.invite_seals().to_vec(),
+                    revoke: prepared
+                        .revoke()
+                        .iter()
+                        .filter(|a| on_server.contains(a))
+                        .copied()
+                        .collect(),
+                };
+                self.sharing_tx()?.rotate(vault, &request)
+            };
+            match result {
+                Ok(RotateResult::Accepted { .. }) => {}
+                // Another install of this account rotated first, the head or
+                // the member list moved: read the vault and try again. Never
+                // adopt (CRYPTO_SPEC §10.2).
+                Ok(RotateResult::GenerationTaken { .. }) => {
+                    drop(prepared);
+                    self.pull_vault(access, vault, report, stats)?;
+                    return Ok(None);
+                }
+                Ok(RotateResult::HeadMoved { .. } | RotateResult::MembersMismatch { .. }) => {
+                    continue;
+                }
+                Err(TransportError::Rejected(Rejection::RoleForbidden)) => return Ok(None),
+                Err(e) if is_lost(&e) => return Ok(None),
+                Err(e) => return Err(e.into()),
+            }
+            let outcome = match access.with(|s| s.commit_shared_rotation(prepared))? {
+                Ok(o) => o,
+                Err(Error::PreparedStale | Error::KeyGenerationRollback { .. }) => {
+                    self.pull_vault(access, vault, report, stats)?;
+                    return Ok(None);
+                }
+                Err(e) => return Err(e.into()),
+            };
+            report.rotated_vaults.push(vault);
+            if !report.changed_vaults.contains(&vault) {
+                report.changed_vaults.push(vault);
+            }
+            report.unreachable_attachments.extend(
+                outcome
+                    .unreachable_attachments
+                    .iter()
+                    .map(|(_, a)| (vault, *a)),
+            );
+            for (grantee, seal) in emergency {
+                // The next run's refresh puts a seal again that was refused.
+                tolerate(
+                    self.sharing_tx()?
+                        .put_grant_seals(&grantee, &[(vault, outcome.generation, seal)]),
+                )?;
+            }
+            // The re-sealed records go up before anything else, and the pull
+            // brings back the roster with the server's sequence number.
+            self.push_phase(access, report, stats, Some(vault))?;
+            // The metadata too: an invitee previews it with the key of the
+            // new generation as soon as the server has rotated.
+            self.push_metas(access, stats, report)?;
+            self.pull_vault(access, vault, report, stats)?;
+            return Ok(Some(outcome.generation));
+        }
+        report.warnings.push(SyncWarning::RotationBlocked { vault });
+        Ok(None)
+    }
+
+    // ---- emergency seals --------------------------------------------------
+
+    /// The vaults this account owns and that sync.
+    pub(super) fn owned_vaults(
+        access: &mut impl SessionAccess,
+    ) -> Result<BTreeMap<VaultId, KeyGeneration>, SyncError> {
+        Ok(access.with(|s| -> Result<_, Error> {
+            let own = s.account_id();
+            let mut out = BTreeMap::new();
+            for summary in s.vaults() {
+                let v = summary.vault_id;
+                if s.synced_vaults().contains(&v)
+                    && s.vault_own_role(v)? == Role::Owner
+                    && s.vault_owner(v)? == own
+                {
+                    out.insert(v, summary.key_generation);
+                }
+            }
+            Ok(out)
+        })??)
+    }
+
+    /// Counts the open emergency requests and keeps the seals of every grant
+    /// fresh: every vault in scope whose seal is older than the local key
+    /// (or missing under scope `all`) is sealed again (CRYPTO_SPEC §8.4).
+    fn refresh_emergency(
+        &mut self,
+        access: &mut impl SessionAccess,
+        report: &mut SyncReport,
+    ) -> Result<(), SyncError> {
+        let (granted, _) = self.sharing_tx()?.emergency()?;
+        report.emergency_requests = u32::try_from(
+            granted
+                .iter()
+                .filter(|g| g.state == GrantState::Waiting)
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        if granted.is_empty() {
+            return Ok(());
+        }
+        let owned = Self::owned_vaults(access)?;
+        for g in &granted {
+            if matches!(g.state, GrantState::Released) {
+                continue;
+            }
+            let stale: Vec<VaultId> = owned
+                .iter()
+                .filter_map(|(v, current)| {
+                    let sealed = g.vaults.iter().find(|(gv, _)| gv == v).map(|(_, n)| *n);
+                    let in_scope = g.scope == GrantScope::All || sealed.is_some();
+                    (in_scope && sealed.is_none_or(|n| n < *current)).then_some(*v)
+                })
+                .collect();
+            if stale.is_empty() {
+                continue;
+            }
+            let Some(ipk) = self.sharing_tx()?.directory(&g.grantee)? else {
+                continue;
+            };
+            let sealed = access.with(|s| s.seal_emergency(&g.grantee, &ipk, &stale))?;
+            let seals = match sealed {
+                Ok(seals) => seals,
+                // Not verified, or the key changed: the grantor decides in
+                // the app, no seal is made.
+                Err(
+                    Error::ContactUnverified
+                    | Error::ContactKeyChanged
+                    | Error::WrongVaultProtection
+                    | Error::NotOwner
+                    | Error::VaultUnavailable,
+                ) => continue,
+                Err(e) => return Err(e.into()),
+            };
+            tolerate(self.sharing_tx()?.put_grant_seals(&g.grantee, &seals))?;
+        }
+        Ok(())
+    }
+}
+
+/// Whether an emergency grant covers `vault`.
+fn covers(g: &GrantInfo, vault: VaultId) -> bool {
+    match g.scope {
+        GrantScope::All => true,
+        GrantScope::Selected => g.vaults.iter().any(|(v, _)| *v == vault),
+    }
+}

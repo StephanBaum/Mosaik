@@ -11,7 +11,10 @@ use sha2::{Digest, Sha256};
 
 use super::consts::PULL_LIMIT;
 use super::keys::Resolution;
+use super::served;
+use super::sharing::Collected;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
+use crate::sharing::MembersView;
 use crate::transport::{
     Cursor, PullPage, PulledKey, PulledMeta, PulledRecord, Transport, TransportError, TransportKind,
 };
@@ -25,6 +28,9 @@ pub(super) struct RunStats {
     /// once more before the checkpoint, so the device's view of them is
     /// clean (every accepted record is read back).
     pub(super) pushed_vaults: BTreeSet<VaultId>,
+    /// The member list of each shared vault as the server gave it at the
+    /// vault's last sharing step (hosted, M6b).
+    pub(super) members: BTreeMap<VaultId, MembersView>,
 }
 
 /// How a received object was handled.
@@ -324,6 +330,22 @@ fn apply_page(
                 s.note_served(vault, record.record_id, seq, hash)?;
             }
         }
+        // The metadata and the current roster as the server showed them
+        // (R70): the roster with the highest generation and sequence.
+        for meta in &page.metas {
+            if let Some(seq) = meta.seq {
+                served::note_meta(s, vault, seq, meta.ciphertext.as_bytes())?;
+            }
+        }
+        if let Some(r) = page
+            .rosters
+            .iter()
+            .filter(|r| r.seq.is_some())
+            .max_by_key(|r| (r.generation, r.seq))
+            && let Some(seq) = r.seq
+        {
+            served::note_roster(s, vault, seq, r.ciphertext.as_bytes())?;
+        }
     }
     let mut sorted: Vec<&PulledKey> = page.keys.iter().collect();
     sorted.sort_by(|a, b| {
@@ -397,7 +419,7 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         let remote = self.transport.list_vaults()?;
         let (local, hardware) = access.with(|s| {
-            let hardware: BTreeSet<VaultId> = s
+            let mut hardware: BTreeSet<VaultId> = s
                 .vaults()
                 .iter()
                 .map(|v| v.vault_id)
@@ -408,6 +430,13 @@ impl<T: Transport> SyncEngine<T> {
                     )
                 })
                 .collect();
+            // A vault the server refuses this device (removed, or left):
+            // sync stops for it and its local copy stays readable.
+            hardware.extend(
+                s.synced_vaults()
+                    .into_iter()
+                    .filter(|v| s.vault_access_lost(*v).unwrap_or(false)),
+            );
             (s.synced_vaults(), hardware)
         })?;
         let mut vaults: BTreeSet<VaultId> = remote.iter().map(|v| v.vault_id).collect();
@@ -445,6 +474,19 @@ impl<T: Transport> SyncEngine<T> {
         report: &mut SyncReport,
         stats: &mut RunStats,
     ) -> Result<(), SyncError> {
+        self.pull_vault_inner(access, vault, report, stats, true)
+    }
+
+    /// [`Self::pull_vault`]; `follow` lets the sharing step read the vault
+    /// once more after it claimed a key (the records that waited for it).
+    pub(super) fn pull_vault_inner(
+        &mut self,
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+        report: &mut SyncReport,
+        stats: &mut RunStats,
+        follow: bool,
+    ) -> Result<(), SyncError> {
         let stored = access
             .with(|s| s.sync_cursor(vault))??
             .map(Cursor)
@@ -456,6 +498,7 @@ impl<T: Transport> SyncEngine<T> {
         };
         let mut pull_cursor = stored;
         let kind = self.config.transport_kind;
+        let mut collected = Collected::default();
         loop {
             let page = match self.transport.pull(vault, &pull_cursor, PULL_LIMIT) {
                 Ok(page) => page,
@@ -465,8 +508,18 @@ impl<T: Transport> SyncEngine<T> {
                     access.with(|s| s.set_vault_flag(vault, VaultFlag::ServerRolledBack))??;
                     return Ok(());
                 }
+                // A member the server removed (or that left): the vault is
+                // no longer served. Sync stops for it and the local copy
+                // stays readable (CRYPTO_SPEC §8.3).
+                Err(TransportError::Forbidden | TransportError::NotFound)
+                    if access.with(|s| s.vault_shared(vault))?? =>
+                {
+                    access.with(|s| s.mark_access_lost(vault))??;
+                    return Ok(());
+                }
                 Err(e) => return Err(e.into()),
             };
+            collected.absorb(&page);
             let mut env = PageEnv {
                 report,
                 stats,
@@ -499,6 +552,6 @@ impl<T: Transport> SyncEngine<T> {
             // (`check_views`, CRYPTO_SPEC §10).
             access.with(|s| s.mark_rebuild_deferred(vault))??;
         }
-        Ok(())
+        self.after_pull_sharing(access, vault, &collected, report, stats, follow)
     }
 }

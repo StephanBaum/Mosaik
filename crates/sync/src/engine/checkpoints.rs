@@ -9,12 +9,14 @@ use mosaic_vault::storage::{PeerCheckpoint, PeerEntry, SyncHalt, VaultFlag};
 
 use super::consts::NO_COMMON_VIEW_GRACE_MS;
 use super::pull::RunStats;
+use super::served::{record_rows, served_objects};
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport, SyncWarning};
 use crate::clock::Clock;
 use crate::transport::{Cursor, Rejection, Transport, TransportError, TransportKind};
 use crate::wire::WireError;
 use crate::wire::checkpoint::{
     Checkpoint, CheckpointEntry, MAX_ENTRIES, NO_VIEW, view_digest, view_key_commit,
+    view_meta_commit,
 };
 use crate::wire::cursor::FolderCursor;
 
@@ -112,10 +114,10 @@ fn lagging_pairs(
 /// view is clean: no served record lies beyond `high_seq` (the cursor), so
 /// the view is exactly what the server showed up to that head. The digest
 /// commits to the vault key this device holds (the wrapping as the server
-/// serves it); a key this device generated and the server never accepted is
-/// not committed to at all (`None`: it is about to be replaced). An open
-/// finding does not stop the digest: the server should not learn that it was
-/// caught.
+/// serves it), to the vault metadata and to the roster as served (R70); a
+/// key this device generated and the server never accepted is not committed
+/// to at all (`None`: it is about to be replaced). An open finding does not
+/// stop the digest: the server should not learn that it was caught.
 fn own_view(s: &UnlockedSession, vault: VaultId, high_seq: u64) -> Result<Option<[u8; 32]>, Error> {
     let Some(generation) = s
         .vaults()
@@ -140,12 +142,17 @@ fn own_view(s: &UnlockedSession, vault: VaultId, high_seq: u64) -> Result<Option
     else {
         return Ok(None);
     };
-    let rows = s.served_view(vault)?;
-    if rows.iter().any(|r| r.seq > high_seq) {
+    let all = s.served_view(vault)?;
+    if all.iter().any(|r| r.seq > high_seq) {
         return Ok(None);
     }
+    let Some((meta, roster)) = served_objects(s, vault, &all)? else {
+        return Ok(None);
+    };
+    let rows = record_rows(&all);
     let commit = view_key_commit(&vault, generation, wrapped.as_bytes().as_slice());
-    Ok(view_digest(&vault, high_seq, &commit, &rows).ok())
+    let meta_commit = view_meta_commit(&vault, &meta, &roster);
+    Ok(view_digest(&vault, high_seq, &commit, &meta_commit, &rows).ok())
 }
 
 /// The hosted cursor of a vault as a sequence number.
@@ -511,7 +518,11 @@ impl<T: Transport> SyncEngine<T> {
                 count: u32::try_from(hardware).unwrap_or(u32::MAX),
             });
         }
-        report.warnings = warnings;
+        // The warnings the steps of the run raised (a rotation that waits)
+        // come first.
+        let mut all = core::mem::take(&mut report.warnings);
+        all.extend(warnings);
+        report.warnings = all;
         Ok(())
     }
 }

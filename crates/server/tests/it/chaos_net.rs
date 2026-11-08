@@ -219,12 +219,8 @@ impl<T: Transport> Transport for Faulty<T> {
         if self.withhold_all || self.withhold.contains(&vault) {
             return self.call(Op::Pull, |_| {
                 Ok(PullPage {
-                    keys: Vec::new(),
-                    metas: Vec::new(),
-                    records: Vec::new(),
                     next: cursor.clone(),
-                    more: false,
-                    units: Vec::new(),
+                    ..PullPage::default()
                 })
             });
         }

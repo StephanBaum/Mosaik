@@ -35,6 +35,21 @@ impl<T: Transport> SyncEngine<T> {
         let mut stats = RunStats::default();
         self.pull_vault(access, vault, &mut report, &mut stats)?;
         self.push_phase(access, &mut report, &mut stats, Some(vault))?;
+        if access.with(|s| s.vault_shared(vault))?? {
+            // A shared vault rotates through the owner's atomic request
+            // (CRYPTO_SPEC §8.3): it is the owner's device only, and every
+            // member gets a share.
+            return match self.rotate_shared(
+                access,
+                vault,
+                &std::collections::BTreeSet::new(),
+                &mut report,
+                &mut stats,
+            )? {
+                Some(generation) => Ok(RotationOutcome::Rotated(generation)),
+                None => Err(SyncError::Session(Error::NotOwner)),
+            };
+        }
         self.rotate_inner(access, vault)
     }
 
@@ -111,7 +126,7 @@ impl<T: Transport> SyncEngine<T> {
         )))
     }
 
-    fn current_generation(
+    pub(super) fn current_generation(
         access: &mut impl SessionAccess,
         vault: VaultId,
     ) -> Result<KeyGeneration, SyncError> {

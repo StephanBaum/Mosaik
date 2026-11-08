@@ -29,6 +29,8 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+pub mod sharing;
+
 /// The most a client reads of a JSON response.
 pub const MAX_RESPONSE_LEN: usize = 16 * 1024 * 1024;
 /// The most a server reads of a JSON request unless its config says less.
@@ -947,6 +949,25 @@ pub mod codes {
     pub const ATTACHMENT_EXISTS: &str = "attachment_exists";
     pub const CHECKPOINT_STALE: &str = "checkpoint_stale";
     pub const TOO_MANY_POLLS: &str = "too_many_polls";
+    // Sharing and emergency access (M6b; mirrors `mosaic-server`'s codes).
+    pub const ROLE_FORBIDDEN: &str = "role_forbidden";
+    pub const MEMBERS_MISMATCH: &str = "members_mismatch";
+    pub const IDENTITY_EXISTS: &str = "identity_exists";
+    pub const CONFLICT: &str = "conflict";
+    pub const INVITE_EXISTS: &str = "invite_exists";
+    pub const INVITE_STALE: &str = "invite_stale";
+    pub const INVITE_EXPIRED: &str = "invite_expired";
+    pub const MEMBERS_LIMIT: &str = "members_limit";
+    pub const INVITE_LIMIT: &str = "invite_limit";
+    pub const ALREADY_MEMBER: &str = "already_member";
+    pub const REINVITE_BLOCKED: &str = "reinvite_blocked";
+    pub const OWNER_CANNOT_LEAVE: &str = "owner_cannot_leave";
+    pub const NO_SHARE: &str = "no_share";
+    pub const EMERGENCY_WAITING: &str = "emergency_waiting";
+    pub const EMERGENCY_COOLDOWN: &str = "emergency_cooldown";
+    pub const EMERGENCY_RELEASED: &str = "emergency_released";
+    pub const EMERGENCY_NOT_REQUESTED: &str = "emergency_not_requested";
+    pub const EMERGENCY_OWNER_ONLY: &str = "emergency_owner_only";
 }
 
 #[cfg(test)]

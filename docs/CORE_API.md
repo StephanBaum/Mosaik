@@ -584,6 +584,111 @@ account file whose MAC verifies (the folder half of the password recovery).
 session's `clear_sync_halt`, `clear_vault_findings` and `sync_findings`; the desktop reads
 `sync_findings()` and acknowledges both behind one action.
 
+## M6b: sharing and emergency access (core, vault, sync; additive)
+
+Everything below is new in M6b and additive. Nothing of the M2 freeze changes
+meaning, with one exception that is not part of the frozen surface:
+`sync_auth::view_digest` is retired by `view_digest2` (below).
+
+### `mosaic-core` (T1)
+
+- `identity`: `IdentitySecret` (zeroizing, `generate`, `public_key`, `wrap`),
+  `IdentityPublicKey` (32 bytes), `Fingerprint` (`of`, `from_bytes`,
+  `as_bytes`, `safety_code`, `matches_code`; constant-time equality),
+  `WrappedKey::unwrap_identity`.
+- `share`: `ShareSeal` (82 bytes, strict `from_bytes`), `seal_vault_key`,
+  `open_vault_key`, `seal_emergency_vault_key`, `open_emergency_vault_key`
+  (HPKE mode Auth, no new primitive; CRYPTO_SPEC §8.2, §8.4).
+- `envelope`: `VaultRosterCiphertext` (`seal`, `open`, `key_generation`),
+  `ContactsCiphertext`, `AccountKey::contacts_key`.
+- `model`: `VaultRoster` (bound to its generation; `merge_and_repair`,
+  `validate`, `authorizes_rotation`: only the vault owner with the pinned
+  fingerprint may issue a rotation share), `RosterMember`, `RosterEdit`,
+  `Role`; `ContactBook`, `Contact`, `ContactState`.
+- `sync_auth`: `view_digest2`, `view_meta_commit`, `ServedObject`,
+  `ABSENT_OBJECT` (the digest of CRYPTO_SPEC §10 with the metadata and roster
+  commitment, R70). `view_digest` and the label `sync/view` stay for the
+  label registry and the old known-answer test only; nothing in the sync
+  crate uses them any more.
+- New labels in `encoding::label` (CRYPTO_SPEC §3).
+
+### `mosaic-vault` (T2; `session`, restricted to the sync client and the desktop)
+
+`UnlockedSession`: `ensure_identity_key`, `identity`, `mark_identity_published`,
+`adopt_remote_identity`, `own_fingerprint`; `record_sharing_finding`,
+`sharing_findings`, `clear_sharing_findings` (`SharingFinding`);
+contacts: `contact_state`, `pin_contact`, `verify_contact`,
+`accept_key_change`, `contacts`, `apply_remote_contacts`,
+`pending_contacts_upload`, `mark_contacts_uploaded`; roster and roles:
+`vault_shared`, `vault_own_role`, `vault_owner`, `vault_access_lost`,
+`roster_seq`, `vault_roster`, `apply_remote_roster` (takes the server's
+owner), `pending_roster_upload`, `mark_roster_uploaded`, `set_member_role`,
+`mark_access_lost`; invites: `prepare_invite` (`PreparedInvite`),
+`commit_invite_sent`, `open_invite` (`IncomingInvite`, `InvitePreview`),
+`accept_invite`, `commit_invite` (`AcceptedInvite`); revocation:
+`request_revocation`, `pending_revocations` (`RevocationReason`),
+`prepare_shared_rotation` (`RotationPlan`, `PreparedSharedRotation`; owner only),
+`commit_shared_rotation` (`SharedRotationOutcome`); the claim rule:
+`open_share_chain` (`PulledShareView`, `OpenedChain`), `claim_wrap`,
+`commit_claimed_key`; emergency access: `seal_emergency`,
+`open_emergency_release`. `InviteId` is a UUIDv7. Store schema v8
+(`identity_key`, `contacts_doc`, `vault_sharing`, `vault_roster`,
+`pending_revocations`, `sharing_findings`); `reset_sync_state` never clears the
+shared flag, and a backend change is refused while shared vaults are live
+(`storage::Error::HasSharedVaults`). `adopt_remote_vault_key` refuses a shared
+vault (`Error::AdoptionForbidden`) and `prepare_vault_rotation` too
+(`Error::VaultShared`).
+
+### `mosaic-sync` (T4)
+
+- `sharing` (new module): `SharingTransport`, one method per route of
+  `docs/SERVER.md` (identity, directory, contact book, invites, members,
+  roster, rotation, claim, leave, blocks and the emergency routes), with
+  `DirectoryEntry`, `IdentityPut`, `CasResult`, `ListedInvite`,
+  `OutgoingInvite` (`InviteState`), `MemberInfo` (`MemberOrigin`),
+  `PendingInvite`, `MembersView`, `AcceptResult`, `NewInvite`,
+  `RotateRequest`, `RotateResult`, `GrantInfo`, `ReceivedGrant`
+  (`GrantScope`, `GrantState`).
+- `transport`: `Transport::sharing(&mut self) -> Option<&mut dyn SharingTransport>`
+  (default `None`; the folder has none, CRYPTO_SPEC §8.6; wrappers pass the
+  inner answer on). `PullPage` gains `shares`, `rosters` and `role`
+  (`PulledShare`, `PulledRoster`) and derives `Default`. `Rejection` gains
+  `RoleForbidden`, `MembersMismatch`, `IdentityExists`, `Conflict`,
+  `InviteExists`, `InviteStale`, `InviteExpired`, `InviteLimit`,
+  `AlreadyMember`, `ReinviteBlocked`, `OwnerCannotLeave`, `NoShare`,
+  `EmergencyWaiting`, `EmergencyCooldown`, `EmergencyReleased`,
+  `EmergencyNotRequested` and `EmergencyOwnerOnly`. A removed member's pull,
+  push and meta calls are `Forbidden` or `NotFound` (there is no `not_member`
+  code on the wire).
+- `wire::json::sharing`: the JSON bodies of the sharing routes (mirrors the
+  server's `api/wire.rs`), `SharingChangesResponse` (the page of
+  `GET .../changes?sharing=1`), and the new error codes in `wire::json::codes`.
+  `HttpTransport` always asks for `?sharing=1` and `GET /v1/account?identity=1`.
+- `wire::checkpoint`: `view_digest(vault, high_seq, key_commit, meta_commit, rows)`
+  is the version-2 digest (`sync/view2`); `view_meta_commit`, `ServedObject` and
+  `ABSENT_OBJECT` are re-exported. The metadata and the roster the server
+  served or accepted are noted in the served view under two reserved record
+  IDs (`engine::served`), because a merge of equal content may re-seal the
+  metadata under a new nonce.
+- `engine`: `SyncReport` gains `invites_incoming`, `emergency_requests`,
+  `rotated_vaults`, `claimed_vaults` and `unreachable_attachments`;
+  `SyncWarning::RotationBlocked`; `SyncError::SharingUnavailable`. The run
+  order is: identity and contact book, pull (each vault pull ends with the
+  sharing step: rosters of the held generation, the claim rule for key shares),
+  invites, queued roster uploads, the owner's revocation rotations, emergency
+  seals, then push. `engine::keys::decide` never adopts and never ranks for a
+  shared vault. A shared vault is rotated only by its owner's device
+  (`SyncEngine::rotate_vault` calls the owner path and fails with
+  `Session(NotOwner)` elsewhere).
+- `SyncEngine` user operations (hosted only; `SharingUnavailable` on a folder):
+  `lookup_contact` (`ContactLookup`), `invite_member` (`InviteSentInfo`),
+  `list_invites`, `preview_invite`, `accept_invite`, `decline_invite`,
+  `cancel_invite`, `vault_members` (`VaultMembers`, `MemberView`,
+  `MemberState`), `set_member_role`, `remove_member`, `leave_vault`,
+  `emergency_overview`, `grant_emergency`, `revoke_emergency`,
+  `request_emergency`, `respond_emergency`, `claim_emergency` and
+  `sharing_findings`.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on
@@ -597,5 +702,5 @@ session's `clear_sync_halt`, `clear_vault_findings` and `sync_findings`; the des
 - M6: done (T1 to T5, all described above): the upload queue for wrapped
   vault keys and vault metadata, the checkpoint keys and the sync session API,
   the engine, the folder transport, the server, the HTTP transport and the
-  desktop integration. Sharing and emergency access (§8) move to M6b
-  (ADR-0042).
+  desktop integration. Sharing and emergency access (§8) are M6b (ADR-0042,
+  described above).

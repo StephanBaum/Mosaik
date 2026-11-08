@@ -27,6 +27,9 @@ use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
 use crate::transport::{Rejection, TransportError};
+use crate::wire::json::sharing::{
+    ConflictDetail, CooldownDetail, InviteStaleDetail, WaitingDetail,
+};
 use crate::wire::json::{
     self, AccountVersionDetail, ErrorBody, GenerationDetail, InfoResponse, MAX_RESPONSE_LEN,
     PROTOCOL_VERSION, codes,
@@ -256,6 +259,41 @@ fn map_failure(
         Some(codes::CHECKPOINT_STALE) => rejected(Rejection::CheckpointStale),
         Some(codes::TOO_MANY_POLLS) => rejected(Rejection::TooManyPolls),
         Some(codes::DEVICE_IS_CURRENT) => rejected(Rejection::DeviceIsCurrent),
+        Some(codes::ROLE_FORBIDDEN) => rejected(Rejection::RoleForbidden),
+        Some(codes::MEMBERS_MISMATCH) => rejected(Rejection::MembersMismatch),
+        Some(codes::IDENTITY_EXISTS) => rejected(Rejection::IdentityExists),
+        Some(codes::CONFLICT) => rejected(Rejection::Conflict {
+            current_seq: body
+                .and_then(ErrorBody::detail_as::<ConflictDetail>)
+                .map(|d| d.current_seq),
+        }),
+        Some(codes::INVITE_EXISTS) => rejected(Rejection::InviteExists),
+        Some(codes::INVITE_STALE) => body
+            .and_then(ErrorBody::detail_as::<InviteStaleDetail>)
+            .map_or(TransportError::Protocol, |d| {
+                rejected(Rejection::InviteStale {
+                    current_generation: d.current_generation,
+                })
+            }),
+        Some(codes::INVITE_EXPIRED) => rejected(Rejection::InviteExpired),
+        Some(codes::MEMBERS_LIMIT | codes::INVITE_LIMIT) => rejected(Rejection::InviteLimit),
+        Some(codes::ALREADY_MEMBER) => rejected(Rejection::AlreadyMember),
+        Some(codes::REINVITE_BLOCKED) => rejected(Rejection::ReinviteBlocked),
+        Some(codes::OWNER_CANNOT_LEAVE) => rejected(Rejection::OwnerCannotLeave),
+        Some(codes::NO_SHARE) => rejected(Rejection::NoShare),
+        Some(codes::EMERGENCY_WAITING) => rejected(Rejection::EmergencyWaiting {
+            release_at: body
+                .and_then(ErrorBody::detail_as::<WaitingDetail>)
+                .map(|d| d.release_at),
+        }),
+        Some(codes::EMERGENCY_COOLDOWN) => body
+            .and_then(ErrorBody::detail_as::<CooldownDetail>)
+            .map_or(TransportError::Protocol, |d| {
+                rejected(Rejection::EmergencyCooldown { until: d.until })
+            }),
+        Some(codes::EMERGENCY_RELEASED) => rejected(Rejection::EmergencyReleased),
+        Some(codes::EMERGENCY_NOT_REQUESTED) => rejected(Rejection::EmergencyNotRequested),
+        Some(codes::EMERGENCY_OWNER_ONLY) => rejected(Rejection::EmergencyOwnerOnly),
         _ => match status {
             401 => TransportError::Unauthorized,
             408 => TransportError::Timeout,
