@@ -20,7 +20,7 @@ import { shell } from "./catalog/en/shell.ts";
 import { otp } from "./catalog/en/otp.ts";
 import { files } from "./catalog/en/files.ts";
 import { ext } from "./catalog/en/ext.ts";
-import { web } from "./catalog/en/web.ts";
+import { web } from "./catalog/en/web/index.ts";
 
 export const en = {
   ...app,

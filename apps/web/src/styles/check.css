@@ -1,0 +1,178 @@
+/* The self-check (website v2 §2.1): questions as option cards, the result panel. */
+
+.check-section {
+  padding-top: 0;
+}
+
+.check-wrap {
+  max-width: calc(880px + 2 * var(--margin));
+}
+
+.check {
+  display: grid;
+  gap: var(--space-8);
+}
+
+.check__list {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.check__q fieldset {
+  margin: 0;
+  padding: clamp(20px, 2.6vw, 32px);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: 16px;
+  background: var(--ink-raised);
+}
+
+.check__q legend {
+  display: flex;
+  gap: var(--space-4);
+  float: left;
+  width: 100%;
+  margin-bottom: var(--space-5);
+  padding: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.check__n {
+  color: var(--paper-3);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.9;
+}
+
+.check__opts {
+  display: grid;
+  clear: both;
+  gap: var(--space-2);
+}
+
+@media (min-width: 700px) {
+  .check__opts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.check__opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: 10px;
+  color: var(--paper-2);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: border-color var(--motion-hover) var(--ease-standard), background-color var(--motion-hover) var(--ease-standard);
+}
+
+.check__opt:hover {
+  border-color: rgb(230 226 255 / 0.3);
+}
+
+.check__opt input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--tint);
+}
+
+.check__opt:has(input:checked) {
+  border-color: rgb(183 156 255 / 0.6);
+  background: rgb(122 92 255 / 0.12);
+  color: var(--paper);
+}
+
+.check__opt:has(input:focus-visible) {
+  outline: var(--border-width-focus) solid var(--paper);
+  outline-offset: 2px;
+}
+
+.check__submit {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+
+.check__hint,
+.check__noscript {
+  color: var(--paper-3);
+  font-size: 0.875rem;
+}
+
+.check.is-live .check__noscript {
+  display: none;
+}
+
+.check:not(.is-live) .check__go,
+.check:not(.is-live) .check__hint {
+  display: none;
+}
+
+.check__result {
+  display: grid;
+  gap: var(--space-6);
+  padding: clamp(28px, 4vw, 48px);
+  border: var(--border-width-hairline) solid rgb(183 156 255 / 0.35);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse 60% 80% at 100% 0%, rgb(122 92 255 / 0.16), transparent 70%),
+    var(--ink-raised);
+  scroll-margin-top: calc(var(--size-header) + var(--space-6));
+}
+
+.check__result[hidden],
+.check__level[hidden],
+.check__tips li[hidden] {
+  display: none;
+}
+
+.check__result:focus {
+  outline: none;
+}
+
+.check__level {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.check__next {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.check__tips {
+  display: grid;
+  gap: var(--space-3);
+  counter-reset: tip;
+}
+
+.check__tips li {
+  position: relative;
+  padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: 12px;
+  background: var(--ink-deep);
+  color: var(--paper-2);
+  counter-increment: tip;
+}
+
+.check__tips li::before {
+  content: counter(tip, decimal-leading-zero);
+  position: absolute;
+  left: var(--space-5);
+  color: var(--paper-3);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.75;
+}
+
+.check__again {
+  justify-self: start;
+}

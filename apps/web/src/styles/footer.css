@@ -1,4 +1,4 @@
-/* Footer: logo and about line, three link columns, the language switch. */
+/* Footer: logo and about line, four link columns, the legal line with the language switch. */
 
 .site-footer {
   border-top: var(--border-width-hairline) solid var(--rule);
@@ -23,7 +23,7 @@
 
 @media (min-width: 640px) {
   .site-footer__inner {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -33,19 +33,15 @@
   }
 
   .site-footer__about {
-    grid-column: 1 / span 5;
+    grid-column: 1 / span 4;
+  }
+
+  .site-footer__col {
+    grid-column: span 2;
   }
 
   .site-footer__col:nth-of-type(1) {
-    grid-column: 7 / span 2;
-  }
-
-  .site-footer__col:nth-of-type(2) {
-    grid-column: 9 / span 2;
-  }
-
-  .site-footer__col:nth-of-type(3) {
-    grid-column: 11 / span 2;
+    grid-column: 5 / span 2;
   }
 }
 
@@ -95,8 +91,25 @@
   margin-inline: auto;
   padding: var(--space-6) 0 var(--space-8);
   border-top: var(--border-width-hairline) solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
 }
 
+.site-footer__legal {
+  display: flex;
+  gap: var(--space-6);
+}
+
+.site-footer__legal a,
 .site-footer__base .lang a {
+  color: var(--paper-3);
   font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.site-footer__legal a:hover {
+  color: var(--paper);
 }

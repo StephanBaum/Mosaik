@@ -1,11 +1,16 @@
-/* Landing page stylesheet. Values come from packages/design-tokens; the few named local
-   properties in base.css are the page palette (drawn from the hero painting) and the grid.
-   The token custom properties come from `virtual:mosaic-tokens.css`, imported by main.ts. */
+/* Website stylesheet (website v2 §6). Spacing, radii, motion and the holo button come from
+   packages/design-tokens through `virtual:mosaic-tokens.css` (imported by main.ts); base.css
+   holds the palette and the holo hues. */
 @import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
 @import "./fonts.css";
 @import "./base.css";
+@import "./layout.css";
 @import "./buttons.css";
 @import "./header.css";
-@import "./hero.css";
-@import "./sections.css";
+@import "./patterns.css";
+@import "./crops.css";
+@import "./home.css";
+@import "./pages.css";
+@import "./check.css";
 @import "./footer.css";

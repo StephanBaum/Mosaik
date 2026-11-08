@@ -1,29 +1,24 @@
 /**
  * Renders the static pages with react-dom/server at build time (and in the dev server). No
  * React reaches the browser: the client gets plain HTML, one stylesheet and the vanilla-TS
- * islands (design concept §5).
+ * islands a page marks with `data-island` (design concept §5, website v2 §1.4).
  */
-import { colors } from "@mosaic/design-tokens";
 import type { Locale } from "@mosaic/i18n";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Download, Faq } from "./Closing.tsx";
 import { Footer } from "./Footer.tsx";
 import { Header } from "./Header.tsx";
-import { Hero } from "./Hero.tsx";
-import { homePath, translator, type Translate } from "./i18n.ts";
-import { NotFound } from "./NotFound.tsx";
-import { Pricing, Teams } from "./Plans.tsx";
-import { Features, OnlyMosaic, Switch } from "./Product.tsx";
-import { CSP_META } from "./security.ts";
-import { HowItWorks, Problem, WhereItLives } from "./Story.tsx";
+import { context, type Ctx, type WebKey } from "./i18n.ts";
+import { pathOf, route, type Route, type RouteId } from "./routes.ts";
+import { cspMetaFor } from "./security.ts";
+import { VIEWS, type View } from "./views/index.ts";
+import { NotFound } from "./views/small.tsx";
 
-export type PageName = "home" | "notFound";
+export type PageName = RouteId | "notFound";
 
 export interface PageAssets {
   styles: readonly string[];
   scripts: readonly string[];
-  /** Islands to fetch in parallel with the entry (the hero island starts right after first paint). */
-  modules: readonly string[];
   /** Fonts to preload (DM Sans latin only). */
   fonts: readonly string[];
   /** Adds the CSP meta tag (production pages; the dev server injects inline styles). */
@@ -36,29 +31,65 @@ export interface PageRequest {
   assets: PageAssets;
 }
 
-function Head({ t, request }: { t: Translate; request: PageRequest }) {
-  const { locale, page, assets } = request;
+/** The ink colour, for the browser chrome (base.css `--ink`). */
+const THEME_COLOR = "#0C0B14";
+
+/** JSON for a `<script type="application/ld+json">` data block, safe inside HTML. */
+function ldJson(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
+
+function breadcrumbs(ctx: Ctx, r: Route, origin: string): unknown {
+  if (r.parent === undefined) {
+    return null;
+  }
+  const items: [RouteId, WebKey][] = [
+    [r.parent, `web.${route(r.parent).meta}.meta.title` as WebKey],
+    [r.id, `web.${r.meta}.meta.title` as WebKey],
+  ];
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map(([id, key], index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: ctx.t(key),
+      item: origin + ctx.href(id),
+    })),
+  };
+}
+
+function Head({ ctx, r, view, assets }: { ctx: Ctx; r: Route | null; view: View | null; assets: PageAssets }) {
+  const { t, locale } = ctx;
   const origin = `https://${t("web.site.domain")}`;
+  const title = r === null ? t("web.notFound.meta.title") : t(`web.${r.meta}.meta.title` as WebKey);
+  const description = r === null ? t("web.notFound.meta.description") : t(`web.${r.meta}.meta.description` as WebKey);
+  const data = r === null ? [] : [breadcrumbs(ctx, r, origin), view?.jsonLd?.(ctx) ?? null].filter((d) => d !== null);
   return (
     <head>
       <meta charSet="utf-8" />
-      {assets.csp ? <meta httpEquiv="Content-Security-Policy" content={CSP_META} /> : null}
+      {assets.csp ? <meta httpEquiv="Content-Security-Policy" content={cspMetaFor(r)} /> : null}
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>{t("web.meta.title")}</title>
-      <meta name="description" content={t("web.meta.description")} />
+      <title>{title}</title>
+      <meta name="description" content={description} />
       <meta name="referrer" content="no-referrer" />
       <meta name="color-scheme" content="dark" />
-      <meta name="theme-color" content={colors.dark.bg} />
-      {page === "home" ? (
+      <meta name="theme-color" content={THEME_COLOR} />
+      {r !== null && r.index ? (
         <>
-          <link rel="canonical" href={origin + homePath(locale)} />
-          <link rel="alternate" hrefLang="en" href={`${origin}/`} />
-          <link rel="alternate" hrefLang="de" href={`${origin}/de/`} />
-          <link rel="alternate" hrefLang="x-default" href={`${origin}/`} />
+          <link rel="canonical" href={origin + pathOf(r.id, locale)} />
+          <link rel="alternate" hrefLang="en" href={origin + r.en} />
+          <link rel="alternate" hrefLang="de" href={origin + r.de} />
+          <link rel="alternate" hrefLang="x-default" href={origin + r.en} />
         </>
       ) : (
         <meta name="robots" content="noindex" />
       )}
+      <meta property="og:type" content="website" />
+      <meta property="og:title" content={title} />
+      <meta property="og:description" content={description} />
+      <meta property="og:image" content={`${origin}/img/app-vault-${locale}-1280.webp`} />
+      <meta property="og:locale" content={locale === "de" ? "de_DE" : "en_US"} />
       <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
       {assets.fonts.map((href) => (
         <link key={href} rel="preload" href={href} as="font" type="font/woff2" crossOrigin="anonymous" />
@@ -66,55 +97,45 @@ function Head({ t, request }: { t: Translate; request: PageRequest }) {
       {assets.styles.map((href) => (
         <link key={href} rel="stylesheet" href={href} />
       ))}
-      {assets.modules.map((href) => (
-        <link key={href} rel="modulepreload" href={href} />
-      ))}
       {assets.scripts.map((src) => (
         <script key={src} type="module" src={src} />
+      ))}
+      {data.map((d, i) => (
+        <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: ldJson(d) }} />
       ))}
     </head>
   );
 }
 
-/** The landing page, every section of marketing/landing-page.*.md in its order. */
-function Home({ t, locale }: { t: Translate; locale: Locale }) {
-  return (
-    <>
-      <Hero t={t} />
-      <Problem t={t} />
-      <WhereItLives t={t} />
-      <HowItWorks t={t} locale={locale} />
-      <Features t={t} locale={locale} />
-      <OnlyMosaic t={t} />
-      <Switch t={t} />
-      <Pricing t={t} />
-      <Teams t={t} />
-      <Faq t={t} />
-      <Download t={t} />
-    </>
-  );
-}
-
-function Page({ request }: { request: PageRequest }) {
-  const { locale, page } = request;
-  const t = translator(locale);
+function Document({ request }: { request: PageRequest }) {
+  const { locale, page, assets } = request;
+  const ctx = context(locale);
+  const r = page === "notFound" ? null : route(page);
+  const view = r === null ? null : VIEWS[r.id];
+  let main: ReactNode;
+  if (view === null) {
+    main = <NotFound />;
+  } else {
+    const Body = view.Page;
+    main = <Body ctx={ctx} />;
+  }
   return (
     <html lang={locale} dir="ltr" data-theme="dark">
-      <Head t={t} request={request} />
-      <body>
+      <Head ctx={ctx} r={r} view={view} assets={assets} />
+      <body data-tint={r?.tint ?? "teal"} data-page={page}>
         <a className="skip-link" href="#main">
-          {t("web.skipLink")}
+          {ctx.t("web.skipLink")}
         </a>
-        <Header t={t} locale={locale} />
+        <Header ctx={ctx} current={r?.id ?? null} />
         <main id="main" tabIndex={-1}>
-          {page === "home" ? <Home t={t} locale={locale} /> : <NotFound t={t} locale={locale} />}
+          {main}
         </main>
-        <Footer t={t} locale={locale} />
+        <Footer ctx={ctx} current={r?.id ?? null} />
       </body>
     </html>
   );
 }
 
 export function renderPage(request: PageRequest): string {
-  return `<!doctype html>${renderToStaticMarkup(<Page request={request} />)}`;
+  return `<!doctype html>${renderToStaticMarkup(<Document request={request} />)}`;
 }

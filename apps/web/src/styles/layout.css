@@ -1,0 +1,239 @@
+/* Layout: the content wrap, sections with their colour-field glow (P7), heads, action rows,
+   links, cards, checks, questions and breadcrumbs. */
+
+.wrap {
+  position: relative;
+  width: 100%;
+  max-width: calc(var(--content-max) + 2 * var(--margin));
+  margin-inline: auto;
+  padding-inline: var(--margin);
+}
+
+.section {
+  position: relative;
+  padding-block: var(--section-space) 0;
+  isolation: isolate;
+}
+
+main > :last-child {
+  padding-bottom: var(--section-space);
+}
+
+.head {
+  display: grid;
+  gap: var(--space-5);
+  margin-bottom: clamp(40px, 5vw, 72px);
+}
+
+.head .lead {
+  margin-top: var(--space-2);
+}
+
+.head--center {
+  justify-items: center;
+  text-align: center;
+}
+
+.head--center .h2,
+.head--center .lead {
+  margin-inline: auto;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.actions--center {
+  justify-content: center;
+}
+
+.arrow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--paper);
+  font-weight: 560;
+  text-decoration: none;
+}
+
+.arrow-link .icon {
+  color: var(--paper-3);
+}
+
+.arrow-link > span {
+  background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+  transition: background-size var(--motion-panel) var(--ease-enter);
+}
+
+.arrow-link:hover > span,
+a:hover .arrow-link > span {
+  background-size: 100% 1px;
+}
+
+.arrow-link .icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Cards: raised ink with a 1 px tint rim at 28 %. */
+.card {
+  position: relative;
+  padding: clamp(24px, 3vw, 40px);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: var(--r-card);
+  background: var(--ink-raised);
+}
+
+.checks {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.checks li {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--paper-2);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.checks__icon {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  color: #7bebc4;
+}
+
+/* Numbered step cards. */
+.step-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: clamp(24px, 2.6vw, 36px);
+  border: var(--border-width-hairline) solid var(--rule);
+  border-radius: var(--r-card);
+  background: var(--ink-raised);
+}
+
+.step-card__n {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--paper-3);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+}
+
+.step-card__title {
+  font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.step-card__text {
+  display: grid;
+  gap: var(--space-4);
+  color: var(--paper-2);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+/* Questions (native details). */
+.qa-list {
+  border-top: var(--border-width-hairline) solid var(--rule);
+}
+
+.qa {
+  border-bottom: var(--border-width-hairline) solid var(--rule);
+}
+
+.qa__q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding-block: var(--space-6);
+  cursor: pointer;
+  list-style: none;
+}
+
+.qa__q::-webkit-details-marker {
+  display: none;
+}
+
+.qa__title {
+  font-size: clamp(1.125rem, 1.05rem + 0.3vw, 1.3125rem);
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.qa__icon {
+  color: var(--paper-3);
+  transition: transform var(--motion-panel) var(--ease-enter);
+}
+
+.qa[open] .qa__icon {
+  transform: rotate(45deg);
+}
+
+.qa__a {
+  max-width: 44em;
+  padding-bottom: var(--space-7);
+  color: var(--paper-2);
+  line-height: 1.6;
+}
+
+/* Breadcrumbs (second-level pages). */
+.crumbs {
+  margin-bottom: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+}
+
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.crumbs li + li::before {
+  content: "/";
+  margin-inline-end: var(--space-2);
+  color: var(--paper-3);
+}
+
+.crumbs a {
+  color: var(--paper-2);
+  text-decoration: none;
+}
+
+.crumbs [aria-current] {
+  color: var(--paper-2);
+}
+
+/* Reveal on scroll (CSS only): opacity and a 16 px rise, once. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 40%;
+    }
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}

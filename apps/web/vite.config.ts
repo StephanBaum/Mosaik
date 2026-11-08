@@ -1,8 +1,7 @@
 /**
- * Vite config for the landing page (design concept §5). React renders the pages at build time
+ * Vite config for the website (design concept §5, website v2 §1.4). React renders the pages at build time
  * only (scripts/prerender.ts); the browser gets HTML, one stylesheet and vanilla-TS islands.
- * The dev server answers on 5180; `?tune=1` there mounts the mosaic tuning panel, which is not
- * part of production builds.
+ * The dev server answers on 5180.
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -10,9 +9,11 @@ import { defineConfig, type Plugin } from "vite";
 // By path, not by package name: Vite's config bundler leaves packages external, and Node
 // cannot import the workspace packages' TypeScript source.
 import { cssVariables } from "../../packages/design-tokens/src/css.ts";
-import { web } from "../../packages/i18n/src/catalog/en/web.ts";
+import { landing } from "../../packages/i18n/src/catalog/en/web/landing.ts";
 import { prerender } from "./scripts/prerender.ts";
+import { SOURCE_URLS } from "./src/pages/compareData.ts";
 import { headersFile, SECURITY_HEADERS } from "./src/pages/security.ts";
+import { site as flags } from "./src/pages/site.ts";
 
 const TOKENS_ID = "virtual:mosaic-tokens.css";
 const RESOLVED_TOKENS_ID = `\0${TOKENS_ID}`;
@@ -57,7 +58,14 @@ export default defineConfig({
   plugins: [
     tokensStylesheet(),
     fontLicenses(),
-    prerender({ ssrPlugins: [tokensStylesheet()], domain: web["web.site.domain"], headers: headersFile(), tokensCss: cssVariables }),
+    prerender({
+      ssrPlugins: [tokensStylesheet()],
+      domain: landing["web.site.domain"],
+      headers: headersFile(),
+      sources: SOURCE_URLS,
+      legalReady: flags.legalReady,
+      tokensCss: cssVariables,
+    }),
   ],
   server: { port: 5180, strictPort: true, host: "localhost" },
   preview: { port: 5181, strictPort: true, host: "localhost", headers: { ...SECURITY_HEADERS } },

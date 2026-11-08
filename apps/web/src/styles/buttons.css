@@ -44,13 +44,13 @@
 /* Quiet secondary: a hairline pill on the dark page, brighter rim on hover. */
 .button--line {
   border-color: var(--rule-strong);
-  background: rgb(11 12 16 / 0.28);
+  background: rgb(12 11 20 / 0.28);
   backdrop-filter: blur(6px);
 }
 
 .button--line:hover {
   border-color: var(--paper-2);
-  background: rgb(243 239 231 / 0.06);
+  background: rgb(245 242 234 / 0.06);
 }
 
 .button--line:active {
