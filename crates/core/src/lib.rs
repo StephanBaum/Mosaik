@@ -77,8 +77,9 @@ pub use identity::{Fingerprint, IdentityPublicKey, IdentitySecret};
 pub use ids::{AccountId, AttachmentId, DeviceId, InstallId, ItemId, KeyGeneration, VaultId};
 pub use kdf::{AccountSalt, Argon2Profile, DerivedKeys};
 pub use keys::{
-    NewAccount, PasswordChange, PasswordParams, change_master_password, create_account,
-    derive_password_keys, unlock_with_password,
+    CredentialChange, NewAccount, PasswordChange, PasswordParams, RekeyedAccount,
+    change_credentials, change_master_password, create_account, derive_password_keys,
+    rekey_account, unlock_with_password,
 };
 pub use model::{
     Causality, Contact, ContactBook, ContactState, Item, ItemEdit, ItemType, MergeOutcome, Stamp,

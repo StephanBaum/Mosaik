@@ -123,6 +123,8 @@ pub mod label {
     pub(crate) const SYNC_FOLDER_ACCOUNT: Label = Label::new("sync/folder-account");
     /// Prefix of a folder blob delete marker MAC (§10.1).
     pub(crate) const SYNC_FOLDER_BLOB_DELETE: Label = Label::new("sync/folder-blob-delete");
+    /// Prefix of a folder re-key marker MAC (§6.6, §10.1).
+    pub(crate) const SYNC_FOLDER_REKEY: Label = Label::new("sync/folder-rekey");
     /// HKDF info of the folder device-info key `K_dev` (§10.1).
     pub(crate) const SYNC_DEVICE_INFO_KEY: Label = Label::new("sync/device-info-key");
     /// AAD of sealed device info (§10.1).
@@ -180,7 +182,7 @@ pub mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 51] = [
+    pub(crate) const ALL: [Label; 52] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -213,6 +215,7 @@ pub mod label {
         SYNC_FOLDER_SEGMENT,
         SYNC_FOLDER_ACCOUNT,
         SYNC_FOLDER_BLOB_DELETE,
+        SYNC_FOLDER_REKEY,
         SYNC_DEVICE_INFO_KEY,
         SYNC_DEVICE_INFO,
         SYNC_VIEW,

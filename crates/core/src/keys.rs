@@ -311,7 +311,8 @@ pub(crate) fn change_master_password_with_cost(
 /// new `account_salt`, the same SK and the account's profile, and re-wrap AK.
 /// Vault keys and items are not touched. Passing a different `secret_key`
 /// is a Secret Key rotation (§6.5). Neither revokes holders of old secrets
-/// plus an old wrapping; see §6.6.
+/// plus an old wrapping; see §6.6. A thin wrapper over
+/// [`change_credentials`].
 ///
 /// `current` are the account's current public parameters (the ones the last
 /// successful unlock used). `profile` is normally `current.profile`; a
@@ -329,11 +330,153 @@ pub fn change_master_password(
     current: &PasswordParams,
     profile: Argon2Profile,
 ) -> Result<PasswordChange> {
-    change_master_password_with_cost(
+    change_credentials(
         account_key,
         new_password,
         secret_key,
         current,
+        &CredentialChange {
+            new_password: Some(new_password),
+            new_secret_key: None,
+            profile,
+        },
+    )
+}
+
+/// What a credential change replaces (§6.4, §6.5, §5.3). `None` keeps the
+/// current value.
+#[derive(Clone, Copy)]
+pub struct CredentialChange<'a> {
+    /// The new master password, or `None` to keep the current one.
+    pub new_password: Option<&'a MasterPassword>,
+    /// The new Secret Key, or `None` to keep the current one.
+    pub new_secret_key: Option<&'a SecretKey>,
+    /// The new profile. Not weaker than the current one, else
+    /// [`Error::ProfileDowngrade`].
+    pub profile: Argon2Profile,
+}
+
+pub(crate) fn change_credentials_with_cost(
+    account_key: &AccountKey,
+    current_password: &MasterPassword,
+    current_secret_key: &SecretKey,
+    current: &PasswordParams,
+    change: &CredentialChange<'_>,
+    cost: Argon2Cost,
+) -> Result<PasswordChange> {
+    change_master_password_with_cost(
+        account_key,
+        change.new_password.unwrap_or(current_password),
+        change.new_secret_key.unwrap_or(current_secret_key),
+        current,
+        change.profile,
+        cost,
+    )
+}
+
+/// One prepare path for a master password change (§6.4), a Secret Key
+/// rotation (§6.5) and a profile upgrade (§5.3), or any mix: a new
+/// `account_salt` every time, `KEK'` and `OPW'` from the new (or unchanged)
+/// password and Secret Key under the new (or unchanged) profile, and the same
+/// AK re-wrapped. The new salt means the retired-salt rule (§9.4) also
+/// catches a rollback of a Secret Key rotation or a profile upgrade. Vault
+/// keys and items are not touched. None of these revokes holders of old
+/// secrets plus an old wrapping; see §6.6.
+///
+/// `current` are the account's current public parameters (the ones the last
+/// successful unlock used).
+///
+/// # Errors
+/// [`crate::Error::ProfileDowngrade`] if `change.profile` is weaker than
+/// `current.profile` (§5.3), checked before any Argon2id work;
+/// [`crate::Error::EmptyPassword`], [`crate::Error::Allocation`],
+/// [`crate::Error::Randomness`].
+pub fn change_credentials(
+    account_key: &AccountKey,
+    current_password: &MasterPassword,
+    current_secret_key: &SecretKey,
+    current: &PasswordParams,
+    change: &CredentialChange<'_>,
+) -> Result<PasswordChange> {
+    change_credentials_with_cost(
+        account_key,
+        current_password,
+        current_secret_key,
+        current,
+        change,
+        change.profile.cost(),
+    )
+}
+
+/// What a full re-key produces on the device before the backend sees it
+/// (§6.6 steps 2 and 3): a new AK for the same account ID, wrapped under
+/// `KEK'` from the new password and the new Secret Key.
+#[derive(Debug)]
+pub struct RekeyedAccount {
+    /// The new account key. Independent of the old one.
+    pub account_key: AccountKey,
+    /// The new public parameters (same account ID, new salt, the new profile).
+    pub params: PasswordParams,
+    /// The new AK wrapped for password unlock.
+    pub wrapped_account_key: WrappedKey,
+    /// `OPW'` for OPAQUE re-registration.
+    pub opaque_password: OpaquePassword,
+}
+
+pub(crate) fn rekey_account_with_cost(
+    current: &PasswordParams,
+    new_password: &MasterPassword,
+    new_secret_key: &SecretKey,
+    profile: Argon2Profile,
+    cost: Argon2Cost,
+) -> Result<RekeyedAccount> {
+    if profile < current.profile {
+        return Err(Error::ProfileDowngrade);
+    }
+    let params = PasswordParams {
+        account_id: current.account_id,
+        salt: AccountSalt::generate()?,
+        profile,
+    };
+    let keys = derive_with_cost(
+        new_password,
+        new_secret_key,
+        &params.account_id,
+        &params.salt,
+        cost,
+    )?;
+    let account_key = AccountKey::generate()?;
+    let wrapped_account_key =
+        account_key.wrap(&keys.kek, &params.account_id, &UnlockMethod::Password)?;
+    Ok(RekeyedAccount {
+        account_key,
+        params,
+        wrapped_account_key,
+        opaque_password: keys.opaque_password,
+    })
+}
+
+/// Full re-key, device side (§6.6): a fresh random AK for the same account ID,
+/// wrapped under `KEK'` from `new_password` and `new_secret_key` with a new
+/// salt and `profile`. The caller checks that the password and the Secret Key
+/// really differ from the current ones (§6.6 step 1); this function does not
+/// hold the current ones.
+///
+/// # Errors
+/// [`crate::Error::ProfileDowngrade`] if `profile` is weaker than
+/// `current.profile` (checked before any Argon2id work);
+/// [`crate::Error::EmptyPassword`], [`crate::Error::Allocation`],
+/// [`crate::Error::Randomness`].
+pub fn rekey_account(
+    current: &PasswordParams,
+    new_password: &MasterPassword,
+    new_secret_key: &SecretKey,
+    profile: Argon2Profile,
+) -> Result<RekeyedAccount> {
+    rekey_account_with_cost(
+        current,
+        new_password,
+        new_secret_key,
         profile,
         profile.cost(),
     )
@@ -751,5 +894,215 @@ mod tests {
             assert_eq!(change.params.profile, same_or_stronger);
             assert_eq!(change.params.account_id, acct.params.account_id);
         }
+    }
+
+    fn change_with(
+        acct: &NewAccount,
+        new_pw: Option<&MasterPassword>,
+        new_sk: Option<&SecretKey>,
+        profile: Argon2Profile,
+    ) -> Result<PasswordChange> {
+        change_credentials_with_cost(
+            &acct.account_key,
+            &pw("current"),
+            &acct.secret_key,
+            &acct.params,
+            &CredentialChange {
+                new_password: new_pw,
+                new_secret_key: new_sk,
+                profile,
+            },
+            TEST_COST,
+        )
+    }
+
+    /// §6.5: a Secret Key rotation keeps AK and the password, draws a new
+    /// salt, and the old Secret Key no longer opens the new wrapping.
+    #[test]
+    fn change_credentials_secret_key_new_salt_same_ak() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Standard, TEST_COST).unwrap();
+        let new_sk = SecretKey::generate().unwrap();
+        let change = change_with(&acct, None, Some(&new_sk), acct.params.profile).unwrap();
+        assert_ne!(change.params.salt, acct.params.salt);
+        assert_eq!(change.params.account_id, acct.params.account_id);
+        assert_eq!(change.params.profile, acct.params.profile);
+        let ak = unlock_with_cost(
+            &pw("current"),
+            &new_sk,
+            &change.params,
+            &change.wrapped_account_key,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_eq!(ak, acct.account_key);
+        assert_eq!(
+            unlock_with_cost(
+                &pw("current"),
+                &acct.secret_key,
+                &change.params,
+                &change.wrapped_account_key,
+                TEST_COST,
+            ),
+            Err(Error::Decryption)
+        );
+        // Password and Secret Key together.
+        let other = pw("other");
+        let both = change_with(&acct, Some(&other), Some(&new_sk), acct.params.profile).unwrap();
+        let ak = unlock_with_cost(
+            &other,
+            &new_sk,
+            &both.params,
+            &both.wrapped_account_key,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_eq!(ak, acct.account_key);
+    }
+
+    /// §5.3: a profile upgrade keeps password and Secret Key, still draws a
+    /// new salt and a new OPW, and re-wraps the same AK.
+    #[test]
+    fn change_credentials_profile_only() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Standard, TEST_COST).unwrap();
+        let change = change_with(&acct, None, None, Argon2Profile::Strong).unwrap();
+        assert_eq!(change.params.profile, Argon2Profile::Strong);
+        assert_ne!(change.params.salt, acct.params.salt);
+        assert_ne!(change.opaque_password, acct.opaque_password);
+        assert_ne!(change.wrapped_account_key, acct.wrapped_account_key);
+        let ak = unlock_with_cost(
+            &pw("current"),
+            &acct.secret_key,
+            &change.params,
+            &change.wrapped_account_key,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_eq!(ak, acct.account_key);
+        // Changing nothing is still a fresh salt and wrapping.
+        let same = change_with(&acct, None, None, Argon2Profile::Standard).unwrap();
+        assert_ne!(same.params.salt, acct.params.salt);
+    }
+
+    #[test]
+    fn change_credentials_refuses_downgrade() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Strong, TEST_COST).unwrap();
+        for weaker in [Argon2Profile::Baseline, Argon2Profile::Standard] {
+            assert_eq!(
+                change_with(&acct, None, None, weaker).unwrap_err(),
+                Error::ProfileDowngrade
+            );
+        }
+        // Checked before derivation: an empty password still reports the downgrade.
+        assert_eq!(
+            change_with(&acct, Some(&pw("")), None, Argon2Profile::Baseline).unwrap_err(),
+            Error::ProfileDowngrade
+        );
+        assert_eq!(
+            change_credentials(
+                &acct.account_key,
+                &pw("current"),
+                &acct.secret_key,
+                &acct.params,
+                &CredentialChange {
+                    new_password: None,
+                    new_secret_key: None,
+                    profile: Argon2Profile::Baseline,
+                },
+            )
+            .unwrap_err(),
+            Error::ProfileDowngrade
+        );
+    }
+
+    /// §6.6: the new AK is independent of the old one, the account ID stays,
+    /// only the new password and Secret Key open the new wrapping.
+    #[test]
+    fn rekey_account_new_independent_ak() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Standard, TEST_COST).unwrap();
+        let new_sk = SecretKey::generate().unwrap();
+        let re = rekey_account_with_cost(
+            &acct.params,
+            &pw("fresh"),
+            &new_sk,
+            Argon2Profile::Strong,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_ne!(re.account_key, acct.account_key);
+        assert_eq!(re.params.account_id, acct.params.account_id);
+        assert_ne!(re.params.salt, acct.params.salt);
+        assert_eq!(re.params.profile, Argon2Profile::Strong);
+        assert_ne!(re.opaque_password, acct.opaque_password);
+        let ak = unlock_with_cost(
+            &pw("fresh"),
+            &new_sk,
+            &re.params,
+            &re.wrapped_account_key,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_eq!(ak, re.account_key);
+        for (p, sk) in [
+            ("current", &acct.secret_key),
+            ("current", &new_sk),
+            ("fresh", &acct.secret_key),
+        ] {
+            assert_eq!(
+                unlock_with_cost(&pw(p), sk, &re.params, &re.wrapped_account_key, TEST_COST),
+                Err(Error::Decryption)
+            );
+        }
+        // The old AK opens nothing the new one wraps.
+        let vault_id = VaultId::new_v7().unwrap();
+        let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+        let wrapped = vk
+            .wrap(&re.account_key, &re.params.account_id, &vault_id)
+            .unwrap();
+        assert_eq!(
+            wrapped.unwrap_vault_key(
+                &acct.account_key,
+                &acct.params.account_id,
+                &vault_id,
+                KeyGeneration::FIRST
+            ),
+            Err(Error::Decryption)
+        );
+        // Two re-keys give two independent AKs.
+        let again = rekey_account_with_cost(
+            &acct.params,
+            &pw("fresh"),
+            &new_sk,
+            Argon2Profile::Strong,
+            TEST_COST,
+        )
+        .unwrap();
+        assert_ne!(again.account_key, re.account_key);
+    }
+
+    #[test]
+    fn rekey_refuses_downgrade() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Strong, TEST_COST).unwrap();
+        let sk = SecretKey::generate().unwrap();
+        for weaker in [Argon2Profile::Baseline, Argon2Profile::Standard] {
+            // An empty password would fail derivation: the downgrade check comes first.
+            assert_eq!(
+                rekey_account_with_cost(&acct.params, &pw(""), &sk, weaker, TEST_COST).unwrap_err(),
+                Error::ProfileDowngrade
+            );
+            assert_eq!(
+                rekey_account(&acct.params, &pw("fresh"), &sk, weaker).unwrap_err(),
+                Error::ProfileDowngrade
+            );
+        }
+        assert_eq!(
+            rekey_account_with_cost(&acct.params, &pw(""), &sk, Argon2Profile::Strong, TEST_COST)
+                .unwrap_err(),
+            Error::EmptyPassword
+        );
     }
 }

@@ -294,6 +294,17 @@ mod tests {
         SecretKey(SecretBytes::from_slice(&bytes).unwrap())
     }
 
+    /// Equality is constant time (via `subtle`) and exact.
+    #[test]
+    fn ct_eq() {
+        let a = key([7; 16]);
+        assert!(bool::from(a.ct_eq(&key([7; 16]))));
+        let mut other = [7u8; 16];
+        other[15] ^= 1;
+        assert!(!bool::from(a.ct_eq(&key(other))));
+        assert!(a == key([7; 16]) && a != key(other));
+    }
+
     #[test]
     fn display_format() {
         let sk = key([0u8; 16]);

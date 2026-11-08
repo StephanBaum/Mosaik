@@ -136,6 +136,9 @@ pub enum FolderMacPurpose {
     Account,
     /// A blob delete marker (`.mdel`).
     BlobDelete,
+    /// A re-key marker (`.mrek`), MAC'd under the `K_fold` of the epoch it
+    /// leaves (§6.6, §10.1).
+    Rekey,
 }
 
 impl FolderMacPurpose {
@@ -144,6 +147,7 @@ impl FolderMacPurpose {
             Self::Segment => label::SYNC_FOLDER_SEGMENT,
             Self::Account => label::SYNC_FOLDER_ACCOUNT,
             Self::BlobDelete => label::SYNC_FOLDER_BLOB_DELETE,
+            Self::Rekey => label::SYNC_FOLDER_REKEY,
         }
     }
 }
@@ -177,6 +181,28 @@ pub fn verify_folder_mac(
 ) -> Result<bool> {
     let expected = folder_mac(key, purpose, msg)?;
     Ok(bool::from(expected.ct_eq(mac)))
+}
+
+/// The folder re-key MAC: `HMAC-SHA-256(K_fold, ctx("sync/folder-rekey") || 0x00 || msg)`
+/// (§10.1). The key is the **old** epoch's `K_fold`, so only devices of the
+/// old epoch can verify a marker.
+///
+/// # Errors
+/// [`Error::SizeLimit`] if the MAC cannot be keyed (it cannot for 32 bytes).
+pub fn folder_rekey_mac(key: &FolderMacKey, msg: &[u8]) -> Result<[u8; SYNC_MAC_LEN]> {
+    folder_mac(key, FolderMacPurpose::Rekey, msg)
+}
+
+/// Whether `mac` is the re-key MAC of the message, compared in constant time.
+///
+/// # Errors
+/// [`Error::SizeLimit`] if the MAC cannot be keyed (it cannot for 32 bytes).
+pub fn verify_folder_rekey_mac(
+    key: &FolderMacKey,
+    msg: &[u8],
+    mac: &[u8; SYNC_MAC_LEN],
+) -> Result<bool> {
+    verify_folder_mac(key, FolderMacPurpose::Rekey, msg, mac)
 }
 
 fn device_info_header(device: &InstallId) -> [u8; DEVICE_INFO_HEADER_LEN] {
@@ -458,6 +484,7 @@ mod tests {
             (FolderMacPurpose::Segment, "folder_mac_segment"),
             (FolderMacPurpose::Account, "folder_mac_account"),
             (FolderMacPurpose::BlobDelete, "folder_mac_blob_delete"),
+            (FolderMacPurpose::Rekey, "folder_mac_rekey"),
         ] {
             let mac = folder_mac(&key, purpose, msg).unwrap();
             assert_eq!(mac.as_slice(), k[name].as_slice(), "{name}");
@@ -468,11 +495,41 @@ mod tests {
         assert_ne!(seen[0], seen[1]);
         assert_ne!(seen[1], seen[2]);
         assert_ne!(seen[0], seen[2]);
+        assert!(seen[3] != seen[0] && seen[3] != seen[1] && seen[3] != seen[2]);
         let mac = folder_mac(&key, FolderMacPurpose::Segment, msg).unwrap();
         assert!(
             !verify_folder_mac(&key, FolderMacPurpose::Account, msg, &mac).unwrap(),
             "a MAC is bound to its purpose"
         );
+    }
+
+    /// §10.1: the marker MAC verifies only under the old epoch's `K_fold` and
+    /// is bound to its purpose.
+    #[test]
+    fn folder_rekey_mac_old_epoch_key_only() {
+        let k = kat();
+        let old = ak().folder_mac_key().unwrap();
+        let new = AccountKey(SecretBytes::from_array(&mut [0x33; 32]))
+            .folder_mac_key()
+            .unwrap();
+        let msg = b"folder message";
+        let mac = folder_rekey_mac(&old, msg).unwrap();
+        assert_eq!(mac.as_slice(), k["folder_mac_rekey"].as_slice());
+        assert!(verify_folder_rekey_mac(&old, msg, &mac).unwrap());
+        assert!(!verify_folder_rekey_mac(&new, msg, &mac).unwrap());
+        assert!(!verify_folder_rekey_mac(&old, b"folder messagf", &mac).unwrap());
+        let mut flipped = mac;
+        flipped[0] ^= 1;
+        assert!(!verify_folder_rekey_mac(&old, msg, &flipped).unwrap());
+        for purpose in [
+            FolderMacPurpose::Segment,
+            FolderMacPurpose::Account,
+            FolderMacPurpose::BlobDelete,
+        ] {
+            assert!(!verify_folder_mac(&old, purpose, msg, &mac).unwrap());
+            let other = folder_mac(&old, purpose, msg).unwrap();
+            assert!(!verify_folder_rekey_mac(&old, msg, &other).unwrap());
+        }
     }
 
     #[test]
