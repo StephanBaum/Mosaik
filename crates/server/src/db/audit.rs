@@ -23,6 +23,8 @@ pub enum Kind {
     EmergencyRequested = 12,
     EmergencyDecided = 13,
     EmergencyReleased = 14,
+    AccountRekeyed = 15,
+    RotationRequested = 16,
 }
 
 /// Appends an event.

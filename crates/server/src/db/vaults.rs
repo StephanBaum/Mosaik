@@ -409,6 +409,10 @@ pub fn put_key(
         "UPDATE vaults SET current_generation = ?1, head_seq = ?2 WHERE vault_id = ?3",
         params![generation, int(seq), vault.as_slice()],
     )?;
+    tx.execute(
+        "DELETE FROM vault_rotation_requests WHERE vault_id = ?1",
+        [vault.as_slice()],
+    )?;
     Ok(seq)
 }
 

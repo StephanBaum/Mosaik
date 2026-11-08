@@ -166,3 +166,49 @@ reply!(ReceivedEntry {
     release_at: Option<u64>, cooldown_until: Option<u64>,
 });
 reply!(EmergencyResponse { granted: Vec<GrantedEntry>, received: Vec<ReceivedEntry> });
+
+// ---- re-key (M7 spec §4.2) --------------------------------------------------
+
+body!(RekeyStartRequest { registration_request: B64<4096>, ak_epoch: u32 });
+body!(RekeyIdentity {
+    ipk: B64Fixed<32>,
+    wrapped_isk: B64Fixed<74>
+});
+body!(RekeyVault {
+    vault_id: Id,
+    generation: u32,
+    wrapped: B64Fixed<74>,
+    expected_head: u64,
+    roster: Option<B64<65_600>>,
+    #[serde(default)]
+    seals: Vec<RecipientSeal>,
+    #[serde(default)]
+    invite_seals: Vec<InviteSeal>,
+});
+body!(RekeyMemberRewrap {
+    vault_id: Id,
+    generation: u32,
+    wrapped: B64Fixed<74>
+});
+body!(RekeyEmergencySeal {
+    grantee: Id,
+    vault_id: Id,
+    generation: u32,
+    seal: SealBytes
+});
+body!(RekeyFinishRequest {
+    registration_upload: B64<4096>,
+    wrapped_ak: B64Fixed<74>,
+    salt: B64Fixed<16>,
+    profile: u8,
+    ak_epoch: u32,
+    identity: Option<RekeyIdentity>,
+    vaults: Vec<RekeyVault>,
+    member_rewraps: Vec<RekeyMemberRewrap>,
+    emergency_seals: Vec<RekeyEmergencySeal>,
+    device: Id,
+});
+reply!(RekeyFinishResponse {
+    account_version: u64,
+    ak_epoch: u32
+});

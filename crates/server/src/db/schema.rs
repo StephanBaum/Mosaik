@@ -240,6 +240,60 @@ CREATE TABLE blocks (
     PRIMARY KEY (account_id, blocked)
 ) STRICT;
 ",
+    // v3 (M7): account-key epoch, rotation requests, re-key audit kinds
+    "
+ALTER TABLE accounts ADD COLUMN ak_epoch INTEGER NOT NULL DEFAULT 1 CHECK (ak_epoch >= 1);
+
+-- The epoch never falls and rises by exactly one (only a re-key moves it).
+CREATE TRIGGER accounts_epoch_monotone BEFORE UPDATE OF ak_epoch ON accounts
+WHEN NEW.ak_epoch <> OLD.ak_epoch AND NEW.ak_epoch <> OLD.ak_epoch + 1
+BEGIN SELECT RAISE(ABORT, 'ak_epoch'); END;
+
+-- A member that re-keyed asks the vault owner to rotate (reason 1).
+CREATE TABLE vault_rotation_requests (
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    requester BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    reason INTEGER NOT NULL CHECK (reason = 1),
+    requested_at INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, requester)
+) STRICT;
+
+-- state 5: cancelled by the recipient's re-key.
+CREATE TABLE share_invites_v3 (
+    invite_id BLOB PRIMARY KEY CHECK (length(invite_id) = 16),
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    sender BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    recipient BLOB NOT NULL CHECK (length(recipient) = 16),
+    role INTEGER NOT NULL CHECK (role BETWEEN 2 AND 4),
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    seal BLOB NOT NULL CHECK (length(seal) = 82),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    delivered_at INTEGER,
+    state INTEGER NOT NULL CHECK (state BETWEEN 0 AND 5),
+    hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1))
+) STRICT;
+INSERT INTO share_invites_v3 (invite_id, vault_id, sender, recipient, role, generation, seal,
+    created_at, expires_at, delivered_at, state, hidden)
+    SELECT invite_id, vault_id, sender, recipient, role, generation, seal,
+    created_at, expires_at, delivered_at, state, hidden FROM share_invites;
+DROP TABLE share_invites;
+ALTER TABLE share_invites_v3 RENAME TO share_invites;
+CREATE UNIQUE INDEX share_invites_pending ON share_invites (vault_id, recipient) WHERE state = 0;
+CREATE INDEX share_invites_recipient ON share_invites (recipient, state);
+CREATE INDEX share_invites_sender ON share_invites (sender, state);
+
+CREATE TABLE audit_v3 (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    at INTEGER NOT NULL,
+    kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 16),
+    device_id BLOB CHECK (device_id IS NULL OR length(device_id) = 16)
+) STRICT;
+INSERT INTO audit_v3 (account_id, at, kind, device_id) SELECT account_id, at, kind, device_id FROM audit;
+DROP TABLE audit;
+ALTER TABLE audit_v3 RENAME TO audit;
+CREATE INDEX audit_account ON audit (account_id, at);
+",
 ];
 
 /// The schema version this build writes.

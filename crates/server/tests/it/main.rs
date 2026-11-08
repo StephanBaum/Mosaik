@@ -25,6 +25,7 @@ mod loopback;
 mod malicious_server;
 mod malicious_sharing;
 mod no_plaintext;
+mod rekey;
 mod scenarios;
 mod sharing;
 mod sharing_world;
