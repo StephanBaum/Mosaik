@@ -2215,8 +2215,18 @@ to M6b), ADR-0043 (folder format), ADR-0044 (server), ADR-0045 (engine rules), A
   with no recorded severity). All were fixed or recorded as residuals (M6-R1 to M6-R17 below). This
   is internal, AI-assisted review, not an independent audit. Milestone passes (a crypto-reviewer
   pass over the whole of M6 and a final sync-chaos long run over both transports):
-  {MILESTONE_REVIEWS}.
-- **Gate (2026-11-07).** {GATE}
+  - the crypto-reviewer milestone pass (opus) found 0 High, 3 Medium, 4 Low and 4 Info, all fixed in
+    b388cc6 except I3, which was correct already (the doc comment is fixed), and I4, recorded as R70 for M6b;
+  - the long sync-chaos runs in release over both transports (`--ignored`: 3 folder and hosted
+    long runs, 13 min; 2 hosted long runs, 22 min) all pass.
+- **Gate (2026-11-08).**
+  - Locally on the close branch:
+    - fmt is clean;
+    - clippy `-D warnings` is clean on core, vault, sync, server, totp and desktop;
+    - tests: core and vault pass, sync and server (http, test-util) pass, desktop 407 passed;
+    - TS: desktop 1067, packages 4650, typecheck clean.
+  - The full workspace, deny, audit (every lockfile) and fuzz smoke run in CI on Ubuntu, macOS and
+    Windows (PR #40).
 - **Documents.** `docs/CRYPTO_SPEC.md` §9, §10, §10.1, §10.2, §11, §12, §12.1 (amended spec first in
   every track), `docs/CORE_API.md` (sync APIs of the session, the hosted client and the engine's
   findings calls), `docs/DESKTOP_IPC.md` §3, `docs/SERVER.md`, `docs/THREAT_MODEL.md` (R54 to R69,
