@@ -225,6 +225,9 @@ pub struct MemberRow {
     pub role: ShareRole,
     /// The user compared safety codes with this member.
     pub verified: bool,
+    /// This row is the signed-in account itself.
+    #[serde(rename = "self")]
+    pub is_self: bool,
     /// How the row shows.
     pub state: MemberRowState,
     /// How the membership came about (`null` for an invite or a dropped member).
@@ -531,6 +534,27 @@ pub enum SharingFindingView {
         /// The member's address, if known.
         email: Option<String>,
     },
+    /// The server served a key for a member or invitee that does not match
+    /// the verified one (possibly a man in the middle): they were removed or
+    /// the invite cancelled.
+    MemberKeyMismatch {
+        /// The vault.
+        vault_id: WireVaultId,
+        /// The vault's name.
+        vault_name: Option<String>,
+        /// The member.
+        account_id: WireAccountId,
+        /// The member's address, if known.
+        email: Option<String>,
+    },
+    /// Nothing here confirms who owns this vault: it is held until the
+    /// account's other devices confirm it.
+    VaultHeld {
+        /// The vault.
+        vault_id: WireVaultId,
+        /// The vault's name.
+        vault_name: Option<String>,
+    },
     /// A member the server no longer lists.
     MemberDropped {
         /// The vault.
@@ -621,6 +645,7 @@ pub(crate) mod samples {
             email: email.map(Into::into),
             role,
             verified,
+            is_self: n == 1,
             state,
             origin,
         };
@@ -841,6 +866,16 @@ pub(crate) mod samples {
                 account_id: ids::account_n(3),
                 email: Some("kim@example.com".into()),
             },
+            SharingFindingView::MemberKeyMismatch {
+                vault_id: ids::vault(1),
+                vault_name: Some("Family".into()),
+                account_id: ids::account_n(4),
+                email: Some("lee@example.com".into()),
+            },
+            SharingFindingView::VaultHeld {
+                vault_id: ids::vault(2),
+                vault_name: None,
+            },
             SharingFindingView::MemberDropped {
                 vault_id: ids::vault(1),
                 vault_name: Some("Family".into()),
@@ -859,6 +894,8 @@ pub(crate) mod samples {
                 | SharingFindingView::RosterInvalid { .. }
                 | SharingFindingView::ShareUntrusted { .. }
                 | SharingFindingView::MemberUnverified { .. }
+                | SharingFindingView::MemberKeyMismatch { .. }
+                | SharingFindingView::VaultHeld { .. }
                 | SharingFindingView::MemberDropped { .. }
                 | SharingFindingView::AccessLost { .. } => {}
             }

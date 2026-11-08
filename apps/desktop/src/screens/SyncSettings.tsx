@@ -10,6 +10,7 @@ import { useI18n } from "../i18n/I18nProvider.tsx";
 import { ConnectedPanel } from "./sync/ConnectedPanel.tsx";
 import { FocusSectionProvider, useSyncOverview } from "./sync/hooks.ts";
 import { SetupCards } from "./sync/SetupCards.tsx";
+import { SYNC_HEADING_ID } from "./sharing/hooks.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 
 export function SyncSettings() {
@@ -32,6 +33,7 @@ export function SyncSettings() {
       title={t("settings.sync.title")}
       body={t("settings.sync.body")}
       headingRef={heading}
+      headingId={SYNC_HEADING_ID}
     >
       <FocusSectionProvider value={focusSection}>
         {overview === null ? null : overview.config === null ? (

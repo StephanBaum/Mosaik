@@ -11,6 +11,7 @@ export const sharing = {
     "Mit einem Sync-Ordner kannst du nicht teilen. Ein Ordner kann nicht festlegen, wer einen Tresor lesen darf, deshalb bleiben Tresore in einem Ordner nur für dich. Zum Teilen trennst du den Ordner und verbindest in den Sync-Einstellungen einen Mosaic-Server.",
   "sharing.notHosted":
     "Zum Teilen brauchst du einen Mosaic-Server. Verbinde zuerst in den Sync-Einstellungen einen.",
+  "sharing.syncSettings": "Sync-Einstellungen öffnen",
 
   "sharing.ownCode.title": "Dein Sicherheitscode",
   "sharing.ownCode.body":
@@ -24,24 +25,31 @@ export const sharing = {
   "sharing.contacts.notVerified": "Nicht geprüft",
   "sharing.contacts.changed": "Muss neu geprüft werden",
   "sharing.contacts.verify": "Code vergleichen…",
+  "sharing.contacts.verifyOf": "Code vergleichen mit {email}",
   "sharing.contacts.review": "Änderung ansehen…",
+  "sharing.contacts.reviewOf": "Änderung ansehen für {email}",
 
   "sharing.share.open": "Teilen…",
   "sharing.share.title": "{vault} teilen",
   "sharing.share.dialog": "Teilen: {vault}",
+  "sharing.share.roleStep": "Rolle für {email} wählen",
   "sharing.lookup.email": "E-Mail-Adresse der Person",
   "sharing.lookup.find": "Nachschlagen",
   "sharing.lookup.searching": "Schlage nach…",
   "sharing.lookup.notFoundHint":
-    "Mosaic kann dir nicht sagen, ob es zu einer Adresse ein Konto gibt. Stimmt der Code unten nicht mit dem überein, was die Person sieht, teile nichts.",
+    "Mosaic kann dir nicht sagen, ob es zu einer Adresse ein Konto gibt. Stimmt der Code oben nicht mit dem überein, was die Person sieht, teile nichts.",
 
   "sharing.code.title": "Sicherheitscodes vergleichen",
   "sharing.code.compare":
     "Vergleiche diesen Code mit {email}, persönlich oder am Telefon. Nutze dafür weder E-Mail noch Chat.",
+  "sharing.code.compareNew":
+    "Vergleiche den neuen Code mit {email}, persönlich oder am Telefon. Nutze dafür weder E-Mail noch Chat.",
   "sharing.code.shown": "Code, den Mosaic für {email} zeigt",
   "sharing.code.typed": "Code, den die Person dir vorliest (optional)",
   "sharing.code.typedMatch": "Das ist der Code oben.",
-  "sharing.code.matches": "Er stimmt überein",
+  "sharing.code.attest":
+    "Ich habe den Code mit {email} am Telefon oder persönlich verglichen, und er ist gleich.",
+  "sharing.code.matches": "Codes stimmen überein",
   "sharing.code.mismatch":
     "Die Codes sind verschieden. Teile nichts. Jemand könnte sich zwischen dich und {email} geschaltet haben.",
   "sharing.code.mismatchHelp":
@@ -54,6 +62,7 @@ export const sharing = {
   "sharing.code.status.conflicting": "Geräte sind uneins",
   "sharing.code.conflicting":
     "Deine Geräte haben für {email} verschiedene Schlüssel gesehen. Vergleiche den Code noch einmal mit der Person, bevor du teilst.",
+  "sharing.verify.title": "{email} bestätigen",
 
   "sharing.role.label": "Rolle",
   "sharing.role.owner": "Eigentümer",
@@ -69,9 +78,11 @@ export const sharing = {
   "sharing.invite.send": "Einladung senden",
   "sharing.invite.sent":
     "Einladung an {email} gesendet. Die Person muss Mosaic öffnen und sie annehmen.",
+  "sharing.invite.sentTitle": "Einladung gesendet",
   "sharing.invite.pending": "Wartet auf {email}",
   "sharing.invite.expires": "Läuft {when} ab",
   "sharing.invite.cancel": "Einladung zurückziehen",
+  "sharing.invite.cancelOf": "Einladung zurückziehen: {email}",
   "sharing.invite.cancelled": "Einladung zurückgezogen.",
 
   "sharing.inbox.title": "Einladungen",
@@ -83,6 +94,7 @@ export const sharing = {
     "Gerade gibt es keine Einladungen. Lädt dich jemand zu einem geteilten Tresor ein, erscheint die Einladung hier.",
   "sharing.inbox.from": "Von {email}",
   "sharing.inbox.review": "Ansehen",
+  "sharing.inbox.reviewOf": "Einladung von {email} ansehen",
   "sharing.inbox.refresh": "Aktualisieren",
   "sharing.inbox.preview.title": "{vault} beitreten?",
   "sharing.inbox.preview.body": "{email} lädt dich als {role} ein.",
@@ -94,8 +106,12 @@ export const sharing = {
     "{sender} ist nicht der Eigentümer. Vergleiche vor dem Beitritt auch den Sicherheitscode des Eigentümers: Er ist der, der den Schlüssel des Tresors ändern darf.",
   "sharing.inbox.ownerCode": "Code des Eigentümers, {email}",
   "sharing.inbox.accept": "Tresor beitreten",
+  "sharing.inbox.readyTitle": "Alles geprüft. Diesem Tresor beitreten?",
   "sharing.inbox.decline": "Ablehnen",
   "sharing.inbox.block": "Ablehnen und Absender blockieren",
+  "sharing.inbox.block.title": "Ablehnen und Absender blockieren?",
+  "sharing.inbox.block.body":
+    "Mosaic lehnt die Einladung ab und ignoriert ab jetzt jede Einladung von {email}. Das lässt sich in Mosaic nicht rückgängig machen.",
   "sharing.inbox.unreadable":
     "Diese Einladung lässt sich nicht öffnen. Sie ist vielleicht beschädigt oder nicht für dich bestimmt. Bitte {email}, sie noch einmal zu senden.",
   "sharing.inbox.joined":
@@ -118,12 +134,15 @@ export const sharing = {
   "sharing.members.removing": "Wird entfernt",
   "sharing.members.verified": "Geprüft",
   "sharing.members.verify": "Prüfen…",
+  "sharing.members.verifyOf": "Prüfen: {email}",
   "sharing.members.remove": "Entfernen",
+  "sharing.members.removeOf": "Entfernen: {email}",
   "sharing.members.remove.title": "{email} entfernen?",
   "sharing.members.remove.confirm":
     "{email} behält, was schon heruntergeladen wurde. Mosaic wechselt jetzt den Tresorschlüssel, damit nichts Neues mehr lesbar ist.",
   "sharing.members.remove.confirmManager":
     "{email} behält, was schon heruntergeladen wurde. Der Server schickt ab sofort keine Updates mehr. Das Gerät des Tresor-Eigentümers wechselt den Tresorschlüssel beim nächsten Sync, und bis dahin hält nur der Server {email} draußen.",
+  "sharing.members.cancel": "Abbrechen",
   "sharing.members.removed": "Entfernt.",
   "sharing.members.leave": "Tresor verlassen",
   "sharing.members.leave.title": "Diesen Tresor verlassen?",
@@ -131,6 +150,8 @@ export const sharing = {
     "Die Kopie auf diesem Gerät bleibt lesbar, wird aber nicht mehr aktualisiert. Um wieder beizutreten, brauchst du eine neue Einladung.",
   "sharing.members.left": "Du hast den Tresor verlassen.",
   "sharing.members.roleOf": "Rolle von {email}",
+  "sharing.members.changeRole": "Rolle ändern",
+  "sharing.members.changeRoleOf": "Rolle ändern: {email}",
   "sharing.members.invite": "Jemanden einladen…",
   "sharing.members.empty": "Bisher kannst nur du diesen Tresor öffnen.",
   "sharing.members.unknownEmail": "Unbekannte Adresse",
@@ -148,12 +169,18 @@ export const sharing = {
     "Der Server zeigt jetzt einen anderen Schlüssel für {email}. Das passiert, wenn die Person Mosaic neu einrichtet, und genau so würde auch ein Angriff auf den Server aussehen. Mit dem neuen Schlüssel wird nichts geteilt, bevor du die Codes persönlich oder am Telefon verglichen hast.",
   "sharing.keyChanged.old": "Code, den du vorher verglichen hast",
   "sharing.keyChanged.new": "Neuer Code",
-  "sharing.keyChanged.accept": "Vergleichen und übernehmen",
+  "sharing.keyChanged.accept": "Neuer Code stimmt überein",
 
   "sharing.finding.region": "Warnungen zum Teilen",
+  "sharing.finding.summary":
+    "{count, plural, one {# Freigabe-Warnung} other {# Freigabe-Warnungen}}",
+  "sharing.finding.review": "Ansehen",
+  "sharing.finding.collapse": "Zuklappen",
+  "sharing.finding.dismiss": "Ausblenden",
   "sharing.finding.unknownEmail": "eine unbekannte Person",
   "sharing.finding.verify": "Prüfen…",
   "sharing.finding.remove": "Entfernen",
+  "sharing.finding.removeOf": "Entfernen: {email} aus {vault}",
   "sharing.finding.identityMismatch":
     "Der Server zeigt für dein Konto einen anderen Schlüssel zum Teilen als den, den dieses Gerät erzeugt hat, deshalb ist das Teilen pausiert. Teile nichts und prüfe deinen Server und deine anderen Geräte. Wähle dann „Ich habe es geprüft…“.",
   "sharing.finding.rosterInvalid":
@@ -164,6 +191,10 @@ export const sharing = {
     "Du hast {email} in {vault} nicht geprüft. Mosaic schickt der Person keine neuen Schlüssel, und beim nächsten Schlüsselwechsel wird sie ausgesperrt. Vergleiche ihren Sicherheitscode oder entferne sie.",
   "sharing.finding.memberDropped":
     "{email} steht auf der Mitgliederliste von {vault}, aber der Server führt die Person nicht mehr. Vielleicht hat sie den Tresor verlassen, oder der Server hat sie entfernt. Prüfe, ob das so gewollt ist, und entferne sie, wenn nicht.",
+  "sharing.finding.memberKeyMismatch":
+    "Mosaic hat für {email} einen Schlüssel bekommen, der nicht zu dem passt, den du geprüft hast, deshalb wurde die Person aus {vault} entfernt. Vergleiche die Sicherheitscodes noch einmal mit ihr, bevor du sie wieder einlädst.",
+  "sharing.finding.vaultHeld":
+    "{vault} wartet, bis deine anderen Geräte bestätigen, wem der Tresor gehört. Öffne Mosaic auf einem Gerät, das diesen Tresor schon nutzt.",
   "sharing.finding.accessLost":
     "Du hast keinen Zugriff mehr auf {vault}. Die Kopie auf diesem Gerät bleibt lesbar, wird aber nicht mehr aktualisiert. Bitte den Eigentümer, dich erneut einzuladen.",
   "sharing.finding.rotationBlocked":
@@ -186,12 +217,14 @@ export const sharing = {
   "emergency.granted.released": "Der Zugriff wurde freigegeben. Die Person kann die Tresore lesen.",
   "emergency.granted.idle": "Keine Anfrage",
   "emergency.granted.remove": "Zugriff entziehen",
+  "emergency.granted.removeOf": "Zugriff entziehen: {email}",
   "emergency.granted.remove.title": "Notfallzugriff für {email} entziehen?",
   "emergency.granted.remove.body":
     "Die Person kann dann nichts mehr anfragen. Wurde ihr Zugriff schon freigegeben, wechselt Mosaic die Schlüssel der Tresore, die sie geöffnet hat; was sie schon heruntergeladen hat, behält sie.",
   "emergency.granted.removed": "Notfallzugriff entzogen.",
   "emergency.grant.title": "Notfallzugriff erlauben",
   "emergency.grant.lookup": "Wer soll anfragen können?",
+  "emergency.grant.optionsTitle": "Was {email} öffnen kann",
   "emergency.grant.scope": "Was die Person öffnen kann",
   "emergency.grant.scope.all": "Alle meine Tresore, auch neue",
   "emergency.grant.scope.selected": "Nur die Tresore, die ich auswähle",
@@ -201,7 +234,7 @@ export const sharing = {
   "emergency.grant.waitHint":
     "Öffne Mosaic nach einer Anfrage innerhalb dieser Zeit mindestens einmal, damit du sie siehst und ablehnen kannst. Ist die Zeit um, bekommt die Person Lesezugriff, ohne dass du noch einmal gefragt wirst.",
   "emergency.grant.serverTrust":
-    "Die Wartezeit wird vom Server eingehalten. Wer den Server kontrolliert, könnte sie überspringen.",
+    "Der Server hält die Wartezeit ein. Arbeiten die benannte Person und wer den Server betreibt zusammen, könnten sie sie überspringen. Der Server allein kann deine Tresore nicht lesen.",
   "emergency.grant.vaultKeysOnly":
     "Das gilt nur für die Schlüssel deiner Tresore. Es gibt keinen Zugriff auf dein Konto, dein Master-Passwort oder deinen Secret Key.",
   "emergency.grant.submit": "Notfallzugriff erlauben",
@@ -210,18 +243,25 @@ export const sharing = {
   "emergency.received.title": "Personen, die dich benannt haben",
   "emergency.received.empty": "Niemand hat dich für Notfallzugriff benannt.",
   "emergency.received.request": "Zugriff anfragen",
+  "emergency.received.requestOf": "Zugriff anfragen bei {email}",
+  "emergency.received.request.title": "Bei {email} um Zugriff bitten?",
+  "emergency.received.request.body":
+    "{email} sieht deine Anfrage, sobald die Person Mosaic das nächste Mal öffnet. Nach {days, plural, one {# Tag} other {# Tagen}} kannst du die Tresore lesend öffnen, falls sie nicht ablehnt.",
   "emergency.received.requested":
-    "Anfrage gesendet. {email} sieht sie, sobald Mosaic das nächste Mal geöffnet wird.",
+    "Anfrage gesendet. {email} sieht sie, sobald die Person Mosaic das nächste Mal öffnet.",
   "emergency.received.requestHint":
     "{email} sieht deine Anfrage in Mosaic. Nach {days, plural, one {# Tag} other {# Tagen}} kannst du die Tresore lesen, falls die Person nicht ablehnt.",
   "emergency.received.countdown": "Du kannst ihre Tresore {when} öffnen.",
+  "emergency.received.waitingLive": "Deine Anfrage wartet.",
   "emergency.received.claim": "Ihre Tresore öffnen",
+  "emergency.received.claimOf": "Ihre Tresore öffnen: {email}",
   "emergency.received.claimed":
     "{count, plural, one {# Tresor wurde} other {# Tresore wurden}} hinzugefügt, nur lesbar.",
   "emergency.received.cooldown": "{email} hat abgelehnt. Du kannst {when} erneut anfragen.",
   "emergency.received.verifyFirst":
     "Vergleiche den Sicherheitscode von {email}, bevor du ihre Tresore öffnest. Mosaic nutzt nur einen Schlüssel, den du geprüft hast.",
   "emergency.received.verify": "Code vergleichen…",
+  "emergency.received.verifyOf": "Code vergleichen mit {email}",
   "emergency.received.approved": "{email} hat deine Anfrage genehmigt.",
   "emergency.received.waitDays": "Wartet {days, plural, one {# Tag} other {# Tage}}",
   "emergency.banner.region": "Anfrage für Notfallzugriff",

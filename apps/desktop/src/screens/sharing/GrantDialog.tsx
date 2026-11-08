@@ -26,6 +26,7 @@ import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { isolate } from "../sync/hooks.ts";
 import { vaultLabel } from "../vault/Sidebar.tsx";
 import { ContactVerifier } from "./ContactVerifier.tsx";
+import { StepHeading } from "./StepHeading.tsx";
 
 type Stage =
   | { kind: "email" }
@@ -205,6 +206,7 @@ function Options({
 
   return (
     <form className="stack" noValidate onSubmit={(event) => void submit(event)}>
+      <StepHeading>{t("emergency.grant.optionsTitle", { email: isolate(email) })}</StepHeading>
       <p className="body" role="status">
         {t("sharing.code.verified", { email: isolate(email) })}
       </p>
@@ -268,6 +270,7 @@ export function GrantDialog({
             autoComplete="off"
             spellCheck={false}
             data-autofocus=""
+            autoFocus
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);

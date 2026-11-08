@@ -17,6 +17,7 @@ import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { isolate } from "../sync/hooks.ts";
 import { vaultLabel } from "../vault/Sidebar.tsx";
 import { ContactVerifier } from "./ContactVerifier.tsx";
+import { StepHeading } from "./StepHeading.tsx";
 
 type Stage =
   | { kind: "email" }
@@ -46,6 +47,7 @@ function EmailStep({ onNext, onCancel }: { onNext: (email: string) => void; onCa
         autoComplete="off"
         spellCheck={false}
         data-autofocus=""
+        autoFocus
         value={email}
         onChange={(event) => {
           setEmail(event.target.value);
@@ -95,6 +97,7 @@ function RoleStep({
 
   return (
     <form className="stack" noValidate onSubmit={(event) => void send(event)}>
+      <StepHeading>{t("sharing.share.roleStep", { email: isolate(email) })}</StepHeading>
       <p className="body" role="status">
         {t("sharing.code.verified", { email: isolate(email) })}
       </p>
@@ -110,7 +113,7 @@ function RoleStep({
                 setRole(each);
               }}
             />
-            <span>
+            <span className="check__text">
               {t(`sharing.role.${each}`)}
               <span className="field__hint">{t(`sharing.role.desc.${each}`)}</span>
             </span>
@@ -183,6 +186,7 @@ export function ShareVaultDialog({
         )}
         {stage.kind === "sent" && (
           <>
+            <StepHeading>{t("sharing.invite.sentTitle")}</StepHeading>
             <p className="body" role="status">
               {t("sharing.invite.sent", { email: isolate(stage.email) })}
             </p>

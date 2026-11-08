@@ -39,16 +39,13 @@
   white-space: nowrap;
 }
 
-/* Notices at the top of the main area stay in view while the page scrolls. */
+/* Notices at the top of the main area. They scroll with the page: a pinned block covered the
+   focused control in a small window. */
 
 .vault__notices {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  background: var(--color-bg);
 }
 
 .vault__notices:not(:empty) {
@@ -59,6 +56,41 @@
 .emergency-banner:empty,
 .sharing-findings:empty {
   display: none;
+}
+
+.sharing-findings__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.sharing-findings__bar .body {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+/* Long addresses and the text around them break instead of pushing the layout wide. */
+
+.safety__text {
+  overflow-wrap: anywhere;
+}
+
+.check--top {
+  align-items: flex-start;
+}
+
+.check__text .field__hint {
+  display: block;
+}
+
+.safety__code + .field__hint {
+  margin-top: var(--space-3);
+}
+
+.emergency__add {
+  padding-bottom: var(--space-6);
+  border-bottom: 0;
 }
 
 .emergency-banner .actions {

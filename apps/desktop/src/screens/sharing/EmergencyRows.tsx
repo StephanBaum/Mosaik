@@ -39,7 +39,7 @@ function GrantedRow({ grant, onRemove }: { grant: GrantedView; onRemove: () => v
       <Button
         size="sm"
         variant="danger"
-        aria-label={`${t("emergency.granted.remove")}: ${email}`}
+        aria-label={t("emergency.granted.removeOf", { email })}
         onClick={onRemove}
       >
         {t("emergency.granted.remove")}
@@ -72,9 +72,15 @@ function ReceivedNotes({ grant, now, needsVerify }: { grant: ReceivedView; now: 
         </p>
       )}
       {waiting && (
-        <p className="field__hint" role="status">
-          {t("emergency.received.countdown", { when: formatRelative(locale, grant.releaseAt ?? now, now) })}
-        </p>
+        <>
+          {/* The relative time changes every half minute: it stays outside the live region. */}
+          <span className="visually-hidden" role="status">
+            {t("emergency.received.waitingLive")}
+          </span>
+          <p className="field__hint">
+            {t("emergency.received.countdown", { when: formatRelative(locale, grant.releaseAt ?? now, now) })}
+          </p>
+        </>
       )}
       {grant.state === "approved" && <p className="field__hint">{t("emergency.received.approved", { email })}</p>}
       {needsVerify && <p className="field__hint">{t("emergency.received.verifyFirst", { email })}</p>}
@@ -115,7 +121,7 @@ function ReceivedRow({
       </div>
       <div className="actions">
         {needsVerify && (
-          <Button size="sm" onClick={onVerify} aria-label={`${t("emergency.received.verify")} ${email}`}>
+          <Button size="sm" onClick={onVerify} aria-label={t("emergency.received.verifyOf", { email })}>
             {t("emergency.received.verify")}
           </Button>
         )}
@@ -124,13 +130,13 @@ function ReceivedRow({
             size="sm"
             disabled={busy || cooling}
             onClick={onRequest}
-            aria-label={`${t("emergency.received.request")}: ${email}`}
+            aria-label={t("emergency.received.requestOf", { email })}
           >
             {t("emergency.received.request")}
           </Button>
         )}
         {open && (
-          <Button size="sm" disabled={busy} onClick={onClaim} aria-label={`${t("emergency.received.claim")}: ${email}`}>
+          <Button size="sm" disabled={busy} onClick={onClaim} aria-label={t("emergency.received.claimOf", { email })}>
             {t("emergency.received.claim")}
           </Button>
         )}
@@ -168,7 +174,7 @@ export function GrantedSection({
           ))}
         </ul>
       )}
-      <div className="setting-row">
+      <div className="setting-row emergency__add">
         <Button onClick={onAdd}>{t("emergency.granted.add")}</Button>
       </div>
     </>

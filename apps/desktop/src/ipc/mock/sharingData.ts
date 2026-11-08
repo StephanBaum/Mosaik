@@ -96,6 +96,7 @@ function row(
     email: account.email,
     role,
     verified: true,
+    self: account.accountId === sampleAccount.accountId,
     state: "member",
     origin: "invite",
     ...fields,
@@ -290,6 +291,8 @@ function seededFindings(variant: SharingVariant): SharingFindingView[] {
     { kind: "rosterInvalid", vaultName: "Work" },
     { kind: "shareUntrusted", vaultName: "Work", senderEmail: KIM.email },
     { kind: "memberUnverified", vaultId: WORK, vaultName: "Work", accountId: KIM.accountId, email: KIM.email },
+    { kind: "memberKeyMismatch", vaultId: WORK, vaultName: "Work", accountId: SAM.accountId, email: SAM.email },
+    { kind: "vaultHeld", vaultId: PERSONAL, vaultName: "Personal" },
     { kind: "memberDropped", vaultId: WORK, vaultName: "Work", accountId: LEE.accountId, email: LEE.email },
     { kind: "accessLost", vaultId: PERSONAL, vaultName: "Personal" },
   ];

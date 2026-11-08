@@ -36,3 +36,13 @@ export function useRoleLabel(): (role: ShareRole) => string {
   const { t } = useI18n();
   return useCallback((role) => t(`sharing.role.${role}`), [t]);
 }
+
+/** The id of the sync section's heading in the settings. */
+export const SYNC_HEADING_ID = "settings-sync-heading";
+
+/** Opens the sync settings, where the Mosaic server is connected (and a folder disconnected). */
+export function openSyncSettings(): void {
+  const heading = document.getElementById(SYNC_HEADING_ID);
+  heading?.scrollIntoView({ block: "start" });
+  heading?.focus();
+}

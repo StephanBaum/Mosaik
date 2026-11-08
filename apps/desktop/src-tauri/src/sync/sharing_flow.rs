@@ -185,6 +185,20 @@ pub(super) fn findings_view(session: &UnlockedSession) -> Vec<SharingFindingView
                     email: email_in(session, Some(vault), account),
                 });
             }
+            SharingFinding::MemberKeyMismatch { vault, account } => {
+                out.push(SharingFindingView::MemberKeyMismatch {
+                    vault_id: vault.into(),
+                    vault_name: vault_name(session, vault),
+                    account_id: account.into(),
+                    email: email_in(session, Some(vault), account),
+                });
+            }
+            SharingFinding::VaultHeld { vault } => {
+                out.push(SharingFindingView::VaultHeld {
+                    vault_id: vault.into(),
+                    vault_name: vault_name(session, vault),
+                });
+            }
             SharingFinding::MemberDropped { vault, account } => {
                 let listed = session.vault_roster(vault).ok().flatten().is_some_and(|r| {
                     r.iter()
@@ -405,6 +419,7 @@ impl Backend {
         let view = self.with_sharing(ErrorCode::VaultNotFound, |engine, access| {
             engine.vault_members(access, vault)
         })?;
+        let own = self.with_unlocked(|s| Ok(s.account_id()))?;
         Ok(VaultMembersView {
             own_role: role_view(view.own_role),
             members: view
@@ -415,6 +430,7 @@ impl Backend {
                     email: some_text(m.email),
                     role: role_view(m.role),
                     verified: m.verified,
+                    is_self: m.account_id == own,
                     state: match m.state {
                         mosaic_sync::engine::MemberState::Invited => MemberRowState::Invited,
                         mosaic_sync::engine::MemberState::Unconfirmed => {
@@ -478,7 +494,12 @@ impl Backend {
         let texts = super::strings::share(self.settings_snapshot().language);
         let (title, message) = texts.remove(&shown, view.own_role == Role::Owner);
         // The slot is not held while the dialog is open.
-        if !self.dialogs.confirm(&title, &message)? {
+        if !self.dialogs.confirm_action(
+            &title,
+            &message,
+            texts.remove_button,
+            texts.cancel_button,
+        )? {
             return Err(IpcError::new(ErrorCode::Cancelled));
         }
         let unreachable = self.with_sharing(ErrorCode::InvalidInput, |engine, access| {
@@ -515,7 +536,12 @@ impl Backend {
         let vault = request.vault_id.get();
         self.sharing_ctx()?;
         let texts = super::strings::share(self.settings_snapshot().language);
-        if !self.dialogs.confirm(texts.leave_title, texts.leave_body)? {
+        if !self.dialogs.confirm_action(
+            texts.leave_title,
+            texts.leave_body,
+            texts.leave_button,
+            texts.cancel_button,
+        )? {
             return Err(IpcError::new(ErrorCode::Cancelled));
         }
         self.with_sharing(ErrorCode::VaultNotFound, |engine, access| {

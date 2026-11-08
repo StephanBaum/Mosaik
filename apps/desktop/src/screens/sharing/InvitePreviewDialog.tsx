@@ -16,7 +16,9 @@ import type { IncomingInviteView, InvitePreviewView, IpcError } from "../../ipc/
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { isolate } from "../sync/hooks.ts";
 import { useRoleLabel } from "./hooks.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { SafetyCodePanel } from "./SafetyCodePanel.tsx";
+import { StepHeading } from "./StepHeading.tsx";
 
 type Phase =
   | { kind: "loading" }
@@ -133,10 +135,13 @@ function Verification({
 function Ready({
   preview,
   answers,
+  onBlock,
   onClose,
 }: {
   preview: InvitePreviewView;
   answers: Answers;
+  /** Asks first: blocking can't be undone in Mosaic. */
+  onBlock: () => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -160,13 +165,18 @@ function Ready({
       </p>
       {senderOk && ownerOk ? (
         <>
+          <StepHeading>{t("sharing.inbox.readyTitle")}</StepHeading>
           <ErrorAlert error={error} />
           <div className="dialog__actions">
-            <Button variant="ghost" disabled={busy} onClick={() => void answer("block", preview)}>
-              {t("sharing.inbox.block")}
-            </Button>
             <Button disabled={busy} onClick={() => void answer("decline", preview)}>
               {t("sharing.inbox.decline")}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={onBlock}
+            >
+              {t("sharing.inbox.block")}
             </Button>
             <HoloButton disabled={busy} onClick={() => void answer("join", preview)}>
               {t("sharing.inbox.accept")}
@@ -235,6 +245,7 @@ export function InvitePreviewDialog({
   const { t } = useI18n();
   const phase = usePreview(invite.inviteId);
   const answers = useAnswers(invite.inviteId, onDone, onClose);
+  const [blocking, setBlocking] = useState(false);
   const title =
     phase.kind === "ready"
       ? t("sharing.inbox.preview.title", {
@@ -242,14 +253,38 @@ export function InvitePreviewDialog({
         })
       : t("sharing.inbox.title");
   return (
-    <Dialog title={title} onClose={onClose}>
-      {phase.kind === "loading" && (
-        <p className="body muted" role="status">
-          {t("sharing.lookup.searching")}
-        </p>
+    <>
+      <Dialog title={title} onClose={onClose}>
+        {phase.kind === "loading" && (
+          <p className="body muted" role="status">
+            {t("sharing.lookup.searching")}
+          </p>
+        )}
+        {phase.kind === "failed" && (
+          <Failed error={phase.error} invite={invite} answers={answers} onClose={onClose} />
+        )}
+        {phase.kind === "ready" && (
+          <Ready
+            preview={phase.preview}
+            answers={answers}
+            onBlock={() => {
+              setBlocking(true);
+            }}
+            onClose={onClose}
+          />
+        )}
+      </Dialog>
+      {blocking && phase.kind === "ready" && (
+        <ConfirmDialog
+          title={t("sharing.inbox.block.title")}
+          body={t("sharing.inbox.block.body", { email: isolate(phase.preview.senderEmail) })}
+          confirmLabel={t("sharing.inbox.block")}
+          onConfirm={() => void answers.answer("block", phase.preview)}
+          onClose={() => {
+            setBlocking(false);
+          }}
+        />
       )}
-      {phase.kind === "failed" && <Failed error={phase.error} invite={invite} answers={answers} onClose={onClose} />}
-      {phase.kind === "ready" && <Ready preview={phase.preview} answers={answers} onClose={onClose} />}
-    </Dialog>
+    </>
   );
 }

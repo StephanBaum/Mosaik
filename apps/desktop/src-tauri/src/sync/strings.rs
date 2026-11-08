@@ -52,6 +52,10 @@ pub(crate) struct ShareTexts {
     remove_manager: &'static str,
     pub(crate) leave_title: &'static str,
     pub(crate) leave_body: &'static str,
+    /// The confirming buttons name the action, so no "OK" can be read as another.
+    pub(crate) remove_button: &'static str,
+    pub(crate) leave_button: &'static str,
+    pub(crate) cancel_button: &'static str,
 }
 
 impl ShareTexts {
@@ -81,6 +85,9 @@ const SHARE_EN: ShareTexts = ShareTexts {
     remove_manager: "{email} keeps whatever they already downloaded. The server stops sending them updates now. The vault owner's device changes the vault key the next time it syncs, and until then only the server keeps {email} out.",
     leave_title: "Leave this vault?",
     leave_body: "The copy on this device stays readable, but it stops updating. To join again you need a new invite.",
+    remove_button: "Remove",
+    leave_button: "Leave vault",
+    cancel_button: "Cancel",
 };
 
 const SHARE_DE: ShareTexts = ShareTexts {
@@ -89,6 +96,9 @@ const SHARE_DE: ShareTexts = ShareTexts {
     remove_manager: "{email} behält, was schon heruntergeladen wurde. Der Server schickt ab sofort keine Updates mehr. Das Gerät des Tresor-Eigentümers wechselt den Tresorschlüssel beim nächsten Sync, und bis dahin hält nur der Server {email} draußen.",
     leave_title: "Diesen Tresor verlassen?",
     leave_body: "Die Kopie auf diesem Gerät bleibt lesbar, wird aber nicht mehr aktualisiert. Um wieder beizutreten, brauchst du eine neue Einladung.",
+    remove_button: "Entfernen",
+    leave_button: "Tresor verlassen",
+    cancel_button: "Abbrechen",
 };
 
 /// The sharing texts for `language`.
@@ -199,6 +209,18 @@ mod tests {
             assert_eq!(
                 texts.leave_body,
                 catalog_value(&file, "sharing.members.leave.confirm")
+            );
+            assert_eq!(
+                texts.remove_button,
+                catalog_value(&file, "sharing.members.remove")
+            );
+            assert_eq!(
+                texts.leave_button,
+                catalog_value(&file, "sharing.members.leave")
+            );
+            assert_eq!(
+                texts.cancel_button,
+                catalog_value(&file, "sharing.members.cancel")
             );
         }
     }

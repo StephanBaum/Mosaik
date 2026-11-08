@@ -12,7 +12,8 @@ import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { ContactView, IpcError, SharingIdentity } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { SettingsSection } from "../SettingsSection.tsx";
-import { useBackendKind } from "./hooks.ts";
+import { isolate } from "../sync/hooks.ts";
+import { openSyncSettings, useBackendKind } from "./hooks.ts";
 import { NotHostedNote } from "./NotHostedNote.tsx";
 import { CodeDisplay } from "./SafetyCodePanel.tsx";
 import { VerifyContactDialog } from "./VerifyContactDialog.tsx";
@@ -55,7 +56,13 @@ function ContactRow({ contact, onCompare }: { contact: ContactView; onCompare: (
         </span>
       </div>
       {(!contact.verified || contact.changed) && (
-        <Button size="sm" onClick={onCompare} aria-label={`${t("sharing.contacts.verify")} ${contact.email}`}>
+        <Button
+          size="sm"
+          onClick={onCompare}
+          aria-label={t(contact.changed ? "sharing.contacts.reviewOf" : "sharing.contacts.verifyOf", {
+            email: isolate(contact.email),
+          })}
+        >
           {contact.changed ? t("sharing.contacts.review") : t("sharing.contacts.verify")}
         </Button>
       )}
@@ -98,7 +105,7 @@ export function SharingSettings() {
 
   return (
     <SettingsSection title={t("sharing.title")} body={t("sharing.body")}>
-      {(kind === "folder" || kind === "none") && <NotHostedNote kind={kind} />}
+      {(kind === "folder" || kind === "none") && <NotHostedNote kind={kind} onOpenSync={openSyncSettings} />}
       <ErrorAlert error={error} />
       {kind === "hosted" && identity !== null && (
         <>

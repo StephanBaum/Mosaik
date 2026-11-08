@@ -262,7 +262,8 @@
   font-size: var(--font-size-xs);
   line-height: var(--line-height-xs);
   color: var(--color-text-muted);
-  white-space: nowrap;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 .card {

@@ -109,6 +109,8 @@ export interface MemberRow {
   email: string | null;
   role: ShareRole;
   verified: boolean;
+  /** This row is the signed-in account itself. */
+  self: boolean;
   state: MemberRowState;
   origin: MemberOriginKind | null;
 }
@@ -255,6 +257,20 @@ export type SharingFindingView =
       vaultName: string | null;
       accountId: AccountId;
       email: string | null;
+    }
+  | {
+      /** The server served a key that doesn't match the verified one: the member was removed. */
+      kind: "memberKeyMismatch";
+      vaultId: VaultId;
+      vaultName: string | null;
+      accountId: AccountId;
+      email: string | null;
+    }
+  | {
+      /** Nothing confirms who owns the vault: it is held until another device confirms. */
+      kind: "vaultHeld";
+      vaultId: VaultId;
+      vaultName: string | null;
     }
   | {
       kind: "memberDropped";

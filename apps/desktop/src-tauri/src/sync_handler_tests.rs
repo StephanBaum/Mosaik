@@ -546,7 +546,14 @@ fn folder_connect_syncs_lists_devices_and_renames() {
     e.wait_synced();
     // A second sync run: the engine keeps working.
     e.b().sync_now().unwrap();
-    assert_eq!(e.status().state.status, SyncStatus::UpToDate);
+    // The run's own writes to the folder can start one more run at once: the
+    // engine is idle when it stays up to date for a moment.
+    wait_for("an idle engine", || {
+        e.status().state.status == SyncStatus::UpToDate && {
+            std::thread::sleep(Duration::from_millis(400));
+            e.status().state.status == SyncStatus::UpToDate
+        }
+    });
 
     let devices = e.b().sync_devices().unwrap().devices;
     assert_eq!(devices.len(), 1);

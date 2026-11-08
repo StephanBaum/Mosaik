@@ -4039,6 +4039,18 @@ export const fixtures = {
             "vaultName": "Family"
           },
           {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
             "email": null,
             "kind": "memberDropped",
@@ -4229,6 +4241,18 @@ export const fixtures = {
             "vaultName": "Family"
           },
           {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
             "email": null,
             "kind": "memberDropped",
@@ -4367,6 +4391,18 @@ export const fixtures = {
             "kind": "memberUnverified",
             "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
             "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
           },
           {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
@@ -4509,6 +4545,18 @@ export const fixtures = {
             "vaultName": "Family"
           },
           {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
             "email": null,
             "kind": "memberDropped",
@@ -4649,6 +4697,18 @@ export const fixtures = {
             "vaultName": "Family"
           },
           {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
             "email": null,
             "kind": "memberDropped",
@@ -4787,6 +4847,18 @@ export const fixtures = {
             "kind": "memberUnverified",
             "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
             "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
           },
           {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
@@ -4952,6 +5024,18 @@ export const fixtures = {
             "vaultName": "Family"
           },
           {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
             "email": null,
             "kind": "memberDropped",
@@ -5090,6 +5174,18 @@ export const fixtures = {
             "kind": "memberUnverified",
             "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
             "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
           },
           {
             "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
@@ -5377,6 +5473,7 @@ export const fixtures = {
             "email": "alex@example.com",
             "origin": "owner",
             "role": "owner",
+            "self": true,
             "state": "member",
             "verified": true
           },
@@ -5385,6 +5482,7 @@ export const fixtures = {
             "email": "sam@example.com",
             "origin": "invite",
             "role": "write",
+            "self": false,
             "state": "member",
             "verified": true
           },
@@ -5393,6 +5491,7 @@ export const fixtures = {
             "email": "kim@example.com",
             "origin": null,
             "role": "read",
+            "self": false,
             "state": "invited",
             "verified": false
           },
@@ -5401,6 +5500,7 @@ export const fixtures = {
             "email": null,
             "origin": "emergency",
             "role": "manage",
+            "self": false,
             "state": "unconfirmed",
             "verified": false
           },
@@ -5409,6 +5509,7 @@ export const fixtures = {
             "email": "lee@example.com",
             "origin": null,
             "role": "read",
+            "self": false,
             "state": "dropped",
             "verified": true
           },
@@ -5417,6 +5518,7 @@ export const fixtures = {
             "email": "max@example.com",
             "origin": "invite",
             "role": "read",
+            "self": false,
             "state": "removing",
             "verified": true
           }
@@ -5432,6 +5534,7 @@ export const fixtures = {
             "email": "alex@example.com",
             "origin": "owner",
             "role": "owner",
+            "self": true,
             "state": "member",
             "verified": true
           }

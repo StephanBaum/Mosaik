@@ -77,6 +77,7 @@ function inviteMember(state: MockState, vaultId: string, accountId: string, role
     email: contact.email,
     role,
     verified: true,
+    self: false,
     state: "invited",
     origin: null,
   });
@@ -134,11 +135,12 @@ function acceptInvite(state: MockState, inviteId: string, code: string | null): 
     accountId: sampleAccount.accountId,
     email: sampleAccount.email,
     verified: true,
+    self: false,
     state: "member",
   } as const;
   sharing.members.set(preview.vaultId, [
     { ...me, accountId: preview.ownerAccountId, email: preview.ownerEmail, role: "owner", origin: "owner" },
-    { ...me, role: invite.role, origin: "invite" },
+    { ...me, self: true, role: invite.role, origin: "invite" },
   ]);
   state.emit({ type: "syncDataChanged", vaultIds: [preview.vaultId] });
   publishSharing(state);

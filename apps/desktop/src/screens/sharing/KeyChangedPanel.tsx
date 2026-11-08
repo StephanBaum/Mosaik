@@ -1,25 +1,25 @@
 /**
  * A contact's key changed (CRYPTO_SPEC §8.5): the code verified before and the new one, a
- * warning that says what this can mean, and "Compare and accept". Accepting replaces the pin
- * and verifies the new code in one step, after the user compared it with the person. It runs
- * inside `ContactVerifier`, in whatever dialog needs the contact.
+ * warning that says what this can mean, and "New code matches". The new code goes through the
+ * same comparison as any code (the checkbox, the typed code), and focus starts on "Cancel" so
+ * Enter can't accept. Accepting replaces the pin and verifies the new code in one step, after
+ * the user compared it with the person. It runs inside `ContactVerifier`, in whatever dialog
+ * needs the contact.
  */
 import { useId, useState } from "react";
-import { Button } from "../../components/Button.tsx";
 import { Callout } from "../../components/Callout.tsx";
-import { ErrorAlert } from "../../components/ErrorAlert.tsx";
-import { HoloButton } from "../../components/HoloButton.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { AccountId, IpcError } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { isolate } from "../sync/hooks.ts";
-import { CodeDisplay } from "./SafetyCodePanel.tsx";
+import { CodeDisplay, SafetyCodePanel } from "./SafetyCodePanel.tsx";
 
 export function KeyChangedPanel({
   accountId,
   email,
   oldCode,
   newCode,
+  conflicting,
   onAccepted,
   onCancel,
 }: {
@@ -28,6 +28,8 @@ export function KeyChangedPanel({
   /** The code that was verified before (`null` when this device never had one). */
   oldCode: string | null;
   newCode: string;
+  /** The devices of this account saw different keys for the person. */
+  conflicting: boolean;
   onAccepted: () => void;
   onCancel: () => void;
 }) {
@@ -36,7 +38,6 @@ export function KeyChangedPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<IpcError | null>(null);
   const oldId = useId();
-  const newId = useId();
   const who = isolate(email);
 
   async function accept() {
@@ -54,35 +55,38 @@ export function KeyChangedPanel({
   }
 
   return (
-    <section className="stack">
-      <h3 className="subtitle">{t("sharing.keyChanged.title", { email: who })}</h3>
-      <Callout tone="warning">
-        <p className="body">{t("sharing.keyChanged.body", { email: who })}</p>
-      </Callout>
-      <div className="safety__sides">
-        {oldCode !== null && (
-          <div className="safety__side">
-            <p id={oldId} className="row__label">
-              {t("sharing.keyChanged.old")}
-            </p>
-            <CodeDisplay code={oldCode} labelledBy={oldId} />
-          </div>
-        )}
-        <div className="safety__side">
-          <p id={newId} className="row__label">
-            {t("sharing.keyChanged.new")}
-          </p>
-          <CodeDisplay code={newCode} labelledBy={newId} />
-        </div>
-      </div>
-      <p className="body muted">{t("sharing.code.compare", { email: who })}</p>
-      <ErrorAlert error={error} />
-      <div className="dialog__actions">
-        <Button onClick={onCancel}>{t("action.cancel")}</Button>
-        <HoloButton disabled={busy} onClick={() => void accept()}>
-          {t("sharing.keyChanged.accept")}
-        </HoloButton>
-      </div>
-    </section>
+    <SafetyCodePanel
+      email={email}
+      code={newCode}
+      codeLabel={t("sharing.keyChanged.new")}
+      heading={t("sharing.keyChanged.title", { email: who })}
+      intro={t("sharing.code.compareNew", { email: who })}
+      matchLabel={t("sharing.keyChanged.accept")}
+      focusCancel
+      busy={busy}
+      error={error}
+      onMatches={() => void accept()}
+      onCancel={onCancel}
+      before={
+        <>
+          <Callout tone="warning">
+            <p className="body safety__text">{t("sharing.keyChanged.body", { email: who })}</p>
+          </Callout>
+          {conflicting && (
+            <Callout tone="warning">
+              <p className="body safety__text">{t("sharing.code.conflicting", { email: who })}</p>
+            </Callout>
+          )}
+          {oldCode !== null && (
+            <div className="safety__side">
+              <p id={oldId} className="row__label">
+                {t("sharing.keyChanged.old")}
+              </p>
+              <CodeDisplay code={oldCode} labelledBy={oldId} />
+            </div>
+          )}
+        </>
+      }
+    />
   );
 }

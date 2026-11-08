@@ -71,7 +71,13 @@ function Page({ view, shell }: { view: View; shell: Shell }) {
       {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
       {view === "generator" && <GeneratorPanel />}
       {view === "settings" && <SettingsScreen />}
-      {view === "invites" && <InvitesInbox />}
+      {view === "invites" && (
+        <InvitesInbox
+          onOpenSettings={() => {
+            shell.go("settings");
+          }}
+        />
+      )}
       {view === "import" && (
         <ImportFlow
           embedded
@@ -205,6 +211,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
           onNavigate={shell.go}
           onNewItem={shell.startNew}
           onLock={shell.lock}
+          onShare={share.open}
         />
       )}
       {creating && (

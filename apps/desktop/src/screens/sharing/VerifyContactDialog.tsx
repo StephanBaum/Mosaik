@@ -15,7 +15,7 @@ export function VerifyContactDialog({
 }) {
   const { t } = useI18n();
   return (
-    <Dialog title={t("sharing.code.title")} label={isolate(email)} onClose={onClose}>
+    <Dialog title={t("sharing.verify.title", { email: isolate(email) })} onClose={onClose}>
       <ContactVerifier
         email={email}
         onVerified={() => {

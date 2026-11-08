@@ -31,6 +31,8 @@ interface Actions {
   onNavigate: (view: View) => void;
   onNewItem: () => void;
   onLock: () => void;
+  /** Opens the sharing dialog of the open vault; absent when no vault can be shared. */
+  onShare?: (() => void) | undefined;
 }
 
 function useFoundItems(query: string): ItemSummary[] {
@@ -63,7 +65,7 @@ function useFoundItems(query: string): ItemSummary[] {
 function useEntries(query: string, actions: Actions): Entry[] {
   const { t } = useI18n();
   const items = useFoundItems(query);
-  const { onClose, onOpenItem, onNavigate, onNewItem, onLock } = actions;
+  const { onClose, onOpenItem, onNavigate, onNewItem, onLock, onShare } = actions;
   return useMemo<Entry[]>(() => {
     const done = (action: () => void) => () => {
       onClose();
@@ -76,6 +78,10 @@ function useEntries(query: string, actions: Actions): Entry[] {
       command({ id: "generator", label: t("palette.cmd.generator"), icon: "refresh", run: go("generator") }),
       command({ id: "security", label: t("palette.cmd.security"), icon: "shield", run: go("security") }),
       command({ id: "settings", label: t("palette.cmd.settings"), icon: "sliders", run: go("settings"), shortcut: "settings" }),
+      ...(onShare === undefined
+        ? []
+        : [command({ id: "share", label: t("palette.cmd.share"), icon: "users", run: done(onShare) })]),
+      command({ id: "invites", label: t("palette.cmd.invites"), icon: "users", run: go("invites") }),
       command({ id: "import", label: t("palette.cmd.import"), icon: "download", run: go("import") }),
       command({ id: "lock", label: t("palette.cmd.lock"), icon: "lock", run: done(onLock), shortcut: "lock" }),
     ];
@@ -93,7 +99,7 @@ function useEntries(query: string, actions: Actions): Entry[] {
       }),
     }));
     return [...found, ...commands];
-  }, [items, query, t, onClose, onNewItem, onNavigate, onLock, onOpenItem]);
+  }, [items, query, t, onClose, onNewItem, onNavigate, onLock, onOpenItem, onShare]);
 }
 
 /** The label with the first occurrence of the query marked (plain string search). */

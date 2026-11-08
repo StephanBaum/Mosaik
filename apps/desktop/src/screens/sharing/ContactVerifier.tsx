@@ -90,8 +90,8 @@ function CompareCode({
         error={error}
         onMatches={() => void verify()}
         onCancel={onCancel}
+        hint={t("sharing.lookup.notFoundHint")}
       />
-      <p className="field__hint">{t("sharing.lookup.notFoundHint")}</p>
     </div>
   );
 }
@@ -152,6 +152,7 @@ export function ContactVerifier({
       email={found.email}
       oldCode={oldCode}
       newCode={found.safetyCode}
+      conflicting={found.status === "conflicting"}
       onAccepted={verified}
       onCancel={onCancel}
     />

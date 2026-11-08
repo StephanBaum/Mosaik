@@ -299,6 +299,8 @@ describe("mock sharing: emergency access", () => {
       "rosterInvalid",
       "shareUntrusted",
       "memberUnverified",
+      "memberKeyMismatch",
+      "vaultHeld",
       "memberDropped",
       "accessLost",
     ]);

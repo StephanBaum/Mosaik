@@ -11,14 +11,16 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useToast } from "../../components/ToastProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
-import type { EmergencyOverview, GrantedView, IpcError } from "../../ipc/contract/index.ts";
+import type { EmergencyOverview, GrantedView, IpcError, ReceivedView } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { isolate, useNow } from "../sync/hooks.ts";
 import { SettingsSection } from "../SettingsSection.tsx";
 import { GrantedSection, ReceivedSection } from "./EmergencyRows.tsx";
 import { useEmergencyActions } from "./useEmergencyActions.ts";
 import { GrantDialog } from "./GrantDialog.tsx";
-import { useBackendKind, type BackendKind } from "./hooks.ts";
+import { openSyncSettings, useBackendKind, type BackendKind } from "./hooks.ts";
+import { NotHostedNote } from "./NotHostedNote.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { VerifyContactDialog } from "./VerifyContactDialog.tsx";
 
 /** The grants given and received, read again on every `sharingChanged` and on `reload`. */
@@ -83,6 +85,41 @@ function RemoveGrantDialog({
   );
 }
 
+/** Emergency access is off: why, and a way to the sync settings. */
+function Off({ kind }: { kind: "folder" | "none" }) {
+  return (
+    <NotHostedNote
+      kind={kind}
+      message={kind === "folder" ? "emergency.folderUnsupported" : "sharing.notHosted.none"}
+      onOpenSync={openSyncSettings}
+    />
+  );
+}
+
+/** Asking tells the grantor, so it asks first. */
+function RequestDialog({
+  grant,
+  onRequest,
+  onClose,
+}: {
+  grant: ReceivedView;
+  onRequest: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const email = isolate(grant.email);
+  return (
+    <ConfirmDialog
+      title={t("emergency.received.request.title", { email })}
+      body={t("emergency.received.request.body", { email, days: grant.waitDays })}
+      confirmLabel={t("emergency.received.request")}
+      variant="secondary"
+      onConfirm={onRequest}
+      onClose={onClose}
+    />
+  );
+}
+
 export function EmergencySettings() {
   const { t } = useI18n();
   const toast = useToast();
@@ -92,12 +129,12 @@ export function EmergencySettings() {
   const [granting, setGranting] = useState(false);
   const [removing, setRemoving] = useState<GrantedView | null>(null);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [asking, setAsking] = useState<ReceivedView | null>(null);
   const actions = useEmergencyActions(reload, setError);
 
   return (
     <SettingsSection title={t("emergency.title")} body={t("emergency.body")}>
-      {kind === "folder" && <p className="body muted">{t("emergency.folderUnsupported")}</p>}
-      {kind === "none" && <p className="body muted">{t("sharing.notHosted.none")}</p>}
+      {(kind === "folder" || kind === "none") && <Off kind={kind} />}
       <ErrorAlert error={error} />
       {kind === "hosted" && overview !== null && (
         <>
@@ -114,7 +151,7 @@ export function EmergencySettings() {
             busy={actions.busy}
             unverified={actions.unverified}
             onVerify={setVerifying}
-            onRequest={(grant) => void actions.request(grant)}
+            onRequest={setAsking}
             onClaim={(grant) => void actions.claim(grant)}
           />
         </>
@@ -128,6 +165,15 @@ export function EmergencySettings() {
           }}
           onClose={() => {
             setGranting(false);
+          }}
+        />
+      )}
+      {asking !== null && (
+        <RequestDialog
+          grant={asking}
+          onRequest={() => void actions.request(asking)}
+          onClose={() => {
+            setAsking(null);
           }}
         />
       )}

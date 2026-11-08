@@ -110,6 +110,7 @@ export function membersOf(sharing: MockSharing, vaultId: string): MemberRow[] {
       email: sampleAccount.email,
       role: "owner",
       verified: true,
+      self: true,
       state: "member",
       origin: "owner",
     },

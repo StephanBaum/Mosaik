@@ -4,7 +4,7 @@
  * the request is refused, approved or released. "Refuse" needs no password; "Approve now" is a
  * fresh login with the master password.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Callout } from "../../components/Callout.tsx";
@@ -84,6 +84,21 @@ function ApproveDialog({
   );
 }
 
+/**
+ * Answering a request removes the button that had focus: focus moves to the banner while other
+ * requests wait, otherwise to the main area, instead of falling to the page.
+ */
+function useKeepFocus(count: number, region: RefObject<HTMLDivElement | null>) {
+  const before = useRef(count);
+  useEffect(() => {
+    const lost = count < before.current && (document.activeElement === document.body || document.activeElement === null);
+    before.current = count;
+    if (lost) {
+      (count > 0 ? region.current : document.getElementById("main"))?.focus();
+    }
+  }, [count, region]);
+}
+
 export function EmergencyRequestBanner() {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -93,6 +108,8 @@ export function EmergencyRequestBanner() {
   const { waiting, reload } = useWaiting();
   const [approving, setApproving] = useState<GrantedView | null>(null);
   const [error, setError] = useState<IpcError | null>(null);
+  const region = useRef<HTMLDivElement>(null);
+  useKeepFocus(waiting.length, region);
 
   if (kind !== "hosted" || waiting.length === 0) {
     return null;
@@ -115,7 +132,13 @@ export function EmergencyRequestBanner() {
   }
 
   return (
-    <div className="emergency-banner stack" role="region" aria-label={t("emergency.banner.region")}>
+    <div
+      ref={region}
+      tabIndex={-1}
+      className="emergency-banner stack"
+      role="region"
+      aria-label={t("emergency.banner.region")}
+    >
       {waiting.map((grant) => (
         <Callout key={grant.granteeAccountId} tone="warning">
           <p className="body">

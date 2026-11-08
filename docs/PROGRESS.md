@@ -15,7 +15,7 @@ milestone close appends its section there).
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
-| M6b Sharing and emergency access | in progress on `feat/m6b-sharing` (T1 to T4 and the milestone review fixes done; T5 desktop: commands, screens, mock states, i18n, fuzz seeds, docs; a verify pass over the review fixes is running; open: the manual checks below, the owner decisions OD1 to OD6 of the spec, the full gate and the milestone commit) |
+| M6b Sharing and emergency access | in progress on `feat/m6b-sharing` (T1 to T4 and the milestone review fixes done; T5 desktop: commands, screens, mock states, i18n, fuzz seeds, docs; two verify passes and the UX review are done; open: the manual checks below, the owner decisions OD1 to OD6 of the spec, the full gate and the milestone commit) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -2267,8 +2267,7 @@ sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309
     out. Only safety codes, roles, addresses and IDs reach the webview.
   - **Screens (`src/screens/sharing/`).** Share dialog (address, lookup, safety-code comparison,
     role, the honesty line), the code comparison side by side with an optional typed code and a
-    one-click attestation (`SafetyCodePanel`), the key-change panel (old and new code, "Compare and
-    accept"), the members list with roles, unverified, unconfirmed, dropped and removing markers,
+    one-click attestation (`SafetyCodePanel`), the key-change panel (old and new code, the same comparison as any code, "New code matches"), the members list with roles, unverified, unconfirmed, dropped and removing markers,
     role changes, remove, leave, withdraw, and the notices for a removal waiting for the owner's
     device and for attachments a key change could not protect, the invites inbox (sidebar entry with
     a count; the owner's code is compared too when a manager invites), emergency access in Settings
@@ -2298,8 +2297,19 @@ sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309
   - `sharing_contacts.changed` is true when devices pinned different keys; a key the server now serves
     differently is found by `sharing_lookup` (`changed`).
 - **Reviews.** T1 crypto review: High 1, Medium 1, Low 3, Info 5, all fixed (`976e910`). Milestone review:
-  High 4, Medium 4, Low 4, Info 1, all fixed in `8e3b495` with the deviations documented. A verify pass
-  over the review fixes: *pending, counts to be added when it reports.*
+  High 4, Medium 4, Low 4, Info 1, all fixed in `8e3b495` with the deviations documented. Verify pass 1 on
+  `8e3b495`: H3 still open (High), 1 Medium, 2 Low, fixed in `789265b`. Verify pass 2 on `789265b`: H3 still
+  open (High), 2 Medium, 2 Low, fixed fail-closed in `e8653b9` (positive owner authorization; the findings
+  `MemberKeyMismatch` and `VaultHeld`). UX review of T5: 2 blockers, 8 major, 11 minor, all fixed in
+  `fix(desktop): M6b sharing UX review follow-ups and new findings`: focus goes to the step heading on every
+  step change; the findings are one collapsed line (no sticky block); "Codes match" waits for a checkbox or a
+  matching typed code; the key-change panel reuses the comparison with focus on Cancel; native confirms use
+  verb buttons ("Remove", "Leave vault"); the own row (`self`) has no role or remove control; the role changes
+  only on "Change role"; wrapping and live-region fixes; "Dismiss" for a lost vault; label-in-name ICU keys;
+  the verify title, palette commands "Share vault…" and "Invites"; off states with a button to the sync
+  settings; a question before "Request access" and before "Decline and block sender". Deviations: the engine
+  has no unblock command in the desktop contract, so the block question says it can't be undone in Mosaic;
+  "Dismiss" for a lost vault hides it until the app starts again (no stored acknowledgement exists).
 - **Manual checks for M6b (2026-11-08)**, none can be automated here: (1) two real accounts on a real
   server: look up, compare codes on the phone, invite, accept, edit on both, remove, watch the key change
   on the owner's device; (2) a manager removing a member while the owner is offline, then the owner's

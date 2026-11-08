@@ -77,7 +77,7 @@ function IncomingList({
             </span>
           </div>
           <Button
-            aria-label={`${t("sharing.inbox.review")}: ${invite.senderEmail}`}
+            aria-label={t("sharing.inbox.reviewOf", { email: isolate(invite.senderEmail) })}
             onClick={() => {
               onReview(invite);
             }}
@@ -123,7 +123,9 @@ function OutgoingList({
           </div>
           <Button
             variant="ghost"
-            aria-label={`${t("sharing.invite.cancel")}: ${invite.recipientEmail ?? ""}`}
+            aria-label={t("sharing.invite.cancelOf", {
+              email: isolate(invite.recipientEmail ?? t("sharing.members.unknownEmail")),
+            })}
             onClick={() => {
               onWithdraw(invite.inviteId);
             }}
@@ -136,7 +138,7 @@ function OutgoingList({
   );
 }
 
-export function InvitesInbox() {
+export function InvitesInbox({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const { t } = useI18n();
   const ipc = useIpc();
   const toast = useToast();
@@ -160,7 +162,7 @@ export function InvitesInbox() {
         <h1 className="display">{t("sharing.inbox.title")}</h1>
         <p className="lede">{t("sharing.inbox.intro")}</p>
       </div>
-      {(kind === "folder" || kind === "none") && <NotHostedNote kind={kind} />}
+      {(kind === "folder" || kind === "none") && <NotHostedNote kind={kind} {...(onOpenSettings === undefined ? {} : { onOpenSync: onOpenSettings })} />}
       <ErrorAlert error={error} />
       {kind === "hosted" && list !== null && (
         <>
