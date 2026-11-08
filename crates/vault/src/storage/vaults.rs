@@ -128,7 +128,7 @@ fn read_floor(conn: &Connection, vault_id: &VaultId) -> Result<Option<KeyGenerat
 
 /// Inserts a wrapped key, or re-wraps the held one in place. A new row gets
 /// `flags`; an existing row keeps the sync flags it has.
-fn upsert_key(
+pub(super) fn upsert_key(
     conn: &Connection,
     vault_id: &VaultId,
     generation: KeyGeneration,

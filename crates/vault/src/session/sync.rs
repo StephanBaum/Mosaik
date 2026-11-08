@@ -510,13 +510,17 @@ impl UnlockedSession {
     /// was confirmed by it (the backend contradicts itself: nothing is
     /// replaced); [`Error::VaultUnavailable`], [`Error::UnknownVault`],
     /// [`Error::WrongVaultProtection`] for a hardware-protected vault,
-    /// [`Error::Store`].
+    /// [`Error::AdoptionForbidden`] for a shared vault, [`Error::Store`].
     pub fn adopt_remote_vault_key(
         &mut self,
         vault_id: VaultId,
         generation: KeyGeneration,
         wrapped: &WrappedKey,
     ) -> Result<AdoptOutcome> {
+        // A shared vault never adopts a key (CRYPTO_SPEC §10.2).
+        if self.vault_shared(vault_id)? {
+            return Err(Error::AdoptionForbidden);
+        }
         let vk =
             wrapped.unwrap_vault_key(&self.account_key, &self.account_id, &vault_id, generation)?;
         let ov = self.vaults.get(&vault_id).ok_or(Error::UnknownVault)?;

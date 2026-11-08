@@ -149,10 +149,14 @@ impl UnlockedSession {
     /// # Errors
     /// [`Error::UnknownVault`], [`Error::VaultUnavailable`],
     /// [`Error::Core`] (`InvalidKeyGeneration` at the last generation),
+    /// [`Error::VaultShared`] for a shared vault,
     /// [`Error::KeyGenerationRollback`] / [`Error::VaultKeyConflict`] if
     /// the store already holds another key at or above the next
     /// generation, [`Error::Store`].
     pub fn rotate_vault_key(&mut self, vault_id: VaultId) -> Result<KeyGeneration> {
+        if self.vault_shared(vault_id)? {
+            return Err(Error::VaultShared);
+        }
         let ov = self.vaults.get_mut(&vault_id).ok_or(Error::UnknownVault)?;
         ov.current_key()?;
         let next = ov.generation.next()?;

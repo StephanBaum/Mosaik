@@ -250,6 +250,21 @@ impl Store {
         if let Some(c) = config {
             c.validate()?;
         }
+        // A backend change is refused while shared vaults are reachable
+        // (CRYPTO_SPEC §10.2): only the account and device names may change.
+        if self.live_shared_vaults()? > 0 {
+            let same_backend = match (self.sync_config()?, config) {
+                (Some(old), Some(new)) => {
+                    old.kind == new.kind
+                        && old.server_url == new.server_url
+                        && old.folder_path == new.folder_path
+                }
+                _ => false,
+            };
+            if !same_backend {
+                return Err(Error::HasSharedVaults);
+            }
+        }
         let tx = self.write()?;
         match config {
             None => {
@@ -652,6 +667,8 @@ impl Store {
     /// queued; the vaults count as not created on the backend; the cursors,
     /// the local sequence blocks and the pending attachment deletions are
     /// cleared. Hardware-protected vaults (they never sync) are left alone.
+    /// The sequence numbers of rosters and the contact book are cleared and
+    /// both are queued again; the `shared` flags are kept.
     /// The persisted engine state of the old backend (own sequence numbers, peer
     /// checkpoints, lag timers, key observations, marker times, strikes) is
     /// cleared too. The checkpoint counter, the install ID and a halt are kept.
@@ -693,6 +710,12 @@ impl Store {
             "DELETE FROM sync_local_seq".to_owned(),
             "DELETE FROM sync_cursors".to_owned(),
             "DELETE FROM attachment_deletions".to_owned(),
+            // Sharing (schema v8): the sequence numbers belong to the old
+            // backend and the new one gets the documents again. The `shared`
+            // flag, the owner and `identity_key.published` stay: a backend
+            // change must not make a shared key adoptable.
+            "UPDATE vault_roster SET seq = NULL, pending = 1".to_owned(),
+            "UPDATE contacts_doc SET seq = NULL, pending = 1".to_owned(),
         ] {
             tx.execute(&sql, [])?;
         }

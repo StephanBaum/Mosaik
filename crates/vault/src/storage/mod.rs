@@ -18,6 +18,7 @@
 //! | `local_device` | this install's device ID, which stamps local edits (§10, public per §12) |
 //! | `settings_nonce` | local-only random nonce bound into the settings-file MAC (§11.1); never in the outbox, never synced |
 //! | `install_identity`, `sync_config`, `sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint`, `attachment_deletions` | local sync state of M6 (schema v3): install ID, backend choice, cursors, local sequence blocks, checkpoint counter, attachment deletions still to send |
+//! | `identity_key`, `contacts_doc`, `vault_sharing`, `vault_roster`, `pending_revocations`, `sharing_findings` | sharing (schema v8): the wrapped identity key, the synced contact book, the monotone `shared` flag with this account's role, the roster, revocations still to carry out, findings |
 //! | `sync_own_seq`, `sync_engine_state`, `sync_peer_checkpoint`, `sync_lag`, `sync_key_candidate`, `sync_marker_seen` | persisted engine state (schema v4): own sequence numbers, halt and strikes, peer checkpoints, lag timers, vault keys seen per generation, delete-marker first-seen times |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
@@ -90,6 +91,7 @@ mod fs;
 mod records;
 mod schema;
 mod settings_nonce;
+mod sharing;
 mod sync_state;
 mod vaults;
 
@@ -111,6 +113,10 @@ pub use records::{
     CorruptRecord, Origin, OutboxSeq, RecordBody, RecordEntry, RecordKind, StoredRecord,
 };
 pub use schema::LATEST_VERSION;
+pub use sharing::{
+    FindingRow, PendingRevocationRow, SharedRotationWrite, StoredContacts, StoredIdentity,
+    StoredRoster, VaultSharing,
+};
 pub use sync_state::{KeyOrigin, LOCAL_SEQ_BLOCK, SyncConfig, SyncKind, VaultSyncState};
 pub use vaults::{StoredTkWrapping, VaultKeyWrap, VaultState};
 

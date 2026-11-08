@@ -65,6 +65,7 @@ mod error;
 mod hardware_vaults;
 mod items;
 mod search;
+mod sharing;
 mod sync;
 mod sync_support;
 mod unlock_methods;
@@ -87,6 +88,11 @@ pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
+pub use sharing::{
+    AcceptedInvite, IncomingInvite, InviteId, InvitePreview, OpenedChain, PreparedInvite,
+    PreparedSharedRotation, PulledShareView, RevocationReason, RotationPlan, SharedRotationOutcome,
+    SharingFinding,
+};
 pub use sync::{AdoptOutcome, ApplyOutcome, RemoteRecord};
 pub use sync_support::{
     AccountBootstrap, AttachmentFileState, AttachmentRef, JoinKeys, PendingVaultUpload,
@@ -309,6 +315,15 @@ pub struct UnlockedSession {
     /// [`UnlockedSession::pending_vault_uploads`] for a vault that is to be
     /// created on the backend, until it reports back.
     created_handed: BTreeMap<VaultId, (KeyGeneration, VaultMetaCiphertext)>,
+    /// The identity key pair while unlocked (CRYPTO_SPEC §8.1); dropped, and
+    /// so zeroized, at lock.
+    identity_key: Option<sharing::Identity>,
+    /// Vault keys opened from invites, waiting for the user's accept (at most
+    /// five minutes, this session only).
+    pending_invites: BTreeMap<InviteId, sharing::PendingInvite>,
+    /// The contact book ciphertext handed out for upload and not yet
+    /// acknowledged.
+    contacts_handed: Option<Vec<u8>>,
 }
 
 impl fmt::Debug for UnlockedSession {
@@ -702,6 +717,7 @@ impl UnlockedSession {
         };
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
+                let identity_key = sharing::load_identity(&store, &account_key, &account_id);
                 let mut index = search::SearchIndex::default();
                 for (vault_id, ov) in &vaults {
                     index.update_vault(*vault_id, ov);
@@ -719,6 +735,9 @@ impl UnlockedSession {
                     install,
                     session_tag,
                     created_handed: BTreeMap::new(),
+                    identity_key,
+                    pending_invites: BTreeMap::new(),
+                    contacts_handed: None,
                 })
             }
             Err(error) => Err(UnlockError {
@@ -901,6 +920,8 @@ impl UnlockedSession {
 
 #[cfg(test)]
 mod hardware_vaults_tests;
+#[cfg(test)]
+mod sharing_tests;
 #[cfg(test)]
 mod sync_support_tests;
 #[cfg(test)]

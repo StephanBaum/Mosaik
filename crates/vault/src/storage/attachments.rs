@@ -90,7 +90,7 @@ pub fn validate_attachment_ciphertext(bytes: &[u8]) -> Result<()> {
     }
 }
 
-fn file_name(id: &AttachmentId) -> String {
+pub(super) fn file_name(id: &AttachmentId) -> String {
     use core::fmt::Write as _;
     let mut s = String::with_capacity(32);
     for b in id.as_bytes() {
