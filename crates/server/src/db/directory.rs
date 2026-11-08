@@ -35,11 +35,10 @@ pub fn by_email(conn: &Connection, email: &str) -> Result<Option<Found>, ApiErro
 }
 
 /// Whether `caller` may look `target` up by ID: they share a vault, the
-/// target invited the caller, the target has an open invite to a vault the
-/// caller manages (sent by someone else), or they are on one emergency grant.
-/// Invites the caller sent are not a reason: the caller has the key from
-/// the email lookup, and an answer here would tell a real recipient from a
-/// fake one.
+/// target invited the caller, or they are on one emergency grant. An invite
+/// to the target is never a reason, whoever sent it: the inviter has the key
+/// from the email lookup (the roster holds the address), and an answer here
+/// would tell a real recipient from a fake one (M6b review L3).
 pub fn may_look_up(
     conn: &Connection,
     caller: &[u8; 16],
@@ -50,10 +49,7 @@ pub fn may_look_up(
            EXISTS (SELECT 1 FROM memberships a JOIN memberships b ON a.vault_id = b.vault_id \
                    WHERE a.account_id = ?1 AND b.account_id = ?2) \
         OR EXISTS (SELECT 1 FROM share_invites i WHERE i.recipient = ?1 AND i.sender = ?2 \
-                   AND i.state = 0 AND i.hidden = 0) \
-        OR EXISTS (SELECT 1 FROM share_invites i JOIN memberships m ON m.vault_id = i.vault_id \
-                   WHERE i.recipient = ?2 AND i.state = 0 AND i.sender <> ?1 \
-                   AND m.account_id = ?1 AND m.role <= 2)",
+                   AND i.state = 0 AND i.hidden = 0)",
         params![caller.as_slice(), target.as_slice()],
         |r| r.get(0),
     )?;

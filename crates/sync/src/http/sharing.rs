@@ -314,6 +314,7 @@ impl SharingTransport for HttpTransport {
         &mut self,
         invite: &InviteId,
         wrapped: &WrappedKey,
+        generation: KeyGeneration,
         device: InstallId,
     ) -> Result<AcceptResult, TransportError> {
         let id = wire_invite(invite);
@@ -323,6 +324,7 @@ impl SharingTransport for HttpTransport {
             Some(&AcceptRequest {
                 wrapped: wrapped.clone(),
                 device,
+                generation: generation.get(),
             }),
             &[200],
         )?;
@@ -394,6 +396,14 @@ impl SharingTransport for HttpTransport {
             Some(&RoleRequest {
                 role: role_number(role)?,
             }),
+        )
+    }
+
+    fn remove_member(&mut self, vault: VaultId, account: &AccountId) -> Result<(), TransportError> {
+        self.call_done::<Empty>(
+            Method::DELETE,
+            &format!("/v1/vaults/{vault}/members/{account}"),
+            None,
         )
     }
 

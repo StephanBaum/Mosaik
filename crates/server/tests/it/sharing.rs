@@ -111,10 +111,20 @@ pub async fn invite(
 }
 
 pub async fn accept(app: &TestApp, who: &Acct, invite_id: &str) -> Resp {
+    // The generation of the key the recipient wrapped: the invite's.
+    let plain = invite_id.replace('-', "");
+    let generation: i64 = sql(app, |c| {
+        c.query_row(
+            "SELECT generation FROM share_invites WHERE lower(hex(invite_id)) = ?1",
+            [plain.as_str()],
+            |r| r.get(0),
+        )
+    });
     app.post(
         &format!("/v1/invites/{invite_id}/accept"),
         Some(&who.t),
-        &json!({"wrapped": b64(wrapped_key(9).as_bytes()), "device": device(app, who)}),
+        &json!({"wrapped": b64(wrapped_key(9).as_bytes()), "device": device(app, who),
+                "generation": generation}),
     )
     .await
 }

@@ -22,8 +22,16 @@ const META_ROW: [u8; 16] = [0xFF; 16];
 const ROSTER_ROW: [u8; 16] = [0xFE; 16];
 
 fn is_reserved(row: &ServedRow) -> bool {
-    let id = row.record_id.as_bytes();
-    *id == META_ROW || *id == ROSTER_ROW
+    is_reserved_id(&row.record_id)
+}
+
+/// Whether a record ID is one of the reserved rows. No real item ID is: they
+/// carry a version nibble. A server that serves a record under one of them
+/// is hostile (it would overwrite the noted metadata or roster of the view
+/// digest, M6b review M3): the pull ignores the record.
+pub(super) fn is_reserved_id(id: &ItemId) -> bool {
+    let b = id.as_bytes();
+    *b == META_ROW || *b == ROSTER_ROW
 }
 
 fn note(

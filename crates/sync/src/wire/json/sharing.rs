@@ -203,6 +203,10 @@ pub struct AcceptRequest {
     pub wrapped: WrappedKey,
     #[serde(with = "uuid_str")]
     pub device: InstallId,
+    /// The key generation of the wrapped key (M6b review M1): the server
+    /// refuses the accept unless it is the invite's and the vault's current
+    /// one.
+    pub generation: u32,
 }
 
 /// `POST /v1/invites/{id}/accept` answer.

@@ -301,6 +301,20 @@ impl SWorld {
         dev.s_mut()
             .verify_contact(&preview.sender, &contact.fingerprint)
             .unwrap();
+        // The owner's pin must be verified as well when the owner sent
+        // nothing (a manager's invite): later rotation shares come from it.
+        if preview.owner != preview.sender {
+            let owner = dev
+                .s()
+                .contacts()
+                .unwrap()
+                .into_iter()
+                .find(|c| c.account_id == preview.owner)
+                .unwrap();
+            dev.s_mut()
+                .verify_contact(&preview.owner, &owner.fingerprint)
+                .unwrap();
+        }
         let joined = dev.engine.accept_invite(&mut dev.access, &invite).unwrap();
         assert_eq!(joined, vault);
     }

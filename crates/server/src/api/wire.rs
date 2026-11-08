@@ -101,7 +101,7 @@ reply!(OutgoingInvite {
 });
 reply!(InvitesResponse { incoming: Vec<IncomingInvite>, outgoing: Vec<OutgoingInvite> });
 reply!(InviteVault { meta: B64<65_600>, roster: Option<B64<65_600>> });
-body!(AcceptRequest { wrapped: B64Fixed<74>, device: Id });
+body!(AcceptRequest { wrapped: B64Fixed<74>, device: Id, generation: u32 });
 reply!(AcceptResponse {
     vault_id: Id,
     generation: u32,

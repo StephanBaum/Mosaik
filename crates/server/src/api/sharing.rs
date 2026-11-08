@@ -231,7 +231,15 @@ pub async fn accept_invite(
     }
     let now = st.clock.now_ms();
     let a = st.db.run_tx(|tx| {
-        dbs::accept_invite(tx, &s.account_id, &id, &req.wrapped.0, &s.device_id, now)
+        dbs::accept_invite(
+            tx,
+            &s.account_id,
+            &id,
+            &req.wrapped.0,
+            req.generation,
+            &s.device_id,
+            now,
+        )
     })?;
     notify_vault(&st, &a.vault, now);
     Reply::ok(&AcceptResponse {
@@ -315,6 +323,21 @@ pub async fn set_role(
     st.db
         .run_tx(|tx| dbs::set_role(tx, &s.account_id, &vault, &target, req.role))?;
     notify_vault(&st, &vault, st.clock.now_ms());
+    Ok(Reply::no_content())
+}
+
+pub async fn remove_member(
+    State(st): State<AppState>,
+    Session(s): Session,
+    Path((vault_id, account_id)): Path<(String, String)>,
+) -> Result<Reply, ApiError> {
+    let vault = parse_uuid(&vault_id)?;
+    let target = parse_uuid(&account_id)?;
+    let now = st.clock.now_ms();
+    let wake = st
+        .db
+        .run_tx(|tx| dbs::remove_member_by(tx, &s.account_id, &vault, &target, now))?;
+    notify(&st, wake, now);
     Ok(Reply::no_content())
 }
 

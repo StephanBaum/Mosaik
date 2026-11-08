@@ -87,7 +87,7 @@ Interoperability only (these read or serve third-party formats and never protect
   `share/vault`, `fingerprint`, `vault-roster` (§8.2), `emergency` (§8.4), `contacts-key`,
   `contacts` (§8.5), `sync/view2` and `sync/view-meta` (the plain SHA-256 prefixes of the
   version 2 view digest and its metadata commitment, §10); and, in the server only,
-  `server/directory-key` and `server/directory-ipk` (§8.2, ADR-0052). `sync/view`
+  `server/directory-key` and `server/directory-ipk` (§8.2, ADR-0052, ADR-0055). `sync/view`
   is **retired** (version 1 of the view digest, never released with sharing): it stays in the
   registry, so it can't be reused for another purpose.
 - **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
@@ -594,6 +594,13 @@ for `0`). The desktop has no camera, so verification is by reading the code alou
 the phone. The QR payload for mobile (M10) is `mosaic-contact:1:<account_id hex32>:<fpr hex64>`;
 M6b defines it and does not use it.
 
+**Directory fakes.** For an unknown address the directory's `ipk` is
+`DeriveKeyPair(HMAC-SHA-256(K_dir, ctx("server/directory-ipk") || normalized_email)).public`
+(RFC 9180 §7.1.3, the derivation of real identity keys) with
+`K_dir = HKDF(server_secret, "", ctx("server/directory-key"), 32)`, so a fake is a valid X25519
+key in the prime-order subgroup like every real `ipk` and can't be told apart by a validity
+check (ADR-0055).
+
 **ShareSeal.** For each recipient the sender seals VK with HPKE mode **Auth**, using the
 sender's `isk` as the authentication key, the suite fixed by §2 (KEM `0x0020`, KDF `0x0001`,
 AEAD `0x0003`):
@@ -640,7 +647,11 @@ aad    = header || aad("vault-roster", vault_id, key_generation:u32)
   read-only inputs. A rotation moves the roster to `g + 1` explicitly (the content is carried
   over and the removals are written at `g + 1`).
 - **Owner entry.** The owner's account is fixed when the roster is created (the vault's
-  owner). The owner's entry is the one written at creation: later writes to
+  owner). A device that has no sharing row for the vault accepts a first roster only if its
+  owner is this account, or a contact this account verified with the roster's fingerprint
+  (ADR-0055): a vault that was never shared is not handed to whoever holds its key and
+  forges a roster. The engine also refuses the roster when the owner is an emergency
+  grantee of this account. The owner's entry is the one written at creation: later writes to
   `member:<owner>` are ignored and never make the roster invalid.
 - **Merge rule** (ADR-0050). The merge of two replicas is the document merge of §10. The
   *effective* value of a `member:*` register that holds several concurrent values is the one
@@ -676,9 +687,18 @@ generation g:
    role, a `since` of at most g, and B's own `fpr`. The opened VK waits in a pending slot
    bound to the session for at most 5 minutes.
 4. B accepts with a user gesture and a verified pin of A, re-wraps `VK_g` under `AK_B` (§7.1)
-   and the server adds the membership. The next run pulls the vault from the start.
+   and the server adds the membership. The accept carries the generation `g` of the wrapped
+   key; the server answers `invite_stale` unless `g` equals both the invite's generation and
+   the vault's current one, so a wrapping of an older key can't be filed under a newer
+   generation after a rotation refreshed the seal (ADR-0055). When the vault's owner is not
+   A, the pin of the owner (named by the roster, fixed at accept) must be **verified** as
+   well, because later rotation shares are accepted only from the owner (§8.3). The accept
+   and the preview refuse a vault ID this device already knows: an open vault, a generation
+   floor left by a deleted one, or a sharing row; the one exception is a vault whose access
+   was lost, offered again by the same owner. The next run pulls the vault from the start.
 5. If the vault rotated since the invite, the accept fails (`invite_stale`); A's next rotation
-   refreshes every pending invite (§8.3), so the sender never re-invites by hand.
+   refreshes every pending invite (§8.3), so the sender never re-invites by hand. An opened
+   invite key is dropped from memory after its five minutes (not only refused).
 6. Declining, or the sender cancelling an invite, after the seal was delivered leaves B
    holding `VK_g`: A's devices queue a revocation of B (§8.3).
 
@@ -725,8 +745,12 @@ rotation in v1, and a revocation waits while the owner is offline):
    FK (they are not protected against the removed member until they are re-sealed).
 2. Prepare, without changing the store: a new VK of generation `g + 1`; its wrapping under
    the owner's AK; a `ShareSeal` for every remaining member and for every pending invite
-   (each `ipk` must match the roster `fpr` and, for a contact, the pin; a mismatch is a hard
-   error and no seal is made); a new roster at `g + 1` with the revoked members marked
+   (each `ipk` must match the roster `fpr`, and the account must be a contact this account
+   **verified**: a roster entry a member wrote says nothing about who a key would go to. A
+   changed key is a hard error and no seal is made. A roster member that is not verified is
+   treated as unconfirmed: no seal is made to it, the rotation revokes it, and the finding
+   `MemberUnverified` tells the user; a pending invitee that is unverified or can't be
+   resolved by the email lookup loses its invite instead of blocking the rotation); a new roster at `g + 1` with the revoked members marked
    `removed, since: g + 1`; and emergency seals for the grants that cover the vault (§8.4).
 3. Send **one atomic rotate request**: key row, member seals, refreshed invite seals, roster,
    membership removals, generation and head bump, conditional on the vault's current
@@ -753,11 +777,17 @@ read anything new."
 An unshared vault keeps the M6 path (key upload with adoption, §10.2); the server refuses
 that path for a vault with more than one member or a pending invite.
 
+**Removal by a manager.** `DELETE /v1/vaults/{v}/members/{a}` lets a manager or the owner
+remove a member whose role is at most the caller's (never the owner, never the caller). The
+server deletes the membership, keys and shares. The owner's next run finds the roster member
+missing from the server's list and rotates, as for a leave. (Before this, a manager's
+removal request waited on the manager's own device and nothing carried it to the owner.)
+
 **Claim rule** (member side). The pull page of a vault lists the key shares addressed to
 this account. For the lowest share above the held generation g, from sender S:
-1. Fetch S's `ipk` by account ID. `Fingerprint::of(S, ipk_S)` must equal S's pin (the
-   verified contact pin of the owner) and `fpr_S` in the roster this device holds at
-   generation g.
+1. Fetch S's `ipk` by account ID. `Fingerprint::of(S, ipk_S)` must equal S's pin, which
+   must be **verified** (the contact pin of the owner), and `fpr_S` in the roster this
+   device holds at generation g.
 2. S must be the vault owner: the account fixed when this device accepted the vault
    (`VaultRoster::authorizes_rotation`). No roster role or entry can authorize any other
    sender.
@@ -774,9 +804,12 @@ the vault owner, identified by the pinned fingerprint.
 
 **Membership consistency.** Each run compares the server's member list with the roster. A
 member the server lists but the roster does not (an emergency release, or an account the
-server injected) is shown as "unconfirmed"; the next rotation revokes them unless a manager
-verifies them and adds them to the roster. A member in the roster but not on the server is
-the finding `MemberDropped`. A removed member's device gets `not_member`; the vault becomes
+server injected) is shown as "unconfirmed". Unconfirmed members never trigger a rotation;
+a rotation that runs anyway leaves them out of the new key and revokes them, unless a
+manager verifies them and adds them to the roster. A member in the roster but not on the
+server is the finding `MemberDropped` (recorded on the owner's device). The owner's next
+rotation leaves them out of the key too: a leave, a manager's removal and a server's drop
+look the same, and none of them may keep the key. A removed member's device gets `not_member`; the vault becomes
 `access_lost` locally and its copy stays readable until the user removes it. The owner
 leaving is refused.
 
@@ -790,7 +823,11 @@ The grantor seals the keys of vaults in scope to the grantee's `ipk` with HPKE A
 info = ctx("emergency") || grantor_account_id || grantee_account_id
 aad  = header || aad("emergency", content_type:u8 = 0x02, vault_id, key_generation:u32)
 ```
-Content type `0x02` is a vault key. Content type `0x01` (the account key) is **reserved**:
+Content type `0x02` is a vault key. Creating a grant gives every vault it covers the
+owner-only roster and the `shared` flag on the grantor's device (ADR-0055), because a release
+adds a member without any invite: the revocation rotation and the claim rule then run on the
+shared path. A grant for an account that does not exist answers like one for a real account
+and stores nothing. Content type `0x01` (the account key) is **reserved**:
 no decoder accepts it, and a grant never contains AK (ADR-0048). Scope is `all` (every
 AK-wrapped vault the grantor owns, including later ones) or `selected`. Only vaults where
 the grantor is `owner` can be covered; vaults shared to the grantor are excluded, and the
@@ -801,8 +838,10 @@ server enforces that. Hardware-protected vaults (§7.4) cannot be covered.
 `idle`, with a 24 hour cooldown before the next request); the grantor approves after a fresh
 login (`approved`); or the grantee releases at `release_at` (`released`). From `approved` the
 grantee releases at any time. `released` is final until the grantor deletes the grant, which
-is allowed in any state and removes the seals; when the grant was `released`, the grantor's
-client then queues revocations for the memberships that came through the release.
+is allowed in any state and removes the seals and the memberships (with their keys and
+shares) that came through the release; when the grant was `released`, the grantor's client
+queues the revocations first, while the server still lists the memberships, and rotates the
+vault keys at once. The grantee's device then gets `not_member` and no new records or keys.
 `wait_days` is one of 1, 2, 7, 14, 30 (default 7), chosen by the grantor, and can't be
 changed while `waiting`. The server notifies both accounts through its inbox counter; there
 is no email. The wait must be long enough for a living grantor to open the app.
@@ -814,7 +853,9 @@ and a revocation rotation includes the seals of the new generation.
 **Release.** The grantee's release returns the seals; the server adds a `read` membership
 with origin `emergency` to every vault in scope. The client checks the grantor pin (verified,
 or a warning: an unverified grantor can only inject fake vault keys, not read anything),
-opens each seal with the `info` and `aad` above, claims the keys (the claim accepts an
+opens each seal with the `info` and `aad` above (a seal for a vault ID the device already
+knows is not opened: it is skipped if the vault is the grantor's already, and the finding
+`ShareUntrusted` otherwise), claims the keys (the claim accepts an
 emergency membership plus a seal of the current generation) and syncs the vaults read-only.
 
 The *waiting period* is enforced by the server, not by crypto. A server colluding with the
@@ -1646,6 +1687,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 | vault IDs, membership (`account_id` → `vault_id`, role, origin `owner`, `invite` or `emergency`) | access control |
 | invites (sender, recipient, vault, role, generation, seal, times, delivered time), key-share seals until claimed, block lists | sharing (§8.2, §8.3), spam control |
 | roster ciphertext per vault and generation (§8.2), contact book ciphertext and its length (§8.5) | sharing, pin sync across devices |
+| removals (`vault_removals`: vault, account, the generation a re-invite has to pass), the per-account change counter `inbox_seq` (it moves on every invite, grant, request, decision and release, and wakes `/v1/poll`), the invite `hidden` flag (an invite from a blocked sender or to a full inbox is stored but never shown) | `reinvite_blocked`, change notification without email, spam control |
+| audit event kinds 7 to 14 (identity published, invite sent, invite accepted, member removed, emergency granted, requested, declined or approved, released), with account, time and device | the user-visible security log |
 | emergency grants: grantor, grantee, wait days, scope, vault IDs and generations, state, request, decision and release times, seals (§8.4) | the waiting period, release |
 | directory lookups (counted for rate limits, not logged) | abuse control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |

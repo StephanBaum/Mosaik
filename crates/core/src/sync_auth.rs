@@ -292,48 +292,10 @@ pub fn view_key_commit(vault: &VaultId, generation: KeyGeneration, wrapped: &[u8
     hash.finalize().into()
 }
 
-/// One served record in the input of [`view_digest`]: record ID, the
+/// One served record in the input of [`view_digest2`]: record ID, the
 /// `server_seq` it was served or accepted under, and the SHA-256 of its
 /// ciphertext.
 pub type ServedEntry = ([u8; 16], u64, [u8; 32]);
-
-/// The view digest of a hosted vault (CRYPTO_SPEC §10):
-/// `SHA-256(ctx("sync/view") || 0x00 || vault_id || high_seq:u64 ||
-/// key_commit[32] || n:u32 || n x (record_id[16] || seq:u64 || ct_hash[32]))`
-/// with `rows` sorted by record ID. No key is involved. **Retired** by
-/// [`view_digest2`] (M6b, ADR-0048); kept for the label registry and the
-/// old known-answer test until the sync engine has moved over.
-///
-/// # Errors
-/// [`Error::Malformed`] if the rows are not strictly ascending by record ID
-/// or there are more than `u32::MAX`.
-pub fn view_digest(
-    vault: &VaultId,
-    high_seq: u64,
-    key_commit: &[u8; 32],
-    rows: &[ServedEntry],
-) -> Result<[u8; 32]> {
-    let n = u32::try_from(rows.len()).map_err(|_| Error::Malformed)?;
-    if rows
-        .windows(2)
-        .any(|w| w.first().map(|r| r.0) >= w.get(1).map(|r| r.0))
-    {
-        return Err(Error::Malformed);
-    }
-    let mut hash = Sha256::new();
-    hash.update(ctx(label::SYNC_VIEW.as_str()));
-    hash.update([0u8]);
-    hash.update(vault.as_bytes());
-    hash.update(high_seq.to_be_bytes());
-    hash.update(key_commit);
-    hash.update(n.to_be_bytes());
-    for (record, seq, ct_hash) in rows {
-        hash.update(record);
-        hash.update(seq.to_be_bytes());
-        hash.update(ct_hash);
-    }
-    Ok(hash.finalize().into())
-}
 
 /// One versioned object in the metadata commitment of [`view_meta_commit`]:
 /// the `server_seq` it was served or accepted under and the SHA-256 of its
@@ -365,8 +327,9 @@ pub fn view_meta_commit(vault: &VaultId, meta: &ServedObject, roster: &ServedObj
 /// `SHA-256(ctx("sync/view2") || 0x00 || vault_id || high_seq:u64 ||
 /// key_commit[32] || meta_commit[32] || n:u32 ||
 /// n x (record_id[16] || seq:u64 || ct_hash[32]))` with `rows` sorted by
-/// record ID. It replaces [`view_digest`], whose label `sync/view` is
-/// retired; checkpoints of version 1 carry this digest.
+/// record ID. It replaces the first digest, whose label `sync/view` is
+/// retired (still registered, never used); checkpoints of version 1 carry
+/// this digest.
 ///
 /// # Errors
 /// [`Error::Malformed`] if the rows are not strictly ascending by record ID
@@ -692,8 +655,5 @@ mod kat {
             view_digest2(&vault, 8, &[0x44; 32], &meta_commit, &swapped).unwrap_err(),
             Error::Malformed
         );
-        // The version 2 digest differs from the retired version 1 digest.
-        let old = view_digest(&vault, 8, &[0x44; 32], &rows).unwrap();
-        assert_ne!(old, digest);
     }
 }

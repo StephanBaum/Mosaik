@@ -626,7 +626,9 @@ fn chaos(seed: u64) {
 
 #[test]
 fn chaos_three_accounts_random_ops() {
-    for seed in 1..=6 {
+    // 32 seeds in release (the milestone gate); six in a debug build.
+    let seeds = if cfg!(debug_assertions) { 6 } else { 32 };
+    for seed in 1..=seeds {
         chaos(seed);
     }
 }

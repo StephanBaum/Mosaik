@@ -324,7 +324,11 @@ fn apply_page(
         // The served view: what the server showed for every record of the
         // page, whatever becomes of it (applied, ignored as dominated,
         // deferred or unreadable). Overwritten, never a maximum.
-        for record in &page.records {
+        for record in page
+            .records
+            .iter()
+            .filter(|r| !served::is_reserved_id(&r.record_id))
+        {
             if let Some(seq) = record.seq {
                 let hash: [u8; 32] = Sha256::digest(record.body.as_bytes()).into();
                 s.note_served(vault, record.record_id, seq, hash)?;
@@ -370,6 +374,11 @@ fn apply_page(
     }
     let mut deferred = Vec::new();
     for (i, record) in page.records.iter().enumerate() {
+        // A record under a reserved row ID is never applied (M3).
+        if served::is_reserved_id(&record.record_id) {
+            env.report.undecryptable += 1;
+            continue;
+        }
         match apply_record(s, vault, record, env.report, env.stats)? {
             Applied::Done => {}
             Applied::Deferred => {

@@ -383,6 +383,7 @@ pub trait SharingTransport {
         &mut self,
         invite: &InviteId,
         wrapped: &WrappedKey,
+        generation: KeyGeneration,
         device: InstallId,
     ) -> Result<AcceptResult, TransportError>;
 
@@ -415,6 +416,15 @@ pub trait SharingTransport {
         account: &AccountId,
         role: Role,
     ) -> Result<(), TransportError>;
+
+    /// `DELETE /v1/vaults/{v}/members/{a}`: an owner or manager removes a
+    /// member whose role is at most their own (never the owner). The
+    /// owner's next run sees the roster member missing from the member list
+    /// and rotates the vault key.
+    ///
+    /// # Errors
+    /// [`TransportError`] (`Forbidden`, `NotFound`, `Rejected(RoleForbidden)`).
+    fn remove_member(&mut self, vault: VaultId, account: &AccountId) -> Result<(), TransportError>;
 
     /// `PUT /v1/vaults/{v}/roster`.
     ///

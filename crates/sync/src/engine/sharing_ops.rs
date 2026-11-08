@@ -287,9 +287,12 @@ impl<T: Transport> SyncEngine<T> {
                 },
             )));
         }
-        let result = self
-            .sharing_tx()?
-            .accept_invite(invite, accepted.wrapped(), install)?;
+        let result = self.sharing_tx()?.accept_invite(
+            invite,
+            accepted.wrapped(),
+            accepted.generation(),
+            install,
+        )?;
         if result.vault_id != accepted.vault_id() || result.generation != accepted.generation() {
             return Err(SyncError::Transport(TransportError::Protocol));
         }
@@ -469,14 +472,25 @@ impl<T: Transport> SyncEngine<T> {
         vault: VaultId,
         account: &AccountId,
     ) -> Result<Vec<mosaic_core::AttachmentId>, SyncError> {
-        access.with(|s| s.request_revocation(vault, account, RevocationReason::Removed))??;
         let (is_owner, pending) = access.with(|s| -> Result<_, Error> {
-            Ok((
-                s.vault_own_role(vault)? == Role::Owner && s.vault_owner(vault)? == s.account_id(),
-                s.pending_revocations()?,
-            ))
+            let own = s.vault_own_role(vault)?;
+            if !own.can_manage() || *account == s.account_id() {
+                return Err(Error::RoleForbidden);
+            }
+            if *account == s.vault_owner(vault)? {
+                return Err(Error::OwnerCannotBeRevoked);
+            }
+            let is_owner = own == Role::Owner && s.vault_owner(vault)? == s.account_id();
+            if is_owner {
+                s.request_revocation(vault, account, RevocationReason::Removed)?;
+            }
+            Ok((is_owner, s.pending_revocations()?))
         })??;
         if !is_owner {
+            // A manager: the server drops the membership (the target's role
+            // must be at most the manager's); the owner's next run sees the
+            // roster member missing from the member list and rotates (H4).
+            self.sharing_tx()?.remove_member(vault, account)?;
             return Ok(Vec::new());
         }
         let explicit: BTreeSet<AccountId> = pending
@@ -551,9 +565,13 @@ impl<T: Transport> SyncEngine<T> {
             GrantScope::Selected => vaults.to_vec(),
         };
         let seals = access.with(|s| s.seal_emergency(grantee, &entry.ipk, &chosen))??;
-        Ok(self
-            .sharing_tx()?
-            .put_grant(grantee, wait_days, scope, &seals)?)
+        self.sharing_tx()?
+            .put_grant(grantee, wait_days, scope, &seals)?;
+        // The covered vaults are shared vaults from now on (H3).
+        for vault in chosen {
+            Self::ensure_owner_roster(access, vault)?;
+        }
+        Ok(())
     }
 
     /// Deletes a grant (any state). If it was released, a revocation is
@@ -571,11 +589,24 @@ impl<T: Transport> SyncEngine<T> {
         let released = given
             .iter()
             .any(|g| g.grantee == *grantee && g.state == GrantState::Released);
-        self.sharing_tx()?.delete_grant(grantee)?;
+        // The revocations are queued while the server still lists the
+        // grantee as a member: deleting the grant deletes the memberships,
+        // keys and shares the release made (H3).
+        let mut affected = Vec::new();
         if released {
             for vault in Self::owned_vaults(access)?.into_keys() {
-                self.revoke_emergency_member(access, vault, grantee)?;
+                if self.revoke_emergency_member(access, vault, grantee)? {
+                    affected.push(vault);
+                }
             }
+        }
+        self.sharing_tx()?.delete_grant(grantee)?;
+        // The key the grantee holds is replaced at once.
+        let mut report = SyncReport::default();
+        let mut stats = RunStats::default();
+        for vault in affected {
+            let explicit: BTreeSet<AccountId> = BTreeSet::from([*grantee]);
+            self.rotate_shared(access, vault, &explicit, &mut report, &mut stats)?;
         }
         Ok(())
     }
@@ -587,10 +618,10 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         vault: VaultId,
         grantee: &AccountId,
-    ) -> Result<(), SyncError> {
+    ) -> Result<bool, SyncError> {
         let view = match self.sharing_tx()?.members(vault) {
             Ok(view) => view,
-            Err(TransportError::Forbidden | TransportError::NotFound) => return Ok(()),
+            Err(TransportError::Forbidden | TransportError::NotFound) => return Ok(false),
             Err(e) => return Err(e.into()),
         };
         let member = view
@@ -598,9 +629,10 @@ impl<T: Transport> SyncEngine<T> {
             .iter()
             .any(|m| m.account_id == *grantee && m.origin == MemberOrigin::Emergency);
         if member {
+            Self::ensure_owner_roster(access, vault)?;
             access.with(|s| s.request_revocation(vault, grantee, RevocationReason::Removed))??;
         }
-        Ok(())
+        Ok(member)
     }
 
     /// Asks a grantor for emergency access: when the wait ends (ms since the

@@ -52,6 +52,7 @@ pub(super) struct PendingInvite {
     sender_fpr: Fingerprint,
     role: Role,
     owner: AccountId,
+    owner_fpr: Fingerprint,
     opened: Instant,
 }
 
@@ -164,6 +165,14 @@ pub enum SharingFinding {
         /// Who sent it.
         sender: AccountId,
     },
+    /// A roster member this account has not verified: no key is sealed to
+    /// them and a rotation locks them out (M6b review H2).
+    MemberUnverified {
+        /// The vault.
+        vault: VaultId,
+        /// The member.
+        account: AccountId,
+    },
     /// A roster member the server no longer lists.
     MemberDropped {
         /// The vault.
@@ -214,6 +223,12 @@ pub struct InvitePreview {
     pub sender_state: ContactState,
     /// The vault's owner as the roster names it.
     pub owner: AccountId,
+    /// The owner's safety code, for the user to compare when the owner is
+    /// not the sender (M6b review M4).
+    pub owner_code: String,
+    /// The state of the owner's pin: it must be verified before the invite
+    /// is accepted.
+    pub owner_state: ContactState,
 }
 
 impl fmt::Debug for InvitePreview {
@@ -647,6 +662,9 @@ impl UnlockedSession {
             SharingFinding::MemberDropped { vault, account } => {
                 (4, Some(*vault), None, Some(*account))
             }
+            SharingFinding::MemberUnverified { vault, account } => {
+                (5, Some(*vault), None, Some(*account))
+            }
         };
         Ok(self
             .store
@@ -670,6 +688,9 @@ impl UnlockedSession {
                 },
                 (4, Some(vault), _, Some(account)) => {
                     SharingFinding::MemberDropped { vault, account }
+                }
+                (5, Some(vault), _, Some(account)) => {
+                    SharingFinding::MemberUnverified { vault, account }
                 }
                 _ => return Err(Error::Store(crate::storage::Error::Corrupt)),
             };
@@ -989,6 +1010,22 @@ impl UnlockedSession {
             self.record_sharing_finding(SharingFinding::RosterInvalid { vault })?;
             return Err(e.into());
         }
+        // No sharing row: this device has never seen the vault shared. The
+        // first roster fixes the owner, so it may name another account than
+        // this one only if that account is a contact this account verified,
+        // with the fingerprint the roster holds (H3): a vault that was never
+        // shared must not be handed to whoever holds its key and forges a
+        // roster.
+        if row.is_none() && *owner != self.account_id {
+            let pinned = received.member(owner).is_some_and(|m| {
+                self.contact_book().is_ok_and(|b| {
+                    b.check(owner, &m.fingerprint) == ContactState::Pinned { verified: true }
+                })
+            });
+            if !pinned {
+                return Err(Error::OwnerMismatch);
+            }
+        }
         // An older roster is a read-only input: only the one of this
         // generation merges.
         let local = match self.load_roster(vault) {
@@ -1100,6 +1137,48 @@ impl UnlockedSession {
         let ct = roster.seal(vk, &vault)?;
         let seq = self.store.vault_roster(&vault)?.and_then(|r| r.seq);
         self.store.put_vault_roster(&vault, &ct, seq, true)?;
+        Ok(())
+    }
+
+    /// Gives a vault this account owns the owner-only roster and the sharing
+    /// row (M6b review H3): an emergency release makes the grantee a member
+    /// without any invite, and the revocation rotation and the claim rule
+    /// run on the shared path. Called when a grant covers the vault. The
+    /// roster is queued for upload. Keeps a roster that exists.
+    ///
+    /// # Errors
+    /// [`Error::NoIdentity`], [`Error::WrongVaultProtection`],
+    /// [`Error::NotOwner`], [`Error::VaultUnavailable`], [`Error::Core`],
+    /// [`Error::Store`].
+    pub fn ensure_owner_roster(&mut self, vault: VaultId) -> Result<()> {
+        let own_fpr = {
+            let id = self.own_identity()?;
+            Fingerprint::of(&self.account_id, &id.ipk)
+        };
+        let ov = self.vault(vault)?;
+        if ov.protection != VaultKeyWrap::AccountKey {
+            return Err(Error::WrongVaultProtection);
+        }
+        if self.vault_own_role(vault)? != Role::Owner || self.vault_owner(vault)? != self.account_id
+        {
+            return Err(Error::NotOwner);
+        }
+        if self.load_roster(vault)?.is_none() {
+            let g = ov.generation;
+            let vk = ov.current_key()?;
+            let mut roster = VaultRoster::new(g, self.account_id);
+            roster.edit(self.device, now()).set_member(
+                &self.account_id,
+                Role::Owner,
+                KeyGeneration::FIRST,
+                &own_fpr,
+                &self.own_email()?,
+            )?;
+            let ct = roster.seal(vk, &vault)?;
+            self.store.put_vault_roster(&vault, &ct, None, true)?;
+        }
+        let account = self.account_id;
+        self.store.set_vault_sharing(&vault, 1, &account, false)?;
         Ok(())
     }
 
@@ -1282,6 +1361,8 @@ impl UnlockedSession {
             .map_err(|_| Error::InviteUnreadable)?;
         let (roster, owner) = open_roster_unowned(roster, &vk, &inv.vault_id)?;
         roster.validate().map_err(|_| Error::InviteNotInRoster)?;
+        // A vault this device knows gets no key from an invite (H1).
+        self.check_vault_unknown(&inv.vault_id, &owner)?;
         let own_fpr = Fingerprint::of(&self.account_id, &own_ipk);
         let me = roster
             .member(&self.account_id)
@@ -1293,6 +1374,14 @@ impl UnlockedSession {
         if !from.role.can_manage() || from.fingerprint != sender_fpr {
             return Err(Error::InviteNotInRoster);
         }
+        let owner_fpr = if owner == inv.sender {
+            sender_fpr
+        } else {
+            roster
+                .member(&owner)
+                .ok_or(Error::InviteNotInRoster)?
+                .fingerprint
+        };
         if owner != inv.sender {
             let owner_entry = roster.member(&owner).ok_or(Error::InviteNotInRoster)?;
             match book.check(&owner, &owner_entry.fingerprint) {
@@ -1318,9 +1407,9 @@ impl UnlockedSession {
             self.save_contact_book(&book)?;
         }
         let sender_state = self.contact_state(&inv.sender, sender_ipk)?;
+        let owner_state = self.contact_book()?.check(&owner, &owner_fpr);
         let name = meta.name().map(str::to_owned);
-        self.pending_invites
-            .retain(|_, p| p.opened.elapsed() <= PENDING_INVITE_TTL);
+        self.sweep_pending_invites();
         self.pending_invites.insert(
             inv.invite_id,
             PendingInvite {
@@ -1331,6 +1420,7 @@ impl UnlockedSession {
                 sender_fpr,
                 role: inv.role,
                 owner,
+                owner_fpr,
                 opened: Instant::now(),
             },
         );
@@ -1345,7 +1435,62 @@ impl UnlockedSession {
             sender_code: sender_fpr.safety_code(),
             sender_state,
             owner,
+            owner_code: owner_fpr.safety_code(),
+            owner_state,
         })
+    }
+
+    /// Drops the opened invite keys whose five minutes are over. The sync
+    /// layer calls it every run, so a key does not sit in memory after its
+    /// time (M6b review L4); [`Self::accept_invite`] refuses an expired one
+    /// either way.
+    pub fn sweep_pending_invites(&mut self) {
+        self.pending_invites
+            .retain(|_, p| p.opened.elapsed() <= PENDING_INVITE_TTL);
+    }
+
+    /// Whether the sharing row of `vault` names `owner`.
+    fn is_owned_by(&self, vault: &VaultId, owner: &AccountId) -> bool {
+        self.store
+            .vault_sharing(vault)
+            .ok()
+            .flatten()
+            .is_some_and(|r| r.owner_account == *owner)
+    }
+
+    /// Moves the opened-at time of every pending invite back (a test cannot
+    /// wait five minutes).
+    #[cfg(test)]
+    pub(super) fn age_pending_invites(&mut self, by: Duration) {
+        for p in self.pending_invites.values_mut() {
+            if let Some(t) = p.opened.checked_sub(by) {
+                p.opened = t;
+            }
+        }
+    }
+
+    /// Whether a vault ID is new to this device (M6b review H1). An invite
+    /// or an emergency release hands a vault key to the device; for an ID
+    /// the device already knows (an open vault, a generation floor of a
+    /// deleted one, or a sharing row) the key would replace or join a
+    /// vault the server and a contact have no business with. The one
+    /// exception is a vault this account lost access to, offered again by
+    /// the same owner.
+    ///
+    /// # Errors
+    /// [`Error::VaultKnown`], [`Error::Store`].
+    pub fn check_vault_unknown(&self, vault: &VaultId, owner: &AccountId) -> Result<()> {
+        if let Some(row) = self.store.vault_sharing(vault)? {
+            return if row.access_lost_at_ms.is_some() && row.owner_account == *owner {
+                Ok(())
+            } else {
+                Err(Error::VaultKnown)
+            };
+        }
+        if self.vaults.contains_key(vault) || self.store.generation_floor(vault)?.is_some() {
+            return Err(Error::VaultKnown);
+        }
+        Ok(())
     }
 
     /// Accepts a previewed invite (the user's gesture, with the sender's
@@ -1371,6 +1516,20 @@ impl UnlockedSession {
                 return Err(Error::ContactKeyChanged);
             }
         }
+        // Later rotation shares are accepted only from the owner, whose pin
+        // must therefore be verified (M6b review M4).
+        if p.owner != p.sender {
+            match self.contact_book()?.check(&p.owner, &p.owner_fpr) {
+                ContactState::Pinned { verified: true } => {}
+                ContactState::Pinned { .. } | ContactState::Unknown => {
+                    return Err(Error::ContactUnverified);
+                }
+                ContactState::Changed | ContactState::Conflicting => {
+                    return Err(Error::ContactKeyChanged);
+                }
+            }
+        }
+        self.check_vault_unknown(&p.vault, &p.owner)?;
         Ok(AcceptedInvite {
             session_tag: self.session_tag,
             invite_id: Some(*invite_id),
@@ -1415,6 +1574,9 @@ impl UnlockedSession {
         if matches!(role, Role::Owner | Role::Removed) {
             return Err(Error::RoleForbidden);
         }
+        // The check and the key acceptance follow each other under this
+        // exclusive borrow; the store refuses a vault that exists as well.
+        self.check_vault_unknown(&vault_id, owner)?;
         self.apply_remote_vault_key(vault_id, generation, &wrapped)?;
         self.store
             .set_vault_sharing(&vault_id, role_number(role)?, owner, true)?;
@@ -1553,9 +1715,15 @@ impl UnlockedSession {
             if fpr_of(account) != Some(fpr) {
                 return Err(Error::MemberKeyMismatch);
             }
+            // A key is sealed only to a contact this account verified (H2):
+            // a roster entry written by a member says nothing about who the
+            // key would go to.
             match book.check(account, &fpr) {
                 ContactState::Changed | ContactState::Conflicting => Err(Error::MemberKeyMismatch),
-                _ => Ok(()),
+                ContactState::Pinned { verified: true } => Ok(()),
+                ContactState::Pinned { .. } | ContactState::Unknown => {
+                    Err(Error::ContactUnverified)
+                }
             }
         };
         for (a, ipk) in &plan.remaining {
@@ -1845,9 +2013,10 @@ impl UnlockedSession {
             generation: g.get(),
         };
         let book = self.contact_book()?;
+        // Only a verified pin of the owner authorizes a rotation share (M4).
         let pinned_owner = book
             .get(&owner)
-            .filter(|c| !c.conflicting)
+            .filter(|c| !c.conflicting && c.verified)
             .map(|c| c.fingerprint);
 
         // The roster of the held generation: the stored one, else the page's
@@ -2044,9 +2213,20 @@ impl UnlockedSession {
         }
         let mut out = Vec::new();
         let mut failed = None;
+        let mut forged: Vec<(VaultId, KeyGeneration)> = Vec::new();
         {
             let id = self.own_identity()?;
             for (vault, generation, seal) in seals {
+                // A vault this device knows gets no key from a release (H1).
+                // One that is the grantor's own already (the account is a
+                // member) is skipped quietly; any other is a forged seal.
+                let known = self.check_vault_unknown(vault, grantor).is_err();
+                if known && !self.is_owned_by(vault, grantor) {
+                    forged.push((*vault, *generation));
+                }
+                if known {
+                    continue;
+                }
                 let opened = open_emergency_vault_key(
                     seal,
                     vault,
@@ -2070,6 +2250,13 @@ impl UnlockedSession {
                     role: Role::Read,
                 });
             }
+        }
+        for (vault, generation) in forged {
+            self.record_sharing_finding(SharingFinding::ShareUntrusted {
+                vault,
+                generation,
+                sender: *grantor,
+            })?;
         }
         if let Some((vault, generation)) = failed {
             self.record_sharing_finding(SharingFinding::ShareUntrusted {

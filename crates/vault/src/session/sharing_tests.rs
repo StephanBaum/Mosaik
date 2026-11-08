@@ -398,12 +398,13 @@ fn accept_creates_shared_remote_vault() {
     b.s.apply_remote_roster(v, g(1), &sent.roster, 1, &a.id)
         .unwrap();
     assert_eq!(b.s.vault_roster(v).unwrap().unwrap().len(), 2);
-    // Another invite for the same vault (a replay) is not in the roster.
+    // Another invite for the vault B has joined already (a replay, here with
+    // another role) hands it no key: the vault is known (H1).
     let mut tampered = sent.incoming.clone();
     tampered.role = Role::Manage;
     assert!(matches!(
         b.s.open_invite(&tampered, &a.ipk, &sent.meta, &sent.roster),
-        Err(Error::InviteNotInRoster)
+        Err(Error::VaultKnown)
     ));
 }
 
@@ -990,4 +991,58 @@ fn emergency_seal_checks_owner_pin_and_forgery() {
         c.s.open_emergency_release(&a.id, &evil, &seals),
         Err(Error::ContactKeyChanged)
     ));
+}
+
+#[test]
+fn opened_invite_keys_are_swept_after_five_minutes() {
+    // M6b review L4: the key does not sit in memory after its time.
+    let (mut a, mut b) = (user("a@x"), user("b@x"));
+    let v = a.s.create_vault("V").unwrap();
+    let sent = invite(&mut a, v, &b, Role::Write);
+    b.s.open_invite(&sent.incoming, &a.ipk, &sent.meta, &sent.roster)
+        .unwrap();
+    assert_eq!(b.s.pending_invites.len(), 1);
+    b.s.sweep_pending_invites();
+    assert_eq!(
+        b.s.pending_invites.len(),
+        1,
+        "still within its five minutes"
+    );
+    b.s.age_pending_invites(std::time::Duration::from_secs(301));
+    b.s.sweep_pending_invites();
+    assert!(b.s.pending_invites.is_empty());
+}
+
+#[test]
+fn first_roster_with_another_owner_needs_a_verified_contact() {
+    // M6b review H3: a vault this device never saw shared is not handed to
+    // whoever holds its key and forges a roster.
+    let (mut a, b) = (user("a@x"), user("b@x"));
+    let v = a.s.create_vault("V").unwrap();
+    let ct = {
+        let vk = a.s.vaults.get(&v).unwrap().current_key().unwrap();
+        let mut roster = VaultRoster::new(g(1), b.id);
+        {
+            let mut edit = roster.edit(
+                mosaic_core::DeviceId::new_v7().unwrap(),
+                mosaic_core::model::Timestamp::from_unix_millis(1),
+            );
+            edit.set_member(&b.id, Role::Owner, g(1), &fpr(&b), "b@x")
+                .unwrap();
+            edit.set_member(&a.id, Role::Manage, g(1), &fpr(&a), "a@x")
+                .unwrap();
+        }
+        roster.seal(vk, &v).unwrap()
+    };
+    // B is a stranger, or only pinned: refused, and the vault stays unshared.
+    assert!(matches!(
+        a.s.apply_remote_roster(v, g(1), &ct, 1, &b.id),
+        Err(Error::OwnerMismatch)
+    ));
+    a.s.pin_contact(&b.id, &b.ipk, "b@x").unwrap();
+    assert!(matches!(
+        a.s.apply_remote_roster(v, g(1), &ct, 1, &b.id),
+        Err(Error::OwnerMismatch)
+    ));
+    assert!(!a.s.vault_shared(v).unwrap());
 }

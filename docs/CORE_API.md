@@ -588,12 +588,14 @@ session's `clear_sync_halt`, `clear_vault_findings` and `sync_findings`; the des
 
 Everything below is new in M6b and additive. Nothing of the M2 freeze changes
 meaning, with one exception that is not part of the frozen surface:
-`sync_auth::view_digest` is retired by `view_digest2` (below).
+`sync_auth::view_digest` was retired by `view_digest2` (below) and removed in the M6b review.
 
 ### `mosaic-core` (T1)
 
 - `identity`: `IdentitySecret` (zeroizing, `generate`, `public_key`, `wrap`),
-  `IdentityPublicKey` (32 bytes), `Fingerprint` (`of`, `from_bytes`,
+  `IdentityPublicKey` (32 bytes; `derived_from(ikm)` is the public half of
+  `DeriveKeyPair(ikm)`, used by the server for the directory's fake keys),
+  `Fingerprint` (`of`, `from_bytes`,
   `as_bytes`, `safety_code`, `matches_code`; constant-time equality),
   `WrappedKey::unwrap_identity`.
 - `share`: `ShareSeal` (82 bytes, strict `from_bytes`), `seal_vault_key`,
@@ -607,9 +609,8 @@ meaning, with one exception that is not part of the frozen surface:
   `Role`; `ContactBook`, `Contact`, `ContactState`.
 - `sync_auth`: `view_digest2`, `view_meta_commit`, `ServedObject`,
   `ABSENT_OBJECT` (the digest of CRYPTO_SPEC §10 with the metadata and roster
-  commitment, R70). `view_digest` and the label `sync/view` stay for the
-  label registry and the old known-answer test only; nothing in the sync
-  crate uses them any more.
+  commitment, R70). The label `sync/view` stays in the registry (retired,
+  never reused); the old `view_digest` function is gone.
 - New labels in `encoding::label` (CRYPTO_SPEC §3).
 
 ### `mosaic-vault` (T2; `session`, restricted to the sync client and the desktop)
@@ -625,7 +626,11 @@ contacts: `contact_state`, `pin_contact`, `verify_contact`,
 owner), `pending_roster_upload`, `mark_roster_uploaded`, `set_member_role`,
 `mark_access_lost`; invites: `prepare_invite` (`PreparedInvite`),
 `commit_invite_sent`, `open_invite` (`IncomingInvite`, `InvitePreview`),
-`accept_invite`, `commit_invite` (`AcceptedInvite`); revocation:
+`accept_invite`, `commit_invite` (`AcceptedInvite`), `check_vault_unknown`
+(`Error::VaultKnown`: no key from an invite or release for a vault the device
+knows), `sweep_pending_invites`, `ensure_owner_roster` (the owner-only roster
+and sharing row a grant needs; M6b review); `InvitePreview` carries
+`owner_code` and `owner_state`; `SharingFinding::MemberUnverified`; revocation:
 `request_revocation`, `pending_revocations` (`RevocationReason`),
 `prepare_shared_rotation` (`RotationPlan`, `PreparedSharedRotation`; owner only),
 `commit_shared_rotation` (`SharedRotationOutcome`); the claim rule:

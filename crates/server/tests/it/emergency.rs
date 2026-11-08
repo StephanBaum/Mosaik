@@ -184,8 +184,8 @@ async fn emergency_state_machine() {
         )
         .await;
     assert_eq!(claim.status, StatusCode::OK, "{}", text(&claim));
-    // Deleting the grant removes the seals; the membership stays for the
-    // owner's rotation to revoke.
+    // Deleting the grant removes the seals and the membership the release
+    // made (the owner's client then rotates the key, H3).
     let r = app
         .delete(&format!("/v1/emergency/grants/{}", e.id), Some(&g.t))
         .await;
@@ -196,7 +196,7 @@ async fn emergency_state_machine() {
         app.get(&vault_url(&v, "/changes?since=0"), Some(&e.t))
             .await
             .status,
-        StatusCode::OK
+        StatusCode::FORBIDDEN
     );
     // Without a grant, release finds nothing.
     assert_eq!(
@@ -419,15 +419,18 @@ async fn emergency_grant_input_rules() {
         grant(&app, &g, &g, 7, &[&v]).await.status,
         StatusCode::BAD_REQUEST
     );
+    let before = count(&app, "emergency_grants");
     let nobody = acct(&app, "nobody").await;
     let ghost = Acct {
         id: uuid(),
         ..nobody
     };
+    // An unknown account answers like a real one and stores nothing (L3).
     assert_eq!(
         grant(&app, &g, &ghost, 7, &[&v]).await.status,
-        StatusCode::NOT_FOUND
+        StatusCode::NO_CONTENT
     );
+    assert_eq!(count(&app, "emergency_grants"), before);
     assert_eq!(
         grant(&app, &g, &e, 7, &[&v, &v]).await.status,
         StatusCode::BAD_REQUEST

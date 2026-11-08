@@ -127,8 +127,13 @@ pub mod label {
     pub(crate) const SYNC_DEVICE_INFO_KEY: Label = Label::new("sync/device-info-key");
     /// AAD of sealed device info (§10.1).
     pub(crate) const SYNC_DEVICE_INFO: Label = Label::new("sync/device-info");
-    /// Prefix of the view digest in a hosted checkpoint (§10): a plain
-    /// SHA-256, no key involved.
+    /// Prefix of the first view digest in a hosted checkpoint (§10). Retired
+    /// by `sync/view2` (M6b); the registry keeps the label so it is never
+    /// reused.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "retired label, kept in the registry")
+    )]
     pub(crate) const SYNC_VIEW: Label = Label::new("sync/view");
     /// Prefix of the key commitment inside the view digest (§10).
     pub(crate) const SYNC_VIEW_KEY: Label = Label::new("sync/view-key");

@@ -161,8 +161,11 @@ pub fn put_grant(
     if !g.seals.iter().all(|s| seen.insert(s.vault_id)) {
         return Err(ApiError::bad_request());
     }
+    // An unknown grantee answers like a real one (M6b review L3): the
+    // grantor's own checks run, nothing is stored.
     if !super::sharing::account_exists(tx, grantee)? {
-        return Err(ApiError::not_found());
+        check_seals(tx, grantor, g.seals)?;
+        return Ok(());
     }
     let existing = grant(tx, grantor, grantee)?;
     match existing.as_ref().map(|e| e.state) {
@@ -232,6 +235,24 @@ pub fn delete_grant(
     grantor: &[u8; 16],
     grantee: &[u8; 16],
 ) -> Result<(), ApiError> {
+    // The memberships the release gave the grantee in the grantor's vaults
+    // go with the grant, with their keys and shares (M6b review H3): the
+    // grantor's client then rotates the vault key.
+    let mut stmt = tx.prepare(
+        "SELECT m.vault_id, v.current_generation FROM memberships m          JOIN memberships o ON o.vault_id = m.vault_id AND o.account_id = ?1 AND o.role = 1          JOIN vaults v ON v.vault_id = m.vault_id          WHERE m.account_id = ?2 AND m.origin = 2",
+    )?;
+    let rows: Vec<([u8; 16], u32)> = stmt
+        .query_map(params![grantor.as_slice(), grantee.as_slice()], |r| {
+            Ok((
+                id16(r, 0)?,
+                u32::try_from(r.get::<_, i64>(1)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+    for (vault, generation) in rows {
+        super::sharing::remove_member(tx, &vault, grantee, generation.saturating_add(1))?;
+    }
     let n = tx.execute(
         "DELETE FROM emergency_grants WHERE grantor = ?1 AND grantee = ?2",
         params![grantor.as_slice(), grantee.as_slice()],

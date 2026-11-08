@@ -460,7 +460,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/vaults/{vault_id}/members", get(sharing::members))
         .route(
             "/v1/vaults/{vault_id}/members/{account_id}",
-            put(sharing::set_role),
+            put(sharing::set_role).delete(sharing::remove_member),
         )
         .route("/v1/vaults/{vault_id}/roster", put(sharing::put_roster))
         .route("/v1/vaults/{vault_id}/rotate", post(sharing::rotate))

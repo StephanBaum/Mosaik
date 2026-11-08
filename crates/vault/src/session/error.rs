@@ -231,6 +231,12 @@ pub enum Error {
     #[error("owner mismatch")]
     OwnerMismatch,
 
+    /// The vault is already known on this device (open, a generation floor
+    /// or a sharing row): an invite or an emergency release may not hand it
+    /// a key (M6b review H1).
+    #[error("vault already known")]
+    VaultKnown,
+
     /// A roster that does not list this account.
     #[error("not in the roster")]
     NotInRoster,

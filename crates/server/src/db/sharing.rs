@@ -539,6 +539,7 @@ pub fn accept_invite(
     account: &[u8; 16],
     id: &[u8; 16],
     wrapped: &[u8; 74],
+    generation: u32,
     device: &[u8; 16],
     now: u64,
 ) -> Result<Accepted, ApiError> {
@@ -552,7 +553,11 @@ pub fn accept_invite(
     if inv.role < v.role {
         return Err(ApiError::not_found());
     }
-    if inv.generation != v.current_generation {
+    // The key the recipient wrapped is the one of the generation it names:
+    // it must be the invite's (a rotation refreshes the seal in place, so a
+    // wrapping of the previewed older key must not be filed under the newer
+    // generation) and the vault's current one.
+    if generation != inv.generation || inv.generation != v.current_generation {
         return Err(generation_error(codes::INVITE_STALE, v.current_generation));
     }
     let members = count(
@@ -974,7 +979,7 @@ pub fn rotate(
 
 /// Removes `member` from the vault: membership, keys, shares and open
 /// invites; a re-invite stays blocked until the vault passes `generation`.
-fn remove_member(
+pub(super) fn remove_member(
     tx: &Transaction<'_>,
     vault: &[u8; 16],
     member: &[u8; 16],
@@ -1003,6 +1008,37 @@ fn remove_member(
         params![vault.as_slice(), member.as_slice(), generation],
     )?;
     Ok(())
+}
+
+/// A manager or the owner removes a member (CRYPTO_SPEC §8.3): the target's
+/// role must be at most the caller's, never the owner, and not the caller
+/// (that is leaving). The owner's next sync sees the roster member missing
+/// from the member list and rotates the vault key. Returns the accounts to
+/// wake (every member before the removal).
+pub fn remove_member_by(
+    tx: &Transaction<'_>,
+    account: &[u8; 16],
+    vault: &[u8; 16],
+    target: &[u8; 16],
+    now: u64,
+) -> Result<Vec<[u8; 16]>, ApiError> {
+    let v = vaults::access_role(tx, account, vault, role::MANAGE)?;
+    let current: u8 = tx
+        .query_row(
+            "SELECT role FROM memberships WHERE vault_id = ?1 AND account_id = ?2",
+            params![vault.as_slice(), target.as_slice()],
+            |r| small(r, 0),
+        )
+        .optional()?
+        .ok_or_else(ApiError::not_found)?;
+    // A higher number is a weaker role.
+    if account == target || current == role::OWNER || current < v.role {
+        return Err(vaults::role_forbidden());
+    }
+    let others: Vec<[u8; 16]> = vaults::member_ids(tx, vault)?;
+    remove_member(tx, vault, target, v.current_generation.saturating_add(1))?;
+    audit::record(tx, target, now, audit::Kind::MemberRemoved, None)?;
+    Ok(others)
 }
 
 /// A member leaves. The owner can't. The leaver's keys and shares go; the

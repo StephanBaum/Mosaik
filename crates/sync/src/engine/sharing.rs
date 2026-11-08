@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::model::{ContactState, Role, RosterMember};
-use mosaic_core::{AccountId, IdentityPublicKey, KeyGeneration, ShareSeal, VaultId};
+use mosaic_core::{AccountId, Fingerprint, IdentityPublicKey, KeyGeneration, ShareSeal, VaultId};
 use mosaic_vault::session::{
     Error, InviteId, PulledShareView, RevocationReason, RotationPlan, SharingFinding,
     UnlockedSession,
@@ -156,6 +156,8 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
     ) -> Result<(), SyncError> {
+        // An opened invite key does not outlive its five minutes (L4).
+        access.with(UnlockedSession::sweep_pending_invites)?;
         if !self.sharing_offered() {
             return Ok(());
         }
@@ -328,6 +330,21 @@ impl<T: Transport> SyncEngine<T> {
         let Some(owner) = members.owner() else {
             return Ok(());
         };
+        // A vault this device has never seen shared, whose owner the server
+        // names as an account this account gave emergency access to: that
+        // account holds the key after a release and could have forged the
+        // roster (H3). Nothing of it is applied.
+        if !access.with(|s| s.vault_shared(vault))??
+            && access.with(|s| s.account_id())? != owner
+            && self
+                .sharing_tx()?
+                .emergency()?
+                .0
+                .iter()
+                .any(|g| g.grantee == owner)
+        {
+            return Self::note_finding(access, SharingFinding::RosterInvalid { vault });
+        }
         stats.members.insert(vault, members);
         let held = Self::current_generation(access, vault)?;
         let mut current: Vec<&PulledRoster> = collected
@@ -663,6 +680,21 @@ impl<T: Transport> SyncEngine<T> {
             };
             let roster = access.with(|s| s.vault_roster(vault))??.unwrap_or_default();
             let left = Self::left_members(&own, roster, &members, outgoing, vault, true);
+            // A roster member the server dropped is shown as a finding (L2).
+            // The rotation below leaves it out of the new key: a leave, a
+            // manager's removal and a server's drop look the same, and none
+            // may keep the key.
+            // A drop a queued revocation explains (a declined or cancelled
+            // invite) is no finding.
+            for account in left.difference(&explicit) {
+                Self::note_finding(
+                    access,
+                    SharingFinding::MemberDropped {
+                        vault,
+                        account: *account,
+                    },
+                )?;
+            }
             if explicit.is_empty() && left.is_empty() {
                 continue;
             }
@@ -712,9 +744,22 @@ impl<T: Transport> SyncEngine<T> {
         Ok(())
     }
 
+    /// Cancels an invite that cannot be sealed under the new key.
+    fn drop_invite(&mut self, invite: &InviteId) -> Result<(), SyncError> {
+        match self.sharing_tx()?.cancel_invite(invite) {
+            Ok(()) => Ok(()),
+            Err(e) if is_lost(&e) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// The rotation plan of `vault` from the roster, the server's members
     /// and the emergency grants; `None` if a key the plan needs is not
     /// available (the rotation waits).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the plan of one rotation: members, invitees, grants and their checks belong together"
+    )]
     fn build_plan(
         &mut self,
         access: &mut impl SessionAccess,
@@ -752,11 +797,7 @@ impl<T: Transport> SyncEngine<T> {
         for inv in &members.invites {
             if revoked.contains(&inv.recipient) || !active.contains_key(&inv.recipient) {
                 // An invite that cannot be sealed under the new key.
-                match self.sharing_tx()?.cancel_invite(&inv.invite_id) {
-                    Ok(()) => {}
-                    Err(e) if is_lost(&e) => {}
-                    Err(e) => return Err(e.into()),
-                }
+                self.drop_invite(&inv.invite_id)?;
             } else {
                 invites.push((inv.invite_id, inv.recipient));
             }
@@ -768,21 +809,72 @@ impl<T: Transport> SyncEngine<T> {
             let Some(ipk) = self.sharing_tx()?.directory(account)? else {
                 return Ok(None);
             };
+            // Only a contact this account verified gets the new key (H2).
+            // A member nobody here compared codes with (a roster entry a
+            // manager, or a removed member, wrote) is unconfirmed: no key
+            // is sealed to them, the rotation locks them out, and the
+            // finding tells the user. A changed key stays a hard stop.
+            // A key that is not the roster's fingerprint stays a hard stop
+            // (the session refuses to seal to it and the rotation waits).
+            let state = access.with(|s| s.contact_state(account, &ipk))??;
+            let roster_key = active
+                .get(account)
+                .is_some_and(|m| m.fingerprint == Fingerprint::of(account, &ipk));
+            if roster_key
+                && matches!(
+                    state,
+                    ContactState::Unknown | ContactState::Pinned { verified: false }
+                )
+            {
+                Self::note_finding(
+                    access,
+                    SharingFinding::MemberUnverified {
+                        vault,
+                        account: *account,
+                    },
+                )?;
+                revoked.insert(*account);
+                continue;
+            }
             plan.remaining.push((*account, ipk));
         }
         for (invite, account) in invites {
             // The directory does not serve by ID the key of an account this
             // account invited (it would tell a real recipient from a fake
             // one): the key comes from the email lookup, with the address
-            // the roster holds, and must be for the same account.
-            let Some(email) = active.get(&account).map(|m| m.email.clone()) else {
-                return Ok(None);
+            // the roster holds, and must be for the same account. An invitee
+            // that cannot be resolved that way, or is not verified here,
+            // loses the invite instead of blocking the revocation (L1).
+            let email = active.get(&account).map(|m| m.email.clone());
+            let entry = match email {
+                Some(email) => Some(self.sharing_tx()?.lookup(&email)?),
+                None => None,
             };
-            let entry = self.sharing_tx()?.lookup(&email)?;
-            if entry.account_id != account {
-                return Ok(None);
+            let usable = match &entry {
+                Some(e) if e.account_id == account => {
+                    let state = access.with(|s| s.contact_state(&account, &e.ipk))??;
+                    match state {
+                        ContactState::Pinned { verified: true }
+                        | ContactState::Changed
+                        | ContactState::Conflicting => true,
+                        ContactState::Unknown | ContactState::Pinned { .. } => {
+                            Self::note_finding(
+                                access,
+                                SharingFinding::MemberUnverified { vault, account },
+                            )?;
+                            false
+                        }
+                    }
+                }
+                _ => false,
+            };
+            match entry {
+                Some(e) if usable => plan.invites.push((invite, account, e.ipk)),
+                _ => {
+                    self.drop_invite(&invite)?;
+                    revoked.insert(account);
+                }
             }
-            plan.invites.push((invite, account, entry.ipk));
         }
         plan.revoked = revoked.into_iter().collect();
 
@@ -955,6 +1047,22 @@ impl<T: Transport> SyncEngine<T> {
         })??)
     }
 
+    /// Makes sure a vault this account owns has its owner-only roster and
+    /// sharing row.
+    pub(super) fn ensure_owner_roster(
+        access: &mut impl SessionAccess,
+        vault: VaultId,
+    ) -> Result<(), SyncError> {
+        match access.with(|s| s.ensure_owner_roster(vault))? {
+            // Done; or not an account-key vault of this account's, or no
+            // identity key yet: nothing a grant could cover.
+            Ok(()) | Err(Error::WrongVaultProtection | Error::NotOwner | Error::NoIdentity) => {
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Counts the open emergency requests and keeps the seals of every grant
     /// fresh: every vault in scope whose seal is older than the local key
     /// (or missing under scope `all`) is sealed again (CRYPTO_SPEC §8.4).
@@ -975,6 +1083,14 @@ impl<T: Transport> SyncEngine<T> {
             return Ok(());
         }
         let owned = Self::owned_vaults(access)?;
+        // A vault a grant covers gets the owner-only roster and the sharing
+        // row, so a release (which adds a member without any invite) is
+        // followed by the revocation rotation and the claim rule (H3).
+        for v in owned.keys() {
+            if granted.iter().any(|g| covers(g, *v)) {
+                Self::ensure_owner_roster(access, *v)?;
+            }
+        }
         for g in &granted {
             if matches!(g.state, GrantState::Released) {
                 continue;

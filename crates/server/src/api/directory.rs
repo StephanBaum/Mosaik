@@ -48,7 +48,7 @@ pub async fn lookup(
     let dir_key = auth::subkey(&st.keys.server_secret, label::SERVER_DIRECTORY_KEY)
         .ok_or_else(ApiError::internal)?;
     let fake_id = fakes::fake_account_id(&prelogin_key, &email);
-    let fake_ipk = fakes::fake_ipk(&dir_key, &email);
+    let fake_ipk = fakes::fake_ipk(&dir_key, &email).ok_or_else(ApiError::internal)?;
     let found = st.db.run(|c| dbd::by_email(c, &email))?;
     let (id, ipk) = match found {
         Some((id, Some(ipk))) => (id, ipk),

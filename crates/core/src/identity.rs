@@ -82,6 +82,20 @@ impl IdentityPublicKey {
         let arr: [u8; IDENTITY_KEY_LEN] = bytes.try_into().map_err(|_| Error::Malformed)?;
         Ok(Self(arr))
     }
+
+    /// The public key of `DeriveKeyPair(ikm)` (RFC 9180 §7.1.3), the same
+    /// derivation as [`IdentitySecret::generate`] with the input given. The
+    /// hosted server uses it with a keyed hash as `ikm` to make the directory's
+    /// fake keys for unknown addresses: they are then valid X25519 keys in the
+    /// prime-order subgroup, like every real `ipk` (M6b review M2). The
+    /// secret half is dropped (and zeroized) at once.
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] only if the derived key cannot be encoded (cannot
+    /// happen).
+    pub fn derived_from(ikm: &[u8; 32]) -> Result<Self> {
+        Ok(IdentitySecret::derive(ikm)?.1)
+    }
 }
 
 type PrivateKey = <X25519HkdfSha256 as Kem>::PrivateKey;
@@ -304,6 +318,17 @@ impl Fingerprint {
 #[cfg(test)]
 #[expect(clippy::similar_names, reason = "the same key derived twice")]
 mod tests {
+    #[test]
+    fn derived_from_is_the_public_half_of_derive_keypair() {
+        // The server's directory fakes use it: the same derivation as a real
+        // identity key, so a fake is a valid prime-order-subgroup key.
+        let ikm = [7u8; 32];
+        let (sk, pk) = IdentitySecret::derive(&ikm).unwrap();
+        assert_eq!(IdentityPublicKey::derived_from(&ikm).unwrap(), pk);
+        assert_eq!(sk.public_key().unwrap(), pk);
+        assert_ne!(IdentityPublicKey::derived_from(&[8u8; 32]).unwrap(), pk);
+    }
+
     use super::*;
     use hex_literal::hex;
 

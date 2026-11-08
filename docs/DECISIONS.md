@@ -4197,3 +4197,53 @@ same fingerprint agree and the verified flag wins.
 
 ### Consequences
 R80 records that a server can withhold the newest book from a new device; the roster still catches it for vault members.
+
+## ADR-0055: M6b milestone review follow-ups
+
+- Status: accepted
+- Date: 2026-11-08
+- Decided by: the principal engineer
+- Milestone: M6b
+
+### Context
+The milestone review of M6b (four High, four Medium, four Low, one Info finding) found gaps between CRYPTO_SPEC §8 and
+the code. Every fix below is accepted as the reviewer proposed it, with the deviations named.
+
+### Decision
+1. **H1, known vaults.** An invite or an emergency release never hands a key to a vault ID the device knows (open
+   vault, generation floor, sharing row); the one exception is an `access_lost` row of the same owner. Preview, accept
+   and commit check it; a release skips such a seal (a finding unless the vault is the grantor's already).
+2. **H2, verified contacts only.** A rotation seals only to contacts with a verified pin. Roster members and invitees
+   that are not verified are unconfirmed: the rotation revokes them (the owner's rotation is already running, and
+   blocking it would leave the removed member holding the key), records `MemberUnverified`, and seals nothing to them.
+   Deviation from "revoked after a prompt": the prompt applies to server-listed unconfirmed members, which never trigger
+   a rotation themselves.
+3. **H3, never-shared vaults.** A grant gives each covered vault the owner-only roster and the sharing row.
+   `DELETE /v1/emergency/grants/{grantee}` deletes the origin-2 memberships, keys and shares, and the grantor's client
+   queues the revocations first and rotates. A device without a sharing row accepts a first roster only for owner = self
+   or a verified-pinned owner with the roster's fingerprint (deviation: the proposed "owner = self only" would break the
+   second device of an invitee, which has no row yet), and the engine refuses an owner that is an emergency grantee.
+4. **H4, a manager's Remove.** `DELETE /v1/vaults/{v}/members/{a}` (manager or owner; target role at most the caller's;
+   never the owner or the caller). The owner finds the roster member missing from the server and rotates.
+5. **M1.** The accept carries the generation; `invite_stale` unless it equals the invite's and the current one.
+6. **M2.** The directory's fake `ipk` is `DeriveKeyPair(HMAC(K_dir, ctx || email)).public`
+   (`IdentityPublicKey::derived_from`), a valid prime-order-subgroup key.
+7. **M3.** The pull ignores a record under a reserved row ID (`FF..FF`, `FE..FE`) and does not note it in the served
+   view. The reserved rows stay in the served-rows table (the alternative of own columns was not needed).
+8. **M4.** The claim rule needs a verified owner pin; accepting an invite from a non-owner sender needs the owner's pin
+   verified too (the preview reports `owner_code` and `owner_state`).
+9. **L1.** An unresolvable invitee loses its invite instead of blocking the revocation. **L2.** `MemberDropped` is a
+   finding on the owner's device; the rotation still leaves a dropped member out of the key (a leave, a removal and a
+   server drop look the same). **L3.** `put_grant` answers 204 for an unknown account and stores nothing; the directory's
+   by-ID lookup no longer serves the recipient of an invite someone else sent. **L4.** Opened invite keys are swept
+   each run.
+10. **I1.** CRYPTO_SPEC §12 lists `vault_removals`, `inbox_seq`, the audit kinds 7 to 14 and the invite `hidden` flag.
+11. **Clean-up.** `sync_auth::view_digest` (the retired digest) is removed; the label `sync/view` stays registered.
+    The sharing finding kind 5 (`MemberUnverified`) joins the unreleased store schema v8 in place.
+
+### Alternatives considered
+- Blocking a rotation on unverified roster members: keeps the removed member in.
+- Own columns for the served metadata and roster: more schema for no extra protection once the pull ignores the IDs.
+
+### Consequences
+THREAT_MODEL R71, R72, R77, R79 are updated and R82 is added.
