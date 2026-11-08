@@ -4,6 +4,7 @@ use axum::body::Bytes;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::{InstallId, ItemId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
 use mosaic_sync::wire::json::{
     B64, ChangeKey, ChangeMeta, ChangeRecord, ChangesResponse, CreateVaultRequest, HeadResponse,
@@ -14,6 +15,7 @@ use serde::Deserialize;
 use super::{Reply, parse_body, parse_uuid};
 use crate::AppState;
 use crate::auth::Session;
+use crate::db::sharing as dbs;
 use crate::db::vaults::{self as dbv, Created, NewVault};
 use crate::error::ApiError;
 
@@ -90,6 +92,9 @@ pub async fn create(
 pub struct ChangesQuery {
     since: Option<u64>,
     limit: Option<usize>,
+    /// `1`: the sharing-aware page (M6b) adds `role`, `shares` and `rosters`.
+    /// Without it the page is the M6 page, which older clients parse strictly.
+    sharing: Option<u8>,
 }
 
 pub async fn changes(
@@ -105,9 +110,15 @@ pub async fn changes(
         return Err(ApiError::bad_request());
     }
     let since = q.since.unwrap_or(0);
-    let page = st
-        .db
-        .run(|c| dbv::changes(c, &s.account_id, &vault, since, limit))?;
+    let (page, extras) = st.db.run(|c| {
+        let page = dbv::changes(c, &s.account_id, &vault, since, limit)?;
+        let extras = if q.sharing == Some(1) {
+            Some(dbs::changes_extras(c, &s.account_id, &vault, since)?)
+        } else {
+            None
+        };
+        Ok((page, extras))
+    })?;
     let next_since = if page.more {
         page.records.last().map_or(page.head_seq, |r| r.server_seq)
     } else {
@@ -142,19 +153,59 @@ pub async fn changes(
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
-    Reply::json(
-        StatusCode::OK,
-        &ChangesResponse {
-            head_seq: page.head_seq,
-            generation: generation(page.generation)?,
-            keys,
-            meta: page.meta.map(|(ciphertext, server_seq)| ChangeMeta {
-                ciphertext: B64(ciphertext),
-                server_seq,
-            }),
-            records,
-            more: page.more,
-            next_since,
-        },
-    )
+    let response = ChangesResponse {
+        head_seq: page.head_seq,
+        generation: generation(page.generation)?,
+        keys,
+        meta: page.meta.map(|(ciphertext, server_seq)| ChangeMeta {
+            ciphertext: B64(ciphertext),
+            server_seq,
+        }),
+        records,
+        more: page.more,
+        next_since,
+    };
+    let Some(extras) = extras else {
+        return Reply::json(StatusCode::OK, &response);
+    };
+    let value = with_sharing(&response, &extras)?;
+    Reply::json(StatusCode::OK, &value)
+}
+
+/// The M6 page plus the sharing part: the caller's role, the unclaimed shares
+/// addressed to them and the rosters newer than `since`.
+fn with_sharing(
+    response: &ChangesResponse,
+    extras: &dbs::Extras,
+) -> Result<serde_json::Value, ApiError> {
+    let mut value = serde_json::to_value(response).map_err(|_| ApiError::internal())?;
+    let shares: Vec<serde_json::Value> = extras
+        .shares
+        .iter()
+        .map(|sh| {
+            serde_json::json!({
+                "generation": sh.generation,
+                "sender": crate::db::uuid_text(&sh.sender),
+                "seal": Base64UrlUnpadded::encode_string(&sh.seal),
+                "seq": sh.server_seq,
+            })
+        })
+        .collect();
+    let rosters: Vec<serde_json::Value> = extras
+        .rosters
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "generation": r.generation,
+                "ciphertext": Base64UrlUnpadded::encode_string(&r.ciphertext),
+                "seq": r.server_seq,
+            })
+        })
+        .collect();
+    if let Some(map) = value.as_object_mut() {
+        map.insert("role".to_owned(), extras.role.into());
+        map.insert("shares".to_owned(), shares.into());
+        map.insert("rosters".to_owned(), rosters.into());
+    }
+    Ok(value)
 }

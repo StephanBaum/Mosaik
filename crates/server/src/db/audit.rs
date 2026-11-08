@@ -15,6 +15,14 @@ pub enum Kind {
     TotpOff = 4,
     PasswordChanged = 5,
     DeviceRemoved = 6,
+    IdentityPublished = 7,
+    InviteSent = 8,
+    InviteAccepted = 9,
+    MemberRemoved = 10,
+    EmergencyGranted = 11,
+    EmergencyRequested = 12,
+    EmergencyDecided = 13,
+    EmergencyReleased = 14,
 }
 
 /// Appends an event.

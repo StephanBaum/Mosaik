@@ -5,13 +5,17 @@ mod account;
 mod attachments;
 mod checkpoints;
 mod devices;
+mod directory;
+mod emergency;
 mod info;
 mod login;
 mod poll;
 mod prelogin;
 mod records;
 mod register;
+mod sharing;
 mod vaults;
+mod wire;
 
 use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
@@ -34,6 +38,50 @@ use tower_http::timeout::TimeoutLayer;
 use crate::AppState;
 use crate::error::ApiError;
 use crate::ratelimit::{self, Rule, Scope};
+
+/// Every error code: the M6 set plus the sharing and emergency-access codes
+/// of M6b (`docs/SERVER.md`).
+pub mod codes {
+    pub use mosaic_sync::wire::json::codes::*;
+
+    /// The caller's role does not allow the request (403).
+    pub const ROLE_FORBIDDEN: &str = "role_forbidden";
+    /// `PUT keys/{g}` on a shared vault, or a rotation that does not cover
+    /// exactly the members and open invites (409).
+    pub const MEMBERS_MISMATCH: &str = "members_mismatch";
+    /// The identity key is already set to another pair (409).
+    pub const IDENTITY_EXISTS: &str = "identity_exists";
+    /// A compare-and-swap failed (409, detail `currentSeq`).
+    pub const CONFLICT: &str = "conflict";
+    /// The recipient already has an open invite to the vault (409).
+    pub const INVITE_EXISTS: &str = "invite_exists";
+    /// The invite was sealed for an older key generation (409).
+    pub const INVITE_STALE: &str = "invite_stale";
+    /// The invite ran out (410).
+    pub const INVITE_EXPIRED: &str = "invite_expired";
+    /// The vault is at its member limit (409).
+    pub const MEMBERS_LIMIT: &str = "members_limit";
+    /// The account has too many open invites (409).
+    pub const INVITE_LIMIT: &str = "invite_limit";
+    /// The recipient is a member already (409).
+    pub const ALREADY_MEMBER: &str = "already_member";
+    /// A removed account can't be invited again before the next rotation (409).
+    pub const REINVITE_BLOCKED: &str = "reinvite_blocked";
+    /// The owner can't leave (409).
+    pub const OWNER_CANNOT_LEAVE: &str = "owner_cannot_leave";
+    /// No share or emergency seal backs the claim (403).
+    pub const NO_SHARE: &str = "no_share";
+    /// A request is open; the wait can't change, or the wait is not over (409).
+    pub const EMERGENCY_WAITING: &str = "emergency_waiting";
+    /// The grantee asked less than 24 h after a refusal (409, detail `until`).
+    pub const EMERGENCY_COOLDOWN: &str = "emergency_cooldown";
+    /// The grant was approved or released (409).
+    pub const EMERGENCY_RELEASED: &str = "emergency_released";
+    /// There is no open request (409).
+    pub const EMERGENCY_NOT_REQUESTED: &str = "emergency_not_requested";
+    /// Emergency seals cover only vaults the grantor owns (403).
+    pub const EMERGENCY_OWNER_ONLY: &str = "emergency_owner_only";
+}
 
 /// Body limit of `prelogin`, before any session exists.
 const PRELOGIN_BODY: usize = 4 * 1024;
@@ -70,6 +118,15 @@ impl Reply {
             content_type: "application/json",
             body,
         })
+    }
+
+    /// 204 with no body.
+    pub const fn no_content() -> Self {
+        Self {
+            status: StatusCode::NO_CONTENT,
+            content_type: "application/json",
+            body: Vec::new(),
+        }
     }
 
     /// 200 `{}`.
@@ -330,6 +387,56 @@ pub fn router(state: AppState) -> Router {
 
     let json_routes: Router<AppState> = Router::new()
         .route("/v1/account", get(account::get).delete(account::delete))
+        .route("/v1/account/identity", put(sharing::put_identity))
+        .route(
+            "/v1/account/contacts",
+            get(sharing::get_contacts).put(sharing::put_contacts),
+        )
+        .route("/v1/directory/lookup", post(directory::lookup))
+        .route("/v1/directory/{account_id}", get(directory::by_id))
+        .route("/v1/invites", get(sharing::list_invites))
+        .route(
+            "/v1/invites/{invite_id}",
+            axum::routing::delete(sharing::cancel_invite),
+        )
+        .route("/v1/invites/{invite_id}/vault", get(sharing::invite_vault))
+        .route(
+            "/v1/invites/{invite_id}/accept",
+            post(sharing::accept_invite),
+        )
+        .route(
+            "/v1/invites/{invite_id}/decline",
+            post(sharing::decline_invite),
+        )
+        .route(
+            "/v1/blocks/{account_id}",
+            post(sharing::block).delete(sharing::unblock),
+        )
+        .route("/v1/emergency", get(emergency::overview))
+        .route(
+            "/v1/emergency/grants/{account_id}",
+            put(emergency::put_grant).delete(emergency::delete_grant),
+        )
+        .route(
+            "/v1/emergency/grants/{account_id}/seals",
+            put(emergency::put_seals),
+        )
+        .route(
+            "/v1/emergency/grants/{account_id}/request",
+            post(emergency::request),
+        )
+        .route(
+            "/v1/emergency/grants/{account_id}/decline",
+            post(emergency::decline),
+        )
+        .route(
+            "/v1/emergency/grants/{account_id}/approve",
+            post(emergency::approve),
+        )
+        .route(
+            "/v1/emergency/grants/{account_id}/release",
+            post(emergency::release),
+        )
         .route("/v1/account/password/start", post(account::password_start))
         .route(
             "/v1/account/password/finish",
@@ -346,6 +453,22 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/vaults", get(vaults::list))
         .route("/v1/vaults/{vault_id}", put(vaults::create))
         .route("/v1/vaults/{vault_id}/changes", get(vaults::changes))
+        .route(
+            "/v1/vaults/{vault_id}/invites",
+            post(sharing::create_invite),
+        )
+        .route("/v1/vaults/{vault_id}/members", get(sharing::members))
+        .route(
+            "/v1/vaults/{vault_id}/members/{account_id}",
+            put(sharing::set_role),
+        )
+        .route("/v1/vaults/{vault_id}/roster", put(sharing::put_roster))
+        .route("/v1/vaults/{vault_id}/rotate", post(sharing::rotate))
+        .route("/v1/vaults/{vault_id}/leave", post(sharing::leave))
+        .route(
+            "/v1/vaults/{vault_id}/keys/{generation}/claim",
+            put(sharing::claim),
+        )
         .route("/v1/vaults/{vault_id}/records", post(records::push))
         .route("/v1/vaults/{vault_id}/meta", put(records::put_meta))
         .route(

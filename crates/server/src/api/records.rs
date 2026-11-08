@@ -13,6 +13,7 @@ use mosaic_sync::wire::json::{
     PutKeyRequest, PutKeyResponse, RecordKind, RecordResult,
 };
 
+use super::sharing::notify_vault;
 use super::{Reply, parse_body, parse_uuid};
 use crate::AppState;
 use crate::auth::Session;
@@ -89,7 +90,7 @@ pub async fn push(
         )
     })?;
     if outcomes.iter().any(|o| matches!(o, Outcome::Accepted(_))) {
-        st.polls.bump(s.account_id, now);
+        notify_vault(&st, &vault, now);
     }
     let results = req
         .records
@@ -132,7 +133,7 @@ pub async fn put_meta(
     })?;
     match cas {
         Cas::Accepted(server_seq) => {
-            st.polls.bump(s.account_id, now);
+            notify_vault(&st, &vault, now);
             Reply::ok(&MetaResult::Accepted { server_seq })
         }
         Cas::Conflict(current_seq) => Reply::ok(&MetaResult::Conflict { current_seq }),
@@ -172,6 +173,6 @@ pub async fn put_key(
             now,
         )
     })?;
-    st.polls.bump(s.account_id, now);
+    notify_vault(&st, &vault, now);
     Reply::ok(&PutKeyResponse { server_seq })
 }

@@ -26,7 +26,14 @@ Only what CRYPTO_SPEC §12 lists:
   per-vault generation, sequence and an opaque 32-byte `view_digest`, and the
   MAC the clients check; CRYPTO_SPEC §12 is the source of this list);
 - the TOTP secret of a second factor, sealed under a key derived from the
-  secret file.
+  secret file;
+- for sharing and emergency access (M6b, see "Sharing and emergency access"
+  below): each account public identity key and its wrapped private key, the
+  encrypted contact book, roles and members of shared vaults, the encrypted
+  roster of each vault and its history, invites and key shares (sealed
+  ciphertext), emergency grants with their state and seals, and block lists.
+  The server sees the sharing graph (who shares with whom, with which role) but
+  never a vault name, a key or an item.
 
 IP addresses are held in memory for rate limiting and are **never written to
 disk**, not to the database and not to the log. The log has one line per
@@ -204,5 +211,98 @@ up before upgrading.
   version 1 (the `sessions.account_version` column, the checkpoint body
   limit) must be recreated; the server is unreleased.
 - Housekeeping runs every hour: expired sessions, audit events older than 365
-  days and attachments deleted more than `soft_delete_days` ago.
+  days, invites that ended more than 60 days ago and attachments deleted more
+  than `soft_delete_days` ago.
 - Run one server process per data directory.
+
+## Sharing and emergency access
+
+Schema version 2 (M6b) adds sharing between accounts on this server and
+emergency access. It needs no configuration. The server stores and serves
+ciphertexts, seals and public keys, and checks only their shape and the rules
+below. It never opens a seal. Folder stores do not use any of this.
+
+Wire conventions are those of the other routes (JSON, camelCase, IDs as
+hyphenated UUIDs, bytes as unpadded base64url). Roles are numbers: 1 owner,
+2 manage, 3 write, 4 read. A membership has an origin: 0 owner, 1 invite,
+2 emergency release. The new error codes are in `api/mod.rs::codes`.
+
+### Routes
+
+| Route | Rules |
+|---|---|
+| `PUT /v1/account/identity` | First write wins. The same pair again is 204. A different pair is `409 identity_exists` with the stored pair. `GET /v1/account?identity=1` adds `identity`. |
+| `POST /v1/directory/lookup` | Any valid email gets `200 {accountId, ipk}`; see below. |
+| `GET /v1/directory/{id}` | Only for accounts the caller shares a vault, an incoming invite, a managed vault's open invite or an emergency grant with. Else 404. |
+| `GET`/`PUT /v1/account/contacts` | The encrypted contact book with a compare-and-swap (`conflict {currentSeq}`). |
+| `POST /v1/vaults/{v}/invites` | Owner or manager. Role at most the caller's own and never owner; generation must be current; one open invite per vault and recipient (`invite_exists`); `already_member`; `reinvite_blocked`; `members_limit` (50 members and open invites); `invite_limit` (200 open invites per sender). Valid for 14 days. |
+| `GET /v1/invites` | Incoming invites (with sender email and seal) and the caller's sent invites. Listing marks incoming invites delivered. |
+| `GET /v1/invites/{id}/vault` | The vault metadata and current roster, for the recipient of an open invite. |
+| `POST /v1/invites/{id}/accept` | Adds the membership (origin invite) and the caller's wrapped key. `invite_stale {currentGeneration}`, `invite_expired` (410). |
+| `POST /v1/invites/{id}/decline` | Optionally blocks the sender. A declined or cancelled invite stays in the sender's list (state 2 or 3, `delivered`) until the sender deletes it. |
+| `DELETE /v1/invites/{id}` | Sender or manager. Cancels an open invite; removes a finished one. |
+| `GET /v1/vaults/{v}/members` | Any member: members with role, origin and time, and open invites. |
+| `PUT /v1/vaults/{v}/members/{a}` | Owner or manager changes a role: never to or from owner, never above the caller's own. |
+| `PUT /v1/vaults/{v}/roster` | Owner or manager; current generation; compare-and-swap on `baseSeq`. |
+| `POST /v1/vaults/{v}/rotate` | **Owner only.** One transaction: the new key, a share for every other member, refreshed seals for every open invite, the new roster, the removal of the revoked accounts, and the generation and head bump. `members_mismatch {members, invites}` unless `seals` and `revoke` are disjoint and together equal the members except the owner, and `inviteSeals` equals the open invites. `generation_taken`, `head_moved`, `generation_mismatch` as for the plain key upload. |
+| `PUT /v1/vaults/{v}/keys/{g}/claim` | A member claims the key of the current generation from a share addressed to them, or (emergency membership) from a released emergency seal. `no_share` otherwise. |
+| `POST /v1/vaults/{v}/leave` | A member leaves; the owner gets `owner_cannot_leave`. |
+| `PUT /v1/vaults/{v}/keys/{g}` | Unchanged for an unshared vault; `members_mismatch` once the vault has a second member or an open invite. |
+| `GET /v1/vaults/{v}/changes?sharing=1` | Adds `role`, `shares` (every unclaimed share addressed to the caller) and `rosters` (newer than `since`). Without the flag the page is unchanged. |
+| `POST`/`DELETE /v1/blocks/{id}` | Blocks or unblocks an account ID (it need not exist). |
+| `GET /v1/emergency` | The caller's grants given and received. |
+| `PUT /v1/emergency/grants/{grantee}` | Fresh login. Wait of 1, 2, 7, 14 or 30 days; scope 1 (all) or 2 (selected); a seal per vault. Only vaults the caller owns (`emergency_owner_only`). `emergency_waiting` while a request is open, `emergency_released` once approved or released. At most 20 grants given and 20 received. |
+| `PUT /v1/emergency/grants/{grantee}/seals` | The grantor keeps the seals current; a seal is replaced only by one of the same or a newer generation. |
+| `DELETE /v1/emergency/grants/{grantee}` | The grantor deletes a grant in any state, with its seals. |
+| `POST /v1/emergency/grants/{grantor}/request` | The grantee asks. Answers `{releaseAt}`. `emergency_cooldown {until}` within 24 h of a refusal. |
+| `POST /v1/emergency/grants/{grantee}/decline` | The grantor refuses: back to idle with a 24 h cooldown. |
+| `POST /v1/emergency/grants/{grantee}/approve` | The grantor approves (fresh login). |
+| `POST /v1/emergency/grants/{grantor}/release` | The grantee gets the seals once the wait is over (`emergency_waiting {releaseAt}` before) or after approval, and a `read` membership with origin emergency in every vault of the grant. |
+
+Writes need a role: records, metadata and attachments need write or stronger
+(`role_forbidden` for read). The roles are enforced by the server only; the
+cryptographic line is who holds the vault key (CRYPTO_SPEC §8.2). Storage
+quotas of a shared vault are charged to its owner. A request from an account
+that is not a member of a vault still gets `403 forbidden`, as before.
+
+### Re-invites and removed members
+
+A removal (a revoking rotation) or a leave at generation g blocks a re-invite
+of the same account until the vault has rotated past g (`reinvite_blocked`).
+The client roster merge rule makes a re-invite at the removal generation
+lose, and the server offers no way around it. After a rotation that revokes an
+account, its memberships, wrapped keys, shares and open invites are gone.
+
+### Abuse limits
+
+- `POST /v1/directory/lookup`: 30 per hour per session and 60 per hour per
+  account, then `429 rate_limited`.
+- Invites: 50 per hour per account. At most 50 members and open invites per
+  vault, 200 open invites per sender, 100 visible open invites per recipient.
+- Emergency requests: 5 per hour per account.
+- Blocks: 1000 per account.
+
+### No user enumeration, no email
+
+`directory/lookup` answers every valid address with 200. An unknown address
+gets the same fake account ID the pre-login route gives (an HMAC of the
+address) and a fake identity key (`HMAC-SHA-256` under a key derived from the
+secret file, top bit cleared). A registered account without a published key
+gets its real ID and the fake key. Invites to such accounts are stored like
+any other and simply never accepted. An invite from a blocked sender, or to a
+full inbox, is stored but never shown, so the sender sees `201` and, on a
+repeat, `invite_exists`, exactly as for any recipient. Lookup targets are not
+logged. The server sends no email: invites and emergency requests reach people
+through the app (a long poll wakes both accounts) and the safety-code
+comparison.
+
+Residual leaks, accepted: response timing, and whether an invite is ever
+delivered (the sender list shows `delivered`).
+
+### Emergency access and its limits
+
+The server keeps the waiting period (`requestedAt + waitDays`) and the
+cooldown, using its own clock. Someone who controls the server can skip the
+wait; the clients say so. Emergency access hands over vault keys. It does not
+recover an account. Deleting a grant removes the seals but keeps the memberships
+a release created; the owner next rotation lists them in `revoke`.

@@ -3,8 +3,10 @@
 //! (CRYPTO_SPEC §9.4).
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::{AccountId, Argon2Profile, SecretString, WrappedKey};
 use mosaic_sync::wire::json::{
     AccountResponse, AccountVersionDetail, B64, B64Fixed, CodeRequest, DeleteAccountRequest, Empty,
@@ -15,6 +17,7 @@ use mosaic_sync::wire::opaque::{
     Suite,
     ke::{RegistrationRequest, RegistrationUpload, ServerRegistration},
 };
+use serde::Deserialize;
 
 use super::{Reply, parse_body};
 use crate::AppState;
@@ -22,6 +25,7 @@ use crate::auth::{Session, totp};
 use crate::db::accounts::{self, Account};
 use crate::db::audit;
 use crate::db::sessions;
+use crate::db::sharing as dbs;
 use crate::error::ApiError;
 
 const MAX_BODY: usize = 16 * 1024;
@@ -66,9 +70,22 @@ fn check_code(
     }
 }
 
-pub async fn get(State(st): State<AppState>, Session(s): Session) -> Result<Reply, ApiError> {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountQuery {
+    /// `1`: add `identity` (M6b). Without it the M6 body, which older
+    /// clients parse strictly.
+    identity: Option<u8>,
+}
+
+pub async fn get(
+    State(st): State<AppState>,
+    Session(s): Session,
+    query: Result<Query<AccountQuery>, QueryRejection>,
+) -> Result<Reply, ApiError> {
+    let Query(q) = query.map_err(|_| ApiError::bad_request())?;
     let a = load(&st, &s.account_id)?;
-    Reply::ok(&AccountResponse {
+    let response = AccountResponse {
         account_id: AccountId::from_bytes(a.account_id).map_err(|_| ApiError::internal())?,
         email: a.email,
         salt: B64Fixed(a.salt),
@@ -76,7 +93,24 @@ pub async fn get(State(st): State<AppState>, Session(s): Session) -> Result<Repl
         wrapped_ak: WrappedKey::from_bytes(&a.wrapped_ak).map_err(|_| ApiError::internal())?,
         account_version: a.account_version,
         totp_enabled: a.totp_sealed.is_some(),
-    })
+    };
+    if q.identity != Some(1) {
+        return Reply::ok(&response);
+    }
+    let identity = st.db.run(|c| dbs::identity(c, &s.account_id))?;
+    let mut value = serde_json::to_value(&response).map_err(|_| ApiError::internal())?;
+    if let Some(map) = value.as_object_mut() {
+        map.insert(
+            "identity".to_owned(),
+            identity.map_or(serde_json::Value::Null, |(ipk, wrapped)| {
+                serde_json::json!({
+                    "ipk": Base64UrlUnpadded::encode_string(&ipk),
+                    "wrappedIsk": Base64UrlUnpadded::encode_string(&wrapped),
+                })
+            }),
+        );
+    }
+    Reply::ok(&value)
 }
 
 pub async fn password_start(

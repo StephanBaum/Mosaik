@@ -8,6 +8,7 @@
     clippy::panic,
     clippy::indexing_slicing,
     clippy::too_many_lines,
+    clippy::many_single_char_names,
     reason = "test code: the scenarios are long and a failure should panic"
 )]
 
@@ -18,9 +19,11 @@ mod chaos_hosted;
 mod chaos_net;
 mod cli;
 mod common;
+mod emergency;
 mod hosted;
 mod loopback;
 mod malicious_server;
 mod no_plaintext;
 mod scenarios;
+mod sharing;
 mod sim_hosted;

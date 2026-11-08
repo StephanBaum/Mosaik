@@ -1,21 +1,40 @@
 //! Vaults, their keys and metadata, and the change feed (M6 spec §6.2).
 
+use axum::http::StatusCode;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::{accounts, devices, id16, int, u64_col};
+use crate::api::codes;
 use crate::config::MAX_VAULTS_PER_ACCOUNT;
 use crate::error::ApiError;
-use mosaic_sync::wire::json::{GenerationDetail, HeadMovedDetail, codes};
+use mosaic_sync::wire::json::{GenerationDetail, HeadMovedDetail};
 
 /// A vault the caller may use.
 pub struct VaultRow {
     pub current_generation: u32,
     pub head_seq: u64,
+    /// The caller's role: 1 owner, 2 manage, 3 write, 4 read.
+    pub role: u8,
+    /// The vault owner (storage quotas are charged to the owner).
+    pub owner: [u8; 16],
+}
+
+/// The roles (CRYPTO_SPEC §8.2).
+pub mod role {
+    pub const OWNER: u8 = 1;
+    pub const MANAGE: u8 = 2;
+    pub const WRITE: u8 = 3;
+    pub const READ: u8 = 4;
 }
 
 fn generation_col(r: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<u32> {
     let v: i64 = r.get(idx)?;
     u32::try_from(v).map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
+/// 403 `role_forbidden`.
+pub fn role_forbidden() -> ApiError {
+    ApiError::new(StatusCode::FORBIDDEN, codes::ROLE_FORBIDDEN)
 }
 
 /// The vault, if `account` is a member: `not_found` when there is no such
@@ -27,26 +46,51 @@ pub fn access(
 ) -> Result<VaultRow, ApiError> {
     let row = conn
         .query_row(
-            "SELECT v.current_generation, v.head_seq, \
-             EXISTS (SELECT 1 FROM memberships m WHERE m.vault_id = v.vault_id AND m.account_id = ?2) \
-             FROM vaults v WHERE v.vault_id = ?1",
+            "SELECT v.current_generation, v.head_seq, v.owner_account_id, m.role              FROM vaults v LEFT JOIN memberships m ON m.vault_id = v.vault_id AND m.account_id = ?2              WHERE v.vault_id = ?1",
             params![vault.as_slice(), account.as_slice()],
             |r| {
+                let role: Option<i64> = r.get(3)?;
                 Ok((
-                    VaultRow {
-                        current_generation: generation_col(r, 0)?,
-                        head_seq: u64_col(r, 1)?,
-                    },
-                    r.get::<_, i64>(2)? != 0,
+                    generation_col(r, 0)?,
+                    u64_col(r, 1)?,
+                    id16(r, 2)?,
+                    role.and_then(|v| u8::try_from(v).ok()),
                 ))
             },
         )
         .optional()?;
     match row {
         None => Err(ApiError::not_found()),
-        Some((_, false)) => Err(ApiError::forbidden()),
-        Some((v, true)) => Ok(v),
+        Some((_, _, _, None)) => Err(ApiError::forbidden()),
+        Some((current_generation, head_seq, owner, Some(role))) => Ok(VaultRow {
+            current_generation,
+            head_seq,
+            role,
+            owner,
+        }),
     }
+}
+
+/// [`access`] for a route that needs at most `max_role` (a role number: the
+/// caller must hold that role or a stronger one), else `role_forbidden`.
+pub fn access_role(
+    conn: &Connection,
+    account: &[u8; 16],
+    vault: &[u8; 16],
+    max_role: u8,
+) -> Result<VaultRow, ApiError> {
+    let v = access(conn, account, vault)?;
+    if v.role > max_role {
+        return Err(role_forbidden());
+    }
+    Ok(v)
+}
+
+/// The accounts that are members of `vault`.
+pub fn member_ids(conn: &Connection, vault: &[u8; 16]) -> Result<Vec<[u8; 16]>, ApiError> {
+    let mut stmt = conn.prepare("SELECT account_id FROM memberships WHERE vault_id = ?1")?;
+    let rows = stmt.query_map([vault.as_slice()], |r| id16(r, 0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// The vaults the account is a member of: `(vault, generation, head_seq)`.
@@ -115,8 +159,8 @@ pub fn create(
         ],
     )?;
     tx.execute(
-        "INSERT INTO memberships (account_id, vault_id, role) VALUES (?1, ?2, 1)",
-        params![account.as_slice(), v.vault.as_slice()],
+        "INSERT INTO memberships (account_id, vault_id, role, origin, added_at) VALUES (?1, ?2, 1, 0, ?3)",
+        params![account.as_slice(), v.vault.as_slice(), int(now)],
     )?;
     tx.execute(
         "INSERT INTO vault_keys (vault_id, account_id, generation, wrapped, device_id, server_seq, created_at) \
@@ -261,7 +305,7 @@ pub fn put_meta(
     meta_generation: u32,
     base_seq: Option<u64>,
 ) -> Result<Cas, ApiError> {
-    let v = access(tx, account, vault)?;
+    let v = access_role(tx, account, vault, role::WRITE)?;
     if meta_generation != v.current_generation {
         return Err(generation_mismatch(v.current_generation));
     }
@@ -319,7 +363,12 @@ pub fn put_key(
     expected_head: Option<u64>,
     now: u64,
 ) -> Result<u64, ApiError> {
-    let v = access(tx, account, vault)?;
+    let v = access_role(tx, account, vault, role::OWNER)?;
+    if is_shared(tx, vault, now)? {
+        // A shared vault rotates only through `POST /rotate`, which seals the
+        // key to every member (CRYPTO_SPEC §8.3).
+        return Err(members_mismatch(tx, vault, account, now)?);
+    }
     let exists: i64 = tx.query_row(
         "SELECT COUNT(*) FROM vault_keys WHERE vault_id = ?1 AND account_id = ?2 AND generation = ?3",
         params![vault.as_slice(), account.as_slice(), generation],
@@ -361,4 +410,39 @@ pub fn put_key(
         params![generation, int(seq), vault.as_slice()],
     )?;
     Ok(seq)
+}
+
+/// Whether the vault has a member besides its owner or a pending invite.
+pub fn is_shared(conn: &Connection, vault: &[u8; 16], now: u64) -> Result<bool, ApiError> {
+    let n: i64 = conn.query_row(
+        "SELECT (SELECT COUNT(*) FROM memberships WHERE vault_id = ?1)          + (SELECT COUNT(*) FROM share_invites WHERE vault_id = ?1 AND state = 0 AND expires_at > ?2)",
+        params![vault.as_slice(), int(now)],
+        |r| r.get(0),
+    )?;
+    Ok(n > 1)
+}
+
+/// `members_mismatch` listing the members (without `caller`) and the
+/// pending invites.
+pub fn members_mismatch(
+    conn: &Connection,
+    vault: &[u8; 16],
+    caller: &[u8; 16],
+    now: u64,
+) -> Result<ApiError, ApiError> {
+    let members = member_ids(conn, vault)?
+        .into_iter()
+        .filter(|m| m != caller)
+        .map(|m| super::uuid_text(&m))
+        .collect::<Vec<_>>();
+    let invites = super::sharing::pending_invite_ids(conn, vault, now)?
+        .iter()
+        .map(super::uuid_text)
+        .collect::<Vec<_>>();
+    Ok(
+        ApiError::conflict(codes::MEMBERS_MISMATCH).with_detail(&serde_json::json!({
+            "members": members,
+            "invites": invites,
+        })),
+    )
 }

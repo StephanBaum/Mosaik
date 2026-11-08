@@ -27,6 +27,14 @@ pub enum Scope {
     Session,
     /// Attachment uploads, per session.
     AttachmentPut,
+    /// `POST /v1/directory/lookup`, per session.
+    DirectorySession,
+    /// `POST /v1/directory/lookup`, per account (all sessions together).
+    DirectoryAccount,
+    /// Invites sent, per account.
+    InviteAccount,
+    /// Emergency-access requests, per account.
+    EmergencyRequest,
 }
 
 /// A bucket's size and refill rate.
@@ -72,6 +80,15 @@ pub const REGISTER_IP: Rule = Rule::per_hour(3);
 pub const SESSION: Rule = Rule::per_minute(600, 600);
 /// Attachment uploads: 60/min per session.
 pub const ATTACHMENT_PUT: Rule = Rule::per_minute(60, 60);
+
+/// Directory lookups: 30/h per session.
+pub const DIRECTORY_SESSION: Rule = Rule::per_hour(30);
+/// Directory lookups: 60/h per account.
+pub const DIRECTORY_ACCOUNT: Rule = Rule::per_hour(60);
+/// Invites sent: 50/h per account.
+pub const INVITE_ACCOUNT: Rule = Rule::per_hour(50);
+/// Emergency-access requests: 5/h per account.
+pub const EMERGENCY_REQUEST: Rule = Rule::per_hour(5);
 
 /// Most buckets of the IP scopes.
 const MAX_IP_BUCKETS: usize = 100_000;
