@@ -546,14 +546,7 @@ fn folder_connect_syncs_lists_devices_and_renames() {
     e.wait_synced();
     // A second sync run: the engine keeps working.
     e.b().sync_now().unwrap();
-    // The run's own writes to the folder can start one more run at once: the
-    // engine is idle when it stays up to date for a moment.
-    wait_for("an idle engine", || {
-        e.status().state.status == SyncStatus::UpToDate && {
-            std::thread::sleep(Duration::from_millis(400));
-            e.status().state.status == SyncStatus::UpToDate
-        }
-    });
+    assert_eq!(e.status().state.status, SyncStatus::UpToDate);
 
     let devices = e.b().sync_devices().unwrap().devices;
     assert_eq!(devices.len(), 1);
@@ -592,6 +585,24 @@ fn folder_connect_syncs_lists_devices_and_renames() {
     assert_eq!(e.b().list_vaults().unwrap()[0].item_count, 1);
     let events = e.events.lock().unwrap().join("\n");
     assert!(events.contains("syncStateChanged"));
+}
+
+/// The run's own checkpoint write is not a foreign change: a folder sync with
+/// nothing new does not start another run (it did, endlessly, every ~17 ms).
+#[test]
+fn an_idle_folder_sync_does_not_run_again() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    e.b().sync_now().unwrap();
+    let before = e.status().state.last_synced_at;
+    std::thread::sleep(Duration::from_millis(1500));
+    let after = e.status().state;
+    assert_eq!(after.status, SyncStatus::UpToDate);
+    assert_eq!(after.last_synced_at, before, "an idle folder sync ran again");
 }
 
 #[test]
