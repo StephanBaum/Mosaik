@@ -67,6 +67,8 @@ export const web = {
   "web.where.title": "Most password managers keep your vault on their servers.",
   "web.where.body":
     "That’s how they sync your devices. Your vault is encrypted, which is good. But it means one company holds millions of vaults in one place. That makes it a target worth years of effort.",
+  "web.where.imageAlt":
+    "The same barn at night under a heavy storm sky, one window lit, the upper sky broken into streaks of sorted pixels.",
   "web.where.story1.label": "2022",
   "web.where.story1.title": "LastPass gets breached.",
   "web.where.story1.text":
@@ -142,6 +144,10 @@ export const web = {
   "web.features.tracking.title": "No tracking. At all.",
   "web.features.tracking.text": "No analytics, no ads, no usage data. {name} doesn’t watch what you do.",
   "web.features.platformsLabel": "Platforms",
+  "web.features.desktopAlt": "The {name} desktop app with a search box and a list of logins.",
+  "web.features.generatorAlt": "The {name} password generator with a strong 20-character password and its options.",
+  "web.how.syncAlt":
+    "The sync settings of {name}: the sync server, the account, this device and the list of signed-in devices.",
 
   // Platforms (feature strip, download buttons, footer)
   "web.platform.windows": "Windows",

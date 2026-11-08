@@ -21,6 +21,8 @@ export interface Frame {
   calm: readonly [number, number];
   cursor: readonly [number, number, number, number];
   gain: number;
+  /** Clean ellipse in image uv: `[cx, cy, rx, ry]` (radius 0 keeps nothing clean). */
+  keep: readonly [number, number, number, number];
 }
 
 export interface SortRenderer {
@@ -101,6 +103,7 @@ function setUniforms(gl: WebGL2RenderingContext, loc: LinkedProgram<SortUniform>
   gl.uniform2f(loc.uCalm, ...f.calm);
   gl.uniform4f(loc.uCursor, ...f.cursor);
   gl.uniform1f(loc.uGain, f.gain);
+  gl.uniform4f(loc.uKeep, ...f.keep);
 }
 
 /**

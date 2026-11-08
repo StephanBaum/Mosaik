@@ -22,6 +22,10 @@ const SLIDERS: readonly Slider[] = [
   ["cursor", "radius", "Cursor relax radius (px)", 40, 600, 1],
   ["cursor", "inertia", "Cursor inertia (follow /s)", 0.5, 30, 0.5],
   ["scroll", "gain", "Scroll gain", 0, 4, 0.05],
+  ["keep", "x", "Barn clean x", 0, 1, 0.005],
+  ["keep", "y", "Barn clean y", 0, 1, 0.005],
+  ["keep", "rx", "Barn clean radius x", 0, 0.4, 0.005],
+  ["keep", "ry", "Barn clean radius y", 0, 0.4, 0.005],
   ["copy", "calm", "Calm behind copy", 0, 1, 0.01],
   ["copy", "gradient", "Gradient strength", 0, 1.2, 0.01],
 ];

@@ -161,6 +161,7 @@ class SortLoop {
       calm: [p.copy.calm, CALM_SOFTNESS],
       cursor: [input.x * s, input.y * s, p.cursor.radius * s, input.relax],
       gain: 1 + input.scroll * p.scroll.gain,
+      keep: [p.keep.x, p.keep.y, p.keep.rx, p.keep.ry],
     };
   }
 }

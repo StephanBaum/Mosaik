@@ -35,6 +35,14 @@ export interface SortParams {
     /** Extra sorting when the hero has scrolled out (1 = twice as strong). */
     gain: number;
   };
+  keep: {
+    /** Centre of the clean ellipse around the barn, in painting uv. */
+    x: number;
+    y: number;
+    /** Its radii, in painting uv. */
+    rx: number;
+    ry: number;
+  };
   copy: {
     /** How much lighter the sorting is behind the headline (1 = none there). */
     calm: number;
@@ -45,11 +53,12 @@ export interface SortParams {
 
 export function defaultParams(): SortParams {
   return {
-    sort: { threshold: 0.2, length: 360, strength: 0.95 },
-    band: { position: 0.2, width: 0.14, sky: 0.85, edge: 0.75 },
-    wind: { drift: 14 },
+    sort: { threshold: 0.21, length: 560, strength: 1 },
+    band: { position: 0.17, width: 0.09, sky: 1, edge: 0.7 },
+    wind: { drift: 30 },
     cursor: { radius: 210, inertia: 5 },
     scroll: { gain: 1.4 },
-    copy: { calm: 0.85, gradient: 0.85 },
+    keep: { x: 0.715, y: 0.44, rx: 0.1, ry: 0.09 },
+    copy: { calm: 0.92, gradient: 0.85 },
   };
 }

@@ -68,6 +68,8 @@ export const web = {
   "web.where.title": "Die meisten Passwort-Manager lagern deinen Tresor auf ihren Servern.",
   "web.where.body":
     "So synchronisieren sie deine Geräte. Dein Tresor ist verschlüsselt, das ist gut. Aber es heißt auch: Eine Firma hat Millionen Tresore an einem Ort. Für Angreifer ist das ein Ziel, für das sich jahrelange Arbeit lohnt.",
+  "web.where.imageAlt":
+    "Dieselbe Scheune bei Nacht unter schwerem Sturmhimmel, ein Fenster erleuchtet, der obere Himmel in Streifen sortierter Pixel aufgelöst.",
   "web.where.story1.label": "2022",
   "web.where.story1.title": "LastPass wird gehackt.",
   "web.where.story1.text":
@@ -146,6 +148,11 @@ export const web = {
   "web.features.tracking.text":
     "Keine Analyse-Tools, keine Werbung, keine Nutzungsdaten. {name} schaut dir nicht über die Schulter.",
   "web.features.platformsLabel": "Plattformen",
+  "web.features.desktopAlt": "Die Desktop-App von {name} mit Suchfeld und einer Liste von Logins.",
+  "web.features.generatorAlt":
+    "Der Passwort-Generator von {name} mit einem starken Passwort aus 20 Zeichen und seinen Optionen.",
+  "web.how.syncAlt":
+    "Die Sync-Einstellungen von {name}: Server, Konto, dieses Gerät und die Liste der angemeldeten Geräte.",
 
   // Platforms (feature strip, download buttons, footer)
   "web.platform.windows": "Windows",

@@ -13,13 +13,17 @@
   padding: var(--space-9) var(--margin) var(--space-8);
 }
 
+.site-footer__inner {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.site-footer__about {
+  grid-column: 1 / -1;
+}
+
 @media (min-width: 640px) {
   .site-footer__inner {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .site-footer__about {
-    grid-column: 1 / -1;
   }
 }
 

@@ -69,6 +69,7 @@ uniform vec4 uText;
 uniform vec2 uCalm;
 uniform vec4 uCursor;
 uniform float uGain;
+uniform vec4 uKeep;
 out vec4 fragColor;
 
 const int K = ${String(CENTRE)};
@@ -98,6 +99,9 @@ float field(vec2 px){
   vec2 q = max(max(uText.xy - uv, uv - uText.zw), 0.0);
   m *= 1.0 - uCalm.x * (1.0 - smoothstep(0.0, uCalm.y, length(q)));
   m = clamp(m * uGain, 0.0, 1.0);
+  // The barn stays clean: a soft ellipse in image space (uKeep = centre, radii).
+  vec2 kd = (imageUv(px) - uKeep.xy) / max(uKeep.zw, vec2(1e-3));
+  m *= smoothstep(0.45, 1.6, length(kd));
   float r = length(px - uCursor.xy);
   m *= 1.0 - uCursor.w * (1.0 - smoothstep(uCursor.z * 0.2, uCursor.z, r));
   return m;
@@ -149,7 +153,8 @@ void main(){
     lo += cs[i] * (1.0 - step(0.5, abs(float(i) - k0)));
     hi += cs[i] * (1.0 - step(0.5, abs(float(i) - k1)));
   }
-  vec3 sorted = mix(lo, hi, qk - k0);
+  // A gentle exposure lift toward the bright, downwind end: streaks catch the light.
+  vec3 sorted = mix(lo, hi, qk - k0) * mix(1.0, 1.0 + uSort.w * 0.3, t * t);
   float alpha = smoothstep(0.02, 0.3, here) * smoothstep(1.0, 3.0, n) * uSort.w;
   fragColor = vec4(sorted * alpha, alpha);
 }`;
@@ -165,6 +170,7 @@ export const UNIFORMS = [
   "uCalm",
   "uCursor",
   "uGain",
+  "uKeep",
 ] as const;
 
 export type SortUniform = (typeof UNIFORMS)[number];

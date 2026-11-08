@@ -16,6 +16,10 @@ export interface BakeOptions {
   /** Width the lengths are tuned for (the live hero at 1440 CSS px). */
   reference: number;
   time: number;
+  /** Overrides `[position, width, sky, edge]` of the band (stills of other paintings). */
+  band?: readonly [number, number, number, number];
+  /** Overrides the clean ellipse `[cx, cy, rx, ry]` in image uv. */
+  keep?: readonly [number, number, number, number];
 }
 
 export async function bake(options: BakeOptions): Promise<{ overlay: string; composite: string }> {
@@ -34,11 +38,12 @@ export async function bake(options: BakeOptions): Promise<{ overlay: string; com
     cover: [1, 1, 0, 0],
     time: options.time,
     sort: [p.sort.threshold, p.sort.length * k, 0, p.sort.strength],
-    band: [p.band.position, p.band.width, p.band.sky, p.band.edge],
+    band: options.band ?? [p.band.position, p.band.width, p.band.sky, p.band.edge],
     text: options.text,
     calm: [p.copy.calm, 0.14],
     cursor: [0, 0, 1, 0],
     gain: options.gain,
+    keep: options.keep ?? [p.keep.x, p.keep.y, p.keep.rx, p.keep.ry],
   });
   const overlay = canvas.toDataURL("image/png");
   const flat = document.createElement("canvas");

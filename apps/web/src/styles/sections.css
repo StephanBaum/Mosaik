@@ -47,7 +47,7 @@
   line-height: 1.02;
   font-weight: 680;
   font-variation-settings: "opsz" 40;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
 }
 
 /* Sentences wrap as units where they fit; a long one still wraps inside, balanced. */
@@ -232,7 +232,7 @@
   font-size: clamp(2.75rem, 2rem + 2.4vw, 4.5rem);
   line-height: 1;
   font-weight: 300;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -395,7 +395,7 @@
   font-size: clamp(4rem, 3rem + 3vw, 6.5rem);
   line-height: 0.9;
   font-weight: 250;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.03em;
 }
 
 .only__title {
@@ -529,7 +529,7 @@
   font-size: clamp(3rem, 2.4rem + 2vw, 4.25rem);
   line-height: 1;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.025em;
 }
 
 .plan__price--soon {
@@ -537,7 +537,7 @@
   font-size: clamp(1.625rem, 1.3rem + 1vw, 2.125rem);
   line-height: 1.1;
   font-weight: 650;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.015em;
 }
 
 .plan__tagline {
@@ -677,7 +677,6 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-3);
-  max-width: 60rem;
   margin-top: clamp(56px, 6vw, 88px);
 }
 
@@ -701,16 +700,11 @@
 }
 
 .platform--detected {
-  flex-basis: 100%;
-  justify-content: center;
-  max-width: 22rem;
-  margin-inline: calc((100% - 22rem) / 2);
-  margin-bottom: var(--space-3);
-  padding: var(--space-4) var(--space-7);
+  padding: var(--space-3) var(--space-6);
   border-color: var(--amber-line);
   background: var(--amber-wash);
   color: var(--paper);
-  font-size: 1.125rem;
+  font-size: 1.0625rem;
 }
 
 .platform--detected .platform__icon {
@@ -723,4 +717,70 @@
   margin-top: var(--space-7);
   color: var(--paper-3);
   font-size: 0.9375rem;
+}
+
+/* App screenshots: a quiet frame, no fake window chrome. */
+.shot {
+  position: relative;
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--rule-strong);
+  border-radius: 14px;
+  background: var(--ink-deep);
+  box-shadow:
+    0 40px 90px -30px rgb(0 0 0 / 0.85),
+    0 12px 30px -12px rgb(0 0 0 / 0.6);
+}
+
+.shot img {
+  width: 100%;
+  height: auto;
+}
+
+.shot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(11 12 16 / 0) 62%, rgb(11 12 16 / 0.45) 100%);
+  pointer-events: none;
+}
+
+.shots {
+  display: grid;
+  gap: var(--gutter);
+  align-items: end;
+}
+
+@media (min-width: 1000px) {
+  .shots {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .shots__main {
+    grid-column: 1 / span 8;
+  }
+
+  .shots__side {
+    grid-column: 9 / span 4;
+    margin-bottom: clamp(24px, 4vw, 64px);
+  }
+}
+
+.how__proof {
+  display: grid;
+  gap: var(--space-8) var(--gutter);
+  align-items: end;
+}
+
+@media (min-width: 900px) {
+  .how__proof {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .how__shot {
+    grid-column: 1 / span 7;
+  }
+
+  .how__proof .technical {
+    grid-column: 9 / span 4;
+  }
 }

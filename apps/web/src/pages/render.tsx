@@ -77,14 +77,14 @@ function Head({ t, request }: { t: Translate; request: PageRequest }) {
 }
 
 /** The landing page, every section of marketing/landing-page.*.md in its order. */
-function Home({ t }: { t: Translate }) {
+function Home({ t, locale }: { t: Translate; locale: Locale }) {
   return (
     <>
       <Hero t={t} />
       <Problem t={t} />
       <WhereItLives t={t} />
-      <HowItWorks t={t} />
-      <Features t={t} />
+      <HowItWorks t={t} locale={locale} />
+      <Features t={t} locale={locale} />
       <OnlyMosaic t={t} />
       <Switch t={t} />
       <Pricing t={t} />
@@ -107,7 +107,7 @@ function Page({ request }: { request: PageRequest }) {
         </a>
         <Header t={t} locale={locale} />
         <main id="main" tabIndex={-1}>
-          {page === "home" ? <Home t={t} /> : <NotFound t={t} locale={locale} />}
+          {page === "home" ? <Home t={t} locale={locale} /> : <NotFound t={t} locale={locale} />}
         </main>
         <Footer t={t} locale={locale} />
       </body>

@@ -228,7 +228,7 @@ code {
   font-size: clamp(2.75rem, 1.4rem + 5vw, 6.5rem);
   line-height: 0.95;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.025em;
 }
 
 .not-found .body-lg {

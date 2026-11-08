@@ -2,9 +2,11 @@
  * The product half of the page: every-day features with the platform strip, the three
  * things only Mosaic does, and switching from another app.
  */
+import type { Locale } from "@mosaic/i18n";
 import { Icon, type IconName } from "./Icon.tsx";
 import type { Translate, WebKey } from "./i18n.ts";
 import { Head, LineButton, Point, Rich, Section } from "./Section.tsx";
+import { Shot, SHOTS } from "./Shot.tsx";
 
 const FEATURES: readonly (readonly [IconName, WebKey, WebKey])[] = [
   ["cursor", "web.features.autofill.title", "web.features.autofill.text"],
@@ -34,7 +36,7 @@ export const PLATFORM_KEYS = [
   ["cli", "web.platform.cli", "terminal"],
 ] as const satisfies readonly (readonly [string, WebKey, IconName])[];
 
-export function Features({ t }: { t: Translate }) {
+export function Features({ t, locale }: { t: Translate; locale: Locale }) {
   return (
     <Section id="features">
       <Head
@@ -44,6 +46,10 @@ export function Features({ t }: { t: Translate }) {
         intro={t("web.features.intro")}
         className="head--wide"
       />
+      <div className="shots">
+        <Shot spec={SHOTS.vault} locale={locale} alt={t("web.features.desktopAlt")} className="shots__main" />
+        <Shot spec={SHOTS.generator} locale={locale} alt={t("web.features.generatorAlt")} className="shots__side" />
+      </div>
       <ul className="points points--3">
         {FEATURES.map(([icon, title, text]) => (
           <Point

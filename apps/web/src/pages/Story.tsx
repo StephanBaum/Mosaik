@@ -2,9 +2,11 @@
  * The story half of the page: the everyday problem, where vaults live (with the two incidents
  * and a sorted detail of the painting), and how Mosaic works in three steps.
  */
+import type { Locale } from "@mosaic/i18n";
 import { Icon, type IconName } from "./Icon.tsx";
 import type { Translate, WebKey } from "./i18n.ts";
 import { Head, Point, Section } from "./Section.tsx";
+import { Shot, SHOTS } from "./Shot.tsx";
 
 const PROBLEMS: readonly (readonly [IconName, WebKey, WebKey])[] = [
   ["door", "web.problem.leak.title", "web.problem.leak.text"],
@@ -39,11 +41,26 @@ export function WhereItLives({ t }: { t: Translate }) {
   return (
     <Section id="where-it-lives" className="where">
       <div className="where__lead">
-        <figure className="where__art" aria-hidden="true">
+        <figure className="where__art">
           <picture>
-            <source type="image/avif" srcSet="/img/detail-barn-800.avif 800w, /img/detail-barn-1144.avif 1144w" sizes="(min-width: 900px) 40vw, 100vw" />
-            <source type="image/webp" srcSet="/img/detail-barn-800.webp 800w, /img/detail-barn-1144.webp 1144w" sizes="(min-width: 900px) 40vw, 100vw" />
-            <img src="/img/detail-barn-800.webp" alt="" width={800} height={998} loading="lazy" decoding="async" />
+            <source
+              type="image/avif"
+              srcSet="/img/story-barn-night-sort-800.avif 800w, /img/story-barn-night-sort-1200.avif 1200w"
+              sizes="(min-width: 900px) 40vw, 100vw"
+            />
+            <source
+              type="image/webp"
+              srcSet="/img/story-barn-night-sort-800.webp 800w, /img/story-barn-night-sort-1200.webp 1200w"
+              sizes="(min-width: 900px) 40vw, 100vw"
+            />
+            <img
+              src="/img/story-barn-night-sort-800.webp"
+              alt={t("web.where.imageAlt")}
+              width={800}
+              height={994}
+              loading="lazy"
+              decoding="async"
+            />
           </picture>
         </figure>
         <div className="where__text">
@@ -87,7 +104,7 @@ function WarningSample({ t }: { t: Translate }) {
   );
 }
 
-export function HowItWorks({ t }: { t: Translate }) {
+export function HowItWorks({ t, locale }: { t: Translate; locale: Locale }) {
   return (
     <Section id="how-it-works">
       <Head id="how-it-works" eyebrow={t("web.how.eyebrow")} title={t("web.how.title")} intro={t("web.how.intro")} className="head--wide" />
@@ -103,10 +120,13 @@ export function HowItWorks({ t }: { t: Translate }) {
           </li>
         ))}
       </ol>
-      <aside className="technical" aria-label={t("web.how.technicalLabel")}>
-        <p className="technical__label">{t("web.how.technicalLabel")}</p>
-        <p className="technical__text">{t("web.how.technical")}</p>
-      </aside>
+      <div className="how__proof">
+        <Shot spec={SHOTS.sync} locale={locale} alt={t("web.how.syncAlt")} className="how__shot" />
+        <aside className="technical" aria-label={t("web.how.technicalLabel")}>
+          <p className="technical__label">{t("web.how.technicalLabel")}</p>
+          <p className="technical__text">{t("web.how.technical")}</p>
+        </aside>
+      </div>
     </Section>
   );
 }
