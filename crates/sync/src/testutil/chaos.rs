@@ -231,4 +231,8 @@ impl<T: Transport> Transport for ChaosTransport<T> {
     ) -> Result<ChangeToken, TransportError> {
         self.inner.wait_for_change(since, timeout)
     }
+
+    fn sharing(&mut self) -> Option<&mut dyn crate::sharing::SharingTransport> {
+        self.inner.sharing()
+    }
 }

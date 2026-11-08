@@ -88,6 +88,27 @@
     "allow-join-hosted",
     "allow-join-hosted-two-factor",
     "allow-join-folder",
-    "allow-change-master-password"
+    "allow-change-master-password",
+    "allow-sharing-identity",
+    "allow-sharing-lookup",
+    "allow-sharing-verify-contact",
+    "allow-sharing-accept-key-change",
+    "allow-sharing-contacts",
+    "allow-vault-share",
+    "allow-vault-members",
+    "allow-vault-member-set-role",
+    "allow-vault-member-remove",
+    "allow-vault-invite-cancel",
+    "allow-vault-leave",
+    "allow-invites-list",
+    "allow-invite-preview",
+    "allow-invite-accept",
+    "allow-invite-decline",
+    "allow-emergency-overview",
+    "allow-emergency-grant",
+    "allow-emergency-revoke",
+    "allow-emergency-request",
+    "allow-emergency-respond",
+    "allow-emergency-claim"
   ]
 }

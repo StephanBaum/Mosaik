@@ -533,6 +533,90 @@ SELECT p.device_id, r.vault_id FROM sync_peer_checkpoint p, sync_rebuild r
 WHERE p.digest_ignored = 1;
 ";
 
+/// Version 8 (M6b T2, CRYPTO_SPEC 8.1 to 8.5, 10.2): sharing and emergency
+/// access. The account's identity key (the wrapped `isk` and `ipk`, and
+/// whether the server holds them), the synced contact book, the per-vault
+/// `shared` flag with this account's role (monotone: a row is never removed,
+/// so a backend change cannot make a shared key adoptable), the vault roster,
+/// the revocations still to be carried out and the findings against the
+/// server. Additive: new tables only.
+const V8: &str = r"
+CREATE TABLE identity_key (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    wrapped_isk  BLOB    NOT NULL CHECK (length(wrapped_isk) = 74),
+    ipk          BLOB    NOT NULL CHECK (length(ipk) = 32),
+    created_at   INTEGER NOT NULL CHECK (created_at >= 0),
+    published    INTEGER NOT NULL CHECK (published IN (0, 1))
+) STRICT;
+
+-- Once the server holds an identity key it is never replaced (before M7), and
+-- a published key never becomes unpublished.
+CREATE TRIGGER identity_key_published_monotonic
+BEFORE UPDATE OF published ON identity_key
+WHEN OLD.published = 1 AND NEW.published = 0
+BEGIN SELECT RAISE(ABORT, 'mosaic: identity key publication cannot be undone'); END;
+
+CREATE TRIGGER identity_key_frozen_once_published
+BEFORE UPDATE OF ipk ON identity_key
+WHEN OLD.published = 1 AND NEW.ipk <> OLD.ipk
+BEGIN SELECT RAISE(ABORT, 'mosaic: a published identity key is never replaced'); END;
+
+CREATE TRIGGER identity_key_never_deleted
+BEFORE DELETE ON identity_key
+BEGIN SELECT RAISE(ABORT, 'mosaic: the identity key is never deleted'); END;
+
+CREATE TABLE contacts_doc (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    ciphertext  BLOB    NOT NULL,
+    seq         INTEGER CHECK (seq IS NULL OR seq >= 0),
+    pending     INTEGER NOT NULL CHECK (pending IN (0, 1))
+) STRICT;
+
+CREATE TABLE vault_sharing (
+    vault_id        BLOB    PRIMARY KEY CHECK (length(vault_id) = 16),
+    shared          INTEGER NOT NULL CHECK (shared = 1),
+    own_role        INTEGER NOT NULL CHECK (own_role BETWEEN 1 AND 4),
+    owner_account   BLOB    NOT NULL CHECK (length(owner_account) = 16),
+    access_lost_at  INTEGER CHECK (access_lost_at IS NULL OR access_lost_at >= 0)
+) STRICT;
+
+-- Like the generation floor, the flag outlives the vault and backend changes.
+CREATE TRIGGER vault_sharing_never_deleted
+BEFORE DELETE ON vault_sharing
+BEGIN SELECT RAISE(ABORT, 'mosaic: the shared flag is never removed'); END;
+
+CREATE TRIGGER vault_sharing_owner_immutable
+BEFORE UPDATE OF owner_account ON vault_sharing
+WHEN NEW.owner_account <> OLD.owner_account
+BEGIN SELECT RAISE(ABORT, 'mosaic: the vault owner never changes'); END;
+
+CREATE TABLE vault_roster (
+    vault_id        BLOB    PRIMARY KEY CHECK (length(vault_id) = 16)
+                            REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    key_generation  INTEGER NOT NULL CHECK (key_generation BETWEEN 1 AND 4294967295),
+    ciphertext      BLOB    NOT NULL,
+    seq             INTEGER CHECK (seq IS NULL OR seq >= 0),
+    pending         INTEGER NOT NULL CHECK (pending IN (0, 1))
+) STRICT;
+
+CREATE TABLE pending_revocations (
+    vault_id      BLOB    NOT NULL CHECK (length(vault_id) = 16)
+                          REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    account_id    BLOB    NOT NULL CHECK (length(account_id) = 16),
+    reason        INTEGER NOT NULL CHECK (reason BETWEEN 1 AND 5),
+    requested_at  INTEGER NOT NULL CHECK (requested_at >= 0),
+    PRIMARY KEY (vault_id, account_id)
+) STRICT;
+
+CREATE TABLE sharing_findings (
+    vault_id    BLOB    CHECK (vault_id IS NULL OR length(vault_id) = 16),
+    kind        INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 7),
+    generation  INTEGER CHECK (generation IS NULL OR generation >= 1),
+    account_id  BLOB    CHECK (account_id IS NULL OR length(account_id) = 16),
+    at          INTEGER NOT NULL CHECK (at >= 0)
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -563,10 +647,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 7,
         sql: V7,
     },
+    Migration {
+        version: 8,
+        sql: V8,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 7;
+pub const LATEST_VERSION: u32 = 8;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -708,10 +796,14 @@ mod tests {
             },
             Migration {
                 version: 8,
+                sql: V8,
+            },
+            Migration {
+                version: 9,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 8);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 9);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -725,11 +817,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 8,
-                supported: 7
+                found: 9,
+                supported: 8
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 8);
+        assert_eq!(user_version(&c).unwrap(), 9);
     }
 
     #[test]
@@ -767,11 +859,15 @@ mod tests {
             },
             Migration {
                 version: 8,
+                sql: V8,
+            },
+            Migration {
+                version: 9,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 7);
+        assert_eq!(user_version(&c).unwrap(), 8);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1219,5 +1315,74 @@ mod tests {
         ] {
             assert!(c.execute(bad, []).is_err(), "{bad}");
         }
+    }
+    #[test]
+    fn migration_v7_to_v8() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..7]).unwrap(), 7);
+        // Data of the older schema survives and gets no sharing state.
+        c.execute(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+             VALUES (x'01010101010101010101010101010101', 1, 1, 1, 0)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 8);
+        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        let vaults: i64 = c
+            .query_row("SELECT count(*) FROM vaults", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(vaults, 1);
+        for table in [
+            "identity_key",
+            "contacts_doc",
+            "vault_sharing",
+            "vault_roster",
+            "pending_revocations",
+            "sharing_findings",
+        ] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} starts empty");
+        }
+    }
+
+    #[test]
+    fn sharing_triggers_keep_flags_monotone() {
+        let mut c = conn();
+        migrate(&mut c, MIGRATIONS).unwrap();
+        c.execute(
+            "INSERT INTO identity_key (id, wrapped_isk, ipk, created_at, published)
+             VALUES (1, zeroblob(74), zeroblob(32), 0, 1)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO vault_sharing (vault_id, shared, own_role, owner_account)
+             VALUES (zeroblob(16), 1, 1, zeroblob(16))",
+            [],
+        )
+        .unwrap();
+        for sql in [
+            "UPDATE identity_key SET published = 0",
+            "UPDATE identity_key SET ipk = x'0101010101010101010101010101010101010101010101010101010101010101'",
+            "DELETE FROM identity_key",
+            "DELETE FROM vault_sharing",
+            "UPDATE vault_sharing SET owner_account = x'01010101010101010101010101010101'",
+            "UPDATE vault_sharing SET shared = 0",
+        ] {
+            let e = c.execute(sql, []).unwrap_err();
+            assert!(
+                e.to_string().contains("mosaic:") || e.to_string().contains("CHECK"),
+                "{sql}: {e}"
+            );
+        }
+        // Re-wrapping the key (a re-key) and changing the role stay possible.
+        c.execute("UPDATE identity_key SET wrapped_isk = zeroblob(74)", [])
+            .unwrap();
+        c.execute("UPDATE vault_sharing SET own_role = 3", [])
+            .unwrap();
     }
 }

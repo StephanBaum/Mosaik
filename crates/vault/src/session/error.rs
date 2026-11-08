@@ -173,6 +173,119 @@ pub enum Error {
     #[error("item type not allowed in this vault")]
     ItemTypeNotAllowed,
 
+    /// The operation needs the account's identity key, which is not set up
+    /// yet ([`super::UnlockedSession::ensure_identity_key`]).
+    #[error("no identity key")]
+    NoIdentity,
+
+    /// The identity key this device holds is not the account's: the stored
+    /// row cannot be read, the server's key does not open under the account
+    /// key, or this device's key was already published. Sharing stays off
+    /// until the user acknowledges (CRYPTO_SPEC §8.1).
+    #[error("identity key mismatch")]
+    IdentityMismatch,
+
+    /// A shared vault never adopts a key (CRYPTO_SPEC §10.2).
+    #[error("a shared vault never adopts a key")]
+    AdoptionForbidden,
+
+    /// The vault is shared: its key changes only through the shared
+    /// rotation, never through the M6 rotation.
+    #[error("the vault is shared")]
+    VaultShared,
+
+    /// The contact is not pinned, or its pin was not verified by the user
+    /// (CRYPTO_SPEC §8.2).
+    #[error("contact not verified")]
+    ContactUnverified,
+
+    /// The served key of the contact differs from its pin, or devices pinned
+    /// different keys: nothing is sealed to or opened from the account until
+    /// the user accepts the new key (CRYPTO_SPEC §8.5).
+    #[error("contact key changed")]
+    ContactKeyChanged,
+
+    /// This account's role does not allow the operation.
+    #[error("role does not allow this")]
+    RoleForbidden,
+
+    /// Only the vault owner may do this (a rotation, emergency seals).
+    #[error("only the vault owner may do this")]
+    NotOwner,
+
+    /// The invite's seal or the vault it carries could not be opened.
+    #[error("invite cannot be read")]
+    InviteUnreadable,
+
+    /// The roster does not list this account (or the sender) as the invite
+    /// says (CRYPTO_SPEC §8.2).
+    #[error("invite does not match the roster")]
+    InviteNotInRoster,
+
+    /// The invite was not previewed in this unlocked session, or the preview
+    /// is older than five minutes.
+    #[error("invite not opened")]
+    InviteNotOpened,
+
+    /// The owner the server names is not the owner the roster names.
+    #[error("owner mismatch")]
+    OwnerMismatch,
+
+    /// Nothing on this device or in the account's contact book says who
+    /// owns the vault: it is held until an `owned:` or `member:` entry
+    /// arrives (M6b verify round 3).
+    #[error("vault owner unknown")]
+    OwnerUnknown,
+
+    /// The vault is already known on this device (open, a generation floor
+    /// or a sharing row): an invite or an emergency release may not hand it
+    /// a key (M6b review H1).
+    #[error("vault already known")]
+    VaultKnown,
+
+    /// A roster that does not list this account.
+    #[error("not in the roster")]
+    NotInRoster,
+
+    /// The vault has no roster.
+    #[error("the vault has no roster")]
+    NoRoster,
+
+    /// A member's key does not match the roster fingerprint or the contact
+    /// pin: no seal is made (CRYPTO_SPEC §8.3).
+    #[error("member key does not match")]
+    MemberKeyMismatch,
+
+    /// The rotation plan does not cover the roster's members.
+    #[error("rotation plan does not match the roster")]
+    PlanMismatch,
+
+    /// The account is a member of the vault already.
+    #[error("already a member")]
+    AlreadyMember,
+
+    /// A removed member can be invited again only after the next rotation
+    /// (their removal is written at the current generation, and ties go to
+    /// the removal).
+    #[error("re-invite has to wait for the next rotation")]
+    ReinviteBlocked,
+
+    /// The owner cannot be revoked.
+    #[error("the owner cannot be removed")]
+    OwnerCannotBeRevoked,
+
+    /// A key share failed the claim rule (CRYPTO_SPEC §8.3): the vault stays
+    /// at its generation.
+    #[error("untrusted key share for generation {generation}")]
+    ShareUntrusted {
+        /// The generation of the refused share.
+        generation: u32,
+    },
+
+    /// There is no key share above the held generation.
+    #[error("no key share to claim")]
+    NothingToClaim,
+
     /// No item of the vault references the attachment, so a downloaded
     /// ciphertext has nothing to belong to
     /// ([`super::UnlockedSession::store_remote_attachment`]).

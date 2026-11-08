@@ -9,7 +9,7 @@ use mosaic_vault::storage::Error as StorageError;
 
 use super::consts::ATTACHMENT_DOWNLOAD_BUDGET;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
-use crate::transport::{RemoteAttachment, Transport};
+use crate::transport::{Rejection, RemoteAttachment, Transport, TransportError};
 
 /// Whether the store simply has no file (an in-memory store, a row without
 /// its file): the attachment is skipped, not an error.
@@ -30,10 +30,20 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         report: &mut SyncReport,
     ) -> Result<(), SyncError> {
-        let skip = Self::rolled_back_vaults(access)?;
-        self.upload_attachments(access, report, &skip)?;
-        self.send_attachment_deletions(access, &skip)?;
-        self.reassert_attachments(access, report, &skip)?;
+        // Downloads wait for a rolled-back vault and skip one the server
+        // refuses this device; uploads also skip a vault this account may
+        // only read (M6b).
+        let mut skip = Self::rolled_back_vaults(access)?;
+        skip.extend(access.with(|s| {
+            s.synced_vaults()
+                .into_iter()
+                .filter(|v| s.vault_access_lost(*v).unwrap_or(false))
+                .collect::<Vec<_>>()
+        })?);
+        let write_skip = Self::write_blocked_vaults(access)?;
+        self.upload_attachments(access, report, &write_skip)?;
+        self.send_attachment_deletions(access, &write_skip)?;
+        self.reassert_attachments(access, report, &write_skip)?;
         self.fetch_attachments(access, report, &skip)
     }
 
@@ -69,8 +79,15 @@ impl<T: Transport> SyncEngine<T> {
                 Err(e) if is_skippable(&e) => continue,
                 Err(e) => return Err(e.into()),
             };
-            self.transport
-                .put_attachment(info.vault_id, id, &ciphertext)?;
+            match self
+                .transport
+                .put_attachment(info.vault_id, id, &ciphertext)
+            {
+                Ok(()) => {}
+                // A role that only reads: the file stays queued.
+                Err(TransportError::Rejected(Rejection::RoleForbidden)) => continue,
+                Err(e) => return Err(e.into()),
+            }
             access.with(|s| s.mark_attachment_uploaded(id))??;
             report.attachments_up += 1;
         }
@@ -83,11 +100,27 @@ impl<T: Transport> SyncEngine<T> {
         skip: &BTreeSet<VaultId>,
     ) -> Result<(), SyncError> {
         let deletions = access.with(|s| s.pending_attachment_deletions())??;
+        // The files a rotation replaced are deleted only after the records
+        // that refer to the new ones were accepted: a vault with records
+        // still queued waits (CRYPTO_SPEC §8.3).
+        let queued: BTreeSet<VaultId> = access.with(|s| -> Result<_, Error> {
+            let mut out = BTreeSet::new();
+            for vault in s.synced_vaults() {
+                if !s.pending_uploads_in(vault, 1)?.is_empty() {
+                    out.insert(vault);
+                }
+            }
+            Ok(out)
+        })??;
         for (vault, id) in deletions {
-            if skip.contains(&vault) {
+            if skip.contains(&vault) || queued.contains(&vault) {
                 continue;
             }
-            self.transport.delete_attachment(vault, id)?;
+            match self.transport.delete_attachment(vault, id) {
+                Ok(()) => {}
+                Err(TransportError::Rejected(Rejection::RoleForbidden)) => continue,
+                Err(e) => return Err(e.into()),
+            }
             access.with(|s| s.mark_attachment_deletion_sent(id))??;
         }
         Ok(())

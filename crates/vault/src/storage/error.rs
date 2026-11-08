@@ -211,6 +211,18 @@ pub enum Error {
     /// numbers.
     #[error("invalid sync data")]
     SyncDataInvalid,
+
+    /// The backend cannot change while the store holds shared vaults this
+    /// device can still reach: a shared vault's key is never adopted, and a
+    /// new backend must not make it adoptable (CRYPTO_SPEC §10.2). Leave or
+    /// lose access to them first.
+    #[error("the store holds shared vaults")]
+    HasSharedVaults,
+
+    /// An identity key is already stored, or the stored one was published,
+    /// so it cannot be replaced (CRYPTO_SPEC §8.1).
+    #[error("an identity key is already stored")]
+    IdentityExists,
 }
 
 impl From<rusqlite::Error> for Error {

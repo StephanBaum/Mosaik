@@ -12,10 +12,13 @@ pub mod attachments;
 pub mod audit;
 pub mod checkpoints;
 pub mod devices;
+pub mod directory;
+pub mod emergency;
 pub mod invites;
 pub mod records;
 pub mod schema;
 pub mod sessions;
+pub mod sharing;
 pub mod vaults;
 
 use std::path::Path;
@@ -161,6 +164,21 @@ pub(crate) fn id16(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<[u8;
     v.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
 }
 
+/// An ID as a lowercase hyphenated UUID string (what the API shows).
+pub(crate) fn uuid_text(id: &[u8; 16]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(36);
+    for (i, b) in id.iter().enumerate() {
+        if matches!(i, 4 | 6 | 8 | 10) {
+            out.push('-');
+        }
+        for n in [b >> 4, b & 15] {
+            out.push(char::from(HEX.get(usize::from(n)).copied().unwrap_or(b'0')));
+        }
+    }
+    out
+}
+
 /// A `u64` from an INTEGER column.
 pub(crate) fn u64_col(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<u64> {
     let v: i64 = row.get(idx)?;
@@ -198,5 +216,75 @@ mod tests {
             Ok(())
         })
         .unwrap();
+    }
+
+    /// A v1 database upgrades in place: memberships become owner memberships
+    /// with an origin and a time, the audit table accepts the new kinds, and
+    /// the new tables enforce their rules.
+    #[test]
+    fn migrates_v1_to_v2() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute_batch(schema::MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak,                account_version, created_at) VALUES (zeroblob(16), 'a@b.c', zeroblob(16), 1, x'00',                zeroblob(74), 1, 0);
+             INSERT INTO vaults (vault_id, owner_account_id, current_generation, head_seq, created_at)                VALUES (zeroblob(16), zeroblob(16), 1, 2, 5000);
+             INSERT INTO memberships (account_id, vault_id, role) VALUES (zeroblob(16), zeroblob(16), 1);
+             INSERT INTO audit (account_id, at, kind, device_id) VALUES (zeroblob(16), 10, 6, NULL);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(usize::try_from(v).unwrap(), schema::latest_version());
+        let m: (i64, i64, i64) = conn
+            .query_row("SELECT role, origin, added_at FROM memberships", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(m, (1, 0, 5000));
+        let a: (i64, i64) = conn
+            .query_row("SELECT kind, at FROM audit", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(a, (6, 10));
+        let (ipk, seq): (Option<Vec<u8>>, i64) = conn
+            .query_row("SELECT ipk, contacts_seq FROM accounts", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((ipk, seq), (None, 0));
+
+        // The rebuilt tables keep their rules and gain the new ones.
+        let bad = |sql: &str| conn.execute(sql, []).is_err();
+        assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 14, NULL)"));
+        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 15, NULL)"));
+        assert!(bad(
+            "INSERT INTO memberships VALUES (zeroblob(16), zeroblob(16), 5, 0, 0)"
+        ));
+        assert!(bad(
+            "INSERT INTO memberships VALUES (x'01010101010101010101010101010101', zeroblob(16), 2, 0, 0)"
+        ));
+        assert!(bad("UPDATE accounts SET ipk = x'00'"));
+        let invite = "INSERT INTO share_invites (invite_id, vault_id, sender, recipient, role, generation,              seal, created_at, expires_at, state) VALUES (randomblob(16), zeroblob(16), zeroblob(16),              zeroblob(16), 3, 1, zeroblob(82), 0, 1, 0)";
+        assert!(!bad(invite));
+        assert!(bad(invite), "one open invite per vault and recipient");
+        assert!(bad(
+            "INSERT INTO emergency_grants (grantor, grantee, wait_days, scope, state, created_at)              VALUES (zeroblob(16), zeroblob(16), 3, 1, 0, 0)"
+        ));
+        // The cascade still reaches the rebuilt tables.
+        conn.execute("DELETE FROM accounts", []).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM memberships) + (SELECT COUNT(*) FROM audit)                  + (SELECT COUNT(*) FROM share_invites)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
     }
 }

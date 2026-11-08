@@ -85,6 +85,23 @@ pub trait Dialogs: Send + Sync {
     fn confirm(&self, _title: &str, _message: &str) -> IpcResult<bool> {
         Ok(false)
     }
+
+    /// Like [`Dialogs::confirm`], with the action's own verb on the
+    /// confirming button ("Remove", "Leave vault") and `cancel` on the other,
+    /// so the button says what it does. Native dialogs show exactly these two
+    /// labels; the default asks the plain OK/Cancel question.
+    ///
+    /// # Errors
+    /// `internal` if no dialog can be shown.
+    fn confirm_action(
+        &self,
+        title: &str,
+        message: &str,
+        _action: &str,
+        _cancel: &str,
+    ) -> IpcResult<bool> {
+        self.confirm(title, message)
+    }
 }
 
 /// No dialogs (tests, headless): every request is cancelled.
@@ -136,6 +153,43 @@ impl<R: Runtime> NativeDialogs<R> {
             .map_err(|_| IpcError::INTERNAL)?;
         rx.recv().map_err(|_| IpcError::INTERNAL)
     }
+
+    /// A warning dialog with `buttons`; `true` only for the confirming button.
+    fn ask(
+        &self,
+        title: &str,
+        message: &str,
+        buttons: rfd::MessageButtons,
+        action: Option<&str>,
+    ) -> IpcResult<bool> {
+        let (tx, rx) = mpsc::channel();
+        let app = self.app.clone();
+        let (title, message) = (title.to_owned(), message.to_owned());
+        self.app
+            .run_on_main_thread(move || {
+                let mut dialog = rfd::AsyncMessageDialog::new()
+                    .set_title(title)
+                    .set_description(message)
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_buttons(buttons);
+                if let Some(window) = app.get_webview_window("main") {
+                    dialog = dialog.set_parent(&window);
+                }
+                let future = dialog.show();
+                std::thread::spawn(move || {
+                    let _ = tx.send(tauri::async_runtime::block_on(future));
+                });
+            })
+            .map_err(|_| IpcError::INTERNAL)?;
+        let answer = rx.recv().map_err(|_| IpcError::INTERNAL)?;
+        // A custom-labelled dialog answers with the label that was clicked:
+        // only the confirming label is a yes.
+        Ok(match answer {
+            rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes => true,
+            rfd::MessageDialogResult::Custom(label) => Some(label.as_str()) == action,
+            _ => false,
+        })
+    }
 }
 
 /// The dialog with `filter`, or unfiltered for [`ANY_FILE`].
@@ -164,29 +218,21 @@ impl<R: Runtime> Dialogs for NativeDialogs<R> {
     }
 
     fn confirm(&self, title: &str, message: &str) -> IpcResult<bool> {
-        let (tx, rx) = mpsc::channel();
-        let app = self.app.clone();
-        let (title, message) = (title.to_owned(), message.to_owned());
-        self.app
-            .run_on_main_thread(move || {
-                let mut dialog = rfd::AsyncMessageDialog::new()
-                    .set_title(title)
-                    .set_description(message)
-                    .set_level(rfd::MessageLevel::Warning)
-                    .set_buttons(rfd::MessageButtons::OkCancel);
-                if let Some(window) = app.get_webview_window("main") {
-                    dialog = dialog.set_parent(&window);
-                }
-                let future = dialog.show();
-                std::thread::spawn(move || {
-                    let _ = tx.send(tauri::async_runtime::block_on(future));
-                });
-            })
-            .map_err(|_| IpcError::INTERNAL)?;
-        let answer = rx.recv().map_err(|_| IpcError::INTERNAL)?;
-        Ok(matches!(
-            answer,
-            rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes
-        ))
+        self.ask(title, message, rfd::MessageButtons::OkCancel, None)
+    }
+
+    fn confirm_action(
+        &self,
+        title: &str,
+        message: &str,
+        action: &str,
+        cancel: &str,
+    ) -> IpcResult<bool> {
+        self.ask(
+            title,
+            message,
+            rfd::MessageButtons::OkCancelCustom(action.to_owned(), cancel.to_owned()),
+            Some(action),
+        )
     }
 }

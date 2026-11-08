@@ -1,0 +1,106 @@
+/*
+ * Sharing and emergency access (M6b): the safety-code comparison, the notices at the top of the
+ * app (an emergency request, sharing findings) and the share button. Tokens only.
+ */
+
+/* The safety code: groups of five or six characters, large enough to read out loud. */
+
+.safety__sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.safety__side {
+  display: flex;
+  flex: 1 1 calc(var(--space-9) * 3);
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.safety__code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-lg);
+  letter-spacing: 0;
+  user-select: all;
+}
+
+.safety__group {
+  white-space: nowrap;
+}
+
+/* Notices at the top of the main area. They scroll with the page: a pinned block covered the
+   focused control in a small window. */
+
+.vault__notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.vault__notices:not(:empty) {
+  padding: var(--space-4) var(--space-6) 0;
+}
+
+.vault__notices:empty,
+.emergency-banner:empty,
+.sharing-findings:empty {
+  display: none;
+}
+
+.sharing-findings__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.sharing-findings__bar .body {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+/* Long addresses and the text around them break instead of pushing the layout wide. */
+
+.safety__text {
+  overflow-wrap: anywhere;
+}
+
+.check--top {
+  align-items: flex-start;
+}
+
+.check__text .field__hint {
+  display: block;
+}
+
+.safety__code + .field__hint {
+  margin-top: var(--space-3);
+}
+
+.emergency__add {
+  padding-bottom: var(--space-6);
+  border-bottom: 0;
+}
+
+.emergency-banner .actions {
+  margin-top: var(--space-3);
+}
+
+.sharing-findings .actions {
+  margin-top: var(--space-3);
+}
+
+.topbar__share {
+  flex-shrink: 0;
+}

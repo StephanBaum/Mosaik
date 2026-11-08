@@ -85,12 +85,8 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
     ) -> Result<PullPage, TransportError> {
         if self.withhold_pulls {
             return Ok(PullPage {
-                keys: Vec::new(),
-                metas: Vec::new(),
-                records: Vec::new(),
                 next: cursor.clone(),
-                more: false,
-                units: Vec::new(),
+                ..PullPage::default()
             });
         }
         let mut page = self.inner.pull(vault, cursor, limit)?;
@@ -222,5 +218,9 @@ impl<T: Transport> Transport for MaliciousTransport<T> {
         timeout: Duration,
     ) -> Result<ChangeToken, TransportError> {
         self.inner.wait_for_change(since, timeout)
+    }
+
+    fn sharing(&mut self) -> Option<&mut dyn crate::sharing::SharingTransport> {
+        self.inner.sharing()
     }
 }

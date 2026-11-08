@@ -161,6 +161,15 @@ pub enum AppEvent {
         /// The vaults.
         vault_ids: Vec<WireVaultId>,
     },
+    /// The invites waiting for this account or the emergency requests waiting
+    /// for its answer changed (after a sync run): read `invites_list` or
+    /// `emergency_overview` again.
+    SharingChanged {
+        /// Invites waiting for this account.
+        invites: u32,
+        /// Emergency requests waiting for this account's answer.
+        emergency_requests: u32,
+    },
     /// A sync run merged or repaired something the user may want to look at.
     SyncAttention {
         /// Records merged with a local change.
@@ -234,6 +243,14 @@ pub(crate) mod samples {
                 reason: BrowserCloseReason::AbortedByPage,
             },
             AppEvent::BrowserPairingsChanged,
+            AppEvent::SharingChanged {
+                invites: 1,
+                emergency_requests: 0,
+            },
+            AppEvent::SharingChanged {
+                invites: 0,
+                emergency_requests: 2,
+            },
         ];
         all.extend(crate::contract::sync::samples::events());
         for event in &all {
@@ -255,6 +272,7 @@ pub(crate) mod samples {
                 | AppEvent::BrowserPasskeyRequested { .. }
                 | AppEvent::BrowserPasskeyClosed { .. }
                 | AppEvent::BrowserPairingsChanged
+                | AppEvent::SharingChanged { .. }
                 | AppEvent::SyncDataChanged { .. }
                 | AppEvent::SyncAttention { .. } => {}
             }

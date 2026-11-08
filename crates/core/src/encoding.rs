@@ -127,11 +127,35 @@ pub mod label {
     pub(crate) const SYNC_DEVICE_INFO_KEY: Label = Label::new("sync/device-info-key");
     /// AAD of sealed device info (§10.1).
     pub(crate) const SYNC_DEVICE_INFO: Label = Label::new("sync/device-info");
-    /// Prefix of the view digest in a hosted checkpoint (§10): a plain
-    /// SHA-256, no key involved.
+    /// Prefix of the first view digest in a hosted checkpoint (§10). Retired
+    /// by `sync/view2` (M6b); the registry keeps the label so it is never
+    /// reused.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "retired label, kept in the registry")
+    )]
     pub(crate) const SYNC_VIEW: Label = Label::new("sync/view");
     /// Prefix of the key commitment inside the view digest (§10).
     pub(crate) const SYNC_VIEW_KEY: Label = Label::new("sync/view-key");
+
+    /// AAD of a wrapped identity private key `isk` (§8.1).
+    pub(crate) const WRAP_IDENTITY: Label = Label::new("wrap/identity");
+    /// HPKE `info` and AAD label of a vault-key share (§8.2).
+    pub(crate) const SHARE_VAULT: Label = Label::new("share/vault");
+    /// HPKE `info` and AAD label of an emergency seal (§8.4).
+    pub(crate) const EMERGENCY: Label = Label::new("emergency");
+    /// SHA-256 prefix of an identity-key fingerprint (§8.2).
+    pub(crate) const FINGERPRINT: Label = Label::new("fingerprint");
+    /// AAD of a vault roster (§8.2).
+    pub(crate) const VAULT_ROSTER: Label = Label::new("vault-roster");
+    /// HKDF info of the contact-book key `K_contacts` (§8.5).
+    pub(crate) const CONTACTS_KEY: Label = Label::new("contacts-key");
+    /// AAD of the encrypted contact book (§8.5).
+    pub(crate) const CONTACTS: Label = Label::new("contacts");
+    /// Prefix of the view digest of a hosted checkpoint, version 2 (§10).
+    pub(crate) const SYNC_VIEW2: Label = Label::new("sync/view2");
+    /// Prefix of the metadata and roster commitment inside the view digest (§10).
+    pub(crate) const SYNC_VIEW_META: Label = Label::new("sync/view-meta");
 
     /// HKDF info of the server key of the pre-login fakes (`mosaic-server`).
     pub const SERVER_PRELOGIN_KEY: Label = Label::new("server/prelogin-key");
@@ -142,6 +166,10 @@ pub mod label {
     /// The `context` of the OPAQUE login and registration finish (§9.1);
     /// the wire value is `ctx(OPAQUE_LOGIN)`.
     pub const OPAQUE_LOGIN: Label = Label::new("opaque-login");
+    /// HKDF info of the server key of the directory fakes (`mosaic-server`).
+    pub const SERVER_DIRECTORY_KEY: Label = Label::new("server/directory-key");
+    /// HMAC input of the directory fake identity key (`mosaic-server`).
+    pub const SERVER_DIRECTORY_IPK: Label = Label::new("server/directory-ipk");
     /// Input of the pre-login fake account ID (§9.2). Used as raw HMAC
     /// input **without** the `mosaic/v1/` prefix (§3 exception).
     pub const PRELOGIN_ACCOUNT_ID: Label = Label::new("prelogin/account-id");
@@ -152,7 +180,7 @@ pub mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 40] = [
+    pub(crate) const ALL: [Label; 51] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -193,6 +221,17 @@ pub mod label {
         PRELOGIN_ACCOUNT_ID,
         PRELOGIN_SALT,
         PRELOGIN_PROFILE,
+        WRAP_IDENTITY,
+        SHARE_VAULT,
+        EMERGENCY,
+        FINGERPRINT,
+        VAULT_ROSTER,
+        CONTACTS_KEY,
+        CONTACTS,
+        SYNC_VIEW2,
+        SYNC_VIEW_META,
+        SERVER_DIRECTORY_KEY,
+        SERVER_DIRECTORY_IPK,
     ];
 }
 
@@ -412,6 +451,37 @@ mod tests {
                 assert_ne!(a, b);
             }
         }
+    }
+
+    /// I2: a label that is a prefix of another is a new pair to review. AAD
+    /// labels are followed by `0x00`, so those are always prefix-free; labels
+    /// used as bare HKDF info or hash input are injective on the full string,
+    /// so these pairs (all older than M6b or reviewed in T1) are safe, but each
+    /// new pair has to be added here on purpose.
+    #[test]
+    fn label_prefix_pairs_are_reviewed() {
+        const REVIEWED: [(&str, &str); 8] = [
+            ("secret-key", "secret-key-checksum"),
+            ("wrap/vault", "wrap/vault-under-tk"),
+            ("checkpoint", "checkpoint-key"),
+            ("sync/device-info", "sync/device-info-key"),
+            ("sync/view", "sync/view-key"),
+            ("sync/view", "sync/view2"),
+            ("sync/view", "sync/view-meta"),
+            ("contacts", "contacts-key"),
+        ];
+        let mut found = Vec::new();
+        for (i, a) in label::ALL.iter().enumerate() {
+            for (j, b) in label::ALL.iter().enumerate() {
+                if i != j && b.as_str().starts_with(a.as_str()) {
+                    found.push((a.as_str(), b.as_str()));
+                }
+            }
+        }
+        found.sort_unstable();
+        let mut expected = REVIEWED.to_vec();
+        expected.sort_unstable();
+        assert_eq!(found, expected);
     }
 
     /// L2: the labels other crates take from here keep their wire bytes

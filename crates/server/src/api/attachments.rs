@@ -9,6 +9,7 @@ use mosaic_core::AttachmentId;
 use mosaic_sync::wire::json::{AttachmentEntry, AttachmentsResponse, Empty, RestoreResponse};
 use mosaic_vault::storage::{self, validate_attachment_ciphertext};
 
+use super::sharing::notify_vault;
 use super::{Reply, parse_uuid};
 use crate::AppState;
 use crate::auth::Session;
@@ -77,14 +78,14 @@ pub async fn put(
                 st.db.run(|c| attachments::remove_row(c, &id))?;
                 return Err(e.into());
             }
-            st.polls.bump(s.account_id, now);
+            notify_vault(&st, &vault, now);
             Reply::created(&Empty {})
         }
         Put::Existing => {
             if !st.blobs.exists(&id) {
                 st.blobs.write(&id, &body)?;
             }
-            st.polls.bump(s.account_id, now);
+            notify_vault(&st, &vault, now);
             Reply::empty()
         }
     }
@@ -122,7 +123,7 @@ pub async fn delete(
     let now = st.clock.now_ms();
     st.db
         .run(|c| attachments::soft_delete(c, &s.account_id, &vault, &id, now))?;
-    st.polls.bump(s.account_id, now);
+    notify_vault(&st, &vault, now);
     Reply::empty()
 }
 
@@ -137,7 +138,7 @@ pub async fn restore(
         .db
         .run(|c| attachments::restore(c, &s.account_id, &vault, &id))?;
     if restored {
-        st.polls.bump(s.account_id, st.clock.now_ms());
+        notify_vault(&st, &vault, st.clock.now_ms());
     }
     Reply::json(StatusCode::OK, &RestoreResponse { restored })
 }

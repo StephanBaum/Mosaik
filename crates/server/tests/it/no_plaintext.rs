@@ -17,12 +17,12 @@ use crate::common::{LoginResult, TestApp, TestVault, User};
 const PEER: &str = "203.0.113.77:51873";
 const MARKER: &str = "PLAINTEXT-MARKER-4e1f9b2c-item-title";
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 /// Every file under `dir` that is a database file, its WAL or a blob.
-fn stored_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
+pub(crate) fn stored_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {

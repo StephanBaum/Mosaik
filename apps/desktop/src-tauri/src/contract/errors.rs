@@ -229,6 +229,43 @@ wire_enum!(
         SyncPasswordRollback,
         /// The master password change was sent but its outcome could not be confirmed.
         SyncPasswordOutcomeUnknown,
+        /// Sharing and emergency access need the Mosaic server; a folder or
+        /// no sync has neither.
+        SharingNotHosted,
+        /// The contact's safety code has not been compared yet.
+        SharingContactUnverified,
+        /// The contact's key changed since it was pinned; compare the new code first.
+        SharingKeyChanged,
+        /// This account's role does not allow that.
+        SharingRoleForbidden,
+        /// An invite for this person and vault is already waiting.
+        SharingInviteExists,
+        /// The invite changed after the preview (a new vault key); open it again.
+        SharingInviteStale,
+        /// The invite ran out or was withdrawn.
+        SharingInviteExpired,
+        /// The invite cannot be read: it is damaged or not meant for this account.
+        SharingInviteUnreadable,
+        /// The vault's member list does not match the invite.
+        SharingInviteNotInRoster,
+        /// The owner cannot leave a vault.
+        SharingOwnerCannotLeave,
+        /// This person is a member already.
+        SharingAlreadyMember,
+        /// A removed member can be invited again only after the vault key changed.
+        SharingReinviteBlocked,
+        /// Too many invites are waiting.
+        SharingInviteLimit,
+        /// This device already knows that vault; an invite cannot give it a key.
+        SharingVaultKnown,
+        /// Sync cannot change servers while shared vaults are on this device.
+        SyncHasSharedVaults,
+        /// An emergency request is waiting; the grant cannot change now.
+        EmergencyWaiting,
+        /// A refused request can be repeated only after the cooldown.
+        EmergencyCooldown,
+        /// There is nothing to claim: no request, or no grant.
+        EmergencyNotGranted,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.
@@ -296,6 +333,21 @@ impl From<SessionError> for IpcError {
             SessionError::WrongVaultProtection => ErrorCode::InvalidInput,
             SessionError::ItemTypeNotAllowed => ErrorCode::ItemTypeNotAllowed,
             SessionError::PasswordRollback => ErrorCode::SyncPasswordRollback,
+            SessionError::ContactUnverified => ErrorCode::SharingContactUnverified,
+            SessionError::ContactKeyChanged | SessionError::MemberKeyMismatch => {
+                ErrorCode::SharingKeyChanged
+            }
+            SessionError::RoleForbidden
+            | SessionError::NotOwner
+            | SessionError::OwnerCannotBeRevoked => ErrorCode::SharingRoleForbidden,
+            SessionError::InviteUnreadable => ErrorCode::SharingInviteUnreadable,
+            SessionError::InviteNotInRoster | SessionError::OwnerMismatch => {
+                ErrorCode::SharingInviteNotInRoster
+            }
+            SessionError::InviteNotOpened => ErrorCode::SharingInviteStale,
+            SessionError::AlreadyMember => ErrorCode::SharingAlreadyMember,
+            SessionError::ReinviteBlocked => ErrorCode::SharingReinviteBlocked,
+            SessionError::VaultKnown => ErrorCode::SharingVaultKnown,
             SessionError::Store(store) => return store.into(),
             SessionError::Core(core) => return core.into(),
             _ => ErrorCode::Internal,
@@ -312,6 +364,7 @@ impl From<StoreError> for IpcError {
             StoreError::NoAccount => ErrorCode::NoAccount,
             StoreError::UnknownVault => ErrorCode::VaultNotFound,
             StoreError::AttachmentTooLarge => ErrorCode::AttachmentTooLarge,
+            StoreError::HasSharedVaults => ErrorCode::SyncHasSharedVaults,
             StoreError::Database(_)
             | StoreError::Io(_)
             | StoreError::InvalidPath

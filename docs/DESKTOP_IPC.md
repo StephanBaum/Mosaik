@@ -174,8 +174,52 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `join_folder` | `{ choiceId, accountId, password: SecretIn, secretKey: SecretIn, deviceName }` → `{ state: "unlocked" }` | `syncChoiceExpired`, `syncFolderNoAccount`, `syncFolderUnavailable`, `syncFolderDamaged` (the account file's MAC fails; nothing was kept), `wrongCredentials`, the codes of `join_hosted` | live |
 | `change_master_password` | `{ currentPassword: SecretIn, newPassword: SecretIn, code: SecretIn \| null }` → `null` | `locked`, `emptyPassword`, `wrongCredentials`, `secretKeyRequired`, `syncPasswordNeedsServer` (hosted sync is set up and the server is unreachable before the change was sent: nothing changed), `syncPasswordOutcomeUnknown` (the change was sent, its answer was lost and the check with the new password failed too: the device keeps both passwords and `passwordChanged` is set; `sync_recover_password` settles it), `syncTwoFactorRequired`, `syncPasswordChanged` (the server took the change but the local commit failed: the app was locked past the cap; `sync_recover_password` finishes it), `busy` (another change is running), transport codes. Removes quick unlock (CRYPTO_SPEC §6.2). While it runs a lock (manual, idle, screen lock) waits for it, for three minutes at most; a sleep locks at once (recovery covers it); the local commit follows the server's answer at once, and a token the keystore then refuses does not undo it (the device is `signedOut` and signs in again) | live (no settings screen yet) |
 
+### Sharing and emergency access (M6b, CRYPTO_SPEC §8, ADR-0048 to 0054)
+
+Every command works with the Mosaic server only: with a sync folder, or with no sync, they answer `sharingNotHosted` (the UI says why: a folder cannot tell who may read a vault). They run on an engine of their own over the stored session token next to the sync thread, take the session one closure at a time, record the lock epoch first and drop their result after a lock. Safety codes are public values and travel as text (`XXXXX XXXXX XXXXX XXXXX XXXXXX`, comparison ignores case, spaces, hyphens and the Crockford aliases); no key, share or roster ever reaches the webview. Roles are `owner`, `manage`, `write`, `read`. **Verification before sharing is required:** every invite and every grant needs a contact whose code the user compared, and a key that changed blocks sharing until the new code was compared. **Rotation is owner-only:** a manager invites (with the current key) and removes (the server drops the membership at once); the owner's device then changes the vault key at its next run.
+
+| Command | Request → response | Errors (besides `locked` and the transport codes) | State |
+|---|---|---|---|
+| `sharing_identity` | `null` → `{ safetyCode \| null (until the first run made the key), published }` | `sharingNotHosted` | live |
+| `sharing_lookup` | `{ email }` → `{ accountId, email, safetyCode, status: "new" \| "pinned" \| "verified" \| "changed" \| "conflicting" }`. Looks the address up and pins the key the server serves (unverified) when it is new; an address nobody owns gets a made-up key (no promise that an account exists) | `invalidInput`, `syncRateLimited`, `sharingNotHosted` | live |
+| `sharing_verify_contact` | `{ accountId, safetyCode }` → `null`. The code as shown; it must be the code of the key pinned now (the attestation is the user's click on "It matches") | `sharingContactUnverified` (no such contact), `sharingKeyChanged` (the pin moved, or the code is not its) | live |
+| `sharing_accept_key_change` | `{ accountId, safetyCode }` → `null`. Looks the address up again; the served key's code must be the one the user compared; the pin is replaced, **unverified** (the UI follows with `sharing_verify_contact` for the same code) | `sharingKeyChanged`, `sharingNotHosted`, `invalidInput` | live |
+| `sharing_contacts` | `null` → `{ contacts: { accountId, email, safetyCode, verified, changed (devices pinned different keys) }[] }` | | live |
+| `vault_share` | `{ vaultId, accountId, role: "manage" \| "write" \| "read" }` → `{ inviteId, expiresAt }` | `sharingContactUnverified`, `sharingKeyChanged`, `sharingRoleForbidden`, `sharingInviteExists`, `sharingAlreadyMember`, `sharingReinviteBlocked`, `sharingInviteLimit`, `vaultUnavailable` (a hardware vault), `invalidInput` (role `owner`) | live |
+| `vault_members` | `{ vaultId }` → `{ ownRole, members: { accountId, email \| null, role, verified, self, state: "member" \| "invited" \| "unconfirmed" \| "dropped" \| "removing", origin: "owner" \| "invite" \| "emergency" \| null }[], pendingRotation, unprotectedAttachments }`. `unprotectedAttachments` is a count (the attachments the last key change of this device could not re-seal because this device does not hold them; kept in memory) | `vaultNotFound`, `sharingRoleForbidden` (the server refuses this account the vault) | live |
+| `vault_member_set_role` | `{ vaultId, accountId, role }` → `null` (never to or from `owner`) | `sharingRoleForbidden`, `invalidInput` | live |
+| `vault_member_remove` | `{ vaultId, accountId }` → `{ unreachableAttachments }`. Rust asks in a **native** dialog (texts equal `sharing.members.remove.*`, a test checks): "{email} keeps whatever they already downloaded. Mosaic changes the vault key now, and they can't read anything new." for the owner, a variant for a manager (the owner's device changes the key at its next run, until then only the server keeps the person out) | `cancelled` (the user said no), `sharingRoleForbidden`, `invalidInput` (not a member) | live |
+| `vault_invite_cancel` | `{ inviteId }` → `null` (a delivered invite queues a revocation on the owner's device) | `sharingInviteExpired` | live |
+| `vault_leave` | `{ vaultId }` → `null` (native confirm with the buttons "Leave vault" and "Cancel", `sharing.members.leave.*`; the local copy stays readable) | `cancelled`, `sharingOwnerCannotLeave` | live |
+| `invites_list` | `null` → `{ incoming: { inviteId, senderEmail, role, expiresAt }[], outgoing: { inviteId, vaultId, vaultName \| null, recipientEmail \| null, role, expiresAt }[] }` (outgoing: the ones still waiting) | | live |
+| `invite_preview` | `{ inviteId }` → `{ vaultName \| null, role, senderAccountId, senderEmail, safetyCode, senderStatus, ownerAccountId, ownerEmail, ownerCode, ownerStatus }`. Opens the seal and runs every check of CRYPTO_SPEC §8.2; the key waits in the session for five minutes | `sharingInviteExpired` (not listed), `sharingInviteUnreadable`, `sharingInviteNotInRoster`, `sharingKeyChanged`, `sharingVaultKnown` (this device knows the vault already) | live |
+| `invite_accept` | `{ inviteId, safetyCode \| null }` → `null`. `safetyCode` is the sender's code the user just compared (`null` when the sender is verified already). **A vault whose owner is not the sender needs the owner verified first** (`sharing_verify_contact` with `ownerCode`); `syncDataChanged` follows | `sharingContactUnverified` (sender or owner), `sharingKeyChanged`, `sharingInviteStale` (a key change since the preview, or the preview ran out: open it again), `sharingInviteExpired`, `sharingInviteNotInRoster` | live |
+| `invite_decline` | `{ inviteId, block }` → `null` | `sharingInviteExpired` | live |
+| `emergency_overview` | `null` → `{ granted: { granteeAccountId, email, waitDays, scope: { kind: "all" } \| { kind: "vaults", vaultIds }, state: "idle" \| "waiting" \| "approved" \| "released", requestedAt \| null, releaseAt \| null }[], received: { grantorAccountId, email, waitDays, state, requestedAt \| null, releaseAt \| null, cooldownUntil \| null }[] }` | `sharingNotHosted` | live |
+| `emergency_grant` | `{ accountId, scope, waitDays: 1 \| 2 \| 7 \| 14 \| 30, password: SecretIn, code: SecretIn \| null }` → `null`. A fresh login with the master password (a code when the sync account has a second factor). **Vault keys only**, never the account; the wait is kept by the server | `wrongCredentials`, `syncTwoFactorRequired`, `sharingContactUnverified`, `sharingKeyChanged`, `sharingRoleForbidden`, `emergencyWaiting`, `invalidInput` (wait not listed, empty or over 64 vaults) | live |
+| `emergency_revoke` | `{ accountId }` → `null` (any state; a released grant also changes the keys of the vaults it opened) | | live |
+| `emergency_request` | `{ grantorAccountId }` → `{ releaseAt }` | `emergencyCooldown` (24 hours after a refusal), `emergencyNotGranted` | live |
+| `emergency_respond` | `{ granteeAccountId, decision: "decline" \| "approve", password: SecretIn \| null, code: SecretIn \| null }` → `null` (approve needs the password: a fresh login) | `emptyPassword`, `wrongCredentials`, `syncTwoFactorRequired`, `emergencyNotGranted` | live |
+| `emergency_claim` | `{ grantorAccountId }` → `{ vaults }` (read-only vaults; `syncDataChanged` follows) | `emergencyWaiting`, `emergencyNotGranted`, `sharingContactUnverified` (verify the grantor first), `sharingKeyChanged` | live |
+
 Notes per area:
 
+- **Sharing (M6b).** `SyncOverview` gains `sharingFindings`: `identityMismatch`,
+  `rosterInvalid`, `shareUntrusted` (`{ vaultName, senderEmail }`), `memberUnverified`,
+  `memberKeyMismatch` (`{ vaultId, vaultName, accountId, email }`: the server served a key that
+  does not match the verified one, so the member was removed or the invite cancelled), `vaultHeld`
+  (`{ vaultId, vaultName }`: nobody here confirms who owns the vault, so it waits for another
+  device), `memberDropped` (`{ vaultId, vaultName, accountId, email }`) and `accessLost` (`{ vaultId,
+  vaultName }`). A member finding is shown only while it is true (the member is still unverified,
+  still on the roster); `accessLost` is a state and stays. `sync_acknowledge` also clears the
+  stored findings. `SyncWarningView` gains `rotationBlocked` (`{ vaultName }`): this device owns a
+  vault whose key change after a removal could not be done. `sync_disconnect` and a backend change
+  answer `syncHasSharedVaults` while a shared vault is reachable (checked before anything is signed
+  out or forgotten; the engine refuses it, too: CRYPTO_SPEC §10.2). Folder mode cannot share:
+  every sharing command answers `sharingNotHosted`. The event `sharingChanged { invites,
+  emergencyRequests }` follows a sync run whose counts differ from the last event; the UI
+  reads `invites_list` and `emergency_overview` again. Emergency requests have no email: the
+  grantor's app shows a banner until the request is refused, approved or released.
 - **Sync (M6).** `SyncOverview` is `{ config: null \| { kind: "hosted", serverUrl, email,
   deviceName, totpEnabled } \| { kind: "folder", displayPath, deviceName }, state: { status,
   lastSyncedAt \| null, error \| null }, warnings: SyncWarningView[] }` (the spec calls it
@@ -406,6 +450,7 @@ Notes per area:
 | `locked` | `{ reason: "manual" \| "idle" \| "sleep" \| "screenLock" }` | The vault locked. Drop revealed secrets and show the unlock screen. |
 | `syncStateChanged` | `{ state: { status, lastSyncedAt \| null, error \| null } }` | Status bar. `status` is `notConfigured`, `offline`, `syncing`, `upToDate`, `error` or `signedOut`. Read `sync_status` for the warnings. |
 | `syncDataChanged` | `{ vaultIds }` | A sync run changed these vaults: read their items again. |
+| `sharingChanged` | `{ invites, emergencyRequests }` | The invites that wait for this account or the emergency requests that wait for its answer changed after a sync run. Read `invites_list` / `emergency_overview` again; the grantor's banner and the sidebar count follow. |
 | `syncAttention` | `{ conflicts, restored, replacedUnreadable }` | A run merged or repaired something (records merged with a local change, fields written back after a delete raced an edit, unreadable records replaced): show a short toast. |
 | `clipboardCleared` | none | Rust cleared what Mosaic copied. |
 | `sshApprovalRequested` | `{ request: SshApprovalRequest }` | Show the approval dialog (D18). |
@@ -445,6 +490,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `itemTypeNotAllowed`, `otpScanUnsupported`, `otpQrNotFound`, `otpQrNotOtp`,
 `otpQrMigration`, `otpQrMultiple`, `otpQrInvalid`, `otpUriInvalid`, `otpKeyInvalid`,
 `otpImageUnreadable`, `otpImageTooLarge`, `otpClipboardNoImage`, `otpPendingExpired`,
+`sharingNotHosted`, `sharingContactUnverified`, `sharingKeyChanged`, `sharingRoleForbidden`, `sharingInviteExists`, `sharingInviteStale`, `sharingInviteExpired`, `sharingInviteUnreadable`, `sharingInviteNotInRoster`, `sharingOwnerCannotLeave`, `sharingAlreadyMember`, `sharingReinviteBlocked`, `sharingInviteLimit`, `sharingVaultKnown`, `syncHasSharedVaults`, `emergencyWaiting`, `emergencyCooldown`, `emergencyNotGranted`,
 `syncNotConfigured`, `syncAlreadyConfigured`, `syncServerUnreachable`, `syncServerInvalid`, `syncServerInsecure`, `syncServerMismatch`, `syncServerIncompatible`, `syncRegistrationClosed`, `syncInviteInvalid`, `syncAccountExists`, `syncAccountMismatch`, `syncTwoFactorRequired`, `syncTwoFactorInvalid`, `syncSignedOut`, `syncRateLimited`, `syncQuotaExceeded`, `syncFolderUnavailable`, `syncFolderNotEmpty`, `syncFolderNoAccount`, `syncFolderDamaged`, `syncPasswordNeedsServer`, `syncPasswordOutcomeUnknown`, `syncDeviceIsCurrent`, `syncChoiceExpired`, `syncFreshLoginExpired`, `syncPasswordChanged`, `syncPasswordRollback`.
 
 The UI message for each code is `error.<code>` in `packages/i18n`. Rust maps
@@ -516,6 +562,17 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   `uvExpires`: the first click is answered `reauthRequired`, as when the 300 s window ran out),
   to create a passkey, or to create one that the vault already holds; the sign-in variants add two
   passkeys for example.com (one per vault) to the sample items.
+  Sharing (M6b): `&sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|rotation`
+  seeds the sharing state and, unless `&sync=` says otherwise, a hosted sync account (sharing needs the
+  Mosaic server; `&sync=folder` or `&sync=none` shows why it is off). `basic` is the owner of "Work" with
+  Sam (verified, editor) and Kim (invited, not verified), plus Kim's invite waiting; `empty` has nobody;
+  `invites` has three invites (Sam's from the vault's owner, Kim's as a manager of Sam's vault, so the
+  owner's code is compared too, and one that cannot be opened); `emergency` has grants given and
+  received in every state; `request` shows the grantor's banner for a waiting request; `findings` shows
+  every sharing finding and member state; `keyChanged` makes Sam's key differ from the pinned one;
+  `manager`, `viewer` and `rotation` seed those roles and a removal waiting for the owner's device with two
+  files that could not be protected. The mock's people are sam, kim and lee at example.com; an
+  address nobody owns gets a made-up key. The master password is `mosaic` and the one-time code `123456`.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no

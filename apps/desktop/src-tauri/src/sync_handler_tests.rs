@@ -40,13 +40,13 @@ use crate::state::{AppState, Backend, Slot};
 use crate::test_support::kdf_permit;
 
 #[path = "../../../../crates/server/tests/it/loopback.rs"]
-mod loopback;
+pub(crate) mod loopback;
 
 use loopback::LoopbackServer;
 
-const PASSWORD: &str = "correct horse battery staple";
+pub(crate) const PASSWORD: &str = "correct horse battery staple";
 const NEW_PASSWORD: &str = "a different master password";
-const DEVICE: &str = "Mosaic on Windows";
+pub(crate) const DEVICE: &str = "Mosaic on Windows";
 const ITEM_PASSWORD: &str = "It3m-Pa55word!";
 
 fn req<T: DeserializeOwned>(value: Value) -> T {
@@ -117,7 +117,7 @@ fn ack() -> AcknowledgeRequest {
     AcknowledgeRequest {}
 }
 
-struct Env {
+pub(crate) struct Env {
     state: AppState,
     events: Log,
     tokens: Arc<MemorySyncTokens>,
@@ -131,7 +131,7 @@ struct Env {
 }
 
 impl Env {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_store(Store::open_in_memory().unwrap(), None)
     }
 
@@ -174,15 +174,19 @@ impl Env {
         }
     }
 
-    fn b(&self) -> &Backend {
+    pub(crate) fn b(&self) -> &Backend {
         self.state.backend()
     }
 
-    fn create(&self) -> String {
+    pub(crate) fn create(&self) -> String {
+        self.create_as("alex@example.com")
+    }
+
+    pub(crate) fn create_as(&self, email: &str) -> String {
         let created = self
             .b()
             .create_account(CreateAccountRequest {
-                email: "alex@example.com".into(),
+                email: email.into(),
                 password: SecretIn::test(PASSWORD),
                 default_vault_name: "Personal".into(),
             })
@@ -202,7 +206,7 @@ impl Env {
         self.b().sync_pick_folder().unwrap().unwrap()
     }
 
-    fn connect_folder(&self, dir: &std::path::Path) -> SyncOverview {
+    pub(crate) fn connect_folder(&self, dir: &std::path::Path) -> SyncOverview {
         let choice = self.pick(dir);
         self.b()
             .sync_folder_connect(&FolderConnectRequest {
@@ -212,7 +216,7 @@ impl Env {
             .unwrap()
     }
 
-    fn connect_hosted(&self, server: &LoopbackServer) -> SyncOverview {
+    pub(crate) fn connect_hosted(&self, server: &LoopbackServer) -> SyncOverview {
         self.b()
             .sync_hosted_connect(HostedConnectRequest {
                 server_url: server.base.clone(),
@@ -224,12 +228,22 @@ impl Env {
             .unwrap()
     }
 
-    fn status(&self) -> SyncOverview {
+    /// What the native confirmations were asked, oldest first.
+    pub(crate) fn asked(&self) -> Vec<String> {
+        self.asked.lock().unwrap().clone()
+    }
+
+    /// What the native confirmation answers from now on.
+    pub(crate) fn answer(&self, yes: bool) {
+        self.confirm.store(yes, Ordering::SeqCst);
+    }
+
+    pub(crate) fn status(&self) -> SyncOverview {
         self.b().sync_status().unwrap()
     }
 
     /// Waits until a sync run finished (the status says up to date and a time).
-    fn wait_synced(&self) {
+    pub(crate) fn wait_synced(&self) {
         wait_for("a finished sync run", || {
             let state = self.status().state;
             state.status == SyncStatus::UpToDate && state.last_synced_at.is_some()
@@ -244,7 +258,7 @@ impl Env {
     }
 }
 
-fn wait_for(what: &str, condition: impl Fn() -> bool) {
+pub(crate) fn wait_for(what: &str, condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(90);
     while !condition() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
@@ -571,6 +585,27 @@ fn folder_connect_syncs_lists_devices_and_renames() {
     assert_eq!(e.b().list_vaults().unwrap()[0].item_count, 1);
     let events = e.events.lock().unwrap().join("\n");
     assert!(events.contains("syncStateChanged"));
+}
+
+/// The run's own checkpoint write is not a foreign change: a folder sync with
+/// nothing new does not start another run (it did, endlessly, every ~17 ms).
+#[test]
+fn an_idle_folder_sync_does_not_run_again() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    e.b().sync_now().unwrap();
+    let before = e.status().state.last_synced_at;
+    std::thread::sleep(Duration::from_millis(1500));
+    let after = e.status().state;
+    assert_eq!(after.status, SyncStatus::UpToDate);
+    assert_eq!(
+        after.last_synced_at, before,
+        "an idle folder sync ran again"
+    );
 }
 
 #[test]

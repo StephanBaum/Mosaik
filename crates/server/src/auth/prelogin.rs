@@ -14,9 +14,9 @@
 //! ```
 
 use hmac::{Hmac, KeyInit, Mac};
-use mosaic_core::Argon2Profile;
 use mosaic_core::encoding::Label;
 use mosaic_core::encoding::label;
+use mosaic_core::{Argon2Profile, IdentityPublicKey};
 use sha2::Sha256;
 
 /// How long a profile distribution is used before it is recomputed.
@@ -54,6 +54,22 @@ pub fn fake_salt(secret: &[u8; 32], email: &str) -> [u8; 16] {
     let mut salt = [0u8; 16];
     salt.copy_from_slice(digest.get(..16).unwrap_or(&[0u8; 16]));
     salt
+}
+
+/// The directory's fake identity key of `email` (M6b spec §5.4, review M2):
+/// `DeriveKeyPair(HMAC-SHA-256(K_dir, ctx("server/directory-ipk") || email)).public`
+/// (RFC 9180 §7.1.3, the derivation of real identity keys), so a fake is a
+/// valid X25519 key in the prime-order subgroup and passes every check a real
+/// `ipk` passes. `None` only if the derivation fails (it cannot).
+#[must_use]
+pub fn fake_ipk(dir_key: &[u8; 32], email: &str) -> Option<[u8; 32]> {
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(dir_key).ok()?;
+    mac.update(&label::SERVER_DIRECTORY_IPK.ctx());
+    mac.update(email.as_bytes());
+    let ikm: [u8; 32] = mac.finalize().into_bytes().into();
+    IdentityPublicKey::derived_from(&ikm)
+        .ok()
+        .map(|k| *k.as_bytes())
 }
 
 /// The weights of the Argon2 profiles over `0..100`, in 5 % buckets.
@@ -137,6 +153,21 @@ mod tests {
             .map(|i| fake_account_id(&key, &format!("u{i}@example.com"))[0])
             .collect();
         assert!(firsts.len() > 30);
+    }
+
+    #[test]
+    fn fake_ipk_is_deterministic_and_derived_like_a_real_key() {
+        let key = [9u8; 32];
+        let a = fake_ipk(&key, "a@example.com").unwrap();
+        assert_eq!(a, fake_ipk(&key, "a@example.com").unwrap());
+        assert_ne!(a, fake_ipk(&key, "b@example.com").unwrap());
+        assert_ne!(a, fake_ipk(&[8u8; 32], "a@example.com").unwrap());
+        // Real keys come from the same derivation and are clamped scalar
+        // multiples of the base point: they vary in the top bit like any
+        // u-coordinate would not be constrained, and are never the zero point.
+        assert!(
+            (0..64).all(|i| fake_ipk(&key, &format!("u{i}@example.com")).unwrap() != [0u8; 32])
+        );
     }
 
     #[test]

@@ -180,4 +180,40 @@ export const errors = {
     "The server offered an older master password. Check the server.",
   "error.syncPasswordChanged":
     "Your master password was changed on the server or in the folder. Enter the new one below.",
+  "error.sharingNotHosted":
+    "Sharing needs a Mosaic server. Connect one in the Sync settings first.",
+  "error.sharingContactUnverified":
+    "Compare this person's safety code first. Mosaic only shares with people you verified.",
+  "error.sharingKeyChanged":
+    "This person's key changed, or the code doesn't match. Look them up again and compare the new code before you go on.",
+  "error.sharingRoleForbidden":
+    "Your role in this vault doesn't allow that. Ask the owner or a manager.",
+  "error.sharingInviteExists":
+    "An invite for this person and vault is waiting already. Withdraw it first if you want to send a new one.",
+  "error.sharingInviteStale":
+    "The invite changed in the meantime, for example after a key change. Open it again.",
+  "error.sharingInviteExpired":
+    "This invite ran out or was withdrawn. Ask the sender to invite you again.",
+  "error.sharingInviteUnreadable":
+    "This invite can't be opened. It may be damaged or not meant for this account. Ask the sender to invite you again.",
+  "error.sharingInviteNotInRoster":
+    "The vault's member list doesn't match this invite, so Mosaic didn't open it. Ask the sender to invite you again.",
+  "error.sharingOwnerCannotLeave":
+    "The owner can't leave a vault. Remove the other people instead.",
+  "error.sharingAlreadyMember":
+    "This person is a member of the vault already.",
+  "error.sharingReinviteBlocked":
+    "You removed this person recently. You can invite them again once the vault key has changed. Sync, then try again.",
+  "error.sharingInviteLimit":
+    "Too many invites are waiting. Wait for answers or withdraw some.",
+  "error.sharingVaultKnown":
+    "This device has that vault already, so Mosaic didn't accept a key for it. Ask the sender which vault they shared.",
+  "error.syncHasSharedVaults":
+    "You can't switch servers while shared vaults are on this device. Leave the shared vaults, or have their owners remove you, first.",
+  "error.emergencyWaiting":
+    "A request is waiting, so this can't change now. Refuse it or wait for it.",
+  "error.emergencyCooldown":
+    "Your last request was refused. You can ask again after the waiting period of one day.",
+  "error.emergencyNotGranted":
+    "There is nothing to claim: no request is open, or the person didn't grant you access.",
 } as const satisfies Record<string, string>;

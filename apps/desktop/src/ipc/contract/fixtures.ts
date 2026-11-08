@@ -54,6 +54,12 @@ export interface EnumFixtures {
   hostedMode: string[];
   folderState: string[];
   devicePlatform: string[];
+  shareRole: string[];
+  contactStatus: string[];
+  memberRowState: string[];
+  memberOriginKind: string[];
+  emergencyState: string[];
+  emergencyDecision: string[];
 }
 
 export interface ContractFixtures {

@@ -10,6 +10,8 @@ export const palette = {
   "palette.cmd.security": "Open the security report",
   "palette.cmd.settings": "Open settings",
   "palette.cmd.import": "Import from another app",
+  "palette.cmd.share": "Share vault…",
+  "palette.cmd.invites": "Invites",
   "palette.cmd.lock": "Lock Mosaic",
   "palette.open": "Open command palette",
   "palette.hint.move": "to move",

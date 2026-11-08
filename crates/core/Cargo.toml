@@ -20,6 +20,7 @@ aead-stream.workspace = true
 zeroize.workspace = true
 subtle.workspace = true
 getrandom.workspace = true
+hpke.workspace = true
 unicode-normalization.workspace = true
 thiserror.workspace = true
 serde.workspace = true

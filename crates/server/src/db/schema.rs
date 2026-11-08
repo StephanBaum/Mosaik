@@ -127,6 +127,119 @@ CREATE TABLE invites (
     used_at INTEGER
 ) STRICT;
 ",
+    // v2 (M6b): identity keys, roles, sharing, emergency access
+    "
+ALTER TABLE accounts ADD COLUMN ipk BLOB CHECK (ipk IS NULL OR length(ipk) = 32);
+ALTER TABLE accounts ADD COLUMN wrapped_isk BLOB CHECK (wrapped_isk IS NULL OR length(wrapped_isk) = 74);
+ALTER TABLE accounts ADD COLUMN contacts_ct BLOB CHECK (contacts_ct IS NULL OR length(contacts_ct) <= 262200);
+ALTER TABLE accounts ADD COLUMN contacts_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN inbox_seq INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE memberships_v2 (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    role INTEGER NOT NULL CHECK (role BETWEEN 1 AND 4),
+    origin INTEGER NOT NULL DEFAULT 0 CHECK (origin IN (0, 1, 2)),
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, vault_id)
+) STRICT;
+INSERT INTO memberships_v2 (account_id, vault_id, role, origin, added_at)
+    SELECT m.account_id, m.vault_id, 1, 0, v.created_at
+    FROM memberships m JOIN vaults v ON v.vault_id = m.vault_id;
+DROP TABLE memberships;
+ALTER TABLE memberships_v2 RENAME TO memberships;
+CREATE INDEX memberships_vault ON memberships (vault_id);
+
+CREATE TABLE audit_v2 (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    at INTEGER NOT NULL,
+    kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 14),
+    device_id BLOB CHECK (device_id IS NULL OR length(device_id) = 16)
+) STRICT;
+INSERT INTO audit_v2 (account_id, at, kind, device_id) SELECT account_id, at, kind, device_id FROM audit;
+DROP TABLE audit;
+ALTER TABLE audit_v2 RENAME TO audit;
+CREATE INDEX audit_account ON audit (account_id, at);
+
+CREATE TABLE vault_roster (
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    key_generation INTEGER NOT NULL CHECK (key_generation >= 1),
+    ciphertext BLOB NOT NULL CHECK (length(ciphertext) <= 65600),
+    server_seq INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, key_generation)
+) STRICT;
+
+-- recipient has no foreign key: invites to addresses without an account are
+-- stored like real ones (no enumeration through the directory). hidden = 1
+-- marks an invite that is stored but never shown (blocked sender, full inbox).
+CREATE TABLE share_invites (
+    invite_id BLOB PRIMARY KEY CHECK (length(invite_id) = 16),
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    sender BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    recipient BLOB NOT NULL CHECK (length(recipient) = 16),
+    role INTEGER NOT NULL CHECK (role BETWEEN 2 AND 4),
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    seal BLOB NOT NULL CHECK (length(seal) = 82),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    delivered_at INTEGER,
+    state INTEGER NOT NULL CHECK (state BETWEEN 0 AND 4),
+    hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1))
+) STRICT;
+CREATE UNIQUE INDEX share_invites_pending ON share_invites (vault_id, recipient) WHERE state = 0;
+CREATE INDEX share_invites_recipient ON share_invites (recipient, state);
+CREATE INDEX share_invites_sender ON share_invites (sender, state);
+
+CREATE TABLE key_shares (
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    recipient BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    sender BLOB NOT NULL CHECK (length(sender) = 16),
+    seal BLOB NOT NULL CHECK (length(seal) = 82),
+    server_seq INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, recipient, generation)
+) STRICT;
+
+-- A removal or leave at generation g blocks a re-invite until the vault
+-- rotates past g (the roster merge rule makes a same-generation re-invite lose).
+CREATE TABLE vault_removals (
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    account_id BLOB NOT NULL CHECK (length(account_id) = 16),
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    PRIMARY KEY (vault_id, account_id)
+) STRICT;
+
+CREATE TABLE emergency_grants (
+    grantor BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    grantee BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    wait_days INTEGER NOT NULL CHECK (wait_days IN (1, 2, 7, 14, 30)),
+    scope INTEGER NOT NULL CHECK (scope IN (1, 2)),
+    state INTEGER NOT NULL CHECK (state BETWEEN 0 AND 3),
+    requested_at INTEGER,
+    decided_at INTEGER,
+    cooldown_until INTEGER,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (grantor, grantee),
+    CHECK (grantor <> grantee)
+) STRICT;
+CREATE INDEX emergency_grants_grantee ON emergency_grants (grantee);
+
+CREATE TABLE emergency_seals (
+    grantor BLOB NOT NULL,
+    grantee BLOB NOT NULL,
+    vault_id BLOB NOT NULL REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    generation INTEGER NOT NULL CHECK (generation >= 1),
+    seal BLOB NOT NULL CHECK (length(seal) = 82),
+    PRIMARY KEY (grantor, grantee, vault_id),
+    FOREIGN KEY (grantor, grantee) REFERENCES emergency_grants (grantor, grantee) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE blocks (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    blocked BLOB NOT NULL CHECK (length(blocked) = 16),
+    PRIMARY KEY (account_id, blocked)
+) STRICT;
+",
 ];
 
 /// The schema version this build writes.

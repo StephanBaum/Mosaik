@@ -49,19 +49,23 @@
 //! ```
 
 mod clock;
+mod contacts;
 mod doc;
 mod item;
+mod roster;
 mod tombstone;
 mod types;
 mod value;
 mod vault_meta;
 
 pub use clock::{Causality, Stamp, Timestamp, VersionVector};
+pub use contacts::{Contact, ContactBook, ContactState, GrantCover};
 pub use doc::{Entry, FieldConflict, MAX_FIELD_KEY_LEN, SCHEMA_VERSION};
 pub use item::{
     DeletionInfo, ElementId, HistoryEntry, Item, ItemEdit, ItemType, MAX_HISTORY, MAX_TAG_LEN,
     MergeOutcome, OversizedSplit, SecretField, TextField,
 };
+pub use roster::{Role, RosterEdit, RosterMember, VaultRoster};
 pub use tombstone::Tombstone;
 pub use types::{
     AttachmentRef, CustomField, CustomFieldValue, LoginUrl, MAX_CREDENTIAL_ID_LEN,

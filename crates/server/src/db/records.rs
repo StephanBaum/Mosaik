@@ -40,7 +40,7 @@ pub fn push(
     max_bytes: u64,
     now: u64,
 ) -> Result<Vec<Outcome>, ApiError> {
-    let v = vaults::access(tx, account, vault)?;
+    let v = vaults::access_role(tx, account, vault, vaults::role::WRITE)?;
     if generation != v.current_generation {
         return Err(vaults::generation_mismatch(v.current_generation));
     }
@@ -50,7 +50,8 @@ pub fn push(
     {
         return Err(vaults::generation_mismatch(v.current_generation));
     }
-    let usage = accounts::usage(tx, account)?;
+    // Storage is charged to the vault's owner.
+    let usage = accounts::usage(tx, &v.owner)?;
     let mut count = usage.records;
     let mut bytes = usage.record_bytes;
     let mut head = v.head_seq;

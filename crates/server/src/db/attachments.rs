@@ -77,7 +77,7 @@ pub fn put(
     quota_bytes: u64,
     now: u64,
 ) -> Result<Put, ApiError> {
-    vaults::access(tx, account, vault)?;
+    let v = vaults::access_role(tx, account, vault, vaults::role::WRITE)?;
     if let Some(row) = get(tx, id)? {
         if row.vault_id != *vault || row.size != size {
             return Err(ApiError::conflict(codes::ATTACHMENT_EXISTS));
@@ -90,7 +90,8 @@ pub fn put(
         }
         return Ok(Put::Existing);
     }
-    let usage = accounts::usage(tx, account)?;
+    // Storage is charged to the vault's owner.
+    let usage = accounts::usage(tx, &v.owner)?;
     if usage.attachment_bytes.saturating_add(size) > quota_bytes {
         return Err(devices::quota("attachmentBytes"));
     }
@@ -110,7 +111,7 @@ pub fn soft_delete(
     id: &[u8; 16],
     now: u64,
 ) -> Result<(), ApiError> {
-    vaults::access(conn, account, vault)?;
+    vaults::access_role(conn, account, vault, vaults::role::WRITE)?;
     conn.execute(
         "UPDATE attachments SET deleted_at = ?1 WHERE attachment_id = ?2 AND vault_id = ?3 AND deleted_at IS NULL",
         params![int(now), id.as_slice(), vault.as_slice()],
@@ -125,7 +126,7 @@ pub fn restore(
     vault: &[u8; 16],
     id: &[u8; 16],
 ) -> Result<bool, ApiError> {
-    vaults::access(conn, account, vault)?;
+    vaults::access_role(conn, account, vault, vaults::role::WRITE)?;
     let exists: i64 = conn.query_row(
         "SELECT COUNT(*) FROM attachments WHERE attachment_id = ?1 AND vault_id = ?2",
         params![id.as_slice(), vault.as_slice()],

@@ -14,11 +14,14 @@
 
 use core::time::Duration;
 
+use mosaic_core::model::Role;
 use mosaic_core::{
-    AttachmentId, InstallId, ItemId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey,
+    AccountId, AttachmentId, InstallId, ItemId, KeyGeneration, ShareSeal, VaultId,
+    VaultMetaCiphertext, VaultRosterCiphertext, WrappedKey,
 };
 use mosaic_vault::storage::RecordBody;
 
+use crate::sharing::SharingTransport;
 use crate::wire::segment::SegmentObject;
 
 /// Which kind of backend a transport talks to.
@@ -67,6 +70,32 @@ pub struct PulledMeta {
     pub seq: Option<u64>,
 }
 
+/// A key share addressed to this account, pulled from the hosted backend
+/// (M6b: a vault key sealed to this account's identity key).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PulledShare {
+    /// The generation of the key it carries.
+    pub generation: KeyGeneration,
+    /// Who sealed it (the server's claim; the claim rule checks it).
+    pub sender: AccountId,
+    /// The seal.
+    pub seal: ShareSeal,
+    /// The backend's sequence number, if it has one.
+    pub seq: Option<u64>,
+}
+
+/// A vault roster pulled from the hosted backend (the current one and the
+/// history of earlier generations newer than the cursor).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PulledRoster {
+    /// The generation it is sealed under.
+    pub generation: KeyGeneration,
+    /// The sealed roster.
+    pub ciphertext: VaultRosterCiphertext,
+    /// The backend's sequence number, if it has one.
+    pub seq: Option<u64>,
+}
+
 /// A record pulled from the backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulledRecord {
@@ -93,7 +122,7 @@ pub struct PullUnit {
 }
 
 /// One page of changes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PullPage {
     /// Wrapped keys, in the order the backend lists them.
     pub keys: Vec<PulledKey>,
@@ -110,6 +139,15 @@ pub struct PullPage {
     /// Folder only: the units of the page (see [`PullUnit`]); empty for the
     /// hosted backend.
     pub units: Vec<PullUnit>,
+    /// Hosted only (M6b): every unclaimed key share addressed to this
+    /// account, whatever the cursor. Empty for the folder.
+    pub shares: Vec<PulledShare>,
+    /// Hosted only (M6b): the rosters newer than the cursor. Empty for the
+    /// folder.
+    pub rosters: Vec<PulledRoster>,
+    /// Hosted only (M6b): the role the server says this account has in the
+    /// vault. `None` for the folder.
+    pub role: Option<Role>,
 }
 
 /// A record to upload.
@@ -234,6 +272,55 @@ pub enum Rejection {
         /// The account version on the server.
         account_version: u64,
     },
+    /// The account's role does not allow the request (M6b).
+    RoleForbidden,
+    /// A plain key upload or a rotation that does not cover exactly the
+    /// vault's members and open invites (M6b).
+    MembersMismatch,
+    /// The identity key is already set to another pair (M6b).
+    IdentityExists,
+    /// A compare-and-swap failed (M6b).
+    Conflict {
+        /// The sequence the server holds, if it said.
+        current_seq: Option<u64>,
+    },
+    /// The recipient already has an open invite to the vault (M6b).
+    InviteExists,
+    /// The invite was sealed for an older key generation (M6b).
+    InviteStale {
+        /// The vault's generation now.
+        current_generation: u32,
+    },
+    /// The invite ran out (M6b).
+    InviteExpired,
+    /// The vault is at its member limit or the account at its invite limit
+    /// (M6b).
+    InviteLimit,
+    /// The invited account is a member already (M6b).
+    AlreadyMember,
+    /// A removed account cannot be invited again before the vault rotates
+    /// past the generation of its removal (M6b).
+    ReinviteBlocked,
+    /// The owner cannot leave the vault (M6b).
+    OwnerCannotLeave,
+    /// No key share or emergency seal backs the claim (M6b).
+    NoShare,
+    /// The emergency wait is not over, or a request is open (M6b).
+    EmergencyWaiting {
+        /// When the wait ends (ms since the Unix epoch), if the server said.
+        release_at: Option<u64>,
+    },
+    /// The grantee asked less than 24 hours after a refusal (M6b).
+    EmergencyCooldown {
+        /// When asking is allowed again (ms since the Unix epoch).
+        until: u64,
+    },
+    /// The grant was approved or released already (M6b).
+    EmergencyReleased,
+    /// There is no open emergency request (M6b).
+    EmergencyNotRequested,
+    /// Emergency seals cover only vaults the grantor owns (M6b).
+    EmergencyOwnerOnly,
 }
 
 /// Why a transport call failed. No variant carries a path, a body or an ID.
@@ -580,6 +667,14 @@ pub trait Transport: Send {
         since: Option<&ChangeToken>,
         timeout: Duration,
     ) -> Result<ChangeToken, TransportError>;
+
+    /// The sharing and emergency-access calls of the hosted backend (M6b).
+    /// `None` for a backend that cannot share (the folder, CRYPTO_SPEC
+    /// §8.6): the engine then skips every sharing step. A wrapper passes the
+    /// inner transport's answer on.
+    fn sharing(&mut self) -> Option<&mut dyn SharingTransport> {
+        None
+    }
 }
 
 #[cfg(test)]

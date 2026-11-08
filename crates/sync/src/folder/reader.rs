@@ -278,14 +278,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
         limit: usize,
     ) -> Result<PullPage, TransportError> {
         let mut cur = decode_cursor(cursor)?;
-        let mut page = PullPage {
-            keys: Vec::new(),
-            metas: Vec::new(),
-            records: Vec::new(),
-            next: Cursor::default(),
-            more: false,
-            units: Vec::new(),
-        };
+        let mut page = PullPage::default();
         let mut objects = 0usize;
         'devices: for device in self.log_devices(&vault)? {
             let files = self.segment_files(&vault, &device)?;

@@ -33,6 +33,12 @@ import {
   sshCloseReasons,
   browserCloseReasons,
   devicePlatforms,
+  shareRoles,
+  contactStatuses,
+  memberRowStates,
+  memberOriginKinds,
+  emergencyStates,
+  emergencyDecisions,
   folderStates,
   hostedModes,
   registrationModes,
@@ -119,6 +125,12 @@ describe("contract parity with Rust", () => {
     hostedMode: hostedModes,
     folderState: folderStates,
     devicePlatform: devicePlatforms,
+    shareRole: shareRoles,
+    contactStatus: contactStatuses,
+    memberRowState: memberRowStates,
+    memberOriginKind: memberOriginKinds,
+    emergencyState: emergencyStates,
+    emergencyDecision: emergencyDecisions,
   };
 
   it.each(Object.entries(enums))("%s has the same values", (name, values) => {

@@ -13,6 +13,7 @@ import "./styles/shell.css";
 import "./styles/auth.css";
 import "./styles/pages.css";
 import "./styles/detail.css";
+import "./styles/sharing.css";
 import "./styles/holo.css";
 import "./styles/reveal.css";
 import { StrictMode } from "react";

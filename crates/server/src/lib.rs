@@ -158,6 +158,7 @@ impl AppState {
         let purged = self.db.run_tx(|tx| {
             db::sessions::purge_expired(tx, now)?;
             db::audit::purge(tx, now.saturating_sub(365 * 86_400_000))?;
+            db::sharing::purge_invites(tx, now.saturating_sub(60 * 86_400_000))?;
             db::attachments::purge_deleted(tx, now.saturating_sub(retention))
         })?;
         for id in purged {

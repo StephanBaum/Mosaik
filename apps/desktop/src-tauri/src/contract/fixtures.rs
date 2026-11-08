@@ -46,6 +46,13 @@ use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
 };
 use super::settings::{self, Language, Theme, UpdateSettingsRequest};
+use super::sharing::{
+    self, ContactCodeRequest, ContactStatus, EmergencyClaimRequest, EmergencyDecision,
+    EmergencyGrantRequest, EmergencyRequestRequest, EmergencyRespondRequest,
+    EmergencyRevokeRequest, EmergencyScopeView, EmergencyState, InviteAcceptRequest,
+    InviteDeclineRequest, InviteRequest, LookupRequest, MemberOriginKind, MemberRequest,
+    MemberRowState, SetRoleRequest, ShareRole, ShareVaultRequest,
+};
 use super::ssh::{
     self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest, SshSignFailReason,
     SshSkipReason,
@@ -797,6 +804,184 @@ fn sync_join_commands(f: &mut Fixtures) {
     );
 }
 
+/// Sharing: contacts, members, invites and emergency access.
+fn sharing_commands(f: &mut Fixtures) {
+    f.command("sharing_identity", vec![()], sharing::samples::identities());
+    f.command(
+        "sharing_lookup",
+        vec![LookupRequest {
+            email: "sam@example.com".into(),
+        }],
+        sharing::samples::lookups(),
+    );
+    let code = || ContactCodeRequest {
+        account_id: ids::account_n(2),
+        safety_code: "7KQ4X 29HDM 3PRT6 WZB04 NCFG8V".into(),
+    };
+    f.command("sharing_verify_contact", vec![code()], vec![()]);
+    f.command("sharing_accept_key_change", vec![code()], vec![()]);
+    f.command("sharing_contacts", vec![()], sharing::samples::contacts());
+    f.command(
+        "vault_share",
+        [ShareRole::Manage, ShareRole::Write, ShareRole::Read]
+            .into_iter()
+            .map(|role| ShareVaultRequest {
+                vault_id: ids::vault(1),
+                account_id: ids::account_n(2),
+                role,
+            })
+            .collect(),
+        sharing::samples::invite_sent(),
+    );
+    f.command(
+        "vault_members",
+        vec![vaults::VaultRequest {
+            vault_id: ids::vault(1),
+        }],
+        sharing::samples::members(),
+    );
+    f.command(
+        "vault_member_set_role",
+        vec![SetRoleRequest {
+            vault_id: ids::vault(1),
+            account_id: ids::account_n(2),
+            role: ShareRole::Read,
+        }],
+        vec![()],
+    );
+    f.command(
+        "vault_member_remove",
+        vec![MemberRequest {
+            vault_id: ids::vault(1),
+            account_id: ids::account_n(2),
+        }],
+        sharing::samples::removed(),
+    );
+    f.command(
+        "vault_invite_cancel",
+        vec![InviteRequest {
+            invite_id: ids::invite(1),
+        }],
+        vec![()],
+    );
+    f.command(
+        "vault_leave",
+        vec![vaults::VaultRequest {
+            vault_id: ids::vault(1),
+        }],
+        vec![()],
+    );
+    sharing_invite_commands(f);
+    sharing_emergency_commands(f);
+}
+
+/// Invites: list, preview, accept, decline.
+fn sharing_invite_commands(f: &mut Fixtures) {
+    f.command("invites_list", vec![()], sharing::samples::invites());
+    f.command(
+        "invite_preview",
+        vec![InviteRequest {
+            invite_id: ids::invite(2),
+        }],
+        sharing::samples::previews(),
+    );
+    f.command(
+        "invite_accept",
+        vec![
+            InviteAcceptRequest {
+                invite_id: ids::invite(2),
+                safety_code: Some("7KQ4X 29HDM 3PRT6 WZB04 NCFG8V".into()),
+            },
+            InviteAcceptRequest {
+                invite_id: ids::invite(2),
+                safety_code: None,
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "invite_decline",
+        [false, true]
+            .into_iter()
+            .map(|block| InviteDeclineRequest {
+                invite_id: ids::invite(2),
+                block,
+            })
+            .collect(),
+        vec![()],
+    );
+}
+
+/// Emergency access.
+fn sharing_emergency_commands(f: &mut Fixtures) {
+    f.command(
+        "emergency_overview",
+        vec![()],
+        sharing::samples::emergency(),
+    );
+    f.command(
+        "emergency_grant",
+        vec![
+            EmergencyGrantRequest {
+                account_id: ids::account_n(2),
+                scope: EmergencyScopeView::All,
+                wait_days: 7,
+                password: sync::samples::pw(),
+                code: None,
+            },
+            EmergencyGrantRequest {
+                account_id: ids::account_n(2),
+                scope: EmergencyScopeView::Vaults {
+                    vault_ids: vec![ids::vault(1), ids::vault(2)],
+                },
+                wait_days: 30,
+                password: sync::samples::pw(),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "emergency_revoke",
+        vec![EmergencyRevokeRequest {
+            account_id: ids::account_n(2),
+        }],
+        vec![()],
+    );
+    f.command(
+        "emergency_request",
+        vec![EmergencyRequestRequest {
+            grantor_account_id: ids::account_n(4),
+        }],
+        sharing::samples::requested(),
+    );
+    f.command(
+        "emergency_respond",
+        vec![
+            EmergencyRespondRequest {
+                grantee_account_id: ids::account_n(2),
+                decision: EmergencyDecision::Decline,
+                password: None,
+                code: None,
+            },
+            EmergencyRespondRequest {
+                grantee_account_id: ids::account_n(2),
+                decision: EmergencyDecision::Approve,
+                password: Some(sync::samples::pw()),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "emergency_claim",
+        vec![EmergencyClaimRequest {
+            grantor_account_id: ids::account_n(4),
+        }],
+        sharing::samples::claimed(),
+    );
+}
+
 /// Every string enum of the contract, by name.
 fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
@@ -846,6 +1031,12 @@ fn enums() -> Map<String, Value> {
         ("hostedMode", values(HostedMode::ALL)),
         ("folderState", values(FolderState::ALL)),
         ("devicePlatform", values(DevicePlatform::ALL)),
+        ("shareRole", values(ShareRole::ALL)),
+        ("contactStatus", values(ContactStatus::ALL)),
+        ("memberRowState", values(MemberRowState::ALL)),
+        ("memberOriginKind", values(MemberOriginKind::ALL)),
+        ("emergencyState", values(EmergencyState::ALL)),
+        ("emergencyDecision", values(EmergencyDecision::ALL)),
     ] {
         enums.insert(name.to_owned(), all);
     }
@@ -872,6 +1063,7 @@ pub(crate) fn build() -> Value {
     ssh_commands(&mut f);
     browser_commands(&mut f);
     sync_commands(&mut f);
+    sharing_commands(&mut f);
     let enums = enums();
 
     let listed: BTreeSet<&str> = f

@@ -18,6 +18,7 @@ import type {
   VaultSummary,
 } from "../contract/index.ts";
 import type { MockBrowser } from "./browser.ts";
+import type { MockSharing } from "./sharingData.ts";
 import type { MockSync } from "./syncData.ts";
 
 export interface MockAccount {
@@ -105,6 +106,8 @@ export interface MockState {
   browser: MockBrowser;
   /** Sync (`mock/sync.ts`): the backend, its status, warnings and devices. */
   sync: MockSync;
+  /** Sharing (`mock/sharing.ts`): contacts, members, invites and emergency access. */
+  sharing: MockSharing;
   /** The import preview waiting for a commit. */
   heldImport: { previewId: string; entries: number[] } | null;
   vaults: VaultSummary[];

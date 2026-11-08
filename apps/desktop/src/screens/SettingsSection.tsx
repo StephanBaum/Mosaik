@@ -5,15 +5,19 @@ export function SettingsSection({
   title,
   body,
   headingRef,
+  headingId,
   children,
 }: {
   title: string;
   body: string;
+  /** A fixed id for the heading, for a link that moves focus to the section. */
+  headingId?: string;
   /** Makes the heading focusable by code, for a section whose content is replaced. */
   headingRef?: Ref<HTMLHeadingElement>;
   children: ReactNode;
 }) {
-  const id = useId();
+  const generated = useId();
+  const id = headingId ?? generated;
   return (
     <section className="settings-section" aria-labelledby={id}>
       <div className="settings-section__intro">

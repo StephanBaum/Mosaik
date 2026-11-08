@@ -165,7 +165,7 @@ fn vault() -> VaultId {
 }
 
 #[test]
-fn the_view_digest_matches_the_script() {
+fn the_key_commit_matches_the_script_and_the_digest_is_version_2() {
     use mosaic_core::ItemId;
     use mosaic_vault::storage::ServedRow;
 
@@ -184,8 +184,17 @@ fn the_view_digest_matches_the_script() {
     ];
     let commit = super::checkpoint::view_key_commit(&vault(), KeyGeneration::FIRST, &[0x77; 74]);
     assert_eq!(commit.as_slice(), k["key_commit"]);
-    let digest = super::checkpoint::view_digest(&vault(), 8, &commit, &rows).unwrap();
-    assert_eq!(digest.as_slice(), k["view_digest"]);
+    // The digest formula is version 2 now (`sync/view2`, with the metadata
+    // commitment); its known answer is in `mosaic-core`
+    // (`sync_auth::kat::view2_digest`). The script's `view_digest` value is
+    // only an opaque 32-byte input of the checkpoint vectors below.
+    let meta = super::checkpoint::view_meta_commit(
+        &vault(),
+        &super::checkpoint::ABSENT_OBJECT,
+        &super::checkpoint::ABSENT_OBJECT,
+    );
+    let digest = super::checkpoint::view_digest(&vault(), 8, &commit, &meta, &rows).unwrap();
+    assert_ne!(digest.as_slice(), k["view_digest"]);
 }
 
 #[test]

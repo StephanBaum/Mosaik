@@ -123,13 +123,19 @@ impl<C: FolderCrypto> FolderTransport<C> {
     }
 
     /// A digest over the parsable files of the account directory (path,
-    /// size and modification time).
+    /// size and modification time), without what this install wrote itself
+    /// (its `d/<self>/` directory and its own logs). Its own writes, the
+    /// checkpoint of every run among them, are never a foreign change: with
+    /// them in, every run would start the next one.
     fn change_digest(&self) -> Result<ChangeToken, TransportError> {
         let mut files: Vec<(String, u64, u64)> = Vec::new();
         let parsable = |e: &Entry| folder_names::parse(&e.name).is_some();
         let account = fsutil::list(&self.layout.account_files())?;
         Self::collect_files("account", &account, parsable, &mut files);
         for device in self.device_ids()? {
+            if device == self.install {
+                continue;
+            }
             let dir = fsutil::list(&self.layout.device_dir(&device))?;
             let prefix = format!("d/{}", crate::wire::hex(device.as_bytes()));
             Self::collect_files(
@@ -144,6 +150,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let blobs = fsutil::list(&self.layout.blobs_dir(&vault))?;
             Self::collect_files(&format!("v/{vhex}/blobs"), &blobs, parsable, &mut files);
             for device in self.log_devices(&vault)? {
+                if device == self.install {
+                    continue;
+                }
                 let log = fsutil::list(&self.layout.log_dir(&vault, &device))?;
                 let prefix = format!("v/{vhex}/log/{}", crate::wire::hex(device.as_bytes()));
                 Self::collect_files(&prefix, &log, parsable, &mut files);

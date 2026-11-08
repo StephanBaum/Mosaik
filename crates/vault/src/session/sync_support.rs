@@ -742,8 +742,13 @@ impl UnlockedSession {
     /// # Errors
     /// [`Error::UnknownVault`], [`Error::VaultUnavailable`],
     /// [`Error::WrongVaultProtection`] for a hardware-protected vault,
+    /// [`Error::VaultShared`] for a shared vault (its rotation is
+    /// [`Self::prepare_shared_rotation`]),
     /// [`Error::Core`] (`InvalidKeyGeneration` at the last generation).
     pub fn prepare_vault_rotation(&self, vault: VaultId) -> Result<PreparedRotation> {
+        if self.vault_shared(vault)? {
+            return Err(Error::VaultShared);
+        }
         let ov = self.vault(vault)?;
         ov.current_key()?;
         if ov.protection != VaultKeyWrap::AccountKey {
@@ -782,6 +787,9 @@ impl UnlockedSession {
         } = p;
         if session_tag != self.session_tag {
             return Err(Error::PreparedStale);
+        }
+        if self.vault_shared(vault_id)? {
+            return Err(Error::VaultShared);
         }
         let ov = self.vaults.get_mut(&vault_id).ok_or(Error::UnknownVault)?;
         ov.current_key()?;

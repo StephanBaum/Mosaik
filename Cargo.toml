@@ -25,6 +25,10 @@ aead-stream = { version = "=0.6.0", default-features = false, features = ["alloc
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc", "zeroize_derive"] }
 subtle = { version = "=2.6.1", default-features = false }
 getrandom = { version = "=0.4.3", default-features = false }
+# M6b sharing: HPKE (RFC 9180) mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305
+# for vault-key shares and emergency seals (CRYPTO_SPEC §2, §8.2; ADR-0049). Default features
+# (getrandom, mlkem, ...) are off: the ephemeral key comes from mosaic-core's own RNG.
+hpke = { version = "=0.15.1", default-features = false, features = ["alloc", "x25519", "chacha"] }
 unicode-normalization = { version = "=0.1.26", default-features = false }
 thiserror = { version = "=2.0.21", default-features = false }
 # M2 model (serde_json also reads the generator's vendored password-rules.json)

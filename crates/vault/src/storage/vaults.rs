@@ -1,7 +1,7 @@
 //! Vaults, their wrapped keys per generation, encrypted metadata, TK
 //! wrappings and sync cursors (CRYPTO_SPEC §7.1, §7.4, §10).
 
-use mosaic_core::{KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
+use mosaic_core::{AccountId, KeyGeneration, VaultId, VaultMetaCiphertext, WrappedKey};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::error::{Error, Result};
@@ -128,7 +128,7 @@ fn read_floor(conn: &Connection, vault_id: &VaultId) -> Result<Option<KeyGenerat
 
 /// Inserts a wrapped key, or re-wraps the held one in place. A new row gets
 /// `flags`; an existing row keeps the sync flags it has.
-fn upsert_key(
+pub(super) fn upsert_key(
     conn: &Connection,
     vault_id: &VaultId,
     generation: KeyGeneration,
@@ -272,6 +272,7 @@ impl Store {
             wrapped_vault_key,
             KeyFlags::NEUTRAL,
             false,
+            None,
         )
     }
 
@@ -298,9 +299,44 @@ impl Store {
             wrapped_vault_key,
             KeyFlags::of(origin),
             origin == KeyOrigin::Remote,
+            None,
         )
     }
 
+    /// Stores a vault learned from an accepted invite or an emergency release
+    /// (origin [`KeyOrigin::Remote`]) together with its sharing row, in ONE
+    /// transaction (M6b verify H1): the known-vault check, the vault and its
+    /// key, and the `shared` flag with `own_role` and `owner` commit together
+    /// or not at all, so a failure never leaves a vault that is not marked
+    /// shared.
+    ///
+    /// # Errors
+    /// [`Error::VaultExists`] if the vault or its sharing row exists;
+    /// otherwise as [`Store::create_vault_with`]; [`Error::Database`] if the
+    /// sharing row is refused (nothing is stored then).
+    pub fn create_shared_vault_remote(
+        &mut self,
+        vault_id: &VaultId,
+        generation: KeyGeneration,
+        wrapped_vault_key: &WrappedKey,
+        own_role: u8,
+        owner: &AccountId,
+    ) -> Result<VaultState> {
+        self.create_vault_flagged(
+            vault_id,
+            generation,
+            VaultKeyWrap::AccountKey,
+            wrapped_vault_key,
+            KeyFlags::of(KeyOrigin::Remote),
+            true,
+            Some((own_role, owner)),
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one transaction: the vault, its key, its flags and the optional sharing row"
+    )]
     fn create_vault_flagged(
         &mut self,
         vault_id: &VaultId,
@@ -309,10 +345,21 @@ impl Store {
         wrapped_vault_key: &WrappedKey,
         flags: KeyFlags,
         remote_created: bool,
+        sharing: Option<(u8, &AccountId)>,
     ) -> Result<VaultState> {
         let tx = self.write()?;
         if read_vault(&tx, vault_id)?.is_some() {
             return Err(Error::VaultExists);
+        }
+        if sharing.is_some() {
+            let known: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM vault_sharing WHERE vault_id = ?1)",
+                params![vault_id.as_bytes()],
+                |r| r.get(0),
+            )?;
+            if known {
+                return Err(Error::VaultExists);
+            }
         }
         if let Some(floor) = read_floor(&tx, vault_id)?
             && generation < floor
@@ -342,6 +389,12 @@ impl Store {
             KeyFlags::NEUTRAL
         };
         upsert_key(&tx, vault_id, generation, wrapped_vault_key, flags)?;
+        if let Some((own_role, owner)) = sharing {
+            tx.execute(
+                "INSERT INTO vault_sharing (vault_id, shared, own_role, owner_account) VALUES (?1, 1, ?2, ?3)",
+                params![vault_id.as_bytes(), own_role, owner.as_bytes()],
+            )?;
+        }
         tx.commit()?;
         Ok(VaultState {
             vault_id: *vault_id,
@@ -1468,6 +1521,29 @@ pub(crate) mod tests {
         let problems = s.integrity_check().unwrap();
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(problems[1].contains("below its floor"));
+    }
+
+    #[test]
+    fn shared_vault_and_sharing_row_commit_together() {
+        let mut s = Store::open_in_memory().unwrap();
+        let (f, owner) = (fixture(), AccountId::new_v7().unwrap());
+        let (_, w) = f.key(1);
+        // A refused sharing row (role 9) rolls the vault back too (H1).
+        assert!(
+            s.create_shared_vault_remote(&f.vault, g(1), &w, 9, &owner)
+                .is_err()
+        );
+        assert_eq!(s.vault(&f.vault).unwrap(), None);
+        assert!(s.vault_sharing(&f.vault).unwrap().is_none());
+        assert_eq!(s.pending_vault_keys(&f.vault).unwrap().len(), 0);
+        s.create_shared_vault_remote(&f.vault, g(1), &w, 3, &owner)
+            .unwrap();
+        let row = s.vault_sharing(&f.vault).unwrap().unwrap();
+        assert_eq!((row.own_role, row.owner_account), (3, owner));
+        assert!(matches!(
+            s.create_shared_vault_remote(&f.vault, g(1), &w, 3, &owner),
+            Err(Error::VaultExists)
+        ));
     }
 
     fn hex(b: &[u8]) -> String {

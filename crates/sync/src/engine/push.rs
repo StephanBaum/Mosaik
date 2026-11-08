@@ -18,8 +18,11 @@ use sha2::{Digest, Sha256};
 
 use super::consts::{MAX_CONFLICT_ROUNDS, PUSH_FETCH, PUSH_MAX_BYTES, PUSH_MAX_RECORDS};
 use super::pull::RunStats;
+use super::served;
 use super::{SessionAccess, SyncEngine, SyncError, SyncReport};
-use crate::transport::{PushRecord, PushResult, Transport, TransportError, TransportKind};
+use crate::transport::{
+    PushRecord, PushResult, Rejection, Transport, TransportError, TransportKind,
+};
 
 /// A record waiting for upload and the version it is based on.
 struct Pending {
@@ -38,6 +41,9 @@ struct Batch {
 #[derive(Default)]
 struct Conflicts {
     vaults: BTreeSet<VaultId>,
+    /// Vaults the server refused this account's writes for (a role that
+    /// only reads, a membership that ended): their changes stay queued.
+    refused: BTreeSet<VaultId>,
     /// Record, and the base it was pushed with.
     records: Vec<(VaultId, ItemId, Option<u64>)>,
 }
@@ -135,7 +141,7 @@ impl<T: Transport> SyncEngine<T> {
         // records the server keeps refusing (left queued for the next run).
         let mut rebuilt = BTreeSet::new();
         // A rolled-back vault takes no uploads until the user acknowledges.
-        let mut stuck = Self::rolled_back_vaults(access)?;
+        let mut stuck = Self::write_blocked_vaults(access)?;
         for _ in 0..64 {
             let (items, tombs) = access.with(|s| collect_pending(s, only, hosted, &stuck))??;
             if items.is_empty() && tombs.is_empty() {
@@ -152,6 +158,7 @@ impl<T: Transport> SyncEngine<T> {
                 sent += n;
             }
             report.pushed += sent;
+            stuck.extend(conflicts.refused.iter().copied());
             if !conflicts.vaults.is_empty() {
                 conflict_rounds += 1;
                 if conflict_rounds > MAX_CONFLICT_ROUNDS {
@@ -235,6 +242,19 @@ impl<T: Transport> SyncEngine<T> {
                     conflicts.vaults.insert(vault);
                     continue;
                 }
+                Err(TransportError::Rejected(Rejection::RoleForbidden)) => {
+                    conflicts.refused.insert(vault);
+                    return Ok(sent);
+                }
+                // Not a member any more: sync stops for the vault and its
+                // local copy stays readable (CRYPTO_SPEC §8.3).
+                Err(TransportError::Forbidden | TransportError::NotFound)
+                    if access.with(|s| s.vault_shared(vault))?? =>
+                {
+                    access.with(|s| s.mark_access_lost(vault))??;
+                    conflicts.refused.insert(vault);
+                    return Ok(sent);
+                }
                 Err(e) => return Err(e.into()),
             };
             let mut accepted: Vec<(&StoredRecord, Option<u64>)> = Vec::new();
@@ -263,7 +283,7 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         for _ in 0..=MAX_CONFLICT_ROUNDS {
             let uploads = access.with(UnlockedSession::pending_vault_uploads)??;
-            let rolled_back = Self::rolled_back_vaults(access)?;
+            let rolled_back = Self::write_blocked_vaults(access)?;
             let metas: Vec<(VaultId, VaultMetaCiphertext, Option<u64>)> = uploads
                 .into_iter()
                 .filter(|u| !rolled_back.contains(&u.vault_id))
@@ -274,9 +294,17 @@ impl<T: Transport> SyncEngine<T> {
             }
             let mut conflicted = Vec::new();
             for (vault, meta, base) in metas {
-                match self.transport.push_meta(vault, &meta, base)? {
-                    PushResult::Accepted { seq } => accept_meta(access, vault, &meta, seq)?,
-                    PushResult::Conflict { .. } => conflicted.push(vault),
+                match self.transport.push_meta(vault, &meta, base) {
+                    Ok(PushResult::Accepted { seq }) => accept_meta(access, vault, &meta, seq)?,
+                    Ok(PushResult::Conflict { .. }) => conflicted.push(vault),
+                    // A role that only reads: the change stays queued.
+                    Err(TransportError::Rejected(Rejection::RoleForbidden)) => {}
+                    Err(TransportError::Forbidden | TransportError::NotFound)
+                        if access.with(|s| s.vault_shared(vault))?? =>
+                    {
+                        access.with(|s| s.mark_access_lost(vault))??;
+                    }
+                    Err(e) => return Err(e.into()),
                 }
             }
             if conflicted.is_empty() {
@@ -299,11 +327,15 @@ fn accept_meta(
     seq: Option<u64>,
 ) -> Result<(), SyncError> {
     access.with(|s| -> Result<(), Error> {
+        let hosted = seq.is_some();
         let seq = match seq {
             Some(q) => q,
             None => s.allocate_local_seqs(vault, 1)?,
         };
         s.mark_vault_meta_uploaded(vault, meta, seq)?;
+        if hosted {
+            served::note_meta(s, vault, seq, meta.as_bytes())?;
+        }
         Ok(())
     })??;
     Ok(())

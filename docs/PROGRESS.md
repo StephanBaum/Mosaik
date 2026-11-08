@@ -15,6 +15,7 @@ milestone close appends its section there).
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
+| M6b Sharing and emergency access | in progress on `feat/m6b-sharing` (T1 to T4 and the milestone review fixes done; T5 desktop: commands, screens, mock states, i18n, fuzz seeds, docs; two verify passes and the UX review are done; open: the manual checks below, the owner decisions OD1 to OD6 of the spec, the full gate and the milestone commit) |
 | M7 Rotation | — |
 | M8 CLI | — |
 | M9 Hardening | — |
@@ -2248,6 +2249,93 @@ to M6b), ADR-0043 (folder format), ADR-0044 (server), ADR-0045 (engine rules), A
   - Server databases created before the in-place edit of migration v1 must be recreated (the server
     is unreleased).
 - **Open: manual checks and owner items.** See "Needs owner" ("M6 sync", "Manual checks for M6").
+
+## M6b Sharing and emergency access (2026-11-08)
+
+Scope: vault sharing between people (roles, invites, rosters, revocation by key change) and
+emergency access, hosted only (CRYPTO_SPEC §8; ADR-0048 to ADR-0055; THREAT_MODEL R71 to R82). Folder
+backends cannot share (§8.6, ADR-0054 scope). Tracks: T1 `mosaic-core` (identity keys, share seals,
+roster, contact book; `eddbb84`, review fixes `976e910`), T2 `mosaic-vault` (store v8 and the
+sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309`), T4
+`mosaic-sync` (engine, hosted client, view digest v2; `6501920`), the milestone review fixes
+(`8e3b495`) and T5 desktop (this section).
+
+- **T5 desktop.**
+  - **IPC (21 commands, `docs/DESKTOP_IPC.md` "Sharing").** `sharing_identity`, `sharing_lookup`,
+    `sharing_verify_contact`, `sharing_accept_key_change`, `sharing_contacts`, `vault_share`,
+    `vault_members`, `vault_member_set_role`, `vault_member_remove`, `vault_invite_cancel`,
+    `vault_leave`, `invites_list`, `invite_preview`, `invite_accept`, `invite_decline`,
+    `emergency_overview`, `emergency_grant`, `emergency_revoke`, `emergency_request`,
+    `emergency_respond`, `emergency_claim`; the event `sharingChanged`; `SyncOverview.sharingFindings`
+    and the warning `rotationBlocked`; 18 new error codes. The commands run the real engine
+    operations of `SyncEngine` (`lookup_contact`, `invite_member`, `remove_member`, ...) over an
+    engine and transport of their own next to the sync thread (`sync/sharing_flow.rs`): one session
+    closure at a time, no lock across a network call, the lock epoch recorded first and checked
+    after, a fresh login (the device-removal path) for granting and for approving. Removing a member
+    and leaving a vault ask in a **native** dialog whose texts Rust owns (a test compares them with
+    the catalog). `sync_disconnect` is refused with `syncHasSharedVaults` before anything is signed
+    out. Only safety codes, roles, addresses and IDs reach the webview.
+  - **Screens (`src/screens/sharing/`).** Share dialog (address, lookup, safety-code comparison,
+    role, the honesty line), the code comparison side by side with an optional typed code and a
+    one-click attestation (`SafetyCodePanel`), the key-change panel (old and new code, the same comparison as any code, "New code matches"), the members list with roles, unverified, unconfirmed, dropped and removing markers,
+    role changes, remove, leave, withdraw, and the notices for a removal waiting for the owner's
+    device and for attachments a key change could not protect, the invites inbox (sidebar entry with
+    a count; the owner's code is compared too when a manager invites), emergency access in Settings
+    (grantor and grantee, wait choices 1/2/7/14/30 days with 7 by default, the server-trust
+    sentence, vault keys only, request, countdown, claim), the grantor's banner for a waiting request
+    (refuse, or approve with the master password), the sharing findings at the top of the app
+    (`MemberUnverified`, `MemberDropped`, `ShareUntrusted`, `AccessLost`, `IdentityMismatch`,
+    `RosterInvalid`; `RotationBlocked` in the sync warnings), and Settings > Sharing (own safety code
+    and contacts). Folder mode shows why sharing is off everywhere it would appear.
+  - **Mock and i18n.** `?sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|rotation`
+    (with `&sync=folder|none` for the off states); the `sharing` catalog (EN, DE) and the new errors.
+  - **Tests.** Contract fixtures regenerated (21 commands, 6 enums, the event, the findings), Rust unit
+    tests for the error mapping and the native texts, four real-server tests of the commands (two
+    accounts: verify, invite, join, roles, removal with its question, the refusal to leave the server,
+    decline, emergency grant, request, refusal and cooldown; folder and locked cases), 18 mock handler
+    tests and 16 component tests, 22 fuzz seeds.
+- **Deviations from the spec.**
+  - `vault_members.unprotectedAttachments` and `vault_member_remove.unreachableAttachments` are
+    counts, not lists (the files are not named on this screen; the count is kept in memory per vault).
+  - `invite_accept` takes the sender's code only; the owner of a vault joined through a manager is
+    verified with `sharing_verify_contact` first (`InvitePreview` carries `ownerCode`).
+  - `emergency_respond` gains `code` (the second factor, like `emergency_grant`).
+  - `invites_list.outgoing` lists the waiting invites only and carries the vault name and the recipient's
+    address from the contact book.
+  - No `ShareItemDialog` (move an item to a shared vault with the existing Move action) and no role or
+    shared marker in `VaultSummary` (the vault's sharing dialog shows the role); both are small follow-ups.
+  - `sharing_contacts.changed` is true when devices pinned different keys; a key the server now serves
+    differently is found by `sharing_lookup` (`changed`).
+- **Reviews.** T1 crypto review: High 1, Medium 1, Low 3, Info 5, all fixed (`976e910`). Milestone review:
+  High 4, Medium 4, Low 4, Info 1, all fixed in `8e3b495` with the deviations documented. Verify pass 1 on
+  `8e3b495`: H3 still open (High), 1 Medium, 2 Low, fixed in `789265b`. Verify pass 2 on `789265b`: H3 still
+  open (High), 2 Medium, 2 Low, fixed fail-closed in `e8653b9` (positive owner authorization; the findings
+  `MemberKeyMismatch` and `VaultHeld`). UX review of T5: 2 blockers, 8 major, 11 minor, all fixed in
+  `fix(desktop): M6b sharing UX review follow-ups and new findings`: focus goes to the step heading on every
+  step change; the findings are one collapsed line (no sticky block); "Codes match" waits for a checkbox or a
+  matching typed code; the key-change panel reuses the comparison with focus on Cancel; native confirms use
+  verb buttons ("Remove", "Leave vault"); the own row (`self`) has no role or remove control; the role changes
+  only on "Change role"; wrapping and live-region fixes; "Dismiss" for a lost vault; label-in-name ICU keys;
+  the verify title, palette commands "Share vault…" and "Invites"; off states with a button to the sync
+  settings; a question before "Request access" and before "Decline and block sender". Deviations: the engine
+  has no unblock command in the desktop contract, so the block question says it can't be undone in Mosaic;
+  "Dismiss" for a lost vault hides it until the app starts again (no stored acknowledgement exists).
+- **Folder sync loop (2026-11-08, fixed in M6b)**: since M6 T5 a folder-mode sync ran again right after every run
+  (about every 17 ms, without end, a battery and disk bug). The run rewrites its own head checkpoint, the change
+  digest included it, and the runner took it for a foreign change. Found through the failing
+  `folder_connect_syncs_lists_devices_and_renames` (not caused by `e8653b9`, which only made runs slower; hosted
+  is not affected: the server counter is not bumped by checkpoints). `change_digest` now skips this device's own
+  `d/<self>/` and its own logs; tests: `a_devices_own_writes_do_not_change_its_token`,
+  `every_foreign_path_changes_the_token`, `a_foreign_write_during_a_run_is_noticed_on_the_next_poll`,
+  `an_idle_folder_sync_does_not_run_again`.
+- **Manual checks for M6b (2026-11-08)**, none can be automated here: (1) two real accounts on a real
+  server: look up, compare codes on the phone, invite, accept, edit on both, remove, watch the key change
+  on the owner's device; (2) a manager removing a member while the owner is offline, then the owner's
+  device coming back; (3) emergency access end to end with a short wait on a test server: request, banner
+  on the grantor's app, refuse, approve early, claim, revoke after a release; (4) a key change of a contact
+  (reinstall) while a vault is shared with them; (5) the native remove and leave dialogs on Windows, macOS
+  and Linux in German and English; (6) keyboard-only and screen-reader pass through the share dialog, the
+  safety-code panel, the invites inbox and the banner in light, dark, German and English.
 
 ## Open risks / findings
 

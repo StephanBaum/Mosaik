@@ -49,7 +49,13 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         let install = access.with(|s| s.install_id())?;
         let uploads = access.with(UnlockedSession::pending_vault_uploads)??;
-        for up in uploads {
+        let lost = access.with(|s| {
+            s.synced_vaults()
+                .into_iter()
+                .filter(|v| s.vault_access_lost(*v).unwrap_or(false))
+                .collect::<Vec<_>>()
+        })?;
+        for up in uploads.into_iter().filter(|u| !lost.contains(&u.vault_id)) {
             let vault = up.vault_id;
             if let Some((generation, wrapped, meta)) = &up.create {
                 // `Created` and `Exists` both count as created; the pull
@@ -161,6 +167,20 @@ fn decide(
     };
     s.prune_key_observations(vault)?;
     let seen = s.key_observations(vault, generation)?;
+    if hosted && s.vault_shared(vault)? {
+        // A shared vault never adopts a key and never rotates by rank
+        // (CRYPTO_SPEC §10.2): the owner's rotation is the only source of a
+        // new generation, and a member takes it through the claim rule. A
+        // second key for the held generation is the server contradicting
+        // itself.
+        let held = held_key(s, vault, generation)?.map(|(_, w, _)| w);
+        if let Some(held) = held
+            && seen.iter().any(|(_, w)| w.as_bytes() != held.as_bytes())
+        {
+            s.set_vault_flag(vault, VaultFlag::ServerInconsistent)?;
+        }
+        return Ok(Decision::Nothing);
+    }
     let Some((origin, held, install)) = held_key(s, vault, generation)? else {
         return Ok(Decision::Nothing);
     };

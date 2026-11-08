@@ -81,7 +81,8 @@ tables).
 | M4 | not recorded | not recorded | not recorded | not recorded | 7 (extension-attacker breaks) |
 | M5 | not recorded | not recorded | not recorded | not recorded | not recorded |
 | M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
-| **Overall (M0 to M6)** | **19** | **111** | **169** | **38** | **51 recorded** |
+| M6b (T1 review, milestone review, two verify passes and the T5 UX review) | 7 | 8 | 11 | 6 | none |
+| **Overall (M0 to M6b)** | **26** | **119** | **180** | **44** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -215,6 +216,30 @@ counter made the halt loop (the published counter does not advance on
 digest leaves out vault metadata (accepted, R70, target M6b). Every fixed item
 has one regression test. **Pending:** the final sync-chaos long run over both
 transports.
+
+## M6b Sharing and emergency access
+
+Sources: the M6b fix decision files (`m6b-t1-fix.md`, `m6b-fix.md`, kept by the orchestrator), the commit
+messages named in the table and `docs/PROGRESS.md` ("M6b"). The reviewer reports themselves are not in the
+repository. The T2 to T4 track reviews were not counted separately in the sources: the milestone review
+covered them together.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-08 | T1 core: crypto-reviewer (`b388cc6..eddbb84`) | opus | 1 / 1 / 3 / 5 | none | Fixed, `976e910`: only the owner issues rotation shares (`authorizes_rotation`), rosters bound to their generation, the owner entry fixed at creation, ADR-0049 facts, KAT with the standard library only |
+| 2026-11-08 | M6b milestone review: crypto-reviewer over `b388cc6..6501920` | opus | 4 / 4 / 4 / 1 | none | All fixed in `8e3b495` with a regression test each; deviations documented (ADR-0055, R71, R72, R77, R79, R82) |
+| 2026-11-08 | Verify pass 1 over the milestone review fixes (`8e3b495`) | opus | 1 / 1 / 2 / 0 (H3 still open, High) | none | Fixed in `789265b` (owned-vault set, grant-delete rotation) |
+| 2026-11-08 | Verify pass 2 over `789265b` | opus | 1 / 2 / 2 / 0 (H3 still open) | none | Fixed fail-closed in `e8653b9` (positive owner authorization; `MemberKeyMismatch` and `VaultHeld` findings) |
+| 2026-11-08 | T5 desktop: UX review (ux-reviewer) | sonnet | 2 blockers / 8 major / 11 minor | none | All fixed in the follow-up commit `fix(desktop): M6b sharing UX review follow-ups and new findings`, with the two new finding kinds mapped through the contract, mock, fixtures and EN/DE copy |
+
+Total: High 7, Medium 8, Low 11, Info 6 (T1 review, milestone review and the two verify passes, counted by
+item in the decision files; H3 was reported open in both verify passes and closed fail-closed in `e8653b9`). The
+UX review is counted apart: 2 blockers, 8 major, 11 minor, no security findings.
+
+The headline limits after the fixes (THREAT_MODEL R71 to R82): a member who still holds an old key can forge
+roster entries at the old generation (the defence is owner-only rotation plus fingerprint pinning); a
+revocation waits for the owner's device; the server keeps the emergency wait, so whoever controls the server
+can skip it (the grant dialog says so); vault keys only are covered by emergency access.
 
 ## Appending a milestone
 

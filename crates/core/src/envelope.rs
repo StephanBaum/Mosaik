@@ -13,6 +13,8 @@
 //! | [`WrappedKey`] (TK) | `01 01` | `wrap/hw-vault` | `account_id, vault_id, method_id[16]` |
 //! | [`WrappedKey`] (VK under TK) | `01 01` | `wrap/vault-under-tk` | `vault_id, key_generation:u32` |
 //! | [`VaultMetaCiphertext`] | `01 01 key_generation:u32` | `vault-meta` | `vault_id, key_generation:u32` |
+//! | [`VaultRosterCiphertext`] | `01 01 key_generation:u32` | `vault-roster` | `vault_id, key_generation:u32` |
+//! | [`ContactsCiphertext`] | `01 01` | `contacts` | `account_id` |
 //! | [`ItemCiphertext`] | `01 01 schema_version:u16 key_generation:u32` | `item` | `vault_id, item_id, schema_version:u16, key_generation:u32` |
 //! | [`TombstoneCiphertext`] | `01 01 key_generation:u32` | `tombstone` | `vault_id, item_id, key_generation:u32` |
 //!
@@ -26,7 +28,7 @@ use crate::aead::{self, NONCE_LEN, TAG_LEN};
 use crate::encoding::{self, Aad, PAD_BLOCK, PAD_MIN, label, take};
 use crate::error::{Error, Result};
 use crate::ids::{AccountId, DeviceId, ItemId, KeyGeneration, VaultId};
-use crate::secret::{SecretBytes, SecretVec, VaultKey};
+use crate::secret::{AccountKey, ContactsKey, SecretBytes, SecretVec, VaultKey};
 
 /// Format version of every v1 object.
 pub const FORMAT_VERSION: u8 = 0x01;
@@ -41,6 +43,14 @@ pub const MAX_ITEM_PLAINTEXT_LEN: usize = MAX_ITEM_PADDED_LEN - 1;
 pub const MAX_VAULT_META_PADDED_LEN: usize = 64 * 1024;
 /// Largest vault-metadata plaintext.
 pub const MAX_VAULT_META_PLAINTEXT_LEN: usize = MAX_VAULT_META_PADDED_LEN - 1;
+/// Largest padded vault-roster plaintext: 64 KiB (§8.2, ADR-0050).
+pub const MAX_ROSTER_PADDED_LEN: usize = 64 * 1024;
+/// Largest vault-roster plaintext.
+pub const MAX_ROSTER_PLAINTEXT_LEN: usize = MAX_ROSTER_PADDED_LEN - 1;
+/// Largest padded contact-book plaintext: 256 KiB (§8.5, ADR-0054).
+pub const MAX_CONTACTS_PADDED_LEN: usize = 256 * 1024;
+/// Largest contact-book plaintext.
+pub const MAX_CONTACTS_PLAINTEXT_LEN: usize = MAX_CONTACTS_PADDED_LEN - 1;
 /// Largest tombstone plaintext: 64 KiB (ADR-0007).
 pub const MAX_TOMBSTONE_PLAINTEXT_LEN: usize = 64 * 1024;
 
@@ -222,6 +232,11 @@ impl WrappedKey {
         Aad::with_header(&Self::HEADER, label::WRAP_VAULT_UNDER_TK)
             .fixed(vault_id.as_bytes())
             .u32(generation.get())
+    }
+
+    /// §8.1: `01 01 || aad("wrap/identity", account_id)`.
+    pub(crate) fn identity_aad(account_id: &AccountId) -> Aad {
+        Aad::with_header(&Self::HEADER, label::WRAP_IDENTITY).fixed(account_id.as_bytes())
     }
 
     pub(crate) fn seal(
@@ -618,6 +633,193 @@ impl TombstoneCiphertext {
         let (header, nonce, body) = split_nonce::<GEN_HEADER_LEN>(&self.bytes)?;
         let aad = Self::aad(header, vault_id, item_id, self.generation);
         aead::open(vk.key.expose_secret(), nonce, aad.as_bytes(), body)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vault roster (§8.2) and contact book (§8.5)
+// ---------------------------------------------------------------------------
+
+/// The encrypted member roster of a shared vault (§8.2): exactly the
+/// [`VaultMetaCiphertext`] construction under the label `vault-roster`:
+/// `version || alg || key_generation:u32 || nonce[24] || AEAD(VK, nonce, pad(roster), aad)`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct VaultRosterCiphertext {
+    bytes: Vec<u8>,
+    generation: KeyGeneration,
+}
+
+impl VaultRosterCiphertext {
+    fn aad(header: &[u8], vault_id: &VaultId, generation: KeyGeneration) -> Aad {
+        Aad::with_header(header, label::VAULT_ROSTER)
+            .fixed(vault_id.as_bytes())
+            .u32(generation.get())
+    }
+
+    /// Encrypts a roster plaintext under `vk` with a fresh random nonce.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] above [`MAX_ROSTER_PLAINTEXT_LEN`];
+    /// [`Error::Randomness`] / [`Error::Allocation`].
+    pub fn seal(vk: &VaultKey, vault_id: &VaultId, plaintext: &[u8]) -> Result<Self> {
+        Self::seal_with_nonce(vk, vault_id, plaintext, &aead::random_nonce()?)
+    }
+
+    pub(crate) fn seal_with_nonce(
+        vk: &VaultKey,
+        vault_id: &VaultId,
+        plaintext: &[u8],
+        nonce: &[u8; NONCE_LEN],
+    ) -> Result<Self> {
+        if plaintext.len() > MAX_ROSTER_PLAINTEXT_LEN {
+            return Err(Error::SizeLimit);
+        }
+        let generation = vk.generation();
+        let header = gen_header(generation);
+        let aad = Self::aad(&header, vault_id, generation);
+        let bytes = seal_padded(
+            vk.key.expose_secret(),
+            nonce,
+            &header,
+            aad.as_bytes(),
+            plaintext,
+        )?;
+        Ok(Self { bytes, generation })
+    }
+
+    /// Strictly decodes an encrypted roster.
+    ///
+    /// # Errors
+    /// [`Error::UnsupportedVersion`], [`Error::UnsupportedAlgorithm`],
+    /// [`Error::InvalidKeyGeneration`], [`Error::SizeLimit`] or
+    /// [`Error::Malformed`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        check_version_alg(bytes)?;
+        let (header, _, body) = split_nonce::<GEN_HEADER_LEN>(bytes)?;
+        let generation = parse_gen_header(*header)?;
+        check_padded_body(body.len(), MAX_ROSTER_PADDED_LEN)?;
+        let mut v = Vec::new();
+        v.try_reserve_exact(bytes.len())
+            .map_err(|_| Error::Allocation)?;
+        v.extend_from_slice(bytes);
+        Ok(Self {
+            bytes: v,
+            generation,
+        })
+    }
+
+    /// The encoded bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// The vault key generation in the header.
+    #[must_use]
+    pub const fn key_generation(&self) -> KeyGeneration {
+        self.generation
+    }
+
+    /// Decrypts the roster plaintext. `vault_id` comes from context.
+    ///
+    /// # Errors
+    /// [`Error::KeyGenerationMismatch`] if `vk` belongs to another
+    /// generation; [`Error::Decryption`] for every other failure.
+    pub fn open(&self, vk: &VaultKey, vault_id: &VaultId) -> Result<SecretVec> {
+        check_generation(self.generation, vk)?;
+        let (header, nonce, body) = split_nonce::<GEN_HEADER_LEN>(&self.bytes)?;
+        let aad = Self::aad(header, vault_id, self.generation);
+        open_padded(vk.key.expose_secret(), nonce, aad.as_bytes(), body)
+    }
+}
+
+impl AccountKey {
+    /// The contact-book key `K_contacts = HKDF(AK, "", ctx("contacts-key"), 32)`
+    /// (§8.5). Derive it for each operation; never store it.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] if the derivation fails (it cannot for 32 bytes).
+    pub fn contacts_key(&self) -> Result<ContactsKey> {
+        Ok(ContactsKey(crate::kdf::hkdf_ctx(
+            self.0.expose_secret(),
+            &[],
+            label::CONTACTS_KEY,
+        )?))
+    }
+}
+
+/// The encrypted contact book of an account (§8.5):
+/// `version || alg || nonce[24] || AEAD(K_contacts, nonce, pad(book), aad)` with
+/// `aad = header || aad("contacts", account_id)`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ContactsCiphertext {
+    bytes: Vec<u8>,
+}
+
+impl ContactsCiphertext {
+    fn aad(account_id: &AccountId) -> Aad {
+        Aad::with_header(&WrappedKey::HEADER, label::CONTACTS).fixed(account_id.as_bytes())
+    }
+
+    /// Encrypts a contact-book plaintext with a fresh random nonce.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] above [`MAX_CONTACTS_PLAINTEXT_LEN`];
+    /// [`Error::Randomness`] / [`Error::Allocation`].
+    pub fn seal(key: &ContactsKey, account_id: &AccountId, plaintext: &[u8]) -> Result<Self> {
+        Self::seal_with_nonce(key, account_id, plaintext, &aead::random_nonce()?)
+    }
+
+    pub(crate) fn seal_with_nonce(
+        key: &ContactsKey,
+        account_id: &AccountId,
+        plaintext: &[u8],
+        nonce: &[u8; NONCE_LEN],
+    ) -> Result<Self> {
+        if plaintext.len() > MAX_CONTACTS_PLAINTEXT_LEN {
+            return Err(Error::SizeLimit);
+        }
+        let aad = Self::aad(account_id);
+        let bytes = seal_padded(
+            key.0.expose_secret(),
+            nonce,
+            &WrappedKey::HEADER,
+            aad.as_bytes(),
+            plaintext,
+        )?;
+        Ok(Self { bytes })
+    }
+
+    /// Strictly decodes an encrypted contact book.
+    ///
+    /// # Errors
+    /// [`Error::UnsupportedVersion`], [`Error::UnsupportedAlgorithm`],
+    /// [`Error::SizeLimit`] or [`Error::Malformed`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        check_version_alg(bytes)?;
+        let (_, _, body) = split_nonce::<SHORT_HEADER_LEN>(bytes)?;
+        check_padded_body(body.len(), MAX_CONTACTS_PADDED_LEN)?;
+        let mut v = Vec::new();
+        v.try_reserve_exact(bytes.len())
+            .map_err(|_| Error::Allocation)?;
+        v.extend_from_slice(bytes);
+        Ok(Self { bytes: v })
+    }
+
+    /// The encoded bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Decrypts the contact-book plaintext. `account_id` comes from context.
+    ///
+    /// # Errors
+    /// [`Error::Decryption`] for every failure.
+    pub fn open(&self, key: &ContactsKey, account_id: &AccountId) -> Result<SecretVec> {
+        let (_, nonce, body) = split_nonce::<SHORT_HEADER_LEN>(&self.bytes)?;
+        let aad = Self::aad(account_id);
+        open_padded(key.0.expose_secret(), nonce, aad.as_bytes(), body)
     }
 }
 

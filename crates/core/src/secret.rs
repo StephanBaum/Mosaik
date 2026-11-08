@@ -405,6 +405,13 @@ key_newtype!(
 );
 
 key_newtype!(
+    /// The contact-book key `K_contacts` (CRYPTO_SPEC §8.5), derived from `AK`
+    /// with [`AccountKey::contacts_key`] for each operation and never stored.
+    ContactsKey,
+    32
+);
+
+key_newtype!(
     /// The key `TK` of a hardware-protected TOTP vault (CRYPTO_SPEC §7.4).
     TotpVaultKey,
     32

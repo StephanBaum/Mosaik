@@ -65,6 +65,32 @@ import type {
   VerifyKitRequest,
 } from "./session.ts";
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
+import type {
+  ContactCodeRequest,
+  ContactList,
+  EmergencyClaimRequest,
+  EmergencyClaimed,
+  EmergencyGrantRequest,
+  EmergencyOverview,
+  EmergencyRequestRequest,
+  EmergencyRequested,
+  EmergencyRespondRequest,
+  EmergencyRevokeRequest,
+  InviteAcceptRequest,
+  InviteDeclineRequest,
+  InviteList,
+  InvitePreviewView,
+  InviteRequest,
+  InviteSent,
+  LookupRequest,
+  LookupResult,
+  MemberRequest,
+  RemoveOutcome,
+  SetRoleRequest,
+  ShareVaultRequest,
+  SharingIdentity,
+  VaultMembersView,
+} from "./sharing.ts";
 import type { SshAgentStatus, SshRespondRequest, SshSetEnabledRequest } from "./ssh.ts";
 import type {
   AcknowledgeRequest,
@@ -202,6 +228,28 @@ export interface Commands {
   join_hosted_two_factor: Command<CodeRequest, JoinOutcome>;
   join_folder: Command<JoinFolderRequest, JoinOutcome>;
   change_master_password: Command<ChangePasswordRequest, null>;
+  // Sharing and emergency access
+  sharing_identity: Command<null, SharingIdentity>;
+  sharing_lookup: Command<LookupRequest, LookupResult>;
+  sharing_verify_contact: Command<ContactCodeRequest, null>;
+  sharing_accept_key_change: Command<ContactCodeRequest, null>;
+  sharing_contacts: Command<null, ContactList>;
+  vault_share: Command<ShareVaultRequest, InviteSent>;
+  vault_members: Command<VaultRequest, VaultMembersView>;
+  vault_member_set_role: Command<SetRoleRequest, null>;
+  vault_member_remove: Command<MemberRequest, RemoveOutcome>;
+  vault_invite_cancel: Command<InviteRequest, null>;
+  vault_leave: Command<VaultRequest, null>;
+  invites_list: Command<null, InviteList>;
+  invite_preview: Command<InviteRequest, InvitePreviewView>;
+  invite_accept: Command<InviteAcceptRequest, null>;
+  invite_decline: Command<InviteDeclineRequest, null>;
+  emergency_overview: Command<null, EmergencyOverview>;
+  emergency_grant: Command<EmergencyGrantRequest, null>;
+  emergency_revoke: Command<EmergencyRevokeRequest, null>;
+  emergency_request: Command<EmergencyRequestRequest, EmergencyRequested>;
+  emergency_respond: Command<EmergencyRespondRequest, null>;
+  emergency_claim: Command<EmergencyClaimRequest, EmergencyClaimed>;
 }
 
 export type CommandName = keyof Commands;
@@ -302,6 +350,27 @@ const commandSet = {
   join_hosted_two_factor: true,
   join_folder: true,
   change_master_password: true,
+  sharing_identity: true,
+  sharing_lookup: true,
+  sharing_verify_contact: true,
+  sharing_accept_key_change: true,
+  sharing_contacts: true,
+  vault_share: true,
+  vault_members: true,
+  vault_member_set_role: true,
+  vault_member_remove: true,
+  vault_invite_cancel: true,
+  vault_leave: true,
+  invites_list: true,
+  invite_preview: true,
+  invite_accept: true,
+  invite_decline: true,
+  emergency_overview: true,
+  emergency_grant: true,
+  emergency_revoke: true,
+  emergency_request: true,
+  emergency_respond: true,
+  emergency_claim: true,
 } as const satisfies Record<CommandName, true>;
 
 export const commandNames = Object.keys(commandSet) as CommandName[];

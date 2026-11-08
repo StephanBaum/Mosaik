@@ -98,6 +98,23 @@ pub enum Error {
     #[error("item is deleted")]
     ItemDeleted,
 
+    /// A vault roster violates a rule of CRYPTO_SPEC §8.2 (no owner or more
+    /// than one, an owner other than the vault's, a fingerprint that is not
+    /// 32 bytes, or a `since` above the roster's generation).
+    #[error("invalid vault roster")]
+    RosterInvalid,
+
+    /// The pinned identity key of a contact differs from the one checked
+    /// (CRYPTO_SPEC §8.5): the key changed, or devices pinned different keys.
+    #[error("contact key changed")]
+    ContactChanged,
+
+    /// An act reserved for the vault owner (a rotation share, CRYPTO_SPEC
+    /// §8.3) came from another account, from the owner with a fingerprint
+    /// that is not the verified pin, or for another generation.
+    #[error("sender is not authorized")]
+    NotAuthorized,
+
     /// A received record carries edits under this device's ID that this
     /// replica never made: another process or install uses the same
     /// `DeviceId`, or local state was restored from a backup. Rotate the

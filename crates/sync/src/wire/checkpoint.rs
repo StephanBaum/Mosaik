@@ -62,19 +62,21 @@ impl CheckpointEntry {
     }
 }
 
-/// The digest of a vault's served view at `high_seq` (CRYPTO_SPEC §10):
+/// The digest of a vault's served view at `high_seq`, version 2
+/// (CRYPTO_SPEC §10, ADR-0048):
 ///
 /// ```text
-/// SHA-256( ctx("sync/view") || 0x00 || vault_id || high_seq:u64 || key_commit[32]
-///          || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )
+/// SHA-256( ctx("sync/view2") || 0x00 || vault_id || high_seq:u64 || key_commit[32]
+///          || meta_commit[32] || n:u32 || n x ( record_id[16] || seq:u64 || ct_hash[32] ) )
 /// ```
 ///
-/// `key_commit` is [`view_key_commit`] of the vault key the device holds, and
-/// `rows` are every served record of the vault, sorted by record ID. No key
-/// is involved: two devices that were shown the same key and records compute
-/// the same digest, and the server sees only the 32 opaque bytes. The
-/// formula lives in `mosaic-core` ([`mosaic_core::sync_auth::view_digest`]),
-/// which owns the labels.
+/// `key_commit` is [`view_key_commit`] of the vault key the device holds,
+/// `meta_commit` is [`view_meta_commit`] of the vault metadata and the roster
+/// as served (R70), and `rows` are every served record of the vault, sorted
+/// by record ID. No key is involved: two devices that were shown the same
+/// key, metadata, roster and records compute the same digest, and the server
+/// sees only the 32 opaque bytes. The formula lives in `mosaic-core`
+/// ([`mosaic_core::sync_auth::view_digest2`]), which owns the labels.
 ///
 /// # Errors
 /// [`WireError::Order`] if the rows are not strictly ascending by record ID
@@ -83,17 +85,18 @@ pub fn view_digest(
     vault_id: &VaultId,
     high_seq: u64,
     key_commit: &[u8; 32],
+    meta_commit: &[u8; 32],
     rows: &[ServedRow],
 ) -> Result<[u8; 32], WireError> {
     let entries: Vec<mosaic_core::sync_auth::ServedEntry> = rows
         .iter()
         .map(|r| (*r.record_id.as_bytes(), r.seq, r.ct_hash))
         .collect();
-    mosaic_core::sync_auth::view_digest(vault_id, high_seq, key_commit, &entries)
+    mosaic_core::sync_auth::view_digest2(vault_id, high_seq, key_commit, meta_commit, &entries)
         .map_err(|_| WireError::Order)
 }
 
-pub use mosaic_core::sync_auth::view_key_commit;
+pub use mosaic_core::sync_auth::{ABSENT_OBJECT, ServedObject, view_key_commit, view_meta_commit};
 
 /// A checkpoint of one device.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -417,18 +420,28 @@ mod tests {
         };
         let rows = [row(1, 4), row(2, 9)];
         let commit = view_key_commit(&vault, KeyGeneration::FIRST, &[7; 74]);
-        let mut flat = mosaic_core::encoding::ctx("sync/view");
+        let meta = view_meta_commit(&vault, &(5, [1; 32]), &(6, [2; 32]));
+        let mut meta_flat = mosaic_core::encoding::ctx("sync/view-meta");
+        meta_flat.push(0);
+        meta_flat.extend_from_slice(vault.as_bytes());
+        meta_flat.extend_from_slice(&5u64.to_be_bytes());
+        meta_flat.extend_from_slice(&[1; 32]);
+        meta_flat.extend_from_slice(&6u64.to_be_bytes());
+        meta_flat.extend_from_slice(&[2; 32]);
+        assert_eq!(meta, <[u8; 32]>::from(Sha256::digest(&meta_flat)));
+        let mut flat = mosaic_core::encoding::ctx("sync/view2");
         flat.push(0);
         flat.extend_from_slice(vault.as_bytes());
         flat.extend_from_slice(&9u64.to_be_bytes());
         flat.extend_from_slice(&commit);
+        flat.extend_from_slice(&meta);
         flat.extend_from_slice(&2u32.to_be_bytes());
         for r in &rows {
             flat.extend_from_slice(r.record_id.as_bytes());
             flat.extend_from_slice(&r.seq.to_be_bytes());
             flat.extend_from_slice(&r.ct_hash);
         }
-        let digest = view_digest(&vault, 9, &commit, &rows).unwrap();
+        let digest = view_digest(&vault, 9, &commit, &meta, &rows).unwrap();
         assert_eq!(digest, <[u8; 32]>::from(Sha256::digest(&flat)));
         // Every input changes it: the head, the seq, a hash, a missing row,
         // the vault.
@@ -438,19 +451,26 @@ mod tests {
         // The key too: another wrapping, another generation.
         let other_key = view_key_commit(&vault, KeyGeneration::FIRST, &[8; 74]);
         let other_gen = view_key_commit(&vault, KeyGeneration::new(2).unwrap(), &[7; 74]);
+        // R70: another vault metadata or roster as served, another digest.
+        let other_meta = view_meta_commit(&vault, &(5, [9; 32]), &(6, [2; 32]));
+        let other_roster = view_meta_commit(&vault, &(5, [1; 32]), &(7, [2; 32]));
+        let no_roster = view_meta_commit(&vault, &(5, [1; 32]), &ABSENT_OBJECT);
         for changed in [
-            view_digest(&vault, 10, &commit, &rows).unwrap(),
-            view_digest(&vault, 9, &commit, &[row(1, 4), row(2, 10)]).unwrap(),
-            view_digest(&vault, 9, &commit, &other_hash).unwrap(),
-            view_digest(&vault, 9, &commit, &rows[..1]).unwrap(),
-            view_digest(&other_vault, 9, &commit, &rows).unwrap(),
-            view_digest(&vault, 9, &other_key, &rows).unwrap(),
-            view_digest(&vault, 9, &other_gen, &rows).unwrap(),
+            view_digest(&vault, 10, &commit, &meta, &rows).unwrap(),
+            view_digest(&vault, 9, &commit, &meta, &[row(1, 4), row(2, 10)]).unwrap(),
+            view_digest(&vault, 9, &commit, &meta, &other_hash).unwrap(),
+            view_digest(&vault, 9, &commit, &meta, &rows[..1]).unwrap(),
+            view_digest(&other_vault, 9, &commit, &meta, &rows).unwrap(),
+            view_digest(&vault, 9, &other_key, &meta, &rows).unwrap(),
+            view_digest(&vault, 9, &other_gen, &meta, &rows).unwrap(),
+            view_digest(&vault, 9, &commit, &other_meta, &rows).unwrap(),
+            view_digest(&vault, 9, &commit, &other_roster, &rows).unwrap(),
+            view_digest(&vault, 9, &commit, &no_roster, &rows).unwrap(),
         ] {
             assert_ne!(changed, digest);
         }
         assert_eq!(
-            view_digest(&vault, 9, &commit, &[row(2, 9), row(1, 4)]),
+            view_digest(&vault, 9, &commit, &meta, &[row(2, 9), row(1, 4)]),
             Err(WireError::Order)
         );
         let none = CheckpointEntry {

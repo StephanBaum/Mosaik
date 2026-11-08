@@ -220,6 +220,7 @@ export function overview(state: MockState): SyncOverview {
     config: sync.config,
     state: syncState(sync),
     warnings: sync.warnings,
+    sharingFindings: state.sharing.findings,
     passwordChanged: sync.passwordChanged,
   };
 }

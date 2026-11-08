@@ -5,6 +5,7 @@
 use core::fmt;
 
 use mosaic_core::{AccountId, AttachmentId, InstallId, ItemId, VaultId};
+use mosaic_vault::session::InviteId;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -75,6 +76,55 @@ wire_id!(
     WireAttachmentId => AttachmentId
 );
 
+/// A sharing invite ID on the wire (a UUIDv7 the inviting device made).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WireInviteId(pub InviteId);
+
+impl WireInviteId {
+    /// The session's invite ID.
+    #[must_use]
+    pub const fn get(self) -> InviteId {
+        self.0
+    }
+}
+
+impl From<InviteId> for WireInviteId {
+    fn from(id: InviteId) -> Self {
+        Self(id)
+    }
+}
+
+impl Serialize for WireInviteId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use fmt::Write as _;
+        let mut text = String::with_capacity(36);
+        for (i, byte) in self.0.as_bytes().iter().enumerate() {
+            if matches!(i, 4 | 6 | 8 | 10) {
+                text.push('-');
+            }
+            // Writing to a String cannot fail.
+            let _ = write!(text, "{byte:02x}");
+        }
+        serializer.serialize_str(&text)
+    }
+}
+
+impl<'de> Deserialize<'de> for WireInviteId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        parse_uuid(&text)
+            .and_then(|bytes| InviteId::from_bytes(bytes).ok())
+            .map(Self)
+            .ok_or_else(|| D::Error::custom("expected a canonical non-nil UUID"))
+    }
+}
+
+impl fmt::Debug for WireInviteId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
+
 /// Parses `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` in lowercase hex.
 fn parse_uuid(text: &str) -> Option<[u8; 16]> {
     if text.len() != 36 {
@@ -118,11 +168,19 @@ pub(crate) mod samples {
     }
 
     pub(crate) fn account() -> WireAccountId {
-        WireAccountId(AccountId::from_bytes(bytes(0x30, 1)).unwrap())
+        account_n(1)
+    }
+
+    pub(crate) fn account_n(n: u8) -> WireAccountId {
+        WireAccountId(AccountId::from_bytes(bytes(0x30, n)).unwrap())
     }
 
     pub(crate) fn install(n: u8) -> WireInstallId {
         WireInstallId(InstallId::from_bytes(bytes(0x50, n)).unwrap())
+    }
+
+    pub(crate) fn invite(n: u8) -> WireInviteId {
+        WireInviteId(InviteId::from_bytes(bytes(0x60, n)).unwrap())
     }
 
     pub(crate) fn attachment(n: u8) -> WireAttachmentId {
