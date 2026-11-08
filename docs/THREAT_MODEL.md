@@ -314,6 +314,8 @@ Hosted client and desktop sync (M6 T4 and T5, ADR-0045 to ADR-0047):
 | R87 | Concurrent folder re-keys need a user choice; a lost kit on the discarded side is useless. No automatic winner | accepted (ADR-0060) |
 | R88 | The pending Secret Key sits in the OS keystore between preparing a Secret Key rotation or re-key and the commit: same exposure as the Secret Key (R21). It is deleted when a job is abandoned before the backend learns the change | accepted (ADR-0061) |
 | R89 | A stronger KDF profile slows weaker devices, and a backend cannot force a downgrade (profiles only rise; offers stop at `standard`, `strong` and `max` need an explicit choice) | accepted (ADR-0062) |
+| R90 | The hosted epoch is served by the backend and not authenticated: a malicious backend can offer a wrong one. A lower one is refused, only `current + 1` is adopted, and adoption needs the typed new Secret Key, so the worst case is a denial of service or a finding | accepted (ADR-0058) |
+| R91 | A re-key has no email by design; other devices learn of it from an in-app notice, so a user who never opens another device learns late | accepted (ADR-0058) |
 
 ## 6. Review log
 

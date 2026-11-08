@@ -311,8 +311,8 @@ pub(crate) fn change_master_password_with_cost(
 /// new `account_salt`, the same SK and the account's profile, and re-wrap AK.
 /// Vault keys and items are not touched. Passing a different `secret_key`
 /// is a Secret Key rotation (§6.5). Neither revokes holders of old secrets
-/// plus an old wrapping; see §6.6. A thin wrapper over
-/// [`change_credentials`].
+/// plus an old wrapping; see §6.6. It does not verify the current password:
+/// use [`change_credentials`], which does.
 ///
 /// `current` are the account's current public parameters (the ones the last
 /// successful unlock used). `profile` is normally `current.profile`; a
@@ -330,16 +330,15 @@ pub fn change_master_password(
     current: &PasswordParams,
     profile: Argon2Profile,
 ) -> Result<PasswordChange> {
-    change_credentials(
+    // Kept for callers that verified the current password themselves; the
+    // session uses `change_credentials`, which verifies it (§6.4).
+    change_master_password_with_cost(
         account_key,
         new_password,
         secret_key,
         current,
-        &CredentialChange {
-            new_password: Some(new_password),
-            new_secret_key: None,
-            profile,
-        },
+        profile,
+        profile.cost(),
     )
 }
 
@@ -361,9 +360,28 @@ pub(crate) fn change_credentials_with_cost(
     current_password: &MasterPassword,
     current_secret_key: &SecretKey,
     current: &PasswordParams,
+    current_wrapped: &WrappedKey,
     change: &CredentialChange<'_>,
-    cost: Argon2Cost,
+    costs: (Argon2Cost, Argon2Cost),
 ) -> Result<PasswordChange> {
+    let (verify_cost, cost) = costs;
+    // §6.4 (review L6): nothing is produced from a mistyped current password
+    // or Secret Key. The refusal comes before the downgrade check's work and
+    // reports the same error as a failed unlock.
+    if change.profile < current.profile {
+        return Err(Error::ProfileDowngrade);
+    }
+    let opened = unlock_with_cost(
+        current_password,
+        current_secret_key,
+        current,
+        current_wrapped,
+        verify_cost,
+    )?;
+    if opened != *account_key {
+        return Err(Error::Decryption);
+    }
+    drop(opened);
     change_master_password_with_cost(
         account_key,
         change.new_password.unwrap_or(current_password),
@@ -384,11 +402,15 @@ pub(crate) fn change_credentials_with_cost(
 /// secrets plus an old wrapping; see §6.6.
 ///
 /// `current` are the account's current public parameters (the ones the last
-/// successful unlock used).
+/// successful unlock used) and `current_wrapped` the stored password wrapping
+/// of AK. The current password and Secret Key are verified against that
+/// wrapping (it must open to `account_key`) before anything is produced.
 ///
 /// # Errors
 /// [`crate::Error::ProfileDowngrade`] if `change.profile` is weaker than
 /// `current.profile` (§5.3), checked before any Argon2id work;
+/// [`crate::Error::Decryption`] if the current password or Secret Key is
+/// wrong;
 /// [`crate::Error::EmptyPassword`], [`crate::Error::Allocation`],
 /// [`crate::Error::Randomness`].
 pub fn change_credentials(
@@ -396,6 +418,7 @@ pub fn change_credentials(
     current_password: &MasterPassword,
     current_secret_key: &SecretKey,
     current: &PasswordParams,
+    current_wrapped: &WrappedKey,
     change: &CredentialChange<'_>,
 ) -> Result<PasswordChange> {
     change_credentials_with_cost(
@@ -403,8 +426,9 @@ pub fn change_credentials(
         current_password,
         current_secret_key,
         current,
+        current_wrapped,
         change,
-        change.profile.cost(),
+        (current.profile.cost(), change.profile.cost()),
     )
 }
 
@@ -907,13 +931,62 @@ mod tests {
             &pw("current"),
             &acct.secret_key,
             &acct.params,
+            &acct.wrapped_account_key,
             &CredentialChange {
                 new_password: new_pw,
                 new_secret_key: new_sk,
                 profile,
             },
-            TEST_COST,
+            (TEST_COST, TEST_COST),
         )
+    }
+
+    /// §6.4 (review L6): a mistyped current password or Secret Key produces
+    /// nothing.
+    #[test]
+    fn change_credentials_verifies_current_wrapping() {
+        let acct =
+            create_account_with_cost(&pw("current"), Argon2Profile::Standard, TEST_COST).unwrap();
+        let change = CredentialChange {
+            new_password: None,
+            new_secret_key: None,
+            profile: Argon2Profile::Standard,
+        };
+        let other_sk = SecretKey::generate().unwrap();
+        for (p, sk) in [
+            (pw("currenT"), &acct.secret_key),
+            (pw("current"), &other_sk),
+        ] {
+            assert_eq!(
+                change_credentials_with_cost(
+                    &acct.account_key,
+                    &p,
+                    sk,
+                    &acct.params,
+                    &acct.wrapped_account_key,
+                    &change,
+                    (TEST_COST, TEST_COST),
+                )
+                .unwrap_err(),
+                Error::Decryption
+            );
+        }
+        // A wrapping that opens, but to another AK than the session's.
+        let stranger =
+            create_account_with_cost(&pw("current"), Argon2Profile::Standard, TEST_COST).unwrap();
+        assert_eq!(
+            change_credentials_with_cost(
+                &stranger.account_key,
+                &pw("current"),
+                &acct.secret_key,
+                &acct.params,
+                &acct.wrapped_account_key,
+                &change,
+                (TEST_COST, TEST_COST),
+            )
+            .unwrap_err(),
+            Error::Decryption
+        );
     }
 
     /// §6.5: a Secret Key rotation keeps AK and the password, draws a new
@@ -1006,6 +1079,7 @@ mod tests {
                 &pw("current"),
                 &acct.secret_key,
                 &acct.params,
+                &acct.wrapped_account_key,
                 &CredentialChange {
                     new_password: None,
                     new_secret_key: None,

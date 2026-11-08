@@ -4296,8 +4296,9 @@ A full re-key gives the account a new AK. Other devices and backends need a publ
 
 ### Decision
 - `ak_epoch: u32`, starting at 1, raised by exactly one per re-key. It is public metadata (account row, server account record, folder account file) and never an input to a key derivation: different epochs have independent random AKs. A store trigger refuses a decrease.
-- Backend epoch below the device's: rollback, refused. Equal epoch with a wrapping that opens to a different AK: refused. Higher epoch: only adoption moves the device.
-- Adoption requires a higher epoch, an unretired salt, a wrapping that opens under the typed password and typed Secret Key, and a typed Secret Key that differs from the current one (constant time). Every genuine re-key rotates the Secret Key, so a holder of only the old secrets cannot invent an AK and have a device adopt it.
+- Backend epoch below the device's: rollback, refused (hosted; in a folder lower files are ignored). Equal epoch with a wrapping that opens to a different AK: refused. Higher epoch: only adoption moves the device, and only `current + 1` (checked arithmetic).
+- Adoption requires epoch `current + 1`, an unretired salt, a wrapping that opens under the typed password and typed Secret Key, and a typed Secret Key that differs from the current one **and every retired commitment** (constant time). Retired commitments are `SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)` for every Secret Key the device replaced (label `secret-key/retired`). There is no adoption at an equal epoch (amendment, review M1): concurrent re-keys are resolved by re-keying again to `max(seen) + 1`.
+- On adoption the server's wrapping of each member vault's current generation is stored (after a constant-time check that it opens to the same VK), so the view digest does not change (review M3). Every genuine re-key rotates the Secret Key, so a holder of only the old secrets cannot invent an AK and have a device adopt it.
 - No endorsement by the old AK (a signed hand-over): the old AK is what a compromise exposes, so a signature from it proves nothing. The new kit's Secret Key typed by the user is the proof.
 - Identity rollover notices signed by the old `isk` are not built, for the same reason (OD-M7-4): members re-verify the owner's new safety code.
 
@@ -4340,10 +4341,10 @@ A folder has no authority: no compare-and-swap, no sessions. Other devices of th
 
 ### Decision
 - Account file version 2 (172 bytes) adds `ak_epoch:u32`; version 1 decodes as epoch 1. A re-key marker `.mrek` (93 bytes, no key material) is MAC'd under the **old** `K_fold` with the new label `sync/folder-rekey`, built during prepare because the commit drops the old AK.
-- A stale device halts before any write on a verified marker or on an account file whose clear header names a higher epoch (`AccountRekeyed`); it recovers with the new Secret Key and the password (ADR-0058). A forged marker causes a halt only.
+- A stale device halts before any write only on a **verified** marker (`AccountRekeyed`); an unverifiable account file with a higher epoch is a dismissible finding (review M2); it recovers with the new Secret Key and the password (ADR-0058). A forged marker causes a halt only.
 - New-epoch readers ignore everything that does not verify under the current epoch's keys and never accept an old-epoch object.
 - Own segments at or below the re-key floor are kept until a complete new-epoch snapshot set exists and 30 days (`BLOB_RETENTION_MS`) have passed, so stale devices can still read them. Closes the M6 known item on old-`K_fold` own segments.
-- Two concurrent re-keys to the same epoch halt the device that sees the other (`RekeyConflict`); the user picks. No automatic winner: choosing an AK nobody typed would make that kit useless.
+- Two concurrent re-keys to the same epoch raise a `RekeyConflict` finding on the device that sees the other; the user keeps theirs or re-keys again to `max(seen) + 1` (no equal-epoch adoption). No automatic winner: choosing an AK nobody typed would make that kit useless.
 
 ### Alternatives considered
 - Delete old segments at once: stale devices lose data before they adopt.
