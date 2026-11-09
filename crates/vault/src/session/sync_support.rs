@@ -267,9 +267,28 @@ impl LockedSession {
     /// parameters that do not match the wrapped key;
     /// [`Error::Store`] with `AccountExists`.
     pub fn join_account_with_keys(
+        self,
+        wrapped_ak: &WrappedKey,
+        keys: JoinKeys,
+    ) -> core::result::Result<UnlockedSession, UnlockError> {
+        self.join_account_with_keys_at(wrapped_ak, keys, 1)
+    }
+
+    /// [`Self::join_account_with_keys`] for an account the backend states to
+    /// be at account-key epoch `epoch` (review H2): a device that joins after a
+    /// re-key starts at the backend's epoch, so its own re-key targets the
+    /// next one and an adoption moves from it. The epoch only rises (a value
+    /// below 1 counts as 1). A folder's epoch is the verified account file's;
+    /// a hosted one is the server's claim, and the wrapping that opens under
+    /// the typed keys is what makes it usable (CRYPTO_SPEC 6.7).
+    ///
+    /// # Errors
+    /// As [`Self::join_account_with_keys`].
+    pub fn join_account_with_keys_at(
         mut self,
         wrapped_ak: &WrappedKey,
         keys: JoinKeys,
+        epoch: u32,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
         let params = keys.params;
         let opened = wrapped_ak
@@ -279,6 +298,7 @@ impl LockedSession {
         drop(keys);
         let joined = opened.and_then(|ak| {
             self.store.init_account(&params, wrapped_ak)?;
+            self.store.raise_ak_epoch(epoch.max(1))?;
             Ok(ak)
         });
         match joined {

@@ -452,6 +452,7 @@ fn a_server_cannot_roll_back_or_craft_an_epoch() {
                 wrapped_ak: &wrapped,
                 params,
                 epoch,
+                any_higher_epoch: false,
                 identity: None,
                 member_wraps: &[],
             })

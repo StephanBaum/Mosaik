@@ -278,6 +278,11 @@ impl Transport for HttpTransport {
         TransportKind::Hosted
     }
 
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        let account: json::rekey::AccountWithEpoch = self.get("/v1/account?epoch=1")?;
+        Ok(Some(account.ak_epoch))
+    }
+
     fn list_vaults(&mut self) -> Result<Vec<RemoteVault>, TransportError> {
         let r: VaultsResponse = self.get("/v1/vaults")?;
         Ok(r.vaults

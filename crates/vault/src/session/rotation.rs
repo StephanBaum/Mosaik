@@ -301,8 +301,14 @@ pub struct RekeyAdoption<'a> {
     pub wrapped_ak: &'a WrappedKey,
     /// The backend's parameters.
     pub params: PasswordParams,
-    /// The backend's account-key epoch: exactly this device's plus one.
+    /// The backend's account-key epoch. Hosted: exactly this device's plus
+    /// one. Folder (`any_higher_epoch`): any epoch above this device's.
     pub epoch: u32,
+    /// A folder adoption may jump over epochs (CRYPTO_SPEC 6.7, review H1): a
+    /// re-key targets `max(own, highest seen) + 1`, and the typed Secret Key
+    /// that opens a verified account file is the authenticator. Hosted
+    /// adoption stays at `current + 1`.
+    pub any_higher_epoch: bool,
     /// The backend's identity key (`wrapped isk`, `ipk`).
     pub identity: Option<(&'a WrappedKey, &'a IdentityPublicKey)>,
     /// The backend's own wrapping of the current key of each vault someone
@@ -346,6 +352,14 @@ pub enum ResealStep {
         old: AttachmentId,
         /// Its replacement.
         new: AttachmentId,
+    },
+    /// The ciphertext does not open under the file key: the attachment was
+    /// marked unreachable and keeps its old key (THREAT_MODEL R85).
+    Unreadable {
+        /// The vault.
+        vault_id: VaultId,
+        /// The attachment.
+        attachment_id: AttachmentId,
     },
     /// No item refers to the attachment any more: nothing to do.
     Skipped {
@@ -527,10 +541,18 @@ impl UnlockedSession {
                 out.tk.push(*id);
                 continue;
             }
+            let ownership = self.ownership(*id)?;
             if !ov.available() {
+                // A vault shared to this account whose current key is not
+                // held (an unclaimed share, a generation not pulled yet) is
+                // skipped: no re-wrap is sent for it, and the server expects
+                // none (review M4). A vault that might be owned must open.
+                if matches!(ownership, Ownership::Of(_)) {
+                    continue;
+                }
                 return Err(Error::VaultUnavailable);
             }
-            let owned = match self.ownership(*id)? {
+            let owned = match ownership {
                 Ownership::This => true,
                 Ownership::Of(owner) => {
                     out.member.push((*id, owner));
@@ -1050,6 +1072,7 @@ impl UnlockedSession {
                 identity: identity_write,
                 contacts: contacts.as_ref(),
                 retire_secret_key: &p.retire_secret_key,
+                hold: &[],
             },
             vaults: &vaults,
             accepted_by_backend: hosted,
@@ -1158,6 +1181,7 @@ impl UnlockedSession {
     fn check_adoption(
         &self,
         epoch: u32,
+        any_higher: bool,
         typed: &SecretKey,
         current: &SecretKey,
         salt: &mosaic_core::AccountSalt,
@@ -1171,7 +1195,7 @@ impl UnlockedSession {
         if epoch == self.ak_epoch {
             return Err(Error::UnlockFailed);
         }
-        if self.ak_epoch.checked_add(1) != Some(epoch) {
+        if !any_higher && self.ak_epoch.checked_add(1) != Some(epoch) {
             return Err(Error::EpochNotNext {
                 stored: self.ak_epoch,
                 offered: epoch,
@@ -1215,13 +1239,20 @@ impl UnlockedSession {
             wrapped_ak,
             params,
             epoch,
+            any_higher_epoch,
             identity,
             member_wraps,
         } = a;
         if keys.params != params {
             return Err(Error::UnlockFailed);
         }
-        self.check_adoption(epoch, typed_secret_key, current_secret_key, &params.salt)?;
+        self.check_adoption(
+            epoch,
+            any_higher_epoch,
+            typed_secret_key,
+            current_secret_key,
+            &params.salt,
+        )?;
         let new_ak = wrapped_ak
             .unwrap_account_key(&keys.keys.kek, &params.account_id, &UnlockMethod::Password)
             .map_err(|e| match e {
@@ -1261,6 +1292,16 @@ impl UnlockedSession {
         let rewrapped = self.adoption_wraps(&new_ak, member_wraps)?;
         let contacts = self.reseal_contacts(&new_ak)?;
         let retire = current_secret_key.retired_commitment(&self.account_id);
+        // Every owned vault is held at the generation this device has until
+        // the re-key's next one arrives (review M5).
+        let mut hold = Vec::new();
+        for (id, ov) in &self.vaults {
+            if ov.protection == VaultKeyWrap::AccountKey
+                && !matches!(self.ownership(*id)?, Ownership::Of(_))
+            {
+                hold.push((*id, ov.generation));
+            }
+        }
         let removed = self.store.adopt_rekey(&EpochSwitch {
             params: &params,
             password_wrapping: wrapped_ak,
@@ -1269,6 +1310,7 @@ impl UnlockedSession {
             identity: identity_write,
             contacts: contacts.as_ref(),
             retire_secret_key: &retire,
+            hold: &hold,
         })?;
         self.account_key = new_ak;
         self.ak_epoch = epoch;
@@ -1301,7 +1343,6 @@ impl UnlockedSession {
     /// [`Self::mark_attachment_unreachable`].
     ///
     /// # Errors
-    /// [`Error::Core`] for bytes that do not authenticate;
     /// [`Error::Store`] (`AttachmentsUnavailable` for an in-memory store).
     pub fn reseal_next_attachment(&mut self, fetched: Option<&[u8]>) -> Result<ResealStep> {
         let Some(row) = self.store.next_reseal_todo()? else {
@@ -1338,7 +1379,16 @@ impl UnlockedSession {
                 attachment_id: old_id,
             });
         };
-        let plain = open_attachment(&old_ref.key, &vault_id, &item_id, &old_id, &ct)?;
+        // A blob that does not open under its file key cannot be re-sealed:
+        // it is recorded as unreachable (listed, keeps its old key) and
+        // skipped, so it never blocks the job (review L4).
+        let Ok(plain) = open_attachment(&old_ref.key, &vault_id, &item_id, &old_id, &ct) else {
+            self.store.mark_reseal_unreachable(&old_id)?;
+            return Ok(ResealStep::Unreadable {
+                vault_id,
+                attachment_id: old_id,
+            });
+        };
         let new_ref = AttachmentRef::new(
             AttachmentId::new_v7()?,
             Text::new(old_ref.file_name.as_str()),
@@ -1440,6 +1490,74 @@ impl UnlockedSession {
         let rows = self.attachment_rows(&[vault])?;
         self.store.queue_attachment_reseal(generation, &rows)?;
         Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
+    }
+
+    /// The vaults shared to this account, with the generation held, that
+    /// this device can re-wrap on adoption. Needs no clean sync; a vault of
+    /// unknown ownership or without its current key is left out (review M1).
+    #[must_use]
+    pub fn member_vault_generations(&self) -> Vec<(VaultId, KeyGeneration)> {
+        self.vaults
+            .iter()
+            .filter(|(id, ov)| {
+                ov.protection == VaultKeyWrap::AccountKey
+                    && ov.available()
+                    && matches!(self.ownership(**id), Ok(Ownership::Of(_)))
+            })
+            .map(|(id, ov)| (*id, ov.generation))
+            .collect()
+    }
+
+    /// Whether pushes of `vault` wait for the next key generation after an
+    /// adopted re-key (review M5). Every genuine re-key rotates every owned
+    /// vault, so the hold ends when the key of the next generation arrives.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn rekey_held(&self, vault: VaultId) -> Result<bool> {
+        Ok(self.store.rekey_held(&vault)?)
+    }
+
+    /// Raises the account-key epoch to the one the backend states for an
+    /// account this device just joined (review H2). Never lowers it.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn raise_epoch_to(&mut self, epoch: u32) -> Result<()> {
+        self.store.raise_ak_epoch(epoch)?;
+        self.ak_epoch = self.ak_epoch.max(epoch);
+        Ok(())
+    }
+
+    /// Queues the attachments of every owned vault for the re-key job of a
+    /// device that adopted its own re-key after a crash (the prepared queue
+    /// died, review M2) and moves the job to phase 6. Returns how many are
+    /// queued.
+    ///
+    /// # Errors
+    /// [`Error::Store`] (`NoRotationJob`).
+    pub fn queue_adoption_reseal(&mut self) -> Result<u32> {
+        let mut ids = Vec::new();
+        for (id, ov) in &self.vaults {
+            if ov.protection == VaultKeyWrap::AccountKey
+                && !matches!(self.ownership(*id)?, Ownership::Of(_))
+            {
+                ids.push(*id);
+            }
+        }
+        let rows = self.attachment_rows(&ids)?;
+        self.store.queue_rekey_job_reseal(&rows)?;
+        Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
+    }
+
+    /// Drops a rotation job whose local part is committed, after the user
+    /// confirmed (review L4): attachments still to re-seal keep their old key
+    /// and are listed, and the job stops blocking a change of backend.
+    ///
+    /// # Errors
+    /// [`Error::Store`] (`NoRotationJob`, `RotationTooFar` before the commit).
+    pub fn abandon_committed_rotation_job(&mut self) -> Result<()> {
+        Ok(self.store.abandon_committed_rotation_job()?)
     }
 
     // ---- the journal -----------------------------------------------------------

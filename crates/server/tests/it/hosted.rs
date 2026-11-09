@@ -222,7 +222,7 @@ impl World {
         let account =
             hosted::join_fetch_account(&self.server.base, &joined.grant.token, &joined.keys)?;
         let session = LockedSession::open(store)
-            .join_account_with_keys(&account.wrapped_ak, joined.keys)
+            .join_account_with_keys_at(&account.wrapped_ak, joined.keys, account.ak_epoch)
             .map_err(|e| e.error)
             .unwrap();
         let access = LocalSession::new(session);
@@ -528,6 +528,10 @@ impl<T: Transport> Transport for Intercept<T> {
 
     fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
         self.inner.rekey_signals(epoch)
+    }
+
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        self.inner.backend_epoch()
     }
 
     fn rekey_candidates(

@@ -354,7 +354,10 @@ with the head moved so the account's other devices fetch it; every key row of
 an older generation of this account deleted (they are under the old account
 key); the key shares addressed to the account deleted; the emergency seals
 addressed to the account deleted (the grantor re-seals after verifying the new
-code); incoming open invites set to state 5, `cancelled_by_rekey`; open invites
+code); incoming open invites set to state 5, `cancelled_by_rekey` (the sender's list shows it
+with `delivered`; the sender's client reads state 5 as cancelled, queues the revocation of
+a delivered one and deletes it with `DELETE /v1/invites/{id}`, which removes an invite of
+any finished state, 5 included); open invites
 the account sent for vaults it does not own cancelled (state 3: their seal is
 from the old identity key); a rotation request to the owner of each vault
 shared to the account; audit 15 for the account and 16 for each owner; the poll

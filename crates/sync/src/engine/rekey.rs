@@ -39,15 +39,17 @@ use super::consts::ATTACHMENT_DOWNLOAD_BUDGET;
 use super::maintain::Cx;
 use super::{SessionAccess, SyncEngine, SyncError, SyncWarning};
 use crate::clock::Clock;
-use crate::transport::{RekeyPublish, Transport, TransportError};
+use crate::transport::{RekeyCandidate, RekeyPublish, Transport, TransportError, TransportKind};
 
 #[cfg(feature = "http")]
 /// Attempts at one hosted re-key when the server says a vault moved.
 const REKEY_ATTEMPTS: usize = 3;
-/// Account files a device that lags behind a re-key tries to open (each costs
-/// one Argon2id derivation, and anyone with write access to a folder can plant
-/// files).
-const MAX_ADOPT_CANDIDATES: usize = 8;
+/// Distinct salts one adoption call derives keys for (each costs one Argon2id
+/// derivation, and anyone with write access to a folder can plant files with
+/// new salts). The caller pages on with `skip` until [`MAX_CANDIDATE_FILES`].
+const MAX_ADOPT_SALTS: usize = 8;
+/// Account files one adoption looks at in all (the scan cap of the folder).
+const MAX_CANDIDATE_FILES: usize = 64;
 
 /// Why a re-key step failed.
 #[derive(Debug, thiserror::Error)]
@@ -77,6 +79,14 @@ pub enum RekeyError {
     /// No account file in the folder opens under the typed keys.
     #[error("no account file opens with these keys")]
     NoMatchingAccountFile,
+    /// None of the files tried opens under the typed keys, and more files
+    /// with other salts are left (a thief can plant many): call again with
+    /// `skip` set to `next_skip` to try the next ones (review M3).
+    #[error("no account file of this page opens with these keys")]
+    MoreAccountFiles {
+        /// The `skip` of the next call.
+        next_skip: usize,
+    },
     /// The backend is not a folder, or not a hosted server.
     #[error("not available on this backend")]
     WrongBackend,
@@ -121,6 +131,17 @@ impl core::fmt::Debug for RekeySecrets<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("RekeySecrets([REDACTED])")
     }
+}
+
+/// A verified re-key marker the device is halted on (folder).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingRekeyMarker {
+    /// The marker's file name in the account directory.
+    pub name: String,
+    /// SHA-256 of its bytes.
+    pub sha256: [u8; 32],
+    /// The epoch it says the account moved to.
+    pub to_epoch: u32,
 }
 
 /// How far [`SyncEngine::rekey_continue`] got.
@@ -190,7 +211,7 @@ fn note_stage(
     access: &mut impl SessionAccess,
     staged: &mut Option<Result<(), SyncError>>,
     stage: crate::http::hosted::RekeyStage,
-) {
+) -> bool {
     use crate::http::hosted::RekeyStage;
     let phase = match stage {
         RekeyStage::Started => RotationPhase::BackendStarted,
@@ -201,9 +222,11 @@ fn note_stage(
         Ok(Err(e)) => Err(SyncError::Session(e)),
         Err(e) => Err(e),
     };
+    let ok = r.is_ok();
     if staged.is_none() || r.is_err() {
         *staged = Some(r);
     }
+    ok
 }
 
 /// Records the floors of this device's own logs before an adoption: own
@@ -224,10 +247,6 @@ fn cursor_head(cursor: Option<&[u8]>) -> u64 {
         .and_then(|c| <[u8; 8]>::try_from(c).ok())
         .map_or(0, u64::from_be_bytes)
 }
-
-/// How far above its own epoch an unverifiable account file may name one and
-/// still count for the target epoch of a re-key.
-const UNVERIFIED_EPOCH_JUMP: u32 = 8;
 
 /// Opens the journal at phase 1 for a re-key, or takes back one that stopped
 /// before the backend learned anything.
@@ -262,11 +281,22 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<Vec<SyncWarning>, SyncError> {
         let epoch = access.with(|s| s.ak_epoch())?;
         let signals = self.transport.rekey_signals(epoch)?;
-        if signals.marker.is_some() {
-            access.with(|s| s.set_rekey_pending(true))??;
-            return Err(SyncError::AccountRekeyed);
+        for m in &signals.markers {
+            if !access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
+                access.with(|s| s.set_rekey_pending(true))??;
+                return Err(SyncError::AccountRekeyed);
+            }
         }
         let mut out = Vec::new();
+        // A hosted backend that states a lower epoch than this device's: a
+        // finding on every run (review L1). A higher one is for the user to
+        // adopt (the server signed this device out).
+        if let Some(offered) = self.transport.backend_epoch()?
+            && let Err(Error::EpochRollback { stored, offered }) =
+                access.with(|s| s.check_backend_epoch(offered))?
+        {
+            out.push(SyncWarning::AccountRollback { stored, offered });
+        }
         for f in signals.unverified {
             if !access.with(|s| s.file_dismissed(&f.name, &f.sha256))?? {
                 out.push(SyncWarning::UnverifiedAccountFile {
@@ -293,6 +323,65 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<(), SyncError> {
         access.with(|s| s.dismiss_unverifiable_file(name, sha256))??;
         Ok(())
+    }
+
+    /// The verified re-key markers this device is halted on, newest first
+    /// (folder). A marker is written by a device that re-keyed the account,
+    /// or by anyone who holds the old keys: when [`SyncEngine::adopt_folder_rekey`]
+    /// finds no account file that opens under the typed keys, the user can
+    /// dismiss the marker ([`SyncEngine::dismiss_rekey_marker`]).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Transport`], [`SyncError::Session`].
+    pub fn pending_rekey_markers(
+        &mut self,
+        access: &mut impl SessionAccess,
+    ) -> Result<Vec<PendingRekeyMarker>, SyncError> {
+        let epoch = access.with(|s| s.ak_epoch())?;
+        let signals = self.transport.rekey_signals(epoch)?;
+        let mut out = Vec::new();
+        for m in signals.markers {
+            if !access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
+                out.push(PendingRekeyMarker {
+                    name: m.name,
+                    sha256: m.sha256,
+                    to_epoch: m.to_epoch,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The user dismissed a re-key marker this device cannot follow
+    /// (CRYPTO_SPEC 10.1, review H1): it is remembered by name and SHA-256 like
+    /// a dismissed account file and never halts the device again. The
+    /// re-key-pending flag clears once no other undismissed verified marker is
+    /// left. Only a marker the folder shows now can be dismissed. Returns
+    /// whether the device is still halted on another marker.
+    ///
+    /// The app asks first: a genuine marker means the account was re-keyed
+    /// and this device stays on the old epoch until it adopts.
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Transport`], [`SyncError::Session`].
+    pub fn dismiss_rekey_marker(
+        &mut self,
+        access: &mut impl SessionAccess,
+        name: &str,
+        sha256: &[u8; 32],
+    ) -> Result<bool, SyncError> {
+        let shown = self
+            .pending_rekey_markers(access)?
+            .iter()
+            .any(|m| m.name == name && m.sha256 == *sha256);
+        if shown {
+            access.with(|s| s.dismiss_unverifiable_file(name, sha256))??;
+        }
+        let left = !self.pending_rekey_markers(access)?.is_empty();
+        if !left {
+            access.with(|s| s.set_rekey_pending(false))??;
+        }
+        Ok(left)
     }
 
     /// The run to head before a re-key. A failed run is
@@ -431,7 +520,15 @@ impl<T: Transport> SyncEngine<T> {
                     drop(prepared);
                     access.with(|s| s.set_rotation_phase(RotationPhase::Prepared))??;
                 }
-                Err(e) => return Err(e.into()),
+                // A failed phase-2 journal write stopped the call before the
+                // server learned anything: report the journal's error and
+                // leave the job at phase 1 (review L4).
+                Err(e) => {
+                    if let Some(Err(journal)) = staged {
+                        return Err(journal.into());
+                    }
+                    return Err(e.into());
+                }
             }
         }
         Err(RekeyError::Busy)
@@ -441,15 +538,15 @@ impl<T: Transport> SyncEngine<T> {
     /// §6.6, phase table). The prepared keys died with the process, so this
     /// device adopts its own re-key like any other device does, with the
     /// pending Secret Key from the keystore and the new password the user
-    /// typed again. `typed_last_group` is the last group of the new Secret
+    /// typed again, then queues the attachments of every owned vault and sets
+    /// the job to phase 6: call [`SyncEngine::rekey_continue`] next. `typed_last_group` is the last group of the new Secret
     /// Key, retyped from the kit: without it nothing happens
     /// ([`RekeyError::KitGroupMismatch`]).
     ///
     /// At phase 2 the probe logs in with the new password: if the server did
     /// not apply the re-key the login fails, the journal returns to phase 1
     /// and the answer is [`ResumeOutcome::NotApplied`] (the app deletes the
-    /// pending Secret Key or prepares the re-key again). Attachments are not
-    /// re-sealed after an adoption (the prepared queue died); the job closes.
+    /// pending Secret Key or prepares the re-key again).
     ///
     /// # Errors
     /// [`RekeyError`].
@@ -487,7 +584,10 @@ impl<T: Transport> SyncEngine<T> {
             device,
         ) {
             Ok(adopted) => {
-                access.with(UnlockedSession::finish_rotation_job)??;
+                // The prepared attachment queue died with the process: queue
+                // every owned vault's attachments again and continue at phase
+                // 6 (review M2), so no attachment keeps the old file key.
+                access.with(UnlockedSession::queue_adoption_reseal)??;
                 Ok(ResumeOutcome::Adopted(adopted))
             }
             // At phase 2 the new password does not log in when the server did
@@ -535,7 +635,7 @@ impl<T: Transport> SyncEngine<T> {
         let seen = access.with(|s| s.highest_account_version())??;
         let version = next.max(seen.checked_add(1).ok_or(RekeyError::WrongBackend)?);
         let own_epoch = access.with(|s| s.ak_epoch())?;
-        let seen_epoch = self.highest_epoch_seen(own_epoch)?;
+        let seen_epoch = self.highest_epoch_seen(access, own_epoch)?;
         access.with(|s| open_job(s, Some(version)))??;
         let now = clock.now_ms();
         let prepared = match access.with(|s| {
@@ -569,20 +669,31 @@ impl<T: Transport> SyncEngine<T> {
         Ok(committed)
     }
 
-    /// The highest epoch the folder shows: a verified marker, and an
-    /// unverifiable account file whose (unauthenticated) epoch is at most
-    /// `UNVERIFIED_EPOCH_JUMP` above `own`, so a planted huge epoch cannot
-    /// push a re-key out of reach. 0 if there is none.
-    fn highest_epoch_seen(&mut self, own: u32) -> Result<u32, RekeyError> {
+    /// The highest epoch the folder shows: a verified marker that was not
+    /// dismissed, and an unverifiable account file that was not dismissed and
+    /// names exactly `own + 1` (its header is unauthenticated, so a planted
+    /// huge epoch cannot push a re-key out of reach, and a dismissed file or
+    /// marker counts for nothing). 0 if there is none.
+    fn highest_epoch_seen(
+        &mut self,
+        access: &mut impl SessionAccess,
+        own: u32,
+    ) -> Result<u32, RekeyError> {
         let signals = self.transport.rekey_signals(own)?;
-        let limit = own.saturating_add(UNVERIFIED_EPOCH_JUMP);
-        let marker = signals.marker.map(|m| m.to_epoch);
-        let files = signals
-            .unverified
-            .iter()
-            .map(|f| f.epoch)
-            .filter(|e| *e <= limit);
-        Ok(marker.into_iter().chain(files).max().unwrap_or(0))
+        let mut best = 0;
+        for m in &signals.markers {
+            if !access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
+                best = best.max(m.to_epoch);
+            }
+        }
+        for f in &signals.unverified {
+            if own.checked_add(1) == Some(f.epoch)
+                && !access.with(|s| s.file_dismissed(&f.name, &f.sha256))??
+            {
+                best = best.max(f.epoch);
+            }
+        }
+        Ok(best)
     }
 
     /// Writes the new account file, the snapshot sets and the marker of the
@@ -625,20 +736,13 @@ impl<T: Transport> SyncEngine<T> {
     }
 
     /// Adopts a re-key another device made on a folder (CRYPTO_SPEC §6.7,
-    /// ADR-0058) with the new Secret Key and the password: the account files
-    /// that name this device's epoch plus one are tried best first (the one a
-    /// verified marker names, then by version; at most eight, each costs one
-    /// Argon2id derivation). The first whose wrapping opens under the typed
-    /// keys and whose MAC verifies under the key it holds is adopted; the
-    /// floors of this device's own logs are recorded first, and this device
-    /// writes a snapshot set of every vault under the new keys afterwards.
-    ///
-    /// A typed Secret Key that is this device's current one or a retired one is
-    /// refused ([`Error::SecretKeyUnchanged`]): an attacker who holds the old
-    /// password and Secret Key cannot move a device to a key he made up.
+    /// ADR-0058) with the new Secret Key and the password: the first page of
+    /// [`SyncEngine::adopt_folder_rekey_page`].
     ///
     /// # Errors
-    /// [`RekeyError::NoMatchingAccountFile`] when none opens; [`RekeyError`].
+    /// [`RekeyError::NoMatchingAccountFile`] when none opens,
+    /// [`RekeyError::MoreAccountFiles`] when more files are left to try;
+    /// [`RekeyError`].
     pub fn adopt_folder_rekey(
         &mut self,
         access: &mut impl SessionAccess,
@@ -647,27 +751,71 @@ impl<T: Transport> SyncEngine<T> {
         typed_secret_key: &SecretKey,
         current_secret_key: &SecretKey,
     ) -> Result<RekeyAdopted, RekeyError> {
+        self.adopt_folder_rekey_page(
+            access,
+            clock,
+            typed_password,
+            typed_secret_key,
+            current_secret_key,
+            0,
+        )
+    }
+
+    /// Adopts a re-key another device made on a folder with the new Secret Key
+    /// and the password. Every account file whose header names an epoch above
+    /// this device's is a candidate (a re-key jumps over the epochs it saw, and
+    /// a device may be two re-keys behind), the files every verified marker
+    /// names first. Candidates are grouped by salt: one Argon2id derivation per
+    /// salt, at most eight per call, `skip` salts skipped (review M3: a thief
+    /// with the old keys can plant files and markers that crowd out the
+    /// genuine one, so the user pages on until the scan cap). The first file
+    /// whose wrapping opens under the typed keys and whose MAC verifies under
+    /// the key it holds is adopted; the typed Secret Key is the authenticator,
+    /// so any epoch above the own one is accepted (review H1). The floors of
+    /// this device's own logs are recorded first, and this device writes a
+    /// snapshot set of every vault under the new keys afterwards.
+    ///
+    /// A typed Secret Key that is this device's current one or a retired one is
+    /// refused ([`Error::SecretKeyUnchanged`]): an attacker who holds the old
+    /// password and Secret Key cannot move a device to a key he made up.
+    ///
+    /// # Errors
+    /// [`RekeyError::NoMatchingAccountFile`] when none opens,
+    /// [`RekeyError::MoreAccountFiles`] when `skip + 8` salts did not open and
+    /// more are left; [`RekeyError`].
+    pub fn adopt_folder_rekey_page(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+        typed_password: &MasterPassword,
+        typed_secret_key: &SecretKey,
+        current_secret_key: &SecretKey,
+        skip: usize,
+    ) -> Result<RekeyAdopted, RekeyError> {
         let epoch = access.with(|s| s.ak_epoch())?;
         let candidates = self
             .transport
-            .rekey_candidates(epoch, MAX_ADOPT_CANDIDATES)?;
-        for c in candidates.into_iter().take(MAX_ADOPT_CANDIDATES) {
+            .rekey_candidates(epoch, MAX_CANDIDATE_FILES)?;
+        // Group by (salt, profile): one derivation opens every file of a
+        // group, and copies of one salt cannot crowd out others.
+        let mut groups: Vec<(PasswordParams, Vec<&RekeyCandidate>)> = Vec::new();
+        for c in &candidates {
             let params = PasswordParams {
                 account_id: c.file.account_id,
                 salt: c.file.salt,
                 profile: c.file.profile,
             };
-            if !file_opens(
-                &c.file.wrapped_ak,
-                &c.bytes,
-                &params,
-                typed_password,
-                typed_secret_key,
-            )? {
-                continue;
+            match groups.iter_mut().find(|(p, _)| *p == params) {
+                Some((_, files)) => files.push(c),
+                None => groups.push((params, vec![c])),
             }
+        }
+        for (params, files) in groups.iter().skip(skip).take(MAX_ADOPT_SALTS) {
+            let Some(c) = open_group(files, params, typed_password, typed_secret_key)? else {
+                continue;
+            };
             let keys: JoinKeys =
-                LockedSession::derive_join_keys(&params, typed_password, typed_secret_key)?;
+                LockedSession::derive_join_keys(params, typed_password, typed_secret_key)?;
             let now = clock.now_ms();
             // The floors of the own logs, before the adoption: own segments
             // up to `reserved` are sealed under the epoch being left.
@@ -678,14 +826,24 @@ impl<T: Transport> SyncEngine<T> {
                     typed_secret_key,
                     current_secret_key,
                     wrapped_ak: &c.file.wrapped_ak,
-                    params,
+                    params: *params,
                     epoch: c.file.ak_epoch,
+                    any_higher_epoch: true,
                     identity: None,
                     member_wraps: &[],
                 })
             })??;
             access.with(|s| s.note_account_version(c.file.account_version))??;
-            let vaults = access.with(|s| s.synced_vaults())?;
+            // A vault held at the retired generation (review M5) gets its
+            // snapshot set once the next generation's key has arrived
+            // ([`SyncEngine::publish_adoption_snapshots`]): nothing sealed
+            // under the retired key is written now.
+            let vaults: Vec<VaultId> = access.with(|s| {
+                s.synced_vaults()
+                    .into_iter()
+                    .filter(|v| !s.rekey_held(*v).unwrap_or(false))
+                    .collect()
+            })?;
             self.publish(
                 access,
                 now,
@@ -698,7 +856,53 @@ impl<T: Transport> SyncEngine<T> {
             )?;
             return Ok(adopted);
         }
+        let next = skip.saturating_add(MAX_ADOPT_SALTS);
+        if next < groups.len() {
+            return Err(RekeyError::MoreAccountFiles { next_skip: next });
+        }
         Err(RekeyError::NoMatchingAccountFile)
+    }
+
+    /// Folder: writes the snapshot set of every vault an adoption left without
+    /// one (its floor is not marked) once the vault's hold ended (review M5).
+    /// Called by the run before housekeeping; a no-op on other backends and
+    /// when nothing is due.
+    pub(super) fn publish_adoption_snapshots(
+        &mut self,
+        access: &mut impl SessionAccess,
+        now: u64,
+    ) -> Result<(), SyncError> {
+        if self.transport.kind() != TransportKind::Folder {
+            return Ok(());
+        }
+        let (due, epoch) = access.with(|s| -> Result<_, Error> {
+            let synced = s.synced_vaults();
+            let mut out = Vec::new();
+            for f in s.folder_rekey_floors()? {
+                if !f.snapshot_done && synced.contains(&f.vault_id) && !s.rekey_held(f.vault_id)? {
+                    out.push(f.vault_id);
+                }
+            }
+            Ok((out, s.ak_epoch()))
+        })??;
+        if due.is_empty() {
+            return Ok(());
+        }
+        let mut cx = Cx::new(access, now);
+        let result = self.transport.publish_rekey(
+            &mut cx,
+            &RekeyPublish {
+                account_file: None,
+                snapshot_vaults: &due,
+                marker: None,
+                from_epoch: epoch,
+            },
+        );
+        if let Some(e) = cx.take_failure() {
+            return Err(e);
+        }
+        result?;
+        Ok(())
     }
 
     // ---- after the commit -----------------------------------------------------
@@ -742,25 +946,21 @@ impl<T: Transport> SyncEngine<T> {
         let mut progress = RekeyProgress::default();
         let mut budget = ATTACHMENT_DOWNLOAD_BUDGET;
         let mut fetched: Option<Vec<u8>> = None;
-        let mut asked: Option<(VaultId, AttachmentId)> = None;
         loop {
             let held = fetched.take();
-            let step = access.with(|s| s.reseal_next_attachment(held.as_deref()))?;
-            let step = match step {
-                Ok(step) => step,
-                // Bytes that do not authenticate under the file key: this
-                // blob cannot be re-sealed (it keeps its old key).
-                Err(Error::Core(_)) if held.is_some() => {
-                    if let Some(row) = asked.take() {
-                        mark_unreachable(access, &mut progress, row)?;
-                    }
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            };
+            let step = access.with(|s| s.reseal_next_attachment(held.as_deref()))??;
             match step {
                 ResealStep::Done => break,
                 ResealStep::Resealed { .. } | ResealStep::Skipped { .. } => {}
+                // Bytes that do not authenticate under the file key: the
+                // session listed the attachment as unreachable (it keeps its
+                // old key) and the job goes on (review L4).
+                ResealStep::Unreadable {
+                    vault_id,
+                    attachment_id,
+                } => progress
+                    .unreachable_attachments
+                    .push((vault_id, attachment_id)),
                 ResealStep::NeedsFetch {
                     vault_id,
                     attachment_id,
@@ -773,7 +973,6 @@ impl<T: Transport> SyncEngine<T> {
                     match self.transport.get_attachment(vault_id, attachment_id) {
                         Ok(Some(bytes)) => {
                             budget = budget.saturating_sub(bytes.len() as u64);
-                            asked = Some((vault_id, attachment_id));
                             fetched = Some(bytes);
                         }
                         Ok(None) | Err(TransportError::NotFound) => {
@@ -831,31 +1030,39 @@ fn mark_unreachable(
     Ok(())
 }
 
-/// Whether `wrapped` opens under the keys of the typed password and Secret Key
-/// (derived under `params`) and the account key it holds verifies the account
-/// file's MAC (CRYPTO_SPEC §10.1). The key is dropped at once.
-fn file_opens(
-    wrapped: &mosaic_core::WrappedKey,
-    bytes: &[u8],
+/// The first file of a group (one salt) whose wrapped `AK` opens under the keys
+/// of the typed password and Secret Key (one derivation for the group) and
+/// whose account key verifies the file's MAC (CRYPTO_SPEC §10.1). The key is
+/// dropped at once.
+fn open_group<'a>(
+    files: &[&'a RekeyCandidate],
     params: &PasswordParams,
     password: &MasterPassword,
     secret_key: &SecretKey,
-) -> Result<bool, RekeyError> {
+) -> Result<Option<&'a RekeyCandidate>, RekeyError> {
     let derived = mosaic_core::derive_password_keys(password, secret_key, params)
         .map_err(|e| RekeyError::Session(Error::Core(e)))?;
-    let Ok(ak) =
-        wrapped.unwrap_account_key(&derived.kek, &params.account_id, &UnlockMethod::Password)
-    else {
-        return Ok(false);
-    };
-    let fold = ak
-        .folder_mac_key()
-        .map_err(|e| RekeyError::Session(Error::Core(e)))?;
-    let Some((body, mac)) = bytes.split_last_chunk::<32>() else {
-        return Ok(false);
-    };
-    sync_auth::verify_folder_mac(&fold, FolderMacPurpose::Account, body, mac)
-        .map_err(|e| RekeyError::Session(Error::Core(e)))
+    for c in files {
+        let Ok(ak) = c.file.wrapped_ak.unwrap_account_key(
+            &derived.kek,
+            &params.account_id,
+            &UnlockMethod::Password,
+        ) else {
+            continue;
+        };
+        let fold = ak
+            .folder_mac_key()
+            .map_err(|e| RekeyError::Session(Error::Core(e)))?;
+        let Some((body, mac)) = c.bytes.split_last_chunk::<32>() else {
+            continue;
+        };
+        if sync_auth::verify_folder_mac(&fold, FolderMacPurpose::Account, body, mac)
+            .map_err(|e| RekeyError::Session(Error::Core(e)))?
+        {
+            return Ok(Some(c));
+        }
+    }
+    Ok(None)
 }
 
 /// Adopts a re-key another device made on the hosted backend (CRYPTO_SPEC
@@ -881,19 +1088,10 @@ pub fn adopt_hosted_rekey(
     current_secret_key: &SecretKey,
     device: mosaic_core::InstallId,
 ) -> Result<RekeyAdopted, RekeyError> {
-    let members: Vec<(VaultId, KeyGeneration)> = access.with(|s| -> Result<_, Error> {
-        let review = s.rekey_review()?;
-        let gens: std::collections::BTreeMap<VaultId, KeyGeneration> = s
-            .vaults()
-            .into_iter()
-            .map(|v| (v.vault_id, v.key_generation))
-            .collect();
-        Ok(review
-            .member_vaults
-            .iter()
-            .filter_map(|m| gens.get(&m.vault_id).map(|g| (m.vault_id, *g)))
-            .collect())
-    })??;
+    // The vaults shared to this account that this device holds, by ownership
+    // only: an adoption needs no clean sync, and a vault of unknown owner or
+    // without its current key is left out (review M1).
+    let members: Vec<(VaultId, KeyGeneration)> = access.with(|s| s.member_vault_generations())?;
     let recovered = crate::http::hosted::recover_rekey(&crate::http::hosted::RecoverRequest {
         base: hosted.base,
         address: hosted.address,
@@ -924,6 +1122,7 @@ pub fn adopt_hosted_rekey(
             wrapped_ak: &wrapped,
             params,
             epoch,
+            any_higher_epoch: false,
             identity,
             member_wraps: &member_wraps,
         })

@@ -92,6 +92,11 @@ pub struct JoinAccount {
     pub account_version: u64,
     /// The account has a second factor.
     pub totp_enabled: bool,
+    /// The account-key epoch the server states (unauthenticated): a device
+    /// that joins stores it with
+    /// [`mosaic_vault::session::LockedSession::join_account_with_keys_at`] so
+    /// it starts at the account's epoch, not at 1 (review H2).
+    pub ak_epoch: u32,
 }
 
 /// The result of a password change.
@@ -585,9 +590,9 @@ pub fn join_fetch_account(
 ) -> Result<JoinAccount, TransportError> {
     let http = connect(base)?;
     let bearer = Bearer::new(token)?;
-    let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
+    let (_, account): (u16, AccountWithEpoch) = http.call(
         Method::GET,
-        "/v1/account",
+        "/v1/account?epoch=1",
         Some(&bearer),
         None::<&Empty>,
         &OK_STATUS,
@@ -603,6 +608,7 @@ pub fn join_fetch_account(
         wrapped_ak: account.wrapped_ak,
         account_version: account.account_version,
         totp_enabled: account.totp_enabled,
+        ak_epoch: account.ak_epoch,
     })
 }
 
@@ -963,6 +969,10 @@ fn login_ready(
 /// [`Rejection::AccountVersionMismatch`]; [`Rejection::EpochMismatch`];
 /// [`Rejection::ProfileDowngrade`]; [`Rejection::RekeyMismatch`]; the other
 /// [`TransportError`]s.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the protocol steps of one request, in order"
+)]
 pub fn rekey(
     base: &str,
     address: &str,
@@ -970,7 +980,7 @@ pub fn rekey(
     device: InstallId,
     device_name: &str,
     totp_code: Option<&str>,
-    on_stage: &mut dyn FnMut(RekeyStage),
+    on_stage: &mut dyn FnMut(RekeyStage) -> bool,
 ) -> Result<RekeyOutcome, TransportError> {
     let http = connect(base)?;
     let origin = origin_of(base)?;
@@ -995,7 +1005,26 @@ pub fn rekey(
         Err(e) => return Err(e),
     };
     let bearer = Bearer::new(&grant.token)?;
-    on_stage(RekeyStage::Started);
+    // The epoch the server states after the fresh login must be the one this
+    // re-key leaves (review H2): a device that took the wrong epoch at its
+    // join, or a server that lies, stops here and nothing is sent.
+    let (_, current): (u16, AccountWithEpoch) = http.call(
+        Method::GET,
+        "/v1/account?epoch=1",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    if current.ak_epoch.checked_add(1) != Some(prepared.to_epoch()) {
+        return Err(TransportError::Rejected(Rejection::EpochMismatch {
+            current_epoch: current.ak_epoch,
+        }));
+    }
+    // The phase-2 journal write comes before anything reaches the server: if
+    // it failed, the request is not sent (review L4).
+    if !on_stage(RekeyStage::Started) {
+        return Err(TransportError::Io);
+    }
     let mut rng = OsRng;
     let new_opw = prepared.new_opaque_password().expose_secret();
     let start =
@@ -1046,7 +1075,7 @@ pub fn rekey(
     };
     if reply.status == 200 {
         let (_, done): (u16, RekeyFinishResponse) = reply.json(&OK_STATUS)?;
-        on_stage(RekeyStage::Accepted);
+        let _ = on_stage(RekeyStage::Accepted);
         return Ok(RekeyOutcome::Done(RekeyFinished {
             account_version: done.account_version,
             ak_epoch: done.ak_epoch,
@@ -1148,7 +1177,7 @@ fn recover_applied_rekey(
     http: &Http,
     who: &Who<'_>,
     prepared: &PreparedRekey,
-    on_stage: &mut dyn FnMut(RekeyStage),
+    on_stage: &mut dyn FnMut(RekeyStage) -> bool,
 ) -> Result<RekeyFinished, TransportError> {
     let grant = login_ready(http, who, prepared.new_opaque_password())?;
     let bearer = Bearer::new(&grant.token)?;
@@ -1165,7 +1194,7 @@ fn recover_applied_rekey(
     {
         return Err(TransportError::Protocol);
     }
-    on_stage(RekeyStage::Accepted);
+    let _ = on_stage(RekeyStage::Accepted);
     Ok(RekeyFinished {
         account_version: account.account_version,
         ak_epoch: account.ak_epoch,

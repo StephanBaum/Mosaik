@@ -275,6 +275,10 @@ pub struct EpochSwitch<'a> {
     pub contacts: Option<&'a ContactsCiphertext>,
     /// The retired commitment of the Secret Key this change replaces.
     pub retire_secret_key: &'a [u8; 32],
+    /// Vaults to hold at the generation shown: an adoption leaves each owned
+    /// vault at the generation this device held until the re-key's next one
+    /// arrives (review M5). Empty for a re-key.
+    pub hold: &'a [(VaultId, KeyGeneration)],
 }
 
 /// One owned vault that moves to a new generation in a re-key.
@@ -461,6 +465,14 @@ fn switch_epoch(tx: &Transaction<'_>, sw: &EpochSwitch<'_>) -> Result<Vec<Stored
         &[],
     )?;
     rewrap_all(tx, sw.rewrapped_keys)?;
+    for (vault, generation) in sw.hold {
+        tx.execute(
+            "INSERT INTO rekey_hold (vault_id, generation) VALUES (?1, ?2)
+             ON CONFLICT (vault_id) DO UPDATE SET
+                 generation = MAX(generation, excluded.generation)",
+            params![vault.as_bytes(), generation.get()],
+        )?;
+    }
     if let Some(id) = &sw.identity {
         write_identity(tx, id)?;
     }
@@ -538,11 +550,13 @@ fn write_identity(tx: &Transaction<'_>, id: &IdentityWrite<'_>) -> Result<()> {
         r.get(0)
     })?;
     if exists {
-        // The replacement counter rises in the same statement: the v9
-        // triggers allow a published key to change only that way.
+        // The replacement counter is set to the account's new epoch in the
+        // same statement (the account row is updated first): the v9 triggers
+        // allow a published key to change only that way (review L3).
         tx.execute(
             "UPDATE identity_key SET wrapped_isk = ?1, ipk = ?2, published = ?3,
-                 created_at = ?4, epoch = epoch + 1 WHERE id = 1",
+                 created_at = ?4,
+                 epoch = (SELECT ak_epoch FROM account WHERE id = 1) WHERE id = 1",
             params![
                 id.wrapped_isk.as_bytes(),
                 id.ipk.as_bytes(),
@@ -553,7 +567,7 @@ fn write_identity(tx: &Transaction<'_>, id: &IdentityWrite<'_>) -> Result<()> {
     } else {
         tx.execute(
             "INSERT INTO identity_key (id, wrapped_isk, ipk, created_at, published, epoch)
-             VALUES (1, ?1, ?2, ?3, ?4, 1)",
+             VALUES (1, ?1, ?2, ?3, ?4, (SELECT ak_epoch FROM account WHERE id = 1))",
             params![
                 id.wrapped_isk.as_bytes(),
                 id.ipk.as_bytes(),
@@ -744,6 +758,83 @@ impl Store {
         }
         tx.execute("DELETE FROM rotation_job WHERE id = 1", [])?;
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Drops a job whose local part is committed (phase 4 or later) after the
+    /// user confirmed it (review L4): attachments still to re-seal keep their
+    /// old ID and file key and are listed as unreachable, and the job no
+    /// longer blocks a change of backend.
+    ///
+    /// # Errors
+    /// [`Error::NoRotationJob`], [`Error::RotationTooFar`] before the commit
+    /// (phases 1 to 3, where the backend may know the change).
+    pub fn abandon_committed_rotation_job(&mut self) -> Result<()> {
+        let tx = self.write()?;
+        let job = read_job(&tx)?.ok_or(Error::NoRotationJob)?;
+        if job.phase.number() < RotationPhase::FolderWritten.number() {
+            return Err(Error::RotationTooFar);
+        }
+        tx.execute(
+            "UPDATE reseal_attachments SET state = 3 WHERE state IN (0, 1)",
+            [],
+        )?;
+        tx.execute("DELETE FROM rotation_job WHERE id = 1", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Queues the attachments of the owned vaults for the open re-key job of
+    /// a device that adopted its own re-key after a crash (review M2) and
+    /// moves the job to phase 6.
+    ///
+    /// # Errors
+    /// [`Error::NoRotationJob`], [`Error::InvalidRotationPhase`] (not a re-key
+    /// job).
+    pub fn queue_rekey_job_reseal(
+        &mut self,
+        rows: &[(AttachmentId, VaultId, ItemId)],
+    ) -> Result<()> {
+        let tx = self.write()?;
+        let job = read_job(&tx)?.ok_or(Error::NoRotationJob)?;
+        if job.kind != RotationKind::Rekey {
+            return Err(Error::InvalidRotationPhase);
+        }
+        insert_reseal_rows(&tx, rows)?;
+        tx.execute(
+            "UPDATE rotation_job SET phase = 6, total = ?1, done = 0 WHERE id = 1",
+            params![i64::try_from(rows.len()).map_err(|_| Error::Corrupt)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Whether pushes of `vault` wait for the next key generation after an
+    /// adopted re-key (review M5): a hold row exists and the vault has not
+    /// moved above the generation it names.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn rekey_held(&self, vault: &VaultId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM rekey_hold h JOIN vaults v ON v.vault_id = h.vault_id
+                            WHERE h.vault_id = ?1 AND v.current_generation <= h.generation)",
+            params![vault.as_bytes()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Raises the stored account-key epoch to `epoch` (never lowers it): a
+    /// device that joined an account that was re-keyed already (review H2).
+    ///
+    /// # Errors
+    /// [`Error::NoAccount`], [`Error::Database`].
+    pub fn raise_ak_epoch(&mut self, epoch: u32) -> Result<()> {
+        read_epoch(&self.conn)?;
+        self.conn.execute(
+            "UPDATE account SET ak_epoch = ?1 WHERE id = 1 AND ak_epoch < ?1",
+            params![epoch],
+        )?;
         Ok(())
     }
 

@@ -237,16 +237,18 @@ pub fn join_from_folder(
         if superseded(&session, &all, index, &file, &keys) {
             return Err(fail(JoinError::WrongCredentials, Some(session)));
         }
-        let unlocked = match session.join_account_with_keys(&file.wrapped_ak, keys) {
-            Ok(u) => u,
-            Err(failed) => {
-                let error = match failed.error {
-                    SessionError::UnlockFailed => JoinError::WrongCredentials,
-                    other => JoinError::Session(other),
-                };
-                return Err(fail(error, Some(failed.session)));
-            }
-        };
+        // The device starts at the epoch of the verified file (review H2).
+        let unlocked =
+            match session.join_account_with_keys_at(&file.wrapped_ak, keys, file.ak_epoch) {
+                Ok(u) => u,
+                Err(failed) => {
+                    let error = match failed.error {
+                        SessionError::UnlockFailed => JoinError::WrongCredentials,
+                        other => JoinError::Session(other),
+                    };
+                    return Err(fail(error, Some(failed.session)));
+                }
+            };
         // The same check once more on the unlocked session.
         return match AccountFile::verify_mac(bytes, &unlocked) {
             Ok(true) => Ok(unlocked),

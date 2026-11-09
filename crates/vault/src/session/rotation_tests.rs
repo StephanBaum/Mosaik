@@ -845,11 +845,6 @@ fn unreachable_attachment_listed() {
             ResealStep::Done => break,
             ResealStep::Resealed { .. } => resealed += 1,
             ResealStep::NeedsFetch { attachment_id, .. } if attachment_id == fetched => {
-                // Bytes that do not authenticate are refused and change nothing.
-                assert!(
-                    s.reseal_next_attachment(Some(&fetched_ct[..fetched_ct.len() - 1]))
-                        .is_err()
-                );
                 assert!(matches!(
                     s.reseal_next_attachment(Some(&fetched_ct)).unwrap(),
                     ResealStep::Resealed { .. }
@@ -861,7 +856,7 @@ fn unreachable_attachment_listed() {
                 assert!(s.mark_attachment_unreachable(attachment_id).unwrap());
                 unreachable.push(attachment_id);
             }
-            ResealStep::Skipped { .. } => unreachable.push(held),
+            ResealStep::Skipped { .. } | ResealStep::Unreadable { .. } => unreachable.push(held),
         }
     }
     assert_eq!(resealed, 2);
@@ -939,6 +934,7 @@ fn adoption<'a>(
         wrapped_ak: &done.wrapped,
         params: done.params,
         epoch,
+        any_higher_epoch: false,
         identity: done.identity.as_ref().map(|(i, w)| (w, i)),
         member_wraps: &[],
     }
@@ -1181,6 +1177,218 @@ fn adoption_stores_the_servers_wrapping_of_a_member_vaults_current_key() {
         "the server's bytes"
     );
     assert_eq!(b.s.store.vault_key(&v, g(1)).unwrap().unwrap(), served[0].2);
+}
+
+/// H1: a folder adoption takes any epoch above the own one (a re-key jumps
+/// to `max(own, seen) + 1`); the hosted rule stays at `current + 1`. The
+/// identity replaced by the jump carries the account's new epoch (L3).
+#[test]
+fn folder_adoption_takes_any_higher_epoch() {
+    let (mut a, sk, mut b, b_sk) = two_devices();
+    let done = rekey(&mut a, &sk, RekeyPlan::default());
+    assert!(matches!(
+        b.adopt_remote_rekey(adoption(&done, &done.new_sk, &b_sk, 5)),
+        Err(Error::EpochNotNext {
+            stored: 1,
+            offered: 5
+        })
+    ));
+    for (epoch, expected) in [(1, "unlock"), (0, "rollback")] {
+        let mut x = adoption(&done, &done.new_sk, &b_sk, epoch);
+        x.any_higher_epoch = true;
+        let r = b.adopt_remote_rekey(x);
+        match expected {
+            "unlock" => assert!(matches!(r, Err(Error::UnlockFailed))),
+            _ => assert!(matches!(r, Err(Error::EpochRollback { .. }))),
+        }
+    }
+    assert_eq!(b.ak_epoch(), 1);
+    let mut x = adoption(&done, &done.new_sk, &b_sk, 5);
+    x.any_higher_epoch = true;
+    assert_eq!(b.adopt_remote_rekey(x).unwrap().epoch, 5);
+    assert_eq!(b.ak_epoch(), 5);
+    let b = relock(b, &pw2(), &done.new_sk);
+    assert_eq!(b.ak_epoch(), 5);
+    // The typed Secret Key is the authenticator: the jump does not lift the
+    // refusal of the current one.
+    let (mut a2, sk2, mut b2, b2_sk) = two_devices();
+    let done2 = rekey(&mut a2, &sk2, RekeyPlan::default());
+    let old_typed = dup_sk(&sk2);
+    let mut x = RekeyAdoption {
+        keys: LockedSession::derive_join_keys(&done2.params, &pw2(), &old_typed).unwrap(),
+        ..adoption(&done2, &old_typed, &b2_sk, 7)
+    };
+    x.any_higher_epoch = true;
+    assert!(matches!(
+        b2.adopt_remote_rekey(x),
+        Err(Error::SecretKeyUnchanged)
+    ));
+}
+
+/// H2: a device that joins after a re-key starts at the backend's epoch,
+/// which only rises, and its own re-key then targets the next epoch.
+#[test]
+fn join_stores_the_backend_epoch() {
+    let (mut a, sk) = account();
+    let done = rekey(&mut a, &sk, RekeyPlan::default());
+    let keys = LockedSession::derive_join_keys(&done.params, &pw2(), &done.new_sk).unwrap();
+    let c = LockedSession::open(Store::open_in_memory().unwrap())
+        .join_account_with_keys_at(&done.wrapped, keys, 2)
+        .map_err(|e| e.error)
+        .unwrap();
+    assert_eq!(c.ak_epoch(), 2);
+    let mut c = relock(c, &pw2(), &done.new_sk);
+    assert_eq!(c.ak_epoch(), 2, "stored, not only in memory");
+    c.raise_epoch_to(1).unwrap();
+    assert_eq!(c.ak_epoch(), 2, "never lowered");
+    let fresh = SecretKey::generate().unwrap();
+    let p = c
+        .prepare_rekey(RekeyRequest {
+            current_password: &pw2(),
+            current_secret_key: &done.new_sk,
+            new_password: &pw(),
+            new_secret_key: &fresh,
+            profile: Argon2Profile::Baseline,
+            plan: RekeyPlan::default(),
+        })
+        .unwrap();
+    assert_eq!(p.to_epoch(), 3);
+    c.raise_epoch_to(4).unwrap();
+    assert_eq!(c.ak_epoch(), 4);
+}
+
+/// M2: a device that adopted its own re-key after a crash queues the
+/// attachments of its owned vaults and continues at phase 6.
+#[test]
+fn adoption_resume_requeues_attachments() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut a, sk) = account();
+    let boot = a.account_bootstrap().unwrap();
+    let mut b = LockedSession::open(Store::open(dir.path().join("b.db")).unwrap())
+        .join_account(&boot.params, &boot.wrapped_ak, &pw(), &sk)
+        .map_err(|e| e.error)
+        .unwrap();
+    let b_sk = dup_sk(&sk);
+    let v = b.create_vault("mine").unwrap();
+    let item = login(&mut b, v, "files");
+    b.add_attachment(v, item, "a.txt", "text/plain", b"x")
+        .unwrap();
+    b.begin_rotation_job(RotationKind::Rekey, None).unwrap();
+    b.set_rotation_phase(RotationPhase::BackendAccepted)
+        .unwrap();
+    let done = rekey(&mut a, &sk, RekeyPlan::default());
+    b.adopt_remote_rekey(adoption(&done, &done.new_sk, &b_sk, 2))
+        .unwrap();
+    assert_eq!(
+        b.rotation_job().unwrap().unwrap().phase,
+        RotationPhase::LocalCommitted
+    );
+    assert_eq!(b.queue_adoption_reseal().unwrap(), 1);
+    assert_eq!(
+        b.rotation_job().unwrap().unwrap().phase,
+        RotationPhase::Attachments
+    );
+    assert!(matches!(
+        b.reseal_next_attachment(None).unwrap(),
+        ResealStep::Resealed { .. }
+    ));
+    b.finish_rotation_job().unwrap();
+}
+
+/// M5: after an adoption the owned vaults are held at their generation until
+/// the next one arrives.
+#[test]
+fn adoption_holds_owned_vaults_until_the_next_generation() {
+    let (mut a, sk, mut b, b_sk) = two_devices();
+    let v = b.create_vault("mine").unwrap();
+    assert!(!b.rekey_held(v).unwrap());
+    let done = rekey(&mut a, &sk, RekeyPlan::default());
+    b.adopt_remote_rekey(adoption(&done, &done.new_sk, &b_sk, 2))
+        .unwrap();
+    assert!(b.rekey_held(v).unwrap(), "no push under the retired key");
+    let mut b = relock(b, &pw2(), &done.new_sk);
+    assert!(b.rekey_held(v).unwrap(), "the hold survives a lock");
+    // The re-key's next generation arrives (here: a local rotation stands in).
+    b.rotate_vault_key(v).unwrap();
+    assert!(!b.rekey_held(v).unwrap());
+}
+
+/// L4: an attachment that does not open is listed as unreachable and
+/// skipped; the job still finishes.
+#[test]
+fn unreadable_attachment_is_listed_and_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, sk) = account_in(Store::open(dir.path().join("v.db")).unwrap());
+    let v = synced_vault(&mut s, "v");
+    let item = login(&mut s, v, "files");
+    let bad = s
+        .add_attachment(v, item, "a.txt", "text/plain", b"bad")
+        .unwrap();
+    let ct = s.store.attachment(&bad).unwrap();
+    s.store.delete_attachment(&bad).unwrap();
+    rekey(&mut s, &sk, RekeyPlan::default());
+    assert!(matches!(
+        s.reseal_next_attachment(None).unwrap(),
+        ResealStep::NeedsFetch { .. }
+    ));
+    let step = s.reseal_next_attachment(Some(&ct[..ct.len() - 1])).unwrap();
+    assert!(matches!(step, ResealStep::Unreadable { attachment_id, .. } if attachment_id == bad));
+    assert_eq!(s.unreachable_attachments().unwrap().len(), 1);
+    assert!(matches!(
+        s.reseal_next_attachment(None).unwrap(),
+        ResealStep::Done
+    ));
+    s.finish_rotation_job().unwrap();
+}
+
+/// L4: a job whose local part is committed can be abandoned after a
+/// confirmation and then stops blocking a backend change; before the commit
+/// it cannot.
+#[test]
+fn committed_job_can_be_abandoned() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, sk) = account_in(Store::open(dir.path().join("v.db")).unwrap());
+    let v = synced_vault(&mut s, "v");
+    let item = login(&mut s, v, "files");
+    s.add_attachment(v, item, "a.txt", "text/plain", b"x")
+        .unwrap();
+    s.begin_rotation_job(RotationKind::Rekey, None).unwrap();
+    s.set_rotation_phase(RotationPhase::BackendStarted).unwrap();
+    assert!(matches!(
+        s.abandon_committed_rotation_job(),
+        Err(Error::Store(StorageError::RotationTooFar))
+    ));
+    let p = prepare(
+        &s,
+        &sk,
+        &SecretKey::generate().unwrap(),
+        RekeyPlan::default(),
+    )
+    .unwrap();
+    s.commit_rekey(p).unwrap();
+    assert_eq!(
+        s.rotation_job().unwrap().unwrap().phase,
+        RotationPhase::LocalCommitted
+    );
+    s.abandon_committed_rotation_job().unwrap();
+    assert!(s.rotation_job().unwrap().is_none());
+    assert_eq!(
+        s.unreachable_attachments().unwrap().len(),
+        1,
+        "the attachment keeps its old key and is listed"
+    );
+}
+
+/// M4: a vault shared to the account whose current key is not held is
+/// skipped by a re-key: it does not block it and no re-wrap is built for it.
+#[test]
+fn unavailable_member_vault_is_skipped() {
+    let (_a, mut b, _c, v) = trio();
+    let new_sk = SecretKey::generate().unwrap();
+    b.s.vaults.get_mut(&v).unwrap().keys.clear();
+    let p = prepare(&b.s, &b.secret, &new_sk, RekeyPlan::default()).unwrap();
+    assert_eq!(p.member_rewraps().len(), 0);
+    assert_eq!(b.s.member_vault_generations().len(), 0);
 }
 
 // ---- the journal ----------------------------------------------------------------------

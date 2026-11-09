@@ -172,6 +172,10 @@ impl<T: Transport> Transport for ChaosTransport<T> {
         self.inner.rekey_signals(epoch)
     }
 
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        self.inner.backend_epoch()
+    }
+
     fn rekey_candidates(
         &mut self,
         epoch: u32,

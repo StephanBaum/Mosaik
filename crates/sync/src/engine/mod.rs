@@ -165,6 +165,16 @@ pub enum SyncWarning {
         /// The epoch its (unauthenticated) header states.
         epoch: u32,
     },
+    /// The hosted backend states an account-key epoch below this device's
+    /// (M7, CRYPTO_SPEC 6.7): a rollback of a re-key, or a lie. Nothing moves;
+    /// the finding is raised on every run while it lasts. (A folder ignores
+    /// files of a lower epoch: anyone with the old keys can plant them.)
+    AccountRollback {
+        /// This device's epoch.
+        stored: u32,
+        /// The epoch the backend stated.
+        offered: u32,
+    },
 }
 
 /// What one sync run did.
@@ -573,6 +583,7 @@ impl<T: Transport> SyncEngine<T> {
         warnings.append(&mut findings);
         self.check_views(access, now)?;
         self.publish_checkpoint(access, clock)?;
+        self.publish_adoption_snapshots(access, now)?;
         let no_conflict = !access.with(|s| s.has_any_unresolved_key_conflict())??;
         let caught_up = none_lagging && no_conflict && stats.unexplained == 0;
         self.maintain(access, now, caught_up)?;
