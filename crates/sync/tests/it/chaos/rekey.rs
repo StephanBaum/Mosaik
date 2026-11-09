@@ -449,3 +449,274 @@ fn chaos_rekey_random() {
         random_run(seed);
     }
 }
+
+// ---- review round (ADR-0063): jumps, thief markers, paging, joins, holds ----------------
+
+/// What a thief of an old device (its profile, so the old keys) can write.
+mod thief {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use mosaic_core::{AccountSalt, Argon2Profile, InstallId, WrappedKey};
+    use mosaic_sync::wire::account_file::AccountFile;
+    use mosaic_sync::wire::folder_names::{account_name, rekey_marker_name};
+    use mosaic_sync::wire::rekey_marker::RekeyMarker;
+    use mosaic_sync::wire::{SessionCrypto, SyncCrypto};
+
+    use crate::common::{Crypto, World, account_dir};
+
+    pub struct Base {
+        pub wrapped_ak: WrappedKey,
+        pub profile: Argon2Profile,
+    }
+
+    pub fn base(w: &World) -> Base {
+        let boot = w.devs[0].s().account_bootstrap().unwrap();
+        Base {
+            wrapped_ak: boot.wrapped_ak.clone(),
+            profile: boot.params.profile,
+        }
+    }
+
+    /// The old keys of device `d` (call before it adopts).
+    pub fn keys(w: &World, d: usize) -> Crypto {
+        SessionCrypto::new(w.devs[d].access.clone()).unwrap()
+    }
+
+    pub fn fake(n: u8) -> InstallId {
+        let mut b = [1u8; 16];
+        b[0] = 0;
+        b[1] = n;
+        InstallId::from_bytes(b).unwrap()
+    }
+
+    fn dir(w: &World, r: usize) -> PathBuf {
+        account_dir(w, r).join("account")
+    }
+
+    pub fn plant_file(
+        w: &World,
+        crypto: &impl SyncCrypto,
+        b: &Base,
+        epoch: u32,
+        version: u64,
+        device: InstallId,
+    ) {
+        let file = AccountFile {
+            account_id: w.account,
+            account_version: version,
+            ak_epoch: epoch,
+            device_id: device,
+            salt: AccountSalt::generate().unwrap(),
+            profile: b.profile,
+            wrapped_ak: b.wrapped_ak.clone(),
+        };
+        let bytes = file.encode(crypto).unwrap();
+        for r in 0..w.devs.len() {
+            fs::write(
+                dir(w, r).join(account_name(version, device.as_bytes())),
+                &bytes,
+            )
+            .unwrap();
+        }
+    }
+
+    pub fn plant_marker(
+        w: &World,
+        crypto: &impl SyncCrypto,
+        from: u32,
+        to: u32,
+        version: u64,
+        device: InstallId,
+    ) {
+        let m = RekeyMarker {
+            account_id: w.account,
+            from_epoch: from,
+            to_epoch: to,
+            to_account_version: version,
+            device_id: device,
+            created_at_ms: 0,
+        };
+        let bytes = m.encode(crypto).unwrap();
+        for r in 0..w.devs.len() {
+            fs::write(
+                dir(w, r).join(rekey_marker_name(from, device.as_bytes())),
+                &bytes,
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn folder_planted_high_epoch_header_does_not_strand_devices() {
+    let (mut w, _vault, _item) = world(21, 3);
+    let t = thief::keys(&w, 2);
+    let b = thief::base(&w);
+    thief::plant_file(&w, &t, &b, 6, 50, thief::fake(1));
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    assert_eq!(epoch(&w, 0), 2, "a planted header does not move the target");
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    thief::plant_file(&w, &t, &b, 6, 51, thief::fake(2));
+    for d in 1..3 {
+        assert!(matches!(w.try_sync(d), Err(SyncError::AccountRekeyed)));
+        adopt(&mut w, d, &new_sk).unwrap();
+        assert_eq!(epoch(&w, d), 2);
+    }
+}
+
+#[test]
+fn folder_two_rekeys_in_a_row_stale_devices_still_adopt() {
+    let (mut w, _v, _i) = world(22, 3);
+    let (sk1, sk2) = (
+        SecretKey::generate().unwrap(),
+        SecretKey::generate().unwrap(),
+    );
+    rekey(&mut w, 0, &sk1).unwrap();
+    finish_job(&mut w, 0);
+    rekey_as(
+        &mut w,
+        0,
+        (NEW_PASSWORD, &sk1),
+        ("second password here", &sk2),
+    )
+    .unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    // Device 1 is two re-keys behind: it adopts the newest in one jump.
+    let current = copy_key(&w.secret_key);
+    adopt_as(&mut w, 1, ("second password here", &sk2), &current).unwrap();
+    assert_eq!(epoch(&w, 1), 3);
+    // Device 2 may follow them one by one or jump as well.
+    adopt_as(&mut w, 2, ("second password here", &sk2), &current).unwrap();
+    assert_eq!(epoch(&w, 2), 3);
+}
+
+#[test]
+fn folder_forged_marker_is_dismissible_after_the_user_acts() {
+    let (mut w, _v, _i) = world(23, 2);
+    let t = thief::keys(&w, 1);
+    thief::plant_marker(&w, &t, 1, 2, 9, thief::fake(3));
+    assert!(matches!(w.try_sync(0), Err(SyncError::AccountRekeyed)));
+    assert!(w.devs[0].s().rekey_pending().unwrap());
+    let typed = SecretKey::generate().unwrap();
+    assert!(matches!(
+        adopt(&mut w, 0, &typed),
+        Err(RekeyError::NoMatchingAccountFile)
+    ));
+    let World { devs, .. } = &mut w;
+    let dev = &mut devs[0];
+    let markers = dev.engine.pending_rekey_markers(&mut dev.access).unwrap();
+    assert_eq!(markers.len(), 1);
+    let still = dev
+        .engine
+        .dismiss_rekey_marker(&mut dev.access, &markers[0].name, &markers[0].sha256)
+        .unwrap();
+    assert!(!still);
+    assert!(!w.devs[0].s().rekey_pending().unwrap());
+    w.sync(0);
+}
+
+#[test]
+fn folder_adoption_pages_past_planted_files_and_markers() {
+    let (mut w, _v, _i) = world(24, 3);
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    let t = thief::keys(&w, 2);
+    let b = thief::base(&w);
+    // Eight forged markers with low IDs, each naming a planted file with a
+    // salt of its own: the genuine file is ninth.
+    for n in 0..8u8 {
+        let dev = thief::fake(10 + n);
+        thief::plant_marker(&w, &t, 1, 2, 100 + u64::from(n), dev);
+        thief::plant_file(&w, &t, &b, 2, 100 + u64::from(n), dev);
+    }
+    assert!(matches!(w.try_sync(1), Err(SyncError::AccountRekeyed)));
+    let current = copy_key(&w.secret_key);
+    let password = pw(NEW_PASSWORD);
+    let World { devs, clock, .. } = &mut w;
+    let dev = &mut devs[1];
+    let next =
+        match dev
+            .engine
+            .adopt_folder_rekey(&mut dev.access, clock, &password, &new_sk, &current)
+        {
+            Err(RekeyError::MoreAccountFiles { next_skip }) => next_skip,
+            other => panic!("{other:?}"),
+        };
+    dev.engine
+        .adopt_folder_rekey_page(&mut dev.access, clock, &password, &new_sk, &current, next)
+        .unwrap();
+    assert_eq!(epoch(&w, 1), 2);
+}
+
+#[test]
+fn folder_join_after_a_rekey_starts_at_the_folders_epoch() {
+    let mut w = World::new(25, 2);
+    w.sync(0);
+    w.cloud.settle().unwrap();
+    let config = |w: &World, d: usize| SyncConfig {
+        kind: SyncKind::Folder,
+        server_url: None,
+        email: None,
+        folder_path: Some(w.replica(d)),
+        device_name: format!("device {d}"),
+    };
+    let c0 = config(&w, 0);
+    w.devs[0].s_mut().set_sync_config(Some(&c0)).unwrap();
+    let sk1 = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &sk1).unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    w.secret_key = copy_key(&sk1);
+    let d = w.try_join(NEW_PASSWORD).map_err(|f| f.error).unwrap();
+    assert_eq!(epoch(&w, d), 2);
+    let c1 = config(&w, d);
+    w.devs[d].s_mut().set_sync_config(Some(&c1)).unwrap();
+    // Its own re-key targets 3 and the first device adopts it.
+    let sk2 = SecretKey::generate().unwrap();
+    rekey_as(
+        &mut w,
+        d,
+        (NEW_PASSWORD, &sk1),
+        ("third password here", &sk2),
+    )
+    .unwrap();
+    assert_eq!(epoch(&w, d), 3);
+    finish_job(&mut w, d);
+    w.cloud.settle().unwrap();
+    adopt_as(&mut w, 0, ("third password here", &sk2), &copy_key(&sk1)).unwrap();
+    assert_eq!(epoch(&w, 0), 3);
+}
+
+#[test]
+fn folder_adopted_vault_is_held_and_gets_its_snapshot_later() {
+    let (mut w, vault, _item) = world(26, 2);
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    adopt(&mut w, 1, &new_sk).unwrap();
+    assert!(
+        w.devs[1].s().rekey_held(vault).unwrap(),
+        "held after adopting"
+    );
+    w.converge(0);
+    assert!(
+        !w.devs[1].s().rekey_held(vault).unwrap(),
+        "the next key arrived"
+    );
+    assert!(
+        w.devs[1]
+            .s()
+            .folder_rekey_floors()
+            .unwrap()
+            .iter()
+            .all(|f| f.snapshot_done),
+        "the snapshot set was written once the hold ended"
+    );
+}

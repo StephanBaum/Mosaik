@@ -636,21 +636,25 @@ BEGIN SELECT RAISE(ABORT, 'mosaic: ak_epoch decreased'); END;
 
 ALTER TABLE identity_key ADD COLUMN epoch INTEGER NOT NULL DEFAULT 1 CHECK (epoch >= 1);
 
+-- The identity epoch follows the account epoch (review L3): it never decreases
+-- and never exceeds the account's `ak_epoch`.
 CREATE TRIGGER identity_key_epoch_monotone
 BEFORE UPDATE OF epoch ON identity_key
-WHEN NEW.epoch < OLD.epoch
+WHEN NEW.epoch < OLD.epoch OR NEW.epoch > (SELECT ak_epoch FROM account WHERE id = 1)
 BEGIN SELECT RAISE(ABORT, 'mosaic: identity key epoch decreased'); END;
 
 DROP TRIGGER identity_key_published_monotonic;
 CREATE TRIGGER identity_key_published_monotonic
 BEFORE UPDATE OF published ON identity_key
-WHEN OLD.published = 1 AND NEW.published = 0 AND NEW.epoch = OLD.epoch
+WHEN OLD.published = 1 AND NEW.published = 0
+     AND NOT (NEW.epoch > OLD.epoch AND NEW.epoch = (SELECT ak_epoch FROM account WHERE id = 1))
 BEGIN SELECT RAISE(ABORT, 'mosaic: identity key publication cannot be undone'); END;
 
 DROP TRIGGER identity_key_frozen_once_published;
 CREATE TRIGGER identity_key_frozen_once_published
 BEFORE UPDATE OF ipk ON identity_key
-WHEN OLD.published = 1 AND NEW.ipk <> OLD.ipk AND NEW.epoch = OLD.epoch
+WHEN OLD.published = 1 AND NEW.ipk <> OLD.ipk
+     AND NOT (NEW.epoch > OLD.epoch AND NEW.epoch = (SELECT ak_epoch FROM account WHERE id = 1))
 BEGIN SELECT RAISE(ABORT, 'mosaic: a published identity key is replaced only by a re-key'); END;
 
 -- The rotation journal: kind 1 secret key, 2 re-key, 3 profile, 4 vault; phase
@@ -716,6 +720,15 @@ CREATE TABLE rekey_dismissed_files (
 -- an acknowledgement clears; adopting the re-key clears it.
 ALTER TABLE sync_engine_state ADD COLUMN rekey_pending INTEGER NOT NULL DEFAULT 0
     CHECK (rekey_pending IN (0, 1));
+
+-- Vaults an adopted re-key left at the generation this device held (review M5):
+-- while the vault's current generation is not above `generation`, the device
+-- does not push records of it (they would be sealed under the key the re-key
+-- retired). The genuine `g + 1` key arrives by pull and ends the hold.
+CREATE TABLE rekey_hold (
+    vault_id    BLOB    PRIMARY KEY CHECK (length(vault_id) = 16),
+    generation  INTEGER NOT NULL CHECK (generation BETWEEN 1 AND 4294967295)
+) STRICT, WITHOUT ROWID;
 
 -- pending_revocations: reason 6 is MemberRekeyed (nobody is revoked).
 CREATE TABLE pending_revocations_v9 (
@@ -1589,6 +1602,10 @@ mod tests {
             "UPDATE account SET ak_epoch = 0",
             "UPDATE identity_key SET published = 0",
             "UPDATE identity_key SET ipk = x'0101010101010101010101010101010101010101010101010101010101010101'",
+            // L3: the identity epoch never runs ahead of the account's.
+            "UPDATE identity_key SET epoch = 3",
+            "UPDATE identity_key SET published = 0, epoch = 3",
+            "UPDATE identity_key SET ipk = x'0101010101010101010101010101010101010101010101010101010101010101', epoch = 3",
         ] {
             assert!(c.execute(sql, []).is_err(), "{sql}");
         }

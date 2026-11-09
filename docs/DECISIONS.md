@@ -4297,7 +4297,7 @@ A full re-key gives the account a new AK. Other devices and backends need a publ
 ### Decision
 - `ak_epoch: u32`, starting at 1, raised by exactly one per re-key. It is public metadata (account row, server account record, folder account file) and never an input to a key derivation: different epochs have independent random AKs. A store trigger refuses a decrease.
 - Backend epoch below the device's: rollback, refused (hosted; in a folder lower files are ignored). Equal epoch with a wrapping that opens to a different AK: refused. Higher epoch: only adoption moves the device, and only `current + 1` (checked arithmetic).
-- Adoption requires epoch `current + 1`, an unretired salt, a wrapping that opens under the typed password and typed Secret Key, and a typed Secret Key that differs from the current one **and every retired commitment** (constant time). Retired commitments are `SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)` for every Secret Key the device replaced (label `secret-key/retired`). There is no adoption at an equal epoch (amendment, review M1): concurrent re-keys are resolved by re-keying again to `max(seen) + 1`.
+- Adoption requires epoch `current + 1` (hosted; on a folder any higher epoch, ADR-0063), an unretired salt, a wrapping that opens under the typed password and typed Secret Key, and a typed Secret Key that differs from the current one **and every retired commitment** (constant time). Retired commitments are `SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)` for every Secret Key the device replaced (label `secret-key/retired`). There is no adoption at an equal epoch (amendment, review M1): concurrent re-keys are resolved by re-keying again to `max(seen) + 1`.
 - On adoption the server's wrapping of each member vault's current generation is stored (after a constant-time check that it opens to the same VK), so the view digest does not change (review M3). Every genuine re-key rotates the Secret Key, so a holder of only the old secrets cannot invent an AK and have a device adopt it.
 - No endorsement by the old AK (a signed hand-over): the old AK is what a compromise exposes, so a signature from it proves nothing. The new kit's Secret Key typed by the user is the proof.
 - Identity rollover notices signed by the old `isk` are not built, for the same reason (OD-M7-4): members re-verify the owner's new safety code.
@@ -4341,7 +4341,7 @@ A folder has no authority: no compare-and-swap, no sessions. Other devices of th
 
 ### Decision
 - Account file version 2 (172 bytes) adds `ak_epoch:u32`; version 1 decodes as epoch 1. A re-key marker `.mrek` (93 bytes, no key material) is MAC'd under the **old** `K_fold` with the new label `sync/folder-rekey`, built during prepare because the commit drops the old AK.
-- A stale device halts before any write only on a **verified** marker (`AccountRekeyed`); an unverifiable account file with a higher epoch is a dismissible finding (review M2); it recovers with the new Secret Key and the password (ADR-0058). A forged marker causes a halt only.
+- A stale device halts before any write only on a **verified** marker (`AccountRekeyed`); an unverifiable account file with a higher epoch is a dismissible finding (review M2); it recovers with the new Secret Key and the password (ADR-0058). A marker verifies under the old `K_fold`, so a holder of the old AK can forge one: it halts devices, and after a failed adoption and a confirmation the user dismisses it (ADR-0063).
 - New-epoch readers ignore everything that does not verify under the current epoch's keys and never accept an old-epoch object.
 - Own segments at or below the re-key floor are kept until a complete new-epoch snapshot set exists and 30 days (`BLOB_RETENTION_MS`) have passed, so stale devices can still read them. Closes the M6 known item on old-`K_fold` own segments.
 - Two concurrent re-keys to the same epoch raise a `RekeyConflict` finding on the device that sees the other; the user keeps theirs or re-keys again to `max(seen) + 1` (no equal-epoch adoption). No automatic winner: choosing an AK nobody typed would make that kit useless.
@@ -4392,3 +4392,29 @@ CRYPTO_SPEC §5.3 lets a client upgrade the profile at an unlock. A stronger pro
 
 ### Consequences
 THREAT_MODEL R89.
+
+## ADR-0063: M7 milestone review follow-ups (folder epoch jumps, joins, holds)
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+The milestone review of the key rotation backend (3 high, 5 medium, 5 low findings) showed that a planted account-file header could strand other devices on a folder, that a device joining after a re-key started at epoch 1, and that an adopted device could seal at the retired generation.
+
+### Decision
+- **Folder adoption takes any higher epoch** (ADR-0058 amended). A re-key targets `max(own, highest seen) + 1`, so the epoch can jump; the typed Secret Key is the authenticator (the file must open under it, its MAC must verify under the key it holds, and the Secret Key is neither the current one nor a retired one). Hosted adoption stays at `current + 1`. The marker's `to_epoch` is any value above `from_epoch`. `highest_epoch_seen` counts verified markers and unverified files at exactly `own + 1`, and ignores dismissed ones.
+- **A marker the device cannot follow is dismissible.** A marker verifies under the old `K_fold`, which a thief of an old device holds. After a failed adoption and a confirmation the user dismisses it (path and SHA-256, like a dismissed file); the pending flag clears when no other undismissed verified marker is left (ADR-0060 amended, THREAT_MODEL R92).
+- **Candidates are tried by salt, marker-named files first, with paging.** One derivation per salt, eight salts per attempt, `skip` to page on up to the 64-file scan cap.
+- **A fresh hosted registration carries the device's account-key epoch** (`akEpoch` in `register/finish`, rejected when 0; server schema v3 is unreleased and edited in place), so a folder-to-hosted switch after a re-key starts the server at the local epoch.
+- **A device that joins stores the backend's epoch** (folder: the verified file's; hosted: the served `akEpoch`), only rising; the hosted re-key re-reads the epoch after its fresh login and stops unless it is the one it leaves; each hosted run compares it with the own epoch (`AccountRollback` finding for a lower one).
+- **Hosted adoption needs no clean sync** and skips unknown or unavailable member vaults. After an adoption every owned vault is held at the generation the device has: no push until the next generation's key arrives (table `rekey_hold` in schema v9, which is unreleased, so edited in place).
+- A resumed job that adopted its own re-key queues the attachments of every owned vault and continues at phase 6. The phase-2 journal write failing stops the request before it is sent. An attachment that does not open is listed as unreachable and skipped. A committed job can be abandoned after a confirmation.
+- Invite state 5 (cancelled by the recipient's re-key) reads as `Cancelled` on the sender's side. A member vault whose current key the device does not hold is skipped in a re-key. A strict plan records no finding. The identity epoch is tied to `account.ak_epoch` in the v9 triggers.
+- Not done: the reason-6 (`MemberRekeyed`) revocation row. The rotation request reaches the owner as the server's `rotationRequested` flag, which names no requester, and the flag stays until the owner rotates, so the rotation survives a restart without a row.
+
+### Alternatives considered
+- Adopt only `current + 1` on a folder and refuse jumps: any planted `own + 5` header could then strand every other device after one genuine re-key.
+- Let a marker clear itself after a timeout: it would let a thief's marker expire a genuine one too.
+
+### Consequences
+THREAT_MODEL R92 to R94; ADR-0058 and ADR-0060 amended above. The app asks before dismissing a marker and before abandoning a committed job, and calls `join_account_with_keys_at` with the served epoch when it joins a hosted account.

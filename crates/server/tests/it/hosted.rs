@@ -23,6 +23,7 @@ use mosaic_vault::storage::Store;
 pub use super::loopback::LoopbackServer;
 
 pub const PASSWORD: &str = "correct horse battery staple";
+pub const PASSWORD_AFTER_REKEY: &str = "a different horse battery staple";
 
 pub fn pw(s: &str) -> MasterPassword {
     MasterPassword::new(s.to_owned())
@@ -99,17 +100,45 @@ impl World {
     /// logs in. `chaos` applies to every device's transport until
     /// [`World::set_chaos`].
     pub fn new(seed: u64, chaos: ChaosConfig) -> Self {
+        Self::build(seed, chaos, false)
+    }
+
+    /// Like [`World::new`], but the account was re-keyed locally first (as a
+    /// folder device would have): it registers at epoch 2 with a new password
+    /// (`PASSWORD_AFTER_REKEY`) and a new Secret Key.
+    pub fn new_after_local_rekey(seed: u64) -> Self {
+        Self::build(seed, ChaosConfig::default(), true)
+    }
+
+    fn build(seed: u64, chaos: ChaosConfig, rekeyed: bool) -> Self {
         let server = LoopbackServer::start();
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path().join("device-0.db")).unwrap();
         let device = store.install_id().unwrap();
-        let (session, created) = LockedSession::open(store)
+        let (mut session, mut created) = LockedSession::open(store)
             .create_account(&pw(PASSWORD), Argon2Profile::Baseline)
             .unwrap();
+        let mut password = PASSWORD;
+        if rekeyed {
+            let new_sk = SecretKey::generate().unwrap();
+            let prepared = session
+                .prepare_rekey(mosaic_vault::session::RekeyRequest {
+                    current_password: &pw(PASSWORD),
+                    current_secret_key: &created.secret_key,
+                    new_password: &pw(PASSWORD_AFTER_REKEY),
+                    new_secret_key: &new_sk,
+                    profile: Argon2Profile::Baseline,
+                    plan: mosaic_vault::session::RekeyPlan::default(),
+                })
+                .unwrap();
+            session.commit_rekey(prepared).unwrap();
+            created.secret_key = new_sk;
+            password = PASSWORD_AFTER_REKEY;
+        }
         let email = format!("user{seed}@example.com");
         let boot = session.account_bootstrap().unwrap();
         let opw = session
-            .opaque_password(&pw(PASSWORD), &created.secret_key)
+            .opaque_password(&pw(password), &created.secret_key)
             .unwrap();
         hosted::register(&server.base, &email, None, &boot, &opw, device, "device 0").unwrap();
         let account = session.account_id();
@@ -222,7 +251,7 @@ impl World {
         let account =
             hosted::join_fetch_account(&self.server.base, &joined.grant.token, &joined.keys)?;
         let session = LockedSession::open(store)
-            .join_account_with_keys(&account.wrapped_ak, joined.keys)
+            .join_account_with_keys_at(&account.wrapped_ak, joined.keys, account.ak_epoch)
             .map_err(|e| e.error)
             .unwrap();
         let access = LocalSession::new(session);
@@ -528,6 +557,10 @@ impl<T: Transport> Transport for Intercept<T> {
 
     fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
         self.inner.rekey_signals(epoch)
+    }
+
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        self.inner.backend_epoch()
     }
 
     fn rekey_candidates(

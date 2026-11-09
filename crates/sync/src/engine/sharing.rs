@@ -865,6 +865,12 @@ impl<T: Transport> SyncEngine<T> {
             // A member the directory does not serve is handled like one whose
             // key does not match: revoked, a finding, the rotation goes ahead.
             let Some(ipk) = self.sharing_tx()?.directory(account)? else {
+                // A strict plan (the owner's own re-key) records no finding:
+                // it would block the retry through the clean-sync rule, and
+                // the refusal already tells the owner (review L2).
+                if strict {
+                    return Ok(None);
+                }
                 Self::note_finding(
                     access,
                     SharingFinding::MemberKeyMismatch {
@@ -872,9 +878,6 @@ impl<T: Transport> SyncEngine<T> {
                         account: *account,
                     },
                 )?;
-                if strict {
-                    return Ok(None);
-                }
                 revoked.insert(*account);
                 continue;
             };
@@ -904,10 +907,10 @@ impl<T: Transport> SyncEngine<T> {
                 } else {
                     SharingFinding::MemberUnverified { vault, account }
                 };
-                Self::note_finding(access, finding)?;
                 if strict {
                     return Ok(None);
                 }
+                Self::note_finding(access, finding)?;
                 revoked.insert(account);
                 continue;
             }

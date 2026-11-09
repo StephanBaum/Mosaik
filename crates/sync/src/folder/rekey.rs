@@ -75,12 +75,16 @@ impl<C: FolderCrypto> FolderTransport<C> {
         }
     }
 
-    /// The first marker for `epoch` that verifies under this device's keys.
-    fn verified_marker(
+    /// Every marker for `epoch` (at most `MAX_SCANNED`) that verifies under
+    /// this device's keys, with its file name and the SHA-256 of its bytes.
+    /// Anyone who holds the old keys can write one (review H1), so a caller
+    /// never treats the first as the only one.
+    fn verified_rekey_markers(
         &self,
         dir: &AccountDir,
         epoch: u32,
-    ) -> Result<Option<RekeyMarker>, TransportError> {
+    ) -> Result<Vec<(RekeyMarker, String, [u8; 32])>, TransportError> {
+        let mut out = Vec::new();
         for (from_epoch, device) in dir
             .markers
             .iter()
@@ -105,10 +109,14 @@ impl<C: FolderCrypto> FolderTransport<C> {
                 device_id,
             };
             if let Some(marker) = decoded(RekeyMarker::decode(&bytes, &id, &self.crypto))? {
-                return Ok(Some(marker));
+                out.push((
+                    marker,
+                    folder_names::rekey_marker_name(*from_epoch, device),
+                    Sha256::digest(&bytes).into(),
+                ));
             }
         }
-        Ok(None)
+        Ok(out)
     }
 
     pub(super) fn folder_rekey_signals(
@@ -117,16 +125,17 @@ impl<C: FolderCrypto> FolderTransport<C> {
     ) -> Result<RekeySignals, TransportError> {
         self.refresh_epoch()?;
         let dir = self.list_account_dir()?;
-        if let Some(m) = self.verified_marker(&dir, epoch)? {
-            return Ok(RekeySignals {
-                marker: Some(RekeyMarkerSeen {
-                    to_epoch: m.to_epoch,
-                    to_account_version: m.to_account_version,
-                    device: m.device_id,
-                }),
-                unverified: Vec::new(),
-            });
-        }
+        let markers: Vec<RekeyMarkerSeen> = self
+            .verified_rekey_markers(&dir, epoch)?
+            .into_iter()
+            .map(|(m, name, sha256)| RekeyMarkerSeen {
+                name,
+                sha256,
+                to_epoch: m.to_epoch,
+                to_account_version: m.to_account_version,
+                device: m.device_id,
+            })
+            .collect();
         let mut unverified = Vec::new();
         for (version, device) in dir.files.iter().take(MAX_SCANNED) {
             let Ok(device_id) = InstallId::from_bytes(*device) else {
@@ -160,7 +169,7 @@ impl<C: FolderCrypto> FolderTransport<C> {
             }
         }
         Ok(RekeySignals {
-            marker: None,
+            markers,
             unverified,
         })
     }
@@ -171,9 +180,13 @@ impl<C: FolderCrypto> FolderTransport<C> {
         limit: usize,
     ) -> Result<Vec<RekeyCandidate>, TransportError> {
         let dir = self.list_account_dir()?;
+        // The files every verified marker names come first (a thief with the
+        // old keys can add markers that name junk, so the engine pages past
+        // the first few salts, review M3).
         let named = self
-            .verified_marker(&dir, epoch)?
-            .map(|m| (m.to_account_version, *m.device_id.as_bytes()));
+            .verified_rekey_markers(&dir, epoch)?
+            .into_iter()
+            .map(|(m, ..)| (m.to_account_version, *m.device_id.as_bytes()));
         let mut order: Vec<(u64, [u8; 16])> = Vec::new();
         order.extend(named);
         let mut seen: BTreeSet<(u64, [u8; 16])> = order.iter().copied().collect();
@@ -201,7 +214,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let Ok(file) = AccountFile::decode_for_join(&bytes, &id) else {
                 continue;
             };
-            if epoch.checked_add(1) == Some(file.ak_epoch) {
+            // Any epoch above this device's (review H1): the typed Secret
+            // Key and the MAC under the key it opens decide.
+            if file.ak_epoch > epoch {
                 out.push(RekeyCandidate { file, bytes });
             }
         }
@@ -220,6 +235,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
         for vault in publish.snapshot_vaults {
             let objects = cx.snapshot_objects(*vault)?;
             if objects.is_empty() {
+                // An empty vault has nothing to snapshot: its set is
+                // complete, so the pre-re-key segments may go after the
+                // retention (review L5).
+                cx.mark_rekey_snapshot(*vault)?;
                 continue;
             }
             self.write_snapshot(*vault, objects)?;

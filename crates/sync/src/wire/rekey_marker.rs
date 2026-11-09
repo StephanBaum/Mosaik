@@ -3,7 +3,7 @@
 //! old epoch learn it happened and which account file to look for.
 //!
 //! ```text
-//! "MREK" || 1 || account_id[16] || from_epoch:u32 (>= 1) || to_epoch:u32 (= from_epoch + 1)
+//! "MREK" || 1 || account_id[16] || from_epoch:u32 (>= 1) || to_epoch:u32 (> from_epoch)
 //! || to_account_version:u64 (>= 1) || device_id[16] || created_at_ms:u64 || mac[32]   (93 bytes)
 //! mac = HMAC(K_fold(from_epoch), ctx("sync/folder-rekey") || 0x00 || all preceding bytes)
 //! ```
@@ -42,7 +42,8 @@ pub struct RekeyMarker {
     pub account_id: AccountId,
     /// The epoch the re-key leaves.
     pub from_epoch: u32,
-    /// The epoch it moves to (always `from_epoch + 1`).
+    /// The epoch it moves to (above `from_epoch`; a re-key jumps past the
+    /// epochs it saw elsewhere, CRYPTO_SPEC 6.6).
     pub to_epoch: u32,
     /// The `account_version` of the new account file.
     pub to_account_version: u64,
@@ -58,8 +59,8 @@ impl RekeyMarker {
     /// the vault builds the same bytes before the epoch changes.)
     ///
     /// # Errors
-    /// [`WireError::Field`] for a zero epoch or version or a `to_epoch` other
-    /// than `from_epoch + 1`; [`WireError::Crypto`].
+    /// [`WireError::Field`] for a zero epoch or version or a `to_epoch` not
+    /// above `from_epoch`; [`WireError::Crypto`].
     pub fn encode(&self, crypto: &impl SyncCrypto) -> Result<Vec<u8>, WireError> {
         self.check_fields()?;
         let mut out = Vec::with_capacity(LEN);
@@ -77,9 +78,7 @@ impl RekeyMarker {
     }
 
     fn check_fields(&self) -> Result<(), WireError> {
-        if self.from_epoch == 0
-            || self.to_account_version == 0
-            || self.from_epoch.checked_add(1) != Some(self.to_epoch)
+        if self.from_epoch == 0 || self.to_account_version == 0 || self.to_epoch <= self.from_epoch
         {
             return Err(WireError::Field);
         }
@@ -201,6 +200,19 @@ mod tests {
         }
     }
 
+    /// A re-key may target `max(own, seen) + 1` (review H1): the marker
+    /// carries a `to_epoch` above `from_epoch + 1` and decodes.
+    #[test]
+    fn epoch_jump_round_trips() {
+        let (c, marker, path) = fixture();
+        let jump = RekeyMarker {
+            to_epoch: 9,
+            ..marker
+        };
+        let bytes = jump.encode(&c).unwrap();
+        assert_eq!(RekeyMarker::decode(&bytes, &path, &c).unwrap(), jump);
+    }
+
     #[test]
     fn path_device_mismatch_rejected() {
         let (c, marker, path) = fixture();
@@ -253,7 +265,11 @@ mod tests {
                 ..marker
             },
             RekeyMarker {
-                to_epoch: 6,
+                to_epoch: 4,
+                ..marker
+            },
+            RekeyMarker {
+                to_epoch: 3,
                 ..marker
             },
             RekeyMarker {

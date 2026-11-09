@@ -256,7 +256,10 @@ fn hosted_crash_after_finish_recovers_with_pending_sk() {
             device,
             &name,
             None,
-            &mut |stage| phases.push(stage),
+            &mut |stage| {
+                phases.push(stage);
+                true
+            },
         )
         .unwrap();
         assert!(matches!(outcome, RekeyOutcome::Done(_)));
@@ -310,13 +313,16 @@ fn hosted_crash_after_finish_recovers_with_pending_sk() {
     else {
         panic!("the server had applied the re-key");
     };
-    assert!(
+    // M2: the job goes on at phase 6 (attachments are queued again).
+    assert_eq!(
         dev.access
             .session()
             .unwrap()
             .rotation_job()
             .unwrap()
-            .is_none()
+            .unwrap()
+            .phase,
+        RotationPhase::Attachments
     );
     assert_eq!(dev.access.session().unwrap().ak_epoch(), 2);
     let transport = {
@@ -324,6 +330,16 @@ fn hosted_crash_after_finish_recovers_with_pending_sk() {
         w.login_transport(device, &name, &adopted.opaque_password)
     };
     w.devs[0].engine = w.engine_over(transport, 0);
+    {
+        let World { devs, clock, .. } = &mut w;
+        let dev = &mut devs[0];
+        assert!(
+            dev.engine
+                .rekey_continue(&mut dev.access, clock)
+                .unwrap()
+                .finished
+        );
+    }
     // The other device adopts, and everything converges on the new keys.
     adopt(&mut w, 1, &new_sk).unwrap();
     converge(&mut w, 2);
@@ -690,4 +706,154 @@ fn member_rekey_without_owner_verification_blocks_rotation() {
     let report = w.sync(0, 0);
     assert!(!report.rotated_vaults.contains(&vault));
     assert_eq!(w.generation(0, 0, vault), before);
+}
+
+// ---- review round (ADR-0063) -------------------------------------------------------------
+
+/// H2 and L1: a device that joins after a re-key starts at the server's
+/// epoch, so its own re-key targets the next epoch and the server takes it.
+#[test]
+fn hosted_join_after_a_rekey_then_rekey_again() {
+    let (mut w, _vault, _item) = world(31, 1);
+    let sk1 = SecretKey::generate().unwrap();
+    assert!(rekey(&mut w, 0, &sk1).finished);
+    w.secret_key = copy_key(&sk1);
+    let d = w.try_join_with(NEW_PASSWORD).unwrap();
+    assert_eq!(
+        w.devs[d].s().ak_epoch(),
+        2,
+        "the join took the server epoch"
+    );
+    // A hosted run compares the served epoch with the own one: no rollback.
+    let r = w.sync(d);
+    assert!(
+        !r.warnings
+            .iter()
+            .any(|x| matches!(x, SyncWarning::AccountRollback { .. }))
+    );
+    // Its own re-key goes through (target 3) and device 0 adopts it.
+    let sk2 = SecretKey::generate().unwrap();
+    let third = "a third horse battery staple";
+    let (cur_pw, new_pw) = (pw(NEW_PASSWORD), pw(third));
+    let secrets = RekeySecrets {
+        current_password: &cur_pw,
+        current_secret_key: &sk1,
+        new_password: &new_pw,
+        new_secret_key: &sk2,
+        profile: Argon2Profile::Baseline,
+    };
+    w.server.advance_ms(60_000);
+    let (name, device) = (w.devs[d].name.clone(), w.devs[d].device);
+    let done = {
+        let World {
+            devs,
+            clock,
+            server,
+            email,
+            ..
+        } = &mut w;
+        let hosted = HostedRekey {
+            base: &server.base,
+            address: email,
+            device_name: &name,
+            totp_code: None,
+        };
+        let dev = &mut devs[d];
+        dev.engine
+            .rekey_hosted(&mut dev.access, clock, &hosted, &secrets)
+            .unwrap()
+    };
+    assert_eq!(w.devs[d].s().ak_epoch(), 3);
+    drop(done);
+    let _ = device;
+}
+
+/// L1: a server that states a lower epoch than the device's gives a finding.
+#[test]
+fn hosted_lower_epoch_is_an_account_rollback_finding() {
+    let (mut w, _vault, _item) = world(32, 1);
+    let sk1 = SecretKey::generate().unwrap();
+    assert!(rekey(&mut w, 0, &sk1).finished);
+    // The device believes it is one epoch further than the server says.
+    w.devs[0].s_mut().raise_epoch_to(3).unwrap();
+    let r = w.sync(0);
+    assert!(r.warnings.iter().any(|x| matches!(
+        x,
+        SyncWarning::AccountRollback {
+            stored: 3,
+            offered: 2
+        }
+    )));
+}
+
+/// M5 and M1: after a hosted adoption the owned vault is held until the next
+/// generation's key arrives, then edits converge; a device with an open
+/// finding still adopts.
+#[test]
+fn hosted_adopted_vault_is_held_until_the_next_generation() {
+    let (mut w, vault, item) = world(33, 2);
+    set_password(&mut w, 1, vault, item, "edit while stale");
+    let new_sk = SecretKey::generate().unwrap();
+    assert!(rekey(&mut w, 0, &new_sk).finished);
+    adopt(&mut w, 1, &new_sk).unwrap();
+    assert!(
+        w.devs[1].s().rekey_held(vault).unwrap(),
+        "nothing is pushed under the retired key"
+    );
+    converge(&mut w, 2);
+    assert!(!w.devs[1].s().rekey_held(vault).unwrap());
+    for d in 0..2 {
+        assert_eq!(w.devs[d].s().vaults()[0].key_generation.get(), 2);
+    }
+    assert_eq!(
+        password_of(&w, 0, vault, item),
+        password_of(&w, 1, vault, item)
+    );
+}
+
+/// H3: an invite the recipient's re-key cancelled (state 5) reads as
+/// cancelled on the inviter's side and does not break the inviter's sync.
+#[test]
+fn inviter_sync_survives_the_recipients_rekey() {
+    let mut w = SWorld::with_accounts(34, 2);
+    let vault = w.new_vault(0, 0, "Shared");
+    w.add_login(0, 0, vault, "item");
+    w.sync_all();
+    w.invite(0, 0, vault, 1, Role::Write).unwrap();
+    w.converge();
+    rekey_acct(&mut w, 1, 0, &SecretKey::generate().unwrap());
+    w.sync(0, 0);
+    w.sync(0, 0);
+}
+
+/// H2 (switch): an account re-keyed on a folder registers on the server at its
+/// own epoch, so the served epoch equals the local one and no rollback is
+/// reported.
+#[test]
+fn folder_rekey_then_hosted_registration_keeps_the_epoch() {
+    let mut w = World::new_after_local_rekey(35);
+    let current = w.devs[0].s().ak_epoch();
+    assert_eq!(current, 2);
+    let r = w.sync(0);
+    assert!(
+        !r.warnings
+            .iter()
+            .any(|x| matches!(x, SyncWarning::AccountRollback { .. })),
+        "{:?}",
+        r.warnings
+    );
+    let device = w.devs[0].device;
+    let joined = hosted::join_login(
+        &w.server.base,
+        &w.email,
+        &pw(crate::hosted::PASSWORD_AFTER_REKEY),
+        &w.secret_key,
+        device,
+        "device 0",
+    )
+    .unwrap();
+    let served = hosted::join_fetch_account(&w.server.base, &joined.grant.token, &joined.keys)
+        .unwrap()
+        .ak_epoch;
+    assert_eq!(served, current);
 }

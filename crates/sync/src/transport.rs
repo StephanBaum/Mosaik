@@ -504,10 +504,16 @@ pub trait MaintainContext {
 }
 
 /// A re-key marker that verified under this device's keys (folder only, M7):
-/// the account was re-keyed away from this device's epoch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// the account was re-keyed away from this device's epoch. Anyone who holds
+/// the old keys (a thief of an old device) can write one, so a device that
+/// cannot follow it can dismiss it (CRYPTO_SPEC 10.1, review H1).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RekeyMarkerSeen {
-    /// The epoch the re-key moved to.
+    /// The marker's file name in the account directory.
+    pub name: String,
+    /// SHA-256 of its bytes.
+    pub sha256: [u8; 32],
+    /// The epoch the re-key moved to (above this device's, not always by one).
     pub to_epoch: u32,
     /// The `account_version` of the new account file.
     pub to_account_version: u64,
@@ -532,8 +538,10 @@ pub struct UnverifiedAccountFile {
 /// What a transport saw of a re-key (folder only, M7).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RekeySignals {
-    /// A verified `.mrek` for this device's epoch: the only hard stop.
-    pub marker: Option<RekeyMarkerSeen>,
+    /// The verified `.mrek` files for this device's epoch (at most
+    /// `MAX_SCANNED`, newest epoch first): the only hard stop, unless the
+    /// user dismissed them.
+    pub markers: Vec<RekeyMarkerSeen>,
     /// Account files that do not verify and name this epoch or a higher one.
     pub unverified: Vec<UnverifiedAccountFile>,
 }
@@ -784,9 +792,20 @@ pub trait Transport: Send {
         Ok(RekeySignals::default())
     }
 
+    /// The account-key epoch the backend states for the account (hosted
+    /// only, M7): unauthenticated, the server's claim. `None` for a backend
+    /// that does not state one (the folder checks its account files instead).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        Ok(None)
+    }
+
     /// The account files a device at `epoch` may try to adopt, best first:
-    /// the file a verified marker names, then the others by version, only
-    /// those whose header names `epoch + 1` (at most `limit`). Default none.
+    /// the files every verified marker names, then the others by version,
+    /// only those whose header names an epoch above `epoch` (at most `limit`).
+    /// Default none.
     ///
     /// # Errors
     /// [`TransportError`].

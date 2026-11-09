@@ -748,13 +748,21 @@ refuses a backend change while a job exists.
   store transaction; the session holds the new AK afterwards).
   Errors: `PasswordUnchanged`, `SecretKeyUnchanged`, `RekeyNotClean`, `PlanMismatch`,
   `EpochExhausted`, `PreparedStale`.
-- Adoption: `adopt_remote_rekey(RekeyAdoption)` → `RekeyAdopted`. Only epoch
-  `current + 1` (equal: `UnlockFailed`, lower: `EpochRollback`, else `EpochNotNext`);
+- Adoption: `adopt_remote_rekey(RekeyAdoption)` → `RekeyAdopted`. Epoch
+  `current + 1` (hosted), or any epoch above the current one when
+  `any_higher_epoch` is set (folder; equal: `UnlockFailed`, lower: `EpochRollback`,
+  else `EpochNotNext`); every owned vault is held at its generation until the next
+  one arrives (`rekey_held(vault)`, table `rekey_hold`);
   refuses a retired salt (`PasswordRollback`) and a typed Secret Key that is the
   current or a retired one (`SecretKeyUnchanged`); stores the backend's own wrapping
   of each member vault's current key after checking it opens to the held key. There
   is no adoption at an equal epoch.
-- Attachments: `reseal_next_attachment(Option<&[u8]>)` → `ResealStep`,
+- Join: `LockedSession::join_account_with_keys_at(wrapped, keys, epoch)` stores the
+  backend's epoch (only rises); `raise_epoch_to(epoch)`. `member_vault_generations()`
+  lists the held vaults shared to the account without a clean-sync check.
+- Attachments: `reseal_next_attachment(Option<&[u8]>)` → `ResealStep` (`Unreadable`
+  marks the attachment unreachable and goes on), `queue_adoption_reseal` (resume),
+  `abandon_committed_rotation_job` (after a confirmation),
   `mark_attachment_unreachable`, `unreachable_attachments`,
   `queue_vault_attachment_reseal`.
 - Journal: `rotation_job` (`RotationJob`, `RotationKind`, `RotationPhase`),

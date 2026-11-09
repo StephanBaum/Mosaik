@@ -315,7 +315,10 @@ a release created; the owner next rotation lists them in `revoke`.
 
 Schema version 3 (M7) adds the account key epoch (`accounts.ak_epoch`, from 1),
 rotation requests and the audit kinds 15 (account re-keyed) and 16 (rotation
-requested). The migration runs on start. A re-key is the full rotation of an
+requested). The migration runs on start. `POST /v1/register/finish` carries `akEpoch`: 1
+for a new account, the device's own epoch when a device that re-keyed on a folder switches
+to this server (the server rejects 0; the value is a `u32`). The epoch then rises only by
+re-keys, one at a time. A re-key is the full rotation of an
 account's keys (CRYPTO_SPEC §6.6): a new account key, a new identity key and a
 new vault key for every vault the account owns. The server stores what the
 client uploads and never opens a wrapping or a seal.
@@ -354,7 +357,10 @@ with the head moved so the account's other devices fetch it; every key row of
 an older generation of this account deleted (they are under the old account
 key); the key shares addressed to the account deleted; the emergency seals
 addressed to the account deleted (the grantor re-seals after verifying the new
-code); incoming open invites set to state 5, `cancelled_by_rekey`; open invites
+code); incoming open invites set to state 5, `cancelled_by_rekey` (the sender's list shows it
+with `delivered`; the sender's client reads state 5 as cancelled, queues the revocation of
+a delivered one and deletes it with `DELETE /v1/invites/{id}`, which removes an invite of
+any finished state, 5 included); open invites
 the account sent for vaults it does not own cancelled (state 3: their seal is
 from the old identity key); a rotation request to the owner of each vault
 shared to the account; audit 15 for the account and 16 for each owner; the poll
