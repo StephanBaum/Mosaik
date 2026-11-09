@@ -550,7 +550,8 @@ A device compares the backend's epoch with its own:
   the verified account file's epoch on a folder, the served `akEpoch` on hosted
   (a claim, usable only because the wrapping opens under the typed keys). The
   stored epoch only rises. A device that switches a backend keeps the epoch of
-  its own AK (a fresh hosted registration states it, so folder and server agree).
+  its own AK: a fresh hosted registration carries it (`akEpoch` in `register/finish`, at
+  least 1), so folder and server agree and no `AccountRollback` follows.
   Without this, a device that joined after a re-key would target epoch 2 again.
 
 There is **no adoption at an equal epoch.** Two concurrent re-keys are resolved

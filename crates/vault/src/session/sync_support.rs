@@ -150,6 +150,10 @@ pub struct AccountBootstrap {
     pub params: PasswordParams,
     /// `AK` wrapped under the password `KEK`.
     pub wrapped_ak: WrappedKey,
+    /// The account-key epoch of this device (CRYPTO_SPEC 6.7): a fresh hosted
+    /// registration states it, so a device that switches from a folder after
+    /// a re-key does not leave the server at epoch 1.
+    pub ak_epoch: u32,
 }
 
 /// A master password change that is derived but not stored: both OPAQUE
@@ -1335,6 +1339,7 @@ impl UnlockedSession {
         Ok(AccountBootstrap {
             params,
             wrapped_ak: wrapped.wrapped_account_key,
+            ak_epoch: self.ak_epoch,
         })
     }
 

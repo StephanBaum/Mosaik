@@ -32,6 +32,8 @@ pub struct NewAccount<'a> {
     pub profile: u8,
     pub opaque_record: &'a [u8],
     pub wrapped_ak: &'a [u8; 74],
+    /// The account-key epoch the account starts at (at least 1).
+    pub ak_epoch: u32,
 }
 
 const COLUMNS: &str = "account_id, email, salt, profile, opaque_record, wrapped_ak, account_version, \
@@ -79,7 +81,7 @@ pub fn by_id(conn: &Connection, id: &[u8; 16]) -> Result<Option<Account>, ApiErr
 pub fn insert(tx: &Transaction<'_>, a: &NewAccount<'_>, now: u64) -> Result<(), ApiError> {
     let r = tx.execute(
         "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak, \
-         account_version, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7)",
+         account_version, created_at, ak_epoch) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
         params![
             a.account_id.as_slice(),
             a.email,
@@ -87,7 +89,8 @@ pub fn insert(tx: &Transaction<'_>, a: &NewAccount<'_>, now: u64) -> Result<(), 
             a.profile,
             a.opaque_record,
             a.wrapped_ak.as_slice(),
-            int(now)
+            int(now),
+            a.ak_epoch
         ],
     );
     match r {

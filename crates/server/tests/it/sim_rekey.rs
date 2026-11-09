@@ -825,3 +825,35 @@ fn inviter_sync_survives_the_recipients_rekey() {
     w.sync(0, 0);
     w.sync(0, 0);
 }
+
+/// H2 (switch): an account re-keyed on a folder registers on the server at its
+/// own epoch, so the served epoch equals the local one and no rollback is
+/// reported.
+#[test]
+fn folder_rekey_then_hosted_registration_keeps_the_epoch() {
+    let mut w = World::new_after_local_rekey(35);
+    let current = w.devs[0].s().ak_epoch();
+    assert_eq!(current, 2);
+    let r = w.sync(0);
+    assert!(
+        !r.warnings
+            .iter()
+            .any(|x| matches!(x, SyncWarning::AccountRollback { .. })),
+        "{:?}",
+        r.warnings
+    );
+    let device = w.devs[0].device;
+    let joined = hosted::join_login(
+        &w.server.base,
+        &w.email,
+        &pw(crate::hosted::PASSWORD_AFTER_REKEY),
+        &w.secret_key,
+        device,
+        "device 0",
+    )
+    .unwrap();
+    let served = hosted::join_fetch_account(&w.server.base, &joined.grant.token, &joined.keys)
+        .unwrap()
+        .ak_epoch;
+    assert_eq!(served, current);
+}

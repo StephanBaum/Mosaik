@@ -234,6 +234,7 @@ pub fn register(
             profile: bootstrap.params.profile,
             registration_upload: B64(finished.message.serialize().to_vec()),
             wrapped_ak: bootstrap.wrapped_ak.clone(),
+            ak_epoch: bootstrap.ak_epoch,
             invite_code: invite_code.map(str::to_owned),
             device_id: device,
             device_name: device_name.to_owned(),

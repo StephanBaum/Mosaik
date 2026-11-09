@@ -315,7 +315,10 @@ a release created; the owner next rotation lists them in `revoke`.
 
 Schema version 3 (M7) adds the account key epoch (`accounts.ak_epoch`, from 1),
 rotation requests and the audit kinds 15 (account re-keyed) and 16 (rotation
-requested). The migration runs on start. A re-key is the full rotation of an
+requested). The migration runs on start. `POST /v1/register/finish` carries `akEpoch`: 1
+for a new account, the device's own epoch when a device that re-keyed on a folder switches
+to this server (the server rejects 0; the value is a `u32`). The epoch then rises only by
+re-keys, one at a time. A re-key is the full rotation of an
 account's keys (CRYPTO_SPEC §6.6): a new account key, a new identity key and a
 new vault key for every vault the account owns. The server stores what the
 client uploads and never opens a wrapping or a seal.

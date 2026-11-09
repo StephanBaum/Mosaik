@@ -508,6 +508,9 @@ pub struct RegisterFinishRequest {
     pub registration_upload: OpaqueBytes,
     #[serde(with = "wrapped_key")]
     pub wrapped_ak: WrappedKey,
+    /// The account-key epoch the new account starts at (1 for a new account,
+    /// the device's own after a folder re-key; the server rejects 0).
+    pub ak_epoch: u32,
     #[serde(deserialize_with = "required")]
     pub invite_code: Option<String>,
     #[serde(with = "uuid_str")]
@@ -1062,6 +1065,7 @@ mod tests {
             profile: Argon2Profile::Baseline,
             registration_upload: B64(vec![1, 2, 3]),
             wrapped_ak: wrapped(),
+            ak_epoch: 1,
             invite_code: None,
             device_id: device,
             device_name: "Laptop".to_owned(),
@@ -1071,7 +1075,7 @@ mod tests {
         assert_eq!(v["inviteCode"], serde_json::Value::Null, "null, not absent");
         assert_eq!(v["profile"], 1);
         assert_eq!(v["accountId"], account.to_string());
-        assert_eq!(v.as_object().unwrap().len(), 9);
+        assert_eq!(v.as_object().unwrap().len(), 10);
 
         let changes = ChangesResponse {
             head_seq: 9,
