@@ -4418,3 +4418,29 @@ The milestone review of the key rotation backend (3 high, 5 medium, 5 low findin
 
 ### Consequences
 THREAT_MODEL R92 to R94; ADR-0058 and ADR-0060 amended above. The app asks before dismissing a marker and before abandoning a committed job, and calls `join_account_with_keys_at` with the served epoch when it joins a hosted account.
+
+## ADR-0064: M7 verify follow-ups (epoch jump cap, marker scan, hold scope, abandon guard)
+
+- Status: accepted
+- Date: 2026-11-09
+- Milestone: M7
+
+### Context
+The verify round of ADR-0063 found that a marker forged by a holder of the old AK could name `to_epoch = u32::MAX - 1` and, through `highest_epoch_seen`, exhaust the epoch space on the next re-key; that the marker scan cut at 64 names before the MAC check, so 64 planted junk markers hid the genuine one; that the hold of ADR-0063 also caught vaults the backend never saw, which then never synced; that a job at phase 4 could be abandoned on the phase number alone; and that the hold lookup in the folder adoption failed open.
+
+### Decision
+- **`MAX_EPOCH_JUMP = 16`** (`mosaic_core::sync_auth::MAX_EPOCH_JUMP`). A marker decoder (and encoder) rejects `to_epoch > from_epoch + 16` (checked arithmetic). `highest_epoch_seen` counts a verified marker only if `to_epoch < own + 16`, so the target of a re-key is at most `own + 16`, and `prepare_rekey` refuses a higher target (`Error::EpochJumpTooLarge`) as a backstop. A refusal there would let a thief block the remedy against him, so the engine ignores such a marker for the target instead of refusing the re-key. A folder adoption refuses an epoch above `own + 16` with `Error::EpochJumpTooLarge { stored, offered }`; the folder candidates above the cap are skipped before any Argon2id derivation. Deviation from the plan: the plan mapped this error to "re-key again from this device". A re-key from the lagging device lands below the account's epoch, and the other devices ignore it, so the app offers to set the device up again (join) instead.
+- **Marker scan by reads.** Up to 1024 marker files of the device's epoch are read and MAC-checked; at most 64 verified ones are kept. The account-file fallback reads up to 1024 files and keeps at most 64 whose header epoch is in `(own, own + 16]`; files every verified marker names come first.
+- **Hold scope.** An adoption holds only owned vaults the backend has seen: the new store column `vaults.backend_known` (schema v9, unreleased, edited in place) is set when a vault is learned from a backend or created there, and no backend change clears it (`remote_created` is reset by a backend change, so it would forget that an old backend holds the key under the old AK). A migrated vault counts as seen (the conservative default). A vault the backend never saw is not held: its key is re-wrapped under the new AK and it syncs normally, because none of its ciphertext or wrappings left the device. Residual: a crash between the backend's create and the local mark leaves a vault the backend holds under the old AK unheld (THREAT_MODEL R94).
+- **Abandon after the commit only.** `abandon_committed_rotation_job` needs phase 5 or later and, for a re-key, the store at the job's target epoch. Phases 1 to 4 are resume-only.
+- **The hold lookup fails closed.** An error reading the hold stops the folder adoption's snapshot step instead of snapshotting a vault whose hold state is unknown.
+- **`raise_epoch_to` is test-only** (feature `test-util` of `mosaic-vault`, enabled by `mosaic-sync/test-util`). A join stores the backend's epoch through `join_account_with_keys_at`; no production path raises the epoch without the matching key change.
+- **Dismissed markers can be listed and restored.** `SyncEngine::dismissed_rekey_markers` lists the verified markers the folder shows that the user dismissed; `undismiss_rekey_marker(name, sha256)` removes the dismissal and sets the re-key-pending flag again. Dismissal stays per path and SHA-256.
+
+### Alternatives considered
+- Refuse a re-key whose target would pass the cap: a thief with the old AK could then stop the user from re-keying away from him.
+- Hold by `remote_created`: a backend change resets it, so a vault an old backend holds under the old AK would not be held.
+- Rotate the vault key of a never-published vault at adoption: needless, nothing of it was published.
+
+### Consequences
+THREAT_MODEL R92 to R94 amended, R95 and R96 added. The desktop maps `EpochJumpTooLarge` to "set this device up again", lists "Ignored re-key notices" with a Restore button, and no longer calls `raise_epoch_to`.

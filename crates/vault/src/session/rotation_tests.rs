@@ -9,6 +9,7 @@
 )]
 
 use mosaic_core::model::ItemType;
+use mosaic_core::sync_auth::MAX_EPOCH_JUMP;
 use mosaic_core::unlock::PrfOutput;
 use mosaic_core::{
     Argon2Profile, CredentialChange, Fingerprint, IdentityPublicKey, ItemId, Kek, KeyGeneration,
@@ -1225,6 +1226,48 @@ fn folder_adoption_takes_any_higher_epoch() {
     ));
 }
 
+/// ADR-0064: a folder adoption takes a jump of up to `MAX_EPOCH_JUMP` and
+/// refuses one more; a re-key never targets more than the cap above the own
+/// epoch.
+#[test]
+fn epoch_jump_is_capped() {
+    let (mut a, sk, mut b, b_sk) = two_devices();
+    let done = rekey(&mut a, &sk, RekeyPlan::default());
+    let mut x = adoption(&done, &done.new_sk, &b_sk, 1 + MAX_EPOCH_JUMP + 1);
+    x.any_higher_epoch = true;
+    assert!(matches!(
+        b.adopt_remote_rekey(x),
+        Err(Error::EpochJumpTooLarge {
+            stored: 1,
+            offered: 18
+        })
+    ));
+    assert_eq!(b.ak_epoch(), 1);
+    let mut x = adoption(&done, &done.new_sk, &b_sk, 1 + MAX_EPOCH_JUMP);
+    x.any_higher_epoch = true;
+    assert_eq!(b.adopt_remote_rekey(x).unwrap().epoch, 17);
+    // The target of a re-key: `seen + 1` within the cap, never past it.
+    let (c, c_sk) = account();
+    let new_sk = SecretKey::generate().unwrap();
+    let plan = |seen| RekeyPlan {
+        seen_epoch: seen,
+        ..RekeyPlan::default()
+    };
+    assert!(matches!(
+        prepare(&c, &c_sk, &new_sk, plan(1 + MAX_EPOCH_JUMP)),
+        Err(Error::EpochJumpTooLarge {
+            stored: 1,
+            offered: 18
+        })
+    ));
+    assert!(matches!(
+        prepare(&c, &c_sk, &new_sk, plan(u32::MAX - 1)),
+        Err(Error::EpochJumpTooLarge { .. })
+    ));
+    let p = prepare(&c, &c_sk, &new_sk, plan(MAX_EPOCH_JUMP)).unwrap();
+    assert_eq!(p.to_epoch(), 1 + MAX_EPOCH_JUMP);
+}
+
 /// H2: a device that joins after a re-key starts at the backend's epoch,
 /// which only rises, and its own re-key then targets the next epoch.
 #[test]
@@ -1295,17 +1338,30 @@ fn adoption_resume_requeues_attachments() {
     b.finish_rotation_job().unwrap();
 }
 
-/// M5: after an adoption the owned vaults are held at their generation until
-/// the next one arrives.
+/// M5: after an adoption the owned vaults a backend has seen are held at
+/// their generation until the next one arrives; a vault no backend ever saw
+/// is not held (ADR-0064), and a backend change does not make a seen vault
+/// unseen.
 #[test]
 fn adoption_holds_owned_vaults_until_the_next_generation() {
     let (mut a, sk, mut b, b_sk) = two_devices();
-    let v = b.create_vault("mine").unwrap();
+    let v = synced_vault(&mut b, "mine");
+    let offline = b.create_vault("created offline").unwrap();
+    assert!(!b.store.vault_backend_known(&offline).unwrap());
     assert!(!b.rekey_held(v).unwrap());
+    // A change of backend resets the sync state, not what a backend saw.
+    b.store.reset_sync_state().unwrap();
+    assert!(!b.store.vault_sync_state(&v).unwrap().remote_created);
+    assert!(b.store.vault_backend_known(&v).unwrap());
     let done = rekey(&mut a, &sk, RekeyPlan::default());
     b.adopt_remote_rekey(adoption(&done, &done.new_sk, &b_sk, 2))
         .unwrap();
     assert!(b.rekey_held(v).unwrap(), "no push under the retired key");
+    assert!(
+        !b.rekey_held(offline).unwrap(),
+        "never published: re-wrapped under the new AK and synced"
+    );
+    assert!(b.vault(offline).is_ok());
     let mut b = relock(b, &pw2(), &done.new_sk);
     assert!(b.rekey_held(v).unwrap(), "the hold survives a lock");
     // The re-key's next generation arrives (here: a local rotation stands in).
@@ -1353,11 +1409,23 @@ fn committed_job_can_be_abandoned() {
     s.add_attachment(v, item, "a.txt", "text/plain", b"x")
         .unwrap();
     s.begin_rotation_job(RotationKind::Rekey, None).unwrap();
+    // Phases 1 to 4 are resume-only (ADR-0064): phase 4 is refused unless
+    // the store holds the job's target epoch.
+    for phase in [
+        RotationPhase::BackendStarted,
+        RotationPhase::FolderWritten,
+        RotationPhase::LocalCommitted,
+    ] {
+        s.set_rotation_phase(phase).unwrap();
+        assert!(
+            matches!(
+                s.abandon_committed_rotation_job(),
+                Err(Error::Store(StorageError::RotationTooFar))
+            ),
+            "{phase:?}"
+        );
+    }
     s.set_rotation_phase(RotationPhase::BackendStarted).unwrap();
-    assert!(matches!(
-        s.abandon_committed_rotation_job(),
-        Err(Error::Store(StorageError::RotationTooFar))
-    ));
     let p = prepare(
         &s,
         &sk,

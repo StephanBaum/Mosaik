@@ -3,7 +3,8 @@
 //! old epoch learn it happened and which account file to look for.
 //!
 //! ```text
-//! "MREK" || 1 || account_id[16] || from_epoch:u32 (>= 1) || to_epoch:u32 (> from_epoch)
+//! "MREK" || 1 || account_id[16] || from_epoch:u32 (>= 1)
+//! || to_epoch:u32 (> from_epoch, <= from_epoch + MAX_EPOCH_JUMP)
 //! || to_account_version:u64 (>= 1) || device_id[16] || created_at_ms:u64 || mac[32]   (93 bytes)
 //! mac = HMAC(K_fold(from_epoch), ctx("sync/folder-rekey") || 0x00 || all preceding bytes)
 //! ```
@@ -13,7 +14,7 @@
 //! re-keying device builds the bytes inside the vault session (before the
 //! commit drops the old `AK`) and keeps them in the rotation journal.
 
-use mosaic_core::sync_auth::FolderMacPurpose;
+use mosaic_core::sync_auth::{FolderMacPurpose, MAX_EPOCH_JUMP};
 use mosaic_core::{AccountId, InstallId};
 
 use super::{Reader, SyncCrypto, WireError, split_mac};
@@ -42,8 +43,9 @@ pub struct RekeyMarker {
     pub account_id: AccountId,
     /// The epoch the re-key leaves.
     pub from_epoch: u32,
-    /// The epoch it moves to (above `from_epoch`; a re-key jumps past the
-    /// epochs it saw elsewhere, CRYPTO_SPEC 6.6).
+    /// The epoch it moves to (above `from_epoch` and at most
+    /// [`MAX_EPOCH_JUMP`] above it; a re-key jumps past the epochs it saw
+    /// elsewhere, CRYPTO_SPEC 6.6).
     pub to_epoch: u32,
     /// The `account_version` of the new account file.
     pub to_account_version: u64,
@@ -60,7 +62,8 @@ impl RekeyMarker {
     ///
     /// # Errors
     /// [`WireError::Field`] for a zero epoch or version or a `to_epoch` not
-    /// above `from_epoch`; [`WireError::Crypto`].
+    /// above `from_epoch` or more than [`MAX_EPOCH_JUMP`] above it;
+    /// [`WireError::Crypto`].
     pub fn encode(&self, crypto: &impl SyncCrypto) -> Result<Vec<u8>, WireError> {
         self.check_fields()?;
         let mut out = Vec::with_capacity(LEN);
@@ -77,12 +80,17 @@ impl RekeyMarker {
         Ok(out)
     }
 
+    /// A zero epoch or version, a `to_epoch` not above `from_epoch`, or a
+    /// jump above [`MAX_EPOCH_JUMP`] (checked arithmetic, ADR-0064).
     fn check_fields(&self) -> Result<(), WireError> {
         if self.from_epoch == 0 || self.to_account_version == 0 || self.to_epoch <= self.from_epoch
         {
             return Err(WireError::Field);
         }
-        Ok(())
+        match self.from_epoch.checked_add(MAX_EPOCH_JUMP) {
+            Some(cap) if self.to_epoch > cap => Err(WireError::Field),
+            _ => Ok(()),
+        }
     }
 
     /// Decodes a marker whose MAC verifies under the keys behind `crypto`
@@ -211,6 +219,47 @@ mod tests {
         };
         let bytes = jump.encode(&c).unwrap();
         assert_eq!(RekeyMarker::decode(&bytes, &path, &c).unwrap(), jump);
+    }
+
+    /// ADR-0064: a jump of `MAX_EPOCH_JUMP` is a marker, one more is not,
+    /// and a marker whose MAC verifies (a holder of the old keys wrote it)
+    /// but names `u32::MAX - 1` is rejected after the MAC check.
+    #[test]
+    fn epoch_jump_is_capped() {
+        let (c, marker, path) = fixture();
+        let max = RekeyMarker {
+            to_epoch: marker.from_epoch + MAX_EPOCH_JUMP,
+            ..marker
+        };
+        let bytes = max.encode(&c).unwrap();
+        assert_eq!(RekeyMarker::decode(&bytes, &path, &c).unwrap(), max);
+        let over = RekeyMarker {
+            to_epoch: marker.from_epoch + MAX_EPOCH_JUMP + 1,
+            ..marker
+        };
+        assert_eq!(over.encode(&c), Err(WireError::Field));
+        for to in [
+            marker.from_epoch + MAX_EPOCH_JUMP + 1,
+            u32::MAX - 1,
+            u32::MAX,
+        ] {
+            let mut forged = bytes[..LEN - 32].to_vec();
+            forged[25..29].copy_from_slice(&to.to_be_bytes());
+            let mac = c.folder_mac(FolderMacPurpose::Rekey, &forged).unwrap();
+            forged.extend_from_slice(&mac);
+            assert_eq!(
+                RekeyMarker::decode(&forged, &path, &c),
+                Err(WireError::Field),
+                "to_epoch {to}"
+            );
+        }
+        // Near the top of the range the cap does not overflow.
+        let top = RekeyMarker {
+            from_epoch: u32::MAX - 1,
+            to_epoch: u32::MAX,
+            ..marker
+        };
+        assert!(top.encode(&c).is_ok());
     }
 
     #[test]

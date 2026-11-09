@@ -3,6 +3,7 @@
 //! pre-re-key own segments, objects of the old epoch, a deleted marker and
 //! concurrent re-keys.
 
+use mosaic_core::sync_auth::MAX_EPOCH_JUMP;
 use mosaic_core::{Argon2Profile, ItemId, SecretKey, VaultId};
 use mosaic_sync::engine::{RekeyError, RekeySecrets, SyncError, SyncWarning};
 use mosaic_vault::session::{RekeyAdopted, SyncConfig, SyncKind};
@@ -457,6 +458,7 @@ mod thief {
     use std::fs;
     use std::path::PathBuf;
 
+    use mosaic_core::sync_auth::FolderMacPurpose;
     use mosaic_core::{AccountSalt, Argon2Profile, InstallId, WrappedKey};
     use mosaic_sync::wire::account_file::AccountFile;
     use mosaic_sync::wire::folder_names::{account_name, rekey_marker_name};
@@ -519,6 +521,38 @@ mod thief {
             )
             .unwrap();
         }
+    }
+
+    pub fn marker_name(from: u32, device: InstallId) -> String {
+        rekey_marker_name(from, device.as_bytes())
+    }
+
+    /// Writes `bytes` under `name` in the account directory of every replica.
+    pub fn plant_raw(w: &World, name: &str, bytes: &[u8]) {
+        for r in 0..w.devs.len() {
+            fs::write(dir(w, r).join(name), bytes).unwrap();
+        }
+    }
+
+    /// A marker whose MAC verifies under `crypto` with any `to_epoch` (the
+    /// encoder refuses a jump above the cap; a thief does not use it).
+    pub fn plant_marker_raw(
+        w: &World,
+        crypto: &impl SyncCrypto,
+        from: u32,
+        to: u32,
+        device: InstallId,
+    ) {
+        let mut body = b"MREK\x01".to_vec();
+        body.extend_from_slice(w.account.as_bytes());
+        body.extend_from_slice(&from.to_be_bytes());
+        body.extend_from_slice(&to.to_be_bytes());
+        body.extend_from_slice(&9u64.to_be_bytes());
+        body.extend_from_slice(device.as_bytes());
+        body.extend_from_slice(&0u64.to_be_bytes());
+        let mac = crypto.folder_mac(FolderMacPurpose::Rekey, &body).unwrap();
+        body.extend_from_slice(&mac);
+        plant_raw(w, &marker_name(from, device), &body);
     }
 
     pub fn plant_marker(
@@ -617,6 +651,134 @@ fn folder_forged_marker_is_dismissible_after_the_user_acts() {
     assert!(!still);
     assert!(!w.devs[0].s().rekey_pending().unwrap());
     w.sync(0);
+    // ADR-0064: the dismissed marker is listed and can be restored; it then
+    // halts the device again.
+    let World { devs, .. } = &mut w;
+    let dev = &mut devs[0];
+    let dismissed = dev.engine.dismissed_rekey_markers(&mut dev.access).unwrap();
+    assert_eq!(dismissed, markers);
+    assert!(
+        !dev.engine
+            .undismiss_rekey_marker(&mut dev.access, "rekey-00000001-junk.mrek", &[0; 32])
+            .unwrap(),
+        "only a listed marker"
+    );
+    assert!(
+        dev.engine
+            .undismiss_rekey_marker(&mut dev.access, &markers[0].name, &markers[0].sha256)
+            .unwrap()
+    );
+    assert_eq!(
+        dev.engine.dismissed_rekey_markers(&mut dev.access).unwrap(),
+        Vec::new()
+    );
+    assert_eq!(
+        dev.engine.pending_rekey_markers(&mut dev.access).unwrap(),
+        markers
+    );
+    assert!(w.devs[0].s().rekey_pending().unwrap());
+    assert!(matches!(w.try_sync(0), Err(SyncError::AccountRekeyed)));
+}
+
+/// ADR-0064: a marker that verifies under the old keys but jumps to
+/// `u32::MAX - 1` is no marker: no halt, and the next re-key targets `own + 1`.
+#[test]
+fn folder_marker_with_a_huge_jump_is_ignored() {
+    let (mut w, _v, _i) = world(27, 2);
+    let t = thief::keys(&w, 1);
+    thief::plant_marker_raw(&w, &t, 1, u32::MAX - 1, thief::fake(4));
+    thief::plant_marker_raw(&w, &t, 1, 1 + MAX_EPOCH_JUMP + 1, thief::fake(5));
+    w.sync(0);
+    assert!(!w.devs[0].s().rekey_pending().unwrap());
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    assert_eq!(epoch(&w, 0), 2);
+}
+
+/// ADR-0064 (review B): 64 planted junk markers with low names do not hide
+/// the genuine one: the MAC is checked before the scan cap.
+#[test]
+fn folder_genuine_marker_is_found_past_planted_junk_markers() {
+    let (mut w, _v, _i) = world(28, 2);
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    for n in 0..64u8 {
+        let name = thief::marker_name(1, thief::fake(100 + n));
+        thief::plant_raw(&w, &name, &[n; 93]);
+    }
+    assert!(matches!(w.try_sync(1), Err(SyncError::AccountRekeyed)));
+    adopt(&mut w, 1, &new_sk).unwrap();
+    assert_eq!(epoch(&w, 1), 2);
+}
+
+/// ADR-0064 (review C): 64 planted account files above the jump cap, newer
+/// than the genuine one, cost no derivation and do not hide a genuine file at
+/// `own + 2` that no verified marker names.
+#[test]
+fn folder_planted_files_above_the_cap_do_not_hide_the_genuine_one() {
+    let (mut w, _v, _i) = world(29, 3);
+    let (sk1, sk2) = (
+        SecretKey::generate().unwrap(),
+        SecretKey::generate().unwrap(),
+    );
+    rekey(&mut w, 0, &sk1).unwrap();
+    finish_job(&mut w, 0);
+    rekey_as(
+        &mut w,
+        0,
+        (NEW_PASSWORD, &sk1),
+        ("second password here", &sk2),
+    )
+    .unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    let t = thief::keys(&w, 2);
+    let b = thief::base(&w);
+    for n in 0..64u8 {
+        thief::plant_file(
+            &w,
+            &t,
+            &b,
+            1 + MAX_EPOCH_JUMP + 1,
+            1000 + u64::from(n),
+            thief::fake(150 + n),
+        );
+    }
+    let current = copy_key(&w.secret_key);
+    // One call: no page of planted salts before the genuine file.
+    adopt_as(&mut w, 1, ("second password here", &sk2), &current).unwrap();
+    assert_eq!(epoch(&w, 1), 3);
+}
+
+/// ADR-0064 (review D): an adopting device holds the vault the backend has
+/// seen until the next generation arrives, and does not hold a vault it
+/// created offline, which then syncs under the new keys.
+#[test]
+fn folder_offline_vault_of_an_adopting_device_is_not_held() {
+    let (mut w, vault, _item) = world(30, 2);
+    let offline = w.new_vault(1, "created offline");
+    let new_sk = SecretKey::generate().unwrap();
+    rekey(&mut w, 0, &new_sk).unwrap();
+    finish_job(&mut w, 0);
+    w.cloud.settle().unwrap();
+    adopt(&mut w, 1, &new_sk).unwrap();
+    assert!(w.devs[1].s().rekey_held(vault).unwrap(), "pushed: held");
+    assert!(
+        !w.devs[1].s().rekey_held(offline).unwrap(),
+        "never pushed: not held"
+    );
+    w.converge(0);
+    assert!(!w.devs[1].s().rekey_held(vault).unwrap());
+    assert!(
+        w.devs[0]
+            .s()
+            .vaults()
+            .iter()
+            .any(|v| v.vault_id == offline && v.name == Some("created offline")),
+        "the offline vault reached the other device under the new keys"
+    );
 }
 
 #[test]

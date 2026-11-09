@@ -127,6 +127,13 @@ pub fn verify_checkpoint_mac(
     Ok(bool::from(expected.ct_eq(mac)))
 }
 
+/// The most epochs one account re-key moves (CRYPTO_SPEC §6.6, §6.7, ADR-0064):
+/// a marker's `to_epoch` is at most `from_epoch + MAX_EPOCH_JUMP`, a re-key
+/// targets at most `own + MAX_EPOCH_JUMP`, and a folder adoption refuses an
+/// epoch above it. A marker forged by a holder of the old account key cannot
+/// exhaust the epoch space.
+pub const MAX_EPOCH_JUMP: u32 = 16;
+
 /// What a folder MAC protects; each purpose has its own label (§10.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FolderMacPurpose {

@@ -433,10 +433,12 @@ attachment keeps the old file key. The phase-2 journal write comes before anythi
 reaches the backend: if it fails, the request is not sent. An attachment whose
 ciphertext does not open under its file key is listed as unreachable, skipped, and
 never blocks the job. A change of backend is refused while a job exists; once the
-local part is committed (phase 4 or later) the user can abandon the job after a
-confirmation, and the attachments still to re-seal keep their old key and are
-listed (THREAT_MODEL R85). Phases 1 to 3 are not abandoned that way: the backend may
-already know the change.
+local part is committed (phase 5 or later, and for a re-key the store already at the
+job's target epoch) the user can abandon the job after a confirmation, and the
+attachments still to re-seal keep their old key and are listed (THREAT_MODEL R85).
+Phases 1 to 4 are resume-only: in phases 1 to 3 the backend may already know the
+change, and phase 4 of a folder re-key is moved on to phase 6 by the next continue
+(ADR-0064).
 
 **Hosted.** One atomic request (`/v1/account/rekey/start`, `finish`) under a
 fresh login with the current `OPW`. `finish` carries the new OPAQUE record,
@@ -495,6 +497,12 @@ re-keys past it). An unverifiable account file counts only at exactly `own + 1`
 (its header is unauthenticated, so a planted huge epoch cannot push the target out
 of reach), and a dismissed file or marker counts for nothing. The folder adoption
 jumps over epochs (§6.7), so a re-key that targeted `own + 5` is still adopted.
+**One re-key moves at most `MAX_EPOCH_JUMP = 16` epochs** (ADR-0064): a seen epoch
+counts only below `own + MAX_EPOCH_JUMP` (so the target is at most
+`own + MAX_EPOCH_JUMP`), and `prepare_rekey` refuses a higher target
+(`EpochJumpTooLarge`). A verified marker whose `to_epoch` is far ahead was written
+by a holder of the old AK (a thief of an old device); without the cap one such
+marker at `u32::MAX - 1` would exhaust the epoch space on the next re-key.
 
 **Ownership.** Re-key needs to know which vaults the account owns. A vault
 whose owner nothing records counts as owned if this device created it, or if
@@ -540,9 +548,12 @@ A device compares the backend's epoch with its own:
   file; files of a lower epoch are ignored, not reported as a rollback (a holder
   of the old AK can plant them, R83). A file of a higher epoch that cannot be
   verified is a dismissible finding, not an adoption and not a halt (§10.1).
-  **Any** epoch above the own one can be adopted, not only `current + 1`: a
-  re-key targets `max(own, highest seen) + 1` (so a planted `own + 5` header
-  can push a genuine re-key up), and a device can be two re-keys behind. The
+  **Any** epoch above the own one up to `own + MAX_EPOCH_JUMP` (16, §6.6) can be
+  adopted, not only `current + 1`: a re-key targets `max(own, highest seen) + 1`
+  (so a planted `own + 5` header can push a genuine re-key up), and a device can
+  be two re-keys behind. A higher epoch is refused (`EpochJumpTooLarge`) and no
+  candidate above the cap costs a key derivation: a device that lagged more than
+  16 epochs behind joins the account again (ADR-0064). The
   typed Secret Key is the authenticator: the file must open under keys derived
   from it and the password, its MAC must verify under the key it holds, and the
   Secret Key must not be the current one or a retired one.
@@ -572,6 +583,13 @@ parameters and epoch, the Secret Key it replaces retired, history generations
 of every held VK re-wrapped under the new AK, the identity replaced from the
 backend's wrapped `isk` only after the derived `ipk` equals the served one, the
 contact book re-sealed, quick and hardware unlock deleted, peer state cleared.
+Every owned vault **the backend has seen** is held at the generation the device
+has until the re-key's next generation arrives by pull (no push sealed under the
+key the re-key retired; THREAT_MODEL R94). A vault the backend never saw (created
+on this device and never published to any backend, the store's `backend_known`
+flag, which no backend change clears) is not held: its key is re-wrapped under the
+new AK and it syncs normally, because no ciphertext or wrapping of it exists
+outside this device (ADR-0064).
 For the current generation of each member vault the device stores **the
 server's own wrapping**, after checking in constant time that it opens to the
 same VK as the held one; re-wrapping it locally would change the bytes the view
@@ -1628,8 +1646,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     `"MREK" || 1 || account_id || from_epoch:u32 || to_epoch:u32 || to_account_version:u64 || device_id || created_at_ms:u64 || mac`,
     `mac = HMAC(K_fold(from_epoch), ctx("sync/folder-rekey") || 0x00 || preceding bytes)`.
     It carries no key material; only devices of the old epoch can verify it. `to_epoch` is
-    above `from_epoch` (a re-key jumps to `max(own, highest seen) + 1`, §6.6), `device_id` names the
-    path's device, and a decoder rejects trailing bytes.
+    above `from_epoch` and at most `from_epoch + MAX_EPOCH_JUMP` (16; a re-key jumps to
+    `max(own, highest seen) + 1`, §6.6), `device_id` names the path's device, and a decoder
+    rejects trailing bytes and a larger jump (checked arithmetic).
   - Device info `.mdev`: `"MDEV" || 1 || device_id || nonce[24] || XChaCha20-Poly1305(K_dev, nonce, plaintext, aad)`,
     `aad = header || aad("sync/device-info", account_id, device_id)` with
     `header = "MDEV" || 1 || device_id`. The plaintext is exactly 512
@@ -1783,6 +1802,12 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     (§6.7), the files every verified marker names first, grouped by salt (one Argon2id
     derivation per salt, eight salts per attempt; the user can go on to the next page up to the
     scan cap of 64 files, so planted files and markers cannot crowd out the genuine one),
+    and only files whose header epoch is in `(own, own + MAX_EPOCH_JUMP]` are candidates. The
+    scans are bounded by reads, not by names: up to 1024 marker files of the device's epoch are
+    MAC-checked and at most 64 verified ones kept (a marker is 93 bytes, the MAC is checked
+    before the cap, so 64 planted junk markers cannot hide the genuine one), and the fallback
+    reads up to 1024 account files and skips the ones outside the epoch range before the
+    64-candidate cap (ADR-0064),
     opens one under the typed keys, checks its MAC under the derived new `K_fold`, adopts
     (§6.7), records its own floors and writes its own snapshot sets under the new epoch.
   - **A marker that cannot be followed.** A marker is MAC'd under the old `K_fold`, so a
@@ -1792,7 +1817,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     confirmation) the marker is **dismissed**: recorded by path and SHA-256 like a dismissed
     account file, it never halts again, and the re-key-pending flag clears when no other
     undismissed verified marker is left. The device then keeps working at its epoch (the thief
-    gains nothing the old AK did not give) or re-keys again. A folder writer who has no key can
+    gains nothing the old AK did not give) or re-keys again. The dismissed markers the folder
+    still shows can be listed and a dismissal undone; the marker then halts again. A folder writer who has no key can
     only delete files (denial of service, as deleting files already can).
   - **New-epoch readers** ignore every object that does not verify under the current epoch's keys
     and never accept an old-epoch object again (a holder of the old AK can still write them,
