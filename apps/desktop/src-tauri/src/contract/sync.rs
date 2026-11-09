@@ -154,6 +154,19 @@ pub enum SyncWarningView {
         /// The vault's name (`null` if unknown).
         vault_name: Option<String>,
     },
+    /// An account file in the sync folder cannot be verified with this
+    /// device's keys and names this device's account-key epoch or a higher
+    /// one (M7). It may be another device's re-key made at the same time
+    /// (`conflict`), or a stray file. Dismissing it never halts anything.
+    UnverifiedAccountFile {
+        /// The file's name (for `sync_dismiss_account_file`).
+        name: String,
+        /// The file's SHA-256, 64 hex digits (for `sync_dismiss_account_file`).
+        sha256: String,
+        /// Whether it names this device's own epoch: two devices renewed the
+        /// account's keys at the same time.
+        conflict: bool,
+    },
 }
 
 /// The `sync_status` response, and what most sync commands return. (The spec
@@ -173,6 +186,10 @@ pub struct SyncOverview {
     /// The server (or the folder) holds a master password this device does
     /// not know: `sync_recover_password` brings it in (CRYPTO_SPEC §9.4).
     pub password_changed: bool,
+    /// A verified re-key marker in the folder says the account's keys were
+    /// renewed on another device: `sync_recover_password` with the new Secret
+    /// Key adopts them (sync stays paused until then).
+    pub rekey_pending: bool,
 }
 
 /// `sync_check_server`.
@@ -379,6 +396,10 @@ pub enum JoinOutcome {
 pub struct RecoverPasswordRequest {
     /// The new master password.
     pub new_password: SecretIn,
+    /// The Secret Key from the newest Emergency Kit, when the account's keys
+    /// were renewed on another device (a Secret Key rotation or a re-key);
+    /// `null` to use this device's own.
+    pub secret_key: Option<SecretIn>,
     /// A current second-factor code, when the sync account has one.
     pub code: Option<SecretIn>,
 }
@@ -447,6 +468,16 @@ pub(crate) mod samples {
             SyncWarningView::RotationBlocked {
                 vault_name: Some("Family".into()),
             },
+            SyncWarningView::UnverifiedAccountFile {
+                name: "account-00000002.macct".into(),
+                sha256: "ab".repeat(32),
+                conflict: false,
+            },
+            SyncWarningView::UnverifiedAccountFile {
+                name: "account-00000001.macct".into(),
+                sha256: "cd".repeat(32),
+                conflict: true,
+            },
         ];
         for warning in &all {
             // Adding a variant fails to compile here until it has a sample.
@@ -461,7 +492,8 @@ pub(crate) mod samples {
                 | SyncWarningView::Undecryptable { .. }
                 | SyncWarningView::HardwareVaultsLocal { .. }
                 | SyncWarningView::AttachmentsNotRepaired { .. }
-                | SyncWarningView::RotationBlocked { .. } => {}
+                | SyncWarningView::RotationBlocked { .. }
+                | SyncWarningView::UnverifiedAccountFile { .. } => {}
             }
         }
         all
@@ -479,6 +511,7 @@ pub(crate) mod samples {
                 warnings: vec![],
                 sharing_findings: vec![],
                 password_changed: false,
+                rekey_pending: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -491,6 +524,7 @@ pub(crate) mod samples {
                 warnings: vec![],
                 sharing_findings: vec![],
                 password_changed: false,
+                rekey_pending: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Folder {
@@ -501,6 +535,7 @@ pub(crate) mod samples {
                 warnings: warnings(),
                 sharing_findings: crate::contract::sharing::samples::findings(),
                 password_changed: false,
+                rekey_pending: false,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -517,6 +552,7 @@ pub(crate) mod samples {
                 warnings: vec![],
                 sharing_findings: vec![],
                 password_changed: true,
+                rekey_pending: true,
             },
         ]
     }

@@ -6,6 +6,7 @@ import type {
   BrowserSaveRequest,
 } from "./browser.ts";
 import type { ErrorCode, ItemId, UnixMillis, VaultId } from "./common.ts";
+import type { RotationKind, RotationPhaseName } from "./rotation.ts";
 import type { SshApprovalRequest, SshCloseReason, SshSignFailReason } from "./ssh.ts";
 
 export const lockReasons = ["manual", "idle", "sleep", "screenLock"] as const;
@@ -30,6 +31,7 @@ export interface SyncState {
 export type AppEvent =
   | { type: "locked"; reason: LockReason }
   | { type: "syncStateChanged"; state: SyncState }
+  | { type: "rotationProgress"; kind: RotationKind; phase: RotationPhaseName; done: number; total: number }
   | { type: "clipboardCleared" }
   | { type: "sshApprovalRequested"; request: SshApprovalRequest }
   | { type: "sshApprovalClosed"; requestId: string; reason: SshCloseReason }

@@ -125,6 +125,9 @@ pub struct Backend {
     session: Mutex<Slot>,
     /// The Secret Key's home on this device (CORE_API: the OS keystore).
     pub secret_keys: Box<dyn SecretKeyStore>,
+    /// The new Secret Key a rotation staged, until its commit moves it to
+    /// [`Backend::secret_keys`] (CRYPTO_SPEC §3.4, THREAT_MODEL R87).
+    pub pending_secret_keys: Box<dyn SecretKeyStore>,
     /// The sync session token's home on this device.
     pub sync_tokens: Box<dyn SyncTokenStore>,
     /// The sync thread and the pending sync flows (M6).
@@ -193,6 +196,9 @@ pub struct Backend {
     /// (set by `create_account`, cleared by a matching `verify_emergency_kit`
     /// and by every lock). While it matches, the kit saves without the password.
     pub(crate) kit_pending: Mutex<Option<AccountId>>,
+    /// The account whose *new* Emergency Kit (a rotation's pending Secret
+    /// Key) was saved and verified in this process; every lock clears it.
+    pub(crate) pending_kit_verified: Mutex<Option<AccountId>>,
     lock_hooks: Mutex<Vec<LockHook>>,
     unlock_hooks: Mutex<Vec<UnlockHook>>,
 }
@@ -212,6 +218,7 @@ impl Backend {
         Self {
             session: Mutex::new(session),
             secret_keys,
+            pending_secret_keys: Box::new(crate::keystore::MemoryKeystore::default()),
             sync_tokens: Box::new(MemorySyncTokens::default()),
             sync: SyncService::default(),
             store_dir: None,
@@ -244,6 +251,7 @@ impl Backend {
             last_user_verification: Mutex::new(None),
             os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),
+            pending_kit_verified: Mutex::new(None),
             lock_hooks: Mutex::new(Vec::new()),
             unlock_hooks: Mutex::new(Vec::new()),
         }
@@ -256,6 +264,13 @@ impl Backend {
         self.stored = Mutex::new(state);
         self.settings_guard = Mutex::new(SettingsGuard::new(file));
         self.persistence = persistence;
+        self
+    }
+
+    /// Keeps the Secret Key of a rotation in progress in `store`.
+    #[must_use]
+    pub fn with_pending_secret_keys(mut self, store: Box<dyn SecretKeyStore>) -> Self {
+        self.pending_secret_keys = store;
         self
     }
 

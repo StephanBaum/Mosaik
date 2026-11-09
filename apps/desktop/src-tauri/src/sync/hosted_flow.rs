@@ -28,10 +28,10 @@ use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::SyncStatus;
 use crate::contract::secret::{SecretIn, SecretOut};
 use crate::contract::sync::{
-    ChangePasswordRequest, CheckServerRequest, CodeRequest, DeviceRemoveRequest,
-    DeviceRenameRequest, HostedConnectRequest, HostedMode, JoinHostedRequest, JoinOutcome,
-    RegistrationMode, ServerCheck, SyncDevice, SyncDevices, SyncOverview, TotpBeginRequest,
-    TotpDisableRequest, TotpSetupInfo,
+    CheckServerRequest, CodeRequest, DeviceRemoveRequest, DeviceRenameRequest,
+    HostedConnectRequest, HostedMode, JoinHostedRequest, JoinOutcome, RegistrationMode,
+    ServerCheck, SyncDevice, SyncDevices, SyncOverview, TotpBeginRequest, TotpDisableRequest,
+    TotpSetupInfo,
 };
 use crate::persist::valid_email;
 use crate::state::{Backend, Slot};
@@ -809,7 +809,7 @@ impl Backend {
 
     /// Whether the sync account has a second factor: the last known answer,
     /// else the server's (with the stored token), else "no".
-    fn totp_enabled_of(&self, ctx: &HostedCtx) -> bool {
+    pub(super) fn totp_enabled_of(&self, ctx: &HostedCtx) -> bool {
         if let Some(known) = self.sync.view().totp_enabled {
             return known;
         }
@@ -931,10 +931,10 @@ impl Backend {
     pub(crate) fn change_password_hosted(
         &self,
         ctx: &HostedCtx,
-        request: &ChangePasswordRequest,
+        code: Option<&SecretIn>,
         prepared: mosaic_vault::session::PreparedPasswordChange,
     ) -> IpcResult<mosaic_vault::session::PasswordChanged> {
-        let code = code_of(request.code.as_ref())?;
+        let code = code_of(code)?;
         if self.sync.view().totp_enabled == Some(true) && code.is_none() {
             return Err(IpcError::new(ErrorCode::SyncTwoFactorRequired));
         }

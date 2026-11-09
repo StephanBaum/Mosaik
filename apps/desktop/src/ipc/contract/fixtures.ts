@@ -50,6 +50,11 @@ export interface EnumFixtures {
   lockReason: string[];
   syncStatus: string[];
   vaultProtection: string[];
+  rotationKind: string[];
+  rotationPhaseName: string[];
+  rotationNeeds: string[];
+  rotationProfile: string[];
+  rekeyBackend: string[];
   registrationMode: string[];
   hostedMode: string[];
   folderState: string[];

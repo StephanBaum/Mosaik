@@ -128,8 +128,15 @@ pub fn run() -> tauri::Result<()> {
             };
             let keystore =
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
+            // The Secret Key of a rotation in progress: its own entries, so a
+            // crash between the kit and the commit cannot touch the one in use.
+            let pending = LayeredKeystore::new(Box::new(OsKeystore::new(&format!(
+                "{}.pending-secret-key",
+                app.config().identifier
+            ))));
             let local_dir = app.path().app_local_data_dir()?;
             let backend = Backend::new(slot, Box::new(keystore), mosaic_core::kdf::calibrate)
+                .with_pending_secret_keys(Box::new(pending))
                 .with_adapters(Adapters {
                     import: ImportService::default(),
                     ssh: SshAgentService::for_this_os(&local_dir),
@@ -229,6 +236,8 @@ mod quick_unlock_tests;
 mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
+#[cfg(test)]
+mod rotation_handler_tests;
 #[cfg(test)]
 mod settings_integrity_tests;
 #[cfg(test)]

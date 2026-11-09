@@ -7,6 +7,7 @@ import { mockSecurityReport } from "./insights.ts";
 import { defaultSettings } from "./settings.ts";
 import { seedSharing } from "./sharingData.ts";
 import { seedSync } from "./syncData.ts";
+import { seedRotation } from "./rotation.ts";
 import type { MockItem, MockState } from "./state.ts";
 
 const NOW = 1_800_000_000_000;
@@ -20,6 +21,7 @@ function state(items: MockItem[]): MockState {
     sshEnabled: false,
     sshRequest: false,
     browser: defaultBrowser(() => NOW),
+    rotation: seedRotation({}),
     sharing: seedSharing(undefined),
     sync: seedSync({}, NOW),
     heldImport: null,

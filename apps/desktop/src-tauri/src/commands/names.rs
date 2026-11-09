@@ -104,6 +104,17 @@ pub const COMMANDS: &[&str] = &[
     "join_hosted_two_factor",
     "join_folder",
     "change_master_password",
+    "sync_dismiss_account_file",
+    // Account keys
+    "rotation_status",
+    "secret_key_rotate_prepare",
+    "secret_key_rotate_commit",
+    "profile_upgrade",
+    "rekey_review",
+    "rekey_prepare",
+    "rekey_commit",
+    "rotation_resume",
+    "rotation_abandon",
     // Sharing and emergency access
     "sharing_identity",
     "sharing_lookup",

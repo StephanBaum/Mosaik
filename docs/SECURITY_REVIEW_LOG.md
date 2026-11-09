@@ -82,7 +82,8 @@ tables).
 | M5 | not recorded | not recorded | not recorded | not recorded | not recorded |
 | M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
 | M6b (T1 review, milestone review, two verify passes and the T5 UX review) | 7 | 8 | 11 | 6 | none |
-| **Overall (M0 to M6b)** | **26** | **119** | **180** | **44** | **51 recorded** |
+| M7 Key rotation (T1 crypto review only; the milestone review is pending) | 0 | 3 | 6 | 2 | none |
+| **Overall (M0 to M7, M7 partial)** | **26** | **122** | **186** | **46** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -240,6 +241,25 @@ The headline limits after the fixes (THREAT_MODEL R71 to R82): a member who stil
 roster entries at the old generation (the defence is owner-only rotation plus fingerprint pinning); a
 revocation waits for the owner's device; the server keeps the emergency wait, so whoever controls the server
 can skip it (the grant dialog says so); vault keys only are covered by emergency access.
+
+## M7 Key rotation
+
+Status: **in progress; the milestone review is pending.** Sources: the M7 fix decision file (`m7-t1-fix.md`, kept by the
+orchestrator), the commit messages named below and `docs/PROGRESS.md` ("M7 Key rotation"). The reviewer report is not
+in the repository.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-08 | T1 core: crypto-reviewer on the spec text and `mosaic-core` (`19eff2a`) | opus | 0 / 3 / 6 / 2 | none | All fixed in `0e27585`: no equal-epoch adoption (a conflict is resolved by re-keying to max + 1), retired Secret Key commitments refuse any key this device held, a hard halt only on a verified marker (an unverifiable higher-epoch file is a dismissible finding), the server's wrapping of the current generation kept on adoption after a constant-time key check, checked epoch arithmetic and hosted adoption only at current + 1, the backend epoch in a folder is the highest verified one, phase-3 resume needs the last kit group, `rekey/finish` ends pending logins and deletes PRF wrappings, the hosted account version never goes down, `change_credentials` verifies the current wrapping first; the byte KAT of the v2 account file and the marker went to T4; the in-app notice replaces the email (R89) |
+| pending | M7 milestone review: crypto-reviewer over `19eff2a..` the T5 commit, sync-chaos, ux-reviewer on the wizards | opus, sonnet | not yet | not yet | to be filled in at the milestone close |
+
+Total so far: High 0, Medium 3, Low 6, Info 2 (T1 review, counted by item in the decision file).
+
+The headline limits (THREAT_MODEL R83 to R89): until every device adopts a re-key a stale folder device accepts
+old-epoch objects that a holder of the old account key writes; members who keep the old pin can be fed forged
+rotations until they verify the owner's new safety code; a re-key does not take back what was already copied; vaults
+owned by others stay readable to the old key holder until their owner rotates; the pending Secret Key sits in the OS
+keystore before the commit.
 
 ## Appending a milestone
 

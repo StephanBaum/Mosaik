@@ -30,6 +30,7 @@ pub mod insights;
 pub mod items;
 pub mod otp;
 pub mod quick_unlock;
+pub mod rotation;
 pub mod secret;
 pub mod session;
 pub mod settings;

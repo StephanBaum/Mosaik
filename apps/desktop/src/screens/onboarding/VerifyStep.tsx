@@ -26,7 +26,7 @@ export function VerifyStep({
   async function submit(event: SyntheticEvent) {
     event.preventDefault();
     setError(null);
-    const result = await ipc.call("verify_emergency_kit", { lastGroup });
+    const result = await ipc.call("verify_emergency_kit", { lastGroup, pending: false });
     setLastGroup("");
     if (!result.ok) {
       setError(result.error);

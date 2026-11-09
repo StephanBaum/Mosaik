@@ -91,6 +91,16 @@ export const fixtures = {
     "join_hosted_two_factor",
     "join_folder",
     "change_master_password",
+    "sync_dismiss_account_file",
+    "rotation_status",
+    "secret_key_rotate_prepare",
+    "secret_key_rotate_commit",
+    "profile_upgrade",
+    "rekey_review",
+    "rekey_prepare",
+    "rekey_commit",
+    "rotation_resume",
+    "rotation_abandon",
     "sharing_identity",
     "sharing_lookup",
     "sharing_verify_contact",
@@ -308,6 +318,25 @@ export const fixtures = {
       "emergencyWaiting",
       "emergencyCooldown",
       "emergencyNotGranted",
+      "kitNotVerified",
+      "kitGroupMismatch",
+      "rotationInProgress",
+      "rotationNone",
+      "rotationTooFar",
+      "rotationNotApplied",
+      "secretKeyUnchanged",
+      "passwordUnchanged",
+      "profileDowngrade",
+      "profileTooSlow",
+      "rekeyNeedsCleanSync",
+      "rekeyMemberKeyMismatch",
+      "rekeyBusy",
+      "rekeyOutcomeUnknown",
+      "rekeyNeedsServer",
+      "rekeyNoAccountFile",
+      "syncAccountRekeyed",
+      "syncEpochRollback",
+      "syncRekeyRefused",
       "busy",
       "internal"
     ],
@@ -454,6 +483,36 @@ export const fixtures = {
       "open",
       "invite",
       "closed"
+    ],
+    "rekeyBackend": [
+      "local",
+      "hosted",
+      "folder"
+    ],
+    "rotationKind": [
+      "secretKey",
+      "rekey",
+      "profile",
+      "vault"
+    ],
+    "rotationNeeds": [
+      "none",
+      "password",
+      "kitGroup"
+    ],
+    "rotationPhaseName": [
+      "prepared",
+      "backendStarted",
+      "backendAccepted",
+      "folderWritten",
+      "localCommitted",
+      "attachments",
+      "uploading"
+    ],
+    "rotationProfile": [
+      "standard",
+      "strong",
+      "max"
     ],
     "secretFieldKey": [
       "password",
@@ -920,6 +979,63 @@ export const fixtures = {
       "code": "emergencyNotGranted"
     },
     {
+      "code": "kitNotVerified"
+    },
+    {
+      "code": "kitGroupMismatch"
+    },
+    {
+      "code": "rotationInProgress"
+    },
+    {
+      "code": "rotationNone"
+    },
+    {
+      "code": "rotationTooFar"
+    },
+    {
+      "code": "rotationNotApplied"
+    },
+    {
+      "code": "secretKeyUnchanged"
+    },
+    {
+      "code": "passwordUnchanged"
+    },
+    {
+      "code": "profileDowngrade"
+    },
+    {
+      "code": "profileTooSlow"
+    },
+    {
+      "code": "rekeyNeedsCleanSync"
+    },
+    {
+      "code": "rekeyMemberKeyMismatch"
+    },
+    {
+      "code": "rekeyBusy"
+    },
+    {
+      "code": "rekeyOutcomeUnknown"
+    },
+    {
+      "code": "rekeyNeedsServer"
+    },
+    {
+      "code": "rekeyNoAccountFile"
+    },
+    {
+      "code": "syncAccountRekeyed"
+    },
+    {
+      "code": "syncEpochRollback"
+    },
+    {
+      "code": "syncRekeyRefused"
+    },
+    {
       "code": "busy"
     },
     {
@@ -1119,6 +1235,13 @@ export const fixtures = {
       "emergencyRequests": 2,
       "invites": 0,
       "type": "sharingChanged"
+    },
+    {
+      "done": 3,
+      "kind": "rekey",
+      "phase": "attachments",
+      "total": 12,
+      "type": "rotationProgress"
     },
     {
       "state": {
@@ -1761,6 +1884,20 @@ export const fixtures = {
         "source": "file"
       }
     ],
+    "profile_upgrade": [
+      {
+        "code": null,
+        "force": false,
+        "password": "correct horse battery staple",
+        "profile": "strong"
+      },
+      {
+        "code": "492039",
+        "force": true,
+        "password": "correct horse battery staple",
+        "profile": "max"
+      }
+    ],
     "purge_item": [
       {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
@@ -1774,6 +1911,27 @@ export const fixtures = {
       {
         "password": "correct horse battery staple"
       }
+    ],
+    "rekey_commit": [
+      {
+        "code": null,
+        "newPassword": "a new master password",
+        "password": "correct horse battery staple"
+      },
+      {
+        "code": "492039",
+        "newPassword": "a new master password",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "rekey_prepare": [
+      {
+        "newPassword": "a new master password",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "rekey_review": [
+      null
     ],
     "remove_biometric": [
       null
@@ -1827,6 +1985,24 @@ export const fixtures = {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
+    "rotation_abandon": [
+      null
+    ],
+    "rotation_resume": [
+      {
+        "code": null,
+        "kitGroup": null,
+        "password": null
+      },
+      {
+        "code": "492039",
+        "kitGroup": "8VJ2",
+        "password": "a new master password"
+      }
+    ],
+    "rotation_status": [
+      null
+    ],
     "save_emergency_kit": [
       {
         "labels": {
@@ -1841,7 +2017,8 @@ export const fixtures = {
           "signInUrlValue": "This device only",
           "title": "Mosaic Emergency Kit"
         },
-        "password": null
+        "password": null,
+        "pending": false
       },
       {
         "labels": {
@@ -1856,6 +2033,22 @@ export const fixtures = {
           "signInUrlValue": "This device only",
           "title": "Mosaic Emergency Kit"
         },
+        "password": "correct horse battery staple",
+        "pending": false
+      }
+    ],
+    "secret_key_rotate_commit": [
+      {
+        "code": null,
+        "password": "correct horse battery staple"
+      },
+      {
+        "code": "492039",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "secret_key_rotate_prepare": [
+      {
         "password": "correct horse battery staple"
       }
     ],
@@ -1949,6 +2142,12 @@ export const fixtures = {
     "sync_disconnect": [
       null
     ],
+    "sync_dismiss_account_file": [
+      {
+        "name": "account-00000002.macct",
+        "sha256": "abababababababababababababababababababababababababababababababab"
+      }
+    ],
     "sync_folder_connect": [
       {
         "choiceId": "choice-1",
@@ -1985,11 +2184,18 @@ export const fixtures = {
     "sync_recover_password": [
       {
         "code": null,
-        "newPassword": "a new master password"
+        "newPassword": "a new master password",
+        "secretKey": null
       },
       {
         "code": "492039",
-        "newPassword": "a new master password"
+        "newPassword": "a new master password",
+        "secretKey": null
+      },
+      {
+        "code": null,
+        "newPassword": "a new master password",
+        "secretKey": "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2"
       }
     ],
     "sync_status": [
@@ -2357,7 +2563,12 @@ export const fixtures = {
     ],
     "verify_emergency_kit": [
       {
-        "lastGroup": "8VJ2"
+        "lastGroup": "8VJ2",
+        "pending": false
+      },
+      {
+        "lastGroup": "8VJ2",
+        "pending": true
       }
     ]
   },
@@ -3555,6 +3766,20 @@ export const fixtures = {
         "kind": "cancelled"
       }
     ],
+    "profile_upgrade": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachableAttachments": 0
+      }
+    ],
     "purge_item": [
       null
     ],
@@ -3597,6 +3822,60 @@ export const fixtures = {
     ],
     "reauthenticate": [
       null
+    ],
+    "rekey_commit": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachableAttachments": 0
+      }
+    ],
+    "rekey_prepare": [
+      null
+    ],
+    "rekey_review": [
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
+        "backend": "hosted",
+        "grants": 1,
+        "hardwareKeys": 1,
+        "hardwareVaults": 1,
+        "memberVaults": [
+          {
+            "name": null,
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000004"
+          }
+        ],
+        "ownedVaults": 2,
+        "quickUnlock": true,
+        "sharedOwned": [
+          {
+            "members": 2,
+            "name": "Family",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002"
+          }
+        ],
+        "unreachableAttachments": 3
+      },
+      {
+        "accountId": "019a2b3c-4d5e-7030-8000-000000000001",
+        "backend": "folder",
+        "grants": 0,
+        "hardwareKeys": 0,
+        "hardwareVaults": 0,
+        "memberVaults": [],
+        "ownedVaults": 1,
+        "quickUnlock": false,
+        "sharedOwned": [],
+        "unreachableAttachments": 0
+      }
     ],
     "remove_biometric": [
       {
@@ -3720,6 +3999,64 @@ export const fixtures = {
         "value": "hunter2"
       }
     ],
+    "rotation_abandon": [
+      null
+    ],
+    "rotation_resume": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachableAttachments": 0
+      }
+    ],
+    "rotation_status": [
+      {
+        "job": null
+      },
+      {
+        "job": {
+          "done": 3,
+          "kind": "secretKey",
+          "needs": "password",
+          "phase": "prepared",
+          "total": 12
+        }
+      },
+      {
+        "job": {
+          "done": 3,
+          "kind": "rekey",
+          "needs": "kitGroup",
+          "phase": "backendAccepted",
+          "total": 12
+        }
+      },
+      {
+        "job": {
+          "done": 3,
+          "kind": "rekey",
+          "needs": "none",
+          "phase": "attachments",
+          "total": 12
+        }
+      },
+      {
+        "job": {
+          "done": 3,
+          "kind": "profile",
+          "needs": "none",
+          "phase": "localCommitted",
+          "total": 12
+        }
+      }
+    ],
     "save_emergency_kit": [
       {
         "kind": "saved"
@@ -3727,6 +4064,23 @@ export const fixtures = {
       {
         "kind": "cancelled"
       }
+    ],
+    "secret_key_rotate_commit": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachableAttachments": 0
+      }
+    ],
+    "secret_key_rotate_prepare": [
+      null
     ],
     "security_report": [
       {
@@ -3986,6 +4340,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4003,6 +4358,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4018,6 +4374,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4113,6 +4470,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4125,6 +4494,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4188,6 +4558,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4205,6 +4576,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4220,6 +4592,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4315,6 +4688,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4327,6 +4712,175 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
+        "sharingFindings": [],
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_dismiss_account_file": [
+      {
+        "config": null,
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4340,6 +4894,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4357,6 +4912,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4372,6 +4928,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4467,6 +5024,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4479,6 +5048,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4492,6 +5062,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4509,6 +5080,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4524,6 +5096,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4619,6 +5192,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4631,6 +5216,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4644,6 +5230,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4661,6 +5248,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4676,6 +5264,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4771,6 +5360,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4783,6 +5384,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4796,6 +5398,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4813,6 +5416,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4828,6 +5432,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -4923,6 +5528,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -4935,6 +5552,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -4971,6 +5589,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -4988,6 +5607,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5003,6 +5623,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5098,6 +5719,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -5110,6 +5743,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5123,6 +5757,7 @@ export const fixtures = {
       {
         "config": null,
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5140,6 +5775,7 @@ export const fixtures = {
           "totpEnabled": true
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5155,6 +5791,7 @@ export const fixtures = {
           "kind": "folder"
         },
         "passwordChanged": false,
+        "rekeyPending": false,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5250,6 +5887,18 @@ export const fixtures = {
           {
             "kind": "rotationBlocked",
             "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
           }
         ]
       },
@@ -5262,6 +5911,7 @@ export const fixtures = {
           "totpEnabled": false
         },
         "passwordChanged": true,
+        "rekeyPending": true,
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",

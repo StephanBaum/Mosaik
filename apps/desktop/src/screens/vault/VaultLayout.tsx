@@ -20,6 +20,8 @@ import { ImportFlow } from "../import/ImportFlow.tsx";
 import { SecurityDashboard } from "../SecurityDashboard.tsx";
 import { SettingsScreen } from "../SettingsScreen.tsx";
 import { ApprovalDialogs } from "../ApprovalDialogs.tsx";
+import { RekeyNotice } from "../settings/security/RekeyRecovery.tsx";
+import { RotationResumeBanner } from "../settings/security/RotationResumeBanner.tsx";
 import { EmergencyRequestBanner } from "../sharing/EmergencyRequestBanner.tsx";
 import { InvitesInbox } from "../sharing/InvitesInbox.tsx";
 import { SharingFindings } from "../sharing/SharingFindings.tsx";
@@ -108,6 +110,8 @@ function MainArea({
       <div className="vault__notices">
         <EmergencyRequestBanner />
         <SharingFindings />
+        <RekeyNotice />
+        <RotationResumeBanner />
       </div>
       {listing && (
         <ListView

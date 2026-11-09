@@ -83,6 +83,42 @@ export const errors = {
     "Das ging zu schnell, um die Anfrage zu lesen. Prüfe die Angaben und wähle dann noch einmal.",
   "error.browserPairingNotFound":
     "Dieser Browser ist nicht mehr verbunden. Öffne die Einstellungen neu, um die aktuelle Liste zu sehen.",
+  "error.kitNotVerified":
+    "Speichere zuerst das neue Emergency Kit und bestätige seine letzte Gruppe. Vorher ändert Mosaic nichts.",
+  "error.kitGroupMismatch":
+    "Das ist nicht die letzte Gruppe des neuen Secret Keys. Sieh im neuen Emergency Kit nach.",
+  "error.rotationInProgress":
+    "Eine andere Schlüsseländerung ist noch offen. Schließe sie mit „Schlüsseländerung fortsetzen“ ab oder verwirf sie zuerst.",
+  "error.rotationNone": "Es gibt keine Schlüsseländerung, die fortgesetzt werden kann.",
+  "error.rotationTooFar":
+    "Diese Änderung hat dein Konto schon erreicht, deshalb lässt sie sich nicht verwerfen. Setze sie fort, um sie abzuschließen.",
+  "error.rotationNotApplied":
+    "Die Änderung hat dein Konto nie erreicht, deshalb wurde nichts geändert. Starte neu oder verwirf sie.",
+  "error.secretKeyUnchanged":
+    "Das ist ein alter Secret Key dieses Kontos. Nutze den aus deinem neuesten Emergency Kit.",
+  "error.passwordUnchanged": "Das neue Master-Passwort muss sich vom aktuellen unterscheiden.",
+  "error.profileDowngrade":
+    "Diese Stufe ist nicht stärker als die, die dein Konto jetzt nutzt. Wähle eine höhere.",
+  "error.profileTooSlow":
+    "Mit dieser Stufe bräuchte dieses Gerät zum Entsperren mehr als zwei Sekunden. Wähle eine niedrigere Stufe oder erhöhe trotzdem.",
+  "error.rekeyNeedsCleanSync":
+    "Fürs Neuverschlüsseln muss die Synchronisierung aktuell und ohne Warnungen sein. Synchronisiere jetzt, sieh dir Warnungen an und versuche es dann noch einmal.",
+  "error.rekeyMemberKeyMismatch":
+    "Du hast noch nicht den Sicherheitscode aller Personen in einem geteilten Tresor verglichen, deshalb lässt sich dieser Tresor nicht erneuern. Vergleiche die Codes in den Freigabe-Einstellungen des Tresors und versuche es dann noch einmal.",
+  "error.rekeyBusy":
+    "Deine Tresore haben sich geändert, während Mosaic gearbeitet hat. Warte kurz und versuche es noch einmal.",
+  "error.rekeyOutcomeUnknown":
+    "Mosaic konnte nicht bestätigen, ob dein Konto die neuen Schlüssel angenommen hat. Wähle „Schlüsseländerung fortsetzen“, um es herauszufinden.",
+  "error.rekeyNeedsServer":
+    "Zum Neuverschlüsseln wird dein Sync-Server oder -Ordner gebraucht, und er ist nicht erreichbar. Prüfe die Verbindung und versuche es noch einmal.",
+  "error.rekeyNoAccountFile":
+    "Nichts in deinem Sync-Ordner lässt sich mit diesem Passwort und Secret Key öffnen. Sieh im neuen Emergency Kit nach.",
+  "error.syncAccountRekeyed":
+    "Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert. Nutze den Secret Key aus dem neuen Emergency Kit, um weiterzumachen.",
+  "error.syncEpochRollback":
+    "Dein Sync-Speicher zeigt ältere Kontoschlüssel, als dieses Gerät hat. Es wurde nichts geändert.",
+  "error.syncRekeyRefused":
+    "Die Schlüssel, die dein Sync-Speicher anbietet, sind nicht die nächsten nach denen dieses Geräts. Es wurde nichts geändert. Prüfe deine anderen Geräte.",
   "error.busy":
     "Mosaic schließt noch den letzten Schritt ab. Warte kurz und versuche es dann noch einmal.",
   "error.internal":

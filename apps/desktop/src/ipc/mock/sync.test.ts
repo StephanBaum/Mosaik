@@ -122,7 +122,7 @@ describe("mock sync: server", () => {
     const ipc = unlocked({ variant: "passwordChanged" });
     expect((await value(ipc, "sync_status", null)).passwordChanged).toBe(true);
     expect(await code(ipc, "sync_hosted_connect", connect("signIn"))).toBe("syncPasswordChanged");
-    const recover = (newPassword: string, otp: string | null) => ({ newPassword, code: otp });
+    const recover = (newPassword: string, otp: string | null) => ({ newPassword, secretKey: null, code: otp });
     expect(await code(ipc, "sync_recover_password", recover("nope", "123456"))).toBe("wrongCredentials");
     expect(await code(ipc, "sync_recover_password", recover("new correct horse battery staple", null))).toBe(
       "syncTwoFactorRequired",

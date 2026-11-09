@@ -41,6 +41,11 @@ use super::items::{
 };
 use super::otp::{self, OtpAlgorithm, OtpScanSource, OtpSecretStrength};
 use super::quick_unlock::{self, BiometricPlatformKind};
+use super::rotation::{
+    self, DismissFileRequest, ProfileUpgradeRequest, RekeyBackend, RekeyCommitRequest,
+    RekeyPrepareRequest, RotateCommitRequest, RotatePrepareRequest, RotationKind, RotationNeeds,
+    RotationPhaseName, RotationProfile, RotationResumeRequest,
+};
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
@@ -161,9 +166,16 @@ fn session_commands(f: &mut Fixtures) {
     );
     f.command(
         "verify_emergency_kit",
-        vec![VerifyKitRequest {
-            last_group: SecretIn::test("8VJ2"),
-        }],
+        vec![
+            VerifyKitRequest {
+                last_group: SecretIn::test("8VJ2"),
+                pending: false,
+            },
+            VerifyKitRequest {
+                last_group: SecretIn::test("8VJ2"),
+                pending: true,
+            },
+        ],
         vec![
             KitVerification { matches: true },
             KitVerification { matches: false },
@@ -741,11 +753,18 @@ fn sync_acknowledge_commands(f: &mut Fixtures) {
         vec![
             RecoverPasswordRequest {
                 new_password: SecretIn::test("a new master password"),
+                secret_key: None,
                 code: None,
             },
             RecoverPasswordRequest {
                 new_password: SecretIn::test("a new master password"),
+                secret_key: None,
                 code: Some(SecretIn::test("492039")),
+            },
+            RecoverPasswordRequest {
+                new_password: SecretIn::test("a new master password"),
+                secret_key: Some(SecretIn::test("M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2")),
+                code: None,
             },
         ],
         sync::samples::overviews(),
@@ -801,6 +820,100 @@ fn sync_join_commands(f: &mut Fixtures) {
             },
         ],
         vec![()],
+    );
+}
+
+/// Account keys: the Secret Key rotation, the key derivation upgrade, the
+/// re-key and the journal that resumes them.
+fn rotation_commands(f: &mut Fixtures) {
+    let pw = rotation::samples::pw;
+    f.command("rotation_status", vec![()], rotation::samples::statuses());
+    f.command(
+        "secret_key_rotate_prepare",
+        vec![RotatePrepareRequest { password: pw() }],
+        vec![()],
+    );
+    f.command(
+        "secret_key_rotate_commit",
+        vec![
+            RotateCommitRequest {
+                password: pw(),
+                code: None,
+            },
+            RotateCommitRequest {
+                password: pw(),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        rotation::samples::done(),
+    );
+    f.command(
+        "profile_upgrade",
+        vec![
+            ProfileUpgradeRequest {
+                password: pw(),
+                profile: RotationProfile::Strong,
+                code: None,
+                force: false,
+            },
+            ProfileUpgradeRequest {
+                password: pw(),
+                profile: RotationProfile::Max,
+                code: Some(SecretIn::test("492039")),
+                force: true,
+            },
+        ],
+        rotation::samples::done(),
+    );
+    f.command("rekey_review", vec![()], rotation::samples::reviews());
+    f.command(
+        "rekey_prepare",
+        vec![RekeyPrepareRequest {
+            password: pw(),
+            new_password: SecretIn::test("a new master password"),
+        }],
+        vec![()],
+    );
+    f.command(
+        "rekey_commit",
+        vec![
+            RekeyCommitRequest {
+                password: pw(),
+                new_password: SecretIn::test("a new master password"),
+                code: None,
+            },
+            RekeyCommitRequest {
+                password: pw(),
+                new_password: SecretIn::test("a new master password"),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        rotation::samples::done(),
+    );
+    f.command(
+        "rotation_resume",
+        vec![
+            RotationResumeRequest {
+                password: None,
+                kit_group: None,
+                code: None,
+            },
+            RotationResumeRequest {
+                password: Some(SecretIn::test("a new master password")),
+                kit_group: Some(SecretIn::test("8VJ2")),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        rotation::samples::done(),
+    );
+    f.command("rotation_abandon", vec![()], vec![()]);
+    f.command(
+        "sync_dismiss_account_file",
+        vec![DismissFileRequest {
+            name: "account-00000002.macct".into(),
+            sha256: "ab".repeat(32),
+        }],
+        sync::samples::overviews(),
     );
 }
 
@@ -1027,6 +1140,11 @@ fn enums() -> Map<String, Value> {
         ("passkeyAlgorithm", values(PasskeyAlgorithm::ALL)),
         ("lockReason", values(LockReason::ALL)),
         ("syncStatus", values(SyncStatus::ALL)),
+        ("rotationKind", values(RotationKind::ALL)),
+        ("rotationPhaseName", values(RotationPhaseName::ALL)),
+        ("rotationNeeds", values(RotationNeeds::ALL)),
+        ("rotationProfile", values(RotationProfile::ALL)),
+        ("rekeyBackend", values(RekeyBackend::ALL)),
         ("registrationMode", values(RegistrationMode::ALL)),
         ("hostedMode", values(HostedMode::ALL)),
         ("folderState", values(FolderState::ALL)),
@@ -1063,6 +1181,7 @@ pub(crate) fn build() -> Value {
     ssh_commands(&mut f);
     browser_commands(&mut f);
     sync_commands(&mut f);
+    rotation_commands(&mut f);
     sharing_commands(&mut f);
     let enums = enums();
 

@@ -266,6 +266,46 @@ wire_enum!(
         EmergencyCooldown,
         /// There is nothing to claim: no request, or no grant.
         EmergencyNotGranted,
+        /// The new Emergency Kit was not saved and verified yet.
+        KitNotVerified,
+        /// The group typed from the new Emergency Kit is not the new Secret Key's.
+        KitGroupMismatch,
+        /// Another key rotation is open; finish or discard it first.
+        RotationInProgress,
+        /// There is no key rotation to continue.
+        RotationNone,
+        /// The change already reached the server: it cannot be discarded.
+        RotationTooFar,
+        /// The change never reached the backend: nothing was changed. Start
+        /// again or discard it.
+        RotationNotApplied,
+        /// That Secret Key is the current one, or one this device has used before.
+        SecretKeyUnchanged,
+        /// The new master password is the current one.
+        PasswordUnchanged,
+        /// The new protection level is weaker than the current one.
+        ProfileDowngrade,
+        /// This device needs more than two seconds per unlock with that level.
+        ProfileTooSlow,
+        /// Sync must finish cleanly before the account's keys can be renewed.
+        RekeyNeedsCleanSync,
+        /// A person's safety code in a shared vault has not been checked, so
+        /// the vault cannot be renewed yet.
+        RekeyMemberKeyMismatch,
+        /// The vaults kept changing; try again.
+        RekeyBusy,
+        /// The re-key was sent and its outcome is not known yet.
+        RekeyOutcomeUnknown,
+        /// A re-key needs the sync folder or server to be reachable.
+        RekeyNeedsServer,
+        /// No account file in the sync folder opens with these keys.
+        RekeyNoAccountFile,
+        /// The account's keys were renewed on another device; use the new Secret Key.
+        SyncAccountRekeyed,
+        /// The backend offered older account keys than this device has.
+        SyncEpochRollback,
+        /// The backend's account keys are not the next ones after this device's.
+        SyncRekeyRefused,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.
@@ -332,7 +372,17 @@ impl From<SessionError> for IpcError {
             SessionError::InvalidHardwareKey => ErrorCode::HardwareKeyUnsupported,
             SessionError::WrongVaultProtection => ErrorCode::InvalidInput,
             SessionError::ItemTypeNotAllowed => ErrorCode::ItemTypeNotAllowed,
-            SessionError::PasswordRollback => ErrorCode::SyncPasswordRollback,
+            SessionError::PasswordRollback | SessionError::AccountVersionRollback => {
+                ErrorCode::SyncPasswordRollback
+            }
+            SessionError::PasswordUnchanged => ErrorCode::PasswordUnchanged,
+            SessionError::SecretKeyUnchanged => ErrorCode::SecretKeyUnchanged,
+            SessionError::RotationInProgress => ErrorCode::RotationInProgress,
+            SessionError::RekeyNotClean => ErrorCode::RekeyNeedsCleanSync,
+            SessionError::PlanMismatch => ErrorCode::RekeyMemberKeyMismatch,
+            SessionError::EpochRollback { .. } => ErrorCode::SyncEpochRollback,
+            SessionError::EpochNotNext { .. } => ErrorCode::SyncRekeyRefused,
+            SessionError::PreparedStale => ErrorCode::Busy,
             SessionError::ContactUnverified => ErrorCode::SharingContactUnverified,
             SessionError::ContactKeyChanged | SessionError::MemberKeyMismatch => {
                 ErrorCode::SharingKeyChanged
@@ -365,6 +415,9 @@ impl From<StoreError> for IpcError {
             StoreError::UnknownVault => ErrorCode::VaultNotFound,
             StoreError::AttachmentTooLarge => ErrorCode::AttachmentTooLarge,
             StoreError::HasSharedVaults => ErrorCode::SyncHasSharedVaults,
+            StoreError::RotationInProgress => ErrorCode::RotationInProgress,
+            StoreError::NoRotationJob => ErrorCode::RotationNone,
+            StoreError::RotationTooFar => ErrorCode::RotationTooFar,
             StoreError::Database(_)
             | StoreError::Io(_)
             | StoreError::InvalidPath
@@ -382,6 +435,7 @@ impl From<mosaic_core::Error> for IpcError {
             mosaic_core::Error::SecretKeyMalformed => ErrorCode::SecretKeyMalformed,
             mosaic_core::Error::SecretKeyMistyped => ErrorCode::SecretKeyMistyped,
             mosaic_core::Error::EmptyPassword => ErrorCode::EmptyPassword,
+            mosaic_core::Error::ProfileDowngrade => ErrorCode::ProfileDowngrade,
             _ => ErrorCode::Internal,
         })
     }

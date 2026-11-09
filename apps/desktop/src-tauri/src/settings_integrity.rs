@@ -178,6 +178,27 @@ impl Backend {
         Ok(checked.notice)
     }
 
+    /// After a re-key (or the adoption of one) `K_settings` is another key:
+    /// derives it again from the session's new account key and writes the state
+    /// file with a fresh nonce and MAC, before any other settings read. A crash
+    /// before this leaves a file the MAC rejects (strict values and a notice).
+    pub(crate) fn settings_remac(&self) {
+        let Ok(mut slot) = self.slot() else {
+            return;
+        };
+        let key = match &*slot {
+            Slot::Unlocked(session) => session.settings_mac_key().ok(),
+            _ => None,
+        };
+        let Some(key) = key else {
+            return;
+        };
+        if let Ok(mut g) = self.settings_guard.lock() {
+            g.key = Some(key);
+        }
+        let _ = self.update_stored_in(&mut slot, |_| {});
+    }
+
     /// Forgets `K_settings` (every lock).
     pub(crate) fn settings_locked(&self) {
         if let Ok(mut g) = self.settings_guard.lock() {

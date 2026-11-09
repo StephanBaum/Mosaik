@@ -27,6 +27,7 @@ pub mod access;
 mod errors;
 mod folder_flow;
 mod hosted_flow;
+mod rotation_flow;
 mod runner;
 mod sharing_flow;
 pub(crate) mod strings;
@@ -922,6 +923,7 @@ impl Backend {
                 warnings: Vec::new(),
                 sharing_findings: Vec::new(),
                 password_changed: false,
+                rekey_pending: false,
             };
         }
         let view = self.sync.view();
@@ -931,6 +933,7 @@ impl Backend {
             warnings: view.warnings,
             sharing_findings: sharing_flow::findings_view(session),
             password_changed: view.password_changed,
+            rekey_pending: session.rekey_pending().unwrap_or(false),
         }
     }
 

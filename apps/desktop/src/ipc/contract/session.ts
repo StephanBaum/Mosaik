@@ -42,6 +42,8 @@ export interface CreatedAccount {
 
 export interface VerifyKitRequest {
   lastGroup: string;
+  /** Check the new Secret Key a rotation staged (M7), not the one in use. */
+  pending: boolean;
 }
 
 export interface KitVerification {
@@ -76,6 +78,8 @@ export interface KitLabels {
 /** `save_emergency_kit`: Rust shows the save dialog and writes the PDF. */
 export interface SaveKitRequest {
   labels: KitLabels;
+  /** Write the new Secret Key a rotation staged (M7); it needs no password. */
+  pending: boolean;
   /** Needed once the kit was verified or the vault locked since account creation. */
   password: string | null;
 }

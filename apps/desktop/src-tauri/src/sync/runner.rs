@@ -379,6 +379,17 @@ fn after_run<T: Transport>(
                 .finish_halted(backend, ctx.generation, warnings);
             Next::Halted
         }
+        // A verified re-key marker: sync stays paused until the user adopts the
+        // re-key with the new Secret Key (`sync_recover_password`).
+        Err(SyncError::AccountRekeyed) => {
+            backend.sync.set_status(
+                backend,
+                ctx.generation,
+                SyncStatus::Error,
+                Some(ErrorCode::SyncAccountRekeyed),
+            );
+            Next::Halted
+        }
         Err(SyncError::Backoff { retry_at_ms }) => {
             let wait = until(retry_at_ms);
             backend
@@ -501,6 +512,8 @@ fn millis(ms: u64) -> i64 {
 /// the vaults.
 #[derive(Default)]
 struct Findings {
+    /// This device's account-key epoch.
+    epoch: u32,
     found: Option<mosaic_vault::session::SyncFindings>,
     vault_names: BTreeMap<VaultId, Option<String>>,
 }
@@ -509,6 +522,7 @@ fn read_findings(ctx: &Ctx) -> Findings {
     let mut access = ctx.session();
     access
         .with(|s| Findings {
+            epoch: s.ak_epoch(),
             found: s.sync_findings().ok(),
             vault_names: s
                 .vaults()
@@ -553,6 +567,7 @@ fn device_names<T: Transport>(
 
 /// The warnings of a run, plus the persisted findings (which stay until the
 /// user acknowledges them, whether or not this run repeated them).
+#[expect(clippy::too_many_lines, reason = "one arm per warning kind")]
 fn warnings_of<T: Transport>(
     ctx: &Ctx,
     reported: &[SyncWarning],
@@ -606,6 +621,15 @@ fn warnings_of<T: Transport>(
             }
             SyncWarning::RotationBlocked { vault: v } => Some(SyncWarningView::RotationBlocked {
                 vault_name: vault(v),
+            }),
+            SyncWarning::UnverifiedAccountFile {
+                name,
+                sha256,
+                epoch,
+            } => Some(SyncWarningView::UnverifiedAccountFile {
+                name: name.clone(),
+                sha256: super::rotation_flow::hex(sha256),
+                conflict: *epoch == findings.epoch,
             }),
             // A warning a later version adds: not shown.
             _ => None,

@@ -29,6 +29,10 @@ use contract::items::{
     AddItemRequest, ItemRequest, ListItemsRequest, MoveItemRequest, RevealRequest,
     SetFavoriteRequest, UpdateItemRequest,
 };
+use contract::rotation::{
+    DismissFileRequest, ProfileUpgradeRequest, RekeyCommitRequest, RekeyPrepareRequest,
+    RotateCommitRequest, RotatePrepareRequest, RotationResumeRequest,
+};
 use contract::quick_unlock::{
     CreateHardwareVaultRequest, EnrollBiometricRequest, EnrollHardwareKeyRequest,
     HardwareVaultKeyRequest, HardwareVaultRequest, RemoveHardwareKeyRequest,
@@ -66,7 +70,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 60;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 67;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -170,6 +174,14 @@ fuzz_target!(|data: &[u8]| {
         56 => drop(parse::<EmergencyRevokeRequest>(json)),
         57 => drop(parse::<EmergencyRequestRequest>(json)),
         58 => drop(parse::<EmergencyRespondRequest>(json)),
-        _ => drop(parse::<EmergencyClaimRequest>(json)),
+        59 => drop(parse::<EmergencyClaimRequest>(json)),
+        // Account keys (M7).
+        60 => drop(parse::<RotatePrepareRequest>(json)),
+        61 => drop(parse::<RotateCommitRequest>(json)),
+        62 => drop(parse::<ProfileUpgradeRequest>(json)),
+        63 => drop(parse::<RekeyPrepareRequest>(json)),
+        64 => drop(parse::<RekeyCommitRequest>(json)),
+        65 => drop(parse::<RotationResumeRequest>(json)),
+        _ => drop(parse::<DismissFileRequest>(json)),
     }
 });

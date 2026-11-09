@@ -344,18 +344,13 @@ impl Backend {
             )
         };
         drop((current, new));
-        let changed = match config {
-            Some(config) if config.kind == SyncKind::Hosted => {
-                let ctx = self.hosted_ctx()?;
-                self.change_password_hosted(&ctx, request, prepared)?
-            }
-            Some(config) if config.kind == SyncKind::Folder => {
-                self.change_password_folder(&config, account, install, prepared)?
-            }
-            _ => {
-                self.with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?))?
-            }
-        };
+        let changed = self.apply_credential_change(
+            config,
+            account,
+            install,
+            request.code.as_ref(),
+            prepared,
+        )?;
         self.remove_platform_key(&changed);
         Ok(())
     }
@@ -379,6 +374,10 @@ impl Backend {
         &self,
         request: &RecoverPasswordRequest,
     ) -> IpcResult<SyncOverview> {
+        // A Secret Key from the newest kit: the keys were renewed elsewhere (M7).
+        if let Some(typed) = request.secret_key.as_ref() {
+            return self.recover_with_new_key(request, typed);
+        }
         let new = MasterPassword::new(request.new_password.expose_secret().to_owned());
         if new.expose_secret().is_empty() {
             return Err(IpcError::new(ErrorCode::EmptyPassword));
@@ -432,7 +431,7 @@ impl Backend {
         clippy::too_many_arguments,
         reason = "one value per thing the recovery reads from the stored account"
     )]
-    fn recover_hosted(
+    pub(super) fn recover_hosted(
         &self,
         config: &SyncConfig,
         account: AccountId,
@@ -482,7 +481,7 @@ impl Backend {
         outcome
     }
 
-    fn recover_folder(
+    pub(super) fn recover_folder(
         &self,
         config: &SyncConfig,
         account: AccountId,
@@ -558,10 +557,29 @@ impl Backend {
 
     /// The platform key of a quick-unlock enrollment the change deleted.
     fn remove_platform_key(&self, changed: &PasswordChanged) {
-        if let Some(enrollment) = &changed.removed_quick_unlock
-            && let Some(platform) = self.quick_unlock.biometric()
-        {
-            let _ = platform.remove(&enrollment.platform_params);
+        self.remove_platform_enrollment(changed.removed_quick_unlock.as_ref());
+    }
+
+    /// Applies a prepared credential change on the backend that holds the
+    /// account (the server first, the folder's account file first, or just the
+    /// store) and commits it here.
+    pub(super) fn apply_credential_change(
+        &self,
+        config: Option<SyncConfig>,
+        account: AccountId,
+        install: InstallId,
+        code: Option<&crate::contract::secret::SecretIn>,
+        prepared: PreparedPasswordChange,
+    ) -> IpcResult<PasswordChanged> {
+        match config {
+            Some(config) if config.kind == SyncKind::Hosted => {
+                let ctx = self.hosted_ctx()?;
+                self.change_password_hosted(&ctx, code, prepared)
+            }
+            Some(config) if config.kind == SyncKind::Folder => {
+                self.change_password_folder(&config, account, install, prepared)
+            }
+            _ => self.with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?)),
         }
     }
 }

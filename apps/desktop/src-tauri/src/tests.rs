@@ -76,6 +76,7 @@ fn account_lifecycle() {
         backend
             .verify_emergency_kit(&VerifyKitRequest {
                 last_group: SecretIn::test(group),
+                pending: false,
             })
             .unwrap()
             .matches

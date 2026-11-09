@@ -117,6 +117,9 @@ pub struct CreatedAccount {
 pub struct VerifyKitRequest {
     /// What the user typed.
     pub last_group: SecretIn,
+    /// Check against the new Secret Key a rotation staged (M7), not the one
+    /// in use.
+    pub pending: bool,
 }
 
 /// The `verify_emergency_kit` response.
@@ -170,6 +173,9 @@ pub struct QuickUnlockRequest {
 pub struct SaveKitRequest {
     /// The kit's texts in the user's language.
     pub labels: KitLabels,
+    /// Write the new Secret Key a rotation staged (M7), not the one in use.
+    /// It needs no password: the key is new and nothing uses it yet.
+    pub pending: bool,
     /// The master password, needed once the kit was verified in this
     /// process (UX_GUIDELINES §8: re-authentication before viewing the
     /// Secret Key). Not needed during onboarding.
@@ -271,6 +277,7 @@ pub(crate) mod samples {
                 master_password_hint: "Write it here by hand.".into(),
                 footer: "Pre-audit software.".into(),
             },
+            pending: false,
             password: None,
         }
     }

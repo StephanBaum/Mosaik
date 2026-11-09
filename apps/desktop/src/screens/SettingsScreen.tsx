@@ -22,6 +22,7 @@ import {
 import { usePlatform } from "../platform/platform.ts";
 import { format, GLOBAL_PALETTE } from "../platform/shortcuts.ts";
 import { QuickUnlockSettings } from "./QuickUnlockSettings.tsx";
+import { AccountKeysSection } from "./settings/security/AccountKeysSection.tsx";
 import { kitLabels } from "./onboarding/kit.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { BrowserSettings } from "./BrowserSettings.tsx";
@@ -198,7 +199,7 @@ function KitSettings() {
         <ReauthDialog
           kit
           onSubmit={async (password) => {
-            const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), password });
+            const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), pending: false, password });
             return result.ok ? null : result.error;
           }}
           onClose={() => {
@@ -214,6 +215,7 @@ function KitSettings() {
 function Integrations({ onError }: { onError: (error: IpcError | null) => void }) {
   return (
     <>
+      <AccountKeysSection />
       <SyncSettings />
       <SharingSettings />
       <EmergencySettings />

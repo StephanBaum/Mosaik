@@ -87,11 +87,11 @@ fn create_account_and_verify_kit(b: &Backend) -> String {
 
     // 3. The kit check: a wrong group, then the right one.
     let wrong = b
-        .verify_emergency_kit(&req(json!({ "lastGroup": "ZZZZ" })))
+        .verify_emergency_kit(&req(json!({ "lastGroup": "ZZZZ", "pending": false })))
         .unwrap();
     assert!(!wrong.matches);
     let right = b
-        .verify_emergency_kit(&req(json!({ "lastGroup": last_group })))
+        .verify_emergency_kit(&req(json!({ "lastGroup": last_group, "pending": false })))
         .unwrap();
     assert!(right.matches);
     assert!(matches!(

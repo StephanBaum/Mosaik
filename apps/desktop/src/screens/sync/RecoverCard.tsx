@@ -24,6 +24,7 @@ export function RecoverCard({
   const ipc = useIpc();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [secretKey, setSecretKey] = useState("");
   const [needsCode, setNeedsCode] = useState(config.kind === "hosted" && config.totpEnabled);
   const [error, setError] = useState<IpcError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,10 +35,12 @@ export function RecoverCard({
     setError(null);
     const result = await ipc.call("sync_recover_password", {
       newPassword: password,
+      secretKey: secretKey.trim() === "" ? null : secretKey,
       code: needsCode && code !== "" ? code : null,
     });
     setBusy(false);
     setPassword("");
+    setSecretKey("");
     setCode("");
     if (result.ok) {
       onRecovered(result.value);
@@ -61,6 +64,7 @@ export function RecoverCard({
           setPassword(event.target.value);
         }}
       />
+      <TextField label={t("rotation.recovery.optional")} mono autoComplete="off" spellCheck={false} value={secretKey} onChange={(event) => { setSecretKey(event.target.value); }} />
       {needsCode && (
         <TextField
           label={t("settings.sync.code")}

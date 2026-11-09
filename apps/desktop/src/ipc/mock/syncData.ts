@@ -222,6 +222,7 @@ export function overview(state: MockState): SyncOverview {
     warnings: sync.warnings,
     sharingFindings: state.sharing.findings,
     passwordChanged: sync.passwordChanged,
+    rekeyPending: state.rotation.rekeyPending,
   };
 }
 

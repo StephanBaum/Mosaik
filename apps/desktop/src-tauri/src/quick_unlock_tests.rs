@@ -539,6 +539,7 @@ fn five_wrong_reauthentications_in_a_row_lock_and_a_right_one_resets_the_count()
     let wrong = |b: &Backend| {
         b.save_emergency_kit(SaveKitRequest {
             labels: crate::emergency_kit::tests::labels(),
+            pending: false,
             password: Some(SecretIn::test("not the password")),
         })
         .unwrap_err()
@@ -1202,6 +1203,7 @@ fn m1_five_wrong_reauthentications_lock_and_need_the_password_afterwards() {
         let error = b
             .save_emergency_kit(SaveKitRequest {
                 labels: crate::emergency_kit::tests::labels(),
+                pending: false,
                 password: Some(SecretIn::test("not the password")),
             })
             .unwrap_err();
