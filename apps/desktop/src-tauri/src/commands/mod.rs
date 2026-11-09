@@ -137,6 +137,8 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         rotation::rotation_abandon_committed,
         rotation::sync_rekey_markers,
         rotation::sync_dismiss_rekey_marker,
+        rotation::sync_ignored_rekey_markers,
+        rotation::sync_restore_rekey_marker,
         rotation::rotation_status,
         rotation::secret_key_rotate_prepare,
         rotation::secret_key_rotate_commit,

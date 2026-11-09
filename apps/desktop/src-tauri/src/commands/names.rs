@@ -108,6 +108,8 @@ pub const COMMANDS: &[&str] = &[
     "rotation_abandon_committed",
     "sync_rekey_markers",
     "sync_dismiss_rekey_marker",
+    "sync_ignored_rekey_markers",
+    "sync_restore_rekey_marker",
     // Account keys
     "rotation_status",
     "secret_key_rotate_prepare",

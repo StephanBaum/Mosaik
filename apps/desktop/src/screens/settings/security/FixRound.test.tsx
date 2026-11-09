@@ -51,3 +51,37 @@ describe("a committed key job that cannot finish", () => {
     expect(calls.map((c) => c.command)).toContain("rotation_abandon_committed");
   });
 });
+
+describe("ignored re-key notices", () => {
+  it("are listed only when there are some, and Restore halts sync again without asking", async () => {
+    const { user, calls } = await openSettings({ rotation: { variant: "ignoredNotices", stepMs: 0 } });
+    const section = await screen.findByRole("region", { name: "Ignored re-key notices" });
+    expect(screen.queryByRole("region", { name: "Your account's keys were renewed on another device" })).toBeNull();
+    await user.click(within(section).getByRole("button", { name: /Restore the notice/ }));
+    expect(await screen.findByRole("region", { name: "Your account's keys were renewed on another device" })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "Ignored re-key notices" })).toBeNull();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls.map((c) => c.command)).toContain("sync_restore_rekey_marker");
+  });
+
+  it("do not show the section when nothing was ignored", async () => {
+    await openSettings({ rotation: { variant: "rekeyPending", stepMs: 0 } });
+    expect(screen.queryByRole("region", { name: "Ignored re-key notices" })).toBeNull();
+  });
+});
+
+describe("a device too far behind", () => {
+  it("is told to join again and is not offered a re-key", async () => {
+    const { user } = await openSettings({ rotation: { variant: "jumpTooLarge", stepMs: 0 } });
+    const notice = await screen.findByRole("region", { name: "Your account's keys were renewed on another device" });
+    await user.click(within(notice).getByRole("button", { name: "Use the new keys…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Your account's keys were renewed on another device" });
+    await user.type(within(dialog).getByLabelText("Master password"), "whatever password");
+    await user.type(within(dialog).getByLabelText("Secret Key from the new Emergency Kit"), "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3");
+    await user.click(within(dialog).getByRole("button", { name: "Use the new keys" }));
+    expect(await within(dialog).findByText(/too far behind the other devices to catch up\. Set it up again/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Re-key again/ })).toBeNull();
+  });
+});

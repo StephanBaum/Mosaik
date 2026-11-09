@@ -230,6 +230,12 @@ export const rotation = {
     "Mosaic hat eine Meldung zur Neuverschlüsselung gefunden, die es nicht bestätigen konnte. Wenn du dein Konto nicht auf einem anderen Gerät neu verschlüsselt hast, kannst du sie ignorieren.",
   "rotation.marker.ignore": "Meldung ignorieren",
   "rotation.marker.keep": "Behalten",
+  "rotation.ignored.title": "Ignorierte Meldungen zur Neuverschlüsselung",
+  "rotation.ignored.body":
+    "Meldungen, die du ignorieren wolltest. Stelle eine wieder her, wenn du dein Konto doch auf einem anderen Gerät neu verschlüsselt hast.",
+  "rotation.ignored.row": "Meldung zur Neuverschlüsselung aus deinem Sync-Ordner",
+  "rotation.ignored.restore": "Wiederherstellen",
+  "rotation.ignored.restore.label": "Die Meldung {name} wiederherstellen",
   "rotation.resume.done": "Schlüsseländerung abgeschlossen.",
 
   "rotation.recovery.title": "Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert",

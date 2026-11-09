@@ -95,6 +95,8 @@ export const fixtures = {
     "rotation_abandon_committed",
     "sync_rekey_markers",
     "sync_dismiss_rekey_marker",
+    "sync_ignored_rekey_markers",
+    "sync_restore_rekey_marker",
     "rotation_status",
     "secret_key_rotate_prepare",
     "secret_key_rotate_commit",
@@ -326,6 +328,7 @@ export const fixtures = {
       "rotationInProgress",
       "rotationNone",
       "rotationTooFar",
+      "rotationJumpTooLarge",
       "rotationNotApplied",
       "secretKeyUnchanged",
       "passwordUnchanged",
@@ -995,6 +998,9 @@ export const fixtures = {
     },
     {
       "code": "rotationTooFar"
+    },
+    {
+      "code": "rotationJumpTooLarge"
     },
     {
       "code": "rotationNotApplied"
@@ -2187,6 +2193,9 @@ export const fixtures = {
         "code": "492039"
       }
     ],
+    "sync_ignored_rekey_markers": [
+      null
+    ],
     "sync_now": [
       null
     ],
@@ -2212,6 +2221,12 @@ export const fixtures = {
     ],
     "sync_rekey_markers": [
       null
+    ],
+    "sync_restore_rekey_marker": [
+      {
+        "name": "rekey-00000002.mrk",
+        "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
     ],
     "sync_status": [
       null
@@ -5624,6 +5639,16 @@ export const fixtures = {
         "warnings": []
       }
     ],
+    "sync_ignored_rekey_markers": [
+      [],
+      [
+        {
+          "name": "rekey-00000002.mrk",
+          "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "toEpoch": 2
+        }
+      ]
+    ],
     "sync_now": [
       {
         "config": null,
@@ -5992,6 +6017,174 @@ export const fixtures = {
           "toEpoch": 2
         }
       ]
+    ],
+    "sync_restore_rekey_marker": [
+      {
+        "config": null,
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "passwordChanged": true,
+        "rekeyPending": true,
+        "sharingFindings": [],
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
     ],
     "sync_status": [
       {

@@ -205,6 +205,9 @@ export const syncHandlers: MockHandlers = {
       fail("emptyPassword");
     }
     if (request.secretKey !== null) {
+      if (state.rotation.jumpTooLarge) {
+        fail("rotationJumpTooLarge");
+      }
       return adoptRenewedKeys(state, { ...request, secretKey: request.secretKey });
     }
     if (sync.serverPassword === null || request.newPassword !== sync.serverPassword) {

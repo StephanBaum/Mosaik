@@ -255,6 +255,8 @@ export interface Commands {
   rotation_abandon_committed: Command<null, null>;
   sync_rekey_markers: Command<null, RekeyMarkerView[]>;
   sync_dismiss_rekey_marker: Command<DismissFileRequest, SyncOverview>;
+  sync_ignored_rekey_markers: Command<null, RekeyMarkerView[]>;
+  sync_restore_rekey_marker: Command<DismissFileRequest, SyncOverview>;
   // Sharing and emergency access
   sharing_identity: Command<null, SharingIdentity>;
   sharing_lookup: Command<LookupRequest, LookupResult>;
@@ -390,6 +392,8 @@ const commandSet = {
   rotation_abandon_committed: true,
   sync_rekey_markers: true,
   sync_dismiss_rekey_marker: true,
+  sync_ignored_rekey_markers: true,
+  sync_restore_rekey_marker: true,
   sharing_identity: true,
   sharing_lookup: true,
   sharing_verify_contact: true,

@@ -113,6 +113,15 @@ fn every_command_is_locked() {
     locked(b.rotation_abandon().unwrap_err().code);
     locked(b.rotation_abandon_committed().unwrap_err().code);
     locked(b.sync_rekey_markers().unwrap_err().code);
+    locked(b.sync_ignored_rekey_markers().unwrap_err().code);
+    locked(
+        b.sync_restore_rekey_marker(&DismissFileRequest {
+            name: "rekey-00000002.mrk".into(),
+            sha256: "cd".repeat(32),
+        })
+        .unwrap_err()
+        .code,
+    );
     locked(
         b.sync_dismiss_rekey_marker(&DismissFileRequest {
             name: "rekey-00000002.mrk".into(),
@@ -423,7 +432,8 @@ fn abandoning_a_committed_job_needs_a_committed_job_and_markers_need_a_folder() 
         ErrorCode::RotationTooFar
     );
     // A local account has no folder, so no notices.
-    assert!(b.sync_rekey_markers().unwrap().is_empty());
+    assert_eq!(b.sync_rekey_markers().unwrap().len(), 0);
+    assert_eq!(b.sync_ignored_rekey_markers().unwrap().len(), 0);
     let bad = |name: &str, sha: &str| {
         b.sync_dismiss_rekey_marker(&DismissFileRequest {
             name: name.into(),

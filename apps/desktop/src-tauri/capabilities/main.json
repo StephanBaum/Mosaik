@@ -93,6 +93,8 @@
     "allow-rotation-abandon-committed",
     "allow-sync-rekey-markers",
     "allow-sync-dismiss-rekey-marker",
+    "allow-sync-ignored-rekey-markers",
+    "allow-sync-restore-rekey-marker",
     "allow-rotation-status",
     "allow-secret-key-rotate-prepare",
     "allow-secret-key-rotate-commit",

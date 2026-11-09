@@ -84,6 +84,8 @@ export const errors = {
   "error.rotationNone": "There is no key change to continue.",
   "error.rotationTooFar":
     "This change already reached your account, so it can't be discarded. Continue it to finish.",
+  "error.rotationJumpTooLarge":
+    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
   "error.rotationNotApplied":
     "The change never reached your account, so nothing was changed. Start again or discard it.",
   "error.secretKeyUnchanged":

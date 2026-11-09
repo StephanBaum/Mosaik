@@ -232,6 +232,12 @@ export const rotation = {
     "Mosaic found a re-key notice it couldn't confirm. If you didn't re-key your account on another device, you can ignore it.",
   "rotation.marker.ignore": "Ignore notice",
   "rotation.marker.keep": "Keep",
+  "rotation.ignored.title": "Ignored re-key notices",
+  "rotation.ignored.body":
+    "Notices you chose to ignore. Restore one if you did re-key your account on another device.",
+  "rotation.ignored.row": "Re-key notice from your sync folder",
+  "rotation.ignored.restore": "Restore",
+  "rotation.ignored.restore.label": "Restore the notice {name}",
   "rotation.resume.done": "Key change finished.",
 
   // Another device renewed the keys

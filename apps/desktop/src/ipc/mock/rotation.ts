@@ -24,6 +24,7 @@ import {
   type MockHandlers,
   type MockState,
 } from "./state.ts";
+import { seedNotices } from "./rotationMarkers.ts";
 import { MOCK_NEW_PASSWORD, MOCK_TOTP_CODE, publish } from "./syncData.ts";
 
 export const MOCK_NEW_SECRET_KEY = "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3";
@@ -38,6 +39,8 @@ export const rotationVariants = [
   "resumeStuck",
   "rekeyElsewhere",
   "rekeyPending",
+  "ignoredNotices",
+  "jumpTooLarge",
   "unknownFile",
   "conflict",
   "slowDevice",
@@ -62,6 +65,10 @@ export interface MockRotation {
   rekeyPending: boolean;
   /** The re-key notices the folder shows and the user has not ignored. */
   markers: RekeyMarkerView[];
+  /** The notices the user ignored (they can be restored). */
+  ignored: RekeyMarkerView[];
+  /** Adopting fails: this device is too far behind and has to join again. */
+  jumpTooLarge: boolean;
   /** A continue that cannot finish (an attachment re-seal keeps failing). */
   stuck: boolean;
   /** Secret Keys this device has used. */
@@ -120,7 +127,7 @@ function seededJob(variant: RotationVariant): RotationJobView | null {
 
 export function seedRotation(options: MockRotationOptions): MockRotation {
   const variant = options.variant ?? "none";
-  const elsewhere = variant === "rekeyElsewhere" || variant === "rekeyPending";
+  const elsewhere = variant === "rekeyElsewhere" || variant === "rekeyPending" || variant === "jumpTooLarge";
   const staged = variant.startsWith("resume") && variant !== "resumeAttachments" && variant !== "resumeStuck";
   return {
     job: seededJob(variant),
@@ -140,8 +147,7 @@ export function seedRotation(options: MockRotationOptions): MockRotation {
             unreachableAttachments: 2,
           }
         : baseReview(),
-    rekeyPending: variant === "rekeyPending",
-    markers: variant === "rekeyPending" ? [{ name: "rekey-00000002.mrk", sha256: "cd".repeat(32), toEpoch: 2 }] : [],
+    ...seedNotices(variant),
     stuck: variant === "resumeStuck",
     retired: [],
     elsewhere: elsewhere ? { secretKey: MOCK_NEW_SECRET_KEY, password: MOCK_NEW_PASSWORD } : null,

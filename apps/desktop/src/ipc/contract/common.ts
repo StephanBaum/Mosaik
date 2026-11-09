@@ -144,6 +144,7 @@ export const errorCodes = [
   "rotationInProgress",
   "rotationNone",
   "rotationTooFar",
+  "rotationJumpTooLarge",
   "rotationNotApplied",
   "secretKeyUnchanged",
   "passwordUnchanged",

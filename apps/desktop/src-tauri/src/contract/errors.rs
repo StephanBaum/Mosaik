@@ -276,6 +276,9 @@ wire_enum!(
         RotationNone,
         /// The change already reached the server: it cannot be discarded.
         RotationTooFar,
+        /// This device is too far behind the account's other devices to adopt
+        /// a re-key: it has to be set up again (join).
+        RotationJumpTooLarge,
         /// The change never reached the backend: nothing was changed. Start
         /// again or discard it.
         RotationNotApplied,
@@ -382,6 +385,7 @@ impl From<SessionError> for IpcError {
             SessionError::PlanMismatch => ErrorCode::RekeyMemberKeyMismatch,
             SessionError::EpochRollback { .. } => ErrorCode::SyncEpochRollback,
             SessionError::EpochNotNext { .. } => ErrorCode::SyncRekeyRefused,
+            SessionError::EpochJumpTooLarge { .. } => ErrorCode::RotationJumpTooLarge,
             SessionError::PreparedStale => ErrorCode::Busy,
             SessionError::ContactUnverified => ErrorCode::SharingContactUnverified,
             SessionError::ContactKeyChanged | SessionError::MemberKeyMismatch => {
@@ -487,6 +491,13 @@ mod tests {
             (SessionError::UnknownItem, ErrorCode::ItemNotFound),
             (SessionError::ItemDeleted, ErrorCode::ItemDeleted),
             (SessionError::SameVault, ErrorCode::SameVault),
+            (
+                SessionError::EpochJumpTooLarge {
+                    stored: 1,
+                    offered: 40,
+                },
+                ErrorCode::RotationJumpTooLarge,
+            ),
             (SessionError::NoOtp, ErrorCode::NoOtp),
             (
                 SessionError::AttachmentTooLarge,

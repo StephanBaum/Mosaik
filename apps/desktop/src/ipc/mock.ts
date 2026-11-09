@@ -35,7 +35,8 @@
  * vaults, members, grants and security keys), resumePrepared, resumeAccepted, resumeAttachments,
  * resumeSecretKey (a journal row to continue after unlock), resumeStuck (a committed job that cannot finish: the banner offers to give it up), rekeyElsewhere (hosted: signed out after
  * a re-key on another device), rekeyPending (folder: a verified re-key marker, sync paused),
- * unknownFile and conflict (a folder account file this device cannot verify), slowDevice
+ * ignoredNotices (a folder with an ignored re-key notice to restore), jumpTooLarge (rekeyPending, but adopting answers
+ * `rotationJumpTooLarge`: set the device up again), unknownFile and conflict (a folder account file this device cannot verify), slowDevice
  * (`profile_upgrade` answers `profileTooSlow` unless forced). The other device's kit has the Secret
  * Key `M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3` and the password `new correct horse battery staple`.
  * `&rotationFail=<errorCode>` makes the commits fail, `&rotationStepMs=<ms>` sets the pause between
@@ -273,7 +274,11 @@ function rotationSync(options: MockOptions): MockSyncOptions {
   if (variant === undefined) {
     return {};
   }
-  const folder = variant === "rekeyPending" || variant === "unknownFile" || variant === "conflict";
+  const folder = variant === "rekeyPending" ||
+    variant === "jumpTooLarge" ||
+    variant === "ignoredNotices" ||
+    variant === "unknownFile" ||
+    variant === "conflict";
   return { variant: folder ? "folder" : "hostedNoTotp" };
 }
 

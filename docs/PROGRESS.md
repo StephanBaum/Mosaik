@@ -2425,6 +2425,11 @@ next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key ro
     at most 50) and says they keep their old file key (so someone holding the old keys and a copy could still open
     them): the vault's `Unreadable` and unreachable rows are exactly that.
   - **L2:** the revocation row for reason 6 is deferred per its ADR (not built here).
+  - **Round 2 (`824e0a4`, `80278b8`).** `EpochJumpTooLarge` maps to `rotationJumpTooLarge` ("set it up again", no
+    re-key button, THREAT_MODEL R96). Settings > Password and keys lists "Ignored re-key notices" (only when some
+    exist) with a confirmation-free "Restore" (`sync_ignored_rekey_markers`, `sync_restore_rekey_marker`). Dismissed
+    unverifiable account files are not listed in the desktop, so they have no restore. The abandon button was
+    already limited to phase 5 and later.
 - **Manual checks for M7**, none can be automated here: (1) two real devices on a real server: re-key on one, watch
   the other sign out, adopt it with the new kit, then a second re-key from the other; (2) a re-key on a real
   Dropbox, iCloud or OneDrive folder with two devices, one offline during the re-key and adopting later, and a

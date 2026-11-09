@@ -9,6 +9,7 @@ import { SettingsSection } from "../../SettingsSection.tsx";
 import { ChangePasswordDialog } from "./ChangePasswordDialog.tsx";
 import type { WizardKind } from "./CredentialsStep.tsx";
 import { focusQuickUnlock, useBackendOverview } from "./hooks.ts";
+import { IgnoredNotices } from "./IgnoredNotices.tsx";
 import { RotationWizard } from "./RotationWizard.tsx";
 
 const ACTIONS: readonly WizardKind[] = ["password", "secretKey", "profile", "rekey"];
@@ -27,7 +28,8 @@ export function AccountKeysSection() {
   }
 
   return (
-    <SettingsSection title={t("rotation.section.title")} body={t("rotation.section.body")}>
+    <>
+      <SettingsSection title={t("rotation.section.title")} body={t("rotation.section.body")}>
       {ACTIONS.map((kind) => {
         const blocked = kind === "rekey" && overview !== null && !hasBackend;
         return (
@@ -52,5 +54,7 @@ export function AccountKeysSection() {
       {open === "password" && <ChangePasswordDialog onClose={close} />}
       {open !== null && open !== "password" && <RotationWizard kind={open} onClose={close} />}
     </SettingsSection>
+    <IgnoredNotices />
+    </>
   );
 }

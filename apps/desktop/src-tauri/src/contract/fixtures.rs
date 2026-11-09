@@ -922,6 +922,19 @@ fn rotation_fix_commands(f: &mut Fixtures) {
     f.command("rotation_abandon_committed", vec![()], vec![()]);
     f.command("sync_rekey_markers", vec![()], rotation::samples::markers());
     f.command(
+        "sync_ignored_rekey_markers",
+        vec![()],
+        rotation::samples::markers(),
+    );
+    f.command(
+        "sync_restore_rekey_marker",
+        vec![DismissFileRequest {
+            name: "rekey-00000002.mrk".into(),
+            sha256: "cd".repeat(32),
+        }],
+        sync::samples::overviews(),
+    );
+    f.command(
         "sync_dismiss_rekey_marker",
         vec![DismissFileRequest {
             name: "rekey-00000002.mrk".into(),

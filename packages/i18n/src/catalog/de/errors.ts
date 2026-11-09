@@ -92,6 +92,8 @@ export const errors = {
   "error.rotationNone": "Es gibt keine Schlüsseländerung, die fortgesetzt werden kann.",
   "error.rotationTooFar":
     "Diese Änderung hat dein Konto schon erreicht, deshalb lässt sie sich nicht verwerfen. Setze sie fort, um sie abzuschließen.",
+  "error.rotationJumpTooLarge":
+    "Dieses Gerät ist zu weit hinter den anderen Geräten zurück, um aufzuholen. Richte es neu ein: Entferne das Konto von diesem Gerät und tritt mit deinem Emergency Kit erneut bei.",
   "error.rotationNotApplied":
     "Die Änderung hat dein Konto nie erreicht, deshalb wurde nichts geändert. Starte neu oder verwirf sie.",
   "error.secretKeyUnchanged":

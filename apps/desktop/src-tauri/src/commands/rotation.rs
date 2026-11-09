@@ -120,6 +120,23 @@ pub async fn sync_rekey_markers(state: State<'_, AppState>) -> IpcResult<Vec<Rek
     run(&state, Backend::sync_rekey_markers).await
 }
 
+/// `sync_ignored_rekey_markers`.
+#[tauri::command]
+pub async fn sync_ignored_rekey_markers(
+    state: State<'_, AppState>,
+) -> IpcResult<Vec<RekeyMarkerView>> {
+    run(&state, Backend::sync_ignored_rekey_markers).await
+}
+
+/// `sync_restore_rekey_marker`.
+#[tauri::command]
+pub async fn sync_restore_rekey_marker(
+    state: State<'_, AppState>,
+    request: DismissFileRequest,
+) -> IpcResult<SyncOverview> {
+    run(&state, move |b| b.sync_restore_rekey_marker(&request)).await
+}
+
 /// `sync_dismiss_rekey_marker`.
 #[tauri::command]
 pub async fn sync_dismiss_rekey_marker(

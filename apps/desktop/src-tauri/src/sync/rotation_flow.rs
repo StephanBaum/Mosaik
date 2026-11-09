@@ -1049,6 +1049,57 @@ impl Backend {
             .collect())
     }
 
+    /// `sync_ignored_rekey_markers`: the re-key notices the user ignored that
+    /// the folder still shows, each with a way back.
+    ///
+    /// # Errors
+    /// `locked`, and the transport's codes.
+    pub fn sync_ignored_rekey_markers(&self) -> IpcResult<Vec<RekeyMarkerView>> {
+        let Some((mut engine, mut access)) = self.marker_engine()? else {
+            return Ok(Vec::new());
+        };
+        let markers = engine
+            .dismissed_rekey_markers(&mut access)
+            .map_err(|e| IpcError::new(sync_code(&e)))?;
+        Ok(markers
+            .iter()
+            .map(|m| RekeyMarkerView {
+                name: m.name.clone(),
+                sha256: hex(&m.sha256),
+                to_epoch: m.to_epoch,
+            })
+            .collect())
+    }
+
+    /// `sync_restore_rekey_marker`: undoes an ignore. The notice halts sync
+    /// again (`rekeyPending`) so the re-key it names can be adopted. Nothing
+    /// to confirm: restoring is safe.
+    ///
+    /// # Errors
+    /// `locked`, `invalidInput`, and the transport's codes.
+    pub fn sync_restore_rekey_marker(
+        &self,
+        request: &DismissFileRequest,
+    ) -> IpcResult<SyncOverview> {
+        let sha = parse_sha256(&request.sha256)?;
+        if request.name.is_empty()
+            || request.name.len() > 255
+            || request.name.chars().any(char::is_control)
+        {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
+        let _change = self.sync.begin_change()?;
+        if let Some((mut engine, mut access)) = self.marker_engine()? {
+            self.sync.stop();
+            engine
+                .undismiss_rekey_marker(&mut access, &request.name, &sha)
+                .map_err(|e| IpcError::new(sync_code(&e)))?;
+        }
+        self.emit_sync_state();
+        self.sync_restart();
+        self.sync_status()
+    }
+
     /// `sync_dismiss_rekey_marker`: remembers a notice by name and SHA-256 so
     /// it never halts this device again. The frontend asks first.
     ///

@@ -13,6 +13,7 @@ export function applyRotationToSync(state: MockState, variant: RotationVariant |
       sync.passwordChanged = true;
       break;
     case "rekeyPending":
+    case "jumpTooLarge":
       sync.status = "error";
       sync.error = "syncAccountRekeyed";
       break;
