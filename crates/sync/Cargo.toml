@@ -13,7 +13,7 @@ workspace = true
 [features]
 default = []
 # In-memory and chaos transports for the simulations (M6 T2).
-test-util = []
+test-util = ["mosaic-vault/test-util"]
 # The OPAQUE ciphersuite module (`wire::opaque`, used by the server and the
 # HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
 opaque = ["dep:opaque-ke", "dep:sha2_0_10"]

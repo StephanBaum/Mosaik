@@ -560,7 +560,7 @@ impl Store {
         let tx = self.write()?;
         require_vault(&tx, vault_id)?;
         tx.execute(
-            "UPDATE vaults SET remote_created = 1 WHERE vault_id = ?1",
+            "UPDATE vaults SET remote_created = 1, backend_known = 1 WHERE vault_id = ?1",
             [vault_id.as_bytes()],
         )?;
         tx.execute(

@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 
 use mosaic_core::InstallId;
+use mosaic_core::sync_auth::MAX_EPOCH_JUMP;
 use sha2::{Digest, Sha256};
 
 use super::fsutil;
@@ -24,9 +25,15 @@ use crate::wire::account_file::{self, AccountFile, AccountFilePath};
 use crate::wire::folder_names::{self, FolderName};
 use crate::wire::rekey_marker::{self, RekeyMarker, RekeyMarkerPath};
 
-/// The most account files and markers one scan reads (newest first): a flood
-/// of planted names costs this much and no more.
+/// The most verified markers, and the most account files a findings scan
+/// reads (newest first): a flood of planted names costs this much and no more.
 const MAX_SCANNED: usize = 64;
+/// The most marker files of one epoch, and account files of the adoption
+/// fallback, one scan reads (ADR-0064). A marker is 93 bytes and its MAC is
+/// checked before the [`MAX_SCANNED`] cap, an account file 172 bytes and its
+/// epoch range before the candidate cap, so planted junk with low names
+/// cannot crowd out the genuine one below this many files.
+const MAX_READ: usize = 1024;
 
 /// What the account directory lists, by kind.
 struct AccountDir {
@@ -75,10 +82,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
         }
     }
 
-    /// Every marker for `epoch` (at most `MAX_SCANNED`) that verifies under
-    /// this device's keys, with its file name and the SHA-256 of its bytes.
-    /// Anyone who holds the old keys can write one (review H1), so a caller
-    /// never treats the first as the only one.
+    /// Every marker for `epoch` that verifies under this device's keys (at
+    /// most `MAX_SCANNED`, of at most `MAX_READ` marker files read: the MAC
+    /// is checked before the cap, ADR-0064), with its file name and the
+    /// SHA-256 of its bytes. Anyone who holds the old keys can write one
+    /// (review H1), so a caller never treats the first as the only one.
     fn verified_rekey_markers(
         &self,
         dir: &AccountDir,
@@ -89,8 +97,11 @@ impl<C: FolderCrypto> FolderTransport<C> {
             .markers
             .iter()
             .filter(|(e, _)| *e == epoch)
-            .take(MAX_SCANNED)
+            .take(MAX_READ)
         {
+            if out.len() >= MAX_SCANNED {
+                break;
+            }
             let Ok(device_id) = InstallId::from_bytes(*device) else {
                 continue;
             };
@@ -190,7 +201,9 @@ impl<C: FolderCrypto> FolderTransport<C> {
         let mut order: Vec<(u64, [u8; 16])> = Vec::new();
         order.extend(named);
         let mut seen: BTreeSet<(u64, [u8; 16])> = order.iter().copied().collect();
-        for f in dir.files.iter().take(MAX_SCANNED) {
+        // The fallback (a deleted marker): up to `MAX_READ` files, the epoch
+        // range checked before the candidate cap (ADR-0064).
+        for f in dir.files.iter().take(MAX_READ) {
             if seen.insert(*f) {
                 order.push(*f);
             }
@@ -214,9 +227,10 @@ impl<C: FolderCrypto> FolderTransport<C> {
             let Ok(file) = AccountFile::decode_for_join(&bytes, &id) else {
                 continue;
             };
-            // Any epoch above this device's (review H1): the typed Secret
-            // Key and the MAC under the key it opens decide.
-            if file.ak_epoch > epoch {
+            // Any epoch above this device's up to the jump cap (review H1,
+            // ADR-0064): the typed Secret Key and the MAC under the key it
+            // opens decide. A file above the cap costs no derivation.
+            if file.ak_epoch > epoch && file.ak_epoch - epoch <= MAX_EPOCH_JUMP {
                 out.push(RekeyCandidate { file, bytes });
             }
         }

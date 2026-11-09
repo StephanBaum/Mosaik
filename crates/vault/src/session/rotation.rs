@@ -14,7 +14,7 @@ use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};
 
 use mosaic_core::model::{AttachmentRef, GrantCover, Role, Text};
-use mosaic_core::sync_auth;
+use mosaic_core::sync_auth::{self, MAX_EPOCH_JUMP};
 use mosaic_core::{
     AccountId, AccountKey, Argon2Profile, AttachmentId, AttachmentKey, ContactsCiphertext,
     CredentialChange, Fingerprint, IdentityPublicKey, IdentitySecret, ItemId, KeyGeneration,
@@ -876,7 +876,9 @@ impl UnlockedSession {
     /// [`Error::ContactUnverified`] if the plan does not cover the owned
     /// shared vaults as the roster and the pins say;
     /// [`Error::EpochExhausted`] (the target `max(own epoch,
-    /// plan.seen_epoch) + 1` overflows); [`Error::VaultUnavailable`],
+    /// plan.seen_epoch) + 1` overflows), [`Error::EpochJumpTooLarge`] (the
+    /// target is more than `MAX_EPOCH_JUMP` above the own epoch, ADR-0064;
+    /// the sync engine never plans one); [`Error::VaultUnavailable`],
     /// [`Error::OwnerUnknown`] (hosted only), [`Error::NoIdentity`];
     /// [`Error::Core`] (`ProfileDowngrade`, an empty password);
     /// [`Error::Store`].
@@ -894,6 +896,12 @@ impl UnlockedSession {
             .max(plan.seen_epoch)
             .checked_add(1)
             .ok_or(Error::EpochExhausted)?;
+        if to_epoch - self.ak_epoch > MAX_EPOCH_JUMP {
+            return Err(Error::EpochJumpTooLarge {
+                stored: self.ak_epoch,
+                offered: to_epoch,
+            });
+        }
         if profile < self.account_profile()? {
             return Err(Error::Core(mosaic_core::Error::ProfileDowngrade));
         }
@@ -1201,6 +1209,13 @@ impl UnlockedSession {
                 offered: epoch,
             });
         }
+        // Above the own epoch here, so the subtraction cannot underflow.
+        if epoch - self.ak_epoch > MAX_EPOCH_JUMP {
+            return Err(Error::EpochJumpTooLarge {
+                stored: self.ak_epoch,
+                offered: epoch,
+            });
+        }
         if self.store.salt_retired(salt)? {
             return Err(Error::PasswordRollback);
         }
@@ -1213,7 +1228,8 @@ impl UnlockedSession {
 
     /// Adopts a re-key another device made (CRYPTO_SPEC §6.7). Requires
     /// exactly this device's epoch plus one (lower is a rollback, equal is
-    /// refused, anything else is not adopted), a salt this device did not
+    /// refused, anything else is not adopted; with `any_higher_epoch` any
+    /// epoch up to `MAX_EPOCH_JUMP` above), a salt this device did not
     /// retire, a wrapping that opens under the typed keys, and a typed Secret
     /// Key that is neither the current one nor a retired one (constant time).
     /// There is no adoption at an equal epoch. One store transaction like the
@@ -1228,6 +1244,7 @@ impl UnlockedSession {
     /// [`Error::EpochRollback`], [`Error::UnlockFailed`] (equal epoch, wrong
     /// keys, parameters that do not belong to the keys, a served wrapping that
     /// does not open to the held key), [`Error::EpochNotNext`],
+    /// [`Error::EpochJumpTooLarge`],
     /// [`Error::PasswordRollback`], [`Error::SecretKeyUnchanged`],
     /// [`Error::IdentityMismatch`], [`Error::PlanMismatch`], [`Error::Store`]
     /// (`AccountMismatch`, `ProfileDowngrade`, `RekeyIncomplete`).
@@ -1292,12 +1309,16 @@ impl UnlockedSession {
         let rewrapped = self.adoption_wraps(&new_ak, member_wraps)?;
         let contacts = self.reseal_contacts(&new_ak)?;
         let retire = current_secret_key.retired_commitment(&self.account_id);
-        // Every owned vault is held at the generation this device has until
-        // the re-key's next one arrives (review M5).
+        // Every owned vault a backend has seen is held at the generation this
+        // device has until the re-key's next one arrives (review M5). A vault
+        // no backend ever saw is not held: none of its ciphertext or
+        // wrappings left the device, its key is re-wrapped under the new AK
+        // above and it syncs normally (ADR-0064).
         let mut hold = Vec::new();
         for (id, ov) in &self.vaults {
             if ov.protection == VaultKeyWrap::AccountKey
                 && !matches!(self.ownership(*id)?, Ownership::Of(_))
+                && self.store.vault_backend_known(id)?
             {
                 hold.push((*id, ov.generation));
             }
@@ -1518,11 +1539,14 @@ impl UnlockedSession {
         Ok(self.store.rekey_held(&vault)?)
     }
 
-    /// Raises the account-key epoch to the one the backend states for an
-    /// account this device just joined (review H2). Never lowers it.
+    /// Raises the account-key epoch without a key change. Never lowers it.
+    /// Test support only (feature `test-util`, ADR-0064): a join stores the
+    /// backend's epoch through `join_account_with_keys_at`, and nothing else
+    /// may move the epoch without the matching key.
     ///
     /// # Errors
     /// [`Error::Store`].
+    #[cfg(any(test, feature = "test-util"))]
     pub fn raise_epoch_to(&mut self, epoch: u32) -> Result<()> {
         self.store.raise_ak_epoch(epoch)?;
         self.ak_epoch = self.ak_epoch.max(epoch);
@@ -1550,9 +1574,11 @@ impl UnlockedSession {
         Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
     }
 
-    /// Drops a rotation job whose local part is committed, after the user
-    /// confirmed (review L4): attachments still to re-seal keep their old key
-    /// and are listed, and the job stops blocking a change of backend.
+    /// Drops a rotation job whose local part is committed (phase 5 or later,
+    /// and for a re-key the store at the target epoch), after the user
+    /// confirmed (review L4, ADR-0064): attachments still to re-seal keep
+    /// their old key and are listed, and the job stops blocking a change of
+    /// backend. Phases 1 to 4 are resume-only.
     ///
     /// # Errors
     /// [`Error::Store`] (`NoRotationJob`, `RotationTooFar` before the commit).
@@ -1679,6 +1705,16 @@ impl UnlockedSession {
     /// [`Error::Store`].
     pub fn dismiss_unverifiable_file(&mut self, path: &str, sha256: &[u8; 32]) -> Result<()> {
         Ok(self.store.dismiss_unverifiable_file(path, sha256)?)
+    }
+
+    /// Undoes the dismissal of a file (a re-key marker the user restores,
+    /// ADR-0064). Returns whether a dismissal was removed. The sync engine's
+    /// `undismiss_rekey_marker` calls it for a marker the folder shows.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn undismiss_file(&mut self, path: &str, sha256: &[u8; 32]) -> Result<bool> {
+        Ok(self.store.undismiss_file(path, sha256)?)
     }
 
     /// Whether the file was dismissed.

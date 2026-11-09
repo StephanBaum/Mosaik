@@ -730,6 +730,19 @@ CREATE TABLE rekey_hold (
     generation  INTEGER NOT NULL CHECK (generation BETWEEN 1 AND 4294967295)
 ) STRICT, WITHOUT ROWID;
 
+-- Whether a backend has ever seen the vault (ADR-0064): set when the vault is
+-- learned from a backend or created there, never cleared (a change of backend
+-- resets `remote_created`, but the old backend keeps the vault). Only such a
+-- vault is held by an adoption. A vault that exists when this version is
+-- applied counts as seen (the conservative default).
+ALTER TABLE vaults ADD COLUMN backend_known INTEGER NOT NULL DEFAULT 1
+    CHECK (backend_known IN (0, 1));
+
+CREATE TRIGGER vaults_backend_known_permanent
+BEFORE UPDATE OF backend_known ON vaults
+WHEN OLD.backend_known = 1 AND NEW.backend_known = 0
+BEGIN SELECT RAISE(ABORT, 'mosaic: a vault a backend has seen stays seen'); END;
+
 -- pending_revocations: reason 6 is MemberRekeyed (nobody is revoked).
 CREATE TABLE pending_revocations_v9 (
     vault_id      BLOB    NOT NULL CHECK (length(vault_id) = 16)

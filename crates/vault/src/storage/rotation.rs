@@ -761,18 +761,25 @@ impl Store {
         Ok(())
     }
 
-    /// Drops a job whose local part is committed (phase 4 or later) after the
-    /// user confirmed it (review L4): attachments still to re-seal keep their
-    /// old ID and file key and are listed as unreachable, and the job no
-    /// longer blocks a change of backend.
+    /// Drops a job whose local part is committed (phase 5 or later, and for
+    /// a re-key the stored epoch at the job's target) after the user
+    /// confirmed it (review L4, ADR-0064): attachments still to re-seal keep
+    /// their old ID and file key and are listed as unreachable, and the job
+    /// no longer blocks a change of backend.
     ///
     /// # Errors
-    /// [`Error::NoRotationJob`], [`Error::RotationTooFar`] before the commit
-    /// (phases 1 to 3, where the backend may know the change).
+    /// [`Error::NoRotationJob`], [`Error::RotationTooFar`] before the commit:
+    /// phases 1 to 4 are resume-only (in 1 to 3 the backend may know the
+    /// change; a folder re-key at phase 4 is moved on by the next continue).
     pub fn abandon_committed_rotation_job(&mut self) -> Result<()> {
         let tx = self.write()?;
         let job = read_job(&tx)?.ok_or(Error::NoRotationJob)?;
-        if job.phase.number() < RotationPhase::FolderWritten.number() {
+        let committed = job.phase >= RotationPhase::LocalCommitted
+            && match job.kind {
+                RotationKind::Rekey => read_epoch(&tx)? >= job.to_epoch.unwrap_or(u32::MAX),
+                _ => true,
+            };
+        if !committed {
             return Err(Error::RotationTooFar);
         }
         tx.execute(
@@ -1203,6 +1210,36 @@ impl Store {
             params![path, sha256, now_ms()],
         )?;
         Ok(())
+    }
+
+    /// Undoes the dismissal of a file (a re-key marker the user restores,
+    /// ADR-0064). Returns whether a dismissal was removed.
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn undismiss_file(&mut self, path: &str, sha256: &[u8; 32]) -> Result<bool> {
+        let n = self.conn.execute(
+            "DELETE FROM rekey_dismissed_files WHERE path = ?1 AND sha256 = ?2",
+            params![path, sha256],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Whether a backend has ever seen the vault (ADR-0064): learned from a
+    /// backend or created there. Never cleared, not even by a change of
+    /// backend. An adoption holds only such vaults.
+    ///
+    /// # Errors
+    /// [`Error::UnknownVault`], [`Error::Database`].
+    pub fn vault_backend_known(&self, vault: &VaultId) -> Result<bool> {
+        self.conn
+            .query_row(
+                "SELECT backend_known FROM vaults WHERE vault_id = ?1",
+                params![vault.as_bytes()],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or(Error::UnknownVault)
     }
 
     /// Whether the file was dismissed.

@@ -751,14 +751,15 @@ refuses a backend change while a job exists.
 - Adoption: `adopt_remote_rekey(RekeyAdoption)` → `RekeyAdopted`. Epoch
   `current + 1` (hosted), or any epoch above the current one when
   `any_higher_epoch` is set (folder; equal: `UnlockFailed`, lower: `EpochRollback`,
-  else `EpochNotNext`); every owned vault is held at its generation until the next
+  above `own + 16`: `EpochJumpTooLarge`, else `EpochNotNext`); every owned vault a
+  backend has seen is held at its generation until the next
   one arrives (`rekey_held(vault)`, table `rekey_hold`);
   refuses a retired salt (`PasswordRollback`) and a typed Secret Key that is the
   current or a retired one (`SecretKeyUnchanged`); stores the backend's own wrapping
   of each member vault's current key after checking it opens to the held key. There
   is no adoption at an equal epoch.
 - Join: `LockedSession::join_account_with_keys_at(wrapped, keys, epoch)` stores the
-  backend's epoch (only rises); `raise_epoch_to(epoch)`. `member_vault_generations()`
+  backend's epoch (only rises); `raise_epoch_to(epoch)` (test-only, ADR-0064). `member_vault_generations()`
   lists the held vaults shared to the account without a clean-sync check.
 - Attachments: `reseal_next_attachment(Option<&[u8]>)` → `ResealStep` (`Unreadable`
   marks the attachment unreachable and goes on), `queue_adoption_reseal` (resume),
@@ -852,6 +853,28 @@ refuses a backend change while a job exists.
 - `SyncWarning::RotationBlocked` is also raised for a rotation a member's re-key
   asked for (`rotation_requested`) when a member's key is unverified or does not match
   the roster (the plan is strict: nobody is locked out, no invite is cancelled).
+
+### M7 verify follow-ups (ADR-0064)
+
+- `mosaic_core::sync_auth::MAX_EPOCH_JUMP` (16). `RekeyMarker::{encode, decode}`
+  reject a `to_epoch` more than 16 above `from_epoch` (`WireError::Field`).
+- `mosaic_vault::session::Error::EpochJumpTooLarge { stored, offered }`: a folder
+  adoption above `own + 16`, or a re-key target above it (`prepare_rekey`; the
+  engine never plans one). The app offers to set the device up again (join).
+- `UnlockedSession::raise_epoch_to` is test support only (feature `test-util` of
+  `mosaic-vault`, which `mosaic-sync/test-util` enables); a join uses
+  `join_account_with_keys_at`. `UnlockedSession::undismiss_file(path, sha256) -> bool`.
+- `abandon_committed_rotation_job` needs phase 5 or later and, for a re-key, the
+  store at the target epoch (`RotationTooFar` otherwise; phases 1 to 4 are
+  resume-only).
+- An adoption holds only owned vaults a backend has seen (`Store::vault_backend_known`,
+  column `vaults.backend_known` in schema v9, never cleared).
+- `SyncEngine::dismissed_rekey_markers(access) -> Vec<PendingRekeyMarker>` and
+  `SyncEngine::undismiss_rekey_marker(access, name, sha256) -> bool` (sets the
+  re-key-pending flag again).
+- Folder scans: up to 1024 marker files of the epoch are MAC-checked (at most 64
+  verified kept); the adoption fallback reads up to 1024 account files and offers
+  only epochs in `(own, own + 16]`.
 
 ## Expected additions (pre-approved as additive)
 

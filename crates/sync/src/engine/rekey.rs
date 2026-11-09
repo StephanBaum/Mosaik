@@ -23,7 +23,7 @@
 
 #[cfg(feature = "http")]
 use mosaic_core::KeyGeneration;
-use mosaic_core::sync_auth::{self, FolderMacPurpose};
+use mosaic_core::sync_auth::{self, FolderMacPurpose, MAX_EPOCH_JUMP};
 use mosaic_core::{
     Argon2Profile, AttachmentId, MasterPassword, PasswordParams, SecretKey, UnlockMethod, VaultId,
 };
@@ -384,6 +384,60 @@ impl<T: Transport> SyncEngine<T> {
         Ok(left)
     }
 
+    /// The verified re-key markers the folder shows that the user dismissed
+    /// ([`SyncEngine::dismiss_rekey_marker`]), newest first: the app lists
+    /// them as ignored re-key notices, each with a way back
+    /// ([`SyncEngine::undismiss_rekey_marker`], ADR-0064).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Transport`], [`SyncError::Session`].
+    pub fn dismissed_rekey_markers(
+        &mut self,
+        access: &mut impl SessionAccess,
+    ) -> Result<Vec<PendingRekeyMarker>, SyncError> {
+        let epoch = access.with(|s| s.ak_epoch())?;
+        let signals = self.transport.rekey_signals(epoch)?;
+        let mut out = Vec::new();
+        for m in signals.markers {
+            if access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
+                out.push(PendingRekeyMarker {
+                    name: m.name,
+                    sha256: m.sha256,
+                    to_epoch: m.to_epoch,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Undoes the dismissal of a re-key marker the folder still shows
+    /// (by name and SHA-256, as [`SyncEngine::dismissed_rekey_markers`] lists
+    /// it): the marker halts the device again and the re-key-pending flag is
+    /// set, so the user can adopt the re-key it names. Returns whether a
+    /// dismissal was undone (`false` for a marker that is not listed).
+    ///
+    /// # Errors
+    /// [`SyncError::Locked`], [`SyncError::Transport`], [`SyncError::Session`].
+    pub fn undismiss_rekey_marker(
+        &mut self,
+        access: &mut impl SessionAccess,
+        name: &str,
+        sha256: &[u8; 32],
+    ) -> Result<bool, SyncError> {
+        let listed = self
+            .dismissed_rekey_markers(access)?
+            .iter()
+            .any(|m| m.name == name && m.sha256 == *sha256);
+        if !listed {
+            return Ok(false);
+        }
+        access.with(|s| -> Result<(), Error> {
+            s.undismiss_file(name, sha256)?;
+            s.set_rekey_pending(true)
+        })??;
+        Ok(true)
+    }
+
     /// The run to head before a re-key. A failed run is
     /// [`RekeyError::NeedsCleanSync`]; a folder halt on a re-key marker does
     /// not stop it (a device that learned of a re-key elsewhere may re-key
@@ -670,19 +724,24 @@ impl<T: Transport> SyncEngine<T> {
     }
 
     /// The highest epoch the folder shows: a verified marker that was not
-    /// dismissed, and an unverifiable account file that was not dismissed and
-    /// names exactly `own + 1` (its header is unauthenticated, so a planted
-    /// huge epoch cannot push a re-key out of reach, and a dismissed file or
-    /// marker counts for nothing). 0 if there is none.
+    /// dismissed and whose `to_epoch` is below `own + MAX_EPOCH_JUMP` (so the
+    /// re-key's target stays within the cap: a holder of the old keys can
+    /// write a verified marker, and one far ahead must not exhaust the epoch
+    /// space nor block the re-key that evicts him, ADR-0064), and an
+    /// unverifiable account file that was not dismissed and names exactly
+    /// `own + 1` (its header is unauthenticated, so a planted huge epoch
+    /// cannot push a re-key out of reach). A dismissed file or marker counts
+    /// for nothing. 0 if there is none.
     fn highest_epoch_seen(
         &mut self,
         access: &mut impl SessionAccess,
         own: u32,
     ) -> Result<u32, RekeyError> {
         let signals = self.transport.rekey_signals(own)?;
+        let cap = own.saturating_add(MAX_EPOCH_JUMP);
         let mut best = 0;
         for m in &signals.markers {
-            if !access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
+            if m.to_epoch < cap && !access.with(|s| s.file_dismissed(&m.name, &m.sha256))?? {
                 best = best.max(m.to_epoch);
             }
         }
@@ -771,7 +830,8 @@ impl<T: Transport> SyncEngine<T> {
     /// genuine one, so the user pages on until the scan cap). The first file
     /// whose wrapping opens under the typed keys and whose MAC verifies under
     /// the key it holds is adopted; the typed Secret Key is the authenticator,
-    /// so any epoch above the own one is accepted (review H1). The floors of
+    /// so any epoch above the own one up to `own + MAX_EPOCH_JUMP` is accepted
+    /// (review H1, ADR-0064; the folder offers no candidate above it). The floors of
     /// this device's own logs are recorded first, and this device writes a
     /// snapshot set of every vault under the new keys afterwards.
     ///
@@ -782,7 +842,9 @@ impl<T: Transport> SyncEngine<T> {
     /// # Errors
     /// [`RekeyError::NoMatchingAccountFile`] when none opens,
     /// [`RekeyError::MoreAccountFiles`] when `skip + 8` salts did not open and
-    /// more are left; [`RekeyError`].
+    /// more are left; [`RekeyError::Session`] with
+    /// [`Error::EpochJumpTooLarge`] for a file above the cap (the device lags
+    /// too far behind and joins again); [`RekeyError`].
     pub fn adopt_folder_rekey_page(
         &mut self,
         access: &mut impl SessionAccess,
@@ -838,12 +900,7 @@ impl<T: Transport> SyncEngine<T> {
             // snapshot set once the next generation's key has arrived
             // ([`SyncEngine::publish_adoption_snapshots`]): nothing sealed
             // under the retired key is written now.
-            let vaults: Vec<VaultId> = access.with(|s| {
-                s.synced_vaults()
-                    .into_iter()
-                    .filter(|v| !s.rekey_held(*v).unwrap_or(false))
-                    .collect()
-            })?;
+            let vaults = access.with(unheld_vaults)??;
             self.publish(
                 access,
                 now,
@@ -1018,6 +1075,19 @@ impl<T: Transport> SyncEngine<T> {
             Err(e) => Err(e.into()),
         }
     }
+}
+
+/// The synced vaults no adoption holds. The hold state must be known (fail
+/// closed): an error reading it stops the caller, so nothing is snapshotted
+/// while it is unknown (ADR-0064).
+fn unheld_vaults(s: &mut UnlockedSession) -> Result<Vec<VaultId>, Error> {
+    let mut out = Vec::new();
+    for v in s.synced_vaults() {
+        if !s.rekey_held(v)? {
+            out.push(v);
+        }
+    }
+    Ok(out)
 }
 
 fn mark_unreachable(

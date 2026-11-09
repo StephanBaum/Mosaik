@@ -312,6 +312,18 @@ pub enum Error {
         offered: u32,
     },
 
+    /// The epoch is more than `MAX_EPOCH_JUMP` (16) above the stored one
+    /// (CRYPTO_SPEC §6.6, §6.7, ADR-0064): a re-key never targets it and a
+    /// folder adoption refuses it. A device that lagged that far behind is
+    /// set up again (join).
+    #[error("account-key epoch {offered} is too far above {stored}")]
+    EpochJumpTooLarge {
+        /// This device's epoch.
+        stored: u32,
+        /// The epoch offered or targeted.
+        offered: u32,
+    },
+
     /// The epoch cannot be raised any more.
     #[error("account-key epoch exhausted")]
     EpochExhausted,
