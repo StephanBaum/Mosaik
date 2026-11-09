@@ -111,6 +111,16 @@ fn every_command_is_locked() {
         .code,
     );
     locked(b.rotation_abandon().unwrap_err().code);
+    locked(b.rotation_abandon_committed().unwrap_err().code);
+    locked(b.sync_rekey_markers().unwrap_err().code);
+    locked(
+        b.sync_dismiss_rekey_marker(&DismissFileRequest {
+            name: "rekey-00000002.mrk".into(),
+            sha256: "cd".repeat(32),
+        })
+        .unwrap_err()
+        .code,
+    );
     locked(
         b.sync_dismiss_account_file(&DismissFileRequest {
             name: "account-00000002.macct".into(),
@@ -394,6 +404,36 @@ fn dismissing_an_account_file_checks_its_input() {
             .iter()
             .any(|w| matches!(w, SyncWarningView::UnverifiedAccountFile { .. }))
     );
+}
+
+#[test]
+fn abandoning_a_committed_job_needs_a_committed_job_and_markers_need_a_folder() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    assert_eq!(
+        b.rotation_abandon_committed().unwrap_err().code,
+        ErrorCode::RotationNone
+    );
+    // A job the backend may already know is not abandoned here.
+    b.secret_key_rotate_prepare(&prepare()).unwrap();
+    assert_eq!(
+        b.rotation_abandon_committed().unwrap_err().code,
+        ErrorCode::RotationTooFar
+    );
+    // A local account has no folder, so no notices.
+    assert!(b.sync_rekey_markers().unwrap().is_empty());
+    let bad = |name: &str, sha: &str| {
+        b.sync_dismiss_rekey_marker(&DismissFileRequest {
+            name: name.into(),
+            sha256: sha.into(),
+        })
+        .unwrap_err()
+        .code
+    };
+    assert_eq!(bad("rekey-00000002.mrk", "xyz"), ErrorCode::InvalidInput);
+    assert_eq!(bad("", &"cd".repeat(32)), ErrorCode::InvalidInput);
 }
 
 #[test]

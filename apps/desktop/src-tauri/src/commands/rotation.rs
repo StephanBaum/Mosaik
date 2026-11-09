@@ -7,8 +7,8 @@ use tauri::State;
 
 use crate::contract::errors::IpcResult;
 use crate::contract::rotation::{
-    DismissFileRequest, ProfileUpgradeRequest, RekeyCommitRequest, RekeyPrepareRequest,
-    RekeyReviewView, RotateCommitRequest, RotatePrepareRequest, RotationDone,
+    DismissFileRequest, ProfileUpgradeRequest, RekeyCommitRequest, RekeyMarkerView,
+    RekeyPrepareRequest, RekeyReviewView, RotateCommitRequest, RotatePrepareRequest, RotationDone,
     RotationResumeRequest, RotationStatus,
 };
 use crate::contract::sync::SyncOverview;
@@ -106,4 +106,25 @@ pub async fn sync_dismiss_account_file(
     request: DismissFileRequest,
 ) -> IpcResult<SyncOverview> {
     run(&state, move |b| b.sync_dismiss_account_file(&request)).await
+}
+
+/// `rotation_abandon_committed`.
+#[tauri::command]
+pub async fn rotation_abandon_committed(state: State<'_, AppState>) -> IpcResult<()> {
+    run(&state, Backend::rotation_abandon_committed).await
+}
+
+/// `sync_rekey_markers`.
+#[tauri::command]
+pub async fn sync_rekey_markers(state: State<'_, AppState>) -> IpcResult<Vec<RekeyMarkerView>> {
+    run(&state, Backend::sync_rekey_markers).await
+}
+
+/// `sync_dismiss_rekey_marker`.
+#[tauri::command]
+pub async fn sync_dismiss_rekey_marker(
+    state: State<'_, AppState>,
+    request: DismissFileRequest,
+) -> IpcResult<SyncOverview> {
+    run(&state, move |b| b.sync_dismiss_rekey_marker(&request)).await
 }

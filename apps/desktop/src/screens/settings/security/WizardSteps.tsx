@@ -122,6 +122,30 @@ export function ReviewStep({
   );
 }
 
+/** The attachments the re-seal could not read, by item and file name. */
+function UnreachableFiles({ done }: { done: RotationDone }) {
+  const { t } = useI18n();
+  const more = done.unreachableAttachments - done.unreachable.length;
+  return (
+    <Callout tone="warning">
+      <p className="body">{t("rotation.done.unreachable", { count: done.unreachableAttachments })}</p>
+      <p className="body">{t("rotation.done.unreachable.note")}</p>
+      <ul className="stack">
+        {done.unreachable.map((file, index) => (
+          // The same file can appear twice (two items), so the position is part of the key.
+          <li key={`${String(index)}-${file.fileName ?? ""}`} className="body">
+            {t("rotation.done.unreachable.file", {
+              item: file.itemTitle ?? t("rotation.done.unreachable.unknownItem"),
+              file: file.fileName ?? t("rotation.done.unreachable.unknownFile"),
+            })}
+          </li>
+        ))}
+      </ul>
+      {more > 0 && <p className="caption">{t("rotation.done.unreachable.more", { count: more })}</p>}
+    </Callout>
+  );
+}
+
 export function DoneStep({
   kind,
   done,
@@ -145,9 +169,7 @@ export function DoneStep({
       {done.hardwareKeysRemoved > 0 && (
         <p className="body">{t("rotation.done.hardware.body", { count: done.hardwareKeysRemoved })}</p>
       )}
-      {done.unreachableAttachments > 0 && (
-        <Callout tone="warning">{t("rotation.done.unreachable", { count: done.unreachableAttachments })}</Callout>
-      )}
+      {done.unreachableAttachments > 0 && <UnreachableFiles done={done} />}
       {!done.finished && <Callout tone="info">{t("rotation.done.unfinished")}</Callout>}
       <div className="dialog__actions">
         {(quick || done.hardwareKeysRemoved > 0) && (

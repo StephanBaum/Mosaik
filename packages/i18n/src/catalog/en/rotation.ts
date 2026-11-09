@@ -182,6 +182,12 @@ export const rotation = {
     "{count, plural, one {# security key was turned off for unlocking.} other {# security keys were turned off for unlocking.}}",
   "rotation.done.unreachable":
     "{count, plural, one {# attachment could not be protected again because it was not available. It still uses the old key.} other {# attachments could not be protected again because they were not available. They still use the old key.}}",
+  "rotation.done.unreachable.note":
+    "These files couldn't be read and weren't re-encrypted. They keep their old file key until you remove or re-add them, so anyone who holds your old keys and a copy of a file could still open it.",
+  "rotation.done.unreachable.file": "{item}: {file}",
+  "rotation.done.unreachable.unknownItem": "Unknown item",
+  "rotation.done.unreachable.unknownFile": "unknown file",
+  "rotation.done.unreachable.more": "{count, plural, one {and # more file} other {and # more files}}",
   "rotation.done.unfinished":
     "The last part continues later. If Mosaic closes before it is done, choose Continue key rotation next time.",
 
@@ -210,6 +216,22 @@ export const rotation = {
   "rotation.resume.discard.body":
     "The new Secret Key and the new Emergency Kit from this attempt are deleted. Your account stays as it is.",
   "rotation.resume.discard.confirm": "Discard key change",
+  "rotation.resume.abandon": "Give up on the rest…",
+  "rotation.resume.stalled": "Continuing didn't finish. If it keeps failing, you can stop here.",
+  "rotation.abandon.title": "Stop re-encrypting your files?",
+  "rotation.abandon.body":
+    "Your new keys are already in use. Mosaic stops re-encrypting the attachments that are still waiting. They keep their old file key, so anyone who holds your old keys and a copy of a file could still open it.",
+  "rotation.abandon.stays":
+    "Everything already re-encrypted stays as it is. Remove or re-add the waiting files later to protect them with the new key.",
+  "rotation.abandon.confirm": "Stop re-encrypting",
+  "rotation.abandon.keep": "Keep trying",
+  "rotation.marker.title": "Unconfirmed re-key notice",
+  "rotation.marker.hint": "A notice in your sync folder says your account was re-keyed, but Mosaic couldn't confirm it.",
+  "rotation.marker.open": "Ignore this notice…",
+  "rotation.marker.confirm":
+    "Mosaic found a re-key notice it couldn't confirm. If you didn't re-key your account on another device, you can ignore it.",
+  "rotation.marker.ignore": "Ignore notice",
+  "rotation.marker.keep": "Keep",
   "rotation.resume.done": "Key change finished.",
 
   // Another device renewed the keys

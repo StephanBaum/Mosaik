@@ -184,7 +184,7 @@ export function RotationWizard({
       setBusy(false);
       setValues(emptyCredentials);
       if (result.ok) {
-        setDone({ quickUnlockRemoved: false, hardwareKeysRemoved: 0, unreachableAttachments: 0, finished: true });
+        setDone({ quickUnlockRemoved: false, hardwareKeysRemoved: 0, unreachableAttachments: 0, unreachable: [], finished: true });
         setStep("done");
       } else {
         setError(result.error);

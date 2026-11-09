@@ -68,6 +68,7 @@ import type {
   DismissFileRequest,
   ProfileUpgradeRequest,
   RekeyCommitRequest,
+  RekeyMarkerView,
   RekeyPrepareRequest,
   RekeyReviewView,
   RotateCommitRequest,
@@ -251,6 +252,9 @@ export interface Commands {
   rekey_commit: Command<RekeyCommitRequest, RotationDone>;
   rotation_resume: Command<RotationResumeRequest, RotationDone>;
   rotation_abandon: Command<null, null>;
+  rotation_abandon_committed: Command<null, null>;
+  sync_rekey_markers: Command<null, RekeyMarkerView[]>;
+  sync_dismiss_rekey_marker: Command<DismissFileRequest, SyncOverview>;
   // Sharing and emergency access
   sharing_identity: Command<null, SharingIdentity>;
   sharing_lookup: Command<LookupRequest, LookupResult>;
@@ -383,6 +387,9 @@ const commandSet = {
   rekey_commit: true,
   rotation_resume: true,
   rotation_abandon: true,
+  rotation_abandon_committed: true,
+  sync_rekey_markers: true,
+  sync_dismiss_rekey_marker: true,
   sharing_identity: true,
   sharing_lookup: true,
   sharing_verify_contact: true,

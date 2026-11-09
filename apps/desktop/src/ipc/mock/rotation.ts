@@ -7,6 +7,7 @@
  */
 import type {
   ErrorCode,
+  RekeyMarkerView,
   RekeyReviewView,
   RotationDone,
   RotationJobView,
@@ -34,6 +35,7 @@ export const rotationVariants = [
   "resumeAccepted",
   "resumeAttachments",
   "resumeSecretKey",
+  "resumeStuck",
   "rekeyElsewhere",
   "rekeyPending",
   "unknownFile",
@@ -58,6 +60,10 @@ export interface MockRotation {
   profile: RotationProfile | "baseline";
   review: RekeyReviewView;
   rekeyPending: boolean;
+  /** The re-key notices the folder shows and the user has not ignored. */
+  markers: RekeyMarkerView[];
+  /** A continue that cannot finish (an attachment re-seal keeps failing). */
+  stuck: boolean;
   /** Secret Keys this device has used. */
   retired: string[];
   /** The key and password another device set (adopt flows). */
@@ -103,6 +109,7 @@ function seededJob(variant: RotationVariant): RotationJobView | null {
     case "resumeAccepted":
       return jobOf("rekey", "backendAccepted", "kitGroup");
     case "resumeAttachments":
+    case "resumeStuck":
       return jobOf("rekey", "attachments", "none", { done: 3, total: 12 });
     case "resumeSecretKey":
       return jobOf("secretKey", "backendStarted", "kitGroup");
@@ -114,7 +121,7 @@ function seededJob(variant: RotationVariant): RotationJobView | null {
 export function seedRotation(options: MockRotationOptions): MockRotation {
   const variant = options.variant ?? "none";
   const elsewhere = variant === "rekeyElsewhere" || variant === "rekeyPending";
-  const staged = variant.startsWith("resume") && variant !== "resumeAttachments";
+  const staged = variant.startsWith("resume") && variant !== "resumeAttachments" && variant !== "resumeStuck";
   return {
     job: seededJob(variant),
     pendingKey: staged ? MOCK_NEW_SECRET_KEY : null,
@@ -134,6 +141,8 @@ export function seedRotation(options: MockRotationOptions): MockRotation {
           }
         : baseReview(),
     rekeyPending: variant === "rekeyPending",
+    markers: variant === "rekeyPending" ? [{ name: "rekey-00000002.mrk", sha256: "cd".repeat(32), toEpoch: 2 }] : [],
+    stuck: variant === "resumeStuck",
     retired: [],
     elsewhere: elsewhere ? { secretKey: MOCK_NEW_SECRET_KEY, password: MOCK_NEW_PASSWORD } : null,
     fail: options.fail ?? null,
@@ -147,6 +156,11 @@ function done(state: MockState, finished = true): RotationDone {
     quickUnlockRemoved: state.quick.biometricEnrolledAt !== null,
     hardwareKeysRemoved: state.quick.keys.length,
     unreachableAttachments: state.rotation.review.unreachableAttachments,
+    unreachable: Array.from({ length: state.rotation.review.unreachableAttachments }, (_, index) =>
+      index === 0
+        ? { itemTitle: "Bank", fileName: "statement.pdf" }
+        : { itemTitle: null, fileName: null },
+    ),
     finished,
   };
 }
@@ -381,6 +395,10 @@ export const rotationAsyncHandlers: MockAsyncHandlers = {
       }
     }
     forcedFailure(state);
+    if (rotation.stuck) {
+      // The job cannot finish now: the person may wait or give it up.
+      return done(state, false);
+    }
     const result = done(state);
     await runPhases(state, job.phase);
     renew(state);
@@ -420,6 +438,7 @@ export function adoptRenewedKeys(
   state.quick.biometricEnrolledAt = null;
   rotation.elsewhere = null;
   rotation.rekeyPending = false;
+  rotation.markers = [];
   sync.serverPassword = null;
   sync.passwordChanged = false;
   sync.status = "upToDate";

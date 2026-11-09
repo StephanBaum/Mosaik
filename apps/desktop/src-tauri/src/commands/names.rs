@@ -105,6 +105,9 @@ pub const COMMANDS: &[&str] = &[
     "join_folder",
     "change_master_password",
     "sync_dismiss_account_file",
+    "rotation_abandon_committed",
+    "sync_rekey_markers",
+    "sync_dismiss_rekey_marker",
     // Account keys
     "rotation_status",
     "secret_key_rotate_prepare",

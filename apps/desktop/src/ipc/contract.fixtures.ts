@@ -92,6 +92,9 @@ export const fixtures = {
     "join_folder",
     "change_master_password",
     "sync_dismiss_account_file",
+    "rotation_abandon_committed",
+    "sync_rekey_markers",
+    "sync_dismiss_rekey_marker",
     "rotation_status",
     "secret_key_rotate_prepare",
     "secret_key_rotate_commit",
@@ -1988,6 +1991,9 @@ export const fixtures = {
     "rotation_abandon": [
       null
     ],
+    "rotation_abandon_committed": [
+      null
+    ],
     "rotation_resume": [
       {
         "code": null,
@@ -2148,6 +2154,12 @@ export const fixtures = {
         "sha256": "abababababababababababababababababababababababababababababababab"
       }
     ],
+    "sync_dismiss_rekey_marker": [
+      {
+        "name": "rekey-00000002.mrk",
+        "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    ],
     "sync_folder_connect": [
       {
         "choiceId": "choice-1",
@@ -2197,6 +2209,9 @@ export const fixtures = {
         "newPassword": "a new master password",
         "secretKey": "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2"
       }
+    ],
+    "sync_rekey_markers": [
+      null
     ],
     "sync_status": [
       null
@@ -3771,12 +3786,23 @@ export const fixtures = {
         "finished": true,
         "hardwareKeysRemoved": 1,
         "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
         "unreachableAttachments": 2
       },
       {
         "finished": false,
         "hardwareKeysRemoved": 0,
         "quickUnlockRemoved": false,
+        "unreachable": [],
         "unreachableAttachments": 0
       }
     ],
@@ -3828,12 +3854,23 @@ export const fixtures = {
         "finished": true,
         "hardwareKeysRemoved": 1,
         "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
         "unreachableAttachments": 2
       },
       {
         "finished": false,
         "hardwareKeysRemoved": 0,
         "quickUnlockRemoved": false,
+        "unreachable": [],
         "unreachableAttachments": 0
       }
     ],
@@ -4002,17 +4039,31 @@ export const fixtures = {
     "rotation_abandon": [
       null
     ],
+    "rotation_abandon_committed": [
+      null
+    ],
     "rotation_resume": [
       {
         "finished": true,
         "hardwareKeysRemoved": 1,
         "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
         "unreachableAttachments": 2
       },
       {
         "finished": false,
         "hardwareKeysRemoved": 0,
         "quickUnlockRemoved": false,
+        "unreachable": [],
         "unreachableAttachments": 0
       }
     ],
@@ -4070,12 +4121,23 @@ export const fixtures = {
         "finished": true,
         "hardwareKeysRemoved": 1,
         "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
         "unreachableAttachments": 2
       },
       {
         "finished": false,
         "hardwareKeysRemoved": 0,
         "quickUnlockRemoved": false,
+        "unreachable": [],
         "unreachableAttachments": 0
       }
     ],
@@ -4723,6 +4785,174 @@ export const fixtures = {
       }
     ],
     "sync_dismiss_account_file": [
+      {
+        "config": null,
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": null,
+          "status": "notConfigured"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": true
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "upToDate"
+        },
+        "warnings": []
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "displayPath": "C:\\Users\\alex\\Dropbox\\Mosaic",
+          "kind": "folder"
+        },
+        "passwordChanged": false,
+        "rekeyPending": false,
+        "sharingFindings": [
+          {
+            "kind": "identityMismatch"
+          },
+          {
+            "kind": "rosterInvalid",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "shareUntrusted",
+            "senderEmail": "sam@example.com",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000003",
+            "email": "kim@example.com",
+            "kind": "memberUnverified",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000004",
+            "email": "lee@example.com",
+            "kind": "memberKeyMismatch",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "vaultHeld",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": null
+          },
+          {
+            "accountId": "019a2b3c-4d5e-7030-8000-000000000005",
+            "email": null,
+            "kind": "memberDropped",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001",
+            "vaultName": "Family"
+          },
+          {
+            "kind": "accessLost",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000002",
+            "vaultName": "Work"
+          }
+        ],
+        "state": {
+          "error": null,
+          "lastSyncedAt": 1761480000000,
+          "status": "syncing"
+        },
+        "warnings": [
+          {
+            "deviceName": "Mosaic on macOS",
+            "kind": "freezeSuspected",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": null,
+            "kind": "missingFiles",
+            "since": 1761480000000
+          },
+          {
+            "deviceName": "Mosaic on Linux",
+            "kind": "noCommonView",
+            "since": 1761480000000
+          },
+          {
+            "kind": "rollbackDetected"
+          },
+          {
+            "kind": "identityDuplicated"
+          },
+          {
+            "kind": "serverInconsistent",
+            "vaultName": "Personal"
+          },
+          {
+            "kind": "serverRollback",
+            "vaultName": null
+          },
+          {
+            "count": 3,
+            "kind": "undecryptable"
+          },
+          {
+            "count": 1,
+            "kind": "hardwareVaultsLocal"
+          },
+          {
+            "count": 2,
+            "kind": "attachmentsNotRepaired"
+          },
+          {
+            "kind": "rotationBlocked",
+            "vaultName": "Family"
+          },
+          {
+            "conflict": false,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000002.macct",
+            "sha256": "abababababababababababababababababababababababababababababababab"
+          },
+          {
+            "conflict": true,
+            "kind": "unverifiedAccountFile",
+            "name": "account-00000001.macct",
+            "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+          }
+        ]
+      },
+      {
+        "config": {
+          "deviceName": "Mosaic on Windows",
+          "email": "alex@example.com",
+          "kind": "hosted",
+          "serverUrl": "https://sync.example.com",
+          "totpEnabled": false
+        },
+        "passwordChanged": true,
+        "rekeyPending": true,
+        "sharingFindings": [],
+        "state": {
+          "error": "syncSignedOut",
+          "lastSyncedAt": 1761480000000,
+          "status": "signedOut"
+        },
+        "warnings": []
+      }
+    ],
+    "sync_dismiss_rekey_marker": [
       {
         "config": null,
         "passwordChanged": false,
@@ -5752,6 +5982,16 @@ export const fixtures = {
         },
         "warnings": []
       }
+    ],
+    "sync_rekey_markers": [
+      [],
+      [
+        {
+          "name": "rekey-00000002.mrk",
+          "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "toEpoch": 2
+        }
+      ]
     ],
     "sync_status": [
       {

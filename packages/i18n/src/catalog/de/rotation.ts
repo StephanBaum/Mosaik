@@ -181,6 +181,12 @@ export const rotation = {
     "{count, plural, one {# Sicherheitsschlüssel wurde fürs Entsperren ausgeschaltet.} other {# Sicherheitsschlüssel wurden fürs Entsperren ausgeschaltet.}}",
   "rotation.done.unreachable":
     "{count, plural, one {# Anhang konnte nicht neu geschützt werden, weil er nicht verfügbar war. Er nutzt weiter den alten Schlüssel.} other {# Anhänge konnten nicht neu geschützt werden, weil sie nicht verfügbar waren. Sie nutzen weiter den alten Schlüssel.}}",
+  "rotation.done.unreachable.note":
+    "Diese Dateien konnten nicht gelesen werden und wurden nicht neu verschlüsselt. Sie behalten ihren alten Dateischlüssel, bis du sie entfernst oder neu hinzufügst. Wer deine alten Schlüssel und eine Kopie der Datei hat, könnte sie also noch öffnen.",
+  "rotation.done.unreachable.file": "{item}: {file}",
+  "rotation.done.unreachable.unknownItem": "Unbekannter Eintrag",
+  "rotation.done.unreachable.unknownFile": "unbekannte Datei",
+  "rotation.done.unreachable.more": "{count, plural, one {und # weitere Datei} other {und # weitere Dateien}}",
   "rotation.done.unfinished":
     "Der letzte Teil läuft später weiter. Wenn Mosaic vorher schließt, wähle beim nächsten Mal „Schlüsseländerung fortsetzen“.",
 
@@ -208,6 +214,22 @@ export const rotation = {
   "rotation.resume.discard.body":
     "Der neue Secret Key und das neue Emergency Kit dieses Versuchs werden gelöscht. Dein Konto bleibt, wie es ist.",
   "rotation.resume.discard.confirm": "Schlüsseländerung verwerfen",
+  "rotation.resume.abandon": "Den Rest aufgeben …",
+  "rotation.resume.stalled": "Das Fortsetzen wurde nicht fertig. Wenn es immer wieder scheitert, kannst du hier aufhören.",
+  "rotation.abandon.title": "Neu verschlüsseln der Dateien beenden?",
+  "rotation.abandon.body":
+    "Deine neuen Schlüssel sind schon im Einsatz. Mosaic hört auf, die noch wartenden Anhänge neu zu verschlüsseln. Sie behalten ihren alten Dateischlüssel. Wer deine alten Schlüssel und eine Kopie einer Datei hat, könnte sie also noch öffnen.",
+  "rotation.abandon.stays":
+    "Alles, was schon neu verschlüsselt ist, bleibt, wie es ist. Entferne die wartenden Dateien später oder füge sie neu hinzu, um sie mit dem neuen Schlüssel zu schützen.",
+  "rotation.abandon.confirm": "Beenden",
+  "rotation.abandon.keep": "Weiter versuchen",
+  "rotation.marker.title": "Nicht bestätigte Meldung zur Neuverschlüsselung",
+  "rotation.marker.hint": "Eine Meldung in deinem Sync-Ordner sagt, dein Konto wurde neu verschlüsselt, aber Mosaic konnte das nicht bestätigen.",
+  "rotation.marker.open": "Diese Meldung ignorieren …",
+  "rotation.marker.confirm":
+    "Mosaic hat eine Meldung zur Neuverschlüsselung gefunden, die es nicht bestätigen konnte. Wenn du dein Konto nicht auf einem anderen Gerät neu verschlüsselt hast, kannst du sie ignorieren.",
+  "rotation.marker.ignore": "Meldung ignorieren",
+  "rotation.marker.keep": "Behalten",
   "rotation.resume.done": "Schlüsseländerung abgeschlossen.",
 
   "rotation.recovery.title": "Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert",

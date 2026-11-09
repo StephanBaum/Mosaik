@@ -33,7 +33,8 @@ describe("unlock screen, quick unlock", () => {
 
   it("names the biometric by platform and shows the waiting line until the vault opens", async () => {
     const user = userEvent.setup();
-    renderLocked({ quick: ["biometric"], latencyMs: 50 });
+    // The waiting line only shows while the call runs; a loaded machine needs a wide window to see it.
+    renderLocked({ quick: ["biometric"], latencyMs: 600 });
     const button = await screen.findByRole("button", { name: "Use Windows Hello" });
     await user.click(button);
     await screen.findByText("Waiting for Windows Hello…");

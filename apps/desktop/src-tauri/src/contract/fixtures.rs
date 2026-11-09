@@ -917,6 +917,20 @@ fn rotation_commands(f: &mut Fixtures) {
     );
 }
 
+/// The abandon of a committed job and the re-key notices (M7 fix round).
+fn rotation_fix_commands(f: &mut Fixtures) {
+    f.command("rotation_abandon_committed", vec![()], vec![()]);
+    f.command("sync_rekey_markers", vec![()], rotation::samples::markers());
+    f.command(
+        "sync_dismiss_rekey_marker",
+        vec![DismissFileRequest {
+            name: "rekey-00000002.mrk".into(),
+            sha256: "cd".repeat(32),
+        }],
+        sync::samples::overviews(),
+    );
+}
+
 /// Sharing: contacts, members, invites and emergency access.
 fn sharing_commands(f: &mut Fixtures) {
     f.command("sharing_identity", vec![()], sharing::samples::identities());
@@ -1182,6 +1196,7 @@ pub(crate) fn build() -> Value {
     browser_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
+    rotation_fix_commands(&mut f);
     sharing_commands(&mut f);
     let enums = enums();
 

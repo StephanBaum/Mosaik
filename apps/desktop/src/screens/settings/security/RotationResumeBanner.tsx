@@ -25,6 +25,7 @@ import {
   useRotationStatus,
 } from "./hooks.ts";
 import { RotationWizard } from "./RotationWizard.tsx";
+import { AbandonDialog } from "./AbandonDialog.tsx";
 
 /** How often a continuing job is read again (the count is not announced). */
 const POLL_MS = 1500;
@@ -179,9 +180,11 @@ export function RotationResumeBanner() {
   const toast = useToast();
   const wizardOpen = useAnyWizardOpen();
   const { status, refresh } = useRotationStatus();
-  const [dialog, setDialog] = useState<"resume" | "discard" | null>(null);
+  const [dialog, setDialog] = useState<"resume" | "discard" | "abandon" | null>(null);
   const [wizard, setWizard] = useState<WizardKind | null>(null);
   const [running, setRunning] = useState(false);
+  // A continue that ended without finishing: a committed job may then be given up.
+  const [stalled, setStalled] = useState(false);
   const [error, setError] = useState<IpcError | null>(null);
   const job = status?.job ?? null;
 
@@ -203,10 +206,12 @@ export function RotationResumeBanner() {
     setRunning(false);
     refresh();
     if (result.ok) {
+      setStalled(!result.value.finished);
       if (result.value.finished) {
         toast(t("rotation.resume.done"));
       }
     } else {
+      setStalled(true);
       setError(result.error);
     }
   }
@@ -236,6 +241,9 @@ export function RotationResumeBanner() {
   if (job === null || wizardOpen || wizardKindOf(job) === null) {
     return null;
   }
+  const committed = job.phase === "localCommitted" || job.phase === "attachments" || job.phase === "uploading";
+  // A committed job cannot be discarded; once a continue failed it can be given up.
+  const canAbandon = committed && stalled;
   const body = job.needs === "password" ? "password" : (job.kind as "secretKey" | "rekey" | "profile");
   return (
     <div className="stack" role="region" aria-label={t("rotation.resume.title")}>
@@ -247,6 +255,7 @@ export function RotationResumeBanner() {
         {running && job.total > 0 && (
           <p className="caption">{t("rotation.resume.progress", { done: job.done, total: job.total })}</p>
         )}
+        {canAbandon && <p className="caption">{t("rotation.resume.stalled")}</p>}
         <ErrorAlert error={error} />
         <div className="actions">
           <Button
@@ -257,15 +266,17 @@ export function RotationResumeBanner() {
           >
             {running ? t("rotation.resume.running") : t("rotation.resume.continue")}
           </Button>
-          <Button
-            variant="ghost"
-            disabled={running}
-            onClick={() => {
-              setDialog("discard");
-            }}
-          >
-            {t("rotation.resume.discard")}
-          </Button>
+          {(canAbandon || !committed) && (
+            <Button
+              variant="ghost"
+              disabled={running}
+              onClick={() => {
+                setDialog(canAbandon ? "abandon" : "discard");
+              }}
+            >
+              {canAbandon ? t("rotation.resume.abandon") : t("rotation.resume.discard")}
+            </Button>
+          )}
         </div>
       </Callout>
       {dialog === "resume" && (
@@ -275,6 +286,18 @@ export function RotationResumeBanner() {
             setDialog(null);
             refresh();
             toast(t("rotation.resume.done"));
+          }}
+          onClose={() => {
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog === "abandon" && (
+        <AbandonDialog
+          onDone={() => {
+            setDialog(null);
+            setStalled(false);
+            refresh();
           }}
           onClose={() => {
             setDialog(null);

@@ -4,7 +4,7 @@
  * new Emergency Kit and the master password. A Secret Key this device used before is refused
  * with its own message; nothing is adopted without the new key.
  */
-import { useState, type SyntheticEvent } from "react";
+import { useEffect, useState, type SyntheticEvent } from "react";
 import { Button } from "../../../components/Button.tsx";
 import { Callout } from "../../../components/Callout.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
@@ -14,10 +14,11 @@ import { PasswordField } from "../../../components/PasswordField.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import { useToast } from "../../../components/ToastProvider.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
-import type { IpcError, SyncOverview } from "../../../ipc/contract/index.ts";
+import type { IpcError, RekeyMarkerView, SyncOverview } from "../../../ipc/contract/index.ts";
 import { useIpc } from "../../../ipc/IpcProvider.tsx";
 import { useSyncOverview } from "../../sync/hooks.ts";
 import { needsSecondFactor } from "./hooks.ts";
+import { RekeyMarkerList } from "./RekeyMarkers.tsx";
 
 /** The form: the master password, the new Secret Key and, when needed, a code. */
 // eslint-disable-next-line max-lines-per-function -- a three-field form.
@@ -128,8 +129,25 @@ export function RekeyRecoveryDialog({
 export function RekeyNotice() {
   const { t } = useI18n();
   const toast = useToast();
+  const ipc = useIpc();
   const { overview, setOverview, refresh } = useSyncOverview();
   const [open, setOpen] = useState(false);
+  const [markers, setMarkers] = useState<RekeyMarkerView[]>([]);
+  const pending = overview?.rekeyPending ?? false;
+  useEffect(() => {
+    if (!pending) {
+      return undefined;
+    }
+    let current = true;
+    void ipc.call("sync_rekey_markers", null).then((result) => {
+      if (current && result.ok) {
+        setMarkers(result.value);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [ipc, pending]);
   if (overview === null || !overview.rekeyPending) {
     return null;
   }
@@ -149,6 +167,14 @@ export function RekeyNotice() {
             {t("rotation.recovery.open")}
           </Button>
         </div>
+        <RekeyMarkerList
+          markers={pending ? markers : []}
+          onDismissed={(marker, next) => {
+            setMarkers((all) => all.filter((m) => m.sha256 !== marker.sha256));
+            setOverview(next);
+            refresh();
+          }}
+        />
       </Callout>
       {open && (
         <RekeyRecoveryDialog

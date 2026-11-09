@@ -41,11 +41,29 @@ export interface RotationStatus {
   job: RotationJobView | null;
 }
 
+/** An attachment the re-seal could not read: it keeps its old key. */
+export interface UnreachableAttachmentView {
+  /** `null` if the item has no title or is gone. */
+  itemTitle: string | null;
+  /** `null` if the reference is gone. */
+  fileName: string | null;
+}
+
+/** A re-key notice in the sync folder that this device could not confirm. */
+export interface RekeyMarkerView {
+  name: string;
+  /** 64 hex digits. */
+  sha256: string;
+  toEpoch: number;
+}
+
 /** What a finished (or paused) rotation did. */
 export interface RotationDone {
   quickUnlockRemoved: boolean;
   hardwareKeysRemoved: number;
+  /** The total; `unreachable` lists at most the first 50. */
   unreachableAttachments: number;
+  unreachable: UnreachableAttachmentView[];
   /** `false`: the job continues from "Continue key rotation". */
   finished: boolean;
 }

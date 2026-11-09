@@ -107,8 +107,31 @@ pub struct RotationStatus {
     pub job: Option<RotationJobView>,
 }
 
+/// An attachment the re-seal could not read: it keeps its old key.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreachableAttachmentView {
+    /// The title of the item it belongs to (`null` if the item has none or is
+    /// gone).
+    pub item_title: Option<String>,
+    /// The file's name (`null` if the reference is gone).
+    pub file_name: Option<String>,
+}
+
+/// A re-key notice in the sync folder that this device could not confirm.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RekeyMarkerView {
+    /// The file's name (for `sync_dismiss_rekey_marker`).
+    pub name: String,
+    /// The file's SHA-256, 64 hex digits (for `sync_dismiss_rekey_marker`).
+    pub sha256: String,
+    /// The account-key epoch the notice says the account moved to.
+    pub to_epoch: u32,
+}
+
 /// What a finished (or paused) rotation did, for the last wizard step.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationDone {
     /// Quick unlock was turned off (set it up again).
@@ -117,6 +140,9 @@ pub struct RotationDone {
     pub hardware_keys_removed: u32,
     /// Attachments that could not be protected again.
     pub unreachable_attachments: u32,
+    /// Those attachments by item title and file name (at most 50; the count
+    /// above is the total).
+    pub unreachable: Vec<UnreachableAttachmentView>,
     /// Everything is done. `false`: the job continues on the next sync or
     /// from "Continue key rotation".
     pub finished: bool,
@@ -310,14 +336,36 @@ pub(crate) mod samples {
                 quick_unlock_removed: true,
                 hardware_keys_removed: 1,
                 unreachable_attachments: 2,
+                unreachable: vec![
+                    UnreachableAttachmentView {
+                        item_title: Some("Bank".into()),
+                        file_name: Some("statement.pdf".into()),
+                    },
+                    UnreachableAttachmentView {
+                        item_title: None,
+                        file_name: None,
+                    },
+                ],
                 finished: true,
             },
             RotationDone {
                 quick_unlock_removed: false,
                 hardware_keys_removed: 0,
                 unreachable_attachments: 0,
+                unreachable: vec![],
                 finished: false,
             },
+        ]
+    }
+
+    pub(crate) fn markers() -> Vec<Vec<RekeyMarkerView>> {
+        vec![
+            vec![],
+            vec![RekeyMarkerView {
+                name: "rekey-00000002.mrk".into(),
+                sha256: "cd".repeat(32),
+                to_epoch: 2,
+            }],
         ]
     }
 

@@ -74,7 +74,8 @@ describe("mock custom fields", () => {
     expect(site).toMatchObject({ label: "Site", kind: "url", value: "https://example.org" });
     const revealed = await reveal(GITHUB, door?.elementId ?? "");
     expect(revealed.ok && revealed.value.value).toBe("1234");
-    expect(JSON.stringify(await detail(GITHUB))).not.toContain("1234");
+    // The quoted value: a random element ID can contain the digits.
+    expect(JSON.stringify(await detail(GITHUB))).not.toContain('"1234"');
   });
 
   it("renames a hidden field without a value and keeps its secret", async () => {

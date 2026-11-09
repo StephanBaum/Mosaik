@@ -33,7 +33,7 @@
  *
  * Account keys (M7, Settings > Security): `&rotation=<variant>` with none, shared (a review with shared
  * vaults, members, grants and security keys), resumePrepared, resumeAccepted, resumeAttachments,
- * resumeSecretKey (a journal row to continue after unlock), rekeyElsewhere (hosted: signed out after
+ * resumeSecretKey (a journal row to continue after unlock), resumeStuck (a committed job that cannot finish: the banner offers to give it up), rekeyElsewhere (hosted: signed out after
  * a re-key on another device), rekeyPending (folder: a verified re-key marker, sync paused),
  * unknownFile and conflict (a folder account file this device cannot verify), slowDevice
  * (`profile_upgrade` answers `profileTooSlow` unless forced). The other device's kit has the Secret
@@ -87,6 +87,7 @@ import {
   seedHardwareVault,
   type QuickOptions,
 } from "./mock/quickUnlock.ts";
+import { markerHandlers } from "./mock/rotationMarkers.ts";
 import { applyRotationToSync } from "./mock/rotationSync.ts";
 import {
   rotationAsyncHandlers,
@@ -176,6 +177,7 @@ const handlers: MockHandlers = {
   ...browserHandlers,
   ...syncHandlers,
   ...rotationHandlers,
+  ...markerHandlers,
   ...sharingHandlers,
 };
 

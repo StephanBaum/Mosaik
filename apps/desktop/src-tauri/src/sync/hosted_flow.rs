@@ -549,7 +549,9 @@ impl Backend {
         };
         let mut slot = self.slot()?;
         let locked = take_locked(&mut slot)?;
-        match locked.join_account_with_keys(&account.wrapped_ak, keys) {
+        // The device joins at the account-key epoch the server states, so its own
+        // re-key targets the next epoch and an adoption moves from this one (M7 H2).
+        match locked.join_account_with_keys_at(&account.wrapped_ak, keys, account.ak_epoch) {
             Ok(session) => {
                 self.complete_join(
                     slot,

@@ -2413,6 +2413,18 @@ next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key ro
 - **Reviews.** T1 crypto review: 0 High, 3 Medium, 6 Low, 2 Info, all fixed in `0e27585`. **The milestone review is
   pending** (crypto-reviewer over `19eff2a..` the T5 commit, sync-chaos, ux-reviewer on the wizard); its results go
   into `docs/SECURITY_REVIEW_LOG.md` ("M7").
+- **Backend fix round integrated in the desktop (2026-11-09; `395015e`, `730e8f1`).**
+  - A hosted join opens the account at the epoch the server served (`join_account_with_keys_at`); a folder join
+    already does through the verified account file. **H2:** a fresh hosted registration and a folder-to-hosted move
+    carry the account-key epoch (`730e8f1`). The desktop only goes through the engine for adoption, which sets
+    `any_higher_epoch` (true for a folder, false for hosted), so nothing else changed there.
+  - New commands `sync_rekey_markers` and `sync_dismiss_rekey_marker` (H1): the re-key notice shows the notices it
+    is halted on, each with "Ignore this notice" and a confirmation. `rotation_abandon_committed` (L4): "Give up on
+    the rest" in the resume banner after a continue that does not finish, with a confirmation that says the waiting
+    attachments keep their old file key. The done step lists the unreadable attachments (item title and file name,
+    at most 50) and says they keep their old file key (so someone holding the old keys and a copy could still open
+    them): the vault's `Unreadable` and unreachable rows are exactly that.
+  - **L2:** the revocation row for reason 6 is deferred per its ADR (not built here).
 - **Manual checks for M7**, none can be automated here: (1) two real devices on a real server: re-key on one, watch
   the other sign out, adopt it with the new kit, then a second re-key from the other; (2) a re-key on a real
   Dropbox, iCloud or OneDrive folder with two devices, one offline during the re-key and adopting later, and a

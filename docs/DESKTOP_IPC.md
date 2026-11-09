@@ -184,7 +184,9 @@ webview never receives it); the backend learns nothing before that kit was saved
 (`kitNotVerified`). Every command takes the busy guard of the password change: a lock waits for the running step
 (three minutes at most), the sync thread stops for the run, and the lock epoch is checked before any write.
 Responses of the commits are `RotationDone { quickUnlockRemoved, hardwareKeysRemoved, unreachableAttachments,
-finished }`; `finished: false` means the data follows from "Continue key rotation".
+unreachable: { itemTitle \| null, fileName \| null }[], finished }`; `unreachableAttachments` is the total of the
+attachments the re-seal could not read (they keep their old file key, THREAT_MODEL R85) and `unreachable` names at most
+the first 50 (display-cleaned); `finished: false` means the data follows from "Continue key rotation".
 
 | Command | Request → response | Errors (besides `locked`) | Status |
 |---|---|---|---|
@@ -197,6 +199,9 @@ finished }`; `finished: false` means the data follows from "Continue key rotatio
 | `rekey_commit` | `{ password: SecretIn, newPassword: SecretIn, code: SecretIn \| null }` → `RotationDone`. `SyncEngine::rekey_hosted` (the engine's run to head, strict plan, atomic request, at most three attempts) or `rekey_folder`, then `rekey_continue` until the job closes (attachments within the download budget per call). After the vault committed a failure of the follow-up is not an error: `finished: false`. `rotationProgress` events follow the phases; the sync thread restarts with the new session | `kitNotVerified`, `passwordUnchanged`, `wrongCredentials`, `rekeyNeedsCleanSync`, `rekeyMemberKeyMismatch` (a member's safety code is not verified), `rekeyBusy`, `rekeyNeedsServer`, `rekeyOutcomeUnknown`, `syncTwoFactorRequired`, `syncRekeyRefused`, `syncEpochRollback`, transport codes | live |
 | `rotation_resume` | `{ password: SecretIn \| null, kitGroup: SecretIn \| null, code: SecretIn \| null }` → `RotationDone`. By `needs`: `none` continues phases 4 to 7 of a re-key (and closes a finished credential job); `kitGroup` at phase 2 or 3: a re-key goes through `resume_hosted_rekey` (the pending key, the new password and the retyped last group; a probe at phase 2 that proves the server did not apply it returns the job to phase 1), a Secret Key rotation or profile upgrade probes by deriving the keys the change would have made and adopting them if the backend holds them; `password` (phase 1) is not resumable here: the wizard starts again | `rotationNone`, `invalidInput`, `kitGroupMismatch`, `rotationNotApplied`, `wrongCredentials`, the codes of `rekey_commit` | live |
 | `rotation_abandon` | `null` → `null`. Drops a job the backend never saw (phase 1) and deletes the pending Secret Key | `rotationNone`, `rotationTooFar` | live |
+| `rotation_abandon_committed` | `null` → `null`. Drops a job whose local part is committed (phases 4 to 7), for when "Continue key rotation" cannot finish (an attachment re-seal keeps failing). Attachments still waiting keep their old file key and are listed; the job stops blocking a change of backend. The UI confirms first and says so (`UnlockedSession::abandon_committed_rotation_job`, review L4) | `rotationNone`, `rotationTooFar` (before the local commit) | live |
+| `sync_rekey_markers` | `null` → `{ name, sha256, toEpoch }[]`. The re-key notices in the sync folder this device is halted on and the user has not ignored (`SyncEngine::pending_rekey_markers`, review H1). Empty for a non-folder backend | `locked`, transport codes | live |
+| `sync_dismiss_rekey_marker` | `{ name, sha256 }` → `SyncOverview`. Remembers a notice by name and SHA-256 (like `sync_dismiss_account_file`); the halt clears once no other notice is left. The UI asks first ("Ignore notice" / "Keep"): a genuine notice means the account was re-keyed elsewhere and this device stays on the old keys until it adopts | `invalidInput`, transport codes | live |
 
 `SyncOverview` gains `rekeyPending` (a verified `.mrek` marker names this device's epoch: sync is paused, status
 `error` with `syncAccountRekeyed`, and the in-app notice offers `sync_recover_password` with the new Secret Key),

@@ -110,6 +110,10 @@ describe("Re-key account wizard", () => {
     await user.click(within(dialog).getByRole("button", { name: "Re-key account" }));
     await heading(dialog, "Account re-keyed");
     expect(within(dialog).getByText(/Ask everyone you share a vault with/)).toBeTruthy();
+    // The files the re-seal could not read are named, with what that means.
+    expect(within(dialog).getByText(/keep their old file key/)).toBeTruthy();
+    expect(within(dialog).getByText("Bank: statement.pdf")).toBeTruthy();
+    expect(within(dialog).getByText("Unknown item: unknown file")).toBeTruthy();
     expect(calls.map((c) => c.command)).toContain("rekey_commit");
   });
 

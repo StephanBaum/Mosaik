@@ -41,9 +41,10 @@ use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::AppEvent;
 use crate::contract::rotation::{
     DismissFileRequest, MemberVaultView, ProfileUpgradeRequest, RekeyBackend, RekeyCommitRequest,
-    RekeyPrepareRequest, RekeyReviewView, RotateCommitRequest, RotatePrepareRequest, RotationDone,
-    RotationJobView, RotationKind, RotationNeeds, RotationPhaseName, RotationProfile,
-    RotationResumeRequest, RotationStatus, SharedOwnedView,
+    RekeyMarkerView, RekeyPrepareRequest, RekeyReviewView, RotateCommitRequest,
+    RotatePrepareRequest, RotationDone, RotationJobView, RotationKind, RotationNeeds,
+    RotationPhaseName, RotationProfile, RotationResumeRequest, RotationStatus, SharedOwnedView,
+    UnreachableAttachmentView,
 };
 use crate::contract::secret::SecretIn;
 use crate::contract::sync::{RecoverPasswordRequest, SyncOverview};
@@ -384,6 +385,7 @@ impl Backend {
             quick_unlock_removed: changed.removed_quick_unlock.is_some(),
             hardware_keys_removed: 0,
             unreachable_attachments: 0,
+            unreachable: Vec::new(),
             finished: true,
         })
     }
@@ -502,19 +504,16 @@ impl Backend {
     }
 
     fn rotation_done(&self, renewed: &Renewed, finished: bool) -> RotationDone {
-        let unreachable = self
+        let (count, unreachable) = self
             .slot()
             .ok()
-            .and_then(|s| {
-                s.unlocked()
-                    .ok()
-                    .and_then(|u| u.unreachable_attachments().ok())
-            })
-            .map_or(0, |rows| u32::try_from(rows.len()).unwrap_or(u32::MAX));
+            .and_then(|s| s.unlocked().ok().map(unreachable_views))
+            .unwrap_or_default();
         RotationDone {
             quick_unlock_removed: renewed.quick_unlock,
             hardware_keys_removed: renewed.hardware_keys,
-            unreachable_attachments: unreachable,
+            unreachable_attachments: count,
+            unreachable,
             finished,
         }
     }
@@ -673,6 +672,7 @@ impl Backend {
                     quick_unlock_removed: false,
                     hardware_keys_removed: 0,
                     unreachable_attachments: 0,
+                    unreachable: Vec::new(),
                     finished: true,
                 })
             }
@@ -804,6 +804,7 @@ impl Backend {
                     hardware_keys_removed: u32::try_from(adopted.removed_hardware_keys.len())
                         .unwrap_or(u32::MAX),
                     unreachable_attachments: 0,
+                    unreachable: Vec::new(),
                     finished: true,
                 })
             }
@@ -907,6 +908,7 @@ impl Backend {
             quick_unlock_removed: changed.removed_quick_unlock.is_some(),
             hardware_keys_removed: 0,
             unreachable_attachments: 0,
+            unreachable: Vec::new(),
             finished: true,
         })
     }
@@ -980,6 +982,102 @@ impl Backend {
         *guard(&self.pending_kit_verified)? = None;
         self.emit_rotation_progress();
         Ok(())
+    }
+
+    /// `rotation_abandon_committed`: drops a job whose local part is committed
+    /// after the user confirmed. What is still to re-seal keeps its old key
+    /// and the job stops blocking a change of backend.
+    ///
+    /// # Errors
+    /// `rotationNone`, `rotationTooFar` (the job is not committed yet).
+    pub fn rotation_abandon_committed(&self) -> IpcResult<()> {
+        {
+            let mut slot = self.slot()?;
+            slot.unlocked_mut()?.abandon_committed_rotation_job()?;
+        }
+        self.emit_rotation_progress();
+        Ok(())
+    }
+
+    /// The folder engine for the marker commands; `None` for any other backend
+    /// (only a folder carries re-key markers).
+    fn marker_engine(&self) -> IpcResult<Option<(SyncEngine<impl Transport>, BackendSession)>> {
+        let who = self.who()?;
+        let Some(config) = who.config.clone() else {
+            return Ok(None);
+        };
+        if config.kind != SyncKind::Folder {
+            return Ok(None);
+        }
+        let root = config
+            .folder_path
+            .as_deref()
+            .ok_or(IpcError::new(ErrorCode::SyncNotConfigured))?;
+        let transport = open_folder(
+            self.sync.session()?,
+            root,
+            who.account,
+            who.install,
+            &config.device_name,
+        )?;
+        Ok(Some((
+            SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Folder)),
+            self.sync.session()?,
+        )))
+    }
+
+    /// `sync_rekey_markers`: the verified re-key notices in the sync folder
+    /// this device is halted on. A notice only means something if the user
+    /// re-keyed elsewhere, so the app lets them ignore one.
+    ///
+    /// # Errors
+    /// `locked`, and the transport's codes.
+    pub fn sync_rekey_markers(&self) -> IpcResult<Vec<RekeyMarkerView>> {
+        let Some((mut engine, mut access)) = self.marker_engine()? else {
+            return Ok(Vec::new());
+        };
+        let markers = engine
+            .pending_rekey_markers(&mut access)
+            .map_err(|e| IpcError::new(sync_code(&e)))?;
+        Ok(markers
+            .iter()
+            .map(|m| RekeyMarkerView {
+                name: m.name.clone(),
+                sha256: hex(&m.sha256),
+                to_epoch: m.to_epoch,
+            })
+            .collect())
+    }
+
+    /// `sync_dismiss_rekey_marker`: remembers a notice by name and SHA-256 so
+    /// it never halts this device again. The frontend asks first.
+    ///
+    /// # Errors
+    /// `locked`, `invalidInput` (a name or digest that is not one), and the
+    /// transport's codes.
+    pub fn sync_dismiss_rekey_marker(
+        &self,
+        request: &DismissFileRequest,
+    ) -> IpcResult<SyncOverview> {
+        let sha = parse_sha256(&request.sha256)?;
+        if request.name.is_empty()
+            || request.name.len() > 255
+            || request.name.chars().any(char::is_control)
+        {
+            return Err(IpcError::new(ErrorCode::InvalidInput));
+        }
+        let _change = self.sync.begin_change()?;
+        if let Some((mut engine, mut access)) = self.marker_engine()? {
+            self.sync.stop();
+            // Whether another marker still halts the device shows in the next
+            // status (`rekey_pending` is read from the session).
+            engine
+                .dismiss_rekey_marker(&mut access, &request.name, &sha)
+                .map_err(|e| IpcError::new(sync_code(&e)))?;
+        }
+        self.emit_sync_state();
+        self.sync_restart();
+        self.sync_status()
     }
 
     // ---- other devices ------------------------------------------------------------
@@ -1150,6 +1248,36 @@ impl Backend {
         self.sync.poke();
         self.sync_status()
     }
+}
+
+/// The most unreachable attachments a done step lists by name.
+const MAX_LISTED_UNREACHABLE: usize = 50;
+
+/// The attachments the last re-seal could not read: their total and, up to
+/// [`MAX_LISTED_UNREACHABLE`], the item title and file name of each.
+fn unreachable_views(
+    session: &mosaic_vault::session::UnlockedSession,
+) -> (u32, Vec<UnreachableAttachmentView>) {
+    let rows = session.unreachable_attachments().unwrap_or_default();
+    let views = rows
+        .iter()
+        .take(MAX_LISTED_UNREACHABLE)
+        .map(|row| {
+            let item = session.item(row.vault_id, row.item_id).ok();
+            UnreachableAttachmentView {
+                item_title: item
+                    .and_then(|i| i.title())
+                    .map(crate::attachment_files::display_name),
+                file_name: item.and_then(|i| {
+                    i.attachments()
+                        .into_iter()
+                        .find(|a| a.attachment_id == row.old_id)
+                        .map(|a| crate::attachment_files::display_name(a.file_name.as_str()))
+                }),
+            }
+        })
+        .collect();
+    (u32::try_from(rows.len()).unwrap_or(u32::MAX), views)
 }
 
 /// 64 hex digits to bytes.
