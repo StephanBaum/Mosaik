@@ -112,9 +112,12 @@ impl RangeSource for RangeClient {
         if response.content_length().is_some_and(|len| len > cap) {
             return Err(RangeError::Protocol);
         }
-        let mut body = Zeroizing::new(Vec::new());
-        // One byte more than the cap tells an oversize body from one that
-        // fits; the oversize one is rejected, not cut.
+        // Sized once for the largest accepted body and one byte more, so
+        // reading never reallocates (a reallocation would leave an
+        // unzeroized copy of the answer behind). One byte more than the cap
+        // tells an oversize body from one that fits; the oversize one is
+        // rejected, not cut.
+        let mut body = Zeroizing::new(Vec::with_capacity(MAX_BODY_LEN.saturating_add(1)));
         response
             .take(cap.saturating_add(1))
             .read_to_end(&mut body)
@@ -198,7 +201,13 @@ mod tests {
         let body = vec![b'A'; MAX_BODY_LEN];
         let (origin, server) = serve(http("200 OK", "", &body));
         let mut client = RangeClient::for_test(&origin).expect("client");
-        assert_eq!(client.range(&prefix()).expect("body").len(), MAX_BODY_LEN);
+        let answer = client.range(&prefix()).expect("body");
+        assert_eq!(answer.len(), MAX_BODY_LEN);
+        // Pre-sized: reading never moved the buffer, so no stale copy of the answer was left.
+        assert!(
+            answer.capacity() > MAX_BODY_LEN,
+            "sized for the cap and one more"
+        );
         let _ = server.join();
     }
 

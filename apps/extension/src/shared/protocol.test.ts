@@ -117,7 +117,12 @@ describe("rotation ops", () => {
     expect(isResultBody("rotationAddOrigin", { outcome: "added", x: 1 })).toBe(false);
     const list = result("rotationForOrigin") as { attempts: Record<string, unknown>[] };
     expect(isResultBody("rotationForOrigin", { attempts: list.attempts.map((a) => ({ ...a, value: "pw" })) })).toBe(false);
-    expect(isResultBody("rotationForOrigin", { attempts: new Array(6).fill(list.attempts[0]) })).toBe(false);
+    expect(isResultBody("rotationForOrigin", { attempts: new Array(6).fill(list.attempts[0]), related: false })).toBe(false);
+    // `related` is the desktop's verdict and always present; so is `relatedTo` in the request.
+    expect(isResultBody("rotationForOrigin", { attempts: list.attempts })).toBe(false);
+    expect(isResultBody("rotationForOrigin", { attempts: list.attempts, related: "yes" })).toBe(false);
+    expect(isRequestBody("rotationForOrigin", { origin: "https://a.test", topOrigin: "https://a.test" })).toBe(false);
+    expect(isRequestBody("rotationForOrigin", { origin: "https://a.test", topOrigin: "https://a.test", relatedTo: null })).toBe(true);
   });
 });
 

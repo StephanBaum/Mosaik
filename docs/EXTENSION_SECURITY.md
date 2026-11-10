@@ -246,10 +246,28 @@ the impact stays within the page's own origin:
   that is trying to harm the user can still label fields to receive the values, but only on the exact
   origin of the login, only after the user's click, and with the new password the user allowed in the
   desktop dialog; a same-origin script can read any field it owns (R99).
-- `siteOf` (the extension's second opinion on "same site") has no public suffix list: it errs
-  towards "not related", but a host under a multi-part suffix it does not know (some `.co.xx` names)
-  can look related. The desktop decides with the list (`originNotRelated`), and only a dialog the
-  user allows adds an address (R103).
+- `siteOf` (the extension's pre-filter for "same site") has no public suffix list and can call two
+  tenants of a private suffix (`alice.github.io`, `mallory.github.io`) one site. It is no longer
+  what offers an address: the popup shows "Add it?" only when the desktop says so (`rotationForOrigin`
+  with `relatedTo`: its list, https, not loopback, the same port), and the desktop decides again in
+  the dialog (`originNotRelated`); only a dialog the user allows adds an address (R103). The tab
+  record (`rotationTab:<tabId>`) is also dropped when the tab navigates to another site or to http
+  (`tabs.onUpdated`), is replaced (`onReplaced`) or closed, so leaving the site and coming back gets
+  no offer; a different port is never offered.
+- A text field that declares `autocomplete="new-password"` (or `current-password`) is taken as a
+  show-password toggle only when it is the only field of its role and does not read as a user name
+  or an e-mail address (`looksLikeUsername`, the sign-in heuristic); otherwise the form is
+  `changeFormAmbiguous` and nothing is requested.
+- A page's own save capture (the capture hook of `proposeSave`) can equal the pending password of an
+  open attempt on the page's exact origin: the desktop then shows the "It worked" dialog for that
+  attempt instead of a save prompt. The comparison runs in Rust in constant time and the extension
+  never learns the pending value; a page that echoes the value learns nothing it did not receive
+  through the user's fill. A capture that differs leaves the attempt open and shows the normal save
+  prompt.
+- The popup confirms the frame of the **change** form (`PopupState.changeFrame`) for "Fill change
+  form", not the sign-in form's frame: with a sign-in form on top and the change form in a
+  same-origin frame the confirmation names the latter, and a confirmation of the former is still
+  `frameNeedsConfirmation`.
 - Firefox registers MAIN-world scripts from version 128 (documentation only, not covered by the
   Playwright suite).
 - A page can stop fills on itself (for example `<img name="querySelectorAll">` or a focused field

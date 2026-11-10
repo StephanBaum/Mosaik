@@ -17,21 +17,22 @@ use mosaic_insights::change_url;
 use mosaic_native_messaging::bodies::RulesSource as WireRulesSource;
 use mosaic_native_messaging::bodies::{
     AddOriginOutcome, AttemptStage, BeginOutcome, ChangeShape, FillChangeBody, FillChangeResult,
-    FillPendingBody, FillPendingResult, FrameKind, ListForOriginBody, ReportedOutcome,
-    ResultOutcome, RotationAddOriginBody, RotationAddOriginResult, RotationBeginBody,
-    RotationBeginResult, RotationForOriginResult, RotationMatch, RotationResultBody,
-    RotationResultResult,
+    FillPendingBody, FillPendingResult, FrameKind, ReportedOutcome, ResultOutcome,
+    RotationAddOriginBody, RotationAddOriginResult, RotationBeginBody, RotationBeginResult,
+    RotationForOriginBody, RotationForOriginResult, RotationMatch, RotationResultBody,
+    RotationResultResult, SaveBody,
 };
 use mosaic_native_messaging::protocol::{ErrorCode as WireError, Secret};
 use mosaic_origin::{MatchKind, PageOrigin, idn_unicode, registrable_domain, saved_origin};
 use mosaic_vault::session::{RotationOutcome, UnlockedSession};
+use subtle::ConstantTimeEq as _;
 
 use super::fill::{
     MAX_RULES_BYTES, best_match, login_exists, non_empty, parse_ids, parse_origin, site_password,
     username_of, wire,
 };
-use super::rotation_prompt::{RotationAnswer, RotationPlan, RotationPlanKind};
-use super::save::check_writable;
+use super::rotation_prompt::{AttemptInfo, RotationAnswer, RotationPlan, RotationPlanKind};
+use super::save::{check_sizes, check_writable};
 use crate::contract::browser::BrowserRotationDecision;
 use crate::contract::credential_rotation::RotationOutcomeKey;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
@@ -223,6 +224,55 @@ fn values_of(
     })
 }
 
+/// The registrable domain of `origin` (the public suffix list, private suffixes included: two
+/// tenants of `github.io` are two sites).
+fn reg(origin: &PageOrigin) -> Option<String> {
+    registrable_domain(&origin.host_str())
+}
+
+/// The port part of an `https` origin's serialization (`""` for the default port).
+fn port_of(origin: &PageOrigin) -> String {
+    let text = origin.serialize();
+    text.strip_prefix("https://")
+        .and_then(|rest| rest.rsplit_once(':'))
+        .map(|(_, port)| port.to_owned())
+        .unwrap_or_default()
+}
+
+/// Whether `page` may be offered as a related address of the login at `from`: both https, not
+/// loopback, the same registrable domain (the desktop's public suffix list, M7b review B4) and the
+/// same port (B3). The dialog and the write decide again.
+fn origins_related(page: &PageOrigin, from: &PageOrigin) -> bool {
+    !page.is_http()
+        && !page.is_loopback()
+        && !from.is_http()
+        && !from.is_loopback()
+        && port_of(page) == port_of(from)
+        && reg(page).is_some_and(|domain| reg(from) == Some(domain))
+}
+
+/// The login has an https URL on the registrable domain of `page`.
+fn has_site_url(item: &mosaic_core::model::Item, page: &PageOrigin) -> bool {
+    let domain = reg(page);
+    item.urls().iter().any(|(_, url)| {
+        saved_origin(url.url.as_str()).is_some_and(|o| !o.is_http() && reg(&o) == domain)
+    })
+}
+
+/// Which attempt a `result` dialog closes, if it is open.
+fn attempt_info(
+    item: &mosaic_core::model::Item,
+    attempt: RotationAttemptId,
+) -> Option<AttemptInfo> {
+    let open = item.rotation_attempts();
+    let found = open.iter().find(|a| a.id == attempt)?;
+    Some(AttemptInfo {
+        started_at_ms: found.started_at.as_unix_millis(),
+        stage: found.stage,
+        other_open: u32::try_from(open.len().saturating_sub(1)).unwrap_or(u32::MAX),
+    })
+}
+
 fn to_wire(secret: &SecretString) -> Secret {
     Secret::new(secret.expose_secret().to_owned())
 }
@@ -230,12 +280,19 @@ fn to_wire(secret: &SecretString) -> Secret {
 impl Backend {
     /// `rotationForOrigin`: the open attempts of the logins saved for exactly this https origin
     /// (at most 5, newest first, no secret).
+    ///
+    /// With `relatedTo` it also answers, without a dialog, whether `origin` may be offered as a
+    /// related address of that origin (`related`): the extension has no public suffix list.
     pub(crate) fn browser_rotation_for_origin(
         &self,
-        body: &ListForOriginBody,
+        body: &RotationForOriginBody,
     ) -> Result<RotationForOriginResult, WireError> {
         let page = parse_origin(&body.origin)?;
         parse_origin(&body.top_origin)?;
+        let related = match &body.related_to {
+            Some(from) => origins_related(&page, &parse_origin(from)?),
+            None => false,
+        };
         let slot = self.slot().map_err(wire)?;
         let session = slot.unlocked().map_err(wire)?;
         let attempts = if page.is_http() {
@@ -260,7 +317,7 @@ impl Backend {
                 })
                 .collect()
         };
-        Ok(RotationForOriginResult { attempts })
+        Ok(RotationForOriginResult { attempts, related })
     }
 
     /// The checks every value-bearing op makes, then the values and the delivered mark.
@@ -385,15 +442,17 @@ impl Backend {
         let found = session
             .item(vault, item)
             .map_err(|_| WireError::ItemNotFound)?;
-        if !found.rotation_attempts().iter().any(|a| a.id == attempt) {
-            return Err(WireError::RotationNotFound);
-        }
+        let info = attempt_info(found, attempt).ok_or(WireError::RotationNotFound)?;
         let reported = match body.outcome {
             ReportedOutcome::Succeeded => RotationOutcomeKey::Succeeded,
             ReportedOutcome::Failed => RotationOutcomeKey::Failed,
         };
         Ok(plan(
-            RotationPlanKind::Result { attempt, reported },
+            RotationPlanKind::Result {
+                attempt,
+                reported,
+                info,
+            },
             (vault, item),
             &page,
             clip(non_empty(found.title())),
@@ -422,18 +481,7 @@ impl Backend {
         if !found.rotation_attempts().iter().any(|a| a.id == attempt) {
             return Err(WireError::RotationNotFound);
         }
-        let reg = |origin: &PageOrigin| registrable_domain(&origin.host_str());
-        let related = !page.is_http()
-            && !page.is_loopback()
-            && !from.is_http()
-            && reg(&page).is_some_and(|domain| {
-                reg(&from) == Some(domain.clone())
-                    && found.urls().iter().any(|(_, url)| {
-                        saved_origin(url.url.as_str())
-                            .is_some_and(|o| !o.is_http() && reg(&o) == Some(domain.clone()))
-                    })
-            });
-        if !related {
+        if !origins_related(&page, &from) || !has_site_url(found, &page) {
             return Err(WireError::OriginNotRelated);
         }
         let saved_exactly = found
@@ -449,6 +497,57 @@ impl Backend {
             &page,
             clip(non_empty(found.title())),
         ))
+    }
+
+    /// The save-capture hook (M7b, spec 2.2 item 4): a login the page's own form captured whose
+    /// password **equals the pending value** of an attempt open for this exact https origin is
+    /// the "It worked" of that attempt, not a new save. The comparison runs here, in constant
+    /// time; the extension never learns the pending value and only sends the capture as before.
+    /// `None`: no open attempt matches (the normal save prompt follows and the attempt stays
+    /// open).
+    pub(crate) fn browser_plan_save_as_rotation(
+        &self,
+        body: &SaveBody,
+    ) -> Result<Option<RotationPlan>, WireError> {
+        check_sizes(body)?;
+        let page = parse_origin(&body.origin)?;
+        let top = parse_origin(&body.top_origin)?;
+        if page != top || page.is_http() {
+            return Ok(None);
+        }
+        let slot = self.slot().map_err(wire)?;
+        let session = slot.unlocked().map_err(wire)?;
+        let captured = body.password.expose_secret().as_bytes();
+        for open in session.rotation_attempts_for_origin(&page) {
+            let (vault, item) = (open.vault_id, open.item_id);
+            if writable(session, vault).is_err() {
+                continue;
+            }
+            let Ok(found) = session.item(vault, item) else {
+                continue;
+            };
+            let Some(info) = attempt_info(found, open.attempt_id) else {
+                continue;
+            };
+            let same = found
+                .rotation_attempts()
+                .iter()
+                .find(|a| a.id == open.attempt_id)
+                .is_some_and(|a| bool::from(a.pending.expose_secret().as_bytes().ct_eq(captured)));
+            if same {
+                return Ok(Some(plan(
+                    RotationPlanKind::Result {
+                        attempt: open.attempt_id,
+                        reported: RotationOutcomeKey::Succeeded,
+                        info,
+                    },
+                    (vault, item),
+                    &page,
+                    clip(non_empty(found.title())),
+                )));
+            }
+        }
+        Ok(None)
     }
 
     /// Writes the user's answer to a rotation request. The origin and the attempt are checked
@@ -509,17 +608,17 @@ impl Backend {
             }
             (RotationPlanKind::AddOrigin { attempt }, BrowserRotationDecision::AddOrigin {}) => {
                 login_exists(session, vault, item).map_err(|_| gone())?;
-                let open = session
-                    .item(vault, item)?
-                    .rotation_attempts()
-                    .iter()
-                    .any(|a| a.id == *attempt);
-                if !open {
-                    return Err(IpcError::new(ErrorCode::RotationNotFound));
+                // The vault may have changed while the dialog was open (M7b review L3): the
+                // role and the site are checked again, and the write goes through the session
+                // method that checks the role and the open attempt itself.
+                writable(session, vault)
+                    .map_err(|_| IpcError::new(ErrorCode::SharingRoleForbidden))?;
+                if !has_site_url(session.item(vault, item)?, &page) {
+                    return Err(IpcError::new(ErrorCode::OriginNotRelated));
                 }
                 let mut url = LoginUrl::new(&plan.origin);
                 url.match_mode = UrlMatch::ExactOrigin;
-                session.update_item(vault, item, |e| e.add_url(&url).map(|_| ()))?;
+                session.add_origin_during_rotation(vault, item, *attempt, &url)?;
                 RotationAnswer::AddOrigin(RotationAddOriginResult {
                     outcome: AddOriginOutcome::Added,
                 })

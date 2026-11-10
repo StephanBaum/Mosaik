@@ -188,6 +188,28 @@ function mainAction(request: BrowserRotationRequest): {
     : null;
 }
 
+/** Which attempt a result closes: when it started, how far it got, how many others are open. */
+function AttemptLine({ request }: { request: BrowserRotationRequest }) {
+  const { t } = useI18n();
+  const { attempt } = request;
+  if (request.kind !== "result" || attempt === null) {
+    return null;
+  }
+  return (
+    <p className="caption">
+      {t("credentialRotation.dialog.attempt", {
+        at: new Date(attempt.startedAt),
+        stage: t(
+          attempt.stage === "delivered"
+            ? "credentialRotation.dialog.stageDelivered"
+            : "credentialRotation.dialog.stagePrepared",
+        ),
+        n: attempt.otherOpen,
+      })}
+    </p>
+  );
+}
+
 /** The site, the login and, for a `begin`, the generated password. */
 function Details({
   request,
@@ -214,6 +236,7 @@ function Details({
           <GeneratedPassword request={request} setError={setError} regenerate={regenerate} />
         )}
       </dl>
+      <AttemptLine request={request} />
       {request.kind === "addOrigin" && request.unicodeHost !== null && (
         <p className="caption" role="note">
           {t("credentialRotation.addOrigin.idn", { unicode: request.unicodeHost })}

@@ -347,6 +347,10 @@ export const itemHandlers: MockHandlers = {
   purge_item: (state, request) => {
     requireUnlocked(state);
     const item = findItem(state, request);
+    // As the vault does: no delete-forever while a password change is open (the trash is fine).
+    if (item.detail.rotationAttempts.length > 0) {
+      fail("rotationOpen");
+    }
     state.items = state.items.filter((each) => each !== item);
     return null;
   },

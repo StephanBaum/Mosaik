@@ -16,11 +16,13 @@
  * - `currentAndNew`: exactly one current and one or two new fields; `newOnly`: one or two new
  *   fields and no other password field;
  * - eligible fields: `type=password`, or `type=text` with an explicit `new-password` or
- *   `current-password` token (a show-password toggle); enabled, not read-only, and visible to the
- *   user. The user name field is never touched.
+ *   `current-password` token (a show-password toggle) that is the only field of its role and does
+ *   not look like a user name (the sign-in heuristic's test); enabled, not read-only, and visible
+ *   to the user. Any other text field with such a token makes the form `ambiguous`. The user name
+ *   field is never touched.
  */
 import type { ChangeFormShape } from "../shared/messages.ts";
-import { collectInputs, deepActiveElement } from "./detect.ts";
+import { collectInputs, deepActiveElement, looksLikeUsername } from "./detect.ts";
 import { domEnv, isFillable, type VisibilityEnv } from "./visibility.ts";
 
 export interface ChangeClassification {
@@ -219,7 +221,12 @@ function shapeOf(roles: Roles, fields: readonly Candidate[], env: VisibilityEnv)
   }
   const placed = current.length + next.length;
   const shapeOk = next.length <= 2 && current.length <= 1 && placed === fields.length;
-  const allUsable = [...current, ...next].every((c) => c.passwordType && eligible(c.el, env));
+  // A text field with a password token is a show-password toggle only when nothing else could be
+  // the field of its role and it does not read as a user name.
+  const textOk = (c: Candidate): boolean =>
+    c.el.type.toLowerCase() === "password" ||
+    ((current.includes(c) ? current : next).length === 1 && !looksLikeUsername(c.el));
+  const allUsable = [...current, ...next].every((c) => c.passwordType && textOk(c) && eligible(c.el, env));
   if (!shapeOk || !allUsable) {
     return AMBIGUOUS;
   }

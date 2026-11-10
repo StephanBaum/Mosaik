@@ -128,6 +128,10 @@ export const credentialRotation = {
   "credentialRotation.dialog.regenerated": "Ein neues Passwort wurde erzeugt.",
   "credentialRotation.dialog.allow": "Dieses Passwort verwenden",
   "credentialRotation.dialog.cancel": "Abbrechen",
+  "credentialRotation.dialog.attempt":
+    "Gestartet {at, date, medium}, {at, time, short} · {stage}{n, plural, =0 {} one { · # weitere Änderung offen} other { · # weitere Änderungen offen}}",
+  "credentialRotation.dialog.stagePrepared": "bisher hat keine Seite das neue Passwort",
+  "credentialRotation.dialog.stageDelivered": "das neue Passwort wurde in eine Seite eingefügt",
   "credentialRotation.dialog.untitled": "diesen Login",
   "credentialRotation.dialog.resultTitle": "Hat {host} das neue Passwort akzeptiert?",
   "credentialRotation.dialog.resultBody":

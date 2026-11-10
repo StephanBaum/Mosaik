@@ -29,7 +29,7 @@ import {
 } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
 import type { PasskeySwitch } from "./passkey-registry.ts";
-import type { RotationService } from "./rotation.ts";
+import { chooseChangeTarget, type RotationService } from "./rotation.ts";
 import type { SaveService } from "./save.ts";
 import { lastErrorKey, lastFilledKey } from "./session.ts";
 
@@ -214,6 +214,7 @@ export class PopupService {
       tab: info,
       frame: "none",
       frameTarget: null,
+      changeFrame: null,
       matches: [],
       warnings: [],
       pendingSave: null,
@@ -238,7 +239,8 @@ export class PopupService {
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
     const { native } = this.#deps;
     state.lastError = await takeLastError(this.#deps, tab.id);
-    const target = chooseTarget(await probeFrames(this.#deps, tab), null);
+    const probes = await probeFrames(this.#deps, tab);
+    const target = chooseTarget(probes, null);
     const origin = target?.origin ?? info.origin;
     state.frame = classifyFrame(target, info.origin);
     state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
@@ -250,7 +252,20 @@ export class PopupService {
       state.warnings = listing?.warnings ?? [];
       this.#learn(state.matches);
       Object.assign(state, await this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })));
+      if (state.rotations.length > 0) {
+        state.changeFrame = changeFrameOf(probes, info.origin);
+      }
     }
+  }
+}
+
+/** The frame a change fill would go to, for the popup's confirmation; null when there is no change form to pick. */
+function changeFrameOf(probes: readonly FrameProbe[], topOrigin: string): PopupState["changeFrame"] {
+  try {
+    const target = chooseChangeTarget(probes);
+    return { frame: classifyFrame(target, topOrigin), target: { frameId: target.frameId, documentId: target.documentId } };
+  } catch {
+    return null;
   }
 }
 

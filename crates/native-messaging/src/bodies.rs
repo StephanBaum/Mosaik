@@ -677,12 +677,31 @@ pub struct RotationMatch {
     pub change_url: Option<String>,
 }
 
-/// `rotationForOrigin` response. The request body is [`ListForOriginBody`].
+/// `rotationForOrigin` request: [`ListForOriginBody`] plus the origin to judge.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationForOriginBody {
+    /// The frame's origin (at most 2048 bytes).
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// The origin a change page was opened from. With it the desktop also says, without a
+    /// dialog, whether `origin` may be offered as a related address of it (the desktop's public
+    /// suffix list decides, not the extension's).
+    #[serde(deserialize_with = "required")]
+    pub related_to: Option<String>,
+}
+
+/// `rotationForOrigin` response.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RotationForOriginResult {
     /// At most 5 attempts, newest first.
     pub attempts: Vec<RotationMatch>,
+    /// With `relatedTo`: `origin` is https, not loopback, on the same port and the same
+    /// registrable domain as `relatedTo` (private suffixes such as `github.io` count as public
+    /// suffixes). `false` without it; the desktop's dialog decides again.
+    pub related: bool,
 }
 
 /// `rotationBegin` request.
@@ -1100,6 +1119,27 @@ mod tests {
         assert!(rejects::<RotationBeginResult>(r#"{"outcome":"started"}"#));
         assert!(rejects::<RotationForOriginResult>(
             r#"{"attempts":[],"x":1}"#
+        ));
+        // Every key is present: `related` is a boolean and `relatedTo` a string or null.
+        assert!(rejects::<RotationForOriginResult>(r#"{"attempts":[]}"#));
+        let related: RotationForOriginResult =
+            serde_json::from_str(r#"{"attempts":[],"related":true}"#).unwrap();
+        assert!(related.related);
+        let ask: RotationForOriginBody = serde_json::from_str(
+            r#"{"origin":"https://a.example","topOrigin":"https://a.example","relatedTo":"https://b.example"}"#,
+        )
+        .unwrap();
+        assert_eq!(ask.related_to.as_deref(), Some("https://b.example"));
+        let bare: RotationForOriginBody = serde_json::from_str(
+            r#"{"origin":"https://a.example","topOrigin":"https://a.example","relatedTo":null}"#,
+        )
+        .unwrap();
+        assert_eq!(bare.related_to, None);
+        assert!(rejects::<RotationForOriginBody>(
+            r#"{"origin":"a","topOrigin":"a"}"#
+        ));
+        assert!(rejects::<RotationForOriginBody>(
+            r#"{"origin":"a","topOrigin":"a","relatedTo":null,"x":1}"#
         ));
     }
 }

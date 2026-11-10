@@ -80,6 +80,32 @@ describe("autocomplete tokens", () => {
     expect(c.shape).toBe("currentAndNew");
     expect(ids(c.next)).toEqual(["n"]);
   });
+
+  it("refuses a user name field that declares new-password next to a real new field", () => {
+    const c = run(
+      '<form><input id="user" type="text" name="username" autocomplete="new-password"><input id="old" type="password" autocomplete="current-password">' +
+        '<input id="new" type="password" autocomplete="new-password"></form>',
+    );
+    expect(c.shape).toBe("ambiguous");
+    expect(c.next).toEqual([]);
+  });
+
+  it("refuses a text toggle that reads like a user name or an e-mail address even when it is the only new field", () => {
+    for (const toggle of [
+      '<input id="n" type="text" name="login" autocomplete="new-password">',
+      '<input id="n" type="text" autocomplete="new-password email">',
+    ]) {
+      const c = run(`<form><input id="old" type="password" autocomplete="current-password">${toggle}</form>`);
+      expect(c.shape).toBe("ambiguous");
+    }
+  });
+
+  it("refuses two text toggles for one role", () => {
+    const c = run(
+      '<form><input id="old" type="password" autocomplete="current-password"><input id="a" type="text" autocomplete="new-password"><input id="b" type="text" autocomplete="new-password"></form>',
+    );
+    expect(c.shape).toBe("ambiguous");
+  });
 });
 
 describe("three fields without tokens", () => {

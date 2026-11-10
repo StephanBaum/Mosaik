@@ -4549,6 +4549,14 @@ The extension fills a change-password form with the current and the new password
 ### Consequences
 THREAT_MODEL R99 and R103. Hostile pages for each attack of the spec's list under `apps/extension/e2e/hostile/`.
 
+**Review round (M7b, after the milestone review and the red-team run).** Changes that keep the decisions above and tighten them:
+
+- The offer to add a related address needs the desktop's verdict (`rotationForOrigin` with `relatedTo`, a dialog-free `related` answer from the public suffix list, https, not loopback, the same port); the extension's `siteOf` is only a pre-filter. The tab record is dropped when the tab leaves the site, is replaced or closed. The add-origin answer checks the role, the site and the open attempt again and writes through `add_origin_during_rotation` (role-checking). THREAT_MODEL R103.
+- A text field with a password token is a toggle only if it is alone in its role and does not look like a user name; the popup confirms the frame of the change form (`changeFrame`), not the sign-in form's.
+- Save capture hook: a capture on the exact origin whose password equals an open attempt's pending value is that attempt's "It worked" dialog, compared in constant time in Rust (`proposeSave` is unchanged on the wire). A differing capture shows the normal save prompt and leaves the attempt open.
+- "Delete forever" is refused while an attempt is open (`RotationOpen`, desktop code `rotationOpen`); the trash and a move stay allowed. `rotation_copy` marks the attempt delivered. The result dialog names the attempt it closes (start time, stage, other open attempts).
+- The breach scan ends at once on lock, on turning the check off and on quit: requests run on helper threads that the scan waits on together with the cancel flag, so the plan of hash suffixes is dropped while a request is on the wire; a failing random number generator ends the scan (`protocol`) instead of using a fixed order; the response buffer is sized once so no unzeroized copy is left by growth.
+
 ## ADR-0069: Rotate-now queue and reminders: local state bound to the password mark
 
 - Status: accepted

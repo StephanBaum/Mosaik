@@ -94,6 +94,8 @@ export const errors = {
     "Diese Passwortänderung ist nicht mehr offen. Vielleicht wurde sie auf einem anderen Gerät oder im Browser abgeschlossen. Öffne den Eintrag erneut, um den Stand zu sehen.",
   "error.rotationLimit":
     "Für diesen Eintrag sind schon vier Passwortänderungen offen. Schließe zuerst eine im Eintrag ab.",
+  "error.rotationOpen":
+    "Für dieses Login läuft eine Passwortänderung. Schließ sie zuerst ab oder brich sie ab, damit das neue Passwort nicht verloren geht.",
   "error.rotationNotSupported":
     "Mosaic kann diese Änderung nicht begleiten. Dafür braucht es einen Login mit https-Adresse. Ändere das Passwort selbst auf der Website.",
   "error.historyNotFound":

@@ -383,6 +383,7 @@ export const fixtures = {
       "syncRekeyRefused",
       "rotationNotFound",
       "rotationLimit",
+      "rotationOpen",
       "rotationNotSupported",
       "historyNotFound",
       "originNotRelated",
@@ -1120,6 +1121,9 @@ export const fixtures = {
       "code": "rotationLimit"
     },
     {
+      "code": "rotationOpen"
+    },
+    {
       "code": "rotationNotSupported"
     },
     {
@@ -1324,6 +1328,7 @@ export const fixtures = {
     },
     {
       "request": {
+        "attempt": null,
         "expiresAt": 1761480335000,
         "host": "example.com",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
@@ -1341,6 +1346,11 @@ export const fixtures = {
     },
     {
       "request": {
+        "attempt": {
+          "otherOpen": 1,
+          "stage": "delivered",
+          "startedAt": 1761480000000
+        },
         "expiresAt": 1761480335000,
         "host": "example.com",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
@@ -1358,6 +1368,7 @@ export const fixtures = {
     },
     {
       "request": {
+        "attempt": null,
         "expiresAt": 1761480335000,
         "host": "xn--bcher-kva.example.com",
         "itemId": "019a2b3c-4d5e-7020-8000-000000000002",

@@ -12,8 +12,10 @@
  * - Starting a change, reporting its result and adding a related address only ask the desktop,
  *   which opens a dialog; the extension never writes. The new password is never shown here.
  * - `rotationTab:<tabId>` (in `storage.session`) names the login and the origin of a tab the
- *   extension sent to a change page. Only in such a tab, and only on the same site (a registrable
- *   domain, https), the popup offers to add the address it ended up on.
+ *   extension sent to a change page. Only in such a tab, only while it stays on the same site and
+ *   only when the desktop says so (`rotationForOrigin` with `relatedTo`: its public suffix list,
+ *   https, the same port), the popup offers to add the address it ended up on. The record is
+ *   dropped when the tab leaves the site (`onNavigated`) or is replaced or closed.
  */
 import { ExtensionError } from "../shared/errors.ts";
 import { newFillId } from "../shared/ids.ts";
@@ -25,7 +27,7 @@ import type {
   PopupState,
   RotationTabOffer,
 } from "../shared/messages.ts";
-import { hostOf, isSecureOrigin, originOf, sameSite, unicodeHostOf } from "../shared/origin.ts";
+import { hostOf, isSecureOrigin, originOf, samePort, sameSite, unicodeHostOf } from "../shared/origin.ts";
 import type { RequestMap, ResultMap, RotationMatch } from "../shared/protocol.ts";
 import { chooseTarget, decideFrame, wantFor } from "./frames.ts";
 import { fillHooks, isConfirmed } from "./fill.ts";
@@ -152,24 +154,46 @@ export class RotationService {
     if (origin === null || !isSecureOrigin(origin)) {
       return { rotations: [], rotationTabOffer: null };
     }
+    const record = await this.#record(tab.id);
+    // The desktop also judges, without a dialog, whether this page is related to the address the
+    // tab was sent from: its public suffix list decides, not a guess made here.
+    const relatedTo = record !== null && origin !== record.fromOrigin ? record.fromOrigin : null;
     // An older desktop does not know the op (`invalidRequest`): no rotation controls then.
     const listing = await this.#deps.native
-      .request("rotationForOrigin", { origin, topOrigin: origin })
-      .catch(() => ({ attempts: [] as RotationMatch[] }));
-    return { rotations: listing.attempts, rotationTabOffer: await this.#offer(tab, origin, listing.attempts) };
+      .request("rotationForOrigin", { origin, topOrigin: origin, relatedTo })
+      .catch(() => ({ attempts: [] as RotationMatch[], related: false }));
+    return { rotations: listing.attempts, rotationTabOffer: await this.#offer(tab, origin, record, listing) };
   }
 
-  async #offer(tab: RotationTab, origin: string, open: readonly RotationMatch[]): Promise<RotationTabOffer | null> {
-    const record = await this.#record(tab.id);
+  /** Drops the tab's record when the tab went to a page that is not on the same site (https). */
+  async onNavigated(tabId: number, url: string): Promise<void> {
+    const record = await this.#record(tabId);
+    const origin = originOf(url);
+    if (record !== null && (origin === null || !sameSite(origin, record.fromOrigin))) {
+      await this.#deps.session.remove(rotationTabKey(tabId));
+    }
+  }
+
+  async #offer(
+    tab: RotationTab,
+    origin: string,
+    record: RotationTabRecord | null,
+    listing: ResultMap["rotationForOrigin"],
+  ): Promise<RotationTabOffer | null> {
     if (record === null) {
       return null;
     }
-    const stillSite = sameSite(origin, record.fromOrigin);
-    if (!stillSite) {
+    if (!listing.related && origin !== record.fromOrigin) {
+      // Another site (or another port, or a page the desktop does not count as related).
       await this.#deps.session.remove(rotationTabKey(tab.id));
       return null;
     }
-    if (origin === record.fromOrigin || open.some((m) => m.attemptId === record.attemptId)) {
+    if (
+      origin === record.fromOrigin ||
+      !sameSite(origin, record.fromOrigin) ||
+      !samePort(origin, record.fromOrigin) ||
+      listing.attempts.some((m) => m.attemptId === record.attemptId)
+    ) {
       return null;
     }
     const host = hostOf(origin);
@@ -214,7 +238,7 @@ export class RotationService {
    */
   async openPage(request: AttemptRef, tab: RotationTab): Promise<Record<string, never>> {
     const origin = httpsOrigin(tab);
-    const { attempts } = await this.#deps.native.request("rotationForOrigin", { origin, topOrigin: origin });
+    const { attempts } = await this.#deps.native.request("rotationForOrigin", { origin, topOrigin: origin, relatedTo: null });
     const match = attempts.find(
       (a) => a.vaultId === request.vaultId && a.itemId === request.itemId && a.attemptId === request.attemptId,
     );
@@ -361,7 +385,12 @@ export class RotationService {
   async addOrigin(tab: RotationTab): Promise<ResultMap["rotationAddOrigin"]> {
     const origin = httpsOrigin(tab);
     const record = await this.#record(tab.id);
-    if (record === null || origin === record.fromOrigin || !sameSite(origin, record.fromOrigin)) {
+    if (
+      record === null ||
+      origin === record.fromOrigin ||
+      !sameSite(origin, record.fromOrigin) ||
+      !samePort(origin, record.fromOrigin)
+    ) {
       throw new ExtensionError("originNotRelated");
     }
     return this.#deps.native.request("rotationAddOrigin", {

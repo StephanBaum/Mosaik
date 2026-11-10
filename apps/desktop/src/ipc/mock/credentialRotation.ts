@@ -396,7 +396,14 @@ export const credentialRotationHandlers: MockHandlers = {
 
   rotation_copy: (state, request) => {
     requireUnlocked(state);
-    attemptValue(state, find(state, request), request.attemptId);
+    const item = find(state, request);
+    attemptValue(state, item, request.attemptId);
+    // A copy hands the value out of the app: the attempt counts as delivered (ADR-0066).
+    for (const open of item.detail.rotationAttempts) {
+      if (open.attemptId === request.attemptId) {
+        open.stage = "delivered";
+      }
+    }
     const seconds = state.settings.clipboardClearSeconds;
     return {
       clearsAt: seconds === null ? null : state.now() + seconds * 1000,

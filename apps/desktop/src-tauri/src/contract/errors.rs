@@ -315,6 +315,9 @@ wire_enum!(
         /// Four password changes of this item are open already; finish or
         /// close one first.
         RotationLimit,
+        /// The login has a password change in progress: finish or cancel it
+        /// before deleting the login for good.
+        RotationOpen,
         /// Mosaic cannot guide the change of this item: it is not a login or
         /// has no `https` URL.
         RotationNotSupported,
@@ -463,6 +466,7 @@ impl From<mosaic_core::Error> for IpcError {
             mosaic_core::Error::NotALogin => ErrorCode::RotationNotSupported,
             mosaic_core::Error::TooManyAttempts => ErrorCode::RotationLimit,
             mosaic_core::Error::RotationNotFound => ErrorCode::RotationNotFound,
+            mosaic_core::Error::RotationOpen => ErrorCode::RotationOpen,
             mosaic_core::Error::HistoryNotFound => ErrorCode::HistoryNotFound,
             _ => ErrorCode::Internal,
         })

@@ -38,18 +38,26 @@ test("A-B-A: the login's own origin inside another origin's frame is refused bef
   await expectNothingFilled(page);
 });
 
-test("a sign-in form on top and the change form in a frame: the frame the popup confirms decides, nothing else", async ({ page, fake }) => {
+test("a sign-in form on top and the change form in a frame: the popup confirms the change frame, and only it is filled", async ({ page, fake }) => {
   await open(page, `${BANK}/rotation-pages/frame-and-login.html`, 2);
   const tabId = await fake.tabIdOf(BANK);
-  // The change form is in the frame, so the fill needs a confirmation of that frame; the popup's
-  // own frame target is the sign-in form on top, which is not a confirmation of the frame.
-  const { frameTarget } = await fake.popupState(tabId);
+  // The popup's own frame target is the sign-in form on top; it is not a confirmation of the
+  // change frame, so the fill needs the change frame's own target.
+  const { frameTarget, changeFrame } = await fake.popupState(tabId);
+  expect(changeFrame?.frame).toBe("sameOriginFrame");
+  expect(changeFrame?.target).not.toEqual(frameTarget);
   expect(await changeOutcome(fake, tabId, { confirmFrame: frameTarget })).toMatch(/frameNeedsConfirmation/);
+  expect(await changeOutcome(fake, tabId)).toMatch(/frameNeedsConfirmation/);
   expect(await asked(fake, "fillChange")).toBe(0);
-  // A confirmation that names the change frame and its document fills only that frame.
+  // A confirmation that names the frame without its document is stale.
   const frameId = await fake.frameIdOf(tabId, `${BANK}/rotation-pages/change.html`);
   expect(await changeOutcome(fake, tabId, { confirmFrame: { frameId, documentId: null } })).toMatch(/frameNeedsConfirmation/);
   await expectNothingFilled(page);
-  expect(await fieldsHolding(page, NEW_VALUE)).toEqual([]);
-  expect(await fieldsHolding(page, PASSWORD)).toEqual([]);
+  // The popup's own confirmation fills the change form in the frame, and nothing on top.
+  expect(await changeOutcome(fake, tabId, { confirmFrame: changeFrame?.target ?? null })).toBe("filled");
+  expect(await fieldsHolding(page, NEW_VALUE)).toEqual(["new", "confirm"]);
+  expect(await fieldsHolding(page, PASSWORD)).toEqual(["current"]);
+  expect((await fake.log()).filter((entry) => entry.op === "fillChange")).toEqual([
+    { op: "fillChange", origin: BANK, topOrigin: BANK, frame: "sameOriginFrame" },
+  ]);
 });

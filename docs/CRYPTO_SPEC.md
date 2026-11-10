@@ -771,7 +771,11 @@ nonce  = random(24)    -- fresh for every encryption, never derived
 - Trash is the field `trashed_at` inside the plaintext. The server does not
   learn it (no server-side hint, ADR-0012). A hard delete ("delete
   forever") replaces the record with its encrypted tombstone (§7.2), which
-  syncs like any edit and keeps the record's rollback anchor (§10). A
+  syncs like any edit and keeps the record's rollback anchor (§10). It is
+  refused while a rotation attempt is open (`RotationOpen`): the tombstone
+  would take the attempt's new password with it, which the never-delete
+  invariant forbids. Moving the item to the trash stays allowed, and so does
+  moving it to another vault (the copy carries the attempts). A
   record row is purged locally only once the server no longer serves the
   record either (ADR-0010).
 - **Hardware-protected TOTP vault:** a normal vault whose VK is wrapped *only*

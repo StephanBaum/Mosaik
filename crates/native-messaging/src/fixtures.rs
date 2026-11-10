@@ -171,9 +171,10 @@ fn request_samples() -> Vec<(Op, Value)> {
     );
     add(
         Op::RotationForOrigin,
-        to_value(&ListForOriginBody {
+        to_value(&RotationForOriginBody {
             origin: ORIGIN.into(),
             top_origin: ORIGIN.into(),
+            related_to: Some("https://accounts.example.com".into()),
         }),
     );
     add(
@@ -408,6 +409,7 @@ fn response_samples() -> Vec<(Op, Value)> {
                     change_url: None,
                 },
             ],
+            related: true,
         }),
     );
     add(
@@ -495,7 +497,8 @@ fn check_request_body(op: Op, body: &Value) {
         Op::Hello => round_trips::<HelloBody>(body),
         Op::Pair => round_trips::<PairBody>(body),
         Op::Status | Op::Focus | Op::Unpair => round_trips::<Empty>(body),
-        Op::ListForOrigin | Op::RotationForOrigin => round_trips::<ListForOriginBody>(body),
+        Op::ListForOrigin => round_trips::<ListForOriginBody>(body),
+        Op::RotationForOrigin => round_trips::<RotationForOriginBody>(body),
         Op::Search => round_trips::<SearchBody>(body),
         Op::Fill => round_trips::<FillBody>(body),
         Op::Copy => round_trips::<CopyBody>(body),

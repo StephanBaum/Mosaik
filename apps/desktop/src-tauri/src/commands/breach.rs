@@ -4,24 +4,30 @@
 //! A scan hashes the passwords under the session lock, then lets go of the
 //! lock: the requests run on their own thread with a plan that holds only
 //! hash suffixes (zeroized when it is dropped). The session is locked again
-//! for the one moment that stores the answers. Locking the vault, cancelling
-//! and quitting set the scan's cancel flag, which the pause between requests
-//! watches, so a scan ends within about 50 ms of a lock (a request already on
-//! the wire ends within the transport's 10 s timeout).
+//! for the one moment that stores the answers. Locking the vault, cancelling,
+//! turning the check off and quitting set the scan's cancel flag. Every
+//! request runs on a helper thread that the scan waits on together with the
+//! flag ([`GuardedSource`]), so a scan ends, and drops its plan, within about
+//! 50 ms of a lock even while a request is on the wire (the helper then ends
+//! with the transport's 10 s timeout and holds one 5-character prefix, no
+//! plan).
 //!
 //! Nothing starts a scan but the user's "Check now" and, only when the
 //! setting is `weekly`, an unlock followed by 60 seconds: with the setting
 //! `off` (the default) the code never builds a client.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use mosaic_core::Timestamp;
 use mosaic_insights::Candidate;
-use mosaic_insights::breach::{self, BreachPlan, RangeError, RangeSource, RunHooks};
+use mosaic_insights::breach::{self, BreachPlan, RangeError, RangePrefix, RangeSource, RunHooks};
 use mosaic_vault::session::{ItemFilter, ScanError, ScanSummary};
 use tauri::State;
+use zeroize::Zeroizing;
 
 use super::insights::now;
 use crate::contract::credential_rotation::BreachScanError;
@@ -117,6 +123,56 @@ impl BreachService {
     }
 }
 
+/// The scan's view of its source: each request runs on a helper thread and
+/// the scan waits for "reply or cancel", so a lock does not wait for the
+/// transport (CRYPTO_SPEC §12, M7b review L1). After a cancel the helper's
+/// late reply is dropped (zeroized).
+struct GuardedSource {
+    inner: Arc<Mutex<Box<dyn RangeSource + Send>>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl GuardedSource {
+    fn new(source: Box<dyn RangeSource + Send>, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(source)),
+            cancel,
+        }
+    }
+}
+
+impl RangeSource for GuardedSource {
+    fn range(&mut self, prefix: &RangePrefix) -> Result<Zeroizing<Vec<u8>>, RangeError> {
+        if self.cancel.load(Ordering::Acquire) {
+            return Err(RangeError::Cancelled);
+        }
+        let (tx, rx) = channel();
+        let inner = Arc::clone(&self.inner);
+        let prefix = *prefix;
+        std::thread::Builder::new()
+            .name("breach-request".into())
+            .spawn(move || {
+                let answer = match inner.lock() {
+                    Ok(mut source) => source.range(&prefix),
+                    Err(_) => Err(RangeError::Protocol),
+                };
+                let _ = tx.send(answer);
+            })
+            .map_err(|_| RangeError::Protocol)?;
+        loop {
+            match rx.recv_timeout(PAUSE_SLICE) {
+                Ok(answer) => return answer,
+                Err(RecvTimeoutError::Timeout) => {
+                    if self.cancel.load(Ordering::Acquire) {
+                        return Err(RangeError::Cancelled);
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(RangeError::Protocol),
+            }
+        }
+    }
+}
+
 /// Ends the "running" state however the scan ends, unless it is defused
 /// (the scan's thread then owns the state).
 struct RunGuard<'a> {
@@ -181,23 +237,20 @@ pub async fn breach_scan_cancel(state: State<'_, AppState>) -> IpcResult<()> {
     state.run(Backend::breach_scan_cancel).await
 }
 
-/// A uniform number below `bound` from the OS random number generator.
-fn random_below(bound: u32) -> u32 {
+/// A uniform number below `bound` from the OS random number generator;
+/// `None` if the generator fails (the scan then ends, M7b review L2).
+fn random_below(bound: u32) -> Option<u32> {
     if bound <= 1 {
-        return 0;
+        return Some(0);
     }
     // Rejection sampling: no modulo bias.
     let zone = u32::MAX - (u32::MAX % bound);
     loop {
         let mut bytes = [0u8; 4];
-        if getrandom::fill(&mut bytes).is_err() {
-            // The OS generator failed: a fixed order is acceptable for the
-            // shuffle and the pause (neither is a secret).
-            return 0;
-        }
+        getrandom::fill(&mut bytes).ok()?;
         let value = u32::from_le_bytes(bytes);
         if value < zone {
-            return value % bound;
+            return Some(value % bound);
         }
     }
 }
@@ -244,19 +297,31 @@ impl Backend {
         // the thread's run ends it otherwise.
         let job = self.breach_scan_prepare(now())?;
         let running = RunGuard::new(&self.breach);
-        let mut source = self.breach.source()?;
+        let mut source = GuardedSource::new(self.breach.source()?, Arc::clone(&job.cancel));
         let weak = Weak::clone(weak);
         std::thread::Builder::new()
             .name("breach-scan".into())
             .spawn(move || {
                 if let Some(backend) = weak.upgrade() {
                     let cancel = Arc::clone(&job.cancel);
-                    backend.breach_scan_run(job, &mut *source, &mut |ms| pause_on(&cancel, ms));
+                    backend.breach_scan_run(job, &mut source, &mut |ms| {
+                        backend.breach_pause(&cancel, ms)
+                    });
                 }
             })
             .map_err(|_| IpcError::INTERNAL)?;
         running.defuse();
         Ok(())
+    }
+
+    /// The wait between requests. The setting is read again at every pause:
+    /// turning the check off ends the scan even without the cancel from
+    /// `update_settings` (M7b review M1).
+    fn breach_pause(&self, cancel: &AtomicBool, ms: u32) -> bool {
+        if self.settings_snapshot().breach_check == BreachMode::Off {
+            cancel.store(true, Ordering::Release);
+        }
+        pause_on(cancel, ms)
     }
 
     /// Checks the consent, plans the scan and marks it as running.
@@ -306,6 +371,19 @@ impl Backend {
         source: &mut dyn RangeSource,
         pause: &mut dyn FnMut(u32) -> bool,
     ) {
+        self.breach_scan_run_with(job, source, pause, &mut random_below);
+    }
+
+    /// [`Backend::breach_scan_run`] with the random number source given (a
+    /// test makes it fail). A failing generator ends the scan with
+    /// `protocol` before the next request.
+    pub(crate) fn breach_scan_run_with(
+        &self,
+        job: ScanJob,
+        source: &mut dyn RangeSource,
+        pause: &mut dyn FnMut(u32) -> bool,
+        random: &mut dyn FnMut(u32) -> Option<u32>,
+    ) {
         let _running = RunGuard::new(&self.breach);
         let clock = Instant::now();
         let ScanJob {
@@ -314,7 +392,14 @@ impl Backend {
             cancel,
         } = job;
         let events = self.events.clone();
-        let mut rng = random_below;
+        let rng_failed = Cell::new(false);
+        let mut rng = |bound: u32| {
+            random(bound).unwrap_or_else(|| {
+                rng_failed.set(true);
+                cancel.store(true, Ordering::Release);
+                0
+            })
+        };
         let mut progress = |done: u32, total: u32| {
             events.emit(&AppEvent::BreachScanProgress { done, total });
         };
@@ -328,6 +413,11 @@ impl Backend {
                 cancel: &cancel,
             },
         );
+        let error = if rng_failed.get() {
+            Some(RangeError::Protocol)
+        } else {
+            error
+        };
         let checked = u32::try_from(results.len()).unwrap_or(u32::MAX);
         let found = u32::try_from(results.iter().filter(|r| r.found).count()).unwrap_or(u32::MAX);
         let summary = ScanSummary {

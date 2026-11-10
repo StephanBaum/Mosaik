@@ -17,8 +17,9 @@ use std::sync::Arc;
 use mosaic_core::SecretString;
 use mosaic_native_messaging::bodies::{
     CopyBody, Empty, FillBody, FillChangeBody, FillPendingBody, GenerateBody, ListForOriginBody,
-    PasskeyCancelBody, PasskeyCreateBody, PasskeyGetBody, RotationAddOriginBody, RotationBeginBody,
-    RotationResultBody, SaveBody, SearchBody, StatusResult,
+    PasskeyCancelBody, PasskeyCreateBody, PasskeyGetBody, ProposeSaveResult, ResultOutcome,
+    RotationAddOriginBody, RotationBeginBody, RotationForOriginBody, RotationResultBody, SaveBody,
+    SaveOutcome, SearchBody, StatusResult,
 };
 use mosaic_native_messaging::protocol::{
     ErrorCode as WireError, MAX_FRAME_BYTES, Op, PROTOCOL_VERSION, RequestEnvelope, error_json,
@@ -32,9 +33,9 @@ use super::connection::Ctx;
 use super::fill::parse_origin;
 use super::passkey::PasskeyPlan;
 use super::passkey_prompt::PasskeyReply;
-use super::prompts::cancelled;
+use super::prompts::{SavePlan, cancelled};
 use super::registry::RegistryError;
-use super::rotation_prompt::RotationPlan;
+use super::rotation_prompt::{RotationAnswer, RotationPlan};
 use super::save::MAX_ORIGIN_BYTES;
 use super::{Bucket, Shared, unix_millis};
 use crate::contract::browser::BrowserCloseReason;
@@ -262,6 +263,12 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
 }
 
 /// `proposeSave`: classify, show the desktop dialog, wait for the answer.
+/// Which dialog a captured login opens.
+enum SaveRoute {
+    Save(Option<SavePlan>),
+    Rotation(RotationPlan),
+}
+
 async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireError> {
     let captured: SaveBody = parse(raw)?;
     // `busy` before any comparison with the vault: while a prompt is open the
@@ -269,11 +276,41 @@ async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireE
     if ctx.shared.save_is_open() {
         return Err(WireError::Busy);
     }
-    let (plan, captured) = blocking(ctx, move |be| {
-        let plan = be.browser_plan_save(&captured)?;
-        Ok((plan, captured))
+    // A capture whose password is the pending value of an attempt open for this origin is that
+    // attempt's "It worked" (M7b, spec 2.2 item 4), not a save: the desktop compares the values
+    // in constant time and the extension sends the capture as it always does.
+    let (route, captured) = blocking(ctx, move |be| {
+        let route = match be.browser_plan_save_as_rotation(&captured)? {
+            Some(rotation) => SaveRoute::Rotation(rotation),
+            None => SaveRoute::Save(be.browser_plan_save(&captured)?),
+        };
+        Ok((route, captured))
     })
     .await?;
+    let plan = match route {
+        SaveRoute::Rotation(rotation) => {
+            let ids = (rotation.vault, rotation.item);
+            let ticket = ctx.shared.open_rotation(&ctx.pairing, ctx.conn, rotation)?;
+            let answer = ctx.shared.await_rotation(ticket).await?;
+            let confirmed = matches!(
+                answer,
+                RotationAnswer::Result(r) if r.outcome == ResultOutcome::Confirmed
+            );
+            return body(
+                id,
+                &if confirmed {
+                    ProposeSaveResult {
+                        outcome: SaveOutcome::Updated,
+                        vault_id: Some(ids.0.to_string()),
+                        item_id: Some(ids.1.to_string()),
+                    }
+                } else {
+                    cancelled()
+                },
+            );
+        }
+        SaveRoute::Save(plan) => plan,
+    };
     let Some(plan) = plan else {
         // Nothing would change: nothing to confirm.
         return body(id, &cancelled());
@@ -300,7 +337,7 @@ async fn rotation_op(ctx: &Ctx, id: u32, op: Op, raw: &RawValue) -> Result<Reply
     let shared = &ctx.shared;
     match op {
         Op::RotationForOrigin => {
-            let b: ListForOriginBody = parse(raw)?;
+            let b: RotationForOriginBody = parse(raw)?;
             body(
                 id,
                 &blocking(ctx, move |be| be.browser_rotation_for_origin(&b)).await?,

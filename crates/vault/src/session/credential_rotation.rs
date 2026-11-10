@@ -17,8 +17,8 @@
 use std::collections::BTreeMap;
 
 use mosaic_core::model::{
-    HistoryId, Item, ItemType, Role, RotationAttemptId, RotationStage, RulesSource, SecretField,
-    TextField, ValueMark,
+    HistoryId, Item, ItemType, LoginUrl, Role, RotationAttemptId, RotationStage, RulesSource,
+    SecretField, TextField, ValueMark,
 };
 use mosaic_core::{ItemId, SecretString, Timestamp, VaultId};
 use mosaic_insights::ItemKey;
@@ -256,6 +256,33 @@ impl UnlockedSession {
             RotationOutcome::Succeeded => e.confirm_rotation(attempt),
             RotationOutcome::Failed => e.fail_rotation(attempt),
         })
+    }
+
+    /// Adds `url` to the login while the attempt is open (the browser's
+    /// "add this address" after a change page redirected). The caller has
+    /// checked that the address belongs to the login's site.
+    ///
+    /// # Errors
+    /// As [`UnlockedSession::mark_rotation_delivered`], plus the errors of
+    /// the edit (`Malformed` for a URL the item cannot take).
+    pub fn add_origin_during_rotation(
+        &mut self,
+        vault: VaultId,
+        item: ItemId,
+        attempt: RotationAttemptId,
+        url: &LoginUrl,
+    ) -> Result<()> {
+        self.writable_item(vault, item)?;
+        if !self
+            .vault(vault)?
+            .live_item(item)?
+            .rotation_attempts()
+            .iter()
+            .any(|a| a.id == attempt)
+        {
+            return Err(Error::Core(mosaic_core::Error::RotationNotFound));
+        }
+        self.update_item(vault, item, |e| e.add_url(url).map(|_| ()))
     }
 
     /// The rollback: the history entry's value becomes the password and the

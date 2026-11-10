@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ExtensionError } from "../shared/errors.ts";
 import type { ContentMessage, FillReply, FrameProbe } from "../shared/messages.ts";
 import type { RequestMap, ResultMap, RotationMatch } from "../shared/protocol.ts";
+import { sameSite } from "../shared/origin.ts";
 import { RotationService, ROTATION_TAB_TTL_MS, changePageFor, chooseChangeTarget, type RotationDeps } from "./rotation.ts";
 import { rotationTabKey, memorySession } from "./session.ts";
 import type { FrameTarget } from "./tabs.ts";
@@ -45,6 +46,8 @@ interface Harness {
   now: { value: number };
   setProbes: (probes: FrameProbe[]) => void;
   setAttempts: (attempts: RotationMatch[]) => void;
+  /** What the desktop answers to "related?"; `null` (the default) is the same-site guess. */
+  setRelated: (related: boolean | null) => void;
   setReply: (reply: FillReply) => void;
   fail: (code: ExtensionError | null) => void;
 }
@@ -53,6 +56,7 @@ function harness(): Harness {
   let probes: FrameProbe[] = [frame(0)];
   let attempts: RotationMatch[] = [attempt()];
   let failure: ExtensionError | null = null;
+  let related: boolean | null = null;
   let reply: FillReply = { ok: true, filled: { username: 0, password: 1, otp: 0, newPassword: 2 }, usernameValue: null };
   const requests: Harness["requests"] = [];
   const sent: Harness["sent"] = [];
@@ -66,7 +70,13 @@ function harness(): Harness {
           return Promise.reject(failure);
         }
         const results: Record<string, () => unknown> = {
-          rotationForOrigin: () => ({ attempts }),
+          rotationForOrigin: () => {
+            const ask = body as RequestMap["rotationForOrigin"];
+            return {
+              attempts,
+              related: ask.relatedTo !== null && (related ?? sameSite(ask.origin, ask.relatedTo)),
+            };
+          },
           rotationBegin: () => ({ outcome: "started", attemptId: "a9.dev.0" }),
           fillChange: () => ({ current: "old-pw", new: "new-pw" }),
           fillPending: () => ({ username: "ada", password: "new-pw" }),
@@ -103,6 +113,9 @@ function harness(): Harness {
     },
     setAttempts: (a) => {
       attempts = a;
+    },
+    setRelated: (r) => {
+      related = r;
     },
     setReply: (r) => {
       reply = r;
@@ -273,6 +286,53 @@ describe("the tab record and the related-address offer", () => {
     const h = harness();
     await sent(h);
     expect((await h.service.forTab({ id: 4, url: "https://evil.test/" })).rotationTabOffer).toBeNull();
+    expect(await h.deps.session.get(rotationTabKey(4))).toBeUndefined();
+  });
+
+  it("asks the desktop whether the page is related, naming the address the tab was sent from", async () => {
+    const h = harness();
+    await sent(h);
+    h.requests.length = 0;
+    await h.service.forTab(moved);
+    expect(h.requests).toEqual([
+      { op: "rotationForOrigin", body: { origin: "https://accounts.bank.test", topOrigin: "https://accounts.bank.test", relatedTo: BANK } },
+    ]);
+    // A tab without a record, and the login's own address, ask no related question.
+    h.requests.length = 0;
+    await h.service.forTab({ id: 9, url: moved.url });
+    await h.service.forTab(TAB);
+    expect(h.requests.map((r) => (r.body as { relatedTo: string | null }).relatedTo)).toEqual([null, null]);
+  });
+
+  it("offers nothing when the desktop says the page is not related (a private suffix such as github.io)", async () => {
+    const h = harness();
+    await sent(h);
+    h.setRelated(false);
+    expect((await h.service.forTab({ id: 4, url: "https://mallory.bank.test/" })).rotationTabOffer).toBeNull();
+    expect(await h.deps.session.get(rotationTabKey(4))).toBeUndefined();
+  });
+
+  it("offers nothing for another port of the same host, whatever the desktop says", async () => {
+    const h = harness();
+    await sent(h);
+    h.setRelated(true);
+    const other = { id: 4, url: "https://bank.test:4999/password" };
+    expect((await h.service.forTab({ id: 4, url: "https://accounts.bank.test:4999/password" })).rotationTabOffer).toBeNull();
+    await expect(h.service.addOrigin(other)).rejects.toMatchObject({ code: "originNotRelated" });
+    expect(ops(h).filter((op) => op === "rotationAddOrigin")).toEqual([]);
+  });
+
+  it("drops the record when the tab navigates off the site, so coming back gets no offer", async () => {
+    const h = harness();
+    await sent(h);
+    await h.service.onNavigated(4, "https://accounts.bank.test/other");
+    expect(await h.deps.session.get(rotationTabKey(4))).toBeDefined();
+    await h.service.onNavigated(4, "https://evil.test/");
+    expect(await h.deps.session.get(rotationTabKey(4))).toBeUndefined();
+    expect((await h.service.forTab(moved)).rotationTabOffer).toBeNull();
+    // Not https is off the site too.
+    await sent(h);
+    await h.service.onNavigated(4, "http://bank.test/");
     expect(await h.deps.session.get(rotationTabKey(4))).toBeUndefined();
   });
 

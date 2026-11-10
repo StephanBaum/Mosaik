@@ -184,7 +184,7 @@ export interface RequestMap {
   passkeyCreate: PasskeyCreateBody;
   passkeyGet: PasskeyGetBody;
   passkeyCancel: { requestId: string };
-  rotationForOrigin: { origin: string; topOrigin: string };
+  rotationForOrigin: { origin: string; topOrigin: string; relatedTo: string | null };
   rotationBegin: { vaultId: string; itemId: string; origin: string; topOrigin: string; rules: string | null };
   fillChange: RotationIds & { origin: string; topOrigin: string; frame: FillFrame; shape: ChangeShape };
   fillPending: RotationIds & { origin: string; topOrigin: string; frame: FillFrame };
@@ -217,7 +217,7 @@ export interface ResultMap {
   passkeyCreate: { outcome: "created" | "useAnotherDevice"; credential: CreatedCredential | null };
   passkeyGet: { outcome: "asserted" | "useAnotherDevice"; assertion: AssertionBody | null };
   passkeyCancel: EmptyBody;
-  rotationForOrigin: { attempts: RotationMatch[] };
+  rotationForOrigin: { attempts: RotationMatch[]; related: boolean };
   rotationBegin: { outcome: "started" | "cancelled"; attemptId: string | null };
   fillChange: { current: string | null; new: string };
   fillPending: { username: string | null; password: string };

@@ -67,6 +67,7 @@ export const errorCodes = [
   "browserPairingNotFound",
   "rotationNotFound",
   "rotationLimit",
+  "rotationOpen",
   "rotationNotSupported",
   "historyNotFound",
   "originNotRelated",

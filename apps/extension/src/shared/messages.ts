@@ -94,6 +94,12 @@ export interface PopupState {
   frame: FrameClass;
   /** The frame behind `frame` (a fill with a confirmation names it), or null. */
   frameTarget: FrameRef | null;
+  /**
+   * The frame that holds the change form of an open password change, as the change fill will pick
+   * it (not the sign-in form `frame` is about), or null: the popup confirms this frame for
+   * `fillChange`.
+   */
+  changeFrame: { frame: FrameClass; target: FrameRef } | null;
   matches: LoginMatch[];
   warnings: OriginWarning[];
   pendingSave: PendingSaveInfo | null;

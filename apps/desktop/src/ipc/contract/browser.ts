@@ -1,6 +1,6 @@
 /** Browser extension contract: mirrors `src-tauri/src/contract/browser.rs`. */
 import type { ItemId, UnixMillis, VaultId } from "./common.ts";
-import type { RotationOutcomeKey } from "./credentialRotation.ts";
+import type { AttemptStage, RotationOutcomeKey } from "./credentialRotation.ts";
 import type { RevealedSecret } from "./items.ts";
 
 export const browserEndpointStates = ["running", "inUse", "unavailable"] as const;
@@ -186,6 +186,13 @@ export interface BrowserPasskeyRespondRequest {
  * related address (`addOrigin`). No password: the generated one is fetched with
  * `browser_rotation_reveal`.
  */
+export interface BrowserRotationAttempt {
+  startedAt: UnixMillis;
+  stage: AttemptStage;
+  /** How many other changes of the login are open. */
+  otherOpen: number;
+}
+
 export interface BrowserRotationRequest {
   /** The desktop's handle for this prompt: 32 lowercase hex digits. */
   requestId: string;
@@ -202,6 +209,8 @@ export interface BrowserRotationRequest {
   outcome: RotationOutcomeKey | null;
   /** `addOrigin` only: the origin to add. */
   newOrigin: string | null;
+  /** `result` only: which password change it closes (a login can have up to four open). */
+  attempt: BrowserRotationAttempt | null;
   requestedAt: UnixMillis;
   expiresAt: UnixMillis;
 }

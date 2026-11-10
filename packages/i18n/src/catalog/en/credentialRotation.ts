@@ -121,6 +121,10 @@ export const credentialRotation = {
   "credentialRotation.dialog.allow": "Use this password",
   "credentialRotation.dialog.cancel": "Cancel",
   "credentialRotation.dialog.untitled": "this login",
+  "credentialRotation.dialog.attempt":
+    "Started {at, date, medium}, {at, time, short} · {stage}{n, plural, =0 {} one { · # other change open} other { · # other changes open}}",
+  "credentialRotation.dialog.stagePrepared": "no page has the new password yet",
+  "credentialRotation.dialog.stageDelivered": "the new password was filled into a page",
   "credentialRotation.dialog.resultTitle": "Did {host} accept the new password?",
   "credentialRotation.dialog.resultBody":
     "{browser} says the change worked. If you confirm, the new password becomes the password for {title}, and the current one moves to its history.",

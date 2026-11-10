@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::credential_rotation::RotationOutcomeKey;
+use super::credential_rotation::{AttemptStage, RotationOutcomeKey};
 use super::ids::{UnixMillis, WireItemId, WireVaultId};
 use super::items::RevealedSecret;
 use super::macros::wire_enum;
@@ -436,10 +436,24 @@ pub struct BrowserRotationRequest {
     pub outcome: Option<RotationOutcomeKey>,
     /// `addOrigin` only: the origin to add.
     pub new_origin: Option<String>,
+    /// `result` only: the attempt the answer closes (M7b review L4).
+    pub attempt: Option<BrowserRotationAttempt>,
     /// When the request arrived.
     pub requested_at: UnixMillis,
     /// When it is dropped without an answer.
     pub expires_at: UnixMillis,
+}
+
+/// Which password change a `result` request closes: the login can have up to four open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRotationAttempt {
+    /// When the attempt started.
+    pub started_at: UnixMillis,
+    /// How far it got.
+    pub stage: AttemptStage,
+    /// How many other attempts of the login are open.
+    pub other_open: u32,
 }
 
 /// The user's answer to a rotation request. Each fits one kind: `allow` a
@@ -644,6 +658,7 @@ pub(crate) mod samples {
             unicode_host: None,
             outcome: None,
             new_origin: None,
+            attempt: None,
             requested_at: 1_761_480_035_000,
             expires_at: 1_761_480_335_000,
         }
@@ -653,6 +668,11 @@ pub(crate) mod samples {
         BrowserRotationRequest {
             kind: BrowserRotationKind::Result,
             outcome: Some(RotationOutcomeKey::Succeeded),
+            attempt: Some(BrowserRotationAttempt {
+                started_at: 1_761_480_000_000,
+                stage: AttemptStage::Delivered,
+                other_open: 1,
+            }),
             ..rotation_begin_request()
         }
     }

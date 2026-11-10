@@ -72,13 +72,15 @@ function PageActions({ attempt, gate, runner }: { attempt: RotationMatch; gate: 
       </Button>
       <Button
         variant="primary"
-        disabled={busy !== null || gate.blocked}
+        disabled={busy !== null || gate.blockedChange}
         onClick={() => {
-          gate.gate((confirmFrame) =>
-            run("fillChange", async () => {
-              await api.request({ op: "fillChange", ...ids, confirmFrame });
-              return t("ext.rotation.filled");
-            }),
+          gate.gate(
+            (confirmFrame) =>
+              run("fillChange", async () => {
+                await api.request({ op: "fillChange", ...ids, confirmFrame });
+                return t("ext.rotation.filled");
+              }),
+            "change",
           );
         }}
       >

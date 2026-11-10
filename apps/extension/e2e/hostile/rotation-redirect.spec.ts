@@ -95,11 +95,11 @@ test("a page that sends itself to a sibling subdomain (not the extension) gets n
   expect(await addOrigin(fake, tabId)).toMatch(/originNotRelated/);
 });
 
-// BREAK (low): the record is dropped only when the popup happens to be opened while the tab is
+// Was a break (low), fixed in the M7b review round: the record is dropped only when the popup happens to be opened while the tab is
 // on another site (`RotationService.#offer`); a tab that leaves for another site and comes back
 // to the login's site later still gets the offer (spec §4.2: "cleared ... on leaving the
 // registrable domain").
-test.fail("a tab that left the site after Open change page gets no offer when it comes back", async ({ page, fake }) => {
+test("a tab that left the site after Open change page gets no offer when it comes back", async ({ page, fake }) => {
   await fake.reset(rotationConfig());
   const tabId = await sendToChangePage(page, fake, BANK, `${BANK}/rotation-pages/change.html?landed`);
   await page.goto(`${EVIL}/rotation-pages/change.html`);
@@ -107,22 +107,22 @@ test.fail("a tab that left the site after Open change page gets no offer when it
   expect((await fake.popupState(tabId)).rotationTabOffer).toBeNull();
 });
 
-// BREAK (low): the offer names the host without the port. A redirect to another port of the
+// Was a break (low), fixed in the M7b review round: the offer names the host without the port. A redirect to another port of the
 // login's own host reads "This page is on bank.test, which isn't saved for this login. Add it?"
 // while the login is saved for bank.test, so the user cannot see what is being added.
-test.fail("a redirect to another port of the same host is never offered as the login's own host name", async ({ page, fake }) => {
+test("a redirect to another port of the same host is never offered as the login's own host name", async ({ page, fake }) => {
   await fake.reset(rotationConfig());
   const tabId = await sendToChangePage(page, fake, BANK, "https://bank.test:4999/rotation-pages/change.html");
   const offer = (await fake.popupState(tabId)).rotationTabOffer;
   expect(offer === null || offer.host !== "bank.test").toBe(true);
 });
 
-// BREAK (low): `siteOf` (src/shared/origin.ts) guesses the registrable domain from the last two
+// Was a break (low), fixed in the M7b review round: `siteOf` (src/shared/origin.ts) guesses the registrable domain from the last two
 // labels, so two tenants of a private public suffix (alice.github.io, mallory.github.io) count as
 // one site: the popup offers to add the other tenant. The desktop refuses (`originNotRelated`, it
 // uses the full list), but the trusted UI made the offer and the comment says it "errs towards
 // not related", which it does not here.
-test.fail("a redirect to a sibling tenant of a private public suffix gets no offer", async ({ page, fake }) => {
+test("a redirect to a sibling tenant of a private public suffix gets no offer", async ({ page, fake }) => {
   const alice = "https://alice.github.io";
   await fake.reset(rotationConfig(bankItem({ origin: alice })));
   const tabId = await sendToChangePage(page, fake, alice, "https://mallory.github.io/rotation-pages/change.html");

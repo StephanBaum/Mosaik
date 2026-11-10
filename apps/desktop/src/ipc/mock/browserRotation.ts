@@ -38,6 +38,7 @@ export function rotationRequest(state: MockState, kind: BrowserRotationKind): Br
     unicodeHost: null,
     outcome: kind === "result" ? "succeeded" : null,
     newOrigin: kind === "addOrigin" ? RELATED_ORIGIN : null,
+    attempt: kind === "result" ? { startedAt: requestedAt - 20 * 60_000, stage: "delivered", otherOpen: 1 } : null,
     requestedAt,
     expiresAt: requestedAt + ROTATION_TTL_MS,
   };

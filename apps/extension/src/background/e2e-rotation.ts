@@ -3,7 +3,7 @@
  * (`src-tauri/src/browser/rotation.rs`): frame rules, https only, an exact origin (no eTLD+1
  * match), then the attempt; the dialogs end as the test configured. Values are test data.
  */
-import { hostOf, isSecureOrigin, sameSite } from "../shared/origin.ts";
+import { hostOf, isSecureOrigin, samePort, sameSite, siteOf } from "../shared/origin.ts";
 import type { RequestMap, ResultMap, RotationMatch } from "../shared/protocol.ts";
 import type { E2EConfig, E2EItem, E2EAttempt } from "./e2e-desktop.ts";
 import { Failure } from "./e2e-passkey.ts";
@@ -21,6 +21,27 @@ const OPS: readonly string[] = ["rotationForOrigin", "rotationBegin", "fillChang
 export const isRotationOp = (op: string): op is RotationOp => OPS.includes(op);
 
 type Body = Record<string, unknown>;
+
+/** The fake's public suffix list: the guess of the extension plus the private suffixes the tests use. */
+const PRIVATE_SUFFIXES = ["github.io"];
+
+function registrable(host: string): string | null {
+  const suffix = PRIVATE_SUFFIXES.find((s) => host.endsWith(`.${s}`));
+  if (suffix !== undefined) {
+    const label = host.slice(0, -(suffix.length + 1)).split(".").at(-1);
+    return label === undefined || label === "" ? null : `${label}.${suffix}`;
+  }
+  return siteOf(host);
+}
+
+/** The desktop's dialog-free verdict: https, the same port, the same registrable domain. */
+function related(origin: string, from: string | null): boolean {
+  if (from === null || !isSecureOrigin(origin) || !isSecureOrigin(from) || !samePort(origin, from)) {
+    return false;
+  }
+  const first = registrable(hostOf(origin));
+  return first !== null && first === registrable(hostOf(from));
+}
 
 export class FakeRotation {
   readonly #config: () => E2EConfig;
@@ -40,7 +61,7 @@ export class FakeRotation {
     const typed = body as unknown;
     switch (op) {
       case "rotationForOrigin":
-        return this.#rotationsFor(body["origin"] as string);
+        return this.#rotationsFor(body["origin"] as string, body["relatedTo"] as string | null);
       case "rotationBegin":
         return this.#rotationBegin(typed as RequestMap["rotationBegin"]);
       case "fillChange":
@@ -82,7 +103,7 @@ export class FakeRotation {
     return found;
   }
 
-  #rotationsFor(origin: string): ResultMap["rotationForOrigin"] {
+  #rotationsFor(origin: string, relatedTo: string | null): ResultMap["rotationForOrigin"] {
     const attempts: RotationMatch[] = [];
     for (const attempt of this.#state.attempts) {
       const item = this.#config().items.find((i) => i.itemId === attempt.itemId && i.vaultId === attempt.vaultId);
@@ -101,7 +122,7 @@ export class FakeRotation {
         changeUrl: `${item.origin}/change-password.html`,
       });
     }
-    return { attempts };
+    return { attempts, related: related(origin, relatedTo) };
   }
 
   #rotationBegin(body: RequestMap["rotationBegin"]): ResultMap["rotationBegin"] {

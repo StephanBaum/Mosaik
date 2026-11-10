@@ -124,6 +124,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
   passkey.onTabGone(removedTabId);
+  void rotation.forgetTab(removedTabId);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
@@ -132,6 +133,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url !== undefined) {
     void save.onNavigated(tabId, changeInfo.url);
     passkey.onNavigated(tabId, changeInfo.url);
+    // A tab that leaves the login's site forgets that the extension sent it to a change page.
+    void rotation.onNavigated(tabId, changeInfo.url);
   }
 });
 // The browser can take the optional site access back (browser settings): capture and passkeys then switch themselves off.

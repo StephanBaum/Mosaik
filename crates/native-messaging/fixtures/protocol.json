@@ -556,6 +556,7 @@
       "message": {
         "body": {
           "origin": "https://example.com",
+          "relatedTo": "https://accounts.example.com",
           "topOrigin": "https://example.com"
         },
         "id": 7,
@@ -905,7 +906,8 @@
               "username": null,
               "vaultId": "0190a0b0-0000-7000-8000-000000000001"
             }
-          ]
+          ],
+          "related": true
         },
         "id": 7,
         "ok": true,

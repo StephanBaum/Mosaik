@@ -146,11 +146,11 @@ test.describe("decoy fields", () => {
     expect((await inspect(page))[0]?.values["decoy"]).toBe("");
   });
 
-  // BREAK (low): a `type=text` field that the page declares `autocomplete="new-password"` counts
+  // Was a break (low), fixed in the M7b review round: a `type=text` field that the page declares `autocomplete="new-password"` counts
   // as a show-password toggle even when it is the user name field (`name=username`) and a real
   // password-type new field sits next to it: the new password lands in clear text in the user
   // name field, against "never the user name" (spec §4.2 point 4, wrong-field case d).
-  test.fail("the user name field declaring new-password never receives the new password", async ({ page, fake }) => {
+  test("the user name field declaring new-password never receives the new password", async ({ page, fake }) => {
     await open(page, `${PAGES}/decoys.html?v=usernew`);
     const tabId = await fake.tabIdOf(BANK);
     const outcome = await changeOutcome(fake, tabId);

@@ -9,13 +9,13 @@
     reason = "each test reads as one story: the commands in the order a user runs them"
 )]
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use mosaic_core::model::{ItemType, LoginUrl, SecretField};
 use mosaic_core::{Argon2Profile, ItemId, Timestamp, VaultId};
 use mosaic_insights::breach::{RangeError, RangePrefix, RangeSource};
-use mosaic_vault::session::LockedSession;
+use mosaic_vault::session::{LockedSession, UnlockedSession};
 use mosaic_vault::storage::Store;
 use zeroize::Zeroizing;
 
@@ -742,4 +742,149 @@ fn credential_rotation_breach_settings_pair_mode_and_consent() {
         })
         .unwrap();
     assert_eq!(off.breach_consent_at, None);
+}
+
+// ------------------------------------------------ review follow-ups (M1, L1, L2, I1)
+
+/// A source whose request takes `hold`: it counts the requests that started and says when one
+/// returned.
+struct SlowSource {
+    entered: Arc<AtomicU32>,
+    returned: Arc<AtomicBool>,
+    hold: std::time::Duration,
+}
+
+impl RangeSource for SlowSource {
+    fn range(&mut self, _prefix: &RangePrefix) -> Result<Zeroizing<Vec<u8>>, RangeError> {
+        self.entered.fetch_add(1, Ordering::SeqCst);
+        std::thread::sleep(self.hold);
+        self.returned.store(true, Ordering::SeqCst);
+        Ok(Zeroizing::new(
+            b"0000000000000000000000000000000000A:0\r\n".to_vec(),
+        ))
+    }
+}
+
+fn slow_source(backend: &Backend, hold_ms: u64) -> (Arc<AtomicU32>, Arc<AtomicBool>) {
+    let entered = Arc::new(AtomicU32::new(0));
+    let returned = Arc::new(AtomicBool::new(false));
+    let (e, r) = (Arc::clone(&entered), Arc::clone(&returned));
+    backend.breach.set_source(Box::new(move || {
+        Ok(Box::new(SlowSource {
+            entered: Arc::clone(&e),
+            returned: Arc::clone(&r),
+            hold: std::time::Duration::from_millis(hold_ms),
+        }))
+    }));
+    (entered, returned)
+}
+
+fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+    for _ in 0..400 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("timed out waiting for: {what}");
+}
+
+#[test]
+fn turning_the_breach_check_off_stops_a_running_scan() {
+    let e = env();
+    login(&e, "password");
+    login(&e, STRONG);
+    enable_breach(&e, BreachMode::Manual);
+    let backend = Arc::new(e.backend);
+    let (entered, _returned) = slow_source(&backend, 400);
+    backend
+        .breach_scan_start(&Arc::downgrade(&backend))
+        .unwrap();
+    wait_for("the first request", || entered.load(Ordering::SeqCst) >= 1);
+    // The user turns the check off while the first request is on the wire.
+    backend
+        .update_settings(UpdateSettingsRequest {
+            settings: Settings {
+                breach_check: BreachMode::Off,
+                ..Settings::default()
+            },
+            password: None,
+        })
+        .unwrap();
+    wait_for("the scan to end", || !backend.breach.is_running());
+    // Give a (wrong) second request time to start.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert_eq!(entered.load(Ordering::SeqCst), 1, "no request after off");
+}
+
+#[test]
+fn lock_ends_a_scan_while_its_request_is_on_the_wire() {
+    let e = env();
+    login(&e, "password");
+    login(&e, STRONG);
+    enable_breach(&e, BreachMode::Manual);
+    let backend = Arc::new(e.backend);
+    let (entered, returned) = slow_source(&backend, 2_500);
+    backend
+        .breach_scan_start(&Arc::downgrade(&backend))
+        .unwrap();
+    wait_for("the first request", || entered.load(Ordering::SeqCst) >= 1);
+    backend.lock(LockReason::Idle).unwrap();
+    // The scan ends, and with it the plan, long before the request returns.
+    wait_for("the scan to end", || !backend.breach.is_running());
+    assert!(
+        !returned.load(Ordering::SeqCst),
+        "the scan did not wait for the transport"
+    );
+    assert_eq!(entered.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_failing_random_source_ends_the_scan_before_any_request() {
+    let e = env();
+    login(&e, "password");
+    login(&e, STRONG);
+    enable_breach(&e, BreachMode::Manual);
+    let job = e.backend.breach_scan_prepare(NOW).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut source = FakeSource {
+        seen: Arc::clone(&seen),
+        answers: vec![PASSWORD_ANSWER],
+        error: None,
+    };
+    e.backend
+        .breach_scan_run_with(job, &mut source, &mut |_| true, &mut |_| None);
+    assert!(seen.lock().unwrap().is_empty(), "a fixed order is not used");
+    assert!(!e.backend.breach.is_running());
+    let events = e.events.lock().unwrap().join("\n");
+    assert!(events.contains(r#""type":"breachScanFinished""#));
+    assert!(events.contains(r#""error":"protocol""#), "{events}");
+}
+
+#[test]
+fn delete_forever_is_refused_while_a_change_is_open() {
+    let e = env();
+    let item = login(&e, STRONG);
+    let id = begin(&e, item, NEW_PASSWORD).unwrap();
+    assert_eq!(
+        code(
+            e.backend
+                .edit_item(item_req(&e, item), UnlockedSession::purge_item)
+                .unwrap_err()
+        ),
+        ErrorCode::RotationOpen
+    );
+    // The item and its attempt are untouched; the trash is allowed; a closed attempt lifts it.
+    assert_eq!(
+        e.backend
+            .get_item(item_req(&e, item))
+            .unwrap()
+            .rotation_attempts
+            .len(),
+        1
+    );
+    close(&e, item, &id, RotationOutcomeKey::Failed).unwrap();
+    e.backend
+        .edit_item(item_req(&e, item), UnlockedSession::purge_item)
+        .unwrap();
 }

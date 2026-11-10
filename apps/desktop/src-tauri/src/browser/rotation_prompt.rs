@@ -6,7 +6,7 @@
 //! never by the extension's request; the generated password stays in Rust (the dialog fetches
 //! it with `browser_rotation_reveal`, and it is dropped when the prompt ends in any way).
 
-use mosaic_core::model::{RotationAttemptId, RulesSource};
+use mosaic_core::model::{RotationAttemptId, RotationStage, RulesSource};
 use mosaic_core::{ItemId, SecretString, VaultId};
 use mosaic_native_messaging::bodies::{
     AddOriginOutcome, BeginOutcome, ResultOutcome, RotationAddOriginResult, RotationBeginResult,
@@ -20,10 +20,11 @@ use super::prompts::{expires_millis, new_request_id, refusal_for, too_soon};
 use super::rotation::{regenerate, valid_decision};
 use super::{Shared, unix_millis};
 use crate::contract::browser::{
-    BrowserCloseReason, BrowserRotationDecision, BrowserRotationKind, BrowserRotationRequest,
-    BrowserRotationRespondRequest, BrowserRotationRevealRequest, BrowserRotationRevealed,
+    BrowserCloseReason, BrowserRotationAttempt, BrowserRotationDecision, BrowserRotationKind,
+    BrowserRotationRequest, BrowserRotationRespondRequest, BrowserRotationRevealRequest,
+    BrowserRotationRevealed,
 };
-use crate::contract::credential_rotation::RotationOutcomeKey;
+use crate::contract::credential_rotation::{AttemptStage, RotationOutcomeKey};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::AppEvent;
 use crate::contract::items::RevealedSecret;
@@ -46,9 +47,20 @@ pub(crate) enum RotationPlanKind {
     Result {
         attempt: RotationAttemptId,
         reported: RotationOutcomeKey,
+        /// Which attempt this closes, for the dialog (M7b review L4).
+        info: AttemptInfo,
     },
     /// Add the page's origin to the login.
     AddOrigin { attempt: RotationAttemptId },
+}
+
+/// What the result dialog says about the attempt it closes: when it started, how far it got and
+/// how many other attempts of the login are open. No value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct AttemptInfo {
+    pub(crate) started_at_ms: i64,
+    pub(crate) stage: RotationStage,
+    pub(crate) other_open: u32,
 }
 
 /// What a rotation request shows the user and what its answer writes, computed before it opens.
@@ -174,6 +186,17 @@ impl Shared {
             unicode_host: plan.unicode_host.clone(),
             outcome: match &plan.kind {
                 RotationPlanKind::Result { reported, .. } => Some(*reported),
+                _ => None,
+            },
+            attempt: match &plan.kind {
+                RotationPlanKind::Result { info, .. } => Some(BrowserRotationAttempt {
+                    started_at: info.started_at_ms,
+                    stage: match info.stage {
+                        RotationStage::Prepared => AttemptStage::Prepared,
+                        RotationStage::Delivered => AttemptStage::Delivered,
+                    },
+                    other_open: info.other_open,
+                }),
                 _ => None,
             },
             new_origin: match plan.kind {

@@ -432,14 +432,31 @@ impl Backend {
     }
 
     /// Copies the new password of an open attempt; the clipboard clears
-    /// itself.
+    /// itself. The value leaves the app, so the attempt is marked delivered
+    /// (ADR-0066): if the copy is pasted into a site and the user never says
+    /// how it went, the attempt keeps its "delivered" stage.
     ///
     /// # Errors
-    /// As [`Backend::rotation_reveal`], and `clipboardUnavailable`.
+    /// As [`Backend::rotation_reveal`], and `clipboardUnavailable`,
+    /// `sharingRoleForbidden`.
     pub fn rotation_copy(&self, request: &RotationAttemptRequest) -> IpcResult<CopyReceipt> {
         self.touch();
+        let attempt = attempt_id(&request.attempt_id)?;
         let value = self.attempt_value(request)?;
-        self.copy_secret(value)
+        let receipt = self.copy_secret(value)?;
+        let mut slot = self.slot()?;
+        let session = slot.unlocked_mut()?;
+        match session.mark_rotation_delivered(
+            request.vault_id.get(),
+            request.item_id.get(),
+            attempt,
+        ) {
+            Ok(()) => self.items_changed(session),
+            // A viewer of a shared vault may copy the value but cannot change the item.
+            Err(mosaic_vault::session::Error::ReadOnly) => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(receipt)
     }
 
     /// The rollback: a history entry's value becomes the password and the

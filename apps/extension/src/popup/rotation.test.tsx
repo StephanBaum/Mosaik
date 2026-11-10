@@ -118,6 +118,34 @@ describe("the password change card", () => {
     ]);
   });
 
+  it("confirms the change form's frame, not the sign-in form's", async () => {
+    const user = userEvent.setup();
+    const { port } = renderPopup(
+      baseState({
+        rotations: [attempt()],
+        frame: "top",
+        frameTarget: { frameId: 0, documentId: "doc-0" },
+        changeFrame: { frame: "sameOriginFrame", target: { frameId: 7, documentId: "doc-7" } },
+      }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Fill change form" }));
+    expect(requestsOf(port, "fillChange")).toEqual([]);
+    await user.click(await screen.findByRole("button", { name: "Fill in the frame" }));
+    expect(requestsOf(port, "fillChange")).toEqual([
+      { op: "fillChange", ...ids, confirmFrame: { frameId: 7, documentId: "doc-7" } },
+    ]);
+  });
+
+  it("fills nothing while the change form is in a frame of another site", async () => {
+    renderPopup(
+      baseState({
+        rotations: [attempt()],
+        changeFrame: { frame: "crossOriginFrame", target: { frameId: 7, documentId: "doc-7" } },
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Fill change form" })).toHaveProperty("disabled", true);
+  });
+
   it("fills nothing while the field in focus is in a frame of another site", async () => {
     renderPopup(baseState({ rotations: [attempt()], frame: "crossOriginFrame" }));
     expect(await screen.findByRole("button", { name: "Fill change form" })).toHaveProperty("disabled", true);

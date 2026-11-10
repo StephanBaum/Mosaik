@@ -17,8 +17,8 @@ use mosaic_core::model::{HistoryReason, ItemType, LoginUrl, SecretField, TextFie
 use mosaic_core::{Argon2Profile, ItemId, VaultId};
 use mosaic_native_messaging::bodies::{
     AddOriginOutcome, AttemptStage, BeginOutcome, ChangeShape, FillChangeBody, FillPendingBody,
-    FrameKind, ListForOriginBody, ReportedOutcome, ResultOutcome, RotationAddOriginBody,
-    RotationBeginBody, RotationResultBody,
+    FrameKind, ReportedOutcome, ResultOutcome, RotationAddOriginBody, RotationBeginBody,
+    RotationForOriginBody, RotationResultBody, SaveBody,
 };
 use mosaic_native_messaging::protocol::ErrorCode as Wire;
 use mosaic_vault::session::LockedSession;
@@ -300,9 +300,10 @@ fn browser_rotation_for_origin_lists_exact_attempts_without_values() {
     let attempt = env.begin(item);
     let list = |origin: &str| {
         env.be()
-            .browser_rotation_for_origin(&ListForOriginBody {
+            .browser_rotation_for_origin(&RotationForOriginBody {
                 origin: origin.into(),
                 top_origin: origin.into(),
+                related_to: None,
             })
             .unwrap()
             .attempts
@@ -434,9 +435,10 @@ fn browser_fill_change_refuses_etld1_match() {
     );
     assert!(
         env.be()
-            .browser_rotation_for_origin(&ListForOriginBody {
+            .browser_rotation_for_origin(&RotationForOriginBody {
                 origin: sibling.into(),
                 top_origin: sibling.into(),
+                related_to: None,
             })
             .unwrap()
             .attempts
@@ -533,9 +535,10 @@ fn browser_fill_change_marks_delivered_before_answer() {
     let attempt = env.begin(item);
     let stage = || {
         env.be()
-            .browser_rotation_for_origin(&ListForOriginBody {
+            .browser_rotation_for_origin(&RotationForOriginBody {
                 origin: SITE.into(),
                 top_origin: SITE.into(),
+                related_to: None,
             })
             .unwrap()
             .attempts[0]
@@ -688,9 +691,10 @@ fn browser_rotation_dialog_allow_guard_and_timeout() {
     );
     assert!(
         env.be()
-            .browser_rotation_for_origin(&ListForOriginBody {
+            .browser_rotation_for_origin(&RotationForOriginBody {
                 origin: SITE.into(),
                 top_origin: SITE.into(),
+                related_to: None,
             })
             .unwrap()
             .attempts
@@ -734,9 +738,10 @@ fn browser_rotation_dialog_allow_guard_and_timeout() {
         .fill_change(
             item,
             &env.be()
-                .browser_rotation_for_origin(&ListForOriginBody {
+                .browser_rotation_for_origin(&RotationForOriginBody {
                     origin: SITE.into(),
                     top_origin: SITE.into(),
+                    related_to: None,
                 })
                 .unwrap()
                 .attempts[0]
@@ -960,9 +965,10 @@ fn browser_add_origin_refuses_unrelated_public_suffix_and_loopback() {
     // It is now an exact origin of the login, and a second add is refused.
     assert_eq!(
         env.be()
-            .browser_rotation_for_origin(&ListForOriginBody {
+            .browser_rotation_for_origin(&RotationForOriginBody {
                 origin: "https://accounts.example.com".into(),
                 top_origin: "https://accounts.example.com".into(),
+                related_to: None,
             })
             .unwrap()
             .attempts
@@ -1019,4 +1025,206 @@ fn answer_of(answer: &RotationAnswer) -> &'static str {
             AddOriginOutcome::Cancelled => "cancelled",
         },
     }
+}
+
+// ------------------------------------------------ review follow-ups (B3, B4, L3, L4, I2, T4)
+
+fn capture(origin: &str, password: &str) -> SaveBody {
+    SaveBody {
+        origin: origin.into(),
+        top_origin: origin.into(),
+        username: Some("alex@example.com".into()),
+        password: mosaic_native_messaging::protocol::Secret::new(password.to_owned()),
+    }
+}
+
+#[test]
+fn rotation_for_origin_judges_a_related_address_without_a_dialog() {
+    let env = Env::new();
+    env.login();
+    let judge = |origin: &str, from: Option<&str>| {
+        env.be()
+            .browser_rotation_for_origin(&RotationForOriginBody {
+                origin: origin.into(),
+                top_origin: origin.into(),
+                related_to: from.map(str::to_owned),
+            })
+            .unwrap()
+            .related
+    };
+    assert!(judge("https://accounts.example.com", Some(SITE)));
+    assert!(
+        !judge("https://accounts.example.com", None),
+        "no question, no verdict"
+    );
+    // B3: a different port is a different service.
+    assert!(!judge("https://accounts.example.com:8443", Some(SITE)));
+    // B4: private suffixes are public suffixes, so two tenants are two sites.
+    assert!(!judge(
+        "https://alice.github.io",
+        Some("https://bob.github.io")
+    ));
+    assert!(judge(
+        "https://login.alice.github.io",
+        Some("https://alice.github.io")
+    ));
+    for (origin, from) in [
+        ("http://accounts.example.com", SITE),
+        ("https://example.org", SITE),
+        ("https://localhost", SITE),
+        ("https://accounts.example.com", "http://example.com"),
+    ] {
+        assert!(!judge(origin, Some(from)), "{from} -> {origin}");
+    }
+    assert!(
+        env.events_of("browserRotationRequested").is_empty(),
+        "no dialog"
+    );
+}
+
+#[test]
+fn add_origin_answer_checks_the_attempt_again() {
+    let env = Env::new();
+    let item = env.login();
+    let attempt = env.begin(item);
+    let plan = env
+        .be()
+        .browser_plan_rotation_add_origin(&add_origin_body(
+            &env,
+            item,
+            &attempt,
+            SITE,
+            "https://accounts.example.com",
+        ))
+        .unwrap();
+    let _ticket = env
+        .shared()
+        .open_rotation(&env.pairing, env.conn, plan)
+        .unwrap();
+    let id = env.request_id();
+    // The attempt is closed on another device while the dialog is open.
+    env.be()
+        .rotation_close(
+            &crate::contract::credential_rotation::RotationCloseRequest {
+                vault_id: env.vault().into(),
+                item_id: item.into(),
+                attempt_id: attempt,
+                outcome: crate::contract::credential_rotation::RotationOutcomeKey::Failed,
+            },
+        )
+        .unwrap();
+    env.clock.advance(Duration::from_secs(2));
+    let error = env
+        .respond(&id, BrowserRotationDecision::AddOrigin {})
+        .unwrap_err();
+    assert_eq!(code(error), ErrorCode::RotationNotFound);
+    let vault = env.vault();
+    let slot = env.be().slot().unwrap();
+    assert_eq!(
+        slot.unlocked()
+            .unwrap()
+            .item(vault, item)
+            .unwrap()
+            .urls()
+            .len(),
+        1,
+        "nothing was added"
+    );
+}
+
+#[test]
+fn the_result_dialog_says_which_attempt_it_closes() {
+    let env = Env::new();
+    let item = env.login();
+    let first = env.begin(item);
+    env.begin(item);
+    let _ticket = env.open_result(item, &first, ReportedOutcome::Succeeded);
+    let request = &env.events_of("browserRotationRequested")[0]["request"];
+    assert_eq!(request["attempt"]["stage"], "prepared");
+    assert_eq!(request["attempt"]["otherOpen"], 1);
+    assert!(request["attempt"]["startedAt"].as_i64().unwrap() > 0);
+    assert!(!request.to_string().contains(NEW), "no value in the event");
+}
+
+#[test]
+fn rotation_copy_marks_the_attempt_delivered() {
+    use crate::contract::credential_rotation::{AttemptStage as Stage, RotationAttemptRequest};
+    let env = Env::new();
+    let item = env.login();
+    let attempt = env.begin(item);
+    let stage = |env: &Env| {
+        env.be()
+            .get_item(crate::contract::items::ItemRequest {
+                vault_id: env.vault().into(),
+                item_id: item.into(),
+            })
+            .unwrap()
+            .rotation_attempts[0]
+            .stage
+    };
+    assert_eq!(stage(&env), Stage::Prepared);
+    env.be()
+        .rotation_copy(&RotationAttemptRequest {
+            vault_id: env.vault().into(),
+            item_id: item.into(),
+            attempt_id: attempt,
+        })
+        .unwrap();
+    assert_eq!(stage(&env), Stage::Delivered);
+}
+
+#[test]
+fn a_capture_of_the_pending_password_is_the_rotation_confirmation() {
+    let env = Env::new();
+    let item = env.login();
+    let attempt = env.begin(item);
+    let plan_for = |origin: &str, password: &str| {
+        env.be()
+            .browser_plan_save_as_rotation(&capture(origin, password))
+            .unwrap()
+    };
+    // The values differ (or the page is another): the normal save prompt follows.
+    assert!(plan_for(SITE, "Some-Other-Pass-9!").is_none());
+    assert!(
+        plan_for(SITE, CURRENT).is_none(),
+        "the current password is no change"
+    );
+    assert!(plan_for("https://example.org", NEW).is_none());
+    assert!(plan_for("http://example.com", NEW).is_none());
+    assert_eq!(env.password(item), CURRENT);
+    assert_eq!(
+        env.be()
+            .get_item(crate::contract::items::ItemRequest {
+                vault_id: env.vault().into(),
+                item_id: item.into(),
+            })
+            .unwrap()
+            .rotation_attempts
+            .len(),
+        1,
+        "the attempt stays open"
+    );
+
+    // The value equals the attempt's: "It worked", never a save of its own.
+    let plan = plan_for(SITE, NEW).expect("a rotation confirmation");
+    let ticket = env
+        .shared()
+        .open_rotation(&env.pairing, env.conn, plan)
+        .unwrap();
+    let request = &env.events_of("browserRotationRequested")[0]["request"];
+    assert_eq!(request["kind"], "result");
+    assert_eq!(request["outcome"], "succeeded");
+    assert!(!request.to_string().contains(NEW));
+    let id = env.request_id();
+    env.clock.advance(Duration::from_secs(2));
+    env.respond(&id, BrowserRotationDecision::Confirm {})
+        .unwrap();
+    assert_eq!(
+        answer_of(&run(env.shared().await_rotation(ticket)).unwrap()),
+        "confirmed"
+    );
+    assert_eq!(env.password(item), NEW);
+    // No attempt is open any more: the same capture is a plain save.
+    assert!(plan_for(SITE, NEW).is_none());
+    let _ = attempt;
 }

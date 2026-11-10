@@ -67,6 +67,15 @@ export function sameSite(a: string, b: string): boolean {
   return first !== null && first === siteOf(hostOf(b));
 }
 
+/** Whether two origins name the same port (the default port of https counts as one). */
+export function samePort(a: string, b: string): boolean {
+  try {
+    return new URL(a).port === new URL(b).port;
+  } catch {
+    return false;
+  }
+}
+
 // RFC 3492 bootstring parameters.
 const BASE = 36;
 const T_MIN = 1;

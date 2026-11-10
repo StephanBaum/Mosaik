@@ -206,6 +206,12 @@ function pickUsername(fields: readonly Field[], passwords: readonly Field[]): HT
   return nearest === undefined ? [] : [nearest.el];
 }
 
+/** Whether a field says it holds a user name or an e-mail address (also used by the change-form heuristic). */
+export function looksLikeUsername(el: HTMLInputElement): boolean {
+  const tokens = tokensOf(el);
+  return tokens.includes("username") || tokens.includes("email") || el.type.toLowerCase() === "email" || USERNAME_RE.test(nameOrId(el));
+}
+
 /** A lone field on a page that asks for the username first. */
 function pickUsernameFirst(fields: readonly Field[]): HTMLInputElement[] {
   const texts = fields.filter((f) => f.kind === "text" && f.type !== "number");

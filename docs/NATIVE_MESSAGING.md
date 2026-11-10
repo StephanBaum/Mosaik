@@ -285,7 +285,7 @@ A request with `v` other than 1 gets `protocolVersion`.
 | `passkeyCreate` | `{requestId, origin, topOrigin, rpId \| null, userId, userName, userDisplayName, challenge, algorithms: number[], excludeCredentials: string[], userVerification: "required" \| "preferred" \| "discouraged"}` | `{outcome: "created" \| "useAnotherDevice", credential: {credentialId, clientDataJson, attestationObject, authenticatorData, publicKeySpki, publicKeyAlgorithm, vaultId, itemId} \| null}` |
 | `passkeyGet` | `{requestId, origin, topOrigin, rpId \| null, challenge, allowCredentials: string[], userVerification}` | `{outcome: "asserted" \| "useAnotherDevice", assertion: {credentialId, clientDataJson, authenticatorData, signature, userHandle} \| null}` |
 | `passkeyCancel` | `{requestId}` | `{}` |
-| `rotationForOrigin` | `{origin, topOrigin}` | `{attempts: RotationMatch[] (at most 5)}` |
+| `rotationForOrigin` | `{origin, topOrigin, relatedTo: string \| null}` | `{attempts: RotationMatch[] (at most 5), related: boolean}` |
 | `rotationBegin` | `{vaultId, itemId, origin, topOrigin, rules: string \| null}` (rules at most 4096) | `{outcome: "started" \| "cancelled", attemptId: string \| null}` |
 | `fillChange` | `{vaultId, itemId, attemptId, origin, topOrigin, frame: "top" \| "sameOriginFrame", shape: "currentAndNew" \| "newOnly"}` | `{current: Secret \| null, new: Secret}` (`current` is `null` for `newOnly`) |
 | `fillPending` | `{vaultId, itemId, attemptId, origin, topOrigin, frame}` | `{username: string \| null, password: Secret}` |
@@ -311,6 +311,12 @@ A request with `v` other than 1 gets `protocolVersion`.
   startedAt, changeUrl: string \| null}`: an open attempt of a login saved for **exactly** the page's
   origin (no value; `attemptId` is the key suffix, at most 64 ASCII characters, validated by pattern;
   `changeUrl` is the desktop's validated change page, https on the page's registrable domain).
+  `relatedTo` (the origin the change page was opened from, or `null`) asks the desktop, **without a
+  dialog**, whether `origin` may be offered as a related address of it: `related` is true only if both
+  are https, neither is loopback, they have the same port and the same registrable domain by the
+  desktop's public suffix list (private suffixes such as `github.io` count as public suffixes: two
+  tenants are two sites). It is `false` without `relatedTo`. The extension has no list of its own for
+  this; it offers "Add it?" only when `related` is true, and the dialog and the write decide again.
   `rotationBegin`, `rotationResult` and `rotationAddOrigin` only **open a desktop dialog**
   (`browserRotationRequested`, one at a time, `busy` otherwise, the 1 s Allow guard, the 300 s prompt
   timeout, closed on lock, and the host waits 302 s); the user's answer in it writes the vault. The
@@ -320,7 +326,16 @@ A request with `v` other than 1 gets `protocolVersion`.
   for the shape `currentAndNew`) and mark the attempt `delivered` **before** answering; they count as
   activity. `rotationAddOrigin` adds the page's origin to the login only if it is https, not loopback,
   not a public suffix, and its registrable domain equals that of an https URL of the login and of
-  `fromOrigin` (`originNotRelated`); a decision in the dialog is still required.
+  `fromOrigin` and the same port as `fromOrigin` (`originNotRelated`); a decision in the dialog is still
+  required, and the answer checks the role, the site and the open attempt again before it writes
+  (a viewer, or an attempt closed meanwhile, is refused and nothing is added).
+  **Save capture** (spec 2.2 item 4): `proposeSave` is unchanged on the wire. The desktop first
+  compares the captured password, in constant time and in Rust, with the pending value of every
+  attempt open for the page's exact https origin (top frame only). If it equals one, the request opens
+  the `result` dialog ("It worked") for that attempt instead of a save prompt, and the answer is
+  `updated` (with the item) when the user confirms and `cancelled` otherwise. If it differs, or no
+  attempt is open, the normal save prompt follows and the attempt stays open. The extension never
+  learns the pending value.
   Desktop checks (`browser/rotation.rs`), in order: paired and unlocked; frame rules as `fill`
   (`crossOriginFrame`; the dialog ops accept the top frame only); **https only** (`insecureOrigin`; the
   per-item HTTP override does not apply); `mosaic_origin::fill_allowed` must answer

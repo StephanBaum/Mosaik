@@ -188,6 +188,80 @@ fn begin_refused_for_viewer_and_non_login() {
 }
 
 #[test]
+fn purge_is_refused_while_an_attempt_is_open_and_the_trash_is_not() {
+    let mut u = user("a@x");
+    let s = &mut u.s;
+    let v = s.create_vault("V").unwrap();
+    let i = login(s, v, "https://bank.example", "old-password");
+    let id = s
+        .begin_rotation(v, i, &secret("new-password"), None)
+        .unwrap();
+    assert!(matches!(
+        s.purge_item(v, i),
+        Err(Error::Core(mosaic_core::Error::RotationOpen))
+    ));
+    // Nothing changed: the attempt is still open and the item is live.
+    assert_eq!(s.item(v, i).unwrap().rotation_attempts().len(), 1);
+    // The trash stays allowed, and so does moving it to another vault.
+    s.trash_item(v, i).unwrap();
+    s.restore_item(v, i).unwrap();
+    let other = s.create_vault("W").unwrap();
+    let moved = s.move_item(v, i, other).unwrap();
+    assert_eq!(s.item(other, moved).unwrap().rotation_attempts().len(), 1);
+    // Closing the attempt lifts the refusal.
+    let attempt = s.item(other, moved).unwrap().rotation_attempts()[0].id;
+    assert_eq!(attempt, id);
+    s.close_rotation(other, moved, attempt, RotationOutcome::Failed)
+        .unwrap();
+    s.purge_item(other, moved).unwrap();
+}
+
+#[test]
+fn add_origin_during_rotation_needs_a_writer_and_an_open_attempt() {
+    let (mut a, mut b, mut c, v) = trio();
+    let i = login(&mut a.s, v, "https://bank.example", "old-password");
+    let rec = a.s.store.record(&v, &i).unwrap().unwrap();
+    for u in [&mut b, &mut c] {
+        u.s.apply_remote_record(&super::RemoteRecord {
+            vault_id: v,
+            record_id: i,
+            body: rec.body.clone(),
+            server_seq: 1,
+        })
+        .unwrap();
+    }
+    let id =
+        b.s.begin_rotation(v, i, &secret("new-password"), None)
+            .unwrap();
+    let rec = b.s.store.record(&v, &i).unwrap().unwrap();
+    c.s.apply_remote_record(&super::RemoteRecord {
+        vault_id: v,
+        record_id: i,
+        body: rec.body,
+        server_seq: 2,
+    })
+    .unwrap();
+    let url = LoginUrl::new("https://login.bank.example");
+    // The viewer is refused and nothing is written.
+    let before = c.s.store.record(&v, &i).unwrap().unwrap();
+    assert!(matches!(
+        c.s.add_origin_during_rotation(v, i, id, &url),
+        Err(Error::ReadOnly)
+    ));
+    let after = c.s.store.record(&v, &i).unwrap().unwrap();
+    assert_eq!(before.body.as_bytes(), after.body.as_bytes());
+    // The writer may, while the attempt is open and not after it closed.
+    b.s.add_origin_during_rotation(v, i, id, &url).unwrap();
+    assert_eq!(b.s.item(v, i).unwrap().urls().len(), 2);
+    b.s.close_rotation(v, i, id, RotationOutcome::Failed)
+        .unwrap();
+    assert!(matches!(
+        b.s.add_origin_during_rotation(v, i, id, &LoginUrl::new("https://x.bank.example")),
+        Err(Error::Core(mosaic_core::Error::RotationNotFound))
+    ));
+}
+
+#[test]
 fn close_succeeded_syncs_as_one_edit() {
     let mut u = user("a@x");
     let s = &mut u.s;

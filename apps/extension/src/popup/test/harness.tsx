@@ -75,6 +75,7 @@ export const baseState = (over: Partial<PopupState> = {}): PopupState => ({
   tab: { origin: "https://github.com", host: "github.com", unicodeHost: null, secure: true, supported: true },
   frame: "top",
   frameTarget: { frameId: 0, documentId: "doc-0" },
+  changeFrame: null,
   matches: [],
   warnings: [],
   pendingSave: null,

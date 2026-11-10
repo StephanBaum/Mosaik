@@ -227,7 +227,7 @@ const requestGuards: Guards<RequestMap> = {
     userVerification,
   }),
   passkeyCancel: obj({ requestId: requestHex }),
-  rotationForOrigin: obj({ origin, topOrigin: origin }),
+  rotationForOrigin: obj({ origin, topOrigin: origin, relatedTo: nullable(origin) }),
   rotationBegin: obj({ vaultId: id, itemId: id, origin, topOrigin: origin, rules: nullable(str(4096)) }),
   fillChange: obj({
     ...rotationIds,
@@ -272,7 +272,7 @@ const resultGuards: Guards<ResultMap> = {
     assertion: nullable(assertionBody),
   }),
   passkeyCancel: empty,
-  rotationForOrigin: obj({ attempts: arr(rotationMatch, 5) }),
+  rotationForOrigin: obj({ attempts: arr(rotationMatch, 5), related: bool }),
   rotationBegin: obj({ outcome: lit("started", "cancelled"), attemptId: nullable(attemptId) }),
   fillChange: obj({ current: nullable(str(1024)), new: str(1024) }),
   fillPending: obj({ username: nullable(str(256)), password: str(1024) }),
