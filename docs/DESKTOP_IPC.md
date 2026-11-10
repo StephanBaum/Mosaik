@@ -206,7 +206,7 @@ the first 50 (display-cleaned); `finished: false` means the data follows from "C
 | `sync_restore_rekey_marker` | `{ name, sha256 }` → `SyncOverview`. Undoes an ignore (`SyncEngine::undismiss_rekey_marker`): the notice halts sync again and `rekeyPending` is set so the re-key can be adopted. No confirmation (restoring is safe). Dismissed unverifiable account files (`sync_dismiss_account_file`) are not listed anywhere in the desktop, so they have no restore here | `invalidInput`, transport codes | live |
 
 `SyncOverview` gains `rekeyPending` (a verified `.mrek` marker names this device's epoch: sync is paused, status
-`error` with `syncAccountRekeyed`, and the in-app notice offers `sync_recover_password` with the new Secret Key),
+`error` with `syncAccountRekeyed`, and the in-app notice offers `sync_recover_password` with the new Secret Key). A hosted device gets the same status on start when the server holds other keys than the device and states a higher account-key epoch (`GET /v1/account?epoch=1`, compared with `>` only; an equal epoch stays `syncPasswordChanged`, a lower one is no re-key): the settings then show the recovery form with the Secret Key required instead of the password card,
 and the warning `unverifiedAccountFile { name, sha256, conflict }` (dismissible; `conflict` when the file names
 this device's own epoch, two devices re-keyed at once: the only resolution is to re-key again from this device).
 There is no equal-epoch adoption. Not built in T5: `vault_rotate_key` (a per-vault action, not in the T5 brief) and

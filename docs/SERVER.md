@@ -327,7 +327,7 @@ client uploads and never opens a wrapping or a seal.
 |---|---|
 | `POST /v1/account/rekey/start` | Fresh login. Body `{registrationRequest, akEpoch}`, answer `{registrationResponse}`. The session must have logged in at the current account version (`account_version_mismatch`) and `akEpoch` must be the stored epoch plus one (`epoch_mismatch {currentEpoch}`). |
 | `POST /v1/account/rekey/finish` | Fresh login, same two checks. Body (cap 4 MiB, at most 1000 vaults): `registrationUpload`, `wrappedAk`, `salt`, `profile`, `akEpoch`, `identity` (`{ipk, wrappedIsk}` or null), `vaults`, `memberRewraps`, `emergencySeals`, `device`. Answer `{accountVersion, akEpoch}`. One transaction, or nothing. |
-| `GET /v1/account?epoch=1` | Adds `akEpoch`. A flag of its own, so that `identity=1` and the plain body stay as older clients parse them. `epoch=1&identity=1` gives both. |
+| `GET /v1/account?epoch=1` | Adds `akEpoch`. A flag of its own, so that `identity=1` and the plain body stay as older clients parse them. `epoch=1&identity=1` gives both. The desktop reads it on start (`hosted::account_epoch`): when the server holds other keys than the device and states an epoch above the device's, the status is `syncAccountRekeyed` (a re-key made elsewhere); an equal epoch is a password change, a lower one is no re-key (the engine reports `AccountRollback`). The epoch is the server's unauthenticated claim (THREAT_MODEL R90): at worst it asks for the new Secret Key. |
 | `GET /v1/vaults/{v}/changes?sharing=1&rotation=1` | For the owner, adds `rotationRequested`: a member that re-keyed asked for a rotation. Without `rotation=1` the page is the M6b page. |
 
 What `finish` checks, before it writes anything:

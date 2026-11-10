@@ -446,6 +446,24 @@ fn abandoning_a_committed_job_needs_a_committed_job_and_markers_need_a_folder() 
     assert_eq!(bad("", &"cd".repeat(32)), ErrorCode::InvalidInput);
 }
 
+/// The account endpoint serves the new epoch, and a device still at epoch 1 reads it as a re-key
+/// (an equal or lower one is not, and an unknown local epoch is not guessed at).
+fn assert_epoch_served_as_rekey(rekeyed: &Env, base: &str) {
+    let token = rekeyed
+        .b()
+        .sync_tokens
+        .load(rekeyed.account())
+        .unwrap()
+        .unwrap();
+    let (_, served) = mosaic_sync::http::hosted::account_epoch(base, &token).unwrap();
+    assert_eq!(served, 2);
+    let code = |local| crate::sync::password_change_code(local, served);
+    assert_eq!(code(Some(1)), ErrorCode::SyncAccountRekeyed);
+    assert_eq!(code(Some(2)), ErrorCode::SyncPasswordChanged);
+    assert_eq!(code(Some(3)), ErrorCode::SyncPasswordChanged);
+    assert_eq!(code(None), ErrorCode::SyncPasswordChanged);
+}
+
 #[test]
 fn hosted_rekey_signs_the_other_device_out_and_the_new_kit_brings_it_back() {
     let _kdf = kdf_permit();
@@ -480,6 +498,8 @@ fn hosted_rekey_signs_the_other_device_out_and_the_new_kit_brings_it_back() {
     assert_eq!(a.b().with_unlocked(|s| Ok(s.ak_epoch())).unwrap(), 2);
     a.b().sync_now().unwrap();
     a.wait_synced();
+
+    assert_epoch_served_as_rekey(&a, &server.base);
 
     // The other device is signed out; the old key is not accepted as the way back.
     b.b().sync_now().ok();

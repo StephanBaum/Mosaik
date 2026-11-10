@@ -685,7 +685,7 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
             // Best effort: whether the account has a second factor (for the
             // settings; a failure leaves it unknown).
             drop(backend);
-            if let Ok(info) = hosted::account_info(url, &token)
+            if let Ok((info, served_epoch)) = hosted::account_epoch(url, &token)
                 && let Some(backend) = ctx.session().current()
             {
                 backend.sync.update_view(|view| {
@@ -699,12 +699,13 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
                 // device: sync pauses until the user brings the new one
                 // (`sync_recover_password`).
                 if password_differs(&backend, &info.wrapped_ak, &info.params) {
+                    let local_epoch = backend.with_unlocked(|s| Ok(s.ak_epoch())).ok();
                     backend.sync.set_password_changed(ctx.generation, true);
                     backend.sync.set_status(
                         &backend,
                         ctx.generation,
                         SyncStatus::Error,
-                        Some(ErrorCode::SyncPasswordChanged),
+                        Some(password_change_code(local_epoch, served_epoch)),
                     );
                     return;
                 }
@@ -732,6 +733,18 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
             };
             runner::run(ctx, make, rx);
         }
+    }
+}
+
+/// What a server that holds other keys than this device means: an account-key epoch above this
+/// device's is a re-key made elsewhere (the new Secret Key is needed); an equal one is a password
+/// change; a lower one is not a re-key at all (the engine reports it as `AccountRollback`) and an
+/// unknown local epoch is not guessed at.
+pub(crate) fn password_change_code(local_epoch: Option<u32>, served_epoch: u32) -> ErrorCode {
+    if local_epoch.is_some_and(|local| served_epoch > local) {
+        ErrorCode::SyncAccountRekeyed
+    } else {
+        ErrorCode::SyncPasswordChanged
     }
 }
 
