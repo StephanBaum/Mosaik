@@ -214,17 +214,14 @@ pub fn read_secret_line(reader: &mut dyn BufRead) -> Result<Zeroizing<String>> {
 /// # Errors
 /// `fdUnsupported` outside Unix, `inputRequired` when the descriptor is unreadable.
 pub fn read_secret_fd(fd: i32) -> Result<Zeroizing<String>> {
-    #[cfg(unix)]
-    {
-        let file =
-            std::fs::File::open(format!("/dev/fd/{fd}")).map_err(|_| CliError::input_required())?;
-        read_secret_line(&mut std::io::BufReader::new(file))
+    // `cfg!` rather than `#[cfg]`: both arms compile everywhere, so no platform sees the message
+    // as unused.
+    if !cfg!(unix) {
+        return Err(CliError::usage(Msg::ErrFdUnsupported));
     }
-    #[cfg(not(unix))]
-    {
-        let _ = fd;
-        Err(CliError::usage(Msg::ErrFdUnsupported))
-    }
+    let file =
+        std::fs::File::open(format!("/dev/fd/{fd}")).map_err(|_| CliError::input_required())?;
+    read_secret_line(&mut std::io::BufReader::new(file))
 }
 
 #[cfg(test)]
