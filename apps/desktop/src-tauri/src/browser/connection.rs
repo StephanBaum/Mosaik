@@ -213,6 +213,13 @@ impl Shared {
             .is_ok_and(|registry| registry.get(pairing).is_some())
     }
 
+    /// Registers a session that serves nothing (tests that open prompts without a wire).
+    #[cfg(test)]
+    pub(crate) fn register_idle(&self, pairing: [u8; 16]) -> Option<u64> {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        self.register(pairing, tx)
+    }
+
     /// Whether session `conn` is registered.
     pub(super) fn conn_is_open(&self, conn: u64) -> bool {
         self.conns
@@ -515,6 +522,7 @@ async fn run_session<S>(
     shared.unregister(id);
     // A save prompt of this connection has nobody to answer to.
     shared.close_saves_where(BrowserCloseReason::Disconnected, |save| save.conn == id);
+    shared.close_rotations_where(BrowserCloseReason::Disconnected, |r| r.conn == id);
     shared.close_passkeys_where(BrowserCloseReason::Disconnected, |passkey| {
         passkey.conn == id
     });

@@ -8,10 +8,13 @@ import type {
   BrowserPairing,
   BrowserPairingRequest,
   BrowserPasskeyRequest,
+  BrowserRotationKind,
+  BrowserRotationRequest,
   BrowserSaveRequest,
   BrowserStatus,
   RequestOf,
 } from "../contract/index.ts";
+import { rotationHandlers, rotationRequest } from "./browserRotation.ts";
 import { passkeyItem } from "./data.ts";
 import { fail, requireUnlocked, type MockHandlers, type MockState } from "./state.ts";
 
@@ -38,9 +41,15 @@ export interface MockBrowser {
   saveOnStart: "new" | "update" | null;
   /** Emit a passkey request after the first subscription (`&browserPasskey=`). */
   passkeyOnStart: PasskeyVariant | null;
+  /** Emit a password-change request after the first subscription (`&credRotation=browserBegin|browserResult|addOrigin`). */
+  rotationOnStart: BrowserRotationKind | null;
   pairing: BrowserPairingRequest | null;
   save: BrowserSaveRequest | null;
   passkey: BrowserPasskeyRequest | null;
+  /** The open password-change request, the password Rust generated for it and when the Allow guard started. */
+  rotation: BrowserRotationRequest | null;
+  rotationGenerated: number;
+  rotationShownAt: number;
   /** The open passkey request needs the master password now (the window ran out). */
   passkeyUvExpired: boolean;
 }
@@ -62,9 +71,13 @@ export function defaultBrowser(now: () => number): MockBrowser {
     pairOnStart: false,
     saveOnStart: null,
     passkeyOnStart: null,
+    rotationOnStart: null,
     pairing: null,
     save: null,
     passkey: null,
+    rotation: null,
+    rotationGenerated: 0,
+    rotationShownAt: 0,
     passkeyUvExpired: false,
   };
 }
@@ -167,21 +180,36 @@ function passkeyRequest(state: MockState, variant: PasskeyVariant): BrowserPassk
  */
 export function startBrowser(state: MockState): void {
   const browser = state.browser;
-  if (!browser.pairOnStart && browser.saveOnStart === null && browser.passkeyOnStart === null) {
+  if (
+    !browser.pairOnStart &&
+    browser.saveOnStart === null &&
+    browser.passkeyOnStart === null &&
+    browser.rotationOnStart === null
+  ) {
     return;
   }
   const pair = browser.pairOnStart;
   const save = browser.saveOnStart;
   const passkey = browser.passkeyOnStart;
+  const rotation = browser.rotationOnStart;
   browser.pairOnStart = false;
   browser.saveOnStart = null;
   browser.passkeyOnStart = null;
+  browser.rotationOnStart = null;
   setTimeout(() => {
     if (!state.unlocked) {
       browser.pairOnStart = pair;
       browser.saveOnStart = save;
       browser.passkeyOnStart = passkey;
+      browser.rotationOnStart = rotation;
       return;
+    }
+    if (rotation !== null) {
+      browser.rotation = rotationRequest(state, rotation);
+      browser.rotationShownAt = state.now();
+      if (browser.rotation !== null) {
+        state.emit({ type: "browserRotationRequested", request: browser.rotation });
+      }
     }
     if (pair) {
       browser.pairing = pairingRequest(state);
@@ -263,6 +291,8 @@ export const browserHandlers: MockHandlers = {
     state.emit({ type: "browserSaveClosed", requestId: open.requestId, reason: "answered" });
     return null;
   },
+
+  ...rotationHandlers,
 
   browser_passkey_respond: (state, request) => {
     requireUnlocked(state);

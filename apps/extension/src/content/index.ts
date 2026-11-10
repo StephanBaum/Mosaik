@@ -11,8 +11,9 @@ import {
   type FillReply,
   type ProbeResult,
 } from "../shared/messages.ts";
+import { classifyChangeForm, sameClassification, type ChangeClassification } from "./change.ts";
 import { countFields, detect, hasActiveField, type Detection } from "./detect.ts";
-import { fillCredentials, fillNewPasswords } from "./fill.ts";
+import { fillChangeFields, fillCredentials, fillNewPasswords } from "./fill.ts";
 import { frameAncestry } from "./frame.ts";
 
 const MAX_RULES_LENGTH = 4096;
@@ -29,9 +30,18 @@ function passwordRulesOf(detection: Detection): string | null {
  */
 const documentOrigin = (): string => window.origin;
 
+/**
+ * What the last probe made of the change form. A change fill goes only to the form (and the very
+ * fields) the probe classified, so a page that rearranged itself between the probe and the fill
+ * (swapped `autocomplete` values, reordered or renamed fields) gets nothing. No secret is held.
+ */
+let probedChange: ChangeClassification | null = null;
+
 export function probe(): ProbeResult {
   const ancestry = frameAncestry(window);
   const detection = detect(document);
+  const change = classifyChangeForm(document);
+  probedChange = change;
   return {
     origin: documentOrigin(),
     ancestorsSameOrigin: ancestry.ancestorsSameOrigin,
@@ -41,6 +51,7 @@ export function probe(): ProbeResult {
     counts: countFields(detection),
     passwordRules: passwordRulesOf(detection),
     visible: document.visibilityState === "visible",
+    changeShape: change.shape,
   };
 }
 
@@ -67,10 +78,37 @@ function usernameValueOf(detection: Detection): string | null {
   return value === undefined || value === "" ? null : value;
 }
 
+/** A change fill: both values of one login, into the form the probe classified, only if it is unchanged. */
+function handleFillChange(message: Extract<ContentMessage, { type: "fillChange" }>): FillReply {
+  const probed = probedChange;
+  probedChange = null;
+  const now = classifyChangeForm(document);
+  let reply: FillReply;
+  if (now.shape === "none") {
+    reply = { ok: false, error: "changeFormNotFound" };
+  } else if (
+    now.shape === "ambiguous" ||
+    probed === null ||
+    now.shape !== message.shape ||
+    !sameClassification(probed, now)
+  ) {
+    reply = { ok: false, error: "changeFormAmbiguous" };
+  } else {
+    const filled = fillChangeFields(now, { current: message.current, next: message.new });
+    reply = { ok: true, filled, usernameValue: null };
+  }
+  Object.assign(message, { current: null, new: "" });
+  return reply;
+}
+
 export function handleFill(message: ContentMessage): FillReply {
   const refused = refusal(message.expectedOrigin);
   if (refused !== null) {
+    Object.assign(message, { username: null, password: null, otp: null, current: null, new: "" });
     return { ok: false, error: refused };
+  }
+  if (message.type === "fillChange") {
+    return handleFillChange(message);
   }
   // Fields are found again now: ones that changed type, were renamed or appeared after the
   // probe are classified anew, and only the ones that are fillable now are used.

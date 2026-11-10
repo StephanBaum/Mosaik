@@ -31,6 +31,7 @@ use crate::protocol::{
 const ORIGIN: &str = "https://example.com";
 const VAULT: &str = "0190a0b0-0000-7000-8000-000000000001";
 const ITEM: &str = "0190a0b0-0000-7000-8000-000000000002";
+const ATTEMPT: &str = "a1b2c3d4e5f60718";
 const REQUEST_ID: &str = "00112233445566778899aabbccddeeff";
 const CHALLENGE: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const CREDENTIAL_ID: &str = "AAECAwQFBgcICQoLDA0ODw";
@@ -91,6 +92,7 @@ fn passkey_get_body() -> PasskeyGetBody {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "a flat list of samples")]
 fn request_samples() -> Vec<(Op, Value)> {
     let mut out = Vec::new();
     let mut add = |op: Op, body: Value| {
@@ -165,6 +167,68 @@ fn request_samples() -> Vec<(Op, Value)> {
         Op::PasskeyCancel,
         to_value(&PasskeyCancelBody {
             request_id: REQUEST_ID.into(),
+        }),
+    );
+    add(
+        Op::RotationForOrigin,
+        to_value(&ListForOriginBody {
+            origin: ORIGIN.into(),
+            top_origin: ORIGIN.into(),
+        }),
+    );
+    add(
+        Op::RotationBegin,
+        to_value(&RotationBeginBody {
+            vault_id: VAULT.into(),
+            item_id: ITEM.into(),
+            origin: ORIGIN.into(),
+            top_origin: ORIGIN.into(),
+            rules: Some("minlength: 12; required: lower, upper; required: digit;".into()),
+        }),
+    );
+    add(
+        Op::FillChange,
+        to_value(&FillChangeBody {
+            vault_id: VAULT.into(),
+            item_id: ITEM.into(),
+            attempt_id: ATTEMPT.into(),
+            origin: ORIGIN.into(),
+            top_origin: ORIGIN.into(),
+            frame: FrameKind::Top,
+            shape: ChangeShape::CurrentAndNew,
+        }),
+    );
+    add(
+        Op::FillPending,
+        to_value(&FillPendingBody {
+            vault_id: VAULT.into(),
+            item_id: ITEM.into(),
+            attempt_id: ATTEMPT.into(),
+            origin: ORIGIN.into(),
+            top_origin: ORIGIN.into(),
+            frame: FrameKind::Top,
+        }),
+    );
+    add(
+        Op::RotationResult,
+        to_value(&RotationResultBody {
+            vault_id: VAULT.into(),
+            item_id: ITEM.into(),
+            attempt_id: ATTEMPT.into(),
+            origin: ORIGIN.into(),
+            top_origin: ORIGIN.into(),
+            outcome: ReportedOutcome::Succeeded,
+        }),
+    );
+    add(
+        Op::RotationAddOrigin,
+        to_value(&RotationAddOriginBody {
+            vault_id: VAULT.into(),
+            item_id: ITEM.into(),
+            attempt_id: ATTEMPT.into(),
+            from_origin: ORIGIN.into(),
+            origin: "https://accounts.example.com".into(),
+            top_origin: "https://accounts.example.com".into(),
         }),
     );
     out
@@ -317,6 +381,68 @@ fn response_samples() -> Vec<(Op, Value)> {
         }),
     );
     add(Op::PasskeyCancel, to_value(&Empty {}));
+    add(
+        Op::RotationForOrigin,
+        to_value(&RotationForOriginResult {
+            attempts: vec![
+                RotationMatch {
+                    vault_id: VAULT.into(),
+                    item_id: ITEM.into(),
+                    attempt_id: ATTEMPT.into(),
+                    title: Some("Example".into()),
+                    username: Some("ada@example.com".into()),
+                    host: "example.com".into(),
+                    stage: AttemptStage::Prepared,
+                    started_at: 1_767_225_600_000,
+                    change_url: Some("https://example.com/settings/password".into()),
+                },
+                RotationMatch {
+                    vault_id: VAULT.into(),
+                    item_id: ITEM.into(),
+                    attempt_id: "b2".into(),
+                    title: None,
+                    username: None,
+                    host: "example.com".into(),
+                    stage: AttemptStage::Delivered,
+                    started_at: 1_767_225_500_000,
+                    change_url: None,
+                },
+            ],
+        }),
+    );
+    add(
+        Op::RotationBegin,
+        to_value(&RotationBeginResult {
+            outcome: BeginOutcome::Started,
+            attempt_id: Some(ATTEMPT.into()),
+        }),
+    );
+    add(
+        Op::FillChange,
+        to_value(&FillChangeResult {
+            current: Some(Secret::new("correct horse battery staple".into())),
+            new: Secret::new("q7#Vt2!mZp9@Lx4$Nw6&".into()),
+        }),
+    );
+    add(
+        Op::FillPending,
+        to_value(&FillPendingResult {
+            username: Some("ada@example.com".into()),
+            password: Secret::new("q7#Vt2!mZp9@Lx4$Nw6&".into()),
+        }),
+    );
+    add(
+        Op::RotationResult,
+        to_value(&RotationResultResult {
+            outcome: ResultOutcome::Confirmed,
+        }),
+    );
+    add(
+        Op::RotationAddOrigin,
+        to_value(&RotationAddOriginResult {
+            outcome: AddOriginOutcome::Added,
+        }),
+    );
     out
 }
 
@@ -369,7 +495,7 @@ fn check_request_body(op: Op, body: &Value) {
         Op::Hello => round_trips::<HelloBody>(body),
         Op::Pair => round_trips::<PairBody>(body),
         Op::Status | Op::Focus | Op::Unpair => round_trips::<Empty>(body),
-        Op::ListForOrigin => round_trips::<ListForOriginBody>(body),
+        Op::ListForOrigin | Op::RotationForOrigin => round_trips::<ListForOriginBody>(body),
         Op::Search => round_trips::<SearchBody>(body),
         Op::Fill => round_trips::<FillBody>(body),
         Op::Copy => round_trips::<CopyBody>(body),
@@ -382,6 +508,11 @@ fn check_request_body(op: Op, body: &Value) {
         Op::PasskeyCreate => round_trips::<PasskeyCreateBody>(body),
         Op::PasskeyGet => round_trips::<PasskeyGetBody>(body),
         Op::PasskeyCancel => round_trips::<PasskeyCancelBody>(body),
+        Op::RotationBegin => round_trips::<RotationBeginBody>(body),
+        Op::FillChange => round_trips::<FillChangeBody>(body),
+        Op::FillPending => round_trips::<FillPendingBody>(body),
+        Op::RotationResult => round_trips::<RotationResultBody>(body),
+        Op::RotationAddOrigin => round_trips::<RotationAddOriginBody>(body),
     }
 }
 
@@ -400,6 +531,12 @@ fn check_response_body(op: Op, body: &Value) {
         Op::ProposeSave => round_trips::<ProposeSaveResult>(body),
         Op::PasskeyCreate => round_trips::<PasskeyCreateResult>(body),
         Op::PasskeyGet => round_trips::<PasskeyGetResult>(body),
+        Op::RotationForOrigin => round_trips::<RotationForOriginResult>(body),
+        Op::RotationBegin => round_trips::<RotationBeginResult>(body),
+        Op::FillChange => round_trips::<FillChangeResult>(body),
+        Op::FillPending => round_trips::<FillPendingResult>(body),
+        Op::RotationResult => round_trips::<RotationResultResult>(body),
+        Op::RotationAddOrigin => round_trips::<RotationAddOriginResult>(body),
     }
 }
 

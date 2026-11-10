@@ -71,6 +71,7 @@ import {
   startBrowser,
   type PasskeyVariant,
 } from "./mock/browser.ts";
+import { rotationOnStartOf } from "./mock/browserRotation.ts";
 import { attachmentHandlers } from "./mock/attachments.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
 import { applyCredRotationSeed } from "./mock/credentialRotationSeed.ts";
@@ -405,6 +406,7 @@ function seededBrowser(options: MockOptions, now: () => number): MockState["brow
     pairOnStart: options.browserPair === true,
     saveOnStart: options.browserSave ?? null,
     passkeyOnStart: options.browserPasskey ?? null,
+    rotationOnStart: rotationOnStartOf(options.credRotation?.variant),
   };
 }
 

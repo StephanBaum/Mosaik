@@ -84,6 +84,43 @@ describe("passkey ops", () => {
   });
 });
 
+describe("rotation ops", () => {
+  const body = (op: string) =>
+    fixtures.requests.find((r) => r.op === op)?.message.body as Record<string, unknown>;
+  const result = (op: string) =>
+    fixtures.responses.find((r) => r.op === op)?.message.body as Record<string, unknown>;
+
+  it("rejects a rotation request with a missing key, an unknown key or a wrong value", () => {
+    const change = body("fillChange");
+    expect(isRequestBody("fillChange", { ...change, extra: 1 })).toBe(false);
+    expect(isRequestBody("fillChange", { ...change, shape: undefined })).toBe(false);
+    expect(isRequestBody("fillChange", { ...change, shape: "none" })).toBe(false);
+    expect(isRequestBody("fillChange", { ...change, attemptId: "a b" })).toBe(false);
+    expect(isRequestBody("fillChange", { ...change, attemptId: "a".repeat(65) })).toBe(false);
+    expect(isRequestBody("fillChange", { ...change, frame: "iframe" })).toBe(false);
+    const begin = body("rotationBegin");
+    expect(isRequestBody("rotationBegin", { ...begin, rules: undefined })).toBe(false);
+    expect(isRequestBody("rotationBegin", { ...begin, rules: "x".repeat(4097) })).toBe(false);
+    expect(isRequestBody("rotationBegin", { ...begin, attemptId: "a1" })).toBe(false);
+    expect(isRequestBody("rotationResult", { ...body("rotationResult"), outcome: "maybe" })).toBe(false);
+    expect(isRequestBody("rotationAddOrigin", { ...body("rotationAddOrigin"), fromOrigin: undefined })).toBe(false);
+    expect(isRequestBody("fillPending", { ...body("fillPending"), shape: "newOnly" })).toBe(false);
+  });
+
+  it("rejects a rotation result with a missing key, an extra key or a wrong outcome", () => {
+    expect(isResultBody("fillChange", { ...result("fillChange"), extra: 1 })).toBe(false);
+    expect(isResultBody("fillChange", { new: "pw" })).toBe(false);
+    expect(isResultBody("fillChange", { current: null, new: "pw" })).toBe(true);
+    expect(isResultBody("fillPending", { password: "pw" })).toBe(false);
+    expect(isResultBody("rotationBegin", { outcome: "started" })).toBe(false);
+    expect(isResultBody("rotationResult", { outcome: "done" })).toBe(false);
+    expect(isResultBody("rotationAddOrigin", { outcome: "added", x: 1 })).toBe(false);
+    const list = result("rotationForOrigin") as { attempts: Record<string, unknown>[] };
+    expect(isResultBody("rotationForOrigin", { attempts: list.attempts.map((a) => ({ ...a, value: "pw" })) })).toBe(false);
+    expect(isResultBody("rotationForOrigin", { attempts: new Array(6).fill(list.attempts[0]) })).toBe(false);
+  });
+});
+
 describe("responses (host to extension)", () => {
   it.each(fixtures.responses.map((r) => [r.op, r] as const))("%s parses and its body validates", (op, sample) => {
     const parsed = parseHostMessage(sample.message);

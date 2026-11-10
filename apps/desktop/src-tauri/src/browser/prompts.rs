@@ -96,6 +96,13 @@ pub struct Prompts {
     pub(super) passkey_applying: bool,
     /// Why the prompts were dropped while `passkey_applying`.
     pub(super) passkey_dropped_while_applying: Option<BrowserCloseReason>,
+    /// The open rotation dialog (`rotation_prompt`).
+    pub(super) rotation: Option<super::rotation_prompt::PendingRotation>,
+    /// A rotation answer is being written to the vault: its entry is out of `rotation` and no
+    /// other rotation dialog may open.
+    pub(super) rotation_applying: bool,
+    /// Why the prompts were dropped while `rotation_applying`.
+    pub(super) rotation_dropped_while_applying: Option<BrowserCloseReason>,
     /// A save is being written to the vault: its entry is out of `save`
     /// (the vault is not written under the prompts lock) and no other save
     /// may open.
@@ -593,6 +600,10 @@ impl Shared {
         let pair = prompts.pair.take();
         let save = prompts.save.take();
         let passkey = prompts.passkey.take();
+        let rotation = prompts.rotation.take();
+        if prompts.rotation_applying {
+            prompts.rotation_dropped_while_applying = Some(reason);
+        }
         if prompts.applying {
             // A save is being written: its owner finishes it off.
             prompts.dropped_while_applying = Some(reason);
@@ -607,6 +618,11 @@ impl Shared {
             self.emit(AppEvent::BrowserPasskeyClosed { request_id, reason });
         }
         let refusal = refusal_for(reason);
+        if let Some(rotation) = rotation {
+            let request_id = rotation.request_id().to_owned();
+            rotation.refuse(refusal);
+            self.emit(AppEvent::BrowserRotationClosed { request_id, reason });
+        }
         if let Some(pair) = pair {
             let _ = pair.reply.send(Err(refusal));
             self.emit(AppEvent::BrowserPairingClosed {
@@ -623,7 +639,7 @@ impl Shared {
 }
 
 /// What a prompt that closed for `reason` tells the browser.
-const fn refusal_for(reason: BrowserCloseReason) -> WireError {
+pub(super) const fn refusal_for(reason: BrowserCloseReason) -> WireError {
     match reason {
         BrowserCloseReason::Locked => WireError::Locked,
         _ => WireError::DesktopNotRunning,

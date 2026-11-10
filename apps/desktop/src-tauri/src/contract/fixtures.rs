@@ -20,8 +20,9 @@ use super::browser::{
     self, BrowserCloseReason, BrowserEndpointState, BrowserFamily, BrowserHint,
     BrowserPairingRespondRequest, BrowserPasskeyDecision, BrowserPasskeyKind,
     BrowserPasskeyRespondRequest, BrowserRegistryState, BrowserRemovePairingRequest,
-    BrowserSaveDecision, BrowserSaveKind, BrowserSaveRespondRequest, PairingDecision,
-    PasskeyVerification,
+    BrowserRotationDecision, BrowserRotationKind, BrowserRotationRespondRequest,
+    BrowserRotationRevealRequest, BrowserSaveDecision, BrowserSaveKind, BrowserSaveRespondRequest,
+    PairingDecision, PasskeyVerification,
 };
 use super::clipboard;
 use super::credential_rotation::{
@@ -573,6 +574,7 @@ fn ssh_commands(f: &mut Fixtures) {
 }
 
 /// The browser extension commands.
+#[expect(clippy::too_many_lines, reason = "one sample list per command")]
 fn browser_commands(f: &mut Fixtures) {
     f.command("browser_status", vec![()], browser::samples::statuses());
     f.command(
@@ -622,6 +624,34 @@ fn browser_commands(f: &mut Fixtures) {
             },
         ],
         vec![()],
+    );
+    f.command(
+        "browser_rotation_respond",
+        [
+            BrowserRotationDecision::Allow {},
+            BrowserRotationDecision::Regenerate {},
+            BrowserRotationDecision::Confirm {},
+            BrowserRotationDecision::KeepOld {},
+            BrowserRotationDecision::AddOrigin {},
+            BrowserRotationDecision::Cancel {},
+        ]
+        .into_iter()
+        .map(|decision| BrowserRotationRespondRequest {
+            request_id: browser::samples::request_id(),
+            decision,
+        })
+        .collect(),
+        vec![()],
+    );
+    f.command(
+        "browser_rotation_reveal",
+        vec![BrowserRotationRevealRequest {
+            request_id: browser::samples::request_id(),
+        }],
+        vec![RevealedSecret {
+            value: SecretOut::test("q7#Vt2!mZp9@Lx4$Nw6&"),
+            hide_after_seconds: 10,
+        }],
     );
     let passkey = |decision, password: Option<&str>| BrowserPasskeyRespondRequest {
         request_id: browser::samples::request_id(),
@@ -1255,6 +1285,7 @@ fn enums() -> Map<String, Value> {
         ("browserCloseReason", values(BrowserCloseReason::ALL)),
         ("browserSaveKind", values(BrowserSaveKind::ALL)),
         ("browserPasskeyKind", values(BrowserPasskeyKind::ALL)),
+        ("browserRotationKind", values(BrowserRotationKind::ALL)),
         ("passkeyVerification", values(PasskeyVerification::ALL)),
         ("passkeyAlgorithm", values(PasskeyAlgorithm::ALL)),
         ("lockReason", values(LockReason::ALL)),
@@ -1381,6 +1412,7 @@ fn fixtures_hold_secrets_only_where_the_contract_allows() {
                 | "otp_pending_code"
                 | "sync_totp_begin"
                 | "rotation_reveal"
+                | "browser_rotation_reveal"
         );
         for secret in ["hunter2", "M1-7KQ4", "492039", "q7#Vt2", "JBSWY3DPEHPK3PXP"] {
             assert!(

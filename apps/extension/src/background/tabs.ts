@@ -19,6 +19,8 @@ export interface TabApi {
   inject(tabId: number): Promise<void>;
   probe(tabId: number): Promise<FrameProbe[]>;
   send(tabId: number, frame: FrameTarget, message: ContentMessage): Promise<FillReply>;
+  /** Sends the tab to `url` (an https address the caller checked). Injects nothing. */
+  navigate(tabId: number, url: string): Promise<void>;
 }
 
 export function chromeTabs(): TabApi {
@@ -57,6 +59,9 @@ export function chromeTabs(): TabApi {
         throw new ExtensionError("internal");
       }
       return reply;
+    },
+    navigate: async (tabId, url) => {
+      await chrome.tabs.update(tabId, { url });
     },
   };
 }

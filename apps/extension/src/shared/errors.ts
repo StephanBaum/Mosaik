@@ -23,6 +23,9 @@ export const WIRE_ERROR_CODES = [
   "passkeyExcluded",
   "rpIdMismatch",
   "passkeyUnsupported",
+  "rotationNotFound",
+  "originNotRelated",
+  "rotationLimit",
   "pairingDenied",
   "pairingExpired",
   "pairingConflict",
@@ -48,6 +51,8 @@ export const LOCAL_ERROR_CODES = [
   "pageHidden",
   "permissionDenied",
   "generatedExpired",
+  "changeFormNotFound",
+  "changeFormAmbiguous",
 ] as const;
 
 export type WireErrorCode = (typeof WIRE_ERROR_CODES)[number];

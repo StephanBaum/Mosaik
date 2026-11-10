@@ -17,7 +17,7 @@ milestone close appends its section there).
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
-| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault and T3 desktop done; T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
+| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault, T3 desktop and T4 extension done; T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
 | M8 CLI | — |
 | M9 Hardening | — |
 | M10 Mobile | — |
@@ -2519,6 +2519,45 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
     `https` and length when saved, its relation to the login's site when the page is resolved (`change_url::resolve`
     ignores one that is unrelated); the browser dialogs (`browser_rotation_respond`, `BrowserRotationDialog`, mock variants
     `browserBegin`, `browserResult`, `addOrigin`) are T4's.
+- **T4 extension and channel: done** (`crates/native-messaging`, `apps/extension`, `apps/desktop/src-tauri/src/browser/`,
+  `BrowserRotationDialog`, `docs/NATIVE_MESSAGING.md` §5.2, §5.3 and §6, `docs/EXTENSION_SECURITY.md` §1, §2, §5, §9 and §10).
+  - Protocol (additive, `v` stays 1): six ops `rotationForOrigin`, `rotationBegin`, `fillChange`, `fillPending`,
+    `rotationResult`, `rotationAddOrigin` (`Op::ALL` 15 to 21), error codes `rotationNotFound`, `originNotRelated`,
+    `rotationLimit` (30 to 33), fixtures regenerated, the host waits 302 s for the three dialog ops, rate limits as spec
+    §4.1 (`rotationForOrigin` with `listForOrigin`, the two fills with `fill`, the dialog ops 3 per 60 s).
+  - Desktop (`browser/rotation.rs`, `browser/rotation_prompt.rs`): every op is https only and **exact origin only**
+    (`MatchKind::ExactOrigin`; eTLD+1 is `originMismatch`, the per-item HTTP override does not apply), frame rules as
+    `fill`, a writable vault. `fillChange` and `fillPending` mark the attempt delivered before they answer and count as
+    activity. The three dialogs share one prompt slot (`busy`, 1 s Allow guard, 300 s timeout, closed on lock, on
+    disconnect and when the pairing goes); the generated password stays in Rust. Add-origin needs an https, non-loopback
+    origin on the registrable domain of the login's https URL and of `fromOrigin`. New commands `browser_rotation_respond`
+    and `browser_rotation_reveal`, events `browserRotationRequested` and `browserRotationClosed` (no secret in either).
+  - Extension: the popup card ("Password change": open the change page, fill the change form, fill the new password to
+    sign in, It worked, It didn't work, start over) and the "Change password…" action under a login that matches the exact
+    https address; `content/change.ts` classifies the form (autocomplete tokens, three fields, English and German
+    names and labels, text fields only with an explicit token, anything unclear is ambiguous) at the probe and again at
+    the fill, and a change fill with another shape or other fields fills nothing; the background (`rotation.ts`)
+    decides on the probe's classification **before** the desktop is asked and sends one message with the two values of one
+    attempt to one frame and document; `rotationTab:<tabId>` (15 minutes, dropped on a closed tab or leaving the site)
+    bounds the "Add it?" offer to a tab the extension sent.
+  - What the content script receives and when: only after a popup click, one `fillChange` message `{current, new, shape}`
+    (current is null for a form with new-password fields only) for the frame and the document the probe classified, or
+    the ordinary `fill` message for "Fill new password to sign in". Never the user name for the change form, never a second
+    login, nothing on page load or from a shortcut.
+  - Deviations: the dialog's `allow` carries no `newPassword` (spec 7.1): "Generate another" is a decision of its own
+    (`regenerate`), so the page's password rules stay in Rust, and a weak result of the page's rules falls back to the
+    defaults (below 64 bits); the event carries no `generated` secret (spec 7.1): the dialog fetches it with
+    `browser_rotation_reveal` (`SecretOut` is not `Clone` and `AppEvent` is); `browser_rotation_respond`'s decision is a
+    struct-variant union because serde does not deny unknown keys on an internally tagged unit variant (the red-team
+    surface test caught it); the mock variants are `&credRotation=browserBegin|browserResult|addOrigin`; the save-capture
+    hook of spec 2.2 item 4 (a captured change that equals an open attempt turns the save dialog into the confirmation) is
+    **not** in T4; the hostile `e2e/hostile/rotation-*` pages are the extension-attacker's, T4 ships the happy path and
+    four refusal cases in `e2e/rotation.spec.ts`. Registration files outside T4's list were touched where a new command or
+    event has to be listed (`contract/events.rs`, `contract/fixtures.rs`, `commands/names.rs`, `commands/mod.rs`, the
+    capability, `redteam_surface_tests.rs`, `screens/ApprovalDialogs.tsx`, the `native-messaging/fuzz` lockfile).
+  - Tests: native-messaging 105 (100 library and 5 host-binary); desktop `browser_rotation_tests` 13 and the ratelimit and rotation unit tests, full
+    `cargo test -p mosaic-desktop` 460 (459 passed, 1 ignored); extension vitest 731 (30 files); desktop vitest 1402 (84 files) (dialog 7); e2e `rotation.spec.ts` 7;
+    i18n parity 6996 keys and ICU checks; clippy `-D warnings`, fmt, `cargo check --bins` of both fuzz crates.
 
 ## Open risks / findings
 

@@ -6,7 +6,8 @@
 use serde::Serialize;
 
 use super::browser::{
-    BrowserCloseReason, BrowserPairingRequest, BrowserPasskeyRequest, BrowserSaveRequest,
+    BrowserCloseReason, BrowserPairingRequest, BrowserPasskeyRequest, BrowserRotationRequest,
+    BrowserSaveRequest,
 };
 use super::credential_rotation::BreachScanError;
 use super::errors::ErrorCode;
@@ -155,6 +156,21 @@ pub enum AppEvent {
         /// Why.
         reason: BrowserCloseReason,
     },
+    /// The extension starts a password change, reports its result or asks to
+    /// add a related address. The UI shows it and waits for the user
+    /// (`browser_rotation_respond`); a generated password is fetched with
+    /// `browser_rotation_reveal`, never carried here.
+    BrowserRotationRequested {
+        /// The request.
+        request: BrowserRotationRequest,
+    },
+    /// A rotation request is no longer open.
+    BrowserRotationClosed {
+        /// The request.
+        request_id: String,
+        /// Why.
+        reason: BrowserCloseReason,
+    },
     /// A browser was paired or removed, or connected or disconnected: read
     /// `browser_status` again.
     BrowserPairingsChanged,
@@ -274,6 +290,19 @@ pub(crate) mod samples {
                 request_id: browser::request_id(),
                 reason: BrowserCloseReason::AbortedByPage,
             },
+            AppEvent::BrowserRotationRequested {
+                request: browser::rotation_begin_request(),
+            },
+            AppEvent::BrowserRotationRequested {
+                request: browser::rotation_result_request(),
+            },
+            AppEvent::BrowserRotationRequested {
+                request: browser::rotation_add_origin_request(),
+            },
+            AppEvent::BrowserRotationClosed {
+                request_id: browser::request_id(),
+                reason: BrowserCloseReason::Expired,
+            },
             AppEvent::BrowserPairingsChanged,
             AppEvent::SharingChanged {
                 invites: 1,
@@ -320,6 +349,8 @@ pub(crate) mod samples {
                 | AppEvent::BrowserSaveClosed { .. }
                 | AppEvent::BrowserPasskeyRequested { .. }
                 | AppEvent::BrowserPasskeyClosed { .. }
+                | AppEvent::BrowserRotationRequested { .. }
+                | AppEvent::BrowserRotationClosed { .. }
                 | AppEvent::BrowserPairingsChanged
                 | AppEvent::SharingChanged { .. }
                 | AppEvent::RotationProgress { .. }

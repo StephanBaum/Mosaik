@@ -1,0 +1,16 @@
+<!-- attempts: swaps the autocomplete values of the current and the new field after the probe (the page calls swap()). -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<form id="change" action="/never" onsubmit="window.__submitted = true; return false">
+  <input id="current" name="current" type="password" autocomplete="current-password">
+  <input id="new" name="new" type="password" autocomplete="new-password">
+  <button type="submit">Change password</button>
+</form>
+<script>
+  window.swap = () => {
+    document.getElementById("current").setAttribute("autocomplete", "new-password");
+    document.getElementById("new").setAttribute("autocomplete", "current-password");
+  };
+</script>

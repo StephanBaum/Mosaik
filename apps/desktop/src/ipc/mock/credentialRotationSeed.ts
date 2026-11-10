@@ -83,7 +83,7 @@ export function applyCredRotationSeed(state: MockState): void {
     return;
   }
   seedFindings(state, now);
-  if (variant === "pending") {
+  if (variant === "pending" || variant === "browserResult" || variant === "addOrigin") {
     seedPending(state, now);
   }
   if (variant !== "consent" && variant !== "pending") {

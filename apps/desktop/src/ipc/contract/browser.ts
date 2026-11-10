@@ -1,5 +1,7 @@
 /** Browser extension contract: mirrors `src-tauri/src/contract/browser.rs`. */
 import type { ItemId, UnixMillis, VaultId } from "./common.ts";
+import type { RotationOutcomeKey } from "./credentialRotation.ts";
+import type { RevealedSecret } from "./items.ts";
 
 export const browserEndpointStates = ["running", "inUse", "unavailable"] as const;
 export type BrowserEndpointState = (typeof browserEndpointStates)[number];
@@ -38,6 +40,10 @@ export type BrowserCloseReason = (typeof browserCloseReasons)[number];
 
 export const browserSaveKinds = ["new", "update"] as const;
 export type BrowserSaveKind = (typeof browserSaveKinds)[number];
+
+/** What a rotation request asks the user to decide (M7b). */
+export const browserRotationKinds = ["begin", "result", "addOrigin"] as const;
+export type BrowserRotationKind = (typeof browserRotationKinds)[number];
 
 export const browserPasskeyKinds = ["create", "get"] as const;
 export type BrowserPasskeyKind = (typeof browserPasskeyKinds)[number];
@@ -173,4 +179,60 @@ export interface BrowserPasskeyRespondRequest {
    * `null` otherwise.
    */
   password: string | null;
+}
+
+/**
+ * The extension starts a password change (`begin`), reports its result (`result`) or asks to add a
+ * related address (`addOrigin`). No password: the generated one is fetched with
+ * `browser_rotation_reveal`.
+ */
+export interface BrowserRotationRequest {
+  /** The desktop's handle for this prompt: 32 lowercase hex digits. */
+  requestId: string;
+  pairingLabel: string;
+  kind: BrowserRotationKind;
+  vaultId: VaultId;
+  itemId: ItemId;
+  title: string | null;
+  /** The page's host (punycode stays punycode); for `addOrigin` the host to add. */
+  host: string;
+  /** The Unicode form of `host` when a label is punycode. */
+  unicodeHost: string | null;
+  /** `result` only: what the user said in the popup. */
+  outcome: RotationOutcomeKey | null;
+  /** `addOrigin` only: the origin to add. */
+  newOrigin: string | null;
+  requestedAt: UnixMillis;
+  expiresAt: UnixMillis;
+}
+
+/**
+ * `allow` and `regenerate` fit a `begin` (`regenerate` keeps the dialog open with a new password),
+ * `confirm` a `result` the user reported as succeeded, `keepOld` a `result`, `addOrigin` an
+ * `addOrigin`; `cancel` fits all.
+ */
+export type BrowserRotationDecision =
+  | { kind: "allow" }
+  | { kind: "regenerate" }
+  | { kind: "confirm" }
+  | { kind: "keepOld" }
+  | { kind: "addOrigin" }
+  | { kind: "cancel" };
+
+export interface BrowserRotationRespondRequest {
+  requestId: string;
+  decision: BrowserRotationDecision;
+}
+
+export interface BrowserRotationRevealRequest {
+  requestId: string;
+}
+
+/** The generated password of an open `begin` request, shown in the dialog for a moment. */
+export type BrowserRotationRevealed = RevealedSecret;
+
+/** The commands of the password-change dialog (`Commands` in `commands.ts` extends it). */
+export interface BrowserRotationCommands {
+  browser_rotation_respond: { request: BrowserRotationRespondRequest; response: null };
+  browser_rotation_reveal: { request: BrowserRotationRevealRequest; response: BrowserRotationRevealed };
 }

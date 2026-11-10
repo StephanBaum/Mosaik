@@ -7,6 +7,7 @@ import { useFrameGate } from "../components/FrameGate.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { ItemRow, type RowItem } from "../components/ItemRow.tsx";
 import { OtpCard } from "../components/OtpCard.tsx";
+import { RotationCards } from "../components/RotationCard.tsx";
 import { SaveCard } from "../components/SaveCard.tsx";
 import { Search } from "../components/Search.tsx";
 import { Warnings } from "../components/Warnings.tsx";
@@ -15,8 +16,9 @@ import { useActions, type Actions } from "../useActions.ts";
 import { useShortcuts } from "../useShortcuts.ts";
 import { useServices } from "../usePopup.ts";
 
-function toRow(match: LoginMatch): RowItem {
+function toRow(match: LoginMatch, secure: boolean): RowItem {
   return {
+    canChange: secure && match.matchedBy === "exactOrigin" && match.blocked === null,
     vaultId: match.vaultId,
     itemId: match.itemId,
     title: match.title,
@@ -75,6 +77,7 @@ function Notices({ state, gate, actions }: { state: PopupState; gate: Gate; acti
           <span>{t("ext.frame.cross")}</span>
         </p>
       )}
+      <RotationCards state={state} gate={gate} />
       {state.pendingSave !== null && <SaveCard pending={state.pendingSave} />}
       {next !== null && (
         <OtpCard
@@ -97,6 +100,7 @@ function SiteLogins({
   quiet,
   onFill,
   onCopy,
+  onChangePassword,
 }: {
   tab: NonNullable<PopupState["tab"]>;
   rows: readonly RowItem[];
@@ -105,6 +109,7 @@ function SiteLogins({
   quiet: boolean;
   onFill: (item: RowItem) => void;
   onCopy: (source: CopySource) => void;
+  onChangePassword: (item: RowItem) => void;
 }) {
   const { t } = useI18n();
   const shortcut = useFillShortcut();
@@ -133,6 +138,9 @@ function SiteLogins({
                 onFill(row);
               }}
               onCopy={onCopy}
+              onChangePassword={() => {
+                onChangePassword(row);
+              }}
             />
           ))}
         </ul>
@@ -147,7 +155,8 @@ export function LoginsView({ state }: { state: PopupState }) {
   const actions = useActions();
   const gate = useFrameGate(state);
   const tab = state.tab;
-  const rows = useMemo(() => state.matches.map(toRow), [state.matches]);
+  const secure = tab?.secure === true;
+  const rows = useMemo(() => state.matches.map((match) => toRow(match, secure)), [state.matches, secure]);
   const fillRow = (item: Pick<RowItem, "vaultId" | "itemId">) => {
     gate.gate((confirm) => actions.fill({ vaultId: item.vaultId, itemId: item.itemId }, confirm));
   };
@@ -170,6 +179,7 @@ export function LoginsView({ state }: { state: PopupState }) {
           quiet={state.pendingSave !== null || state.nextOtp !== null}
           onFill={fillRow}
           onCopy={copy}
+          onChangePassword={(item) => void actions.startChange(item)}
         />
       )}
       <Search fillOff={gate.blocked} onFill={fillRow} onCopy={copy} />

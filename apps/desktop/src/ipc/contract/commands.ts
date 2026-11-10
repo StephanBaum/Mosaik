@@ -8,6 +8,7 @@ import type {
   BrowserPairingRespondRequest,
   BrowserPasskeyRespondRequest,
   BrowserRemovePairingRequest,
+  BrowserRotationCommands,
   BrowserSaveRespondRequest,
   BrowserStatus,
 } from "./browser.ts";
@@ -143,7 +144,7 @@ interface Command<Req, Res> {
   response: Res;
 }
 
-export interface Commands extends CredentialRotationCommands {
+export interface Commands extends CredentialRotationCommands, BrowserRotationCommands {
   // Session
   session_state: Command<null, SessionState>;
   create_account: Command<CreateAccountRequest, CreatedAccount>;
@@ -360,6 +361,8 @@ const commandSet = {
   browser_pairing_respond: true,
   browser_save_respond: true,
   browser_passkey_respond: true,
+  browser_rotation_respond: true,
+  browser_rotation_reveal: true,
   sync_status: true,
   sync_check_server: true,
   sync_hosted_connect: true,

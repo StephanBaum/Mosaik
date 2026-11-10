@@ -163,6 +163,23 @@ const assertionBody = obj({
   userHandle: b64url(64),
 });
 
+const attemptId = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value);
+const rotationIds = { vaultId: id, itemId: id, attemptId } as const;
+const fillFrame = lit("top", "sameOriginFrame");
+
+const rotationMatch = obj({
+  vaultId: id,
+  itemId: id,
+  attemptId,
+  title: nullable(str(256)),
+  username: nullable(str(256)),
+  host: str(512),
+  stage: lit("prepared", "delivered"),
+  startedAt: int(0, Number.MAX_SAFE_INTEGER),
+  changeUrl: nullable(str(2048)),
+});
+
 const saveBody = obj({ origin, topOrigin: origin, username: nullable(str(256)), password: str(1024) });
 
 type Guards<M> = { readonly [O in Op]: Guard<M[O & keyof M]> };
@@ -210,6 +227,18 @@ const requestGuards: Guards<RequestMap> = {
     userVerification,
   }),
   passkeyCancel: obj({ requestId: requestHex }),
+  rotationForOrigin: obj({ origin, topOrigin: origin }),
+  rotationBegin: obj({ vaultId: id, itemId: id, origin, topOrigin: origin, rules: nullable(str(4096)) }),
+  fillChange: obj({
+    ...rotationIds,
+    origin,
+    topOrigin: origin,
+    frame: fillFrame,
+    shape: lit("currentAndNew", "newOnly"),
+  }),
+  fillPending: obj({ ...rotationIds, origin, topOrigin: origin, frame: fillFrame }),
+  rotationResult: obj({ ...rotationIds, origin, topOrigin: origin, outcome: lit("succeeded", "failed") }),
+  rotationAddOrigin: obj({ ...rotationIds, fromOrigin: origin, origin, topOrigin: origin }),
 };
 
 const resultGuards: Guards<ResultMap> = {
@@ -243,6 +272,12 @@ const resultGuards: Guards<ResultMap> = {
     assertion: nullable(assertionBody),
   }),
   passkeyCancel: empty,
+  rotationForOrigin: obj({ attempts: arr(rotationMatch, 5) }),
+  rotationBegin: obj({ outcome: lit("started", "cancelled"), attemptId: nullable(attemptId) }),
+  fillChange: obj({ current: nullable(str(1024)), new: str(1024) }),
+  fillPending: obj({ username: nullable(str(256)), password: str(1024) }),
+  rotationResult: obj({ outcome: lit("confirmed", "keptOld", "cancelled") }),
+  rotationAddOrigin: obj({ outcome: lit("added", "cancelled") }),
 };
 
 export function isOp(value: unknown): value is Op {

@@ -541,6 +541,28 @@ fn credential_rotation_requests_refuse_extra_keys_urls_and_values_in_the_wrong_p
         "rotation_close",
         &with(json!({ "attemptId": "a.b.0", "outcome": "failed" })),
     );
+    check::<crate::contract::browser::BrowserRotationRespondRequest>(
+        "browser_rotation_respond",
+        &json!({ "requestId": "7c6b5a4d3e2f1a0b9c8d7e6f5a4b3c2d", "decision": { "kind": "allow" } }),
+    );
+    // The answer to a browser dialog carries no password and no address: a decision with an extra
+    // key, or an unknown kind, is refused.
+    for hostile in [
+        json!({ "kind": "allow", "newPassword": "q7#Vt2-new" }),
+        json!({ "kind": "addOrigin", "origin": "https://evil.example" }),
+        json!({ "kind": "confirm", "changeUrl": "https://evil.example/" }),
+        json!({ "kind": "openUrl" }),
+    ] {
+        let request =
+            json!({ "requestId": "7c6b5a4d3e2f1a0b9c8d7e6f5a4b3c2d", "decision": hostile });
+        assert!(
+            serde_json::from_value::<crate::contract::browser::BrowserRotationRespondRequest>(
+                request
+            )
+            .is_err(),
+            "{hostile} was accepted"
+        );
+    }
     check::<HistoryRestoreRequest>("restore", &with(json!({ "historyId": "a.b.0" })));
     check::<RotationSnoozeRequest>("snooze", &with(json!({ "days": 7 })));
     check::<RotationPolicyRequest>("policy", &with(json!({ "everyDays": null })));

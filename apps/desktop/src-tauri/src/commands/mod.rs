@@ -115,6 +115,8 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         browser::browser_pairing_respond,
         browser::browser_save_respond,
         browser::browser_passkey_respond,
+        browser::browser_rotation_respond,
+        browser::browser_rotation_reveal,
         sync::sync_status,
         sync::sync_check_server,
         sync::sync_hosted_connect,

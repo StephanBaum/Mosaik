@@ -83,6 +83,8 @@ pub const COMMANDS: &[&str] = &[
     "browser_pairing_respond",
     "browser_save_respond",
     "browser_passkey_respond",
+    "browser_rotation_respond",
+    "browser_rotation_reveal",
     // Sync
     "sync_status",
     "sync_check_server",

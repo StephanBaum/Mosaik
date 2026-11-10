@@ -69,6 +69,8 @@
     "allow-browser-pairing-respond",
     "allow-browser-save-respond",
     "allow-browser-passkey-respond",
+    "allow-browser-rotation-respond",
+    "allow-browser-rotation-reveal",
     "allow-sync-status",
     "allow-sync-check-server",
     "allow-sync-hosted-connect",

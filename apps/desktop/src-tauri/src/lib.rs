@@ -229,6 +229,8 @@ pub fn run() -> tauri::Result<()> {
 }
 
 #[cfg(test)]
+mod browser_rotation_tests;
+#[cfg(test)]
 mod browser_tests;
 #[cfg(test)]
 mod credential_rotation_tests;

@@ -5,6 +5,7 @@ import { GeneratedHold, type FillDeps } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
 import { PasskeySwitch, type PasskeyRegistry } from "./passkey-registry.ts";
 import { PopupService } from "./popup.ts";
+import { RotationService, type RotationDeps } from "./rotation.ts";
 import { SaveService } from "./save.ts";
 import { lastErrorKey, memorySession, pendingSaveKey } from "./session.ts";
 
@@ -22,6 +23,7 @@ const probe = (over: Partial<FrameProbe> = {}): FrameProbe => ({
   counts: { username: 1, password: 0, newPassword: 2, otp: 0 },
   passwordRules: "minlength: 12;",
   visible: true,
+  changeShape: "none",
   ...over,
 });
 
@@ -60,6 +62,7 @@ function harness(): Harness {
       inject: () => Promise.resolve(),
       probe: () => Promise.resolve(probes),
       send: () => Promise.resolve({ ok: true, filled: { username: 0, password: 0, otp: 0, newPassword: 2 }, usernameValue: "ada" }),
+      navigate: () => Promise.resolve(),
     },
     session,
     badge: { set: () => Promise.resolve(), clear: badge.clear, openPopup: () => Promise.resolve() },
@@ -87,7 +90,8 @@ function harness(): Harness {
     unregister: () => Promise.resolve(),
   };
   const passkeys = new PasskeySwitch(registry);
-  const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save, passkeys }, () => null);
+  const rotation = new RotationService({ native: native as unknown as RotationDeps["native"], tabs: fill.tabs, session, now: () => 1_000_000 });
+  const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save, passkeys, rotation }, () => null);
   return { service, hold, save, requests, session, badge, setProbes: (p) => (probes = p) };
 }
 

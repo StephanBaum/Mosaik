@@ -19,6 +19,7 @@ const frame = (frameId: number, over: Partial<FrameProbe> = {}): FrameProbe => (
   counts: { username: 1, password: 1, newPassword: 0, otp: 0 },
   passwordRules: null,
   visible: true,
+  changeShape: "none",
   ...over,
 });
 
@@ -81,6 +82,7 @@ function harness(): Harness {
         sent.push({ frame: target, message: { ...message } });
         return Promise.resolve(reply);
       },
+      navigate: () => Promise.resolve(),
     },
     session: memorySession(),
     badge: { ...badge, set: (...a: [number, string]) => Promise.resolve(badge.set(...a)), clear: (t: number) => Promise.resolve(badge.clear(t)), openPopup: () => Promise.resolve(badge.openPopup()) },

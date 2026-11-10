@@ -233,4 +233,46 @@ export const ext = {
     "Mosaic needs access to websites to notice logins, and you didn't allow it.",
   "ext.error.generatedExpired":
     "Mosaic no longer holds that password. Generate a new one.",
+
+  // Password change on the site (M7b)
+  "ext.rotation.card.title": "Password change",
+  "ext.rotation.card.for": "For {name}",
+  "ext.rotation.card.started": "Started {when}",
+  "ext.rotation.card.delivered": "The new password was already filled once.",
+  "ext.rotation.card.note":
+    "The new password is shown only in the Mosaic app. Mosaic never submits the form for you.",
+  "ext.rotation.card.list": "Password changes in progress",
+  "ext.rotation.change": "Change password…",
+  "ext.rotation.changeLabel": "Change password… for {name}",
+  "ext.rotation.openPage": "Open change page",
+  "ext.rotation.fillChange": "Fill change form",
+  "ext.rotation.fillPending": "Fill new password to sign in",
+  "ext.rotation.worked": "It worked",
+  "ext.rotation.failed": "It didn't work",
+  "ext.rotation.fresh": "Start over with a new password",
+  "ext.rotation.waiting": "Waiting for you in the Mosaic app…",
+  "ext.rotation.started": "Started. Choose Use this password in the Mosaic app.",
+  "ext.rotation.startCancelled": "Nothing was started.",
+  "ext.rotation.filled": "Change form filled. Check it, then submit it yourself.",
+  "ext.rotation.opened": "Opened the change page.",
+  "ext.rotation.confirmed": "Done. The new password is now saved in Mosaic.",
+  "ext.rotation.keptOld": "Mosaic kept the old password.",
+  "ext.rotation.resultCancelled": "Nothing changed. The change is still open.",
+  "ext.rotation.offer.title": "A related address",
+  "ext.rotation.offer.body":
+    "This page is on {host}, which isn't saved for {title}. Add it so Mosaic can fill there?",
+  "ext.rotation.offer.add": "Add {host}",
+  "ext.rotation.offer.added": "Added. The change is shown here now.",
+  "ext.rotation.offer.cancelled": "Not added.",
+
+  "ext.error.rotationNotFound":
+    "That password change is no longer open. Start a new one from the login.",
+  "ext.error.originNotRelated":
+    "That address isn't on the same site as this login, so Mosaic didn't add it.",
+  "ext.error.rotationLimit":
+    "This login already has four unfinished changes. Finish or cancel one in the Mosaic app first.",
+  "ext.error.changeFormNotFound":
+    "Mosaic didn't find a password change form here. Open your account's password page, then try again.",
+  "ext.error.changeFormAmbiguous":
+    "Mosaic couldn't tell which field is which. Copy the new password from Mosaic and paste it yourself.",
 } as const;

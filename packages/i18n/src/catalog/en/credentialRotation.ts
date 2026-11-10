@@ -105,4 +105,35 @@ export const credentialRotation = {
 
   "credentialRotation.reminder.toast": "{count, plural, one {# password to change} other {# passwords to change}}",
   "credentialRotation.reminder.show": "Show",
+
+  // Browser dialogs of the password change (the extension starts, reports and asks; this window decides)
+  "credentialRotation.dialog.beginTitle": "Start a password change?",
+  "credentialRotation.dialog.beginBody":
+    "{browser} wants to change the password for {title} on {host}. Mosaic keeps the new password with this login, and keeps the current one until you confirm the site accepted it.",
+  "credentialRotation.dialog.site": "Website",
+  "credentialRotation.dialog.login": "Login",
+  "credentialRotation.dialog.password": "New password",
+  "credentialRotation.dialog.hidden": "Hidden",
+  "credentialRotation.dialog.show": "Show",
+  "credentialRotation.dialog.hide": "Hide",
+  "credentialRotation.dialog.regenerate": "Generate another",
+  "credentialRotation.dialog.regenerated": "A new password was generated.",
+  "credentialRotation.dialog.allow": "Use this password",
+  "credentialRotation.dialog.cancel": "Cancel",
+  "credentialRotation.dialog.untitled": "this login",
+  "credentialRotation.dialog.resultTitle": "Did {host} accept the new password?",
+  "credentialRotation.dialog.resultBody":
+    "{browser} says the change worked. If you confirm, the new password becomes the password for {title}, and the current one moves to its history.",
+  "credentialRotation.dialog.confirm": "It worked",
+  "credentialRotation.dialog.keepOld": "Keep old password",
+  "credentialRotation.dialog.failedTitle": "Keep the old password?",
+  "credentialRotation.dialog.failedBody":
+    "{browser} says the change didn't work. Mosaic keeps the current password for {title}. The new value stays in its history, in case the site changed it anyway.",
+  "credentialRotation.addOrigin.title": "Add {host} to {title}?",
+  "credentialRotation.addOrigin.body":
+    "Mosaic will fill this login on {host} too. Only add it if {host} is really part of the same site.",
+  "credentialRotation.addOrigin.idn":
+    "This address uses special characters. Your browser may show it as {unicode}. Check it carefully.",
+  "credentialRotation.addOrigin.add": "Add address",
+  "credentialRotation.addOrigin.cancel": "Not now",
 } as const satisfies Record<string, string>;

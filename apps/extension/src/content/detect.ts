@@ -102,7 +102,7 @@ function describeField(el: HTMLInputElement): Field | null {
 }
 
 /** Every `input` in `root` and its open shadow roots, with the tree each one lives in. */
-function collectInputs(root: Document | ShadowRoot, depth: number, out: HTMLInputElement[]): void {
+export function collectInputs(root: Document | ShadowRoot, depth: number, out: HTMLInputElement[]): void {
   out.push(...root.querySelectorAll("input"));
   if (depth >= MAX_SHADOW_DEPTH) {
     return;

@@ -82,6 +82,36 @@ export interface SaveBody {
 
 export type UserVerification = "required" | "preferred" | "discouraged";
 
+/** How far a password change got on the desktop: the value is stored, or a page was handed it. */
+export type AttemptStage = "prepared" | "delivered";
+
+/** One open password-change attempt of a login saved for exactly this origin. No secret. */
+export interface RotationMatch {
+  vaultId: string;
+  itemId: string;
+  /** The key suffix: at most 64 ASCII characters. */
+  attemptId: string;
+  title: string | null;
+  username: string | null;
+  host: string;
+  stage: AttemptStage;
+  startedAt: number;
+  /** The change page the desktop validated (https, the login's registrable domain), or null. */
+  changeUrl: string | null;
+}
+
+/** The fields of the change form, as the content script classified them. */
+export type ChangeShape = "currentAndNew" | "newOnly";
+
+/** The frame a change fill is for (the desktop checks it like a login fill). */
+export type FillFrame = "top" | "sameOriginFrame";
+
+interface RotationIds {
+  vaultId: string;
+  itemId: string;
+  attemptId: string;
+}
+
 /**
  * `passkeyCreate` (docs/NATIVE_MESSAGING.md §5.2). Binary values are base64url without padding.
  * `origin` and `topOrigin` come from the browser, never from the page.
@@ -154,6 +184,12 @@ export interface RequestMap {
   passkeyCreate: PasskeyCreateBody;
   passkeyGet: PasskeyGetBody;
   passkeyCancel: { requestId: string };
+  rotationForOrigin: { origin: string; topOrigin: string };
+  rotationBegin: { vaultId: string; itemId: string; origin: string; topOrigin: string; rules: string | null };
+  fillChange: RotationIds & { origin: string; topOrigin: string; frame: FillFrame; shape: ChangeShape };
+  fillPending: RotationIds & { origin: string; topOrigin: string; frame: FillFrame };
+  rotationResult: RotationIds & { origin: string; topOrigin: string; outcome: "succeeded" | "failed" };
+  rotationAddOrigin: RotationIds & { fromOrigin: string; origin: string; topOrigin: string };
 }
 
 export interface ResultMap {
@@ -181,6 +217,12 @@ export interface ResultMap {
   passkeyCreate: { outcome: "created" | "useAnotherDevice"; credential: CreatedCredential | null };
   passkeyGet: { outcome: "asserted" | "useAnotherDevice"; assertion: AssertionBody | null };
   passkeyCancel: EmptyBody;
+  rotationForOrigin: { attempts: RotationMatch[] };
+  rotationBegin: { outcome: "started" | "cancelled"; attemptId: string | null };
+  fillChange: { current: string | null; new: string };
+  fillPending: { username: string | null; password: string };
+  rotationResult: { outcome: "confirmed" | "keptOld" | "cancelled" };
+  rotationAddOrigin: { outcome: "added" | "cancelled" };
 }
 
 export type Op = keyof RequestMap;
@@ -202,6 +244,12 @@ export const OPS = [
   "passkeyCreate",
   "passkeyGet",
   "passkeyCancel",
+  "rotationForOrigin",
+  "rotationBegin",
+  "fillChange",
+  "fillPending",
+  "rotationResult",
+  "rotationAddOrigin",
 ] as const satisfies readonly Op[];
 
 export interface RequestEnvelope<O extends Op = Op> {

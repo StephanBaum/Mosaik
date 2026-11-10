@@ -14,7 +14,10 @@
  * URL variants (`&credRotation=`): queue (weak, reused, old and breached items, one manual item),
  * empty, pending (an open change with a not-confirmed history entry), breachRunning (a scan that
  * stays at 3 of 9), breachOffline (the last scan could not reach the service), consent (a queue
- * with the breach check off, so "Check now" asks for the consent).
+ * with the breach check off, so "Check now" asks for the consent), and the three dialogs of the
+ * browser extension (`mock/browser.ts`, 500 ms after the app subscribes): browserBegin (the
+ * extension starts a change on GitHub), browserResult (it reports that an open change worked) and
+ * addOrigin (it asks to add a related address to GitHub, which has an open change).
  */
 import type {
   AttemptStage,
@@ -38,6 +41,9 @@ export const credRotationVariants = [
   "breachRunning",
   "breachOffline",
   "consent",
+  "browserBegin",
+  "browserResult",
+  "addOrigin",
 ] as const;
 export type CredRotationVariant = (typeof credRotationVariants)[number];
 
@@ -171,6 +177,22 @@ function attemptValue(state: MockState, item: MockItem, attemptId: string): stri
 function dropAttempt(state: MockState, item: MockItem, attemptId: string): void {
   item.detail.rotationAttempts = item.detail.rotationAttempts.filter((a) => a.attemptId !== attemptId);
   state.credRotation.pending.delete(attemptKey(item.detail.summary.itemId, attemptId));
+}
+
+/** Closes an attempt as the desktop does: success swaps the values, failure files the value as not confirmed. */
+export function closeAttempt(
+  state: MockState,
+  item: MockItem,
+  attemptId: string,
+  outcome: "succeeded" | "failed",
+): void {
+  if (outcome === "succeeded") {
+    confirm(state, item, attemptId);
+    return;
+  }
+  const value = attemptValue(state, item, attemptId);
+  pushHistory(state, item, value, "unconfirmed");
+  dropAttempt(state, item, attemptId);
 }
 
 function confirm(state: MockState, item: MockItem, attemptId: string): void {
@@ -363,14 +385,7 @@ export const credentialRotationHandlers: MockHandlers = {
 
   rotation_close: (state, request) => {
     requireUnlocked(state);
-    const item = find(state, request);
-    if (request.outcome === "succeeded") {
-      confirm(state, item, request.attemptId);
-    } else {
-      const value = attemptValue(state, item, request.attemptId);
-      pushHistory(state, item, value, "unconfirmed");
-      dropAttempt(state, item, request.attemptId);
-    }
+    closeAttempt(state, find(state, request), request.attemptId, request.outcome);
     return null;
   },
 

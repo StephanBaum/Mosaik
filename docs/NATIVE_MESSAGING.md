@@ -285,6 +285,12 @@ A request with `v` other than 1 gets `protocolVersion`.
 | `passkeyCreate` | `{requestId, origin, topOrigin, rpId \| null, userId, userName, userDisplayName, challenge, algorithms: number[], excludeCredentials: string[], userVerification: "required" \| "preferred" \| "discouraged"}` | `{outcome: "created" \| "useAnotherDevice", credential: {credentialId, clientDataJson, attestationObject, authenticatorData, publicKeySpki, publicKeyAlgorithm, vaultId, itemId} \| null}` |
 | `passkeyGet` | `{requestId, origin, topOrigin, rpId \| null, challenge, allowCredentials: string[], userVerification}` | `{outcome: "asserted" \| "useAnotherDevice", assertion: {credentialId, clientDataJson, authenticatorData, signature, userHandle} \| null}` |
 | `passkeyCancel` | `{requestId}` | `{}` |
+| `rotationForOrigin` | `{origin, topOrigin}` | `{attempts: RotationMatch[] (at most 5)}` |
+| `rotationBegin` | `{vaultId, itemId, origin, topOrigin, rules: string \| null}` (rules at most 4096) | `{outcome: "started" \| "cancelled", attemptId: string \| null}` |
+| `fillChange` | `{vaultId, itemId, attemptId, origin, topOrigin, frame: "top" \| "sameOriginFrame", shape: "currentAndNew" \| "newOnly"}` | `{current: Secret \| null, new: Secret}` (`current` is `null` for `newOnly`) |
+| `fillPending` | `{vaultId, itemId, attemptId, origin, topOrigin, frame}` | `{username: string \| null, password: Secret}` |
+| `rotationResult` | `{vaultId, itemId, attemptId, origin, topOrigin, outcome: "succeeded" \| "failed"}` | `{outcome: "confirmed" \| "keptOld" \| "cancelled"}` |
+| `rotationAddOrigin` | `{vaultId, itemId, attemptId, fromOrigin, origin, topOrigin}` | `{outcome: "added" \| "cancelled"}` |
 
 - `hello` starts or restarts the host's session with the stored pairing and reports the
   desktop state. With `pairing: null` it asks for the lock state without a session
@@ -298,6 +304,29 @@ A request with `v` other than 1 gets `protocolVersion`.
 - `OriginWarning` = `{kind: "idn", unicodeHost}` | `{kind: "insecure"}` |
   `{kind: "lookalike", savedHost}`.
 - Limits: origin at most 2048 bytes, username 256, password 1024, title 256 characters.
+- Password change (M7b, ADR-0068; additive, `v` stays 1, `Op::ALL` grows by six; an extension of
+  this version against an older desktop gets `invalidRequest` for `rotationForOrigin` and hides every
+  rotation control; `LoginMatch`, `checkSave` and `fill` are unchanged). `RotationMatch` =
+  `{vaultId, itemId, attemptId, title \| null, username \| null, host, stage: "prepared" \| "delivered",
+  startedAt, changeUrl: string \| null}`: an open attempt of a login saved for **exactly** the page's
+  origin (no value; `attemptId` is the key suffix, at most 64 ASCII characters, validated by pattern;
+  `changeUrl` is the desktop's validated change page, https on the page's registrable domain).
+  `rotationBegin`, `rotationResult` and `rotationAddOrigin` only **open a desktop dialog**
+  (`browserRotationRequested`, one at a time, `busy` otherwise, the 1 s Allow guard, the 300 s prompt
+  timeout, closed on lock, and the host waits 302 s); the user's answer in it writes the vault. The
+  dialog generates the new password in Rust (the page's `passwordrules` are passed along as for
+  `generate`, a weak result falls back to the defaults); the extension never sees it. `fillChange` and
+  `fillPending` hand the values of **one** attempt of one login to one frame (`current` is only sent
+  for the shape `currentAndNew`) and mark the attempt `delivered` **before** answering; they count as
+  activity. `rotationAddOrigin` adds the page's origin to the login only if it is https, not loopback,
+  not a public suffix, and its registrable domain equals that of an https URL of the login and of
+  `fromOrigin` (`originNotRelated`); a decision in the dialog is still required.
+  Desktop checks (`browser/rotation.rs`), in order: paired and unlocked; frame rules as `fill`
+  (`crossOriginFrame`; the dialog ops accept the top frame only); **https only** (`insecureOrigin`; the
+  per-item HTTP override does not apply); `mosaic_origin::fill_allowed` must answer
+  `MatchKind::ExactOrigin` (an eTLD+1 match is `originMismatch` here); writable vault
+  (`vaultUnavailable`); the attempt (`rotationNotFound`) and, for a begin, at most four open attempts
+  (`rotationLimit`).
 - Passkeys (ADR-0039, ADR-0040). Binary values are base64url without padding.
   `requestId` is 32 lowercase hex digits chosen by the extension; it names the request for
   `passkeyCancel` only. The desktop dialog has its own handle, made by the desktop. `origin` and `topOrigin` come from the browser, never from the
@@ -338,12 +367,16 @@ A request with `v` other than 1 gets `protocolVersion`.
   `vaultUnavailable`, `noOtp`, `otpNotFillable`, `fieldEmpty`, `clipboardUnavailable`,
   `cancelled`, `passkeyNotFound`, `passkeyExcluded`, `rpIdMismatch`, `passkeyUnsupported`,
   `pairingDenied`, `pairingExpired`, `pairingConflict`, `pairingBlocked`, `pairingLimit`,
-  `internal`.
+  `rotationNotFound` (no such open attempt on that item), `originNotRelated` (the address is not on the
+  login's site), `rotationLimit` (four open attempts), `internal`.
 - Host: `desktopNotRunning`, `desktopNotAuthentic`, `timeout`, `frameTooLarge`.
 - Extension-local, never on the wire: `hostMissing`, `hostForbidden`, `hostExited`,
   `unsupportedPage`, `noFields`, `noMatch`, `frameNeedsConfirmation`, `frameOpaque`,
   `originChanged`, `pageHidden`, `permissionDenied` (the optional site access for save capture or passkeys was not
-  granted), `generatedExpired` (the generated password the popup showed is no longer held).
+  granted), `generatedExpired` (the generated password the popup showed is no longer held),
+  `changeFormNotFound` (no password change form on the page), `changeFormAmbiguous` (the change form
+  cannot be told apart, or it changed between the probe and the fill): both are decided in the
+  extension **before** any secret is requested.
 
 ### 5.4 What no op does (passkeys)
 
@@ -367,6 +400,7 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 | `PAIR_TIMEOUT` | 120 s |
 | `SAVE_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `proposeSave`, the extension 305 s) |
 | `PASSKEY_PROMPT_TIMEOUT` | 300 s (the host waits 302 s for `passkeyCreate` and `passkeyGet`, the extension 305 s) |
+| rotation prompt | 300 s like `SAVE_PROMPT_TIMEOUT` (the host waits 302 s for `rotationBegin`, `rotationResult` and `rotationAddOrigin`, the extension 305 s) |
 | desktop idle close | 10 min |
 | extension port idle disconnect | 60 s with nothing in flight |
 | `MAX_CONNECTIONS` | 8 authenticated sessions (a ninth `hello` is refused `busy`). Connections that have not authenticated have their own 4 slots; a new one evicts the oldest, so idle connections cannot lock the host out. A session starts only while its pairing still exists, and ends (`notPaired`, then close) when it is removed |
@@ -376,7 +410,9 @@ pairing the desktop does not know is `notPaired`; the extension keeps its record
 Rate limits are the desktop's, per pairing, as sliding windows: `fill` 10 per 10 s, `copy`
 20 per 60 s, `listForOrigin` and `search` together 60 per 60 s, `generate` 30 per 60 s,
 `checkSave` 10 per 60 s, `proposeSave` 3 per 60 s (a `proposeSave` also counts against the `checkSave` window),
-`passkeyCreate` 3 per 60 s, `passkeyGet` 10 per 60 s, `passkeyCancel` 20 per 60 s; `focus` 1 per 2 s (global);
+`passkeyCreate` 3 per 60 s, `passkeyGet` 10 per 60 s, `passkeyCancel` 20 per 60 s; `rotationForOrigin` shares
+the `listForOrigin` window, `fillChange` and `fillPending` share the `fill` window, and `rotationBegin`,
+`rotationResult` and `rotationAddOrigin` share 3 per 60 s; `focus` 1 per 2 s (global);
 `pairRequest` 3 per 60 s (global), and 3 denials within 10 min block pair requests for
 10 min (`pairingBlocked`).
 
@@ -391,10 +427,10 @@ go first, then the origin whose latest request is the oldest) and drops them wit
 States. Desktop not running: `hello` says `notRunning`. Locked: the authenticated session
 stays up; `status`, `focus` and `unpair` work and every other op returns `locked`. Pairing
 while locked returns `locked`. State changes are pushed as `state` events. On lock, pending
-pair, save and passkey prompts close with reason `locked`, the held password is dropped, and a waiting
+pair, save, rotation and passkey prompts close with reason `locked`, the held password is dropped, and a waiting
 passkey request is answered `cancelled`. One passkey prompt is open at a time (a second request is
 `busy`); it belongs to the pairing and the session that asked and closes when either goes away.
-Activity: only `fill`, `copy` and a **completed** passkey create or sign-in count as user activity
+Activity: only `fill`, `fillChange`, `fillPending`, `copy` and a **completed** passkey create or sign-in count as user activity
 for the auto-lock; requests that only open a dialog, are cancelled or fail do not.
 
 ## 7. Packaging (developer builds)

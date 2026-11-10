@@ -71,6 +71,8 @@ export const fixtures = {
     "browser_pairing_respond",
     "browser_save_respond",
     "browser_passkey_respond",
+    "browser_rotation_respond",
+    "browser_rotation_reveal",
     "sync_status",
     "sync_check_server",
     "sync_hosted_connect",
@@ -193,6 +195,11 @@ export const fixtures = {
     "browserRegistryState": [
       "ok",
       "unreadable"
+    ],
+    "browserRotationKind": [
+      "begin",
+      "result",
+      "addOrigin"
     ],
     "browserSaveKind": [
       "new",
@@ -1316,6 +1323,62 @@ export const fixtures = {
       "type": "browserPasskeyClosed"
     },
     {
+      "request": {
+        "expiresAt": 1761480335000,
+        "host": "example.com",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+        "kind": "begin",
+        "newOrigin": null,
+        "outcome": null,
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "title": "Example",
+        "unicodeHost": null,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      "type": "browserRotationRequested"
+    },
+    {
+      "request": {
+        "expiresAt": 1761480335000,
+        "host": "example.com",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+        "kind": "result",
+        "newOrigin": null,
+        "outcome": "succeeded",
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "title": "Example",
+        "unicodeHost": null,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      "type": "browserRotationRequested"
+    },
+    {
+      "request": {
+        "expiresAt": 1761480335000,
+        "host": "xn--bcher-kva.example.com",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+        "kind": "addOrigin",
+        "newOrigin": "https://xn--bcher-kva.example.com",
+        "outcome": null,
+        "pairingLabel": "Chrome",
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        "requestedAt": 1761480035000,
+        "title": "Example",
+        "unicodeHost": "bücher.example.com",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      "type": "browserRotationRequested"
+    },
+    {
+      "reason": "expired",
+      "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "type": "browserRotationClosed"
+    },
+    {
       "type": "browserPairingsChanged"
     },
     {
@@ -1560,6 +1623,49 @@ export const fixtures = {
     "browser_remove_pairing": [
       {
         "pairingId": "0123456789abcdef0123456789abcdef"
+      }
+    ],
+    "browser_rotation_respond": [
+      {
+        "decision": {
+          "kind": "allow"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "regenerate"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "confirm"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "keepOld"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "addOrigin"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      },
+      {
+        "decision": {
+          "kind": "cancel"
+        },
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+      }
+    ],
+    "browser_rotation_reveal": [
+      {
+        "requestId": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
       }
     ],
     "browser_save_respond": [
@@ -3202,6 +3308,15 @@ export const fixtures = {
         "endpoint": "running",
         "pairings": [],
         "registry": "unreadable"
+      }
+    ],
+    "browser_rotation_respond": [
+      null
+    ],
+    "browser_rotation_reveal": [
+      {
+        "hideAfterSeconds": 10,
+        "value": "q7#Vt2!mZp9@Lx4$Nw6&"
       }
     ],
     "browser_save_respond": [

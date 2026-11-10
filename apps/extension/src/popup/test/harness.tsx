@@ -83,6 +83,8 @@ export const baseState = (over: Partial<PopupState> = {}): PopupState => ({
   saveOffers: false,
   passkeys: false,
   generatorFill: false,
+  rotations: [],
+  rotationTabOffer: null,
   ...over,
 });
 

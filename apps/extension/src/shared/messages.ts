@@ -9,6 +9,7 @@ import type {
   GenerateRequest,
   LoginMatch,
   OriginWarning,
+  RotationMatch,
   SearchHit,
 } from "./protocol.ts";
 import {
@@ -76,6 +77,16 @@ export interface NextOtp {
   username: string | null;
 }
 
+/**
+ * The page is on a related address of a login (the same registrable domain) that the extension
+ * sent the tab to: the popup offers to add it. The desktop decides.
+ */
+export interface RotationTabOffer {
+  host: string;
+  unicodeHost: string | null;
+  title: string | null;
+}
+
 export interface PopupState {
   connection: ConnectionState;
   pairCode: { code: string; expiresInSeconds: number } | null;
@@ -92,6 +103,10 @@ export interface PopupState {
   /** "Use Mosaic for passkeys" is on: the passkey scripts are registered and the site access is granted. */
   passkeys: boolean;
   generatorFill: boolean;
+  /** The open password changes of logins saved for exactly this page (at most 5); empty off https. */
+  rotations: RotationMatch[];
+  /** A related address the tab was sent to (`rotationOpenPage`): offer to add it, or null. */
+  rotationTabOffer: RotationTabOffer | null;
 }
 
 export type SaveAction = "save" | "dismiss" | "never";
@@ -110,6 +125,12 @@ export type PopupRequest =
   | { op: "savePending"; action: SaveAction }
   | { op: "saveOffersChanged"; enabled: boolean }
   | { op: "setPasskeys"; enabled: boolean }
+  | { op: "rotationBegin"; vaultId: string; itemId: string }
+  | { op: "rotationOpenPage"; vaultId: string; itemId: string; attemptId: string }
+  | { op: "fillChange"; vaultId: string; itemId: string; attemptId: string; confirmFrame: FrameRef | null }
+  | { op: "fillPending"; vaultId: string; itemId: string; attemptId: string; confirmFrame: FrameRef | null }
+  | { op: "rotationResult"; vaultId: string; itemId: string; attemptId: string; outcome: "succeeded" | "failed" }
+  | { op: "rotationAddOrigin" }
   | { op: "unpair" };
 
 export interface PopupResults {
@@ -125,6 +146,12 @@ export interface PopupResults {
   savePending: { outcome: "saved" | "updated" | "cancelled" | "dismissed" | "never" };
   saveOffersChanged: { saveOffers: boolean };
   setPasskeys: { passkeys: boolean };
+  rotationBegin: { outcome: "started" | "cancelled" };
+  rotationOpenPage: Record<string, never>;
+  fillChange: FillSummary;
+  fillPending: FillSummary;
+  rotationResult: { outcome: "confirmed" | "keptOld" | "cancelled" };
+  rotationAddOrigin: { outcome: "added" | "cancelled" };
   unpair: Record<string, never>;
 }
 
@@ -151,6 +178,8 @@ export type PopupEvent =
   | { event: "pairCode"; code: string; expiresInSeconds: number };
 
 const id = str(128);
+const attemptId = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value);
 const frameRef: Guard<FrameRef> = obj({ frameId: int(0, 2_147_483_647), documentId: nullable(str(64)) });
 const confirmFrame = nullable(frameRef);
 
@@ -167,6 +196,18 @@ const popupRequest: Guard<PopupRequest> = tagged<PopupRequest>("op", {
   savePending: obj({ op: exactly("savePending" as const), action: lit("save", "dismiss", "never") }),
   saveOffersChanged: obj({ op: exactly("saveOffersChanged" as const), enabled: bool }),
   setPasskeys: obj({ op: exactly("setPasskeys" as const), enabled: bool }),
+  rotationBegin: obj({ op: exactly("rotationBegin" as const), vaultId: id, itemId: id }),
+  rotationOpenPage: obj({ op: exactly("rotationOpenPage" as const), vaultId: id, itemId: id, attemptId }),
+  fillChange: obj({ op: exactly("fillChange" as const), vaultId: id, itemId: id, attemptId, confirmFrame }),
+  fillPending: obj({ op: exactly("fillPending" as const), vaultId: id, itemId: id, attemptId, confirmFrame }),
+  rotationResult: obj({
+    op: exactly("rotationResult" as const),
+    vaultId: id,
+    itemId: id,
+    attemptId,
+    outcome: lit("succeeded", "failed"),
+  }),
+  rotationAddOrigin: obj({ op: exactly("rotationAddOrigin" as const) }),
   unpair: obj({ op: exactly("unpair" as const) }),
 });
 
@@ -188,7 +229,15 @@ export interface ProbeResult {
   counts: { username: number; password: number; newPassword: number; otp: number };
   passwordRules: string | null;
   visible: boolean;
+  /**
+   * What the change-form heuristic made of the form (`content/change.ts`): decided before the
+   * desktop is asked for a secret. `none`: no password change form; `ambiguous`: more or fewer
+   * fields than a change form has, or fields that cannot be told apart.
+   */
+  changeShape: ChangeFormShape;
 }
+
+export type ChangeFormShape = "none" | "ambiguous" | "currentAndNew" | "newOnly";
 
 /** A probe plus what the browser knows of the frame. */
 export interface FrameProbe extends ProbeResult {
@@ -212,7 +261,21 @@ export interface FillGeneratedMessage {
   password: string;
 }
 
-export type ContentMessage = FillMessage | FillGeneratedMessage;
+/**
+ * The two values of **one** login's password change, for one frame and one document: the current
+ * password (null for a form with new-password fields only) and the new one. The content script
+ * classifies the form again and fills only if it is the form the probe saw.
+ */
+export interface FillChangeMessage {
+  type: "fillChange";
+  fillId: string;
+  expectedOrigin: string;
+  shape: "currentAndNew" | "newOnly";
+  current: string | null;
+  new: string;
+}
+
+export type ContentMessage = FillMessage | FillGeneratedMessage | FillChangeMessage;
 
 export type FillReply =
   | { ok: true; filled: FillSummary; usernameValue: string | null }
@@ -233,6 +296,14 @@ export const isContentMessage: Guard<ContentMessage> = tagged<ContentMessage>("t
     expectedOrigin: str(2048),
     password: str(1024),
   }),
+  fillChange: obj({
+    type: exactly("fillChange" as const),
+    fillId: str(64),
+    expectedOrigin: str(2048),
+    shape: lit("currentAndNew", "newOnly"),
+    current: nullable(str(1024)),
+    new: str(1024),
+  }),
 });
 
 const count = int(0, 10_000);
@@ -246,6 +317,7 @@ export const isProbeResult: Guard<ProbeResult> = obj({
   counts: obj({ username: count, password: count, newPassword: count, otp: count }),
   passwordRules: nullable(str(4096)),
   visible: bool,
+  changeShape: lit("none", "ambiguous", "currentAndNew", "newOnly"),
 });
 
 const isFillOk = obj({

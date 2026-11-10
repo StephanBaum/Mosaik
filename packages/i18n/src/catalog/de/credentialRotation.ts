@@ -113,4 +113,35 @@ export const credentialRotation = {
   "credentialRotation.reminder.toast":
     "{count, plural, one {# Passwort zu ändern} other {# Passwörter zu ändern}}",
   "credentialRotation.reminder.show": "Anzeigen",
+
+  // Browser-Dialoge der Passwortänderung (die Erweiterung startet, meldet und fragt; dieses Fenster entscheidet)
+  "credentialRotation.dialog.beginTitle": "Passwortänderung starten?",
+  "credentialRotation.dialog.beginBody":
+    "{browser} möchte das Passwort für {title} auf {host} ändern. Mosaic speichert das neue Passwort bei diesem Login und behält das aktuelle, bis du bestätigst, dass die Website es akzeptiert hat.",
+  "credentialRotation.dialog.site": "Website",
+  "credentialRotation.dialog.login": "Login",
+  "credentialRotation.dialog.password": "Neues Passwort",
+  "credentialRotation.dialog.hidden": "Verborgen",
+  "credentialRotation.dialog.show": "Anzeigen",
+  "credentialRotation.dialog.hide": "Verbergen",
+  "credentialRotation.dialog.regenerate": "Anderes erzeugen",
+  "credentialRotation.dialog.regenerated": "Ein neues Passwort wurde erzeugt.",
+  "credentialRotation.dialog.allow": "Dieses Passwort verwenden",
+  "credentialRotation.dialog.cancel": "Abbrechen",
+  "credentialRotation.dialog.untitled": "diesen Login",
+  "credentialRotation.dialog.resultTitle": "Hat {host} das neue Passwort akzeptiert?",
+  "credentialRotation.dialog.resultBody":
+    "{browser} meldet, dass die Änderung geklappt hat. Wenn du bestätigst, wird das neue Passwort zum Passwort für {title}, und das aktuelle wandert in den Verlauf.",
+  "credentialRotation.dialog.confirm": "Hat geklappt",
+  "credentialRotation.dialog.keepOld": "Altes Passwort behalten",
+  "credentialRotation.dialog.failedTitle": "Altes Passwort behalten?",
+  "credentialRotation.dialog.failedBody":
+    "{browser} meldet, dass die Änderung nicht geklappt hat. Mosaic behält das aktuelle Passwort für {title}. Der neue Wert bleibt im Verlauf, falls die Website ihn doch übernommen hat.",
+  "credentialRotation.addOrigin.title": "{host} zu {title} hinzufügen?",
+  "credentialRotation.addOrigin.body":
+    "Mosaic füllt diesen Login dann auch auf {host} aus. Füge die Adresse nur hinzu, wenn {host} wirklich zur selben Website gehört.",
+  "credentialRotation.addOrigin.idn":
+    "Diese Adresse enthält Sonderzeichen. Dein Browser zeigt sie womöglich als {unicode} an. Prüfe sie genau.",
+  "credentialRotation.addOrigin.add": "Adresse hinzufügen",
+  "credentialRotation.addOrigin.cancel": "Nicht jetzt",
 } as const satisfies Record<keyof typeof en, string>;

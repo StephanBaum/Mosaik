@@ -130,6 +130,12 @@ pub enum ErrorCode {
     RpIdMismatch,
     /// No offered algorithm or option is supported.
     PasskeyUnsupported,
+    /// No such open password-change attempt on that item.
+    RotationNotFound,
+    /// The origin is not the same registrable domain as the item's saved URL.
+    OriginNotRelated,
+    /// The item already has four open password-change attempts.
+    RotationLimit,
     /// The user denied the pairing.
     PairingDenied,
     /// The pairing request timed out.
@@ -155,7 +161,7 @@ pub enum ErrorCode {
 
 impl ErrorCode {
     /// Every code, in the order of the protocol document.
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 33] = [
         Self::InvalidRequest,
         Self::NotPaired,
         Self::ProtocolVersion,
@@ -176,6 +182,9 @@ impl ErrorCode {
         Self::PasskeyExcluded,
         Self::RpIdMismatch,
         Self::PasskeyUnsupported,
+        Self::RotationNotFound,
+        Self::OriginNotRelated,
+        Self::RotationLimit,
         Self::PairingDenied,
         Self::PairingExpired,
         Self::PairingConflict,
@@ -222,11 +231,23 @@ pub enum Op {
     PasskeyGet,
     /// Close an open passkey prompt of this pairing.
     PasskeyCancel,
+    /// The open password-change attempts of the logins saved for an origin.
+    RotationForOrigin,
+    /// Start a password change: the desktop dialog generates and confirms it.
+    RotationBegin,
+    /// The current and the new password of one attempt, for a change form.
+    FillChange,
+    /// The new password of one attempt (and the user name), to sign in after a partial change.
+    FillPending,
+    /// Report how a change went; the desktop dialog commits it.
+    RotationResult,
+    /// Ask to save a related origin for the login; the desktop dialog decides.
+    RotationAddOrigin,
 }
 
 impl Op {
     /// Every op.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 21] = [
         Self::Hello,
         Self::Pair,
         Self::Status,
@@ -242,6 +263,12 @@ impl Op {
         Self::PasskeyCreate,
         Self::PasskeyGet,
         Self::PasskeyCancel,
+        Self::RotationForOrigin,
+        Self::RotationBegin,
+        Self::FillChange,
+        Self::FillPending,
+        Self::RotationResult,
+        Self::RotationAddOrigin,
     ];
 
     /// The wire name.
@@ -263,6 +290,12 @@ impl Op {
             Self::PasskeyCreate => "passkeyCreate",
             Self::PasskeyGet => "passkeyGet",
             Self::PasskeyCancel => "passkeyCancel",
+            Self::RotationForOrigin => "rotationForOrigin",
+            Self::RotationBegin => "rotationBegin",
+            Self::FillChange => "fillChange",
+            Self::FillPending => "fillPending",
+            Self::RotationResult => "rotationResult",
+            Self::RotationAddOrigin => "rotationAddOrigin",
         }
     }
 
@@ -282,7 +315,7 @@ impl Op {
 }
 
 /// The ops the host forwards to the desktop.
-pub const FORWARDED_OPS: [Op; 13] = [
+pub const FORWARDED_OPS: [Op; 19] = [
     Op::Status,
     Op::Focus,
     Op::ListForOrigin,
@@ -296,6 +329,12 @@ pub const FORWARDED_OPS: [Op; 13] = [
     Op::PasskeyCreate,
     Op::PasskeyGet,
     Op::PasskeyCancel,
+    Op::RotationForOrigin,
+    Op::RotationBegin,
+    Op::FillChange,
+    Op::FillPending,
+    Op::RotationResult,
+    Op::RotationAddOrigin,
 ];
 
 /// The lock state the desktop reports.
@@ -689,6 +728,12 @@ mod tests {
             "getPasskey",
             "passkeyExport",
             "passkeyDelete",
+            "rotationList",
+            "rotationReveal",
+            "rotationClose",
+            "listRotations",
+            "revealPending",
+            "fillchange",
             "passkeyCreate ",
             "",
             "Fill",

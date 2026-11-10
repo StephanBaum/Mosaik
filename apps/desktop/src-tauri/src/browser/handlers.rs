@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 use mosaic_core::SecretString;
 use mosaic_native_messaging::bodies::{
-    CopyBody, Empty, FillBody, GenerateBody, ListForOriginBody, PasskeyCancelBody,
-    PasskeyCreateBody, PasskeyGetBody, SaveBody, SearchBody, StatusResult,
+    CopyBody, Empty, FillBody, FillChangeBody, FillPendingBody, GenerateBody, ListForOriginBody,
+    PasskeyCancelBody, PasskeyCreateBody, PasskeyGetBody, RotationAddOriginBody, RotationBeginBody,
+    RotationResultBody, SaveBody, SearchBody, StatusResult,
 };
 use mosaic_native_messaging::protocol::{
     ErrorCode as WireError, MAX_FRAME_BYTES, Op, PROTOCOL_VERSION, RequestEnvelope, error_json,
@@ -33,6 +34,7 @@ use super::passkey::PasskeyPlan;
 use super::passkey_prompt::PasskeyReply;
 use super::prompts::cancelled;
 use super::registry::RegistryError;
+use super::rotation_prompt::RotationPlan;
 use super::save::MAX_ORIGIN_BYTES;
 use super::{Bucket, Shared, unix_millis};
 use crate::contract::browser::BrowserCloseReason;
@@ -94,9 +96,10 @@ fn parse<'a, T: Deserialize<'a>>(raw: &'a RawValue) -> Result<T, WireError> {
 /// cheaper way to test candidate passwords.
 const fn buckets(op: Op) -> &'static [Bucket] {
     match op {
-        Op::Fill => &[Bucket::Fill],
+        Op::Fill | Op::FillChange | Op::FillPending => &[Bucket::Fill],
+        Op::RotationBegin | Op::RotationResult | Op::RotationAddOrigin => &[Bucket::RotationPrompt],
         Op::Copy => &[Bucket::Copy],
-        Op::ListForOrigin | Op::Search => &[Bucket::Lookup],
+        Op::ListForOrigin | Op::Search | Op::RotationForOrigin => &[Bucket::Lookup],
         Op::Generate => &[Bucket::Generate],
         Op::CheckSave => &[Bucket::CheckSave],
         Op::ProposeSave => &[Bucket::ProposeSave, Bucket::CheckSave],
@@ -215,6 +218,12 @@ async fn dispatch(ctx: &Ctx, request: &RequestEnvelope<'_>) -> Result<Reply, Wir
             shared.note_used_blocking(ctx.pairing).await;
             body(id, &filled)
         }
+        Op::RotationForOrigin
+        | Op::FillChange
+        | Op::FillPending
+        | Op::RotationBegin
+        | Op::RotationResult
+        | Op::RotationAddOrigin => rotation_op(ctx, id, op, raw).await,
         Op::Copy => {
             let b: CopyBody = parse(raw)?;
             let copied = blocking(ctx, move |be| be.browser_copy(&b)).await?;
@@ -283,6 +292,64 @@ async fn propose_save(ctx: &Ctx, id: u32, raw: &RawValue) -> Result<Reply, WireE
             .open_save(&ctx.pairing, ctx.conn, plan, username, password)?;
     let result = ctx.shared.await_save(&request_id, rx).await?;
     body(id, &result)
+}
+
+/// The password-change ops (`docs/NATIVE_MESSAGING.md` §5.2). The three dialog ops only open a
+/// desktop dialog; the two fills hand over the values of one attempt and count as activity.
+async fn rotation_op(ctx: &Ctx, id: u32, op: Op, raw: &RawValue) -> Result<Reply, WireError> {
+    let shared = &ctx.shared;
+    match op {
+        Op::RotationForOrigin => {
+            let b: ListForOriginBody = parse(raw)?;
+            body(
+                id,
+                &blocking(ctx, move |be| be.browser_rotation_for_origin(&b)).await?,
+            )
+        }
+        Op::FillChange => {
+            let b: FillChangeBody = parse(raw)?;
+            let filled = blocking(ctx, move |be| be.browser_fill_change(&b)).await?;
+            shared.note_used_blocking(ctx.pairing).await;
+            body(id, &filled)
+        }
+        Op::FillPending => {
+            let b: FillPendingBody = parse(raw)?;
+            let filled = blocking(ctx, move |be| be.browser_fill_pending(&b)).await?;
+            shared.note_used_blocking(ctx.pairing).await;
+            body(id, &filled)
+        }
+        Op::RotationBegin => {
+            let b: RotationBeginBody = parse(raw)?;
+            rotation_dialog(ctx, id, move |be| be.browser_plan_rotation_begin(&b)).await
+        }
+        Op::RotationResult => {
+            let b: RotationResultBody = parse(raw)?;
+            rotation_dialog(ctx, id, move |be| be.browser_plan_rotation_result(&b)).await
+        }
+        Op::RotationAddOrigin => {
+            let b: RotationAddOriginBody = parse(raw)?;
+            rotation_dialog(ctx, id, move |be| be.browser_plan_rotation_add_origin(&b)).await
+        }
+        _ => Err(WireError::InvalidRequest),
+    }
+}
+
+/// A rotation dialog op (`rotationBegin`, `rotationResult`, `rotationAddOrigin`): plan against
+/// the vault, show the desktop dialog, wait for the answer. The answer writes the vault before it
+/// returns.
+async fn rotation_dialog<F>(ctx: &Ctx, id: u32, plan: F) -> Result<Reply, WireError>
+where
+    F: FnOnce(&Backend) -> Result<RotationPlan, WireError> + Send + 'static,
+{
+    // `busy` before any comparison with the vault: while a dialog is open the answer must not
+    // depend on what is saved.
+    if ctx.shared.rotation_is_open() {
+        return Err(WireError::Busy);
+    }
+    let plan = blocking(ctx, plan).await?;
+    let ticket = ctx.shared.open_rotation(&ctx.pairing, ctx.conn, plan)?;
+    let answer = ctx.shared.await_rotation(ticket).await?;
+    body(id, &answer)
 }
 
 /// `passkeyCreate`: plan, show the desktop dialog, wait for the answer. The
@@ -366,6 +433,7 @@ impl Shared {
         self.close_passkeys_where(BrowserCloseReason::Disconnected, |passkey| {
             passkey.pairing == *pairing
         });
+        self.close_rotations_where(BrowserCloseReason::Disconnected, |r| r.pairing == *pairing);
         self.pairings_changed();
         Ok(removed)
     }

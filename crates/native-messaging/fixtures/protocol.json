@@ -181,6 +181,33 @@
       }
     },
     {
+      "code": "rotationNotFound",
+      "message": {
+        "error": "rotationNotFound",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "originNotRelated",
+      "message": {
+        "error": "originNotRelated",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "code": "rotationLimit",
+      "message": {
+        "error": "rotationLimit",
+        "id": 7,
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
       "code": "pairingDenied",
       "message": {
         "error": "pairingDenied",
@@ -524,6 +551,98 @@
         "v": 1
       },
       "op": "passkeyCancel"
+    },
+    {
+      "message": {
+        "body": {
+          "origin": "https://example.com",
+          "topOrigin": "https://example.com"
+        },
+        "id": 7,
+        "op": "rotationForOrigin",
+        "v": 1
+      },
+      "op": "rotationForOrigin"
+    },
+    {
+      "message": {
+        "body": {
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://example.com",
+          "rules": "minlength: 12; required: lower, upper; required: digit;",
+          "topOrigin": "https://example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "op": "rotationBegin",
+        "v": 1
+      },
+      "op": "rotationBegin"
+    },
+    {
+      "message": {
+        "body": {
+          "attemptId": "a1b2c3d4e5f60718",
+          "frame": "top",
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://example.com",
+          "shape": "currentAndNew",
+          "topOrigin": "https://example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "op": "fillChange",
+        "v": 1
+      },
+      "op": "fillChange"
+    },
+    {
+      "message": {
+        "body": {
+          "attemptId": "a1b2c3d4e5f60718",
+          "frame": "top",
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://example.com",
+          "topOrigin": "https://example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "op": "fillPending",
+        "v": 1
+      },
+      "op": "fillPending"
+    },
+    {
+      "message": {
+        "body": {
+          "attemptId": "a1b2c3d4e5f60718",
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://example.com",
+          "outcome": "succeeded",
+          "topOrigin": "https://example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "op": "rotationResult",
+        "v": 1
+      },
+      "op": "rotationResult"
+    },
+    {
+      "message": {
+        "body": {
+          "attemptId": "a1b2c3d4e5f60718",
+          "fromOrigin": "https://example.com",
+          "itemId": "0190a0b0-0000-7000-8000-000000000002",
+          "origin": "https://accounts.example.com",
+          "topOrigin": "https://accounts.example.com",
+          "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+        },
+        "id": 7,
+        "op": "rotationAddOrigin",
+        "v": 1
+      },
+      "op": "rotationAddOrigin"
     }
   ],
   "responses": [
@@ -759,6 +878,98 @@
         "v": 1
       },
       "op": "passkeyCancel"
+    },
+    {
+      "message": {
+        "body": {
+          "attempts": [
+            {
+              "attemptId": "a1b2c3d4e5f60718",
+              "changeUrl": "https://example.com/settings/password",
+              "host": "example.com",
+              "itemId": "0190a0b0-0000-7000-8000-000000000002",
+              "stage": "prepared",
+              "startedAt": 1767225600000,
+              "title": "Example",
+              "username": "ada@example.com",
+              "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+            },
+            {
+              "attemptId": "b2",
+              "changeUrl": null,
+              "host": "example.com",
+              "itemId": "0190a0b0-0000-7000-8000-000000000002",
+              "stage": "delivered",
+              "startedAt": 1767225500000,
+              "title": null,
+              "username": null,
+              "vaultId": "0190a0b0-0000-7000-8000-000000000001"
+            }
+          ]
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "rotationForOrigin"
+    },
+    {
+      "message": {
+        "body": {
+          "attemptId": "a1b2c3d4e5f60718",
+          "outcome": "started"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "rotationBegin"
+    },
+    {
+      "message": {
+        "body": {
+          "current": "correct horse battery staple",
+          "new": "q7#Vt2!mZp9@Lx4$Nw6&"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "fillChange"
+    },
+    {
+      "message": {
+        "body": {
+          "password": "q7#Vt2!mZp9@Lx4$Nw6&",
+          "username": "ada@example.com"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "fillPending"
+    },
+    {
+      "message": {
+        "body": {
+          "outcome": "confirmed"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "rotationResult"
+    },
+    {
+      "message": {
+        "body": {
+          "outcome": "added"
+        },
+        "id": 7,
+        "ok": true,
+        "v": 1
+      },
+      "op": "rotationAddOrigin"
     }
   ],
   "version": 1
