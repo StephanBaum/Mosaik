@@ -34,7 +34,8 @@ describe("CLI catalog", () => {
     ["en", en],
     ["de", de],
   ] as const)("the committed %s.json matches the catalog", (locale, catalog) => {
-    const committed = readFileSync(join(json, `${locale}.json`), "utf8");
+    const raw = readFileSync(join(json, `${locale}.json`), "utf8");
+    const committed = raw.replaceAll("\r\n", "\n");
     expect(committed).toBe(`${JSON.stringify(catalog, null, 2)}\n`);
   });
 });
