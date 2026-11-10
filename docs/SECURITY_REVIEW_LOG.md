@@ -84,7 +84,8 @@ tables).
 | M6b (T1 review, milestone review, two verify passes and the T5 UX review) | 7 | 8 | 11 | 6 | none |
 | M7 Key rotation (T1 review, milestone review, one verify pass and two UX passes) | 6 | 20 | 28 | 2 | none |
 | M7b Credential rotation (T1 review, milestone review, extension red team, UX review) | 1 | 9 | 23 | 12 | none |
-| **Overall (M0 to M7b)** | **33** | **148** | **231** | **58** | **51 recorded** |
+| M8 CLI (T1 review, CLI security review) | 1 | 1 | 10 | 9 | none |
+| **Overall (M0 to M8)** | **34** | **149** | **241** | **67** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -288,6 +289,25 @@ The headline limits (THREAT_MODEL R97 to R104): Have I Been Pwned and its CDN le
 hash prefixes and their timing; a change fill gives the page the current and the new password of one item; the pending
 value syncs to all devices and shared-vault members before the site accepts it; a site may report a change wrongly, so
 every value is kept until the user decides; the never-delete rule needs every device on M7b.
+
+
+## M8 CLI
+
+Status: **done.** Sources: the decision files `m8-t1-fix.md` and `m8-t4-fix.md` (kept by the orchestrator), the commit
+messages named below and `docs/PROGRESS.md` ("M8 CLI").
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-10 | T1 core: crypto-reviewer on the CLI session cache, the encrypted export format, the KAT and the fuzz targets (`ba305af`) | opus | 1 / 0 / 3 / 3 | none | Fixed in `64242ec`, `c5a6edc` and `3c9ec10`: expired session parts are swept by every CLI run and by the desktop at start, lock and unlock; every credential change or adoption deletes all CLI sessions; Linux keeps the parts in `$XDG_RUNTIME_DIR` only; R105 now says the exposure lasts until both parts are deleted; the export writer stays failed after an error; more KAT cases; deterministic fuzz constructors |
+| 2026-11-10 | CLI security review: crypto-reviewer over T2 to T4 (`64242ec..79871b4`) | opus | 0 / 1 / 7 / 6 | none | Fixed in `28110b0` and `004f6f0`: the CLI integration tests run in CI and the gate, the terminal mode is restored after a timeout or Ctrl-C on Unix, control characters are escaped on a terminal, the clipboard helper runs in its own process group, `run` replaces the process on Unix, imports are read with a cap, exports get the Mark of the Web, secret buffers are sized up front, usage errors no longer echo values, sessions are keyed per install; open: restoring the console mode on Windows (no safe API in the tree) |
+
+Total: High 1, Medium 1, Low 10, Info 9.
+
+The headline limits (THREAT_MODEL R105 to R111): a CLI session gives any same-user process the account key until both of
+its parts are deleted, and on Windows and macOS those parts survive a reboot until a sweep; `run` hands secrets to a child
+process that can read its own environment; revealed values land in scrollback, pipes and the clipboard; the CLI and the
+desktop cannot open one store at the same time; terminal input buffers are not wiped; an export file can be guessed
+offline against its passphrase.
 
 ## Appending a milestone
 
