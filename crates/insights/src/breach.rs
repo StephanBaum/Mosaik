@@ -57,8 +57,15 @@ const PAUSE_MIN_MS: u32 = 100;
 const PAUSE_SPAN_MS: u32 = 301;
 
 /// A SHA-1 prefix: 5 uppercase hex characters.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RangePrefix([u8; 5]);
+
+impl core::fmt::Debug for RangePrefix {
+    /// A prefix is 20 bits of a password hash: never printed.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("RangePrefix(..)")
+    }
+}
 
 impl RangePrefix {
     /// Reads a prefix; `None` unless it is 5 hex characters (lowercase is
@@ -192,16 +199,32 @@ impl BreachStates {
         self.0.get(&(key, field))
     }
 
-    /// The items with a row that says "found". Rows whose mark no longer
-    /// matches the item are the store's to drop ([`plan`] ignores them
-    /// too).
+    /// The items among `items` with a row that says "found" **for the
+    /// current value**: a row whose mark differs from the item's
+    /// [`Item::secret_mark`] (the password changed, a rotation was
+    /// confirmed) does not count, so a confirmed rotation clears the finding.
     #[must_use]
-    pub fn breached_items(&self) -> std::collections::BTreeSet<ItemKey> {
-        self.0
-            .iter()
-            .filter(|(_, r)| r.found)
-            .map(|((k, _), _)| *k)
-            .collect()
+    pub fn breached_items<'a, I>(&self, items: I) -> std::collections::BTreeSet<ItemKey>
+    where
+        I: IntoIterator<Item = Candidate<'a>>,
+    {
+        let mut out = std::collections::BTreeSet::new();
+        for c in items {
+            let key = ItemKey {
+                vault_id: c.vault_id,
+                item_id: c.item_id,
+            };
+            for field in [BreachField::LoginPassword, BreachField::WifiPassword] {
+                let current = c.item.secret_mark(field.secret_field());
+                if self
+                    .get(key, field)
+                    .is_some_and(|r| r.found && Some(r.mark) == current)
+                {
+                    out.insert(key);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -210,7 +233,9 @@ struct PlanEntry {
     key: ItemKey,
     field: BreachField,
     mark: ValueMark,
-    suffix: Zeroizing<[u8; SUFFIX_LEN]>,
+    /// 35 bytes in their own heap block: moving the entry (a `Vec` that
+    /// grows) moves only the pointer and leaves no copy behind.
+    suffix: Zeroizing<Vec<u8>>,
 }
 
 /// The passwords to look up, grouped by prefix. Holds hash suffixes: they
@@ -327,21 +352,20 @@ where
             item_id: c.item_id,
         };
         let fresh = states.get(key, field).is_some_and(|r| {
-            r.mark == mark
-                && now
-                    .as_unix_millis()
-                    .saturating_sub(r.checked_at.as_unix_millis())
-                    < max_age
+            let age = now
+                .as_unix_millis()
+                .saturating_sub(r.checked_at.as_unix_millis());
+            // A row from the future (a clock that jumped back) is stale.
+            r.mark == mark && (0..max_age).contains(&age)
         });
         if fresh {
             continue;
         }
         let hex = sha1_hex_upper(secret.expose_secret().as_bytes());
         let mut prefix = [0u8; 5];
-        let mut suffix = Zeroizing::new([0u8; SUFFIX_LEN]);
         let (p, s) = hex.split_at(5);
         prefix.copy_from_slice(p);
-        suffix.copy_from_slice(s);
+        let suffix = Zeroizing::new(s.to_vec());
         by_prefix
             .entry(RangePrefix(prefix))
             .or_default()
@@ -367,9 +391,15 @@ where
 /// the count 1 to 20 ASCII digits. The comparison with every wanted suffix
 /// touches every line and takes the same time whether or not it matches.
 ///
+/// The request carries `Add-Padding: true`, so every genuine answer has at
+/// least one padding line (count 0). A body without one is an empty or cut-off
+/// answer, not "nothing found". The transport must **reject** a body above
+/// [`MAX_BODY_LEN`], never truncate it (a cut body could hide the match).
+///
 /// # Errors
-/// [`RangeError::Protocol`] if the body is longer than [`MAX_BODY_LEN`] or
-/// any line is not of that form: nothing from such a body is trusted.
+/// [`RangeError::Protocol`] if the body is longer than [`MAX_BODY_LEN`], has no
+/// padding line, or any line is not of that form: nothing from such a body is
+/// trusted.
 pub fn parse_range(
     body: &[u8],
     wanted: &[[u8; SUFFIX_LEN]],
@@ -378,6 +408,7 @@ pub fn parse_range(
         return Err(RangeError::Protocol);
     }
     let mut found: Vec<Choice> = vec![Choice::from(0); wanted.len()];
+    let mut padding = false;
     for raw in body.split(|&b| b == b'\n') {
         let line = raw.strip_suffix(b"\r").unwrap_or(raw);
         if line.is_empty() {
@@ -397,10 +428,15 @@ pub fn parse_range(
         let mut upper = [0u8; SUFFIX_LEN];
         upper.copy_from_slice(suffix);
         upper.make_ascii_uppercase();
-        let real = Choice::from(u8::from(count.iter().any(|&d| d != b'0')));
+        let nonzero = count.iter().any(|&d| d != b'0');
+        padding |= !nonzero;
+        let real = Choice::from(u8::from(nonzero));
         for (hit, want) in found.iter_mut().zip(wanted) {
             *hit |= want.ct_eq(&upper) & real;
         }
+    }
+    if !padding {
+        return Err(RangeError::Protocol);
     }
     Ok(found.into_iter().map(bool::from).collect())
 }
@@ -409,9 +445,12 @@ pub fn parse_range(
 pub struct RunHooks<'a> {
     /// A uniform number below the argument (the generator's CSPRNG).
     pub rng: &'a mut dyn FnMut(u32) -> u32,
-    /// Sleeps this many milliseconds (the random pause between requests and
-    /// the `Retry-After` wait). A test records it instead.
-    pub pause: &'a mut dyn FnMut(u32),
+    /// Waits this many milliseconds (the random pause between requests and
+    /// the `Retry-After` wait) **on the cancel flag**, not in a plain sleep,
+    /// and returns `false` as soon as it is set: [`run`] then stops at once
+    /// and drops the plan, which holds the hash suffixes. A test records the
+    /// time instead and returns `true`.
+    pub pause: &'a mut dyn FnMut(u32) -> bool,
     /// Called with `(done, total)` prefixes after each answer.
     pub progress: &'a mut dyn FnMut(u32, u32),
     /// Set by cancel and by lock: [`run`] stops before the next request.
@@ -440,24 +479,31 @@ pub fn run(
     let total = u32::try_from(groups.len()).unwrap_or(u32::MAX);
     let mut results = Vec::new();
     let mut protocol = false;
+    // One `Retry-After` wait per run, not per prefix.
+    let mut retried = false;
     for (n, (prefix, entries)) in groups.into_iter().enumerate() {
         if hooks.cancel.load(Ordering::Acquire) {
             return (results, Some(RangeError::Cancelled));
         }
         if n > 0 {
-            (hooks.pause)(
-                PAUSE_MIN_MS.saturating_add((hooks.rng)(PAUSE_SPAN_MS).min(PAUSE_SPAN_MS - 1)),
-            );
+            let ms = PAUSE_MIN_MS.saturating_add((hooks.rng)(PAUSE_SPAN_MS).min(PAUSE_SPAN_MS - 1));
+            if !(hooks.pause)(ms) {
+                return (results, Some(RangeError::Cancelled));
+            }
         }
-        let body = match fetch(source, prefix, hooks) {
+        let body = match fetch(source, prefix, hooks, &mut retried) {
             Ok(body) => body,
             Err(e) => return (results, Some(e)),
         };
         if hooks.cancel.load(Ordering::Acquire) {
             return (results, Some(RangeError::Cancelled));
         }
-        let wanted: Zeroizing<Vec<[u8; SUFFIX_LEN]>> =
-            Zeroizing::new(entries.iter().map(|e| *e.suffix).collect());
+        let wanted: Zeroizing<Vec<[u8; SUFFIX_LEN]>> = Zeroizing::new(
+            entries
+                .iter()
+                .filter_map(|e| suffix_array(&e.suffix))
+                .collect(),
+        );
         match parse_range(&body, &wanted) {
             Ok(hits) => {
                 results.extend(entries.iter().zip(hits).map(|(e, found)| BreachResult {
@@ -478,20 +524,27 @@ pub fn run(
     (results, protocol.then_some(RangeError::Protocol))
 }
 
-/// One request, with the single `Retry-After` retry.
+/// The suffix as an array (always 35 bytes).
+fn suffix_array(suffix: &[u8]) -> Option<[u8; SUFFIX_LEN]> {
+    <[u8; SUFFIX_LEN]>::try_from(suffix).ok()
+}
+
+/// One request, with the single `Retry-After` retry of the whole run
+/// (`retried`).
 fn fetch(
     source: &mut dyn RangeSource,
     prefix: RangePrefix,
     hooks: &mut RunHooks<'_>,
+    retried: &mut bool,
 ) -> core::result::Result<Zeroizing<Vec<u8>>, RangeError> {
     match source.range(&prefix) {
         Err(RangeError::RateLimited { retry_after_s }) => {
             let wait = retry_after_s.unwrap_or(DEFAULT_RETRY_AFTER_S);
-            if wait > MAX_RETRY_AFTER_S || hooks.cancel.load(Ordering::Acquire) {
+            if *retried || wait > MAX_RETRY_AFTER_S || hooks.cancel.load(Ordering::Acquire) {
                 return Err(RangeError::RateLimited { retry_after_s });
             }
-            (hooks.pause)(wait.saturating_mul(1000));
-            if hooks.cancel.load(Ordering::Acquire) {
+            *retried = true;
+            if !(hooks.pause)(wait.saturating_mul(1000)) || hooks.cancel.load(Ordering::Acquire) {
                 return Err(RangeError::Cancelled);
             }
             source.range(&prefix)
@@ -513,6 +566,8 @@ mod tests {
     const DAY: i64 = DAY_MS;
     const NOW: i64 = 1_800_000_000_000;
     const PASSWORD_SUFFIX: &str = "1E4C9B93F3F0682250B6CF8331B7EE68FD8";
+    /// The padding line every genuine (padded) answer has.
+    const PAD: &str = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0\r\n";
 
     fn at(ms: i64) -> Timestamp {
         Timestamp::from_unix_millis(ms)
@@ -594,7 +649,7 @@ mod tests {
             Self {
                 asked: Vec::new(),
                 answers: VecDeque::new(),
-                default: default.as_bytes().to_vec(),
+                default: format!("{default}{PAD}").into_bytes(),
                 after: None,
             }
         }
@@ -623,6 +678,7 @@ mod tests {
         progress: Vec<(u32, u32)>,
         seed: u32,
         cancel: AtomicBool,
+        pause_ok: bool,
     }
 
     impl Env {
@@ -632,6 +688,7 @@ mod tests {
                 progress: Vec::new(),
                 seed: 12345,
                 cancel: AtomicBool::new(false),
+                pause_ok: true,
             }
         }
 
@@ -647,7 +704,11 @@ mod tests {
             };
             let pauses = &mut self.pauses;
             let progress = &mut self.progress;
-            let mut pause = |ms: u32| pauses.push(ms);
+            let pause_ok = self.pause_ok;
+            let mut pause = |ms: u32| {
+                pauses.push(ms);
+                pause_ok
+            };
             let mut prog = |d: u32, t: u32| progress.push((d, t));
             let mut hooks = RunHooks {
                 rng: &mut rng,
@@ -682,7 +743,7 @@ mod tests {
     fn suffix_found_and_count_dropped() {
         let other = "0000000000000000000000000000000000A";
         let body = format!(
-            "{other}:7\r\n{}:37615\r\n",
+            "{other}:7\r\n{}:37615\r\n{PAD}",
             PASSWORD_SUFFIX.to_ascii_lowercase()
         );
         let hits = parse_range(
@@ -759,21 +820,40 @@ mod tests {
     #[test]
     fn oversize_body_rejected() {
         let w = [suffix(PASSWORD_SUFFIX)];
-        let big = vec![b'\n'; MAX_BODY_LEN + 1];
-        assert_eq!(parse_range(&big, &w), Err(RangeError::Protocol));
-        assert_eq!(parse_range(&big[..MAX_BODY_LEN], &w).unwrap(), [false]);
+        let mut ok = PAD.as_bytes().to_vec();
+        ok.resize(MAX_BODY_LEN, b'\n');
+        assert_eq!(parse_range(&ok, &w).unwrap(), [false]);
+        ok.push(b'\n');
+        assert_eq!(parse_range(&ok, &w), Err(RangeError::Protocol));
+    }
+
+    /// An empty or cut-off 200 body is not "nothing found".
+    #[test]
+    fn empty_or_unpadded_body_is_protocol() {
+        let w = [suffix(PASSWORD_SUFFIX)];
+        assert_eq!(parse_range(b"", &w), Err(RangeError::Protocol));
+        assert_eq!(parse_range(b"\r\n\r\n", &w), Err(RangeError::Protocol));
+        let cut = format!("{}:3\r\n", "A".repeat(35));
+        assert_eq!(parse_range(cut.as_bytes(), &w), Err(RangeError::Protocol));
+        // run(): the secret gets no result and the run reports Protocol.
+        let mut fx = Fixture::new();
+        fx.add("password");
+        let mut src = Fake::new("");
+        src.answers.push_back(Ok(Vec::new()));
+        let (results, err) = Env::new().run(fx.plan(&BreachStates::new()), &mut src);
+        assert!(results.is_empty());
+        assert_eq!(err, Some(RangeError::Protocol));
     }
 
     #[test]
     fn crlf_and_lf_accepted() {
         let w = [suffix(PASSWORD_SUFFIX)];
         for sep in ["\r\n", "\n"] {
-            let body = format!("{}:1{sep}{PASSWORD_SUFFIX}:2{sep}", "A".repeat(35));
+            let body = format!("{}:1{sep}{PASSWORD_SUFFIX}:2{sep}{PAD}", "A".repeat(35));
             assert_eq!(parse_range(body.as_bytes(), &w).unwrap(), [true], "{sep:?}");
         }
-        let no_trailing = format!("{PASSWORD_SUFFIX}:2");
+        let no_trailing = format!("{PAD}{PASSWORD_SUFFIX}:2");
         assert_eq!(parse_range(no_trailing.as_bytes(), &w).unwrap(), [true]);
-        assert_eq!(parse_range(b"", &w).unwrap(), [false]);
     }
 
     #[test]
@@ -783,6 +863,7 @@ mod tests {
         let old = fx.add("alpha-2");
         let changed = fx.add("alpha-3");
         let missing = fx.add("alpha-4");
+        let future = fx.add("alpha-5");
         let mut states = BreachStates::new();
         let rec = |mark, days_ago: i64| BreachRecord {
             mark,
@@ -791,6 +872,8 @@ mod tests {
         };
         states.insert(fresh, BreachField::LoginPassword, rec(fx.mark(fresh), 3));
         states.insert(old, BreachField::LoginPassword, rec(fx.mark(old), 31));
+        // A row from the future is stale.
+        states.insert(future, BreachField::LoginPassword, rec(fx.mark(future), -2));
         // A row for the value before the password changed.
         let before = fx.mark(changed);
         states.insert(changed, BreachField::LoginPassword, rec(before, 1));
@@ -806,8 +889,8 @@ mod tests {
         assert_ne!(fx.mark(changed), before);
         let p = fx.plan(&states);
         let keys: BTreeSet<ItemKey> = p.by_prefix.values().flatten().map(|e| e.key).collect();
-        assert_eq!(keys, BTreeSet::from([old, changed, missing]));
-        assert_eq!(p.secret_count(), 3);
+        assert_eq!(keys, BTreeSet::from([old, changed, missing, future]));
+        assert_eq!(p.secret_count(), 4);
     }
 
     #[test]
@@ -893,8 +976,11 @@ mod tests {
             fx.add(&format!("pw-{i}"));
         }
         let mut src = Fake::new("");
-        src.answers
-            .extend([Ok(Vec::new()), Ok(Vec::new()), Err(RangeError::Offline)]);
+        src.answers.extend([
+            Ok(PAD.as_bytes().to_vec()),
+            Ok(PAD.as_bytes().to_vec()),
+            Err(RangeError::Offline),
+        ]);
         let (results, err) = Env::new().run(fx.plan(&BreachStates::new()), &mut src);
         assert_eq!(err, Some(RangeError::Offline));
         assert_eq!(results.len(), 2);
@@ -955,7 +1041,7 @@ mod tests {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             (seed >> 8) % b.max(1)
         };
-        let mut pause = |_: u32| {};
+        let mut pause = |_: u32| true;
         let mut prog = |d: u32, t: u32| env.progress.push((d, t));
         let mut hooks = RunHooks {
             rng: &mut rng,
@@ -970,5 +1056,106 @@ mod tests {
         assert_eq!(err, Some(RangeError::Cancelled));
         assert_eq!(src.asked.len(), 2);
         assert!(results.len() <= 1);
+    }
+
+    /// A pause that sees the cancel flag stops the run at once.
+    #[test]
+    fn cancel_during_a_pause_stops_at_once() {
+        let mut fx = Fixture::new();
+        for i in 0..4 {
+            fx.add(&format!("pw-{i}"));
+        }
+        let mut src = Fake::new("");
+        let mut env = Env::new();
+        env.pause_ok = false;
+        let (results, err) = env.run(fx.plan(&BreachStates::new()), &mut src);
+        // The first request is made, the pause before the second says stop.
+        assert_eq!(err, Some(RangeError::Cancelled));
+        assert_eq!(src.asked.len(), 1);
+        assert_eq!(results.len(), 1);
+        assert_eq!(env.pauses.len(), 1);
+        // The same during the Retry-After wait.
+        let mut src = Fake::new("");
+        src.answers.push_back(Err(RangeError::RateLimited {
+            retry_after_s: Some(30),
+        }));
+        let mut env = Env::new();
+        env.pause_ok = false;
+        let (results, err) = env.run(fx.plan(&BreachStates::new()), &mut src);
+        assert_eq!(err, Some(RangeError::Cancelled));
+        assert!(results.is_empty());
+        assert_eq!(src.asked.len(), 1);
+        assert_eq!(env.pauses, [30_000]);
+    }
+
+    /// The 429 retry is spent once per run, not once per prefix.
+    #[test]
+    fn retry_budget_is_per_run() {
+        let mut fx = Fixture::new();
+        for i in 0..3 {
+            fx.add(&format!("pw-{i}"));
+        }
+        let limited = RangeError::RateLimited {
+            retry_after_s: Some(1),
+        };
+        let mut src = Fake::new("");
+        // First prefix: 429 then fine; second prefix: 429 again.
+        src.answers
+            .extend([Err(limited), Ok(PAD.as_bytes().to_vec()), Err(limited)]);
+        let mut env = Env::new();
+        let (results, err) = env.run(fx.plan(&BreachStates::new()), &mut src);
+        assert_eq!(err, Some(limited));
+        assert_eq!(results.len(), 1);
+        assert_eq!(env.pauses.iter().filter(|&&p| p == 1000).count(), 1);
+        assert_eq!(src.asked.len(), 3);
+    }
+
+    #[test]
+    fn breached_items_follow_the_current_mark() {
+        let mut fx = Fixture::new();
+        let hit = fx.add("hit-pw");
+        let other = fx.add("other-pw");
+        let mut states = BreachStates::new();
+        let rec = |mark| BreachRecord {
+            mark,
+            checked_at: at(NOW),
+            found: true,
+        };
+        states.insert(hit, BreachField::LoginPassword, rec(fx.mark(hit)));
+        let mut stale = rec(fx.mark(other));
+        stale.found = false;
+        states.insert(other, BreachField::LoginPassword, stale);
+        assert_eq!(
+            states.breached_items(fx.candidates()),
+            BTreeSet::from([hit])
+        );
+        // A confirmed rotation changes the mark: the finding goes away.
+        let device = fx.device;
+        let (_, item) = fx
+            .items
+            .iter_mut()
+            .find(|(id, _)| *id == hit.item_id)
+            .unwrap();
+        let id = item
+            .edit(device, at(NOW))
+            .begin_rotation("new-pw", None)
+            .unwrap();
+        assert_eq!(
+            states.breached_items(fx.candidates()),
+            BTreeSet::from([hit])
+        );
+        let (_, item) = fx
+            .items
+            .iter_mut()
+            .find(|(id, _)| *id == hit.item_id)
+            .unwrap();
+        item.edit(device, at(NOW)).confirm_rotation(id).unwrap();
+        assert!(states.breached_items(fx.candidates()).is_empty());
+    }
+
+    #[test]
+    fn prefix_debug_is_redacted() {
+        let p = RangePrefix::parse("5BAA6").unwrap();
+        assert!(!format!("{p:?}").contains("5BAA6"));
     }
 }

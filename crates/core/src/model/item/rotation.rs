@@ -27,7 +27,7 @@ use super::{
 use crate::error::{Error, Result};
 use crate::ids::DeviceId;
 use crate::model::clock::{Stamp, Timestamp};
-use crate::model::doc::{Doc, Register};
+use crate::model::doc::{Doc, Entry, Register};
 use crate::model::value::{Object, Text, Value};
 use crate::secret::SecretString;
 
@@ -193,11 +193,14 @@ impl fmt::Debug for RotationAttempt {
 }
 
 /// A decoded `rotation:<id>` value, the new password in a zeroizing buffer.
+/// `object` is the stored object itself: a rewrite changes only `stage` and
+/// keeps members this build does not know (CRYPTO_SPEC §7.5).
 struct Parsed {
     pending: Text,
     started_at: Timestamp,
     stage: RotationStage,
     rules_source: Option<RulesSource>,
+    object: Object,
 }
 
 impl Parsed {
@@ -229,21 +232,53 @@ impl Parsed {
             started_at: Timestamp::from_unix_millis(started_at),
             stage,
             rules_source,
+            object: o.dup(),
         })
     }
 
-    fn to_value(&self, stage: RotationStage) -> Value {
-        let mut o = Object::new();
-        o.insert("pending", Value::String(self.pending.dup()));
-        o.insert("started_at", Value::int(self.started_at.as_unix_millis()));
-        o.insert("stage", Value::text(stage.as_str()));
-        o.insert(
+    /// A new attempt, stage `prepared`.
+    fn fresh(pending: &str, started_at: Timestamp, rules_source: Option<RulesSource>) -> Self {
+        let mut object = Object::new();
+        object.insert("pending", Value::text(pending));
+        object.insert("started_at", Value::int(started_at.as_unix_millis()));
+        object.insert("stage", Value::text(RotationStage::Prepared.as_str()));
+        object.insert(
             "rules_source",
-            self.rules_source
-                .map_or(Value::Null, |r| Value::text(r.as_str())),
+            rules_source.map_or(Value::Null, |r| Value::text(r.as_str())),
         );
+        Self {
+            pending: Text::new(pending),
+            started_at,
+            stage: RotationStage::Prepared,
+            rules_source,
+            object,
+        }
+    }
+
+    /// The stored object with `stage` replaced and everything else kept.
+    fn to_value(&self, stage: RotationStage) -> Value {
+        let mut o = self.object.dup();
+        o.insert("stage", Value::text(stage.as_str()));
         Value::Object(o)
     }
+}
+
+/// Every distinct `pending` value of a register, the winner's first. One
+/// register holds several only after a device-ID collision (ADR-0015).
+fn distinct_pendings(reg: &Register) -> Vec<Text> {
+    let mut out: Vec<Text> = Vec::new();
+    let winner = reg.winner().map(Entry::value);
+    for v in winner
+        .into_iter()
+        .chain(reg.entries().rev().map(Entry::value))
+    {
+        if let Ok(p) = Parsed::from_value(v)
+            && !out.contains(&p.pending)
+        {
+            out.push(p.pending);
+        }
+    }
+    out
 }
 
 /// An attempt as its register holds it. The stage is the highest any
@@ -341,22 +376,23 @@ impl Item {
 }
 
 impl ItemEdit<'_> {
-    /// Every readable open attempt as `(key, attempt)`.
-    fn open_attempts(&self) -> Vec<(String, Parsed)> {
+    /// Every readable open attempt as `(key, every distinct pending value)`.
+    fn open_attempts(&self) -> Vec<(String, Vec<Text>)> {
         self.doc
             .registers()
             .filter(|(k, _)| k.starts_with(ROTATION_PREFIX))
-            .filter_map(|(k, r)| {
-                Some((k.to_owned(), Parsed::from_value(r.winner()?.value()).ok()?))
-            })
+            .map(|(k, r)| (k.to_owned(), distinct_pendings(r)))
+            .filter(|(_, v)| !v.is_empty())
             .collect()
     }
 
-    fn attempt(&self, id: RotationAttemptId) -> Result<(String, Parsed, RotationStage)> {
+    /// The attempt `id` (winner and highest stage) and every distinct
+    /// pending value of its register, the winner's first.
+    fn attempt(&self, id: RotationAttemptId) -> Result<(String, Parsed, RotationStage, Vec<Text>)> {
         let key = id.key();
         let reg = self.doc.register(&key).ok_or(Error::RotationNotFound)?;
         let (p, stage) = attempt_of(reg).ok_or(Error::RotationNotFound)?;
-        Ok((key, p, stage))
+        Ok((key, p, stage, distinct_pendings(reg)))
     }
 
     /// Starts a rotation attempt: stores `pending`, the new password, in the
@@ -390,12 +426,7 @@ impl ItemEdit<'_> {
             return Err(Error::TooManyAttempts);
         }
         let id = RotationAttemptId::from_stored(&self.next_id()?)?;
-        let attempt = Parsed {
-            pending: Text::new(pending),
-            started_at: self.at,
-            stage: RotationStage::Prepared,
-            rules_source: rules,
-        };
+        let attempt = Parsed::fresh(pending, self.at, rules);
         self.put(&id.key(), attempt.to_value(RotationStage::Prepared), false)?;
         Ok(id)
     }
@@ -406,12 +437,12 @@ impl ItemEdit<'_> {
     /// # Errors
     /// [`Error::RotationNotFound`]; [`Error::ClockOverflow`].
     pub fn mark_rotation_delivered(&mut self, id: RotationAttemptId) -> Result<bool> {
-        let (key, p, stage) = self.attempt(id)?;
-        let single = self.doc.register(&key).is_some_and(|r| r.len() == 1);
-        if stage == RotationStage::Delivered && p.stage == stage && single {
+        let (key, p, stage, _) = self.attempt(id)?;
+        if stage == RotationStage::Delivered && p.stage == stage {
             return Ok(false);
         }
-        self.put(&key, p.to_value(RotationStage::Delivered), false)?;
+        // Entries with other values (a device-ID collision) stay.
+        self.put(&key, p.to_value(RotationStage::Delivered), true)?;
         Ok(true)
     }
 
@@ -423,21 +454,23 @@ impl ItemEdit<'_> {
     /// # Errors
     /// [`Error::RotationNotFound`]; [`Error::ClockOverflow`].
     pub fn confirm_rotation(&mut self, id: RotationAttemptId) -> Result<()> {
-        let (key, chosen, _) = self.attempt(id)?;
-        let others: Vec<(String, Parsed)> = self
+        let (key, chosen, _, own) = self.attempt(id)?;
+        let others: Vec<(String, Vec<Text>)> = self
             .open_attempts()
             .into_iter()
             .filter(|(k, _)| *k != key)
             .collect();
         self.set_secret(SecretField::Password, chosen.pending.as_str())?;
-        for (k, p) in others {
-            if p.pending != chosen.pending {
-                self.push_history(
-                    SecretField::Password,
-                    p.pending.dup(),
-                    HistoryReason::Unconfirmed,
-                )?;
+        // Every other value, of this register and of the other attempts.
+        let mut moved: Vec<Text> = Vec::new();
+        let extra = own.iter().chain(others.iter().flat_map(|(_, v)| v.iter()));
+        for v in extra {
+            if *v != chosen.pending && !moved.contains(v) {
+                moved.push(v.dup());
+                self.push_history(SecretField::Password, v.dup(), HistoryReason::Unconfirmed)?;
             }
+        }
+        for (k, _) in others {
             self.remove(&k)?;
         }
         self.remove(&key)?;
@@ -451,8 +484,10 @@ impl ItemEdit<'_> {
     /// # Errors
     /// [`Error::RotationNotFound`]; [`Error::ClockOverflow`].
     pub fn fail_rotation(&mut self, id: RotationAttemptId) -> Result<()> {
-        let (key, p, _) = self.attempt(id)?;
-        self.push_history(SecretField::Password, p.pending, HistoryReason::Unconfirmed)?;
+        let (key, _, _, own) = self.attempt(id)?;
+        for v in own {
+            self.push_history(SecretField::Password, v, HistoryReason::Unconfirmed)?;
+        }
         self.remove(&key)?;
         Ok(())
     }
@@ -493,35 +528,37 @@ impl ItemEdit<'_> {
 
     /// The repair of one attempt that lost against a concurrent close (see
     /// [`repair_lost_attempts`]).
-    fn repair_attempt(&mut self, key: &str, pending: &Text) -> Result<()> {
-        let is_password = self
-            .doc
-            .register(SecretField::Password.key())
-            .into_iter()
-            .flat_map(Register::entries)
-            .any(|e| e.value().as_str() == Some(pending.as_str()));
-        if is_password {
-            // Confirmed on the other device: nothing is open any more.
-            return self.remove(key).map(|_| ());
+    fn repair_attempt(&mut self, key: &str, pendings: &[Text]) -> Result<()> {
+        let held_as_password = |doc: &Doc, v: &Text| {
+            doc.register(SecretField::Password.key())
+                .into_iter()
+                .flat_map(Register::entries)
+                .any(|e| e.value().as_str() == Some(v.as_str()))
+        };
+        let in_history = |doc: &Doc, v: &Text| {
+            doc.registers()
+                .filter(|(k, _)| k.starts_with(HISTORY_PREFIX))
+                .flat_map(|(_, r)| r.entries())
+                .any(|e| {
+                    e.value()
+                        .as_object()
+                        .and_then(|o| o.get("value"))
+                        .and_then(Value::as_str)
+                        == Some(v.as_str())
+                })
+        };
+        // Every value the register holds is kept somewhere.
+        for v in pendings {
+            if !held_as_password(self.doc, v) && !in_history(self.doc, v) {
+                self.push_history(SecretField::Password, v.dup(), HistoryReason::Unconfirmed)?;
+            }
         }
-        let in_history = self
-            .doc
-            .registers()
-            .filter(|(k, _)| k.starts_with(HISTORY_PREFIX))
-            .flat_map(|(_, r)| r.entries())
-            .any(|e| {
-                e.value()
-                    .as_object()
-                    .and_then(|o| o.get("value"))
-                    .and_then(Value::as_str)
-                    == Some(pending.as_str())
-            });
-        if !in_history {
-            self.push_history(
-                SecretField::Password,
-                pending.dup(),
-                HistoryReason::Unconfirmed,
-            )?;
+        // Confirmed on the other device: nothing is open any more.
+        if pendings
+            .first()
+            .is_some_and(|w| held_as_password(self.doc, w))
+        {
+            self.remove(key)?;
         }
         Ok(())
     }
@@ -545,7 +582,7 @@ pub(super) fn repair_lost_attempts(
     if doc.is_deleted() {
         return Ok(());
     }
-    let lost: Vec<(String, Text, Timestamp)> = doc
+    let lost: Vec<(String, Vec<Text>, Timestamp)> = doc
         .registers()
         .filter_map(|(k, reg)| {
             let id = RotationAttemptId::from_stored(k.strip_prefix(ROTATION_PREFIX)?).ok()?;
@@ -558,8 +595,7 @@ pub(super) fn repair_lost_attempts(
             if !raced {
                 return None;
             }
-            let p = Parsed::from_value(w.value()).ok()?;
-            Some((k.to_owned(), p.pending, w.at()))
+            Some((k.to_owned(), distinct_pendings(reg), w.at()))
         })
         .collect();
     if lost.is_empty() {
@@ -572,9 +608,9 @@ pub(super) fn repair_lost_attempts(
         stamp: None,
         seq: 0,
     };
-    for (key, pending, at) in lost {
+    for (key, pendings, at) in lost {
         edit.at = at;
-        edit.repair_attempt(&key, &pending)?;
+        edit.repair_attempt(&key, &pendings)?;
     }
     Ok(())
 }

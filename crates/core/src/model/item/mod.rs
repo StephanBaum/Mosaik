@@ -306,6 +306,19 @@ impl Item {
                     format!("{HISTORY_PREFIX}{:016x}.{}.0", s.counter(), s.device())
                 })?;
             }
+            // The same for attempts (also keyed by the edit's stamp): two
+            // writers can store different new passwords under one key, and
+            // each must stay visible and closable.
+            let crowded: Vec<String> = doc
+                .registers()
+                .filter(|(k, r)| k.starts_with(ROTATION_PREFIX) && r.len() > 1)
+                .map(|(k, _)| k.to_owned())
+                .collect();
+            for key in crowded {
+                doc.spread_losers(&key, device, |s| {
+                    format!("{ROTATION_PREFIX}{:016x}.{}.0", s.counter(), s.device())
+                })?;
+            }
         }
         rotation::repair_lost_attempts(&mut doc, &self.doc, &received.doc, device)?;
         Ok(MergeOutcome {

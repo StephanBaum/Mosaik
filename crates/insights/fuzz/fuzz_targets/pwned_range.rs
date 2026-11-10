@@ -6,6 +6,10 @@
 //! - When it accepts a body, a suffix is reported found exactly when some
 //!   line is that suffix (either case) followed by `:` and a count that is
 //!   not all zeros (count 0 is padding), checked here the naive way.
+//!
+//! Run it with a larger input limit, or `MAX_BODY_LEN` (256 KiB) is never
+//! reached (libFuzzer's default is 4096 bytes):
+//! `cargo +nightly fuzz run pwned_range -- -max_len=262400`.
 #![no_main]
 
 #[cfg(not(fuzzing))]

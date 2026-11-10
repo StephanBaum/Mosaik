@@ -729,13 +729,25 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   attempt is one edit: *confirm* makes the value the password (the old one
   goes to the history, every other open attempt goes to the history as
   `unconfirmed`, no attempt stays); *fail* leaves the password and moves the
-  attempt's value to the history as `unconfirmed`.
+  attempt's value to the history as `unconfirmed`. Every operation accounts
+  for **every** live entry of an attempt's register, not just the winner: two
+  writers that share a device ID (ADR-0015) can store two different `pending`
+  values under one `rotation:<id>` key, so the collision repair of §10 moves
+  each losing value to a key of its own (like the history), *deliver* keeps
+  entries with other values, and *confirm* and *fail* move every distinct
+  value of the register to the history. Closing or delivering an attempt
+  rewrites only `stage`; members this build does not know stay (§7.5).
 - **Never-delete invariant.** A value that was ever an attempt's new password
   is never deleted: it is the password (or a conflict copy of it), an open
   attempt or a history entry, until the 32-entry limit trims the oldest
   history entries (THREAT_MODEL R100). To keep it, clearing the history is
   refused while an attempt is open and keeps `unconfirmed` entries younger
-  than 30 days. A merge repair covers one more case: if one replica removed
+  than 30 days, by the writer's clock: a writer whose clock is far behind can
+  shorten that keep (the clear is an explicit user action and the entries are
+  shown as "Not confirmed" first; a clock in the future only keeps them
+  longer). The invariant needs **every device on M7b**: an M7 build's
+  `clear_password_history` knows no `reason` and deletes `unconfirmed`
+  entries (THREAT_MODEL R100). A merge repair covers one more case: if one replica removed
   `rotation:<id>` (it had seen the edit that created it) while another wrote
   the key concurrently (the stage rose), the merge keeps the attempt open
   (the delivered stage wins); if the other replica made the value the
@@ -751,7 +763,11 @@ nonce  = random(24)    -- fresh for every encryption, never derived
   device ID, 24 bytes) of the winning entry of the field's register. It
   changes on every write of the field and is *not* derived from the value, so
   the local store may keep it (breach state, snooze, dismissal, §11) without
-  holding anything that depends on a password.
+  holding anything that depends on a password. A mark shows the writer's
+  device ID and edit counter to anyone who reads the local store, and two
+  items written by one device can have equal marks: a mark is only
+  meaningful together with vault, item and field, and rows are never keyed by
+  the mark alone (THREAT_MODEL R102, ADR-0066).
 - Trash is the field `trashed_at` inside the plaintext. The server does not
   learn it (no server-side hint, ADR-0012). A hard delete ("delete
   forever") replaces the record with its encrypted tombstone (§7.2), which
@@ -2103,8 +2119,11 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 Quick-unlock wrappings (§6.2) never leave the device.
 
 Credential rotation (M7b) and the breach check add nothing the server or the
-folder can see; an edited record's upload is visible as for any edit. The
-breach check talks to Have I Been Pwned directly, never through the server
+folder can see; an edited record's upload is visible as for any edit. A
+rotation is a burst of edits (begin, deliver, confirm) of one record, and the
+record grows by up to about 4 KiB per open attempt (four values of up to
+1024 characters), which fingerprints a rotation for the server. The breach
+check talks to Have I Been Pwned directly, never through the server
 (ADR-0067).
 
 ### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
@@ -2130,7 +2149,9 @@ delete, withhold or roll back files, and a provider's version history keeps
 old ciphertext and old password wrappings of AK (THREAT_MODEL R54).
 
 Credential rotation (M7b) and the breach check add nothing the server or the
-folder can see; an edited record's upload is visible as for any edit.
+folder can see; an edited record's upload is visible as for any edit (a rotation
+shows as a burst of edits of one record, and the record grows by up to about
+4 KiB per open attempt).
 
 In short, the hosted server sees the sharing graph (THREAT_MODEL R74). A folder store never holds identity keys,
 rosters, the contact book or emergency grants (§8.6): §12.1 is unchanged.

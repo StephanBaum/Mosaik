@@ -421,6 +421,62 @@ fn debug_redacts_pending() {
     assert!(!format!("{h:?}").contains("very-secret-pending"));
 }
 
+/// Two writers share one device ID (ADR-0015) and each start an attempt:
+/// both stamps and keys are equal, the values differ. The merge keeps both
+/// values visible, and deliver, confirm and fail account for every one.
+#[test]
+fn device_id_collision_keeps_both_pending_values() {
+    let base = login();
+    let mut a = copy(&base);
+    let mut b = copy(&base);
+    let ia = begin(&mut a, 1, 200, "from-a");
+    let ib = begin(&mut b, 1, 210, "from-b");
+    assert_eq!(ia, ib, "one key, two values");
+    let outcome = a.merge_and_repair(&b, dev(9)).unwrap();
+    assert!(outcome.stamp_collision);
+    let m = outcome.item;
+    let mut seen = pendings(&m);
+    seen.sort();
+    assert_eq!(seen, ["from-a", "from-b"]);
+    // Deliver rewrites one attempt and leaves the other value alone.
+    let mut d = copy(&m);
+    for att in d.rotation_attempts() {
+        d.edit(dev(9), at(300))
+            .mark_rotation_delivered(att.id)
+            .unwrap();
+    }
+    let mut seen = pendings(&d);
+    seen.sort();
+    assert_eq!(seen, ["from-a", "from-b"]);
+    // Fail moves the value of its own attempt, confirm keeps the rest.
+    let mut f = copy(&m);
+    let first = f.rotation_attempts()[0].id;
+    f.edit(dev(9), at(300)).fail_rotation(first).unwrap();
+    assert_eq!(f.rotation_attempts().len(), 1);
+    assert_eq!(history(&f).len(), 1);
+    let rest = f.rotation_attempts()[0].id;
+    f.edit(dev(9), at(310)).confirm_rotation(rest).unwrap();
+    assert!(holds(&f, "from-a") && holds(&f, "from-b"));
+}
+
+#[test]
+fn closing_an_attempt_keeps_unknown_members() {
+    let mut item = login();
+    let id = begin(&mut item, 1, 200, "new-pw");
+    let json = String::from_utf8(item.to_json().unwrap().expose_secret().to_vec()).unwrap();
+    let with = json.replacen(r#""pending":"#, r#""future":5,"pending":"#, 1);
+    assert_ne!(with, json);
+    let mut item = Item::from_json(with.as_bytes()).unwrap();
+    assert!(
+        item.edit(dev(1), at(300))
+            .mark_rotation_delivered(id)
+            .unwrap()
+    );
+    let out = String::from_utf8(item.to_json().unwrap().expose_secret().to_vec()).unwrap();
+    assert!(out.contains(r#""future":5"#), "{out}");
+    assert!(out.contains(r#""stage":"delivered""#));
+}
+
 #[derive(Clone, Debug)]
 enum Op {
     Begin(usize),
@@ -428,17 +484,25 @@ enum Op {
     Confirm(usize, usize),
     Fail(usize, usize),
     Restore(usize, usize),
+    Clear(usize),
+    SetSecret(usize),
+    Resolve(usize),
     Sync(usize, usize),
 }
 
+const REPLICAS: usize = 3;
+
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
-        (0..3usize).prop_map(Op::Begin),
-        (0..3usize, 0..4usize).prop_map(|(r, k)| Op::Deliver(r, k)),
-        (0..3usize, 0..4usize).prop_map(|(r, k)| Op::Confirm(r, k)),
-        (0..3usize, 0..4usize).prop_map(|(r, k)| Op::Fail(r, k)),
-        (0..3usize, 0..4usize).prop_map(|(r, k)| Op::Restore(r, k)),
-        (0..3usize, 0..3usize).prop_map(|(a, b)| Op::Sync(a, b)),
+        (0..REPLICAS).prop_map(Op::Begin),
+        (0..REPLICAS, 0..4usize).prop_map(|(r, k)| Op::Deliver(r, k)),
+        (0..REPLICAS, 0..4usize).prop_map(|(r, k)| Op::Confirm(r, k)),
+        (0..REPLICAS, 0..4usize).prop_map(|(r, k)| Op::Fail(r, k)),
+        (0..REPLICAS, 0..4usize).prop_map(|(r, k)| Op::Restore(r, k)),
+        (0..REPLICAS).prop_map(Op::Clear),
+        (0..REPLICAS).prop_map(Op::SetSecret),
+        (0..REPLICAS).prop_map(Op::Resolve),
+        (0..REPLICAS, 0..REPLICAS).prop_map(|(a, b)| Op::Sync(a, b)),
     ]
 }
 
@@ -451,47 +515,128 @@ fn holds(item: &Item, v: &str) -> bool {
         || history(item).iter().any(|(h, _)| h == v)
 }
 
-fn apply(replicas: &mut [Item], op: &Op, t: i64, ever: &mut Vec<String>) {
-    let dev_of = |r: usize| u8::try_from(r + 1).unwrap();
-    match *op {
-        Op::Begin(r) => {
-            let v = format!("pend-{}", ever.len());
-            if replicas[r]
-                .edit(dev(dev_of(r)), at(t))
-                .begin_rotation(&v, None)
-                .is_ok()
-            {
-                ever.push(v);
+struct Sim {
+    replicas: Vec<Item>,
+    devs: Vec<u8>,
+    next_dev: u8,
+    ever: Vec<String>,
+}
+
+impl Sim {
+    fn new() -> Self {
+        let base = login();
+        Self {
+            replicas: (0..REPLICAS).map(|_| copy(&base)).collect(),
+            devs: vec![1, 2, 3],
+            next_dev: 10,
+            ever: Vec::new(),
+        }
+    }
+
+    fn sync(&mut self, a: usize, b: usize) {
+        if a == b {
+            return;
+        }
+        let other = copy(&self.replicas[b]);
+        match self.replicas[a].merge_and_repair(&other, dev(self.devs[a])) {
+            Ok(o) => self.replicas[a] = o.item,
+            Err(Error::DeviceIdReused) => {
+                // The documented recovery: a new device ID, the old one
+                // named as reused.
+                let new = self.next_dev;
+                self.next_dev += 1;
+                let old = dev(self.devs[a]);
+                if let Ok(o) =
+                    self.replicas[a].merge_and_repair_after_reuse(&other, dev(new), &[old])
+                {
+                    self.replicas[a] = o.item;
+                    self.devs[a] = new;
+                }
+            }
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+
+    fn clear(&mut self, r: usize, t: i64) {
+        let before = history(&self.replicas[r]);
+        let device = dev(self.devs[r]);
+        if self.replicas[r]
+            .edit(device, at(t))
+            .clear_password_history()
+            .is_err()
+        {
+            return;
+        }
+        let after = history(&self.replicas[r]);
+        for (v, reason) in &before {
+            let kept = after.iter().any(|(h, _)| h == v);
+            if *reason == HistoryReason::Unconfirmed {
+                assert!(kept, "an unconfirmed entry was cleared");
+            } else if !kept {
+                // An explicit clear of a plain entry releases the value.
+                self.ever.retain(|e| e != v);
             }
         }
-        Op::Deliver(r, k) | Op::Confirm(r, k) | Op::Fail(r, k) => {
-            let attempts = replicas[r].rotation_attempts();
-            let Some(a) = attempts.get(k % attempts.len().max(1)) else {
-                return;
-            };
-            let mut e = replicas[r].edit(dev(dev_of(r)), at(t));
-            let done = match *op {
-                Op::Deliver(..) => e.mark_rotation_delivered(a.id).map(|_| ()),
-                Op::Confirm(..) => e.confirm_rotation(a.id),
-                _ => e.fail_rotation(a.id),
-            };
-            done.unwrap();
-        }
-        Op::Restore(r, k) => {
-            let h = replicas[r].password_history();
-            let Some(entry) = h.get(k % h.len().max(1)) else {
-                return;
-            };
-            replicas[r]
-                .edit(dev(dev_of(r)), at(t))
-                .restore_history(&entry.id)
-                .unwrap();
-        }
-        Op::Sync(a, b) => {
-            if a != b {
-                let other = copy(&replicas[b]);
-                merge_into(&mut replicas[a], dev_of(a), &other);
+    }
+
+    fn apply(&mut self, op: &Op, t: i64) {
+        let device = |s: &Self, r: usize| dev(s.devs[r]);
+        match *op {
+            Op::Begin(r) => {
+                let v = format!("pend-{}", self.ever.len());
+                let d = device(self, r);
+                if self.replicas[r]
+                    .edit(d, at(t))
+                    .begin_rotation(&v, None)
+                    .is_ok()
+                {
+                    self.ever.push(v);
+                }
             }
+            Op::Deliver(r, k) | Op::Confirm(r, k) | Op::Fail(r, k) => {
+                let attempts = self.replicas[r].rotation_attempts();
+                let Some(a) = attempts.get(k % attempts.len().max(1)) else {
+                    return;
+                };
+                let d = device(self, r);
+                let mut e = self.replicas[r].edit(d, at(t));
+                let done = match *op {
+                    Op::Deliver(..) => e.mark_rotation_delivered(a.id).map(|_| ()),
+                    Op::Confirm(..) => e.confirm_rotation(a.id),
+                    _ => e.fail_rotation(a.id),
+                };
+                done.unwrap();
+            }
+            Op::Restore(r, k) => {
+                let h = self.replicas[r].password_history();
+                let Some(entry) = h.get(k % h.len().max(1)) else {
+                    return;
+                };
+                let d = device(self, r);
+                self.replicas[r]
+                    .edit(d, at(t))
+                    .restore_history(&entry.id)
+                    .unwrap();
+            }
+            Op::Clear(r) => self.clear(r, t),
+            Op::SetSecret(r) => {
+                let d = device(self, r);
+                self.replicas[r]
+                    .edit(d, at(t))
+                    .set_secret(SecretField::Password, &format!("manual-{t}"))
+                    .unwrap();
+            }
+            Op::Resolve(r) => {
+                let key = SecretField::Password.key();
+                if self.replicas[r].conflicts().iter().any(|c| c.key == key) {
+                    let d = device(self, r);
+                    self.replicas[r]
+                        .edit(d, at(t))
+                        .dismiss_conflict(key)
+                        .unwrap();
+                }
+            }
+            Op::Sync(a, b) => self.sync(a, b),
         }
     }
 }
@@ -499,28 +644,67 @@ fn apply(replicas: &mut [Item], op: &Op, t: i64, ever: &mut Vec<String>) {
 proptest! {
     /// Every value that was ever an attempt's new password is the password,
     /// an open attempt or a history entry on every replica after a full
-    /// sync, until the history's count limit trims it.
+    /// sync, until the history's count limit trims it or an explicit clear
+    /// releases a plain entry.
     #[test]
-    fn no_pending_value_is_ever_lost(ops in proptest::collection::vec(op(), 1..14)) {
-        let base = login();
-        let mut replicas = vec![copy(&base), copy(&base), copy(&base)];
-        let mut ever = Vec::new();
+    fn no_pending_value_is_ever_lost(ops in proptest::collection::vec(op(), 1..16)) {
+        let mut sim = Sim::new();
         for (i, o) in ops.iter().enumerate() {
-            apply(&mut replicas, o, 1_000 + i as i64, &mut ever);
+            sim.apply(o, 1_000 + i as i64);
         }
-        for _ in 0..2 {
-            for a in 0..3 {
-                for b in 0..3 {
-                    apply(&mut replicas, &Op::Sync(a, b), 9_000, &mut ever);
+        for _ in 0..3 {
+            for a in 0..REPLICAS {
+                for b in 0..REPLICAS {
+                    sim.sync(a, b);
                 }
             }
         }
-        for r in &replicas {
+        for r in &sim.replicas {
             if r.password_history().len() >= MAX_HISTORY {
                 continue;
             }
-            for v in &ever {
+            for v in &sim.ever {
                 prop_assert!(holds(r, v), "{v} lost");
+            }
+        }
+    }
+
+    /// Two writers share a device ID and start attempts from one state:
+    /// whatever they stored, the repairing merge keeps every value, and
+    /// closing or delivering an attempt afterwards loses none (ADR-0015).
+    #[test]
+    fn device_id_collision_never_loses_a_pending_value(
+        na in 1..4usize,
+        nb in 1..4usize,
+        close in 0..3usize,
+    ) {
+        let base = login();
+        let (mut a, mut b) = (copy(&base), copy(&base));
+        let mut values = Vec::new();
+        for i in 0..na {
+            let v = format!("a{i}");
+            a.edit(dev(1), at(200 + i as i64)).begin_rotation(&v, None).unwrap();
+            values.push(v);
+        }
+        for i in 0..nb {
+            let v = format!("b{i}");
+            b.edit(dev(1), at(300 + i as i64)).begin_rotation(&v, None).unwrap();
+            values.push(v);
+        }
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let mut m = copy(&x.merge_and_repair(y, dev(9)).unwrap().item);
+            for v in &values {
+                prop_assert!(holds(&m, v), "{v} lost by the merge");
+            }
+            let id = m.rotation_attempts()[0].id;
+            let mut e = m.edit(dev(9), at(400));
+            match close {
+                0 => e.mark_rotation_delivered(id).map(|_| ()).unwrap(),
+                1 => e.fail_rotation(id).unwrap(),
+                _ => e.confirm_rotation(id).unwrap(),
+            }
+            for v in &values {
+                prop_assert!(holds(&m, v), "{v} lost by closing");
             }
         }
     }

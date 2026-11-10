@@ -479,6 +479,7 @@ dependencies = [
  "sha2",
  "subtle",
  "thiserror",
+ "url",
  "zeroize",
 ]
 

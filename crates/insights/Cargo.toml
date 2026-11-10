@@ -31,6 +31,9 @@ thiserror.workspace = true
 # Related-domain check for a stored change-password URL (registrable domain,
 # ADR-0070).
 mosaic-origin = { path = "../origin" }
+# The stored change-password URL is returned as the URL parser serializes it,
+# not as typed (the same crate and pin as mosaic-origin).
+url.workspace = true
 # Parses the vendored 2FA Directory data once, like the generator's quirks.
 serde_json.workspace = true
 

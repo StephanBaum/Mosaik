@@ -27,6 +27,7 @@ use mosaic_core::model::{Item, TextField};
 use mosaic_generator::host::{candidates, normalize};
 use mosaic_origin::{PageOrigin, registrable_domain, saved_origin};
 use serde_json::Value;
+use url::Url;
 
 const QUIRKS_JSON: &str = include_str!("../data/change-password-URLs.json");
 
@@ -110,12 +111,39 @@ fn https_origins(item: &Item) -> Vec<PageOrigin> {
         .collect()
 }
 
-/// The trimmed `candidate` if it is a clean `https` URL on the registrable
+/// Characters of the Unicode category Cf (format): bidirectional overrides,
+/// zero-width and joiner characters and the like, which make a URL read
+/// differently from what it is.
+fn is_format_char(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
+}
+
+/// The normalized form (as the URL parser serializes it, never the raw
+/// input) of `candidate` if it is a clean `https` URL on the registrable
 /// domain of one of `origins`.
 fn valid_stored(candidate: &str, origins: &[PageOrigin]) -> Option<String> {
     let url = candidate.trim();
     if url.len() > MAX_URL_LEN
-        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+        || url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || is_format_char(c))
         || !url
             .get(..8)
             .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
@@ -129,7 +157,11 @@ fn valid_stored(candidate: &str, origins: &[PageOrigin]) -> Option<String> {
     if url.get(8..authority_end)?.contains('@') {
         return None;
     }
-    let origin = saved_origin(url)?;
+    let parsed = Url::parse(url).ok()?;
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+        return None;
+    }
+    let origin = saved_origin(parsed.as_str())?;
     if origin.is_http() || origin.is_loopback() {
         return None;
     }
@@ -137,7 +169,7 @@ fn valid_stored(candidate: &str, origins: &[PageOrigin]) -> Option<String> {
     origins
         .iter()
         .any(|o| registrable_domain(&o.host_str()).as_deref() == Some(domain.as_str()))
-        .then(|| url.to_owned())
+        .then(|| parsed.to_string())
 }
 
 /// The vendored URL for `host` or its nearest parent domain.
@@ -245,6 +277,9 @@ mod tests {
             "https://example.com@evil.test/pw",
             "https://user@example.com/pw",
             "https://example.com/p w",
+            "https://example.com/\u{202e}gpj.exe",
+            "https://example.com/a\u{200b}b",
+            "https://exam\u{00ad}ple.com/pw",
             "//example.com/pw",
             "example.com/pw",
             "javascript:alert(1)",
@@ -260,6 +295,14 @@ mod tests {
             &login(&urls, None),
             " HTTPS://www.example.com/pw "
         ));
+        // What is returned is the parsed and serialized URL, not the input.
+        assert_eq!(
+            resolved(&urls, Some(" HTTPS://WWW.Example.com/a/../pw ")),
+            Some((
+                "https://www.example.com/pw".to_owned(),
+                ChangeUrlSource::Stored
+            ))
+        );
         // An http-only item has nothing to be related to.
         assert_eq!(
             resolved(&["http://example.com"], Some("https://example.com/pw")),

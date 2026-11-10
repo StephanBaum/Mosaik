@@ -2462,6 +2462,17 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
     `analyze_with` and `Extra`, the per-item reminder interval for "old", fuzz target `pwned_range`.
   - New dependency edges: `mosaic-insights` to `sha1` (already pinned) and to `mosaic-origin` (related-domain
     check). No new crate in the lockfile; the insights fuzz lockfile grew by the origin crate's tree.
+  - **T1 review follow-ups** (crypto review: 0 high, 2 medium, 6 low, 6 info, all fixed): a device-ID collision
+    can no longer lose a pending value (the repair spreads `rotation:` registers; deliver, confirm and fail account
+    for every entry; only `stage` is rewritten); the breach run's pause waits on the cancel flag (`pause` returns
+    `false`), the 429 retry is per run, an unpadded or empty answer is `Protocol`, plan suffixes sit in their own
+    heap blocks, a future `checked_at` is stale, `RangePrefix` is redacted in `Debug`, `breached_items` follows the
+    current value mark; a stored change-password URL is returned normalized and without Cf characters (new edge
+    `mosaic-insights` to `url`, already pinned for `mosaic-origin`); disclosure lists in R97, R100, R102 and
+    CRYPTO_SPEC §12; the value mark stays a Lamport stamp (ADR-0066). The core proptest now also covers
+    `clear_password_history`, manual changes and conflict resolution, plus a device-ID collision property. Limit
+    kept: two writers sharing a device ID whose *different-field* edits carry equal stamps are only detected by the
+    ADR-0015 rules; the proptest does not claim more.
   - Left to the next tracks: the HTTP transport (`mosaic_sync::http::pwned`, T3) and everything in the spec's §3.2 to §8.
 
 ## Open risks / findings
