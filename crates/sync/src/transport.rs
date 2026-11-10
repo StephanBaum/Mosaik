@@ -340,6 +340,42 @@ pub enum Rejection {
         /// Which list of the request.
         set: RekeySet,
     },
+    /// The server cannot run security-key ceremonies, or the account has no
+    /// security key for the step (M9, `webauthn_unavailable`).
+    WebauthnUnavailable,
+    /// The browser handoff ran out or is unknown (M9, `handoff_expired`).
+    HandoffExpired,
+}
+
+/// Why the hosted server ended a session (CRYPTO_SPEC §9.5). An unauthenticated
+/// claim of the server: it only selects the message shown to the user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RevokedReason {
+    /// The account was re-keyed on another device: sign in with the new Secret
+    /// Key.
+    Rekey,
+    /// The master password was changed on another device.
+    PasswordChange,
+    /// This device was removed from the account.
+    DeviceRemoved,
+    /// The server operator ended the session.
+    Operator,
+}
+
+impl RevokedReason {
+    /// The reason for the wire name (`rekey`, `passwordChange`,
+    /// `deviceRemoved`, `operator`); `None` for any other string.
+    #[must_use]
+    pub fn from_wire(name: &str) -> Option<Self> {
+        Some(match name {
+            "rekey" => Self::Rekey,
+            "passwordChange" => Self::PasswordChange,
+            "deviceRemoved" => Self::DeviceRemoved,
+            "operator" => Self::Operator,
+            _ => return None,
+        })
+    }
 }
 
 /// The list of a re-key request that did not match the server's state.
@@ -372,6 +408,14 @@ pub enum TransportError {
     /// The account needs its second factor.
     #[error("two-factor code required")]
     TwoFactorRequired,
+    /// The server ended this session for a known reason (the `detail.revoked`
+    /// of a 401): sign in again, with the new Secret Key after a re-key.
+    #[error("session ended by the server")]
+    Revoked(RevokedReason),
+    /// The account's only second factor is a security key, which this client
+    /// cannot use for the step (no code to type).
+    #[error("second factor method unsupported")]
+    SecondFactorUnsupported,
     /// The action needs a fresh login.
     #[error("fresh login required")]
     FreshLoginRequired,

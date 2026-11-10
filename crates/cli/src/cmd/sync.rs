@@ -8,7 +8,7 @@ use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, OwnedSession, SyncEngine, SyncError, SyncReport};
 use mosaic_sync::folder::{self, FolderConfig, FolderContents, FolderTransport, JoinError};
 use mosaic_sync::http::{HttpTransport, StoredToken};
-use mosaic_sync::transport::TransportKind;
+use mosaic_sync::transport::{RevokedReason, TransportError, TransportKind};
 use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
@@ -26,12 +26,22 @@ fn sync_failed(reason: &str) -> CliError {
     CliError::new("syncFailed", EXIT_SYNC, Msg::ErrSyncFailed).with("reason", reason)
 }
 
+/// A transport failure: a session the server ended by a re-key names the new Secret Key.
+fn transport_failed(t: &TransportError) -> CliError {
+    match t {
+        TransportError::Revoked(RevokedReason::Rekey) => {
+            CliError::new("syncSessionRevoked", EXIT_SYNC, Msg::ErrSyncSessionRevoked)
+        }
+        other => sync_failed(&other.to_string()),
+    }
+}
+
 fn map_sync_error(e: SyncError) -> CliError {
     match e {
         SyncError::RollbackDetected | SyncError::IdentityDuplicated => {
             CliError::new("syncHalted", EXIT_SYNC, Msg::ErrSyncHalted)
         }
-        SyncError::Transport(t) => sync_failed(&t.to_string()),
+        SyncError::Transport(t) => transport_failed(&t),
         SyncError::Session(s) => s.into(),
         SyncError::Backoff { .. } => sync_failed("backing off"),
         SyncError::AccountRekeyed => sync_failed("the account was re-keyed on another device"),
@@ -99,8 +109,8 @@ fn run_once(
                 app.be.tokens.load(account).ok().flatten().ok_or_else(|| {
                     sync_failed("not signed in to the server (sign in with the app)")
                 })?;
-            let transport = HttpTransport::connect(&url, &token, install)
-                .map_err(|e| sync_failed(&e.to_string()))?;
+            let transport =
+                HttpTransport::connect(&url, &token, install).map_err(|e| transport_failed(&e))?;
             SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Hosted))
                 .sync_once(owned, &SystemClock)
                 .map_err(map_sync_error)

@@ -26,7 +26,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
-use crate::transport::{Rejection, RekeySet, TransportError};
+use crate::transport::{Rejection, RekeySet, RevokedReason, TransportError};
 use crate::wire::json::sharing::{
     ConflictDetail, CooldownDetail, InviteStaleDetail, WaitingDetail,
 };
@@ -230,7 +230,10 @@ fn map_failure(
         return e;
     }
     match body.map(|b| b.error.as_str()) {
-        Some(codes::UNAUTHORIZED) => TransportError::Unauthorized,
+        Some(codes::UNAUTHORIZED) => body
+            .and_then(ErrorBody::detail_as::<json::RevokedDetail>)
+            .and_then(|d| RevokedReason::from_wire(&d.revoked))
+            .map_or(TransportError::Unauthorized, TransportError::Revoked),
         Some(codes::FRESH_LOGIN_REQUIRED) => TransportError::FreshLoginRequired,
         Some(codes::FORBIDDEN | codes::VAULT_EXISTS) => TransportError::Forbidden,
         Some(codes::NOT_FOUND) => TransportError::NotFound,
@@ -282,6 +285,8 @@ fn map_failure(
         Some(codes::MEMBERS_LIMIT | codes::INVITE_LIMIT) => rejected(Rejection::InviteLimit),
         Some(codes::ALREADY_MEMBER) => rejected(Rejection::AlreadyMember),
         Some(codes::REINVITE_BLOCKED) => rejected(Rejection::ReinviteBlocked),
+        Some(codes::WEBAUTHN_UNAVAILABLE) => rejected(Rejection::WebauthnUnavailable),
+        Some(codes::HANDOFF_EXPIRED) => rejected(Rejection::HandoffExpired),
         Some(codes::OWNER_CANNOT_LEAVE) => rejected(Rejection::OwnerCannotLeave),
         Some(codes::NO_SHARE) => rejected(Rejection::NoShare),
         Some(codes::EMERGENCY_WAITING) => rejected(Rejection::EmergencyWaiting {
@@ -511,6 +516,38 @@ fn read_capped(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn revoked_detail_maps_to_reason() {
+        let body = |detail: Option<serde_json::Value>| ErrorBody {
+            error: "unauthorized".to_owned(),
+            detail,
+        };
+        for (wire, reason) in [
+            ("rekey", RevokedReason::Rekey),
+            ("passwordChange", RevokedReason::PasswordChange),
+            ("deviceRemoved", RevokedReason::DeviceRemoved),
+            ("operator", RevokedReason::Operator),
+        ] {
+            let b = body(Some(serde_json::json!({ "revoked": wire })));
+            assert_eq!(
+                map_failure(401, None, Some(&b)),
+                TransportError::Revoked(reason)
+            );
+        }
+        // An unknown reason, a malformed detail and no detail stay plain 401s.
+        for detail in [
+            Some(serde_json::json!({ "revoked": "other" })),
+            Some(serde_json::json!({ "revoked": 1 })),
+            Some(serde_json::json!({ "x": 1 })),
+            None,
+        ] {
+            assert_eq!(
+                map_failure(401, None, Some(&body(detail))),
+                TransportError::Unauthorized
+            );
+        }
+    }
 
     #[test]
     fn tls_config_is_tls13_only() {

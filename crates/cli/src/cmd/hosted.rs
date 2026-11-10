@@ -6,7 +6,7 @@ use std::path::Path;
 
 use mosaic_core::{AccountId, MasterPassword, SecretKey};
 use mosaic_sync::http::{StoredToken, canonical_origin, hosted};
-use mosaic_sync::transport::{Rejection, TransportError};
+use mosaic_sync::transport::{Rejection, RevokedReason, TransportError};
 use mosaic_sync::wire::json::LoginStatus;
 use mosaic_vault::session::LockedSession;
 use mosaic_vault::storage::{Store, SyncConfig, SyncKind};
@@ -26,6 +26,10 @@ fn sync_failed(reason: &str) -> CliError {
 fn transport_error(e: &TransportError) -> CliError {
     match e {
         TransportError::Rejected(Rejection::LoginFailed) => CliError::wrong_credentials(),
+        TransportError::SecondFactorUnsupported => CliError::two_factor_method_unsupported(),
+        TransportError::Revoked(RevokedReason::Rekey) => {
+            CliError::new("syncSessionRevoked", EXIT_SYNC, Msg::ErrSyncSessionRevoked)
+        }
         other => sync_failed(&other.to_string()),
     }
 }

@@ -469,3 +469,29 @@ fn hosted_join_with_a_wrong_password_or_key_stores_nothing() {
         .run();
     assert_eq!(no_email.code, 2);
 }
+
+#[test]
+fn revoked_rekey_prints_secret_key_hint() {
+    let mut d = Desktop::new();
+    d.sync();
+    assert_eq!(d.setup(&[d.f.secret_key.as_str(), PASSWORD]).code, 0);
+    assert_eq!(d.cli(&["sync"], &[PASSWORD]).code, 0);
+    // The account is re-keyed elsewhere: the server ends every session and records why (reason 1).
+    d.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "INSERT INTO revoked_sessions (token_hash, account_id, reason, revoked_at)                  SELECT token_hash, account_id, 1, 0 FROM sessions",
+                [],
+            )?;
+            c.execute("DELETE FROM sessions", [])?;
+            Ok::<_, mosaic_server::ApiError>(())
+        })
+        .unwrap();
+    d.server.advance_ms(60_000);
+    let out = d.cli(&["sync"], &[PASSWORD]);
+    assert_eq!(out.code, 6, "{}", out.stderr);
+    assert_eq!(out.error_json()["error"]["code"], "syncSessionRevoked");
+    assert!(out.stderr.contains("Secret Key"), "{}", out.stderr);
+}

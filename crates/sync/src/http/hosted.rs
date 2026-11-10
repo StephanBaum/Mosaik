@@ -586,6 +586,25 @@ pub fn info_features(base: &str) -> Result<Features, TransportError> {
     Ok(info.features)
 }
 
+/// The page of a browser handoff: `<origin>/webauthn/#<handoffId>`. The ID
+/// travels in the URL fragment only, so it never reaches the server in a
+/// request line or a log. `origin` must be a canonical origin
+/// ([`canonical_origin`]); anything else is refused.
+///
+/// # Errors
+/// [`TransportError::InvalidUrl`] or [`TransportError::InsecureUrl`] for an
+/// origin that is not `https://host[:port]` (or `http` on loopback), or not in
+/// canonical form.
+pub fn handoff_page_url(origin: &str, handoff_id: &[u8; 16]) -> Result<String, TransportError> {
+    if canonical_origin(origin)? != origin {
+        return Err(TransportError::InvalidUrl);
+    }
+    Ok(format!(
+        "{origin}/webauthn/#{}",
+        <base64ct::Base64UrlUnpadded as base64ct::Encoding>::encode_string(handoff_id)
+    ))
+}
+
 /// `GET /v1/login/methods` with a pending session: which second factors the
 /// account can use (`totp`, `webauthn`). `webauthn` is false when the server
 /// cannot run the ceremony.
@@ -864,6 +883,19 @@ impl core::fmt::Debug for Recovered {
     }
 }
 
+/// The error for a pending session that has no code to give:
+/// [`TransportError::SecondFactorUnsupported`] if the account's only second
+/// factor is a security key (CRYPTO_SPEC §9.3: no code exists to type),
+/// otherwise [`TransportError::TwoFactorRequired`] (also when the methods
+/// cannot be fetched).
+#[must_use]
+pub fn missing_code_error(base: &str, token: &impl Token) -> TransportError {
+    match login_methods(base, token) {
+        Ok(m) if m.webauthn && !m.totp => TransportError::SecondFactorUnsupported,
+        _ => TransportError::TwoFactorRequired,
+    }
+}
+
 /// The server side of recovering a master password change that another run
 /// of this device applied to the server only (CRYPTO_SPEC §9.4, "Change
 /// applied elsewhere"): pre-login for the server's current parameters, the
@@ -876,7 +908,8 @@ impl core::fmt::Debug for Recovered {
 /// # Errors
 /// As [`join_login`] and [`join_fetch_account`], plus
 /// [`TransportError::TwoFactorRequired`] if the account needs `totp_code`
-/// and none was given and [`Rejection::TwoFactorInvalid`].
+/// and none was given, [`TransportError::SecondFactorUnsupported`] if the
+/// account has a security key only, and [`Rejection::TwoFactorInvalid`].
 pub fn recover_password(
     base: &str,
     address: &str,
@@ -888,7 +921,9 @@ pub fn recover_password(
 ) -> Result<Recovered, TransportError> {
     let mut login = join_login(base, address, new_password, secret_key, device, device_name)?;
     if login.grant.status == LoginStatus::TwoFactorRequired {
-        let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        let Some(code) = totp_code else {
+            return Err(missing_code_error(base, &login.grant.token));
+        };
         login.grant.expires_at_ms = login_totp(base, &login.grant.token, code)?;
         login.grant.status = LoginStatus::Ok;
     }

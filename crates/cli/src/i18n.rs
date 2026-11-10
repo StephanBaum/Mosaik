@@ -104,6 +104,7 @@ messages! {
     ErrSyncNotConfigured => "cli.err.syncNotConfigured",
     ErrSyncHalted => "cli.err.syncHalted",
     ErrSyncFailed => "cli.err.syncFailed",
+    ErrSyncSessionRevoked => "cli.err.syncSessionRevoked",
     ErrFileExists => "cli.err.fileExists",
     ErrFileRead => "cli.err.fileRead",
     ErrFileWrite => "cli.err.fileWrite",

@@ -44,6 +44,8 @@ export const cli = {
   "cli.err.syncNotConfigured": "Sync is not set up for this store.",
   "cli.err.syncHalted": "Sync is stopped. Run `mosaic sync --status`.",
   "cli.err.syncFailed": "Sync failed: {reason}.",
+  "cli.err.syncSessionRevoked":
+    "This account was re-keyed on another device, so this session ended. Sign in again with the new Secret Key from your newest Emergency Kit.",
   "cli.err.fileExists": "{path} already exists. Mosaic does not overwrite files.",
   "cli.err.fileRead": "Cannot read {path}.",
   "cli.err.fileWrite": "Cannot write {path}.",

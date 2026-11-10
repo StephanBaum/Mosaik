@@ -32,6 +32,7 @@
   "cli.err.syncNotConfigured": "Für diesen Speicher ist keine Synchronisierung eingerichtet.",
   "cli.err.syncHalted": "Die Synchronisierung ist gestoppt. Führe `mosaic sync --status` aus.",
   "cli.err.syncFailed": "Synchronisierung fehlgeschlagen: {reason}.",
+  "cli.err.syncSessionRevoked": "Dieses Konto wurde auf einem anderen Gerät neu verschlüsselt, deshalb wurde diese Sitzung beendet. Melde dich mit dem neuen Geheimen Schlüssel aus deinem neuesten Notfall-Kit wieder an.",
   "cli.err.fileExists": "{path} existiert bereits. Mosaic überschreibt keine Dateien.",
   "cli.err.fileRead": "{path} kann nicht gelesen werden.",
   "cli.err.fileWrite": "{path} kann nicht geschrieben werden.",
