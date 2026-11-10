@@ -9,9 +9,18 @@ updates:
   - package-ecosystem: cargo
     directories:
       - /crates/core/fuzz
-      - /crates/vault/fuzz
-      - /crates/totp/fuzz
       - /crates/generator/fuzz
+      - /crates/import/fuzz
+      - /crates/insights/fuzz
+      - /crates/native-messaging/fuzz
+      - /crates/passkey/fuzz
+      - /crates/qr/fuzz
+      - /crates/server/fuzz
+      - /crates/ssh-agent/fuzz
+      - /crates/sync/fuzz
+      - /crates/totp/fuzz
+      - /crates/vault/fuzz
+      - /apps/desktop/src-tauri/fuzz
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
   - package-ecosystem: npm
