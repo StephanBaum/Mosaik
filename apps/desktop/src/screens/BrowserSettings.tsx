@@ -10,6 +10,7 @@ import { formatRelative } from "../i18n/format.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { BrowserPairing, IpcError } from "../ipc/contract/index.ts";
 import { useIpc } from "../ipc/IpcProvider.tsx";
+import { BrowserConnectorBanner } from "./BrowserConnectorBanner.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { useBrowserStatus } from "./useBrowserStatus.ts";
 
@@ -102,6 +103,7 @@ export function BrowserSettings({ onError }: { onError: (error: IpcError | null)
 
   return (
     <SettingsSection title={t("browser.settings.title")} body={t("browser.settings.body")}>
+      <BrowserConnectorBanner />
       {status !== null && status.endpoint !== "running" && (
         <div className="setting-row">
           <p className="alert" role="alert">

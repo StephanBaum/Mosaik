@@ -57,6 +57,10 @@ export type SyncWarningView =
 
 export type SyncWarningKind = SyncWarningView["kind"];
 
+/** Why the server ended a session (CRYPTO_SPEC section 9.5): the server's claim, it only selects the text. */
+export const revokedReasons = ["rekey", "passwordChange", "deviceRemoved", "operator"] as const;
+export type RevokedReason = (typeof revokedReasons)[number];
+
 /** The `sync_status` response (the spec's "SyncStatus"), and what most sync commands return. */
 export interface SyncOverview {
   config: SyncConfigView | null;
@@ -68,6 +72,8 @@ export interface SyncOverview {
   passwordChanged: boolean;
   /** A verified re-key marker says the keys were renewed on another device; sync is paused (M7). */
   rekeyPending: boolean;
+  /** Why the server ended this device's session; set with status `signedOut` (M7-R3). */
+  revoked: RevokedReason | null;
 }
 
 export interface CheckServerRequest {

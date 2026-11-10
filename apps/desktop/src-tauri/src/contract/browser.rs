@@ -184,6 +184,27 @@ pub struct BrowserStatus {
     pub pairings: Vec<BrowserPairing>,
 }
 
+/// A native-messaging manifest or registry entry that does not point to the
+/// Mosaic host this app installed (`audit_manifests`, ADR-0083, M9).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserConnectorFinding {
+    /// The browser family whose connector it is.
+    pub browser: BrowserFamily,
+    /// Where the entry is: a manifest file or a registry key, as text.
+    pub location: String,
+    /// The host program the entry points to instead.
+    pub path: String,
+}
+
+/// The `browser_connector_audit` and `browser_connector_repair` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserConnectorAudit {
+    /// What differs from the installed host; empty when all is as installed.
+    pub findings: Vec<BrowserConnectorFinding>,
+}
+
 /// `browser_remove_pairing`.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
@@ -517,6 +538,21 @@ pub(crate) mod samples {
 
     pub(crate) fn request_id() -> String {
         "a1b2c3d4e5f60718293a4b5c6d7e8f90".to_owned()
+    }
+
+    pub(crate) fn audits() -> Vec<BrowserConnectorAudit> {
+        vec![
+            BrowserConnectorAudit { findings: vec![] },
+            BrowserConnectorAudit {
+                findings: vec![BrowserConnectorFinding {
+                    browser: BrowserFamily::Chromium,
+                    location:
+                        "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host"
+                            .into(),
+                    path: "C:\\Users\\alex\\Downloads\\other-host.exe".into(),
+                }],
+            },
+        ]
     }
 
     pub(crate) fn statuses() -> Vec<BrowserStatus> {

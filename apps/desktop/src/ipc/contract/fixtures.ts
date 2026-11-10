@@ -42,6 +42,8 @@ export interface EnumFixtures {
   importEntryWarning: string[];
   importSkipReason: string[];
   shortcutState: string[];
+  revokedReason: string[];
+  vaultMetaField: string[];
   sshSkipReason: string[];
   sshSignFailReason: string[];
   sshDecision: string[];

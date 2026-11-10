@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- one entry per IPC command: the list is the contract. */
 /**
  * Every IPC command with its request and response type (docs/DESKTOP_IPC.md). Mirrors
  * `src-tauri/src/commands/names.rs`. `subscribe_events` is not here: its argument is a
@@ -10,6 +11,7 @@ import type {
   BrowserRemovePairingRequest,
   BrowserRotationCommands,
   BrowserSaveRespondRequest,
+  BrowserConnectorAudit,
   BrowserStatus,
 } from "./browser.ts";
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
@@ -78,6 +80,7 @@ import type {
   RotationDone,
   RotationResumeRequest,
   RotationStatus,
+  VaultRotateKeyRequest,
 } from "./rotation.ts";
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
 import type {
@@ -216,6 +219,8 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   ssh_respond: Command<SshRespondRequest, null>;
   // Browser extension
   browser_status: Command<null, BrowserStatus>;
+  browser_connector_audit: Command<null, BrowserConnectorAudit>;
+  browser_connector_repair: Command<null, BrowserConnectorAudit>;
   browser_remove_pairing: Command<BrowserRemovePairingRequest, BrowserStatus>;
   browser_pairing_respond: Command<BrowserPairingRespondRequest, null>;
   browser_save_respond: Command<BrowserSaveRespondRequest, null>;
@@ -251,6 +256,7 @@ export interface Commands extends CredentialRotationCommands, BrowserRotationCom
   rekey_prepare: Command<RekeyPrepareRequest, null>;
   rekey_commit: Command<RekeyCommitRequest, RotationDone>;
   rotation_resume: Command<RotationResumeRequest, RotationDone>;
+  vault_rotate_key: Command<VaultRotateKeyRequest, RotationDone>;
   rotation_abandon: Command<null, null>;
   rotation_abandon_committed: Command<null, null>;
   sync_rekey_markers: Command<null, RekeyMarkerView[]>;
@@ -355,6 +361,8 @@ const commandSet = {
   ssh_agent_set_enabled: true,
   ssh_respond: true,
   browser_status: true,
+  browser_connector_audit: true,
+  browser_connector_repair: true,
   browser_remove_pairing: true,
   browser_pairing_respond: true,
   browser_save_respond: true,
@@ -390,6 +398,7 @@ const commandSet = {
   rekey_prepare: true,
   rekey_commit: true,
   rotation_resume: true,
+  vault_rotate_key: true,
   rotation_abandon: true,
   rotation_queue: true,
   rotation_begin: true,

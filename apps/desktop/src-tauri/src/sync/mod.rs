@@ -46,7 +46,7 @@ use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, SyncEngine};
 use mosaic_sync::folder::{FolderConfig, FolderTransport};
 use mosaic_sync::http::{HttpTransport, StoredToken, Token as _, hosted};
-use mosaic_sync::transport::{TransportError, TransportKind};
+use mosaic_sync::transport::{RevokedReason, TransportError, TransportKind};
 use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_vault::session::{SyncConfig, SyncKind, UnlockedSession};
@@ -96,6 +96,8 @@ pub(crate) struct View {
     pub webauthn_keys: Option<u32>,
     /// The backend holds a master password this device does not know.
     pub password_changed: bool,
+    /// Why the server ended the session (set with `SignedOut`).
+    pub revoked: Option<RevokedReason>,
 }
 
 impl Default for View {
@@ -108,6 +110,7 @@ impl Default for View {
             totp_enabled: None,
             webauthn_keys: None,
             password_changed: false,
+            revoked: None,
         }
     }
 }
@@ -701,7 +704,7 @@ fn thread_main(ctx: &runner::Ctx, run: &RunConfig, rx: &mpsc::Receiver<Cmd>) {
                 return;
             };
             let Ok(Some(token)) = backend.sync_tokens.load(run.account) else {
-                backend.sync_signed_out(ctx.generation, None);
+                backend.sync_signed_out(ctx.generation, None, None);
                 return;
             };
             // The token this thread runs with: a 401 deletes only this one.
@@ -893,7 +896,12 @@ impl Backend {
     /// thread of an older generation does nothing, and the token is deleted
     /// only if it still is the one the thread ran with (a newer login keeps
     /// its token and the status stays as the login left it).
-    pub(crate) fn sync_signed_out(&self, generation: u64, token: Option<&StoredToken>) {
+    pub(crate) fn sync_signed_out(
+        &self,
+        generation: u64,
+        token: Option<&StoredToken>,
+        reason: Option<RevokedReason>,
+    ) {
         if !self.sync.is_current(generation) {
             return;
         }
@@ -910,6 +918,7 @@ impl Backend {
             }
             view.status = SyncStatus::SignedOut;
             view.error = Some(ErrorCode::SyncSignedOut);
+            view.revoked = reason;
             true
         });
         if changed {
@@ -923,6 +932,7 @@ impl Backend {
         self.sync.update_view(|view| {
             view.status = SyncStatus::SignedOut;
             view.error = Some(ErrorCode::SyncSignedOut);
+            view.revoked = None;
             true
         });
         self.emit_sync_state();
@@ -962,6 +972,7 @@ impl Backend {
                 sharing_findings: Vec::new(),
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             };
         }
         let view = self.sync.view();
@@ -972,6 +983,10 @@ impl Backend {
             sharing_findings: sharing_flow::findings_view(session),
             password_changed: view.password_changed,
             rekey_pending: session.rekey_pending().unwrap_or(false),
+            revoked: view
+                .revoked
+                .filter(|_| view.status == SyncStatus::SignedOut)
+                .map(errors::revoked_view),
         }
     }
 

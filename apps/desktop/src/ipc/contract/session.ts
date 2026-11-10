@@ -86,7 +86,7 @@ export interface SaveKitRequest {
 
 export type KitSaved = { kind: "saved" } | { kind: "cancelled" };
 
-export const shortcutStates = ["registered", "conflict", "unavailable"] as const;
+export const shortcutStates = ["registered", "conflict", "unavailable", "unsupported"] as const;
 export type ShortcutState = (typeof shortcutStates)[number];
 
 export interface AppStatus {

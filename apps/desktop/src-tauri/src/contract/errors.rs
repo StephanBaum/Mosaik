@@ -237,6 +237,11 @@ wire_enum!(
         SyncHandoffExpired,
         /// Too many wrong codes or failed checks in the browser step (M9).
         SyncHandoffFailed,
+        /// The global shortcut could not be registered: another program holds
+        /// the combination, or the hotkey manager is not running (M9).
+        ShortcutUnavailable,
+        /// This system does not allow global shortcuts (Wayland, M9).
+        ShortcutUnsupported,
         /// Sharing and emergency access need the Mosaic server; a folder or
         /// no sync has neither.
         SharingNotHosted,

@@ -147,6 +147,14 @@ impl Env {
         Self::with_store(Store::open_in_memory().unwrap(), None)
     }
 
+    /// An environment over a store file in `dir` (attachments need one).
+    pub(crate) fn on_disk(dir: &std::path::Path) -> Self {
+        Self::with_store(
+            Store::open(dir.join("vault.sqlite3")).unwrap(),
+            Some(dir.to_path_buf()),
+        )
+    }
+
     fn with_store(store: Store, dir: Option<PathBuf>) -> Self {
         let tokens = Arc::new(MemorySyncTokens::default());
         let picked = Arc::new(Mutex::new(None));
@@ -1423,7 +1431,7 @@ fn an_older_threads_401_keeps_the_new_token_and_the_status() {
     let mut bytes = [9u8; 32];
     let newer = StoredToken::from_array(&mut bytes);
     e.tokens.save(account, &newer).unwrap();
-    e.b().sync_signed_out(old_generation, Some(&old));
+    e.b().sync_signed_out(old_generation, Some(&old), None);
     assert_eq!(
         *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
         [9u8; 32]
@@ -1432,12 +1440,13 @@ fn an_older_threads_401_keeps_the_new_token_and_the_status() {
 
     // A thread that a restart replaced does nothing at all.
     e.b().sync.stop();
-    e.b().sync_signed_out(old_generation, Some(&newer));
+    e.b().sync_signed_out(old_generation, Some(&newer), None);
     assert!(e.tokens.load(account).unwrap().is_some());
     assert_eq!(e.status().state.status, SyncStatus::UpToDate);
 
     // The current thread with its own token: deleted, signed out.
-    e.b().sync_signed_out(e.b().sync.generation(), Some(&newer));
+    e.b()
+        .sync_signed_out(e.b().sync.generation(), Some(&newer), None);
     assert!(e.tokens.load(account).unwrap().is_none());
     assert_eq!(e.status().state.status, SyncStatus::SignedOut);
 }

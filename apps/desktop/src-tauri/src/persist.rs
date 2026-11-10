@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::contract::errors::{IpcError, IpcResult};
 use crate::contract::ids::WireAccountId;
-use crate::contract::settings::{BreachMode, Language, Settings, Theme};
+use crate::contract::settings::{BreachMode, Language, Settings, Theme, default_global_shortcut};
 
 /// The state file's name in the app data directory.
 pub const STATE_FILE: &str = "settings.json";
@@ -93,6 +93,9 @@ struct PersistedSettings {
     breach_consent_at: Option<i64>,
     #[serde(default = "default_rotation_reminders")]
     rotation_reminders: bool,
+    /// A file from before M9 has no shortcut: the default of this OS.
+    #[serde(default = "default_global_shortcut")]
+    global_shortcut: String,
 }
 
 fn default_quick_unlock_days() -> u32 {
@@ -105,6 +108,15 @@ fn default_breach_check() -> BreachMode {
 
 fn default_rotation_reminders() -> bool {
     true
+}
+
+/// A shortcut the file holds that does not parse reads as the default.
+fn checked_shortcut(text: String) -> String {
+    if crate::shortcut::parse_accelerator(&text).is_ok() {
+        text
+    } else {
+        default_global_shortcut()
+    }
 }
 
 impl From<PersistedSettings> for Settings {
@@ -120,6 +132,7 @@ impl From<PersistedSettings> for Settings {
             breach_check: p.breach_check,
             breach_consent_at: p.breach_consent_at,
             rotation_reminders: p.rotation_reminders,
+            global_shortcut: checked_shortcut(p.global_shortcut),
         }
     }
 }
@@ -137,6 +150,7 @@ impl From<&Settings> for PersistedSettings {
             breach_check: s.breach_check,
             breach_consent_at: s.breach_consent_at,
             rotation_reminders: s.rotation_reminders,
+            global_shortcut: s.global_shortcut.clone(),
         }
     }
 }
@@ -266,6 +280,7 @@ pub fn stricter_than_default(settings: &Settings) -> Settings {
         breach_check: BreachMode::Off,
         breach_consent_at: None,
         rotation_reminders: settings.rotation_reminders,
+        global_shortcut: settings.global_shortcut.clone(),
     })
 }
 

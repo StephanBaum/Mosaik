@@ -79,6 +79,8 @@ pub const COMMANDS: &[&str] = &[
     "ssh_respond",
     // Browser extension
     "browser_status",
+    "browser_connector_audit",
+    "browser_connector_repair",
     "browser_remove_pairing",
     "browser_pairing_respond",
     "browser_save_respond",
@@ -132,6 +134,7 @@ pub const COMMANDS: &[&str] = &[
     "rekey_commit",
     "rotation_resume",
     "rotation_abandon",
+    "vault_rotate_key",
     // Credential rotation and the breach check
     "rotation_queue",
     "rotation_begin",

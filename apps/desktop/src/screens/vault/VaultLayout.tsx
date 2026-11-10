@@ -27,6 +27,9 @@ import { EmergencyRequestBanner } from "../sharing/EmergencyRequestBanner.tsx";
 import { InvitesInbox } from "../sharing/InvitesInbox.tsx";
 import { SharingFindings } from "../sharing/SharingFindings.tsx";
 import { useVaultSharing } from "../sharing/useVaultSharing.tsx";
+import { useVaultRotation } from "./useVaultRotation.tsx";
+import { BrowserConnectorBanner } from "../BrowserConnectorBanner.tsx";
+import { MetaDroppedNotice } from "./MetaDroppedNotice.tsx";
 import { ListView } from "./ListView.tsx";
 import { CreateVaultDialog } from "./CreateVaultDialog.tsx";
 import { Sidebar, vaultLabel } from "./Sidebar.tsx";
@@ -116,6 +119,8 @@ function MainArea({
         <SharingFindings />
         <RekeyNotice />
         <RotationResumeBanner />
+        <MetaDroppedNotice vaults={vaults} />
+        <BrowserConnectorBanner />
       </div>
       {listing && (
         <ListView
@@ -158,6 +163,7 @@ function nameOf(vaults: readonly VaultSummary[], vaultId: string | null, t: Tran
   return vaultId === null ? t("vault.allVaults") : labelOf(vaults.find((v) => v.vaultId === vaultId), t);
 }
 
+// eslint-disable-next-line max-lines-per-function -- the layout wires the sidebar, the top bar, the page and the vault dialogs.
 export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) => void }) {
   const events = useEvents();
   const { t } = useI18n();
@@ -166,6 +172,13 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
   const vaults = useVaults(shell.reloadKey);
   const [creating, setCreating] = useState(false);
   const share = useVaultSharing(vaults, vaultId, view === "vault", shell.changed);
+  const rotation = useVaultRotation({
+    vaults,
+    vaultId,
+    listing: view === "vault",
+    reloadKey: shell.reloadKey,
+    onChanged: shell.changed,
+  });
   useHardwareVaultClosed(shell);
   const counts = useCategoryCounts(vaultId, shell.reloadKey);
   const findings = useFindings(view === "security");
@@ -208,6 +221,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
           events.setPaletteOpen(true);
         }}
         onShare={share.open}
+        onRotate={rotation.open}
       />
       <MainArea shell={shell} vaults={vaults} findings={findings} />
       {events.paletteOpen && (
@@ -235,6 +249,7 @@ export function VaultLayout({ onLocked }: { onLocked: (session: SessionState) =>
         />
       )}
       {share.dialog}
+      {rotation.dialog}
       <ApprovalDialogs />
     </div>
   );

@@ -14,6 +14,21 @@ use super::secret::{SecretIn, SecretOut};
 use super::sharing::SharingFindingView;
 
 wire_enum!(
+    /// Why the server ended this device's session (CRYPTO_SPEC §9.5, M7-R3).
+    /// The server's claim: it only selects the text of the recovery card.
+    pub enum RevokedReasonView {
+        /// The account was re-keyed on another device.
+        Rekey,
+        /// The master password was changed on another device.
+        PasswordChange,
+        /// This device was removed from the account.
+        DeviceRemoved,
+        /// The server operator ended the session.
+        Operator,
+    }
+);
+
+wire_enum!(
     /// Who may create an account on a server (`GET /v1/info`).
     pub enum RegistrationMode {
         /// Anyone.
@@ -218,6 +233,9 @@ pub struct SyncOverview {
     /// renewed on another device: `sync_recover_password` with the new Secret
     /// Key adopts them (sync stays paused until then).
     pub rekey_pending: bool,
+    /// Why the server ended this device's session (`null` unless `state.status`
+    /// is `signedOut` after a `401` with a revocation reason).
+    pub revoked: Option<RevokedReasonView>,
 }
 
 /// `sync_check_server`.
@@ -653,6 +671,7 @@ pub(crate) mod samples {
                 sharing_findings: vec![],
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -667,6 +686,7 @@ pub(crate) mod samples {
                 sharing_findings: vec![],
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Folder {
@@ -678,6 +698,7 @@ pub(crate) mod samples {
                 sharing_findings: crate::contract::sharing::samples::findings(),
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -696,6 +717,7 @@ pub(crate) mod samples {
                 sharing_findings: vec![],
                 password_changed: true,
                 rekey_pending: true,
+                revoked: Some(RevokedReasonView::Rekey),
             },
         ]
     }

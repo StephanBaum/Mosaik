@@ -201,9 +201,20 @@ pub fn run() -> tauri::Result<()> {
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
 
-            let status = shortcut::install(app.handle());
+            let wanted = state.backend().settings_snapshot().global_shortcut;
+            let accelerator = shortcut::parse_accelerator(&wanted)
+                .or_else(|_| {
+                    shortcut::parse_accelerator(
+                        &crate::contract::settings::default_global_shortcut(),
+                    )
+                })
+                .unwrap_or_else(|_| shortcut::default_accelerator());
+            let (status, registrar) = shortcut::install(app.handle(), accelerator);
             if let Ok(mut slot) = guard(&state.backend().shortcut_status) {
                 *slot = Some(status);
+            }
+            if let Ok(mut slot) = guard(&state.backend().shortcut_registrar) {
+                *slot = registrar;
             }
             Ok(())
         })
@@ -247,6 +258,8 @@ mod credential_rotation_tests;
 mod flow_tests;
 #[cfg(test)]
 mod handler_tests;
+#[cfg(test)]
+mod m9_ui_tests;
 #[cfg(test)]
 mod otp_tests;
 #[cfg(test)]

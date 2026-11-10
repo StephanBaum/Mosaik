@@ -11,6 +11,7 @@ import { useIpcEvent } from "../hooks/useIpcEvent.ts";
 import { useI18n } from "../i18n/I18nProvider.tsx";
 import type { AppEvent, LockReason, SshApprovalRequest, SyncState } from "../ipc/contract/index.ts";
 import { useBrowserPrompts, type BrowserPrompts } from "./useBrowserPrompts.ts";
+import { useNoticeEvents, type NoticeEvents } from "./useNoticeEvents.ts";
 import { useSharingEvents, type SharingEvents } from "./useSharingEvents.ts";
 import { useSecrets } from "./SecretsContext.tsx";
 
@@ -31,10 +32,17 @@ interface EventsContextValue {
   syncDataVersion: number;
   /** Invites and emergency-access requests that wait for this account. */
   sharing: SharingEvents;
+  /** Notices the user dismisses (vault details that were shortened in a merge). */
+  notices: NoticeEvents;
 }
+
+/** The first source that takes the event. */
+const taken = (event: AppEvent, ...sources: { apply: (event: AppEvent) => boolean }[]): boolean =>
+  sources.some((source) => source.apply(event));
 
 const EventsContext = createContext<EventsContextValue | null>(null);
 
+// eslint-disable-next-line max-lines-per-function -- the one subscription, fanned out to the app.
 export function EventsProvider({
   onLocked,
   children,
@@ -52,9 +60,10 @@ export function EventsProvider({
   const [sync, setSync] = useState<SyncState | null>(null);
   const [syncDataVersion, setSyncDataVersion] = useState(0);
   const sharing = useSharingEvents();
+  const notices = useNoticeEvents();
 
   useIpcEvent((event: AppEvent) => {
-    if (browser.apply(event)) {
+    if (taken(event, browser, notices)) {
       return;
     }
     switch (event.type) {
@@ -62,6 +71,7 @@ export function EventsProvider({
         secrets.clearAll();
         setSsh([]);
         browser.clear();
+        notices.clear();
         setPaletteOpen(false);
         setLockReason(event.reason);
         onLocked();
@@ -112,8 +122,9 @@ export function EventsProvider({
       sync,
       syncDataVersion,
       sharing,
+      notices,
     }),
-    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, sharing],
+    [ssh, browser, paletteOpen, lockReason, sync, syncDataVersion, sharing, notices],
   );
   return <EventsContext value={value}>{children}</EventsContext>;
 }

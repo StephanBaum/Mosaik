@@ -275,4 +275,8 @@ export const errors = {
     "Your last request was refused. You can ask again after the waiting period of one day.",
   "error.emergencyNotGranted":
     "There is nothing to claim: no request is open, or the person didn't grant you access.",
+  "error.shortcutUnavailable":
+    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+  "error.shortcutUnsupported":
+    "Your system doesn't allow shortcuts that work in every program (this is the case on Wayland). Open Mosaic from its window instead.",
 } as const satisfies Record<string, string>;

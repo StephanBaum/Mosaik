@@ -9,7 +9,7 @@ use crate::contract::errors::IpcResult;
 use crate::contract::rotation::{
     DismissFileRequest, ProfileUpgradeRequest, RekeyCommitRequest, RekeyMarkerView,
     RekeyPrepareRequest, RekeyReviewView, RotateCommitRequest, RotatePrepareRequest, RotationDone,
-    RotationResumeRequest, RotationStatus,
+    RotationResumeRequest, RotationStatus, VaultRotateKeyRequest,
 };
 use crate::contract::sync::SyncOverview;
 use crate::state::{AppState, Backend};
@@ -97,6 +97,15 @@ pub async fn rotation_resume(
 #[tauri::command]
 pub async fn rotation_abandon(state: State<'_, AppState>) -> IpcResult<()> {
     run(&state, Backend::rotation_abandon).await
+}
+
+/// `vault_rotate_key`.
+#[tauri::command]
+pub async fn vault_rotate_key(
+    state: State<'_, AppState>,
+    request: VaultRotateKeyRequest,
+) -> IpcResult<RotationDone> {
+    run(&state, move |b| b.vault_rotate_key(request)).await
 }
 
 /// `sync_dismiss_account_file`.

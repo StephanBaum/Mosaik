@@ -10,6 +10,7 @@ import type {
   FolderChoice,
   FolderState,
   RegistrationMode,
+  RevokedReason,
   SyncConfigView,
   SyncDevice,
   SyncOverview,
@@ -96,6 +97,8 @@ export interface MockSyncOptions {
   webauthn?: MockWebauthnMode;
   /** How the browser step ends (M9). */
   handoff?: MockHandoffEnd;
+  /** Why the server ended the session of a `signedOut` start (M9, `&syncRevoked=`). */
+  revoked?: RevokedReason;
 }
 
 /** A join or connect that waits for the second-factor code. */
@@ -144,6 +147,8 @@ export interface MockSync {
   handoff: MockHandoff | null;
   /** A security-key confirm lasts until then (ms). */
   confirmedUntil: number;
+  /** Why the server ended the session; shown while the status is `signedOut` (M9). */
+  revoked: RevokedReason | null;
 }
 
 const HOUR = 3_600_000;
@@ -253,6 +258,8 @@ function configFor(variant: SyncVariant, totp: boolean, keys: number): SyncConfi
     : hostedConfig(totp, keys);
 }
 
+const revokedOf = (options: MockSyncOptions): RevokedReason | null => options.revoked ?? null;
+
 export function seedSync(options: MockSyncOptions, now: number): MockSync {
   const variant = options.variant ?? "none";
   const folder = variant === "folder";
@@ -281,6 +288,7 @@ export function seedSync(options: MockSyncOptions, now: number): MockSync {
     handoffEnd: options.handoff ?? "done",
     handoff: null,
     confirmedUntil: 0,
+    revoked: revokedOf(options),
   };
 }
 
@@ -297,6 +305,7 @@ export function overview(state: MockState): SyncOverview {
     sharingFindings: state.sharing.findings,
     passwordChanged: sync.passwordChanged,
     rekeyPending: state.rotation.rekeyPending,
+    revoked: sync.status === "signedOut" ? sync.revoked : null,
   };
 }
 

@@ -86,4 +86,12 @@ export const browser = {
     "Mosaic konnte die Verbindung für Browser nicht öffnen. Starte Mosaic neu. Wenn das bleibt, prüfe, ob dein Benutzerordner beschreibbar ist.",
   "browser.settings.registryUnreadable":
     "Gespeicherte Browser-Verbindungen lassen sich nicht lesen. Mosaic ändert sie nicht, bis das behoben ist.",
+  "browser.connector.title":
+    "Eine Browser-Verbindung zeigt woandershin",
+  "browser.connector.body":
+    "{browser} startet ein anderes Programm als dieses Mosaic: {path}. Das kann ein älteres Mosaic sein oder etwas, das sich selbst eingetragen hat. „Reparieren“ richtet es wieder auf dieses Mosaic aus.",
+  "browser.connector.repair":
+    "Reparieren",
+  "browser.connector.repaired":
+    "Browser-Verbindung repariert.",
 } as const satisfies Record<keyof typeof en, string>;

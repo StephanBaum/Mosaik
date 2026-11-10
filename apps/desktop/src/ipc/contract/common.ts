@@ -133,6 +133,8 @@ export const errorCodes = [
   "syncWebauthnLimit",
   "syncHandoffExpired",
   "syncHandoffFailed",
+  "shortcutUnavailable",
+  "shortcutUnsupported",
   "sharingNotHosted",
   "sharingContactUnverified",
   "sharingKeyChanged",

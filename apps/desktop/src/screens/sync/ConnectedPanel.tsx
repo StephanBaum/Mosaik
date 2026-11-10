@@ -183,6 +183,24 @@ function StatusBlock({
   );
 }
 
+/** The account was re-keyed elsewhere: told by the account itself, or by the server ending the session. */
+function rekeyedElsewhere(overview: SyncOverview): boolean {
+  return overview.state.error === "syncAccountRekeyed" || overview.revoked === "rekey";
+}
+
+/** Why the server ended this device's session (M7-R3), in plain words. */
+function RevokedNote({ overview }: { overview: SyncOverview }) {
+  const { t } = useI18n();
+  // The region stays mounted, so the reason is announced when the sign-out arrives.
+  return (
+    <div role="status">
+      {overview.state.status === "signedOut" && overview.revoked !== null && (
+        <p className="callout callout--info">{t(`sync.revoked.${overview.revoked}`)}</p>
+      )}
+    </div>
+  );
+}
+
 /** A hosted account re-keyed elsewhere: the Secret Key from the new kit is required. */
 function RekeyedCard({
   needsCode,
@@ -235,7 +253,7 @@ export function ConnectedPanel({
   const attention = overview.warnings.some((w) => w.kind === "unverifiedAccountFile" && w.conflict);
   // A hosted account that was re-keyed on another device: the new Secret Key is needed, not
   // just a password, so the recovery form replaces the password card and the sign-in form.
-  const rekeyed = config.kind === "hosted" && overview.state.error === "syncAccountRekeyed";
+  const rekeyed = config.kind === "hosted" && rekeyedElsewhere(overview);
   const recovered = (next: SyncOverview) => {
     onChange(next);
     onRefresh();
@@ -244,6 +262,7 @@ export function ConnectedPanel({
     <div className="stack">
       <Details config={config} state={overview.state} attention={attention} />
       <StatusBlock state={overview.state} onChange={onChange} onRefresh={onRefresh} />
+      <RevokedNote overview={overview} />
       {rekeyed && (
         <RekeyedCard needsCode={config.totpEnabled} onRecovered={recovered} />
       )}

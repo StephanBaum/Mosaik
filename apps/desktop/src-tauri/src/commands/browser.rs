@@ -6,9 +6,9 @@ use tauri::State;
 
 use crate::browser::parse_id;
 use crate::contract::browser::{
-    BrowserPairingRespondRequest, BrowserPasskeyRespondRequest, BrowserRemovePairingRequest,
-    BrowserRotationRespondRequest, BrowserRotationRevealRequest, BrowserRotationRevealed,
-    BrowserSaveRespondRequest, BrowserStatus,
+    BrowserConnectorAudit, BrowserPairingRespondRequest, BrowserPasskeyRespondRequest,
+    BrowserRemovePairingRequest, BrowserRotationRespondRequest, BrowserRotationRevealRequest,
+    BrowserRotationRevealed, BrowserSaveRespondRequest, BrowserStatus,
 };
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::state::{AppState, Backend};
@@ -17,6 +17,26 @@ use crate::state::{AppState, Backend};
 #[tauri::command]
 pub async fn browser_status(state: State<'_, AppState>) -> IpcResult<BrowserStatus> {
     Ok(state.backend().browser_status())
+}
+
+/// `browser_connector_audit`: the native-messaging entries that do not point
+/// to the installed host. T8 wires `audit_manifests`; until then there are no
+/// findings.
+#[tauri::command]
+pub async fn browser_connector_audit(
+    state: State<'_, AppState>,
+) -> IpcResult<BrowserConnectorAudit> {
+    Ok(state.backend().browser_connector_audit())
+}
+
+/// `browser_connector_repair`: points the per-user entries to the installed
+/// host and audits again. T8 wires the repair; until then it changes nothing
+/// and answers with no findings.
+#[tauri::command]
+pub async fn browser_connector_repair(
+    state: State<'_, AppState>,
+) -> IpcResult<BrowserConnectorAudit> {
+    state.run(Backend::browser_connector_repair).await
 }
 
 /// `browser_remove_pairing`.
@@ -82,6 +102,23 @@ pub async fn browser_rotation_reveal(
 }
 
 impl Backend {
+    /// The connector audit. M9 T8 wires `audit_manifests` here; the answer
+    /// is empty until then.
+    #[must_use]
+    pub fn browser_connector_audit(&self) -> BrowserConnectorAudit {
+        BrowserConnectorAudit { findings: vec![] }
+    }
+
+    /// The connector repair. M9 T8 wires the rewrite of the per-user
+    /// entries here; nothing changes until then.
+    ///
+    /// # Errors
+    /// None yet; T8 adds the codes of the rewrite.
+    pub fn browser_connector_repair(&self) -> IpcResult<BrowserConnectorAudit> {
+        self.touch();
+        Ok(self.browser_connector_audit())
+    }
+
     /// The endpoint and the paired browsers.
     #[must_use]
     pub fn browser_status(&self) -> BrowserStatus {

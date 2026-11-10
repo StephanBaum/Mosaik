@@ -296,4 +296,8 @@ export const errors = {
     "Deine letzte Anfrage wurde abgelehnt. Du kannst nach der Sperrzeit von einem Tag erneut anfragen.",
   "error.emergencyNotGranted":
     "Es gibt nichts abzuholen: Keine Anfrage ist offen, oder die Person hat dir keinen Zugriff erteilt.",
+  "error.shortcutUnavailable":
+    "Ein anderes Programm nutzt dieses Kürzel schon, oder Mosaic kann es nicht anmelden. Wähle eine andere Kombination.",
+  "error.shortcutUnsupported":
+    "Dein System erlaubt keine Kürzel, die in jedem Programm funktionieren (bei Wayland ist das so). Öffne Mosaic stattdessen über sein Fenster.",
 } satisfies Record<keyof typeof en, string>;

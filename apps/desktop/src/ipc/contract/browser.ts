@@ -70,6 +70,20 @@ export interface BrowserStatus {
   pairings: BrowserPairing[];
 }
 
+/** A native-messaging entry that does not point to the host this app installed (M9). */
+export interface BrowserConnectorFinding {
+  browser: BrowserFamily;
+  /** A manifest file or registry key, as text. */
+  location: string;
+  /** The host program it points to instead. */
+  path: string;
+}
+
+/** `browser_connector_audit` and `browser_connector_repair`: empty when all is as installed. */
+export interface BrowserConnectorAudit {
+  findings: BrowserConnectorFinding[];
+}
+
 export interface BrowserRemovePairingRequest {
   pairingId: string;
 }

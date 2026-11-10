@@ -186,6 +186,9 @@ pub struct Backend {
     pub(crate) preview_busy: AtomicBool,
     /// Whether the global shortcut is registered (`None` until tried).
     pub shortcut_status: Mutex<Option<ShortcutStatus>>,
+    /// Re-registers the global shortcut when `settings.globalShortcut`
+    /// changes (`None`: no hotkey manager, or a test).
+    pub shortcut_registrar: Mutex<Option<crate::shortcut::Registrar>>,
     /// Asks the OS to flag the window (taskbar attention) when an SSH
     /// approval arrives. It never focuses the window.
     attention: Option<Attention>,
@@ -258,6 +261,7 @@ impl Backend {
             otp_scanning: AtomicBool::new(false),
             preview_busy: AtomicBool::new(false),
             shortcut_status: Mutex::new(None),
+            shortcut_registrar: Mutex::new(None),
             attention: None,
             focus: None,
             browser: BrowserService::new(),

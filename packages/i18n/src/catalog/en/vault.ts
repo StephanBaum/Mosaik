@@ -68,4 +68,46 @@ export const vault = {
   "vault.create": "New vault",
   "vault.create.name": "Vault name",
   "vault.create.submit": "Create vault",
+  "vault.menu":
+    "Vault actions",
+  "vaultKey.menu":
+    "Rotate vault key…",
+  "vaultKey.title":
+    "Rotate the key of {vault}",
+  "vaultKey.body":
+    "Mosaic makes a new key for this vault and passes it to every device and person who has access. Use this after someone lost access or a device was lost.",
+  "vaultKey.attachments":
+    "Also re-encrypt attachments",
+  "vaultKey.attachments.hint":
+    "Gives every file in this vault a new key too. This takes longer with many or large files.",
+  "vaultKey.reauth":
+    "Rotating a vault key needs your master password.",
+  "vaultKey.submit":
+    "Rotate key",
+  "vaultKey.working":
+    "Rotating the key…",
+  "vaultKey.progress":
+    "Re-encrypting attachments: {done} of {total}.",
+  "vaultKey.done":
+    "The vault key was rotated.",
+  "vaultKey.doneAttachments":
+    "The vault key was rotated and the attachments are encrypted again.",
+  "vaultKey.unfinished":
+    "The vault key was rotated. Re-encrypting the attachments continues later. If Mosaic closes first, choose Continue key rotation next time.",
+  "vaultKey.unreachable":
+    "{count, plural, one {# attachment isn't on this device yet and keeps its old key.} other {# attachments aren't on this device yet and keep their old key.}}",
+  "vaultKey.close":
+    "Close",
+  "vault.meta.title":
+    "Vault details were shortened",
+  "vault.meta.body":
+    "Two devices changed the {fields} of “{vault}” at the same time, and the result was too long. Mosaic kept the longer value. Check it and change it if needed.",
+  "vault.meta.field.name":
+    "name",
+  "vault.meta.field.icon":
+    "icon",
+  "vault.meta.field.description":
+    "description",
+  "vault.meta.dismiss":
+    "Dismiss",
 } as const satisfies Record<string, string>;

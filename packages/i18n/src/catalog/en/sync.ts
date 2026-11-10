@@ -203,4 +203,12 @@ export const sync = {
 
   "toast.syncAttention":
     "Sync merged or repaired some items from another device. Have a look at what changed.",
+  "sync.revoked.rekey":
+    "This account was re-keyed on another device: sign in with the new Secret Key from your newest Emergency Kit.",
+  "sync.revoked.passwordChange":
+    "Your master password was changed on another device: sign in with the new password.",
+  "sync.revoked.deviceRemoved":
+    "This device was removed from your account on another device. Sign in again to add it back.",
+  "sync.revoked.operator":
+    "The operator of the server ended this session. Sign in again to keep syncing.",
 } as const satisfies Record<string, string>;

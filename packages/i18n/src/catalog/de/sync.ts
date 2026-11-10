@@ -208,4 +208,12 @@ export const sync = {
 
   "toast.syncAttention":
     "Die Synchronisierung hat einige Einträge von einem anderen Gerät zusammengeführt oder repariert. Sieh nach, was sich geändert hat.",
+  "sync.revoked.rekey":
+    "Dieses Konto wurde auf einem anderen Gerät neu verschlüsselt: Melde dich mit dem neuen Secret Key aus deinem neuesten Emergency Kit an.",
+  "sync.revoked.passwordChange":
+    "Dein Master-Passwort wurde auf einem anderen Gerät geändert: Melde dich mit dem neuen Passwort an.",
+  "sync.revoked.deviceRemoved":
+    "Dieses Gerät wurde auf einem anderen Gerät aus deinem Konto entfernt. Melde dich erneut an, um es wieder hinzuzufügen.",
+  "sync.revoked.operator":
+    "Der Betreiber des Servers hat diese Sitzung beendet. Melde dich erneut an, um weiter zu synchronisieren.",
 } satisfies Record<keyof typeof en, string>;

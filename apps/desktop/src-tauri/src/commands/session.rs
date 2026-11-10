@@ -183,6 +183,7 @@ impl Backend {
         let shortcut = match self.shortcut_status.lock().ok().and_then(|s| *s) {
             Some(ShortcutStatus::Registered) => ShortcutState::Registered,
             Some(ShortcutStatus::Conflict) => ShortcutState::Conflict,
+            Some(ShortcutStatus::Unsupported) => ShortcutState::Unsupported,
             Some(ShortcutStatus::Unavailable) | None => ShortcutState::Unavailable,
         };
         AppStatus {

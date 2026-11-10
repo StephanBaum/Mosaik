@@ -87,7 +87,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `lock` | `null` → `SessionState` | none; locking a locked vault is a no-op | live |
 | `reauthenticate` | `{ password }` → `null` | `locked`, `secretKeyRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `emptyPassword` | live (a right password opens a 2-minute window in which `enroll_*`, `add_hardware_vault_key` and `move_item` out of a hardware vault accept `password: null`; the UI sends those first without a password and calls this on `reauthRequired`, then retries) |
 | `subscribe_events` | a `Channel<AppEvent>` → `null` | none | live |
-| `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable", screenLockDetection, otpScreenScan }` | none | live |
+| `app_status` | `null` → `{ shortcut: "registered" \| "conflict" \| "unavailable" \| "unsupported", screenLockDetection, otpScreenScan }` (`unsupported`: no global shortcuts on this system, Wayland; the settings field is disabled) | none | live |
 | **Quick unlock** | | | |
 | `quick_unlock_status` | `null` → `QuickUnlockStatus` = `{ biometric: { platform: "windowsHello" \| "touchId" \| null, available, enrolled, enrolledAt \| null, expiresAt \| null }, hardwareKeys: { supported, keys: { methodId, addedAt }[], maxKeys }, maxAgeDays }` | | live (needs unlocked) |
 | `enroll_biometric` | `{ password \| null }` → `QuickUnlockStatus` | `reauthRequired`, `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `quickUnlockUnavailable`, `cancelled`, `busy` (another enrollment is running) | live (the UI sends `null` first and asks for the password on `reauthRequired`; a successful enrollment uses up the 2-minute grant) |
@@ -132,7 +132,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `otp_pending_discard` | `{ pendingId }` → `null` | none (unknown IDs are ignored) | live, works while locked (no-op) |
 | **Settings** | | | |
 | `get_settings` | `null` → `Settings` | | live (stored in `settings.json` in the app data directory) |
-| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing, or raising `quickUnlockMaxAgeDays`), `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`), `locked` (a protection setting changes while locked; theme and language can; the protection settings carry a MAC that needs the unlocked vault, ADR-0030) | live |
+| `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing, or raising `quickUnlockMaxAgeDays`), `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`), `locked` (a protection setting changes while locked; theme and language can; the protection settings carry a MAC that needs the unlocked vault, ADR-0030), `shortcutUnavailable` (the new `globalShortcut` could not be registered: another program holds it; the old one stays and nothing is stored), `shortcutUnsupported` (no global shortcuts here, Wayland), `invalidInput` also for a `globalShortcut` that `parse_accelerator` refuses | live |
 | **Security insights** | | | |
 | `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, breached, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
@@ -201,7 +201,7 @@ user has to read it. A lock, a cancel, a disconnect and the expiry drop the hand
 | `sync_webauthn_add_status` | `null` → `{ state: "waiting" \| "done" \| "failed" \| "expired", step: "login" \| "register" \| "confirm", matchCode \| null, expiresAt \| null }`. Serves `sync_webauthn_add_begin` and `sync_webauthn_confirm_begin`: when a login step is `done`, Rust starts the next handoff and answers `waiting` with the new step and code; `done` on `register` means the key is stored, on `confirm` that removals are allowed for five minutes | `syncFreshLoginExpired`, `syncSignedOut`, transport codes | live (M9 T4) |
 | `sync_webauthn_confirm_begin` | `{ password: SecretIn }` → `{ step: "login" \| "confirm", matchCode, expiresAt }`. A fresh login (through a login handoff on an account with security keys) and then a `confirm` handoff, which sets the session's `second_factor_until` for five minutes | `wrongCredentials`, `syncWebauthnUnavailable`, `syncRateLimited`, transport codes | live (M9 T4) |
 | `sync_webauthn_remove` | `{ credentialRef, code: SecretIn \| null }` → `null`. Needs the session of a fresh login and a TOTP `code` or a `confirm` from the last five minutes. The UI warns before the last factor goes (two-step verification then turns off) and recommends keeping two methods | `invalidInput`, `syncTwoFactorRequired` (no code and no recent confirm), `syncTwoFactorInvalid`, `syncFreshLoginExpired`, transport codes | live (M9 T4) |
-| `vault_rotate_key` | `{ vaultId, resealAttachments: bool, proof }` → `RotationDone`. "Rotate vault key…" in the vault menu: re-authentication through the `verify_master_password` proof; a vault-only rotation (`RotationKind` vault) with the optional attachment re-seal loop, on the existing journal and `rotationProgress` events | `reauthRequired`, `vaultNotFound`, `vaultUnavailable`, `rotationInProgress`, transport codes | planned (M9 T5, T6) |
+| `vault_rotate_key` | `{ vaultId, resealAttachments: bool, proof: SecretIn \| null }` → `RotationDone`. "Rotate vault key…" in the vault menu (the top bar's "Vault actions"): re-authentication through the proof `reauthenticate` (`verify_master_password`) leaves, or the password itself as `proof`; `null` uses the proof (`reauthRequired` without one; a successful rotation spends it). A vault-only rotation (`RotationKind` `vault`) with the optional attachment re-seal loop, on the existing journal and `rotationProgress` events (`kind: "vault"`). `finished: false`: the key rotated but the re-seal was cut off (a failure after the commit is not an error); `rotation_resume` finishes it (the "Continue key rotation" banner, also after a restart). The re-seal runs only when this device's key won. The UI offers it for the open account-key vault on a device with sync, and (shared vault) to the owner only | `locked`, `reauthRequired`, `wrongCredentials`, `vaultNotFound`, `vaultUnavailable`, `rotationInProgress` (any rotation job is open), `syncNotConfigured` (a vault key is offered to a backend; a device without sync has none), the owner-only refusal of a shared vault, transport codes | live (M9 T6; `vault_rotate_key_reseals_attachments_and_resumes`) |
 
 **How T4 wired it.** The handoff of a waiting login lives in that login (a lock, an expiry or the next sign-in drops
 both); the handoff of `sync_webauthn_add_begin` and `sync_webauthn_confirm_begin` is one `AccountFlow` on the sync
@@ -216,7 +216,9 @@ removing a key with a code when the session is not fresh (the code path needs `c
 **Revocation reasons (CRYPTO_SPEC §9.5).** `SyncOverview.revoked` is `"rekey" \| "passwordChange" \| "deviceRemoved" \|
 "operator" \| null`; it is set with status `signedOut` when the server answered `401` with a revocation detail, and the
 recovery card shows `sync.revoked.<reason>` (for `rekey`: sign in with the new Secret Key from the newest Emergency
-Kit). The reason is the server's claim and only selects the text.
+Kit, and the recovery form that asks for it, like `syncAccountRekeyed`). The reason is the server's claim and only
+selects the text. It is `null` for a sign-out without a reason (an older server, a failed token save) and clears with
+the next status. Live (M9 T6; `m9_ui_tests::the_revocation_reason_reaches_the_overview_until_the_next_sign_in`).
 
 **Second factor in `SyncOverview`.** The hosted `config` gains `webauthnKeys` (a count) next to `totpEnabled`. Removals
 that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `code: null` when the session has a
@@ -225,15 +227,25 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
 **Other M9 additions.**
 - `ApplyOutcome::MetaValueDropped` (CRYPTO_SPEC §7.1) reaches the webview as the event `vaultMetaDropped { vaultId,
   fields: ("name" | "icon" | "description")[] }`; the UI shows a notice the user can dismiss that names
-  those fields (planned, M9 T6). The event carries field names, never the dropped values.
+  those fields (live, M9 T6: `MetaDroppedNotice` in the vault; mock `&metaDropped=name,description`). The event
+  carries field names, never the dropped values.
 - `settings.globalShortcut` (an accelerator string, validated in Rust by `shortcut::parse_accelerator`) is
   re-registered when it changes; a registration failure is `shortcutUnavailable`, on Wayland `shortcutUnsupported`
-  and the field is disabled (planned, M9 T6).
-- `browser_status` gains `connectorFindings: { browser, location, path }[]` from
-  `mosaic_native_messaging::install::audit_manifests` (run at start and when Settings → Browser opens); a finding
-  whose path is not the installed host shows the banner `browserConnectorForeign`. `browser_connector_repair`
-  (`null` → `browser_status`'s answer) rewrites the per-user manifests and keys to the installed host (planned, M9 T8,
-  T6). Neither carries a path from the webview.
+  and the field is disabled (live, M9 T6: Settings > Quick search shortcut). `parse_accelerator` takes modifiers plus
+  one key (`Ctrl+Shift+Space`), at most 64 ASCII characters, and needs Ctrl, Alt or Command/Super (a bare key or
+  Shift plus a key would take typing from every program). The default is `Ctrl+Shift+Space`, or `Alt+Super+Space` on
+  macOS; a file with an unusable value reads as the default. The shortcut is not a protection setting (no MAC, changes
+  while locked). `app_status.shortcut` is `unsupported` on Wayland. Mock: `&shortcut=conflict|unsupported|unavailable`.
+- Two commands for the connector audit (the shape is live since M9 T6; **T8 wires them** to
+  `mosaic_native_messaging::install::audit_manifests` and the rewrite, and until then both are stubs that answer no
+  findings): `browser_connector_audit` (`null` → `{ findings: { browser: "chromium" \| "firefox", location, path }[] }`;
+  `location` names the manifest file or registry key, `path` the host program it points to; run when the vault
+  opens and when Settings > Browsers opens) and `browser_connector_repair` (`null` → the same shape after the
+  repair; it rewrites the per-user entries to the installed host, never a path from the webview). A finding
+  whose path is not the installed host shows the banner `browserConnectorForeign` (`BrowserConnectorBanner`: a
+  warning with a Repair button, at the top of the vault and in Settings > Browsers, tested with mock findings:
+  `&connector=foreign`). Repair goes to `browser_connector_repair`; on success the banner goes away and focus moves to
+  the page.
 
 ### Account keys (M7, CRYPTO_SPEC §5.3, §6.4 to §6.7, ADR-0057 to ADR-0062)
 
@@ -600,6 +612,7 @@ Notes per area:
 | `breachScanProgress` | `{ done, total }` | A breach scan answered another prefix (M7b). Show "n of m"; do not announce it. |
 | `breachScanFinished` | `{ checked, found, error \| null }` | A breach scan ended (M7b), also when cancelled or the vault locked. Read `rotation_queue` and `security_report` again. |
 | `rotationProgress` | `{ kind, phase, done, total }` | A key change moved to another phase or counted an attachment (M7): read `rotation_status` again. The live region of the UI names the phase only; the counts are plain text. |
+| `vaultMetaDropped` | `{ vaultId, fields: ("name" \| "icon" \| "description")[] }` | A merge of a vault's name, icon or description was too long to keep whole and the longer value won (CRYPTO_SPEC §7.1; from `SyncReport.meta_dropped`): show a notice the user can dismiss that names the fields in plain words. Field names only, never the values. |
 | `syncAttention` | `{ conflicts, restored, replacedUnreadable }` | A run merged or repaired something (records merged with a local change, fields written back after a delete raced an edit, unreadable records replaced): show a short toast. |
 | `clipboardCleared` | none | Rust cleared what Mosaic copied. |
 | `sshApprovalRequested` | `{ request: SshApprovalRequest }` | Show the approval dialog (D18). |
@@ -643,7 +656,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `otpImageUnreadable`, `otpImageTooLarge`, `otpClipboardNoImage`, `otpPendingExpired`,
 `sharingNotHosted`, `sharingContactUnverified`, `sharingKeyChanged`, `sharingRoleForbidden`, `sharingInviteExists`, `sharingInviteStale`, `sharingInviteExpired`, `sharingInviteUnreadable`, `sharingInviteNotInRoster`, `sharingOwnerCannotLeave`, `sharingAlreadyMember`, `sharingReinviteBlocked`, `sharingInviteLimit`, `sharingVaultKnown`, `syncHasSharedVaults`, `emergencyWaiting`, `emergencyCooldown`, `emergencyNotGranted`,
 `syncNotConfigured`, `syncAlreadyConfigured`, `syncServerUnreachable`, `syncServerInvalid`, `syncServerInsecure`, `syncServerMismatch`, `syncServerIncompatible`, `syncRegistrationClosed`, `syncInviteInvalid`, `syncAccountExists`, `syncAccountMismatch`, `syncTwoFactorRequired`, `syncTwoFactorInvalid`, `syncSignedOut`, `syncRateLimited`, `syncQuotaExceeded`, `syncFolderUnavailable`, `syncFolderNotEmpty`, `syncFolderNoAccount`, `syncFolderDamaged`, `syncPasswordNeedsServer`, `syncPasswordOutcomeUnknown`, `syncDeviceIsCurrent`, `syncChoiceExpired`, `syncFreshLoginExpired`, `syncPasswordChanged`, `syncPasswordRollback`,
-`syncWebauthnUnavailable`, `syncWebauthnLimit`, `syncHandoffExpired`, `syncHandoffFailed` (five wrong codes or failed checks on the page; start again), `shortcutUnavailable`, `shortcutUnsupported` (M9),
+`syncWebauthnUnavailable`, `syncWebauthnLimit`, `syncHandoffExpired`, `syncHandoffFailed` (five wrong codes or failed checks on the page; start again), `shortcutUnavailable`, `shortcutUnsupported` (M9, live in T6),
 `kitNotVerified`, `kitGroupMismatch`, `rotationInProgress`, `rotationNone`, `rotationTooFar`, `rotationJumpTooLarge` (a folder adoption or re-key target more than 16 epochs above this device's: it has to be set up again, remove the account here and join with the Emergency Kit; no "re-key again" is offered, THREAT_MODEL R96), `rotationNotApplied`, `secretKeyUnchanged`, `passwordUnchanged`, `profileDowngrade`, `profileTooSlow`, `rekeyNeedsCleanSync`, `rekeyMemberKeyMismatch`, `rekeyBusy`, `rekeyOutcomeUnknown`, `rekeyNeedsServer`, `rekeyNoAccountFile`, `syncAccountRekeyed`, `syncEpochRollback`, `syncRekeyRefused`.
 
 The UI message for each code is `error.<code>` in `packages/i18n`. Rust maps

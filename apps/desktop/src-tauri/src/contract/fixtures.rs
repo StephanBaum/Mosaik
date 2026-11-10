@@ -31,7 +31,7 @@ use super::credential_rotation::{
     RotationPolicyRequest, RotationSnoozeRequest, RulesSourceKey,
 };
 use super::errors::ErrorCode;
-use super::events::{self, LockReason, SyncStatus};
+use super::events::{self, LockReason, SyncStatus, VaultMetaField};
 use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
@@ -50,7 +50,7 @@ use super::quick_unlock::{self, BiometricPlatformKind};
 use super::rotation::{
     self, DismissFileRequest, ProfileUpgradeRequest, RekeyBackend, RekeyCommitRequest,
     RekeyPrepareRequest, RotateCommitRequest, RotatePrepareRequest, RotationKind, RotationNeeds,
-    RotationPhaseName, RotationProfile, RotationResumeRequest,
+    RotationPhaseName, RotationProfile, RotationResumeRequest, VaultRotateKeyRequest,
 };
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
@@ -72,8 +72,9 @@ use super::sync::{
     self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
     DevicePlatform, DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
     HandoffState, HandoffStep, HostedConnectRequest, HostedMode, JoinFolderRequest,
-    JoinHostedRequest, JoinOutcome, RecoverPasswordRequest, RegistrationMode, TotpBeginRequest,
-    TotpDisableRequest, WebauthnAddRequest, WebauthnConfirmRequest, WebauthnRemoveRequest,
+    JoinHostedRequest, JoinOutcome, RecoverPasswordRequest, RegistrationMode, RevokedReasonView,
+    TotpBeginRequest, TotpDisableRequest, WebauthnAddRequest, WebauthnConfirmRequest,
+    WebauthnRemoveRequest,
 };
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
@@ -579,6 +580,16 @@ fn ssh_commands(f: &mut Fixtures) {
 fn browser_commands(f: &mut Fixtures) {
     f.command("browser_status", vec![()], browser::samples::statuses());
     f.command(
+        "browser_connector_audit",
+        vec![()],
+        browser::samples::audits(),
+    );
+    f.command(
+        "browser_connector_repair",
+        vec![()],
+        browser::samples::audits(),
+    );
+    f.command(
         "browser_remove_pairing",
         vec![BrowserRemovePairingRequest {
             pairing_id: browser::samples::pairing_id(),
@@ -1026,6 +1037,27 @@ fn rotation_commands(f: &mut Fixtures) {
     );
 }
 
+/// The vault key rotation (M7-R2, M9).
+fn vault_rotate_commands(f: &mut Fixtures) {
+    let pw = rotation::samples::pw;
+    f.command(
+        "vault_rotate_key",
+        vec![
+            VaultRotateKeyRequest {
+                vault_id: ids::vault(1),
+                reseal_attachments: false,
+                proof: None,
+            },
+            VaultRotateKeyRequest {
+                vault_id: ids::vault(2),
+                reseal_attachments: true,
+                proof: Some(pw()),
+            },
+        ],
+        rotation::samples::done(),
+    );
+}
+
 /// The abandon of a committed job and the re-key notices (M7 fix round).
 fn rotation_fix_commands(f: &mut Fixtures) {
     f.command("rotation_abandon_committed", vec![()], vec![()]);
@@ -1348,6 +1380,8 @@ fn enums() -> Map<String, Value> {
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
         ("importSkipReason", values(ImportSkipReason::ALL)),
         ("shortcutState", values(ShortcutState::ALL)),
+        ("revokedReason", values(RevokedReasonView::ALL)),
+        ("vaultMetaField", values(VaultMetaField::ALL)),
         ("sshSkipReason", values(SshSkipReason::ALL)),
         ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
@@ -1409,6 +1443,7 @@ pub(crate) fn build() -> Value {
     browser_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
+    vault_rotate_commands(&mut f);
     rotation_fix_commands(&mut f);
     credential_rotation_commands(&mut f, item_request);
     sharing_commands(&mut f);

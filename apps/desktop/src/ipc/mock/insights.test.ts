@@ -36,7 +36,7 @@ function state(items: MockItem[]): MockState {
     otpPending: new Map(),
     otpPendingCounter: 0,
     attachments: new Map(),
-    options: { otpScan: null, screenScan: true, attachAdd: null, attachSave: null },
+    options: { otpScan: null, screenScan: true, attachAdd: null, attachSave: null, shortcut: "registered", metaDropped: [] },
     emit: () => undefined,
     now: () => NOW,
     nextId: () => "019a2b3c-0000-7000-8000-000000000000",

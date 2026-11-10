@@ -27,6 +27,9 @@ wire_enum!(
         Conflict,
         /// The hotkey manager could not start on this system.
         Unavailable,
+        /// This system does not allow global shortcuts (Wayland, M9): the
+        /// settings field is disabled.
+        Unsupported,
     }
 );
 

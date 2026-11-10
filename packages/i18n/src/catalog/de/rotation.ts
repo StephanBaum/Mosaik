@@ -287,4 +287,6 @@ export const rotation = {
   "rotation.file.conflict.rekey": "Von diesem Gerät noch einmal neu verschlüsseln",
   "rotation.file.conflict.keep":
     "Hinweis ausblenden",
+  "rotation.resume.body.vault":
+    "Das erneute Verschlüsseln der Anhänge eines Tresors wurde unterbrochen. Nichts ist verloren. Setze es fort, um es abzuschließen.",
 } satisfies Record<keyof typeof en, string>;

@@ -29,10 +29,14 @@ import { BrowserSettings } from "./BrowserSettings.tsx";
 import { PasskeyExportSettings } from "./PasskeyExportSettings.tsx";
 import { EmergencySettings } from "./sharing/EmergencySettings.tsx";
 import { SharingSettings } from "./sharing/SharingSettings.tsx";
+import { ShortcutSettings } from "./ShortcutSettings.tsx";
 import { SshSettings } from "./SshSettings.tsx";
 import { SyncSettings } from "./SyncSettings.tsx";
 
 const AUTO_LOCK = [1, 5, 10, 30, 60];
+
+/** Whether `text` is the default global shortcut of a system, which has its own notation per platform. */
+const isDefaultShortcut = (text: string): boolean => text === "Alt+Super+Space" || text === "Ctrl+Shift+Space";
 const CLIPBOARD = [10, 30, 60, 120];
 
 /**
@@ -103,7 +107,9 @@ function AutoLockSettings({
         )}
         {status?.shortcut === "conflict" && (
           <p className="field__hint">
-            {t("shell.shortcut.conflict", { shortcut: format(GLOBAL_PALETTE[platform], platform, t) })}
+            {t("shell.shortcut.conflict", {
+              shortcut: isDefaultShortcut(settings.globalShortcut) ? format(GLOBAL_PALETTE[platform], platform, t) : settings.globalShortcut,
+            })}
           </p>
         )}
       </div>
@@ -299,6 +305,7 @@ export function SettingsScreen() {
         settings={settings}
         onChange={apply}
       />
+      <ShortcutSettings settings={settings} status={status} />
       <Appearance
         settings={settings}
         onChange={apply}

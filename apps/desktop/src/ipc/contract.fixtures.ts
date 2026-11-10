@@ -67,6 +67,8 @@ export const fixtures = {
     "ssh_agent_set_enabled",
     "ssh_respond",
     "browser_status",
+    "browser_connector_audit",
+    "browser_connector_repair",
     "browser_remove_pairing",
     "browser_pairing_respond",
     "browser_save_respond",
@@ -118,6 +120,7 @@ export const fixtures = {
     "rekey_commit",
     "rotation_resume",
     "rotation_abandon",
+    "vault_rotate_key",
     "rotation_queue",
     "rotation_begin",
     "rotation_close",
@@ -358,6 +361,8 @@ export const fixtures = {
       "syncWebauthnLimit",
       "syncHandoffExpired",
       "syncHandoffFailed",
+      "shortcutUnavailable",
+      "shortcutUnsupported",
       "sharingNotHosted",
       "sharingContactUnverified",
       "sharingKeyChanged",
@@ -583,6 +588,12 @@ export const fixtures = {
       "hosted",
       "folder"
     ],
+    "revokedReason": [
+      "rekey",
+      "passwordChange",
+      "deviceRemoved",
+      "operator"
+    ],
     "rotationKind": [
       "secretKey",
       "rekey",
@@ -635,7 +646,8 @@ export const fixtures = {
     "shortcutState": [
       "registered",
       "conflict",
-      "unavailable"
+      "unavailable",
+      "unsupported"
     ],
     "sshCloseReason": [
       "answered",
@@ -716,6 +728,11 @@ export const fixtures = {
     "urlMatchMode": [
       "exactOrigin",
       "etld1"
+    ],
+    "vaultMetaField": [
+      "name",
+      "icon",
+      "description"
     ],
     "vaultProtection": [
       "accountKey",
@@ -1037,6 +1054,12 @@ export const fixtures = {
     },
     {
       "code": "syncHandoffFailed"
+    },
+    {
+      "code": "shortcutUnavailable"
+    },
+    {
+      "code": "shortcutUnsupported"
     },
     {
       "code": "sharingNotHosted"
@@ -1448,6 +1471,14 @@ export const fixtures = {
       "type": "rotationProgress"
     },
     {
+      "fields": [
+        "name",
+        "description"
+      ],
+      "type": "vaultMetaDropped",
+      "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+    },
+    {
       "done": 4,
       "total": 9,
       "type": "breachScanProgress"
@@ -1615,6 +1646,12 @@ export const fixtures = {
       null
     ],
     "breach_scan_start": [
+      null
+    ],
+    "browser_connector_audit": [
+      null
+    ],
+    "browser_connector_repair": [
       null
     ],
     "browser_pairing_respond": [
@@ -2935,6 +2972,7 @@ export const fixtures = {
           "breachCheck": "off",
           "breachConsentAt": null,
           "clipboardClearSeconds": 30,
+          "globalShortcut": "Ctrl+Shift+Space",
           "language": "system",
           "lockOnScreenLock": true,
           "lockOnSleep": true,
@@ -2950,6 +2988,7 @@ export const fixtures = {
           "breachCheck": "weekly",
           "breachConsentAt": 1761000000000,
           "clipboardClearSeconds": null,
+          "globalShortcut": "Ctrl+Alt+K",
           "language": "de",
           "lockOnScreenLock": false,
           "lockOnSleep": false,
@@ -2985,6 +3024,18 @@ export const fixtures = {
     "vault_members": [
       {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_rotate_key": [
+      {
+        "proof": null,
+        "resealAttachments": false,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "proof": "correct horse battery staple",
+        "resealAttachments": true,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000002"
       }
     ],
     "vault_share": [
@@ -3367,6 +3418,34 @@ export const fixtures = {
     ],
     "breach_scan_start": [
       null
+    ],
+    "browser_connector_audit": [
+      {
+        "findings": []
+      },
+      {
+        "findings": [
+          {
+            "browser": "chromium",
+            "location": "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host",
+            "path": "C:\\Users\\alex\\Downloads\\other-host.exe"
+          }
+        ]
+      }
+    ],
+    "browser_connector_repair": [
+      {
+        "findings": []
+      },
+      {
+        "findings": [
+          {
+            "browser": "chromium",
+            "location": "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host",
+            "path": "C:\\Users\\alex\\Downloads\\other-host.exe"
+          }
+        ]
+      }
     ],
     "browser_pairing_respond": [
       null
@@ -3942,6 +4021,7 @@ export const fixtures = {
         "breachCheck": "off",
         "breachConsentAt": null,
         "clipboardClearSeconds": 30,
+        "globalShortcut": "Ctrl+Shift+Space",
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
@@ -3954,6 +4034,7 @@ export const fixtures = {
         "breachCheck": "weekly",
         "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
+        "globalShortcut": "Ctrl+Alt+K",
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
@@ -5104,6 +5185,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5123,6 +5205,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5139,6 +5222,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5260,6 +5344,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5324,6 +5409,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5343,6 +5429,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5359,6 +5446,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5480,6 +5568,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5494,6 +5583,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5513,6 +5603,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5529,6 +5620,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5650,6 +5742,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5664,6 +5757,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5683,6 +5777,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5699,6 +5794,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5820,6 +5916,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5834,6 +5931,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5853,6 +5951,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5869,6 +5968,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5990,6 +6090,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6004,6 +6105,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6023,6 +6125,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6039,6 +6142,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6160,6 +6264,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6174,6 +6279,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6193,6 +6299,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6209,6 +6316,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6330,6 +6438,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6374,6 +6483,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6393,6 +6503,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6409,6 +6520,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6530,6 +6642,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6567,6 +6680,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6586,6 +6700,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6602,6 +6717,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6723,6 +6839,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6747,6 +6864,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6766,6 +6884,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6782,6 +6901,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6903,6 +7023,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6917,6 +7038,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6936,6 +7058,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6952,6 +7075,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -7073,6 +7197,7 @@ export const fixtures = {
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -7362,6 +7487,7 @@ export const fixtures = {
         "breachCheck": "off",
         "breachConsentAt": null,
         "clipboardClearSeconds": 30,
+        "globalShortcut": "Ctrl+Shift+Space",
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
@@ -7374,6 +7500,7 @@ export const fixtures = {
         "breachCheck": "weekly",
         "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
+        "globalShortcut": "Ctrl+Alt+K",
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
@@ -7476,6 +7603,31 @@ export const fixtures = {
         "ownRole": "manage",
         "pendingRotation": false,
         "unprotectedAttachments": 0
+      }
+    ],
+    "vault_rotate_key": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachable": [],
+        "unreachableAttachments": 0
       }
     ],
     "vault_share": [

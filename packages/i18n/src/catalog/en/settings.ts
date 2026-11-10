@@ -92,4 +92,22 @@ export const settings = {
   "reauth.bodyMove": "Moving an item out of a vault protected by a security key needs your master password.",
   "toast.settingsReset":
     "Your security settings were changed outside Mosaic and were reset to safe defaults.",
+  "settings.shortcut.title":
+    "Quick search shortcut",
+  "settings.shortcut.body":
+    "Press this combination in any program to open Mosaic's search.",
+  "settings.shortcut.label":
+    "Shortcut",
+  "settings.shortcut.hint":
+    "Ctrl, Alt or Command, plus one key. For example Ctrl+Shift+Space.",
+  "settings.shortcut.save":
+    "Save shortcut",
+  "settings.shortcut.reset":
+    "Use the default",
+  "settings.shortcut.saved":
+    "Shortcut saved: {shortcut}.",
+  "settings.shortcut.invalid":
+    "That isn't a shortcut Mosaic can use. Use Ctrl, Alt or Command plus one key, for example Ctrl+Shift+Space.",
+  "settings.shortcut.unsupported":
+    "Your system doesn't allow shortcuts that work in every program, so this can't be changed here.",
 } as const satisfies Record<string, string>;
