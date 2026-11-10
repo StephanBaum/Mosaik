@@ -175,7 +175,7 @@ rustls-platform-verifier = "=0.7.0"
 toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde"] }
 # Structured logs of the server (method, route, status, duration; never bodies).
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std"] }
 
 # M9 WebAuthn relying party (ADR-0078): the sync server only, behind crates/server/src/auth/webauthn.rs.
 passkey-auth = { version = "=0.1.3", default-features = false }
