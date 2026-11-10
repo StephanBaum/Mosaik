@@ -368,13 +368,7 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     for (i, item) in items.iter().take(2).enumerate() {
         w.devs[0]
             .s_mut()
-            .add_attachment(
-                vault,
-                *item,
-                "f.bin",
-                "application/octet-stream",
-                &[i as u8; 64],
-            )
+            .add_attachment(vault, *item, "f.bin", "application/octet-stream", &fill(i))
             .unwrap();
     }
     w.converge(0);
@@ -414,7 +408,7 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
             .unwrap()
     };
     assert!(progress.finished, "{progress:?}");
-    assert!(progress.unreachable_attachments.is_empty());
+    assert_eq!(progress.unreachable_attachments.len(), 0);
     assert!(w.devs[0].s().rotation_job().unwrap().is_none());
     {
         let dev = &mut w.devs[0];
@@ -439,12 +433,25 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
             let ids = attachment_ids(&w, d, vault, *item);
             assert_eq!(ids, after[i], "device {d}");
             let data = w.devs[d].s().attachment(vault, *item, ids[0]).unwrap();
-            assert_eq!(data.expose_secret(), &[i as u8; 64][..], "device {d}");
+            assert_eq!(data.expose_secret(), &fill(i)[..], "device {d}");
         }
     }
     all_agree(&w, vault);
+    one_call_rotation_reseals(&mut w, vault, &items, &after);
+}
 
-    // The one-call path: rotate and re-seal in a single run.
+/// The fill byte of test attachment `i`.
+fn fill(i: usize) -> [u8; 64] {
+    [u8::try_from(i).unwrap(); 64]
+}
+
+/// The one-call path: rotate and re-seal in a single run.
+fn one_call_rotation_reseals(
+    w: &mut World,
+    vault: VaultId,
+    items: &[ItemId],
+    after: &[Vec<mosaic_core::AttachmentId>],
+) {
     let outcome = {
         let dev = &mut w.devs[1];
         dev.engine
@@ -455,9 +462,9 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     assert!(outcome.progress.unwrap().finished);
     w.converge(1);
     for (i, item) in items.iter().take(2).enumerate() {
-        let ids = attachment_ids(&w, 2, vault, *item);
+        let ids = attachment_ids(w, 2, vault, *item);
         assert!(ids.iter().all(|a| !after[i].contains(a)));
         let data = w.devs[2].s().attachment(vault, *item, ids[0]).unwrap();
-        assert_eq!(data.expose_secret(), &[i as u8; 64][..]);
+        assert_eq!(data.expose_secret(), &fill(i)[..]);
     }
 }

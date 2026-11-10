@@ -363,6 +363,7 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
             "rekey_prepare",
             "rekey_commit",
             "rotation_resume",
+            "vault_rotate_key",
         ],
     );
     assert!(matches!(after, SessionState::Unlocked { .. }), "{after:?}");
