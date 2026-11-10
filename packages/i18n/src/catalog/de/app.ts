@@ -41,6 +41,7 @@ export const app = {
     "{count, plural, one {# Befund zu prüfen} other {# Befunde zu prüfen}}",
   "sync.status.local": "Auf diesem Gerät gespeichert",
   "sync.status.upToDate": "Synchronisiert",
+  "sync.status.attention": "Braucht deine Aufmerksamkeit",
   "sync.status.syncing": "Synchronisiere…",
   "sync.status.offline": "Offline",
   "sync.status.error": "Synchronisierung fehlgeschlagen",

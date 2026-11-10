@@ -43,6 +43,7 @@ impl<T: Transport> SyncEngine<T> {
                 access,
                 vault,
                 &std::collections::BTreeSet::new(),
+                false,
                 &mut report,
                 &mut stats,
             )? {

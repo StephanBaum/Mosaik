@@ -60,6 +60,12 @@ fn collect_pending(
         if skip.contains(&vault) {
             continue;
         }
+        // After an adopted re-key the vault waits for the generation the
+        // re-key rotated it to: nothing is pushed under the retired key
+        // (review M5).
+        if s.rekey_held(vault)? {
+            continue;
+        }
         let Some(generation) = s
             .vaults()
             .into_iter()

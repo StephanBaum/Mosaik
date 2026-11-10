@@ -16,6 +16,7 @@ pub mod directory;
 pub mod emergency;
 pub mod invites;
 pub mod records;
+pub mod rekey;
 pub mod schema;
 pub mod sessions;
 pub mod sharing;
@@ -262,7 +263,8 @@ mod tests {
         // The rebuilt tables keep their rules and gain the new ones.
         let bad = |sql: &str| conn.execute(sql, []).is_err();
         assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 14, NULL)"));
-        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 15, NULL)"));
+        assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 16, NULL)"));
+        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 17, NULL)"));
         assert!(bad(
             "INSERT INTO memberships VALUES (zeroblob(16), zeroblob(16), 5, 0, 0)"
         ));
@@ -281,6 +283,88 @@ mod tests {
         let n: i64 = conn
             .query_row(
                 "SELECT (SELECT COUNT(*) FROM memberships) + (SELECT COUNT(*) FROM audit)                  + (SELECT COUNT(*) FROM share_invites)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    /// A v2 database upgrades in place: accounts start at epoch 1, invites and
+    /// audit rows survive the rebuild and the new kinds and states are
+    /// accepted, rotation requests follow their vault and account, and the
+    /// epoch trigger refuses a fall and a jump.
+    #[test]
+    fn migrates_v2_to_v3() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute_batch(schema::MIGRATIONS[0]).unwrap();
+        conn.execute_batch(schema::MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak,                 account_version, created_at) VALUES (zeroblob(16), 'a@b.c', zeroblob(16), 1, x'00',                 zeroblob(74), 1, 0);
+             INSERT INTO vaults (vault_id, owner_account_id, current_generation, head_seq, created_at)                 VALUES (zeroblob(16), zeroblob(16), 1, 2, 5000);
+             INSERT INTO share_invites (invite_id, vault_id, sender, recipient, role, generation,                 seal, created_at, expires_at, delivered_at, state, hidden) VALUES (x'01010101010101010101010101010101',                 zeroblob(16), zeroblob(16), x'02020202020202020202020202020202', 3, 1, zeroblob(82), 1, 9, 4, 0, 1);
+             INSERT INTO audit (account_id, at, kind, device_id) VALUES (zeroblob(16), 10, 14, NULL);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(usize::try_from(v).unwrap(), schema::latest_version());
+        assert_eq!(schema::latest_version(), 3);
+        let epoch: i64 = conn
+            .query_row("SELECT ak_epoch FROM accounts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(epoch, 1);
+        let invite: (i64, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT state, hidden, delivered_at, created_at, expires_at FROM share_invites",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(invite, (0, 1, 4, 1, 9));
+        let audit: (i64, i64) = conn
+            .query_row("SELECT kind, at FROM audit", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(audit, (14, 10));
+
+        let bad = |sql: &str| conn.execute(sql, []).is_err();
+        assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 15, NULL)"));
+        assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 16, NULL)"));
+        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 17, NULL)"));
+        assert!(!bad("UPDATE share_invites SET state = 5"));
+        assert!(bad("UPDATE share_invites SET state = 6"));
+        // The invite indexes came back: one open invite per vault and recipient.
+        let again = "INSERT INTO share_invites (invite_id, vault_id, sender, recipient, role, generation,              seal, created_at, expires_at, state) VALUES (randomblob(16), zeroblob(16), zeroblob(16),              x'02020202020202020202020202020202', 3, 1, zeroblob(82), 1, 9, 0)";
+        assert!(!bad(again), "state 5 is not open");
+        assert!(bad(again), "one open invite per vault and recipient");
+        // The epoch never falls and rises by exactly one.
+        assert!(bad("UPDATE accounts SET ak_epoch = 0"));
+        assert!(bad("UPDATE accounts SET ak_epoch = 3"));
+        assert!(!bad("UPDATE accounts SET ak_epoch = 2"));
+        assert!(bad("UPDATE accounts SET ak_epoch = 1"));
+        assert!(!bad("UPDATE accounts SET email = 'c@d.e'"));
+        // Rotation requests: reason 1 only, one per vault and requester, gone
+        // with the vault or the account.
+        assert!(bad(
+            "INSERT INTO vault_rotation_requests VALUES (zeroblob(16), zeroblob(16), 2, 0)"
+        ));
+        assert!(!bad(
+            "INSERT INTO vault_rotation_requests VALUES (zeroblob(16), zeroblob(16), 1, 0)"
+        ));
+        assert!(bad(
+            "INSERT INTO vault_rotation_requests VALUES (zeroblob(16), zeroblob(16), 1, 1)"
+        ));
+        conn.execute("DELETE FROM accounts", []).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM vault_rotation_requests) + (SELECT COUNT(*) FROM audit)                  + (SELECT COUNT(*) FROM share_invites)",
                 [],
                 |r| r.get(0),
             )

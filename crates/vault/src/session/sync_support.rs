@@ -150,6 +150,10 @@ pub struct AccountBootstrap {
     pub params: PasswordParams,
     /// `AK` wrapped under the password `KEK`.
     pub wrapped_ak: WrappedKey,
+    /// The account-key epoch of this device (CRYPTO_SPEC 6.7): a fresh hosted
+    /// registration states it, so a device that switches from a folder after
+    /// a re-key does not leave the server at epoch 1.
+    pub ak_epoch: u32,
 }
 
 /// A master password change that is derived but not stored: both OPAQUE
@@ -162,11 +166,14 @@ pub struct AccountBootstrap {
 #[derive(Debug)]
 pub struct PreparedPasswordChange {
     /// The tag of the session that prepared it.
-    session_tag: [u8; 16],
-    old_opaque_password: OpaquePassword,
-    new_opaque_password: OpaquePassword,
-    new_params: PasswordParams,
-    new_wrapped_ak: WrappedKey,
+    pub(super) session_tag: [u8; 16],
+    pub(super) old_opaque_password: OpaquePassword,
+    pub(super) new_opaque_password: OpaquePassword,
+    pub(super) new_params: PasswordParams,
+    pub(super) new_wrapped_ak: WrappedKey,
+    /// The retired commitment of the Secret Key this change replaces (a
+    /// Secret Key rotation), kept at the commit (CRYPTO_SPEC §6.7).
+    pub(super) retire_secret_key: Option<[u8; 32]>,
 }
 
 impl PreparedPasswordChange {
@@ -204,8 +211,8 @@ impl PreparedPasswordChange {
 /// is no session yet at this point, so it has no session tag.
 #[derive(Debug)]
 pub struct JoinKeys {
-    keys: DerivedKeys,
-    params: PasswordParams,
+    pub(super) keys: DerivedKeys,
+    pub(super) params: PasswordParams,
 }
 
 impl JoinKeys {
@@ -264,9 +271,28 @@ impl LockedSession {
     /// parameters that do not match the wrapped key;
     /// [`Error::Store`] with `AccountExists`.
     pub fn join_account_with_keys(
+        self,
+        wrapped_ak: &WrappedKey,
+        keys: JoinKeys,
+    ) -> core::result::Result<UnlockedSession, UnlockError> {
+        self.join_account_with_keys_at(wrapped_ak, keys, 1)
+    }
+
+    /// [`Self::join_account_with_keys`] for an account the backend states to
+    /// be at account-key epoch `epoch` (review H2): a device that joins after a
+    /// re-key starts at the backend's epoch, so its own re-key targets the
+    /// next one and an adoption moves from it. The epoch only rises (a value
+    /// below 1 counts as 1). A folder's epoch is the verified account file's;
+    /// a hosted one is the server's claim, and the wrapping that opens under
+    /// the typed keys is what makes it usable (CRYPTO_SPEC 6.7).
+    ///
+    /// # Errors
+    /// As [`Self::join_account_with_keys`].
+    pub fn join_account_with_keys_at(
         mut self,
         wrapped_ak: &WrappedKey,
         keys: JoinKeys,
+        epoch: u32,
     ) -> core::result::Result<UnlockedSession, UnlockError> {
         let params = keys.params;
         let opened = wrapped_ak
@@ -276,6 +302,7 @@ impl LockedSession {
         drop(keys);
         let joined = opened.and_then(|ak| {
             self.store.init_account(&params, wrapped_ak)?;
+            self.store.raise_ak_epoch(epoch.max(1))?;
             Ok(ak)
         });
         match joined {
@@ -812,7 +839,7 @@ impl UnlockedSession {
         Ok(self.account_key.checkpoint_key()?)
     }
 
-    fn folder_key(&self) -> Result<mosaic_core::FolderMacKey> {
+    pub(super) fn folder_key(&self) -> Result<mosaic_core::FolderMacKey> {
         Ok(self.account_key.folder_mac_key()?)
     }
 
@@ -1312,13 +1339,14 @@ impl UnlockedSession {
         Ok(AccountBootstrap {
             params,
             wrapped_ak: wrapped.wrapped_account_key,
+            ak_epoch: self.ak_epoch,
         })
     }
 
     /// Derives the keys of `password` and `secret_key` under the stored
     /// parameters and checks that they open the stored password wrapping to
     /// this session's account key.
-    fn verified_keys(
+    pub(super) fn verified_keys(
         &self,
         password: &MasterPassword,
         secret_key: &SecretKey,
@@ -1369,21 +1397,15 @@ impl UnlockedSession {
         new: &MasterPassword,
         secret_key: &SecretKey,
     ) -> Result<PreparedPasswordChange> {
-        let (params, old_keys) = self.verified_keys(current, secret_key)?;
-        let change = mosaic_core::change_master_password(
-            &self.account_key,
-            new,
+        self.prepare_credential_change(
+            current,
             secret_key,
-            &params,
-            params.profile,
-        )?;
-        Ok(PreparedPasswordChange {
-            session_tag: self.session_tag,
-            old_opaque_password: old_keys.opaque_password,
-            new_opaque_password: change.opaque_password,
-            new_params: change.params,
-            new_wrapped_ak: change.wrapped_account_key,
-        })
+            &mosaic_core::CredentialChange {
+                new_password: Some(new),
+                new_secret_key: None,
+                profile: self.account_profile()?,
+            },
+        )
     }
 
     /// The second half of [`Self::change_master_password`]: stores the new
@@ -1401,7 +1423,11 @@ impl UnlockedSession {
         if p.session_tag != self.session_tag {
             return Err(Error::PreparedStale);
         }
-        let removed_quick_unlock = self.store_password(&p.new_params, &p.new_wrapped_ak)?;
+        let removed_quick_unlock = self.store_password(
+            &p.new_params,
+            &p.new_wrapped_ak,
+            p.retire_secret_key.as_ref(),
+        )?;
         Ok(PasswordChanged {
             params: p.new_params,
             opaque_password: p.new_opaque_password,
@@ -1447,7 +1473,7 @@ impl UnlockedSession {
             return Err(Error::UnlockFailed);
         }
         drop(opened);
-        let removed_quick_unlock = self.store_password(&params, wrapped_ak)?;
+        let removed_quick_unlock = self.store_password(&params, wrapped_ak, None)?;
         Ok(PasswordChanged {
             params,
             opaque_password: keys.keys.opaque_password,
@@ -1490,6 +1516,7 @@ impl UnlockedSession {
         &mut self,
         params: &PasswordParams,
         wrapped_ak: &WrappedKey,
+        retire_secret_key: Option<&[u8; 32]>,
     ) -> Result<Option<QuickUnlockEnrollment>> {
         let quick: Vec<UnlockMethod> = self
             .store
@@ -1498,9 +1525,9 @@ impl UnlockedSession {
             .map(|r| r.method)
             .filter(|m| matches!(m, UnlockMethod::QuickUnlock(_)))
             .collect();
-        let removed = self
-            .store
-            .update_password_removing(params, wrapped_ak, &quick)?;
+        let removed =
+            self.store
+                .update_password_retiring(params, wrapped_ak, &quick, retire_secret_key)?;
         Ok(removed
             .into_iter()
             .filter_map(QuickUnlockEnrollment::from_row)

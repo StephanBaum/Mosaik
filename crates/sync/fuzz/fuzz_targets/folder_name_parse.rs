@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use libfuzzer_sys::fuzz_target;
 use mosaic_sync::wire::folder_names::{
     FolderName, account_name, blob_delete_name, blob_name, dir_name, is_checkpoint_candidate,
-    parse, segment_name,
+    parse, rekey_marker_name, segment_name,
 };
 
 fuzz_target!(|data: &[u8]| {
@@ -22,6 +22,7 @@ fuzz_target!(|data: &[u8]| {
     let canonical = match parsed {
         FolderName::Segment { seq } => segment_name(seq),
         FolderName::Account { version, device } => account_name(version, &device),
+        FolderName::RekeyMarker { from_epoch, device } => rekey_marker_name(from_epoch, &device),
         FolderName::Blob(id) => blob_name(&id),
         FolderName::BlobDelete { attachment, device } => blob_delete_name(&attachment, &device),
         FolderName::Head => "head.mck".to_owned(),

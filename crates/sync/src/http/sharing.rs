@@ -283,8 +283,12 @@ impl SharingTransport for HttpTransport {
                         0 => InviteState::Pending,
                         1 => InviteState::Accepted,
                         2 => InviteState::Declined,
-                        3 => InviteState::Cancelled,
                         4 => InviteState::Expired,
+                        // Cancelled by the recipient's re-key (M7): the
+                        // seal addressed to the old identity key is dead,
+                        // so the sender's client treats it as cancelled
+                        // (review H3).
+                        3 | 5 => InviteState::Cancelled,
                         _ => return Err(TransportError::Protocol),
                     },
                     delivered: o.delivered,

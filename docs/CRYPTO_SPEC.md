@@ -90,6 +90,8 @@ Interoperability only (these read or serve third-party formats and never protect
   `server/directory-key` and `server/directory-ipk` (§8.2, ADR-0052, ADR-0055). `sync/view`
   is **retired** (version 1 of the view digest, never released with sharing): it stays in the
   registry, so it can't be reused for another purpose.
+- Label added for key rotation (§6.6, §10.1, M7): `sync/folder-rekey` (the MAC prefix of a
+  folder re-key marker, ADR-0060). No other label, key or AEAD use is new in M7.
 - **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
   `0x03` the HPKE seal of §8.2 and §8.4 (mode Auth, KEM `0x0020`, KDF `0x0001`, AEAD `0x0003`).
   `0x02` is unused. A decoder refuses any other value.
@@ -215,7 +217,15 @@ P = Argon2id(password = MP', salt = account_salt, m, t, p, len = 32)
 - **Upgrade:** when the client policy requires a stronger profile than the
   stored one, the next successful unlock re-derives the keys under the new
   profile, re-wraps AK, re-registers OPAQUE (§9.2, under the rules of §9.4)
-  and stores the new profile. Profiles only ever increase.
+  and stores the new profile. Profiles only ever increase. An upgrade is
+  the §6.4 flow with the same password and a stronger profile (one prepare
+  path, `change_credentials`; always a new salt). Offers never go above
+  `standard` on their own; `strong` and `max` only by explicit user choice, with
+  a slow-device warning and a guard when this device needs more than 2 s
+  (ADR-0062). A device that has not seen the upgrade yet recovers silently at
+  its next password unlock: the typed password, the stored Secret Key and the
+  backend's parameters are tried first (§9.4 "Change applied elsewhere"), so a
+  change the user already knows costs no extra prompt.
 - Constrained contexts never run Argon2id. This includes the iOS AutoFill
   extension, which has a memory limit of roughly 120 MiB. They use quick
   unlock (§6.2).
@@ -327,34 +337,267 @@ Residual risk: someone holding the key, its PIN and a copy of the wrapping
 can unlock (THREAT_MODEL R8).
 
 ### 6.4 Master password change
-Derive a new `KEK'` (new `account_salt`, current parameters) from the new MP
-and the same SK. Re-wrap AK with `KEK'`, re-register OPAQUE with `OPW'`, then
-delete the old password wrapping atomically on the server. Items and vault keys
-are not touched. The new profile is never weaker than the current one (§5.3);
-the client refuses a downgrade.
+One function builds every credential change (`change_credentials`: §6.4, §6.5
+and §5.3 share it). It always draws a new `account_salt`, derives `KEK'` and
+`OPW'` from the new (or unchanged) password, the new (or unchanged) Secret Key
+and the new (or unchanged) profile under the current account ID, and re-wraps
+the same AK. Items and vault keys are not touched. The profile is never
+weaker than the current one (§5.3); the client refuses a downgrade before any
+Argon2id work. `change_credentials` takes the stored password wrapping and
+verifies the current password and Secret Key against it (it must open to the
+session's AK) before it produces anything, so a mistyped current password
+yields nothing. A new salt on every change means the retired-salt rule (§9.4)
+also catches a rollback to a salt this device replaced after a Secret Key
+rotation or a profile upgrade (it covers only salts this device replaced,
+never a salt it did not see).
+The client re-registers OPAQUE with `OPW'` and the backend replaces the old
+password wrapping atomically (§9.4). The quick-unlock wrapping is deleted and
+other sessions end; hardware-key wrappings stay (they do not depend on `P`).
+No new Emergency Kit is issued.
 
 ### 6.5 Secret Key rotation
-Same as §6.4 with a new SK. A new Emergency Kit is issued.
+Same flow as §6.4 with a new SK. A new Emergency Kit is issued, and the client
+saves and verifies it (the user types the last group) **before** the backend
+learns the change, so a failed save never leaves the account behind a Secret
+Key nobody has. Until the commit the new SK sits in the OS keystore under a
+pending name next to the current one (THREAT_MODEL R88); a job abandoned before the
+backend has seen it deletes the pending entry. When a Secret Key is replaced
+(rotation, re-key, adoption), the device stores its **retired commitment**
+`SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)` (no key is
+kept; schema v9) and never removes it. A device that lost the answer or
+was signed out recovers with the typed password and, when that fails, with
+the Secret Key from the newest kit.
 
 **What §6.4 and §6.5 do not do:** they stop *server login* with the old
 secrets, nothing more. AK does not change. Anyone holding the old MP and SK
 plus any old copy of the password wrapping (a server backup, an old local
 database) can still recover AK and every VK. When a user rotates because of a
-suspected compromise, the UI MUST say this and offer §6.6.
+suspected compromise, the UI MUST say this and offer §6.6. The sentence is:
+"This stops sign-in with the old Secret Key. Anyone who already copied your
+vault data with your old password and Secret Key can still read it. Re-key the
+account to stop that."
 
 ### 6.6 Full re-key (compromise recovery)
-1. Generate a new AK, a new identity key pair, and a new VK for every vault
-   the user owns.
-2. Re-encrypt every item and attachment under the new VKs. Increment
-   `key_generation` for each of those vaults.
-3. Re-wrap everything under the new AK. Re-share the new VKs with all members
-   (§8.2).
-4. Re-register OPAQUE with the new MP and SK. Issue a new Emergency Kit.
-5. Delete every old wrapping and quick-unlock enrollment. Revoke all
-   sessions.
+
+**What changes** (`=` same, `>=` not weaker):
+
+| Operation | AK | SK | Salt | Profile | VKs | Identity | Quick unlock | HW unlock (0x03) | Other sessions | New kit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Password change §6.4 | = | = | new | >= | = | = | deleted | kept | ended | no |
+| SK rotation §6.5 | = | new | new | >= | = | = | deleted | kept | ended | yes |
+| Profile upgrade §5.3 | = | = | new | > | = | = | deleted | kept | ended | no |
+| Vault rotation §7.1 | = | = | = | = | that vault `g+1` | = | kept | kept | kept | no |
+| Full re-key | **new** | **new** | new | >= | every owned vault `g+1`, member vaults re-wrapped | **new** | deleted | **deleted** | ended | yes |
+
+**Steps** (`rekey_account`, `prepare_rekey`, `commit_rekey`):
+1. Preconditions: the device is synced to the head with no halt, finding or
+   pending revocation. The new password differs from the current one (checked
+   with one derivation under the current parameters) and the new Secret Key
+   differs from the current one (constant-time comparison); the profile is not
+   weaker. The new Emergency Kit is saved and verified first (§6.5).
+2. Generate a new AK (independent of the old one: every key derived from AK,
+   `K_fold`, `K_cp`, `K_dev`, `K_settings` and `K_contacts`, changes with it), a new
+   identity key pair, and a new VK of generation `g+1` for every vault the user
+   owns. Wrap the new AK under `KEK'` from the new password, the new SK, a new
+   salt and the profile.
+3. One local store transaction (`commit_rekey`): new parameters and password
+   wrapping, `ak_epoch + 1` (§6.7), the old salt retired, **every** held VK of
+   every generation re-wrapped under the new AK (local history stays readable),
+   the new VKs stored, every readable record, metadata and roster of an owned
+   vault re-sealed under `g+1` and queued, wrappings of member vaults re-wrapped,
+   the identity replaced, the contact book (§8.5) re-sealed under the new
+   `K_contacts` and queued, the quick-unlock wrapping and **every**
+   hardware-key wrapping deleted (the app deletes the platform keys; TK vaults
+   are not touched, because a compromised AK does not reveal TK, §7.4),
+   peer checkpoints, view comparisons and lag timers cleared (they belong to the
+   old epoch; own counters, `reserved` and `written` stay), one attachment
+   re-seal job per attachment of an owned vault, and the WAL scrubbed.
+4. Attachments are re-sealed one per transaction under a fresh attachment ID and
+   key in the same vault (§7.3); the old ID is deleted once the referencing
+   record is accepted. A blob that is neither local nor fetchable is listed as
+   unreachable and keeps its old key (THREAT_MODEL R85).
+5. Issue the new Emergency Kit, revoke all other sessions.
+
+**Phases and resumption.** A journal row (never a secret) records the phase:
+1 prepared (kit verified, pending SK in the keystore), 2 backend started
+(hosted), 3 backend accepted (hosted), 4 folder written, 5 local committed,
+6 attachments, 7 uploading (ADR-0061). A crash resumes from the row. After phase 3 the
+prepared keys died with the process: the device adopts its own re-key like
+another device would (§6.7) with the pending SK and the typed new password; the
+user retypes the last group of the new kit first, so resuming never trusts the
+keystore entry alone. The pending SK is deleted once a probe proves the backend did
+not apply the change, and when the job ends either way. A resumed job that adopted
+its own re-key (phase 2 or 3) queues the attachments of every owned vault again
+(the prepared queue died with the process), moves to phase 6 and continues, so no
+attachment keeps the old file key. The phase-2 journal write comes before anything
+reaches the backend: if it fails, the request is not sent. An attachment whose
+ciphertext does not open under its file key is listed as unreachable, skipped, and
+never blocks the job. A change of backend is refused while a job exists; once the
+local part is committed (phase 5 or later, and for a re-key the store already at the
+job's target epoch) the user can abandon the job after a confirmation, and the
+attachments still to re-seal keep their old key and are listed (THREAT_MODEL R85).
+Phases 1 to 4 are resume-only: in phases 1 to 3 the backend may already know the
+change, and phase 4 of a folder re-key is moved on to phase 6 by the next continue
+(ADR-0064).
+
+**Hosted.** One atomic request (`/v1/account/rekey/start`, `finish`) under a
+fresh login with the current `OPW`. `finish` carries the new OPAQUE record,
+wrapped AK, salt, profile, the target epoch (`current + 1`), the new identity
+(the only place the server accepts an identity replacement, ADR-0059), the new
+VK of every owned vault with its expected head, for each owned shared vault the
+roster at `g+1` and fresh seals from the **new** `isk` to every remaining member
+and pending invitee, the re-wrapped current key of every vault the account is
+a member of **and holds the current key of** (an unclaimed share, an unavailable
+vault or a generation not pulled yet is skipped: nothing is sent for it, and the
+server expects exactly the member vaults for which the account has a key row of
+the current generation), and fresh emergency seals for every grant it gave. The
+owner's plan is strict (nobody is locked out): a member key that is not verified,
+or does not match the roster, stops the re-key with `memberKeyMismatch` and records
+**no** finding, because a finding would block the retry (step 1). The coverage
+rules decide the answer: the vault set must be exactly the owned set, each at
+`current + 1` with the expected head, else `generation_taken` or `head_moved` and
+nothing applies. The server applies everything in one transaction, deletes the
+account's older-generation key rows, key shares to it and emergency seals
+addressed to it, cancels its incoming pending invites, files a rotation request
+for each owner of a vault it is a member of, ends every other session and
+audits it. `rekey/finish` also ends pending OPAQUE and second-factor logins,
+enforces the version-at-login rule of §9.4, and deletes server-held
+hardware-key (PRF) AK wrappings, which belong to the old AK (this build stores none on the server, §12). A lost answer is
+settled by a login with the new `OPW`: if the
+wrapped AK equals the prepared one byte for byte and the epoch is the target,
+the device commits; otherwise the next resume probes again or adopts.
+
+**Other hosted devices** are signed out. Sign-in with the old SK fails; the
+user types the new Secret Key and the password, and the device logs in,
+fetches the account (with `ak_epoch` and the wrapped `isk`) and adopts (§6.7). The
+adoption needs no clean sync: it lists the vaults shared to the account by
+ownership alone and skips a vault of unknown owner or without its current key.
+After an adoption every owned vault is **held** at the generation the device has:
+the device keeps editing locally but pushes nothing of that vault until the key of
+the next generation arrives by pull (every genuine re-key rotates every owned
+vault), so no record is sealed under the retired key. Records sealed below the new
+generation are re-sealed by the rule of §7.1.
+
+**Shared vaults.** Only the owner rotates a shared vault (§8.3). The owner's
+re-key rotates each owned shared vault inside the request; members' clients see
+the owner's new `ipk`, `ContactChanged` blocks every share from the owner until
+the member compares and accepts the new code (§8.5), then the claim proceeds
+(THREAT_MODEL R84). Vaults shared **to** the re-keying user stay readable to the
+old AK holder until their owner rotates: the request files a rotation request,
+and the owner's devices queue a revocation with reason `MemberRekeyed` (nobody
+is revoked) and rotate on their next run, sealing to the member's new `ipk` once
+it is verified (THREAT_MODEL R86). Emergency grants as grantee: the server
+deletes the seals addressed to the account, and each grantor re-seals on the
+next run after verifying the new code. Contact pins of the re-keying account
+are kept.
+
+**Target epoch.** A re-key moves to `max(own epoch, highest epoch seen in the
+backend) + 1` with checked arithmetic (a device halted on a verified marker
+re-keys past it). An unverifiable account file counts only at exactly `own + 1`
+(its header is unauthenticated, so a planted huge epoch cannot push the target out
+of reach), and a dismissed file or marker counts for nothing. The folder adoption
+jumps over epochs (§6.7), so a re-key that targeted `own + 5` is still adopted.
+**One re-key moves at most `MAX_EPOCH_JUMP = 16` epochs** (ADR-0064): a seen epoch
+counts only below `own + MAX_EPOCH_JUMP` (so the target is at most
+`own + MAX_EPOCH_JUMP`), and `prepare_rekey` refuses a higher target
+(`EpochJumpTooLarge`). A verified marker whose `to_epoch` is far ahead was written
+by a holder of the old AK (a thief of an old device); without the cap one such
+marker at `u32::MAX - 1` would exhaust the epoch space on the next re-key.
+
+**Ownership.** Re-key needs to know which vaults the account owns. A vault
+whose owner nothing records counts as owned if this device created it, or if
+the backend is a **folder**: sharing is impossible there, so a device that
+joined the folder re-keys every vault. On **hosted** it stays unknown and the
+re-key refuses (`OwnerUnknown`, the fail-closed rule of §8.3).
+
+**Re-keyed members.** When a member re-keyed, the owner's verified acceptance
+of the member's new safety code (`verify_contact` after `accept_key_change`)
+writes that fingerprint into the member's roster entry of every vault the owner
+owns, at the vault's current generation, queued for upload. Accepting the key
+alone writes nothing, and only the owner's device writes it, so the next
+rotation's served-key check passes only for a code the owner compared.
+
+**Folder.** See §10.1 "Re-key": an account file at the next version with the new
+epoch, a full snapshot set under the new `K_fold`, a marker for devices of the
+old epoch.
+
+Settings integrity (§11.1) uses `K_settings`, which changes with AK: the app
+re-MACs `settings.json` right after a commit or adoption.
 
 Shared vaults owned by other people can only be rotated by their owners
 (§8.3). The UI lists those vaults.
+
+### 6.7 Account-key epoch and re-key adoption
+The **account-key epoch** `ak_epoch: u32` starts at 1 and rises by exactly one
+per full re-key. It is public metadata (§12) and names which AK a password
+wrapping belongs to. It is never an input to a key derivation: different epochs
+have independent random AKs. The store keeps it in the account row and a
+trigger refuses a decrease.
+
+A device compares the backend's epoch with its own:
+- **Hosted.** The epoch is served by the backend and is not authenticated; a
+  malicious backend can lie about it (THREAT_MODEL R90). Each sync run reads it
+  (`GET /v1/account?epoch=1`) and a lower epoch is a rollback, refused and
+  reported as an `AccountRollback` finding on every run. The same epoch with a
+  wrapping that opens to a different AK is refused as an unlock failure (§9.4).
+  Only `current + 1` can be adopted (checked arithmetic: `u32::MAX` is refused);
+  any other higher epoch is a finding and moves nothing. A re-key re-reads the
+  epoch after its fresh login and stops (`epoch_mismatch`) unless it is the one
+  the re-key leaves.
+- **Folder.** The backend epoch is the highest epoch of a **verified** account
+  file; files of a lower epoch are ignored, not reported as a rollback (a holder
+  of the old AK can plant them, R83). A file of a higher epoch that cannot be
+  verified is a dismissible finding, not an adoption and not a halt (§10.1).
+  **Any** epoch above the own one up to `own + MAX_EPOCH_JUMP` (16, §6.6) can be
+  adopted, not only `current + 1`: a re-key targets `max(own, highest seen) + 1`
+  (so a planted `own + 5` header can push a genuine re-key up), and a device can
+  be two re-keys behind. A higher epoch is refused (`EpochJumpTooLarge`) and no
+  candidate above the cap costs a key derivation: a device that lagged more than
+  16 epochs behind joins the account again (ADR-0064). The
+  typed Secret Key is the authenticator: the file must open under keys derived
+  from it and the password, its MAC must verify under the key it holds, and the
+  Secret Key must not be the current one or a retired one.
+- **Joining.** A device that joins stores the backend's epoch with the account:
+  the verified account file's epoch on a folder, the served `akEpoch` on hosted
+  (a claim, usable only because the wrapping opens under the typed keys). The
+  stored epoch only rises. A device that switches a backend keeps the epoch of
+  its own AK: a fresh hosted registration carries it (`akEpoch` in `register/finish`, at
+  least 1), so folder and server agree and no `AccountRollback` follows.
+  Without this, a device that joined after a re-key would target epoch 2 again.
+
+There is **no adoption at an equal epoch.** Two concurrent re-keys are resolved
+only by re-keying again, from a device that holds the current AK, to
+`max(seen epochs) + 1`.
+
+Adoption requires: the epoch is exactly `current + 1` (hosted) or above the
+current one (folder); the wrapping's salt is
+not retired; the wrapping opens under keys derived from the typed password and
+the typed Secret Key; **the typed Secret Key differs from the current one and
+from every retired commitment** (constant-time comparison over all of them). A
+genuine re-key always rotates SK, so this stops a holder of the old password and
+any old Secret Key from moving the device to an AK they made up, even when a
+concurrent or replayed re-key is offered. There is no endorsement by the old AK,
+because the old AK is what a compromise exposes (ADR-0058). Adoption is one
+store transaction like the local part of the commit (§6.6 step 3): new
+parameters and epoch, the Secret Key it replaces retired, history generations
+of every held VK re-wrapped under the new AK, the identity replaced from the
+backend's wrapped `isk` only after the derived `ipk` equals the served one, the
+contact book re-sealed, quick and hardware unlock deleted, peer state cleared.
+Every owned vault **the backend has seen** is held at the generation the device
+has until the re-key's next generation arrives by pull (no push sealed under the
+key the re-key retired; THREAT_MODEL R94). A vault the backend never saw (created
+on this device and never published to any backend, the store's `backend_known`
+flag, which no backend change clears) is not held: its key is re-wrapped under the
+new AK and it syncs normally, because no ciphertext or wrapping of it exists
+outside this device (ADR-0064).
+For the current generation of each member vault the device stores **the
+server's own wrapping**, after checking in constant time that it opens to the
+same VK as the held one; re-wrapping it locally would change the bytes the view
+digest commits to and cause a false `ServerInconsistent` on the other devices.
+It creates no new VK: the backend's `g+1` keys arrive by pull under the new AK,
+and records this device sealed below them are re-sealed by the rule of §7.1.
+Other devices show an in-app notice that a re-key happened elsewhere (there is
+no email by design; THREAT_MODEL R91).
 
 ## 7. Vaults and items
 
@@ -1041,9 +1284,12 @@ session token alone therefore cannot lock the user out.
   - **No downgrade.** The Argon2id profile is not weaker than the stored one
     (`ProfileDowngrade`).
   - **Retired salts.** Every salt a local commit or an adoption replaces is
-    kept (public data, schema v6). A backend that offers a retired salt is
+    kept (public data, schema v6). This covers only salts **this device**
+    replaced. A backend that offers a retired salt is
     offering an older password again and is refused (`PasswordRollback`,
     shown as `syncPasswordRollback`).
+  - **Hosted account version.** The device persists the highest
+    `account_version` it has seen from the backend and refuses a lower one.
   - **Folder versions.** The device keeps the highest account-file version it
     wrote or adopted (reset with the other sync state when the backend
     changes; the retired salts stay and still catch a rollback); a folder
@@ -1357,7 +1603,17 @@ session token alone therefore cannot lock the user out.
 - Message parsing on both ends is strict and length-bounded, and is covered by
   fuzz targets.
 
+- **Epoch change.** Peer checkpoint state (the highest counters seen, the
+  per-peer view comparisons, the lag timers and the stale-digest skips) belongs
+  to one account-key epoch (§6.7) and is cleared when the epoch changes, whether
+  by a local re-key or by adoption. The device's own counters, `reserved` and
+  `written` are kept, so the checkpoint counter only grows across epochs.
+
 ### 10.1 Folder backend (ADR-0043)
+
+Ownership on a folder: sharing is impossible on this backend, so every vault
+of the account counts as owned for a re-key, including those a joined device
+did not create (§6.6). The re-key's target epoch is `max(own, highest seen) + 1`.
 
 The folder backend stores the same ciphertext objects as the server in a
 directory that a file-sync client replicates (Dropbox, OneDrive, iCloud Drive,
@@ -1380,11 +1636,19 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
     (`record_id || TombstoneCiphertext`), 3 vault key (`generation:u32 || WrappedKey[74]`),
     4 vault metadata. Read limit 16 MiB; a writer keeps segments at or below
     8 MiB and 256 objects.
-  - Account file `.macct` (168 bytes): `"MACC" || 1 || account_id || account_version:u64 (>= 1) || device_id || salt[16] || profile:u8 (1..=4) || wrapped_ak[74] || mac`,
-    `mac = HMAC(K_fold, ctx("sync/folder-account") || 0x00 || preceding bytes)`.
+  - Account file `.macct`, version 2 (172 bytes): `"MACC" || 2 || account_id || account_version:u64 (>= 1) || ak_epoch:u32 (>= 1) || device_id || salt[16] || profile:u8 (1..=4) || wrapped_ak[74] || mac`.
+    Version 1 (168 bytes, no epoch field) decodes as epoch 1; writers write version 2 from M7 on.
+    `mac = HMAC(K_fold, ctx("sync/folder-account") || 0x00 || preceding bytes)`, under the epoch's `K_fold`.
     A joining device cannot check the MAC before it has `AK`: it uses the
     file only to attempt the join (the AEAD of `wrapped_ak` authenticates the
     parameters) and checks the MAC right after unlocking.
+  - Re-key marker `.mrek` (93 bytes) at `a/<account>/account/rekey-<from_epoch:08x>-<device>.mrek`:
+    `"MREK" || 1 || account_id || from_epoch:u32 || to_epoch:u32 || to_account_version:u64 || device_id || created_at_ms:u64 || mac`,
+    `mac = HMAC(K_fold(from_epoch), ctx("sync/folder-rekey") || 0x00 || preceding bytes)`.
+    It carries no key material; only devices of the old epoch can verify it. `to_epoch` is
+    above `from_epoch` and at most `from_epoch + MAX_EPOCH_JUMP` (16; a re-key jumps to
+    `max(own, highest seen) + 1`, §6.6), `device_id` names the path's device, and a decoder
+    rejects trailing bytes and a larger jump (checked arithmetic).
   - Device info `.mdev`: `"MDEV" || 1 || device_id || nonce[24] || XChaCha20-Poly1305(K_dev, nonce, plaintext, aad)`,
     `aad = header || aad("sync/device-info", account_id, device_id)` with
     `header = "MDEV" || 1 || device_id`. The plaintext is exactly 512
@@ -1516,6 +1780,58 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   newer and not retired: another device of the folder changed the password;
   the device sets the password-changed flag and the recovery of §9.4 finishes
   it.
+- **Re-key (M7, ADR-0060).** The re-keying device runs to the head with no halt, prepares
+  (the marker is MAC'd under the **old** `K_fold`, because the commit drops the old AK),
+  commits locally (§6.6; it records, per synced vault, the floor `reserved` of its own log),
+  then writes the version 2 account file at the highest verified version plus one, a full
+  snapshot set of every vault under the new `K_fold`, the marker, the new `.mdev` and
+  `head.mck`. Every step is idempotent and resumes from the journal row.
+  - **Pre-re-key own segments.** After a re-key this device's segments with `seq <= floor` fail the
+    MAC under the new `K_fold`. They are not junk: the 24-hour removal of unverifiable files
+    at or below `reserved` does not apply to them. They are removed only when a complete
+    new-epoch snapshot set exists in the own log **and** 30 days have passed since the re-key,
+    so stale devices that still read the old epoch had time to read them. Files above the floor
+    keep the ordinary rules.
+  - **Stale devices.** Only a **verified** `.mrek` (MAC under the device's current
+    `K_fold`) halts the run before any write (`AccountRekeyed`) and sets a re-key-pending
+    flag; nothing is purged while it is set. An account file whose clear header names a
+    higher epoch but cannot be verified raises a **dismissible finding** and no halt, so a
+    planted file cannot stop every device that holds no key to check it. A dismissed file is
+    recorded by path and SHA-256 and never raises again. Recovery: the user types the new
+    Secret Key and the password; the device tries the account files of every higher epoch
+    (§6.7), the files every verified marker names first, grouped by salt (one Argon2id
+    derivation per salt, eight salts per attempt; the user can go on to the next page up to the
+    scan cap of 64 files, so planted files and markers cannot crowd out the genuine one),
+    and only files whose header epoch is in `(own, own + MAX_EPOCH_JUMP]` are candidates. The
+    scans are bounded by reads, not by names: up to 1024 marker files of the device's epoch are
+    MAC-checked and at most 64 verified ones kept (a marker is 93 bytes, the MAC is checked
+    before the cap, so 64 planted junk markers cannot hide the genuine one), and the fallback
+    reads up to 1024 account files and skips the ones outside the epoch range before the
+    64-candidate cap (ADR-0064),
+    opens one under the typed keys, checks its MAC under the derived new `K_fold`, adopts
+    (§6.7), records its own floors and writes its own snapshot sets under the new epoch.
+  - **A marker that cannot be followed.** A marker is MAC'd under the old `K_fold`, so a
+    **holder of the old AK** (a thief of an old device) can write one that verifies: it halts
+    every device of that epoch. Such a marker names no file that opens under the user's keys.
+    After a deliberate user action (an adoption attempt that found no file that opens, then a
+    confirmation) the marker is **dismissed**: recorded by path and SHA-256 like a dismissed
+    account file, it never halts again, and the re-key-pending flag clears when no other
+    undismissed verified marker is left. The device then keeps working at its epoch (the thief
+    gains nothing the old AK did not give) or re-keys again. The dismissed markers the folder
+    still shows can be listed and a dismissal undone; the marker then halts again. A folder writer who has no key can
+    only delete files (denial of service, as deleting files already can).
+  - **New-epoch readers** ignore every object that does not verify under the current epoch's keys
+    and never accept an old-epoch object again (a holder of the old AK can still write them,
+    THREAT_MODEL R83).
+  - **Concurrent re-keys.** Two devices re-keyed to the same epoch with different AKs: a device
+    that sees an account file of its own epoch that does not verify under its keys raises a
+    `RekeyConflict` finding. There is **no adoption at an equal epoch** (§6.7). The user either
+    keeps this device's re-key (the unverifiable equal-epoch file is dismissed: recorded by path
+    and SHA-256, not deleted, because it is another device's file) or re-keys again from a
+    device that holds the AK they want to keep, to `max(seen epochs) + 1`; every other device
+    then adopts that one with its kit. A re-key is allowed while a device is halted on
+    `AccountRekeyed`, targeting `max(seen epoch) + 1`. There is no automatic winner: choosing an AK
+    nobody typed would make a kit useless (THREAT_MODEL R87).
 - **Lag.** For another device's checkpoint entry `(vault, g, high_seq)` the
   folder reader counts the device as behind when `high_seq` is above the
   `contiguous` mark of that device in the vault's cursor. Behind for longer
@@ -1546,6 +1862,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   whole batch is refused (`generation_mismatch`).
 - Key upload: generation must be `current + 1`, optionally conditional on
   the vault's `head_seq`; one wrapped key per (vault, account, generation).
+- The re-key request is the only place the server replaces an identity key and the only
+  one that replaces a key row at a generation a member holds (§6.6, ADR-0059).
 - A client uploads every item of a run before any tombstone, so a moved
   item's copy reaches the server before the source's tombstone.
 - Checkpoint upload: the raw checkpoint bytes, filed under the device in the
@@ -1636,7 +1954,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   has had a deferred record (§10); v8 adds the identity key (`isk` wrapped, `ipk`, a published
   flag), the contact book ciphertext, the per-vault sharing state (the monotone `shared` flag, the own
   role, the owner account and the time access was lost), the roster ciphertext, the pending
-  revocations and the sharing findings (all public data or ciphertext; none holds a key in the clear).
+  revocations and the sharing findings (all public data or ciphertext; none holds a key in the clear);
+  v9 adds the account-key epoch (a trigger refuses a decrease), the rotation journal row, the attachment
+  re-seal list and the folder re-key floors (public values and IDs; never a secret, §6.6).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -1701,14 +2021,15 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 |---|---|
 | account email | login identifier, contact for emergency access |
 | `account_id`, `account_salt`, Argon2 parameters, `account_version` (a counter of registration changes; a session remembers the version it logged in at, §9.4) | new-device derivation, compare-and-swap of a password change |
+| `ak_epoch` (§6.7), retired-Secret-Key commitments (local only), rotation requests (vault, requester, time) and invites cancelled by a re-key | which AK a wrapping belongs to, owner notice of a member's re-key |
 | OPAQUE registration record | login |
 | identity public key `ipk` and the wrapped `isk` (§8.1) | sharing, adoption on a new device |
-| wrapped AK (password and PRF methods, with the PRF methods' public parameters: PRF salt, RP ID, credential ID), TK wrappings of hardware-protected vaults with their public parameters, wrapped VKs, HPKE share seals | multi-device unlock, sharing |
+| wrapped AK (password method only; this build stores no PRF-wrapped AK and no PRF parameters (PRF salt, RP ID, credential ID) on the server: hardware-key unlock wrappings and hardware-protected vaults with their TK wrappings stay on the device, §6.3, §7.4), wrapped VKs, HPKE share seals | multi-device unlock, sharing |
 | vault IDs, membership (`account_id` → `vault_id`, role, origin `owner`, `invite` or `emergency`) | access control |
 | invites (sender, recipient, vault, role, generation, seal, times, delivered time), key-share seals until claimed, block lists | sharing (§8.2, §8.3), spam control |
 | roster ciphertext per vault and generation (§8.2), contact book ciphertext and its length (§8.5) | sharing, pin sync across devices |
 | removals (`vault_removals`: vault, account, the generation a re-invite has to pass), the per-account change counter `inbox_seq` (it moves on every invite, grant, request, decision and release, and wakes `/v1/poll`), the invite `hidden` flag (an invite from a blocked sender or to a full inbox is stored but never shown) | `reinvite_blocked`, change notification without email, spam control |
-| audit event kinds 7 to 14 (identity published, invite sent, invite accepted, member removed, emergency granted, requested, declined or approved, released), with account, time and device | the user-visible security log |
+| audit event kinds 7 to 16 (identity published, invite sent, invite accepted, member removed, emergency granted, requested, declined or approved, released, account re-keyed, rotation requested), with account, time and device | the user-visible security log |
 | emergency grants: grantor, grantee, wait days, scope, vault IDs and generations, state, request, decision and release times, seals (§8.4) | the waiting period, release |
 | directory lookups (counted for rate limits, not logged) | abuse control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
@@ -1737,6 +2058,7 @@ Quick-unlock wrappings (§6.2) never leave the device.
 | segment `created_at_ms`, the snapshot flag and the snapshot part fields (`snap_base`, `snap_parts`) | `.mseg` header (MAC'd, not secret) |
 | blob delete markers: `deleted_at_ms` and the deleting device | `.mdel` (the file name and the MAC'd body) |
 | which device wrote each wrapped vault key (the devices whose directory `log/<device>/` holds a key object with exactly those bytes; a device that repeats a key in a snapshot shows as a writer of it too) | the writing device's directory holds the key object |
+| `ak_epoch` in `.macct` (clear header), re-key markers `.mrek` (epochs, new account version, writing device, time; MAC'd, no key material) | `.macct`, `.mrek` |
 | size of `info.mdev`: constant (573 bytes), so the length of a device name is not visible | `.mdev` (padded plaintext, §10.1) |
 | file creation and modification times | edit timing |
 

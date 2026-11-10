@@ -16,12 +16,14 @@ use core::time::Duration;
 
 use mosaic_core::model::Role;
 use mosaic_core::{
-    AccountId, AttachmentId, InstallId, ItemId, KeyGeneration, ShareSeal, VaultId,
+    AccountId, AttachmentId, InstallId, ItemId, KeyGeneration, PasswordParams, ShareSeal, VaultId,
     VaultMetaCiphertext, VaultRosterCiphertext, WrappedKey,
 };
-use mosaic_vault::storage::RecordBody;
+use mosaic_vault::storage::{FolderRekeyFloor, RecordBody};
 
 use crate::sharing::SharingTransport;
+use crate::wire::account_file::AccountFile;
+use crate::wire::rekey_marker::LEN as MARKER_LEN;
 use crate::wire::segment::SegmentObject;
 
 /// Which kind of backend a transport talks to.
@@ -148,6 +150,10 @@ pub struct PullPage {
     /// Hosted only (M6b): the role the server says this account has in the
     /// vault. `None` for the folder.
     pub role: Option<Role>,
+    /// Hosted only (M7): a member that re-keyed asked the owner to rotate
+    /// this vault (only the owner's page carries it; the request is advisory,
+    /// THREAT_MODEL R86).
+    pub rotation_requested: bool,
 }
 
 /// A record to upload.
@@ -321,6 +327,33 @@ pub enum Rejection {
     EmergencyNotRequested,
     /// Emergency seals cover only vaults the grantor owns (M6b).
     EmergencyOwnerOnly,
+    /// A re-key named an epoch other than the account's plus one (M7).
+    EpochMismatch {
+        /// The account's epoch on the server.
+        current_epoch: u32,
+    },
+    /// A re-key with a weaker Argon2id profile than the account's (M7).
+    ProfileDowngrade,
+    /// A re-key request that does not cover exactly what the server holds
+    /// for the account (M7).
+    RekeyMismatch {
+        /// Which list of the request.
+        set: RekeySet,
+    },
+}
+
+/// The list of a re-key request that did not match the server's state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RekeySet {
+    /// The owned vaults.
+    Vaults,
+    /// The vaults shared to the account.
+    MemberRewraps,
+    /// The emergency seals the account gave.
+    EmergencySeals,
+    /// A list this client does not know.
+    Other,
 }
 
 /// Why a transport call failed. No variant carries a path, a body or an ID.
@@ -448,6 +481,97 @@ pub trait MaintainContext {
         markers: &[mosaic_vault::storage::MarkerStamp],
         now: u64,
     ) -> Result<Vec<u64>, TransportError>;
+
+    /// The pre-re-key own-segment floors (folder, M7): own segments of a vault
+    /// up to the floor were sealed under the previous epoch and are kept
+    /// until a snapshot set of the new epoch exists and the retention passed.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked or the store fails.
+    fn rekey_floors(&mut self) -> Result<Vec<FolderRekeyFloor>, TransportError> {
+        Ok(Vec::new())
+    }
+
+    /// Records that a complete snapshot set of the new epoch exists in the
+    /// own log of `vault`.
+    ///
+    /// # Errors
+    /// [`TransportError::Io`] if the session is locked or the store fails.
+    fn mark_rekey_snapshot(&mut self, vault: VaultId) -> Result<(), TransportError> {
+        let _ = vault;
+        Ok(())
+    }
+}
+
+/// A re-key marker that verified under this device's keys (folder only, M7):
+/// the account was re-keyed away from this device's epoch. Anyone who holds
+/// the old keys (a thief of an old device) can write one, so a device that
+/// cannot follow it can dismiss it (CRYPTO_SPEC 10.1, review H1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RekeyMarkerSeen {
+    /// The marker's file name in the account directory.
+    pub name: String,
+    /// SHA-256 of its bytes.
+    pub sha256: [u8; 32],
+    /// The epoch the re-key moved to (above this device's, not always by one).
+    pub to_epoch: u32,
+    /// The `account_version` of the new account file.
+    pub to_account_version: u64,
+    /// The device that re-keyed (it wrote the new account file).
+    pub device: InstallId,
+}
+
+/// An account file that does not verify under this device's keys and names
+/// this device's epoch or a higher one (folder only, M7): a re-key this
+/// device cannot verify, a concurrent re-key, or a planted file. A finding,
+/// never a halt (CRYPTO_SPEC §10.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnverifiedAccountFile {
+    /// The file's name in the account directory.
+    pub name: String,
+    /// SHA-256 of its bytes.
+    pub sha256: [u8; 32],
+    /// The epoch its clear header states (unauthenticated).
+    pub epoch: u32,
+}
+
+/// What a transport saw of a re-key (folder only, M7).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RekeySignals {
+    /// The verified `.mrek` files for this device's epoch (at most
+    /// `MAX_SCANNED`, newest epoch first): the only hard stop, unless the
+    /// user dismissed them.
+    pub markers: Vec<RekeyMarkerSeen>,
+    /// Account files that do not verify and name this epoch or a higher one.
+    pub unverified: Vec<UnverifiedAccountFile>,
+}
+
+/// An account file a device that lags behind a re-key may try to adopt
+/// (folder only, M7), with its bytes for the MAC check after the typed keys
+/// opened its wrapping.
+#[derive(Clone, Debug)]
+pub struct RekeyCandidate {
+    /// The parsed header.
+    pub file: AccountFile,
+    /// The whole file.
+    pub bytes: Vec<u8>,
+}
+
+/// What a device that re-keyed (or adopted a re-key) publishes to a folder:
+/// the new account file, a full snapshot set of each vault under the new keys
+/// and the marker for the devices of the old epoch (in that order).
+#[derive(Clone, Copy, Debug)]
+pub struct RekeyPublish<'a> {
+    /// The new account file (parameters, wrapped `AK`, version); `None` for a
+    /// device that adopted another device's re-key.
+    pub account_file: Option<(&'a PasswordParams, &'a WrappedKey, u64)>,
+    /// The vaults to write a snapshot set for.
+    pub snapshot_vaults: &'a [VaultId],
+    /// The marker, built under the old epoch's keys; `None` for an adopting
+    /// device.
+    pub marker: Option<&'a [u8; MARKER_LEN]>,
+    /// The epoch the marker leaves (the name of the marker file).
+    pub from_epoch: u32,
 }
 
 /// A sync backend. See the [module documentation](self).
@@ -654,6 +778,67 @@ pub trait Transport: Send {
     /// [`TransportError`].
     fn maintain(&mut self, cx: &mut dyn MaintainContext) -> Result<(), TransportError> {
         let _ = cx;
+        Ok(())
+    }
+
+    /// What the backend shows of an account re-key, for a device at account
+    /// key epoch `epoch` (M7; the folder reads its account directory, the
+    /// hosted backend signs the device out instead and answers nothing).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
+        let _ = epoch;
+        Ok(RekeySignals::default())
+    }
+
+    /// The account-key epoch the backend states for the account (hosted
+    /// only, M7): unauthenticated, the server's claim. `None` for a backend
+    /// that does not state one (the folder checks its account files instead).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        Ok(None)
+    }
+
+    /// The account files a device at `epoch` may try to adopt, best first:
+    /// the files every verified marker names, then the others by version,
+    /// only those whose header names an epoch above `epoch` (at most `limit`).
+    /// Default none.
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn rekey_candidates(
+        &mut self,
+        epoch: u32,
+        limit: usize,
+    ) -> Result<Vec<RekeyCandidate>, TransportError> {
+        let _ = (epoch, limit);
+        Ok(Vec::new())
+    }
+
+    /// The `account_version` the next account file of a folder takes: the
+    /// highest verified one plus one. `None` for a backend without account
+    /// files (hosted).
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn next_folder_account_version(&mut self) -> Result<Option<u64>, TransportError> {
+        Ok(None)
+    }
+
+    /// Publishes a re-key (see [`RekeyPublish`]). Every step is idempotent: a
+    /// crashed publish is run again from the start. The default does nothing.
+    ///
+    /// # Errors
+    /// [`TransportError`].
+    fn publish_rekey(
+        &mut self,
+        cx: &mut dyn MaintainContext,
+        publish: &RekeyPublish<'_>,
+    ) -> Result<(), TransportError> {
+        let _ = (cx, publish);
         Ok(())
     }
 

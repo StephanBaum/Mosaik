@@ -33,7 +33,10 @@ Only what CRYPTO_SPEC §12 lists:
   roster of each vault and its history, invites and key shares (sealed
   ciphertext), emergency grants with their state and seals, and block lists.
   The server sees the sharing graph (who shares with whom, with which role) but
-  never a vault name, a key or an item.
+  never a vault name, a key or an item;
+- for key rotation (M7, see "Re-key" below): the account key epoch (a small
+  counter that says which account key a wrapping belongs to), rotation
+  requests (vault, requester, time) and invites cancelled by a re-key.
 
 IP addresses are held in memory for rate limiting and are **never written to
 disk**, not to the database and not to the log. The log has one line per
@@ -307,3 +310,75 @@ cooldown, using its own clock. Someone who controls the server can skip the
 wait; the clients say so. Emergency access hands over vault keys. It does not
 recover an account. Deleting a grant removes the seals but keeps the memberships
 a release created; the owner next rotation lists them in `revoke`.
+
+## Re-key
+
+Schema version 3 (M7) adds the account key epoch (`accounts.ak_epoch`, from 1),
+rotation requests and the audit kinds 15 (account re-keyed) and 16 (rotation
+requested). The migration runs on start. `POST /v1/register/finish` carries `akEpoch`: 1
+for a new account, the device's own epoch when a device that re-keyed on a folder switches
+to this server (the server rejects 0; the value is a `u32`). The epoch then rises only by
+re-keys, one at a time. A re-key is the full rotation of an
+account's keys (CRYPTO_SPEC §6.6): a new account key, a new identity key and a
+new vault key for every vault the account owns. The server stores what the
+client uploads and never opens a wrapping or a seal.
+
+| Route | Rules |
+|---|---|
+| `POST /v1/account/rekey/start` | Fresh login. Body `{registrationRequest, akEpoch}`, answer `{registrationResponse}`. The session must have logged in at the current account version (`account_version_mismatch`) and `akEpoch` must be the stored epoch plus one (`epoch_mismatch {currentEpoch}`). |
+| `POST /v1/account/rekey/finish` | Fresh login, same two checks. Body (cap 4 MiB, at most 1000 vaults): `registrationUpload`, `wrappedAk`, `salt`, `profile`, `akEpoch`, `identity` (`{ipk, wrappedIsk}` or null), `vaults`, `memberRewraps`, `emergencySeals`, `device`. Answer `{accountVersion, akEpoch}`. One transaction, or nothing. |
+| `GET /v1/account?epoch=1` | Adds `akEpoch`. A flag of its own, so that `identity=1` and the plain body stay as older clients parse them. `epoch=1&identity=1` gives both. The desktop reads it on start (`hosted::account_epoch`): when the server holds other keys than the device and states an epoch above the device's, the status is `syncAccountRekeyed` (a re-key made elsewhere); an equal epoch is a password change, a lower one is no re-key (the engine reports `AccountRollback`). The epoch is the server's unauthenticated claim (THREAT_MODEL R90): at worst it asks for the new Secret Key. |
+| `GET /v1/vaults/{v}/changes?sharing=1&rotation=1` | For the owner, adds `rotationRequested`: a member that re-keyed asked for a rotation. Without `rotation=1` the page is the M6b page. |
+
+What `finish` checks, before it writes anything:
+
+- the profile is not below the stored one (`profile_downgrade`);
+- the identity: an account that has one must send a different one (`400`
+  otherwise), because the wrapped private key is under the old account key.
+  This is the only route that may replace an identity (`PUT /v1/account/identity`
+  stays first write wins);
+- `vaults` is exactly the set of vaults the account owns (`rekey_mismatch
+  {set: "vaults"}`), each at its current generation plus one (`generation_taken`,
+  `generation_mismatch`) with `expectedHead` equal to the head (`head_moved
+  {headSeq, vaultId}`). A shared vault (a member or an open invite) follows the
+  rules of `POST /rotate`: a roster of the new generation, a seal for every
+  member and every open invite, nobody revoked (`members_mismatch`). An unshared
+  vault takes no seals;
+- `memberRewraps` is exactly the set of vaults shared to the account for which
+  it holds the key of the current generation, at that generation
+  (`rekey_mismatch {set: "memberRewraps"}`);
+- `emergencySeals` is exactly one fresh seal for each seal the account gave, at
+  the new generation of the vault (`rekey_mismatch {set: "emergencySeals"}`).
+
+What it applies: the OPAQUE record, wrapped account key, salt, profile, epoch
+and identity; the new key row of each owned vault (and its roster, shares and
+invite seals); the re-wrapped current row of each vault shared to the account,
+with the head moved so the account's other devices fetch it; every key row of
+an older generation of this account deleted (they are under the old account
+key); the key shares addressed to the account deleted; the emergency seals
+addressed to the account deleted (the grantor re-seals after verifying the new
+code); incoming open invites set to state 5, `cancelled_by_rekey` (the sender's list shows it
+with `delivered`; the sender's client reads state 5 as cancelled, queues the revocation of
+a delivered one and deletes it with `DELETE /v1/invites/{id}`, which removes an invite of
+any finished state, 5 included); open invites
+the account sent for vaults it does not own cancelled (state 3: their seal is
+from the old identity key); a rotation request to the owner of each vault
+shared to the account; audit 15 for the account and 16 for each owner; the poll
+token of every affected account. The server holds no hardware-key (PRF)
+wrapping of the account key yet, so there is nothing of that kind to delete
+(CRYPTO_SPEC §6.6 says it would go with the re-key).
+
+Every other session of the account ends, pending second-factor sessions and
+half-finished OPAQUE logins included; the changing session stays and moves to
+the new account version. A lost answer is settled by a login with the new
+password: the account then shows the new wrapped key and epoch.
+
+The epoch never falls and rises by exactly one: a database trigger enforces it.
+A rotation request lives until the owner rotates the vault (any rotation) or
+the requester leaves it. Rate limit: the session limit, as for a password
+change.
+
+What you see as the operator: the audit kinds 15 and 16, the epoch, the
+rotation requests (vault, requester, time), invite state 5. What you do not
+see: any key, any password, any seal content. The sharing graph is as visible as
+before.

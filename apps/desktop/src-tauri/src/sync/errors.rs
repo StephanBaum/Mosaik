@@ -32,6 +32,9 @@ pub fn transport_code(error: TransportError) -> ErrorCode {
 
 fn rejection_code(rejection: Rejection) -> ErrorCode {
     match rejection {
+        Rejection::ProfileDowngrade => ErrorCode::ProfileDowngrade,
+        Rejection::EpochMismatch { .. } => ErrorCode::SyncRekeyRefused,
+        Rejection::RekeyMismatch { .. } => ErrorCode::RekeyBusy,
         Rejection::AccountExists => ErrorCode::SyncAccountExists,
         Rejection::RegistrationClosed => ErrorCode::SyncRegistrationClosed,
         Rejection::InvalidInvite => ErrorCode::SyncInviteInvalid,

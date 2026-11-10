@@ -510,4 +510,106 @@ pub struct SharingChangesResponse {
     pub role: u8,
     pub shares: Vec<ChangeShare>,
     pub rosters: Vec<ChangeRoster>,
+    /// The owner's page only (`rotation=1`, M7): a member re-keyed and asked
+    /// for a rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_requested: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID_A: &str = "0a0b0c0d-0102-0304-0506-0708090a0b0c";
+    const ID_B: &str = "11111111-2222-3333-4444-555555555555";
+
+    fn round_trip<T>(json: &serde_json::Value)
+    where
+        T: Serialize + for<'de> Deserialize<'de> + PartialEq + fmt::Debug,
+    {
+        let value: T = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(&serde_json::to_value(&value).unwrap(), json);
+        let again: T = serde_json::from_value(serde_json::to_value(&value).unwrap()).unwrap();
+        assert_eq!(value, again);
+    }
+
+    #[test]
+    fn wire_id_refuses_nil_and_prints_hyphenated() {
+        assert!(WireId::from_raw([0; 16]).is_none());
+        let id = WireId::from_raw([7; 16]).unwrap();
+        assert_eq!(format!("{id:?}"), "WireId(..)");
+        assert_eq!(id.to_string(), "07070707-0707-0707-0707-070707070707");
+        assert_eq!(
+            WireId([0; 16]).to_string(),
+            "00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn id_list_elements_round_trip_and_refuse_bad_text() {
+        let json = serde_json::json!({"members": [ID_A, ID_B], "invites": [ID_B]});
+        round_trip::<MembersMismatchDetail>(&json);
+        for bad in [
+            serde_json::json!({"members": ["nope"], "invites": []}),
+            serde_json::json!({"members": [], "invites": ["00000000-0000-0000-0000-000000000000"]}),
+            serde_json::json!({"members": [], "invites": [], "extra": 1}),
+        ] {
+            assert!(serde_json::from_value::<MembersMismatchDetail>(bad).is_err());
+        }
+        let one: AccountIdWire = serde_json::from_value(serde_json::json!(ID_A)).unwrap();
+        assert_eq!(serde_json::to_value(one).unwrap(), serde_json::json!(ID_A));
+        let invite: WireIdItem = serde_json::from_value(serde_json::json!(ID_B)).unwrap();
+        assert_eq!(
+            serde_json::to_value(invite).unwrap(),
+            serde_json::json!(ID_B)
+        );
+    }
+
+    #[test]
+    fn emergency_response_round_trips_and_requires_every_key() {
+        let json = serde_json::json!({
+            "granted": [{
+                "grantee": ID_A, "email": "a@example.com", "waitDays": 7, "scope": 1,
+                "vaults": [{"vaultId": ID_B, "generation": 3}], "state": 2,
+                "requestedAt": 10, "releaseAt": null
+            }],
+            "received": [{
+                "grantor": ID_B, "email": "b@example.com", "waitDays": 3, "state": 1,
+                "requestedAt": null, "releaseAt": 5, "cooldownUntil": null
+            }]
+        });
+        round_trip::<EmergencyResponse>(&json);
+        let mut missing = json.clone();
+        missing["granted"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("releaseAt");
+        assert!(serde_json::from_value::<EmergencyResponse>(missing).is_err());
+    }
+
+    #[test]
+    fn identity_bodies_and_changes_pieces_round_trip() {
+        let b32 = "A".repeat(43);
+        let b74 = "A".repeat(99);
+        round_trip::<IdentityBody>(&serde_json::json!({"ipk": b32, "wrappedIsk": b74}));
+        let seal = "A".repeat(110);
+        round_trip::<ChangeShare>(
+            &serde_json::json!({"generation": 2, "sender": ID_A, "seal": seal, "seq": 9}),
+        );
+        round_trip::<ChangeRoster>(
+            &serde_json::json!({"generation": 2, "ciphertext": "AAAA", "seq": 9}),
+        );
+        assert!(
+            serde_json::from_value::<ChangeRoster>(
+                serde_json::json!({"generation": 2, "ciphertext": "AAAA", "seq": 9, "x": 1})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<IdentityBody>(
+                serde_json::json!({"ipk": "short", "wrappedIsk": b74})
+            )
+            .is_err()
+        );
+    }
 }

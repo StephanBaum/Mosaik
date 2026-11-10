@@ -165,6 +165,33 @@ fn decode_payload(symbols: &[u8], out: &mut [u8; PAYLOAD_LEN]) -> Result<()> {
 }
 
 impl SecretKey {
+    /// The retired-Secret-Key commitment (§6.7):
+    /// `SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)`. A
+    /// device stores it for every Secret Key it has held and replaced, so a
+    /// later adoption can refuse a typed old key without keeping the key.
+    #[must_use]
+    pub fn retired_commitment(&self, account: &crate::AccountId) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(crate::encoding::ctx(label::SECRET_KEY_RETIRED.as_str()));
+        hash.update([0u8]);
+        hash.update(account.as_bytes());
+        hash.update(self.0.expose_secret());
+        hash.finalize().into()
+    }
+
+    /// Whether this key is one of `retired` (commitments from
+    /// [`SecretKey::retired_commitment`]), compared in constant time over
+    /// every entry.
+    #[must_use]
+    pub fn is_retired(&self, account: &crate::AccountId, retired: &[[u8; 32]]) -> bool {
+        let mine = self.retired_commitment(account);
+        let mut hit = Choice::from(0);
+        for c in retired {
+            hit |= mine.ct_eq(c);
+        }
+        bool::from(hit)
+    }
+
     /// A fresh Secret Key `SK = random(16)`.
     ///
     /// # Errors
@@ -292,6 +319,34 @@ mod tests {
 
     fn key(bytes: [u8; 16]) -> SecretKey {
         SecretKey(SecretBytes::from_slice(&bytes).unwrap())
+    }
+
+    /// §6.7: the retired-Secret-Key commitment is bound to the account and
+    /// matches only the key it was made from.
+    #[test]
+    fn retired_commitment_binds_account_and_key() {
+        let acct = crate::AccountId::from_bytes([1; 16]).unwrap();
+        let other_acct = crate::AccountId::from_bytes([2; 16]).unwrap();
+        let a = key([7; 16]);
+        let b = key([8; 16]);
+        let ca = a.retired_commitment(&acct);
+        assert_ne!(ca, b.retired_commitment(&acct));
+        assert_ne!(ca, a.retired_commitment(&other_acct));
+        assert_eq!(ca, key([7; 16]).retired_commitment(&acct));
+        assert!(a.is_retired(&acct, &[b.retired_commitment(&acct), ca]));
+        assert!(!a.is_retired(&acct, &[b.retired_commitment(&acct)]));
+        assert!(!a.is_retired(&acct, &[]));
+    }
+
+    /// Equality is constant time (via `subtle`) and exact.
+    #[test]
+    fn ct_eq() {
+        let a = key([7; 16]);
+        assert!(bool::from(a.ct_eq(&key([7; 16]))));
+        let mut other = [7u8; 16];
+        other[15] ^= 1;
+        assert!(!bool::from(a.ct_eq(&key(other))));
+        assert!(a == key([7; 16]) && a != key(other));
     }
 
     #[test]

@@ -21,20 +21,20 @@ use super::{
 };
 use crate::storage::{Error as StorageError, Store};
 
-fn pw() -> MasterPassword {
+pub(super) fn pw() -> MasterPassword {
     MasterPassword::new("unit test password".to_owned())
 }
 
-fn g(n: u32) -> KeyGeneration {
+pub(super) fn g(n: u32) -> KeyGeneration {
     KeyGeneration::new(n).unwrap()
 }
 
 /// One account with an unlocked session and an identity key.
-struct User {
-    s: UnlockedSession,
-    id: AccountId,
-    ipk: IdentityPublicKey,
-    secret: SecretKey,
+pub(super) struct User {
+    pub(super) s: UnlockedSession,
+    pub(super) id: AccountId,
+    pub(super) ipk: IdentityPublicKey,
+    pub(super) secret: SecretKey,
 }
 
 fn user_in(store: Store, email: &str) -> User {
@@ -58,11 +58,11 @@ fn user_in(store: Store, email: &str) -> User {
     }
 }
 
-fn user(email: &str) -> User {
+pub(super) fn user(email: &str) -> User {
     user_in(Store::open_in_memory().unwrap(), email)
 }
 
-fn fpr(u: &User) -> Fingerprint {
+pub(super) fn fpr(u: &User) -> Fingerprint {
     Fingerprint::of(&u.id, &u.ipk)
 }
 
@@ -131,7 +131,7 @@ fn current_roster(owner: &User, vault: VaultId) -> VaultRosterCiphertext {
 
 /// A vault of `a` shared with `b` (write) and `c` (read), all in sync at
 /// generation 1.
-fn trio() -> (User, User, User, VaultId) {
+pub(super) fn trio() -> (User, User, User, VaultId) {
     let (mut a, mut b, mut c) = (user("a@x"), user("b@x"), user("c@x"));
     let v = a.s.create_vault("Team").unwrap();
     let sent_b = invite(&mut a, v, &b, Role::Write);
@@ -641,6 +641,54 @@ fn member_key_mismatch_blocks_rotation() {
         a.s.request_revocation(v, &a.id, RevocationReason::Removed),
         Err(Error::RoleForbidden)
     ));
+}
+
+#[test]
+fn owner_verification_of_a_rekeyed_member_writes_the_new_fingerprint() {
+    let (mut a, b, c, v) = trio();
+    let (_, new_ipk) = IdentitySecret::generate().unwrap();
+    let new_fpr = Fingerprint::of(&b.id, &new_ipk);
+    let roster_fpr = |a: &User| {
+        a.s.vault_roster(v)
+            .unwrap()
+            .unwrap()
+            .into_iter()
+            .find(|m| m.account_id == b.id)
+            .unwrap()
+            .fingerprint
+    };
+    let plan = |ipk| RotationPlan {
+        remaining: vec![(b.id, ipk)],
+        revoked: vec![c.id],
+        ..RotationPlan::default()
+    };
+    // Accepting the changed key alone (unverified) writes nothing: the
+    // rotation stays blocked.
+    a.s.accept_key_change(&b.id, &new_ipk, "b@x").unwrap();
+    assert_eq!(roster_fpr(&a), fpr(&b));
+    assert!(matches!(
+        a.s.prepare_shared_rotation(v, &plan(new_ipk)),
+        Err(Error::MemberKeyMismatch)
+    ));
+    // A code that is not the pin's is refused and writes nothing.
+    assert!(a.s.verify_contact(&b.id, &fpr(&b)).is_err());
+    assert_eq!(roster_fpr(&a), fpr(&b));
+    // The owner's verified acceptance writes the new fingerprint.
+    a.s.verify_contact(&b.id, &new_fpr).unwrap();
+    assert_eq!(roster_fpr(&a), new_fpr);
+    assert!(a.s.pending_roster_upload(v).unwrap().is_some());
+    a.s.prepare_shared_rotation(v, &plan(new_ipk)).unwrap();
+}
+
+#[test]
+fn member_verification_never_writes_a_roster() {
+    // B is not the owner: verifying A's code changes no roster entry.
+    let (a, mut b, _c, v) = trio();
+    let before = b.s.vault_roster(v).unwrap().unwrap();
+    let a_fpr = fpr(&a);
+    b.s.verify_contact(&a.id, &a_fpr).ok();
+    assert_eq!(b.s.vault_roster(v).unwrap().unwrap(), before);
+    assert!(b.s.pending_roster_upload(v).unwrap().is_none());
 }
 
 /// Rotation by A that removes C and keeps B; what B's page would show.

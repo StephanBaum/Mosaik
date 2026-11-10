@@ -26,8 +26,8 @@ use mosaic_sync::engine::{SyncEngine, SyncError, SyncReport, SyncWarning};
 use mosaic_sync::testutil::ManualClock;
 use mosaic_sync::transport::{
     ChangeToken, Cursor, KeyPushResult, MaintainContext, PullPage, PushRecord, PushResult,
-    RemoteAttachment, RemoteDevice, RemoteVault, Transport, TransportError, TransportKind,
-    VaultCreateResult,
+    RekeyCandidate, RekeyPublish, RekeySignals, RemoteAttachment, RemoteDevice, RemoteVault,
+    Transport, TransportError, TransportKind, VaultCreateResult,
 };
 use mosaic_vault::session::UnlockedSession;
 
@@ -348,6 +348,34 @@ impl<T: Transport> Transport for Faulty<T> {
         cursor: &Cursor,
     ) -> Result<u64, TransportError> {
         self.inner.checkpoint_high_seq(vault, cursor)
+    }
+
+    fn rekey_signals(&mut self, epoch: u32) -> Result<RekeySignals, TransportError> {
+        self.inner.rekey_signals(epoch)
+    }
+
+    fn backend_epoch(&mut self) -> Result<Option<u32>, TransportError> {
+        self.inner.backend_epoch()
+    }
+
+    fn rekey_candidates(
+        &mut self,
+        epoch: u32,
+        limit: usize,
+    ) -> Result<Vec<RekeyCandidate>, TransportError> {
+        self.inner.rekey_candidates(epoch, limit)
+    }
+
+    fn next_folder_account_version(&mut self) -> Result<Option<u64>, TransportError> {
+        self.inner.next_folder_account_version()
+    }
+
+    fn publish_rekey(
+        &mut self,
+        cx: &mut dyn MaintainContext,
+        publish: &RekeyPublish<'_>,
+    ) -> Result<(), TransportError> {
+        self.inner.publish_rekey(cx, publish)
     }
 
     fn own_logs_rolled_back(&mut self, vaults: &[VaultId]) -> Result<bool, TransportError> {

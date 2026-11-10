@@ -76,6 +76,8 @@ pub struct AccountQuery {
     /// `1`: add `identity` (M6b). Without it the M6 body, which older
     /// clients parse strictly.
     identity: Option<u8>,
+    /// `1`: add `akEpoch` (M7). A separate flag, for the same reason.
+    epoch: Option<u8>,
 }
 
 pub async fn get(
@@ -94,21 +96,29 @@ pub async fn get(
         account_version: a.account_version,
         totp_enabled: a.totp_sealed.is_some(),
     };
-    if q.identity != Some(1) {
+    if q.identity != Some(1) && q.epoch != Some(1) {
         return Reply::ok(&response);
     }
-    let identity = st.db.run(|c| dbs::identity(c, &s.account_id))?;
     let mut value = serde_json::to_value(&response).map_err(|_| ApiError::internal())?;
-    if let Some(map) = value.as_object_mut() {
-        map.insert(
-            "identity".to_owned(),
-            identity.map_or(serde_json::Value::Null, |(ipk, wrapped)| {
-                serde_json::json!({
-                    "ipk": Base64UrlUnpadded::encode_string(&ipk),
-                    "wrappedIsk": Base64UrlUnpadded::encode_string(&wrapped),
-                })
-            }),
-        );
+    if q.epoch == Some(1) {
+        let epoch = st.db.run(|c| crate::db::rekey::epoch(c, &s.account_id))?;
+        if let Some(map) = value.as_object_mut() {
+            map.insert("akEpoch".to_owned(), epoch.into());
+        }
+    }
+    if q.identity == Some(1) {
+        let identity = st.db.run(|c| dbs::identity(c, &s.account_id))?;
+        if let Some(map) = value.as_object_mut() {
+            map.insert(
+                "identity".to_owned(),
+                identity.map_or(serde_json::Value::Null, |(ipk, wrapped)| {
+                    serde_json::json!({
+                        "ipk": Base64UrlUnpadded::encode_string(&ipk),
+                        "wrappedIsk": Base64UrlUnpadded::encode_string(&wrapped),
+                    })
+                }),
+            );
+        }
     }
     Reply::ok(&value)
 }

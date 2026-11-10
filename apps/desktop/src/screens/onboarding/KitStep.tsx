@@ -23,7 +23,7 @@ export function KitStep({ kit, onContinue }: { kit: EmergencyKit; onContinue: ()
 
   async function save() {
     setError(null);
-    const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), password: null });
+    const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), pending: false, password: null });
     if (result.ok) {
       setSaved(result.value.kind);
     } else {

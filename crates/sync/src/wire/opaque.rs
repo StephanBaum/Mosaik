@@ -158,4 +158,19 @@ mod tests {
         let (bad, _) = login(b"https://evil.example.com");
         assert!(bad.is_err());
     }
+
+    /// The generator's three entry points draw fresh bytes from the OS.
+    #[test]
+    fn os_rng_fills_every_width_from_the_os() {
+        let mut rng = OsRng;
+        let (first64, second64) = (rng.next_u64(), rng.next_u64());
+        assert_ne!(first64, second64);
+        let (first32, second32) = (rng.next_u32(), rng.next_u32());
+        assert_ne!(first32, second32);
+        let mut first_fill = [0u8; 32];
+        let mut second_fill = [0u8; 32];
+        rng.try_fill_bytes(&mut first_fill).unwrap();
+        rng.try_fill_bytes(&mut second_fill).unwrap();
+        assert_ne!(first_fill, second_fill);
+    }
 }

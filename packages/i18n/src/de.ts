@@ -19,6 +19,7 @@ import { files } from "./catalog/de/files.ts";
 import { ext } from "./catalog/de/ext.ts";
 import { sync } from "./catalog/de/sync.ts";
 import { sharing } from "./catalog/de/sharing.ts";
+import { rotation } from "./catalog/de/rotation.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -42,4 +43,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...ext,
   ...sync,
   ...sharing,
+  ...rotation,
 };

@@ -95,6 +95,9 @@ pub struct ChangesQuery {
     /// `1`: the sharing-aware page (M6b) adds `role`, `shares` and `rosters`.
     /// Without it the page is the M6 page, which older clients parse strictly.
     sharing: Option<u8>,
+    /// `1` with `sharing=1`: the owner's page adds `rotationRequested` (M7).
+    /// A flag of its own, for the same reason.
+    rotation: Option<u8>,
 }
 
 pub async fn changes(
@@ -168,15 +171,25 @@ pub async fn changes(
     let Some(extras) = extras else {
         return Reply::json(StatusCode::OK, &response);
     };
-    let value = with_sharing(&response, &extras)?;
+    let rotation_requested = if q.rotation == Some(1) && extras.role == dbv::role::OWNER {
+        Some(
+            st.db
+                .run(|c| crate::db::rekey::rotation_requested(c, &vault))?,
+        )
+    } else {
+        None
+    };
+    let value = with_sharing(&response, &extras, rotation_requested)?;
     Reply::json(StatusCode::OK, &value)
 }
 
 /// The M6 page plus the sharing part: the caller's role, the unclaimed shares
-/// addressed to them and the rosters newer than `since`.
+/// addressed to them, the rosters newer than `since` and, for the owner,
+/// whether a member asked for a rotation.
 fn with_sharing(
     response: &ChangesResponse,
     extras: &dbs::Extras,
+    rotation_requested: Option<bool>,
 ) -> Result<serde_json::Value, ApiError> {
     let mut value = serde_json::to_value(response).map_err(|_| ApiError::internal())?;
     let shares: Vec<serde_json::Value> = extras
@@ -206,6 +219,10 @@ fn with_sharing(
         map.insert("role".to_owned(), extras.role.into());
         map.insert("shares".to_owned(), shares.into());
         map.insert("rosters".to_owned(), rosters.into());
+        if let Some(asked) = rotation_requested {
+            // A member re-keyed: the owner rotates (M7 spec §3.7).
+            map.insert("rotationRequested".to_owned(), asked.into());
+        }
     }
     Ok(value)
 }

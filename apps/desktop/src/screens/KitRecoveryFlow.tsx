@@ -22,7 +22,7 @@ export function KitRecoveryFlow({ onDone }: { onDone: (session: SessionState) =>
   const [saved, setSaved] = useState(false);
 
   async function save(password: string): Promise<IpcError | null> {
-    const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), password });
+    const result = await ipc.call("save_emergency_kit", { labels: kitLabels(t), pending: false, password });
     if (!result.ok) {
       return result.error;
     }

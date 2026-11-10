@@ -13,6 +13,7 @@ mod poll;
 mod prelogin;
 mod records;
 mod register;
+mod rekey;
 mod sharing;
 mod vaults;
 mod wire;
@@ -81,6 +82,14 @@ pub mod codes {
     pub const EMERGENCY_NOT_REQUESTED: &str = "emergency_not_requested";
     /// Emergency seals cover only vaults the grantor owns (403).
     pub const EMERGENCY_OWNER_ONLY: &str = "emergency_owner_only";
+    /// The re-key target epoch is not the stored epoch plus one (409, detail
+    /// `currentEpoch`).
+    pub const EPOCH_MISMATCH: &str = "epoch_mismatch";
+    /// The re-key would lower the Argon2 profile (409).
+    pub const PROFILE_DOWNGRADE: &str = "profile_downgrade";
+    /// A re-key list is not exactly the set the server holds (409, detail
+    /// `set`: `vaults`, `memberRewraps` or `emergencySeals`).
+    pub const REKEY_MISMATCH: &str = "rekey_mismatch";
 }
 
 /// Body limit of `prelogin`, before any session exists.
@@ -437,6 +446,8 @@ pub fn router(state: AppState) -> Router {
             "/v1/emergency/grants/{account_id}/release",
             post(emergency::release),
         )
+        .route("/v1/account/rekey/start", post(rekey::start))
+        .route("/v1/account/rekey/finish", post(rekey::finish))
         .route("/v1/account/password/start", post(account::password_start))
         .route(
             "/v1/account/password/finish",

@@ -64,6 +64,7 @@ mod attachments;
 mod error;
 mod hardware_vaults;
 mod items;
+mod rotation;
 mod search;
 mod sharing;
 mod sync;
@@ -88,6 +89,10 @@ pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
+pub use rotation::{
+    FolderRekeyPlan, MemberVaultReview, PreparedRekey, RekeyAdopted, RekeyAdoption, RekeyCommitted,
+    RekeyPlan, RekeyRequest, RekeyReview, ResealStep, SharedOwnedReview, SharedRekeyOut,
+};
 pub use sharing::{
     AcceptedInvite, IncomingInvite, InviteId, InvitePreview, OpenedChain, PreparedInvite,
     PreparedSharedRotation, PulledShareView, RevocationReason, RotationPlan, SharedRotationOutcome,
@@ -106,7 +111,10 @@ pub use unlock_methods::{
 };
 pub use vaults::VaultSummary;
 
-pub use crate::storage::{KeyOrigin, SyncConfig, SyncKind};
+pub use crate::storage::{
+    FolderRekeyFloor, KeyOrigin, ResealRow, ResealState, RotationJob, RotationKind, RotationPhase,
+    SyncConfig, SyncKind,
+};
 
 /// Session construction for the fuzz targets only. Compiled only under
 /// `cfg(fuzzing)` (set by cargo-fuzz); normal builds do not contain it.
@@ -324,6 +332,9 @@ pub struct UnlockedSession {
     /// The contact book ciphertext handed out for upload and not yet
     /// acknowledged.
     contacts_handed: Option<Vec<u8>>,
+    /// The account-key epoch (CRYPTO_SPEC §6.7), read at unlock and raised by
+    /// a re-key or the adoption of one.
+    ak_epoch: u32,
 }
 
 impl fmt::Debug for UnlockedSession {
@@ -356,6 +367,15 @@ impl LockedSession {
     #[must_use]
     pub fn into_store(self) -> Store {
         *self.store
+    }
+
+    /// The account-key epoch the store holds (CRYPTO_SPEC §6.7), so a device
+    /// can compare it with the backend's before it unlocks.
+    ///
+    /// # Errors
+    /// [`Error::NoAccount`], [`Error::Store`].
+    pub fn ak_epoch(&self) -> Result<u32> {
+        Ok(self.store.ak_epoch()?)
     }
 
     /// Whether the store holds an account (otherwise create or join one).
@@ -715,6 +735,17 @@ impl UnlockedSession {
                 });
             }
         };
+        let ak_epoch = match store.ak_epoch() {
+            Ok(e) => e,
+            // No account row (the fuzz targets build such sessions).
+            Err(crate::storage::Error::NoAccount) => 1,
+            Err(e) => {
+                return Err(UnlockError {
+                    session: LockedSession { store, quick },
+                    error: e.into(),
+                });
+            }
+        };
         match load_state(&mut store, &account_key, &account_id) {
             Ok((device, vaults)) => {
                 let identity_key = sharing::load_identity(&store, &account_key, &account_id);
@@ -738,6 +769,7 @@ impl UnlockedSession {
                     identity_key,
                     pending_invites: BTreeMap::new(),
                     contacts_handed: None,
+                    ak_epoch,
                 })
             }
             Err(error) => Err(UnlockError {
@@ -920,6 +952,8 @@ impl UnlockedSession {
 
 #[cfg(test)]
 mod hardware_vaults_tests;
+#[cfg(test)]
+mod rotation_tests;
 #[cfg(test)]
 mod sharing_tests;
 #[cfg(test)]

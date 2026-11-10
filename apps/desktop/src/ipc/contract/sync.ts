@@ -41,7 +41,9 @@ export type SyncWarningView =
   | { kind: "undecryptable"; count: number }
   | { kind: "hardwareVaultsLocal"; count: number }
   | { kind: "attachmentsNotRepaired"; count: number }
-  | { kind: "rotationBlocked"; vaultName: string | null };
+  | { kind: "rotationBlocked"; vaultName: string | null }
+  /** A folder account file this device cannot verify; `conflict`: it names this device's own epoch (M7). */
+  | { kind: "unverifiedAccountFile"; name: string; sha256: string; conflict: boolean };
 
 export type SyncWarningKind = SyncWarningView["kind"];
 
@@ -54,6 +56,8 @@ export interface SyncOverview {
   sharingFindings: SharingFindingView[];
   /** The server (or the folder) holds a master password this device does not know. */
   passwordChanged: boolean;
+  /** A verified re-key marker says the keys were renewed on another device; sync is paused (M7). */
+  rekeyPending: boolean;
 }
 
 export interface CheckServerRequest {
@@ -150,6 +154,8 @@ export type JoinOutcome = { state: "unlocked" } | { state: "twoFactorRequired" }
 /** `sync_recover_password`: the master password the server or folder holds now. */
 export interface RecoverPasswordRequest {
   newPassword: string;
+  /** The Secret Key from the newest kit when the keys were renewed elsewhere (M7); `null`: this device's own. */
+  secretKey: string | null;
   code: string | null;
 }
 

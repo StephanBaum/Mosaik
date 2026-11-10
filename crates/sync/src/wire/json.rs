@@ -29,6 +29,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+pub mod rekey;
 pub mod sharing;
 
 /// The most a client reads of a JSON response.
@@ -507,6 +508,9 @@ pub struct RegisterFinishRequest {
     pub registration_upload: OpaqueBytes,
     #[serde(with = "wrapped_key")]
     pub wrapped_ak: WrappedKey,
+    /// The account-key epoch the new account starts at (1 for a new account,
+    /// the device's own after a folder re-key; the server rejects 0).
+    pub ak_epoch: u32,
     #[serde(deserialize_with = "required")]
     pub invite_code: Option<String>,
     #[serde(with = "uuid_str")]
@@ -953,6 +957,10 @@ pub mod codes {
     pub const ROLE_FORBIDDEN: &str = "role_forbidden";
     pub const MEMBERS_MISMATCH: &str = "members_mismatch";
     pub const IDENTITY_EXISTS: &str = "identity_exists";
+    // Account re-key (M7).
+    pub const EPOCH_MISMATCH: &str = "epoch_mismatch";
+    pub const PROFILE_DOWNGRADE: &str = "profile_downgrade";
+    pub const REKEY_MISMATCH: &str = "rekey_mismatch";
     pub const CONFLICT: &str = "conflict";
     pub const INVITE_EXISTS: &str = "invite_exists";
     pub const INVITE_STALE: &str = "invite_stale";
@@ -1057,6 +1065,7 @@ mod tests {
             profile: Argon2Profile::Baseline,
             registration_upload: B64(vec![1, 2, 3]),
             wrapped_ak: wrapped(),
+            ak_epoch: 1,
             invite_code: None,
             device_id: device,
             device_name: "Laptop".to_owned(),
@@ -1066,7 +1075,7 @@ mod tests {
         assert_eq!(v["inviteCode"], serde_json::Value::Null, "null, not absent");
         assert_eq!(v["profile"], 1);
         assert_eq!(v["accountId"], account.to_string());
-        assert_eq!(v.as_object().unwrap().len(), 9);
+        assert_eq!(v.as_object().unwrap().len(), 10);
 
         let changes = ChangesResponse {
             head_seq: 9,

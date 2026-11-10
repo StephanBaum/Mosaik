@@ -22,6 +22,7 @@ mod keys;
 mod maintain;
 mod pull;
 mod push;
+mod rekey;
 mod rotation;
 mod served;
 mod sharing;
@@ -35,6 +36,9 @@ use mosaic_vault::session::UnlockedSession;
 use mosaic_vault::storage::SyncHalt;
 
 pub use access::{Backoff, Jitter, SessionAccess, SystemJitter};
+#[cfg(feature = "http")]
+pub use rekey::{HostedRekey, HostedRekeyDone, ResumeOutcome, adopt_hosted_rekey};
+pub use rekey::{RekeyError, RekeyProgress, RekeySecrets};
 pub use sharing_ops::{ContactLookup, InviteSentInfo, MemberState, MemberView, VaultMembers};
 
 use self::consts::{
@@ -147,6 +151,30 @@ pub enum SyncWarning {
         /// The vault.
         vault: VaultId,
     },
+    /// An account file in the folder does not verify under this device's keys
+    /// and names this device's epoch or a higher one (M7): a re-key this
+    /// device cannot verify, a concurrent re-key or a planted file. Never a
+    /// halt: only a verified re-key marker stops the run. The user can
+    /// dismiss it ([`SyncEngine::dismiss_account_file`]); a dismissed file is
+    /// remembered by name and SHA-256 and never reported again.
+    UnverifiedAccountFile {
+        /// The file's name in the account directory.
+        name: String,
+        /// SHA-256 of its bytes.
+        sha256: [u8; 32],
+        /// The epoch its (unauthenticated) header states.
+        epoch: u32,
+    },
+    /// The hosted backend states an account-key epoch below this device's
+    /// (M7, CRYPTO_SPEC 6.7): a rollback of a re-key, or a lie. Nothing moves;
+    /// the finding is raised on every run while it lasts. (A folder ignores
+    /// files of a lower epoch: anyone with the old keys can plant them.)
+    AccountRollback {
+        /// This device's epoch.
+        stored: u32,
+        /// The epoch the backend stated.
+        offered: u32,
+    },
 }
 
 /// What one sync run did.
@@ -232,6 +260,14 @@ pub enum SyncError {
     /// The backend cannot share (the folder, CRYPTO_SPEC §8.6).
     #[error("the backend cannot share")]
     SharingUnavailable,
+    /// A verified re-key marker says the account was re-keyed away from this
+    /// device's epoch (folder, M7): nothing is written or purged until the
+    /// user adopts the re-key with the new Secret Key and the password
+    /// ([`SyncEngine::adopt_folder_rekey`]) or re-keys the account again.
+    /// Persisted in the store (the re-key-pending flag): it survives a lock
+    /// and a restart.
+    #[error("the account was re-keyed on another device")]
+    AccountRekeyed,
 }
 
 impl From<TransportError> for SyncError {
@@ -438,7 +474,17 @@ impl<T: Transport> SyncEngine<T> {
         &mut self,
         access: &mut impl SessionAccess,
     ) -> Result<(), SyncError> {
-        let vaults = access.with(|s| s.synced_vaults())?;
+        let mut vaults = access.with(|s| s.synced_vaults())?;
+        // Own segments up to a re-key floor fail the MAC under the new keys
+        // until this device's snapshot set of the new epoch exists: their
+        // absence of a verified tail is no rollback (M7).
+        let pending: BTreeSet<VaultId> = access
+            .with(|s| s.folder_rekey_floors())??
+            .into_iter()
+            .filter(|f| !f.snapshot_done)
+            .map(|f| f.vault_id)
+            .collect();
+        vaults.retain(|v| !pending.contains(v));
         if self.transport.own_logs_rolled_back(&vaults)? {
             return Err(Self::raise(access, SyncHalt::Rollback));
         }
@@ -471,6 +517,9 @@ impl<T: Transport> SyncEngine<T> {
     ) -> Result<SyncReport, SyncError> {
         let now = clock.now_ms();
         Self::ensure_not_halted(access)?;
+        if access.with(|s| s.rekey_pending())?? {
+            return Err(SyncError::AccountRekeyed);
+        }
         if let Some(retry_at_ms) = self.backoff.retry_at
             && now < retry_at_ms
         {
@@ -519,6 +568,7 @@ impl<T: Transport> SyncEngine<T> {
         let now = clock.now_ms();
         // Everything that can halt the run comes before anything is written
         // to the backend.
+        let mut findings = self.check_rekey_signals(access)?;
         self.check_own_logs(access)?;
         self.verify_checkpoints(access, now)?;
         self.upload_vaults(access, &mut report)?;
@@ -529,9 +579,11 @@ impl<T: Transport> SyncEngine<T> {
         self.push_metas(access, &mut stats, &mut report)?;
         self.attachments_phase(access, &mut report)?;
         self.settle_pushed(access, &mut report, &mut stats)?;
-        let (warnings, none_lagging) = self.evaluate_lag(access, now)?;
+        let (mut warnings, none_lagging) = self.evaluate_lag(access, now)?;
+        warnings.append(&mut findings);
         self.check_views(access, now)?;
         self.publish_checkpoint(access, clock)?;
+        self.publish_adoption_snapshots(access, now)?;
         let no_conflict = !access.with(|s| s.has_any_unresolved_key_conflict())??;
         let caught_up = none_lagging && no_conflict && stats.unexplained == 0;
         self.maintain(access, now, caught_up)?;

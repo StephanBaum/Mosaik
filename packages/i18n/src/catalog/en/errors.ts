@@ -75,6 +75,43 @@ export const errors = {
     "That was too quick to read the request. Check the details, then choose again.",
   "error.browserPairingNotFound":
     "That browser is no longer connected. Reopen Settings to see the current list.",
+  "error.kitNotVerified":
+    "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
+  "error.kitGroupMismatch":
+    "That is not the last group of the new Secret Key. Check the new Emergency Kit.",
+  "error.rotationInProgress":
+    "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
+  "error.rotationNone": "There is no key change to continue.",
+  "error.rotationTooFar":
+    "This change already reached your account, so it can't be discarded. Continue it to finish.",
+  "error.rotationJumpTooLarge":
+    "This device is too far behind the other devices to catch up. Set it up again: remove the account from this device and join again with your Emergency Kit.",
+  "error.rotationNotApplied":
+    "The change never reached your account, so nothing was changed. Start again or discard it.",
+  "error.secretKeyUnchanged":
+    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
+  "error.passwordUnchanged": "The new master password has to be different from the current one.",
+  "error.profileDowngrade":
+    "That level is not stronger than what your account uses now. Pick a higher one.",
+  "error.profileTooSlow":
+    "Unlocking with that level would take this device more than two seconds. Pick a lower level, or upgrade anyway.",
+  "error.rekeyNeedsCleanSync":
+    "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
+  "error.rekeyMemberKeyMismatch":
+    "You have not compared the safety code of everyone in a shared vault yet, so that vault can't be renewed. Compare their codes in the vault's sharing settings, then try again.",
+  "error.rekeyBusy": "Your vaults kept changing while Mosaic worked. Wait a moment and try again.",
+  "error.rekeyOutcomeUnknown":
+    "Mosaic couldn't confirm whether your account accepted the new keys. Choose Continue key rotation to find out.",
+  "error.rekeyNeedsServer":
+    "Re-keying needs your sync server or folder, and it can't be reached. Check the connection and try again.",
+  "error.rekeyNoAccountFile":
+    "Nothing in your sync folder opens with this password and Secret Key. Check the new Emergency Kit.",
+  "error.syncAccountRekeyed":
+    "Your account's keys were renewed on another device. Use the Secret Key from the new Emergency Kit to continue.",
+  "error.syncEpochRollback":
+    "Your sync backend shows older account keys than this device has. Nothing was changed.",
+  "error.syncRekeyRefused":
+    "The keys your sync backend offers are not the next ones after this device's. Nothing was changed. Check your other devices.",
   "error.busy": "Mosaic is still finishing the last step. Wait a moment, then try again.",
   "error.internal":
     "Something unexpected stopped this action. Try again, and restart Mosaic if it keeps happening.",

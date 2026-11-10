@@ -4265,3 +4265,182 @@ The verify passes on ADR-0055 found: a second device of the grantor trusts the s
 
 ### Consequences
 A malicious server can lock a member out by serving a wrong key (it could already drop memberships); the finding tells the owner, and the two kinds say whether it looks like a man in the middle. It can also keep a second device from using a vault by withholding the contact book; the finding says so. THREAT_MODEL R72 and R82 are updated.
+
+## ADR-0057: M7 scope: key rotation, credential rotation is M7b
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+The brief's M7 ("Rotation") means credential rotation: the semi-automatic change-password flow, connectors, a scheduler, HIBP and a rotate-now queue. ADR-0042 item 3 and THREAT_MODEL R57a assign key rotation (full re-key, Secret Key rotation) to M7 as well. The owner's brief for this work is key rotation.
+
+### Decision
+- M7 covers key rotation only: master password change screen, Secret Key rotation, KDF profile upgrade, vault key rotation UI, and the full re-key on both transports.
+- Credential rotation (the brief's M7) becomes M7b with its own spec and runs next, before M8 (they share no code, so the owner may swap them).
+- ADR-0042's non-key items (settings as a synced record, move pointers, the flag on an unreadable copy) are retargeted to M9.
+- Rotating the OPAQUE server setup or the server secret (R61) stays in M9. CLI rotation commands are not part of M7 (M8 only recovers).
+
+### Alternatives considered
+- One milestone for both kinds of rotation: too large to review, and the two share no code.
+
+### Consequences
+Nothing of the brief is dropped; it moves to M7b. Store schema v9 and server migration v3 belong to M7.
+
+## ADR-0058: Account-key epochs and re-key adoption
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+A full re-key gives the account a new AK. Other devices and backends need a public way to tell which AK a password wrapping belongs to, and a way for a device to move to the new AK that an attacker holding the old password, Secret Key and AK cannot abuse.
+
+### Decision
+- `ak_epoch: u32`, starting at 1, raised by exactly one per re-key. It is public metadata (account row, server account record, folder account file) and never an input to a key derivation: different epochs have independent random AKs. A store trigger refuses a decrease.
+- Backend epoch below the device's: rollback, refused (hosted; in a folder lower files are ignored). Equal epoch with a wrapping that opens to a different AK: refused. Higher epoch: only adoption moves the device, and only `current + 1` (checked arithmetic).
+- Adoption requires epoch `current + 1` (hosted; on a folder any higher epoch, ADR-0063), an unretired salt, a wrapping that opens under the typed password and typed Secret Key, and a typed Secret Key that differs from the current one **and every retired commitment** (constant time). Retired commitments are `SHA-256(ctx("secret-key/retired") || 0x00 || account_id || SK)` for every Secret Key the device replaced (label `secret-key/retired`). There is no adoption at an equal epoch (amendment, review M1): concurrent re-keys are resolved by re-keying again to `max(seen) + 1`.
+- On adoption the server's wrapping of each member vault's current generation is stored (after a constant-time check that it opens to the same VK), so the view digest does not change (review M3). Every genuine re-key rotates the Secret Key, so a holder of only the old secrets cannot invent an AK and have a device adopt it.
+- No endorsement by the old AK (a signed hand-over): the old AK is what a compromise exposes, so a signature from it proves nothing. The new kit's Secret Key typed by the user is the proof.
+- Identity rollover notices signed by the old `isk` are not built, for the same reason (OD-M7-4): members re-verify the owner's new safety code.
+
+### Alternatives considered
+- The old AK wraps or signs the new one: useless against the attacker the re-key is for.
+- Automatic adoption of any higher epoch: lets a malicious backend or old-secret holder move the device.
+
+### Consequences
+A user who lost the new kit can't adopt on another device (the kit is the recovery path). THREAT_MODEL R83 and R84. No new primitive: the epoch is a counter, adoption uses the existing wrapping.
+
+## ADR-0059: Hosted re-key as one atomic request
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+A hosted re-key changes the OPAQUE record, wrapped AK, identity, key rows of every owned and member vault, shares, rosters, seals and sessions. Applying it in pieces would leave the account half-moved.
+
+### Decision
+- Two calls under a fresh login with the current `OPW`: `rekey/start` (OPAQUE registration request with the target epoch `current + 1`) and `rekey/finish`, which the server applies in one transaction or not at all.
+- Coverage rules: the vaults in the request are exactly the set the account owns, each at generation `current + 1` with the expected head (`generation_taken`, `head_moved`: nothing applied); for an owned vault with members or pending invites the M6b rotate rules apply (seals from the new `isk` for every member, invite seals for every pending invite; the request revokes nobody); member re-wraps are exactly the vaults where the account is a non-owner member at the current generation; emergency seals cover every grant the account gave.
+- The request is the only place an identity key is replaced and the only one that replaces a key row at a generation a member holds. Side effects: older-generation key rows of the account deleted, key shares and emergency seals addressed to it deleted, incoming pending invites cancelled, a rotation request filed per member vault, every other session ended, audit kinds 15 and 16.
+- The profile may not be weaker than the stored one (`profile_downgrade`). Lost answer: a login with the new `OPW` shows the wrapped AK and epoch, which the device compares byte for byte.
+- Core adds `change_credentials` (one prepare path for password, Secret Key and profile changes), `rekey_account`, and the folder re-key MAC (`sync/folder-rekey`, under the existing `K_fold`). No new primitive.
+
+### Alternatives considered
+- Per-vault re-key calls: a crash leaves vaults at different AKs.
+- Letting the server rotate member vaults: the server holds no keys; only owners rotate (ADR-0051).
+
+### Consequences
+Members get a rotation request, which is advisory (THREAT_MODEL R86). The request body is capped (4 MiB, 1000 vaults).
+
+## ADR-0060: Folder re-key: account file v2, marker, pre-re-key segment retention, no automatic winner
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+A folder has no authority: no compare-and-swap, no sessions. Other devices of the old epoch must notice a re-key, and the re-keying device's own old segments no longer verify under the new `K_fold`.
+
+### Decision
+- Account file version 2 (172 bytes) adds `ak_epoch:u32`; version 1 decodes as epoch 1. A re-key marker `.mrek` (93 bytes, no key material) is MAC'd under the **old** `K_fold` with the new label `sync/folder-rekey`, built during prepare because the commit drops the old AK.
+- A stale device halts before any write only on a **verified** marker (`AccountRekeyed`); an unverifiable account file with a higher epoch is a dismissible finding (review M2); it recovers with the new Secret Key and the password (ADR-0058). A marker verifies under the old `K_fold`, so a holder of the old AK can forge one: it halts devices, and after a failed adoption and a confirmation the user dismisses it (ADR-0063).
+- New-epoch readers ignore everything that does not verify under the current epoch's keys and never accept an old-epoch object.
+- Own segments at or below the re-key floor are kept until a complete new-epoch snapshot set exists and 30 days (`BLOB_RETENTION_MS`) have passed, so stale devices can still read them. Closes the M6 known item on old-`K_fold` own segments.
+- Two concurrent re-keys to the same epoch raise a `RekeyConflict` finding on the device that sees the other; the user keeps theirs or re-keys again to `max(seen) + 1` (no equal-epoch adoption). No automatic winner: choosing an AK nobody typed would make that kit useless.
+
+### Alternatives considered
+- Delete old segments at once: stale devices lose data before they adopt.
+- Pick the lowest device ID as winner: the losing side's kit becomes useless without the user knowing.
+
+### Consequences
+THREAT_MODEL R83 and R87. The sync KAT script gains the version 2 account file and the marker; a `rekey_marker` fuzz target follows with the sync track.
+
+## ADR-0061: Rotation journal, pending Secret Key in the keystore, wizard and resumption
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+A re-key spans a backend request, a local transaction and many attachment and upload steps. A crash must leave the user able to continue, and a Secret Key nobody has saved must never become the account's key.
+
+### Decision
+- A one-row journal in the store records kind, phase (1 prepared, 2 backend started, 3 backend accepted, 4 folder written, 5 local committed, 6 attachments, 7 uploading), epochs and counts. It holds no secret. The row is written in the transaction that enters each phase.
+- The new Secret Key lives in the OS keystore under a pending name from phase 1 until commit or adoption moves it to the normal entry; abandoning a job before the backend has seen it deletes it. The kit is saved and verified before the backend learns the change.
+- After phase 3 the prepared keys died with the process: the device adopts its own re-key with the pending Secret Key and the typed new password.
+- A change of backend is refused while a job exists. Each attachment re-seal is its own transaction.
+- The desktop uses one wizard (why, current password, new password, kit, review, run, done) and a resume banner after unlock.
+
+### Alternatives considered
+- Keeping the prepared keys in the keystore for resume: more secret material at rest for no gain.
+
+### Consequences
+THREAT_MODEL R88 (same exposure as the Secret Key, R21).
+
+## ADR-0062: KDF profile policy
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+CRYPTO_SPEC §5.3 lets a client upgrade the profile at an unlock. A stronger profile slows weaker devices, and a backend must not be able to force a change.
+
+### Decision
+- Profiles only rise (a weaker one is refused before any Argon2id work). An upgrade is the password-change flow with a stronger profile and a new salt.
+- Offers never go above `standard` automatically; `strong` and `max` only by explicit choice, with a slow-device warning and a guard when this device's derivation exceeds 2 s (the request may force it).
+- A device that has not seen an upgrade recovers silently at its next password unlock with the typed password, the stored Secret Key and the backend's parameters.
+
+### Alternatives considered
+- Forced upgrades by policy: a backend or a bad policy could lock slow devices out.
+
+### Consequences
+THREAT_MODEL R89.
+
+## ADR-0063: M7 milestone review follow-ups (folder epoch jumps, joins, holds)
+
+- Status: accepted
+- Date: 2026-11-08
+
+### Context
+The milestone review of the key rotation backend (3 high, 5 medium, 5 low findings) showed that a planted account-file header could strand other devices on a folder, that a device joining after a re-key started at epoch 1, and that an adopted device could seal at the retired generation.
+
+### Decision
+- **Folder adoption takes any higher epoch** (ADR-0058 amended). A re-key targets `max(own, highest seen) + 1`, so the epoch can jump; the typed Secret Key is the authenticator (the file must open under it, its MAC must verify under the key it holds, and the Secret Key is neither the current one nor a retired one). Hosted adoption stays at `current + 1`. The marker's `to_epoch` is any value above `from_epoch`. `highest_epoch_seen` counts verified markers and unverified files at exactly `own + 1`, and ignores dismissed ones.
+- **A marker the device cannot follow is dismissible.** A marker verifies under the old `K_fold`, which a thief of an old device holds. After a failed adoption and a confirmation the user dismisses it (path and SHA-256, like a dismissed file); the pending flag clears when no other undismissed verified marker is left (ADR-0060 amended, THREAT_MODEL R92).
+- **Candidates are tried by salt, marker-named files first, with paging.** One derivation per salt, eight salts per attempt, `skip` to page on up to the 64-file scan cap.
+- **A fresh hosted registration carries the device's account-key epoch** (`akEpoch` in `register/finish`, rejected when 0; server schema v3 is unreleased and edited in place), so a folder-to-hosted switch after a re-key starts the server at the local epoch.
+- **A device that joins stores the backend's epoch** (folder: the verified file's; hosted: the served `akEpoch`), only rising; the hosted re-key re-reads the epoch after its fresh login and stops unless it is the one it leaves; each hosted run compares it with the own epoch (`AccountRollback` finding for a lower one).
+- **Hosted adoption needs no clean sync** and skips unknown or unavailable member vaults. After an adoption every owned vault is held at the generation the device has: no push until the next generation's key arrives (table `rekey_hold` in schema v9, which is unreleased, so edited in place).
+- A resumed job that adopted its own re-key queues the attachments of every owned vault and continues at phase 6. The phase-2 journal write failing stops the request before it is sent. An attachment that does not open is listed as unreachable and skipped. A committed job can be abandoned after a confirmation.
+- Invite state 5 (cancelled by the recipient's re-key) reads as `Cancelled` on the sender's side. A member vault whose current key the device does not hold is skipped in a re-key. A strict plan records no finding. The identity epoch is tied to `account.ak_epoch` in the v9 triggers.
+- Not done: the reason-6 (`MemberRekeyed`) revocation row. The rotation request reaches the owner as the server's `rotationRequested` flag, which names no requester, and the flag stays until the owner rotates, so the rotation survives a restart without a row.
+
+### Alternatives considered
+- Adopt only `current + 1` on a folder and refuse jumps: any planted `own + 5` header could then strand every other device after one genuine re-key.
+- Let a marker clear itself after a timeout: it would let a thief's marker expire a genuine one too.
+
+### Consequences
+THREAT_MODEL R92 to R94; ADR-0058 and ADR-0060 amended above. The app asks before dismissing a marker and before abandoning a committed job, and calls `join_account_with_keys_at` with the served epoch when it joins a hosted account.
+
+## ADR-0064: M7 verify follow-ups (epoch jump cap, marker scan, hold scope, abandon guard)
+
+- Status: accepted
+- Date: 2026-11-09
+- Milestone: M7
+
+### Context
+The verify round of ADR-0063 found that a marker forged by a holder of the old AK could name `to_epoch = u32::MAX - 1` and, through `highest_epoch_seen`, exhaust the epoch space on the next re-key; that the marker scan cut at 64 names before the MAC check, so 64 planted junk markers hid the genuine one; that the hold of ADR-0063 also caught vaults the backend never saw, which then never synced; that a job at phase 4 could be abandoned on the phase number alone; and that the hold lookup in the folder adoption failed open.
+
+### Decision
+- **`MAX_EPOCH_JUMP = 16`** (`mosaic_core::sync_auth::MAX_EPOCH_JUMP`). A marker decoder (and encoder) rejects `to_epoch > from_epoch + 16` (checked arithmetic). `highest_epoch_seen` counts a verified marker only if `to_epoch < own + 16`, so the target of a re-key is at most `own + 16`, and `prepare_rekey` refuses a higher target (`Error::EpochJumpTooLarge`) as a backstop. A refusal there would let a thief block the remedy against him, so the engine ignores such a marker for the target instead of refusing the re-key. A folder adoption refuses an epoch above `own + 16` with `Error::EpochJumpTooLarge { stored, offered }`; the folder candidates above the cap are skipped before any Argon2id derivation. Deviation from the plan: the plan mapped this error to "re-key again from this device". A re-key from the lagging device lands below the account's epoch, and the other devices ignore it, so the app offers to set the device up again (join) instead.
+- **Marker scan by reads.** Up to 1024 marker files of the device's epoch are read and MAC-checked; at most 64 verified ones are kept. The account-file fallback reads up to 1024 files and keeps at most 64 whose header epoch is in `(own, own + 16]`; files every verified marker names come first.
+- **Hold scope.** An adoption holds only owned vaults the backend has seen: the new store column `vaults.backend_known` (schema v9, unreleased, edited in place) is set when a vault is learned from a backend or created there, and no backend change clears it (`remote_created` is reset by a backend change, so it would forget that an old backend holds the key under the old AK). A migrated vault counts as seen (the conservative default). A vault the backend never saw is not held: its key is re-wrapped under the new AK and it syncs normally, because none of its ciphertext or wrappings left the device. Residual: a crash between the backend's create and the local mark leaves a vault the backend holds under the old AK unheld (THREAT_MODEL R94).
+- **Abandon after the commit only.** `abandon_committed_rotation_job` needs phase 5 or later and, for a re-key, the store at the job's target epoch. Phases 1 to 4 are resume-only.
+- **The hold lookup fails closed.** An error reading the hold stops the folder adoption's snapshot step instead of snapshotting a vault whose hold state is unknown.
+- **`raise_epoch_to` is test-only** (feature `test-util` of `mosaic-vault`, enabled by `mosaic-sync/test-util`). A join stores the backend's epoch through `join_account_with_keys_at`; no production path raises the epoch without the matching key change.
+- **Dismissed markers can be listed and restored.** `SyncEngine::dismissed_rekey_markers` lists the verified markers the folder shows that the user dismissed; `undismiss_rekey_marker(name, sha256)` removes the dismissal and sets the re-key-pending flag again. Dismissal stays per path and SHA-256.
+
+### Alternatives considered
+- Refuse a re-key whose target would pass the cap: a thief with the old AK could then stop the user from re-keying away from him.
+- Hold by `remote_created`: a backend change resets it, so a vault an old backend holds under the old AK would not be held.
+- Rotate the vault key of a never-published vault at adoption: needless, nothing of it was published.
+
+### Consequences
+THREAT_MODEL R92 to R94 amended, R95 and R96 added. The desktop maps `EpochJumpTooLarge` to "set this device up again", lists "Ignored re-key notices" with a Restore button, and no longer calls `raise_epoch_to`.

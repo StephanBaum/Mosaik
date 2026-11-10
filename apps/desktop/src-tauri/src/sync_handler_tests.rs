@@ -58,7 +58,7 @@ fn code(error: IpcError) -> ErrorCode {
 }
 
 #[derive(Clone, Default)]
-struct SharedKeystore(Arc<MemoryKeystore>);
+pub(crate) struct SharedKeystore(Arc<MemoryKeystore>);
 
 impl SecretKeyStore for SharedKeystore {
     fn load(&self, account: AccountId) -> IpcResult<Option<SecretKey>> {
@@ -121,7 +121,7 @@ pub(crate) struct Env {
     state: AppState,
     events: Log,
     tokens: Arc<MemorySyncTokens>,
-    keys: SharedKeystore,
+    pub(crate) keys: SharedKeystore,
     picked: Arc<Mutex<Option<PathBuf>>>,
     /// What the native confirmation answers.
     confirm: Arc<AtomicBool>,
@@ -197,7 +197,7 @@ impl Env {
             .to_owned()
     }
 
-    fn account(&self) -> AccountId {
+    pub(crate) fn account(&self) -> AccountId {
         self.b().account().unwrap().account_id.get()
     }
 
@@ -250,7 +250,7 @@ impl Env {
         });
     }
 
-    fn unlock(&self) -> IpcResult<SessionState> {
+    pub(crate) fn unlock(&self) -> IpcResult<SessionState> {
         self.b().unlock(UnlockRequest {
             password: SecretIn::test(PASSWORD),
             secret_key: None,
@@ -1229,6 +1229,7 @@ fn a_password_change_the_device_missed_is_recovered_with_the_new_password() {
     server.advance_ms(60_000);
     let wrong = e.b().sync_recover_password(&RecoverPasswordRequest {
         new_password: SecretIn::test("not the new password"),
+        secret_key: None,
         code: None,
     });
     assert_eq!(code(wrong.unwrap_err()), ErrorCode::WrongCredentials);
@@ -1236,6 +1237,7 @@ fn a_password_change_the_device_missed_is_recovered_with_the_new_password() {
     // An invalid code is refused before any network call.
     let bad_code = e.b().sync_recover_password(&RecoverPasswordRequest {
         new_password: SecretIn::test(NEW_PASSWORD),
+        secret_key: None,
         code: Some(SecretIn::test("12a456")),
     });
     assert_eq!(code(bad_code.unwrap_err()), ErrorCode::InvalidInput);
@@ -1245,6 +1247,7 @@ fn a_password_change_the_device_missed_is_recovered_with_the_new_password() {
         .b()
         .sync_recover_password(&RecoverPasswordRequest {
             new_password: SecretIn::test(NEW_PASSWORD),
+            secret_key: None,
             code: None,
         })
         .unwrap();
@@ -1311,6 +1314,7 @@ fn a_folder_password_change_the_device_missed_is_recovered() {
     wait_for("the changed-password flag", || e.status().password_changed);
     let wrong = e.b().sync_recover_password(&RecoverPasswordRequest {
         new_password: SecretIn::test("not the new password"),
+        secret_key: None,
         code: None,
     });
     assert_eq!(code(wrong.unwrap_err()), ErrorCode::WrongCredentials);
@@ -1318,6 +1322,7 @@ fn a_folder_password_change_the_device_missed_is_recovered() {
         .b()
         .sync_recover_password(&RecoverPasswordRequest {
             new_password: SecretIn::test(NEW_PASSWORD),
+            secret_key: None,
             code: None,
         })
         .unwrap();
@@ -1697,15 +1702,7 @@ fn a_change_cut_off_by_a_lock_is_offered_for_recovery_on_the_next_unlock() {
     e.b().lock(LockReason::Idle).unwrap();
     e.unlock().unwrap();
     let ctx = e.b().hosted_ctx().unwrap();
-    let outcome = e.b().change_password_hosted(
-        &ctx,
-        &ChangePasswordRequest {
-            current_password: SecretIn::test(PASSWORD),
-            new_password: SecretIn::test(NEW_PASSWORD),
-            code: None,
-        },
-        prepared,
-    );
+    let outcome = e.b().change_password_hosted(&ctx, None, prepared);
     assert_eq!(code(outcome.err().unwrap()), ErrorCode::SyncPasswordChanged);
     // The new token was not saved; the old one (revoked) stays.
     assert_eq!(
@@ -1724,6 +1721,7 @@ fn a_change_cut_off_by_a_lock_is_offered_for_recovery_on_the_next_unlock() {
     e.b()
         .sync_recover_password(&RecoverPasswordRequest {
             new_password: SecretIn::test(NEW_PASSWORD),
+            secret_key: None,
             code: None,
         })
         .unwrap();
@@ -1752,6 +1750,7 @@ fn a_folder_account_file_at_or_below_the_last_version_is_a_rollback() {
     // The folder holds the version this device wrote: nothing newer to adopt.
     let result = e.b().sync_recover_password(&RecoverPasswordRequest {
         new_password: SecretIn::test(NEW_PASSWORD),
+        secret_key: None,
         code: None,
     });
     assert_eq!(code(result.unwrap_err()), ErrorCode::SyncPasswordRollback);
@@ -1906,6 +1905,7 @@ fn an_unconfirmed_password_change_is_unknown_and_the_recovery_settles_it() {
     e.b()
         .sync_recover_password(&RecoverPasswordRequest {
             new_password: SecretIn::test(NEW_PASSWORD),
+            secret_key: None,
             code: None,
         })
         .unwrap();

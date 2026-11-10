@@ -64,6 +64,19 @@ import type {
   UnlockRequest,
   VerifyKitRequest,
 } from "./session.ts";
+import type {
+  DismissFileRequest,
+  ProfileUpgradeRequest,
+  RekeyCommitRequest,
+  RekeyMarkerView,
+  RekeyPrepareRequest,
+  RekeyReviewView,
+  RotateCommitRequest,
+  RotatePrepareRequest,
+  RotationDone,
+  RotationResumeRequest,
+  RotationStatus,
+} from "./rotation.ts";
 import type { Settings, UpdateSettingsRequest } from "./settings.ts";
 import type {
   ContactCodeRequest,
@@ -228,6 +241,22 @@ export interface Commands {
   join_hosted_two_factor: Command<CodeRequest, JoinOutcome>;
   join_folder: Command<JoinFolderRequest, JoinOutcome>;
   change_master_password: Command<ChangePasswordRequest, null>;
+  sync_dismiss_account_file: Command<DismissFileRequest, SyncOverview>;
+  // Account keys
+  rotation_status: Command<null, RotationStatus>;
+  secret_key_rotate_prepare: Command<RotatePrepareRequest, null>;
+  secret_key_rotate_commit: Command<RotateCommitRequest, RotationDone>;
+  profile_upgrade: Command<ProfileUpgradeRequest, RotationDone>;
+  rekey_review: Command<null, RekeyReviewView>;
+  rekey_prepare: Command<RekeyPrepareRequest, null>;
+  rekey_commit: Command<RekeyCommitRequest, RotationDone>;
+  rotation_resume: Command<RotationResumeRequest, RotationDone>;
+  rotation_abandon: Command<null, null>;
+  rotation_abandon_committed: Command<null, null>;
+  sync_rekey_markers: Command<null, RekeyMarkerView[]>;
+  sync_dismiss_rekey_marker: Command<DismissFileRequest, SyncOverview>;
+  sync_ignored_rekey_markers: Command<null, RekeyMarkerView[]>;
+  sync_restore_rekey_marker: Command<DismissFileRequest, SyncOverview>;
   // Sharing and emergency access
   sharing_identity: Command<null, SharingIdentity>;
   sharing_lookup: Command<LookupRequest, LookupResult>;
@@ -350,6 +379,21 @@ const commandSet = {
   join_hosted_two_factor: true,
   join_folder: true,
   change_master_password: true,
+  sync_dismiss_account_file: true,
+  rotation_status: true,
+  secret_key_rotate_prepare: true,
+  secret_key_rotate_commit: true,
+  profile_upgrade: true,
+  rekey_review: true,
+  rekey_prepare: true,
+  rekey_commit: true,
+  rotation_resume: true,
+  rotation_abandon: true,
+  rotation_abandon_committed: true,
+  sync_rekey_markers: true,
+  sync_dismiss_rekey_marker: true,
+  sync_ignored_rekey_markers: true,
+  sync_restore_rekey_marker: true,
   sharing_identity: true,
   sharing_lookup: true,
   sharing_verify_contact: true,

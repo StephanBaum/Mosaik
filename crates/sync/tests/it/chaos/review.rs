@@ -338,7 +338,8 @@ fn plant_account_file(w: &World, version: u64, mutate: impl FnOnce(&mut [u8])) {
     let (_, mut bytes) = real_account_file(w);
     bytes[21..29].copy_from_slice(&version.to_be_bytes());
     mutate(&mut bytes);
-    let device: [u8; 16] = bytes[29..45].try_into().unwrap();
+    // v2 layout: the epoch sits between the version and the device.
+    let device: [u8; 16] = bytes[33..49].try_into().unwrap();
     let dir = account_dir(w, 0).join("account");
     fs::write(dir.join(account_name(version, &device)), bytes).unwrap();
 }
@@ -351,7 +352,8 @@ fn join_skips_planted_account_files() {
     let mut w = World::new(551, 2);
     let vault = w.new_vault(0, "Shared");
     w.sync(0);
-    plant_account_file(&w, 998, |b| b[45] ^= 1);
+    // A flipped salt byte: the wrapped key does not open.
+    plant_account_file(&w, 998, |b| b[49] ^= 1);
     plant_account_file(&w, 999, |_| {});
     w.cloud.settle().unwrap();
     assert_eq!(
@@ -400,7 +402,7 @@ fn join_reports_damage_only_for_files_that_unlocked() {
     w.new_vault(0, "Shared");
     w.sync(0);
     let (real, _) = real_account_file(&w);
-    plant_account_file(&w, 999, |b| b[45] ^= 1);
+    plant_account_file(&w, 999, |b| b[49] ^= 1);
     fs::remove_file(&real).unwrap();
     w.cloud.settle().unwrap();
     let failure = w.try_join(PASSWORD).unwrap_err();
@@ -725,7 +727,7 @@ fn a_superseded_password_cannot_join_while_the_old_file_is_present() {
             .unwrap();
     }
     // The old file comes back.
-    let device: [u8; 16] = v1[29..45].try_into().unwrap();
+    let device: [u8; 16] = v1[33..49].try_into().unwrap();
     let dir = account_dir(&w, 0).join("account");
     fs::write(dir.join(account_name(1, &device)), &v1).unwrap();
     w.cloud.settle().unwrap();

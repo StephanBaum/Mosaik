@@ -22,6 +22,7 @@ import { files } from "./catalog/en/files.ts";
 import { ext } from "./catalog/en/ext.ts";
 import { sync } from "./catalog/en/sync.ts";
 import { sharing } from "./catalog/en/sharing.ts";
+import { rotation } from "./catalog/en/rotation.ts";
 
 export const en = {
   ...app,
@@ -44,6 +45,7 @@ export const en = {
   ...ext,
   ...sync,
   ...sharing,
+  ...rotation,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

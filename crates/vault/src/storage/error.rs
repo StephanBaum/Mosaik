@@ -223,6 +223,40 @@ pub enum Error {
     /// so it cannot be replaced (CRYPTO_SPEC §8.1).
     #[error("an identity key is already stored")]
     IdentityExists,
+
+    /// A key rotation job is open: the backend cannot change, and a second
+    /// job cannot start (CRYPTO_SPEC §6.6).
+    #[error("a key rotation is in progress")]
+    RotationInProgress,
+
+    /// There is no rotation job.
+    #[error("no key rotation in progress")]
+    NoRotationJob,
+
+    /// The job cannot finish: attachments are still to re-seal, or the local
+    /// commit has not happened.
+    #[error("the key rotation is not finished")]
+    RotationNotFinished,
+
+    /// The phase does not exist for this kind of job (kinds 1 and 3 have the
+    /// phases 1 to 3 and 5 only).
+    #[error("invalid rotation phase")]
+    InvalidRotationPhase,
+
+    /// The backend has already seen the change; the job can no longer be
+    /// abandoned.
+    #[error("the key rotation went too far to abandon")]
+    RotationTooFar,
+
+    /// The account-key epoch is not the one that follows the stored one
+    /// (CRYPTO_SPEC §6.7).
+    #[error("account-key epoch {offered} does not follow {stored}")]
+    EpochMismatch {
+        /// The stored epoch.
+        stored: u32,
+        /// The epoch offered.
+        offered: u32,
+    },
 }
 
 impl From<rusqlite::Error> for Error {

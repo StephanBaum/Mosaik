@@ -17,7 +17,7 @@ import { fail, randomIndex, requireUnlocked, type MockAsyncHandlers,
 
 const SECRET_KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTVWXYZ";
 
-function newSecretKey(): string {
+export function newSecretKey(): string {
   const groups = Array.from({ length: 7 }, () =>
     Array.from({ length: 4 }, () => SECRET_KEY_ALPHABET[randomIndex(SECRET_KEY_ALPHABET.length)]).join(
       "",
@@ -98,6 +98,10 @@ export const sessionHandlers: MockHandlers = {
 
   save_emergency_kit: (state, request) => {
     requireUnlocked(state);
+    if (request.pending) {
+      // The new kit of a rotation: no password, the key is new.
+      return state.rotation.pendingKey === null ? fail("rotationNone") : { kind: "saved" };
+    }
     if (state.kitVerified && request.password !== state.account?.password) {
       fail(request.password === null ? "reauthRequired" : "wrongCredentials");
     }
@@ -105,6 +109,12 @@ export const sessionHandlers: MockHandlers = {
   },
 
   verify_emergency_kit: (state, request) => {
+    if (request.pending) {
+      const pending = state.rotation.pendingKey ?? fail("rotationNone");
+      const matches = normalizeKey(request.lastGroup) === normalizeKey(pending).slice(-4);
+      state.rotation.kitVerified = state.rotation.kitVerified || matches;
+      return { matches };
+    }
     if (state.account === null || !state.secretKeyStored) {
       fail("secretKeyRequired");
     }

@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, SyncConfigView, SyncOverview } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 
+// eslint-disable-next-line max-lines-per-function -- a form with optional fields.
 export function RecoverCard({
   config,
   onRecovered,
@@ -24,20 +25,26 @@ export function RecoverCard({
   const ipc = useIpc();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [secretKey, setSecretKey] = useState("");
   const [needsCode, setNeedsCode] = useState(config.kind === "hosted" && config.totpEnabled);
   const [error, setError] = useState<IpcError | null>(null);
   const [busy, setBusy] = useState(false);
+  // The key was left out: the generic "check Caps Lock" is not the only thing that can be wrong.
+  const [keyWasEmpty, setKeyWasEmpty] = useState(false);
 
   async function submit(event: SyntheticEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
+    setKeyWasEmpty(secretKey.trim() === "");
     const result = await ipc.call("sync_recover_password", {
       newPassword: password,
+      secretKey: secretKey.trim() === "" ? null : secretKey,
       code: needsCode && code !== "" ? code : null,
     });
     setBusy(false);
     setPassword("");
+    setSecretKey("");
     setCode("");
     if (result.ok) {
       onRecovered(result.value);
@@ -61,6 +68,17 @@ export function RecoverCard({
           setPassword(event.target.value);
         }}
       />
+      <TextField
+        label={t("rotation.recovery.optional")}
+        hint={t("rotation.recovery.keyHint")}
+        mono
+        autoComplete="off"
+        spellCheck={false}
+        value={secretKey}
+        onChange={(event) => {
+          setSecretKey(event.target.value);
+        }}
+      />
       {needsCode && (
         <TextField
           label={t("settings.sync.code")}
@@ -74,6 +92,9 @@ export function RecoverCard({
         />
       )}
       <ErrorAlert error={error} />
+      {error?.code === "wrongCredentials" && keyWasEmpty && (
+        <p className="caption">{t("rotation.recovery.keyHint")}</p>
+      )}
       <div className="actions">
         <Button type="submit" disabled={busy || password === ""}>
           {t("settings.sync.recover.submit")}

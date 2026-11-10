@@ -528,7 +528,7 @@ impl<T: Transport> SyncEngine<T> {
             .collect();
         let mut report = SyncReport::default();
         let mut stats = RunStats::default();
-        self.rotate_shared(access, vault, &explicit, &mut report, &mut stats)?;
+        self.rotate_shared(access, vault, &explicit, false, &mut report, &mut stats)?;
         Ok(report
             .unreachable_attachments
             .into_iter()
@@ -650,7 +650,7 @@ impl<T: Transport> SyncEngine<T> {
         let mut stats = RunStats::default();
         for vault in covered {
             let explicit: BTreeSet<AccountId> = BTreeSet::from([*grantee]);
-            self.rotate_shared(access, vault, &explicit, &mut report, &mut stats)?;
+            self.rotate_shared(access, vault, &explicit, false, &mut report, &mut stats)?;
         }
         Ok(())
     }

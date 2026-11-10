@@ -12,6 +12,7 @@ use super::errors::ErrorCode;
 use super::ids::UnixMillis;
 use super::ids::{WireItemId, WireVaultId};
 use super::macros::wire_enum;
+use super::rotation::{RotationKind, RotationPhaseName};
 use super::ssh::{SshApprovalRequest, SshCloseReason, SshSignFailReason};
 
 wire_enum!(
@@ -170,6 +171,18 @@ pub enum AppEvent {
         /// Emergency requests waiting for this account's answer.
         emergency_requests: u32,
     },
+    /// A rotation job (Secret Key, key derivation, re-key) moved on: read
+    /// `rotation_status` again (M7).
+    RotationProgress {
+        /// What is renewed.
+        kind: RotationKind,
+        /// Where it stands.
+        phase: RotationPhaseName,
+        /// Steps done.
+        done: u32,
+        /// Steps in all.
+        total: u32,
+    },
     /// A sync run merged or repaired something the user may want to look at.
     SyncAttention {
         /// Records merged with a local change.
@@ -188,6 +201,7 @@ pub(crate) mod samples {
     use crate::contract::ids::samples as ids;
     use crate::contract::ssh::samples as ssh;
 
+    #[expect(clippy::too_many_lines, reason = "one sample per event")]
     pub(crate) fn events() -> Vec<AppEvent> {
         let mut all = vec![
             AppEvent::Locked {
@@ -251,6 +265,12 @@ pub(crate) mod samples {
                 invites: 0,
                 emergency_requests: 2,
             },
+            AppEvent::RotationProgress {
+                kind: RotationKind::Rekey,
+                phase: RotationPhaseName::Attachments,
+                done: 3,
+                total: 12,
+            },
         ];
         all.extend(crate::contract::sync::samples::events());
         for event in &all {
@@ -273,6 +293,7 @@ pub(crate) mod samples {
                 | AppEvent::BrowserPasskeyClosed { .. }
                 | AppEvent::BrowserPairingsChanged
                 | AppEvent::SharingChanged { .. }
+                | AppEvent::RotationProgress { .. }
                 | AppEvent::SyncDataChanged { .. }
                 | AppEvent::SyncAttention { .. } => {}
             }

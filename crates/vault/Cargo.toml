@@ -10,6 +10,12 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Test support for the simulations: `UnlockedSession::raise_epoch_to`
+# (ADR-0064). Never enabled by an app.
+test-util = []
+
 [dependencies]
 mosaic-core = { path = "../core" }
 mosaic-totp = { path = "../totp" }

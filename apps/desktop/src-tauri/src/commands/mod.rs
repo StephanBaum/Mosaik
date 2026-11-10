@@ -23,6 +23,7 @@ pub mod items;
 pub mod names;
 pub mod otp;
 pub mod quick_unlock;
+pub mod rotation;
 pub mod session;
 pub mod settings;
 pub mod sharing;
@@ -132,6 +133,21 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         sync::join_hosted_two_factor,
         sync::join_folder,
         sync::change_master_password,
+        rotation::sync_dismiss_account_file,
+        rotation::rotation_abandon_committed,
+        rotation::sync_rekey_markers,
+        rotation::sync_dismiss_rekey_marker,
+        rotation::sync_ignored_rekey_markers,
+        rotation::sync_restore_rekey_marker,
+        rotation::rotation_status,
+        rotation::secret_key_rotate_prepare,
+        rotation::secret_key_rotate_commit,
+        rotation::profile_upgrade,
+        rotation::rekey_review,
+        rotation::rekey_prepare,
+        rotation::rekey_commit,
+        rotation::rotation_resume,
+        rotation::rotation_abandon,
         sharing::sharing_identity,
         sharing::sharing_lookup,
         sharing::sharing_verify_contact,

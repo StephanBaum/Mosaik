@@ -371,8 +371,9 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO vaults (vault_id, key_wrap, current_generation,
-                                 highest_accepted_generation, updated_at, remote_created)
-             VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
+                                 highest_accepted_generation, updated_at, remote_created,
+                                 backend_known)
+             VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?5)",
             params![
                 vault_id.as_bytes(),
                 key_wrap.code(),

@@ -12,6 +12,7 @@ import { DevicesCard } from "./DevicesCard.tsx";
 import { HostedForm } from "./HostedForm.tsx";
 import { useFocusSection, useNow } from "./hooks.ts";
 import { RecoverCard } from "./RecoverCard.tsx";
+import { RekeyRecoveryForm } from "../settings/security/RekeyRecovery.tsx";
 import { TotpCard } from "./TotpCard.tsx";
 import { WarningList } from "./WarningList.tsx";
 
@@ -25,11 +26,23 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** The backend, this device and the status, as one list of rows like the other sections. */
-function Details({ config, state }: { config: SyncConfigView; state: SyncOverview["state"] }) {
+function Details({
+  config,
+  state,
+  attention,
+}: {
+  config: SyncConfigView;
+  state: SyncOverview["state"];
+  /** A finding that needs a decision (two devices re-keyed at once): never "Synced". */
+  attention: boolean;
+}) {
   const { t } = useI18n();
   const { status } = state;
   // Only the status word is announced: "last synced" changes with the clock.
-  const statusLabel = t(status === "notConfigured" ? "sync.status.local" : `sync.status.${status}`);
+  const statusLabel =
+    attention && status === "upToDate"
+      ? t("sync.status.attention")
+      : t(status === "notConfigured" ? "sync.status.local" : `sync.status.${status}`);
   return (
     <dl className="rows rows--closed">
       {config.kind === "hosted" ? (
@@ -169,6 +182,23 @@ function StatusBlock({
   );
 }
 
+/** A hosted account re-keyed elsewhere: the Secret Key from the new kit is required. */
+function RekeyedCard({
+  needsCode,
+  onRecovered,
+}: {
+  needsCode: boolean;
+  onRecovered: (overview: SyncOverview) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="stack">
+      <h3 className="subtitle">{t("rotation.recovery.title")}</h3>
+      <RekeyRecoveryForm needsCode={needsCode} onRecovered={onRecovered} />
+    </div>
+  );
+}
+
 export function ConnectedPanel({
   overview,
   config,
@@ -183,11 +213,24 @@ export function ConnectedPanel({
   const { t } = useI18n();
   const [disconnecting, setDisconnecting] = useState(false);
   const signedOut = overview.state.status === "signedOut";
+  const attention = overview.warnings.some((w) => w.kind === "unverifiedAccountFile" && w.conflict);
+  // A hosted account that was re-keyed on another device: the new Secret Key is needed, not
+  // just a password, so the recovery form replaces the password card and the sign-in form.
+  const rekeyed = config.kind === "hosted" && overview.state.error === "syncAccountRekeyed";
   return (
     <div className="stack">
-      <Details config={config} state={overview.state} />
+      <Details config={config} state={overview.state} attention={attention} />
       <StatusBlock state={overview.state} onChange={onChange} onRefresh={onRefresh} />
-      {overview.passwordChanged && (
+      {rekeyed && (
+        <RekeyedCard
+          needsCode={config.totpEnabled}
+          onRecovered={(next) => {
+            onChange(next);
+            onRefresh();
+          }}
+        />
+      )}
+      {overview.passwordChanged && !rekeyed && (
         <RecoverCard
           config={config}
           onRecovered={(next) => {
@@ -196,7 +239,7 @@ export function ConnectedPanel({
           }}
         />
       )}
-      {signedOut && config.kind === "hosted" && (
+      {signedOut && config.kind === "hosted" && !rekeyed && (
         <div className="stack">
           <h3 className="subtitle">{t("settings.sync.signedOut.title")}</h3>
           <p className="caption">{t("settings.sync.signedOut.body")}</p>

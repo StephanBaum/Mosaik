@@ -26,7 +26,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
-use crate::transport::{Rejection, TransportError};
+use crate::transport::{Rejection, RekeySet, TransportError};
 use crate::wire::json::sharing::{
     ConflictDetail, CooldownDetail, InviteStaleDetail, WaitingDetail,
 };
@@ -226,6 +226,9 @@ fn map_failure(
         retry_after_s: retry_after_s.unwrap_or(DEFAULT_RETRY_AFTER_S),
     };
     let rejected = TransportError::Rejected;
+    if let Some(e) = body.and_then(rekey_failure) {
+        return e;
+    }
     match body.map(|b| b.error.as_str()) {
         Some(codes::UNAUTHORIZED) => TransportError::Unauthorized,
         Some(codes::FRESH_LOGIN_REQUIRED) => TransportError::FreshLoginRequired,
@@ -303,6 +306,35 @@ fn map_failure(
             _ => TransportError::Protocol,
         },
     }
+}
+
+/// The errors of the account re-key routes (M7).
+fn rekey_failure(body: &ErrorBody) -> Option<TransportError> {
+    let rejected = TransportError::Rejected;
+    Some(match body.error.as_str() {
+        codes::EPOCH_MISMATCH => body.detail_as::<json::rekey::EpochMismatchDetail>().map_or(
+            TransportError::Protocol,
+            |d| {
+                rejected(Rejection::EpochMismatch {
+                    current_epoch: d.current_epoch,
+                })
+            },
+        ),
+        codes::PROFILE_DOWNGRADE => rejected(Rejection::ProfileDowngrade),
+        codes::REKEY_MISMATCH => rejected(Rejection::RekeyMismatch {
+            set: match body
+                .detail_as::<json::rekey::RekeyMismatchDetail>()
+                .as_ref()
+                .map(|d| d.set.as_str())
+            {
+                Some("vaults") => RekeySet::Vaults,
+                Some("memberRewraps") => RekeySet::MemberRewraps,
+                Some("emergencySeals") => RekeySet::EmergencySeals,
+                _ => RekeySet::Other,
+            },
+        }),
+        _ => return None,
+    })
 }
 
 fn map_reqwest(e: &reqwest::Error) -> TransportError {

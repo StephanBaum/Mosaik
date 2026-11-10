@@ -123,6 +123,10 @@ pub enum RevocationReason {
     InviteCancelled,
     /// The server listed a member the roster does not (after a user prompt).
     Unconfirmed,
+    /// A member re-keyed their account: nobody is locked out, the owner
+    /// rotates so the member's old AK holder loses the vault (CRYPTO_SPEC
+    /// §6.6).
+    MemberRekeyed,
 }
 
 impl RevocationReason {
@@ -133,6 +137,7 @@ impl RevocationReason {
             Self::InviteDeclined => 3,
             Self::InviteCancelled => 4,
             Self::Unconfirmed => 5,
+            Self::MemberRekeyed => 6,
         }
     }
 
@@ -143,6 +148,7 @@ impl RevocationReason {
             3 => Some(Self::InviteDeclined),
             4 => Some(Self::InviteCancelled),
             5 => Some(Self::Unconfirmed),
+            6 => Some(Self::MemberRekeyed),
             _ => None,
         }
     }
@@ -201,7 +207,7 @@ pub enum SharingFinding {
 }
 
 /// Who owns a vault, as far as this device can tell.
-enum Ownership {
+pub(super) enum Ownership {
     /// This account.
     This,
     /// Another account, as recorded when this account accepted the vault.
@@ -558,7 +564,7 @@ fn may_grant(own: Role, role: Role) -> bool {
 }
 
 /// A roster's members that count (not removed).
-fn active(members: Vec<RosterMember>) -> Vec<RosterMember> {
+pub(super) fn active(members: Vec<RosterMember>) -> Vec<RosterMember> {
     members
         .into_iter()
         .filter(|m| m.role != Role::Removed)
@@ -568,11 +574,11 @@ fn active(members: Vec<RosterMember>) -> Vec<RosterMember> {
 impl UnlockedSession {
     // ---- identity key ------------------------------------------------------
 
-    fn own_identity(&self) -> Result<&Identity> {
+    pub(super) fn own_identity(&self) -> Result<&Identity> {
         self.identity_key.as_ref().ok_or(Error::NoIdentity)
     }
 
-    fn own_email(&self) -> Result<String> {
+    pub(super) fn own_email(&self) -> Result<String> {
         Ok(self
             .store
             .sync_config()?
@@ -745,7 +751,7 @@ impl UnlockedSession {
 
     // ---- contacts ----------------------------------------------------------
 
-    fn contact_book(&self) -> Result<ContactBook> {
+    pub(super) fn contact_book(&self) -> Result<ContactBook> {
         match self.store.contacts_doc()? {
             None => Ok(ContactBook::new()),
             Some(doc) => Ok(ContactBook::open(
@@ -789,7 +795,7 @@ impl UnlockedSession {
     /// otherwise the account's contact book, which holds `owned:` for a
     /// vault created by this account and `member:` for one accepted from
     /// another owner. A vault with neither (or both) is unknown.
-    fn ownership(&self, vault: VaultId) -> Result<Ownership> {
+    pub(super) fn ownership(&self, vault: VaultId) -> Result<Ownership> {
         if let Some(row) = self.store.vault_sharing(&vault)? {
             return Ok(if row.owner_account == self.account_id {
                 Ownership::This
@@ -970,7 +976,58 @@ impl UnlockedSession {
     pub fn verify_contact(&mut self, account: &AccountId, expected: &Fingerprint) -> Result<()> {
         let mut book = self.contact_book()?;
         book.verify(self.device, now(), account, expected)?;
-        self.save_contact_book(&book)
+        self.save_contact_book(&book)?;
+        self.refresh_member_fingerprint(account, expected)
+    }
+
+    /// The owner's verified acceptance of a member's new safety code (a
+    /// member re-keyed, CRYPTO_SPEC §6.6) writes the new fingerprint into the
+    /// roster entry of that member in every vault this account owns, at the
+    /// vault's current generation, queued for upload. Only here: the
+    /// fingerprint is the one the user just compared and the pin now holds.
+    /// Entries of the owner, removed members and unchanged entries stay.
+    fn refresh_member_fingerprint(
+        &mut self,
+        account: &AccountId,
+        verified: &Fingerprint,
+    ) -> Result<()> {
+        if *account == self.account_id {
+            return Ok(());
+        }
+        let ids: Vec<VaultId> = self.vaults.keys().copied().collect();
+        for vault in ids {
+            if self.vault(vault)?.protection != VaultKeyWrap::AccountKey
+                || !self.owns_vault(vault)?
+            {
+                continue;
+            }
+            let Some(mut roster) = self.load_roster(vault)? else {
+                continue;
+            };
+            let Some(entry) = roster.member(account) else {
+                continue;
+            };
+            if matches!(entry.role, Role::Owner | Role::Removed) || entry.fingerprint == *verified {
+                continue;
+            }
+            let ov = self.vault(vault)?;
+            let g = ov.generation;
+            let vk = ov.current_key()?;
+            if roster.generation() < g {
+                roster = roster.advance(g)?;
+            }
+            roster.edit(self.device, now()).set_member(
+                account,
+                entry.role,
+                g,
+                verified,
+                &entry.email,
+            )?;
+            let ct = roster.seal(vk, &vault)?;
+            let seq = self.store.vault_roster(&vault)?.and_then(|r| r.seq);
+            self.store.put_vault_roster(&vault, &ct, seq, true)?;
+        }
+        Ok(())
     }
 
     /// The user saw the key-change warning and accepts the new key (or
@@ -1139,7 +1196,7 @@ impl UnlockedSession {
         Ok(self.store.vault_roster(&vault)?.and_then(|r| r.seq))
     }
 
-    fn load_roster(&self, vault: VaultId) -> Result<Option<VaultRoster>> {
+    pub(super) fn load_roster(&self, vault: VaultId) -> Result<Option<VaultRoster>> {
         let Some(stored) = self.store.vault_roster(&vault)? else {
             return Ok(None);
         };
@@ -1862,41 +1919,16 @@ impl UnlockedSession {
             .collect()
     }
 
-    /// Prepares a rotation of a shared vault (CRYPTO_SPEC §8.3), **on the
-    /// owner's device only**: a new key one generation up, a share for every
-    /// remaining member and pending invite (each served key must match the
-    /// roster fingerprint and the contact pin, else no seal is made), the
-    /// roster at the new generation with the revoked members `removed`, and
-    /// emergency seals for the grants that cover the vault. Nothing changes
-    /// in the store or the session. Attachments this device does not hold
-    /// are listed ([`PreparedSharedRotation::unreachable_attachments`]); the
-    /// sync layer stores the ones it fetched first
-    /// ([`Self::store_remote_attachment`]).
-    ///
-    /// # Errors
-    /// [`Error::NoIdentity`], [`Error::NotOwner`], [`Error::NoRoster`],
-    /// [`Error::PlanMismatch`], [`Error::OwnerCannotBeRevoked`],
-    /// [`Error::MemberKeyMismatch`], [`Error::ContactUnverified`],
-    /// [`Error::WrongVaultProtection`], [`Error::Core`], [`Error::Store`].
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the plan checks and the preparation of one rotation belong together"
-    )]
-    pub fn prepare_shared_rotation(
+    /// Checks a rotation plan against the roster (the rules of
+    /// [`Self::prepare_shared_rotation`], shared with the re-key): everyone
+    /// who stays, is invited or holds an emergency grant has the key the
+    /// roster and a verified contact pin say, and every active member is
+    /// accounted for. Returns the active members.
+    pub(super) fn check_rotation_plan(
         &self,
-        vault: VaultId,
+        roster: &VaultRoster,
         plan: &RotationPlan,
-    ) -> Result<PreparedSharedRotation> {
-        let id = self.own_identity()?;
-        let ov = self.vault(vault)?;
-        if ov.protection != VaultKeyWrap::AccountKey {
-            return Err(Error::WrongVaultProtection);
-        }
-        ov.current_key()?;
-        if !self.owns_vault(vault)? {
-            return Err(Error::NotOwner);
-        }
-        let roster = self.load_roster(vault)?.ok_or(Error::NoRoster)?;
+    ) -> Result<Vec<RosterMember>> {
         roster.validate()?;
         let members = active(roster.members());
         let fpr_of = |a: &AccountId| {
@@ -1974,6 +2006,42 @@ impl UnlockedSession {
         if revoked.contains(&roster.owner()) {
             return Err(Error::OwnerCannotBeRevoked);
         }
+        Ok(members)
+    }
+
+    /// Prepares a rotation of a shared vault (CRYPTO_SPEC §8.3), **on the
+    /// owner's device only**: a new key one generation up, a share for every
+    /// remaining member and pending invite (each served key must match the
+    /// roster fingerprint and the contact pin, else no seal is made), the
+    /// roster at the new generation with the revoked members `removed`, and
+    /// emergency seals for the grants that cover the vault. Nothing changes
+    /// in the store or the session. Attachments this device does not hold
+    /// are listed ([`PreparedSharedRotation::unreachable_attachments`]); the
+    /// sync layer stores the ones it fetched first
+    /// ([`Self::store_remote_attachment`]).
+    ///
+    /// # Errors
+    /// [`Error::NoIdentity`], [`Error::NotOwner`], [`Error::NoRoster`],
+    /// [`Error::PlanMismatch`], [`Error::OwnerCannotBeRevoked`],
+    /// [`Error::MemberKeyMismatch`], [`Error::ContactUnverified`],
+    /// [`Error::WrongVaultProtection`], [`Error::Core`], [`Error::Store`].
+    pub fn prepare_shared_rotation(
+        &self,
+        vault: VaultId,
+        plan: &RotationPlan,
+    ) -> Result<PreparedSharedRotation> {
+        let id = self.own_identity()?;
+        let ov = self.vault(vault)?;
+        if ov.protection != VaultKeyWrap::AccountKey {
+            return Err(Error::WrongVaultProtection);
+        }
+        ov.current_key()?;
+        if !self.owns_vault(vault)? {
+            return Err(Error::NotOwner);
+        }
+        let roster = self.load_roster(vault)?.ok_or(Error::NoRoster)?;
+        let members = self.check_rotation_plan(&roster, plan)?;
+        let revoked: BTreeSet<AccountId> = plan.revoked.iter().copied().collect();
 
         let next = ov.generation.next()?;
         let key = VaultKey::generate(next)?;
@@ -2286,9 +2354,6 @@ impl UnlockedSession {
                     current.generation(),
                 )
                 .map_err(|_| untrusted(g))?;
-            if current.member(&owner).map(|m| m.fingerprint) != Some(sender_fpr) {
-                return Err(untrusted(g));
-            }
             let vk = open_vault_key(
                 &share.seal,
                 &vault,
@@ -2306,6 +2371,14 @@ impl UnlockedSession {
                 .ok_or_else(|| untrusted(g))?;
             let next = VaultRoster::open(ct, &vk, &vault, owner).map_err(|_| untrusted(g))?;
             next.validate().map_err(|_| untrusted(g))?;
+            // The owner's entry of the NEW roster names the key that sealed the
+            // share (the pin was checked above). The held roster's entry is not
+            // compared: after an owner's re-key (CRYPTO_SPEC §6.6) it still
+            // names the previous identity key, and the user's verification of
+            // the new code is what moves the pin (M7, THREAT_MODEL R84).
+            if next.member(&owner).map(|m| m.fingerprint) != Some(sender_fpr) {
+                return Err(untrusted(g));
+            }
             match next.member(&self.account_id) {
                 Some(m) if m.role != Role::Removed => {}
                 _ => return Err(untrusted(g)),

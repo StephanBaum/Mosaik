@@ -5,6 +5,7 @@
  */
 import type { FolderChoice, SyncDevice } from "../contract/index.ts";
 import { sampleAccount } from "./data.ts";
+import { adoptRenewedKeys } from "./rotation.ts";
 import { syncJoinHandlers } from "./syncJoin.ts";
 import {
   MOCK_INVITE_CODE,
@@ -202,6 +203,12 @@ export const syncHandlers: MockHandlers = {
     const { sync } = state;
     if (request.newPassword === "") {
       fail("emptyPassword");
+    }
+    if (request.secretKey !== null) {
+      if (state.rotation.jumpTooLarge) {
+        fail("rotationJumpTooLarge");
+      }
+      return adoptRenewedKeys(state, { ...request, secretKey: request.secretKey });
     }
     if (sync.serverPassword === null || request.newPassword !== sync.serverPassword) {
       fail("wrongCredentials");

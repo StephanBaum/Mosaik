@@ -60,7 +60,7 @@ pub async fn finish(
     let now = st.clock.now_ms();
     check_open(&st)?;
     let email = normalized_email(&req.email)?;
-    if !valid_device_name(&req.device_name) {
+    if !valid_device_name(&req.device_name) || req.ak_epoch == 0 {
         return Err(ApiError::bad_request());
     }
     let upload = RegistrationUpload::<Suite>::deserialize(&req.registration_upload.0)
@@ -95,6 +95,7 @@ pub async fn finish(
                 profile: req.profile.id(),
                 opaque_record: &record,
                 wrapped_ak: req.wrapped_ak.as_bytes(),
+                ak_epoch: req.ak_epoch,
             },
             now,
         )?;

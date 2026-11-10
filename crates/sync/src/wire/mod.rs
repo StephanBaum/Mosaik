@@ -26,6 +26,7 @@ pub mod json;
 #[cfg(feature = "opaque")]
 pub mod opaque;
 pub mod origin;
+pub mod rekey_marker;
 pub mod segment;
 
 use mosaic_core::sync_auth::FolderMacPurpose;
@@ -87,6 +88,16 @@ pub trait SyncCrypto {
     /// This install's stable ID, the device in every checkpoint it writes.
     fn install_id(&self) -> InstallId;
 
+    /// The account-key epoch of the keys behind this provider (M7,
+    /// CRYPTO_SPEC §6.7): what an account file written now carries. 1 for a
+    /// provider that does not track epochs.
+    ///
+    /// # Errors
+    /// [`WireError::Locked`], [`WireError::Crypto`].
+    fn ak_epoch(&self) -> Result<u32, WireError> {
+        Ok(1)
+    }
+
     /// The folder MAC of `msg` for `purpose`.
     ///
     /// # Errors
@@ -138,6 +149,10 @@ pub trait SyncCrypto {
 impl SyncCrypto for UnlockedSession {
     fn install_id(&self) -> InstallId {
         Self::install_id(self)
+    }
+
+    fn ak_epoch(&self) -> Result<u32, WireError> {
+        Ok(Self::ak_epoch(self))
     }
 
     fn folder_mac(&self, purpose: FolderMacPurpose, msg: &[u8]) -> Result<[u8; 32], WireError> {
@@ -302,6 +317,10 @@ impl<H: SessionHandle> SyncCrypto for SessionCrypto<H> {
         self.install
     }
 
+    fn ak_epoch(&self) -> Result<u32, WireError> {
+        self.run(|s| Ok(s.ak_epoch()))
+    }
+
     fn folder_mac(&self, purpose: FolderMacPurpose, msg: &[u8]) -> Result<[u8; 32], WireError> {
         self.run(|s| s.folder_mac(purpose, msg))
     }
@@ -388,6 +407,7 @@ pub struct KeyedCrypto {
     checkpoint: mosaic_core::CheckpointKey,
     folder: mosaic_core::FolderMacKey,
     device: mosaic_core::DeviceInfoKey,
+    epoch: u32,
     own: std::sync::Mutex<std::collections::BTreeMap<VaultId, OwnSeq>>,
 }
 
@@ -408,8 +428,16 @@ impl KeyedCrypto {
             checkpoint: ak.checkpoint_key().map_err(|_| WireError::Crypto)?,
             folder: ak.folder_mac_key().map_err(|_| WireError::Crypto)?,
             device: ak.device_info_key().map_err(|_| WireError::Crypto)?,
+            epoch: 1,
             own: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         })
+    }
+
+    /// The same keys, reporting `epoch` as the account-key epoch.
+    #[must_use]
+    pub const fn with_epoch(mut self, epoch: u32) -> Self {
+        self.epoch = epoch;
+        self
     }
 }
 
@@ -440,6 +468,10 @@ impl OwnLogState for KeyedCrypto {
 impl SyncCrypto for KeyedCrypto {
     fn install_id(&self) -> InstallId {
         self.install
+    }
+
+    fn ak_epoch(&self) -> Result<u32, WireError> {
+        Ok(self.epoch)
     }
 
     fn folder_mac(&self, purpose: FolderMacPurpose, msg: &[u8]) -> Result<[u8; 32], WireError> {
@@ -674,6 +706,7 @@ mod tests {
         let file = AccountFile {
             account_id: account,
             account_version: 1,
+            ak_epoch: 1,
             device_id: install,
             salt: boot.params.salt,
             profile: boot.params.profile,

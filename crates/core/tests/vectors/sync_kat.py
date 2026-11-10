@@ -199,6 +199,7 @@ def main() -> None:
     print(f"folder_mac_segment={folder('sync/folder-segment').hex()}")
     print(f"folder_mac_account={folder('sync/folder-account').hex()}")
     print(f"folder_mac_blob_delete={folder('sync/folder-blob-delete').hex()}")
+    print(f"folder_mac_rekey={folder('sync/folder-rekey').hex()}")
     print(f"session_token={session_token.hex()}")
     print(f"checkpoint_bytes={checkpoint_bytes.hex()}")
     print(f"blob_delete_bytes={blob_delete_bytes.hex()}")

@@ -18,6 +18,7 @@ import {
   type Settings,
 } from "../ipc/contract/index.ts";
 import { KeysDialog } from "./SecurityKeys.tsx";
+import { QUICK_UNLOCK_HEADING_ID } from "./settings/security/hooks.ts";
 import { SettingsSection } from "./SettingsSection.tsx";
 
 function useQuickStatus(reloadKey: unknown) {
@@ -196,7 +197,11 @@ export function QuickUnlockSettings({
       status.hardwareKeys.supported ||
       status.hardwareKeys.keys.length > 0);
   return (
-    <SettingsSection title={t("settings.quick")} body={t("settings.quick.body")}>
+    <SettingsSection
+      title={t("settings.quick")}
+      body={t("settings.quick.body")}
+      headingId={QUICK_UNLOCK_HEADING_ID}
+    >
       {status !== null && <BiometricRow status={status.biometric} onStatus={setStatus} onError={onError} />}
       {anyMethod && (
         <Select

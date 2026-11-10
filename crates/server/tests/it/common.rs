@@ -295,6 +295,7 @@ impl TestApp {
                 profile: Argon2Profile::DEFAULT,
                 registration_upload: B64(fin.message.serialize().to_vec()),
                 wrapped_ak: wrapped_key(7),
+                ak_epoch: 1,
                 invite_code: invite.map(str::to_owned),
                 device_id: u.device,
                 device_name: "Test device".to_owned(),

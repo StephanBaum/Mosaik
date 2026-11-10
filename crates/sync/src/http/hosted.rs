@@ -13,21 +13,28 @@
 
 use mosaic_core::sync_auth::session_token;
 use mosaic_core::{
-    AccountId, AccountSalt, InstallId, MasterPassword, OpaquePassword, PasswordParams, SecretKey,
-    SessionToken, WrappedKey,
+    AccountId, AccountSalt, IdentityPublicKey, InstallId, KeyGeneration, MasterPassword,
+    OpaquePassword, PasswordParams, SecretKey, SessionToken, VaultId, WrappedKey,
 };
-use mosaic_vault::session::{AccountBootstrap, JoinKeys, LockedSession, PreparedPasswordChange};
+use mosaic_vault::session::{
+    AccountBootstrap, JoinKeys, LockedSession, PreparedPasswordChange, PreparedRekey,
+};
 use reqwest::Method;
 use zeroize::Zeroize;
 
 use super::client::{Bearer, Http, Token, canonical_origin};
 use crate::transport::{Rejection, TransportError};
 use crate::wire::email;
+use crate::wire::json::rekey::{
+    AccountWithEpoch, RekeyEmergencySeal, RekeyFinishRequest, RekeyFinishResponse,
+    RekeyMemberRewrap, RekeyStartRequest, RekeyVaultEntry,
+};
+use crate::wire::json::sharing::{IdentityBody, InviteSealEntry, RecipientSealEntry, WireId};
 use crate::wire::json::{
     B64, B64Fixed, CodeRequest, Empty, LoginFinishRequest, LoginResponse, LoginStartRequest,
     LoginStartResponse, LoginStatus, PasswordFinishRequest, PasswordFinishResponse,
     PasswordStartRequest, PreloginRequest, PreloginResponse, RegisterFinishRequest,
-    RegisterStartRequest, RegistrationStartResponse,
+    RegisterStartRequest, RegistrationStartResponse, codes,
 };
 use crate::wire::opaque::ke::{ClientLoginFinishResult, ClientRegistrationFinishResult};
 use crate::wire::opaque::{
@@ -85,6 +92,11 @@ pub struct JoinAccount {
     pub account_version: u64,
     /// The account has a second factor.
     pub totp_enabled: bool,
+    /// The account-key epoch the server states (unauthenticated): a device
+    /// that joins stores it with
+    /// [`mosaic_vault::session::LockedSession::join_account_with_keys_at`] so
+    /// it starts at the account's epoch, not at 1 (review H2).
+    pub ak_epoch: u32,
 }
 
 /// The result of a password change.
@@ -222,6 +234,7 @@ pub fn register(
             profile: bootstrap.params.profile,
             registration_upload: B64(finished.message.serialize().to_vec()),
             wrapped_ak: bootstrap.wrapped_ak.clone(),
+            ak_epoch: bootstrap.ak_epoch,
             invite_code: invite_code.map(str::to_owned),
             device_id: device,
             device_name: device_name.to_owned(),
@@ -578,9 +591,9 @@ pub fn join_fetch_account(
 ) -> Result<JoinAccount, TransportError> {
     let http = connect(base)?;
     let bearer = Bearer::new(token)?;
-    let (_, account): (u16, crate::wire::json::AccountResponse) = http.call(
+    let (_, account): (u16, AccountWithEpoch) = http.call(
         Method::GET,
-        "/v1/account",
+        "/v1/account?epoch=1",
         Some(&bearer),
         None::<&Empty>,
         &OK_STATUS,
@@ -596,6 +609,7 @@ pub fn join_fetch_account(
         wrapped_ak: account.wrapped_ak,
         account_version: account.account_version,
         totp_enabled: account.totp_enabled,
+        ak_epoch: account.ak_epoch,
     })
 }
 
@@ -843,6 +857,533 @@ fn recover_applied_change(
         account_version: account.account_version,
         grant,
     })
+}
+
+// ---- account re-key (M7, CRYPTO_SPEC §6.6) ----------------------------------
+
+/// Where [`rekey`] is in the protocol, for the rotation journal: the caller
+/// records phase 2 on [`RekeyStage::Started`] and phase 3 on
+/// [`RekeyStage::Accepted`], before it does anything else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RekeyStage {
+    /// `rekey/start` is about to be sent (journal phase 2).
+    Started,
+    /// The server applied the re-key (journal phase 3): the prepared keys
+    /// must be committed locally now, or adopted again after a crash.
+    Accepted,
+}
+
+/// Why the server refused a re-key request in a way a new attempt can fix
+/// (nothing was applied).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RekeyRefusal {
+    /// A vault's head moved since the request was prepared.
+    HeadMoved,
+    /// Another device rotated a vault to the next generation first.
+    GenerationTaken,
+    /// The members or invites of a shared vault changed.
+    MembersMismatch,
+}
+
+/// A re-key the server accepted.
+pub struct RekeyFinished {
+    /// The account version after the re-key.
+    pub account_version: u64,
+    /// The account-key epoch after the re-key.
+    pub ak_epoch: u32,
+    /// The session of the re-key; it stays valid, the account's other
+    /// sessions ended with the re-key.
+    pub grant: LoginGrant,
+}
+
+impl core::fmt::Debug for RekeyFinished {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RekeyFinished")
+            .field("account_version", &self.account_version)
+            .field("ak_epoch", &self.ak_epoch)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What [`rekey`] ended with.
+#[derive(Debug)]
+pub enum RekeyOutcome {
+    /// The server applied the re-key.
+    Done(RekeyFinished),
+    /// Nothing was applied; pull, prepare again and retry.
+    Refused(RekeyRefusal),
+}
+
+/// Who is logging in for a re-key step and with what.
+struct Who<'a> {
+    origin: &'a str,
+    address: &'a str,
+    account_id: AccountId,
+    device: InstallId,
+    device_name: &'a str,
+    totp_code: Option<&'a str>,
+}
+
+fn login_ready(
+    http: &Http,
+    who: &Who<'_>,
+    opw: &OpaquePassword,
+) -> Result<LoginGrant, TransportError> {
+    let mut grant = login_with(
+        http,
+        who.origin,
+        who.address,
+        who.account_id,
+        opw,
+        who.device,
+        who.device_name,
+    )?;
+    if grant.status == LoginStatus::TwoFactorRequired {
+        let code = who.totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        grant.expires_at_ms = login_totp_with(http, &grant.token, code)?;
+        grant.status = LoginStatus::Ok;
+    }
+    Ok(grant)
+}
+
+/// The re-key of the account on the server (CRYPTO_SPEC §6.6): a fresh login
+/// with the old `OPW` (and the second factor), `rekey/start` with the new
+/// registration, and one atomic `rekey/finish` that carries the new password
+/// wrapping, the new identity key, the new key of every owned vault with the
+/// seals of the shared ones, the re-wrapped keys of the vaults shared to the
+/// account and the fresh emergency seals. The server applies all of it or
+/// nothing and ends every other session of the account.
+///
+/// `on_stage` is called before `start` and right after the server accepted
+/// (also when the acceptance is only learned by the lost-answer check).
+///
+/// A lost answer to `finish` is settled at once: the new `OPW` logs in, and if
+/// the account shows the prepared wrapped `AK` byte for byte at the target
+/// epoch, the re-key went through. If that fails too the result is
+/// [`TransportError::OutcomeUnknown`] and the journal stays at phase 2 for the
+/// next resume to probe again. A retry after a lost answer finds the old
+/// password refused and runs the same check.
+///
+/// # Errors
+/// [`Rejection::LoginFailed`] for a wrong current password;
+/// [`TransportError::TwoFactorRequired`]; [`Rejection::TwoFactorInvalid`];
+/// [`Rejection::AccountVersionMismatch`]; [`Rejection::EpochMismatch`];
+/// [`Rejection::ProfileDowngrade`]; [`Rejection::RekeyMismatch`]; the other
+/// [`TransportError`]s.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the protocol steps of one request, in order"
+)]
+pub fn rekey(
+    base: &str,
+    address: &str,
+    prepared: &PreparedRekey,
+    device: InstallId,
+    device_name: &str,
+    totp_code: Option<&str>,
+    on_stage: &mut dyn FnMut(RekeyStage) -> bool,
+) -> Result<RekeyOutcome, TransportError> {
+    let http = connect(base)?;
+    let origin = origin_of(base)?;
+    let account_id = prepared.new_params().account_id;
+    let who = Who {
+        origin: &origin,
+        address,
+        account_id,
+        device,
+        device_name,
+        totp_code,
+    };
+    let grant = match login_ready(&http, &who, prepared.old_opaque_password()) {
+        Ok(g) => g,
+        Err(TransportError::Rejected(Rejection::LoginFailed)) => {
+            // The old password may no longer be the account's: an earlier
+            // attempt could have gone through with its answer lost.
+            return recover_applied_rekey(&http, &who, prepared, on_stage)
+                .map(RekeyOutcome::Done)
+                .map_err(|_| TransportError::Rejected(Rejection::LoginFailed));
+        }
+        Err(e) => return Err(e),
+    };
+    let bearer = Bearer::new(&grant.token)?;
+    // The epoch the server states after the fresh login must be the one this
+    // re-key leaves (review H2): a device that took the wrong epoch at its
+    // join, or a server that lies, stops here and nothing is sent.
+    let (_, current): (u16, AccountWithEpoch) = http.call(
+        Method::GET,
+        "/v1/account?epoch=1",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    if current.ak_epoch.checked_add(1) != Some(prepared.to_epoch()) {
+        return Err(TransportError::Rejected(Rejection::EpochMismatch {
+            current_epoch: current.ak_epoch,
+        }));
+    }
+    // The phase-2 journal write comes before anything reaches the server: if
+    // it failed, the request is not sent (review L4).
+    if !on_stage(RekeyStage::Started) {
+        return Err(TransportError::Io);
+    }
+    let mut rng = OsRng;
+    let new_opw = prepared.new_opaque_password().expose_secret();
+    let start =
+        ClientRegistration::<Suite>::start(&mut rng, new_opw).map_err(|_| TransportError::Io)?;
+    let (_, started): (u16, RegistrationStartResponse) = http.call(
+        Method::POST,
+        "/v1/account/rekey/start",
+        Some(&bearer),
+        Some(&RekeyStartRequest {
+            registration_request: B64(start.message.serialize().to_vec()),
+            ak_epoch: prepared.to_epoch(),
+        }),
+        &OK_STATUS,
+    )?;
+    let response = RegistrationResponse::deserialize(&started.registration_response.0)
+        .map_err(|_| TransportError::Protocol)?;
+    let mut finished = start
+        .state
+        .finish(
+            &mut rng,
+            new_opw,
+            response,
+            ClientRegistrationFinishParameters::new(
+                identifiers(account_id.as_bytes(), origin.as_bytes()),
+                None,
+            ),
+        )
+        .map_err(|_| TransportError::Protocol)?;
+    wipe_registration(&mut finished);
+    let body = rekey_finish_body(prepared, &finished, device);
+    let reply = http.send(
+        Method::POST,
+        "/v1/account/rekey/finish",
+        Some(&bearer),
+        super::client::json_body(Some(&body))?,
+        super::client::REQUEST_TIMEOUT,
+        crate::wire::json::MAX_RESPONSE_LEN,
+    );
+    let reply = match reply {
+        Ok(r) => r,
+        // The request left, so the server may have committed.
+        Err(TransportError::Timeout | TransportError::Unreachable | TransportError::Io) => {
+            return recover_applied_rekey(&http, &who, prepared, on_stage)
+                .map(RekeyOutcome::Done)
+                .map_err(|_| TransportError::OutcomeUnknown);
+        }
+        Err(e) => return Err(e),
+    };
+    if reply.status == 200 {
+        let (_, done): (u16, RekeyFinishResponse) = reply.json(&OK_STATUS)?;
+        let _ = on_stage(RekeyStage::Accepted);
+        return Ok(RekeyOutcome::Done(RekeyFinished {
+            account_version: done.account_version,
+            ak_epoch: done.ak_epoch,
+            grant,
+        }));
+    }
+    let err = reply.error_body();
+    match err.as_ref().map(|b| b.error.as_str()) {
+        Some(codes::HEAD_MOVED) => Ok(RekeyOutcome::Refused(RekeyRefusal::HeadMoved)),
+        Some(codes::GENERATION_TAKEN) => Ok(RekeyOutcome::Refused(RekeyRefusal::GenerationTaken)),
+        Some(codes::MEMBERS_MISMATCH) => Ok(RekeyOutcome::Refused(RekeyRefusal::MembersMismatch)),
+        _ if reply.status >= 500 => recover_applied_rekey(&http, &who, prepared, on_stage)
+            .map(RekeyOutcome::Done)
+            .map_err(|_| TransportError::OutcomeUnknown),
+        _ => Err(reply.failure()),
+    }
+}
+
+/// The body of `rekey/finish` from a prepared re-key.
+fn rekey_finish_body(
+    prepared: &PreparedRekey,
+    finished: &ClientRegistrationFinishResult<Suite>,
+    device: InstallId,
+) -> RekeyFinishRequest {
+    let new_params = prepared.new_params();
+    let vaults = prepared
+        .vault_keys()
+        .iter()
+        .map(|(vault, generation, wrapped, head)| {
+            let shared = prepared
+                .shared_rotations()
+                .iter()
+                .find(|s| s.vault_id() == *vault);
+            RekeyVaultEntry {
+                vault_id: *vault,
+                generation: generation.get(),
+                wrapped: wrapped.clone(),
+                expected_head: *head,
+                roster: shared.map(|s| B64(s.roster().as_bytes().to_vec())),
+                seals: shared.map_or_else(Vec::new, |s| {
+                    s.seals()
+                        .iter()
+                        .map(|(a, seal)| RecipientSealEntry {
+                            recipient: *a,
+                            seal: B64Fixed(*seal.as_bytes()),
+                        })
+                        .collect()
+                }),
+                invite_seals: shared.map_or_else(Vec::new, |s| {
+                    s.invite_seals()
+                        .iter()
+                        .map(|(i, seal)| InviteSealEntry {
+                            invite_id: WireId(*i.as_bytes()),
+                            seal: B64Fixed(*seal.as_bytes()),
+                        })
+                        .collect()
+                }),
+            }
+        })
+        .collect();
+    RekeyFinishRequest {
+        registration_upload: B64(finished.message.serialize().to_vec()),
+        wrapped_ak: prepared.new_wrapped_ak().clone(),
+        salt: B64Fixed(*new_params.salt.as_bytes()),
+        profile: new_params.profile.id(),
+        ak_epoch: prepared.to_epoch(),
+        identity: prepared.identity().map(|(ipk, wrapped)| IdentityBody {
+            ipk: B64Fixed(*ipk.as_bytes()),
+            wrapped_isk: B64Fixed(*wrapped.as_bytes()),
+        }),
+        vaults,
+        member_rewraps: prepared
+            .member_rewraps()
+            .iter()
+            .map(|(vault, generation, wrapped)| RekeyMemberRewrap {
+                vault_id: *vault,
+                generation: generation.get(),
+                wrapped: wrapped.clone(),
+            })
+            .collect(),
+        emergency_seals: prepared
+            .emergency_seals()
+            .iter()
+            .map(|(grantee, vault, generation, seal)| RekeyEmergencySeal {
+                grantee: *grantee,
+                vault_id: *vault,
+                generation: generation.get(),
+                seal: B64Fixed(*seal.as_bytes()),
+            })
+            .collect(),
+        device,
+    }
+}
+
+/// The check after a lost answer to `rekey/finish`: the new `OPW` logs in,
+/// and the account shows the prepared wrapped `AK` byte for byte at the
+/// target epoch.
+fn recover_applied_rekey(
+    http: &Http,
+    who: &Who<'_>,
+    prepared: &PreparedRekey,
+    on_stage: &mut dyn FnMut(RekeyStage) -> bool,
+) -> Result<RekeyFinished, TransportError> {
+    let grant = login_ready(http, who, prepared.new_opaque_password())?;
+    let bearer = Bearer::new(&grant.token)?;
+    let (_, account): (u16, AccountWithEpoch) = http.call(
+        Method::GET,
+        "/v1/account?epoch=1",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    if account.account_id != who.account_id
+        || account.ak_epoch != prepared.to_epoch()
+        || account.wrapped_ak.as_bytes() != prepared.new_wrapped_ak().as_bytes()
+    {
+        return Err(TransportError::Protocol);
+    }
+    let _ = on_stage(RekeyStage::Accepted);
+    Ok(RekeyFinished {
+        account_version: account.account_version,
+        ak_epoch: account.ak_epoch,
+        grant,
+    })
+}
+
+/// The account values of a re-keyed account that a device adopts: the server's
+/// current wrapping, epoch and identity key (all unauthenticated until the
+/// typed keys open the wrapping).
+#[derive(Debug)]
+pub struct RekeyedAccountInfo {
+    /// `AK` wrapped under the new password `KEK`.
+    pub wrapped_ak: WrappedKey,
+    /// The account version.
+    pub account_version: u64,
+    /// The account-key epoch the server states.
+    pub ak_epoch: u32,
+    /// The identity key: `ipk` and `isk` wrapped under the new `AK`.
+    pub identity: Option<(IdentityPublicKey, WrappedKey)>,
+}
+
+/// What [`recover_rekey`] returns.
+pub struct RekeyRecovered {
+    /// The keys derived from the typed new password and Secret Key under the
+    /// server's parameters, to hand to
+    /// [`mosaic_vault::session::UnlockedSession::adopt_remote_rekey`].
+    pub keys: JoinKeys,
+    /// The account values the server holds now.
+    pub account: RekeyedAccountInfo,
+    /// The server's own wrapping of the current key of each requested member
+    /// vault (as served: the view digest the other devices compute depends on
+    /// these bytes).
+    pub member_wraps: Vec<(VaultId, KeyGeneration, WrappedKey)>,
+    /// The session of the login (completed).
+    pub grant: LoginGrant,
+}
+
+impl core::fmt::Debug for RekeyRecovered {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RekeyRecovered")
+            .field("account", &self.account)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What [`recover_rekey`] needs.
+#[derive(Clone, Copy)]
+pub struct RecoverRequest<'a> {
+    /// The server's base URL.
+    pub base: &'a str,
+    /// The account's email address.
+    pub address: &'a str,
+    /// The typed new master password.
+    pub new_password: &'a MasterPassword,
+    /// The typed new Secret Key.
+    pub new_secret_key: &'a SecretKey,
+    /// This device.
+    pub device: InstallId,
+    /// The name this device shows in the device list.
+    pub device_name: &'a str,
+    /// The current second-factor code, if the account has one.
+    pub totp_code: Option<&'a str>,
+    /// The vaults someone else owns, with the generation this device holds.
+    pub member_vaults: &'a [(VaultId, KeyGeneration)],
+}
+
+impl core::fmt::Debug for RecoverRequest<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("RecoverRequest([REDACTED])")
+    }
+}
+
+/// The server side of adopting a re-key another device made (CRYPTO_SPEC
+/// §6.7): pre-login for the server's parameters, the Argon2id derivation from
+/// the typed new password and the typed new Secret Key, an OPAQUE login (the
+/// old Secret Key does not log in), the second factor if the account has one,
+/// `GET /v1/account?epoch=1&identity=1`, and for each of `member_vaults` (the
+/// vaults someone else owns, with the generation this device holds) the key
+/// row the server serves. The caller adopts the result with
+/// [`mosaic_vault::session::UnlockedSession::adopt_remote_rekey`], which
+/// refuses an epoch other than its own plus one, a retired salt, and a Secret
+/// Key it has held.
+///
+/// # Errors
+/// As [`recover_password`].
+pub fn recover_rekey(req: &RecoverRequest<'_>) -> Result<RekeyRecovered, TransportError> {
+    let RecoverRequest {
+        base,
+        address,
+        new_password,
+        new_secret_key,
+        device,
+        device_name,
+        totp_code,
+        member_vaults,
+    } = *req;
+    let mut login = join_login(
+        base,
+        address,
+        new_password,
+        new_secret_key,
+        device,
+        device_name,
+    )?;
+    if login.grant.status == LoginStatus::TwoFactorRequired {
+        let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        login.grant.expires_at_ms = login_totp(base, &login.grant.token, code)?;
+        login.grant.status = LoginStatus::Ok;
+    }
+    let http = connect(base)?;
+    let bearer = Bearer::new(&login.grant.token)?;
+    let (_, account): (u16, AccountWithEpoch) = http.call(
+        Method::GET,
+        "/v1/account?epoch=1&identity=1",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    let params = login.keys.params();
+    if account.account_id != params.account_id
+        || account.salt.0 != *params.salt.as_bytes()
+        || account.profile != params.profile
+    {
+        return Err(TransportError::Protocol);
+    }
+    let identity = match account.identity {
+        Some(i) => Some((
+            IdentityPublicKey::from_slice(&i.ipk.0).map_err(|_| TransportError::Protocol)?,
+            WrappedKey::from_bytes(&i.wrapped_isk.0).map_err(|_| TransportError::Protocol)?,
+        )),
+        None => None,
+    };
+    let mut member_wraps = Vec::new();
+    for (vault, generation) in member_vaults {
+        let (_, page): (u16, crate::wire::json::ChangesResponse) = http.call(
+            Method::GET,
+            &format!("/v1/vaults/{vault}/changes?since=0&limit=1"),
+            Some(&bearer),
+            None::<&Empty>,
+            &OK_STATUS,
+        )?;
+        if let Some(k) = page.keys.iter().find(|k| k.generation == *generation) {
+            member_wraps.push((*vault, *generation, k.wrapped_key.clone()));
+        }
+    }
+    Ok(RekeyRecovered {
+        keys: login.keys,
+        account: RekeyedAccountInfo {
+            wrapped_ak: account.wrapped_ak,
+            account_version: account.account_version,
+            ak_epoch: account.ak_epoch,
+            identity,
+        },
+        member_wraps,
+        grant: login.grant,
+    })
+}
+
+/// `GET /v1/account?epoch=1` with a completed session: [`account_info`] plus
+/// the account-key epoch the server states (public metadata; the server's
+/// claim only).
+///
+/// # Errors
+/// [`TransportError`].
+pub fn account_epoch(base: &str, token: &impl Token) -> Result<(AccountInfo, u32), TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, account): (u16, AccountWithEpoch) = http.call(
+        Method::GET,
+        "/v1/account?epoch=1",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    Ok((
+        AccountInfo {
+            account_version: account.account_version,
+            totp_enabled: account.totp_enabled,
+            params: PasswordParams {
+                account_id: account.account_id,
+                salt: AccountSalt::from_bytes(account.salt.0),
+                profile: account.profile,
+            },
+            wrapped_ak: account.wrapped_ak,
+        },
+        account.ak_epoch,
+    ))
 }
 
 #[cfg(test)]

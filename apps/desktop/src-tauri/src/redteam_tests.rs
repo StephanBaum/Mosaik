@@ -356,6 +356,13 @@ fn hostile_ipc_bodies_are_refused_without_a_panic_an_unlock_or_a_secret() {
             "sync_totp_begin",
             "sync_totp_disable",
             "change_master_password",
+            // The account-key commands check the master password first, too.
+            "secret_key_rotate_prepare",
+            "secret_key_rotate_commit",
+            "profile_upgrade",
+            "rekey_prepare",
+            "rekey_commit",
+            "rotation_resume",
         ],
     );
     assert!(matches!(after, SessionState::Unlocked { .. }), "{after:?}");
@@ -703,6 +710,7 @@ fn wrong_passwords_from_every_command_share_one_limit_and_disable_quick_unlock()
         Box::new(|b| {
             b.save_emergency_kit(SaveKitRequest {
                 labels: crate::emergency_kit::tests::labels(),
+                pending: false,
                 password: Some(SecretIn::test(WRONG)),
             })
             .unwrap_err()
@@ -1021,7 +1029,7 @@ fn five_wrong_kit_answers_lock_the_vault_and_need_the_password() {
     let b = &backend;
     let right = secret_key.rsplit('-').next().unwrap().to_owned();
     let check = |group: &str| {
-        b.verify_emergency_kit(&typed(json!({ "lastGroup": group })))
+        b.verify_emergency_kit(&typed(json!({ "lastGroup": group, "pending": false })))
             .map(|v| v.matches)
     };
     for _ in 0..4 {
@@ -1288,7 +1296,7 @@ fn parallel_kit_guesses_cannot_pass_the_five_answer_cap() {
             .map(|_| {
                 scope.spawn(|| {
                     barrier.wait();
-                    b.verify_emergency_kit(&typed(json!({ "lastGroup": "WRNG" })))
+                    b.verify_emergency_kit(&typed(json!({ "lastGroup": "WRNG", "pending": false })))
                         .map(|v| v.matches)
                         .map_err(code)
                 })

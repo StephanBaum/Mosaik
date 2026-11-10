@@ -11,6 +11,7 @@ import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, SyncOverview, SyncWarningView } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
+import { AccountFileFinding } from "./AccountFileFinding.tsx";
 import { isolate, useFocusSection } from "./hooks.ts";
 
 const ACKNOWLEDGEABLE: ReadonlySet<SyncWarningView["kind"]> = new Set([
@@ -27,7 +28,7 @@ function useWarningText() {
     name === null ? t("sync.warning.unknownDevice") : isolate(name);
   const vault = (name: string | null) =>
     name === null ? t("sync.warning.unknownVault") : isolate(name);
-  return (warning: SyncWarningView): string => {
+  return (warning: Exclude<SyncWarningView, { kind: "unverifiedAccountFile" }>): string => {
     switch (warning.kind) {
       case "freezeSuspected":
         return t("sync.warning.freezeSuspected", { device: device(warning.deviceName) });
@@ -91,11 +92,18 @@ export function WarningList({
 
   return (
     <div className="stack" role="group" aria-label={t("sync.warning.region")}>
-      {warnings.map((warning, index) => (
-        <Callout key={`${warning.kind}-${String(index)}`} tone={warning.kind === "hardwareVaultsLocal" ? "info" : "warning"}>
-          <p className="body">{text(warning)}</p>
-        </Callout>
-      ))}
+      {warnings.map((warning, index) =>
+        warning.kind === "unverifiedAccountFile" ? (
+          <AccountFileFinding key={`${warning.kind}-${String(index)}`} warning={warning} onChange={onChange} />
+        ) : (
+          <Callout
+            key={`${warning.kind}-${String(index)}`}
+            tone={warning.kind === "hardwareVaultsLocal" ? "info" : "warning"}
+          >
+            <p className="body">{text(warning)}</p>
+          </Callout>
+        ),
+      )}
       {warnings.some((w) => ACKNOWLEDGEABLE.has(w.kind)) && (
         <div className="actions">
           <Button

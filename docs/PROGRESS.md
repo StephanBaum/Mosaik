@@ -15,8 +15,9 @@ milestone close appends its section there).
 | M4 Browser extension | ✅ done (2026-11-06; PRs #23, #25, #26, #27 and #29; ADR-0035 to 0038 accepted; open: manual checks on Windows Chrome/Edge (registry install), Firefox 128+, macOS and Linux Chrome, `activeTab` gating on the production build, keyboard and screen reader in the popup; owner items: store IDs, AMO gecko ID, host name and bundle identifier, D06 store links) |
 | M5 Passkeys | ✅ done (2026-11-06; PRs #28, #30, #31, #32 and `chore/m5-close`; ADR-0039 to 0041 accepted; open: manual checks with real WebAuthn relying parties in Chrome, Edge and Firefox, Firefox MAIN-world registration; owner: OS passkey providers (deferred: Windows unsafe exception, macOS Developer ID), a registered AAGUID, keep or drop the CXF export) |
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
-| M6b Sharing and emergency access | in progress on `feat/m6b-sharing` (T1 to T4 and the milestone review fixes done; T5 desktop: commands, screens, mock states, i18n, fuzz seeds, docs; two verify passes and the UX review are done; open: the manual checks below, the owner decisions OD1 to OD6 of the spec, the full gate and the milestone commit) |
-| M7 Rotation | — |
+| M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
+| M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
+| M7b Credential rotation | — (the brief's "M7": semi-automatic change-password through the extension, HIBP range check, rotate-now queue, connectors, scheduler; spec ready, runs after M7 and before M8 by default, OD-M7-1) |
 | M8 CLI | — |
 | M9 Hardening | — |
 | M10 Mobile | — |
@@ -2337,6 +2338,111 @@ sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309
   and Linux in German and English; (6) keyboard-only and screen-reader pass through the share dialog, the
   safety-code panel, the invites inbox and the banner in light, dark, German and English.
 
+## M7 Key rotation — T5 desktop (2026-11-08)
+
+Scope: the desktop side of key rotation (CRYPTO_SPEC §5.3, §6.4 to §6.7; ADR-0057 to ADR-0062; THREAT_MODEL R83 to
+R89). The brief's "M7" (credential rotation: connectors, HIBP, rotate-now queue, scheduler) is **M7b** and comes
+next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key rotation only. Tracks: T1 `mosaic-core`
+(`19eff2a`, review fixes `0e27585`: 0 High, 3 Medium, 6 Low, 2 Info, all fixed), T2 `mosaic-vault` (`26c29a5`, fix
+`58f7ed9`), T3 `mosaic-server` (`2b4456e`), T4 `mosaic-sync` (`4ad8bae`) and T5 desktop (this section).
+
+- **Screens (`src/screens/settings/security/`).** Settings > "Password and keys" has four actions, each a wizard
+  (`RotationWizard`, one component with a step list per kind): **Change master password** (the screen that was missing
+  since M6: review, the passwords, done; over local, hosted and folder accounts), **Rotate Secret Key** (review with the
+  honest limit sentence and a switch to "Something was compromised: re-key", the passwords, the **new Emergency Kit**
+  saved through the native dialog and its last group typed back, confirmation with a verb button, a run with phases,
+  done), **Upgrade protection** (review, level and password, a `profileTooSlow` warning with "Upgrade anyway", done)
+  and **Re-key account** ("Was something compromised?", both passwords, the kit, the review of what it touches
+  (owned and shared vaults, members who must compare the new safety code, vaults owned by others, emergency contacts,
+  quick unlock, security keys, hardware vaults, attachments this device must download, the sync folder), the verb
+  button "Re-key account" and the phases). The review says what happens to other devices, shared vaults, emergency
+  contacts, quick unlock and security keys; the last step lists what was turned off with "Set up quick unlock again"
+  and "Register security keys again" (focus moves to the quick unlock section). Focus moves to the step heading on
+  every step change; destructive confirms are verb buttons; the live region names the phase only, the attachment
+  count is plain text (no timer is read out).
+- **Crash resume.** `RotationResumeBanner` (top of the app, next to the sharing notices) shows an open journal row:
+  "Continue key rotation" (it continues phases 4 to 7 by itself, asks the passwords again at phase 1 by opening the
+  wizard at that step, or asks the new password and the **last kit group** at phase 2 or 3) and "Discard…" (a verb
+  dialog; refused past phase 1 with `rotationTooFar`). `rotationNotApplied` says that a probe proved the change never
+  reached the account.
+- **Other devices.** There is no email: `RekeyNotice` (folder: a verified marker, sync paused) and the recovery card
+  (hosted: after the sign-out) ask for the master password and the Secret Key from the new kit
+  (`sync_recover_password` with `secretKey`); a key this device held (current or retired) is refused with its own
+  message. An unverifiable account file in the folder is a dismissible finding ("An unknown account file appeared in
+  your sync folder…", `sync_dismiss_account_file`); a file that names this device's own epoch (two devices re-keyed
+  at once) is explained with "Re-key again from this device" as the only resolution. No equal-epoch adoption.
+- **IPC (`docs/DESKTOP_IPC.md` "Account keys").** New: `rotation_status`, `secret_key_rotate_prepare`,
+  `secret_key_rotate_commit`, `profile_upgrade`, `rekey_review`, `rekey_prepare`, `rekey_commit`, `rotation_resume`,
+  `rotation_abandon`, `sync_dismiss_account_file`; changed: `save_emergency_kit` and `verify_emergency_kit` gain
+  `pending`, `sync_recover_password` gains `secretKey`, `SyncOverview.rekeyPending`, the warning
+  `unverifiedAccountFile`, the event `rotationProgress`; 19 new error codes. The commands call the real engine
+  (`rekey_hosted`, `rekey_folder`, `rekey_continue`, `resume_hosted_rekey`, `adopt_hosted_rekey`,
+  `adopt_folder_rekey`, `dismiss_unverifiable_file`) and the vault (`prepare_credential_change`, `rekey_review`, the
+  journal) over an engine and transport of their own with the sync thread stopped (`sync/rotation_flow.rs`): one
+  session closure at a time, no lock across the network, the lock epoch recorded first, the busy guard of the password
+  change (a lock waits at most three minutes). The new Secret Key is made in Rust, lives in the pending keystore entry
+  (`<identifier>.pending-secret-key`) and reaches the webview never; the commit refuses without a verified new kit
+  (`kitNotVerified`) and moves it to the normal entry after the vault committed. `settings.json` is protected again
+  under the new account key right after a re-key or an adoption (`settings_remac`).
+- **Mock (`?mock=unlocked&rotation=<variant>`, `docs/DESKTOP_IPC.md` §7).** `none`, `shared`, `resumePrepared`,
+  `resumeAccepted`, `resumeAttachments`, `resumeSecretKey`, `rekeyElsewhere` (hosted, signed out), `rekeyPending`
+  (folder marker), `unknownFile`, `conflict`, `slowDevice`; `&rotationFail=<code>`, `&rotationStepMs=<ms>`. The other
+  device's kit: Secret Key `M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3`, password `new correct horse battery staple`.
+- **i18n.** The `rotation` catalog (EN, DE informal "du"; no "epoch": "your account's keys were renewed") and the
+  new errors.
+- **Tests.** Nine real-engine tests (`rotation_handler_tests.rs`): every command locked; a Secret Key rotation only
+  after a verified kit, the old key refused afterwards; abandon, `rotationTooFar`, the resume input checks; the
+  profile upgrade only goes up; a re-key needs sync, a different password and a verified kit; a folder re-key end to
+  end (epoch 2, new credentials open the account, sync carries on); a Secret Key this device held is refused; the
+  dismiss input checks; a hosted re-key on the real server with a second device that is signed out and comes back with
+  the new kit (the old key refused). Contract fixtures regenerated, 11 fuzz seeds and the request types added to the
+  `ipc_requests` target (selector modulus 67).
+- **Deviations from the spec.**
+  - `rotation_resume` takes `{ password, kitGroup, code }` (the spec's `{ password }` plus the retyped group the
+    amendments require) and `needs` is `none | password | kitGroup` (not `secretKey`). The commits and the resume
+    answer `RotationDone` (what was turned off, unreachable attachments, `finished`) instead of `null`, so the last
+    step can say what to do next. `folder_rekey_resolve` does not exist: the amendments removed equal-epoch
+    adoption, so a conflict is dismissed (`sync_dismiss_account_file`) or resolved by re-keying again.
+  - **Not built:** `vault_rotate_key` (a per-vault action; not in the T5 brief, the engine has no attachment
+    re-seal loop for a vault-only job) and the **silent recovery** at the next password unlock (§3.5 of the spec): it
+    would keep the typed master password in memory past the unlock; the recovery card asks again. Both are small
+    follow-ups (M7-R1, M7-R2).
+  - A re-key needs sync (`syncNotConfigured` otherwise): a local-only account has no second copy to renew.
+  - A hosted adoption signs in once more with the adopted password; with a second factor the code was spent, so the
+    device ends `signedOut` and the sign-in form takes over.
+- **Reviews.** T1 crypto review: 0 High, 3 Medium, 6 Low, 2 Info, all fixed in `0e27585`. **The milestone review is
+  pending** (crypto-reviewer over `19eff2a..` the T5 commit, sync-chaos, ux-reviewer on the wizard); its results go
+  into `docs/SECURITY_REVIEW_LOG.md` ("M7").
+- **Backend fix round integrated in the desktop (2026-11-09; `395015e`, `730e8f1`).**
+  - A hosted join opens the account at the epoch the server served (`join_account_with_keys_at`); a folder join
+    already does through the verified account file. **H2:** a fresh hosted registration and a folder-to-hosted move
+    carry the account-key epoch (`730e8f1`). The desktop only goes through the engine for adoption, which sets
+    `any_higher_epoch` (true for a folder, false for hosted), so nothing else changed there.
+  - New commands `sync_rekey_markers` and `sync_dismiss_rekey_marker` (H1): the re-key notice shows the notices it
+    is halted on, each with "Ignore this notice" and a confirmation. `rotation_abandon_committed` (L4): "Give up on
+    the rest" in the resume banner after a continue that does not finish, with a confirmation that says the waiting
+    attachments keep their old file key. The done step lists the unreadable attachments (item title and file name,
+    at most 50) and says they keep their old file key (so someone holding the old keys and a copy could still open
+    them): the vault's `Unreadable` and unreachable rows are exactly that.
+  - **L2:** the revocation row for reason 6 is deferred per its ADR (not built here).
+  - **Round 2 (`824e0a4`, `80278b8`).** `EpochJumpTooLarge` maps to `rotationJumpTooLarge` ("set it up again", no
+    re-key button, THREAT_MODEL R96). Settings > Password and keys lists "Ignored re-key notices" (only when some
+    exist) with a confirmation-free "Restore" (`sync_ignored_rekey_markers`, `sync_restore_rekey_marker`). Dismissed
+    unverifiable account files are not listed in the desktop, so they have no restore. The abandon button was
+    already limited to phase 5 and later.
+- **CI fix (2026-11-10)**: `rusqlite` `=0.41.1` (bundled SQLite 3.54, `libsqlite3-sys` 0.39.1) replaces `=0.40.2` for
+  RUSTSEC-2026-0459 (uninitialized page-cache memory on a db plus `-wal` with a different page size). No API changes
+  needed; all five fuzz lockfiles updated.
+- **Manual checks for M7**, none can be automated here: (1) two real devices on a real server: re-key on one, watch
+  the other sign out, adopt it with the new kit, then a second re-key from the other; (2) a re-key on a real
+  Dropbox, iCloud or OneDrive folder with two devices, one offline during the re-key and adopting later, and a
+  deliberate concurrent re-key (the conflict finding); (3) kill the app at each phase (after the kit, after
+  "asking your account", during the attachments) and use "Continue key rotation" on the next start; (4) quick unlock
+  and a security key before and after a re-key (they are turned off, and enrolling again works); (5) a shared vault
+  and an emergency contact across a re-key: the members compare the new code, the owner's vault renews; (6) keyboard
+  and screen-reader pass through the four wizards, the banner and the recovery dialog in light, dark, German and
+  English; (7) a slow machine for `profileTooSlow`.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -2416,7 +2522,10 @@ sharing session API; `cea757b`), T3 `mosaic-server` (schema v2, routes; `d241309
 | M6-R2 | medium | No compare-and-swap in folder mode: concurrent rotations are resolved by the canonical winner; the delete race (M2-R7) and an edit lost to a rotation (M2-R12) remain there; a lost segment heals only when its writer compacts; the hosted `PulledKey.device_id` is not authenticated, so a malicious server can steer the rank rule and cause rotation churn (capped at three per vault per day) | accepted, THREAT_MODEL R55, ADR-0045 |
 | M6-R3 | medium | Freeze detection is heuristic: a server or folder that withholds data consistently from every device, checkpoints included, is noticed only through a device's own counter or by the user; the view digest needs two devices at the same head, otherwise `NoCommonView` after 48 hours; findings stay until acknowledged on every device | accepted, THREAT_MODEL R56, CRYPTO_SPEC §10 |
 | M6-R4 | low | The session token is a bearer credential in the OS keystore: same-user malware can download and upload ciphertext and soft-delete attachments; removing a device signs it out but does not take back keys it holds; `reqwest` and `hyper` copy the `Authorization` value while sending | accepted, THREAT_MODEL R57 |
-| M6-R5 | medium | A lost or stolen device keeps AK and every vault key it holds: whoever unlocks it can forge folder objects every other device accepts, and reuse the install ID, until the account is re-keyed; removing it from the list or a halt elsewhere does not take the key back | accepted until re-key (M7), THREAT_MODEL R57a |
+| M6-R5 | medium | A lost or stolen device keeps AK and every vault key it holds: whoever unlocks it can forge folder objects every other device accepts, and reuse the install ID, until the account is re-keyed; removing it from the list or a halt elsewhere does not take the key back | resolved for the account by the re-key (M7: the lost device's keys stop working once the account is re-keyed; what it already copied stays readable, R85), THREAT_MODEL R57a |
+| M7-R1 | low | The silent recovery of CRYPTO_SPEC §9.4 at the next password unlock (try `adopt_remote_password` with the typed password) is not built: it would hold the typed master password in memory past the unlock. The recovery card asks for the password again | open, small follow-up (owner may accept the extra prompt) |
+| M7-R2 | low | No UI for `vault_rotate_key` with the optional attachment re-seal (spec §5.2, "Rotate vault key"); the engine has no attachment loop for a vault-only job | open, follow-up with M7b or M9 |
+| M7-R3 | low | A device that a re-key signed out can't learn "re-keyed" before sign-in: the server deletes the other sessions, so a revoked token is just unknown. The recovery card and its error carry a hint to enter the new Secret Key. A distinct revocation reason needs a sessions schema change | open, M9 hardening |
 | M6-R6 | low | Open registration reveals whether an email is registered (invite mode, the default, limits this); real and fake pre-login IDs are indistinguishable, but account IDs created before the UUIDv4 rule show their creation time (no released users) | accepted, THREAT_MODEL R58, ADR-0044 |
 | M6-R7 | low | The sync configuration (server URL, folder path) is not authenticated: a local writer can redirect sync, and only ciphertext and the CRYPTO_SPEC §12 metadata would go to the attacker's location | accepted, THREAT_MODEL R59 |
 | M6-R8 | low | Hardware-protected (TK) vaults are not synced in M6: they exist only on their device, so losing it loses them | accepted until a CTAP transport (M3-R6), THREAT_MODEL R60 |
@@ -2497,4 +2606,18 @@ See the THREAT_MODEL §5 residual-risk register.
   fresh login, deleted on disconnect and on a 401; the memory fallback when the keystore refuses;
   (5) keyboard-only and screen-reader pass through the sync settings, the join flow and the native
   acknowledge dialog in light, dark, German and English.
+- **M7 key rotation (2026-11-08)**, owner decisions with the conservative default in force (`m7-spec.md` §9):
+  (OD-M7-1) the order: key rotation is M7, the brief's credential rotation is **M7b** and runs next, before M8 (M7b and
+  M8 share no code: the owner may swap them); (OD-M7-2) ADR-0042's non-key leftovers (settings as a synced record, move
+  pointers, flag on an unreadable copy) go to M9, or an M7c; (OD-M7-3) the new password on a re-key is required and
+  must differ (the alternative: allow keeping it when only a device was lost, the Secret Key still changes);
+  (OD-M7-4) no identity rollover notice: members compare the owner's new safety code; (OD-M7-5) offers never go above
+  `standard` by themselves, `strong` and `max` only by explicit choice with the two-second guard; (OD-M7-6) pre-re-key
+  own segments in a folder are kept until the new snapshot is complete plus 30 days (shorter costs stale devices data
+  until they adopt); (OD-M7-7) security-key unlock is deleted at a re-key and registered again (a PRF wrapping cannot
+  be renewed without touching the key). Also: whether the silent recovery at unlock (M7-R1) is worth keeping the
+  typed password in memory for a moment, and whether the per-vault "Rotate vault key" action (M7-R2) belongs in M7b.
+- **Manual checks for M7 (2026-11-08)**: see "M7 Key rotation — T5 desktop" above (seven checks: two real devices,
+  real cloud folders and a concurrent re-key, kill-at-each-phase resume, quick unlock and security keys across a re-key,
+  a shared vault and an emergency contact across a re-key, the keyboard and screen-reader pass, a slow machine).
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

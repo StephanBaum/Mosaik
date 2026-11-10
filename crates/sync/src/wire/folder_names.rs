@@ -9,6 +9,7 @@
 //! |---|---|
 //! | `^[0-9a-f]{16}\.mseg$` | segment, the digits are the sequence number (>= 1) |
 //! | `^[0-9a-f]{16}-[0-9a-f]{32}\.macct$` | account file: version (>= 1), device |
+//! | `^rekey-[0-9a-f]{8}-[0-9a-f]{32}\.mrek$` | re-key marker: the epoch it leaves (>= 1), device |
 //! | `^[0-9a-f]{32}\.matt$` | attachment blob |
 //! | `^[0-9a-f]{32}\.[0-9a-f]{32}\.mdel$` | blob delete marker: attachment, deleting device |
 //! | `head.mck` | checkpoint |
@@ -33,6 +34,13 @@ pub enum FolderName {
     Account {
         /// The account version (at least 1).
         version: u64,
+        /// The device that wrote it.
+        device: [u8; 16],
+    },
+    /// `rekey-<from_epoch:08x>-<device:32hex>.mrek`.
+    RekeyMarker {
+        /// The epoch the re-key leaves (at least 1).
+        from_epoch: u32,
         /// The device that wrote it.
         device: [u8; 16],
     },
@@ -108,6 +116,16 @@ pub fn parse(name: &OsStr) -> Option<FolderName> {
             device: id32(device)?,
         });
     }
+    if let Some(stem) = name.strip_suffix(".mrek") {
+        let (epoch, device) = stem.strip_prefix("rekey-")?.split_once('-')?;
+        let from_epoch = hex_exact::<4>(epoch)
+            .map(u32::from_be_bytes)
+            .filter(|e| *e != 0)?;
+        return Some(FolderName::RekeyMarker {
+            from_epoch,
+            device: id32(device)?,
+        });
+    }
     if let Some(stem) = name.strip_suffix(".matt") {
         return id32(stem).map(FolderName::Blob);
     }
@@ -141,6 +159,12 @@ pub fn segment_name(seq: u64) -> String {
 #[must_use]
 pub fn account_name(version: u64, device: &[u8; 16]) -> String {
     format!("{version:016x}-{}.macct", super::hex(device))
+}
+
+/// The file name of a re-key marker.
+#[must_use]
+pub fn rekey_marker_name(from_epoch: u32, device: &[u8; 16]) -> String {
+    format!("rekey-{from_epoch:08x}-{}.mrek", super::hex(device))
 }
 
 /// The file name of an attachment blob.
@@ -211,6 +235,27 @@ mod tests {
                 device: ID_BYTES
             })
         );
+        assert_eq!(
+            p(&format!("rekey-00000007-{ID}.mrek")),
+            Some(FolderName::RekeyMarker {
+                from_epoch: 7,
+                device: ID_BYTES
+            })
+        );
+        assert_eq!(
+            rekey_marker_name(7, &ID_BYTES),
+            format!("rekey-00000007-{ID}.mrek")
+        );
+        for bad in [
+            format!("rekey-00000000-{ID}.mrek"),
+            format!("rekey-7-{ID}.mrek"),
+            format!("rekey-00000007-{ID} (1).mrek"),
+            format!("00000007-{ID}.mrek"),
+            format!("rekey-00000007-{}.mrek", "0".repeat(32)),
+            format!("rekey-0000000G-{ID}.mrek"),
+        ] {
+            assert_eq!(p(&bad), None, "{bad}");
+        }
         assert_eq!(segment_name(255), "00000000000000ff.mseg");
         assert_eq!(
             account_name(3, &ID_BYTES),

@@ -31,6 +31,9 @@ pub(super) struct RunStats {
     /// The member list of each shared vault as the server gave it at the
     /// vault's last sharing step (hosted, M6b).
     pub(super) members: BTreeMap<VaultId, MembersView>,
+    /// The shared vaults whose owner page said a member re-keyed and asked
+    /// for a rotation (M7).
+    pub(super) rotation_requested: BTreeSet<VaultId>,
 }
 
 /// How a received object was handled.

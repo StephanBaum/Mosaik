@@ -320,9 +320,14 @@ impl Backend {
         if *wrong >= MAX_WRONG_KIT_ANSWERS {
             return Err(IpcError::new(ErrorCode::TooManyAttempts));
         }
-        let key = self
-            .secret_key_of(account)
-            .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
+        let key = if request.pending {
+            self.pending_secret_keys
+                .load(account)?
+                .ok_or(IpcError::new(ErrorCode::RotationNone))?
+        } else {
+            self.secret_key_of(account)
+                .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?
+        };
         let matches = key.matches_last_group(request.last_group.expose_secret());
         if !matches {
             // The answer is only four characters: after five wrong ones the
@@ -339,6 +344,11 @@ impl Backend {
         }
         *wrong = 0;
         drop(wrong);
+        if request.pending {
+            // The new kit of a rotation: only the flag the commit checks.
+            *guard(&self.pending_kit_verified)? = Some(account);
+            return Ok(KitVerification { matches });
+        }
         *guard(&self.kit_pending)? = None;
         self.update_stored_in(&mut slot, |s| {
             if let Some(account) = s.account.as_mut() {
@@ -463,6 +473,9 @@ impl Backend {
         self.clear_user_verification();
         if let Ok(mut pending) = self.kit_pending.lock() {
             *pending = None;
+        }
+        if let Ok(mut verified) = self.pending_kit_verified.lock() {
+            *verified = None;
         }
         if let Ok(mut generated) = self.last_generated.lock() {
             *generated = None;
@@ -596,7 +609,7 @@ impl Backend {
     pub fn save_emergency_kit(&self, request: SaveKitRequest) -> IpcResult<KitSaved> {
         request.labels.validate()?;
         let account = self.slot()?.unlocked()?.account_id();
-        if *guard(&self.kit_pending)? != Some(account) {
+        if !request.pending && *guard(&self.kit_pending)? != Some(account) {
             let password = request
                 .password
                 .ok_or(IpcError::new(ErrorCode::ReauthRequired))?;
@@ -617,9 +630,14 @@ impl Backend {
             if slot.unlocked()?.account_id() != account {
                 return Err(IpcError::LOCKED);
             }
-            let key = self
-                .secret_key_of(account)
-                .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
+            let key = if request.pending {
+                self.pending_secret_keys
+                    .load(account)?
+                    .ok_or(IpcError::new(ErrorCode::RotationNone))?
+            } else {
+                self.secret_key_of(account)
+                    .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?
+            };
             let display = key.to_display()?;
             let email = self.account().and_then(|a| a.email).unwrap_or_default();
             emergency_kit::render(

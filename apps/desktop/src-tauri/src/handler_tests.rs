@@ -993,7 +993,8 @@ fn a_restart_remembers_the_account_and_finds_the_key() {
             quick_unlock: vec![],
         }
     );
-    let last_group = json!({ "lastGroup": secret_key.rsplit('-').next().unwrap() });
+    let last_group =
+        json!({ "lastGroup": secret_key.rsplit('-').next().unwrap(), "pending": false });
     assert_eq!(
         code(
             second
@@ -1033,7 +1034,7 @@ fn a_restart_remembers_the_account_and_finds_the_key() {
     assert_eq!(
         code(
             third
-                .verify_emergency_kit(&req(json!({ "lastGroup": "XXXX" })))
+                .verify_emergency_kit(&req(json!({ "lastGroup": "XXXX", "pending": false })))
                 .unwrap_err()
         ),
         ErrorCode::Locked
@@ -1097,6 +1098,7 @@ fn quick_unlock_is_unavailable_without_a_platform() {
 fn kit_request(password: Option<&str>) -> SaveKitRequest {
     SaveKitRequest {
         labels: crate::emergency_kit::tests::labels(),
+        pending: false,
         password: password.map(SecretIn::test),
     }
 }
@@ -1148,7 +1150,7 @@ fn after_verification_the_kit_needs_the_password() {
     let b = h.backend.with_dialogs(Box::new(kit_dir(&path)));
     let verified = b
         .verify_emergency_kit(&req(
-            json!({ "lastGroup": key.rsplit('-').next().unwrap() }),
+            json!({ "lastGroup": key.rsplit('-').next().unwrap(), "pending": false }),
         ))
         .unwrap();
     assert!(verified.matches);

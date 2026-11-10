@@ -31,6 +31,17 @@
  * from `?mock=noAccount` takes alex@example.com, `mosaic` and the sample Secret Key;
  * `&syncJoin2fa=1` asks for the code first.
  *
+ * Account keys (M7, Settings > Security): `&rotation=<variant>` with none, shared (a review with shared
+ * vaults, members, grants and security keys), resumePrepared, resumeAccepted, resumeAttachments,
+ * resumeSecretKey (a journal row to continue after unlock), resumeStuck (a committed job that cannot finish: the banner offers to give it up), rekeyElsewhere (hosted: signed out after
+ * a re-key on another device), rekeyPending (folder: a verified re-key marker, sync paused),
+ * ignoredNotices (a folder with an ignored re-key notice to restore), jumpTooLarge (rekeyPending, but adopting answers
+ * `rotationJumpTooLarge`: set the device up again), unknownFile and conflict (a folder account file this device cannot verify), slowDevice
+ * (`profile_upgrade` answers `profileTooSlow` unless forced). The other device's kit has the Secret
+ * Key `M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3` and the password `new correct horse battery staple`.
+ * `&rotationFail=<errorCode>` makes the commits fail, `&rotationStepMs=<ms>` sets the pause between
+ * the steps of a run (default 450).
+ *
  * Sharing (M6b): `&sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|
  * rotation` seeds contacts, members, invites and emergency grants (see `docs/DESKTOP_IPC.md` §7) and, unless
  * `&sync=` is given, a hosted sync account. `&sync=folder` or `&sync=none` shows why sharing is off.
@@ -77,6 +88,15 @@ import {
   seedHardwareVault,
   type QuickOptions,
 } from "./mock/quickUnlock.ts";
+import { markerHandlers } from "./mock/rotationMarkers.ts";
+import { applyRotationToSync } from "./mock/rotationSync.ts";
+import {
+  rotationAsyncHandlers,
+  rotationHandlers,
+  rotationVariants,
+  seedRotation,
+  type MockRotationOptions,
+} from "./mock/rotation.ts";
 import { sessionAsyncHandlers, sessionHandlers } from "./mock/session.ts";
 import { defaultSettings, settingsHandlers } from "./mock/settings.ts";
 import { sshHandlers, startAgent } from "./mock/ssh.ts";
@@ -129,6 +149,8 @@ export interface MockOptions extends QuickOptions {
   attachSave?: ErrorCode | "cancel";
   /** Sync seeds and answers (`&sync=`, `&syncServer=`, `&syncFolder=`, `&syncFail=`, `&syncJoin2fa=1`). */
   sync?: MockSyncOptions;
+  /** Account keys seed (`&rotation=<variant>`, `&rotationFail=<code>`, `&rotationStepMs=<ms>`); implies a backend unless `&sync=` says otherwise. */
+  rotation?: MockRotationOptions;
   /** Sharing seed (`&sharing=<variant>`); implies a hosted sync account unless `&sync=` says otherwise. */
   sharing?: SharingVariant;
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
@@ -155,6 +177,8 @@ const handlers: MockHandlers = {
   ...sshHandlers,
   ...browserHandlers,
   ...syncHandlers,
+  ...rotationHandlers,
+  ...markerHandlers,
   ...sharingHandlers,
 };
 
@@ -184,6 +208,7 @@ const asyncHandlers: MockAsyncHandlers = {
   ...sessionAsyncHandlers,
   ...quickUnlockAsyncHandlers,
   ...vaultAsyncHandlers,
+  ...rotationAsyncHandlers,
 };
 
 function browserOptionsFromParams(params: URLSearchParams): MockOptions {
@@ -243,6 +268,42 @@ function syncOptionsFromParams(params: URLSearchParams): MockOptions {
   return Object.keys(sync).length === 0 ? {} : { sync };
 }
 
+/** The backend a rotation variant needs when `&sync=` says nothing: a folder or the server. */
+function rotationSync(options: MockOptions): MockSyncOptions {
+  const variant = options.rotation?.variant;
+  if (variant === undefined) {
+    return {};
+  }
+  const folder = variant === "rekeyPending" ||
+    variant === "jumpTooLarge" ||
+    variant === "ignoredNotices" ||
+    variant === "unknownFile" ||
+    variant === "conflict";
+  return { variant: folder ? "folder" : "hostedNoTotp" };
+}
+
+/** The sync seed of a start: nothing before an account, else the options (or what a rotation variant needs). */
+function syncOptionsFor(start: MockStart, options: MockOptions): MockSyncOptions {
+  return start === "noAccount" ? { ...options.sync, variant: "none" } : (options.sync ?? rotationSync(options));
+}
+
+function rotationOptionsFromParams(params: URLSearchParams): MockOptions {
+  const variant = rotationVariants.find((name) => name === params.get("rotation"));
+  if (variant === undefined) {
+    return {};
+  }
+  const failParam = params.get("rotationFail");
+  const failCode = errorCodes.find((code) => code === failParam);
+  const stepParam = params.get("rotationStepMs");
+  const step = Number(stepParam ?? "");
+  const rotation: MockRotationOptions = {
+    variant,
+    ...(failCode === undefined ? {} : { fail: failCode }),
+    ...(stepParam !== null && Number.isFinite(step) && step >= 0 ? { stepMs: step } : {}),
+  };
+  return { rotation };
+}
+
 function sharingOptionsFromParams(params: URLSearchParams): MockOptions {
   const variant = sharingVariants.find((name) => name === params.get("sharing"));
   if (variant === undefined) {
@@ -268,6 +329,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...attachOptionsFromParams(params),
     ...syncOptionsFromParams(params),
     ...sharingOptionsFromParams(params),
+    ...rotationOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
@@ -325,8 +387,9 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     kitVerified: start !== "noAccount" && options.kitUnverified !== true,
     sshEnabled: false,
     browser: seededBrowser(options, now),
+    rotation: seedRotation(options.rotation ?? {}),
     sharing: seedSharing(options.sharing),
-    sync: seedSync(start === "noAccount" ? { ...options.sync, variant: "none" } : (options.sync ?? {}), now()),
+    sync: seedSync(syncOptionsFor(start, options), now()),
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
     items: initialItems(start, options),
@@ -352,6 +415,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
   };
 
   seedHardwareVault(state, options, start !== "noAccount");
+  applyRotationToSync(state, start !== "noAccount" ? options.rotation?.variant : undefined);
 
   if (start === "unlocked") {
     startAgent(state);

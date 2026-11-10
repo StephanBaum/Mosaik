@@ -369,7 +369,8 @@ pub struct Outgoing {
     pub vault_id: [u8; 16],
     pub recipient: [u8; 16],
     pub role: u8,
-    /// 0 open, 1 accepted, 2 declined, 3 cancelled, 4 expired.
+    /// 0 open, 1 accepted, 2 declined, 3 cancelled, 4 expired, 5 cancelled by the
+    /// recipient's re-key.
     pub state: u8,
     pub delivered: bool,
     pub expires_at: u64,
@@ -972,6 +973,11 @@ pub fn rotate(
         "UPDATE vaults SET current_generation = ?1, head_seq = ?2 WHERE vault_id = ?3",
         params![r.generation, int(seq), vault.as_slice()],
     )?;
+    // The rotation answers every member's request (M7 spec §3.7).
+    tx.execute(
+        "DELETE FROM vault_rotation_requests WHERE vault_id = ?1",
+        [vault.as_slice()],
+    )?;
     let mut accounts: Vec<[u8; 16]> = members.into_iter().collect();
     accounts.push(*account);
     Ok(Rotated { seq, accounts })
@@ -996,6 +1002,10 @@ pub(super) fn remove_member(
     )?;
     tx.execute(
         "DELETE FROM key_shares WHERE vault_id = ?1 AND recipient = ?2",
+        p,
+    )?;
+    tx.execute(
+        "DELETE FROM vault_rotation_requests WHERE vault_id = ?1 AND requester = ?2",
         p,
     )?;
     tx.execute(

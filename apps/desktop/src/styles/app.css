@@ -519,6 +519,8 @@ input[type="checkbox"]:not([role="switch"]) {
 /* Dialog, palette, toasts */
 
 .dialog {
+  /* A focused field scrolls clear of the sticky action bar (its height, with some air). */
+  scroll-padding-block-end: calc(var(--space-9) + var(--space-6));
   width: var(--size-dialog);
   max-width: calc(100% - var(--space-7));
   padding: calc(var(--space-6) + var(--space-1));
@@ -575,11 +577,18 @@ input[type="checkbox"]:not([role="switch"]) {
   justify-content: flex-end;
   gap: var(--space-3);
   margin-top: var(--space-6);
-  /* In a dialog that scrolls (a short window) the buttons stay in view. */
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
   padding-block: var(--space-3);
+}
+
+/* In a dialog that scrolls (a short window) the buttons stay in view. Only there: the same row
+   in a form on a page must not float over the content below it. The bar also covers the dialog's
+   bottom padding, so scrolled content does not show through beneath it. */
+.dialog .dialog__actions {
+  position: sticky;
+  bottom: calc(-1 * (var(--space-6) + var(--space-1)));
+  z-index: 1;
+  padding-bottom: calc(var(--space-3) + var(--space-6) + var(--space-1));
+  margin-bottom: calc(-1 * (var(--space-6) + var(--space-1)));
   background: var(--color-surface);
 }
 
