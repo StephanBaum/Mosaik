@@ -21,6 +21,7 @@ mod cli;
 mod common;
 mod emergency;
 mod hosted;
+mod hosted_client;
 mod loopback;
 mod malicious_rekey;
 mod malicious_server;
