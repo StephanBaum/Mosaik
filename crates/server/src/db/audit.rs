@@ -25,6 +25,10 @@ pub enum Kind {
     EmergencyReleased = 14,
     AccountRekeyed = 15,
     RotationRequested = 16,
+    WebauthnAdded = 17,
+    WebauthnRemoved = 18,
+    SecondFactorReset = 19,
+    WebauthnCounterRegressed = 20,
 }
 
 /// Appends an event.

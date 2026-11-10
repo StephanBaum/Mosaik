@@ -10,10 +10,12 @@
 //! and routes that change credentials call [`Authed::require_fresh`]: the
 //! session's OPAQUE login must be at most five minutes old (§9.4).
 
+pub mod handoff;
 pub mod opaque;
 pub mod prelogin;
 pub mod secret_file;
 pub mod totp;
+pub mod webauthn;
 
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
@@ -22,7 +24,7 @@ use axum::http::request::Parts;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use hkdf::Hkdf;
 use mosaic_core::encoding::{Label, label};
-use mosaic_sync::wire::json::codes;
+use mosaic_sync::wire::json::{RevokedDetail, codes};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -75,11 +77,21 @@ pub struct Authed {
     pub pending: bool,
     /// The account version at this session's login (its KE3).
     pub account_version: u64,
+    /// Until when a completed `Confirm` handoff counts as a second factor.
+    pub second_factor_until: u64,
+    /// When the session ends (a pending session does not slide).
+    pub expires_at: u64,
     fresh_until: u64,
     now: u64,
 }
 
 impl Authed {
+    /// Whether a `Confirm` handoff of this session is still recent.
+    #[must_use]
+    pub const fn second_factor_recent(&self) -> bool {
+        self.second_factor_until > self.now
+    }
+
     /// Requires a login within the last five minutes (CRYPTO_SPEC §9.4).
     ///
     /// # Errors
@@ -102,10 +114,18 @@ fn authenticate(parts: &Parts, state: &AppState) -> Result<Authed, ApiError> {
     let now = state.clock.now_ms();
     let idle = state.limits.session_idle_days.saturating_mul(86_400_000);
     let max = state.limits.session_max_days.saturating_mul(86_400_000);
-    let row = state
+    let Some(row) = state
         .db
         .run(|c| sessions::lookup_and_touch(c, &hash, now, idle, max))?
-        .ok_or_else(ApiError::unauthorized)?;
+    else {
+        // A token the server ended for a reason says why (CRYPTO_SPEC §9.5).
+        let reason = state.db.run(|c| sessions::revoked_reason(c, &hash))?;
+        return Err(reason.map_or_else(ApiError::unauthorized, |r| {
+            ApiError::unauthorized().with_detail(&RevokedDetail {
+                revoked: r.name().to_owned(),
+            })
+        }));
+    };
     state
         .rate
         .check(now, Scope::Session, &hash, ratelimit::SESSION)
@@ -116,6 +136,8 @@ fn authenticate(parts: &Parts, state: &AppState) -> Result<Authed, ApiError> {
         token_hash: hash,
         pending: row.pending_2fa,
         account_version: row.account_version,
+        second_factor_until: row.second_factor_until,
+        expires_at: row.expires_at,
         fresh_until: row.fresh_until,
         now,
     })

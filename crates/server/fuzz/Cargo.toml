@@ -25,6 +25,10 @@ libfuzzer-sys = "=0.4.10"
 mosaic-core = { path = "../../core" }
 # `opaque`: the OPAQUE message parsers the server runs on request bytes.
 mosaic-sync = { path = "../../sync", features = ["opaque"] }
+# The relying party (webauthn_rp) that the webauthn_bodies target drives.
+mosaic-server = { path = ".." }
+# The client data the target builds around the ceremony challenge.
+base64ct = { version = "=1.8.3", default-features = false, features = ["alloc"] }
 # The same versions and features as the main workspace.
 serde = { version = "=1.0.229", default-features = false, features = ["std"] }
 
@@ -38,6 +42,13 @@ bench = false
 [[bin]]
 name = "checkpoint_upload"
 path = "fuzz_targets/checkpoint_upload.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_bodies"
+path = "fuzz_targets/webauthn_bodies.rs"
 test = false
 doc = false
 bench = false

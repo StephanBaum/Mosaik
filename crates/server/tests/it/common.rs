@@ -447,6 +447,48 @@ impl TestApp {
         }
     }
 
+    /// A password change of the session `token`'s account to `new_opw`
+    /// (`password/start` and `password/finish`); the answer of `finish`.
+    pub async fn change_password(&self, u: &User, token: &[u8; 32], new_opw: &[u8; 32]) -> Resp {
+        use mosaic_sync::wire::json::{PasswordFinishRequest, PasswordStartRequest};
+        let mut rng = OsRng;
+        let start = ClientRegistration::<Suite>::start(&mut rng, new_opw).expect("start");
+        let r = self
+            .post(
+                "/v1/account/password/start",
+                Some(token),
+                &PasswordStartRequest {
+                    registration_request: B64(start.message.serialize().to_vec()),
+                },
+            )
+            .await;
+        assert_eq!(r.status, StatusCode::OK);
+        let resp: RegistrationStartResponse = r.json();
+        let fin = start
+            .state
+            .finish(
+                &mut rng,
+                new_opw,
+                RegistrationResponse::deserialize(&resp.registration_response.0).expect("resp"),
+                ClientRegistrationFinishParameters::new(
+                    identifiers(u.account_id.as_bytes(), ORIGIN.as_bytes()),
+                    None,
+                ),
+            )
+            .expect("finish");
+        self.post(
+            "/v1/account/password/finish",
+            Some(token),
+            &PasswordFinishRequest {
+                registration_upload: B64(fin.message.serialize().to_vec()),
+                wrapped_ak: wrapped_key(9),
+                salt: B64Fixed([5; 16]),
+                profile: Argon2Profile::DEFAULT,
+            },
+        )
+        .await
+    }
+
     // ---- vaults ------------------------------------------------------
 
     /// The device a session belongs to.

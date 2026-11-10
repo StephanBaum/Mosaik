@@ -294,6 +294,44 @@ DROP TABLE audit;
 ALTER TABLE audit_v3 RENAME TO audit;
 CREATE INDEX audit_account ON audit (account_id, at);
 ",
+    // v4 (M9): WebAuthn credentials, recent second factor, revoked sessions,
+    // the new audit kinds (ADR-0078, ADR-0080)
+    "
+ALTER TABLE accounts ADD COLUMN webauthn_user_handle BLOB CHECK (webauthn_user_handle IS NULL OR length(webauthn_user_handle) = 16);
+
+CREATE TABLE webauthn_credentials (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    credential_id BLOB NOT NULL CHECK (length(credential_id) BETWEEN 16 AND 1023),
+    public_key BLOB NOT NULL CHECK (length(public_key) <= 1024),
+    sign_count INTEGER NOT NULL CHECK (sign_count >= 0),
+    label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 64),
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    PRIMARY KEY (account_id, credential_id)
+) STRICT;
+CREATE UNIQUE INDEX webauthn_credential_unique ON webauthn_credentials (credential_id);
+
+ALTER TABLE sessions ADD COLUMN second_factor_until INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE revoked_sessions (
+    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    reason INTEGER NOT NULL CHECK (reason BETWEEN 1 AND 4),
+    revoked_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX revoked_sessions_at ON revoked_sessions (revoked_at);
+
+CREATE TABLE audit_v4 (
+    account_id BLOB NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
+    at INTEGER NOT NULL,
+    kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 20),
+    device_id BLOB CHECK (device_id IS NULL OR length(device_id) = 16)
+) STRICT;
+INSERT INTO audit_v4 (account_id, at, kind, device_id) SELECT account_id, at, kind, device_id FROM audit;
+DROP TABLE audit;
+ALTER TABLE audit_v4 RENAME TO audit;
+CREATE INDEX audit_account ON audit (account_id, at);
+",
 ];
 
 /// The schema version this build writes.

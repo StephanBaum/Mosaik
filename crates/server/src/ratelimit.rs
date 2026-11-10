@@ -23,6 +23,8 @@ pub enum Scope {
     RegisterStartIp,
     /// `POST /v1/register/finish`, per IP.
     RegisterFinishIp,
+    /// The unauthenticated WebAuthn handoff routes, per IP.
+    Handoff,
     /// Authenticated routes, per session.
     Session,
     /// Attachment uploads, per session.
@@ -76,6 +78,8 @@ pub const LOGIN_IP: Rule = Rule::per_minute(10, 10);
 pub const LOGIN_EMAIL: Rule = Rule::per_minute(5, 5);
 /// Registration: 3/h per IP.
 pub const REGISTER_IP: Rule = Rule::per_hour(3);
+/// The handoff routes: 10/min per IP (burst 20).
+pub const HANDOFF_IP: Rule = Rule::per_minute(10, 20);
 /// Authenticated routes: 600/min per session.
 pub const SESSION: Rule = Rule::per_minute(600, 600);
 /// Attachment uploads: 60/min per session.
@@ -131,7 +135,11 @@ impl Default for RateLimiter {
 const fn is_ip_scope(scope: Scope) -> bool {
     matches!(
         scope,
-        Scope::PreloginIp | Scope::LoginIp | Scope::RegisterStartIp | Scope::RegisterFinishIp
+        Scope::PreloginIp
+            | Scope::LoginIp
+            | Scope::RegisterStartIp
+            | Scope::RegisterFinishIp
+            | Scope::Handoff
     )
 }
 

@@ -34,3 +34,4 @@ mod sharing_world;
 mod sim_hosted;
 mod sim_rekey;
 mod sim_sharing;
+mod webauthn;

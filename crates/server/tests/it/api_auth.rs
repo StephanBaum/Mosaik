@@ -1292,3 +1292,126 @@ async fn one_code_is_accepted_once_across_sessions() {
     statuses.sort();
     assert_eq!(statuses, vec![StatusCode::OK, StatusCode::UNAUTHORIZED]);
 }
+
+// ---- revocation reasons (CRYPTO_SPEC §9.5, ADR-0080) ----------------------------
+
+fn revoked_reason(r: &crate::common::Resp) -> Option<String> {
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(r.code(), "unauthorized");
+    r.error()
+        .detail_as::<json::RevokedDetail>()
+        .map(|d| d.revoked)
+}
+
+#[tokio::test(start_paused = true)]
+async fn rekey_revoked_token_reports_rekey() {
+    let app = open_app();
+    let a = crate::sharing::acct(&app, "alice").await;
+    app.clock.advance_ms(13_000);
+    let other = app.login_device(&a.u, InstallId::new_v7().unwrap()).await;
+    let r = crate::rekey::rekey_now(&app, &a).await;
+    assert_eq!(r.status, StatusCode::OK);
+    let r = app.get("/v1/account", Some(&other)).await;
+    assert_eq!(revoked_reason(&r).as_deref(), Some("rekey"));
+    // The re-keying session itself stays.
+    assert_eq!(
+        app.get("/v1/account", Some(&a.t)).await.status,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn password_change_reports_password_change() {
+    let app = open_app();
+    let (u, token) = app.user("alice").await;
+    app.clock.advance_ms(13_000);
+    let other = app.login_device(&u, InstallId::new_v7().unwrap()).await;
+    let r = app.change_password(&u, &token, &[0x42; 32]).await;
+    assert_eq!(r.status, StatusCode::OK);
+    let r = app.get("/v1/account", Some(&other)).await;
+    assert_eq!(revoked_reason(&r).as_deref(), Some("passwordChange"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn device_remove_reports_device_removed() {
+    let app = open_app();
+    let (u, token) = app.user("alice").await;
+    let gone = InstallId::new_v7().unwrap();
+    app.clock.advance_ms(13_000);
+    let t2 = app.login_device(&u, gone).await;
+    assert_eq!(
+        app.delete(&format!("/v1/devices/{gone}"), Some(&token))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let r = app.get("/v1/account", Some(&t2)).await;
+    assert_eq!(revoked_reason(&r).as_deref(), Some("deviceRemoved"));
+    // A token the server never knew is plain unauthorized.
+    let r = app.get("/v1/account", Some(&[9u8; 32])).await;
+    assert_eq!(revoked_reason(&r), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn revocations_purged_after_30_days() {
+    let app = open_app();
+    let (u, token) = app.user("alice").await;
+    let gone = InstallId::new_v7().unwrap();
+    app.clock.advance_ms(13_000);
+    let t2 = app.login_device(&u, gone).await;
+    app.delete(&format!("/v1/devices/{gone}"), Some(&token))
+        .await;
+    let rows = |app: &TestApp| -> i64 {
+        app.state
+            .db()
+            .run(|c| {
+                Ok::<_, ApiError>(c.query_row(
+                    "SELECT COUNT(*) FROM revoked_sessions",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .unwrap()
+    };
+    assert_eq!(rows(&app), 1);
+    app.clock.advance_ms(29 * 86_400_000);
+    app.state.maintain().unwrap();
+    assert_eq!(rows(&app), 1, "kept for 30 days");
+    assert_eq!(
+        revoked_reason(&app.get("/v1/account", Some(&t2)).await).as_deref(),
+        Some("deviceRemoved")
+    );
+    app.clock.advance_ms(2 * 86_400_000);
+    app.state.maintain().unwrap();
+    assert_eq!(rows(&app), 0);
+    assert_eq!(
+        revoked_reason(&app.get("/v1/account", Some(&t2)).await),
+        None
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn logout_is_not_a_revocation() {
+    let app = open_app();
+    let (u, _token) = app.user("alice").await;
+    app.clock.advance_ms(13_000);
+    let t2 = app.login_device(&u, InstallId::new_v7().unwrap()).await;
+    assert_eq!(
+        app.post("/v1/logout", Some(&t2), &Empty {}).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        revoked_reason(&app.get("/v1/account", Some(&t2)).await),
+        None
+    );
+    let n: i64 = app
+        .state
+        .db()
+        .run(|c| {
+            Ok::<_, ApiError>(
+                c.query_row("SELECT COUNT(*) FROM revoked_sessions", [], |r| r.get(0))?,
+            )
+        })
+        .unwrap();
+    assert_eq!(n, 0);
+}

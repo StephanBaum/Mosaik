@@ -139,7 +139,8 @@ pub async fn finish(State(st): State<AppState>, body: Bytes) -> Result<Reply, Ap
             return Err(login_failed());
         }
         devices::upsert_on_login(tx, &account_id, &device, &req.device_name, now)?;
-        let pending = account.totp_sealed.is_some();
+        let pending =
+            account.totp_sealed.is_some() || crate::db::webauthn::count(tx, &account_id)? > 0;
         // A pending session ends after five minutes.
         let expires_at = if pending {
             now.saturating_add(PENDING_MS)
@@ -200,7 +201,7 @@ pub async fn totp(
     };
     if let Err(retry) = st
         .db
-        .run(|c| accounts::claim_totp_slot(c, &session.account_id, now))?
+        .run(|c| accounts::claim_second_factor_slot(c, &session.account_id, now))?
     {
         return Err(ApiError::rate_limited(retry));
     }
@@ -251,5 +252,6 @@ pub async fn logout(
     AnySession(session): AnySession,
 ) -> Result<Reply, ApiError> {
     st.db.run(|c| sessions::delete(c, &session.token_hash))?;
+    st.handoffs.drop_session(&session.token_hash);
     Reply::ok(&Empty {})
 }

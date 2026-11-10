@@ -198,6 +198,7 @@ pub async fn finish(
     })?;
     // Logins that started against the old password end with it.
     st.logins.drop_account(&s.account_id);
+    st.handoffs.drop_account(&s.account_id);
     notify(&st, done.notify, now);
     Reply::ok(&RekeyFinishResponse {
         account_version: done.account_version,

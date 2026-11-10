@@ -3,7 +3,9 @@
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use mosaic_core::InstallId;
-use mosaic_sync::wire::json::{DeviceEntry, DevicesResponse, RenameDeviceRequest};
+use mosaic_sync::wire::json::{
+    DeviceEntry, DevicesResponse, OptionalCodeRequest, RenameDeviceRequest, SecretText,
+};
 
 use super::{Reply, parse_body, parse_uuid, valid_device_name};
 use crate::AppState;
@@ -54,9 +56,31 @@ pub async fn remove(
     State(st): State<AppState>,
     Session(s): Session,
     Path(device_id): Path<String>,
+    body: Bytes,
 ) -> Result<Reply, ApiError> {
     let device = parse_uuid(&device_id)?;
+    // The body is optional: `{"code": ...}` when two-step verification is on
+    // and the session has no recent `Confirm` handoff.
+    let req: OptionalCodeRequest = if body.is_empty() {
+        OptionalCodeRequest::default()
+    } else {
+        parse_body(&body, 1024)?
+    };
     s.require_fresh()?;
+    // An account with a security key must show a second factor (CRYPTO_SPEC
+    // §9.3). A TOTP-only account is not asked yet: the M6 client sends no
+    // code with this request, and T3 adds it to the client first.
+    if st
+        .db
+        .run(|c| crate::db::webauthn::count(c, &s.account_id))?
+        > 0
+    {
+        super::account::require_second_factor(
+            &st,
+            &s,
+            req.code.as_ref().map(SecretText::expose_secret),
+        )?;
+    }
     if device == s.device_id {
         return Err(ApiError::conflict(codes::DEVICE_IS_CURRENT));
     }

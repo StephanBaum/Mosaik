@@ -48,8 +48,13 @@ chacha20poly1305.workspace = true
 getrandom.workspace = true
 subtle.workspace = true
 zeroize.workspace = true
+# WebAuthn relying party for the second factor (ADR-0078), used only by auth/webauthn.rs.
+passkey-auth.workspace = true
 
 [dev-dependencies]
+# Independent software authenticator for the WebAuthn ceremony tests.
+mosaic-passkey = { path = "../passkey" }
+p256.workspace = true
 
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util"] }

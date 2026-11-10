@@ -202,7 +202,7 @@ pub const TOTP_FAIL_BUDGET: u64 = 10;
 /// an atomic count, so concurrent guesses cannot exceed it. The attempt is
 /// given back with [`refund_totp_slot`] when the code was right. The error is
 /// the seconds until the window ends.
-pub fn claim_totp_slot(
+pub fn claim_second_factor_slot(
     conn: &Connection,
     id: &[u8; 16],
     now: u64,
@@ -349,14 +349,14 @@ mod tests {
         let id = [0u8; 16];
         db.run(|c| {
             for _ in 0..10 {
-                assert_eq!(claim_totp_slot(c, &id, T + 1_000)?, Ok(()));
+                assert_eq!(claim_second_factor_slot(c, &id, T + 1_000)?, Ok(()));
             }
-            assert_eq!(claim_totp_slot(c, &id, T + 61_000)?, Err(3_540));
+            assert_eq!(claim_second_factor_slot(c, &id, T + 61_000)?, Err(3_540));
             refund_totp_slot(c, &id)?;
-            assert_eq!(claim_totp_slot(c, &id, T + 61_000)?, Ok(()));
-            assert!(claim_totp_slot(c, &id, T + 62_000)?.is_err());
+            assert_eq!(claim_second_factor_slot(c, &id, T + 61_000)?, Ok(()));
+            assert!(claim_second_factor_slot(c, &id, T + 62_000)?.is_err());
             assert_eq!(
-                claim_totp_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?,
+                claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?,
                 Ok(())
             );
             Ok(())

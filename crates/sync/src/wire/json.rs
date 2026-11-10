@@ -878,6 +878,185 @@ pub struct PollResponse {
     pub change_counter: u64,
 }
 
+// ---- WebAuthn second factor (M9, CRYPTO_SPEC §9.3) ----------------------------------
+
+/// What `GET /v1/info?features=1` adds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Features {
+    pub webauthn: bool,
+}
+
+/// `GET /v1/info?features=1`: the plain body plus `features`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InfoFeaturesResponse {
+    pub protocol: u32,
+    pub server_identity: String,
+    pub registration: RegistrationMode,
+    pub limits: Limits,
+    pub features: Features,
+}
+
+/// `GET /v1/login/methods`: what a pending login can use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoginMethodsResponse {
+    pub totp: bool,
+    pub webauthn: bool,
+}
+
+/// What an account handoff is for (`POST /v1/account/webauthn/handoff`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HandoffPurpose {
+    Register,
+    Confirm,
+}
+
+/// What a handoff is for, as the page sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HandoffKind {
+    Login,
+    Register,
+    Confirm,
+}
+
+/// `POST /v1/account/webauthn/handoff` request (the label is `null` for
+/// `confirm` and optional for `register`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountHandoffRequest {
+    pub purpose: HandoffPurpose,
+    #[serde(deserialize_with = "required")]
+    pub label: Option<String>,
+}
+
+/// `POST .../webauthn/handoff` response. `match_code` is the six digits the
+/// user types on the page; `handoff_id` goes in the URL fragment of
+/// `<origin>/webauthn/#<handoffId>` and in request bodies, never in a path.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HandoffStartResponse {
+    pub handoff_id: B64Fixed<16>,
+    pub match_code: String,
+    pub expires_at: u64,
+}
+
+impl fmt::Debug for HandoffStartResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("HandoffStartResponse { .. }")
+    }
+}
+
+/// The body of `POST .../webauthn/handoff/state`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HandoffStateRequest {
+    pub handoff_id: B64Fixed<16>,
+}
+
+impl fmt::Debug for HandoffStateRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("HandoffStateRequest { .. }")
+    }
+}
+
+/// Where a handoff stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HandoffState {
+    Waiting,
+    Done,
+    Failed,
+    Expired,
+}
+
+/// `POST .../webauthn/handoff/state` response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffStateResponse {
+    pub state: HandoffState,
+}
+
+/// One entry of `GET /v1/account/webauthn` (the response is an array).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WebauthnEntry {
+    /// The first 16 bytes of SHA-256 of the credential ID.
+    pub credential_ref: B64Fixed<16>,
+    pub label: String,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+}
+
+/// `POST /v1/account/webauthn/remove` request: the `code` is a TOTP code or
+/// `null` when the session has a recent `confirm` handoff.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoveWebauthnRequest {
+    pub credential_ref: B64Fixed<16>,
+    #[serde(deserialize_with = "required")]
+    pub code: Option<SecretText>,
+}
+
+/// A request whose TOTP `code` may be left out (`code` absent or `null`): the
+/// second factor then is a recent `confirm` handoff (`totp/disable` and
+/// `DELETE /v1/devices/{id}`).
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OptionalCodeRequest {
+    #[serde(default)]
+    pub code: Option<SecretText>,
+}
+
+/// `POST /v1/webauthn/handoff/options` request (the page; the code is typed
+/// by the user).
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HandoffOptionsRequest {
+    pub handoff_id: B64Fixed<16>,
+    pub code: SecretText,
+}
+
+/// `POST /v1/webauthn/handoff/options` response. `public_key` is the
+/// `PublicKeyCredentialCreationOptions` or `...RequestOptions` JSON.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HandoffOptionsResponse {
+    pub purpose: HandoffKind,
+    pub device_name: String,
+    pub requested_at: u64,
+    pub public_key: serde_json::Value,
+}
+
+/// `POST /v1/webauthn/handoff/finish` request: the browser's
+/// `PublicKeyCredential` JSON (`toJSON()`), at most 16 KiB in all.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HandoffFinishRequest {
+    pub handoff_id: B64Fixed<16>,
+    pub credential: serde_json::Value,
+}
+
+/// `POST /v1/webauthn/handoff/finish` response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffFinishResponse {
+    pub ok: bool,
+}
+
+/// The `detail` of a `401 unauthorized` for a session the server ended for a
+/// reason (CRYPTO_SPEC §9.5): `rekey`, `passwordChange`, `deviceRemoved` or
+/// `operator`. An unauthenticated claim of the server: it only selects a
+/// message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RevokedDetail {
+    pub revoked: String,
+}
+
 // ---- errors -------------------------------------------------------------------------------
 
 /// The body of every error response: `{"error":"<code>","detail":<object|null>}`.
@@ -976,6 +1155,9 @@ pub mod codes {
     pub const EMERGENCY_RELEASED: &str = "emergency_released";
     pub const EMERGENCY_NOT_REQUESTED: &str = "emergency_not_requested";
     pub const EMERGENCY_OWNER_ONLY: &str = "emergency_owner_only";
+    // WebAuthn second factor (M9).
+    pub const WEBAUTHN_UNAVAILABLE: &str = "webauthn_unavailable";
+    pub const HANDOFF_EXPIRED: &str = "handoff_expired";
 }
 
 #[cfg(test)]
