@@ -265,6 +265,8 @@ export const rotation = {
     "If you didn't renew your keys on another device, this notice may not be genuine. You can ignore it.",
   "rotation.recovery.notice": "Sync is paused until you do this on this device.",
   "rotation.recovery.open": "Use the new keys…",
+  "rotation.recovery.keyHint":
+    "If your keys were renewed on another device, also enter the new Secret Key from its Emergency Kit.",
   "rotation.recovery.done": "This device uses the new keys now.",
   "rotation.recovery.optional":
     "Secret Key from the newest Emergency Kit (only if you renewed it)",

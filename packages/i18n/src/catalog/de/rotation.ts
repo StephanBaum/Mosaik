@@ -269,6 +269,8 @@ export const rotation = {
   "rotation.recovery.notice":
     "Die Synchronisierung ist pausiert, bis du das auf diesem Gerät erledigt hast.",
   "rotation.recovery.open": "Neue Schlüssel verwenden …",
+  "rotation.recovery.keyHint":
+    "Wurden deine Schlüssel auf einem anderen Gerät erneuert, gib auch den neuen Secret Key aus dessen Emergency Kit ein.",
   "rotation.recovery.done": "Dieses Gerät nutzt jetzt die neuen Schlüssel.",
   "rotation.recovery.optional":
     "Secret Key aus dem neuesten Emergency Kit (nur wenn du ihn erneuert hast)",

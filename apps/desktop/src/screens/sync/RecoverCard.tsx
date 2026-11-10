@@ -13,6 +13,14 @@ import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, SyncConfigView, SyncOverview } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 
+/** The failure, with the Secret Key hint added when the key was left out (a re-key needs it). */
+function RecoverAlert({ error, keyWasEmpty }: { error: IpcError | null; keyWasEmpty: boolean }) {
+  const { t, errorMessage } = useI18n();
+  const hint = error?.code === "wrongCredentials" && keyWasEmpty;
+  return <ErrorAlert error={error} message={hint ? `${errorMessage(error)} ${t("rotation.recovery.keyHint")}` : undefined} />;
+}
+
+// eslint-disable-next-line max-lines-per-function -- a form with optional fields.
 export function RecoverCard({
   config,
   onRecovered,
@@ -28,11 +36,14 @@ export function RecoverCard({
   const [needsCode, setNeedsCode] = useState(config.kind === "hosted" && config.totpEnabled);
   const [error, setError] = useState<IpcError | null>(null);
   const [busy, setBusy] = useState(false);
+  // The key was left out: the generic "check Caps Lock" is not the only thing that can be wrong.
+  const [keyWasEmpty, setKeyWasEmpty] = useState(false);
 
   async function submit(event: SyntheticEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
+    setKeyWasEmpty(secretKey.trim() === "");
     const result = await ipc.call("sync_recover_password", {
       newPassword: password,
       secretKey: secretKey.trim() === "" ? null : secretKey,
@@ -64,7 +75,17 @@ export function RecoverCard({
           setPassword(event.target.value);
         }}
       />
-      <TextField label={t("rotation.recovery.optional")} mono autoComplete="off" spellCheck={false} value={secretKey} onChange={(event) => { setSecretKey(event.target.value); }} />
+      <TextField
+        label={t("rotation.recovery.optional")}
+        hint={t("rotation.recovery.keyHint")}
+        mono
+        autoComplete="off"
+        spellCheck={false}
+        value={secretKey}
+        onChange={(event) => {
+          setSecretKey(event.target.value);
+        }}
+      />
       {needsCode && (
         <TextField
           label={t("settings.sync.code")}
@@ -77,7 +98,7 @@ export function RecoverCard({
           }}
         />
       )}
-      <ErrorAlert error={error} />
+      <RecoverAlert error={error} keyWasEmpty={keyWasEmpty} />
       <div className="actions">
         <Button type="submit" disabled={busy || password === ""}>
           {t("settings.sync.recover.submit")}
