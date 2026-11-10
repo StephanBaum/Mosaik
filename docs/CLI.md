@@ -111,7 +111,7 @@ damaged file both report `exportUnreadable` (exit 3). There is no plaintext expo
   could not start). The child can read, log or pass on its environment (R106).
 - **Clipboard.** `--copy` starts a short-lived helper (`mosaic __clipboard-hold`, hidden) and writes the
   value to its stdin pipe. The helper sets the clipboard with the history-exclusion hints, waits 30 s (5 to
-  300 s with `--clear-after`) and clears it only if it still holds the SHA-256 of its value.
+  300 s with `--clear-after`) and clears it only if it still holds the value (the helper keeps the plaintext in a zeroizing buffer and compares it in constant time; it does not hash it). On Unix the helper runs in its own process group.
 - **No logging, no telemetry.** Release builds abort on panic.
 
 ## Output contract
@@ -166,25 +166,34 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
 - `recover` handles a password, Secret Key or re-key change made elsewhere: it prompts for the password,
   then for the Secret Key of the newest kit, and saves the new Secret Key.
 
-## What this version does not do yet
+## Behavior worth knowing
 
-`mosaic recover` and `mosaic setup own-store --server` (hosted join with a second-factor prompt) are in
-the table but answer `notSupported` (exit 1); `mosaic sync` against a hosted backend works once the app
-has signed in and stored the token (`mosaic-cli-sync-token-<account>` is read, never written by the CLI).
-Hardware-protected vaults are skipped by `export` and refused by references (exit 8).
-
-Behavior worth knowing:
-
-- The session entry is per account, not per store: a session made for the `shared` store is refused (and
-  both parts deleted) when it is used on the `own` store, because the install ID differs. Run `mosaic
-  unlock` again for the store you use.
-- `get --reveal` prints a warning on stderr when stdout is a terminal (scrollback keeps the value).
+- `setup own-store --server URL --email E` joins over the hosted backend (OPAQUE sign-in, a second-factor
+  prompt if the account has one) and stores the session token as `mosaic-cli-sync-token-<account>`.
+  `mosaic recover` adopts a master password change made elsewhere on a hosted store: it unlocks with the
+  old password, asks for the new one (and the newest Secret Key if the login fails), and deletes every CLI
+  session on success. Folder backends and re-key adoption are not handled by `recover` (`notSupported`).
+- Hardware-protected vaults are skipped by `export` and refused by references (exit 8).
+- A session lives in a slot named by account **and** install, so the `shared` and the `own` store of one
+  account each keep their own session. The keystore entry and the file are named by that slot ID.
+- `get --reveal` prints a warning on stderr when stdout is a terminal. Single-value output to a terminal
+  shows C0 and C1 control characters and bidirectional controls as `\u{...}` escapes (line feed and tab
+  stay); output to a pipe or file is raw.
+- `run` on Unix replaces the `mosaic` process with the command (`exec`), after the store and the session
+  are closed. On Windows `mosaic` waits and passes on the child's exit code when it is 0 to 255, else 1;
+  125 is a spawn failure. During the session TTL the child can call `mosaic get --reveal` through the
+  user's session (R106).
+- The environment variables `MOSAIC_*` are removed from the child (case-insensitively on Windows).
 - On Windows the clipboard helper inherits the handles its caller gave `mosaic`: a caller that waits for
-  end-of-file on a pipe of `mosaic ... --copy` waits for the helper (the clear timeout) too. Use a
-  terminal, or redirect output to a file.
-- A prompt that times out (120 s) ends the command while the terminal driver may still have echo off on
-  Unix; `stty echo` restores it (THREAT_MODEL R109).
-- `Ctrl-C` ends the command with the system default (exit 130 in most shells); there is no handler.
+  end-of-file on a pipe of `mosaic ... --copy` waits for the helper too. Use a terminal, or redirect to a
+  file.
+- A prompt that times out, an error and `Ctrl-C` restore the terminal mode (Unix; the Windows console
+  resets its mode for the shell). `Ctrl-C` exits 130.
+- Import reads every file through a 256 MiB cap; a `.mosaicx` item that exceeds its own byte cap is refused
+  (`LimitExceeded`).
+- `export` never overwrites: the file is linked into place, so a file that appeared meanwhile wins and the
+  export fails. On Windows the file carries the Mark of the Web (`Zone.Identifier`, `ZoneId=3`) when the
+  volume is NTFS.
 
 ## Packaging
 

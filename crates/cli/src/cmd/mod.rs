@@ -1,6 +1,7 @@
 //! The commands.
 
 mod exec;
+mod hosted;
 mod read;
 mod session;
 mod sync;
@@ -31,7 +32,7 @@ pub fn dispatch(app: &mut App, p: &Parsed) -> Result<u8> {
         "export" => transfer::export(app, p)?,
         "sync" => return sync::sync(app, p),
         "setup" => sync::setup(app, p)?,
-        "recover" => sync::recover()?,
+        "recover" => hosted::recover(app)?,
         _ => return Err(crate::error::CliError::internal()),
     }
     Ok(0)

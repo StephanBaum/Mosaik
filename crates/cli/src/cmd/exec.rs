@@ -14,6 +14,9 @@ use zeroize::Zeroizing;
 use crate::app::App;
 use crate::clipboard;
 use crate::error::{CliError, EXIT_OTHER, EXIT_REVEAL, EXIT_SPAWN, Result};
+
+/// The largest template `inject` reads.
+const MAX_TEMPLATE: usize = 16 * 1024 * 1024;
 use crate::i18n::Msg;
 use crate::model::{self, Value};
 use crate::refs;
@@ -139,6 +142,7 @@ fn env_specs(p: &Parsed) -> Result<Vec<(String, String)>> {
 
 /// `mosaic run`: returns the child's exit code.
 pub fn run(app: &mut App, p: &Parsed) -> Result<u8> {
+    // Unix: this function does not return on success (the process becomes the child).
     let specs = env_specs(p)?;
     let resolved: Vec<(String, SecretString)> = {
         // The unlocked session and the store lock live only inside this block (R106).
@@ -156,47 +160,79 @@ pub fn run(app: &mut App, p: &Parsed) -> Result<u8> {
     let mut command = Command::new(program);
     command.args(parts);
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("MOSAIC_") {
+        // Windows variable names are case-insensitive.
+        let name = key.to_string_lossy();
+        let is_ours = if cfg!(windows) {
+            name.to_ascii_uppercase().starts_with("MOSAIC_")
+        } else {
+            name.starts_with("MOSAIC_")
+        };
+        if is_ours {
             command.env_remove(&key);
         }
     }
     for (name, value) in &resolved {
         command.env(name, value.expose_secret());
     }
-    let status = command.status().map_err(|_| {
+    drop(resolved);
+    let spawn_failed = || {
         CliError::new("spawnFailed", EXIT_SPAWN, Msg::ErrSpawnFailed)
             .with("command", program.to_string_lossy().into_owned())
-    })?;
-    drop(command);
-    drop(resolved);
+    };
+    // Unix: replace this process, so nothing of Mosaic stays alive next to the child (the store
+    // and the session are already closed). `exec` returns only on failure.
     #[cfg(unix)]
     {
-        use std::os::unix::process::ExitStatusExt as _;
-        if let Some(signal) = status.signal() {
-            return Ok(u8::try_from(128 + signal).unwrap_or(EXIT_OTHER));
-        }
+        use std::os::unix::process::CommandExt as _;
+        let _failed = command.exec();
+        Err(spawn_failed())
     }
-    Ok(status
-        .code()
-        .map_or(EXIT_OTHER, |c| u8::try_from(c & 0xff).unwrap_or(EXIT_OTHER)))
+    // Elsewhere: wait for the child. Its exit code is passed on when it fits 0 to 255; any other
+    // value (Windows codes are 32 bits) is exit 1 rather than a truncated, aliased number.
+    #[cfg(not(unix))]
+    {
+        let status = command.status().map_err(|_| spawn_failed())?;
+        Ok(status
+            .code()
+            .and_then(|c| u8::try_from(c).ok())
+            .unwrap_or(EXIT_OTHER))
+    }
+}
+
+/// A part of an injected template.
+enum Piece<'a> {
+    Text(&'a str),
+    Secret(SecretString),
 }
 
 /// `mosaic inject`.
 pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
-    let mut template = Zeroizing::new(String::new());
-    match p.value("in") {
+    // Reserved once and read through `take`: no reallocation copies, no unbounded read.
+    let known = p
+        .value("in")
+        .and_then(|f| std::fs::metadata(f).ok())
+        .map_or(1 << 20, |m| {
+            usize::try_from(m.len()).unwrap_or(MAX_TEMPLATE)
+        });
+    let mut template = Zeroizing::new(String::with_capacity(known.min(MAX_TEMPLATE) + 1));
+    let limit = (MAX_TEMPLATE + 1) as u64;
+    let read = match p.value("in") {
         Some(file) => {
             let path = std::path::Path::new(file);
-            let mut f = std::fs::File::open(path).map_err(|_| CliError::file_read(path))?;
-            f.read_to_string(&mut template)
-                .map_err(|_| CliError::file_read(path))?;
+            let f = std::fs::File::open(path).map_err(|_| CliError::file_read(path))?;
+            f.take(limit).read_to_string(&mut template)
         }
-        None => {
-            std::io::stdin()
-                .lock()
-                .read_to_string(&mut template)
-                .map_err(|_| CliError::internal())?;
-        }
+        None => std::io::stdin()
+            .lock()
+            .take(limit)
+            .read_to_string(&mut template),
+    };
+    if read.is_err() || template.len() > MAX_TEMPLATE {
+        return Err(CliError::new(
+            "templateTooLarge",
+            EXIT_OTHER,
+            Msg::ErrInternal,
+        ));
     }
     let to_file = p.value("out");
     if to_file.is_none() && std::io::stdout().is_terminal() && !p.has("reveal") {
@@ -205,30 +241,50 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
                 .with("field", "inject"),
         );
     }
-    let mut result = Zeroizing::new(Vec::<u8>::with_capacity(template.len()));
     let mut u = app.unlock()?;
     let now_secs = app.now / 1000;
+    // Resolve every secret first, so the output buffer is reserved at its exact size and never
+    // reallocates (a reallocation would leave an unwiped copy behind).
+    let mut pieces: Vec<Piece<'_>> = Vec::new();
     let mut rest = template.as_str();
     while let Some((before, after)) = rest.split_once("{{") {
-        result.extend_from_slice(before.as_bytes());
+        pieces.push(Piece::Text(before));
         let Some((inner, tail)) = after.split_once("}}") else {
-            result.extend_from_slice(b"{{");
+            pieces.push(Piece::Text("{{"));
             rest = after;
             continue;
         };
         let reference = inner.trim();
         if reference.starts_with("mosaic://") {
-            let secret = secret_of(&mut u.session, reference, now_secs)?;
-            result.extend_from_slice(secret.expose_secret().as_bytes());
+            pieces.push(Piece::Secret(secret_of(
+                &mut u.session,
+                reference,
+                now_secs,
+            )?));
         } else {
-            result.extend_from_slice(b"{{");
-            result.extend_from_slice(inner.as_bytes());
-            result.extend_from_slice(b"}}");
+            pieces.push(Piece::Text("{{"));
+            pieces.push(Piece::Text(inner));
+            pieces.push(Piece::Text("}}"));
         }
         rest = tail;
     }
-    result.extend_from_slice(rest.as_bytes());
+    pieces.push(Piece::Text(rest));
     drop(u);
+    let size: usize = pieces
+        .iter()
+        .map(|piece| match piece {
+            Piece::Text(t) => t.len(),
+            Piece::Secret(s) => s.expose_secret().len(),
+        })
+        .sum();
+    let mut result = Zeroizing::new(Vec::<u8>::with_capacity(size));
+    for piece in &pieces {
+        match piece {
+            Piece::Text(t) => result.extend_from_slice(t.as_bytes()),
+            Piece::Secret(s) => result.extend_from_slice(s.expose_secret().as_bytes()),
+        }
+    }
+    drop(pieces);
     if let Some(dest) = to_file {
         let dest = std::path::Path::new(dest);
         let (mut file, tmp) = create_private(dest)?;
@@ -236,7 +292,7 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
             let _ = std::fs::remove_file(&tmp);
             return Err(CliError::file_write(dest));
         }
-        finish_private(file, &tmp, dest)?;
+        finish_private(file, &tmp, dest, false)?;
     } else {
         app.out.write_raw(&result);
     }

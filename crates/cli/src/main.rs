@@ -63,13 +63,14 @@ fn help(out: &Output, p: &Parsed) -> Result<()> {
         out.write_raw(spec::man_page().as_bytes());
         return Ok(());
     }
-    let command =
-        match p.args.first() {
-            Some(name) => Some(spec::find(name).filter(|c| !c.hidden).ok_or_else(|| {
-                CliError::usage(Msg::ErrUnknownCommand).with("name", name.clone())
-            })?),
-            None => None,
-        };
+    let command = match p.args.first() {
+        Some(name) => Some(
+            spec::find(name)
+                .filter(|c| !c.hidden)
+                .ok_or_else(|| CliError::usage(Msg::ErrUnknownCommand).with("name", "#2"))?,
+        ),
+        None => None,
+    };
     out.write_raw(spec::help_text(command).as_bytes());
     Ok(())
 }
@@ -97,6 +98,7 @@ fn run(parsed: &Parsed) -> Result<u8> {
         }
         "__clipboard-hold" => clipboard::hold(parsed)?,
         _ => {
+            input::install_interrupt_handler();
             let mut app = App::new(parsed, out)?;
             app.sweep();
             return cmd::dispatch(&mut app, parsed);

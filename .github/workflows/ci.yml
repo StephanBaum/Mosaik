@@ -34,6 +34,10 @@ jobs:
       # The desktop app needs the webview toolchain; it has its own job below.
       - run: cargo clippy --workspace --exclude mosaic-desktop --all-targets --locked -- -D warnings
       - run: cargo test --workspace --exclude mosaic-desktop --locked
+      # The CLI integration tests need the `test-util` feature (file-based keystore and clipboard),
+      # which is debug-only and a compile error in release: run them here, never in a release job.
+      # Two threads: every fixture copy unlocks with the 128 MiB Argon2id cost.
+      - run: cargo test -p mosaic-cli --features test-util --locked -- --test-threads=2
       # Slow-in-debug tests (the 50 MiB attachment round trip at exactly
       # MAX_ATTACHMENT_LEN, the long multi-device sync simulation) run
       # optimized.

@@ -153,7 +153,11 @@ impl App {
         let Ok(sessions) = &self.be.sessions else {
             return Err(locked);
         };
-        let Ok(Some((key, file))) = sessions.load(account) else {
+        let Ok(install) = locked.store().install_id() else {
+            return Err(locked);
+        };
+        let slot = session_slot(account, install);
+        let Ok(Some((key, file))) = sessions.load(slot) else {
             return Err(locked);
         };
         match locked.unlock_cli_session(&key, &file, self.now) {
@@ -161,7 +165,7 @@ impl App {
             Err(failed) => {
                 // Every refusal of §6.8 deletes both parts; a store error keeps them.
                 if matches!(failed.error, VaultError::CliSessionRejected) {
-                    let _ = sessions.delete(account);
+                    let _ = sessions.delete(slot);
                     self.out.warn("sessionExpired", Msg::ErrSessionExpired, &[]);
                 }
                 Err(failed.session)
@@ -204,6 +208,24 @@ impl App {
             Err(failed) => Err(failed.error.into()),
         }
     }
+}
+
+/// The slot a session lives in: the account and the install together, so the `shared` and the `own`
+/// store of one account (two installs) each keep their own session and never delete each other's.
+/// An identifier, not a secret: the first 16 bytes of SHA-256 over a fixed label, the account ID and
+/// the install ID, shaped as an account ID for the platform's session store.
+#[must_use]
+pub fn session_slot(account: AccountId, install: mosaic_core::InstallId) -> AccountId {
+    use sha2::{Digest as _, Sha256};
+    let digest = Sha256::new()
+        .chain_update(b"mosaic/cli/session-slot")
+        .chain_update(account.as_bytes())
+        .chain_update(install.as_bytes())
+        .finalize();
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(digest.get(..16).unwrap_or(&[1; 16]));
+    // The nil ID is invalid; a collision with it is astronomically unlikely but costs nothing to avoid.
+    AccountId::from_bytes(bytes).unwrap_or(account)
 }
 
 /// Refuses while a key rotation job is open (exit 10).

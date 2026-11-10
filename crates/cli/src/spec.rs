@@ -445,8 +445,8 @@ fn lexopt_error(e: &lexopt::Error) -> CliError {
             option.as_deref().unwrap_or("option"),
         ),
         lexopt::Error::UnexpectedOption(o) => usage(Msg::ErrUnknownOption, "name", o),
-        lexopt::Error::UnexpectedArgument(a) => {
-            usage(Msg::ErrUnexpectedArgument, "value", &a.to_string_lossy())
+        lexopt::Error::UnexpectedArgument(_) => {
+            usage(Msg::ErrUnexpectedArgument, "value", "(argument)")
         }
         lexopt::Error::UnexpectedValue { option, .. } => {
             usage(Msg::ErrInvalidValue, "name", option)
@@ -518,7 +518,7 @@ pub fn parse(args: Vec<OsString>) -> Result<Request> {
                     command = Some(
                         find(&name)
                             .filter(|c| !c.hidden || name == "__clipboard-hold")
-                            .ok_or_else(|| usage(Msg::ErrUnknownCommand, "name", &name))?,
+                            .ok_or_else(|| usage(Msg::ErrUnknownCommand, "name", "#1"))?,
                     );
                 }
                 Some(c) if c.trailing => {
@@ -552,8 +552,14 @@ pub fn parse(args: Vec<OsString>) -> Result<Request> {
 }
 
 fn check_args(command: &Command, given: &[String]) -> Result<()> {
-    if let Some(extra) = given.get(command.args.len()) {
-        return Err(usage(Msg::ErrUnexpectedArgument, "value", extra));
+    if given.len() > command.args.len() {
+        // Name the position, never the value (it could be a secret typed in the wrong place).
+        let position = command.args.len() + 2;
+        return Err(usage(
+            Msg::ErrUnexpectedArgument,
+            "value",
+            &format!("#{position}"),
+        ));
     }
     for (i, spec) in command.args.iter().enumerate() {
         match given.get(i) {

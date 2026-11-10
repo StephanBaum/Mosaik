@@ -239,7 +239,7 @@ fn own_store_path(app: &App, p: &Parsed) -> Result<PathBuf> {
     mosaic_platform::paths::cli_store().map_err(|_| CliError::internal())
 }
 
-fn remove_store(path: &std::path::Path) {
+pub(super) fn remove_store(path: &std::path::Path) {
     let _ = std::fs::remove_file(path);
     for suffix in ["-lock", "-wal", "-shm", "-journal"] {
         let mut name = path.as_os_str().to_owned();
@@ -250,13 +250,6 @@ fn remove_store(path: &std::path::Path) {
 
 /// `mosaic setup own-store`: joins the account as a separate device over a sync folder.
 pub fn setup(app: &mut App, p: &Parsed) -> Result<()> {
-    if p.value("server").is_some() {
-        return Err(CliError::not_supported("setup own-store --server"));
-    }
-    let folder_path = p
-        .value("folder")
-        .map(PathBuf::from)
-        .ok_or_else(|| CliError::usage(Msg::ErrMissingArgument).with("name", "--folder"))?;
     let target = own_store_path(app, p)?;
     if target.exists() {
         return Err(
@@ -264,6 +257,13 @@ pub fn setup(app: &mut App, p: &Parsed) -> Result<()> {
                 .with("path", target.display().to_string()),
         );
     }
+    if p.value("server").is_some() {
+        return super::hosted::setup(app, p, &target);
+    }
+    let folder_path = p
+        .value("folder")
+        .map(PathBuf::from)
+        .ok_or_else(|| CliError::usage(Msg::ErrMissingArgument).with("name", "--folder"))?;
     let account = match folder::inspect(&folder_path) {
         FolderContents::Mosaic { accounts } => match accounts.as_slice() {
             [one] => *one,
@@ -327,9 +327,4 @@ pub fn setup(app: &mut App, p: &Parsed) -> Result<()> {
         },
     );
     Ok(())
-}
-
-/// `mosaic recover`.
-pub fn recover() -> Result<()> {
-    Err(CliError::not_supported("recover"))
 }

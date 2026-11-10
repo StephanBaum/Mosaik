@@ -9,7 +9,9 @@
 )]
 
 use std::fmt::Write as _;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal as _, Write};
+
+use zeroize::Zeroizing;
 
 use serde::Serialize;
 
@@ -75,8 +77,12 @@ impl Output {
 
     /// A line of text that is the answer itself: shown even with `--quiet`.
     pub fn answer(&self, line: &str) {
-        if !self.json {
-            println!("{line}");
+        if self.json {
+            return;
+        }
+        match escape_for_terminal(line).filter(|_| io::stdout().is_terminal()) {
+            Some(safe) => println!("{}", safe.as_str()),
+            None => println!("{line}"),
         }
     }
 
@@ -171,6 +177,12 @@ impl Output {
             let _ = out.write_all(b":");
             let _ = serde_json::to_writer(&mut out, secret);
             let _ = out.write_all(b"}}\n");
+        } else if let Some(safe) =
+            escape_for_terminal(secret).filter(|_| io::stdout().is_terminal())
+        {
+            // A terminal would act on control sequences in a value: show them escaped.
+            let _ = out.write_all(safe.as_bytes());
+            let _ = out.write_all(b"\n");
         } else {
             let _ = out.write_all(secret.as_bytes());
             let _ = out.write_all(b"\n");
@@ -215,9 +227,38 @@ pub fn escape(s: &str) -> String {
     out
 }
 
+/// For single-value output to a terminal: C0 and C1 control characters (except line feed and tab)
+/// and bidirectional controls become `\u{...}` escapes, so a stored value cannot move the cursor,
+/// retitle the window or reorder the text. `None` when nothing needs escaping. The copy is
+/// zeroized (the value may be a secret). Output to a pipe or file stays raw.
+#[must_use]
+pub fn escape_for_terminal(s: &str) -> Option<Zeroizing<String>> {
+    let bad =
+        |c: char| (c.is_control() && c != '\n' && c != '\t') || mosaic_core::is_spoofing_char(c);
+    if !s.chars().any(bad) {
+        return None;
+    }
+    let mut out = Zeroizing::new(String::with_capacity(s.len() + 16));
+    for c in s.chars() {
+        if bad(c) {
+            let _ = write!(out, "\\u{{{:04x}}}", u32::from(c));
+        } else {
+            out.push(c);
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::escape;
+
+    #[test]
+    fn terminal_escaping_keeps_line_feed_and_tab() {
+        assert!(super::escape_for_terminal("plain\ttext\nmore").is_none());
+        let safe = super::escape_for_terminal("a\u{1b}[2Jb\u{9b}c\u{202e}d\r").unwrap();
+        assert_eq!(safe.as_str(), "a\\u{001b}[2Jb\\u{009b}c\\u{202e}d\\u{000d}");
+    }
 
     #[test]
     fn bidi_and_control_characters_are_escaped() {

@@ -45,7 +45,13 @@ pub fn unlock(app: &mut App, p: &Parsed) -> Result<()> {
     let unlocked = app.unlock_with_password(locked, source, p.has("secret-key-prompt"))?;
     let (key, file) = unlocked.session.create_cli_session(ttl, app.now)?;
     let saved = match &app.be.sessions {
-        Ok(sessions) => sessions.save(unlocked.account, &key, &file).is_ok(),
+        Ok(sessions) => sessions
+            .save(
+                crate::app::session_slot(unlocked.account, unlocked.session.install_id()),
+                &key,
+                &file,
+            )
+            .is_ok(),
         Err(_) => false,
     };
     if !saved {
@@ -101,8 +107,10 @@ struct StatusOut {
 pub fn status(app: &mut App) -> Result<()> {
     let locked = app.open_store()?;
     let account = locked.account_id().ok();
-    let session = account.and_then(|a| {
-        let (_, file) = app.be.sessions.as_ref().ok()?.load(a).ok().flatten()?;
+    let install = locked.store().install_id().ok();
+    let session = account.zip(install).and_then(|(a, i)| {
+        let slot = crate::app::session_slot(a, i);
+        let (_, file) = app.be.sessions.as_ref().ok()?.load(slot).ok().flatten()?;
         file.claimed_expires_at_ms().filter(|e| *e > app.now)
     });
     let store = locked.store();

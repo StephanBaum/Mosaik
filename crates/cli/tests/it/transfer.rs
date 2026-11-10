@@ -291,9 +291,9 @@ fn sync_folder_and_own_store_join() {
             .prompts(&[PASSWORD])
             .run();
         assert_eq!(out.code, 0, "{}", out.stderr);
-        // The own store has another install ID: the shared account's session is refused there
-        // and deleted, so the desktop store asks for the password again.
-        let desktop = f.cmd(&["--json", "sync"]).prompts(&[PASSWORD]).run();
+        // The own store has another install ID and its own session slot: using it neither
+        // refuses nor deletes the shared store's session.
+        let desktop = f.cmd(&["--json", "--no-input", "sync"]).run();
         assert_eq!(desktop.code, 0, "{}", desktop.stderr);
     }
     let listed = f
@@ -324,5 +324,5 @@ fn sync_without_a_backend_and_unsupported_commands() {
     assert_eq!(out.code, 1);
     assert_eq!(out.error_json()["error"]["code"], "syncNotConfigured");
     let recover = f.cmd(&["--json", "recover"]).run();
-    assert_eq!(recover.error_json()["error"]["code"], "notSupported");
+    assert_eq!(recover.error_json()["error"]["code"], "syncNotConfigured");
 }

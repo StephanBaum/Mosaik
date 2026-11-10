@@ -30,6 +30,12 @@ zeroize.workspace = true
 unicode-normalization.workspace = true
 lexopt.workspace = true
 rpassword.workspace = true
+ctrlc.workspace = true
+# Names a session slot by (account, install): the SHA-256 of the two IDs (already in the tree).
+sha2.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

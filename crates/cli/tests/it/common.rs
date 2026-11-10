@@ -127,7 +127,6 @@ pub struct Fixture {
     pub tmp: tempfile::TempDir,
     pub store: PathBuf,
     pub test_dir: PathBuf,
-    pub account_hex: String,
     pub secret_key: String,
 }
 
@@ -139,17 +138,17 @@ impl Fixture {
         let store_dir = tmp.path().join("store");
         std::fs::create_dir_all(&store_dir).unwrap();
         std::fs::copy(m.dir.join("vault.sqlite3"), store_dir.join("vault.sqlite3")).unwrap();
-        Self::at(tmp, m.account_hex.clone(), m.secret_key.clone())
+        Self::at(tmp, &m.account_hex, m.secret_key.clone())
     }
 
     /// A fixture over a freshly created store without items.
     pub fn fresh(vault_names: &[&str]) -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let (secret_key, account_hex) = create_store(&tmp.path().join("store"), vault_names, false);
-        Self::at(tmp, account_hex, secret_key)
+        Self::at(tmp, &account_hex, secret_key)
     }
 
-    fn at(tmp: tempfile::TempDir, account_hex: String, secret_key: String) -> Self {
+    fn at(tmp: tempfile::TempDir, account_hex: &str, secret_key: String) -> Self {
         let test_dir = tmp.path().join("test");
         let keystore = test_dir.join("keystore");
         std::fs::create_dir_all(&keystore).unwrap();
@@ -162,21 +161,18 @@ impl Fixture {
             store: tmp.path().join("store").join("vault.sqlite3"),
             test_dir,
             tmp,
-            account_hex,
             secret_key,
         }
     }
 
+    /// The session file (its slot name is derived from account and install: found by scanning).
     pub fn session_file(&self) -> PathBuf {
-        self.test_dir
-            .join("run")
-            .join(format!("session-{}.mcls", self.account_hex))
+        first_in(&self.test_dir.join("run"), "session-", ".mcls")
     }
 
+    /// The keystore part of the session.
     pub fn session_key(&self) -> PathBuf {
-        self.test_dir
-            .join("keystore")
-            .join(format!("session-{}.key", self.account_hex))
+        first_in(&self.test_dir.join("keystore"), "session-", ".key")
     }
 
     pub fn clipboard(&self) -> String {
@@ -350,4 +346,18 @@ pub fn golden(name: &str, actual: &str) {
     }
     let expected = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(actual.trim_end(), expected.trim_end(), "golden file {name}");
+}
+
+fn first_in(dir: &Path, prefix: &str, suffix: &str) -> PathBuf {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(prefix) && n.ends_with(suffix))
+        })
+        .unwrap_or_else(|| dir.join("no-such-session"))
 }

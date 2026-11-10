@@ -270,3 +270,15 @@ fn a_session_is_created_only_after_a_password_unlock_and_never_renewed() {
             .clone();
     assert_eq!(first, second);
 }
+
+#[test]
+fn usage_errors_name_the_position_not_the_value() {
+    let f = Fixture::new();
+    let out = f.cmd(&["lock", "topsecret-value"]).run();
+    assert_eq!(out.code, 2);
+    assert!(!out.stderr.contains("topsecret-value"), "{}", out.stderr);
+    assert!(out.stderr.contains("#2"), "{}", out.stderr);
+    let out = f.cmd(&["frobnicate-topsecret"]).run();
+    assert_eq!(out.code, 2);
+    assert!(!out.stderr.contains("topsecret"), "{}", out.stderr);
+}

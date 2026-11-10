@@ -58,16 +58,47 @@ pub fn finish_private(
     file: std::fs::File,
     tmp: &std::path::Path,
     dest: &std::path::Path,
+    mark_of_the_web: bool,
 ) -> crate::error::Result<()> {
-    let done = file.sync_all().is_ok() && {
-        drop(file);
-        std::fs::rename(tmp, dest).is_ok()
-    };
-    if done {
-        Ok(())
-    } else {
+    use crate::error::{CliError, EXIT_OTHER};
+    if file.sync_all().is_err() {
         let _ = std::fs::remove_file(tmp);
-        Err(crate::error::CliError::file_write(dest))
+        return Err(CliError::file_write(dest));
+    }
+    drop(file);
+    #[cfg(windows)]
+    if mark_of_the_web {
+        // NTFS alternate data stream: the file is marked as coming from the Internet zone
+        // (ZoneId=3), as ADR-0034 does for the desktop's exports. Not NTFS: no mark, no error.
+        let mut stream = tmp.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let _ = std::fs::write(stream, "[ZoneTransfer]\r\nZoneId=3\r\n");
+    }
+    #[cfg(not(windows))]
+    let _ = mark_of_the_web;
+    // A hard link fails when `dest` appeared meanwhile, so a file made in the meantime is never
+    // replaced (rename would overwrite it on Unix).
+    let moved = match std::fs::hard_link(tmp, dest) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(tmp);
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(true),
+        // No hard links here (some network and FAT file systems): rename behind a check.
+        Err(_) if !dest.exists() => std::fs::rename(tmp, dest).map_err(|_| false),
+        Err(_) => Err(true),
+    };
+    match moved {
+        Ok(()) => Ok(()),
+        Err(exists) => {
+            let _ = std::fs::remove_file(tmp);
+            Err(if exists {
+                CliError::new("fileExists", EXIT_OTHER, crate::i18n::Msg::ErrFileExists)
+                    .with("path", dest.display().to_string())
+            } else {
+                CliError::file_write(dest)
+            })
+        }
     }
 }
 

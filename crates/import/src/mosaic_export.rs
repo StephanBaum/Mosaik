@@ -27,7 +27,9 @@
 //! enum has no variant of its own yet (the desktop matches it exhaustively).
 
 use core::fmt;
+use std::cell::Cell;
 use std::io::{self, Read};
+use std::rc::Rc;
 
 use mosaic_core::model::{ItemType, SecretField, TextField};
 use mosaic_core::{ExportPassphrase, ExportReader, SecretString, Timestamp};
@@ -70,15 +72,32 @@ pub fn parse_bytes(input: &[u8], passphrase: &SecretString) -> Result<Import> {
 /// - [`Error::TooLarge`] (plaintext above 2 GiB), [`Error::LimitExceeded`]
 ///   (more than [`crate::MAX_ENTRIES`] items), [`Error::Allocation`].
 pub fn parse_reader<R: Read>(reader: R, passphrase: &ExportPassphrase) -> Result<Import> {
+    parse_reader_capped(reader, passphrase, ITEM_BYTES_CAP)
+}
+
+/// The most plaintext bytes one item may take: every attachment this importer would accept, as
+/// base64, plus room for the item's own fields (an item is at most 1 MiB without them).
+const ITEM_BYTES_CAP: u64 = crate::MAX_IMPORT_ATTACHMENT_BYTES / 3 * 4 + 4 * 1024 * 1024;
+
+fn parse_reader_capped<R: Read>(
+    reader: R,
+    passphrase: &ExportPassphrase,
+    item_cap: u64,
+) -> Result<Import> {
     let reader = ExportReader::open(reader, passphrase).map_err(open_error)?;
+    let item_bytes = Rc::new(Cell::new(0u64));
     let mut tracked = Tracked {
         inner: reader,
         failed: false,
+        over: false,
+        count: Rc::clone(&item_bytes),
+        cap: item_cap,
     };
     let mut state = State {
         collector: Collector::new(Format::Cxf),
         budget: AttachmentBudget::new(),
         error: None,
+        item_bytes,
     };
     let mut de = serde_json::Deserializer::from_reader(&mut tracked);
     // `end` reads to the end of the stream, which is where the reader
@@ -88,6 +107,7 @@ pub fn parse_reader<R: Read>(reader: R, passphrase: &ExportPassphrase) -> Result
         .and_then(|()| de.end());
     match parsed {
         Ok(()) => Ok(state.collector.finish()),
+        Err(_) if tracked.over => Err(Error::LimitExceeded),
         Err(_) if tracked.failed => Err(Error::WrongCredentials),
         Err(_) => Err(state.error.unwrap_or(Error::Malformed)),
     }
@@ -112,13 +132,29 @@ fn open_error(e: mosaic_core::Error) -> Error {
 struct Tracked<R: Read> {
     inner: ExportReader<R>,
     failed: bool,
+    /// An item went over the byte cap.
+    over: bool,
+    /// Plaintext bytes read since the last item was completed (reset by [`State::add`]).
+    count: Rc<Cell<u64>>,
+    cap: u64,
 }
 
 impl<R: Read> Read for Tracked<R> {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(out);
-        if n.is_err() {
-            self.failed = true;
+        match &n {
+            Err(_) => self.failed = true,
+            Ok(read) => {
+                let total = self
+                    .count
+                    .get()
+                    .saturating_add(u64::try_from(*read).unwrap_or(u64::MAX));
+                self.count.set(total);
+                if total > self.cap {
+                    self.over = true;
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "item too large"));
+                }
+            }
         }
         n
     }
@@ -129,10 +165,13 @@ struct State {
     budget: AttachmentBudget,
     /// The importer's own error behind a serde error.
     error: Option<Error>,
+    /// Shared with [`Tracked`]: bytes of the item being read.
+    item_bytes: Rc<Cell<u64>>,
 }
 
 impl State {
     fn add(&mut self, item: &ExportItem) -> Result<()> {
+        self.item_bytes.set(0);
         let builder = entry(item, self.collector.passkey_room(), &mut self.budget);
         self.collector.push(builder)
     }
@@ -400,4 +439,42 @@ fn passkey_of(p: &ExportPasskey) -> passkey::Built {
         discoverable: p.discoverable,
         created_at: p.created_at.map(Timestamp::from_unix_millis),
     })
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use mosaic_core::{Argon2Profile, ExportPassphrase, ExportWriter, SecretString};
+
+    use super::*;
+
+    fn export_of(json: &str) -> Vec<u8> {
+        let pass = ExportPassphrase::new(&SecretString::from("pass phrase".to_owned())).unwrap();
+        let mut w = ExportWriter::new(Vec::new(), &pass, Argon2Profile::Standard).unwrap();
+        w.write_chunk(json.as_bytes()).unwrap();
+        w.finish().unwrap()
+    }
+
+    fn doc(items: &[usize]) -> String {
+        let list: Vec<String> = items
+            .iter()
+            .map(|n| format!(r#"{{"type":"login","title":"{}"}}"#, "x".repeat(*n)))
+            .collect();
+        format!(
+            r#"{{"format":"mosaic-export","v":1,"exportedAt":1,"vaults":[{{"name":"V","items":[{}]}}]}}"#,
+            list.join(",")
+        )
+    }
+
+    #[test]
+    fn the_byte_cap_is_per_item_and_resets_after_each_item() {
+        let pass = ExportPassphrase::new(&SecretString::from("pass phrase".to_owned())).unwrap();
+        // Three items of 40 KiB under a 100 KiB cap: 120 KiB in all, each item within the cap.
+        let file = export_of(&doc(&[40_000, 40_000, 40_000]));
+        let ok = parse_reader_capped(file.as_slice(), &pass, 100_000).unwrap();
+        assert_eq!(ok.entries.len(), 3);
+        // One item of 200 KiB is refused.
+        let file = export_of(&doc(&[10, 200_000]));
+        let err = parse_reader_capped(file.as_slice(), &pass, 100_000).unwrap_err();
+        assert_eq!(err, Error::LimitExceeded);
+    }
 }

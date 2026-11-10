@@ -24,6 +24,8 @@ const MIN_CLEAR_SECS: u64 = 1;
 #[cfg(not(feature = "test-util"))]
 const MIN_CLEAR_SECS: u64 = 5;
 const MAX_CLEAR_SECS: u64 = 300;
+/// The longest value the helper holds.
+const MAX_VALUE: usize = 64 * 1024;
 
 /// The `--clear-after` of a command (5 to 300 seconds, default 30).
 ///
@@ -52,6 +54,12 @@ pub fn copy(out: &Output, value: &str, clear_after: Duration) -> Result<()> {
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        // Its own process group: a Ctrl-C in the caller's terminal does not reach the helper.
+        command.process_group(0);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
@@ -88,10 +96,13 @@ pub fn hold(parsed: &Parsed) -> Result<()> {
             argv.join("\n"),
         );
     }
-    let mut value = Zeroizing::new(String::new());
-    std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut value)
-        .map_err(|_| CliError::internal())?;
-    if value.is_empty() {
+    // Reserved once and read through `take`, so the value is never copied by a reallocation.
+    let mut value = Zeroizing::new(String::with_capacity(MAX_VALUE + 1));
+    let read = std::io::Read::read_to_string(
+        &mut std::io::Read::take(std::io::stdin().lock(), (MAX_VALUE + 1) as u64),
+        &mut value,
+    );
+    if read.is_err() || value.is_empty() || value.len() > MAX_VALUE {
         return Err(CliError::internal());
     }
     let mut clipboard = backends::clipboard().map_err(|_| CliError::internal())?;

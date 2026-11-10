@@ -82,7 +82,12 @@ fn run_strips_mosaic_vars() {
     let f = unlocked();
     let child = print_env("MOSAIC_LEAK");
     let args = run_args(&["--no-input", "run"], &child);
-    let out = f.cmd(&args).env("MOSAIC_LEAK", "leaked-value").run();
+    // Windows variable names are case-insensitive: a mixed-case name goes too.
+    let out = f
+        .cmd(&args)
+        .env("MOSAIC_LEAK", "leaked-value")
+        .env("Mosaic_Other", "leaked-value")
+        .run();
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert!(!out.stdout.contains("leaked-value"), "{}", out.stdout);
 }

@@ -51,13 +51,80 @@ fn with_timeout<T: Send + 'static>(
     }
 }
 
+/// The terminal mode (echo) saved before a no-echo prompt, so a timeout, a Ctrl-C or an early
+/// return can put it back. Unix only: the Windows console resets its input mode for the shell.
+#[cfg(unix)]
+mod tty {
+    use std::sync::Mutex;
+
+    use rustix::fs::{Mode, OFlags, open};
+    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
+
+    static SAVED: Mutex<Option<Termios>> = Mutex::new(None);
+
+    pub fn save() {
+        let Ok(fd) = open("/dev/tty", OFlags::RDWR | OFlags::NOCTTY, Mode::empty()) else {
+            return;
+        };
+        if let (Ok(mode), Ok(mut slot)) = (tcgetattr(&fd), SAVED.lock()) {
+            *slot = Some(mode);
+        }
+    }
+
+    pub fn restore() {
+        let Ok(slot) = SAVED.lock() else { return };
+        let Some(mode) = slot.as_ref() else { return };
+        if let Ok(fd) = open("/dev/tty", OFlags::RDWR | OFlags::NOCTTY, Mode::empty()) {
+            let _ = tcsetattr(&fd, OptionalActions::Now, mode);
+        }
+    }
+
+    pub fn forget() {
+        if let Ok(mut slot) = SAVED.lock() {
+            *slot = None;
+        }
+    }
+}
+
+/// Restores the terminal mode when dropped (also on a timeout or an error return).
+struct ModeGuard;
+
+impl ModeGuard {
+    fn new() -> Self {
+        #[cfg(unix)]
+        tty::save();
+        Self
+    }
+}
+
+impl Drop for ModeGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            tty::restore();
+            tty::forget();
+        }
+    }
+}
+
+/// Ctrl-C: put the terminal mode back, then exit 130.
+pub fn install_interrupt_handler() {
+    let _ = ctrlc::set_handler(|| {
+        #[cfg(unix)]
+        tty::restore();
+        std::process::exit(130);
+    });
+}
+
 /// The controlling terminal (`/dev/tty`, `CONIN$`) through `rpassword`.
 pub struct RealTerminal;
 
 impl Terminal for RealTerminal {
     fn secret(&mut self, prompt: &str) -> Result<Zeroizing<String>> {
         output::prompt(prompt);
+        let guard = ModeGuard::new();
         let read = with_timeout(rpassword::read_password);
+        drop(guard);
         output::end_prompt_line();
         read.map(Zeroizing::new)
     }

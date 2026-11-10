@@ -1,7 +1,7 @@
 //! `import` and `export`. Exports are encrypted only (OD-M8-4); imports show a preview first and
 //! need a typed confirmation on the terminal (`--no-input` refuses).
 
-use std::io::{BufReader, BufWriter, Write as _};
+use std::io::{BufReader, BufWriter, Read as _, Write as _};
 use std::path::Path;
 
 use mosaic_core::{Argon2Profile, ExportPassphrase, SecretString};
@@ -33,16 +33,20 @@ fn import_failed() -> CliError {
     CliError::new("importFailed", EXIT_OTHER, Msg::ErrImportFailed)
 }
 
+/// Reads an import file through `take(MAX_FILE_LEN + 1)`: a file that grows, a FIFO or a device
+/// cannot make the read unbounded, and the size the file claims is not trusted.
 fn read_file(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
-    let len = std::fs::metadata(path)
-        .map_err(|_| CliError::file_read(path))?
-        .len();
-    if len > mosaic_import::MAX_FILE_LEN as u64 {
+    let limit = mosaic_import::MAX_FILE_LEN as u64 + 1;
+    let file = std::fs::File::open(path).map_err(|_| CliError::file_read(path))?;
+    let claimed = file.metadata().map_or(0, |m| m.len()).min(limit);
+    let mut bytes = Zeroizing::new(Vec::with_capacity(usize::try_from(claimed).unwrap_or(0)));
+    file.take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CliError::file_read(path))?;
+    if bytes.len() as u64 > mosaic_import::MAX_FILE_LEN as u64 {
         return Err(import_failed());
     }
-    std::fs::read(path)
-        .map(Zeroizing::new)
-        .map_err(|_| CliError::file_read(path))
+    Ok(bytes)
 }
 
 fn parse_file(
@@ -66,7 +70,9 @@ fn parse_file(
             let pass = secret_string(app.prompt.secret(Msg::PromptImportPassphrase, &[])?);
             let pass = ExportPassphrase::new(&pass).map_err(|_| export_unreadable())?;
             let file = std::fs::File::open(path).map_err(|_| CliError::file_read(path))?;
-            return mosaic_export::parse_reader(BufReader::new(file), &pass).map_err(map);
+            // The same cap as every other import file.
+            let capped = file.take(mosaic_import::MAX_FILE_LEN as u64 + 1);
+            return mosaic_export::parse_reader(BufReader::new(capped), &pass).map_err(map);
         }
         "enpass" => Format::Enpass,
         "bitwarden" => Format::Bitwarden,
@@ -307,7 +313,7 @@ pub fn export(app: &mut App, p: &Parsed) -> Result<()> {
                 .map_or_else(|| CliError::file_write(dest), CliError::from));
         }
     };
-    finish_private(file, &tmp, dest)?;
+    finish_private(file, &tmp, dest, true)?;
     let doc = ExportOut {
         vaults: report.vaults,
         items: report.items,
