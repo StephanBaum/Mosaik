@@ -236,12 +236,15 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
   Shift plus a key would take typing from every program). The default is `Ctrl+Shift+Space`, or `Alt+Super+Space` on
   macOS; a file with an unusable value reads as the default. The shortcut is not a protection setting (no MAC, changes
   while locked). `app_status.shortcut` is `unsupported` on Wayland. Mock: `&shortcut=conflict|unsupported|unavailable`.
-- Two commands for the connector audit (the shape is live since M9 T6; **T8 wires them** to
-  `mosaic_native_messaging::install::audit_manifests` and the rewrite, and until then both are stubs that answer no
-  findings): `browser_connector_audit` (`null` → `{ findings: { browser: "chromium" \| "firefox", location, path }[] }`;
+- Two commands for the connector audit (live since M9 T6; wired in T8 to
+  `mosaic_native_messaging::install::audit` and `repair` in `src/connector.rs`; the installed host is the program
+  beside the app executable, or `/usr/lib/mosaic/mosaic-native-host` on Linux, and a build without one, such as a
+  developer build, answers no findings and `internal` to a repair): `browser_connector_audit` (`null` → `{ findings: { browser: "chromium" \| "firefox", location, path }[] }`;
   `location` names the manifest file or registry key, `path` the host program it points to; run when the vault
   opens and when Settings > Browsers opens) and `browser_connector_repair` (`null` → the same shape after the
-  repair; it rewrites the per-user entries to the installed host, never a path from the webview). A finding
+  repair; it rewrites only the per-user entries of the browsers with a finding to the installed host, never a path
+  from the webview; on macOS the app also rewrites all per-user manifests at start so they point into the signed
+  bundle). A finding
   whose path is not the installed host shows the banner `browserConnectorForeign` (`BrowserConnectorBanner`: a
   warning with a Repair button, at the top of the vault and in Settings > Browsers, tested with mock findings:
   `&connector=foreign`). Repair goes to `browser_connector_repair`; on success the banner goes away and focus moves to

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Native-messaging registration of the per-machine MSI (M9 T8, ADR-0082, ADR-0083).
+
+  - Installs the system manifests into [INSTALLDIR]native-messaging\ and points the browsers to them
+    through HKLM, which only an administrator can change. (A per-user entry can still override this:
+    the desktop app audits and repairs those, docs/NATIVE_MESSAGING.md section 7.3.)
+  - Appends [INSTALLDIR] to the system PATH so `mosaic` works in a new terminal.
+
+  The manifests are generated at build time, from the same code as `mosaic-native-host install`:
+
+    mosaic-native-host manifest --system --os windows --out <dir>
+
+  and the environment variable MOSAIC_NM_MANIFEST_DIR names <dir> when the MSI is built (the
+  preprocessor stops with an error if it is unset). tauri.release.conf.json lists the component
+  group MosaicNativeMessaging in bundle.windows.wix.componentRefs.
+
+  The registry key names are the per-user ones of install.rs below HKLM; a test of the
+  native-messaging crate checks them against this file.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Directory Id="MosaicNativeMessagingDir" Name="native-messaging">
+        <Component Id="MosaicManifestChromium" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c01" Win64="yes">
+          <File Id="MosaicChromiumJson" Name="chromium.json" KeyPath="yes"
+                Source="$(env.MOSAIC_NM_MANIFEST_DIR)\chromium.json" />
+        </Component>
+        <Component Id="MosaicManifestFirefox" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c02" Win64="yes">
+          <File Id="MosaicFirefoxJson" Name="firefox.json" KeyPath="yes"
+                Source="$(env.MOSAIC_NM_MANIFEST_DIR)\firefox.json" />
+        </Component>
+      </Directory>
+    </DirectoryRef>
+  </Fragment>
+
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="MosaicChromeKey" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c03" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\NativeMessagingHosts\io.github.stephanbaum.mosaic">
+          <RegistryValue Type="string" Value="[INSTALLDIR]native-messaging\chromium.json" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+      <Component Id="MosaicEdgeKey" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c04" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\NativeMessagingHosts\io.github.stephanbaum.mosaic">
+          <RegistryValue Type="string" Value="[INSTALLDIR]native-messaging\chromium.json" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+      <Component Id="MosaicChromiumKey" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c05" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Chromium\NativeMessagingHosts\io.github.stephanbaum.mosaic">
+          <RegistryValue Type="string" Value="[INSTALLDIR]native-messaging\chromium.json" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+      <Component Id="MosaicFirefoxKey" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c06" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Mozilla\NativeMessagingHosts\io.github.stephanbaum.mosaic">
+          <RegistryValue Type="string" Value="[INSTALLDIR]native-messaging\firefox.json" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+      <Component Id="MosaicSystemPath" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c07" Win64="yes">
+        <CreateFolder />
+        <Environment Id="MosaicPath" Name="PATH" Action="set" Part="last" System="yes"
+                     Permanent="no" Value="[INSTALLDIR]" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="MosaicNativeMessaging">
+      <ComponentRef Id="MosaicManifestChromium" />
+      <ComponentRef Id="MosaicManifestFirefox" />
+      <ComponentRef Id="MosaicChromeKey" />
+      <ComponentRef Id="MosaicEdgeKey" />
+      <ComponentRef Id="MosaicChromiumKey" />
+      <ComponentRef Id="MosaicFirefoxKey" />
+      <ComponentRef Id="MosaicSystemPath" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

@@ -40,6 +40,7 @@ pub mod autolock;
 pub mod browser;
 pub mod clipboard;
 pub mod commands;
+pub mod connector;
 pub mod contract;
 pub mod dialogs;
 pub mod emergency_kit;
@@ -174,6 +175,8 @@ pub fn run() -> tauri::Result<()> {
             // platform key before the first unlock screen.
             backend.reconcile_quick_unlock();
             backend.sweep_cli_sessions();
+            // macOS: the per-user manifests point into the signed bundle.
+            connector::refresh_at_start();
             let state = AppState::new(backend);
 
             let weak = state.downgrade();
@@ -268,6 +271,8 @@ mod quick_unlock_tests;
 mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
+#[cfg(test)]
+mod release_overlay_tests;
 #[cfg(test)]
 mod rotation_handler_tests;
 #[cfg(test)]

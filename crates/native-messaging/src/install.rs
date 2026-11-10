@@ -80,6 +80,21 @@ impl Browser {
     }
 }
 
+impl Os {
+    /// Parses `windows`, `macos` or `linux`.
+    ///
+    /// # Errors
+    /// [`Error::Install`] for any other text.
+    pub fn parse(name: &str) -> Result<Self, Error> {
+        match name {
+            "windows" => Ok(Self::Windows),
+            "macos" => Ok(Self::MacOs),
+            "linux" => Ok(Self::Linux),
+            _ => Err(Error::Install),
+        }
+    }
+}
+
 /// The operating system layout to write for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Os {
@@ -225,17 +240,22 @@ fn registry_key(browser: Browser) -> String {
     format!(r"Software\{vendor}\NativeMessagingHosts\{HOST_NAME}")
 }
 
+/// The file name of the Windows manifests (shared by the Chromium family).
+const fn windows_manifest_name(firefox: bool) -> &'static str {
+    if firefox {
+        "firefox.json"
+    } else {
+        "chromium.json"
+    }
+}
+
 /// The Windows manifest files (shared by the Chromium family).
 fn windows_manifest_path(layout: &Layout, firefox: bool) -> PathBuf {
     layout
         .local_app_data
         .join(APP_IDENTIFIER)
         .join("NativeMessagingHosts")
-        .join(if firefox {
-            "firefox.json"
-        } else {
-            "chromium.json"
-        })
+        .join(windows_manifest_name(firefox))
 }
 
 /// What installing `browsers` writes, with the host at `host_path`.
@@ -434,5 +454,13 @@ pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Uninsta
     Ok(Uninstalled { plan, kept })
 }
 
+mod audit;
+mod system;
+
+pub use audit::{ManifestFinding, UNREADABLE, audit, audit_manifests, repair};
+pub use system::{LINUX_SYSTEM_HOST, WINDOWS_SYSTEM_HOST, system_host, system_plan, write_system};
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_m9;

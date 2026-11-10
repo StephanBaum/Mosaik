@@ -4,6 +4,10 @@
 //! - `mosaic-native-host install [--browsers chrome,edge,chromium,firefox]`
 //!   registers this binary with the browsers; `uninstall` removes
 //!   everything `install` wrote.
+//! - `mosaic-native-host manifest --system --os <os> --out <dir> [--host <path>]`
+//!   writes the system manifests of the installers (build time).
+//! - `mosaic-native-host check` lists the per-user manifests and registry
+//!   keys that point to another host (exit 0 none, 1 some).
 //! - Started by a browser, it checks who called it, then relays the
 //!   browser's stdio messages to the running desktop app.
 //!
@@ -26,7 +30,7 @@ use std::process::ExitCode;
 
 use mosaic_native_messaging::error::Error;
 use mosaic_native_messaging::ids::caller_from_args;
-use mosaic_native_messaging::install::{self, Browser, Layout, RegExe};
+use mosaic_native_messaging::install::{self, Browser, Layout, Os, RegExe};
 use mosaic_native_messaging::relay::{EndpointSource, run_host};
 
 const EXIT_FAILURE: u8 = 1;
@@ -38,6 +42,8 @@ fn main() -> ExitCode {
     match args.get(1).and_then(|a| a.to_str()) {
         Some("install") => install_command(args.get(2..).unwrap_or_default()),
         Some("uninstall") => uninstall_command(args.get(2..).unwrap_or_default()),
+        Some("manifest") => manifest_command(args.get(2..).unwrap_or_default()),
+        Some("check") => check_command(args.get(2..).unwrap_or_default()),
         _ => relay(&args),
     }
 }
@@ -122,4 +128,73 @@ fn uninstall_command(args: &[OsString]) -> ExitCode {
         );
     }
     ExitCode::SUCCESS
+}
+
+const MANIFEST_USAGE: &str =
+    "usage: mosaic-native-host manifest --system --os <windows|linux> --out <dir> [--host <path>]";
+
+/// `--system --os <os> --out <dir> [--host <path>]`, in any order.
+fn manifest_args(args: &[OsString]) -> Result<(Os, String, std::path::PathBuf), Error> {
+    let (mut system, mut os, mut out, mut host) = (false, None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        match flag.to_str() {
+            Some("--system") => system = true,
+            Some("--os") => os = rest.next().and_then(|v| v.to_str()).map(Os::parse),
+            Some("--out") => out = rest.next().map(std::path::PathBuf::from),
+            Some("--host") => host = rest.next().and_then(|v| v.to_str()).map(str::to_owned),
+            _ => return Err(Error::Install),
+        }
+    }
+    let os = os.ok_or(Error::Install)??;
+    let host = match host {
+        Some(host) => host,
+        None => install::system_host(os).ok_or(Error::Install)?.to_owned(),
+    };
+    if !system {
+        return Err(Error::Install);
+    }
+    Ok((os, host, out.ok_or(Error::Install)?))
+}
+
+fn manifest_command(args: &[OsString]) -> ExitCode {
+    let Ok((os, host, out)) = manifest_args(args) else {
+        eprintln!("{MANIFEST_USAGE}");
+        return ExitCode::from(EXIT_FAILURE);
+    };
+    let Ok(files) = install::write_system(os, &host, &out) else {
+        eprintln!("{MANIFEST_USAGE}");
+        return ExitCode::from(EXIT_FAILURE);
+    };
+    for file in files {
+        println!("wrote {}", file.display());
+    }
+    ExitCode::SUCCESS
+}
+
+fn check_command(args: &[OsString]) -> ExitCode {
+    let Ok(host) = std::env::current_exe() else {
+        eprintln!("mosaic-native-host: cannot find its own path");
+        return ExitCode::from(EXIT_FAILURE);
+    };
+    if !args.is_empty() {
+        eprintln!("usage: mosaic-native-host check");
+        return ExitCode::from(EXIT_FAILURE);
+    }
+    let findings = install::audit_manifests(&host);
+    if findings.is_empty() {
+        println!("ok: no per-user entry points to another host");
+        return ExitCode::SUCCESS;
+    }
+    for finding in &findings {
+        println!(
+            "{} ({}): points to {}, not {}",
+            finding.location,
+            finding.browser.name(),
+            finding.path.display(),
+            host.display()
+        );
+    }
+    println!("run `mosaic-native-host install` to point them at this host");
+    ExitCode::from(EXIT_FAILURE)
 }

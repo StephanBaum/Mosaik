@@ -19,9 +19,8 @@ pub async fn browser_status(state: State<'_, AppState>) -> IpcResult<BrowserStat
     Ok(state.backend().browser_status())
 }
 
-/// `browser_connector_audit`: the native-messaging entries that do not point
-/// to the installed host. T8 wires `audit_manifests`; until then there are no
-/// findings.
+/// `browser_connector_audit`: the per-user native-messaging entries that do
+/// not point to the installed host (`crate::connector`, ADR-0083).
 #[tauri::command]
 pub async fn browser_connector_audit(
     state: State<'_, AppState>,
@@ -29,9 +28,8 @@ pub async fn browser_connector_audit(
     Ok(state.backend().browser_connector_audit())
 }
 
-/// `browser_connector_repair`: points the per-user entries to the installed
-/// host and audits again. T8 wires the repair; until then it changes nothing
-/// and answers with no findings.
+/// `browser_connector_repair`: points the per-user entries that differ to the
+/// installed host and audits again.
 #[tauri::command]
 pub async fn browser_connector_repair(
     state: State<'_, AppState>,
@@ -102,21 +100,23 @@ pub async fn browser_rotation_reveal(
 }
 
 impl Backend {
-    /// The connector audit. M9 T8 wires `audit_manifests` here; the answer
-    /// is empty until then.
+    /// The connector audit: what differs from the host installed with this
+    /// app. Empty in a build without an installed host.
     #[must_use]
     pub fn browser_connector_audit(&self) -> BrowserConnectorAudit {
-        BrowserConnectorAudit { findings: vec![] }
+        crate::connector::audit()
     }
 
-    /// The connector repair. M9 T8 wires the rewrite of the per-user
-    /// entries here; nothing changes until then.
+    /// The connector repair: rewrites the per-user entries that differ to
+    /// the installed host (found from this executable, never from the
+    /// webview), then audits again.
     ///
     /// # Errors
-    /// None yet; T8 adds the codes of the rewrite.
+    /// `internal` without an installed host, or if an entry could not be
+    /// written.
     pub fn browser_connector_repair(&self) -> IpcResult<BrowserConnectorAudit> {
         self.touch();
-        Ok(self.browser_connector_audit())
+        crate::connector::repair().ok_or(IpcError::INTERNAL)
     }
 
     /// The endpoint and the paired browsers.

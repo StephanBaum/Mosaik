@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements of the signed macOS app (M9 T8, ADR-0082): none.
+  No allow-jit, disable-library-validation, allow-dyld-environment-variables or get-task-allow.
+  Touch ID entries are added only if the manual check proves them necessary.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

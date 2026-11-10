@@ -222,3 +222,11 @@ Authenticode or Developer ID signed (hardened runtime) once the owner has certif
 a minisign-signed `SHA256SUMS` (CRYPTO_SPEC §17). The release job checks that no Cargo feature (such as `test-util`) is
 enabled. The owner runbook is `docs/RELEASE.md` and the user's verification steps are in `docs/VERIFY.md` (both
 written in M9 T9). Package-manager channels are not part of M9.
+
+The installers come from the desktop build (`apps/desktop/src-tauri/tauri.release.conf.json`, built in CI by
+`.github/workflows/release.yml`): the sidecars `mosaic` and `mosaic-native-host` are built first and placed in
+`apps/desktop/src-tauri/binaries/` as `<name>-<target triple>[.exe]`; Tauri's `externalBin` installs them beside the app
+(`%ProgramFiles%\Mosaic\`, `Contents/MacOS/`, `/usr/bin/`). Targets are `msi`, `dmg`, `app`, `deb` and `rpm`; there is
+no NSIS and no AppImage because both install to user-writable places. The MSI is per-machine and appends its folder
+to the system `PATH` (`wix/native-messaging.wxs`). A `mosaic` found earlier on the `PATH` in a user-writable folder
+still wins over the installed one: check `where mosaic` or `command -v mosaic` after installing.
