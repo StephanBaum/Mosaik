@@ -35,6 +35,8 @@ export const cli = {
   "cli.err.sessionExpired": "The unlock session has ended. Enter your master password.",
   "cli.err.sessionNotCached":
     "No unlock session could be saved (the OS keystore or the runtime folder is not available). Every command will ask for your master password.",
+  "cli.err.twoFactorMethodUnsupported":
+    "This account signs in with a security key, which the command line cannot use. Add an authenticator-app code in the desktop app, then try again.",
   "cli.err.envSecretIgnored":
     "{name} is set but ignored. Mosaic never reads secrets from the environment.",
   "cli.err.exportUnreadable": "The file cannot be read: wrong passphrase or damaged file.",

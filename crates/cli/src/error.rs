@@ -97,6 +97,17 @@ impl CliError {
         Self::new("wrongCredentials", EXIT_AUTH, Msg::ErrWrongCredentials)
     }
 
+    /// The hosted account's only second factor is a security key, which the command line cannot
+    /// use (exit 3, ADR-0079).
+    #[must_use]
+    pub const fn two_factor_method_unsupported() -> Self {
+        Self::new(
+            "twoFactorMethodUnsupported",
+            EXIT_AUTH,
+            Msg::ErrTwoFactorMethodUnsupported,
+        )
+    }
+
     /// The store is open in another process (exit 5).
     #[must_use]
     pub const fn store_in_use() -> Self {

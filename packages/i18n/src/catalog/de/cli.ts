@@ -38,6 +38,8 @@ export const cli: Record<keyof typeof en, string> = {
   "cli.err.sessionExpired": "Die Entsperr-Sitzung ist beendet. Gib dein Master-Passwort ein.",
   "cli.err.sessionNotCached":
     "Es konnte keine Entsperr-Sitzung gespeichert werden (der OS-Schlüsselbund oder der Laufzeitordner ist nicht verfügbar). Jeder Befehl fragt nach deinem Master-Passwort.",
+  "cli.err.twoFactorMethodUnsupported":
+    "Dieses Konto meldet sich mit einem Sicherheitsschlüssel an, den die Kommandozeile nicht benutzen kann. Richte in der Desktop-App einen Code einer Authenticator-App ein und versuche es dann noch einmal.",
   "cli.err.envSecretIgnored":
     "{name} ist gesetzt, wird aber ignoriert. Mosaic liest nie Geheimnisse aus der Umgebung.",
   "cli.err.exportUnreadable":

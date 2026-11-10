@@ -11,6 +11,14 @@ export default defineConfig({
           include: ["packages/*/src/**/*.test.ts"],
         },
       },
+      {
+        test: {
+          // The security-key page the sync server serves (crates/server/assets/webauthn).
+          name: "server-page",
+          environment: "jsdom",
+          include: ["crates/server/assets/webauthn/*.test.ts"],
+        },
+      },
       "apps/desktop/vitest.config.ts",
       "apps/extension/vitest.config.ts",
     ],

@@ -110,8 +110,24 @@ impl World {
         Self::build(seed, ChaosConfig::default(), true)
     }
 
+    /// Like [`World::new`], on a server whose canonical origin names the host
+    /// `localhost`, so it can run WebAuthn ceremonies (a relying party needs a
+    /// host name; the client reaches `localhost` through the loopback pin).
+    pub fn new_with_host_origin(seed: u64) -> Self {
+        let mut server = LoopbackServer::with_origin(
+            mosaic_sync::wire::json::RegistrationMode::Open,
+            Some("localhost"),
+        );
+        let port = server.base.rsplit(':').next().unwrap().to_owned();
+        server.base = format!("http://localhost:{port}");
+        Self::build_on(server, seed, ChaosConfig::default(), false)
+    }
+
     fn build(seed: u64, chaos: ChaosConfig, rekeyed: bool) -> Self {
-        let server = LoopbackServer::start();
+        Self::build_on(LoopbackServer::start(), seed, chaos, rekeyed)
+    }
+
+    fn build_on(server: LoopbackServer, seed: u64, chaos: ChaosConfig, rekeyed: bool) -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path().join("device-0.db")).unwrap();
         let device = store.install_id().unwrap();

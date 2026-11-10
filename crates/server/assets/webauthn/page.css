@@ -1,0 +1,337 @@
+/*
+ * The security-key page. Every value comes from the design tokens below (the block between the
+ * markers is written by `pnpm --filter @mosaic/i18n export:webauthn`; do not edit it by hand).
+ */
+
+/* tokens:start (written by pnpm --filter @mosaic/i18n export:webauthn) */
+:root {
+  --space-0: 0px;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+  --radius-tag: 4px;
+  --radius-control: 6px;
+  --radius-field: 8px;
+  --radius-panel: 10px;
+  --radius-card: 12px;
+  --radius-dialog: 14px;
+  --radius-pill: 9999px;
+  --size-icon-sm: 12px;
+  --size-icon: 16px;
+  --size-icon-lg: 20px;
+  --size-control-sm: 28px;
+  --size-control: 32px;
+  --size-control-md: 34px;
+  --size-input: 36px;
+  --size-control-lg: 40px;
+  --size-input-xl: 56px;
+  --size-avatar: 32px;
+  --size-avatar-lg: 52px;
+  --size-rail: 64px;
+  --size-header: 64px;
+  --size-sidebar: 248px;
+  --size-list-pane: 280px;
+  --size-column: 440px;
+  --size-dialog: 480px;
+  --size-dialog-wide: 540px;
+  --size-form: 600px;
+  --size-palette: 640px;
+  --size-settings: 880px;
+  --size-illustration: 120px;
+  --border-width-hairline: 1px;
+  --border-width-focus: 2px;
+  --font-size-xs: 12px;
+  --line-height-xs: 16px;
+  --font-size-sm: 14px;
+  --line-height-sm: 20px;
+  --font-size-md: 16px;
+  --line-height-md: 24px;
+  --font-size-lg: 20px;
+  --line-height-lg: 28px;
+  --font-size-xl: 24px;
+  --line-height-xl: 32px;
+  --font-size-xxl: 32px;
+  --line-height-xxl: 40px;
+  --font-ui: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --motion-micro: 120ms;
+  --motion-panel: 200ms;
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+  --primary-action-label: #09090B;
+  --primary-action-fallback: #E4E4E7;
+  --primary-action-fallback-highlight: #F4F4F5;
+  --primary-action-label-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  --primary-action-icon-filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.55));
+  --vault-color-0: #FCD34D;
+  --vault-color-1: #A5B4FC;
+  --vault-color-2: #86EFAC;
+  --vault-color-3: #F9A8D4;
+  --vault-color-4: #7DD3FC;
+  --vault-color-5: #FDBA74;
+  --print-text: #09090B;
+  --print-bg: #FFFFFF;
+  --print-border: #8A8A93;
+  --layer-sticky: 5;
+  --layer-popover: 30;
+  --layer-menu: 35;
+  --layer-toast: 40;
+}
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #FFFFFF;
+  --color-bg-subtle: #FAFAFA;
+  --color-surface: #FFFFFF;
+  --color-border: #E4E4E7;
+  --color-border-strong: #8A8A93;
+  --color-text: #09090B;
+  --color-text-muted: #71717A;
+  --color-text-secondary: #3F3F46;
+  --color-bg-selected: #F4F4F5;
+  --color-danger-subtle: #FEF2F2;
+  --color-warning-subtle: #FFF7ED;
+  --color-success-subtle: #F0FDF4;
+  --color-accent: #09090B;
+  --color-accent-text: #FAFAFA;
+  --color-danger: #DC2626;
+  --color-warning: #C2410C;
+  --color-success: #15803D;
+  --color-focus-ring: #09090B;
+  --color-divider: #F4F4F5;
+  --color-faint: #A1A1AA;
+  --color-warning-border: #FED7AA;
+  --color-scrim: rgba(9, 9, 11, 0.40);
+  --shadow-popover: 0 8px 24px rgba(9, 9, 11, 0.08), 0 1px 2px rgba(9, 9, 11, 0.04);
+  --shadow-subtle: 0 1px 2px rgba(9, 9, 11, 0.04);
+  --primary-action-rim: #D4D4D8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #09090B;
+    --color-bg-subtle: #0C0C0E;
+    --color-surface: #18181B;
+    --color-border: #27272A;
+    --color-border-strong: #71717A;
+    --color-text: #FAFAFA;
+    --color-text-muted: #A1A1AA;
+    --color-text-secondary: #D4D4D8;
+    --color-bg-selected: #27272A;
+    --color-danger-subtle: #3B1212;
+    --color-warning-subtle: #2B1A0E;
+    --color-success-subtle: #0F2A1A;
+    --color-accent: #FAFAFA;
+    --color-accent-text: #09090B;
+    --color-danger: #F87171;
+    --color-warning: #FB923C;
+    --color-success: #4ADE80;
+    --color-focus-ring: #FAFAFA;
+    --color-divider: #18181B;
+    --color-faint: #52525B;
+    --color-warning-border: #7C2D12;
+    --color-scrim: rgba(0, 0, 0, 0.60);
+    --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.40);
+    --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.40);
+    --primary-action-rim: rgba(230, 230, 235, 0.75);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #09090B;
+  --color-bg-subtle: #0C0C0E;
+  --color-surface: #18181B;
+  --color-border: #27272A;
+  --color-border-strong: #71717A;
+  --color-text: #FAFAFA;
+  --color-text-muted: #A1A1AA;
+  --color-text-secondary: #D4D4D8;
+  --color-bg-selected: #27272A;
+  --color-danger-subtle: #3B1212;
+  --color-warning-subtle: #2B1A0E;
+  --color-success-subtle: #0F2A1A;
+  --color-accent: #FAFAFA;
+  --color-accent-text: #09090B;
+  --color-danger: #F87171;
+  --color-warning: #FB923C;
+  --color-success: #4ADE80;
+  --color-focus-ring: #FAFAFA;
+  --color-divider: #18181B;
+  --color-faint: #52525B;
+  --color-warning-border: #7C2D12;
+  --color-scrim: rgba(0, 0, 0, 0.60);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.50), 0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --primary-action-rim: rgba(230, 230, 235, 0.75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-micro: 0ms;
+    --motion-panel: 0ms;
+  }
+}
+/* tokens:end */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-md);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: start center;
+  padding: var(--space-7) var(--space-5);
+}
+
+.card {
+  width: 100%;
+  max-width: var(--size-dialog);
+  background: var(--color-surface);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-dialog);
+  box-shadow: var(--shadow-subtle);
+  padding: var(--space-7);
+}
+
+h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-xl);
+  font-weight: 600;
+}
+
+h1:focus {
+  outline: none;
+}
+
+.lead,
+.message,
+.status {
+  margin: 0 0 var(--space-5);
+}
+
+.lead,
+.status {
+  color: var(--color-text-secondary);
+}
+
+.status:empty,
+.message:empty,
+.error:empty,
+.lead:empty {
+  display: none;
+}
+
+.facts {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-field);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.facts[hidden],
+.code-form[hidden],
+[hidden] {
+  display: none;
+}
+
+.facts dt {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-sm);
+  color: var(--color-text-secondary);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.code-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+label {
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  min-height: var(--size-input-xl);
+  padding: 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
+  letter-spacing: 0.4em;
+  text-align: center;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-field);
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+button {
+  min-height: var(--size-control-lg);
+  padding: 0 var(--space-5);
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+button.primary {
+  color: var(--color-accent-text);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: var(--border-width-focus) solid var(--color-focus-ring);
+  outline-offset: var(--border-width-focus);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  input {
+    transition: border-color var(--motion-micro) var(--motion-easing);
+  }
+}

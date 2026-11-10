@@ -97,6 +97,7 @@ messages! {
     ErrFdUnsupported => "cli.err.fdUnsupported",
     ErrSessionExpired => "cli.err.sessionExpired",
     ErrSessionNotCached => "cli.err.sessionNotCached",
+    ErrTwoFactorMethodUnsupported => "cli.err.twoFactorMethodUnsupported",
     ErrEnvSecretIgnored => "cli.err.envSecretIgnored",
     ErrExportUnreadable => "cli.err.exportUnreadable",
     ErrImportFailed => "cli.err.importFailed",

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Mosaic</title>
+    <link rel="stylesheet" href="/webauthn/page.css" />
+    <script type="module" src="/webauthn/page.js"></script>
+  </head>
+  <body>
+    <main id="app" class="card" aria-labelledby="heading">
+      <h1 id="heading" tabindex="-1"></h1>
+      <p id="lead" class="lead"></p>
+      <dl id="facts" class="facts" hidden>
+        <div>
+          <dt id="fact-device-label"></dt>
+          <dd id="fact-device"></dd>
+        </div>
+        <div>
+          <dt id="fact-time-label"></dt>
+          <dd id="fact-time"></dd>
+        </div>
+        <div id="fact-account-row" hidden>
+          <dt id="fact-account-label"></dt>
+          <dd id="fact-account"></dd>
+        </div>
+      </dl>
+      <form id="code-form" class="code-form" autocomplete="off" novalidate hidden>
+        <label id="code-label" for="code"></label>
+        <input
+          id="code"
+          name="code"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          pattern="[0-9]{6}"
+          spellcheck="false"
+          aria-describedby="code-error"
+        />
+        <p id="code-error" class="error" role="alert"></p>
+        <button id="code-submit" type="submit" class="primary"></button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p id="message" class="message" role="alert"></p>
+      <button id="retry" type="button" class="primary" hidden></button>
+    </main>
+  </body>
+</html>

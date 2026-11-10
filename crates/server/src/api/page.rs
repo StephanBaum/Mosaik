@@ -1,19 +1,15 @@
 //! The static security-key page, `GET /webauthn/` (CRYPTO_SPEC §9.3).
 //!
-//! Track T3 supplies the real page (`crates/server/assets/webauthn/`). Until
-//! then the four files are minimal placeholders compiled into the binary;
-//! what this module owns is the set of strict headers every one of them is
-//! served with.
+//! The four files (`crates/server/assets/webauthn/`) are compiled into the binary; this module
+//! owns the set of strict headers every one of them is served with.
 
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
-const INDEX: &[u8] = b"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-<title>Mosaic</title><link rel=\"stylesheet\" href=\"/webauthn/page.css\"></head>\
-<body><main id=\"app\"></main><script src=\"/webauthn/page.js\"></script></body></html>";
-const SCRIPT: &[u8] = b"// placeholder: the handoff page script arrives with M9 T3\n";
-const STYLE: &[u8] = b"/* placeholder: the handoff page styles arrive with M9 T3 */\n";
-const STRINGS: &[u8] = b"{}";
+const INDEX: &[u8] = include_bytes!("../../assets/webauthn/index.html");
+const SCRIPT: &[u8] = include_bytes!("../../assets/webauthn/page.js");
+const STYLE: &[u8] = include_bytes!("../../assets/webauthn/page.css");
+const STRINGS: &[u8] = include_bytes!("../../assets/webauthn/strings.json");
 
 /// The headers of every page response.
 const HEADERS: [(&str, &str); 6] = [
