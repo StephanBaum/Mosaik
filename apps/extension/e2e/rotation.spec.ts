@@ -69,10 +69,12 @@ test("a page that swaps the roles of its fields after the probe receives nothing
   await fake.pauseAfterProbe();
   const pending = change(fake, tabId).then(
     () => "filled",
-    (error: Error) => error.message,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
   );
   await expect.poll(() => fake.isPaused()).toBe(true);
-  await page.evaluate(() => (window as unknown as { swap: () => void }).swap());
+  await page.evaluate(() => {
+    (window as unknown as { swap: () => void }).swap();
+  });
   await fake.release();
 
   expect(await pending).toMatch(/changeFormAmbiguous/);
