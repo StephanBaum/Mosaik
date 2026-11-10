@@ -2430,6 +2430,9 @@ next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key ro
     exist) with a confirmation-free "Restore" (`sync_ignored_rekey_markers`, `sync_restore_rekey_marker`). Dismissed
     unverifiable account files are not listed in the desktop, so they have no restore. The abandon button was
     already limited to phase 5 and later.
+- **CI fix (2026-11-10)**: `rusqlite` `=0.41.1` (bundled SQLite 3.54, `libsqlite3-sys` 0.39.1) replaces `=0.40.2` for
+  RUSTSEC-2026-0459 (uninitialized page-cache memory on a db plus `-wal` with a different page size). No API changes
+  needed; all five fuzz lockfiles updated.
 - **Manual checks for M7**, none can be automated here: (1) two real devices on a real server: re-key on one, watch
   the other sign out, adopt it with the new kit, then a second re-key from the other; (2) a re-key on a real
   Dropbox, iCloud or OneDrive folder with two devices, one offline during the re-key and adopting later, and a
