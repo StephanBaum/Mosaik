@@ -1,0 +1,15 @@
+<!-- attempts: three password fields without autocomplete tokens (read by position: current, new,
+     confirm); reorder() moves the last field to the front after the probe so the current
+     password would land in the field the site submits as the new one. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<form id="change" action="/never" onsubmit="return false">
+  <input id="a" type="password">
+  <input id="b" type="password">
+  <input id="c" type="password">
+</form>
+<script>
+  window.reorder = () => { document.getElementById("a").before(document.getElementById("c")); };
+</script>

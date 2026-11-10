@@ -1,0 +1,10 @@
+<!-- attempts: as another origin (the B layer of aba.html, or the top page when opened on evil.test),
+     frame the login's real change form from the origin named in ?inner=. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Nested B</title>
+<iframe id="a" width="500" height="300"></iframe>
+<script>
+  const inner = new URLSearchParams(location.search).get("inner");
+  document.getElementById("a").src = `${inner}/rotation-pages/change.html`;
+</script>

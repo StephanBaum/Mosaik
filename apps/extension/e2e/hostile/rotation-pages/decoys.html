@@ -1,0 +1,55 @@
+<!-- attempts: a change form with a decoy that pulls a value where the user cannot see it, or where
+     the page shows it in clear text. ?v= picks the decoy:
+       offscreen  a fourth new-password field at left:-9999px
+       opacity    the confirmation field at opacity 0
+       zero       the confirmation field at zero size
+       clip       the confirmation field clipped away (clip-path)
+       textdecoy  a visible text field named password_confirm without a token (plain-text harvest)
+       otherform  a hidden second form with its own new-password field
+       usernew    the user name field (type=text) declares autocomplete=new-password
+       overlay    a transparent layer over the whole page (the fields are not what the user sees) -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<style>
+  .offscreen { position: absolute; left: -9999px; top: 0; }
+  .opacity { opacity: 0; }
+  .zero { width: 0; height: 0; border: 0; padding: 0; }
+  .clip { clip-path: inset(50%); }
+  #overlay { position: fixed; inset: 0; background: transparent; z-index: 99999; }
+</style>
+<form id="change" action="/never" onsubmit="return false"></form>
+<script>
+  const v = new URLSearchParams(location.search).get("v");
+  const form = document.getElementById("change");
+  const field = (parent, id, type, ac, cls, name) => {
+    const el = document.createElement("input");
+    el.id = id;
+    el.name = name || id;
+    el.type = type;
+    if (ac) el.setAttribute("autocomplete", ac);
+    if (cls) el.className = cls;
+    parent.append(el);
+    return el;
+  };
+  field(form, "user", "text", v === "usernew" ? "new-password" : "username", null, "username");
+  field(form, "current", "password", "current-password");
+  field(form, "new", "password", "new-password");
+  if (v !== "usernew") {
+    field(form, "confirm", "password", "new-password", ["opacity", "zero", "clip"].includes(v) ? v : null);
+  }
+  if (v === "offscreen") field(form, "decoy", "password", "new-password", "offscreen");
+  if (v === "textdecoy") field(form, "decoy", "text", null, null, "password_confirm");
+  if (v === "otherform") {
+    const other = document.createElement("form");
+    other.style.display = "none";
+    document.body.append(other);
+    field(other, "decoy", "password", "new-password");
+  }
+  if (v === "overlay") {
+    const layer = document.createElement("div");
+    layer.id = "overlay";
+    document.body.append(layer);
+  }
+</script>

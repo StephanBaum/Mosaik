@@ -1,0 +1,24 @@
+<!-- attempts: a plain change form (current, new, confirm) that can rearrange itself after the probe:
+     swap() swaps the autocomplete roles, reorder() moves the new field before the current one,
+     renew() replaces the new field with an identical copy, hideNew() hides it. Records a submit. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<form id="change" action="/never" onsubmit="window.__submitted = true; return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="current" name="current" type="password" autocomplete="current-password">
+  <input id="new" name="new" type="password" autocomplete="new-password">
+  <input id="confirm" name="confirm" type="password" autocomplete="new-password">
+  <button type="submit">Change password</button>
+</form>
+<script>
+  const $ = (id) => document.getElementById(id);
+  window.swap = () => {
+    $("current").setAttribute("autocomplete", "new-password");
+    $("new").setAttribute("autocomplete", "current-password");
+  };
+  window.reorder = () => { $("current").before($("new")); };
+  window.renew = () => { $("new").replaceWith($("new").cloneNode(true)); };
+  window.hideNew = () => { $("new").style.display = "none"; };
+</script>

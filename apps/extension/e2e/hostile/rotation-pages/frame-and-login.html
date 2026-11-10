@@ -1,0 +1,11 @@
+<!-- attempts: a sign-in form in the top page and the change form in a same-origin frame, so the
+     frame the popup asks about (the sign-in one) is not the frame the change fill goes to. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Account</title>
+<script src="/_leaks.js"></script>
+<form id="login" onsubmit="return false">
+  <input id="luser" name="username" type="text" autocomplete="username">
+  <input id="lpass" name="password" type="password" autocomplete="current-password">
+</form>
+<iframe id="inner" src="change.html" width="500" height="300"></iframe>
