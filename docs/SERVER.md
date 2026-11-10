@@ -434,23 +434,36 @@ ceremony runs in the user's normal browser, on a page this server serves:
 
 Handoffs live in memory only and expire after five minutes at the latest; a
 restart ends every running one (the user starts again). The relying-party
-library is `passkey-auth` (ES256 and EdDSA only, no attestation check).
+library is `passkey-auth` (ES256 and EdDSA only, no attestation check). The
+server accepts security keys and platform authenticators alike
+(`authenticatorAttachment` is not limited), and accepts an assertion without a
+user handle; a user handle that is present must belong to the account.
+
+If the database holds security keys but `[webauthn]` is off (or the canonical
+origin is an IP address), the server logs a warning at startup. Those accounts
+cannot finish a login until you turn it back on or reset their second factor.
+
+If the operating system's random number source fails, the WebAuthn library
+panics. A debug build answers that request with a bare `500`; a release build
+stops, and `Restart=on-failure` brings it back (running handoffs are lost).
 
 | Route | Auth | Rules |
 |---|---|---|
 | `GET /v1/info?features=1` | none | Adds `features: {webauthn}`. |
 | `GET /v1/login/methods` | a pending login | `{totp, webauthn}`: what the account can use. |
 | `POST /v1/login/webauthn/handoff` | a pending login | Starts a login handoff: `{handoffId, matchCode, expiresAt}`. |
-| `GET /v1/login/webauthn/handoff/{id}` | the same pending login | `{state}` (`waiting`, `done`, `failed`, `expired`). On `done` the login is complete, as after `POST /v1/login/totp`. |
+| `POST /v1/login/webauthn/handoff/state` | the same pending login | Body `{handoffId}`. Answers `{state}` (`waiting`, `done`, `failed`, `expired`). On `done` the login is complete, as after `POST /v1/login/totp`. |
 | `POST /v1/account/webauthn/handoff` | a session with a fresh login | Body `{purpose: "register" \| "confirm", label?}`. `register` adds a key (label 1 to 64 characters, at most 10 keys); `confirm` proves a second factor for the next five minutes. |
-| `GET /v1/account/webauthn/handoff/{id}` | the same session | `{state}`. |
+| `POST /v1/account/webauthn/handoff/state` | the same session | Body `{handoffId}`. Answers `{state}`. |
 | `GET /v1/account/webauthn` | a session | `[{credentialRef, label, createdAt, lastUsedAt}]`; `credentialRef` is the first 16 bytes of SHA-256 of the credential ID. |
 | `POST /v1/account/webauthn/remove` | a session with a fresh login, plus a TOTP `code` or a `confirm` from the last five minutes | Removes one key; audit event `WebauthnRemoved`. Removing the last factor turns two-step verification off. |
 | `GET /webauthn/`, `page.js`, `page.css`, `strings.json` | none | The static page, with the headers listed under "Reverse proxy". |
-| `POST /v1/webauthn/handoff/{id}/options` | the handoff ID and the typed code | Body `{code}`. Five wrong codes end the handoff. Answers `{purpose, deviceName, requestedAt, publicKey}`. |
-| `POST /v1/webauthn/handoff/{id}/finish` | the handoff ID | The browser's credential JSON, at most 16 KiB. Answers `{ok: true}`, `twoFactorInvalid`, `handoffExpired` or `rateLimited`. |
+| `POST /v1/webauthn/handoff/options` | the handoff ID and the typed code | Body `{handoffId, code}`. Five wrong codes end the handoff. Answers `{purpose, deviceName, requestedAt, publicKey}`. |
+| `POST /v1/webauthn/handoff/finish` | the handoff ID | Body `{handoffId, credential}` (the browser's credential JSON), at most 16 KiB. Answers `{ok: true}`, `twoFactorInvalid`, `handoffExpired` or `rateLimited`. |
 
-Every request body refuses unknown keys. The two unauthenticated handoff routes
+No route has the handoff ID in its path: it travels only in the URL fragment
+(which the browser keeps to itself) and in request bodies, so your access and
+proxy logs never record it. Every request body refuses unknown keys. The two unauthenticated handoff routes
 are limited per client IP address (10 a minute, burst 20); wrong codes and
 failed checks also count against the account's hourly second-factor budget.
 Removing TOTP, removing a key, removing a device and deleting the account accept

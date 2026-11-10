@@ -212,8 +212,9 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
 `confirm` from the last five minutes.
 
 **Other M9 additions.**
-- `ApplyOutcome::MetaValueDropped` (CRYPTO_SPEC §7.1) reaches the webview as the event `vaultMetaDropped { vaultId }`;
-  the UI shows a notice the user can dismiss (planned, M9 T6).
+- `ApplyOutcome::MetaValueDropped` (CRYPTO_SPEC §7.1) reaches the webview as the event `vaultMetaDropped { vaultId,
+  fields: ("name" | "icon" | "description")[] }`; the UI shows a notice the user can dismiss that names
+  those fields (planned, M9 T6). The event carries field names, never the dropped values.
 - `settings.globalShortcut` (an accelerator string, validated in Rust by `shortcut::parse_accelerator`) is
   re-registered when it changes; a registration failure is `shortcutUnavailable`, on Wayland `shortcutUnsupported`
   and the field is disabled (planned, M9 T6).
