@@ -82,8 +82,8 @@ tables).
 | M5 | not recorded | not recorded | not recorded | not recorded | not recorded |
 | M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
 | M6b (T1 review, milestone review, two verify passes and the T5 UX review) | 7 | 8 | 11 | 6 | none |
-| M7 Key rotation (T1 crypto review only; the milestone review is pending) | 0 | 3 | 6 | 2 | none |
-| **Overall (M0 to M7, M7 partial)** | **26** | **122** | **186** | **46** | **51 recorded** |
+| M7 Key rotation (T1 review, milestone review, one verify pass and two UX passes) | 6 | 20 | 28 | 2 | none |
+| **Overall (M0 to M7)** | **32** | **139** | **208** | **46** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -244,22 +244,28 @@ can skip it (the grant dialog says so); vault keys only are covered by emergency
 
 ## M7 Key rotation
 
-Status: **in progress; the milestone review is pending.** Sources: the M7 fix decision file (`m7-t1-fix.md`, kept by the
-orchestrator), the commit messages named below and `docs/PROGRESS.md` ("M7 Key rotation"). The reviewer report is not
-in the repository.
+Status: **done.** Sources: the M7 fix decision files (`m7-t1-fix.md`, `m7-fix.md`, `m7-fix2.md`, `m7-ux-fix.md`, kept
+by the orchestrator), the commit messages named below and `docs/PROGRESS.md` ("M7 Key rotation"). The reviewer reports
+are not in the repository. UX findings are counted as Blocker = High, Major = Medium, Minor = Low.
 
 | Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
 |---|---|---|---|---|---|
 | 2026-11-08 | T1 core: crypto-reviewer on the spec text and `mosaic-core` (`19eff2a`) | opus | 0 / 3 / 6 / 2 | none | All fixed in `0e27585`: no equal-epoch adoption (a conflict is resolved by re-keying to max + 1), retired Secret Key commitments refuse any key this device held, a hard halt only on a verified marker (an unverifiable higher-epoch file is a dismissible finding), the server's wrapping of the current generation kept on adoption after a constant-time key check, checked epoch arithmetic and hosted adoption only at current + 1, the backend epoch in a folder is the highest verified one, phase-3 resume needs the last kit group, `rekey/finish` ends pending logins and deletes PRF wrappings, the hosted account version never goes down, `change_credentials` verifies the current wrapping first; the byte KAT of the v2 account file and the marker went to T4; the in-app notice replaces the email (R89) |
-| pending | M7 milestone review: crypto-reviewer over `19eff2a..` the T5 commit, sync-chaos, ux-reviewer on the wizards | opus, sonnet | not yet | not yet | to be filled in at the milestone close |
+| 2026-11-09 | M7 milestone review: crypto-reviewer over `19eff2a..e88dc6b` (core, vault, sync, server, desktop) | opus | 3 / 5 / 5 / not recorded | none | Fixed in `395015e` and `730e8f1`: a folder device adopts any higher epoch that verifies under the typed Secret Key, the join and a fresh hosted registration store the backend's epoch, a cancelled invite reads as cancelled, hosted adoption needs no clean sync, a resume re-queues attachment re-seals, member vaults the device can't open get no rewrap, owned vaults are held until the next vault key arrives, a lower served epoch is a rollback finding, triggers tie the identity epoch to the account epoch, an unreadable attachment is skipped and listed; the reason-6 revocation row is deferred (ADR-0063) |
+| 2026-11-09 | Verify pass over the fix round: crypto-reviewer | opus | 1 / 3 / 2 / 0 | none | Fixed in `1fedd69` and `824e0a4` (ADR-0064, R94 to R96): the desktop hosted join uses the served epoch, an epoch jump is capped at 16 so a forged marker can't exhaust the epoch space, marker MACs are checked before the scan budget, only vaults the backend knows are held, a committed job can only be abandoned after the local commit, the hold lookup fails closed, `raise_epoch_to` is test-only, dismissed markers can be restored |
+| 2026-11-10 | ux-reviewer on the rotation wizards, resume, adoption and notices (EN light) | opus | 1 / 7 / 10 / not recorded | none | Fixed in `0a24778`, `0f42855` and `c1a546b`: the hidden run progress, five focus losses, a confirm before discarding a prepared change, the hosted re-key card asks for the new Secret Key, clearer notice and conflict copy, live announcements, German wording; a signed-out device still can't learn "re-keyed" before sign-in (M7-R3) |
+| 2026-11-10 | ux-reviewer re-check (EN and DE, light and dark, 720×480) | opus | 1 / 2 / 5 / not recorded | none | Fixed in `ef35dc9`: the sticky dialog bar covered the focused field at 720×480, Esc on the stop dialog re-opened it, a warning text had gone to the wrong key, finished phases marked, the sidebar matches the sync state |
 
-Total so far: High 0, Medium 3, Low 6, Info 2 (T1 review, counted by item in the decision file).
+Total: High 6, Medium 20, Low 28, Info 2 (counted by item in the decision files).
 
 The headline limits (THREAT_MODEL R83 to R89): until every device adopts a re-key a stale folder device accepts
 old-epoch objects that a holder of the old account key writes; members who keep the old pin can be fed forged
 rotations until they verify the owner's new safety code; a re-key does not take back what was already copied; vaults
 owned by others stay readable to the old key holder until their owner rotates; the pending Secret Key sits in the OS
 keystore before the commit.
+After the milestone review (R94 to R96): a folder writer can halt an adoption by planting or deleting files (recovery:
+re-key from this device or remove the planted files); a device more than 16 epochs behind must be set up again; a device
+that a re-key signed out learns that it needs the new Secret Key only from the sign-in hint (M7-R3).
 
 ## Appending a milestone
 
