@@ -6,7 +6,8 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 repository.workspace = true
-# Embedded data: the 2FA Directory TOTP list (MIT). See data/README.md.
+# Embedded data: the 2FA Directory TOTP list (MIT) and Apple's change-password
+# URL list (MIT). See data/README.md.
 include = ["src/**", "data/**", "Cargo.toml"]
 
 [lints]
@@ -20,9 +21,16 @@ mosaic-generator = { path = "../generator" }
 # lists both crates; CRYPTO_SPEC §13, ADR-0022).
 hmac.workspace = true
 sha2.workspace = true
+# The breach check: HIBP names a leaked password by its SHA-1 (CRYPTO_SPEC §2
+# "Breach check", ADR-0067). An identifier, not a security primitive; the crate
+# is the one TOTP already uses.
+sha1.workspace = true
 subtle.workspace = true
 zeroize.workspace = true
 thiserror.workspace = true
+# Related-domain check for a stored change-password URL (registrable domain,
+# ADR-0070).
+mosaic-origin = { path = "../origin" }
 # Parses the vendored 2FA Directory data once, like the generator's quirks.
 serde_json.workspace = true
 

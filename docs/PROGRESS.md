@@ -17,7 +17,7 @@ milestone close appends its section there).
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
-| M7b Credential rotation | — (the brief's "M7": semi-automatic change-password through the extension, HIBP range check, rotate-now queue, connectors, scheduler; spec ready, runs after M7 and before M8 by default, OD-M7-1) |
+| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault, T3 desktop, T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
 | M8 CLI | — |
 | M9 Hardening | — |
 | M10 Mobile | — |
@@ -2440,6 +2440,30 @@ next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key ro
   and screen-reader pass through the four wizards, the banner and the recovery dialog in light, dark, German and
   English; (7) a slow machine for `profileTooSlow`.
 
+## M7b Credential rotation (2026-11-10)
+
+Spec: guided password change through the extension, an opt-in Have I Been Pwned range check and a rotate-now queue
+(ADR-0065 to 0070, THREAT_MODEL R97 to R104). Tracks run one after the other: T1 spec, core and insights; T2 vault;
+T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, no server change.
+
+- **T1 spec, core and insights: done** (branch `feat/m7b-rotation`, on top of M7). The numbers moved by the M7 close:
+  the M7b ADRs are 0065 to 0070 (the spec draft had 0063 to 0068) and the threat rows R97 to R104 (draft R92 to R99).
+  - Docs first: CRYPTO_SPEC §2 (breach row), §7.4 (attempts, the never-delete invariant, restore, the value mark),
+    §7.5 (new keys, `schema_version` stays 1), §11 (store v10 tables, no secret-derived value), §12 and §12.1
+    (nothing new visible); six ADRs; eight threat rows, all accepted.
+  - `mosaic-core` (`model/item/rotation.rs`): `rotation:<id>` attempts (`begin_rotation`,
+    `mark_rotation_delivered`, `confirm_rotation`, `fail_rotation`), history `reason` and `id`
+    (`HistoryReason`, `HistoryId`), `restore_history`, `set_rotation_policy`, `secret_mark` (`ValueMark`),
+    `TextField::ChangePasswordUrl`, the delete-race repair for an attempt closed on one device and delivered on
+    another, `clear_password_history` refusal and 30-day keep. Errors `NotALogin`, `TooManyAttempts`,
+    `RotationOpen`, `RotationNotFound`, `HistoryNotFound`.
+  - `mosaic-insights`: `breach` (pure: plan, constant-time suffix match, run with a fake-able `RangeSource`; no
+    network), `change_url` with the vendored Apple `change-password-URLs.json` (805 entries, MIT), `FindingKind::Breached`,
+    `analyze_with` and `Extra`, the per-item reminder interval for "old", fuzz target `pwned_range`.
+  - New dependency edges: `mosaic-insights` to `sha1` (already pinned) and to `mosaic-origin` (related-domain
+    check). No new crate in the lockfile; the insights fuzz lockfile grew by the origin crate's tree.
+  - Left to the next tracks: the HTTP transport (`mosaic_sync::http::pwned`, T3) and everything in the spec's §3.2 to §8.
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -2483,7 +2507,7 @@ next with its spec ready (`m7-spec.md` §1.4, OD-M7-1); this milestone is key ro
 | M3-R13 | low | `ssh-key 0.7.0-rc.11` (a release candidate) is pinned; 0.6.7 carries RUSTSEC-2026-0387 | open: move to 0.7.0 when it is released |
 | M3-R14 | info | RSA SSH keys are not served (RUSTSEC-2023-0071) | accepted (ADR-0025) |
 | M3-R15 | low | Unwiped upstream copies: the PEM decoder line buffer, bcrypt-pbkdf temporaries and ssh-key intermediates; serde_json, quick-xml and zip buffers during import | accepted, R20 and R22; revisit with R5 in M9 |
-| M3-R16 | low | Strength estimate: dictionary passwords outside the short word list score as brute force (`Tr0ub4dor&3` 72 bits); the bundled 2FA Directory data changes only with releases | accepted (ADR-0024, ADR-0023); a larger list with HIBP in M7 |
+| M3-R16 | low | Strength estimate: dictionary passwords outside the short word list score as brute force (`Tr0ub4dor&3` 72 bits); the bundled 2FA Directory data changes only with releases | accepted (ADR-0024, ADR-0023); the opt-in HIBP range check of M7b (ADR-0067) now catches breached passwords the short word list misses, so a dictionary password that is in a breach is reported as `Breached` once the user turns the check on |
 | M3-R17 | low | The security report and the import commit run under the session lock; a large vault or import blocks other commands while they run | accepted (ADR-0024 item 5) |
 | M3-R18 | low | Windows: the agent pipe keeps the default DACL, so another local account can occupy the 32 connection slots; the agent cannot start while the OpenSSH Authentication Agent service runs | accepted (ADR-0025), R20 |
 | M3-R19 | info | Import: no KeePass key files, no Twofish or KDBX 3.1, no password-protected Bitwarden exports, no custom CSV column mapping in the UI. Passkeys are imported from Bitwarden, KeePassXC and CXF since M5 (ES256 only; EdDSA and RSA keys are left out with a warning); 1PUX holds no private keys, so its passkeys stay out | accepted (ADR-0021, ADR-0041) |

@@ -9,7 +9,8 @@
 //! - Everything runs on the device over decrypted items the session already
 //!   holds. Nothing leaves the device and nothing is fetched: the 2FA
 //!   Directory data is embedded ([`directory`]). The breach check (Have I
-//!   Been Pwned, k-anonymity) is M7 and lives elsewhere.
+//!   Been Pwned, k-anonymity) is opt-in (M7b): [`breach`] plans and
+//!   evaluates it purely, the transport lives in `mosaic-sync`.
 //! - A [`Report`] carries item IDs, finding kinds, severities, action keys,
 //!   the 2FA Directory entry of a site and the host of a plain-HTTP URL,
 //!   never a password, a hash of one, a strength score or any other value
@@ -33,6 +34,7 @@
 //! | [`FindingKind::Reused`] | logins, Wi-Fi | the same non-empty password as another checked item (exact, byte for byte) | `High` | change password |
 //! | [`FindingKind::Old`] | logins with a password | the current password was written more than [`Options::max_password_age_days`] (365) days before `now` | `Low` | change password |
 //! | [`FindingKind::MissingTotp`] | logins without a one-time code (neither the item's own nor a custom field of the OTP kind) | a URL's host is a 2FA Directory TOTP site, and no checked item with a one-time code (own or custom field) names that site by URL or issuer | `Medium`; `Low` if a checked item holds a passkey for that site (relying party ID) | set up 2FA |
+//! | [`FindingKind::Breached`] | logins, Wi-Fi (password) | the opt-in breach check found the current password ([`breach`], fed through [`analyze_with`]) | `High` | change password |
 //! | [`FindingKind::InsecureUrl`] | logins | a URL with the `http` scheme, except loopback hosts | `Medium`; `Low` if every such URL is on a local network ([`url::is_local_network`]) | review URL |
 //!
 //! The password's age comes from the time its current value was written
@@ -47,6 +49,8 @@
 //! equivalence classes of equal passwords (a property test checks this).
 #![forbid(unsafe_code)]
 
+pub mod breach;
+pub mod change_url;
 pub mod directory;
 mod error;
 mod report;
@@ -55,7 +59,7 @@ mod strength;
 pub mod url;
 mod words;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use mosaic_core::model::{CustomFieldValue, Item, ItemType, OtpConfig, SecretField};
 use mosaic_core::{ItemId, SecretString, Timestamp, VaultId};
@@ -79,6 +83,23 @@ pub struct Candidate<'a> {
     pub item_id: ItemId,
     /// The decrypted item.
     pub item: &'a Item,
+}
+
+/// Findings that come from outside the items, for [`analyze_with`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Extra<'a> {
+    breached: Option<&'a BTreeSet<ItemKey>>,
+}
+
+impl<'a> Extra<'a> {
+    /// Items whose current password the breach check found
+    /// ([`breach::BreachStates::breached_items`]).
+    #[must_use]
+    pub const fn new(breached: &'a BTreeSet<ItemKey>) -> Self {
+        Self {
+            breached: Some(breached),
+        }
+    }
 }
 
 /// Settings for [`analyze`]. Start from [`Options::default`] and set fields.
@@ -129,6 +150,25 @@ pub fn analyze<'a, I>(items: I, now: Timestamp, options: &Options) -> Result<Rep
 where
     I: IntoIterator<Item = Candidate<'a>>,
 {
+    analyze_with(items, now, options, &Extra::default())
+}
+
+/// [`analyze`] with the findings that come from outside the items (the
+/// breach check, [`Extra`]). A password's age is measured against the
+/// item's own reminder interval ([`Item::rotation_policy`]) when it has
+/// one, else against [`Options::max_password_age_days`].
+///
+/// # Errors
+/// As [`analyze`].
+pub fn analyze_with<'a, I>(
+    items: I,
+    now: Timestamp,
+    options: &Options,
+    extra: &Extra<'_>,
+) -> Result<Report>
+where
+    I: IntoIterator<Item = Candidate<'a>>,
+{
     let checked = collect(items)?;
     let mut found = Found::new(&checked);
     check_weak(&mut found);
@@ -136,6 +176,7 @@ where
     check_old(&mut found, now, options.max_password_age_days);
     check_urls(&mut found);
     check_totp(&mut found);
+    check_breached(&mut found, *extra);
     Ok(found.finish(&groups))
 }
 
@@ -253,10 +294,23 @@ fn check_reused(found: &mut Found<'_, '_>) -> Result<Vec<Vec<usize>>> {
     Ok(groups)
 }
 
-fn check_old(found: &mut Found<'_, '_>, now: Timestamp, max_age_days: u32) {
-    let max_age = i64::from(max_age_days).saturating_mul(DAY_MS);
+fn check_breached(found: &mut Found<'_, '_>, extra: Extra<'_>) {
+    let Some(breached) = extra.breached else {
+        return;
+    };
     let checked = found.checked;
     for (index, c) in checked.iter().enumerate() {
+        if c.secret.is_some() && breached.contains(&c.key) {
+            found.add(index, FindingKind::Breached, Severity::High);
+        }
+    }
+}
+
+fn check_old(found: &mut Found<'_, '_>, now: Timestamp, max_age_days: u32) {
+    let checked = found.checked;
+    for (index, c) in checked.iter().enumerate() {
+        let days = c.item.rotation_policy().map_or(max_age_days, u32::from);
+        let max_age = i64::from(days).saturating_mul(DAY_MS);
         if c.is_login()
             && c.secret.is_some()
             && let Some(changed) = password_changed_at(c.item)
@@ -337,7 +391,9 @@ fn check_totp(found: &mut Found<'_, '_>) {
 
 fn finding(kind: FindingKind, severity: Severity) -> Finding {
     let action = match kind {
-        FindingKind::Weak | FindingKind::Reused | FindingKind::Old => Action::ChangePassword,
+        FindingKind::Weak | FindingKind::Reused | FindingKind::Old | FindingKind::Breached => {
+            Action::ChangePassword
+        }
         FindingKind::MissingTotp => Action::SetUpTotp,
         FindingKind::InsecureUrl => Action::ReviewUrl,
     };
@@ -487,6 +543,7 @@ fn count(items: &[ItemFindings], reuse_groups: usize) -> Counts {
                 FindingKind::Old => &mut counts.old,
                 FindingKind::MissingTotp => &mut counts.missing_totp,
                 FindingKind::InsecureUrl => &mut counts.insecure_url,
+                FindingKind::Breached => &mut counts.breached,
             };
             *slot = slot.saturating_add(1);
         }

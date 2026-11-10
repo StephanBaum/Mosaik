@@ -12,9 +12,11 @@ use mosaic_core::model::{
 };
 use mosaic_core::{DeviceId, ItemId, SecretVec, Timestamp, VaultId};
 use mosaic_insights::{
-    Action, Candidate, Counts, FindingKind, ItemKey, Options, Report, Severity, analyze,
+    Action, Candidate, Counts, Extra, FindingKind, ItemKey, Options, Report, Severity, analyze,
+    analyze_with,
 };
 use proptest::prelude::*;
+use std::collections::BTreeSet;
 
 const DAY: i64 = 86_400_000;
 const NOW: i64 = 1_800_000_000_000;
@@ -559,4 +561,88 @@ proptest! {
         let members: usize = r.reuse_groups.iter().map(Vec::len).sum();
         prop_assert_eq!(members, reused);
     }
+}
+
+#[test]
+fn breached_finding_is_high() {
+    let mut fx = Fixture::new();
+    let hit = fx.login(Some(STRONG), &["https://example.com"]);
+    let clean = fx.login(Some("Zq8#mW3!vB6$nT1&kP5*"), &[]);
+    let candidates = || {
+        fx.items.iter().map(|(item_id, item)| Candidate {
+            vault_id: fx.vault,
+            item_id: *item_id,
+            item,
+        })
+    };
+    // Without breach input nothing changes.
+    let plain = analyze(candidates(), at(NOW), &Options::default()).unwrap();
+    assert!(plain.item(hit).is_none());
+    assert_eq!(plain.counts.breached, 0);
+    let breached = BTreeSet::from([hit]);
+    let r = analyze_with(
+        candidates(),
+        at(NOW),
+        &Options::default(),
+        &Extra::new(&breached),
+    )
+    .unwrap();
+    let f = &r.item(hit).unwrap().findings;
+    assert_eq!(f.len(), 1);
+    assert_eq!(
+        (f[0].kind, f[0].severity, f[0].action),
+        (
+            FindingKind::Breached,
+            Severity::High,
+            Action::ChangePassword
+        )
+    );
+    assert!(r.item(clean).is_none());
+    assert_eq!(r.counts.breached, 1);
+    assert_eq!(r.counts.high, 1);
+    assert_eq!(r.counts.of(FindingKind::Breached), 1);
+    assert_eq!(FindingKind::Breached.i18n_key(), "insights.kind.breached");
+    // A breached key that is not (or no longer) a checked item is ignored.
+    let ghost = BTreeSet::from([ItemKey {
+        vault_id: fx.vault,
+        item_id: ItemId::new_v7().unwrap(),
+    }]);
+    let r = analyze_with(
+        candidates(),
+        at(NOW),
+        &Options::default(),
+        &Extra::new(&ghost),
+    )
+    .unwrap();
+    assert_eq!(r.counts.breached, 0);
+}
+
+#[test]
+fn policy_overrides_old_threshold() {
+    let mut fx = Fixture::new();
+    let with = fx.login_at(Some(STRONG), &[], NOW - 40 * DAY);
+    let without = fx.login_at(Some("Zq8#mW3!vB6$nT1&kP5*"), &[], NOW - 40 * DAY);
+    let long = fx.login_at(Some("Hn4$dR7!bY2#cF9&xK6*"), &[], NOW - 400 * DAY);
+    // 40 days old is fine under the global 365 days.
+    let r = fx.report();
+    assert!(r.item(with).is_none() && r.item(without).is_none());
+    assert!(r.item(long).unwrap().has(FindingKind::Old));
+    fx.edit(with, NOW - 39 * DAY, |e| {
+        e.set_rotation_policy(Some(30)).unwrap();
+    });
+    // A 365-day policy on an old password moves the threshold up.
+    fx.edit(long, NOW - 38 * DAY, |e| {
+        e.set_rotation_policy(Some(365)).unwrap();
+    });
+    let r = fx.report();
+    assert!(r.item(with).unwrap().has(FindingKind::Old), "30-day policy");
+    assert!(r.item(without).is_none());
+    assert!(
+        r.item(long).unwrap().has(FindingKind::Old),
+        "400 days > 365"
+    );
+    fx.edit(long, NOW - 37 * DAY, |e| {
+        e.set_rotation_policy(None).unwrap();
+    });
+    assert!(fx.report().item(long).unwrap().has(FindingKind::Old));
 }
