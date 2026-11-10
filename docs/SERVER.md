@@ -112,6 +112,10 @@ mosaic-server account reset-second-factor --config <file> --email <address>
   who lost every second factor, and anyone who talks you into it gets the
   same (THREAT_MODEL R115). The password and the Secret Key are still needed
   to sign in.
+  The command runs in its own process, so a running server may still hold a
+  browser handoff of the account in memory. It cannot be finished: the finish
+  checks, in the same transaction, that the session which started it still
+  exists, and the reset deleted every session. No restart is needed.
 - `check-config` validates the file and says whether the directory is
   initialised.
 

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::webauthn::CeremonyState;
 
@@ -71,13 +72,20 @@ struct Handoff {
     device_id: [u8; 16],
     device_name: String,
     label: Option<String>,
-    match_code: [u8; 6],
+    match_code: Zeroizing<[u8; 6]>,
     rp_state: Option<CeremonyState>,
     created: u64,
     expires: u64,
     code_attempts: u8,
     finish_attempts: u8,
     state: State,
+}
+
+impl Drop for Handoff {
+    fn drop(&mut self) {
+        self.token_hash.zeroize();
+        self.label.zeroize();
+    }
 }
 
 impl Handoff {
@@ -107,7 +115,7 @@ pub struct Created {
     /// The ID (16 random bytes).
     pub id: [u8; 16],
     /// The six decimal digits the user types.
-    pub match_code: [u8; 6],
+    pub match_code: Zeroizing<[u8; 6]>,
     /// Expiry, Unix milliseconds.
     pub expires: u64,
 }
@@ -179,7 +187,7 @@ impl Handoffs {
         } = new;
         let mut id = [0u8; 16];
         getrandom::fill(&mut id).ok()?;
-        let match_code = random_code()?;
+        let match_code = Zeroizing::new(random_code()?);
         let expires = now.saturating_add(HANDOFF_TTL_MS).min(not_after);
         let mut map = self.lock();
         map.retain(|_, h| h.expires.saturating_add(60_000) > now);
@@ -200,7 +208,7 @@ impl Handoffs {
                 device_id,
                 device_name: device_name.to_owned(),
                 label,
-                match_code,
+                match_code: match_code.clone(),
                 rp_state: None,
                 created: now,
                 expires,
@@ -211,7 +219,7 @@ impl Handoffs {
         );
         Some(Ok(Created {
             id,
-            match_code,
+            match_code: Zeroizing::new(*match_code),
             expires,
         }))
     }
@@ -335,6 +343,13 @@ impl Handoffs {
         self.lock().retain(|_, h| &h.account_id != account);
     }
 
+    /// Ends the handoffs of one device (its removal, or a new login that
+    /// replaces its session).
+    pub fn drop_device(&self, account: &[u8; 16], device: &[u8; 16]) {
+        self.lock()
+            .retain(|_, h| !(&h.account_id == account && &h.device_id == device));
+    }
+
     /// Ends the handoffs bound to one session (a logout).
     pub fn drop_session(&self, token_hash: &[u8; 32]) {
         self.lock().retain(|_, h| &h.token_hash != token_hash);
@@ -395,6 +410,18 @@ mod tests {
     }
 
     #[test]
+    fn drop_device_ends_only_that_devices_handoffs() {
+        let h = Handoffs::new();
+        let a = make(&h, 0);
+        let mut other = new([2; 16]);
+        other.device_id = [5; 16];
+        let b = h.create(0, other, u64::MAX).unwrap().unwrap();
+        h.drop_device(&[2; 16], &[4; 16]);
+        assert!(h.state(&a.id, &[1; 32], 1).is_none());
+        assert!(h.state(&b.id, &[1; 32], 1).is_some());
+    }
+
+    #[test]
     fn five_wrong_codes_fail_the_handoff() {
         let h = Handoffs::new();
         let c = make(&h, 0);
@@ -409,7 +436,7 @@ mod tests {
             Some(Refused::WrongCode)
         );
         assert!(matches!(
-            h.verify_code(&c.id, &c.match_code, 1),
+            h.verify_code(&c.id, &c.match_code[..], 1),
             Err(Refused::Closed)
         ));
         assert_eq!(h.state(&c.id, &[1; 32], 1).unwrap().0, State::Failed);

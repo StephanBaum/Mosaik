@@ -107,7 +107,7 @@ pub fn user_handle(tx: &Transaction<'_>, account: &[u8; 16]) -> Result<[u8; 16],
         .ok_or_else(ApiError::internal)
 }
 
-/// The existing user handle, if any (it is created with the first credential).
+/// The existing user handle, if any (it is created at the first registration options request).
 pub fn existing_user_handle(
     conn: &Connection,
     account: &[u8; 16],

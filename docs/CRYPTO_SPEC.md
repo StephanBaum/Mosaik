@@ -1463,7 +1463,7 @@ WebAuthn bytes. Rules:
   The library refuses a state older than 300 s; the handoff's own expiry is at
   most 5 minutes and at most the pending session's expiry.
 - **User handle.** 16 random bytes per account (`accounts.webauthn_user_handle`,
-  OS CSPRNG, created with the first credential), never the account ID.
+  OS CSPRNG, created at the first registration options request), never the account ID.
   Assertions are started with `start_authentication_for_user` and
   `require_user_handle(false)`. With `residentKey: discouraged` a security key
   may send no `userHandle`, so an absent one is accepted; a `userHandle` that is

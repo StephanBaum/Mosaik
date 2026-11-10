@@ -48,8 +48,13 @@ fn count(app: &TestApp, sql: &str) -> i64 {
 
 // ---- the authenticator --------------------------------------------------------
 
+enum Auth {
+    P256(SigningKey),
+    Ed25519(ed25519_dalek::SigningKey),
+}
+
 struct Key {
-    sk: SigningKey,
+    sk: Auth,
     id: Vec<u8>,
     cose: Vec<u8>,
     /// The user handle the relying party gave at registration.
@@ -61,9 +66,24 @@ impl Key {
         let k = Es256Key::generate().unwrap();
         let der = k.to_pkcs8_der().unwrap();
         Self {
-            sk: SigningKey::from_pkcs8_der(der.expose_secret()).unwrap(),
+            sk: Auth::P256(SigningKey::from_pkcs8_der(der.expose_secret()).unwrap()),
             id: new_credential_id().unwrap(),
             cose: k.cose_public_key().to_vec(),
+            handle: Vec::new(),
+        }
+    }
+
+    /// An `EdDSA` (COSE -8, Ed25519) authenticator.
+    fn new_ed25519() -> Self {
+        let seed: [u8; 32] = std::array::from_fn(|i| u8::try_from(i).unwrap() ^ 0x5a);
+        let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
+        // COSE_Key {1: 1 (OKP), 3: -8 (EdDSA), -1: 6 (Ed25519), -2: x}.
+        let mut cose = vec![0xa4, 0x01, 0x01, 0x03, 0x27, 0x20, 0x06, 0x21, 0x58, 0x20];
+        cose.extend_from_slice(sk.verifying_key().as_bytes());
+        Self {
+            sk: Auth::Ed25519(sk),
+            id: new_credential_id().unwrap(),
+            cose,
             handle: Vec::new(),
         }
     }
@@ -100,11 +120,17 @@ impl Key {
             .unwrap_or_else(|| client_data_json(Ceremony::Get, challenge, &o.origin));
         let mut msg = ad.clone();
         msg.extend_from_slice(&Sha256::digest(&cdj));
-        let sig: Signature = self.sk.sign(&msg);
+        let sig = match &self.sk {
+            Auth::P256(k) => {
+                let sig: Signature = k.sign(&msg);
+                sig.to_der().as_bytes().to_vec()
+            }
+            Auth::Ed25519(k) => ed25519_dalek::Signer::sign(k, &msg).to_bytes().to_vec(),
+        };
         let mut response = json!({
             "clientDataJSON": b64(&cdj),
             "authenticatorData": b64(&ad),
-            "signature": b64(sig.to_der().as_bytes()),
+            "signature": b64(&sig),
         });
         if let Some(h) = &o.handle {
             response["userHandle"] = b64(h).into();
@@ -199,6 +225,11 @@ fn challenge_of(r: &Resp) -> Vec<u8> {
 
 /// Registers a new key through a `register` handoff.
 async fn register_key(app: &TestApp, token: &[u8; 32], label: &str) -> Key {
+    register_key_as(app, token, label, Key::new()).await
+}
+
+/// Registers `key` through a `register` handoff.
+async fn register_key_as(app: &TestApp, token: &[u8; 32], label: &str, mut key: Key) -> Key {
     // The unauthenticated routes allow 10 a minute with a burst of 20.
     app.clock.advance_ms(7_000);
     let h = hand(&account_handoff(app, token, "register", Some(label)).await);
@@ -227,7 +258,6 @@ async fn register_key(app: &TestApp, token: &[u8; 32], label: &str) -> Key {
         .collect();
     assert_eq!(algs, [-7, -8]);
     let challenge = unb64(parsed.public_key["challenge"].as_str().unwrap());
-    let mut key = Key::new();
     key.handle = unb64(parsed.public_key["user"]["id"].as_str().unwrap());
     assert_eq!(key.handle.len(), 16);
     let r = finish(app, &h, &key.registration(&challenge, ORIGIN, UP | UV)).await;
@@ -787,6 +817,37 @@ async fn page_headers_are_strict() {
     }
 }
 
+/// The files the server sends are the committed assets, byte for byte, and none of them has an
+/// inline script, an inline style or an event handler (the CSP would refuse them anyway).
+#[tokio::test]
+async fn page_serves_the_asset_files() {
+    let app = open();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/webauthn");
+    for (path, file) in [
+        ("/webauthn/", "index.html"),
+        ("/webauthn/page.js", "page.js"),
+        ("/webauthn/page.css", "page.css"),
+        ("/webauthn/strings.json", "strings.json"),
+    ] {
+        let r = app.get(path, None).await;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+        assert_eq!(r.body, std::fs::read(dir.join(file)).unwrap(), "{path}");
+        assert!(!r.body.is_empty(), "{path}");
+    }
+    let index = String::from_utf8(app.get("/webauthn/", None).await.body).unwrap();
+    assert!(index.contains("src=\"/webauthn/page.js\""));
+    assert!(!index.contains(" style="), "no inline style");
+    assert!(!index.contains(" onclick=") && !index.contains(" onload="));
+    // The strings are the two catalogs.
+    let strings: Value =
+        serde_json::from_slice(&app.get("/webauthn/strings.json", None).await.body).unwrap();
+    assert!(strings["en"].as_object().is_some_and(|m| !m.is_empty()));
+    assert_eq!(
+        strings["en"].as_object().unwrap().len(),
+        strings["de"].as_object().unwrap().len()
+    );
+}
+
 #[tokio::test]
 async fn handoff_routes_refuse_unknown_keys() {
     let app = open();
@@ -932,6 +993,33 @@ async fn assertion_with_another_accounts_handle_is_refused() {
     invalid(&confirm(&app, &token, &key, &wrong).await);
 }
 
+/// `mosaic-server account reset-second-factor` against the app's database
+/// file, as the operator runs it (a separate process in production).
+fn reset_cli(app: &TestApp, email: &str) -> Result<(), mosaic_server::cli::CliError> {
+    let d = app.dir.path().display();
+    let cfg = app.dir.path().join("mosaic-server.toml");
+    std::fs::write(
+        &cfg,
+        format!(
+            "listen = \"127.0.0.1:8743\"\ncanonical_origin = \"{ORIGIN}\"\ndata_dir = '{d}'\n\
+             secret_file = '{d}/server.key'\nregistration = \"open\"\n"
+        ),
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    mosaic_server::cli::run(
+        &[
+            "account".to_owned(),
+            "reset-second-factor".to_owned(),
+            "--config".to_owned(),
+            cfg.display().to_string(),
+            "--email".to_owned(),
+            email.to_owned(),
+        ],
+        &mut out,
+    )
+}
+
 #[tokio::test]
 async fn reset_second_factor_removes_both_and_sessions() {
     let app = TestApp::with_file_db(RegistrationMode::Open);
@@ -956,29 +1044,7 @@ async fn reset_second_factor_removes_both_and_sessions() {
         .await,
     );
 
-    let d = app.dir.path().display();
-    let cfg = app.dir.path().join("mosaic-server.toml");
-    std::fs::write(
-        &cfg,
-        format!(
-            "listen = \"127.0.0.1:8743\"\ncanonical_origin = \"{ORIGIN}\"\ndata_dir = '{d}'\n\
-             secret_file = '{d}/server.key'\nregistration = \"open\"\n"
-        ),
-    )
-    .unwrap();
-    let mut out = Vec::new();
-    mosaic_server::cli::run(
-        &[
-            "account".to_owned(),
-            "reset-second-factor".to_owned(),
-            "--config".to_owned(),
-            cfg.display().to_string(),
-            "--email".to_owned(),
-            u.email.clone(),
-        ],
-        &mut out,
-    )
-    .unwrap();
+    reset_cli(&app, &u.email).unwrap();
 
     assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 0);
     assert_eq!(
@@ -1003,21 +1069,195 @@ async fn reset_second_factor_removes_both_and_sessions() {
         _ => panic!("login failed"),
     }
     // Unknown accounts are reported as such.
-    let err = mosaic_server::cli::run(
-        &[
-            "account".to_owned(),
-            "reset-second-factor".to_owned(),
-            "--config".to_owned(),
-            cfg.display().to_string(),
-            "--email".to_owned(),
-            "nobody@example.com".to_owned(),
-        ],
-        &mut out,
-    );
     assert!(matches!(
-        err,
+        reset_cli(&app, "nobody@example.com"),
         Err(mosaic_server::cli::CliError::NoSuchAccount)
     ));
+}
+
+// ---- review follow-ups (M9 T2 fix round) -----------------------------------------
+
+#[tokio::test]
+async fn finish_after_device_removed_is_refused() {
+    let app = open();
+    let (u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    // A second device signs in (pending) and starts its login handoff.
+    let other = InstallId::new_v7().unwrap();
+    app.clock.advance_ms(13_000);
+    let t2 = pending(
+        app.login_with(&u.email, &u.opw, u.account_id, other, IP)
+            .await,
+    );
+    let (h, c) = assertion_handoff(&app, &t2, None).await;
+    // The first device removes it (with a confirm handoff).
+    assert_eq!(
+        confirm(&app, &token, &key, &Assert::default()).await.status,
+        StatusCode::OK
+    );
+    set_fresh(&app);
+    let r = app
+        .delete(&format!("/v1/devices/{other}"), Some(&token))
+        .await;
+    assert_eq!(
+        r.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
+    let r = finish(&app, &h, &key.assertion(&c, &Assert::default())).await;
+    assert_eq!(r.status, StatusCode::GONE);
+    assert_eq!(r.code(), "handoff_expired");
+}
+
+#[tokio::test]
+async fn finish_after_reset_second_factor_is_refused() {
+    let app = TestApp::with_file_db(RegistrationMode::Open);
+    let (u, token) = app.user("alice").await;
+    let _key = register_key(&app, &token, "k").await;
+    app.clock.advance_ms(7_000);
+    let h = hand(&account_handoff(&app, &token, "register", Some("two")).await);
+    let c = challenge_of(&options(&app, &h, &h.code).await);
+    // The operator resets the account in another process; the running
+    // server still holds the handoff, but the reset ended the session.
+    reset_cli(&app, &u.email).unwrap();
+    let r = finish(&app, &h, &Key::new().registration(&c, ORIGIN, UP | UV)).await;
+    assert_eq!(r.status, StatusCode::GONE);
+    assert_eq!(r.code(), "handoff_expired");
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 0);
+}
+
+#[tokio::test]
+async fn confirm_on_deleted_session_is_refused() {
+    let app = open();
+    let (_u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    let (h, c) = assertion_handoff(&app, &token, Some("confirm")).await;
+    app.state
+        .db()
+        .run(|c| {
+            c.execute("DELETE FROM sessions", [])?;
+            Ok::<_, ApiError>(())
+        })
+        .unwrap();
+    let r = finish(&app, &h, &key.assertion(&c, &Assert::default())).await;
+    assert_eq!(r.status, StatusCode::GONE);
+    assert_eq!(r.code(), "handoff_expired");
+    assert_eq!(
+        count(
+            &app,
+            "SELECT COUNT(*) FROM webauthn_credentials WHERE last_used_at IS NOT NULL"
+        ),
+        0,
+        "nothing was stored"
+    );
+}
+
+#[tokio::test]
+async fn totp_only_device_removal_without_code_is_refused() {
+    let app = open();
+    let (u, token) = app.user("alice").await;
+    let other = InstallId::new_v7().unwrap();
+    app.login_device(&u, other).await;
+    app.state
+        .db()
+        .run(|c| {
+            c.execute("UPDATE accounts SET totp_sealed = x'0102'", [])?;
+            Ok::<_, ApiError>(())
+        })
+        .unwrap();
+    let r = app
+        .delete(&format!("/v1/devices/{other}"), Some(&token))
+        .await;
+    invalid(&r);
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM devices"), 2);
+}
+
+#[tokio::test]
+async fn counter_cas_lost_race_is_refused_and_audited() {
+    let app = open();
+    let (_u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    // A concurrent finish that stored an equal or higher count first leaves
+    // the compare-and-set with no row to change; the trigger makes that
+    // deterministic.
+    app.state
+        .db()
+        .run(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER lost_race BEFORE UPDATE OF sign_count ON webauthn_credentials \
+                 BEGIN SELECT RAISE(IGNORE); END;",
+            )?;
+            Ok::<_, ApiError>(())
+        })
+        .unwrap();
+    let at = Assert {
+        count: 3,
+        ..Assert::default()
+    };
+    invalid(&confirm(&app, &token, &key, &at).await);
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 20"), 1);
+    assert_eq!(
+        count(
+            &app,
+            "SELECT COUNT(*) FROM sessions WHERE second_factor_until > 0"
+        ),
+        0,
+        "no confirmation was granted"
+    );
+    app.state
+        .db()
+        .run(|c| {
+            c.execute_batch("DROP TRIGGER lost_race")?;
+            Ok::<_, ApiError>(())
+        })
+        .unwrap();
+    assert_eq!(
+        confirm(&app, &token, &key, &at).await.status,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn assertion_with_another_accounts_credential_is_refused() {
+    let app = open();
+    let (_u, token) = app.user("alice").await;
+    let (_v, bob) = app.user("bob").await;
+    let _alice_key = register_key(&app, &token, "k").await;
+    let bob_key = register_key(&app, &bob, "bobs").await;
+    // Alice's handoff, answered with Bob's (valid) key.
+    let (h, c) = assertion_handoff(&app, &token, Some("confirm")).await;
+    invalid(&finish(&app, &h, &bob_key.assertion(&c, &Assert::default())).await);
+    assert_eq!(
+        count(
+            &app,
+            "SELECT COUNT(*) FROM sessions WHERE second_factor_until > 0"
+        ),
+        0
+    );
+}
+
+#[tokio::test]
+async fn eddsa_credential_registers_and_asserts() {
+    let app = open();
+    let (u, token) = app.user("alice").await;
+    let key = register_key_as(&app, &token, "ed", Key::new_ed25519()).await;
+    assert_eq!(
+        confirm(&app, &token, &key, &Assert::default()).await.status,
+        StatusCode::OK
+    );
+    // A signature by another Ed25519 key over the same data is refused.
+    let mut forger = Key::new_ed25519();
+    forger.id = key.id.clone();
+    forger.sk = Auth::Ed25519(ed25519_dalek::SigningKey::from_bytes(&[7; 32]));
+    let (h, c) = assertion_handoff(&app, &token, Some("confirm")).await;
+    invalid(&finish(&app, &h, &forger.assertion(&c, &Assert::default())).await);
+    // And it logs in.
+    let full = login_with_key(&app, &u, &key).await;
+    assert_eq!(
+        app.get("/v1/account", Some(&full)).await.status,
+        StatusCode::OK
+    );
 }
 
 /// A request that panics yields a bare 500 and the handler never sees a

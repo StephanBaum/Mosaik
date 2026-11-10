@@ -158,7 +158,7 @@ fn record_revoked(
 ) -> Result<(), ApiError> {
     conn.execute(
         &format!(
-            "INSERT OR REPLACE INTO revoked_sessions (token_hash, account_id, reason, revoked_at)              SELECT token_hash, account_id, ?3, ?4 FROM sessions WHERE account_id = ?1 AND {filter}"
+            "INSERT OR REPLACE INTO revoked_sessions (token_hash, account_id, reason, revoked_at) \n             SELECT token_hash, account_id, ?3, ?4 FROM sessions WHERE account_id = ?1 AND {filter}"
         ),
         params![account.as_slice(), extra, reason as u8, int(now)],
     )?;
@@ -244,17 +244,35 @@ pub fn purge_revoked(conn: &Connection, before: u64) -> Result<usize, ApiError> 
     )?)
 }
 
-/// Starts the five-minute window of a completed `Confirm` handoff.
+/// Starts the five-minute window of a completed `Confirm` handoff. `false`
+/// when the session no longer exists (or is pending, or belongs to another
+/// account): the caller refuses.
 pub fn set_second_factor_until(
     conn: &Connection,
     token_hash: &[u8; 32],
+    account: &[u8; 16],
     until: u64,
-) -> Result<(), ApiError> {
-    conn.execute(
-        "UPDATE sessions SET second_factor_until = ?2 WHERE token_hash = ?1",
-        params![token_hash.as_slice(), int(until)],
+) -> Result<bool, ApiError> {
+    let n = conn.execute(
+        "UPDATE sessions SET second_factor_until = ?3          WHERE token_hash = ?1 AND account_id = ?2 AND pending_2fa = 0",
+        params![token_hash.as_slice(), account.as_slice(), int(until)],
     )?;
-    Ok(())
+    Ok(n == 1)
+}
+
+/// Whether a session with this hash exists for the account, pending or full.
+pub fn has_session(
+    conn: &Connection,
+    token_hash: &[u8; 32],
+    account: &[u8; 16],
+    pending: bool,
+) -> Result<bool, ApiError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sessions          WHERE token_hash = ?1 AND account_id = ?2 AND pending_2fa = ?3",
+        params![token_hash.as_slice(), account.as_slice(), i64::from(pending)],
+        |r| r.get(0),
+    )?;
+    Ok(n == 1)
 }
 
 /// Deletes every session of a device.
@@ -298,7 +316,7 @@ pub fn complete_2fa(
     expires_at: u64,
 ) -> Result<bool, ApiError> {
     let n = conn.execute(
-        "UPDATE sessions SET pending_2fa = 0, totp_attempts = 0, expires_at = ?2          WHERE token_hash = ?1 AND pending_2fa = 1",
+        "UPDATE sessions SET pending_2fa = 0, totp_attempts = 0, expires_at = ?2 \n             WHERE token_hash = ?1 AND pending_2fa = 1",
         params![token_hash.as_slice(), int(expires_at)],
     )?;
     Ok(n == 1)

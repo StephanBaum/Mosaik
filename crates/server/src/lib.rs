@@ -122,7 +122,7 @@ impl AppState {
             // Logins of these accounts fail closed (CRYPTO_SPEC §9.3).
             tracing::warn!(
                 accounts = n,
-                "accounts hold security keys but no WebAuthn relying party is configured;                  their logins cannot finish until [webauthn] is on and the origin is a host name,                  or their second factor is reset"
+                "accounts hold security keys but no WebAuthn relying party is configured; \n                 their logins cannot finish until [webauthn] is on and the origin is a host name, \n                 or their second factor is reset"
             );
         }
         Self(Arc::new(Inner {

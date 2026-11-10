@@ -55,6 +55,8 @@ passkey-auth.workspace = true
 # Independent software authenticator for the WebAuthn ceremony tests.
 mosaic-passkey = { path = "../passkey" }
 p256.workspace = true
+# EdDSA authenticator of the WebAuthn ceremony tests (same pin as ssh-agent).
+ed25519-dalek.workspace = true
 
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "test-util"] }

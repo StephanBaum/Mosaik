@@ -67,20 +67,14 @@ pub async fn remove(
         parse_body(&body, 1024)?
     };
     s.require_fresh()?;
-    // An account with a security key must show a second factor (CRYPTO_SPEC
-    // §9.3). A TOTP-only account is not asked yet: the M6 client sends no
-    // code with this request, and T3 adds it to the client first.
-    if st
-        .db
-        .run(|c| crate::db::webauthn::count(c, &s.account_id))?
-        > 0
-    {
-        super::account::require_second_factor(
-            &st,
-            &s,
-            req.code.as_ref().map(SecretText::expose_secret),
-        )?;
-    }
+    // Any account with two-step verification on shows a second factor
+    // (CRYPTO_SPEC §9.3 "Recent second factor"): a code, or a `Confirm`
+    // handoff of this session.
+    super::account::require_second_factor(
+        &st,
+        &s,
+        req.code.as_ref().map(SecretText::expose_secret),
+    )?;
     if device == s.device_id {
         return Err(ApiError::conflict(codes::DEVICE_IS_CURRENT));
     }
@@ -99,6 +93,8 @@ pub async fn remove(
         Ok(removed)
     })?;
     if removed {
+        // Its sessions are gone; so are its browser handoffs.
+        st.handoffs.drop_device(&s.account_id, &device);
         Reply::empty()
     } else {
         Err(ApiError::not_found())

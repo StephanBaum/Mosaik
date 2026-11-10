@@ -120,7 +120,7 @@ fn start(
         .map_err(|_| ApiError::rate_limited(LIMIT_RETRY_S))?;
     Reply::ok(&HandoffStartResponse {
         handoff_id: B64Fixed(made.id),
-        match_code: String::from_utf8_lossy(&made.match_code).into_owned(),
+        match_code: String::from_utf8_lossy(&made.match_code[..]).into_owned(),
         expires_at: made.expires,
     })
 }
@@ -332,6 +332,8 @@ fn build_options(
 /// What the finishing transaction decided.
 enum Finished {
     Done,
+    /// The session that started the handoff is gone: refused as expired.
+    SessionGone,
     /// The counter did not rise: the audit event is written, the request is
     /// refused.
     Regressed,
@@ -368,6 +370,7 @@ pub async fn finish(
             st.handoffs.complete(&id);
             Reply::ok(&HandoffFinishResponse { ok: true })
         }
+        Ok(Finished::SessionGone) => Err(handoff_expired()),
         Ok(Finished::Regressed) | Err(_) => Err(two_factor_invalid()),
     }
 }
@@ -388,6 +391,11 @@ fn finish_register(
         .clone()
         .unwrap_or_else(|| DEFAULT_LABEL.to_owned());
     st.db.run_tx(|tx| {
+        // The session that asked must still exist (a removed device, a reset,
+        // a password change ends it, and with it the handoff).
+        if !sessions::has_session(tx, &taken.token_hash, &taken.account_id, false)? {
+            return Ok(Finished::SessionGone);
+        }
         match dbw::insert(
             tx,
             &taken.account_id,
@@ -431,6 +439,11 @@ fn finish_assert(
     };
     let idle = st.limits.session_idle_days.saturating_mul(86_400_000);
     st.db.run_tx(|tx| {
+        // The session that asked must still exist; nothing is stored if not.
+        let pending = taken.purpose == Purpose::Login;
+        if !sessions::has_session(tx, &taken.token_hash, &taken.account_id, pending)? {
+            return Ok(Finished::SessionGone);
+        }
         // Compare-and-set: a concurrent finish that stored an equal or higher
         // count first makes this one a replay.
         if !dbw::store_count(
@@ -453,7 +466,7 @@ fn finish_assert(
             Purpose::Login => {
                 // As `/login/totp`: the session stops being pending.
                 if !sessions::complete_2fa(tx, &taken.token_hash, now.saturating_add(idle))? {
-                    return Err(two_factor_invalid());
+                    return Ok(Finished::SessionGone);
                 }
                 audit::record(
                     tx,
@@ -464,11 +477,14 @@ fn finish_assert(
                 )?;
             }
             Purpose::Confirm => {
-                sessions::set_second_factor_until(
+                if !sessions::set_second_factor_until(
                     tx,
                     &taken.token_hash,
+                    &taken.account_id,
                     now.saturating_add(CONFIRM_MS),
-                )?;
+                )? {
+                    return Ok(Finished::SessionGone);
+                }
             }
             Purpose::Register => return Err(two_factor_invalid()),
         }
