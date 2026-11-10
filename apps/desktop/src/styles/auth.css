@@ -112,6 +112,42 @@
   gap: var(--space-3);
 }
 
+/* A heading with the list it names: close together, unlike the steps of a stack. */
+.review-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.review-group > .row__label,
+.review-heading {
+  margin: 0;
+}
+
+/* The phases of a running key change (not the `.progress` bar of app.css) */
+
+.rotation-progress {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-3) + var(--space-1));
+}
+
+.rotation-progress__bar {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rotation-progress__seg {
+  flex: 1 1 0;
+  height: calc(var(--space-1) + var(--border-width-hairline));
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.rotation-progress__seg--done {
+  background: var(--color-accent);
+}
+
 /* Emergency Kit preview (D03) */
 
 .kit-card {

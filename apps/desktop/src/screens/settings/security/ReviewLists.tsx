@@ -15,15 +15,19 @@ export function CredentialReview({ kind }: { kind: CredentialKind }) {
   const { t } = useI18n();
   return (
     <div className="stack">
-      <h4 className="row__label">{t("rotation.review.changes")}</h4>
-      <ul className="stack">
-        <li className="body">{t(`rotation.review.${kind}.changes`)}</li>
-        <li className="body">{t(`rotation.review.${kind}.devices`)}</li>
-      </ul>
-      <h4 className="row__label">{t("rotation.review.stays")}</h4>
-      <ul className="stack">
-        <li className="body">{t(`rotation.review.${kind}.stays`)}</li>
-      </ul>
+      <div className="review-group">
+        <h4 className="row__label">{t("rotation.review.changes")}</h4>
+        <ul className="stack">
+          <li className="body">{t(`rotation.review.${kind}.changes`)}</li>
+          <li className="body">{t(`rotation.review.${kind}.devices`)}</li>
+        </ul>
+      </div>
+      <div className="review-group">
+        <h4 className="row__label">{t("rotation.review.stays")}</h4>
+        <ul className="stack">
+          <li className="body">{t(`rotation.review.${kind}.stays`)}</li>
+        </ul>
+      </div>
       {kind === "secretKey" && <Callout tone="warning">{t("rotation.review.secretKey.limit")}</Callout>}
     </div>
   );
@@ -49,7 +53,7 @@ export function RekeyReviewPanel({ review }: { review: RekeyReviewView }) {
   const count = (key: MessageKey, n: number): string | null => (n > 0 ? t(key, { count: n }) : null);
   return (
     <div className="stack">
-      <h4 className="row__label">{t("rotation.review.rekey.title")}</h4>
+      <h4 className="row__label review-heading">{t("rotation.review.rekey.title")}</h4>
       <Points
         items={[
           t("rotation.review.rekey.keys"),
@@ -68,9 +72,12 @@ export function RekeyReviewPanel({ review }: { review: RekeyReviewView }) {
           <ul className="stack">
             {review.sharedOwned.map((vault) => (
               <li key={vault.vaultId} className="caption">
-                {vault.name === null ? t("sync.warning.unknownVault") : <UserText>{vault.name}</UserText>}
-                {" · "}
-                {vault.members}
+                <UserText>
+                  {t("rotation.review.rekey.sharedRow", {
+                    name: vault.name ?? t("sync.warning.unknownVault"),
+                    count: vault.members,
+                  })}
+                </UserText>
               </li>
             ))}
           </ul>

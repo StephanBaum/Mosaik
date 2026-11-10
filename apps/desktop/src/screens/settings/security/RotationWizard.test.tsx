@@ -5,8 +5,17 @@ import { openSettings } from "./testing.tsx";
 
 type User = ReturnType<typeof userEvent.setup>;
 
+/** The visible text of the button that opens each wizard (its title is the description). */
+const OPENER: Record<string, string> = {
+  "Change master password": "Change…",
+  "Rotate Secret Key": "Rotate…",
+  "Upgrade protection": "Upgrade…",
+  "Re-key account": "Re-key…",
+  "Konto neu verschlüsseln": "Neu verschlüsseln …",
+};
+
 async function start(user: User, name: string) {
-  await user.click(screen.getByRole("button", { name }));
+  await user.click(screen.getByRole("button", { name: OPENER[name] ?? name }));
   return screen.findByRole("dialog", { name });
 }
 
@@ -32,7 +41,7 @@ describe("Rotate Secret Key wizard", () => {
     await heading(dialog, "Before you rotate your Secret Key");
     expect(within(dialog).getByText(/This stops sign-in with the old Secret Key/)).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
-    await heading(dialog, "Your passwords");
+    await heading(dialog, "Confirm it's you");
     await typePassword(user, dialog, "Current master password", "wrong");
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     expect((await within(dialog).findAllByRole("alert")).some((a) => /didn't work/.test(a.textContent))).toBe(true);
@@ -76,6 +85,14 @@ describe("Rotate Secret Key wizard", () => {
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     await heading(dialog, "Save your new Emergency Kit");
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    // The kit is saved: leaving asks first, with the safe choice focused.
+    const stop = await screen.findByRole("dialog", { name: "Stop this change?" });
+    expect(within(stop).getByText(/The Emergency Kit you just saved won't work/)).toBeTruthy();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(stop).getByRole("button", { name: "Keep going" }));
+    });
+    expect(calls.map((c) => c.command)).not.toContain("rotation_abandon");
+    await user.click(within(stop).getByRole("button", { name: "Stop change" }));
     await waitFor(() => {
       expect(calls.map((c) => c.command)).toContain("rotation_abandon");
     });
@@ -120,7 +137,7 @@ describe("Re-key account wizard", () => {
   it("says why it cannot run without sync", async () => {
     await openSettings({ sync: { variant: "none" } });
     expect(screen.getByText(/needs sync/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Re-key account" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Re-key…" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("shows the error and stays in the wizard when the run fails", async () => {

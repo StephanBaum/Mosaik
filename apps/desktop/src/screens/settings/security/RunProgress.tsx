@@ -26,10 +26,10 @@ export function RunProgress({
   const index = job === null ? -1 : phases.indexOf(job.phase);
   const label = index < 0 ? t("rotation.phase.prepared") : t(`rotation.phase.${phases[index] ?? "prepared"}`);
   return (
-    <div className="progress" role="group" aria-label={t("rotation.progress.label")}>
-      <div className="progress__bar" aria-hidden="true">
+    <div className="rotation-progress" role="group" aria-label={t("rotation.progress.label")}>
+      <div className="rotation-progress__bar" aria-hidden="true">
         {phases.map((phase, position) => (
-          <span key={phase} className={position <= index ? "progress__seg progress__seg--done" : "progress__seg"} />
+          <span key={phase} className={position <= index ? "rotation-progress__seg rotation-progress__seg--done" : "rotation-progress__seg"} />
         ))}
       </div>
       <p className="body" role="status" aria-live="polite">

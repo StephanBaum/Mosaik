@@ -38,6 +38,7 @@ import {
 import { needsSecondFactor, useBackendOverview, useWizardOpenMarker } from "./hooks.ts";
 import { NewKitStep } from "./NewKitStep.tsx";
 import { RunProgress } from "./RunProgress.tsx";
+import { StopDialog } from "./StopDialog.tsx";
 import { ConfirmStep, DoneStep, ReviewStep } from "./WizardSteps.tsx";
 
 export type StepId = "review" | "credentials" | "kit" | "confirm" | "run" | "done";
@@ -56,11 +57,14 @@ const POLL_MS = 1500;
 export function RotationWizard({
   kind: startKind,
   startAt,
+  skipReview = false,
   onClose,
 }: {
   kind: WizardKind;
   /** A wizard opened from "Continue key rotation" starts here and keeps the job when closed. */
   startAt?: StepId;
+  /** Opens at the passwords, without the review (the question was already answered); closing still discards. */
+  skipReview?: boolean;
   /** `focusQuick`: the user chose to set quick unlock up again. */
   onClose: (focusQuick: boolean) => void;
 }) {
@@ -71,7 +75,7 @@ export function RotationWizard({
   const needsCode = needsSecondFactor(overview);
   const backend: RekeyBackend = overview?.config?.kind ?? "local";
   const [kind, setKind] = useState(startKind);
-  const [step, setStep] = useState<StepId>(startAt ?? "review");
+  const [step, setStep] = useState<StepId>(startAt ?? (skipReview ? "credentials" : "review"));
   const [values, setValues] = useState<Credentials>(emptyCredentials);
   const [error, setError] = useState<IpcError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,6 +85,7 @@ export function RotationWizard({
   const [reviewError, setReviewError] = useState<IpcError | null>(null);
   const [job, setJob] = useState<RotationJobView | null>(null);
   const [quickWas, setQuickWas] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const staged = useRef(false);
   const running = useRef(false);
   const steps = STEPS[kind];
@@ -247,16 +252,36 @@ export function RotationWizard({
   }
 
   const locked = step === "run" && busy;
+  // Once the job is prepared (the kit is saved) closing discards it: ask first.
+  const prepared = () => staged.current && !running.current && done === null && !resumed;
   return (
     <Dialog
       title={t(`rotation.title.${kind}`)}
       size="wide"
       onClose={() => {
-        if (!locked && step !== "run") {
+        if (step === "run") {
+          // A run that failed can be left; one in progress cannot.
+          if (!locked && error !== null) {
+            onClose(false);
+          }
+        } else if (prepared()) {
+          setStopping(true);
+        } else {
           close(false);
         }
       }}
     >
+      {stopping && (
+        <StopDialog
+          onKeep={() => {
+            setStopping(false);
+          }}
+          onStop={() => {
+            setStopping(false);
+            close(false);
+          }}
+        />
+      )}
       <div className="stack">
         {steps.length > 2 && (
           <p className="caption">{t("rotation.step", { current: position, total: steps.length })}</p>

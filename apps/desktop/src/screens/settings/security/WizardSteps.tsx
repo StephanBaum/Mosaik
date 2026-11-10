@@ -128,7 +128,6 @@ function UnreachableFiles({ done }: { done: RotationDone }) {
   const more = done.unreachableAttachments - done.unreachable.length;
   return (
     <Callout tone="warning">
-      <p className="body">{t("rotation.done.unreachable", { count: done.unreachableAttachments })}</p>
       <p className="body">{t("rotation.done.unreachable.note")}</p>
       <ul className="stack">
         {done.unreachable.map((file, index) => (

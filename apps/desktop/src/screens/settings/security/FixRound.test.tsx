@@ -3,6 +3,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { openSettings } from "./testing.tsx";
 
+const RECOVERY_PASSWORD = "Master password (the new one, if you changed it there)";
+
 // Whole-app renders are slow on a loaded machine.
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -10,7 +12,7 @@ describe("an unconfirmed re-key notice", () => {
   it("is ignored only after a confirmation, and the halt clears", async () => {
     const { user, calls } = await openSettings({ rotation: { variant: "rekeyPending", stepMs: 0 } });
     const notice = await screen.findByRole("region", { name: "Your account's keys were renewed on another device" });
-    await user.click(await within(notice).findByRole("button", { name: "Ignore this notice…" }));
+    await user.click(await within(notice).findByRole("button", { name: /^Ignore this notice/ }));
     const dialog = await screen.findByRole("dialog", { name: "Unconfirmed re-key notice" });
     expect(
       within(dialog).getByText(
@@ -18,10 +20,10 @@ describe("an unconfirmed re-key notice", () => {
       ),
     ).toBeTruthy();
     // "Keep" leaves everything as it is.
-    await user.click(within(dialog).getByRole("button", { name: "Keep" }));
+    await user.click(within(dialog).getByRole("button", { name: "Keep notice" }));
     expect(screen.queryByRole("dialog", { name: "Unconfirmed re-key notice" })).toBeNull();
     expect(calls.map((c) => c.command)).not.toContain("sync_dismiss_rekey_marker");
-    await user.click(within(notice).getByRole("button", { name: "Ignore this notice…" }));
+    await user.click(within(notice).getByRole("button", { name: /^Ignore this notice/ }));
     const again = await screen.findByRole("dialog", { name: "Unconfirmed re-key notice" });
     await user.click(within(again).getByRole("button", { name: "Ignore notice" }));
     await waitFor(() => {
@@ -78,7 +80,7 @@ describe("a device too far behind", () => {
     const notice = await screen.findByRole("region", { name: "Your account's keys were renewed on another device" });
     await user.click(within(notice).getByRole("button", { name: "Use the new keys…" }));
     const dialog = await screen.findByRole("dialog", { name: "Your account's keys were renewed on another device" });
-    await user.type(within(dialog).getByLabelText("Master password"), "whatever password");
+    await user.type(within(dialog).getByLabelText(RECOVERY_PASSWORD), "whatever password");
     await user.type(within(dialog).getByLabelText("Secret Key from the new Emergency Kit"), "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3");
     await user.click(within(dialog).getByRole("button", { name: "Use the new keys" }));
     expect(await within(dialog).findByText(/too far behind the other devices to catch up\. Set it up again/)).toBeTruthy();

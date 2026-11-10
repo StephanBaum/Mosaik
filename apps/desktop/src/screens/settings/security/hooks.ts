@@ -65,6 +65,22 @@ export function useBackendOverview(): SyncOverview | null {
 }
 
 /** Whether a change needs a second-factor code: a hosted sync account with two-step verification. */
+/** Moves focus to the page's main region: for a notice that went away with the control that had focus. */
+export function focusMain(): void {
+  const main = document.getElementById("main");
+  if (main !== null) {
+    if (!main.hasAttribute("tabindex")) {
+      main.tabIndex = -1;
+    }
+    main.focus();
+  }
+}
+
+/** Whether focus fell to the page (the control that had it was removed). */
+export function focusLost(): boolean {
+  return document.activeElement === null || document.activeElement === document.body;
+}
+
 export function needsSecondFactor(overview: SyncOverview | null): boolean {
   return overview?.config?.kind === "hosted" && overview.config.totpEnabled;
 }

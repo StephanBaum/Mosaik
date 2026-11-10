@@ -35,13 +35,15 @@ export function AccountKeysSection() {
         return (
           <div key={kind} className="setting-row">
             <div className="setting-row__label">
-              <p className="body">{t(`rotation.action.${kind}`)}</p>
+              <p className="body" id={`rotation-action-${kind}`}>
+                {t(`rotation.action.${kind}`)}
+              </p>
               <p className="caption">{t(`rotation.action.${kind}.body`)}</p>
               {blocked && <p className="field__hint">{t("rotation.action.rekey.needsSync")}</p>}
             </div>
             <Button
               disabled={blocked}
-              aria-label={t(`rotation.action.${kind}`)}
+              aria-describedby={`rotation-action-${kind}`}
               onClick={() => {
                 setOpen(kind);
               }}

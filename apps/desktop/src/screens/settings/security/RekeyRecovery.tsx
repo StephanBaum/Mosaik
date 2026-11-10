@@ -4,7 +4,7 @@
  * new Emergency Kit and the master password. A Secret Key this device used before is refused
  * with its own message; nothing is adopted without the new key.
  */
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Button } from "../../../components/Button.tsx";
 import { Callout } from "../../../components/Callout.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
@@ -17,7 +17,7 @@ import { useI18n } from "../../../i18n/I18nProvider.tsx";
 import type { IpcError, RekeyMarkerView, SyncOverview } from "../../../ipc/contract/index.ts";
 import { useIpc } from "../../../ipc/IpcProvider.tsx";
 import { useSyncOverview } from "../../sync/hooks.ts";
-import { needsSecondFactor } from "./hooks.ts";
+import { focusLost, focusMain, needsSecondFactor } from "./hooks.ts";
 import { RekeyMarkerList } from "./RekeyMarkers.tsx";
 
 /** The form: the master password, the new Secret Key and, when needed, a code. */
@@ -29,7 +29,8 @@ export function RekeyRecoveryForm({
 }: {
   needsCode: boolean;
   onRecovered: (overview: SyncOverview) => void;
-  onCancel: () => void;
+  /** Absent where the form is part of the page, not a dialog. */
+  onCancel?: () => void;
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -62,6 +63,7 @@ export function RekeyRecoveryForm({
   return (
     <form className="stack" onSubmit={(event) => void submit(event)} noValidate>
       <p className="body muted">{t("rotation.recovery.body")}</p>
+      <Callout tone="warning">{t("rotation.recovery.warning")}</Callout>
       <PasswordField
         toggleLabel="password"
         label={t("rotation.recovery.password")}
@@ -95,10 +97,9 @@ export function RekeyRecoveryForm({
           }}
         />
       )}
-      <Callout tone="warning">{t("rotation.recovery.warning")}</Callout>
       <ErrorAlert error={error} />
       <div className="dialog__actions">
-        <Button onClick={onCancel}>{t("action.cancel")}</Button>
+        {onCancel !== undefined && <Button onClick={onCancel}>{t("action.cancel")}</Button>}
         <HoloButton type="submit" disabled={busy || password === "" || secretKey === ""}>
           {t("rotation.recovery.submit")}
         </HoloButton>
@@ -125,15 +126,24 @@ export function RekeyRecoveryDialog({
   );
 }
 
-/** The in-app notice: sync is paused because a verified marker says the keys were renewed elsewhere. */
-export function RekeyNotice() {
-  const { t } = useI18n();
-  const toast = useToast();
+/** The unconfirmed notices while sync is paused, and where focus goes when one is ignored. */
+function useMarkers(pending: boolean) {
   const ipc = useIpc();
-  const { overview, setOverview, refresh } = useSyncOverview();
-  const [open, setOpen] = useState(false);
   const [markers, setMarkers] = useState<RekeyMarkerView[]>([]);
-  const pending = overview?.rekeyPending ?? false;
+  const region = useRef<HTMLDivElement>(null);
+  const refocus = useRef(false);
+  // After a notice was ignored the control that had focus is gone: the region (or, when the whole
+  // notice went away, the page) takes it.
+  useEffect(() => {
+    if (refocus.current && focusLost()) {
+      refocus.current = false;
+      if (region.current === null) {
+        focusMain();
+      } else {
+        region.current.focus();
+      }
+    }
+  }, [markers, pending]);
   useEffect(() => {
     if (!pending) {
       return undefined;
@@ -148,13 +158,36 @@ export function RekeyNotice() {
       current = false;
     };
   }, [ipc, pending]);
+  const dismissed = (marker: RekeyMarkerView) => {
+    refocus.current = true;
+    setMarkers((all) => all.filter((m) => m.sha256 !== marker.sha256));
+  };
+  return { markers: pending ? markers : [], region, dismissed };
+}
+
+/** The in-app notice: sync is paused because a verified marker says the keys were renewed elsewhere. */
+export function RekeyNotice() {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { overview, setOverview, refresh } = useSyncOverview();
+  const [open, setOpen] = useState(false);
+  const pending = overview?.rekeyPending ?? false;
+  const { markers, region, dismissed } = useMarkers(pending);
+  // The title is announced from a status region that stays mounted: one that appears with its
+  // text is often not read.
+  const status = (
+    <p className="visually-hidden" role="status">
+      {pending ? t("rotation.recovery.title") : ""}
+    </p>
+  );
   if (overview === null || !overview.rekeyPending) {
-    return null;
+    return status;
   }
   return (
-    <div role="region" aria-label={t("rotation.recovery.title")}>
+    <div role="region" aria-label={t("rotation.recovery.title")} ref={region} tabIndex={-1}>
+      {status}
       <Callout tone="warning">
-        <p className="body">
+        <p className="body" aria-hidden="true">
           <strong>{t("rotation.recovery.title")}</strong>
         </p>
         <p className="body">{t("rotation.recovery.notice")}</p>
@@ -168,9 +201,9 @@ export function RekeyNotice() {
           </Button>
         </div>
         <RekeyMarkerList
-          markers={pending ? markers : []}
+          markers={markers}
           onDismissed={(marker, next) => {
-            setMarkers((all) => all.filter((m) => m.sha256 !== marker.sha256));
+            dismissed(marker);
             setOverview(next);
             refresh();
           }}

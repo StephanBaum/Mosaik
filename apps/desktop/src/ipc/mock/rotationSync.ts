@@ -9,7 +9,7 @@ export function applyRotationToSync(state: MockState, variant: RotationVariant |
   switch (variant) {
     case "rekeyElsewhere":
       sync.status = "signedOut";
-      sync.error = "syncSignedOut";
+      sync.error = "syncAccountRekeyed";
       sync.passwordChanged = true;
       break;
     case "rekeyPending":

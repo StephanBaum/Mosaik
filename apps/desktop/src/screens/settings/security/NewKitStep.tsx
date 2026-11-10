@@ -3,7 +3,7 @@
  * the staged Secret Key, which never reaches the webview) and confirmed by typing its last group.
  * The backend learns nothing before this step is done.
  */
-import { useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Callout } from "../../../components/Callout.tsx";
 import { ErrorAlert } from "../../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../../components/HoloButton.tsx";
@@ -31,6 +31,14 @@ export function NewKitStep({
   const [mistyped, setMistyped] = useState(false);
   const [error, setError] = useState<IpcError | null>(null);
   const [busy, setBusy] = useState(false);
+  const form = useRef<HTMLFormElement>(null);
+
+  // The save button is swapped for the verify form: focus goes to the field, not to the page.
+  useEffect(() => {
+    if (saved) {
+      form.current?.querySelector("input")?.focus();
+    }
+  }, [saved]);
 
   async function save() {
     setBusy(true);
@@ -90,7 +98,7 @@ export function NewKitStep({
       </div>
       {cancelled && <p className="caption">{t("rotation.kit.cancelled")}</p>}
       {saved && (
-        <form className="stack" onSubmit={(event) => void verify(event)} noValidate>
+        <form ref={form} className="stack" onSubmit={(event) => void verify(event)} noValidate>
           <Callout tone="info">{t("rotation.kit.saved")}</Callout>
           <p className="masked-key" aria-hidden="true">
             <span className="muted">{MASKED_KEY_PREFIX}</span>
@@ -111,19 +119,27 @@ export function NewKitStep({
               setMistyped(false);
             }}
           />
+          <ErrorAlert error={error} />
           <div className="dialog__actions">
+            <Button variant="ghost" onClick={onBack}>
+              {t("rotation.back")}
+            </Button>
             <Button type="submit" disabled={busy || lastGroup === ""}>
               {t("rotation.kit.confirm")}
             </Button>
           </div>
         </form>
       )}
-      <ErrorAlert error={error} />
-      <div className="dialog__actions">
-        <Button variant="ghost" onClick={onBack}>
-          {t("rotation.back")}
-        </Button>
-      </div>
+      {!saved && (
+        <>
+          <ErrorAlert error={error} />
+          <div className="dialog__actions">
+            <Button variant="ghost" onClick={onBack}>
+              {t("rotation.back")}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

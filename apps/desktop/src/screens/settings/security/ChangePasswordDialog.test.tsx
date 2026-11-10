@@ -4,7 +4,7 @@ import { openSettings } from "./testing.tsx";
 
 async function openDialog(options: Parameters<typeof openSettings>[0] = {}) {
   const opened = await openSettings(options);
-  await opened.user.click(screen.getByRole("button", { name: "Change master password" }));
+  await opened.user.click(screen.getByRole("button", { name: "Change…" }));
   const dialog = await screen.findByRole("dialog", { name: "Change master password" });
   return { ...opened, dialog };
 }

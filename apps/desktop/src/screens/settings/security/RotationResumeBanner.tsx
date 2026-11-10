@@ -5,7 +5,7 @@
  * step), or the new password and the last group of the new Secret Key (it may have reached the
  * account: typing them again proves the person holds the new kit).
  */
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Button } from "../../../components/Button.tsx";
 import { Callout } from "../../../components/Callout.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
@@ -19,6 +19,8 @@ import type { IpcError, RotationJobView } from "../../../ipc/contract/index.ts";
 import { useIpc } from "../../../ipc/IpcProvider.tsx";
 import type { WizardKind } from "./CredentialsStep.tsx";
 import {
+  focusLost,
+  focusMain,
   needsSecondFactor,
   useAnyWizardOpen,
   useBackendOverview,
@@ -186,7 +188,21 @@ export function RotationResumeBanner() {
   // A continue that ended without finishing: a committed job may then be given up.
   const [stalled, setStalled] = useState(false);
   const [error, setError] = useState<IpcError | null>(null);
+  const hadJob = useRef(false);
   const job = status?.job ?? null;
+
+  // When the banner goes away (finished, discarded, given up) the control that had focus is gone
+  // with it: focus goes to the page, not to <body>.
+  useEffect(() => {
+    if (job !== null) {
+      hadJob.current = true;
+    } else if (hadJob.current) {
+      hadJob.current = false;
+      if (focusLost()) {
+        focusMain();
+      }
+    }
+  }, [job]);
 
   // While a job continues, the count is read again (plain text, not a live region).
   useEffect(() => {
@@ -226,6 +242,13 @@ export function RotationResumeBanner() {
     }
   }
 
+  // The title is announced from a status region that stays mounted (one that appears with its
+  // text is often not read).
+  const statusLine = (
+    <p className="visually-hidden" role="status">
+      {job !== null && wizard === null && !wizardOpen && wizardKindOf(job) !== null ? t("rotation.resume.title") : ""}
+    </p>
+  );
   if (wizard !== null) {
     return (
       <RotationWizard
@@ -239,7 +262,7 @@ export function RotationResumeBanner() {
     );
   }
   if (job === null || wizardOpen || wizardKindOf(job) === null) {
-    return null;
+    return statusLine;
   }
   const committed = job.phase === "localCommitted" || job.phase === "attachments" || job.phase === "uploading";
   // A committed job cannot be discarded; once a continue failed it can be given up.
@@ -247,8 +270,9 @@ export function RotationResumeBanner() {
   const body = job.needs === "password" ? "password" : (job.kind as "secretKey" | "rekey" | "profile");
   return (
     <div className="stack" role="region" aria-label={t("rotation.resume.title")}>
+      {statusLine}
       <Callout tone="warning">
-        <p className="body">
+        <p className="body" aria-hidden="true">
           <strong>{t("rotation.resume.title")}</strong>
         </p>
         <p className="body">{t(`rotation.resume.body.${body}`)}</p>
@@ -259,9 +283,12 @@ export function RotationResumeBanner() {
         <ErrorAlert error={error} />
         <div className="actions">
           <Button
-            disabled={running}
+            aria-disabled={running}
             onClick={() => {
-              continueJob(job);
+              // Not `disabled`: a disabled button drops focus to the page.
+              if (!running) {
+                continueJob(job);
+              }
             }}
           >
             {running ? t("rotation.resume.running") : t("rotation.resume.continue")}

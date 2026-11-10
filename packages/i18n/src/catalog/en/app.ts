@@ -38,6 +38,7 @@ export const app = {
     "{count, plural, one {# finding to review} other {# findings to review}}",
   "sync.status.local": "Stored on this device",
   "sync.status.upToDate": "Synced",
+  "sync.status.attention": "Needs attention",
   "sync.status.syncing": "Syncing…",
   "sync.status.offline": "Offline",
   "sync.status.error": "Sync failed",

@@ -34,6 +34,14 @@ export const rotation = {
   "rotation.title.rekey": "Re-key account",
   "rotation.step": "Step {current} of {total}",
   "rotation.back": "Back",
+  "rotation.stop.title":
+    "Stop this change?",
+  "rotation.stop.body":
+    "The Emergency Kit you just saved won't work. Keep your old kit.",
+  "rotation.stop.confirm":
+    "Stop change",
+  "rotation.stop.keep":
+    "Keep going",
   "rotation.next": "Continue",
   "rotation.close": "Close",
 
@@ -81,6 +89,8 @@ export const rotation = {
     "Your other devices are signed out and can't sync until you type the new Secret Key and your new master password on each one.",
   "rotation.review.rekey.shared":
     "{count, plural, one {You share # vault.} other {You share # vaults.}} Each one gets a new key.",
+  "rotation.review.rekey.sharedRow":
+    "{name}, {count, plural, one {# member} other {# members}}",
   "rotation.review.rekey.sharedMembers":
     "Ask each person you share with to compare your new safety code. Until they do, they get no new keys from you and can't open the renewed vault.",
   "rotation.review.rekey.memberVaults":
@@ -103,7 +113,8 @@ export const rotation = {
     "A re-key needs sync to be up to date and free of warnings. Sync now, look at any warning, then try again.",
 
   // The passwords
-  "rotation.credentials.title": "Your passwords",
+  "rotation.credentials.title":
+    "Confirm it's you",
   "rotation.credentials.password.title": "Your master passwords",
   "rotation.credentials.current": "Current master password",
   "rotation.credentials.new": "New master password",
@@ -180,8 +191,6 @@ export const rotation = {
   "rotation.done.hardware": "Register security keys again",
   "rotation.done.hardware.body":
     "{count, plural, one {# security key was turned off for unlocking.} other {# security keys were turned off for unlocking.}}",
-  "rotation.done.unreachable":
-    "{count, plural, one {# attachment could not be protected again because it was not available. It still uses the old key.} other {# attachments could not be protected again because they were not available. They still use the old key.}}",
   "rotation.done.unreachable.note":
     "These files couldn't be read and weren't re-encrypted. They keep their old file key until you remove or re-add them, so anyone who holds your old keys and a copy of a file could still open it.",
   "rotation.done.unreachable.file": "{item}: {file}",
@@ -194,7 +203,7 @@ export const rotation = {
   // Continue after a cut-off change
   "rotation.resume.title": "Key change not finished",
   "rotation.resume.body.password":
-    "A change of your account's keys was cut off. Nothing is lost. Start it again or discard it.",
+    "Continue to type your passwords again, or discard it.",
   "rotation.resume.body.secretKey":
     "Rotating your Secret Key was cut off. Nothing is lost. Continue to finish it.",
   "rotation.resume.body.rekey":
@@ -227,11 +236,15 @@ export const rotation = {
   "rotation.abandon.keep": "Keep trying",
   "rotation.marker.title": "Unconfirmed re-key notice",
   "rotation.marker.hint": "A notice in your sync folder says your account was re-keyed, but Mosaic couldn't confirm it.",
-  "rotation.marker.open": "Ignore this notice…",
+  "rotation.marker.open":
+    "Ignore this notice…",
+  "rotation.marker.open.label":
+    "Ignore this notice: {name}",
   "rotation.marker.confirm":
     "Mosaic found a re-key notice it couldn't confirm. If you didn't re-key your account on another device, you can ignore it.",
   "rotation.marker.ignore": "Ignore notice",
-  "rotation.marker.keep": "Keep",
+  "rotation.marker.keep":
+    "Keep notice",
   "rotation.ignored.title": "Ignored re-key notices",
   "rotation.ignored.body":
     "Notices you chose to ignore. Restore one if you did re-key your account on another device.",
@@ -244,15 +257,17 @@ export const rotation = {
   "rotation.recovery.title": "Your account's keys were renewed on another device",
   "rotation.recovery.body":
     "A device of yours renewed the keys of this account. To keep syncing, type your master password and the Secret Key from the new Emergency Kit.",
-  "rotation.recovery.password": "Master password",
+  "rotation.recovery.password":
+    "Master password (the new one, if you changed it there)",
   "rotation.recovery.secretKey": "Secret Key from the new Emergency Kit",
   "rotation.recovery.submit": "Use the new keys",
   "rotation.recovery.warning":
-    "Did you not do this? Then someone who knows your old password and Secret Key may have. Don't type anything yet and check your other devices.",
+    "If you didn't renew your keys on another device, this notice may not be genuine. You can ignore it.",
   "rotation.recovery.notice": "Sync is paused until you do this on this device.",
   "rotation.recovery.open": "Use the new keys…",
   "rotation.recovery.done": "This device uses the new keys now.",
-  "rotation.recovery.optional": "Secret Key from the newest Emergency Kit (only if you renewed it)",
+  "rotation.recovery.optional":
+    "Secret Key from the newest Emergency Kit (only if you renewed it)",
 
   // A folder file that can't be checked
   "rotation.file.unknown":
@@ -262,5 +277,6 @@ export const rotation = {
   "rotation.file.conflict":
     "Another device renewed your account's keys at the same moment as this one, so the two no longer agree. Re-key again from this device to bring them together: this device's keys then win and the other one asks for the new Secret Key.",
   "rotation.file.conflict.rekey": "Re-key again from this device",
-  "rotation.file.conflict.keep": "Keep this device's keys",
+  "rotation.file.conflict.keep":
+    "Hide notice",
 } as const satisfies Record<string, string>;

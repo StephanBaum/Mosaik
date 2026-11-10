@@ -97,7 +97,7 @@ export const errors = {
   "error.rotationNotApplied":
     "Die Änderung hat dein Konto nie erreicht, deshalb wurde nichts geändert. Starte neu oder verwirf sie.",
   "error.secretKeyUnchanged":
-    "Das ist ein alter Secret Key dieses Kontos. Nutze den aus deinem neuesten Emergency Kit.",
+    "Dieser Secret Key gilt nicht mehr. Nutze den aus dem Emergency Kit, das du auf dem Gerät mit der Änderung gespeichert hast.",
   "error.passwordUnchanged": "Das neue Master-Passwort muss sich vom aktuellen unterscheiden.",
   "error.profileDowngrade":
     "Diese Stufe ist nicht stärker als die, die dein Konto jetzt nutzt. Wähle eine höhere.",

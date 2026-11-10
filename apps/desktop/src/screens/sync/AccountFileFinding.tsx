@@ -76,6 +76,7 @@ export function AccountFileFinding({
       {rekeying && (
         <RotationWizard
           kind="rekey"
+          skipReview
           onClose={() => {
             setRekeying(false);
           }}

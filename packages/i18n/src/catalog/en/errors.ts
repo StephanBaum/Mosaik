@@ -89,7 +89,7 @@ export const errors = {
   "error.rotationNotApplied":
     "The change never reached your account, so nothing was changed. Start again or discard it.",
   "error.secretKeyUnchanged":
-    "That is an old Secret Key of this account. Use the one from your newest Emergency Kit.",
+    "That Secret Key no longer works. Use the one from the Emergency Kit you saved on the device that made the change.",
   "error.passwordUnchanged": "The new master password has to be different from the current one.",
   "error.profileDowngrade":
     "That level is not stronger than what your account uses now. Pick a higher one.",

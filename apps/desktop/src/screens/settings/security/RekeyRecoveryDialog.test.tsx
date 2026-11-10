@@ -14,6 +14,8 @@ async function openApp(options: MockOptions) {
   return user;
 }
 
+const RECOVERY_PASSWORD = "Master password (the new one, if you changed it there)";
+
 // Whole-app renders and typed input are slow on a loaded machine.
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -25,13 +27,13 @@ describe("another device renewed the keys", () => {
     await user.click(within(notice).getByRole("button", { name: "Use the new keys…" }));
     const dialog = await screen.findByRole("dialog", { name: "Your account's keys were renewed on another device" });
     // A key this device used is refused with its own message.
-    await user.type(within(dialog).getByLabelText("Master password"), MOCK_NEW_PASSWORD);
+    await user.type(within(dialog).getByLabelText(RECOVERY_PASSWORD), MOCK_NEW_PASSWORD);
     await user.type(within(dialog).getByLabelText("Secret Key from the new Emergency Kit"), "M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ2");
     await user.click(within(dialog).getByRole("button", { name: "Use the new keys" }));
-    expect(await within(dialog).findByText(/old Secret Key of this account/)).toBeTruthy();
-    await user.clear(within(dialog).getByLabelText("Master password"));
+    expect(await within(dialog).findByText(/no longer works/)).toBeTruthy();
+    await user.clear(within(dialog).getByLabelText(RECOVERY_PASSWORD));
     await user.clear(within(dialog).getByLabelText("Secret Key from the new Emergency Kit"));
-    await user.type(within(dialog).getByLabelText("Master password"), MOCK_NEW_PASSWORD);
+    await user.type(within(dialog).getByLabelText(RECOVERY_PASSWORD), MOCK_NEW_PASSWORD);
     await user.type(within(dialog).getByLabelText("Secret Key from the new Emergency Kit"), MOCK_NEW_SECRET_KEY);
     await user.click(within(dialog).getByRole("button", { name: "Use the new keys" }));
     await waitFor(() => {
@@ -39,14 +41,18 @@ describe("another device renewed the keys", () => {
     });
   });
 
-  it("takes the new Secret Key in the recovery card after a hosted sign-out", async () => {
+  it("asks for the new Secret Key, not a sign-in, after a hosted re-key elsewhere", async () => {
     const { user } = await openSettings({ rotation: { variant: "rekeyElsewhere", stepMs: 0 } });
-    const field = await screen.findByLabelText("Secret Key from the newest Emergency Kit (only if you renewed it)");
-    await user.type(screen.getByLabelText("New master password"), MOCK_NEW_PASSWORD);
+    const field = await screen.findByLabelText("Secret Key from the new Emergency Kit");
+    // No "password changed" card with an optional key, and no second sign-in form beside it.
+    expect(screen.queryByText(/Your vaults and your Secret Key stay the same/)).toBeNull();
+    expect(screen.queryByLabelText("Secret Key from the newest Emergency Kit (only if you renewed it)")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "This device is signed out" })).toBeNull();
+    await user.type(screen.getByLabelText(RECOVERY_PASSWORD), MOCK_NEW_PASSWORD);
     await user.type(field, MOCK_NEW_SECRET_KEY);
-    await user.click(screen.getByRole("button", { name: "Update this device" }));
+    await user.click(screen.getByRole("button", { name: "Use the new keys" }));
     await waitFor(() => {
-      expect(screen.queryByLabelText("Secret Key from the newest Emergency Kit (only if you renewed it)")).toBeNull();
+      expect(screen.queryByLabelText("Secret Key from the new Emergency Kit")).toBeNull();
     });
   });
 });

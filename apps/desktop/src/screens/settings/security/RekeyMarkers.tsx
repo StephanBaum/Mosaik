@@ -11,6 +11,7 @@ import { ErrorAlert } from "../../../components/ErrorAlert.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
 import type { IpcError, RekeyMarkerView, SyncOverview } from "../../../ipc/contract/index.ts";
 import { useIpc } from "../../../ipc/IpcProvider.tsx";
+import { isolate } from "../../sync/hooks.ts";
 
 function IgnoreDialog({
   marker,
@@ -82,6 +83,7 @@ export function RekeyMarkerList({
           <Button
             key={marker.sha256}
             variant="ghost"
+            aria-label={t("rotation.marker.open.label", { name: isolate(marker.name) })}
             onClick={() => {
               setAsking(marker);
             }}

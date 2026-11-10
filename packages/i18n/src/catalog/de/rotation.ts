@@ -35,6 +35,14 @@ export const rotation = {
   "rotation.title.rekey": "Konto neu verschlüsseln",
   "rotation.step": "Schritt {current} von {total}",
   "rotation.back": "Zurück",
+  "rotation.stop.title":
+    "Änderung abbrechen?",
+  "rotation.stop.body":
+    "Das eben gespeicherte Emergency Kit funktioniert dann nicht. Behalte dein altes Kit.",
+  "rotation.stop.confirm":
+    "Änderung abbrechen",
+  "rotation.stop.keep":
+    "Weitermachen",
   "rotation.next": "Weiter",
   "rotation.close": "Schließen",
 
@@ -81,6 +89,8 @@ export const rotation = {
     "Deine anderen Geräte werden abgemeldet und können nicht synchronisieren, bis du auf jedem den neuen Secret Key und dein neues Master-Passwort eingibst.",
   "rotation.review.rekey.shared":
     "{count, plural, one {Du teilst # Tresor.} other {Du teilst # Tresore.}} Jeder bekommt einen neuen Schlüssel.",
+  "rotation.review.rekey.sharedRow":
+    "{name}, {count, plural, one {# Mitglied} other {# Mitglieder}}",
   "rotation.review.rekey.sharedMembers":
     "Bitte jede Person, mit der du teilst, deinen neuen Sicherheitscode zu vergleichen. Bis dahin bekommt sie keine neuen Schlüssel von dir und kann den erneuerten Tresor nicht öffnen.",
   "rotation.review.rekey.memberVaults":
@@ -99,11 +109,13 @@ export const rotation = {
     "Dein Sync-Ordner bekommt eine neue Kontodatei. Andere Geräte finden dort einen Hinweis, dass sich die Schlüssel geändert haben.",
   "rotation.review.rekey.unavailable":
     "Neuverschlüsseln ist nicht möglich: Die Synchronisierung ist nicht eingerichtet.",
-  "rotation.review.loading": "Ich prüfe, was ein Neuverschlüsseln betrifft …",
+  "rotation.review.loading":
+    "Mosaic prüft, was ein Neuverschlüsseln betrifft …",
   "rotation.review.rekey.needsClean":
     "Fürs Neuverschlüsseln muss die Synchronisierung aktuell und ohne Warnungen sein. Synchronisiere jetzt, sieh dir Warnungen an und versuche es dann noch einmal.",
 
-  "rotation.credentials.title": "Deine Passwörter",
+  "rotation.credentials.title":
+    "Bestätige, dass du es bist",
   "rotation.credentials.password.title": "Deine Master-Passwörter",
   "rotation.credentials.current": "Aktuelles Master-Passwort",
   "rotation.credentials.new": "Neues Master-Passwort",
@@ -146,7 +158,8 @@ export const rotation = {
   "rotation.confirm.verb.profile": "Schutz erhöhen",
   "rotation.confirm.verb.rekey": "Konto neu verschlüsseln",
 
-  "rotation.run.title": "Ich arbeite daran",
+  "rotation.run.title":
+    "Wird ausgeführt …",
   "rotation.run.keepOpen":
     "Lass Mosaic offen. Mit vielen Anhängen kann das ein paar Minuten dauern.",
   "rotation.progress.label": "Fortschritt",
@@ -179,8 +192,6 @@ export const rotation = {
   "rotation.done.hardware": "Sicherheitsschlüssel wieder registrieren",
   "rotation.done.hardware.body":
     "{count, plural, one {# Sicherheitsschlüssel wurde fürs Entsperren ausgeschaltet.} other {# Sicherheitsschlüssel wurden fürs Entsperren ausgeschaltet.}}",
-  "rotation.done.unreachable":
-    "{count, plural, one {# Anhang konnte nicht neu geschützt werden, weil er nicht verfügbar war. Er nutzt weiter den alten Schlüssel.} other {# Anhänge konnten nicht neu geschützt werden, weil sie nicht verfügbar waren. Sie nutzen weiter den alten Schlüssel.}}",
   "rotation.done.unreachable.note":
     "Diese Dateien konnten nicht gelesen werden und wurden nicht neu verschlüsselt. Sie behalten ihren alten Dateischlüssel, bis du sie entfernst oder neu hinzufügst. Wer deine alten Schlüssel und eine Kopie der Datei hat, könnte sie also noch öffnen.",
   "rotation.done.unreachable.file": "{item}: {file}",
@@ -192,7 +203,7 @@ export const rotation = {
 
   "rotation.resume.title": "Schlüsseländerung nicht abgeschlossen",
   "rotation.resume.body.password":
-    "Eine Änderung der Schlüssel deines Kontos wurde unterbrochen. Nichts ist verloren. Starte sie neu oder verwirf sie.",
+    "Wähle Fortsetzen, um deine Passwörter erneut einzugeben, oder verwirf sie.",
   "rotation.resume.body.secretKey":
     "Das Erneuern deines Secret Keys wurde unterbrochen. Nichts ist verloren. Setze es fort, um es abzuschließen.",
   "rotation.resume.body.rekey":
@@ -201,7 +212,8 @@ export const rotation = {
     "Das Erhöhen des Schutzes wurde unterbrochen. Nichts ist verloren. Setze es fort, um es abzuschließen.",
   "rotation.resume.continue": "Schlüsseländerung fortsetzen",
   "rotation.resume.discard": "Verwerfen …",
-  "rotation.resume.running": "Es geht weiter …",
+  "rotation.resume.running":
+    "Wird fortgesetzt …",
   "rotation.resume.progress":
     "{done} von {total} erledigt. Lass Mosaic offen, bis es fertig ist.",
   "rotation.resume.dialog.title": "Schlüsseländerung fortsetzen",
@@ -215,24 +227,31 @@ export const rotation = {
     "Der neue Secret Key und das neue Emergency Kit dieses Versuchs werden gelöscht. Dein Konto bleibt, wie es ist.",
   "rotation.resume.discard.confirm": "Schlüsseländerung verwerfen",
   "rotation.resume.abandon": "Den Rest aufgeben …",
-  "rotation.resume.stalled": "Das Fortsetzen wurde nicht fertig. Wenn es immer wieder scheitert, kannst du hier aufhören.",
-  "rotation.abandon.title": "Neu verschlüsseln der Dateien beenden?",
+  "rotation.resume.stalled":
+    "Das Fortsetzen hat nicht geklappt. Wenn es immer wieder scheitert, kannst du hier aufhören.",
+  "rotation.abandon.title":
+    "Neuverschlüsseln der Dateien beenden?",
   "rotation.abandon.body":
     "Deine neuen Schlüssel sind schon im Einsatz. Mosaic hört auf, die noch wartenden Anhänge neu zu verschlüsseln. Sie behalten ihren alten Dateischlüssel. Wer deine alten Schlüssel und eine Kopie einer Datei hat, könnte sie also noch öffnen.",
   "rotation.abandon.stays":
     "Alles, was schon neu verschlüsselt ist, bleibt, wie es ist. Entferne die wartenden Dateien später oder füge sie neu hinzu, um sie mit dem neuen Schlüssel zu schützen.",
-  "rotation.abandon.confirm": "Beenden",
+  "rotation.abandon.confirm":
+    "Neuverschlüsseln beenden",
   "rotation.abandon.keep": "Weiter versuchen",
   "rotation.marker.title": "Nicht bestätigte Meldung zur Neuverschlüsselung",
   "rotation.marker.hint": "Eine Meldung in deinem Sync-Ordner sagt, dein Konto wurde neu verschlüsselt, aber Mosaic konnte das nicht bestätigen.",
-  "rotation.marker.open": "Diese Meldung ignorieren …",
+  "rotation.marker.open":
+    "Diese Meldung ignorieren …",
+  "rotation.marker.open.label":
+    "Diese Meldung ignorieren: {name}",
   "rotation.marker.confirm":
     "Mosaic hat eine Meldung zur Neuverschlüsselung gefunden, die es nicht bestätigen konnte. Wenn du dein Konto nicht auf einem anderen Gerät neu verschlüsselt hast, kannst du sie ignorieren.",
   "rotation.marker.ignore": "Meldung ignorieren",
-  "rotation.marker.keep": "Behalten",
+  "rotation.marker.keep":
+    "Meldung behalten",
   "rotation.ignored.title": "Ignorierte Meldungen zur Neuverschlüsselung",
   "rotation.ignored.body":
-    "Meldungen, die du ignorieren wolltest. Stelle eine wieder her, wenn du dein Konto doch auf einem anderen Gerät neu verschlüsselt hast.",
+    "Meldungen, die du ignoriert hast. Stelle eine wieder her, wenn du dein Konto doch auf einem anderen Gerät neu verschlüsselt hast.",
   "rotation.ignored.row": "Meldung zur Neuverschlüsselung aus deinem Sync-Ordner",
   "rotation.ignored.restore": "Wiederherstellen",
   "rotation.ignored.restore.label": "Die Meldung {name} wiederherstellen",
@@ -241,11 +260,12 @@ export const rotation = {
   "rotation.recovery.title": "Die Schlüssel deines Kontos wurden auf einem anderen Gerät erneuert",
   "rotation.recovery.body":
     "Ein Gerät von dir hat die Schlüssel dieses Kontos erneuert. Damit die Synchronisierung weiterläuft, gib dein Master-Passwort und den Secret Key aus dem neuen Emergency Kit ein.",
-  "rotation.recovery.password": "Master-Passwort",
+  "rotation.recovery.password":
+    "Master-Passwort (das neue, falls du es dort geändert hast)",
   "rotation.recovery.secretKey": "Secret Key aus dem neuen Emergency Kit",
   "rotation.recovery.submit": "Neue Schlüssel verwenden",
   "rotation.recovery.warning":
-    "Warst du das nicht? Dann hat es vielleicht jemand getan, der dein altes Passwort und deinen alten Secret Key kennt. Gib noch nichts ein und prüfe deine anderen Geräte.",
+    "Wenn du deine Schlüssel nicht auf einem anderen Gerät erneuert hast, ist diese Meldung vielleicht nicht echt. Du kannst sie ignorieren.",
   "rotation.recovery.notice":
     "Die Synchronisierung ist pausiert, bis du das auf diesem Gerät erledigt hast.",
   "rotation.recovery.open": "Neue Schlüssel verwenden …",
@@ -260,5 +280,6 @@ export const rotation = {
   "rotation.file.conflict":
     "Ein anderes Gerät hat die Schlüssel deines Kontos im selben Moment erneuert wie dieses, deshalb sind sich die beiden nicht mehr einig. Verschlüssele von diesem Gerät aus noch einmal neu, um sie wieder zusammenzubringen: Dann gelten die Schlüssel dieses Geräts, und das andere fragt nach dem neuen Secret Key.",
   "rotation.file.conflict.rekey": "Von diesem Gerät noch einmal neu verschlüsseln",
-  "rotation.file.conflict.keep": "Schlüssel dieses Geräts behalten",
+  "rotation.file.conflict.keep":
+    "Hinweis ausblenden",
 } satisfies Record<keyof typeof en, string>;

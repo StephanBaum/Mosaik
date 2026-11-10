@@ -3,7 +3,7 @@
  * listed, each with a way back. Restoring is safe (the notice only pauses sync again so the
  * re-key it names can be adopted), so it asks nothing. Shown only when something is ignored.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../components/Button.tsx";
 import { ErrorAlert } from "../../../components/ErrorAlert.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
@@ -11,12 +11,15 @@ import type { IpcError, RekeyMarkerView } from "../../../ipc/contract/index.ts";
 import { useIpc } from "../../../ipc/IpcProvider.tsx";
 import { SettingsSection } from "../../SettingsSection.tsx";
 import { isolate } from "../../sync/hooks.ts";
+import { focusMain } from "./hooks.ts";
 
 export function IgnoredNotices() {
   const { t } = useI18n();
   const ipc = useIpc();
   const [notices, setNotices] = useState<RekeyMarkerView[]>([]);
   const [error, setError] = useState<IpcError | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const refocus = useRef(false);
 
   useEffect(() => {
     let current = true;
@@ -30,11 +33,25 @@ export function IgnoredNotices() {
     };
   }, [ipc]);
 
+  // The Restore button that had focus is gone: the section heading takes it, or the page when
+  // the last row went (and the section with it).
+  useEffect(() => {
+    if (refocus.current) {
+      refocus.current = false;
+      if (notices.length > 0) {
+        heading.current?.focus();
+      } else {
+        focusMain();
+      }
+    }
+  }, [notices]);
+
   async function restore(notice: RekeyMarkerView) {
     setError(null);
     const result = await ipc.call("sync_restore_rekey_marker", { name: notice.name, sha256: notice.sha256 });
     if (result.ok) {
       // The status event refreshes the re-key notice: rekey-pending is set again.
+      refocus.current = true;
       setNotices((all) => all.filter((n) => n.sha256 !== notice.sha256));
     } else {
       setError(result.error);
@@ -45,7 +62,11 @@ export function IgnoredNotices() {
     return null;
   }
   return (
-    <SettingsSection title={t("rotation.ignored.title")} body={t("rotation.ignored.body")}>
+    <SettingsSection
+      title={t("rotation.ignored.title")}
+      body={t("rotation.ignored.body")}
+      headingRef={heading}
+    >
       {notices.map((notice) => (
         <div key={notice.sha256} className="setting-row">
           <div className="setting-row__label">
