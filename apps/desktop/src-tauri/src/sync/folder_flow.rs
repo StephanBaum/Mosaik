@@ -407,6 +407,8 @@ impl Backend {
             }
         };
         drop(new);
+        // This device's password changed (adopted): CLI sessions are void.
+        self.delete_cli_sessions();
         self.quick_unlock.clear_reauth_failures();
         self.remove_platform_key(&changed);
         self.sync.update_view(|view| {

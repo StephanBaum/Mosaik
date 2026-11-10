@@ -1318,6 +1318,10 @@ fn a_folder_password_change_the_device_missed_is_recovered() {
         code: None,
     });
     assert_eq!(code(wrong.unwrap_err()), ErrorCode::WrongCredentials);
+    // A CLI session of the old password: a wrong attempt keeps it, adopting
+    // the remote change ends it.
+    let now = crate::rotation_handler_tests::now_ms();
+    crate::rotation_handler_tests::plant_cli_session(e.b(), e.account(), now);
     let recovered = e
         .b()
         .sync_recover_password(&RecoverPasswordRequest {
@@ -1327,6 +1331,10 @@ fn a_folder_password_change_the_device_missed_is_recovered() {
         })
         .unwrap();
     assert!(!recovered.password_changed);
+    assert!(
+        !crate::rotation_handler_tests::has_cli_session(e.b(), e.account()),
+        "adopting a remote password change ends CLI sessions"
+    );
     e.b().lock(LockReason::Manual).unwrap();
     assert!(
         e.b()

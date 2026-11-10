@@ -25,7 +25,7 @@ use crate::test_support::kdf_permit;
 
 const NEW_PASSWORD: &str = "a brand new master password";
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     let since = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap();
@@ -34,7 +34,11 @@ fn now_ms() -> u64 {
 
 /// A CLI session of `account` as `mosaic unlock` would have left it (the app
 /// never creates one; the binding does not matter to the sweep and the delete).
-fn plant_cli_session(b: &crate::state::Backend, account: mosaic_core::AccountId, start: u64) {
+pub(crate) fn plant_cli_session(
+    b: &crate::state::Backend,
+    account: mosaic_core::AccountId,
+    start: u64,
+) {
     use mosaic_core::{AccountKey, AccountSalt, CliSessionBinding, InstallId, seal_cli_session};
     let binding = CliSessionBinding {
         account_id: account,
@@ -47,7 +51,7 @@ fn plant_cli_session(b: &crate::state::Backend, account: mosaic_core::AccountId,
     b.cli_sessions.save(account, &key, &file).unwrap();
 }
 
-fn has_cli_session(b: &crate::state::Backend, account: mosaic_core::AccountId) -> bool {
+pub(crate) fn has_cli_session(b: &crate::state::Backend, account: mosaic_core::AccountId) -> bool {
     b.cli_sessions.load(account).unwrap().is_some()
 }
 

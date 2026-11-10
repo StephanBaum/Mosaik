@@ -787,6 +787,7 @@ impl Backend {
         match outcome {
             ResumeOutcome::NotApplied => Err(IpcError::new(ErrorCode::RotationNotApplied)),
             ResumeOutcome::Adopted(adopted) => {
+                self.delete_cli_sessions();
                 self.promote_secret_key(who.account, &pending)?;
                 self.remove_platform_enrollment(adopted.removed_quick_unlock.as_ref());
                 self.settings_remac();
@@ -900,6 +901,7 @@ impl Backend {
             let _ = self.with_unlocked(|s| Ok(s.set_rotation_phase(RotationPhase::Prepared)?));
             return Err(IpcError::new(ErrorCode::RotationNotApplied));
         };
+        self.delete_cli_sessions();
         if let Some(key) = &pending {
             self.promote_secret_key(who.account, key)?;
         }
@@ -1168,6 +1170,8 @@ impl Backend {
         drop(new);
         // The new key is the key in use; the platform key of quick unlock goes.
         self.secret_keys.save(who.account, &typed)?;
+        // Adopted credentials or a new epoch: every CLI session is void.
+        self.delete_cli_sessions();
         self.remove_platform_enrollment(quick.as_ref());
         if rekeyed {
             self.settings_remac();
