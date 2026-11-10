@@ -15,7 +15,7 @@ use libfuzzer_sys::fuzz_target;
 use mosaic_core::kdf::AccountSalt;
 use mosaic_core::{
     CliSessionBinding, CliSessionFile, CliSessionKey, Error, InstallId, open_cli_session,
-    seal_cli_session,
+    seal_cli_session_for_fuzzing,
 };
 
 const NOW: u64 = 1_700_000_000_000;
@@ -42,7 +42,7 @@ fuzz_target!(|data: &[u8]| {
         }
         Some((&TAMPER, ops)) => {
             let ak = common::ak();
-            let (key, file) = seal_cli_session(&ak, &binding(), NOW, 300_000).expect("seal");
+            let (key, file) = seal_cli_session_for_fuzzing(&ak, &binding(), NOW, 300_000).expect("seal");
             let bytes = mutate(file.as_bytes(), ops);
             let opened = CliSessionFile::from_bytes(&bytes)
                 .and_then(|f| open_cli_session(&key, &f, &binding(), NOW + 1));

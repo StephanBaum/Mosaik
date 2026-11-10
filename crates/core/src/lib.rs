@@ -72,6 +72,9 @@ pub mod unlock;
 mod golden;
 
 pub use attachment::{MAX_ATTACHMENT_LEN, open_attachment, seal_attachment};
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub use cli_session::seal_cli_session_for_fuzzing;
 pub use cli_session::{
     CliSessionBinding, CliSessionFile, CliSessionKey, open_cli_session, seal_cli_session,
 };

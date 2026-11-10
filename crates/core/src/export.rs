@@ -201,6 +201,9 @@ pub struct ExportWriter<W: Write> {
     buf: SecretVec,
     index: u32,
     total: u64,
+    /// Set by the first error; every later call returns it, so a writer
+    /// that failed once never produces a file that looks finished.
+    failed: Option<Error>,
 }
 
 impl<W: Write> ExportWriter<W> {
@@ -237,6 +240,7 @@ impl<W: Write> ExportWriter<W> {
             buf: SecretVec::with_capacity(CHUNK_CT_LEN)?,
             index: 0,
             total: 0,
+            failed: None,
         })
     }
 
@@ -248,10 +252,15 @@ impl<W: Write> ExportWriter<W> {
     #[cfg(fuzzing)]
     #[doc(hidden)]
     pub fn new_with_key_for_fuzzing(w: W, kx: SecretBytes<32>) -> Result<Self> {
-        let salt: [u8; 16] = rng::array()?;
-        let export_id: [u8; 16] = rng::array()?;
-        let nonce_prefix: [u8; NONCE_PREFIX_LEN] = rng::array()?;
-        Self::with_parts(w, &kx, MIN_PROFILE.id(), &salt, &export_id, &nonce_prefix)
+        // Fixed salt, ID and nonce prefix: a crash reproduces from its input.
+        Self::with_parts(
+            w,
+            &kx,
+            MIN_PROFILE.id(),
+            &[0x5A; 16],
+            &[0xE1; 16],
+            &[0x77; NONCE_PREFIX_LEN],
+        )
     }
 
     /// Appends plaintext. The bytes are split into 64 KiB chunks however
@@ -260,8 +269,18 @@ impl<W: Write> ExportWriter<W> {
     /// the STREAM end flag.
     ///
     /// # Errors
-    /// [`Error::SizeLimit`] above [`MAX_PLAINTEXT_LEN`]; [`Error::Io`].
-    pub fn write_chunk(&mut self, mut data: &[u8]) -> Result<()> {
+    /// [`Error::SizeLimit`] above [`MAX_PLAINTEXT_LEN`]; [`Error::Io`]. After
+    /// any error the writer stays failed and returns that error again from
+    /// [`ExportWriter::write_chunk`] and [`ExportWriter::finish`].
+    pub fn write_chunk(&mut self, data: &[u8]) -> Result<()> {
+        if let Some(e) = self.failed {
+            return Err(e);
+        }
+        self.write_inner(data)
+            .inspect_err(|e| self.failed = Some(*e))
+    }
+
+    fn write_inner(&mut self, mut data: &[u8]) -> Result<()> {
         self.total = u64::try_from(data.len())
             .ok()
             .and_then(|n| self.total.checked_add(n))
@@ -296,6 +315,9 @@ impl<W: Write> ExportWriter<W> {
     /// # Errors
     /// [`Error::Io`]; [`Error::SizeLimit`].
     pub fn finish(mut self) -> Result<W> {
+        if let Some(e) = self.failed {
+            return Err(e);
+        }
         self.flush(true)?;
         self.w.flush().map_err(|e| io_err(&e))?;
         Ok(self.w)
@@ -763,6 +785,26 @@ mod tests {
         );
     }
 
+    /// The profile byte selects the section 5.3 parameters: pin every row, so
+    /// a change to a profile (which would change every export's key) fails
+    /// here, and the header profile is what the reader stretches with.
+    #[test]
+    fn header_profile_is_pinned_to_the_53_cost_row() {
+        let rows = [
+            (0x02u8, Argon2Profile::Standard, 256 * 1024, 3, 4),
+            (0x03, Argon2Profile::Strong, 512 * 1024, 3, 4),
+            (0x04, Argon2Profile::Max, 1024 * 1024, 4, 4),
+        ];
+        for (id, profile, m, t, p) in rows {
+            let header = Header::encode(id, &SALT, &EXPORT_ID, &PREFIX).unwrap();
+            let parsed = Header::read(&mut header.as_slice()).unwrap();
+            assert_eq!(parsed.profile, profile);
+            assert_eq!(parsed.profile.id(), id);
+            let cost = parsed.profile.cost();
+            assert_eq!((cost.m_kib, cost.t, cost.p), (m, t, p), "profile {id:#x}");
+        }
+    }
+
     #[test]
     fn profile_below_standard_refused() {
         let p = pass("any passphrase will do");
@@ -889,7 +931,55 @@ mod tests {
             ExportWriter::with_parts(Vec::new(), &k, 0x02, &SALT, &EXPORT_ID, &PREFIX).unwrap();
         w.total = MAX_PLAINTEXT_LEN;
         assert_eq!(w.write_chunk(b"x").unwrap_err(), Error::SizeLimit);
-        w.write_chunk(b"").unwrap();
+        assert_eq!(w.write_chunk(b"").unwrap_err(), Error::SizeLimit, "sticky");
+    }
+
+    /// A writer that refuses exactly one write, then works again.
+    struct FailsOnce {
+        calls: u32,
+        fail_at: u32,
+        out: Vec<u8>,
+    }
+    impl Write for FailsOnce {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.calls += 1;
+            if self.calls == self.fail_at {
+                return Err(io::Error::from(io::ErrorKind::StorageFull));
+            }
+            self.out.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn failed_writer_stays_failed() {
+        let k = kx("sticky");
+        // Write 1 is the header, write 2 the first full chunk: it fails.
+        let sink = FailsOnce {
+            calls: 0,
+            fail_at: 2,
+            out: Vec::new(),
+        };
+        let mut w = ExportWriter::with_parts(sink, &k, 0x02, &SALT, &EXPORT_ID, &PREFIX).unwrap();
+        let err = Error::Io(io::ErrorKind::StorageFull);
+        w.write_chunk(&pattern(CHUNK_LEN)).unwrap();
+        assert_eq!(w.write_chunk(b"x").unwrap_err(), err);
+        // The sink works again, but the writer does not resume.
+        assert_eq!(w.write_chunk(b"more").unwrap_err(), err);
+        assert_eq!(w.write_chunk(b"").unwrap_err(), err);
+        assert_eq!(w.finish().err().unwrap(), err);
+        // A failure at finish is reported by finish itself.
+        let sink = FailsOnce {
+            calls: 0,
+            fail_at: 2,
+            out: Vec::new(),
+        };
+        let mut w = ExportWriter::with_parts(sink, &k, 0x02, &SALT, &EXPORT_ID, &PREFIX).unwrap();
+        w.write_chunk(b"abc").unwrap();
+        assert_eq!(w.finish().err().unwrap(), err);
     }
 
     #[test]
@@ -964,6 +1054,22 @@ mod tests {
             );
             assert_eq!(&big[big.len() - TAG_LEN..], vector("big_last_tag"));
             assert_eq!(read_all(&k, &big).unwrap(), big_pt);
+
+            // The empty export: one empty last chunk (header + tag).
+            let empty = write(&k, &[]);
+            assert_eq!(empty, vector("empty_file"));
+            assert_eq!(empty.len(), HEADER_LEN + TAG_LEN);
+            assert_eq!(read_all(&k, &empty).unwrap(), Vec::<u8>::new());
+
+            // A last chunk of exactly 64 KiB: one full chunk, flagged last.
+            let exact_pt = pattern(CHUNK_LEN);
+            let exact = write(&k, &[&exact_pt]);
+            assert_eq!(
+                Sha256::digest(&exact).as_slice(),
+                vector("exact_file_sha256")
+            );
+            assert_eq!(exact.len(), HEADER_LEN + CHUNK_CT_LEN);
+            assert_eq!(read_all(&k, &exact).unwrap(), exact_pt);
         }
     }
 }

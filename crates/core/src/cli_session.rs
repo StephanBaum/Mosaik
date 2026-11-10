@@ -241,6 +241,27 @@ pub fn seal_cli_session(
     Ok((key, file))
 }
 
+/// A session under a fixed `W_cli`, `session_id` and nonce, for the fuzz
+/// targets only, so a crash reproduces from its input.
+///
+/// # Errors
+/// As [`seal_cli_session`], without the randomness.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub fn seal_cli_session_for_fuzzing(
+    ak: &AccountKey,
+    binding: &CliSessionBinding,
+    now_ms: u64,
+    ttl_ms: u64,
+) -> Result<(CliSessionKey, CliSessionFile)> {
+    let key = CliSessionKey {
+        w: SecretBytes::from_array(&mut [0x22; 32]),
+        session_id: [0x55; 16],
+    };
+    let file = seal_with(ak, &key, binding, &[0x66; NONCE_LEN], now_ms, ttl_ms)?;
+    Ok((key, file))
+}
+
 fn seal_with(
     ak: &AccountKey,
     key: &CliSessionKey,

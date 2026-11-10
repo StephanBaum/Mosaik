@@ -638,15 +638,39 @@ parts on any refusal.
 6. (vault layer) No held vault key opens under the recovered AK.
 
 **Creating.** Only a session that was unlocked with the master password in the same process may create
-one (`ReauthenticationRequired` otherwise); a session opened from a session file never creates a new
-one, so a session cannot be renewed. The TTL is absolute (it is not extended by use): 5 minutes by
-default, 1 to 30 minutes by choice. A keystore that refuses the write, or that is only a memory
-fallback, means no session. A session never counts as a master-password unlock: it cannot enrol quick
-unlock or a security key, and it is not a proof of re-authentication (§6.2, §7.4).
+one (`ReauthenticationRequired` otherwise). `mosaic-core` cannot tell where an `AccountKey` came from, so
+the vault and CLI layers must create a session only right after a master-password unlock, and never from
+an `AccountKey` recovered by `open_cli_session`: otherwise a session could renew itself and the absolute
+TTL would mean nothing (tests in the vault layer, check in the CLI review). The TTL is absolute (it is not
+extended by use): 5 minutes by default, 1 to 30 minutes by choice. A keystore that refuses the write, or
+that is only a memory fallback, means no session. A session never counts as a master-password unlock: it
+cannot enrol quick unlock or a security key, and it is not a proof of re-authentication (§6.2, §7.4).
 
-**Why two places.** The file alone is useless without `W_cli` (a backup or a disk image holds nothing
-usable), and the keystore entry alone is useless without the file. Same-user malware that can read both
-inside the TTL gets AK without the master password (THREAT_MODEL R105). `mosaic lock` deletes both.
+**Where the parts live.** The file goes to `$XDG_RUNTIME_DIR` on Linux (cleared at logout). If that
+variable is missing the CLI refuses to create a session, with a message; it never falls back to a
+persistent directory. On macOS and Windows no session-scoped location is available through the keystore
+crate, so the file is in a per-user directory and **both parts persist (also across a reboot) until they
+are swept, refused or deleted by `mosaic lock`**.
+
+**Enforcement of the TTL.** The expiry is checked only when Mosaic opens the file; it is not a property of
+the stored bytes. Therefore (ADR-0072):
+1. Every `mosaic` invocation, and the desktop at start, lock and unlock, deletes the session parts whose
+   header `expires_at_ms` has passed (`CliSessionStore::sweep_expired(now)` in `mosaic-platform`; the
+   unauthenticated claimed time is enough because deletion is fail-safe).
+2. Every credential change deletes every CLI session (keystore entries `mosaic-cli-session-*` and files):
+   the desktop's password change, Secret Key rotation, profile upgrade and re-key flows, and any such flow
+   of the CLI. The binding fields of rule 2 only stop a stale session from opening; deleting it ends its
+   exposure.
+
+**What a captured session is worth.** Until both parts are deleted, anything that can read both (same-user
+malware, a Windows profile backup that holds the keystore blob, which is DPAPI-protected by the Windows
+password, and the file) holds a pair that yields AK without the master password. The pair is not limited to
+the TTL: an attacker who rewinds or fakes the clock (for example `libfaketime`, or library injection into an
+unhardened macOS binary) passes rule 5 for as long as the parts exist, and AK itself stays valid until a
+re-key (§6.6). The TTL and the sweep bound the exposure of a *forgotten* session; they are not a defence
+against an attacker who already runs as the user (any same-user process can also just run
+`mosaic get --reveal` while the session is valid). The split between keystore and file protects against a
+copy of only one part, not against both (THREAT_MODEL R105, R111). `mosaic lock` deletes both.
 
 ## 7. Vaults and items
 
@@ -2167,7 +2191,10 @@ chunks : exactly the layout and nonces of §7.3 (nonce = nonce_prefix || i:u32 |
   changed header all fail the AEAD. The plaintext is limited to 2 GiB; a reader stops with `SizeLimit`
   beyond it.
 - A wrong passphrase and a damaged file are indistinguishable (`Decryption`) once the header is well
-  formed. STREAM authenticates each chunk when it is read, so a consumer **must treat everything it read
+  formed. The layout errors are named: a header with no chunk after it and an empty last chunk at index
+  above 0 (§7.3 canonical form) are `Malformed`. This is not an oracle: the first needs no key, and the second can only be reached after chunk 0 has
+  verified. An unknown version, algorithm, chunk size or profile (and the baseline
+  profile) are reported before any key stretching. STREAM authenticates each chunk when it is read, so a consumer **must treat everything it read
   as unverified until the last chunk has verified** (the end of the stream is reported as success); the
   importer builds its preview from the whole stream and commits only after that.
 - **Plaintext** (the decrypted stream) is compact UTF-8 JSON:

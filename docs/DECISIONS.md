@@ -4638,6 +4638,8 @@ Without a cache, every CLI command prompts for the master password (and Argon2id
 - Created only by a session unlocked with the master password in the same process; a session never counts as a password unlock (no enrollment, no proof of re-authentication).
 - A keystore that refuses or is a memory fallback means no session; the command still works.
 - `MOSAIC_SESSION` and `BW_SESSION`-like variables are never read (ADR-0075).
+- **The TTL is enforced only inside Mosaic** (review of T1), so the parts must be removed actively: (a) every `mosaic` run and the desktop (at start, lock and unlock) delete parts whose header `expires_at_ms` has passed, through one implementation, `CliSessionStore::sweep_expired(now)` in `crates/platform`; (b) every credential change (password change, Secret Key rotation, profile upgrade, re-key; in the desktop and in any CLI flow) deletes every `mosaic-cli-session-*` entry and file; (c) on Linux the file lives in `$XDG_RUNTIME_DIR` only and no session is created when it is missing (no persistent fallback); on macOS and Windows the parts persist until swept, locked or deleted by (b), which R105 states.
+- **No renewal.** The core API cannot tell where an `AccountKey` came from, so the vault and CLI layers create a session only right after a master-password unlock and never from a key recovered from a session; the vault layer tests it and the CLI review checks it.
 
 ### Alternatives considered
 - **No cache** (OD-M8-2): safest, but scripts must pipe the password on every call, which is worse in practice.
@@ -4646,7 +4648,7 @@ Without a cache, every CLI command prompts for the master password (and Argon2id
 - **Sliding TTL**: a forgotten terminal would keep the session forever.
 
 ### Consequences
-THREAT_MODEL R105 (malware holding both parts inside the TTL gets AK) and R111 (keystore entries readable by same-user processes). Tests: `cli_session::*` in `mosaic-core`, the vault and CLI session tests of M8.
+THREAT_MODEL R105 (a pair of parts yields AK until both are deleted, with a faked clock too; not bounded by the TTL) and R111 (keystore entries readable by same-user processes). Tests: `cli_session::*` in `mosaic-core`, the vault and CLI session tests of M8.
 
 ## ADR-0073: Encrypted export format
 

@@ -69,8 +69,17 @@ is secret comes from the core model, never from the CLI.
 `mosaic unlock` creates an explicit session (CRYPTO_SPEC §6.8): AK sealed in
 `<runtime_dir>/mosaic/session-<account_id hex>.mcls` (mode 0600, directory 0700) under a key that only the
 OS keystore holds. `runtime_dir` is `$XDG_RUNTIME_DIR`, else `<local_data_dir>/io.github.stephanbaum.mosaic/cli/run`.
-The default TTL is 5 minutes, `--ttl` accepts 1 to 30 minutes, and the TTL is absolute. A password change,
-Secret Key rotation, profile upgrade or re-key ends every session. `mosaic lock` deletes both parts. If the
+The default TTL is 5 minutes, `--ttl` accepts 1 to 30 minutes, and the TTL is absolute. On Linux
+`runtime_dir` is `$XDG_RUNTIME_DIR` only: without it `mosaic unlock` refuses to create a session (no
+persistent fallback). On macOS and Windows both parts persist, also across a reboot, until they are swept,
+locked or deleted by a credential change; every `mosaic` invocation (and the desktop at start, lock and
+unlock) first deletes the parts whose expiry has passed. A password change, Secret Key rotation, profile
+upgrade or re-key deletes every session. `mosaic lock` deletes both parts.
+
+Be clear about what a session is: until both parts are deleted, anything that can read the keystore entry
+and the file (same-user malware, a Windows profile backup, which holds both) can get AK without the master
+password, with a faked clock as well, and AK stays valid until a re-key. Within the TTL any same-user process
+can also just run `mosaic get --reveal`. Use `mosaic lock` when you are done. If the
 keystore refuses (or is a memory fallback) there is no session: the command still works and prints
 `sessionNotCached`. Without a session each command prompts for the master password; the Secret Key comes
 from the OS keystore, else a prompt.
