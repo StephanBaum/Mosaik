@@ -354,7 +354,9 @@ fn password_change_hosted_end_to_end() {
     // is dead, and it signs in again with the new password.
     assert!(matches!(
         w.try_sync(1),
-        Err(SyncError::Transport(TransportError::Unauthorized))
+        Err(SyncError::Transport(TransportError::Revoked(
+            mosaic_sync::transport::RevokedReason::PasswordChange
+        )))
     ));
     w.server.advance_ms(60_000);
     let device1 = w.devs[1].device;
