@@ -229,10 +229,12 @@ the impact stays within the page's own origin:
   calls `stopImmediatePropagation` before ours runs): denial of service against itself.
 - "Never for this site" is stored per exact origin: another scheme, port or subdomain, or the
   trailing-dot form of the host (`bank.example.`), is another origin and is offered again.
-  M9 (M4-R10): the popup's settings list the stored `neverSave:<origin>` entries under "Never
-  offered for saving" (origins rendered as text) with a Remove button per entry. Only the popup context can change the list: the
-  background accepts the remove message only on the `popup` port (§3) and refuses it from content
-  scripts and every other sender (`never-save-list.spec.ts`). A page cannot add or remove entries;
+  M9 (M4-R10, built in T6): the popup's More menu opens "Never offered for saving…", which lists the stored
+  `neverSave:<origin>` entries (origins rendered as text, in a dialog with its own live region) with a Remove button per
+  entry. The two operations `neverSaveList` and `neverSaveRemove {origin}` are `PopupRequest` operations: the background
+  accepts them only on the `popup` port (§3) and drops the same shapes sent as runtime messages from a content script, a
+  page or anything else without an answer (`router.test.ts`, `never-save-list.spec.ts`). The remove deletes only the
+  `neverSave:` key of that exact origin and returns the entries that are left. A page cannot add or remove entries;
   it can only make the user see a capture prompt that offers "Never" for its own origin.
 - With save capture on, the granted `https://*/*` and `http://*/*` also lift the `activeTab`
   bound of the gesture-time injection (every frame of every site is reachable). Nothing is

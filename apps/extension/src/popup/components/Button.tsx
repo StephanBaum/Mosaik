@@ -13,7 +13,7 @@ export function Button({
   className,
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; block?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; block?: boolean; ref?: Ref<HTMLButtonElement> }) {
   const classes = ["button", `button--${variant}`, variant === "primary" ? "holo" : "", block ? "button--block" : "", className]
     .filter(Boolean)
     .join(" ");

@@ -160,6 +160,8 @@ describe("Router.onConnect", () => {
       { op: "fillGenerated", confirmFrame: null },
       { op: "savePending", action: "save" },
       { op: "saveOffersChanged", enabled: true },
+      { op: "neverSaveList" },
+      { op: "neverSaveRemove", origin: "https://bank.test" },
       { op: "unpair" },
     ];
     requests.forEach((request, index) => {
@@ -202,6 +204,8 @@ describe("Router.onMessage", () => {
       router.onMessage({ op: "fill", vaultId: "v", itemId: "i", confirmFrame: { frameId: 3, documentId: "doc-3" } }, sender);
       router.onMessage({ id: 1, request: { op: "getState" } }, sender);
       router.onMessage({ type: "fill" }, sender);
+      router.onMessage({ op: "neverSaveRemove", origin: "https://bank.test" }, sender);
+      router.onMessage({ id: 2, request: { op: "neverSaveRemove", origin: "https://bank.test" } }, sender);
     }
     expect(onCaptured).not.toHaveBeenCalled();
     expect(deps.handlePopup).not.toHaveBeenCalled();

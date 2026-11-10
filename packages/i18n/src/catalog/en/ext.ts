@@ -32,6 +32,14 @@ export const ext = {
   "ext.more.disconnectBody":
     "This browser can't fill logins until you connect it again. You approve the new connection in the Mosaic app.",
   "ext.action.cancel": "Cancel",
+  "ext.neverSave.menu": "Never offered for saving…",
+  "ext.neverSave.title": "Never offered for saving",
+  "ext.neverSave.intro": "Mosaic doesn't offer to save logins on these sites. Remove a site to be asked there again.",
+  "ext.neverSave.empty": "No sites yet. You can add one with \"Never for this site\" when Mosaic offers to save a login.",
+  "ext.neverSave.remove": "Remove",
+  "ext.neverSave.removeLabel": "Remove {origin} from the list",
+  "ext.neverSave.removed": "{origin} removed. Mosaic can offer to save logins there again.",
+  "ext.neverSave.close": "Close",
 
   // Connecting
   "ext.connect.checking": "Connecting to Mosaic…",

@@ -51,7 +51,8 @@ export interface SaveDeps {
 
 export type SaveResult = PopupResults["savePending"];
 
-export const neverSaveKey = (origin: string): string => `neverSave:${origin}`;
+const NEVER_SAVE_PREFIX = "neverSave:";
+export const neverSaveKey = (origin: string): string => `${NEVER_SAVE_PREFIX}${origin}`;
 
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 
@@ -270,6 +271,18 @@ export class SaveService {
     if (isPendingSave(stored) && stored.topOrigin !== originOf(url)) {
       await this.drop(tabId);
     }
+  }
+
+  /** The sites saving is never offered for (M4-R10), as exact origins. */
+  async neverSaveList(): Promise<string[]> {
+    const keys = await this.#deps.kv.keys(NEVER_SAVE_PREFIX);
+    return keys.map((key) => key.slice(NEVER_SAVE_PREFIX.length));
+  }
+
+  /** Takes one site off the list (only the popup port reaches this) and returns what is left. */
+  async neverSaveRemove(origin: string): Promise<string[]> {
+    await this.#deps.kv.delete(neverSaveKey(origin));
+    return this.neverSaveList();
   }
 
   async isNeverSave(origin: string): Promise<boolean> {
