@@ -251,6 +251,10 @@ fn apply_meta(
             if matches!(outcome, ApplyOutcome::Merged { .. } | ApplyOutcome::New) {
                 note_changed(report, vault);
             }
+            if let ApplyOutcome::MetaValueDropped { vault, fields } = outcome {
+                report.meta_dropped.push((vault, fields));
+                note_changed(report, vault);
+            }
             Ok(Applied::Done)
         }
         Err(e) if is_deferral(&e) => Ok(Applied::Deferred),

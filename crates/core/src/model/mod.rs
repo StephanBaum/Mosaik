@@ -75,4 +75,7 @@ pub use types::{
     PasskeyPublic, SshKeyMaterial, UrlMatch,
 };
 pub use value::{MAX_JSON_DEPTH, Number, Object, Text, Value};
-pub use vault_meta::{VaultMeta, VaultMetaEdit};
+pub use vault_meta::{
+    DroppedMeta, MAX_VAULT_DESCRIPTION_LEN, MAX_VAULT_ICON_LEN, MAX_VAULT_NAME_LEN, VaultMeta,
+    VaultMetaEdit,
+};

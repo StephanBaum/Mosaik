@@ -37,6 +37,11 @@ sha2.workspace = true
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# Safe `GetConsoleMode`/`SetConsoleMode` wrappers to restore the console input mode after a
+# timed-out or interrupted no-echo prompt (already in the tree through same-file and walkdir).
+winapi-util = "=0.1.11"
+
 [dev-dependencies]
 tempfile.workspace = true
 mosaic-vault = { path = "../vault" }

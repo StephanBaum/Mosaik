@@ -1001,13 +1001,30 @@ impl<T: Transport> SyncEngine<T> {
         }
         access.with(|s| s.set_rotation_phase(RotationPhase::Attachments))??;
         let mut progress = RekeyProgress::default();
+        if self.reseal_loop(access, &mut progress)? {
+            return Ok(progress);
+        }
+        self.finish_after_reseal(access, clock, &mut progress)?;
+        Ok(progress)
+    }
+
+    /// Re-seals the queued attachments one step at a time, fetching a blob
+    /// this device does not hold through the transport within the download
+    /// budget of one call. Shared by a re-key and a vault-only rotation
+    /// (M7-R2). Returns `true` if the budget ran out first
+    /// ([`RekeyProgress::more_attachments`] is set: call again).
+    pub(super) fn reseal_loop(
+        &mut self,
+        access: &mut impl SessionAccess,
+        progress: &mut RekeyProgress,
+    ) -> Result<bool, RekeyError> {
         let mut budget = ATTACHMENT_DOWNLOAD_BUDGET;
         let mut fetched: Option<Vec<u8>> = None;
         loop {
             let held = fetched.take();
             let step = access.with(|s| s.reseal_next_attachment(held.as_deref()))??;
             match step {
-                ResealStep::Done => break,
+                ResealStep::Done => return Ok(false),
                 ResealStep::Resealed { .. } | ResealStep::Skipped { .. } => {}
                 // Bytes that do not authenticate under the file key: the
                 // session listed the attachment as unreachable (it keeps its
@@ -1025,7 +1042,7 @@ impl<T: Transport> SyncEngine<T> {
                 } => {
                     if budget == 0 {
                         progress.more_attachments = true;
-                        return Ok(progress);
+                        return Ok(true);
                     }
                     match self.transport.get_attachment(vault_id, attachment_id) {
                         Ok(Some(bytes)) => {
@@ -1033,13 +1050,23 @@ impl<T: Transport> SyncEngine<T> {
                             fetched = Some(bytes);
                         }
                         Ok(None) | Err(TransportError::NotFound) => {
-                            mark_unreachable(access, &mut progress, (vault_id, attachment_id))?;
+                            mark_unreachable(access, progress, (vault_id, attachment_id))?;
                         }
                         Err(e) => return Err(e.into()),
                     }
                 }
             }
         }
+    }
+
+    /// Runs to head until the re-sealed records, keys and files are on the
+    /// backend, and closes the job (journal phase 7).
+    pub(super) fn finish_after_reseal(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+        progress: &mut RekeyProgress,
+    ) -> Result<(), RekeyError> {
         access.with(|s| s.set_rotation_phase(RotationPhase::Uploading))??;
         for _ in 0..3 {
             self.sync_once(access, clock)?;
@@ -1048,7 +1075,7 @@ impl<T: Transport> SyncEngine<T> {
             }
         }
         progress.finished = access.with(|s| s.rotation_job())??.is_none();
-        Ok(progress)
+        Ok(())
     }
 
     /// Closes the re-key job when nothing is left to upload: no re-sealed

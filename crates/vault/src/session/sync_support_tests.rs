@@ -1038,3 +1038,97 @@ fn adopt_remote_password_accepts_only_the_same_account_key() {
     assert!(matches!(err.error, Error::UnlockFailed));
     assert!(err.session.unlock(&new, &sk).is_ok());
 }
+
+#[test]
+fn trashed_attachments_count_against_local_quota() {
+    use mosaic_core::model::{AttachmentRef, Text};
+    use mosaic_core::{AttachmentId, AttachmentKey};
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _) = account_in(file_store(&dir));
+    let v = s.create_vault("A").unwrap();
+    let full = login(&mut s, v, "full");
+    let other = login(&mut s, v, "other");
+    // References (to files held elsewhere) that leave two bytes of the account quota free.
+    let max = super::MAX_ACCOUNT_ATTACHMENT_BYTES;
+    let each = u64::try_from(mosaic_core::MAX_ATTACHMENT_LEN).unwrap();
+    let sizes: Vec<u64> = (0..20).map(|_| each).chain([max - 20 * each - 2]).collect();
+    s.update_item(v, full, |e| {
+        for size in &sizes {
+            e.set_attachment(&AttachmentRef::new(
+                AttachmentId::new_v7()?,
+                Text::new("big.bin"),
+                Text::new("application/octet-stream"),
+                *size,
+                AttachmentKey::generate()?,
+            ))?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let size = max - 2;
+    assert_eq!(s.attachment_usage(), size);
+
+    // Trashing the item frees nothing: its files stay until it is purged.
+    s.trash_item(v, full).unwrap();
+    assert_eq!(s.attachment_usage(), size);
+    assert!(matches!(
+        s.add_attachment(v, other, "c.txt", "text/plain", b"abc"),
+        Err(Error::AttachmentQuota)
+    ));
+    s.restore_item(v, full).unwrap();
+    s.trash_item(v, full).unwrap();
+    assert!(matches!(
+        s.add_attachment(v, other, "c.txt", "text/plain", b"abc"),
+        Err(Error::AttachmentQuota)
+    ));
+
+    // Purging releases it.
+    s.purge_item(v, full).unwrap();
+    assert_eq!(s.attachment_usage(), 0);
+    s.add_attachment(v, other, "c.txt", "text/plain", b"abc")
+        .unwrap();
+    assert_eq!(s.attachment_usage(), 3);
+}
+
+#[test]
+fn add_attachment_keeps_original_error() {
+    use mosaic_core::model::TextField;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mut s, _) = account_in(file_store(&dir));
+    let v = s.create_vault("A").unwrap();
+    let item = login(&mut s, v, "full");
+    // Fill the item to its size limit, so adding a reference cannot fit.
+    let mut len = mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN;
+    while s
+        .update_item(v, item, |e| e.set_text(TextField::Notes, &"n".repeat(len)))
+        .is_err()
+    {
+        len -= 1000;
+    }
+    let mut n = 0u32;
+    while s
+        .update_item(v, item, |e| e.add_tag(&format!("t{n}")))
+        .is_ok()
+    {
+        n += 1;
+    }
+
+    let name = "f".repeat(400);
+    let err = s
+        .add_attachment(v, item, &name, "text/plain", b"hello")
+        .unwrap_err();
+    // The caller sees why the add failed, not a cleanup detail.
+    assert!(
+        matches!(err, Error::Core(mosaic_core::Error::SizeLimit)),
+        "{err:?}"
+    );
+    assert!(s.take_attachment_cleanup_error().is_none());
+    // The unreferenced file did not stay behind.
+    assert_eq!(s.attachment_usage(), 0);
+    assert_eq!(
+        s.store().attachments_for_record(&v, &item).unwrap().len(),
+        0
+    );
+}

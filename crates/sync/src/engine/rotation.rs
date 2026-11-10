@@ -3,15 +3,25 @@
 //! when the backend accepted it.
 
 use mosaic_core::{KeyGeneration, VaultId};
-use mosaic_vault::session::{Error, PreparedRotation};
+use mosaic_vault::session::{Error, PreparedRotation, RotationKind, RotationPhase};
 
 use super::pull::RunStats;
+use super::rekey::{RekeyError, RekeyProgress};
 use super::{RotationOutcome, SessionAccess, SyncEngine, SyncError, SyncReport};
 use crate::clock::Clock;
 use crate::transport::{Cursor, KeyPushResult, Transport};
 
 /// Attempts at one rotation (a head that moves, a session that locked).
 const ROTATION_ATTEMPTS: usize = 3;
+
+/// What [`SyncEngine::rotate_vault_key`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VaultKeyRotation {
+    /// How the key rotation ended.
+    pub outcome: RotationOutcome,
+    /// The attachment re-seal, if it was asked for and this device's key won.
+    pub progress: Option<RekeyProgress>,
+}
 
 impl<T: Transport> SyncEngine<T> {
     /// Rotates a vault's key: pulls and pushes the vault so the new key is
@@ -52,6 +62,70 @@ impl<T: Transport> SyncEngine<T> {
             };
         }
         self.rotate_inner(access, vault)
+    }
+
+    /// Rotates a vault's key and, with `reseal_attachments`, re-seals the
+    /// vault's attachments under fresh attachment IDs and file keys (the
+    /// optional step of CRYPTO_SPEC §7.1, M7-R2): a vault-only rotation on
+    /// the rotation journal ([`RotationKind::Vault`], phases 5 to 7). The
+    /// re-seal runs only when this device's key won
+    /// ([`RotationOutcome::Rotated`]); the job it opens survives a crash or
+    /// a lock, and [`SyncEngine::vault_rotate_continue`] resumes it.
+    ///
+    /// # Errors
+    /// [`RekeyError::Session`] with `RotationInProgress` if a rotation job is
+    /// open (checked before anything changes); the errors of
+    /// [`SyncEngine::rotate_vault`] as [`RekeyError::Sync`]; transport
+    /// failures during the re-seal.
+    pub fn rotate_vault_key(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+        vault: VaultId,
+        reseal_attachments: bool,
+    ) -> Result<VaultKeyRotation, RekeyError> {
+        if reseal_attachments && access.with(|s| s.rotation_job())??.is_some() {
+            return Err(RekeyError::Session(Error::RotationInProgress));
+        }
+        let outcome = self.rotate_vault(access, clock, vault)?;
+        let mut progress = None;
+        if reseal_attachments && matches!(outcome, RotationOutcome::Rotated(_)) {
+            access.with(|s| s.queue_vault_attachment_reseal(vault))??;
+            progress = Some(self.reseal_vault_job(access, clock)?);
+        }
+        Ok(VaultKeyRotation { outcome, progress })
+    }
+
+    /// Resumes an open vault-only rotation job (an interrupted attachment
+    /// re-seal, M7-R2): re-seals what is left, uploads and closes the job.
+    /// Call it again while [`RekeyProgress::more_attachments`] is set.
+    ///
+    /// # Errors
+    /// [`RekeyError::NoJob`] without a vault job; [`RekeyError`].
+    pub fn vault_rotate_continue(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+    ) -> Result<RekeyProgress, RekeyError> {
+        access
+            .with(|s| s.rotation_job())??
+            .filter(|j| j.kind == RotationKind::Vault)
+            .ok_or(RekeyError::NoJob)?;
+        self.reseal_vault_job(access, clock)
+    }
+
+    fn reseal_vault_job(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+    ) -> Result<RekeyProgress, RekeyError> {
+        access.with(|s| s.set_rotation_phase(RotationPhase::Attachments))??;
+        let mut progress = RekeyProgress::default();
+        if self.reseal_loop(access, &mut progress)? {
+            return Ok(progress);
+        }
+        self.finish_after_reseal(access, clock, &mut progress)?;
+        Ok(progress)
     }
 
     /// The rotation itself, without the pull before it.

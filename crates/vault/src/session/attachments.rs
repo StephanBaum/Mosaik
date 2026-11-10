@@ -16,7 +16,9 @@ pub const MAX_ACCOUNT_ATTACHMENT_BYTES: u64 = 1024 * 1024 * 1024;
 
 impl UnlockedSession {
     /// The plaintext size of every attachment referenced by a live item, in
-    /// bytes (what counts against [`MAX_ACCOUNT_ATTACHMENT_BYTES`]).
+    /// bytes (what counts against [`MAX_ACCOUNT_ATTACHMENT_BYTES`]). An item
+    /// in the trash is live until it is purged, so its attachments count
+    /// (their files stay in the store, M3-R25).
     #[must_use]
     pub fn attachment_usage(&self) -> u64 {
         self.vaults
@@ -65,12 +67,24 @@ impl UnlockedSession {
         let ct = seal_attachment(&reference.key, &vault_id, &item_id, &attachment_id, data)?;
         self.store
             .put_attachment(&vault_id, &item_id, &attachment_id, &ct, true)?;
+        self.attachment_cleanup_error = None;
         if let Err(e) = self.update_item(vault_id, item_id, |e| e.set_attachment(&reference)) {
-            // Do not leave an unreferenced file behind.
-            self.store.delete_attachment(&attachment_id)?;
+            // Do not leave an unreferenced file behind. The caller needs the
+            // reason the add failed, so a failed cleanup never replaces it;
+            // it is kept apart (M3-R25).
+            self.attachment_cleanup_error = self.store.delete_attachment(&attachment_id).err();
             return Err(e);
         }
         Ok(attachment_id)
+    }
+
+    /// The failure to remove the unreferenced file after the last
+    /// [`UnlockedSession::add_attachment`] failed, if there was one (the
+    /// call itself returned the original error). The file is then an orphan
+    /// that the store's startup sweep removes
+    /// ([`crate::storage::Store::sweep_orphan_attachments`]).
+    pub fn take_attachment_cleanup_error(&mut self) -> Option<crate::storage::Error> {
+        self.attachment_cleanup_error.take()
     }
 
     /// Decrypts an attachment of an item.

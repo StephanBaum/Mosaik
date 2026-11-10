@@ -3055,6 +3055,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "unicode-normalization",
+ "winapi-util",
  "zeroize",
 ]
 

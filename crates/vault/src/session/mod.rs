@@ -310,6 +310,11 @@ pub struct UnlockedSession {
     /// record that collides under one of them is merged without losing
     /// either writer's edits (ADR-0015).
     retired: Vec<DeviceId>,
+    /// The orphan-file cleanup failure of the last failed
+    /// [`UnlockedSession::add_attachment`] (M3-R25): the call returns the
+    /// original error and keeps this one for
+    /// [`UnlockedSession::take_attachment_cleanup_error`].
+    attachment_cleanup_error: Option<crate::storage::Error>,
     account_key: AccountKey,
     /// A random ID of this unlocked session (not the writer ID, which can
     /// rotate): binds a [`Reauthenticated`] proof to the session that made
@@ -770,6 +775,7 @@ impl UnlockedSession {
                     account_id,
                     device,
                     retired: Vec::new(),
+                    attachment_cleanup_error: None,
                     account_key,
                     proof_id,
                     password_unlocked: quick.password_unlocked,

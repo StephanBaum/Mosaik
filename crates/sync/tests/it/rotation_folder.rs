@@ -340,3 +340,124 @@ fn a_rotation_pushed_but_not_committed_is_recovered_from_the_own_log() {
     }
     all_agree(&w, vault);
 }
+
+fn attachment_ids(
+    w: &World,
+    d: usize,
+    vault: VaultId,
+    item: ItemId,
+) -> Vec<mosaic_core::AttachmentId> {
+    let s = w.devs[d].s();
+    let mut ids: Vec<_> = s
+        .item(vault, item)
+        .unwrap()
+        .attachments()
+        .iter()
+        .map(|a| a.attachment_id)
+        .collect();
+    ids.sort_unstable_by_key(|a| *a.as_bytes());
+    ids
+}
+
+#[test]
+fn vault_rotate_key_reseals_attachments_and_resumes() {
+    use mosaic_sync::engine::RekeyError;
+    use mosaic_vault::session::{ResealStep, RotationKind};
+
+    let (mut w, vault, items) = three_devices();
+    for (i, item) in items.iter().take(2).enumerate() {
+        w.devs[0]
+            .s_mut()
+            .add_attachment(
+                vault,
+                *item,
+                "f.bin",
+                "application/octet-stream",
+                &[i as u8; 64],
+            )
+            .unwrap();
+    }
+    w.converge(0);
+    let before: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+    assert_eq!(before[0].len() + before[1].len(), 2);
+
+    // A crash mid re-seal: the key rotated and the queue is open, one
+    // attachment is done.
+    {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+        dev.s_mut().queue_vault_attachment_reseal(vault).unwrap();
+        let step = dev.s_mut().reseal_next_attachment(None).unwrap();
+        assert!(matches!(step, ResealStep::Resealed { .. }), "{step:?}");
+        let job = dev.s().rotation_job().unwrap().unwrap();
+        assert_eq!(job.kind, RotationKind::Vault);
+        // No second rotation starts on top of an open job.
+        assert!(matches!(
+            dev.engine
+                .rotate_vault_key(&mut dev.access, &w.clock, vault, true),
+            Err(RekeyError::Session(
+                mosaic_vault::session::Error::RotationInProgress
+            ))
+        ));
+    }
+
+    // The resume finishes the rest, uploads and closes the job.
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert!(progress.unreachable_attachments.is_empty());
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    {
+        let dev = &mut w.devs[0];
+        assert!(matches!(
+            dev.engine.vault_rotate_continue(&mut dev.access, &w.clock),
+            Err(RekeyError::NoJob)
+        ));
+    }
+    let after: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+    for i in 0..2 {
+        assert_eq!(after[i].len(), before[i].len());
+        assert!(after[i].iter().all(|a| !before[i].contains(a)), "item {i}");
+    }
+
+    // The other devices converge on the new IDs and read the files.
+    w.converge(1);
+    for d in 1..3 {
+        for (i, item) in items.iter().take(2).enumerate() {
+            let ids = attachment_ids(&w, d, vault, *item);
+            assert_eq!(ids, after[i], "device {d}");
+            let data = w.devs[d].s().attachment(vault, *item, ids[0]).unwrap();
+            assert_eq!(data.expose_secret(), &[i as u8; 64][..], "device {d}");
+        }
+    }
+    all_agree(&w, vault);
+
+    // The one-call path: rotate and re-seal in a single run.
+    let outcome = {
+        let dev = &mut w.devs[1];
+        dev.engine
+            .rotate_vault_key(&mut dev.access, &w.clock, vault, true)
+            .unwrap()
+    };
+    assert!(matches!(outcome.outcome, RotationOutcome::Rotated(_)));
+    assert!(outcome.progress.unwrap().finished);
+    w.converge(1);
+    for (i, item) in items.iter().take(2).enumerate() {
+        let ids = attachment_ids(&w, 2, vault, *item);
+        assert!(ids.iter().all(|a| !after[i].contains(a)));
+        let data = w.devs[2].s().attachment(vault, *item, ids[0]).unwrap();
+        assert_eq!(data.expose_secret(), &[i as u8; 64][..]);
+    }
+}
