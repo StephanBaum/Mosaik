@@ -209,6 +209,16 @@ pub enum Error {
     #[error("role does not allow this")]
     RoleForbidden,
 
+    /// The vault is shared and this account only reads it: no item change
+    /// (a viewer of a shared vault cannot start or close a rotation).
+    #[error("the vault is read-only for this account")]
+    ReadOnly,
+
+    /// The item has no login or Wi-Fi password to track (a snooze or
+    /// dismissal binds to the password's mark).
+    #[error("item has no password")]
+    NoPassword,
+
     /// Only the vault owner may do this (a rotation, emergency seals).
     #[error("only the vault owner may do this")]
     NotOwner,

@@ -3187,6 +3187,8 @@ name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
  "mosaic-core",
+ "mosaic-insights",
+ "mosaic-origin",
  "mosaic-totp",
  "proptest",
  "rusqlite",

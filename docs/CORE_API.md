@@ -876,6 +876,61 @@ refuses a backend change while a job exists.
   verified kept); the adoption fallback reads up to 1024 account files and offers
   only epochs in `(own, own + 16]`.
 
+## M7b: credential rotation (vault; additive)
+
+### `mosaic-vault` (T2; `session`, restricted to the desktop and the extension channel)
+
+Store schema **v10** (strict, additive; `LATEST_VERSION = 10`): `breach_state`
+(item, field 1 login or 2 Wi-Fi password, the Lamport value mark, `checked_at`,
+`found`), `breach_scan` (one row: the last scan's times, count, error 1 to 4) and
+`rotation_queue_state` (snooze time, dismissed mark). No password, hash or hash
+prefix is stored (THREAT_MODEL R97). Rows go with a purged item (triggers on
+`records`: a deleted row or a tombstone, local or received) and with a removed
+vault (cascade); `reset_sync_state` and the M7 re-key keep them. A row counts only
+while its mark equals the item's current `Item::secret_mark`; a mark means
+something only per vault, item and field.
+
+New dependencies of the crate: `mosaic-origin` (exact-origin matching) and
+`mosaic-insights` (the breach types). `Error::ReadOnly` (a viewer of a shared
+vault; every item change below) and `Error::NoPassword` (dismissing an item
+without a password).
+
+`UnlockedSession`, all through `update_item` (one edit, one sealed record, one
+outbox entry, the normal conflict rules; each returns after the local commit):
+
+- `begin_rotation(vault, item, &SecretString, Option<RulesSource>) ->
+  RotationAttemptId`: stores the new password in the item before any site sees
+  it; the password is untouched. `Error::Core(NotALogin | Malformed |
+  TooManyAttempts)` come from the item.
+- `mark_rotation_delivered(vault, item, attempt)`: no write when already
+  delivered; `Error::Core(RotationNotFound)`.
+- `close_rotation(vault, item, attempt, RotationOutcome::{Succeeded, Failed})`:
+  `confirm_rotation` or `fail_rotation` as one edit; no value that was ever an
+  attempt's is deleted (CRYPTO_SPEC §7.4).
+- `restore_password_history(vault, item, &HistoryId)`: the rollback.
+- `set_rotation_policy(vault, item, Option<u16>)`: 30, 90, 180, 365 or `None`.
+- `rotation_attempts_for_origin(&PageOrigin) -> Vec<RotationRef>`: logins with a
+  URL for which `mosaic_origin::fill_allowed` gives `MatchKind::ExactOrigin`
+  (no eTLD+1, no plain http without the item's override), outside the trash,
+  newest first, at most `MAX_ATTEMPTS_FOR_ORIGIN` (5). `RotationRef` holds IDs,
+  title, user name, stage and start time, never the value.
+
+Local state (viewers may use it; it never touches an item):
+
+- `breach_states() -> BreachStates`: the cached answers for the current values;
+  stale rows and rows of gone items are dropped.
+- `record_breach_results(&[BreachResult], ScanSummary)`: one transaction; an
+  answer whose mark no longer matches is skipped. `breach_scan() ->
+  Option<ScanSummary>`; `ScanSummary { started_at, finished_at, checked, error:
+  Option<ScanError> }` (`ScanError` converts from `RangeError`).
+- `snooze_rotation(vault, item, until)`, `dismiss_rotation(vault, item)` (stores
+  the current password mark) and `queue_states() -> QueueStates`
+  (`QueueState { snoozed_until, dismissed }`, `hides(now)`; a dismissal whose
+  mark changed is not reported).
+
+`storage` (restricted): `Store::{breach_rows, put_breach_results, breach_scan,
+queue_rows, set_snooze, set_dismissed}`, `BreachRow`, `ScanRow`, `QueueRow`.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

@@ -758,6 +758,67 @@ DROP TABLE pending_revocations;
 ALTER TABLE pending_revocations_v9 RENAME TO pending_revocations;
 ";
 
+/// Version 10: credential rotation (M7b, CRYPTO_SPEC §11): the breach check's
+/// cache, the scan summary and the rotate-now queue's snooze and dismissal.
+/// Only IDs, small integers and Lamport value marks: no password, no hash and
+/// nothing derived from a password. Rows go with the item (a purged or
+/// tombstoned record, here by trigger) and with the vault (cascade);
+/// `reset_sync_state` and a re-key leave them alone.
+const V10: &str = r"
+CREATE TABLE breach_state (
+    vault_id    BLOB    NOT NULL CHECK (length(vault_id) = 16)
+                        REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    item_id     BLOB    NOT NULL CHECK (length(item_id) = 16),
+    field       INTEGER NOT NULL CHECK (field IN (1, 2)),
+    value_mark  BLOB    NOT NULL CHECK (length(value_mark) BETWEEN 1 AND 32),
+    checked_at  INTEGER NOT NULL,
+    found       INTEGER NOT NULL CHECK (found IN (0, 1)),
+    PRIMARY KEY (vault_id, item_id, field)
+) STRICT;
+
+CREATE TABLE breach_scan (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    started_at   INTEGER,
+    finished_at  INTEGER,
+    checked      INTEGER NOT NULL DEFAULT 0 CHECK (checked >= 0),
+    error        INTEGER CHECK (error IS NULL OR error BETWEEN 1 AND 4)
+) STRICT;
+
+CREATE TABLE rotation_queue_state (
+    vault_id        BLOB    NOT NULL CHECK (length(vault_id) = 16)
+                            REFERENCES vaults (vault_id) ON DELETE CASCADE,
+    item_id         BLOB    NOT NULL CHECK (length(item_id) = 16),
+    snoozed_until   INTEGER,
+    dismissed_mark  BLOB    CHECK (dismissed_mark IS NULL OR length(dismissed_mark) BETWEEN 1 AND 32),
+    PRIMARY KEY (vault_id, item_id)
+) STRICT;
+
+-- A record that is deleted or becomes a tombstone (a purge here or on another
+-- device) takes the item's rows with it.
+CREATE TRIGGER records_rotation_rows_delete
+AFTER DELETE ON records
+BEGIN
+    DELETE FROM breach_state WHERE vault_id = OLD.vault_id AND item_id = OLD.record_id;
+    DELETE FROM rotation_queue_state WHERE vault_id = OLD.vault_id AND item_id = OLD.record_id;
+END;
+
+CREATE TRIGGER records_rotation_rows_tombstone_insert
+AFTER INSERT ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM breach_state WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+    DELETE FROM rotation_queue_state WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+
+CREATE TRIGGER records_rotation_rows_tombstone_update
+AFTER UPDATE ON records
+WHEN NEW.kind = 2
+BEGIN
+    DELETE FROM breach_state WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+    DELETE FROM rotation_queue_state WHERE vault_id = NEW.vault_id AND item_id = NEW.record_id;
+END;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -796,10 +857,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 9,
         sql: V9,
     },
+    Migration {
+        version: 10,
+        sql: V10,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 9;
+pub const LATEST_VERSION: u32 = 10;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -949,10 +1014,14 @@ mod tests {
             },
             Migration {
                 version: 10,
+                sql: V10,
+            },
+            Migration {
+                version: 11,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 10);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 11);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -966,11 +1035,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 10,
-                supported: 9
+                found: 11,
+                supported: 10
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 10);
+        assert_eq!(user_version(&c).unwrap(), 11);
     }
 
     #[test]
@@ -1016,11 +1085,15 @@ mod tests {
             },
             Migration {
                 version: 10,
+                sql: V10,
+            },
+            Migration {
+                version: 11,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 9);
+        assert_eq!(user_version(&c).unwrap(), 10);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1554,7 +1627,7 @@ mod tests {
                          x'03030303030303030303030303030303', 5, 7);",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 9);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
         // Existing rows survive and start at epoch 1.
         let epoch: i64 = c
@@ -1596,6 +1669,57 @@ mod tests {
         );
         // The vault delete still cascades into the rebuilt table.
         c.execute("DELETE FROM vaults", []).unwrap_err();
+    }
+
+    #[test]
+    fn migration_v9_to_v10() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..9]).unwrap(), 9);
+        c.execute_batch(
+            "INSERT INTO vaults (vault_id, key_wrap, current_generation,
+                                 highest_accepted_generation, updated_at)
+                 VALUES (x'02020202020202020202020202020202', 1, 1, 1, 5);
+             INSERT INTO records (vault_id, record_id, kind, key_generation, ciphertext, updated_at)
+                 VALUES (x'02020202020202020202020202020202',
+                         x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a', 1, 1, x'0102', 6);",
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 10);
+        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        // Existing data is kept, the new tables start empty.
+        let (updated, record_updated): (i64, i64) = c
+            .query_row(
+                "SELECT (SELECT updated_at FROM vaults), (SELECT updated_at FROM records)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((updated, record_updated), (5, 6));
+        for table in ["breach_state", "breach_scan", "rotation_queue_state"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} starts empty");
+        }
+        // The CHECKs hold: a field outside 1..2, an empty and an oversized mark.
+        let bad = |field: i64, mark_len: i64| {
+            c.execute(
+                "INSERT INTO breach_state (vault_id, item_id, field, value_mark, checked_at, found)
+                 VALUES (x'02020202020202020202020202020202', x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a',
+                         ?1, zeroblob(?2), 0, 1)",
+                [field, mark_len],
+            )
+        };
+        assert!(bad(3, 24).is_err());
+        assert!(bad(1, 0).is_err());
+        assert!(bad(1, 33).is_err());
+        bad(1, 24).unwrap();
+        // The record's deletion removes the item's rows.
+        c.execute("DELETE FROM records", []).unwrap();
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM breach_state", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

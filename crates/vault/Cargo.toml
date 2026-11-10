@@ -18,6 +18,9 @@ test-util = []
 
 [dependencies]
 mosaic-core = { path = "../core" }
+# Rotation: exact-origin matching of an open attempt and the breach-check types (M7b).
+mosaic-insights = { path = "../insights" }
+mosaic-origin = { path = "../origin" }
 mosaic-totp = { path = "../totp" }
 rusqlite.workspace = true
 thiserror.workspace = true

@@ -20,6 +20,7 @@
 //! | `install_identity`, `sync_config`, `sync_cursor_blobs`, `sync_local_seq`, `sync_checkpoint`, `attachment_deletions` | local sync state of M6 (schema v3): install ID, backend choice, cursors, local sequence blocks, checkpoint counter, attachment deletions still to send |
 //! | `identity_key`, `contacts_doc`, `vault_sharing`, `vault_roster`, `pending_revocations`, `sharing_findings` | sharing (schema v8): the wrapped identity key, the synced contact book, the monotone `shared` flag with this account's role, the roster, revocations still to carry out, findings |
 //! | `rotation_job`, `reseal_attachments`, `folder_rekey_floor`, `retired_secret_keys`, `rekey_dismissed_files` | key rotation (schema v9): the account-key epoch (a column of `account`), the journal of a running rotation, the attachment re-seal queue, folder floors, commitments of replaced Secret Keys, dismissed account files |
+//! | `breach_state`, `breach_scan`, `rotation_queue_state` | credential rotation (schema v10): cached breach answers keyed by a Lamport value mark, the last scan summary, snooze and dismissal of the rotate-now queue. No password and nothing derived from one |
 //! | `sync_own_seq`, `sync_engine_state`, `sync_peer_checkpoint`, `sync_lag`, `sync_key_candidate`, `sync_marker_seen` | persisted engine state (schema v4): own sequence numbers, halt and strikes, peer checkpoints, lag timers, vault keys seen per generation, delete-marker first-seen times |
 //!
 //! The API only takes and returns `mosaic-core` ciphertext types, so the
@@ -85,6 +86,7 @@
 
 mod account;
 mod attachments;
+mod credential_rotation;
 mod device;
 mod engine_state;
 mod error;
@@ -107,6 +109,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
+pub use credential_rotation::{BreachRow, QueueRow, ScanRow};
 pub use engine_state::{
     EngineState, MarkerStamp, OwnSeq, PeerCheckpoint, PeerEntry, ServedRow, SyncHalt, VaultFlag,
 };

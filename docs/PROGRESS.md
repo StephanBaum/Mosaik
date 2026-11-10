@@ -17,7 +17,7 @@ milestone close appends its section there).
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
-| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault, T3 desktop, T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
+| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault done; T3 desktop, T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
 | M8 CLI | — |
 | M9 Hardening | — |
 | M10 Mobile | — |
@@ -2473,6 +2473,16 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
     `clear_password_history`, manual changes and conflict resolution, plus a device-ID collision property. Limit
     kept: two writers sharing a device ID whose *different-field* edits carry equal stamps are only detected by the
     ADR-0015 rules; the proptest does not claim more.
+- **T2 vault: done** (store v10 and the session API, `crates/vault`; CORE_API "M7b"). Tables `breach_state`,
+  `breach_scan`, `rotation_queue_state` (IDs and Lamport marks only), a v9 to v10 migration, rows removed with a
+  purged item (triggers on `records`) or vault (cascade), kept by `reset_sync_state` and the re-key. Session:
+  `begin_rotation`, `mark_rotation_delivered`, `close_rotation`, `restore_password_history`,
+  `set_rotation_policy`, `rotation_attempts_for_origin` (exact origin through `mosaic_origin::fill_allowed`, at most
+  5), `breach_states`, `record_breach_results`, `breach_scan`, `snooze_rotation`, `dismiss_rotation`,
+  `queue_states`; new errors `ReadOnly` (viewers) and `NoPassword`. New dependency edges for `mosaic-vault`:
+  `mosaic-origin` and `mosaic-insights` (both already in the tree). Tests: 14 in `credential_rotation_tests` and
+  `migration_v9_to_v10`. Note for T3: `mosaic-desktop` does not compile until it handles
+  `TextField::ChangePasswordUrl` (the `field_enum` mapping of the item draft).
   - Left to the next tracks: the HTTP transport (`mosaic_sync::http::pwned`, T3) and everything in the spec's §3.2 to §8.
 
 ## Open risks / findings
