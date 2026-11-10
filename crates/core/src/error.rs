@@ -143,6 +143,21 @@ pub enum Error {
     /// The item has no password history entry with that ID.
     #[error("no such history entry")]
     HistoryNotFound,
+
+    /// A CLI session file is past its `expires_at` (CRYPTO_SPEC §6.8). Every
+    /// other refusal of a session file is [`Error::Decryption`].
+    #[error("session expired")]
+    Expired,
+
+    /// A CLI session TTL outside 1 to 30 minutes (CRYPTO_SPEC §6.8).
+    #[error("invalid session lifetime")]
+    InvalidTtl,
+
+    /// Reading or writing an encrypted export failed in the underlying
+    /// stream (CRYPTO_SPEC §11.2). Carries only the kind of the I/O error,
+    /// never a message or a path.
+    #[error("I/O error ({0:?})")]
+    Io(std::io::ErrorKind),
 }
 
 /// Result alias with [`Error`].

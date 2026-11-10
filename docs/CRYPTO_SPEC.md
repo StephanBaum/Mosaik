@@ -92,6 +92,11 @@ Interoperability only (these read or serve third-party formats and never protect
   registry, so it can't be reused for another purpose.
 - Label added for key rotation (§6.6, §10.1, M7): `sync/folder-rekey` (the MAC prefix of a
   folder re-key marker, ADR-0060). No other label, key or AEAD use is new in M7.
+- Labels added for the CLI (§6.8, §11.2, M8, ADR-0072, ADR-0073): `cli-session` (the AAD of a CLI
+  session file), `export` (the AAD of every chunk of an encrypted export) and `export-key` (the HKDF
+  info of `K_x`). `export` is a prefix of `export-key`: the first is only ever used in an AAD (followed
+  by `0x00`), the second only as HKDF info, so they never meet. No other label, primitive or algorithm ID
+  is new in M8.
 - **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
   `0x03` the HPKE seal of §8.2 and §8.4 (mode Auth, KEM `0x0020`, KDF `0x0001`, AEAD `0x0003`).
   `0x02` is unused. A decoder refuses any other value.
@@ -141,6 +146,9 @@ Interoperability only (these read or serve third-party formats and never protect
 | Folder MAC key `K_fold` (§10.1) | 256 bit | never stored | derived per operation inside the session; gone on lock |
 | Device-info key `K_dev` (§10.1) | 256 bit | never stored | derived per operation inside the session; gone on lock |
 | Passkey private key (§16) | 256-bit scalar in PKCS#8 | item plaintext (encrypted under the item key, §7.2) | an `Es256Key` lives for one create or sign, then drops (zeroize on drop) |
+| CLI session key `W_cli` (§6.8) | 256 bit | the OS keystore only (entry value `session_id \|\| W_cli`), never in a file | from `mosaic unlock` until `mosaic lock`, the TTL (5 minutes by default, at most 30) or any credential change; in the CLI process only while one command runs |
+| AK inside a CLI session file (§6.8) | 256 bit | sealed under `W_cli` in a file in the runtime directory (mode 0600) | until the file expires, is refused or is deleted |
+| Export passphrase, `P_x` and `K_x` (§11.2) | passphrase variable; 2 x 256 bit | never stored; the user types or supplies the passphrase | until the export is written or read; the writer and the reader zeroize them when the construction ends |
 | Browser pairing key `K_pair` (§15) | 256 bit | the desktop's `browser-pairings.json` and the extension's IndexedDB; in host and desktop memory while used | while a browser is paired, until it is disconnected |
 | Browser channel auth key `K_auth` (§15) | 256 bit | never stored | during the handshake |
 | Browser channel session keys `K_h2d`, `K_d2h` (§15) | 2 x 256 bit | never stored | while the connection is open |
@@ -598,6 +606,47 @@ It creates no new VK: the backend's `g+1` keys arrive by pull under the new AK,
 and records this device sealed below them are re-sealed by the rule of §7.1.
 Other devices show an in-app notice that a re-key happened elsewhere (there is
 no email by design; THREAT_MODEL R91).
+
+### 6.8 CLI session (M8, ADR-0072)
+
+The `mosaic` command line (`docs/CLI.md`) can cache AK for a few minutes so that a script does not
+prompt for the master password on every command. No new primitive: a random key, XChaCha20-Poly1305
+(§2) and the header-binding rule of §3.
+
+```
+W_cli       = random(32)            held only by the OS keystore, with session_id[16] = random(16)
+keystore    : value = base64url(session_id || W_cli)       (service and entry names: docs/CLI.md)
+file        = header || nonce[24] || XChaCha20-Poly1305(W_cli, nonce, AK, aad)        162 bytes
+header      = "MCLS" || version:u8 (0x01) || alg:u8 (0x01) || account_id[16] || install_id[16]
+              || session_id[16] || ak_epoch:u32 || account_salt[16] || created_at_ms:u64
+              || expires_at_ms:u64                                                       90 bytes
+aad         = header || aad("cli-session", account_id, install_id, session_id)
+```
+`nonce = random(24)`, fresh for every file. A decoder refuses any `version` or `alg` it does not know.
+
+**Opening** (`open_cli_session` in `mosaic-core`, plus the vault check below) refuses, with the single
+error `Decryption` (or `Expired` for the clock rule), when any of these holds. The caller deletes both
+parts on any refusal.
+1. `session_id` of the keystore entry differs from the one in the header.
+2. `account_id`, `install_id`, `ak_epoch` or `account_salt` differ from the open store's. A password
+   change, Secret Key rotation, profile upgrade (all three change `account_salt`), a re-key (`ak_epoch`
+   rises) and another install therefore end every session.
+3. The AEAD fails (wrong key, any changed header byte, any changed body byte).
+4. `expires_at_ms - created_at_ms` is zero, negative or above 30 minutes; or `created_at_ms` is more
+   than 5 minutes after `now`.
+5. `now > expires_at_ms` (reported as `Expired`).
+6. (vault layer) No held vault key opens under the recovered AK.
+
+**Creating.** Only a session that was unlocked with the master password in the same process may create
+one (`ReauthenticationRequired` otherwise); a session opened from a session file never creates a new
+one, so a session cannot be renewed. The TTL is absolute (it is not extended by use): 5 minutes by
+default, 1 to 30 minutes by choice. A keystore that refuses the write, or that is only a memory
+fallback, means no session. A session never counts as a master-password unlock: it cannot enrol quick
+unlock or a security key, and it is not a proof of re-authentication (§6.2, §7.4).
+
+**Why two places.** The file alone is useless without `W_cli` (a backup or a disk image holds nothing
+usable), and the keystore entry alone is useless without the file. Same-user malware that can read both
+inside the TTL gets AK without the master password (THREAT_MODEL R105). `mosaic lock` deletes both.
 
 ## 7. Vaults and items
 
@@ -2045,10 +2094,8 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 - Auto-lock triggers: idle timeout (default 10 min), OS sleep, screen lock,
   user switch, and app quit. All configurable, but they cannot all be
   disabled.
-- Encrypted export: an `age`-compatible file with a passphrase recipient
-  (scrypt) is under evaluation. Until an ADR decides, export uses the
-  item-record format under a fresh key derived as in §5.3 from an export
-  passphrase.
+- Encrypted export: a passphrase-protected file in the format of §11.2 (ADR-0073). `age` (scrypt
+  recipient) was not adopted: it needs a second KDF and a new dependency outside §2.
 
 ### 11.1 Settings integrity (ADR-0030)
 
@@ -2093,6 +2140,47 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   consistent pair still verifies. The full fix is to keep the settings as a
   synced record under §10 (planned with M6; THREAT_MODEL R28).
 
+### 11.2 Encrypted export (M8, ADR-0073)
+
+A file the user can keep or hand to another Mosaic install. It is protected by a passphrase of its own,
+not by the master password or AK, so it does not depend on the account. Primitives: Argon2id (§5.3),
+HKDF-SHA-256 (§3) and the STREAM construction of §7.3.
+
+```
+header = "MOSX" || version:u8 (0x01) || alg:u8 (0x02 STREAM-BE32-XChaCha20-Poly1305)
+         || chunk_log2:u8 (16) || profile:u8 || salt[16] || export_id[16] || nonce_prefix[19]     59 bytes
+P_x    = Argon2id(NFC(passphrase), salt, profile)            32 bytes, the §5.3 parameters
+K_x    = HKDF(ikm = P_x, salt = export_id, info = ctx("export-key"), 32)
+chunks : exactly the layout and nonces of §7.3 (nonce = nonce_prefix || i:u32 || last:u8), under K_x,
+         with aad = header || aad("export", export_id)
+```
+- `profile` is an Argon2id profile ID of §5.3 and must be at least `0x02` (standard): an export is
+  attackable offline for as long as the file exists (THREAT_MODEL R110), so the baseline profile is not
+  accepted. `strong` and `max` are allowed. A reader refuses any other value before it runs Argon2id.
+- `salt`, `export_id` and `nonce_prefix` are `random(16)`, `random(16)` and `random(19)`, fresh for
+  every file. `chunk_log2` is 16; the decoder refuses any other value, as in §7.3.
+- The passphrase is its own secret, typed twice, and follows the strength rule of §5.1 in the client; the
+  crypto layer rejects only an empty passphrase. It is prepared as `NFC(passphrase)` in UTF-8, with no
+  trimming.
+- Canonical layout and limits are those of §7.3: every chunk but the last holds exactly 64 KiB, the last
+  holds 1 to 64 KiB (0 only if the whole plaintext is empty). Truncation, extension, reordering and a
+  changed header all fail the AEAD. The plaintext is limited to 2 GiB; a reader stops with `SizeLimit`
+  beyond it.
+- A wrong passphrase and a damaged file are indistinguishable (`Decryption`) once the header is well
+  formed. STREAM authenticates each chunk when it is read, so a consumer **must treat everything it read
+  as unverified until the last chunk has verified** (the end of the stream is reported as success); the
+  importer builds its preview from the whole stream and commits only after that.
+- **Plaintext** (the decrypted stream) is compact UTF-8 JSON:
+  `{"format":"mosaic-export","v":1,"exportedAt":ms,"vaults":[{"name":…,"items":[ITEM…]}]}` with
+  `ITEM = {"type","title","favorite","createdAt","tags":[…],"urls":[…],"fields":[{"key","label",
+  "value","secret"}],"notes","otp":otpauth-URI|null,"passkey":CXF credential|null,"sshKey":OpenSSH
+  private key|null,"history":[{"value","changedAt"}],"attachments":[{"name","mime","size","data":
+  base64url|null}]}`. Attachment `data` is present only when the user asked for attachments. Item,
+  vault, device, account and attachment IDs, version vectors and key material of the account are not
+  exported; an import creates fresh IDs.
+- The file never contains an unencrypted item. A plaintext export (CSV or JSON) is not offered
+  (ADR-0073).
+
 ## 12. Metadata visible to the server
 
 | Field | Why the server needs it |
@@ -2129,6 +2217,10 @@ record grows by up to about 4 KiB per open attempt (four values of up to
 1024 characters), which fingerprints a rotation for the server. The breach
 check talks to Have I Been Pwned directly, never through the server
 (ADR-0067).
+
+The CLI (M8) is a client and adds nothing here: CLI session files and the export file never leave the
+machine. A CLI "own store" (`mosaic setup own-store`, ADR-0071) is one more device of the account, visible like any
+device; an encrypted export (§11.2) is a local file.
 
 ### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
 
@@ -2222,7 +2314,10 @@ size buckets), tags, vault names, or attachment names.
   fail. Changing `vault_id` or `item_id` causes decryption to fail.
 - Golden-file tests for every serialized format, so format changes are visible
   in review.
-- Fuzz targets for every decoder (§10, plus item and import parsers).
+- Fuzz targets for every decoder (§10, plus item and import parsers, the CLI session file §6.8 and
+  the export reader §11.2).
+- Known-answer vectors for the encrypted export and the CLI session file
+  (`crates/core/tests/vectors/export_kat.py`), written by an independent implementation.
 
 ## 15. Browser extension channel (ADR-0036)
 

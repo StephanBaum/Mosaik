@@ -18,7 +18,7 @@ milestone close appends its section there).
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
 | M7b Credential rotation | ✅ done (2026-11-10; branch `feat/m7b-rotation`; T1 to T4, the T1 and milestone reviews, an extension red team and a UX review; ADR-0065 to 0070, R97 to R104; deferred: connectors, scheduler, passkey hints; open: manual checks with real sites and the owner decisions OD-M7b-1 to OD-M7b-9). **M8 CLI is next** |
-| M8 CLI | — |
+| M8 CLI | in progress (branch `feat/m8-cli`; T1 spec and core done, T2 to T5 open; ADR-0071 to 0075, R105 to R111) |
 | M9 Hardening | — |
 | M10 Mobile | — |
 
@@ -2558,6 +2558,20 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
   - Tests: native-messaging 105 (100 library and 5 host-binary); desktop `browser_rotation_tests` 13 and the ratelimit and rotation unit tests, full
     `cargo test -p mosaic-desktop` 460 (459 passed, 1 ignored); extension vitest 731 (30 files); desktop vitest 1402 (84 files) (dialog 7); e2e `rotation.spec.ts` 7;
     i18n parity 6996 keys and ICU checks; clippy `-D warnings`, fmt, `cargo check --bins` of both fuzz crates.
+
+## M8 CLI (2026-11-10)
+
+Spec: the `mosaic` command line (`docs/CLI.md`). Numbering: ADR-0071 to ADR-0075, THREAT_MODEL R105 to R111,
+CRYPTO_SPEC §6.8 (CLI session) and §11.2 (encrypted export). Tracks run in order T1 to T5, one agent at a
+time.
+
+| Track | State |
+|---|---|
+| T1 Spec and core | done: CRYPTO_SPEC §3, §4, §6.8, §11, §11.2, §12, §14; ADR-0071 to 0075; THREAT_MODEL §4.7 and R105 to R111; `docs/CLI.md`; `mosaic-core` `cli_session` and `export` modules, labels `cli-session`, `export`, `export-key`, errors `Expired`, `InvalidTtl`, `Io`; known-answer vectors `crates/core/tests/vectors/export_kat.py`; fuzz targets `export_reader` and `cli_session_file` |
+| T2 Platform (`crates/platform`) | open |
+| T3 Vault, import, sync glue | open |
+| T4 CLI (`crates/cli`, i18n) | open |
+| T5 Packaging, review and close | open |
 
 ## Open risks / findings
 

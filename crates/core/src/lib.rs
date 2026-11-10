@@ -18,6 +18,8 @@
 //!   [`SecretKey::to_display`]).
 //! - **Objects** ([`envelope`], [`attachment`]): wrapped keys, items, vault
 //!   metadata, tombstones and attachments, each bound to its context IDs.
+//! - **CLI** ([`cli_session`], [`export`]): the short-lived CLI session file
+//!   (CRYPTO_SPEC §6.8) and the passphrase-encrypted export stream (§11.2).
 //! - **Flows** ([`create_account`], [`unlock_with_password`],
 //!   [`change_master_password`]).
 //! - **Model** ([`model`]): item types, their plaintext serialization and
@@ -47,9 +49,11 @@
 mod aead;
 pub mod attachment;
 pub mod browser_channel;
+pub mod cli_session;
 pub mod encoding;
 pub mod envelope;
 mod error;
+pub mod export;
 pub mod identity;
 mod ids;
 pub mod kdf;
@@ -68,11 +72,15 @@ pub mod unlock;
 mod golden;
 
 pub use attachment::{MAX_ATTACHMENT_LEN, open_attachment, seal_attachment};
+pub use cli_session::{
+    CliSessionBinding, CliSessionFile, CliSessionKey, open_cli_session, seal_cli_session,
+};
 pub use envelope::{
     ContactsCiphertext, ItemCiphertext, TombstoneCiphertext, UnlockMethod, VaultMetaCiphertext,
     VaultRosterCiphertext, WrappedKey,
 };
 pub use error::{Error, Result};
+pub use export::{ExportPassphrase, ExportReader, ExportWriter};
 pub use identity::{Fingerprint, IdentityPublicKey, IdentitySecret};
 pub use ids::{AccountId, AttachmentId, DeviceId, InstallId, ItemId, KeyGeneration, VaultId};
 pub use kdf::{AccountSalt, Argon2Profile, DerivedKeys};

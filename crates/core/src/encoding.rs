@@ -177,6 +177,13 @@ pub mod label {
     /// Input of the pre-login fake account ID (§9.2). Used as raw HMAC
     /// input **without** the `mosaic/v1/` prefix (§3 exception).
     pub const PRELOGIN_ACCOUNT_ID: Label = Label::new("prelogin/account-id");
+    /// The AAD label of a CLI session file (§6.8).
+    pub(crate) const CLI_SESSION: Label = Label::new("cli-session");
+    /// The AAD label of every chunk of an encrypted export (§11.2).
+    pub(crate) const EXPORT: Label = Label::new("export");
+    /// The HKDF info of the export key `K_x` (§11.2).
+    pub(crate) const EXPORT_KEY: Label = Label::new("export-key");
+
     /// Input of the pre-login fake salt (§9.2); raw, like the others.
     pub const PRELOGIN_SALT: Label = Label::new("prelogin/salt");
     /// Input of the pre-login fake profile (§9.2); raw, like the others.
@@ -184,7 +191,7 @@ pub mod label {
 
     /// Every label, for the uniqueness test.
     #[cfg(test)]
-    pub(crate) const ALL: [Label; 53] = [
+    pub(crate) const ALL: [Label; 56] = [
         SERVER_PRELOGIN_KEY,
         SERVER_TOTP_KEY,
         SERVER_TOTP_AT_REST,
@@ -238,6 +245,9 @@ pub mod label {
         SYNC_VIEW_META,
         SERVER_DIRECTORY_KEY,
         SERVER_DIRECTORY_IPK,
+        CLI_SESSION,
+        EXPORT,
+        EXPORT_KEY,
     ];
 }
 
@@ -466,7 +476,7 @@ mod tests {
     /// new pair has to be added here on purpose.
     #[test]
     fn label_prefix_pairs_are_reviewed() {
-        const REVIEWED: [(&str, &str); 9] = [
+        const REVIEWED: [(&str, &str); 10] = [
             ("secret-key", "secret-key-checksum"),
             // Hashed as `ctx || 0x00 || ...` with SHA-256; `secret-key` is an
             // HKDF info, so the two never meet (§3, §6.7).
@@ -478,6 +488,9 @@ mod tests {
             ("sync/view", "sync/view2"),
             ("sync/view", "sync/view-meta"),
             ("contacts", "contacts-key"),
+            // `export` is only an AAD label (followed by 0x00), `export-key` only
+            // an HKDF info (§3, §11.2).
+            ("export", "export-key"),
         ];
         let mut found = Vec::new();
         for (i, a) in label::ALL.iter().enumerate() {
