@@ -16,6 +16,7 @@ import type {
   SyncState,
   SyncStatus,
   SyncWarningView,
+  WebauthnKeyView,
 } from "../contract/index.ts";
 import { sampleAccount } from "./data.ts";
 import { fail, type MockState } from "./state.ts";
@@ -52,6 +53,38 @@ export type SyncVariant = (typeof syncVariants)[number];
 
 export type MockFolderAnswer = FolderState | "cancel";
 
+/** The sync account's security keys (`&syncWebauthn=`): none, next to a code, or instead of one. */
+export type MockWebauthnMode = "none" | "both" | "only";
+
+/** How a browser handoff ends (`&syncHandoff=`): by default the user finishes it. */
+export type MockHandoffEnd = "done" | "expired" | "failed";
+
+/** `&syncWebauthn=both|only` and `&syncHandoff=expired|failed` of the mock URL. */
+export function webauthnOptionsFromParams(params: URLSearchParams): MockSyncOptions {
+  const mode = params.get("syncWebauthn");
+  const end = params.get("syncHandoff");
+  return {
+    ...(mode === "both" || mode === "only" ? { webauthn: mode } : {}),
+    ...(end === "expired" || end === "failed" ? { handoff: end } : {}),
+  };
+}
+
+/** The sync account has a second factor: a code, a security key, or both. */
+export function hasSecondFactor(sync: { totp: boolean; keys: readonly unknown[] }): boolean {
+  return sync.totp || sync.keys.length > 0;
+}
+
+/** What the seed gives the account: its keys and whether it has a code. */
+function seedFactors(variant: SyncVariant, wanted: MockWebauthnMode | undefined, now: number) {
+  const hosted = variant !== "none" && variant !== "folder";
+  const mode = wanted ?? "none";
+  return {
+    mode,
+    keys: hosted ? seedKeys(mode, now) : [],
+    totp: hosted && variant !== "hostedNoTotp" && mode !== "only",
+  };
+}
+
 /** The URL options of the sync mock (`&syncServer=`, `&syncFolder=`, `&syncFail=`, `&syncJoin2fa=1`). */
 export interface MockSyncOptions {
   variant?: SyncVariant;
@@ -59,12 +92,26 @@ export interface MockSyncOptions {
   folder?: MockFolderAnswer;
   fail?: ErrorCode;
   join2fa?: boolean;
+  /** Security keys on the sync account (M9). */
+  webauthn?: MockWebauthnMode;
+  /** How the browser step ends (M9). */
+  handoff?: MockHandoffEnd;
 }
 
 /** A join or connect that waits for the second-factor code. */
 export type PendingTwoFactor =
   | { kind: "connect"; serverUrl: string; deviceName: string }
   | { kind: "join"; serverUrl: string; deviceName: string };
+
+/** A browser handoff that runs (M9): the second poll finds it finished. */
+export interface MockHandoff {
+  /** What it is for: a login (connect or join), a new key or a confirm. */
+  step: "login" | "register" | "confirm";
+  polls: number;
+  /** The account flow behind a login step. */
+  then: "register" | "confirm" | null;
+  label: string | null;
+}
 
 export interface MockSync {
   config: SyncConfigView | null;
@@ -90,6 +137,13 @@ export interface MockSync {
   folder: MockFolderAnswer;
   fail: ErrorCode | null;
   join2fa: boolean;
+  /** The sync account's security keys. */
+  keys: WebauthnKeyView[];
+  webauthnMode: MockWebauthnMode;
+  handoffEnd: MockHandoffEnd;
+  handoff: MockHandoff | null;
+  /** A security-key confirm lasts until then (ms). */
+  confirmedUntil: number;
 }
 
 const HOUR = 3_600_000;
@@ -115,14 +169,29 @@ function warningsFor(variant: SyncVariant, now: number): SyncWarningView[] {
   return one === undefined ? [] : [one];
 }
 
-function hostedConfig(totpEnabled: boolean): SyncConfigView {
+function hostedConfig(totpEnabled: boolean, webauthnKeys: number): SyncConfigView {
   return {
     kind: "hosted",
     serverUrl: MOCK_SERVER_URL,
     email: sampleAccount.email,
     deviceName: "Mosaic on Windows",
     totpEnabled,
+    webauthnKeys,
   };
+}
+
+/** The keys the `&syncWebauthn=` seeds start with. */
+export function seedKeys(mode: MockWebauthnMode, now: number): WebauthnKeyView[] {
+  return mode === "none"
+    ? []
+    : [
+        {
+          credentialRef: "00112233445566778899aabbccddeeff",
+          label: "YubiKey 5C",
+          createdAt: now - 30 * 24 * HOUR,
+          lastUsedAt: now - 2 * HOUR,
+        },
+      ];
 }
 
 /** The devices of the sync account; names are `null` where the backend has none. */
@@ -175,22 +244,22 @@ const ERROR_OF: Partial<Record<SyncVariant, ErrorCode>> = {
   passwordChanged: "syncSignedOut",
 };
 
-function configFor(variant: SyncVariant, totp: boolean): SyncConfigView | null {
+function configFor(variant: SyncVariant, totp: boolean, keys: number): SyncConfigView | null {
   if (variant === "none") {
     return null;
   }
   return variant === "folder"
     ? { kind: "folder", displayPath: MOCK_FOLDER_PATH, deviceName: "Mosaic on Windows" }
-    : hostedConfig(totp);
+    : hostedConfig(totp, keys);
 }
 
 export function seedSync(options: MockSyncOptions, now: number): MockSync {
   const variant = options.variant ?? "none";
   const folder = variant === "folder";
   const connected = variant !== "none";
-  const totp = connected && variant !== "hostedNoTotp" && !folder;
+  const { mode: webauthnMode, keys, totp } = seedFactors(variant, options.webauthn, now);
   return {
-    config: configFor(variant, totp),
+    config: configFor(variant, totp, keys.length),
     status: STATUS_OF[variant] ?? "upToDate",
     error: ERROR_OF[variant] ?? null,
     lastSyncedAt: connected ? now - 5 * 60_000 : null,
@@ -206,7 +275,12 @@ export function seedSync(options: MockSyncOptions, now: number): MockSync {
     server: options.server ?? "open",
     folder: options.folder ?? "empty",
     fail: options.fail ?? null,
-    join2fa: options.join2fa === true,
+    join2fa: options.join2fa === true || webauthnMode !== "none",
+    keys,
+    webauthnMode,
+    handoffEnd: options.handoff ?? "done",
+    handoff: null,
+    confirmedUntil: 0,
   };
 }
 
@@ -277,6 +351,7 @@ export function settle(state: MockState, backend: Backend): SyncOverview {
           email: state.account?.email ?? sampleAccount.email,
           deviceName: backend.deviceName,
           totpEnabled: sync.totp,
+          webauthnKeys: sync.keys.length,
         }
       : { kind: "folder", displayPath: backend.path, deviceName: backend.deviceName };
   sync.status = "upToDate";

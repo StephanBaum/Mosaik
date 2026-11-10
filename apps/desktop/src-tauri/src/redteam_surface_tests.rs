@@ -318,9 +318,11 @@ fn workspace_tauri_line() -> &'static str {
 }
 
 #[test]
-fn the_build_has_no_devtools_remote_ipc_asset_protocol_or_url_opener() {
+fn the_build_has_no_devtools_remote_ipc_asset_protocol_or_webview_url_opener() {
     // Attempt: a config or dependency change that hands the webview devtools, a remote origin,
-    // the asset protocol, a looser origin, extra browser flags or a plugin that opens URLs.
+    // the asset protocol, a looser origin, extra browser flags or a plugin that lets the webview
+    // open URLs (M9: Rust opens one page itself, the security-key handoff: see
+    // `opener_has_one_call_site`).
     let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
     let security = config["app"]["security"].as_object().unwrap();
     let mut keys: Vec<&str> = security.keys().map(String::as_str).collect();
@@ -380,8 +382,72 @@ fn the_build_has_no_devtools_remote_ipc_asset_protocol_or_url_opener() {
         [
             "tauri-plugin-global-shortcut",
             "tauri-plugin-single-instance"
-        ]
+        ],
+        "no opener or shell plugin: the webview never opens a URL"
     );
+    // The one crate that opens the system browser is a plain dependency of Rust code.
+    let manifest = include_str!("../Cargo.toml");
+    assert!(manifest.contains("open = \"="), "`open` is pinned exactly");
+    let capability: Value =
+        serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+    for permission in capability["permissions"].as_array().unwrap() {
+        let name = permission.as_str().unwrap();
+        for denied in ["opener", "shell", "open-url"] {
+            assert!(!name.contains(denied), "capability grants {name}");
+        }
+    }
+}
+
+/// The `.rs` files under `dir`, with their text.
+fn sources(dir: &std::path::Path, out: &mut Vec<(std::path::PathBuf, String)>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            sources(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push((path.clone(), std::fs::read_to_string(&path).unwrap()));
+        }
+    }
+}
+
+#[test]
+fn opener_has_one_call_site() {
+    // Attempt: a second place that opens the system browser (a command that takes a URL from the
+    // webview, a "help" link, a shell-out). The security-key handoff page is the only one, and
+    // its URL is built in Rust from the stored origin and a server-made handoff ID.
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&src, &mut files);
+    let count = |needle: &str| -> Vec<String> {
+        files
+            .iter()
+            .filter(|(path, _)| !path.ends_with("redteam_surface_tests.rs"))
+            .flat_map(|(path, text)| {
+                text.lines()
+                    .filter(|l| !l.trim_start().starts_with("//") && l.contains(needle))
+                    .map(|l| format!("{}: {}", path.display(), l.trim()))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    // The crate's entry point (`open` + `::that`, split so this file does not match itself).
+    let crate_calls = count(&["open", "::that"].concat());
+    assert_eq!(crate_calls.len(), 1, "{crate_calls:?}");
+    assert!(
+        crate_calls[0].contains("webauthn_flow.rs"),
+        "{crate_calls:?}"
+    );
+    // Everything goes through the backend's opener, from `open_handoff` only.
+    let opener_calls = count(&[".opener", ".open("].concat());
+    assert_eq!(opener_calls.len(), 1, "{opener_calls:?}");
+    assert!(
+        opener_calls[0].contains("webauthn_flow.rs"),
+        "{opener_calls:?}"
+    );
+    // No process spawns a browser or a shell command either.
+    for needle in ["xdg-open", "ShellExecute", "cmd /c start", "explorer.exe"] {
+        assert!(count(needle).is_empty(), "{needle}: {:?}", count(needle));
+    }
 }
 
 #[test]

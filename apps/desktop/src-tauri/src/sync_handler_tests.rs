@@ -113,6 +113,16 @@ impl Dialogs for PickDialog {
     }
 }
 
+/// Remembers the pages the app asked the system browser to open (and opens nothing).
+struct RecordingOpener(Arc<Mutex<Vec<String>>>);
+
+impl crate::sync::webauthn_flow::UrlOpener for RecordingOpener {
+    fn open(&self, url: &str) -> bool {
+        self.0.lock().unwrap().push(url.to_owned());
+        true
+    }
+}
+
 fn ack() -> AcknowledgeRequest {
     AcknowledgeRequest {}
 }
@@ -126,6 +136,8 @@ pub(crate) struct Env {
     /// What the native confirmation answers.
     confirm: Arc<AtomicBool>,
     asked: Arc<Mutex<Vec<String>>>,
+    /// The pages the system browser was asked to open.
+    opened: Arc<Mutex<Vec<String>>>,
     /// Makes the keystore refuse every token save.
     fail_saves: Arc<AtomicBool>,
 }
@@ -140,6 +152,7 @@ impl Env {
         let picked = Arc::new(Mutex::new(None));
         let confirm = Arc::new(AtomicBool::new(true));
         let asked = Arc::new(Mutex::new(Vec::new()));
+        let opened = Arc::new(Mutex::new(Vec::new()));
         let fail_saves = Arc::new(AtomicBool::new(false));
         let keys = SharedKeystore::default();
         let mut backend = Backend::new(
@@ -155,7 +168,8 @@ impl Env {
             Arc::clone(&picked),
             Arc::clone(&confirm),
             Arc::clone(&asked),
-        )));
+        )))
+        .with_opener(Box::new(RecordingOpener(Arc::clone(&opened))));
         if let Some(dir) = dir {
             backend = backend.with_store_dir(dir);
         }
@@ -170,6 +184,7 @@ impl Env {
             picked,
             confirm,
             asked,
+            opened,
             fail_saves,
         }
     }
@@ -226,6 +241,16 @@ impl Env {
                 device_name: DEVICE.into(),
             })
             .unwrap()
+    }
+
+    /// The pages the system browser was asked to open, oldest first.
+    pub(crate) fn opened(&self) -> Vec<String> {
+        self.opened.lock().unwrap().clone()
+    }
+
+    /// Whether the keystore holds a sync token for the account.
+    pub(crate) fn token_stored(&self) -> bool {
+        self.tokens.load(self.account()).unwrap().is_some()
     }
 
     /// What the native confirmations were asked, oldest first.
@@ -1543,6 +1568,12 @@ fn a_wrong_code_leaves_the_keystore_alone_and_the_next_code_finishes_the_login()
         *e.tokens.load(account).unwrap().unwrap().expose_bytes(),
         before,
         "the keystore is unchanged"
+    );
+    server.advance_ms(30_000);
+    // The code finishes the login; the removal needs a code of its own (M9).
+    assert_eq!(
+        code(remove(totp_code(&uri, &server)).unwrap_err()),
+        ErrorCode::SyncTwoFactorRequired
     );
     server.advance_ms(30_000);
     remove(totp_code(&uri, &server)).unwrap();

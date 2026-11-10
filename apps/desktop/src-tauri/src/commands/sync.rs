@@ -9,9 +9,11 @@ use crate::contract::errors::IpcResult;
 use crate::contract::sync::{
     AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
     DeviceRemoveRequest, DeviceRenameRequest, FolderChoice, FolderConnectRequest,
-    HostedConnectRequest, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
+    HostedConnectRequest, JoinFolderRequest, JoinHostedRequest, JoinOutcome, LoginMethods,
     RecoverPasswordRequest, ServerCheck, SyncDevices, SyncOverview, TotpBeginRequest,
-    TotpDisableRequest, TotpSetupInfo,
+    TotpDisableRequest, TotpSetupInfo, WebauthnAccountBegin, WebauthnAccountStatus,
+    WebauthnAddRequest, WebauthnBegin, WebauthnConfirmRequest, WebauthnKeys, WebauthnRemoveRequest,
+    WebauthnStatus,
 };
 use crate::state::{AppState, Backend};
 
@@ -153,6 +155,77 @@ pub async fn sync_totp_disable(
     request: TotpDisableRequest,
 ) -> IpcResult<()> {
     run(&state, move |b| b.sync_totp_disable(&request)).await
+}
+
+/// `sync_login_methods`.
+#[tauri::command]
+pub async fn sync_login_methods(state: State<'_, AppState>) -> IpcResult<LoginMethods> {
+    run(&state, Backend::sync_login_methods).await
+}
+
+/// `sync_hosted_webauthn_begin`.
+#[tauri::command]
+pub async fn sync_hosted_webauthn_begin(state: State<'_, AppState>) -> IpcResult<WebauthnBegin> {
+    run(&state, Backend::sync_hosted_webauthn_begin).await
+}
+
+/// `join_hosted_webauthn_begin`.
+#[tauri::command]
+pub async fn join_hosted_webauthn_begin(state: State<'_, AppState>) -> IpcResult<WebauthnBegin> {
+    run(&state, Backend::join_hosted_webauthn_begin).await
+}
+
+/// `sync_webauthn_status`.
+#[tauri::command]
+pub async fn sync_webauthn_status(state: State<'_, AppState>) -> IpcResult<WebauthnStatus> {
+    run(&state, Backend::sync_webauthn_status).await
+}
+
+/// `sync_webauthn_reopen`.
+#[tauri::command]
+pub async fn sync_webauthn_reopen(state: State<'_, AppState>) -> IpcResult<()> {
+    run(&state, Backend::sync_webauthn_reopen).await
+}
+
+/// `sync_webauthn_list`.
+#[tauri::command]
+pub async fn sync_webauthn_list(state: State<'_, AppState>) -> IpcResult<WebauthnKeys> {
+    run(&state, Backend::sync_webauthn_list).await
+}
+
+/// `sync_webauthn_add_begin`.
+#[tauri::command]
+pub async fn sync_webauthn_add_begin(
+    state: State<'_, AppState>,
+    request: WebauthnAddRequest,
+) -> IpcResult<WebauthnAccountBegin> {
+    run(&state, move |b| b.sync_webauthn_add_begin(&request)).await
+}
+
+/// `sync_webauthn_add_status`.
+#[tauri::command]
+pub async fn sync_webauthn_add_status(
+    state: State<'_, AppState>,
+) -> IpcResult<WebauthnAccountStatus> {
+    run(&state, Backend::sync_webauthn_add_status).await
+}
+
+/// `sync_webauthn_confirm_begin`.
+#[tauri::command]
+pub async fn sync_webauthn_confirm_begin(
+    state: State<'_, AppState>,
+    request: WebauthnConfirmRequest,
+) -> IpcResult<WebauthnAccountBegin> {
+    run(&state, move |b| b.sync_webauthn_confirm_begin(&request)).await
+}
+
+/// `sync_webauthn_remove`.
+#[tauri::command]
+pub async fn sync_webauthn_remove(
+    state: State<'_, AppState>,
+    request: WebauthnRemoveRequest,
+) -> IpcResult<()> {
+    run(&state, move |b| b.sync_webauthn_remove(&request)).await
 }
 
 /// `join_hosted`.

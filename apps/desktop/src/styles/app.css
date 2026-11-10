@@ -631,3 +631,19 @@ input[type="checkbox"]:not([role="switch"]) {
   background: var(--color-success-subtle);
   color: var(--color-success);
 }
+
+/* The browser step of a security key: the match code the user types on the server's page */
+
+.handoff__code-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.handoff__code {
+  margin: 0;
+  font-size: var(--font-size-xxl);
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  user-select: all;
+}

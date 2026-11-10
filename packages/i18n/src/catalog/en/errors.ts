@@ -219,6 +219,14 @@ export const errors = {
     "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
   "error.syncPasswordOutcomeUnknown":
     "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+  "error.syncWebauthnUnavailable":
+    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+  "error.syncWebauthnLimit":
+    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
+  "error.syncHandoffExpired":
+    "The browser step ran out of time. Start it again.",
+  "error.syncHandoffFailed":
+    "Too many wrong codes or failed checks in the browser. Start the step again.",
   "error.syncPasswordNeedsServer":
     "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
   "error.syncDeviceIsCurrent":

@@ -229,6 +229,14 @@ wire_enum!(
         SyncPasswordRollback,
         /// The master password change was sent but its outcome could not be confirmed.
         SyncPasswordOutcomeUnknown,
+        /// The server or the account has no security key for this step (M9).
+        SyncWebauthnUnavailable,
+        /// The account has the most security keys the server allows (M9).
+        SyncWebauthnLimit,
+        /// The browser step ran out, or none is running (M9).
+        SyncHandoffExpired,
+        /// Too many wrong codes or failed checks in the browser step (M9).
+        SyncHandoffFailed,
         /// Sharing and emergency access need the Mosaic server; a folder or
         /// no sync has neither.
         SharingNotHosted,

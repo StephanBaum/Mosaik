@@ -163,6 +163,7 @@ pub fn run() -> tauri::Result<()> {
                 .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
+                .with_opener(Box::new(crate::sync::webauthn_flow::SystemOpener))
                 .with_screen_capture(Box::new(NativeScreenCapture::new(app.handle().clone())))
                 .with_focus({
                     let handle = app.handle().clone();
@@ -266,3 +267,5 @@ mod sync_handler_tests;
 mod test_support;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod webauthn_flow_tests;

@@ -298,7 +298,7 @@ fn poll<T: Transport>(ctx: &Ctx, st: &mut State<T>, rx: &Receiver<Cmd>, slice: D
             true
         }
         Err(TransportError::Locked) => false,
-        Err(TransportError::Unauthorized) => {
+        Err(TransportError::Unauthorized | TransportError::Revoked(_)) => {
             if let Some(backend) = ctx.backend() {
                 backend.sync_signed_out(ctx.generation, ctx.token.get());
             }
@@ -397,7 +397,7 @@ fn after_run<T: Transport>(
                 .set_status(backend, ctx.generation, SyncStatus::Offline, None);
             Next::Retry(wait)
         }
-        Err(SyncError::Transport(TransportError::Unauthorized)) => {
+        Err(SyncError::Transport(TransportError::Unauthorized | TransportError::Revoked(_))) => {
             backend.sync_signed_out(ctx.generation, ctx.token.get());
             Next::Stop
         }

@@ -38,7 +38,7 @@ use crate::state::{Backend, Slot};
 
 /// How long a login that waits for its second-factor code lives (the server
 /// ends a pending session after five minutes).
-const PENDING_TTL: Duration = Duration::from_mins(5);
+pub(super) const PENDING_TTL: Duration = Duration::from_mins(5);
 /// Longest device name (the store's limit).
 const MAX_DEVICE_NAME: usize = 64;
 /// The longest server address and invite code the commands accept.
@@ -68,6 +68,8 @@ pub(crate) struct PendingLogin {
     pub(crate) token: SessionToken,
     pub(crate) kind: PendingKind,
     pub(crate) expires: Instant,
+    /// The browser handoff that is running for this login (M9).
+    pub(crate) handoff: Option<super::webauthn_flow::ActiveHandoff>,
 }
 
 #[cfg(test)]
@@ -82,6 +84,7 @@ impl PendingLogin {
             token: mosaic_core::sync_auth::session_token(&[7u8; 32]).unwrap(),
             kind: PendingKind::Fresh,
             expires,
+            handoff: None,
         }
     }
 }
@@ -277,6 +280,7 @@ impl Backend {
                     token: grant.token,
                     kind: PendingKind::Connect,
                     expires: self.sync.now() + PENDING_TTL,
+                    handoff: None,
                 },
             );
             return Err(IpcError::new(if kept {
@@ -310,7 +314,7 @@ impl Backend {
     /// that signs in again to the same server keeps its sync state (cursors,
     /// checkpoints, observations, strikes, halt and findings): only the token
     /// is replaced. Another server starts from a clean sync state.
-    fn finish_connect(
+    pub(super) fn finish_connect(
         &self,
         epoch: u64,
         account: AccountId,
@@ -355,6 +359,12 @@ impl Backend {
                 view.totp_enabled = Some(info.totp_enabled);
                 true
             });
+            if let Ok(keys) = hosted::account_webauthn_list(url, &stored) {
+                self.sync.update_view(|view| {
+                    view.webauthn_keys = u32::try_from(keys.len()).ok();
+                    true
+                });
+            }
         }
         self.sync_restart();
         self.sync_status()
@@ -465,6 +475,7 @@ impl Backend {
                         secret_key,
                     },
                     expires: self.sync.now() + PENDING_TTL,
+                    handoff: None,
                 },
             );
             if !kept {
@@ -499,6 +510,7 @@ impl Backend {
             token,
             kind,
             expires,
+            handoff,
         } = pending;
         let PendingKind::Join { keys, secret_key } = kind else {
             return Err(IpcError::new(ErrorCode::SyncSignedOut));
@@ -515,6 +527,7 @@ impl Backend {
                         token,
                         kind: PendingKind::Join { keys, secret_key },
                         expires,
+                        handoff,
                     },
                 );
             }
@@ -529,7 +542,7 @@ impl Backend {
     /// the keystore, the token, the backend choice, the settings account
     /// block (kit verified: the Secret Key was typed from the kit) and an
     /// unlocked session. There is no `reset_sync_state`: the store is new.
-    fn finish_join(
+    pub(super) fn finish_join(
         &self,
         url: &str,
         email: &str,
@@ -678,8 +691,17 @@ impl Backend {
         if id == ctx.install {
             return Err(IpcError::new(ErrorCode::SyncDeviceIsCurrent));
         }
-        self.with_fresh_hosted(&request.password, request.code.as_ref(), false, |fresh| {
-            hosted::device_remove(&fresh.url, &fresh.token, id)
+        // The server wants a second factor of its own for the removal (CRYPTO_SPEC §9.3): a code
+        // spent on the login does not count, so the first attempt answers `syncTwoFactorRequired`
+        // and the next code finishes it (the fresh session is reused, as for `sync_totp_disable`).
+        let code = code_of(request.code.as_ref())?;
+        self.with_fresh_hosted(&request.password, request.code.as_ref(), true, |fresh| {
+            match hosted::device_remove_with_code(&fresh.url, &fresh.token, id, code) {
+                Err(TransportError::Rejected(Rejection::TwoFactorInvalid)) if fresh.code_spent => {
+                    Err(TransportError::TwoFactorRequired)
+                }
+                other => other,
+            }
         })
     }
 
@@ -896,7 +918,7 @@ impl Backend {
     }
 
     /// Keeps a login that waits for a code, for the next call.
-    fn hold_fresh(&self, ctx: &HostedCtx, epoch: u64, token: SessionToken) {
+    pub(super) fn hold_fresh(&self, ctx: &HostedCtx, epoch: u64, token: SessionToken) {
         // After a lock the token is dropped, not kept.
         self.sync.set_pending_in(
             epoch,
@@ -908,6 +930,7 @@ impl Backend {
                 token,
                 kind: PendingKind::Fresh,
                 expires: self.sync.now() + PENDING_TTL,
+                handoff: None,
             },
         );
     }

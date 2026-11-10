@@ -240,6 +240,14 @@ export const errors = {
     "Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal.",
   "error.syncPasswordOutcomeUnknown":
     "Wir konnten nicht bestätigen, ob der Server dein Master-Passwort geändert hat. Behalte beide Passwörter, bis der Sync bestätigt, welches gilt.",
+  "error.syncWebauthnUnavailable":
+    "Dein Server kann für diesen Schritt gerade keinen Sicherheitsschlüssel nutzen, oder dieses Konto hat keinen. Nimm stattdessen einen Code aus einer Authenticator-App.",
+  "error.syncWebauthnLimit":
+    "Dieses Konto hat schon so viele Sicherheitsschlüssel, wie der Server erlaubt. Entferne einen, den du nicht mehr brauchst, und versuche es dann noch einmal.",
+  "error.syncHandoffExpired":
+    "Der Schritt im Browser hat zu lange gedauert. Starte ihn noch einmal.",
+  "error.syncHandoffFailed":
+    "Zu viele falsche Codes oder fehlgeschlagene Prüfungen im Browser. Starte den Schritt noch einmal.",
   "error.syncPasswordNeedsServer":
     "Zum Ändern deines Master-Passworts wird dein Sync-Server gebraucht, und er ist nicht erreichbar. Prüfe deine Internetverbindung und versuche es noch einmal.",
   "error.syncDeviceIsCurrent":

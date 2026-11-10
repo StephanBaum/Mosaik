@@ -128,6 +128,7 @@ import type {
   TotpDisableRequest,
   TotpSetupInfo,
 } from "./sync.ts";
+import { type SyncWebauthnCommandName, type SyncWebauthnCommands, syncWebauthnCommandNames } from "./sync.ts";
 import type { TotpCode } from "./totp.ts";
 import type {
   CreateHardwareVaultRequest,
@@ -139,12 +140,9 @@ import type {
   VaultSummary,
 } from "./vaults.ts";
 
-interface Command<Req, Res> {
-  request: Req;
-  response: Res;
-}
+interface Command<Req, Res> { request: Req; response: Res }
 
-export interface Commands extends CredentialRotationCommands, BrowserRotationCommands {
+export interface Commands extends CredentialRotationCommands, BrowserRotationCommands, SyncWebauthnCommands {
   // Session
   session_state: Command<null, SessionState>;
   create_account: Command<CreateAccountRequest, CreatedAccount>;
@@ -431,6 +429,6 @@ const commandSet = {
   emergency_request: true,
   emergency_respond: true,
   emergency_claim: true,
-} as const satisfies Record<CommandName, true>;
+} as const satisfies Record<Exclude<CommandName, SyncWebauthnCommandName>, true>;
 
-export const commandNames = Object.keys(commandSet) as CommandName[];
+export const commandNames = [...Object.keys(commandSet), ...syncWebauthnCommandNames] as CommandName[];

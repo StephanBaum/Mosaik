@@ -13,6 +13,7 @@ import { HostedForm } from "./HostedForm.tsx";
 import { useFocusSection, useNow } from "./hooks.ts";
 import { RecoverCard } from "./RecoverCard.tsx";
 import { RekeyRecoveryForm } from "../settings/security/RekeyRecovery.tsx";
+import { SecurityKeysCard } from "./SecurityKeysCard.tsx";
 import { TotpCard } from "./TotpCard.tsx";
 import { WarningList } from "./WarningList.tsx";
 
@@ -199,6 +200,24 @@ function RekeyedCard({
   );
 }
 
+/** Two-step verification (a code) and the security keys of the sync account. */
+function SecondFactorCards({
+  config,
+  signedOut,
+  onChanged,
+}: {
+  config: Extract<SyncConfigView, { kind: "hosted" }>;
+  signedOut: boolean;
+  onChanged: () => void;
+}) {
+  return (
+    <>
+      <TotpCard enabled={config.totpEnabled} onChanged={onChanged} />
+      {!signedOut && <SecurityKeysCard refreshKey={config.webauthnKeys} onChanged={onChanged} />}
+    </>
+  );
+}
+
 export function ConnectedPanel({
   overview,
   config,
@@ -217,27 +236,19 @@ export function ConnectedPanel({
   // A hosted account that was re-keyed on another device: the new Secret Key is needed, not
   // just a password, so the recovery form replaces the password card and the sign-in form.
   const rekeyed = config.kind === "hosted" && overview.state.error === "syncAccountRekeyed";
+  const recovered = (next: SyncOverview) => {
+    onChange(next);
+    onRefresh();
+  };
   return (
     <div className="stack">
       <Details config={config} state={overview.state} attention={attention} />
       <StatusBlock state={overview.state} onChange={onChange} onRefresh={onRefresh} />
       {rekeyed && (
-        <RekeyedCard
-          needsCode={config.totpEnabled}
-          onRecovered={(next) => {
-            onChange(next);
-            onRefresh();
-          }}
-        />
+        <RekeyedCard needsCode={config.totpEnabled} onRecovered={recovered} />
       )}
       {overview.passwordChanged && !rekeyed && (
-        <RecoverCard
-          config={config}
-          onRecovered={(next) => {
-            onChange(next);
-            onRefresh();
-          }}
-        />
+        <RecoverCard config={config} onRecovered={recovered} />
       )}
       {signedOut && config.kind === "hosted" && !rekeyed && (
         <div className="stack">
@@ -259,7 +270,9 @@ export function ConnectedPanel({
         refreshKey={overview.state.lastSyncedAt}
         onRenamed={onRefresh}
       />
-      {config.kind === "hosted" && <TotpCard enabled={config.totpEnabled} onChanged={onRefresh} />}
+      {config.kind === "hosted" && (
+        <SecondFactorCards config={config} signedOut={signedOut} onChanged={onRefresh} />
+      )}
       <div className="actions">
         <Button
           variant="danger"

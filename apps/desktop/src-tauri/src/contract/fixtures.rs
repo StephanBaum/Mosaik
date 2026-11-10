@@ -71,8 +71,9 @@ use super::ssh::{
 use super::sync::{
     self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
     DevicePlatform, DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
-    HostedConnectRequest, HostedMode, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
-    RecoverPasswordRequest, RegistrationMode, TotpBeginRequest, TotpDisableRequest,
+    HandoffState, HandoffStep, HostedConnectRequest, HostedMode, JoinFolderRequest,
+    JoinHostedRequest, JoinOutcome, RecoverPasswordRequest, RegistrationMode, TotpBeginRequest,
+    TotpDisableRequest, WebauthnAddRequest, WebauthnConfirmRequest, WebauthnRemoveRequest,
 };
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
@@ -776,8 +777,81 @@ fn sync_commands(f: &mut Fixtures) {
     sync_join_commands(f);
 }
 
+/// The security-key (WebAuthn) commands of the sync account (M9).
+fn sync_webauthn_commands(f: &mut Fixtures) {
+    f.command(
+        "sync_login_methods",
+        vec![()],
+        sync::samples::login_methods(),
+    );
+    f.command(
+        "sync_hosted_webauthn_begin",
+        vec![()],
+        sync::samples::webauthn_begins(),
+    );
+    f.command(
+        "join_hosted_webauthn_begin",
+        vec![()],
+        sync::samples::webauthn_begins(),
+    );
+    f.command(
+        "sync_webauthn_status",
+        vec![()],
+        sync::samples::webauthn_statuses(),
+    );
+    f.command("sync_webauthn_reopen", vec![()], vec![()]);
+    f.command(
+        "sync_webauthn_list",
+        vec![()],
+        sync::samples::webauthn_keys(),
+    );
+    f.command(
+        "sync_webauthn_add_begin",
+        vec![
+            WebauthnAddRequest {
+                password: sync::samples::pw(),
+                code: None,
+                label: "YubiKey 5C".into(),
+            },
+            WebauthnAddRequest {
+                password: sync::samples::pw(),
+                code: Some(SecretIn::test("492039")),
+                label: "Backup key".into(),
+            },
+        ],
+        sync::samples::webauthn_account_begins(),
+    );
+    f.command(
+        "sync_webauthn_add_status",
+        vec![()],
+        sync::samples::webauthn_account_statuses(),
+    );
+    f.command(
+        "sync_webauthn_confirm_begin",
+        vec![WebauthnConfirmRequest {
+            password: sync::samples::pw(),
+        }],
+        sync::samples::webauthn_account_begins(),
+    );
+    f.command(
+        "sync_webauthn_remove",
+        vec![
+            WebauthnRemoveRequest {
+                credential_ref: "00112233445566778899aabbccddeeff".into(),
+                code: None,
+            },
+            WebauthnRemoveRequest {
+                credential_ref: "00112233445566778899aabbccddeeff".into(),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+}
+
 /// The acknowledgement and the recovery of a missed password change.
 fn sync_acknowledge_commands(f: &mut Fixtures) {
+    sync_webauthn_commands(f);
     f.command(
         "sync_acknowledge",
         vec![AcknowledgeRequest {}],
@@ -1298,6 +1372,8 @@ fn enums() -> Map<String, Value> {
         ("rekeyBackend", values(RekeyBackend::ALL)),
         ("registrationMode", values(RegistrationMode::ALL)),
         ("hostedMode", values(HostedMode::ALL)),
+        ("handoffState", values(HandoffState::ALL)),
+        ("handoffStep", values(HandoffStep::ALL)),
         ("folderState", values(FolderState::ALL)),
         ("devicePlatform", values(DevicePlatform::ALL)),
         ("shareRole", values(ShareRole::ALL)),

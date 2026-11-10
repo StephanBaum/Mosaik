@@ -41,6 +41,9 @@ mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
 mosaic-sync = { path = "../../../crates/sync", features = ["http"] }
 mosaic-totp = { path = "../../../crates/totp" }
 mosaic-vault = { path = "../../../crates/vault" }
+# The system browser for the security-key handoff page (ADR-0077): the Tauri opener plugin is not
+# in the tree, and the surface test keeps it out. Called from one place, with a URL Rust builds.
+open = "=5.3.2"
 pdf-writer.workspace = true
 rfd.workspace = true
 serde = { workspace = true, features = ["derive"] }

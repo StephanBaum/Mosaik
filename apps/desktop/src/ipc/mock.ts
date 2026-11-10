@@ -29,7 +29,7 @@
  * `&syncFail=<errorCode>` makes `sync_now` and the two connect commands fail with that code.
  * The mock server takes the master password `mosaic` and the one-time code `123456`. Joining
  * from `?mock=noAccount` takes alex@example.com, `mosaic` and the sample Secret Key;
- * `&syncJoin2fa=1` asks for the code first.
+ * `&syncJoin2fa=1` asks for the code first. M9: `&syncWebauthn=both|only`, `&syncHandoff=expired|failed`.
  *
  * Account keys (M7, Settings > Security): `&rotation=<variant>` with none, shared (a review with shared
  * vaults, members, grants and security keys), resumePrepared, resumeAccepted, resumeAttachments,
@@ -122,7 +122,7 @@ import {
   announceSync,
   seedSync,
   syncVariants,
-  type MockFolderAnswer,
+  webauthnOptionsFromParams,
   type MockSyncOptions,
 } from "./mock/syncData.ts";
 import {
@@ -270,10 +270,7 @@ function syncOptionsFromParams(params: URLSearchParams): MockOptions {
   const variant = syncVariants.find((name) => name === params.get("sync"));
   const server = registrationModes.find((mode) => mode === params.get("syncServer"));
   const folderParam = params.get("syncFolder");
-  const folder: MockFolderAnswer | undefined =
-    folderParam === "empty" || folderParam === "mosaic" || folderParam === "other" || folderParam === "cancel"
-      ? folderParam
-      : undefined;
+  const folder = (["empty", "mosaic", "other", "cancel"] as const).find((each) => each === folderParam);
   const failParam = params.get("syncFail");
   const failCode = errorCodes.find((code) => code === failParam);
   const sync: MockSyncOptions = {
@@ -282,6 +279,7 @@ function syncOptionsFromParams(params: URLSearchParams): MockOptions {
     ...(folder === undefined ? {} : { folder }),
     ...(failCode === undefined ? {} : { fail: failCode }),
     ...(params.get("syncJoin2fa") === "1" ? { join2fa: true } : {}),
+    ...webauthnOptionsFromParams(params),
   };
   return Object.keys(sync).length === 0 ? {} : { sync };
 }

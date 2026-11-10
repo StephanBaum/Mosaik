@@ -89,6 +89,16 @@ export const fixtures = {
     "sync_totp_begin",
     "sync_totp_confirm",
     "sync_totp_disable",
+    "sync_login_methods",
+    "sync_hosted_webauthn_begin",
+    "join_hosted_webauthn_begin",
+    "sync_webauthn_status",
+    "sync_webauthn_reopen",
+    "sync_webauthn_list",
+    "sync_webauthn_add_begin",
+    "sync_webauthn_add_status",
+    "sync_webauthn_confirm_begin",
+    "sync_webauthn_remove",
     "join_hosted",
     "join_hosted_two_factor",
     "join_folder",
@@ -344,6 +354,10 @@ export const fixtures = {
       "syncPasswordChanged",
       "syncPasswordRollback",
       "syncPasswordOutcomeUnknown",
+      "syncWebauthnUnavailable",
+      "syncWebauthnLimit",
+      "syncHandoffExpired",
+      "syncHandoffFailed",
       "sharingNotHosted",
       "sharingContactUnverified",
       "sharingKeyChanged",
@@ -397,6 +411,17 @@ export const fixtures = {
       "empty",
       "mosaic",
       "other"
+    ],
+    "handoffState": [
+      "waiting",
+      "done",
+      "failed",
+      "expired"
+    ],
+    "handoffStep": [
+      "login",
+      "register",
+      "confirm"
     ],
     "historyReasonKey": [
       "replaced",
@@ -1000,6 +1025,18 @@ export const fixtures = {
     },
     {
       "code": "syncPasswordOutcomeUnknown"
+    },
+    {
+      "code": "syncWebauthnUnavailable"
+    },
+    {
+      "code": "syncWebauthnLimit"
+    },
+    {
+      "code": "syncHandoffExpired"
+    },
+    {
+      "code": "syncHandoffFailed"
     },
     {
       "code": "sharingNotHosted"
@@ -2048,6 +2085,9 @@ export const fixtures = {
         "code": "492039"
       }
     ],
+    "join_hosted_webauthn_begin": [
+      null
+    ],
     "list_items": [
       {
         "favoritesOnly": true,
@@ -2515,7 +2555,13 @@ export const fixtures = {
         "code": "492039"
       }
     ],
+    "sync_hosted_webauthn_begin": [
+      null
+    ],
     "sync_ignored_rekey_markers": [
+      null
+    ],
+    "sync_login_methods": [
       null
     ],
     "sync_now": [
@@ -2568,6 +2614,45 @@ export const fixtures = {
         "code": "492039",
         "password": "correct horse battery staple"
       }
+    ],
+    "sync_webauthn_add_begin": [
+      {
+        "code": null,
+        "label": "YubiKey 5C",
+        "password": "correct horse battery staple"
+      },
+      {
+        "code": "492039",
+        "label": "Backup key",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_webauthn_add_status": [
+      null
+    ],
+    "sync_webauthn_confirm_begin": [
+      {
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_webauthn_list": [
+      null
+    ],
+    "sync_webauthn_remove": [
+      {
+        "code": null,
+        "credentialRef": "00112233445566778899aabbccddeeff"
+      },
+      {
+        "code": "492039",
+        "credentialRef": "00112233445566778899aabbccddeeff"
+      }
+    ],
+    "sync_webauthn_reopen": [
+      null
+    ],
+    "sync_webauthn_status": [
+      null
     ],
     "totp_code": [
       {
@@ -4089,6 +4174,12 @@ export const fixtures = {
         "state": "twoFactorRequired"
       }
     ],
+    "join_hosted_webauthn_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913"
+      }
+    ],
     "list_items": [
       [
         {
@@ -5027,7 +5118,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -5163,7 +5255,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -5245,7 +5338,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -5381,7 +5475,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -5413,7 +5508,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -5549,7 +5645,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -5581,7 +5678,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -5717,7 +5815,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -5749,7 +5848,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -5885,7 +5985,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -5917,7 +6018,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6053,7 +6155,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6085,7 +6188,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6221,7 +6325,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6234,6 +6339,12 @@ export const fixtures = {
         "warnings": []
       }
     ],
+    "sync_hosted_webauthn_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913"
+      }
+    ],
     "sync_ignored_rekey_markers": [
       [],
       [
@@ -6243,6 +6354,20 @@ export const fixtures = {
           "toEpoch": 2
         }
       ]
+    ],
+    "sync_login_methods": [
+      {
+        "totp": true,
+        "webauthn": false
+      },
+      {
+        "totp": true,
+        "webauthn": true
+      },
+      {
+        "totp": false,
+        "webauthn": true
+      }
     ],
     "sync_now": [
       {
@@ -6263,7 +6388,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6399,7 +6525,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6454,7 +6581,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6590,7 +6718,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6632,7 +6761,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6768,7 +6898,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6800,7 +6931,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
@@ -6936,7 +7068,8 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
@@ -6960,6 +7093,97 @@ export const fixtures = {
     ],
     "sync_totp_disable": [
       null
+    ],
+    "sync_webauthn_add_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "login"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "register"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_add_status": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "state": "waiting",
+        "step": "register"
+      },
+      {
+        "expiresAt": null,
+        "matchCode": null,
+        "state": "done",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_confirm_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "login"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "register"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_list": [
+      {
+        "keys": [],
+        "totp": false
+      },
+      {
+        "keys": [
+          {
+            "createdAt": 1761480000000,
+            "credentialRef": "00112233445566778899aabbccddeeff",
+            "label": "YubiKey 5C",
+            "lastUsedAt": 1761480060000
+          },
+          {
+            "createdAt": 1761480001000,
+            "credentialRef": "ffeeddccbbaa99887766554433221100",
+            "label": "Backup key",
+            "lastUsedAt": null
+          }
+        ],
+        "totp": true
+      }
+    ],
+    "sync_webauthn_remove": [
+      null
+    ],
+    "sync_webauthn_reopen": [
+      null
+    ],
+    "sync_webauthn_status": [
+      {
+        "state": "waiting"
+      },
+      {
+        "state": "done"
+      },
+      {
+        "state": "failed"
+      },
+      {
+        "state": "expired"
+      }
     ],
     "totp_code": [
       {
