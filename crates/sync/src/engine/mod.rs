@@ -20,6 +20,7 @@ mod checkpoints;
 pub mod consts;
 mod keys;
 mod maintain;
+mod owned;
 mod pull;
 mod push;
 mod rekey;
@@ -36,6 +37,7 @@ use mosaic_vault::session::UnlockedSession;
 use mosaic_vault::storage::SyncHalt;
 
 pub use access::{Backoff, Jitter, SessionAccess, SystemJitter};
+pub use owned::OwnedSession;
 #[cfg(feature = "http")]
 pub use rekey::{HostedRekey, HostedRekeyDone, ResumeOutcome, adopt_hosted_rekey};
 pub use rekey::{RekeyError, RekeyProgress, RekeySecrets};

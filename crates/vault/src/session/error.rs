@@ -117,6 +117,13 @@ pub enum Error {
     #[error("no quick unlock")]
     NoQuickUnlock,
 
+    /// A CLI session (CRYPTO_SPEC §6.8) was refused: expired, for another
+    /// account, install, epoch or salt, damaged, or not matching the store.
+    /// One variant for every reason, so a refusal tells a caller nothing
+    /// more. The caller deletes both parts of the session on this error.
+    #[error("CLI session refused")]
+    CliSessionRejected,
+
     /// The master password must be used first: no password unlock since the
     /// store was opened (quick unlock), or too many rejected attempts in a
     /// row (quick unlock and hardware keys).

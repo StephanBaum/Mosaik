@@ -16,6 +16,7 @@
 //! Mosaic is pre-audit.
 #![forbid(unsafe_code)]
 
+pub mod export;
 pub mod otp;
 pub mod session;
 pub mod storage;

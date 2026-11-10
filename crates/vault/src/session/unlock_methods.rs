@@ -314,6 +314,10 @@ pub(super) struct QuickState {
     pub(super) password_unlocked: bool,
     /// Rejected quick or hardware-key unlocks in a row.
     pub(super) failed_quick: u8,
+    /// Whether the session being built was unlocked with the master
+    /// password just now (not carried over a lock): the only state that may
+    /// seal a CLI session (CRYPTO_SPEC §6.8, ADR-0072).
+    pub(super) fresh_password: bool,
 }
 
 impl QuickState {
@@ -321,6 +325,7 @@ impl QuickState {
     pub(super) const PASSWORD: Self = Self {
         password_unlocked: true,
         failed_quick: 0,
+        fresh_password: true,
     };
 }
 
@@ -561,6 +566,7 @@ impl LockedSession {
                 let state = QuickState {
                     password_unlocked: self.quick.password_unlocked,
                     failed_quick: 0,
+                    fresh_password: false,
                 };
                 UnlockedSession::load(self.store, account.account_id, ak, state)
             }
@@ -626,6 +632,7 @@ impl LockedSession {
                 let state = QuickState {
                     password_unlocked: self.quick.password_unlocked,
                     failed_quick: 0,
+                    fresh_password: false,
                 };
                 UnlockedSession::load(self.store, account.account_id, ak, state)
             }

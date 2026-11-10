@@ -3199,12 +3199,15 @@ dependencies = [
 name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
  "mosaic-insights",
  "mosaic-origin",
  "mosaic-totp",
  "proptest",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "zeroize",

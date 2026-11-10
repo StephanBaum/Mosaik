@@ -2569,7 +2569,7 @@ time.
 |---|---|
 | T1 Spec and core | done: CRYPTO_SPEC §3, §4, §6.8, §11, §11.2, §12, §14; ADR-0071 to 0075; THREAT_MODEL §4.7 and R105 to R111; `docs/CLI.md`; `mosaic-core` `cli_session` and `export` modules, labels `cli-session`, `export`, `export-key`, errors `Expired`, `InvalidTtl`, `Io`; known-answer vectors `crates/core/tests/vectors/export_kat.py`; fuzz targets `export_reader` and `cli_session_file` |
 | T2 Platform (`crates/platform`) | open |
-| T3 Vault, import, sync glue | open |
+| T3 Vault, import, sync glue | done: `LockedSession::{unlock_cli_session, account_id}`, `UnlockedSession::{create_cli_session, export_preview, write_export}` and `Error::CliSessionRejected` in `mosaic-vault`; the shared export schema `mosaic_vault::export`; `mosaic_import::mosaic_export::{parse_reader, parse_bytes}` (commits only after the verified end of the stream); `mosaic_sync::engine::OwnedSession`; the L3 rule is tested (a session opened from a session, or by quick unlock, cannot seal one); `docs/CORE_API.md` "M8" section. Not added: a `Format::MosaicExport` variant (the desktop matches `Format` exhaustively; see CORE_API) |
 | T4 CLI (`crates/cli`, i18n) | open |
 | T5 Packaging, review and close | open |
 

@@ -565,6 +565,25 @@ impl Builder {
             .push(CustomField::new(label, value));
     }
 
+    /// Adds a custom OTP field the source defined as such (an `otpauth://`
+    /// URI). A value that does not parse is kept as a hidden custom field
+    /// with [`EntryWarning::OtpUnreadable`].
+    pub(crate) fn custom_otp(&mut self, label: &str, value: &str) {
+        let Some((config, _)) = otp::parse(value) else {
+            if !value.is_empty() {
+                self.warn(EntryWarning::OtpUnreadable);
+                self.custom(label, Kind::Hidden, value);
+            }
+            return;
+        };
+        if self.room() {
+            self.draft.custom_fields.push(CustomField::new(
+                Text::new(label_or(label, "One-time password")),
+                CustomFieldValue::Otp(config),
+            ));
+        }
+    }
+
     /// Adds a custom field for a source field that has no Mosaic field
     /// ([`EntryWarning::UnmappedFields`]).
     pub(crate) fn fallback(&mut self, label: &str, kind: Kind, value: &str) {
