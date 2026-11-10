@@ -36,3 +36,18 @@ describe("app styles use tokens only", () => {
     expect(readFileSync(path, "utf8")).not.toMatch(COLOR);
   });
 });
+
+describe("the sticky dialog action bar", () => {
+  const css = readFileSync(join(srcDir, "styles/app.css"), "utf8");
+
+  it("is sticky only inside a dialog, never in a form on a page", () => {
+    // The base rule has no `position`: a form on a page would float its buttons over what follows.
+    const base = /^\.dialog__actions \{[^}]*\}/m.exec(css)?.[0] ?? "";
+    expect(base).not.toMatch(/position:\s*sticky/);
+    expect(css).toMatch(/\.dialog \.dialog__actions \{[^}]*position:\s*sticky/);
+  });
+
+  it("lets a focused field scroll clear of the bar", () => {
+    expect(/^\.dialog \{[^}]*scroll-padding-block-end:/m.test(css)).toBe(true);
+  });
+});

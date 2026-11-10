@@ -107,6 +107,8 @@ export function Dialog({
       onKeyDown={trapTab}
       onCancel={(event) => {
         event.preventDefault();
+        // A dialog inside a dialog (React tree): Esc closes only the top-most one.
+        event.stopPropagation();
         onClose();
       }}
     >

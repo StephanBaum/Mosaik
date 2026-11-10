@@ -158,11 +158,14 @@ export const rotation = {
   "rotation.confirm.verb.profile": "Upgrade protection",
   "rotation.confirm.verb.rekey": "Re-key account",
 
-  "rotation.run.title": "Working on it",
+  "rotation.run.title":
+    "Renewing your keys…",
   "rotation.run.keepOpen":
     "Keep Mosaic open. With many attachments this can take a few minutes.",
   "rotation.progress.label": "Progress",
   "rotation.progress.count": "{done} of {total}",
+  "rotation.progress.done":
+    "done",
   "rotation.phase.prepared": "Getting ready",
   "rotation.phase.backendStarted": "Asking your account to switch to the new keys",
   "rotation.phase.backendAccepted": "Your account accepted the new keys",
@@ -203,7 +206,7 @@ export const rotation = {
   // Continue after a cut-off change
   "rotation.resume.title": "Key change not finished",
   "rotation.resume.body.password":
-    "Continue to type your passwords again, or discard it.",
+    "A key change was cut off. Nothing is lost. Choose Continue to type your passwords again, or discard it.",
   "rotation.resume.body.secretKey":
     "Rotating your Secret Key was cut off. Nothing is lost. Continue to finish it.",
   "rotation.resume.body.rekey":
@@ -235,7 +238,8 @@ export const rotation = {
   "rotation.abandon.confirm": "Stop re-encrypting",
   "rotation.abandon.keep": "Keep trying",
   "rotation.marker.title": "Unconfirmed re-key notice",
-  "rotation.marker.hint": "A notice in your sync folder says your account was re-keyed, but Mosaic couldn't confirm it.",
+  "rotation.marker.hint":
+    "If you didn't renew your keys on another device, this notice may not be genuine. You can ignore it.",
   "rotation.marker.open":
     "Ignore this notice…",
   "rotation.marker.open.label":
@@ -262,7 +266,7 @@ export const rotation = {
   "rotation.recovery.secretKey": "Secret Key from the new Emergency Kit",
   "rotation.recovery.submit": "Use the new keys",
   "rotation.recovery.warning":
-    "If you didn't renew your keys on another device, this notice may not be genuine. You can ignore it.",
+    "Didn't renew your keys yourself? Then someone with your old password and Secret Key may have. Don't enter anything here; check your other devices first.",
   "rotation.recovery.notice": "Sync is paused until you do this on this device.",
   "rotation.recovery.open": "Use the new keys…",
   "rotation.recovery.keyHint":

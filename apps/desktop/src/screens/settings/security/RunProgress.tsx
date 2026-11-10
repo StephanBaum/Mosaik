@@ -3,6 +3,7 @@
  * current phase is in the live region (it changes a handful of times); the counts change every
  * second or two and are plain text, so a screen reader is not read a timer.
  */
+import { Icon } from "../../../components/icons.tsx";
 import { useI18n } from "../../../i18n/I18nProvider.tsx";
 import type { RekeyBackend, RotationJobView, RotationPhaseName } from "../../../ipc/contract/index.ts";
 
@@ -42,6 +43,12 @@ export function RunProgress({
             className={position === index ? "body" : "caption"}
             {...(position === index ? { "aria-current": "step" as const } : {})}
           >
+            {index >= 0 && position < index && (
+              <>
+                <Icon name="check" size="sm" />
+                <span className="visually-hidden"> {t("rotation.progress.done")}: </span>
+              </>
+            )}
             {t(`rotation.phase.${phase}`)}
             {phase === "attachments" && job !== null && job.phase === "attachments" && job.total > 0 && (
               <span> ({t("rotation.progress.count", { done: job.done, total: job.total })})</span>

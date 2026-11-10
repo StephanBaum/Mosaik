@@ -1,6 +1,7 @@
 /** The app sidebar (Main, D08): brand, categories, vaults, the other sections and the footer. */
 import type { ReactNode } from "react";
 import type { MessageKey } from "@mosaic/i18n";
+import { useSyncOverview } from "../sync/hooks.ts";
 import { useEvents } from "../../app/EventsProvider.tsx";
 import { HoloSurface } from "../../components/HoloSurface.tsx";
 import { Icon, type IconName } from "../../components/icons.tsx";
@@ -41,7 +42,13 @@ const SYNC_STATUS: Record<SyncStatusName, { dot: string; label: MessageKey }> = 
 
 function SyncStatus({ sync }: { sync: SyncState | null }) {
   const { t } = useI18n();
-  const { dot, label } = SYNC_STATUS[sync?.status ?? "notConfigured"];
+  const { overview } = useSyncOverview();
+  // Two devices that re-keyed at once: never "Synced" (the same word as Settings > Sync).
+  const attention =
+    sync?.status === "upToDate" && (overview?.warnings.some((w) => w.kind === "unverifiedAccountFile" && w.conflict) ?? false);
+  const { dot, label } = attention
+    ? { dot: " sync-dot--error", label: "sync.status.attention" as const }
+    : SYNC_STATUS[sync?.status ?? "notConfigured"];
   return (
     <span className="sidebar__sync">
       <span className={`sync-dot${dot}`} aria-hidden="true" />

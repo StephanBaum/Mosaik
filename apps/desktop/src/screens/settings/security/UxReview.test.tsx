@@ -2,7 +2,7 @@
  * The M7 UX review follow-ups: visible progress, focus that never falls to the page, the stop
  * confirmation, the re-key conflict and the announcements.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../i18n/I18nProvider.tsx";
 import { RunProgress } from "./RunProgress.tsx";
@@ -90,6 +90,25 @@ describe("focus after a control is replaced or removed", () => {
     await waitFor(() => {
       expect(focusIsOnThePage()).toBe(true);
     });
+  });
+});
+
+describe("the stop confirmation", () => {
+  it("closes on Esc and returns to the wizard, not to the same question", async () => {
+    const { user } = await openSettings({ sync: { variant: "folder" } });
+    await user.click(screen.getByRole("button", { name: "Rotate…" }));
+    const wizard = await screen.findByRole("dialog", { name: "Rotate Secret Key" });
+    await user.click(within(wizard).getByRole("button", { name: "Continue" }));
+    await user.type(within(wizard).getByLabelText("Current master password"), "mosaic");
+    await user.click(within(wizard).getByRole("button", { name: "Continue" }));
+    await within(wizard).findByRole("button", { name: "Save new Emergency Kit" });
+    fireEvent(wizard, new Event("cancel", { cancelable: true }));
+    const stop = await screen.findByRole("dialog", { name: "Stop this change?" });
+    fireEvent(stop, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Stop this change?" })).toBeNull();
+    });
+    expect(screen.getByRole("dialog", { name: "Rotate Secret Key" })).toBeTruthy();
   });
 });
 

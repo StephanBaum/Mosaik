@@ -518,13 +518,10 @@ describe("sync settings: the master password was changed elsewhere", () => {
     await user.type(recover, "wrong");
     await user.click(within(section).getByRole("button", { name: "Update this device" }));
     expect(
-      (await within(section).findAllByRole("alert")).some(
-        (a) =>
-          /master password or Secret Key didn't work/.test(a.textContent) &&
-          /also enter the new Secret Key from its Emergency Kit/.test(a.textContent),
-      ),
+      (await within(section).findAllByRole("alert")).some((a) => /master password or Secret Key didn't work/.test(a.textContent)),
     ).toBe(true);
-    expect(within(section).getAllByText(/If your keys were renewed on another device/).length).toBeGreaterThan(0);
+    // The hint is its own line, besides the one under the field.
+    expect(within(section).getAllByText(/If your keys were renewed on another device/)).toHaveLength(2);
     await user.type(within(section).getByLabelText("New master password"), "new correct horse battery staple");
     // The sync account has a second factor: its code comes with the new password.
     await user.type(within(section).getByLabelText("6-digit code"), "123456");

@@ -159,11 +159,13 @@ export const rotation = {
   "rotation.confirm.verb.rekey": "Konto neu verschlüsseln",
 
   "rotation.run.title":
-    "Wird ausgeführt …",
+    "Schlüssel werden erneuert …",
   "rotation.run.keepOpen":
     "Lass Mosaic offen. Mit vielen Anhängen kann das ein paar Minuten dauern.",
   "rotation.progress.label": "Fortschritt",
   "rotation.progress.count": "{done} von {total}",
+  "rotation.progress.done":
+    "erledigt",
   "rotation.phase.prepared": "Vorbereitung",
   "rotation.phase.backendStarted": "Dein Konto wird auf die neuen Schlüssel umgestellt",
   "rotation.phase.backendAccepted": "Dein Konto hat die neuen Schlüssel angenommen",
@@ -203,7 +205,7 @@ export const rotation = {
 
   "rotation.resume.title": "Schlüsseländerung nicht abgeschlossen",
   "rotation.resume.body.password":
-    "Wähle Fortsetzen, um deine Passwörter erneut einzugeben, oder verwirf sie.",
+    "Eine Schlüsseländerung wurde unterbrochen. Nichts ist verloren. Wähle Fortsetzen, um deine Passwörter erneut einzugeben, oder verwirf sie.",
   "rotation.resume.body.secretKey":
     "Das Erneuern deines Secret Keys wurde unterbrochen. Nichts ist verloren. Setze es fort, um es abzuschließen.",
   "rotation.resume.body.rekey":
@@ -239,7 +241,8 @@ export const rotation = {
     "Neuverschlüsseln beenden",
   "rotation.abandon.keep": "Weiter versuchen",
   "rotation.marker.title": "Nicht bestätigte Meldung zur Neuverschlüsselung",
-  "rotation.marker.hint": "Eine Meldung in deinem Sync-Ordner sagt, dein Konto wurde neu verschlüsselt, aber Mosaic konnte das nicht bestätigen.",
+  "rotation.marker.hint":
+    "Wenn du deine Schlüssel nicht auf einem anderen Gerät erneuert hast, ist diese Meldung vielleicht nicht echt. Du kannst sie ignorieren.",
   "rotation.marker.open":
     "Diese Meldung ignorieren …",
   "rotation.marker.open.label":
@@ -265,7 +268,7 @@ export const rotation = {
   "rotation.recovery.secretKey": "Secret Key aus dem neuen Emergency Kit",
   "rotation.recovery.submit": "Neue Schlüssel verwenden",
   "rotation.recovery.warning":
-    "Wenn du deine Schlüssel nicht auf einem anderen Gerät erneuert hast, ist diese Meldung vielleicht nicht echt. Du kannst sie ignorieren.",
+    "Hast du deine Schlüssel nicht selbst erneuert? Dann hat es vielleicht jemand mit deinem alten Passwort und Secret Key getan. Gib hier nichts ein und prüfe zuerst deine anderen Geräte.",
   "rotation.recovery.notice":
     "Die Synchronisierung ist pausiert, bis du das auf diesem Gerät erledigt hast.",
   "rotation.recovery.open": "Neue Schlüssel verwenden …",

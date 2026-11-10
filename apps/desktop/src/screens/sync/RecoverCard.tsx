@@ -13,13 +13,6 @@ import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, SyncConfigView, SyncOverview } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 
-/** The failure, with the Secret Key hint added when the key was left out (a re-key needs it). */
-function RecoverAlert({ error, keyWasEmpty }: { error: IpcError | null; keyWasEmpty: boolean }) {
-  const { t, errorMessage } = useI18n();
-  const hint = error?.code === "wrongCredentials" && keyWasEmpty;
-  return <ErrorAlert error={error} message={hint ? `${errorMessage(error)} ${t("rotation.recovery.keyHint")}` : undefined} />;
-}
-
 // eslint-disable-next-line max-lines-per-function -- a form with optional fields.
 export function RecoverCard({
   config,
@@ -98,7 +91,10 @@ export function RecoverCard({
           }}
         />
       )}
-      <RecoverAlert error={error} keyWasEmpty={keyWasEmpty} />
+      <ErrorAlert error={error} />
+      {error?.code === "wrongCredentials" && keyWasEmpty && (
+        <p className="caption">{t("rotation.recovery.keyHint")}</p>
+      )}
       <div className="actions">
         <Button type="submit" disabled={busy || password === ""}>
           {t("settings.sync.recover.submit")}
