@@ -205,6 +205,32 @@ enum Piece<'a> {
     Secret(SecretString),
 }
 
+/// Whether `inject` refuses: plaintext secrets go to a terminal only with `--reveal` (a file or a
+/// pipe is the caller's own choice).
+const fn needs_reveal(to_file: bool, stdout_is_terminal: bool, reveal: bool) -> bool {
+    !to_file && stdout_is_terminal && !reveal
+}
+
+/// Joins the pieces into one buffer reserved at its exact final size, so it never reallocates (a
+/// reallocation would leave an unwiped copy behind).
+fn render(pieces: &[Piece<'_>]) -> Zeroizing<Vec<u8>> {
+    let size: usize = pieces
+        .iter()
+        .map(|piece| match piece {
+            Piece::Text(t) => t.len(),
+            Piece::Secret(s) => s.expose_secret().len(),
+        })
+        .sum();
+    let mut result = Zeroizing::new(Vec::<u8>::with_capacity(size));
+    for piece in pieces {
+        match piece {
+            Piece::Text(t) => result.extend_from_slice(t.as_bytes()),
+            Piece::Secret(s) => result.extend_from_slice(s.expose_secret().as_bytes()),
+        }
+    }
+    result
+}
+
 /// `mosaic inject`.
 pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
     // Reserved once and read through `take`: no reallocation copies, no unbounded read.
@@ -235,7 +261,11 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
         ));
     }
     let to_file = p.value("out");
-    if to_file.is_none() && std::io::stdout().is_terminal() && !p.has("reveal") {
+    if needs_reveal(
+        to_file.is_some(),
+        std::io::stdout().is_terminal(),
+        p.has("reveal"),
+    ) {
         return Err(
             CliError::new("revealRequired", EXIT_REVEAL, Msg::ErrRevealRequired)
                 .with("field", "inject"),
@@ -270,20 +300,7 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
     }
     pieces.push(Piece::Text(rest));
     drop(u);
-    let size: usize = pieces
-        .iter()
-        .map(|piece| match piece {
-            Piece::Text(t) => t.len(),
-            Piece::Secret(s) => s.expose_secret().len(),
-        })
-        .sum();
-    let mut result = Zeroizing::new(Vec::<u8>::with_capacity(size));
-    for piece in &pieces {
-        match piece {
-            Piece::Text(t) => result.extend_from_slice(t.as_bytes()),
-            Piece::Secret(s) => result.extend_from_slice(s.expose_secret().as_bytes()),
-        }
-    }
+    let result = render(&pieces);
     drop(pieces);
     if let Some(dest) = to_file {
         let dest = std::path::Path::new(dest);
@@ -297,4 +314,36 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
         app.out.write_raw(&result);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inject_to_terminal_needs_reveal() {
+        // Terminal, no file, no --reveal: refused.
+        assert!(needs_reveal(false, true, false));
+        // --reveal, a file or a pipe lifts the refusal.
+        assert!(!needs_reveal(false, true, true));
+        assert!(!needs_reveal(true, true, false));
+        assert!(!needs_reveal(false, false, false));
+        assert!(!needs_reveal(true, false, true));
+    }
+
+    #[test]
+    fn inject_reserves_the_exact_size() {
+        let secret = SecretString::from("s3cr\u{e9}t-value".to_owned());
+        let size = "key=".len() + secret.expose_secret().len() + "\n".len();
+        let pieces = [
+            Piece::Text("key="),
+            Piece::Secret(secret),
+            Piece::Text("\n"),
+        ];
+        let out = render(&pieces);
+        assert_eq!(&out[..], "key=s3cr\u{e9}t-value\n".as_bytes());
+        // Reserved once for the final size: filling it never grew (and so never copied) it.
+        assert_eq!(out.len(), size);
+        assert_eq!(out.capacity(), size);
+    }
 }

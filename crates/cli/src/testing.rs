@@ -4,6 +4,7 @@
 //!
 //! - `MOSAIC_TEST_DIR/keystore/secret-key-<account hex>`: the Secret Key display string.
 //! - `MOSAIC_TEST_DIR/run/session-<account hex>.mcls` and `keystore/session-<account hex>.key`.
+//! - `MOSAIC_TEST_DIR/keystore/sync-token-<account hex>`: the hosted session token (hex).
 //! - `MOSAIC_TEST_KEYSTORE=refuse`: saving a session fails, as a refusing keystore does.
 //! - `MOSAIC_TEST_DIR/clipboard.txt`: the clipboard (a missing or empty file is an empty clipboard).
 //! - `MOSAIC_TEST_PROMPTS`: a file of lines; every prompt (secret or not) consumes the first line.
@@ -15,7 +16,8 @@ use std::path::PathBuf;
 use mosaic_core::{AccountId, CliSessionFile, CliSessionKey, SecretKey, SecretString};
 use mosaic_platform::PlatformError;
 use mosaic_platform::clipboard::{Clipboard, ImageRead};
-use mosaic_platform::keystore::{CliSessionStore, MemorySyncTokens, SecretKeyStore};
+use mosaic_platform::keystore::{CliSessionStore, SecretKeyStore, SyncTokenStore};
+use mosaic_sync::http::{StoredToken, Token as _};
 use zeroize::Zeroizing;
 
 use crate::backends::Backends;
@@ -62,6 +64,52 @@ impl SecretKeyStore for FileKeys {
         }
         let display = key.to_display()?;
         fs::write(path, display.expose_secret()).map_err(|_| PlatformError::Keystore)
+    }
+
+    fn delete(&self, account: AccountId) -> PResult<()> {
+        let _ = fs::remove_file(self.path(account));
+        Ok(())
+    }
+}
+
+/// `MOSAIC_TEST_DIR/keystore/sync-token-<account hex>`: the hosted session token (hex), so a token
+/// stored by one `mosaic` run is found by the next.
+struct FileTokens(PathBuf);
+
+impl FileTokens {
+    fn path(&self, account: AccountId) -> PathBuf {
+        self.0
+            .join("keystore")
+            .join(format!("sync-token-{}", hex(account.as_bytes())))
+    }
+}
+
+impl SyncTokenStore for FileTokens {
+    fn load(&self, account: AccountId) -> PResult<Option<StoredToken>> {
+        let Ok(text) = fs::read_to_string(self.path(account)) else {
+            return Ok(None);
+        };
+        let text = text.trim();
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        if text.len() != 64 || !text.is_ascii() {
+            return Ok(None);
+        }
+        for (slot, pair) in bytes.iter_mut().zip(text.as_bytes().chunks(2)) {
+            let pair = core::str::from_utf8(pair).map_err(|_| PlatformError::Keystore)?;
+            let Ok(byte) = u8::from_str_radix(pair, 16) else {
+                return Ok(None);
+            };
+            *slot = byte;
+        }
+        Ok(Some(StoredToken::from_array(&mut bytes)))
+    }
+
+    fn save(&self, account: AccountId, token: &StoredToken) -> PResult<()> {
+        let path = self.path(account);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|_| PlatformError::Keystore)?;
+        }
+        fs::write(path, hex(token.expose_bytes())).map_err(|_| PlatformError::Keystore)
     }
 
     fn delete(&self, account: AccountId) -> PResult<()> {
@@ -215,8 +263,11 @@ pub fn backends() -> Option<Backends> {
     let refuse = std::env::var("MOSAIC_TEST_KEYSTORE").is_ok_and(|v| v == "refuse");
     Some(Backends {
         keys: Box::new(FileKeys(root.clone())),
-        sessions: Ok(Box::new(FileSessions { root, refuse })),
-        tokens: Box::new(MemorySyncTokens::default()),
+        sessions: Ok(Box::new(FileSessions {
+            root: root.clone(),
+            refuse,
+        })),
+        tokens: Box::new(FileTokens(root)),
     })
 }
 

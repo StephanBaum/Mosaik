@@ -40,6 +40,12 @@ rustix.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 mosaic-vault = { path = "../vault" }
+# The hosted-flow tests run the real server on 127.0.0.1 (as the sync crate's HTTP tests do; the
+# loopback harness is shared from `crates/server/tests/it/loopback.rs`): `mosaic-server` is the
+# library under test on the other end, `axum` and `tokio` serve it from a thread of the test.
+mosaic-server = { path = "../server" }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "macros"] }
 
 [[bin]]
 name = "mosaic"

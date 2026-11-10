@@ -1,0 +1,291 @@
+.TH MOSAIC 1
+.SH NAME
+mosaic \- the Mosaic password manager on the command line
+.SH SYNOPSIS
+.B mosaic
+[GLOBAL OPTIONS] COMMAND [ARGS]
+.SH DESCRIPTION
+Mosaic is a zero\-knowledge password manager (pre\-audit). This client opens a vault store directly, never takes a secret from the command line or the environment, and prints a secret only when asked with \fB\-\-reveal\fR.
+.SH COMMANDS
+.TP
+.B mosaic unlock
+Unlock with the master password and keep a short session.
+.RS
+.TP
+.B \-\-ttl 5m
+Session length: 1 to 30 minutes (default 5m).
+.RE
+.RS
+.TP
+.B \-\-password\-stdin
+Read the master password from one line of stdin.
+.RE
+.RS
+.TP
+.B \-\-password\-fd N
+Read the master password from file descriptor N (Unix).
+.RE
+.RS
+.TP
+.B \-\-secret\-key\-prompt
+Ask for the Secret Key instead of using the keystore.
+.RE
+.TP
+.B mosaic lock
+End the session.
+.TP
+.B mosaic status
+Show the store, the session and the sync state.
+.TP
+.B mosaic list
+List items.
+.RS
+.TP
+.B \-\-vault V
+Only this vault (name or ID).
+.RE
+.RS
+.TP
+.B \-\-type T
+Only this item type (login, note, card, ...).
+.RE
+.RS
+.TP
+.B \-\-favorites
+Only favorites.
+.RE
+.RS
+.TP
+.B \-\-trash
+Only items in the trash.
+.RE
+.TP
+.B mosaic search QUERY
+Search items.
+.RS
+.TP
+.B \-\-vault V
+Only this vault (name or ID).
+.RE
+.TP
+.B mosaic get REF
+Show an item or one field of it.
+.RS
+.TP
+.B \-\-field F
+Print this field only (repeatable).
+.RE
+.RS
+.TP
+.B \-\-reveal
+Print secret fields (they are concealed by default).
+.RE
+.RS
+.TP
+.B \-\-copy
+Copy the requested field to the clipboard.
+.RE
+.RS
+.TP
+.B \-\-clear\-after 30s
+Clear the clipboard after this long (5s to 300s).
+.RE
+.TP
+.B mosaic totp REF
+Print the current one\-time code.
+.RS
+.TP
+.B \-\-copy
+Copy the code to the clipboard.
+.RE
+.RS
+.TP
+.B \-\-clear\-after 30s
+Clear the clipboard after this long (5s to 300s).
+.RE
+.TP
+.B mosaic generate
+Generate a password or passphrase.
+.RS
+.TP
+.B \-\-length N
+Password length.
+.RE
+.RS
+.TP
+.B \-\-words N
+Make a passphrase of N words.
+.RE
+.RS
+.TP
+.B \-\-separator S
+Separator between passphrase words.
+.RE
+.RS
+.TP
+.B \-\-no\-upper
+No uppercase letters.
+.RE
+.RS
+.TP
+.B \-\-no\-lower
+No lowercase letters.
+.RE
+.RS
+.TP
+.B \-\-no\-digits
+No digits.
+.RE
+.RS
+.TP
+.B \-\-no\-symbols
+No symbols.
+.RE
+.RS
+.TP
+.B \-\-site DOMAIN
+Follow the known password rules of DOMAIN.
+.RE
+.RS
+.TP
+.B \-\-copy
+Copy the result to the clipboard.
+.RE
+.RS
+.TP
+.B \-\-clear\-after 30s
+Clear the clipboard after this long (5s to 300s).
+.RE
+.TP
+.B mosaic run \-\- COMMAND [ARGS...]
+Run a command with secrets in its environment.
+.RS
+.TP
+.B \-\-env NAME=REF
+Set NAME from a reference (repeatable).
+.RE
+.RS
+.TP
+.B \-\-env\-file FILE
+Read NAME=REF lines from FILE.
+.RE
+.TP
+.B mosaic inject
+Fill {{ mosaic://... }} placeholders of a template.
+.RS
+.TP
+.B \-\-in FILE
+Template to read (default: stdin).
+.RE
+.RS
+.TP
+.B \-\-out FILE
+Write the result to FILE (mode 0600, never overwrites).
+.RE
+.RS
+.TP
+.B \-\-reveal
+Allow secrets on a terminal.
+.RE
+.TP
+.B mosaic ssh list|public\-key|agent\-status [REF]
+List SSH keys, print a public key, or explain the agent.
+.TP
+.B mosaic import enpass|bitwarden|keepass|1password|cxf|csv|mosaicx FILE
+Import a file from another password manager or a Mosaic export.
+.RS
+.TP
+.B \-\-vault V
+Import into this vault (name or ID).
+.RE
+.RS
+.TP
+.B \-\-dry\-run
+Show the preview and import nothing.
+.RE
+.RS
+.TP
+.B \-\-file\-password\-prompt
+Ask for the file's password (KeePass).
+.RE
+.TP
+.B mosaic export FILE
+Write an encrypted export file.
+.RS
+.TP
+.B \-\-vault V
+Export only this vault (repeatable).
+.RE
+.RS
+.TP
+.B \-\-include\-attachments
+Include attachment contents.
+.RE
+.TP
+.B mosaic sync
+Sync once with the store's backend.
+.RS
+.TP
+.B \-\-status
+Show the sync state and findings; do not sync.
+.RE
+.RS
+.TP
+.B \-\-acknowledge
+Show the findings and clear them after you type the word.
+.RE
+.TP
+.B mosaic setup own\-store
+Give the CLI its own device store.
+.RS
+.TP
+.B \-\-folder PATH
+Join over this sync folder.
+.RE
+.RS
+.TP
+.B \-\-server URL
+Join over this server.
+.RE
+.RS
+.TP
+.B \-\-email E
+The sync account's email.
+.RE
+.TP
+.B mosaic recover
+Recover after a password or key change made elsewhere.
+.TP
+.B mosaic completions bash|zsh|fish|powershell
+Print a shell completion script.
+.TP
+.B mosaic help [COMMAND]
+Show help or the manual page.
+.RS
+.TP
+.B \-\-man
+Print the manual page (roff).
+.RE
+.SH GLOBAL OPTIONS
+.TP
+.B \-\-store PATH
+Use the vault store at PATH (also MOSAIC_STORE).
+.TP
+.B \-\-profile shared|own
+shared: the desktop app's store (default). own: the CLI's own device.
+.TP
+.B \-\-json
+Print one JSON document ({"v":1,...}) instead of text.
+.TP
+.B \-\-lang en|de
+Message language (also MOSAIC_LANG, LANG).
+.TP
+.B \-\-no\-input
+Never prompt; a needed prompt is exit 3.
+.TP
+.B \-\-quiet
+Print only the requested value.
+.SH EXIT STATUS
+0 ok; 1 other error; 2 usage; 3 authentication failed or input required; 4 not found; 5 store in use; 6 sync halted or sync error; 7 ambiguous reference; 8 vault part locked; 9 reveal required; 10 rotation in progress; 125 the command of \fBrun\fR could not start; 130 interrupted.
+.SH SEE ALSO
+docs/CLI.md

@@ -1,7 +1,7 @@
 //! `import` and `export`. Exports are encrypted only (OD-M8-4); imports show a preview first and
 //! need a typed confirmation on the terminal (`--no-input` refuses).
 
-use std::io::{BufReader, BufWriter, Read as _, Write as _};
+use std::io::{BufReader, BufWriter, Read, Write as _};
 use std::path::Path;
 
 use mosaic_core::{Argon2Profile, ExportPassphrase, SecretString};
@@ -36,15 +36,29 @@ fn import_failed() -> CliError {
 /// Reads an import file through `take(MAX_FILE_LEN + 1)`: a file that grows, a FIFO or a device
 /// cannot make the read unbounded, and the size the file claims is not trusted.
 fn read_file(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
-    let limit = mosaic_import::MAX_FILE_LEN as u64 + 1;
     let file = std::fs::File::open(path).map_err(|_| CliError::file_read(path))?;
-    let claimed = file.metadata().map_or(0, |m| m.len()).min(limit);
-    let mut bytes = Zeroizing::new(Vec::with_capacity(usize::try_from(claimed).unwrap_or(0)));
-    file.take(limit)
+    let claimed = file.metadata().map_or(0, |m| m.len());
+    read_capped(file, claimed, mosaic_import::MAX_FILE_LEN as u64)
+        .map_err(|e| e.unwrap_or_else(|| CliError::file_read(path)))
+}
+
+/// Reads at most `max` bytes from `reader`; more is `importFailed`. `Err(None)` is a read error.
+/// `claimed` (the size the source says it has) only sizes the buffer.
+fn read_capped(
+    reader: impl Read,
+    claimed: u64,
+    max: u64,
+) -> core::result::Result<Zeroizing<Vec<u8>>, Option<CliError>> {
+    let limit = max.saturating_add(1);
+    let mut bytes = Zeroizing::new(Vec::with_capacity(
+        usize::try_from(claimed.min(limit)).unwrap_or(0),
+    ));
+    reader
+        .take(limit)
         .read_to_end(&mut bytes)
-        .map_err(|_| CliError::file_read(path))?;
-    if bytes.len() as u64 > mosaic_import::MAX_FILE_LEN as u64 {
-        return Err(import_failed());
+        .map_err(|_| None)?;
+    if bytes.len() as u64 > max {
+        return Err(Some(import_failed()));
     }
     Ok(bytes)
 }
@@ -343,4 +357,41 @@ pub fn export(app: &mut App, p: &Parsed) -> Result<()> {
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_cap_accepts_exactly_the_maximum() {
+        let data = [7u8; 100];
+        let got = read_capped(&data[..], 100, 100).ok().unwrap();
+        assert_eq!(got.len(), 100);
+    }
+
+    #[test]
+    fn read_cap_refuses_one_byte_over_even_if_the_claim_is_small() {
+        let data = [7u8; 101];
+        // The claimed size is not trusted: a file that grows or lies is still capped.
+        let err = read_capped(&data[..], 3, 100).err().flatten().unwrap();
+        assert_eq!(err.code, "importFailed");
+        assert_eq!(err.exit, EXIT_OTHER);
+    }
+
+    #[test]
+    fn read_cap_stops_an_endless_stream() {
+        let err = read_capped(std::io::repeat(0), 0, 4096)
+            .err()
+            .flatten()
+            .unwrap();
+        assert_eq!(err.code, "importFailed");
+    }
+
+    #[test]
+    fn read_cap_huge_claim_does_not_reserve_it() {
+        let got = read_capped(&b"abc"[..], u64::MAX, 100).ok().unwrap();
+        assert_eq!(&got[..], b"abc");
+        assert!(got.capacity() <= 101);
+    }
 }

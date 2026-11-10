@@ -256,7 +256,15 @@ impl Run<'_> {
     pub fn run(self) -> Out {
         let mut command = Command::new(env!("CARGO_BIN_EXE_mosaic"));
         command.env_clear();
-        for key in ["PATH", "SystemRoot", "TEMP", "TMP", "HOME", "USERPROFILE"] {
+        for key in [
+            "PATH",
+            "SystemRoot",
+            "TEMP",
+            "TMP",
+            "HOME",
+            "USERPROFILE",
+            "LLVM_PROFILE_FILE",
+        ] {
             if let Some(v) = std::env::var_os(key) {
                 command.env(key, v);
             }

@@ -31,6 +31,28 @@ server; it is off by default and unreleased. See
 - [Architecture decisions](docs/DECISIONS.md)
 - [Build brief](docs/BRIEF.md)
 
+## Command line
+
+`mosaic` is a command-line client that opens a vault store directly (no running app needed).
+It never takes a secret from the command line or the environment and prints one only with
+`--reveal`. Pre-audit like the rest. Commands, output formats and exit codes are in
+[`docs/CLI.md`](docs/CLI.md).
+
+```sh
+cargo build -p mosaic-cli --release     # target/release/mosaic
+mosaic unlock --ttl 10m                 # password prompt; a short session
+mosaic list
+mosaic get mosaic://Personal/GitHub --field password --copy
+mosaic run --env DB_PASSWORD=mosaic://Work/db/password -- ./migrate
+mosaic setup own-store --server https://sync.example.org --email you@example.org
+mosaic sync
+```
+
+A man page (`mosaic help --man`, committed as `crates/cli/man/mosaic.1`) and completion scripts for
+bash, zsh, fish and PowerShell (`mosaic completions <shell>`, committed in `crates/cli/completions/`)
+are generated from the command table. Signing, installers and package-manager channels come with
+the release milestone.
+
 ## Account recovery
 
 There is no backdoor. If you lose both your master password and your

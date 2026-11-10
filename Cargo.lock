@@ -2922,12 +2922,14 @@ dependencies = [
 name = "mosaic-cli"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "ctrlc",
  "lexopt",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-import",
  "mosaic-platform",
+ "mosaic-server",
  "mosaic-sync",
  "mosaic-totp",
  "mosaic-vault",
@@ -2937,6 +2939,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tempfile",
+ "tokio",
  "unicode-normalization",
  "zeroize",
 ]
