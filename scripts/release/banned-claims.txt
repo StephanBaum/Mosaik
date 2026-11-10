@@ -1,0 +1,11 @@
+# Claims Mosaic never makes (CLAUDE.md, marketing/README.md "Hard rules applied").
+# One term per line, matched case-insensitively as whole words; hyphens and runs of white space
+# count as one space. Lines starting with # are comments.
+# Say "pre-audit" and "no external audit has been done" instead.
+audited
+bank-grade
+military-grade
+unhackable
+uncrackable
+100 % secure
+100% secure

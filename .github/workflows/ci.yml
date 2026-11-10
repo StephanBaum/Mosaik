@@ -329,9 +329,43 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      # No "audited", "bank-grade" and the other banned claims in shipped or user-facing text (M9).
+      - run: node scripts/release/wording-check.mjs
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm audit --audit-level low
+
+  # The release scripts (checksums, minisign signing and verification) run against fixtures with
+  # throw-away keys. Only when a pull request touches them or the release workflow.
+  release-selftest:
+    name: Release scripts self-test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Did the pull request touch the release scripts?
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet "$BASE" HEAD -- scripts/release .github/workflows/release.yml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install minisign (pinned version, logged)
+        if: steps.changed.outputs.run == 'true'
+        run: bash scripts/release/install-minisign.sh
+      - name: Self-test
+        if: steps.changed.outputs.run == 'true'
+        run: bash scripts/release/selftest.sh
+      - name: No Cargo features in the release build
+        if: steps.changed.outputs.run == 'true'
+        run: bash scripts/release/check-features.sh
 
   desktop-frontend:
     name: Desktop app, frontend (build, Playwright + axe)
