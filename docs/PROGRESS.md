@@ -18,7 +18,7 @@ milestone close appends its section there).
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
 | M7b Credential rotation | ✅ done (2026-11-10; branch `feat/m7b-rotation`; T1 to T4, the T1 and milestone reviews, an extension red team and a UX review; ADR-0065 to 0070, R97 to R104; deferred: connectors, scheduler, passkey hints; open: manual checks with real sites and the owner decisions OD-M7b-1 to OD-M7b-9). **M8 CLI is next** |
-| M8 CLI | ✅ done (2026-11-10; branch `feat/m8-cli`; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
+| M8 CLI | ✅ done (2026-11-10; PR #50; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
 | M9 Hardening | — |
 | M10 Mobile | — |
 
