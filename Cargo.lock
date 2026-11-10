@@ -2761,6 +2761,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
+name = "lexopt"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2904,6 +2910,22 @@ dependencies = [
 [[package]]
 name = "mosaic-cli"
 version = "0.0.0"
+dependencies = [
+ "lexopt",
+ "mosaic-core",
+ "mosaic-generator",
+ "mosaic-import",
+ "mosaic-platform",
+ "mosaic-sync",
+ "mosaic-totp",
+ "mosaic-vault",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "unicode-normalization",
+ "zeroize",
+]
 
 [[package]]
 name = "mosaic-core"
@@ -4260,11 +4282,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66d4c8b64f049c6721ec8ccec37ddfc3d641c4a7fca57e8f2a89de509c73df39"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "rqrr"
 version = "0.11.0"
 dependencies = [
  "g2p",
  "lru",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a1efe12a1469752d0e6ff5ebec0b6ef4924cc5c4c71046b0ec730040535819d"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

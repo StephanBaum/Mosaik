@@ -166,6 +166,26 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
 - `recover` handles a password, Secret Key or re-key change made elsewhere: it prompts for the password,
   then for the Secret Key of the newest kit, and saves the new Secret Key.
 
+## What this version does not do yet
+
+`mosaic recover` and `mosaic setup own-store --server` (hosted join with a second-factor prompt) are in
+the table but answer `notSupported` (exit 1); `mosaic sync` against a hosted backend works once the app
+has signed in and stored the token (`mosaic-cli-sync-token-<account>` is read, never written by the CLI).
+Hardware-protected vaults are skipped by `export` and refused by references (exit 8).
+
+Behavior worth knowing:
+
+- The session entry is per account, not per store: a session made for the `shared` store is refused (and
+  both parts deleted) when it is used on the `own` store, because the install ID differs. Run `mosaic
+  unlock` again for the store you use.
+- `get --reveal` prints a warning on stderr when stdout is a terminal (scrollback keeps the value).
+- On Windows the clipboard helper inherits the handles its caller gave `mosaic`: a caller that waits for
+  end-of-file on a pipe of `mosaic ... --copy` waits for the helper (the clear timeout) too. Use a
+  terminal, or redirect output to a file.
+- A prompt that times out (120 s) ends the command while the terminal driver may still have echo off on
+  Unix; `stty echo` restores it (THREAT_MODEL R109).
+- `Ctrl-C` ends the command with the system default (exit 130 in most shells); there is no handler.
+
 ## Packaging
 
 `cargo build -p mosaic-cli --release` builds `mosaic` on Windows, macOS and Linux. `mosaic help --man`

@@ -177,6 +177,12 @@ toml = { version = "=1.1.8", default-features = false, features = ["parse", "ser
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
+# M8 CLI (ADR-0074)
+# Argv tokenizer for the `mosaic` CLI: zero dependencies, handles `--x=y`, `--` and non-UTF-8 arguments (clap rejected for size).
+lexopt = "=0.3.2"
+# No-echo prompts on the controlling terminal (`/dev/tty`, `CONIN$`) for the CLI's secrets; its buffers are not wiped (THREAT_MODEL R109).
+rpassword = "=7.4.0"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

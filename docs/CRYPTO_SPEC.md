@@ -2197,14 +2197,44 @@ chunks : exactly the layout and nonces of §7.3 (nonce = nonce_prefix || i:u32 |
   profile) are reported before any key stretching. STREAM authenticates each chunk when it is read, so a consumer **must treat everything it read
   as unverified until the last chunk has verified** (the end of the stream is reported as success); the
   importer builds its preview from the whole stream and commits only after that.
-- **Plaintext** (the decrypted stream) is compact UTF-8 JSON:
-  `{"format":"mosaic-export","v":1,"exportedAt":ms,"vaults":[{"name":…,"items":[ITEM…]}]}` with
-  `ITEM = {"type","title","favorite","createdAt","tags":[…],"urls":[…],"fields":[{"key","label",
-  "value","secret"}],"notes","otp":otpauth-URI|null,"passkey":CXF credential|null,"sshKey":OpenSSH
-  private key|null,"history":[{"value","changedAt"}],"attachments":[{"name","mime","size","data":
-  base64url|null}]}`. Attachment `data` is present only when the user asked for attachments. Item,
-  vault, device, account and attachment IDs, version vectors and key material of the account are not
-  exported; an import creates fresh IDs.
+- **Plaintext** (the decrypted stream) is compact UTF-8 JSON, written by
+  `UnlockedSession::write_export` and read by `mosaic_import::mosaic_export`, which share the types of
+  `crates/vault/src/export.rs`:
+  `{"format":"mosaic-export","v":1,"exportedAt":ms,"vaults":[{"name":…,"items":[ITEM…]}]}`. Readers
+  ignore members they do not know, so a later version can add some. `ITEM` has these members, in this
+  order, and nothing else:
+  - `type`: `login`, `passkey`, `totp`, `note`, `card`, `identity`, `ssh_key`, `api_key`, `wifi` or
+    `document`. `title`, `favorite`, `createdAt` (Unix ms), `tags` (strings), `notes`.
+  - `urls`: the login URLs as **text only**. The match mode and the HTTP allowance of a URL are not
+    exported; an import uses the most conservative values (exact origin, HTTPS only).
+  - `fields`: `[{"key","label","value","secret"}]`. Built-in text and secret fields except title and notes
+    (`key` is the document key such as `login.username`, `label` repeats it) and every custom field
+    (`key` is `custom.<kind>` with `<kind>` one of `text`, `hidden`, `url`, `email`, `phone`, `date`,
+    `otp`; `label` is the user's label). `secret` is true for secret built-in fields, hidden custom
+    fields and OTP custom fields; a custom OTP field holds an `otpauth://` URI.
+  - `otp`: the item's one-time password as an `otpauth://` URI (the HOTP counter is its `counter`), or
+    `null`.
+  - `passkey`: one CXF `passkey` credential or `null`:
+    `{"type":"passkey","credentialId","rpId","username","userDisplayName","userHandle","key",
+    "signCount","discoverable","createdAt"}`. `credentialId` and `userHandle` are base64url, `key` is the
+    PKCS#8 DER private key in base64url, `signCount` and `discoverable` are Mosaic's own members
+    (default 0 and true), `createdAt` is Unix ms or `null`. **Only ES256 passkeys are exported**: a
+    passkey of another algorithm leaves the member `null` and is counted in the export report.
+  - `sshKey`: the OpenSSH private key or `null`, with `sshPublicKey` (`authorized_keys` form) and
+    `sshFingerprint` after it; both are left out when the item has no key. They let an import restore the
+    whole key material.
+  - `history`: `[{"value","changedAt"}]`, oldest first. **Login password history only**: no other
+    field keeps history.
+  - `attachments`: `[{"name","mime","size","data"}]`. The writer streams them after the rest of the item;
+    `data` is unpadded base64url and is `null` unless the export was made with attachments (a file that
+    is not in the local store, or cannot be read, is also listed with `null`). A reader parses an item at
+    a time, so an export is never held whole in memory.
+
+  Items in the trash and deleted items are not exported. Item, vault, device, account and attachment IDs,
+  version vectors, Argon2id parameters and key material of the account are not exported; an import
+  creates fresh IDs and the user sees a preview first (duplicates by site and user name, or by type,
+  title and user name, are marked). Vaults this session cannot open (hardware-protected, §7.4) are left
+  out and counted.
 - The file never contains an unencrypted item. A plaintext export (CSV or JSON) is not offered
   (ADR-0073).
 

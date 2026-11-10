@@ -10,8 +10,36 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Test backends for the integration tests: file-based keystore, session store and clipboard under
+# `MOSAIC_TEST_DIR`, a scripted terminal and a settable clock. Debug builds only (see `src/testing.rs`).
+test-util = []
+
 [dependencies]
+mosaic-core = { path = "../core" }
+mosaic-vault = { path = "../vault" }
+mosaic-import = { path = "../import" }
+mosaic-sync = { path = "../sync", features = ["http"] }
+mosaic-platform = { path = "../platform" }
+mosaic-totp = { path = "../totp" }
+mosaic-generator = { path = "../generator" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+zeroize.workspace = true
+unicode-normalization.workspace = true
+lexopt.workspace = true
+rpassword.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+mosaic-vault = { path = "../vault" }
 
 [[bin]]
 name = "mosaic"
 path = "src/main.rs"
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+required-features = ["test-util"]

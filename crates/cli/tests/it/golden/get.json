@@ -1,0 +1,1 @@
+{"v":1,"data":{"id":"<uuid>","vault":{"id":"<uuid>","name":"Personal"},"type":"login","title":"GitHub","username":"alice","urls":["https://github.com"],"favorite":false,"trashed":false,"fields":{"field:recovery":{"concealed":true},"login.password":{"concealed":true},"login.username":{"value":"alice"}},"otp":{"concealed":true,"secondsRemaining":30},"attachments":[]}}
