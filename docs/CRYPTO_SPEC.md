@@ -41,7 +41,7 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
 | Sync checkpoints and folder backend (§10, §10.1, ADR-0043) | HMAC-SHA-256 under HKDF-derived keys; XChaCha20-Poly1305 for device info | RFC 2104, 5869, draft-irtf-cfrg-xchacha | `hmac`, `hkdf`, `sha2`, `chacha20poly1305` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
-| Breach check | SHA-1 (k-anonymity prefix only) | HIBP range API | `sha1` |
+| Breach check (§7.4, §11, ADR-0067) | SHA-1 of the UTF-8 password (as HIBP names a leaked password: an identifier, not a security primitive); only the 5-character prefix is sent, with `Add-Padding`; the 35-character suffixes are compared locally against every line in constant time; no hash is stored. No new primitive | HIBP range API | `sha1`, `subtle` |
 | Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no direct `rand` / `rand_core` use, ADR-0011; `hpke` brings `rand_core` as a transitive dependency and is fed from a buffered `getrandom` draw, ADR-0049) |
 | Constant-time compare | — | — | `subtle` |
 | Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
@@ -714,11 +714,68 @@ nonce  = random(24)    -- fresh for every encryption, never derived
 
 ### 7.4 Password history, trash, TOTP-only vault
 - Password history entries are part of the item plaintext, so they are
-  encrypted with it.
+  encrypted with it. An entry is `{"field","value","changed_at"}` and an
+  optional `"reason":"unconfirmed"`; no `reason` means the value was
+  replaced by a confirmed change. The history keeps at most 32 entries, the
+  oldest (by the Lamport stamp of the edit that moved them there) go first.
+- **Rotation attempts (M7b, ADR-0066).** A guided password change stores the
+  new password in the item *before* anything reaches a site: the item key
+  `rotation:<id>` holds `{"pending","started_at","stage":"prepared"|"delivered","rules_source":"page"|"siteQuirks"|null}`.
+  `<id>` is the element ID scheme of `history:` (`{counter:016x}.{device}.{seq}`
+  of the creating edit), so every attempt has a key of its own and attempts
+  started concurrently on two devices both survive a merge. An item holds at
+  most 4 open attempts and the value is 1 to 1024 characters. `stage` only
+  rises: the item reads the highest stage any live entry has. Closing an
+  attempt is one edit: *confirm* makes the value the password (the old one
+  goes to the history, every other open attempt goes to the history as
+  `unconfirmed`, no attempt stays); *fail* leaves the password and moves the
+  attempt's value to the history as `unconfirmed`. Every operation accounts
+  for **every** live entry of an attempt's register, not just the winner: two
+  writers that share a device ID (ADR-0015) can store two different `pending`
+  values under one `rotation:<id>` key, so the collision repair of §10 moves
+  each losing value to a key of its own (like the history), *deliver* keeps
+  entries with other values, and *confirm* and *fail* move every distinct
+  value of the register to the history. Closing or delivering an attempt
+  rewrites only `stage`; members this build does not know stay (§7.5).
+- **Never-delete invariant.** A value that was ever an attempt's new password
+  is never deleted: it is the password (or a conflict copy of it), an open
+  attempt or a history entry, until the 32-entry limit trims the oldest
+  history entries (THREAT_MODEL R100). To keep it, clearing the history is
+  refused while an attempt is open and keeps `unconfirmed` entries younger
+  than 30 days, by the writer's clock: a writer whose clock is far behind can
+  shorten that keep (the clear is an explicit user action and the entries are
+  shown as "Not confirmed" first; a clock in the future only keeps them
+  longer). The invariant needs **every device on M7b**: an M7 build's
+  `clear_password_history` knows no `reason` and deletes `unconfirmed`
+  entries (THREAT_MODEL R100). A merge repair covers one more case: if one replica removed
+  `rotation:<id>` (it had seen the edit that created it) while another wrote
+  the key concurrently (the stage rose), the merge keeps the attempt open
+  (the delivered stage wins); if the other replica made the value the
+  password the attempt is closed, and if neither the password nor any
+  history entry holds the value any more it is added to the history as
+  `unconfirmed`. The repair is a local edit of the merging device, like the
+  delete-race repair of §10.
+- **Restore.** A history entry can be restored: its value becomes the
+  field's value, the value it replaces goes to the history as replaced, and
+  the entry is removed (its value is the field's value now). It is the
+  rollback of a change that the site applied but reported as failed.
+- **Value mark.** `secret_mark(field)` is the Lamport stamp (counter and
+  device ID, 24 bytes) of the winning entry of the field's register. It
+  changes on every write of the field and is *not* derived from the value, so
+  the local store may keep it (breach state, snooze, dismissal, §11) without
+  holding anything that depends on a password. A mark shows the writer's
+  device ID and edit counter to anyone who reads the local store, and two
+  items written by one device can have equal marks: a mark is only
+  meaningful together with vault, item and field, and rows are never keyed by
+  the mark alone (THREAT_MODEL R102, ADR-0066).
 - Trash is the field `trashed_at` inside the plaintext. The server does not
   learn it (no server-side hint, ADR-0012). A hard delete ("delete
   forever") replaces the record with its encrypted tombstone (§7.2), which
-  syncs like any edit and keeps the record's rollback anchor (§10). A
+  syncs like any edit and keeps the record's rollback anchor (§10). It is
+  refused while a rotation attempt is open (`RotationOpen`): the tombstone
+  would take the attempt's new password with it, which the never-delete
+  invariant forbids. Moving the item to the trash stays allowed, and so does
+  moving it to another vault (the copy carries the attempts). A
   record row is purged locally only once the server no longer serves the
   record either (ADR-0010).
 - **Hardware-protected TOTP vault:** a normal vault whose VK is wrapped *only*
@@ -766,12 +823,23 @@ ENTRY = {"at":ms,"c":counter,"d":DEVICE_ID,"v":VALUE, EXTRA...}
   `type`, `created_at`, `trashed_at`, `title`, `notes`, `favorite`, one key
   per typed text or secret field (`login.username`, `login.password`,
   `card.number`, ...), one key per collection element (`url:<id>`,
-  `field:<id>`, `attachment:<uuid>`, `tag:<name>`, `history:<id>`), the
+  `field:<id>`, `attachment:<uuid>`, `tag:<name>`, `history:<id>`,
+  `rotation:<id>`), the reminder interval `rotation_policy`
+  (`{"every_days":30|90|180|365}`, last writer wins), the login text field
+  `login.change_password_url` (an `https` URL on the registrable domain of
+  one of the item's URLs, checked by the editor and again when it is used),
+  the
   structured values `otp`, `passkey`, `ssh.key`, the counters
   `otp.counter` and `passkey.sign_count`, and `conflict_copy_of` (the item
   ID of the record a conflict copy was split off from, §10, ADR-0016).
   Vault metadata keys: `name`, `icon`, `description`. The table in
   `crates/core/src/model/item/` is the reference.
+- The rotation keys of M7b (`rotation:<id>`, `rotation_policy`,
+  `login.change_password_url`, and the `reason` member of a history entry)
+  are new keys of the same document: `schema_version` stays 1. An older
+  build keeps and merges them as unknown keys and ignores the `reason`
+  member (test `v1_parser_ignores_reason_key` reads an M7 golden), so no
+  device is locked out and no value is dropped.
 - A register (`[ENTRY,...]`) holds the values of one key that no replica
   has superseded yet: normally one, after concurrent edits several.
 - Unknown keys, unknown members of an entry or a structured value, and
@@ -1956,7 +2024,17 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   role, the owner account and the time access was lost), the roster ciphertext, the pending
   revocations and the sharing findings (all public data or ciphertext; none holds a key in the clear);
   v9 adds the account-key epoch (a trigger refuses a decrease), the rotation journal row, the attachment
-  re-seal list and the folder re-key floors (public values and IDs; never a secret, §6.6).
+  re-seal list and the folder re-key floors (public values and IDs; never a secret, §6.6);
+  v10 (M7b, ADR-0067, ADR-0069) adds `breach_state` (per vault, item and
+  secret field: the value mark of §7.4, the time of the check and a
+  found flag), `breach_scan` (the last scan: times, a count and an error
+  code) and `rotation_queue_state` (per item: a snooze time and the mark a
+  dismissal was made for). **No secret and no secret-derived value is stored**:
+  no password, no SHA-1 hash or prefix, no strength estimate; the mark is a
+  Lamport stamp. A row whose mark differs from the item's current mark is
+  stale and ignored; rows go with purged items and removed vaults and
+  survive a re-key and a reset of the sync state. The found flag shows a
+  disk reader which items were found in a breach (THREAT_MODEL R102).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -2044,6 +2122,14 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 
 Quick-unlock wrappings (§6.2) never leave the device.
 
+Credential rotation (M7b) and the breach check add nothing the server or the
+folder can see; an edited record's upload is visible as for any edit. A
+rotation is a burst of edits (begin, deliver, confirm) of one record, and the
+record grows by up to about 4 KiB per open attempt (four values of up to
+1024 characters), which fingerprints a rotation for the server. The breach
+check talks to Have I Been Pwned directly, never through the server
+(ADR-0067).
+
 ### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
 
 | Field | Notes |
@@ -2065,6 +2151,11 @@ Quick-unlock wrappings (§6.2) never leave the device.
 The provider, its admins and the other members of a shared folder can also
 delete, withhold or roll back files, and a provider's version history keeps
 old ciphertext and old password wrappings of AK (THREAT_MODEL R54).
+
+Credential rotation (M7b) and the breach check add nothing the server or the
+folder can see; an edited record's upload is visible as for any edit (a rotation
+shows as a burst of edits of one record, and the record grows by up to about
+4 KiB per open attempt).
 
 In short, the hosted server sees the sharing graph (THREAT_MODEL R74). A folder store never holds identity keys,
 rosters, the contact book or emergency grants (§8.6): §12.1 is unchanged.

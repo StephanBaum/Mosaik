@@ -5,6 +5,7 @@
 use mosaic_core::model::{ItemType, SecretField, TextField};
 use serde::{Deserialize, Serialize};
 
+use super::credential_rotation::{ChangeUrlView, HistoryEntryView, RotationAttemptView};
 use super::ids::{UnixMillis, WireAttachmentId, WireItemId, WireVaultId};
 use super::macros::wire_enum;
 use super::secret::{SecretIn, SecretOut};
@@ -113,6 +114,7 @@ field_key!(
         Title, Notes, Username, CardholderName, CardBrand, CardExpiry, FirstName, MiddleName,
         LastName, Email, Phone, Company, AddressLine1, AddressLine2, City, Region, PostalCode,
         Country, BirthDate, ApiKeyId, ApiKeyHost, WifiSsid, WifiSecurity, SshComment,
+        ChangePasswordUrl,
     }
 );
 
@@ -398,6 +400,16 @@ pub struct ItemDetail {
     pub otp: Option<OtpSummary>,
     /// Entries in the password history.
     pub history_count: u32,
+    /// The password history, newest first, without values (M7b).
+    pub history: Vec<HistoryEntryView>,
+    /// Open password-change attempts, oldest first, without values (M7b).
+    pub rotation_attempts: Vec<RotationAttemptView>,
+    /// Remind to change the password every 30, 90, 180 or 365 days
+    /// (`null`: no reminder).
+    pub rotation_policy: Option<u32>,
+    /// The page to change the password on (`null` unless a login with an
+    /// `https` URL). Mosaic never opens or probes it.
+    pub change_url: Option<ChangeUrlView>,
     /// Sync review state.
     pub review: ReviewState,
     /// The SSH key material, summarized (`null` unless the item has some).
@@ -780,6 +792,10 @@ pub(crate) mod samples {
                 hardware_protected: false,
             }),
             history_count: 2,
+            history: crate::contract::credential_rotation::samples::history(),
+            rotation_attempts: vec![crate::contract::credential_rotation::samples::attempt()],
+            rotation_policy: Some(90),
+            change_url: Some(crate::contract::credential_rotation::samples::change_url()),
             review: ReviewState {
                 conflicting_fields: 0,
                 deleted_concurrently: false,
@@ -807,6 +823,10 @@ pub(crate) mod samples {
             attachments: vec![],
             otp: None,
             history_count: 0,
+            history: vec![],
+            rotation_attempts: vec![],
+            rotation_policy: None,
+            change_url: None,
             passkey: Some(PasskeySummary {
                 rp_id: "example.com".into(),
                 user_name: "alex@example.com".into(),

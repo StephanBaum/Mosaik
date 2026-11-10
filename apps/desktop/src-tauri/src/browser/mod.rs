@@ -38,6 +38,8 @@ mod passkey_prompt;
 mod prompts;
 mod ratelimit;
 mod registry;
+mod rotation;
+mod rotation_prompt;
 mod save;
 
 pub(crate) use mosaic_passkey::sanitize_name;
@@ -67,6 +69,8 @@ pub(crate) use passkey::CreatePlan;
 pub use prompts::{PairOutcome, Prompts};
 pub use ratelimit::{Bucket, RateLimits};
 pub use registry::{Registry, RegistryError, label_is_valid};
+#[cfg(test)]
+pub(crate) use rotation_prompt::{RotationAnswer, RotationTicket};
 
 /// Reads the time of the prompts and the rate limits.
 pub type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;

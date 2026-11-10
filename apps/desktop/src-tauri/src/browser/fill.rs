@@ -61,6 +61,9 @@ pub(super) const fn wire(error: IpcError) -> WireError {
         ErrorCode::FieldEmpty => WireError::FieldEmpty,
         ErrorCode::NoOtp => WireError::NoOtp,
         ErrorCode::Busy => WireError::Busy,
+        ErrorCode::RotationNotFound => WireError::RotationNotFound,
+        ErrorCode::RotationLimit => WireError::RotationLimit,
+        ErrorCode::OriginNotRelated => WireError::OriginNotRelated,
         _ => WireError::Internal,
     }
 }
@@ -79,7 +82,7 @@ pub(super) fn parse_ids(vault: &str, item: &str) -> Result<(VaultId, ItemId), Wi
     Ok((vault.get(), item.get()))
 }
 
-fn non_empty(text: Option<&str>) -> Option<String> {
+pub(super) fn non_empty(text: Option<&str>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty()).map(str::to_owned)
 }
 
@@ -134,7 +137,7 @@ fn first_host(item: &Item) -> Option<String> {
         .map(|origin| origin.host_str())
 }
 
-fn username_of(item: &Item) -> Option<String> {
+pub(super) fn username_of(item: &Item) -> Option<String> {
     non_empty(item.text(TextField::Username))
 }
 
@@ -375,7 +378,7 @@ fn fillable_login(
 /// A closed hardware-protected vault is `vaultUnavailable`; anything but a
 /// live login outside the trash is `itemNotFound` (the type is not
 /// revealed).
-fn login_exists(
+pub(super) fn login_exists(
     session: &UnlockedSession,
     vault_id: VaultId,
     item_id: ItemId,
@@ -499,7 +502,7 @@ type SitePassword = (
 
 /// A password for a site: the rules the page announced if they work, else
 /// the vendored quirks for the host, else the defaults.
-fn site_password(host: &str, rules: Option<&str>) -> Result<SitePassword, WireError> {
+pub(super) fn site_password(host: &str, rules: Option<&str>) -> Result<SitePassword, WireError> {
     if host.len() > MAX_HOST_BYTES || rules.is_some_and(|r| r.len() > MAX_RULES_BYTES) {
         return Err(WireError::InvalidRequest);
     }

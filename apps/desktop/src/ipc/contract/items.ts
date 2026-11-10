@@ -3,6 +3,7 @@
  * contain a secret; `RevealedSecret.value` is the only secret here.
  */
 import type { AttachmentId, ItemId, UnixMillis, VaultId } from "./common.ts";
+import type { ChangeUrlView, HistoryEntryView, PolicyDays, RotationAttemptView } from "./credentialRotation.ts";
 
 export const itemKinds = [
   "login",
@@ -44,6 +45,7 @@ export const textFieldKeys = [
   "wifiSsid",
   "wifiSecurity",
   "sshComment",
+  "changePasswordUrl",
 ] as const;
 export type TextFieldKey = (typeof textFieldKeys)[number];
 
@@ -197,6 +199,14 @@ export interface ItemDetail {
   attachments: AttachmentEntry[];
   otp: OtpSummary | null;
   historyCount: number;
+  /** The password history, newest first, without values. */
+  history: HistoryEntryView[];
+  /** Open password-change attempts, oldest first, without values. */
+  rotationAttempts: RotationAttemptView[];
+  /** Remind every 30, 90, 180 or 365 days; `null`: no reminder. */
+  rotationPolicy: PolicyDays | null;
+  /** `null` unless a login with an https URL. Mosaic never opens or probes it. */
+  changeUrl: ChangeUrlView | null;
   review: ReviewState;
   /** `null` unless the item has SSH key material. */
   sshKey: SshKeySummary | null;

@@ -136,14 +136,14 @@ fn accepts(request: &ListItemsRequest, entry: &ItemRef<'_>) -> bool {
     }
 }
 
-fn non_empty(text: Option<&str>) -> Option<String> {
+pub(super) fn non_empty(text: Option<&str>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty()).map(str::to_owned)
 }
 
 /// The host of a URL as entered (lowercase, without scheme, user info, port,
 /// path, query or fragment). Display only; autofill matching is the
 /// extension's (brief §4) and never uses this.
-fn host_of(url: &str) -> Option<String> {
+pub(super) fn host_of(url: &str) -> Option<String> {
     mosaic_insights::url::parse(url).map(|p| p.host().to_owned())
 }
 
@@ -375,6 +375,10 @@ pub(super) fn detail(
         attachments: attachment_entries(store, item),
         otp,
         history_count: u32::try_from(item.password_history().len()).unwrap_or(u32::MAX),
+        history: super::credential_rotation::history_views(item),
+        rotation_attempts: super::credential_rotation::attempt_views(item),
+        rotation_policy: item.rotation_policy().map(u32::from),
+        change_url: super::credential_rotation::change_url_view(item),
         review: ReviewState {
             conflicting_fields: u32::try_from(item.conflicts().len()).unwrap_or(u32::MAX),
             deleted_concurrently: item.deleted_concurrently().is_some(),

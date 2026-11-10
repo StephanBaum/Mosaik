@@ -640,6 +640,262 @@ pub struct PasskeyCancelBody {
     pub request_id: String,
 }
 
+/// How far a password-change attempt got.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttemptStage {
+    /// The new password is stored; no page has seen it.
+    Prepared,
+    /// The new password was handed to a page.
+    Delivered,
+}
+
+/// One open password-change attempt of a login saved for the page's exact origin. No secret.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationMatch {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The attempt: the key suffix, at most 64 ASCII characters.
+    pub attempt_id: String,
+    /// The title (at most 256 characters).
+    #[serde(deserialize_with = "required")]
+    pub title: Option<String>,
+    /// The username.
+    #[serde(deserialize_with = "required")]
+    pub username: Option<String>,
+    /// The host of the matching saved URL.
+    pub host: String,
+    /// How far the attempt got.
+    pub stage: AttemptStage,
+    /// When it started, in Unix milliseconds.
+    pub started_at: i64,
+    /// The change page the desktop validated (https, the item's registrable domain), if any.
+    #[serde(deserialize_with = "required")]
+    pub change_url: Option<String>,
+}
+
+/// `rotationForOrigin` request: [`ListForOriginBody`] plus the origin to judge.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationForOriginBody {
+    /// The frame's origin (at most 2048 bytes).
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// The origin a change page was opened from. With it the desktop also says, without a
+    /// dialog, whether `origin` may be offered as a related address of it (the desktop's public
+    /// suffix list decides, not the extension's).
+    #[serde(deserialize_with = "required")]
+    pub related_to: Option<String>,
+}
+
+/// `rotationForOrigin` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationForOriginResult {
+    /// At most 5 attempts, newest first.
+    pub attempts: Vec<RotationMatch>,
+    /// With `relatedTo`: `origin` is https, not loopback, on the same port and the same
+    /// registrable domain as `relatedTo` (private suffixes such as `github.io` count as public
+    /// suffixes). `false` without it; the desktop's dialog decides again.
+    pub related: bool,
+}
+
+/// `rotationBegin` request.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationBeginBody {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The page's origin (top frame only).
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// The page's `passwordrules` (at most 4096 bytes), if it sets one.
+    #[serde(deserialize_with = "required")]
+    pub rules: Option<String>,
+}
+
+/// What came of a `rotationBegin`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BeginOutcome {
+    /// The user allowed it: the attempt is stored.
+    Started,
+    /// The user declined, or the dialog ended.
+    Cancelled,
+}
+
+/// `rotationBegin` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationBeginResult {
+    /// What happened.
+    pub outcome: BeginOutcome,
+    /// The new attempt, if `started`.
+    #[serde(deserialize_with = "required")]
+    pub attempt_id: Option<String>,
+}
+
+/// Which fields a change form has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeShape {
+    /// A current-password field and one or two new-password fields.
+    CurrentAndNew,
+    /// One or two new-password fields and nothing else.
+    NewOnly,
+}
+
+/// `fillChange` request.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FillChangeBody {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The attempt.
+    pub attempt_id: String,
+    /// The frame's origin.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// Which kind of frame.
+    pub frame: FrameKind,
+    /// The form's shape, as the extension classified it.
+    pub shape: ChangeShape,
+}
+
+/// `fillChange` response: the two values of one item.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FillChangeResult {
+    /// The current password (`null` for `newOnly`).
+    #[serde(deserialize_with = "required")]
+    pub current: Option<Secret>,
+    /// The attempt's new password.
+    pub new: Secret,
+}
+
+/// `fillPending` request.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FillPendingBody {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The attempt.
+    pub attempt_id: String,
+    /// The frame's origin.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// Which kind of frame.
+    pub frame: FrameKind,
+}
+
+/// `fillPending` response.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FillPendingResult {
+    /// The username.
+    #[serde(deserialize_with = "required")]
+    pub username: Option<String>,
+    /// The attempt's new password.
+    pub password: Secret,
+}
+
+/// How the user says the change went.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReportedOutcome {
+    /// The site accepted the new password.
+    Succeeded,
+    /// It did not.
+    Failed,
+}
+
+/// `rotationResult` request.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationResultBody {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The attempt.
+    pub attempt_id: String,
+    /// The frame's origin.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+    /// What the user said in the popup.
+    pub outcome: ReportedOutcome,
+}
+
+/// What the desktop dialog did with a `rotationResult`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultOutcome {
+    /// The new password became the item's password.
+    Confirmed,
+    /// The password stayed; the attempt's value went to the history.
+    KeptOld,
+    /// Nothing changed.
+    Cancelled,
+}
+
+/// `rotationResult` response.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationResultResult {
+    /// What happened.
+    pub outcome: ResultOutcome,
+}
+
+/// `rotationAddOrigin` request.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RotationAddOriginBody {
+    /// The item's vault.
+    pub vault_id: String,
+    /// The item.
+    pub item_id: String,
+    /// The attempt.
+    pub attempt_id: String,
+    /// The origin the extension opened the change page on.
+    pub from_origin: String,
+    /// The origin the tab is on now.
+    pub origin: String,
+    /// The tab's top-level origin.
+    pub top_origin: String,
+}
+
+/// What came of a `rotationAddOrigin`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AddOriginOutcome {
+    /// The URL was added to the login.
+    Added,
+    /// The user declined, or the dialog ended.
+    Cancelled,
+}
+
+/// `rotationAddOrigin` response.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotationAddOriginResult {
+    /// What happened.
+    pub outcome: AddOriginOutcome,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -799,6 +1055,91 @@ mod tests {
         ));
         assert!(rejects::<AssertionBody>(
             &assertion.replace('}', r#","privateKey":"k"}"#)
+        ));
+    }
+
+    const BEGIN: &str = r#"{"vaultId":"v","itemId":"i","origin":"https://a.example","topOrigin":"https://a.example","rules":null}"#;
+
+    #[test]
+    fn rotation_bodies_exact_keys() {
+        let body: RotationBeginBody = serde_json::from_str(BEGIN).unwrap();
+        assert_eq!(body.rules, None);
+        assert_eq!(serde_json::to_string(&body).unwrap(), BEGIN);
+        assert!(rejects::<RotationBeginBody>(
+            &BEGIN.replace(r#","rules":null"#, "")
+        ));
+        assert!(rejects::<RotationBeginBody>(
+            &BEGIN.replace('}', r#","x":1}"#)
+        ));
+        let fill = r#"{"vaultId":"v","itemId":"i","attemptId":"a","origin":"o","topOrigin":"o","frame":"top","shape":"newOnly"}"#;
+        assert!(serde_json::from_str::<FillChangeBody>(fill).is_ok());
+        assert!(rejects::<FillChangeBody>(&fill.replace("newOnly", "none")));
+        assert!(rejects::<FillChangeBody>(
+            &fill.replace(r#","shape":"newOnly""#, "")
+        ));
+        assert!(rejects::<FillChangeBody>(
+            &fill.replace('}', r#","want":{}}"#)
+        ));
+        let pending = r#"{"vaultId":"v","itemId":"i","attemptId":"a","origin":"o","topOrigin":"o","frame":"sameOriginFrame"}"#;
+        assert!(serde_json::from_str::<FillPendingBody>(pending).is_ok());
+        assert!(rejects::<FillPendingBody>(
+            &pending.replace("sameOriginFrame", "frame")
+        ));
+        let result = r#"{"vaultId":"v","itemId":"i","attemptId":"a","origin":"o","topOrigin":"o","outcome":"failed"}"#;
+        assert!(serde_json::from_str::<RotationResultBody>(result).is_ok());
+        assert!(rejects::<RotationResultBody>(
+            &result.replace("failed", "maybe")
+        ));
+        let add = r#"{"vaultId":"v","itemId":"i","attemptId":"a","fromOrigin":"o","origin":"p","topOrigin":"p"}"#;
+        assert!(serde_json::from_str::<RotationAddOriginBody>(add).is_ok());
+        assert!(rejects::<RotationAddOriginBody>(
+            &add.replace(r#""fromOrigin":"o","#, "")
+        ));
+    }
+
+    #[test]
+    fn rotation_results_are_strict_and_hide_secrets() {
+        let ok = r#"{"current":null,"new":"pw"}"#;
+        let result: FillChangeResult = serde_json::from_str(ok).unwrap();
+        assert!(result.current.is_none());
+        assert_eq!(result.new.expose_secret(), "pw");
+        assert!(!format!("{result:?}").contains("pw"));
+        assert!(rejects::<FillChangeResult>(r#"{"new":"pw"}"#));
+        assert!(rejects::<FillChangeResult>(
+            r#"{"current":null,"new":"pw","x":1}"#
+        ));
+        let pending: FillPendingResult =
+            serde_json::from_str(r#"{"username":"ada","password":"pw"}"#).unwrap();
+        assert!(!format!("{pending:?}").contains("pw"));
+        assert!(rejects::<FillPendingResult>(r#"{"password":"pw"}"#));
+        assert!(rejects::<RotationResultResult>(r#"{"outcome":"done"}"#));
+        assert!(rejects::<RotationAddOriginResult>(
+            r#"{"outcome":"added","x":1}"#
+        ));
+        assert!(rejects::<RotationBeginResult>(r#"{"outcome":"started"}"#));
+        assert!(rejects::<RotationForOriginResult>(
+            r#"{"attempts":[],"x":1}"#
+        ));
+        // Every key is present: `related` is a boolean and `relatedTo` a string or null.
+        assert!(rejects::<RotationForOriginResult>(r#"{"attempts":[]}"#));
+        let related: RotationForOriginResult =
+            serde_json::from_str(r#"{"attempts":[],"related":true}"#).unwrap();
+        assert!(related.related);
+        let ask: RotationForOriginBody = serde_json::from_str(
+            r#"{"origin":"https://a.example","topOrigin":"https://a.example","relatedTo":"https://b.example"}"#,
+        )
+        .unwrap();
+        assert_eq!(ask.related_to.as_deref(), Some("https://b.example"));
+        let bare: RotationForOriginBody = serde_json::from_str(
+            r#"{"origin":"https://a.example","topOrigin":"https://a.example","relatedTo":null}"#,
+        )
+        .unwrap();
+        assert_eq!(bare.related_to, None);
+        assert!(rejects::<RotationForOriginBody>(
+            r#"{"origin":"a","topOrigin":"a"}"#
+        ));
+        assert!(rejects::<RotationForOriginBody>(
+            r#"{"origin":"a","topOrigin":"a","relatedTo":null,"x":1}"#
         ));
     }
 }

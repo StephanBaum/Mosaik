@@ -256,4 +256,47 @@ export const ext = {
     "Mosaic braucht Zugriff auf Websites, um Logins zu bemerken, und du hast ihn nicht erlaubt.",
   "ext.error.generatedExpired":
     "Mosaic hält dieses Passwort nicht mehr. Erzeuge ein neues.",
+
+  // Passwortänderung auf der Website (M7b)
+  "ext.rotation.card.title": "Passwortänderung",
+  "ext.rotation.card.for": "Für {name}",
+  "ext.rotation.card.started":
+    "Gestartet am {when}",
+  "ext.rotation.card.delivered": "Das neue Passwort wurde schon einmal eingetragen.",
+  "ext.rotation.card.note":
+    "Das neue Passwort siehst du nur in der Mosaic-App. Mosaic sendet das Formular nie für dich ab.",
+  "ext.rotation.card.list": "Laufende Passwortänderungen",
+  "ext.rotation.change": "Passwort ändern…",
+  "ext.rotation.changeLabel": "Passwort ändern… für {name}",
+  "ext.rotation.openPage": "Änderungsseite öffnen",
+  "ext.rotation.fillChange": "Änderungsformular ausfüllen",
+  "ext.rotation.fillPending": "Neues Passwort zum Anmelden eintragen",
+  "ext.rotation.worked": "Hat geklappt",
+  "ext.rotation.failed": "Hat nicht geklappt",
+  "ext.rotation.fresh": "Mit neuem Passwort neu starten",
+  "ext.rotation.waiting": "Mosaic wartet in der App auf dich…",
+  "ext.rotation.started": "Gestartet. Wähle in der Mosaic-App „Dieses Passwort verwenden“.",
+  "ext.rotation.startCancelled": "Es wurde nichts gestartet.",
+  "ext.rotation.filled": "Änderungsformular ausgefüllt. Prüfe es und sende es selbst ab.",
+  "ext.rotation.opened": "Änderungsseite geöffnet.",
+  "ext.rotation.confirmed": "Fertig. Das neue Passwort ist jetzt in Mosaic gespeichert.",
+  "ext.rotation.keptOld": "Mosaic hat das alte Passwort behalten.",
+  "ext.rotation.resultCancelled": "Nichts geändert. Die Änderung ist weiterhin offen.",
+  "ext.rotation.offer.title": "Eine verwandte Adresse",
+  "ext.rotation.offer.body":
+    "Diese Seite liegt auf {host}, das nicht für {title} gespeichert ist. Soll Mosaic die Adresse hinzufügen, damit es dort ausfüllen kann?",
+  "ext.rotation.offer.add": "{host} hinzufügen",
+  "ext.rotation.offer.added": "Hinzugefügt. Die Änderung wird jetzt hier angezeigt.",
+  "ext.rotation.offer.cancelled": "Nicht hinzugefügt.",
+
+  "ext.error.rotationNotFound":
+    "Diese Passwortänderung ist nicht mehr offen. Starte beim Login eine neue.",
+  "ext.error.originNotRelated":
+    "Diese Adresse liegt nicht auf derselben Website wie dieser Login, deshalb hat Mosaic sie nicht hinzugefügt.",
+  "ext.error.rotationLimit":
+    "Dieser Login hat schon vier unfertige Änderungen. Schließe in der Mosaic-App zuerst eine ab oder brich sie ab.",
+  "ext.error.changeFormNotFound":
+    "Mosaic hat hier kein Formular zum Ändern des Passworts gefunden. Öffne die Passwortseite deines Kontos und versuche es erneut.",
+  "ext.error.changeFormAmbiguous":
+    "Mosaic konnte nicht erkennen, welches Feld welches ist. Kopiere das neue Passwort aus Mosaic und füge es selbst ein.",
 } satisfies Record<keyof typeof en, string>;

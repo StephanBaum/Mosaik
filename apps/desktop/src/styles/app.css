@@ -352,6 +352,12 @@ select.field__input {
   color: var(--color-danger);
 }
 
+/* The grey hover surface takes the danger text below 4.5:1 in the light theme. */
+.button--danger:hover:not(.holo) {
+  border-color: var(--color-danger);
+  background: var(--color-bg);
+}
+
 .button--dangerSolid,
 .button--dangerSolid:hover {
   border-color: var(--color-danger);

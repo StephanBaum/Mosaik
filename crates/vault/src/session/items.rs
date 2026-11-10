@@ -256,8 +256,22 @@ impl UnlockedSession {
     ///
     /// # Errors
     /// [`Error::UnknownVault`], [`Error::UnknownItem`],
-    /// [`Error::ItemDeleted`], [`Error::Store`].
+    /// [`Error::ItemDeleted`], [`Error::Core`] (`RotationOpen`) while a password
+    /// change of the item is open (its new password would be lost),
+    /// [`Error::Store`].
     pub fn purge_item(&mut self, vault_id: VaultId, item_id: ItemId) -> Result<()> {
+        let ov = self.vault(vault_id)?;
+        ov.current_key()?;
+        if !ov.live_item(item_id)?.rotation_attempts().is_empty() {
+            return Err(Error::Core(mosaic_core::Error::RotationOpen));
+        }
+        self.purge_item_unchecked(vault_id, item_id)
+    }
+
+    /// The tombstone write of [`UnlockedSession::purge_item`]. A move to
+    /// another vault ends with it: the copy in the target vault carries the
+    /// open attempts, so nothing is lost.
+    fn purge_item_unchecked(&mut self, vault_id: VaultId, item_id: ItemId) -> Result<()> {
         let ov = self.vault(vault_id)?;
         ov.current_key()?;
         let mut copy = dup_item(ov.live_item(item_id)?)?;
@@ -345,7 +359,7 @@ impl UnlockedSession {
             })?;
         }
         // 4. Only now the original becomes a tombstone.
-        self.purge_item(from, item_id)?;
+        self.purge_item_unchecked(from, item_id)?;
         Ok(new_id)
     }
 

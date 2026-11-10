@@ -83,7 +83,8 @@ tables).
 | M6 (T1 to T5 and the milestone review) | 3 | 27 | 42 | 36 | 36 |
 | M6b (T1 review, milestone review, two verify passes and the T5 UX review) | 7 | 8 | 11 | 6 | none |
 | M7 Key rotation (T1 review, milestone review, one verify pass and two UX passes) | 6 | 20 | 28 | 2 | none |
-| **Overall (M0 to M7)** | **32** | **139** | **208** | **46** | **51 recorded** |
+| M7b Credential rotation (T1 review, milestone review, extension red team, UX review) | 1 | 9 | 23 | 12 | none |
+| **Overall (M0 to M7b)** | **33** | **148** | **231** | **58** | **51 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -266,6 +267,27 @@ keystore before the commit.
 After the milestone review (R94 to R96): a folder writer can halt an adoption by planting or deleting files (recovery:
 re-key from this device or remove the planted files); a device more than 16 epochs behind must be set up again; a device
 that a re-key signed out learns that it needs the new Secret Key only from the sign-in hint (M7-R3).
+
+
+## M7b Credential rotation
+
+Status: **done.** Sources: the decision files `m7b-fix.md` and `m7b-ux-fix.md` (kept by the orchestrator), the commit
+messages named below and `docs/PROGRESS.md` ("M7b Credential rotation"). UX findings are counted as Blocker = High,
+Major = Medium, Minor = Low; red-team breaks with the severity the attacker gave them.
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-10 | T1 core and insights: crypto-reviewer on the spec text, `breach.rs`, the item rotation API and `change_url.rs` (`dfcd02e`) | opus | 0 / 2 / 6 / 6 | none | All fixed in `69b30bc`: a stamp collision can no longer drop a pending value, lock and cancel wake the breach pause at once, a reply without padding is a protocol error, plan suffixes zeroized on growth, unknown attempt members kept, the disclosure lists of R97 and §12 completed, `RangePrefix` redacted, stored change URLs reject format characters |
+| 2026-11-10 | Milestone review: crypto-reviewer over T2 to T4 (`69b30bc..b721725`) | opus | 0 / 1 / 5 / 6 | none | Fixed in `0e7491f`: turning the breach check off cancels a running scan, a lock ends a scan within about 50 ms even with a request on the wire, an RNG failure ends the scan, add-origin re-checks site and role at answer time, the result dialog names the attempt, the extension forgets a rotation tab that leaves the site, "Delete forever" refused while a change is open, copying marks the attempt delivered |
+| 2026-11-10 | extension-attacker: 41 hostile tests on the change fill (`7dd2cf5`) | opus | 0 / 0 / 4 / 0 | none | 37 held (no secret reached another origin, an http page or a look-alike; no fill without a popup click). Fixed in `0e7491f`, tests now pass: a text field with a user-name shape no longer takes the new password, the rotation-tab record is dropped on leaving the site, a port difference blocks the add-origin offer, the desktop's PSL decides relatedness |
+| 2026-11-10 | ux-reviewer on the queue, change panel, breach consent, history, browser dialogs and popup card (EN and DE, light and dark, 720×480) | opus | 1 / 6 / 8 / not recorded | none | Fixed in `a449f6e`: tab name matches its label, focus kept in four places, the purge refusal says how to finish, no parallel change from the item detail, consent text without jargon, a toast when a change stays open, undo for dismiss |
+
+Total: High 1, Medium 9, Low 23, Info 12.
+
+The headline limits (THREAT_MODEL R97 to R104): Have I Been Pwned and its CDN learn the IP address, the 5-character
+hash prefixes and their timing; a change fill gives the page the current and the new password of one item; the pending
+value syncs to all devices and shared-vault members before the site accepts it; a site may report a change wrongly, so
+every value is kept until the user decides; the never-delete rule needs every device on M7b.
 
 ## Appending a milestone
 

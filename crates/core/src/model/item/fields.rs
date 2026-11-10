@@ -2,7 +2,7 @@
 
 use core::fmt;
 
-use super::URL_PREFIX;
+use super::{HISTORY_PREFIX, URL_PREFIX};
 use crate::error::{Error, Result};
 use crate::model::clock::Timestamp;
 use crate::model::doc::check_key;
@@ -155,6 +155,9 @@ field_enum!(
         WifiSecurity => "wifi.security",
         /// SSH key comment.
         SshComment => "ssh.comment",
+        /// Login: the page where the site changes the password (https only,
+        /// related to one of the item's URLs; M7b, ADR-0070).
+        ChangePasswordUrl => "login.change_password_url",
     }
 );
 
@@ -227,27 +230,92 @@ impl fmt::Display for ElementId {
     }
 }
 
+/// The ID of one password history entry: the stored key suffix.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct HistoryId(pub(super) String);
+
+impl HistoryId {
+    /// The ID as stored after the `history:` prefix.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Wraps a stored ID (as returned by [`HistoryId::as_str`]).
+    ///
+    /// # Errors
+    /// [`Error::Malformed`] if no field key can hold it.
+    pub fn from_stored(id: &str) -> Result<Self> {
+        let mut key = String::with_capacity(HISTORY_PREFIX.len().saturating_add(id.len()));
+        key.push_str(HISTORY_PREFIX);
+        key.push_str(id);
+        check_key(&key)?;
+        Ok(Self(id.to_owned()))
+    }
+}
+
+impl fmt::Display for HistoryId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Why a value is in the password history (CRYPTO_SPEC §7.4).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum HistoryReason {
+    /// A confirmed change replaced the value (the stored entry has no
+    /// `reason` member).
+    Replaced,
+    /// The value was a new password of a credential rotation attempt that
+    /// was never confirmed: the site may still have applied it.
+    Unconfirmed,
+}
+
+impl HistoryReason {
+    /// The stored `reason` member, `None` for [`HistoryReason::Replaced`].
+    pub(super) const fn stored(self) -> Option<&'static str> {
+        match self {
+            Self::Replaced => None,
+            Self::Unconfirmed => Some("unconfirmed"),
+        }
+    }
+
+    fn parse(v: Option<&Value>) -> Self {
+        match v.and_then(Value::as_str) {
+            Some("unconfirmed") => Self::Unconfirmed,
+            // Absent, or a reason of a newer client: shown as a plain change.
+            _ => Self::Replaced,
+        }
+    }
+}
+
 /// One password history entry.
 pub struct HistoryEntry {
+    /// The entry's ID, for [`ItemEdit::restore_history`](super::ItemEdit::restore_history).
+    pub id: HistoryId,
     /// The field the value belonged to.
     pub field: SecretField,
     /// The old value.
     pub value: SecretString,
     /// When it was replaced.
     pub changed_at: Timestamp,
+    /// Why it is here.
+    pub reason: HistoryReason,
 }
 
 impl fmt::Debug for HistoryEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HistoryEntry")
+            .field("id", &self.id)
             .field("field", &self.field)
             .field("changed_at", &self.changed_at)
+            .field("reason", &self.reason)
             .finish_non_exhaustive()
     }
 }
 
 impl HistoryEntry {
-    pub(super) fn from_value(v: &Value) -> Result<Self> {
+    pub(super) fn from_value(id: String, v: &Value) -> Result<Self> {
         let o = v.as_object().ok_or(Error::Malformed)?;
         let field = o
             .get("field")
@@ -263,9 +331,11 @@ impl HistoryEntry {
             .and_then(Value::as_i64)
             .ok_or(Error::Malformed)?;
         Ok(Self {
+            id: HistoryId(id),
             field,
             value,
             changed_at: Timestamp::from_unix_millis(changed_at),
+            reason: HistoryReason::parse(o.get("reason")),
         })
     }
 }

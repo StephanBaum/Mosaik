@@ -38,6 +38,44 @@ export function hostOf(origin: string): string {
   }
 }
 
+/**
+ * A guess at the registrable domain of a host, without the public suffix list: the last two
+ * labels, or the last three when the second-level label of a two-letter country domain is short
+ * (`example.co.uk`, `example.com.au`). IP addresses and single labels have none. Only a second
+ * opinion (the desktop decides with the list): it errs towards "not related".
+ */
+export function siteOf(host: string): string | null {
+  if (host.includes(":") || host.includes("[") || /^[\d.]+$/.test(host)) {
+    return null;
+  }
+  const labels = host.toLowerCase().split(".");
+  if (labels.length < 2 || labels.some((label) => label === "")) {
+    return null;
+  }
+  const tld = labels.at(-1) ?? "";
+  const second = labels.at(-2) ?? "";
+  const keep = tld.length === 2 && second.length <= 3 && labels.length >= 3 ? 3 : 2;
+  return labels.slice(-keep).join(".");
+}
+
+/** Whether two origins are https and on the same site (the same guessed registrable domain). */
+export function sameSite(a: string, b: string): boolean {
+  if (!isSecureOrigin(a) || !isSecureOrigin(b)) {
+    return false;
+  }
+  const first = siteOf(hostOf(a));
+  return first !== null && first === siteOf(hostOf(b));
+}
+
+/** Whether two origins name the same port (the default port of https counts as one). */
+export function samePort(a: string, b: string): boolean {
+  try {
+    return new URL(a).port === new URL(b).port;
+  } catch {
+    return false;
+  }
+}
+
 // RFC 3492 bootstring parameters.
 const BASE = 36;
 const T_MIN = 1;

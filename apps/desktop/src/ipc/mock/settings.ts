@@ -11,6 +11,9 @@ export const defaultSettings: Settings = {
   theme: "system",
   language: "system",
   quickUnlockMaxAgeDays: 14,
+  breachCheck: "off",
+  breachConsentAt: null,
+  rotationReminders: true,
 };
 
 /** Like Rust `has_lock_trigger`: screen lock counts only where the system detects it. */
@@ -40,7 +43,13 @@ export const settingsHandlers: MockHandlers = {
     if (weakens(state.settings, next) && request.password !== state.account?.password) {
       fail("reauthRequired");
     }
-    state.settings = { ...next };
+    // Like Rust `normalize`: the mode and the consent go together, and turning the check off withdraws it.
+    const consented = next.breachCheck !== "off" && next.breachConsentAt !== null;
+    state.settings = {
+      ...next,
+      breachCheck: consented ? next.breachCheck : "off",
+      breachConsentAt: consented ? next.breachConsentAt : null,
+    };
     return state.settings;
   },
 };

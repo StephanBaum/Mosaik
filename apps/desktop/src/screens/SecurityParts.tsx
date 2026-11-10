@@ -20,12 +20,14 @@ const KIND_ICON = {
   old: { icon: "clock", tone: "muted" },
   missingTotp: { icon: "smartphone", tone: "muted" },
   insecureUrl: { icon: "lockOpen", tone: "warning" },
+  breached: { icon: "shieldAlert", tone: "danger" },
 } as const satisfies Record<InsightKind, { icon: IconName; tone: "danger" | "warning" | "muted" }>;
 
 export function messageOf(t: Translate, finding: InsightFinding, issue: InsightIssue): string {
   switch (issue.kind) {
     case "weak":
     case "old":
+    case "breached":
       return t(`insights.finding.${issue.kind}`);
     case "reused":
       return t("insights.finding.reused", { count: finding.reusedWith.length });

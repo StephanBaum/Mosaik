@@ -7,6 +7,7 @@ use tauri::State;
 use crate::browser::parse_id;
 use crate::contract::browser::{
     BrowserPairingRespondRequest, BrowserPasskeyRespondRequest, BrowserRemovePairingRequest,
+    BrowserRotationRespondRequest, BrowserRotationRevealRequest, BrowserRotationRevealed,
     BrowserSaveRespondRequest, BrowserStatus,
 };
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
@@ -55,6 +56,28 @@ pub async fn browser_passkey_respond(
 ) -> IpcResult<()> {
     state
         .run(move |b| b.browser_passkey_respond(&request))
+        .await
+}
+
+/// `browser_rotation_respond`.
+#[tauri::command]
+pub async fn browser_rotation_respond(
+    state: State<'_, AppState>,
+    request: BrowserRotationRespondRequest,
+) -> IpcResult<()> {
+    state
+        .run(move |b| b.browser_rotation_respond(&request))
+        .await
+}
+
+/// `browser_rotation_reveal`.
+#[tauri::command]
+pub async fn browser_rotation_reveal(
+    state: State<'_, AppState>,
+    request: BrowserRotationRevealRequest,
+) -> IpcResult<BrowserRotationRevealed> {
+    state
+        .run(move |b| b.browser_rotation_reveal(&request))
         .await
 }
 
@@ -123,5 +146,41 @@ impl Backend {
     pub fn browser_passkey_respond(&self, request: &BrowserPasskeyRespondRequest) -> IpcResult<()> {
         self.touch();
         self.browser.shared().respond_passkey(self, request)
+    }
+}
+
+impl Backend {
+    /// Answers the rotation prompt: an `allow` stores the generated password
+    /// as a new attempt of the login, a `confirm` or `keepOld` closes one, an
+    /// `addOrigin` adds the address (all write the vault before the answer
+    /// reaches the browser). `regenerate` keeps the prompt open with a new
+    /// password.
+    ///
+    /// # Errors
+    /// `browserRequestExpired`, `browserAllowTooSoon` (the request stays
+    /// open), `invalidInput` (a decision that does not fit the request),
+    /// `itemNotFound`, `vaultUnavailable`, `rotationNotFound`,
+    /// `rotationLimit`, `originNotRelated`, `sharingRoleForbidden`, `locked`:
+    /// the request stays open after all of them except the first.
+    pub fn browser_rotation_respond(
+        &self,
+        request: &BrowserRotationRespondRequest,
+    ) -> IpcResult<()> {
+        self.touch();
+        self.browser.shared().respond_rotation(self, request)
+    }
+
+    /// The generated password of an open `begin` request, to show it in the
+    /// dialog.
+    ///
+    /// # Errors
+    /// `browserRequestExpired` (no such open request), `invalidInput` (not a
+    /// `begin`).
+    pub fn browser_rotation_reveal(
+        &self,
+        request: &BrowserRotationRevealRequest,
+    ) -> IpcResult<BrowserRotationRevealed> {
+        self.touch();
+        self.browser.shared().reveal_rotation(request)
     }
 }

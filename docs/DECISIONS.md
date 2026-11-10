@@ -4444,3 +4444,158 @@ The verify round of ADR-0063 found that a marker forged by a holder of the old A
 
 ### Consequences
 THREAT_MODEL R92 to R94 amended, R95 and R96 added. The desktop maps `EpochJumpTooLarge` to "set this device up again", lists "Ignored re-key notices" with a Restore button, and no longer calls `raise_epoch_to`.
+
+## ADR-0065: M7b scope: guided password change, opt-in breach check, rotate-now queue
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+The brief (§5 "Password rotation", "Security dashboard") asks for a semi-automatic password change through the extension, a Have I Been Pwned check and a rotate-now queue, and names connectors as a later tier. M7 closed with ADR-0064 and R96.
+
+### Decision
+- **In scope:** (1) a guided change for logins with an `https` URL: an attempt stores the new password in the item before anything reaches the site (ADR-0066), the extension fills the change form after a popup click (ADR-0068), the user submits and confirms the result in the desktop (the brief's rollback is Restore from the history); (2) the breach check against the HIBP range API, off by default, only from the unlocked desktop (ADR-0067); (3) the rotate-now queue fed by insights plus unfinished attempts, with snooze, dismiss and optional per-item reminders (ADR-0069).
+- **Out of scope:** tier 2 connectors (plugin system, reference connectors, scheduled automatic rotation); automatic submission and site-specific scraping (Mosaic never submits and never reads a page's success text); passkey upgrade suggestions; a desktop URL opener (the build has none on purpose, red-team test `the_build_has_no_devtools_remote_ipc_asset_protocol_or_url_opener`); any server change; background network requests without opt-in; OS notifications; CLI commands; guided change of non-login secrets (the queue lists them with "Edit item" only).
+- **Constraints for a later connector spec:** a connector runs out of process; it has a typed manifest (what it may reach, what it may read); it never scrapes a page; one item per connector. Connectors bring a network client, remote credentials and a sandbox, and `russh` or DB drivers add crypto dependencies, so they need their own spec and a crypto review.
+- No server change: a rotation is an ordinary item edit.
+
+### Alternatives considered
+- Connectors in M7b: too much new attack surface for one milestone.
+- A desktop opener for the change page: would add a dependency and change the red-team surface test for little gain over "copy link" and the extension's tab update.
+
+### Consequences
+THREAT_MODEL R97 to R104. CRYPTO_SPEC §2, §7.4, §7.5, §11, §12, §12.1.
+
+## ADR-0066: Rotation attempts in the item plaintext
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+A password change has a window in which the site may already have applied the new password while Mosaic still shows the old one (the user closes the tab, the browser or the app crashes, the site shows an error after it applied the change). The new value must survive in every case, and two devices may start attempts at the same time.
+
+### Decision
+- **Invariant:** Mosaic never deletes a value that was ever an attempt's new password, and never replaces the current password without a confirmation in trusted UI (the desktop window or a desktop dialog).
+- **Format:** one document key per attempt, `rotation:<id>` (CRYPTO_SPEC §7.4), `<id>` the element ID of the creating edit, so attempts never collide and the stamp ordering and delete-race repair of ADR-0016 apply. `rotation_policy` (register), `login.change_password_url` (text field) and an optional `reason` on history entries are new keys; `schema_version` stays 1 and older builds keep unknown keys (§7.5).
+- **Outcomes:** it worked: the value becomes the password, the old one goes to the history (`replaced`), every other open attempt to the history (`unconfirmed`); it didn't work: the attempt's value to the history (`unconfirmed`); not sure, app crash, browser crash: the attempt stays in the item, syncs, login fill keeps using the current password; two devices: both attempts survive, confirming one moves the other to the history.
+- **Limits:** at most 4 open attempts per item (`Error::TooManyAttempts`), value 1 to 1024 characters. `clear_password_history` refuses while an attempt is open (`Error::RotationOpen`) and keeps `unconfirmed` entries younger than 30 days. The 32-entry history limit still trims the oldest entries (THREAT_MODEL R100).
+- **Stage only rises:** `prepared` to `delivered`; the item reads the highest stage of any live entry. A merge where one replica closed the attempt and another marked it delivered keeps the attempt (delivered wins); the repair closes it when the value already is the password and adds the value to the history as `unconfirmed` when nothing else holds it.
+- **Restore:** a history entry's value becomes the password; the replaced value goes to the history; the restored entry is removed.
+- **`secret_mark`:** the Lamport stamp of the winning entry of a secret field (24 bytes). It names "this value of the field" for the breach state, snooze and dismissal without being derived from the value. It shows the writer's device ID and edit counter in the local store and can be equal across items, so it is only used together with vault, item and field (R102). A per-item random mark that is regenerated on every secret change would need a new synced key and a merge rule for concurrent changes; the leak is small and local, so the stamp stays.
+- **Every entry counts:** under device-ID reuse (ADR-0015) one `rotation:<id>` register can hold two different `pending` values. The collision repair spreads them to keys of their own, deliver keeps entries with other values, confirm and fail move every distinct value to the history, and close or deliver rewrite only `stage` (unknown members stay).
+- **Older builds:** an M7 build's `clear_password_history` deletes `unconfirmed` entries; the invariant needs every device on M7b (R100).
+- **API detail (core):** `RotationAttemptId` is `Copy` (stamp and sequence number); `HistoryEntry` gains `id` and `reason`.
+
+### Alternatives considered
+- One `rotation` object holding a list: concurrent attempts would be a field conflict and one value could be superseded.
+- Keeping the pending value outside the item (local store): it would not survive a second device and a lost device's attempt could not be resolved elsewhere.
+- Storing the breach result in the item: one upload per finding, none for viewers of a shared vault, and plaintext churn for a derived fact (OD-M7b-9).
+
+### Consequences
+THREAT_MODEL R100, R101 and R104. The vault layer (`Session::begin_rotation` and others) commits locally before it returns.
+
+## ADR-0067: Breach check: opt-in, k-anonymity, direct, no server proxy
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+The brief wants a Have I Been Pwned (HIBP) check with k-anonymity and a strict opt-in. A proxy on the user's own server would hide the IP address from HIBP.
+
+### Decision
+- **Hash:** SHA-1 of the stored password's UTF-8 bytes (no normalization, as HIBP does), upper-case hex in a zeroizing buffer; the first 5 characters are the prefix, the other 35 the suffix. SHA-1 is HIBP's identifier of a leaked password, not a Mosaic security primitive; the `sha1` crate is the one TOTP uses and CRYPTO_SPEC §2 lists it for this. No new crypto dependency.
+- **Plan:** live logins and Wi-Fi items with a password, outside the trash, not conflict copies, whose `breach_state` row is missing, stale (the mark differs) or older than 30 days. Attempt values are not checked. Prefixes are deduplicated.
+- **Requests:** `GET https://api.pwnedpasswords.com/range/{prefix}`, header `Add-Padding: true`, `User-Agent: Mosaic` (no version; kept, HIBP's API expects one, and R97 says what it shows), nothing else; one at a time, prefixes shuffled (Fisher-Yates, the generator CSPRNG), a random 100 to 400 ms pause, 10 s timeout, body cap 256 KiB. Transport: `mosaic_sync::http::pwned::RangeClient` on the existing `tls_config()` (TLS 1.3, OS trust store, ADR-0046), fixed host.
+- **Parse:** `SUFFIX:COUNT` lines (CRLF or LF); count 0 is padding, and a body without one padding line (an empty or cut-off answer) is `Protocol`, never "not breached"; the transport rejects a body above the cap and never truncates it; any other line makes the prefix unchecked (`Protocol`); every wanted suffix is compared with every line in constant time (`subtle`); only "found" is kept, never the count.
+- **Errors:** offline stops and keeps finished results; a 429 waits `Retry-After` (at most 60 s; a larger value stops at once) once **per run**, then stops with `RateLimited`; lock or cancel stops at once and the plan, which holds the suffixes, is zeroized on drop. The pure part has a pause hook `FnMut(ms) -> bool` that waits on the cancel flag and returns `false` when cancelled (so a pause never keeps the plan in memory after a lock), which also keeps the tests from sleeping. A future `checked_at` counts as stale.
+- **Opt-in:** settings `breachCheck: "off" | "manual" | "weekly"` (default `off`) and `breachConsentAt`, both under the settings MAC (ADR-0030): an outside edit of `settings.json` resets them, so it cannot switch requests on. The consent dialog names the service, what it sees (IP address and the prefixes, never a password) and that results stay on this device. `manual`: only "Check now". `weekly`: 60 s after an unlock if the last scan is older than 7 days. Never while locked; nothing else triggers a request; no retry loop offline.
+- **Cache:** `breach_state` in the local store (CRYPTO_SPEC §11): the value mark, the time and a found flag, no prefix and no hash.
+- **Direct call, not a proxy.** A proxy on the user's own server would hide the IP from HIBP but give the server, which the threat model treats as possibly hostile, every prefix tied to an authenticated account, outside CRYPTO_SPEC §12. HIBP sees an IP and prefixes, no account. Users who want to hide the IP use a VPN or an OS proxy. The extension never calls HIBP (`connect-src 'none'` stays) and the website never handles passwords.
+- Insights: `FindingKind::Breached` (severity `High`, action `ChangePassword`), fed through `analyze_with` and an `Extra` that holds the breached item keys; `analyze` is unchanged. `Old` uses the item's reminder interval when it has one.
+
+### Alternatives considered
+- A relay on the user's server (OD-M7b-2): adds every prefix to CRYPTO_SPEC §12 and ties it to an account.
+- Weekly by default once consented (OD-M7b-3): a standing request pattern the user did not ask for each time.
+- The found flag in the item plaintext (OD-M7b-9): see ADR-0066.
+
+### Consequences
+THREAT_MODEL R97, R98 and R102. A new fuzz target `pwned_range` for the response parser.
+
+## ADR-0068: Extension change-form fill
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+The extension fills a change-password form with the current and the new password of one item (brief §4: a trusted gesture, exact-origin matching, no cross-origin iframe fills, content scripts get one credential only).
+
+### Decision
+- **Gesture:** a change fill starts only from a popup click (OD-M7b-8); opening the change URL injects nothing, a page cannot start anything.
+- **Origin:** the desktop requires `MatchKind::Exact` and `https` (the per-item HTTP override does not apply; an eTLD+1 match is `originMismatch` here) and the origin comes from the browser, never from the page.
+- **Frames:** `decideFrame` refuses cross-origin frames before the desktop is asked; same-origin frames need `confirmFrame`.
+- **Classification before any secret is requested:** the content script classifies the form (`none`, `ambiguous`, `currentAndNew`, `newOnly`) by `autocomplete` tokens, a three-password-field shape or labelled new/confirm/current patterns; it refuses ambiguity, a field in two classes and a password input in neither class, and classifies again at fill time: a changed shape or field identity fills nothing. The user-name field is never touched and the form is never submitted.
+- **One credential per content script, read as one item:** the content script receives the two values of **one** item (current and new), for one frame and one document, in one message. This is the reading of brief §4.5 that the change form needs; it is no more than one login's secrets.
+- **Delivery marks:** `fillChange` and `fillPending` mark the attempt delivered before they answer. Start, result and add-origin open a desktop dialog (1 s Allow guard, 300 s timeout, one at a time, 3 per 60 s) that decides; the popup port is the only sender.
+- **Redirect to a related origin** is offered only in a tab the extension sent from the item's origin, and the desktop decides: same registrable domain as an `https` item URL and as the origin it came from, not a public suffix, `https`, not loopback (OD-M7b-5, THREAT_MODEL R103).
+
+### Alternatives considered
+- Filling on page load or on a keyboard shortcut in the page (OD-M7b-8): not a trusted gesture.
+- Two separate messages for the current and the new password: more states, no more safety.
+
+### Consequences
+THREAT_MODEL R99 and R103. Hostile pages for each attack of the spec's list under `apps/extension/e2e/hostile/`.
+
+**Review round (M7b, after the milestone review and the red-team run).** Changes that keep the decisions above and tighten them:
+
+- The offer to add a related address needs the desktop's verdict (`rotationForOrigin` with `relatedTo`, a dialog-free `related` answer from the public suffix list, https, not loopback, the same port); the extension's `siteOf` is only a pre-filter. The tab record is dropped when the tab leaves the site, is replaced or closed. The add-origin answer checks the role, the site and the open attempt again and writes through `add_origin_during_rotation` (role-checking). THREAT_MODEL R103.
+- A text field with a password token is a toggle only if it is alone in its role and does not look like a user name; the popup confirms the frame of the change form (`changeFrame`), not the sign-in form's.
+- Save capture hook: a capture on the exact origin whose password equals an open attempt's pending value is that attempt's "It worked" dialog, compared in constant time in Rust (`proposeSave` is unchanged on the wire). A differing capture shows the normal save prompt and leaves the attempt open.
+- "Delete forever" is refused while an attempt is open (`RotationOpen`, desktop code `rotationOpen`); the trash and a move stay allowed. `rotation_copy` marks the attempt delivered. The result dialog names the attempt it closes (start time, stage, other open attempts).
+- The breach scan ends at once on lock, on turning the check off and on quit: requests run on helper threads that the scan waits on together with the cancel flag, so the plan of hash suffixes is dropped while a request is on the wire; a failing random number generator ends the scan (`protocol`) instead of using a fixed order; the response buffer is sized once so no unzeroized copy is left by growth.
+
+## ADR-0069: Rotate-now queue and reminders: local state bound to the password mark
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+Users need a list of what to change first and a way to put items aside without losing the finding.
+
+### Decision
+- The queue is computed on the device from the insights report (weak, reused, old, breached) and the open attempts (unfinished change). Rows: title, user name, host, reasons, severity; "Change password", "Snooze" (1, 7 or 30 days), "Dismiss" (until the password changes).
+- **Local state, bound to the password mark:** `rotation_queue_state` (CRYPTO_SPEC §11) holds a snooze time and the mark a dismissal was made for. A dismissal lasts while the item's `secret_mark` is the stored one, so a new password revives the finding; the state is not synced and holds nothing derived from a secret.
+- **Reminders:** an optional per-item interval (`rotation_policy`: 30, 90, 180 or 365 days, in the item, synced) replaces the global 365 days for the "old" finding; the app shows a count (toast and badge) after unlock when `rotationReminders` is on (default on). **No network request happens for reminders**, and no OS notification.
+- Items that are not logins appear with "Edit item" only.
+
+### Alternatives considered
+- Storing snooze and dismissal in the item: an upload per click and a conflict surface for a view preference.
+- A background scheduler: no network and no notification are needed for a count after unlock.
+
+### Consequences
+THREAT_MODEL R102 (the local rows show a disk reader which items are snoozed).
+
+## ADR-0070: Change-page URL resolution
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M7b
+
+### Context
+The user (or the extension) needs the page where a site changes its password, found without a request from the desktop.
+
+### Decision
+`mosaic_insights::change_url::resolve(item)` tries, in order: (1) `stored`: the item's `login.change_password_url`, if it is an `https` URL without user info or whitespace whose registrable domain is one of the item's `https` URLs (else ignored, and the editor shows a form error); (2) `quirks`: Apple's Password Manager Resources `quirks/change-password-URLs.json`, keyed by the item host or its parent domains; (3) `wellKnown`: `https://<origin of the first https item URL>/.well-known/change-password`.
+- **Vendored data** (`crates/insights/data/change-password-URLs.json`, 805 entries, SHA-256 `62838bb54084663e5dad60396c0008b78d13584955e1e9df0c5b93a0237cf2b0`): MIT, Copyright 2020 - 2026 Apple Inc., the same upstream repository and license file as the generator's `password-rules.json` (copied next to the data). The loader keeps only entries with a DNS-name key and a clean `https` URL.
+- **No probe request.** The W3C draft's "status check" would be a request from the desktop to the site. A site without support shows its own 404 in the user's tab; the user navigates by hand. The desktop never opens the URL (no opener, ADR-0065); the extension opens it with `tabs.update` only for the tab origin's well-known URL or an `https` URL on the tab's registrable domain.
+
+### Alternatives considered
+- Probing `/.well-known/change-password` with a deliberately non-existent path as the draft suggests: a desktop request to every site.
+- Well-known and stored URLs only (OD-M7b-7): loses the sites whose change page is not at the well-known path.
+
+### Consequences
+The data is crowdsourced and may be outdated: a wrong URL costs the user one click. Updates come with releases (`crates/insights/data/README.md`).

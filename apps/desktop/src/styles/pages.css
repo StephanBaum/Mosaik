@@ -664,3 +664,75 @@
   font-size: var(--font-size-sm);
   line-height: var(--line-height-sm);
 }
+
+/* Credential rotation (M7b): the Security tabs, the rotate-now queue, the breach card and the
+   item's change banner and history. */
+
+.security-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.tab-badge {
+  margin-inline-start: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-selected);
+  font-size: var(--font-size-xs);
+}
+
+.queue__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.queue__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.breach {
+  max-width: var(--size-dialog-wide);
+}
+
+.breach__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.breach__status {
+  margin: 0;
+}
+
+.rotation-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) calc(var(--space-4) + var(--space-1));
+  border: var(--border-width-hairline) solid var(--color-warning-border);
+  border-radius: var(--radius-field);
+  background: var(--color-warning-subtle);
+}
+
+.rotation-banner__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.history__entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.history__entry .row {
+  flex: 1 1 calc(var(--space-9) * 3);
+  border-bottom: 0;
+  padding: var(--space-3) 0;
+}

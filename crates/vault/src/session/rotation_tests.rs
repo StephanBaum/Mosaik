@@ -1584,3 +1584,72 @@ fn dismissed_files_are_remembered() {
     s.reset_sync_state().unwrap();
     assert!(!s.file_dismissed("a/x/account/account.macct", &sha).unwrap());
 }
+
+/// The breach cache, the scan summary and the queue's rows (schema v10) hold no key
+/// material, so neither a vault key rotation nor an account re-key touches them (M7b).
+#[test]
+fn credential_rotation_rows_survive_a_rekey_and_a_vault_key_rotation() {
+    use mosaic_core::Timestamp;
+    use mosaic_core::model::SecretField;
+    use mosaic_insights::ItemKey;
+    use mosaic_insights::breach::{BreachField, BreachResult};
+
+    use super::ScanSummary;
+
+    let (mut s, sk) = account();
+    let v = synced_vault(&mut s, "Personal");
+    let item = s
+        .add_item(v, &ItemType::Login, |e| {
+            e.set_title("Bank")?;
+            e.set_secret(SecretField::Password, "p1")
+        })
+        .unwrap();
+    let key = ItemKey {
+        vault_id: v,
+        item_id: item,
+    };
+    let at = Timestamp::from_unix_millis;
+    let mark = s
+        .item(v, item)
+        .unwrap()
+        .secret_mark(SecretField::Password)
+        .unwrap();
+    s.record_breach_results(
+        &[BreachResult {
+            key,
+            field: BreachField::LoginPassword,
+            mark,
+            checked_at: at(1_000),
+            found: true,
+        }],
+        ScanSummary {
+            started_at: at(900),
+            finished_at: Some(at(1_100)),
+            checked: 1,
+            error: None,
+        },
+    )
+    .unwrap();
+    s.snooze_rotation(v, item, at(10_000)).unwrap();
+    s.dismiss_rotation(v, item).unwrap();
+
+    let check = |s: &UnlockedSession| {
+        assert_eq!(s.store.breach_rows().unwrap().len(), 1);
+        assert_eq!(s.store.queue_rows().unwrap().len(), 1);
+        assert!(s.breach_scan().unwrap().is_some());
+        assert!(
+            s.breach_states()
+                .unwrap()
+                .get(key, BreachField::LoginPassword)
+                .unwrap()
+                .found
+        );
+        assert!(s.queue_states().unwrap().hides(key, at(0)));
+    };
+    check(&s);
+    s.rotate_vault_key(v).unwrap();
+    check(&s);
+    let done = rekey(&mut s, &sk, RekeyPlan::default());
+    let s = relock(s, &pw2(), &done.new_sk);
+    check(&s);
+}

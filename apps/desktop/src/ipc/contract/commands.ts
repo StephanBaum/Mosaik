@@ -8,10 +8,12 @@ import type {
   BrowserPairingRespondRequest,
   BrowserPasskeyRespondRequest,
   BrowserRemovePairingRequest,
+  BrowserRotationCommands,
   BrowserSaveRespondRequest,
   BrowserStatus,
 } from "./browser.ts";
 import type { CopyReceipt, CopyRequest } from "./clipboard.ts";
+import type { CredentialRotationCommands } from "./credentialRotation.ts";
 import type { ExportPasskeysRequest, PasskeysExported } from "./export.ts";
 import type { Generated, GenerateRequest } from "./generator.ts";
 import type {
@@ -142,7 +144,7 @@ interface Command<Req, Res> {
   response: Res;
 }
 
-export interface Commands {
+export interface Commands extends CredentialRotationCommands, BrowserRotationCommands {
   // Session
   session_state: Command<null, SessionState>;
   create_account: Command<CreateAccountRequest, CreatedAccount>;
@@ -359,6 +361,8 @@ const commandSet = {
   browser_pairing_respond: true,
   browser_save_respond: true,
   browser_passkey_respond: true,
+  browser_rotation_respond: true,
+  browser_rotation_reveal: true,
   sync_status: true,
   sync_check_server: true,
   sync_hosted_connect: true,
@@ -389,6 +393,18 @@ const commandSet = {
   rekey_commit: true,
   rotation_resume: true,
   rotation_abandon: true,
+  rotation_queue: true,
+  rotation_begin: true,
+  rotation_close: true,
+  rotation_reveal: true,
+  rotation_copy: true,
+  password_history_restore: true,
+  rotation_snooze: true,
+  rotation_dismiss: true,
+  rotation_undismiss: true,
+  rotation_set_policy: true,
+  breach_scan_start: true,
+  breach_scan_cancel: true,
   rotation_abandon_committed: true,
   sync_rekey_markers: true,
   sync_dismiss_rekey_marker: true,

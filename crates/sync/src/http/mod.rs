@@ -5,6 +5,7 @@
 //!   system's trust store);
 //! - [`hosted`]: the account functions over OPAQUE (register, login, the
 //!   second factor, join from a new device, master password change);
+//! - [`pwned`]: the HTTPS client of the opt-in breach check (M7b, ADR-0065);
 //! - [`canonical_origin`]: the server URL rule (`https`, or `http` to a
 //!   loopback address only).
 //!
@@ -14,6 +15,7 @@
 mod backend;
 mod client;
 pub mod hosted;
+pub mod pwned;
 mod sharing;
 
 pub use backend::HttpTransport;

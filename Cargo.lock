@@ -3022,11 +3022,14 @@ dependencies = [
  "hmac 0.13.0",
  "mosaic-core",
  "mosaic-generator",
+ "mosaic-origin",
  "proptest",
  "serde_json",
+ "sha1",
  "sha2 0.11.1",
  "subtle",
  "thiserror 2.0.21",
+ "url",
  "zeroize",
 ]
 
@@ -3147,6 +3150,7 @@ dependencies = [
  "idna",
  "libc",
  "mosaic-core",
+ "mosaic-insights",
  "mosaic-server",
  "mosaic-totp",
  "mosaic-vault",
@@ -3184,6 +3188,8 @@ name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
  "mosaic-core",
+ "mosaic-insights",
+ "mosaic-origin",
  "mosaic-totp",
  "proptest",
  "rusqlite",

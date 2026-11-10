@@ -40,4 +40,6 @@ export function memorySession(): SessionStore {
 export const pendingSaveKey = (tabId: number): string => `pendingSave:${String(tabId)}`;
 export const PENDING_SAVE_PREFIX = "pendingSave:";
 export const lastFilledKey = (tabId: number): string => `lastFilled:${String(tabId)}`;
+/** A tab the extension sent to a change page (`background/rotation.ts`). */
+export const rotationTabKey = (tabId: number): string => `rotationTab:${String(tabId)}`;
 export const lastErrorKey = (tabId: number): string => `lastError:${String(tabId)}`;

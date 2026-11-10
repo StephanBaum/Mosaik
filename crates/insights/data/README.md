@@ -44,3 +44,36 @@ domains such as `co.xx` (`every_public_suffix_like_domain_is_exact_only`).
   fetched at run time; updates come with Mosaic releases.
 - Caveat from upstream: the data is crowdsourced and may be outdated. A
   missing-2FA finding is a hint, rated `Medium`, never a blocker.
+
+## `change-password-URLs.json`
+
+- What: Apple's Password Manager Resources quirks file that maps a domain to
+  the URL of the site's change-password page (M7b, ADR-0070). An object of
+  `"domain": "https://..."` pairs, 805 entries. Mosaic reads it in
+  `src/change_url.rs`: the key is looked up as the host of an item URL and as
+  each of its parent domains (down to two labels); an entry whose key is not a
+  DNS name or whose value is not a clean `https` URL is skipped by the loader.
+- Source: <https://github.com/apple/password-manager-resources>, file
+  `quirks/change-password-URLs.json`, downloaded 2026-11-10 from
+  `raw.githubusercontent.com/apple/password-manager-resources/main/`. The
+  file's last upstream change is commit
+  `e6a7cf40fe91aa8897b1be07b0ab416332c31488` (2026-11-03); `main` was
+  `316412ba01dba1d84dc52d51267f503964638e20` that day (it does not touch this
+  file). Kept byte-for-byte as downloaded.
+- SHA-256: `62838bb54084663e5dad60396c0008b78d13584955e1e9df0c5b93a0237cf2b0`
+  (test `data_matches_recorded_sha256`).
+- License: MIT, Copyright 2020 - 2026 Apple Inc., the same repository and
+  license as `crates/generator/data/password-rules.json`. The license text is
+  copied unchanged to
+  [`password-manager-resources-LICENSE.md`](password-manager-resources-LICENSE.md)
+  and must stay next to the data file (the MIT license requires the notice to
+  ship with copies). The generator's copy is
+  `crates/generator/data/password-manager-resources-LICENSE.md`.
+- Decision: redistribution is permitted (MIT), so Mosaic ships the data (spec
+  M7b section 2.4, OD-M7b-7). Nothing is fetched at run time; the URLs are
+  never requested by Mosaic either: the user opens one in the browser, or the
+  extension does, on a user action. The data is crowdsourced and may be
+  outdated; a wrong URL costs the user one click.
+- To update: download the file again, check the license, update the SHA-256
+  and the entry count here and in the test, and run
+  `cargo test -p mosaic-insights change_url`.

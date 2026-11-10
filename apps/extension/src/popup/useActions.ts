@@ -23,6 +23,8 @@ export interface Actions {
   fillOtp: (item: ItemKey, confirm: FrameRef | null) => Promise<void>;
   copy: (source: CopySource) => Promise<void>;
   openDesktop: () => Promise<void>;
+  /** "Change password…": the desktop shows the generated password and asks. */
+  startChange: (item: ItemKey) => Promise<void>;
   /** Announces an error code's text. */
   fail: (error: unknown) => void;
 }
@@ -61,6 +63,16 @@ export function useActions(): Actions {
           );
         } catch (error) {
           fail(error);
+        }
+      },
+      startChange: async (item) => {
+        try {
+          const { outcome } = await api.request({ op: "rotationBegin", vaultId: item.vaultId, itemId: item.itemId });
+          announce(t(outcome === "started" ? "ext.rotation.started" : "ext.rotation.startCancelled"));
+        } catch (error) {
+          fail(error);
+        } finally {
+          await refresh();
         }
       },
       openDesktop: async () => {

@@ -4,6 +4,7 @@
  * parameters and locals, and the caller drops its references right after.
  */
 import type { FillSummary } from "../shared/messages.ts";
+import type { ChangeClassification } from "./change.ts";
 import type { Detection } from "./detect.ts";
 
 /** The DOM's own `value` setter. Called in the extension's isolated world, it skips any setter the page installed on the element. */
@@ -82,4 +83,25 @@ export function fillNewPasswords(detection: Detection, password: string): FillSu
     setFieldValue(field, password);
   }
   return { username: 0, password: 0, otp: 0, newPassword: detection.newPassword.length };
+}
+
+/**
+ * Fills a change form: the current password into the current field, the new password into the new
+ * and the confirmation field. The user name is never touched and the form is never submitted.
+ */
+export function fillChangeFields(
+  form: ChangeClassification,
+  values: { current: string | null; next: string },
+): FillSummary {
+  const summary: FillSummary = { username: 0, password: 0, otp: 0, newPassword: 0 };
+  const [current] = form.current;
+  if (values.current !== null && current !== undefined) {
+    setFieldValue(current, values.current);
+    summary.password = 1;
+  }
+  for (const field of form.next) {
+    setFieldValue(field, values.next);
+    summary.newPassword++;
+  }
+  return summary;
 }

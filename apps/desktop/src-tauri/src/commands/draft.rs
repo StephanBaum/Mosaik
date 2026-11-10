@@ -211,6 +211,21 @@ pub fn prepare(draft: ItemDraft, pending: Option<(OtpConfig, u64)>) -> IpcResult
         {
             return Err(invalid());
         }
+        // The change-page URL is opened by the user's browser, so it is an
+        // `https` URL of reasonable length. Whether it belongs to the
+        // login's site is checked when it is used (`change_url::resolve`
+        // ignores one that does not).
+        if field == TextField::ChangePasswordUrl
+            && value.as_deref().is_some_and(|v| {
+                v.len() > MAX_URL_LEN
+                    || v.chars().any(char::is_control)
+                    || !v
+                        .get(..8)
+                        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+            })
+        {
+            return Err(invalid());
+        }
         text.push((field, value));
     }
     let mut secrets = Vec::with_capacity(draft.secrets.len());

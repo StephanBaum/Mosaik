@@ -12,6 +12,7 @@ export type FieldInput =
   | "text"
   | "email"
   | "tel"
+  | "url"
   | "date"
   | "cardNumber"
   | "expiry"
@@ -69,6 +70,7 @@ export const KIND_LAYOUT: Record<CreatableKind, readonly FieldSpec[]> = {
   login: [
     text("username", "text", { copy: true }),
     secret("password", "password", { copy: true, generator: true }),
+    text("changePasswordUrl", "url", { copy: true }),
   ],
   totp: [],
   secureNote: [],

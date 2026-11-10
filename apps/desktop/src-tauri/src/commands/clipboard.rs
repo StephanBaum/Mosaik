@@ -140,6 +140,15 @@ impl Backend {
                 field_value(slot.unlocked_mut()?, vault_id.get(), item_id.get(), &field)?
             }
         };
+        self.copy_secret(value)
+    }
+
+    /// Writes `value` to the clipboard and schedules the clear (the part of
+    /// every copy that follows reading the value).
+    ///
+    /// # Errors
+    /// `clipboardUnavailable`.
+    pub(crate) fn copy_secret(&self, value: SecretString) -> IpcResult<CopyReceipt> {
         self.touch();
         let seconds = self.settings_snapshot().clipboard_clear_seconds;
         let clear_after = seconds.map(|s| Duration::from_secs(u64::from(s)));

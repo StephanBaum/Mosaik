@@ -12,7 +12,9 @@
 //! | `field:<id>` | a [`CustomField`] |
 //! | `attachment:<uuid>` | an [`AttachmentRef`] |
 //! | `tag:<name>` | `true` |
-//! | `history:<id>` | a password history entry |
+//! | `history:<id>` | a password history entry (`field`, `value`, `changed_at`, optional `reason`) |
+//! | `rotation:<id>` | an open credential rotation attempt ([`RotationAttempt`], M7b); one key per attempt |
+//! | `rotation_policy` | the reminder interval (`{"every_days": 30 \| 90 \| 180 \| 365}`) |
 //! | `otp`, `passkey`, `ssh.key` | an [`OtpConfig`], [`PasskeyCredential`], [`SshKeyMaterial`] |
 //! | `otp.counter`, `passkey.sign_count` | counters, merged by maximum |
 //! | `deleted` | deletion entries (tombstone, or the flag of a delete that lost against a concurrent edit) |
@@ -26,9 +28,16 @@ use core::fmt;
 
 mod edit;
 mod fields;
+mod rotation;
 
 pub use edit::ItemEdit;
-pub use fields::{ElementId, HistoryEntry, ItemType, SecretField, TextField};
+pub use fields::{
+    ElementId, HistoryEntry, HistoryId, HistoryReason, ItemType, SecretField, TextField,
+};
+pub use rotation::{
+    MAX_OPEN_ATTEMPTS, MAX_PENDING_CHARS, RotationAttempt, RotationAttemptId, RotationStage,
+    RulesSource, ValueMark,
+};
 
 use super::clock::{Causality, Stamp, Timestamp, VersionVector};
 use super::doc::{
@@ -65,14 +74,24 @@ const ATTACHMENT_PREFIX: &str = "attachment:";
 const TAG_PREFIX: &str = "tag:";
 const HISTORY_PREFIX: &str = "history:";
 const CONFLICT_COPY_OF: &str = "conflict_copy_of";
+const ROTATION_PREFIX: &str = "rotation:";
+const ROTATION_POLICY: &str = "rotation_policy";
 
 /// Counters: the merged value is the largest one, never a conflict.
 const MAX_KEYS: [&str; 2] = [OTP_COUNTER, PASSKEY_SIGN_COUNT];
 
 /// Item metadata: concurrent values are resolved by the largest stamp only
 /// and never shown as a conflict ([`Item::conflicts`]). The same holds for
-/// `history:*` entries, `deleted` and the counters.
-const METADATA_KEYS: [&str; 5] = [TYPE, CREATED, TRASHED, FAVORITE, CONFLICT_COPY_OF];
+/// `history:*` and `rotation:*` entries, `rotation_policy`, `deleted` and
+/// the counters.
+const METADATA_KEYS: [&str; 6] = [
+    TYPE,
+    CREATED,
+    TRASHED,
+    FAVORITE,
+    CONFLICT_COPY_OF,
+    ROTATION_POLICY,
+];
 
 /// Whether concurrent values of `key` are a conflict the user resolves.
 fn is_user_content(key: &str) -> bool {
@@ -80,6 +99,7 @@ fn is_user_content(key: &str) -> bool {
         && !MAX_KEYS.contains(&key)
         && !METADATA_KEYS.contains(&key)
         && !key.starts_with(HISTORY_PREFIX)
+        && !key.starts_with(ROTATION_PREFIX)
 }
 
 /// The state of a deletion: when and by which devices.
@@ -286,7 +306,21 @@ impl Item {
                     format!("{HISTORY_PREFIX}{:016x}.{}.0", s.counter(), s.device())
                 })?;
             }
+            // The same for attempts (also keyed by the edit's stamp): two
+            // writers can store different new passwords under one key, and
+            // each must stay visible and closable.
+            let crowded: Vec<String> = doc
+                .registers()
+                .filter(|(k, r)| k.starts_with(ROTATION_PREFIX) && r.len() > 1)
+                .map(|(k, _)| k.to_owned())
+                .collect();
+            for key in crowded {
+                doc.spread_losers(&key, device, |s| {
+                    format!("{ROTATION_PREFIX}{:016x}.{}.0", s.counter(), s.device())
+                })?;
+            }
         }
+        rotation::repair_lost_attempts(&mut doc, &self.doc, &received.doc, device)?;
         Ok(MergeOutcome {
             item: Self { doc },
             restored_fields: repair.restored_fields,
@@ -556,9 +590,12 @@ impl Item {
     #[must_use]
     pub fn password_history(&self) -> Vec<HistoryEntry> {
         let mut h: Vec<HistoryEntry> = self
-            .elements(HISTORY_PREFIX, HistoryEntry::from_value)
-            .into_iter()
-            .map(|(_, e)| e)
+            .doc
+            .registers()
+            .filter_map(|(k, r)| {
+                let id = k.strip_prefix(HISTORY_PREFIX)?;
+                HistoryEntry::from_value(id.to_owned(), r.winner()?.value()).ok()
+            })
             .collect();
         h.sort_by_key(|e| core::cmp::Reverse(e.changed_at));
         h
@@ -812,7 +849,9 @@ fn readable(key: &str, v: &Value) -> bool {
         _ if key.starts_with(URL_PREFIX) => LoginUrl::from_value(v).is_ok(),
         _ if key.starts_with(FIELD_PREFIX) => CustomField::from_value(v).is_ok(),
         _ if key.starts_with(ATTACHMENT_PREFIX) => AttachmentRef::from_value(v).is_ok(),
-        _ if key.starts_with(HISTORY_PREFIX) => HistoryEntry::from_value(v).is_ok(),
+        ROTATION_POLICY => rotation::policy_of(v).is_some(),
+        _ if key.starts_with(ROTATION_PREFIX) => rotation::attempt_readable(key, v),
+        _ if key.starts_with(HISTORY_PREFIX) => HistoryEntry::from_value(String::new(), v).is_ok(),
         _ => false,
     }
 }
@@ -826,15 +865,15 @@ fn fits(item: &Item) -> Result<bool> {
     }
 }
 
-/// The stamp of the edit that wrote a history key
-/// (`history:{counter:016x}.{device}.{seq}`, see `ItemEdit::next_id`), or
-/// `None` if the key does not have that form.
-fn history_stamp(key: &str) -> Option<Stamp> {
-    let mut parts = key.strip_prefix(HISTORY_PREFIX)?.split('.');
+/// The stamp and sequence number in an element ID
+/// (`{counter:016x}.{device}.{seq}`, see `ItemEdit::next_id`), or `None` if
+/// the ID does not have that form.
+fn parse_element_id(id: &str) -> Option<(Stamp, u32)> {
+    let mut parts = id.split('.');
     let counter = parts.next().filter(|c| c.len() == 16)?;
     let counter = u64::from_str_radix(counter, 16).ok()?;
     let device = parts.next()?;
-    parts.next()?.parse::<u32>().ok()?;
+    let seq = parts.next()?.parse::<u32>().ok()?;
     if parts.next().is_some() {
         return None;
     }
@@ -847,8 +886,21 @@ fn history_stamp(key: &str) -> Option<Stamp> {
         let pair = core::str::from_utf8(pair).ok()?;
         *out = u8::from_str_radix(pair, 16).ok()?;
     }
-    Stamp::new(counter, DeviceId::from_bytes(bytes).ok()?).ok()
+    Some((
+        Stamp::new(counter, DeviceId::from_bytes(bytes).ok()?).ok()?,
+        seq,
+    ))
 }
+
+/// The stamp of the edit that wrote a history key
+/// (`history:{counter:016x}.{device}.{seq}`, see `ItemEdit::next_id`), or
+/// `None` if the key does not have that form.
+fn history_stamp(key: &str) -> Option<Stamp> {
+    parse_element_id(key.strip_prefix(HISTORY_PREFIX)?).map(|(s, _)| s)
+}
+
+#[cfg(test)]
+mod rotation_tests;
 
 #[cfg(test)]
 mod tests {

@@ -121,6 +121,28 @@ pub enum Error {
     /// device ID before merging or editing again (CRYPTO_SPEC §10).
     #[error("device ID reused")]
     DeviceIdReused,
+
+    /// A rotation attempt needs a login item (CRYPTO_SPEC §7.4).
+    #[error("item is not a login")]
+    NotALogin,
+
+    /// The item already holds the most open rotation attempts
+    /// ([`crate::model::MAX_OPEN_ATTEMPTS`]); close one first.
+    #[error("too many open rotation attempts")]
+    TooManyAttempts,
+
+    /// The password history cannot be cleared while a rotation attempt is
+    /// open: its value is not in the history yet.
+    #[error("a rotation attempt is open")]
+    RotationOpen,
+
+    /// The item has no open rotation attempt with that ID.
+    #[error("no such rotation attempt")]
+    RotationNotFound,
+
+    /// The item has no password history entry with that ID.
+    #[error("no such history entry")]
+    HistoryNotFound,
 }
 
 /// Result alias with [`Error`].

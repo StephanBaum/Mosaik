@@ -501,6 +501,11 @@ body {
   color: var(--color-text-secondary);
 }
 
+/* "Change password…" under a login: a text link, not a full-width button. */
+.item__action {
+  align-self: flex-start;
+}
+
 .avatar {
   display: flex;
   flex-shrink: 0;

@@ -18,6 +18,8 @@ export interface RowItem {
   blocked: boolean;
   /** Matched by the site's registrable domain, not the exact address. */
   sameSite: boolean;
+  /** "Change password…" is offered: an exact address match on an https page. */
+  canChange?: boolean;
 }
 
 export function rowName(item: RowItem, untitled: string): string {
@@ -55,12 +57,51 @@ function copyItems(
   ];
 }
 
+/** "Change password…" under a login that matches this exact address. */
+function ChangeLink({ name, onClick }: { name: string; onClick: () => void }) {
+  const { t } = useI18n();
+  return (
+    <Button variant="link" className="item__action" aria-label={t("ext.rotation.changeLabel", { name })} onClick={onClick}>
+      {t("ext.rotation.change")}
+    </Button>
+  );
+}
+
+/** What is said under a row: copy-only, blocked on http, and the change-password link. */
+function Notes({
+  item,
+  name,
+  noteId,
+  onChangePassword,
+}: {
+  item: RowItem;
+  name: string;
+  noteId: string;
+  onChangePassword: (() => void) | undefined;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      {!item.fillable && <span className="item__note item__note--quiet">{t("ext.search.copyOnly")}</span>}
+      {item.blocked && (
+        <span id={noteId} className="item__note">
+          {t("ext.item.blocked")}
+        </span>
+      )}
+      {item.canChange === true && onChangePassword !== undefined && (
+        <ChangeLink name={name} onClick={onChangePassword} />
+      )}
+    </>
+  );
+}
+
 export function ItemRow({
   item,
   primary,
   fillOff,
   onFill,
   onCopy,
+  onChangePassword,
 }: {
   item: RowItem;
   /** The first match gets the holo button, unless a save or code card above holds the screen's one primary; the rest are plain. */
@@ -69,6 +110,8 @@ export function ItemRow({
   fillOff: boolean;
   onFill: () => void;
   onCopy: (source: CopySource) => void;
+  /** Starts a password change for this login (the desktop dialog decides). */
+  onChangePassword?: () => void;
 }) {
   const { t } = useI18n();
   const noteId = useId();
@@ -91,12 +134,7 @@ export function ItemRow({
         <span className="item__subtitle" title={subtitleOf(item, t)}>
           {subtitleOf(item, t)}
         </span>
-        {!item.fillable && <span className="item__note item__note--quiet">{t("ext.search.copyOnly")}</span>}
-        {item.blocked && (
-          <span id={noteId} className="item__note">
-            {t("ext.item.blocked")}
-          </span>
-        )}
+        <Notes item={item} name={name} noteId={noteId} onChangePassword={onChangePassword} />
       </span>
       {item.fillable && (
         <Button

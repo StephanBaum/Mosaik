@@ -21,6 +21,10 @@ export const insights = {
     "Die Seite unterstützt es, aber du hast es noch nicht eingerichtet",
   "insights.kind.insecureUrl": "Unverschlüsseltes HTTP",
   "insights.kind.insecureUrl.description": "Sendet dein Passwort unverschlüsselt",
+  "insights.kind.breached": "In einem Datenleck",
+  "insights.kind.breached.description": "Von der freiwilligen Leck-Prüfung gefunden",
+  "insights.finding.breached":
+    "Dieses Passwort taucht in einem bekannten Datenleck auf. Ändere es jetzt, überall wo du es verwendest hast.",
   "insights.finding.weak": "Leicht zu erraten. Ersetze es durch ein generiertes Passwort.",
   "insights.finding.reused":
     "Auch in {count, plural, one {# anderen Eintrag} other {# anderen Einträgen}} verwendet. Gib jeder Seite ein eigenes Passwort.",

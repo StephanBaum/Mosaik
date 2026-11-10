@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::contract::errors::{IpcError, IpcResult};
 use crate::contract::ids::WireAccountId;
-use crate::contract::settings::{Language, Settings, Theme};
+use crate::contract::settings::{BreachMode, Language, Settings, Theme};
 
 /// The state file's name in the app data directory.
 pub const STATE_FILE: &str = "settings.json";
@@ -86,10 +86,25 @@ struct PersistedSettings {
     language: Language,
     #[serde(default = "default_quick_unlock_days")]
     quick_unlock_max_age_days: u32,
+    /// A file from before M7b has no breach check: off.
+    #[serde(default = "default_breach_check")]
+    breach_check: BreachMode,
+    #[serde(default)]
+    breach_consent_at: Option<i64>,
+    #[serde(default = "default_rotation_reminders")]
+    rotation_reminders: bool,
 }
 
 fn default_quick_unlock_days() -> u32 {
     DEFAULT_QUICK_UNLOCK_DAYS
+}
+
+fn default_breach_check() -> BreachMode {
+    BreachMode::Off
+}
+
+fn default_rotation_reminders() -> bool {
+    true
 }
 
 impl From<PersistedSettings> for Settings {
@@ -102,6 +117,9 @@ impl From<PersistedSettings> for Settings {
             theme: p.theme,
             language: p.language,
             quick_unlock_max_age_days: p.quick_unlock_max_age_days,
+            breach_check: p.breach_check,
+            breach_consent_at: p.breach_consent_at,
+            rotation_reminders: p.rotation_reminders,
         }
     }
 }
@@ -116,6 +134,9 @@ impl From<&Settings> for PersistedSettings {
             theme: s.theme,
             language: s.language,
             quick_unlock_max_age_days: s.quick_unlock_max_age_days,
+            breach_check: s.breach_check,
+            breach_consent_at: s.breach_consent_at,
+            rotation_reminders: s.rotation_reminders,
         }
     }
 }
@@ -182,6 +203,12 @@ pub fn normalize(mut settings: Settings) -> Settings {
     if !has_lock_trigger(&settings, SCREEN_LOCK_POSSIBLE) {
         settings.auto_lock_minutes = Some(DEFAULT_AUTO_LOCK_MINUTES);
     }
+    // The consent and the mode go together: no mode without the consent, and
+    // turning the check off withdraws it.
+    if settings.breach_check == BreachMode::Off || settings.breach_consent_at.is_none() {
+        settings.breach_check = BreachMode::Off;
+        settings.breach_consent_at = None;
+    }
     settings
 }
 
@@ -206,6 +233,8 @@ pub fn same_protection(a: &Settings, b: &Settings) -> bool {
         && a.lock_on_screen_lock == b.lock_on_screen_lock
         && a.clipboard_clear_seconds == b.clipboard_clear_seconds
         && a.quick_unlock_max_age_days == b.quick_unlock_max_age_days
+        && a.breach_check == b.breach_check
+        && a.breach_consent_at == b.breach_consent_at
 }
 
 /// Per protection field, the stricter of `settings` and the defaults: the
@@ -232,6 +261,11 @@ pub fn stricter_than_default(settings: &Settings) -> Settings {
         quick_unlock_max_age_days: settings
             .quick_unlock_max_age_days
             .min(default.quick_unlock_max_age_days),
+        // The strict value of a request to the network is no request: only
+        // a verified file may switch the breach check on (ADR-0030, M7b).
+        breach_check: BreachMode::Off,
+        breach_consent_at: None,
+        rotation_reminders: settings.rotation_reminders,
     })
 }
 
@@ -257,9 +291,26 @@ pub fn canonical_settings(state: &StoredState) -> Vec<u8> {
             |e| serde_json::to_string(e).unwrap_or_default(),
         );
     let kit_verified = state.account.as_ref().is_some_and(|a| a.kit_verified);
+    // The breach check (M7b) is in the MAC only while it is on, so the bytes
+    // of an install that never used it are the ones its MAC already covers.
+    let breach = if settings.breach_check == BreachMode::Off {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("\"breachCheck\":{},", word(&settings.breach_check)),
+            format!(
+                "\"breachConsentAt\":{},",
+                settings
+                    .breach_consent_at
+                    .map_or_else(|| "null".to_owned(), |v| v.to_string())
+            ),
+        )
+    };
     format!(
-        "{{\"autoLockMinutes\":{},\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
+        "{{\"autoLockMinutes\":{},{}{}\"clipboardClearSeconds\":{},\"email\":{},\"kitVerified\":{},\"language\":{},\"lockOnScreenLock\":{},\"lockOnSleep\":{},\"quickUnlockMaxAgeDays\":{},\"sshAgentEnabled\":{},\"theme\":{}}}",
         number(settings.auto_lock_minutes),
+        breach.0,
+        breach.1,
         number(settings.clipboard_clear_seconds),
         email,
         kit_verified,
@@ -459,6 +510,8 @@ mod tests {
                 theme: Theme::Dark,
                 language: Language::De,
                 quick_unlock_max_age_days: 7,
+                rotation_reminders: false,
+                ..Settings::default()
             },
             account: Some(AccountInfo {
                 account_id: ids::account(),
@@ -687,6 +740,7 @@ mod tests {
                 theme: Theme::Light,
                 language: Language::De,
                 quick_unlock_max_age_days: 30,
+                ..Settings::default()
             },
             account: Some(AccountInfo {
                 account_id: ids::account(),

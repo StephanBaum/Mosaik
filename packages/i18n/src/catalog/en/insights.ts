@@ -18,6 +18,10 @@ export const insights = {
   "insights.kind.missingTotp.description": "The site supports it, but you haven't set it up",
   "insights.kind.insecureUrl": "Unsecured HTTP",
   "insights.kind.insecureUrl.description": "Sends your password unencrypted",
+  "insights.kind.breached": "In a breach",
+  "insights.kind.breached.description": "Found by the opt-in breach check",
+  "insights.finding.breached":
+    "This password appears in a known data breach. Change it now, everywhere you used it.",
   "insights.finding.weak": "Easy to guess. Change it to a generated password.",
   "insights.finding.reused":
     "Also used by {count, plural, one {# other item} other {# other items}}. Give each site its own password.",

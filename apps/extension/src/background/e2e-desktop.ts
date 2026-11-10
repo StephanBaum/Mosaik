@@ -16,6 +16,7 @@ import type {
 } from "../shared/protocol.ts";
 import { isOp, isRequestBody } from "../shared/validate.ts";
 import { FakePasskeys, Failure } from "./e2e-passkey.ts";
+import { FakeRotation, isRotationOp } from "./e2e-rotation.ts";
 import type { NativePort } from "./native.ts";
 
 export interface E2EItem {
@@ -27,6 +28,17 @@ export interface E2EItem {
   origin: string;
   allowHttp: boolean;
   totp: string | null;
+  /** Related addresses added through `rotationAddOrigin` (exact origins, like saved URLs). */
+  extraOrigins?: string[];
+}
+
+/** One open password change of the fake desktop. The value is test data. */
+export interface E2EAttempt {
+  vaultId: string;
+  itemId: string;
+  attemptId: string;
+  value: string;
+  stage: "prepared" | "delivered";
 }
 
 export interface E2EConfig {
@@ -36,6 +48,13 @@ export interface E2EConfig {
   items: E2EItem[];
   /** What `checkSave` answers, and how the (pretend) desktop dialog ends a `proposeSave`. */
   save: { check: ResultMap["checkSave"]; outcome: ResultMap["proposeSave"]["outcome"] };
+  /** The open password changes, and how the (pretend) desktop dialogs end. */
+  rotation: {
+    attempts: E2EAttempt[];
+    begin: ResultMap["rotationBegin"]["outcome"];
+    result: ResultMap["rotationResult"]["outcome"];
+    addOrigin: ResultMap["rotationAddOrigin"]["outcome"];
+  };
 }
 
 /** A `proposeSave` the fake desktop received (test data only; the real desktop keeps the password in Rust). */
@@ -62,6 +81,7 @@ export const defaultConfig = (): E2EConfig => ({
   autoApprovePairing: true,
   items: [],
   save: { check: { kind: "new", itemTitle: null }, outcome: "saved" },
+  rotation: { attempts: [], begin: "started", result: "confirmed", addOrigin: "added" },
 });
 
 type Body = Record<string, unknown>;
@@ -74,6 +94,11 @@ export class FakeDesktop {
   readonly proposals: SaveProposal[] = [];
   /** The passkey half: dialog decisions, the request log and the credentials it made. */
   readonly passkeys = new FakePasskeys();
+  /** The password-change half: the open attempts and how its dialogs end. */
+  readonly rotation = new FakeRotation(
+    () => this.config,
+    () => this.#nextGenerated(),
+  );
   #generated = 0;
 
   /** A port the `NativeClient` can use in place of `connectNative`. */
@@ -154,6 +179,11 @@ export class FakeDesktop {
     return this.#authenticated(op, request.body as Body);
   }
 
+  #nextGenerated(): string {
+    this.#generated++;
+    return `${GENERATED}-${String(this.#generated)}`;
+  }
+
   #entry(op: string, body: unknown): LogEntry {
     const fields = (typeof body === "object" && body !== null ? body : {}) as Body;
     const text = (key: string): string | null => {
@@ -183,7 +213,11 @@ export class FakeDesktop {
     return FAKE_PAIRING;
   }
 
+  // eslint-disable-next-line complexity -- one flat dispatch over the ops, like the desktop's allowlist
   #authenticated(op: Exclude<keyof RequestMap, "hello" | "pair" | "status" | "focus">, body: Body): unknown {
+    if (isRotationOp(op)) {
+      return this.rotation.handle(op, body);
+    }
     switch (op) {
       case "passkeyCreate":
         return this.passkeys.create(body as unknown as RequestMap["passkeyCreate"]);
@@ -202,8 +236,7 @@ export class FakeDesktop {
         return { clearAfterSeconds: 30 };
       case "generate":
         // Every value differs, so a test can tell a held password from a fresh one.
-        this.#generated++;
-        return { value: `${GENERATED}-${String(this.#generated)}`, entropyBits: 100, strength: "strong", rulesSource: null };
+        return { value: this.#nextGenerated(), entropyBits: 100, strength: "strong", rulesSource: null };
       case "checkSave":
         return { ...this.config.save.check };
       case "proposeSave": {

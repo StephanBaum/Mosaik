@@ -165,7 +165,13 @@ fn unmarked_golden_item() -> Item {
     let mut item = Item::new(&ItemType::Login, dev(1), at(t0)).unwrap();
     {
         let mut e = item.edit(dev(1), at(t0 + 1));
-        for f in TextField::ALL {
+        // The golden is the M7 format: `login.change_password_url` (M7b) is
+        // covered by the unit tests of `model::item::rotation_tests`, and the
+        // M7 bytes stay the compatibility anchor (`v1_parser_ignores_reason_key`).
+        for f in TextField::ALL
+            .iter()
+            .filter(|f| **f != TextField::ChangePasswordUrl)
+        {
             e.set_text(*f, &format!("{} value", f.key())).unwrap();
         }
         for f in SecretField::ALL {

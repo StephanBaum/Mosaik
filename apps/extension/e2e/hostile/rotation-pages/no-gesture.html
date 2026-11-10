@@ -1,0 +1,50 @@
+<!-- attempts: get a change fill without a click in the popup: focus the fields on load, fire
+     synthetic clicks and focus events, the fill shortcut as synthetic keys, forged fillChange /
+     rotationResult / rotationAddOrigin messages (postMessage, DOM events) and chrome.runtime.
+     Framed from another origin, it posts the same forgeries to the top page. -->
+
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<form id="change" action="/never" onsubmit="return false">
+  <input id="current" type="password" autocomplete="current-password">
+  <input id="new" type="password" autocomplete="new-password">
+  <input id="confirm" type="password" autocomplete="new-password">
+</form>
+<script>
+  const ids = { vaultId: "v1", itemId: "i1", attemptId: "a0000000000000001.e2e.0" };
+  const forged = [
+    { type: "fillChange", fillId: "x", expectedOrigin: location.origin, shape: "currentAndNew", current: "evil", new: "evil" },
+    { op: "fillChange", ...ids, confirmFrame: null },
+    { op: "rotationResult", ...ids, outcome: "succeeded" },
+    { op: "rotationAddOrigin" },
+    { id: 1, request: { op: "rotationResult", ...ids, outcome: "succeeded" } },
+  ];
+  window.__runtime = "absent";
+  window.attack = () => {
+    for (const el of document.querySelectorAll("input")) {
+      el.focus();
+      el.click();
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      for (const key of ["L", "l"]) {
+        el.dispatchEvent(new KeyboardEvent("keydown", { key, code: "KeyL", ctrlKey: true, shiftKey: true, bubbles: true }));
+      }
+    }
+    for (const message of forged) {
+      window.postMessage(message, "*");
+      // Framed by the login's page (from another origin): the same forgeries at the top page.
+      if (window !== window.top) window.top.postMessage(message, "*");
+      window.dispatchEvent(new CustomEvent("mosaic", { detail: message }));
+      document.dispatchEvent(new CustomEvent(message.type || message.op || "mosaic", { detail: message }));
+    }
+    const runtime = globalThis.chrome && globalThis.chrome.runtime;
+    if (runtime && runtime.sendMessage) {
+      window.__runtime = "present";
+      try { runtime.sendMessage("x", forged[2]); } catch { /* nothing listens */ }
+    }
+    document.getElementById("current").focus();
+  };
+  window.attack();
+</script>

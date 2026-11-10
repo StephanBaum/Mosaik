@@ -1,0 +1,11 @@
+<!-- attempts: two password fields that say nothing about which is which; Mosaic must refuse to guess. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Change password</title>
+<script src="/_leaks.js"></script>
+<form id="change" action="/never" onsubmit="window.__submitted = true; return false">
+  <input id="user" name="username" type="text" autocomplete="username">
+  <input id="first" name="a" type="password">
+  <input id="second" name="b" type="password">
+  <button type="submit">Save</button>
+</form>

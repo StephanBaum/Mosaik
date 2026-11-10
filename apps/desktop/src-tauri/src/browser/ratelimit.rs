@@ -28,6 +28,9 @@ pub enum Bucket {
     PasskeyGet,
     /// `passkeyCancel`.
     PasskeyCancel,
+    /// `rotationBegin`, `rotationResult` and `rotationAddOrigin` together: each opens a
+    /// desktop dialog.
+    RotationPrompt,
     /// `focus` (global).
     Focus,
     /// Pairing requests (global).
@@ -44,7 +47,7 @@ impl Bucket {
             Self::Lookup => (60, Duration::from_secs(60)),
             Self::Generate => (30, Duration::from_secs(60)),
             Self::CheckSave | Self::PasskeyGet => (10, Duration::from_secs(60)),
-            Self::ProposeSave | Self::PairRequest | Self::PasskeyCreate => {
+            Self::ProposeSave | Self::PairRequest | Self::PasskeyCreate | Self::RotationPrompt => {
                 (3, Duration::from_secs(60))
             }
             Self::Focus => (1, Duration::from_secs(2)),
@@ -410,5 +413,18 @@ mod tests {
         assert!(!limits.allow(Bucket::ProposeSave, Some([1; 16]), now));
         limits.forget(&[1; 16]);
         assert!(limits.allow(Bucket::ProposeSave, Some([1; 16]), now));
+    }
+
+    #[test]
+    fn the_rotation_dialog_ops_share_three_a_minute() {
+        let mut limits = RateLimits::default();
+        let now = Instant::now();
+        let id = Some([1; 16]);
+        for _ in 0..3 {
+            assert!(limits.allow(Bucket::RotationPrompt, id, now));
+        }
+        assert!(!limits.allow(Bucket::RotationPrompt, id, now));
+        assert!(limits.allow(Bucket::RotationPrompt, Some([2; 16]), now));
+        assert!(limits.allow(Bucket::RotationPrompt, id, now + Duration::from_secs(60)));
     }
 }

@@ -1,0 +1,8 @@
+<!-- attempts: a top page without a form that frames its own change form (same origin), so the fill
+     needs the frame confirmation; the test then rearranges or navigates the frame after the probe. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Account</title>
+<script src="/_leaks.js"></script>
+<p>Account settings</p>
+<iframe id="inner" src="change.html" width="500" height="300"></iframe>

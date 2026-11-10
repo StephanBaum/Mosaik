@@ -1,0 +1,10 @@
+<!-- attempts: A-B-A nesting: our own change form framed by another origin (B), which is framed by
+     our origin again, so the innermost frame has the login's origin but a hostile ancestor. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Nested A-B-A</title>
+<iframe id="b" width="600" height="400"></iframe>
+<script>
+  const inner = encodeURIComponent(location.origin);
+  document.getElementById("b").src = `${location.protocol}//evil.test:${location.port}/rotation-pages/aba-b.html?inner=${inner}`;
+</script>

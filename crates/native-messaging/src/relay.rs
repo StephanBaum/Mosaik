@@ -55,7 +55,9 @@ const PAIR_WAIT: Duration = Duration::from_secs(PAIR_TIMEOUT_SECS + 5);
 /// passkey ops wait for the desktop's passkey dialog the same way ([`PASSKEY_PROMPT_TIMEOUT_SECS`]).
 fn request_timeout(op: Op) -> Duration {
     match op {
-        Op::ProposeSave => Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS + 2),
+        Op::ProposeSave | Op::RotationBegin | Op::RotationResult | Op::RotationAddOrigin => {
+            Duration::from_secs(SAVE_PROMPT_TIMEOUT_SECS + 2)
+        }
         Op::PasskeyCreate | Op::PasskeyGet => Duration::from_secs(PASSKEY_PROMPT_TIMEOUT_SECS + 2),
         _ => Duration::from_secs(REQUEST_TIMEOUT_SECS),
     }

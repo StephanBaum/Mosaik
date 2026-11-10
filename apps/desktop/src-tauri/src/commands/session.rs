@@ -465,6 +465,8 @@ impl Backend {
     /// cleared if it still holds what Mosaic copied, the lock hooks run (the
     /// onboarding kit window closes) and the webview is told.
     pub fn after_lock(&self, reason: LockReason) {
+        // A breach scan ends at once (its pause watches this flag).
+        self.breach_after_lock();
         self.settings_locked();
         if let Ok(mut wrong) = self.kit_wrong.lock() {
             *wrong = 0;

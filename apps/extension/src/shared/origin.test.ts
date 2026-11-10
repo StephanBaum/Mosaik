@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostOf, isPageOrigin, isSecureOrigin, originOf, unicodeHostOf } from "./origin.ts";
+import { hostOf, isPageOrigin, isSecureOrigin, originOf, unicodeHostOf, sameSite, siteOf } from "./origin.ts";
 
 describe("originOf", () => {
   it.each([
@@ -69,5 +69,32 @@ describe("unicodeHostOf", () => {
   it("is null for hosts without punycode and for malformed labels", () => {
     expect(unicodeHostOf("example.com")).toBeNull();
     expect(unicodeHostOf("xn--!!.example")).toBeNull();
+  });
+});
+
+describe("siteOf and sameSite", () => {
+  it("guesses the registrable domain", () => {
+    expect(siteOf("accounts.example.com")).toBe("example.com");
+    expect(siteOf("example.com")).toBe("example.com");
+    expect(siteOf("login.example.co.uk")).toBe("example.co.uk");
+    expect(siteOf("example.com.au")).toBe("example.com.au");
+  });
+
+  it("has none for addresses, single labels and malformed hosts", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]", "::1", "", "a..b", "example."]) {
+      expect(siteOf(host)).toBeNull();
+    }
+  });
+
+  it("calls two https origins on one site related, and nothing else", () => {
+    expect(sameSite("https://example.com", "https://accounts.example.com")).toBe(true);
+    expect(sameSite("https://login.example.com", "https://accounts.example.com:8443")).toBe(true);
+    expect(sameSite("https://example.com", "http://accounts.example.com")).toBe(false);
+    expect(sameSite("https://example.com", "https://example.com.evil.test")).toBe(false);
+    expect(sameSite("https://example.com", "https://evil-example.com")).toBe(false);
+    expect(sameSite("https://co.uk", "https://evil.co.uk")).toBe(false);
+    expect(sameSite("https://a.example.co.uk", "https://b.example.co.uk")).toBe(true);
+    expect(sameSite("https://localhost", "https://localhost")).toBe(false);
+    expect(sameSite("https://127.0.0.1", "https://127.0.0.1")).toBe(false);
   });
 });

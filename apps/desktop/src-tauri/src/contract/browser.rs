@@ -19,7 +19,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::credential_rotation::{AttemptStage, RotationOutcomeKey};
 use super::ids::{UnixMillis, WireItemId, WireVaultId};
+use super::items::RevealedSecret;
 use super::macros::wire_enum;
 use super::secret::SecretIn;
 
@@ -124,6 +126,18 @@ wire_enum!(
         Create,
         /// Sign in with a passkey (`navigator.credentials.get`).
         Get,
+    }
+);
+
+wire_enum!(
+    /// What a rotation request asks the user to decide.
+    pub enum BrowserRotationKind {
+        /// Start a password change: the generated password.
+        Begin,
+        /// Confirm how the change went.
+        Result,
+        /// Save a related address for the login.
+        AddOrigin,
     }
 );
 
@@ -395,6 +409,103 @@ pub struct BrowserPasskeyRespondRequest {
     pub password: Option<SecretIn>,
 }
 
+/// A rotation request waiting for the user: start a change (`begin`), confirm
+/// its result (`result`) or add a related address (`addOrigin`). Carries no
+/// password: the generated one is fetched with `browser_rotation_reveal`.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRotationRequest {
+    /// Handle for `browser_rotation_respond`: 32 lowercase hex digits.
+    pub request_id: String,
+    /// The name of the browser that asks.
+    pub pairing_label: String,
+    /// What to decide.
+    pub kind: BrowserRotationKind,
+    /// The login's vault.
+    pub vault_id: WireVaultId,
+    /// The login.
+    pub item_id: WireItemId,
+    /// Its title (`null` if empty).
+    pub title: Option<String>,
+    /// The page's host, as the URL bar shows it (punycode stays punycode); for `addOrigin` the
+    /// host to add.
+    pub host: String,
+    /// The Unicode form of `host` when a label is punycode.
+    pub unicode_host: Option<String>,
+    /// `result` only: what the user said in the popup.
+    pub outcome: Option<RotationOutcomeKey>,
+    /// `addOrigin` only: the origin to add.
+    pub new_origin: Option<String>,
+    /// `result` only: the attempt the answer closes (M7b review L4).
+    pub attempt: Option<BrowserRotationAttempt>,
+    /// When the request arrived.
+    pub requested_at: UnixMillis,
+    /// When it is dropped without an answer.
+    pub expires_at: UnixMillis,
+}
+
+/// Which password change a `result` request closes: the login can have up to four open.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRotationAttempt {
+    /// When the attempt started.
+    pub started_at: UnixMillis,
+    /// How far it got.
+    pub stage: AttemptStage,
+    /// How many other attempts of the login are open.
+    pub other_open: u32,
+}
+
+/// The user's answer to a rotation request. Each fits one kind: `allow` a
+/// `begin`, `regenerate` a `begin` too (the prompt stays open with a new
+/// password), `confirm` a `result` the user reported as succeeded, `keepOld` a
+/// `result`, `addOrigin` an `addOrigin`; `cancel` fits all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum BrowserRotationDecision {
+    /// Store the generated password as a new attempt.
+    Allow {},
+    /// Generate another password (the dialog stays open).
+    Regenerate {},
+    /// The new password becomes the login's password.
+    Confirm {},
+    /// The password stays; the attempt's value goes to the history.
+    KeepOld {},
+    /// Add the origin to the login.
+    AddOrigin {},
+    /// Do nothing.
+    Cancel {},
+}
+
+/// `browser_rotation_respond`.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserRotationRespondRequest {
+    /// From the event.
+    pub request_id: String,
+    /// The answer.
+    pub decision: BrowserRotationDecision,
+}
+
+/// `browser_rotation_reveal`: the generated password of an open `begin`.
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserRotationRevealRequest {
+    /// From the event.
+    pub request_id: String,
+}
+
+/// The response type of `browser_rotation_reveal`.
+pub type BrowserRotationRevealed = RevealedSecret;
+
 #[cfg(test)]
 pub(crate) mod samples {
     use super::*;
@@ -532,6 +643,47 @@ pub(crate) mod samples {
             excluded: true,
             user_verification: PasskeyVerification::Discouraged,
             ..passkey_create_request()
+        }
+    }
+
+    pub(crate) fn rotation_begin_request() -> BrowserRotationRequest {
+        BrowserRotationRequest {
+            request_id: request_id(),
+            pairing_label: "Chrome".into(),
+            kind: BrowserRotationKind::Begin,
+            vault_id: ids::vault(1),
+            item_id: ids::item(2),
+            title: Some("Example".into()),
+            host: "example.com".into(),
+            unicode_host: None,
+            outcome: None,
+            new_origin: None,
+            attempt: None,
+            requested_at: 1_761_480_035_000,
+            expires_at: 1_761_480_335_000,
+        }
+    }
+
+    pub(crate) fn rotation_result_request() -> BrowserRotationRequest {
+        BrowserRotationRequest {
+            kind: BrowserRotationKind::Result,
+            outcome: Some(RotationOutcomeKey::Succeeded),
+            attempt: Some(BrowserRotationAttempt {
+                started_at: 1_761_480_000_000,
+                stage: AttemptStage::Delivered,
+                other_open: 1,
+            }),
+            ..rotation_begin_request()
+        }
+    }
+
+    pub(crate) fn rotation_add_origin_request() -> BrowserRotationRequest {
+        BrowserRotationRequest {
+            kind: BrowserRotationKind::AddOrigin,
+            host: "xn--bcher-kva.example.com".into(),
+            unicode_host: Some("bücher.example.com".into()),
+            new_origin: Some("https://xn--bcher-kva.example.com".into()),
+            ..rotation_begin_request()
         }
     }
 

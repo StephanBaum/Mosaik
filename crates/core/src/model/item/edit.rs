@@ -4,8 +4,9 @@ use core::fmt;
 
 use super::{
     ATTACHMENT_PREFIX, CONFLICT_COPY_OF, ElementId, FAVORITE, FIELD_PREFIX, HISTORY_PREFIX,
-    MAX_HISTORY, MAX_KEYS, MAX_TAG_LEN, OTP, OTP_COUNTER, PASSKEY, PASSKEY_SIGN_COUNT, SSH_KEY,
-    SecretField, TAG_PREFIX, TRASHED, TextField, URL_PREFIX, history_stamp,
+    HistoryReason, MAX_HISTORY, MAX_KEYS, MAX_TAG_LEN, OTP, OTP_COUNTER, PASSKEY,
+    PASSKEY_SIGN_COUNT, ROTATION_PREFIX, SSH_KEY, SecretField, TAG_PREFIX, TRASHED, TextField,
+    URL_PREFIX, history_stamp,
 };
 use crate::error::{Error, Result};
 use crate::ids::{AttachmentId, DeviceId};
@@ -63,7 +64,7 @@ impl ItemEdit<'_> {
 
     /// The stamp of this edit, ticked on the first change. A deleted item
     /// takes no edits ([`Item::undelete`] first).
-    fn stamp(&mut self) -> Result<Stamp> {
+    pub(super) fn stamp(&mut self) -> Result<Stamp> {
         if let Some(s) = self.stamp {
             return Ok(s);
         }
@@ -75,7 +76,7 @@ impl ItemEdit<'_> {
         Ok(s)
     }
 
-    fn next_id(&mut self) -> Result<String> {
+    pub(super) fn next_id(&mut self) -> Result<String> {
         let s = self.stamp()?;
         let id = format!("{:016x}.{}.{}", s.counter(), s.device(), self.seq);
         self.seq = self.seq.checked_add(1).ok_or(Error::ClockOverflow)?;
@@ -97,7 +98,7 @@ impl ItemEdit<'_> {
         self.doc.write(key, s, self.at, value, keep_losers)
     }
 
-    fn remove(&mut self, key: &str) -> Result<bool> {
+    pub(super) fn remove(&mut self, key: &str) -> Result<bool> {
         if self.doc.register(key).is_none() {
             return Ok(false);
         }
@@ -107,12 +108,20 @@ impl ItemEdit<'_> {
     }
 
     /// Adds an old secret value to the password history and trims it.
-    fn push_history(&mut self, field: SecretField, old: Text) -> Result<()> {
+    pub(super) fn push_history(
+        &mut self,
+        field: SecretField,
+        old: Text,
+        reason: HistoryReason,
+    ) -> Result<()> {
         let key = format!("{HISTORY_PREFIX}{}", self.next_id()?);
         let mut o = Object::new();
         o.insert("field", Value::text(field.key()));
         o.insert("value", Value::String(old));
         o.insert("changed_at", Value::int(self.at.as_unix_millis()));
+        if let Some(r) = reason.stored() {
+            o.insert("reason", Value::text(r));
+        }
         self.put(&key, Value::Object(o), false)?;
         // Trim the oldest entries by the Lamport stamp of the edit that
         // moved them into the history, never by the wall clock (display
@@ -185,7 +194,7 @@ impl ItemEdit<'_> {
             && old.as_str() != value
             && field.keeps_history()
         {
-            self.push_history(field, old)?;
+            self.push_history(field, old, HistoryReason::Replaced)?;
         }
         self.put(field.key(), Value::text(value), true)
     }
@@ -199,21 +208,33 @@ impl ItemEdit<'_> {
         if let Some(old) = self.current_secret(field)
             && field.keeps_history()
         {
-            self.push_history(field, old)?;
+            self.push_history(field, old, HistoryReason::Replaced)?;
         }
         self.remove(field.key()).map(|_| ())
     }
 
-    /// Removes every password history entry.
+    /// Removes the password history entries, except values of an unconfirmed
+    /// rotation attempt (the site may still have applied them) that were
+    /// moved here less than 30 days ago.
     ///
     /// # Errors
+    /// [`Error::RotationOpen`] while a rotation attempt is open (its value
+    /// is not in the history yet and the history is the way back);
     /// [`Error::ClockOverflow`].
     pub fn clear_password_history(&mut self) -> Result<()> {
+        if self.doc.keys().any(|k| k.starts_with(ROTATION_PREFIX)) {
+            return Err(Error::RotationOpen);
+        }
+        let now = self.at.as_unix_millis();
         let keys: Vec<String> = self
             .doc
-            .keys()
-            .filter(|k| k.starts_with(HISTORY_PREFIX))
-            .map(str::to_owned)
+            .registers()
+            .filter(|(k, _)| k.starts_with(HISTORY_PREFIX))
+            .filter(|(_, r)| {
+                !r.winner()
+                    .is_some_and(|w| super::rotation::is_recent_unconfirmed(w.value(), now))
+            })
+            .map(|(k, _)| k.to_owned())
             .collect();
         for k in keys {
             self.remove(&k)?;
@@ -470,7 +491,7 @@ impl ItemEdit<'_> {
                     && !seen.contains(v)
                 {
                     seen.push(v.dup());
-                    self.push_history(field, v.dup())?;
+                    self.push_history(field, v.dup(), HistoryReason::Replaced)?;
                 }
             }
         }

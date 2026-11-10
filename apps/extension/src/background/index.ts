@@ -16,6 +16,7 @@ import { PasskeyService } from "./passkey.ts";
 import { PasskeySwitch, chromePasskeyRegistry } from "./passkey-registry.ts";
 import { PairingStore } from "./pairing.ts";
 import { PopupService, type TabRef } from "./popup.ts";
+import { RotationService } from "./rotation.ts";
 import { Router, type SenderInfo } from "./router.ts";
 import { SaveService } from "./save.ts";
 import { chromeSession, lastErrorKey, lastFilledKey } from "./session.ts";
@@ -87,7 +88,8 @@ const fillDeps: FillDeps = {
 };
 const hold = new GeneratedHold(Date.now);
 const gestures: GestureDeps = { fill: fillDeps, hold, activeTab };
-const popup = new PopupService({ native, fill: fillDeps, hold, save, passkeys }, () => (native.state.pairing ? pairCode : null));
+const rotation = new RotationService({ native, tabs: fillDeps.tabs, session, now: Date.now });
+const popup = new PopupService({ native, fill: fillDeps, hold, save, passkeys, rotation }, () => (native.state.pairing ? pairCode : null));
 
 /** The tab a popup request is about: the front tab (a test popup page names its own). */
 async function tabFor(sender: SenderInfo): Promise<TabRef | null> {
@@ -117,10 +119,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   router.forgetTab(tabId);
   void fillDeps.session.remove(lastFilledKey(tabId), lastErrorKey(tabId));
   void save.drop(tabId);
+  void rotation.forgetTab(tabId);
   passkey.onTabGone(tabId);
 });
 chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
   passkey.onTabGone(removedTabId);
+  void rotation.forgetTab(removedTabId);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
@@ -129,6 +133,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url !== undefined) {
     void save.onNavigated(tabId, changeInfo.url);
     passkey.onNavigated(tabId, changeInfo.url);
+    // A tab that leaves the login's site forgets that the extension sent it to a change page.
+    void rotation.onNavigated(tabId, changeInfo.url);
   }
 });
 // The browser can take the optional site access back (browser settings): capture and passkeys then switch themselves off.

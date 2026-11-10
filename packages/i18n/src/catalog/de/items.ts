@@ -37,6 +37,7 @@ export const items = {
   "item.field.wifiSsid": "Netzwerkname",
   "item.field.wifiSecurity": "Sicherheit",
   "item.field.sshComment": "Kommentar",
+  "item.field.changePasswordUrl": "Seite zum Passwortändern",
   "item.field.password": "Passwort",
   "item.field.cardNumber": "Kartennummer",
   "item.field.cardVerificationCode": "Sicherheitscode",

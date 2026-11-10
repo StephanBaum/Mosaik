@@ -77,6 +77,10 @@ impl Backend {
         }
         self.touch();
         let stored = self.update_stored(|stored| stored.settings = new.clone());
+        // Turning the breach check off stops a scan that runs (M7b review M1).
+        if new.breach_check == crate::contract::settings::BreachMode::Off {
+            self.breach.cancel();
+        }
         // A shorter maximum age can expire the enrollment at once.
         self.reconcile_quick_unlock();
         stored.map(|s| s.settings)

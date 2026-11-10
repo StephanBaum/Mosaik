@@ -61,6 +61,7 @@
 //! ```
 
 mod attachments;
+mod credential_rotation;
 mod error;
 mod hardware_vaults;
 mod items;
@@ -86,6 +87,10 @@ use mosaic_core::{
 use crate::storage::{Origin, RecordBody, Store, VaultKeyWrap, VaultState};
 
 pub use attachments::MAX_ACCOUNT_ATTACHMENT_BYTES;
+pub use credential_rotation::{
+    MAX_ATTEMPTS_FOR_ORIGIN, QueueState, QueueStates, RotationOutcome, RotationRef, ScanError,
+    ScanSummary,
+};
 pub use error::{Error, Result};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
@@ -950,6 +955,8 @@ impl UnlockedSession {
     }
 }
 
+#[cfg(test)]
+mod credential_rotation_tests;
 #[cfg(test)]
 mod hardware_vaults_tests;
 #[cfg(test)]

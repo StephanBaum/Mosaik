@@ -259,7 +259,7 @@ fn title_is_valid(title: &str) -> bool {
 }
 
 /// The vault exists, holds logins, and this session has its key.
-fn check_writable(session: &UnlockedSession, vault: VaultId) -> IpcResult<()> {
+pub(super) fn check_writable(session: &UnlockedSession, vault: VaultId) -> IpcResult<()> {
     let summary = session
         .vaults()
         .into_iter()

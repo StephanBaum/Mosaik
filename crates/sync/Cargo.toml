@@ -18,11 +18,14 @@ test-util = ["mosaic-vault/test-util"]
 # HTTP client; the `opaque-ke` dependency is admitted by ADR-0046).
 opaque = ["dep:opaque-ke", "dep:sha2_0_10"]
 # The HTTP transport and the hosted client functions (M6 T4); enables `opaque`.
-http = ["opaque", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier", "dep:zeroize"]
+http = ["opaque", "dep:mosaic-insights", "dep:reqwest", "dep:rustls", "dep:rustls-platform-verifier", "dep:zeroize"]
 
 [dependencies]
 mosaic-core = { path = "../core" }
 mosaic-vault = { path = "../vault" }
+# The breach check's `RangeSource` trait, implemented by `http::pwned` (M7b, only
+# with feature `http`; no cycle: insights does not depend on sync).
+mosaic-insights = { path = "../insights", optional = true }
 # Derive for the JSON wire types of the hosted protocol.
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

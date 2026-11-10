@@ -35,7 +35,7 @@ export interface NativePort {
 
 /** How long a request waits: the ops that wait for the user in a desktop dialog get the dialog's time. */
 export function timeoutOf(op: Op): number {
-  if (op === "proposeSave") {
+  if (op === "proposeSave" || op === "rotationBegin" || op === "rotationResult" || op === "rotationAddOrigin") {
     return SAVE_PROMPT_TIMEOUT_MS;
   }
   return op === "passkeyCreate" || op === "passkeyGet" ? PASSKEY_PROMPT_TIMEOUT_MS : REQUEST_TIMEOUT_MS;

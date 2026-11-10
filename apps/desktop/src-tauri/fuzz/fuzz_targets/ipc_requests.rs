@@ -19,6 +19,10 @@ mod draft;
 mod persist;
 
 use contract::clipboard::CopyRequest;
+use contract::credential_rotation::{
+    HistoryRestoreRequest, RotationAttemptRequest, RotationBeginRequest, RotationCloseRequest,
+    RotationPolicyRequest, RotationSnoozeRequest,
+};
 use contract::errors::ErrorCode;
 use contract::generator::GenerateRequest;
 use contract::import::{
@@ -70,7 +74,7 @@ fuzz_target!(|data: &[u8]| {
     let Some((sel, json)) = data.split_first() else {
         return;
     };
-    let kind = usize::from(sel.wrapping_sub(b'A')) % 67;
+    let kind = usize::from(sel.wrapping_sub(b'A')) % 73;
     match kind {
         0 => drop(parse::<CreateAccountRequest>(json)),
         1 => drop(parse::<VerifyKitRequest>(json)),
@@ -182,6 +186,13 @@ fuzz_target!(|data: &[u8]| {
         63 => drop(parse::<RekeyPrepareRequest>(json)),
         64 => drop(parse::<RekeyCommitRequest>(json)),
         65 => drop(parse::<RotationResumeRequest>(json)),
-        _ => drop(parse::<DismissFileRequest>(json)),
+        66 => drop(parse::<DismissFileRequest>(json)),
+        // Credential rotation (M7b): none of these carries a URL, a path or a hash.
+        67 => drop(parse::<RotationBeginRequest>(json)),
+        68 => drop(parse::<RotationAttemptRequest>(json)),
+        69 => drop(parse::<RotationCloseRequest>(json)),
+        70 => drop(parse::<HistoryRestoreRequest>(json)),
+        71 => drop(parse::<RotationSnoozeRequest>(json)),
+        _ => drop(parse::<RotationPolicyRequest>(json)),
     }
 });

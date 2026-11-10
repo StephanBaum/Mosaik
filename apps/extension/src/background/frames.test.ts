@@ -51,6 +51,7 @@ const probe = (frameId: number, over: Partial<FrameProbe> = {}): FrameProbe => (
   counts: counts(),
   passwordRules: null,
   documentId: null,
+  changeShape: "none",
   ...over,
 });
 

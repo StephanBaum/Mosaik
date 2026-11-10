@@ -112,7 +112,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `add_item` | `{ vaultId, kind, draft: ItemDraft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `vaultUnavailable`, `otpPendingExpired` | live (at most 512 entries per draft list) |
 | `update_item` | `{ vaultId, itemId, draft }` → `ItemDetail` | `invalidInput`, `sshKeyInvalid`, `itemNotFound`, `otpPendingExpired` | live (the kind of an item cannot change, ADR-0033) |
 | `set_favorite` | `{ vaultId, itemId, favorite }` → `ItemSummary` | `itemNotFound` | live |
-| `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null` | `itemNotFound`, `itemDeleted` | live |
+| `trash_item`, `restore_item`, `purge_item` | `{ vaultId, itemId }` → `null`. `purge_item` (delete forever) is refused while a password change of the login is open, so the new password is not lost; the trash is allowed | `itemNotFound`, `itemDeleted`, `rotationOpen` (`purge_item` only) | live |
 | `move_item` | `{ vaultId, itemId, targetVaultId }` → `{ vaultId, itemId }` (a new ID) | `sameVault`, `vaultNotFound`, `itemNotFound`, `reauthRequired` (the item leaves a hardware vault without a fresh `reauthenticate`; a success uses it up, a failure keeps it) | live |
 | **Attachments** | | | |
 | `attachment_add` | `{ vaultId, itemId }` → `{ kind: "added", item: ItemDetail } \| { kind: "cancelled" }` | `vaultNotFound`, `vaultUnavailable`, `itemNotFound`, `itemDeleted`, `itemTypeNotAllowed` (hardware-protected vault), `attachmentTooLarge` (above 50 MiB, checked before reading), `attachmentQuota` (1 GiB per account), `attachmentFileUnreadable`, `storeUnavailable` | live (Rust opens the native file dialog, reads the file bounded, encrypts it; ADR-0034) |
@@ -134,7 +134,7 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `get_settings` | `null` → `Settings` | | live (stored in `settings.json` in the app data directory) |
 | `update_settings` | `{ settings, password \| null }` → `Settings` | `reauthRequired` (turning off auto-lock, a lock trigger or clipboard clearing, or raising `quickUnlockMaxAgeDays`), `wrongCredentials` (five in a row lock the vault and require the password for the next unlock), `invalidInput` (no lock trigger this system can deliver is on, CRYPTO_SPEC §11; screen lock counts only where `screenLockDetection`), `locked` (a protection setting changes while locked; theme and language can; the protection settings carry a MAC that needs the unlocked vault, ADR-0030) | live |
 | **Security insights** | | | |
-| `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
+| `security_report` | `null` → `{ generatedAt, itemsChecked, counts: { weak, reused, reusedGroups, old, missingTotp, insecureUrl, breached, high, medium, low }, findings: { vaultId, itemId, issues: { kind, severity, action }[], reusedWith: { vaultId, itemId }[], totpSite: { name, documentation \| null } \| null, insecureHost \| null }[] }` | | live (mosaic-insights, ADR-0022 to ADR-0024) |
 | **Import** | | | |
 | `import_choose_file` | `{ format }` → `{ kind: "chosen", fileToken, fileName } \| { kind: "cancelled" }` | | live |
 | `import_preview` | `{ fileToken, format, password \| null }` → `{ previewId, format, entries: { index, kind, title \| null, subtitle \| null, duplicateOf: { vaultId, itemId } \| null, duplicateInFile \| null, attachments, warnings: ImportEntryWarning[] }[], skipped: { index, reason: "malformed" \| "empty" \| "tooLarge" }[], counts: { kind, count }[], attachments, attachmentBytes, warnings: ImportWarning[] }` | `importFileUnreadable`, `importFormatInvalid`, `importTooLarge`, `importUnsupported`, `importEncrypted`, `wrongCredentials` | live (mosaic-import, ADR-0021) |
@@ -151,6 +151,8 @@ until the FIDO2 transport lands (ADR-0029, owner decision); the UI hides all key
 | `browser_remove_pairing` | `{ pairingId }` → the same status | `browserPairingNotFound` (also for an ID that is not 32 hex digits). The pairing's live sessions get `unpaired` and close | live |
 | `browser_pairing_respond` | `{ requestId, decision: "allow" \| "deny", label: string \| null }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (an allow less than 1 s after the prompt appeared is refused and the request stays open; a deny is always taken), `invalidInput` (a label that is not 1 to 64 characters, or contains control, format or default-ignorable characters; the request stays open) | live |
 | `browser_save_respond` | `{ requestId, decision: { kind: "saveNew", vaultId, title, allowHttp } \| { kind: "update", vaultId, itemId } \| { kind: "cancel" } }` → `null` | `browserRequestExpired`, `browserAllowTooSoon` (as above; a cancel is always taken), `invalidInput` (a title that is not 1 to 256 characters or has spoofing characters), `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an update of a login that is not one of the request's candidates, or gone), `locked`. The request stays open after all of them except the first | live |
+| `browser_rotation_respond` | `{ requestId (the desktop's handle, from the event), decision: { kind: "allow" } \| { kind: "regenerate" } \| { kind: "confirm" } \| { kind: "keepOld" } \| { kind: "addOrigin" } \| { kind: "cancel" } }` → `null`. The answer to a `browserRotationRequested` dialog (M7b, ADR-0068). `allow` and `regenerate` fit a `begin` (`allow` stores the generated password as a new attempt of the login, one edit; `regenerate` keeps the dialog open with a new password that keeps the page's rules), `confirm` a `result` the user reported as succeeded (as `rotation_close` `succeeded`), `keepOld` a `result` (as `failed`), `addOrigin` an `addOrigin` (adds the origin to the login as an exact-origin URL), `cancel` fits all. The extension is answered with the outcome. No password and no address travels in the answer, and an unknown key or kind is refused | `browserRequestExpired`, `browserAllowTooSoon` (`allow`, `regenerate`'s follow-up `allow`, `confirm` and `addOrigin` less than 1 s after the dialog appeared or after a new password; `cancel`, `keepOld` and `regenerate` are always taken), `invalidInput` (a decision that does not fit the request), `itemNotFound`, `vaultUnavailable`, `rotationNotFound`, `rotationLimit`, `sharingRoleForbidden`, `locked`. The request stays open after all of them except the first | live |
+| `browser_rotation_reveal` | `{ requestId }` → `{ value: SecretOut, hideAfterSeconds (15) }`: the password Rust generated for an open `begin` dialog, to show it on "Show". It is never in the event | `browserRequestExpired`, `invalidInput` (not a `begin`) | live |
 | `browser_passkey_respond` | `{ requestId (the dialog's desktop-generated handle, from the event), decision: { kind: "create", vaultId } \| { kind: "assert", vaultId, itemId } \| { kind: "useAnotherDevice" } \| { kind: "cancel" } \| { kind: "acknowledge" }, password: SecretIn \| null }` → `null` | `browserRequestExpired` (also for the extension's own request ID or the handle of an earlier dialog), `browserAllowTooSoon` (a create, an assert or an acknowledge less than 1 s after the dialog appeared; a cancel and `useAnotherDevice` are always taken), `reauthRequired` (verification is needed now and no password came: the dialog asked for it with `needsPassword`, or the 300 s window ran out while the dialog was open, and the dialog then asks for the password and sends it with the next click), `wrongCredentials` (counts towards the five-failure lock of `reauthenticate`; a right password verifies the user for passkeys but earns no re-authentication grant for other commands), `secretKeyRequired` (the Secret Key is not on this device, so the password cannot be checked), store errors (`storeUnavailable` and the other storage codes of the vault commands), `internal`, `vaultNotFound`, `vaultUnavailable` (closed, or hardware-protected), `itemNotFound` (an assert of a passkey that is not one of the request's candidates, or no longer an answer), `invalidInput` (an answer that does not fit the request: `create` for a sign-in, `acknowledge` when not `excluded`, `create` or `useAnotherDevice` for an exclusion), `locked`. The request stays open after all of them except the first | live |
 
 | `sync_status` | `null` → `SyncOverview` | `locked` | live |
@@ -214,6 +216,51 @@ the silent recovery at the next password unlock of CRYPTO_SPEC §9.4 (it would k
 past the unlock; the recovery card asks again, ADR-0059 follow-up).
 
 Event `rotationProgress { kind, phase, done, total }` after each phase change: read `rotation_status` again.
+
+### Credential rotation and the breach check (M7b, CRYPTO_SPEC §7.4, §12, ADR-0064 to ADR-0070)
+
+Not the key rotation above: the guided password change of one login, the rotate-now queue and the opt-in breach
+check. The new password of an attempt is stored in the item (sealed, queued for sync) **before** `rotation_begin`
+returns; the item's own password changes only on `rotation_close` with `succeeded`; no value is ever deleted
+(CRYPTO_SPEC §7.4). Nothing here opens a page or makes a request except the breach scan: the change page is
+returned as a link to copy (OD-M7b-4; the browser extension opens it). A viewer of a shared vault gets
+`sharingRoleForbidden` from every command that changes an item. Attempt and history IDs are short ASCII key
+suffixes (`attemptId` at most 64 characters, `historyId` at most 128; anything else is `invalidInput`).
+
+| Command | Request → response | Errors (besides `locked`) | Status |
+|---|---|---|---|
+| `rotation_queue` | `null` → `{ entries: { vaultId, itemId, title \| null, username \| null, host \| null, kind: "guided" \| "manual", reasons: ("weak" \| "reused" \| "old" \| "breached" \| "unfinished")[], severity: "low" \| "medium" \| "high", attempts: { attemptId, stage: "prepared" \| "delivered", startedAt }[], snoozedUntil \| null }[], breach: { mode: "off" \| "manual" \| "weekly", consentAt \| null, lastFinishedAt \| null, running, lastError: "offline" \| "rateLimited" \| "protocol" \| "cancelled" \| null } }`. Items with a weak, reused, old (the item's reminder interval, else a year) or breached password (the cached answers of the last scan, only for the password they were made for) or an open attempt. Dismissed items are left out (an open attempt is never dismissed away); snoozed ones carry `snoozedUntil`. `kind` is `guided` for a login with an `https` URL in a vault this account may write, else `manual`. Most severe first, then unfinished ones, then by title | | live |
+| `rotation_begin` | `{ vaultId, itemId, newPassword: SecretIn, rulesSource: "siteQuirks" \| null }` → `{ attemptId, changeUrl: { url, source: "stored" \| "quirks" \| "wellKnown" } \| null }`. One edit, one sealed record, one outbox entry; returns after the local commit | `itemNotFound`, `itemDeleted`, `vaultUnavailable`, `rotationNotSupported` (not a login, or no `https` URL), `rotationLimit` (four attempts are open), `invalidInput` (empty, or over 1024 characters), `sharingRoleForbidden` | live |
+| `rotation_close` | `{ vaultId, itemId, attemptId, outcome: "succeeded" \| "failed" }` → `null`. `succeeded`: the attempt's value becomes the password, the old one goes to the history as `replaced`, every other open attempt as `unconfirmed`. `failed`: the password stays, the value goes to the history as `unconfirmed` | `rotationNotFound`, `invalidInput`, `sharingRoleForbidden` | live |
+| `rotation_reveal` | `{ vaultId, itemId, attemptId }` → `{ value: SecretOut, hideAfterSeconds }` | `rotationNotFound`, `itemNotFound` | live |
+| `rotation_copy` | `{ vaultId, itemId, attemptId }` → `{ clearsAt \| null, clearAfterSeconds \| null }` (as `copy_to_clipboard`: Rust writes the clipboard, history exclusion, auto-clear). The copy marks the attempt `delivered` (ADR-0066): the value left the app | `rotationNotFound`, `clipboardUnavailable` | live |
+| `password_history_restore` | `{ vaultId, itemId, historyId }` → `null`. The rollback: the entry's value becomes the password and the current password goes to the history (as `replaced`) | `itemNotFound`, `historyNotFound`, `invalidInput`, `sharingRoleForbidden` | live |
+| `rotation_snooze` | `{ vaultId, itemId, days: 1 \| 7 \| 30 }` → `null`. Local state (store v10), no item change | `itemNotFound`, `itemDeleted`, `invalidInput` | live |
+| `rotation_undismiss` | `{ vaultId, itemId }` → `null`. Takes back a dismissal (the "Undo" of the dismiss toast); a no-op without one | `itemNotFound`, `itemDeleted` | live |
+| `rotation_dismiss` | `{ vaultId, itemId }` → `null`. Until the password changes (stores the value mark) | `itemNotFound`, `itemDeleted`, `fieldEmpty` (no password) | live |
+| `rotation_set_policy` | `{ vaultId, itemId, everyDays: 30 \| 90 \| 180 \| 365 \| null }` → `null`. The reminder interval; "old" in the insights uses it | `itemNotFound`, `invalidInput`, `sharingRoleForbidden` | live |
+| `breach_scan_start` | `null` → `null`; returns at once. Needs `Settings.breachCheck` not `off` with `breachConsentAt` (the consent dialog writes both through `update_settings`). Hashes the passwords under the session lock, then runs on its own thread with a plan that holds only hash suffixes; the session is locked again for the one moment that stores the answers. `GET https://api.pwnedpasswords.com/range/{prefix}` directly (`mosaic_sync::http::pwned`, ADR-0065): header `Add-Padding: true`, `User-Agent: Mosaic`, TLS 1.3, no redirect, body over 256 KiB rejected, prefixes shuffled, 100 to 400 ms apart, answers older than 30 days asked again | `breachConsentRequired`, `breachRunning`, `internal` (the client or the thread could not start) | live |
+| `breach_scan_cancel` | `null` → `null`. Locking the vault, turning the check off in `update_settings` and quitting do the same at once: each request runs on a helper thread that the scan waits on together with the cancel flag, so the scan ends, and its plan of hash suffixes is dropped, within about 50 ms even while a request is on the wire (the helper ends with the 10 s timeout and holds one 5-character prefix). The pause between requests also re-reads the setting. A failing random number generator ends the scan with `protocol` before the next request | | live |
+
+`ItemDetail` gains `history: { historyId, index, reason: "replaced" \| "unconfirmed", changedAt }[]` (newest first,
+`index` is what `reveal_secret` takes), `rotationAttempts: { attemptId, stage, startedAt }[]` (oldest first),
+`rotationPolicy: 30 \| 90 \| 180 \| 365 \| null` and `changeUrl: { url, source } \| null` (a login with an `https` URL;
+the stored URL is the text field `changePasswordUrl`, `TextFieldKey` gains it, `https` only; one that is not on a
+registrable domain of the login's URLs is ignored when the page is resolved). No value of an attempt is in a detail,
+a queue entry or an event. `security_report` gains `counts.breached` and the issue kind `breached` (severity `high`,
+action `changePassword`). `Settings` gains `breachCheck: "off" \| "manual" \| "weekly"` (default `off`),
+`breachConsentAt` (`null` exactly when `breachCheck` is `off`; a mode without it reads as `off`, turning the check off
+withdraws it) and `rotationReminders` (default on, local). `breachCheck` and `breachConsentAt` are under the settings
+MAC (ADR-0030): they count as protection settings (changing them needs the unlocked vault; the `settingsReset` notice
+covers them), a file without a valid MAC reads them as `off`, and they enter the MAC bytes only while the check is on,
+so the MAC of an install that never used it is unchanged. `weekly` starts a scan 60 seconds after an unlock when the
+last one ended more than a week ago; nothing else starts one. New error codes: `rotationNotFound`, `rotationLimit`,
+`rotationNotSupported`, `historyNotFound`, `originNotRelated` (the extension's add-origin: the address is not on the login's site), `breachConsentRequired`,
+`breachRunning`, `rotationOpen` (`purge_item` of a login with an open change).
+
+Events `breachScanProgress { done, total }` (the webview shows "n of m" and does not announce every step) and
+`breachScanFinished { checked, found, error: "offline" \| "rateLimited" \| "protocol" \| "cancelled" \| null }`
+(also after a cancel or a lock; the answers of a scan cut off by a lock are not stored).
 
 ### Sharing and emergency access (M6b, CRYPTO_SPEC §8, ADR-0048 to 0054)
 
@@ -492,6 +539,8 @@ Notes per area:
 | `syncStateChanged` | `{ state: { status, lastSyncedAt \| null, error \| null } }` | Status bar. `status` is `notConfigured`, `offline`, `syncing`, `upToDate`, `error` or `signedOut`. Read `sync_status` for the warnings. |
 | `syncDataChanged` | `{ vaultIds }` | A sync run changed these vaults: read their items again. |
 | `sharingChanged` | `{ invites, emergencyRequests }` | The invites that wait for this account or the emergency requests that wait for its answer changed after a sync run. Read `invites_list` / `emergency_overview` again; the grantor's banner and the sidebar count follow. |
+| `breachScanProgress` | `{ done, total }` | A breach scan answered another prefix (M7b). Show "n of m"; do not announce it. |
+| `breachScanFinished` | `{ checked, found, error \| null }` | A breach scan ended (M7b), also when cancelled or the vault locked. Read `rotation_queue` and `security_report` again. |
 | `rotationProgress` | `{ kind, phase, done, total }` | A key change moved to another phase or counted an attachment (M7): read `rotation_status` again. The live region of the UI names the phase only; the counts are plain text. |
 | `syncAttention` | `{ conflicts, restored, replacedUnreadable }` | A run merged or repaired something (records merged with a local change, fields written back after a delete raced an edit, unreadable records replaced): show a short toast. |
 | `clipboardCleared` | none | Rust cleared what Mosaic copied. |
@@ -506,6 +555,8 @@ Notes per area:
 | `browserSaveClosed` | `{ requestId, reason }` | Close it. |
 | `browserPasskeyRequested` | `{ request: { requestId, pairingLabel, kind: "create" \| "get", origin, rpId, userName \| null, userDisplayName \| null, candidates: { vaultId, itemId, vaultName, userName, userDisplayName }[], excluded, needsPassword, userVerification: "required" \| "preferred" \| "discouraged", requestedAt, expiresAt } }` | Show the passkey dialog (account list or vault choice, password field when `needsPassword`, "Use another device or security key", Cancel). No challenge, no key. |
 | `browserPasskeyClosed` | `{ requestId, reason }` | Close it (`reason` may be `abortedByPage`). |
+| `browserRotationRequested` | `{ request: { requestId, pairingLabel, kind: "begin" \| "result" \| "addOrigin", vaultId, itemId, title \| null, host, unicodeHost \| null, outcome: "succeeded" \| "failed" \| null, newOrigin \| null, attempt: { startedAt, stage: "prepared" \| "delivered", otherOpen } \| null, requestedAt, expiresAt } }` | Show the password-change dialog (M7b): a `begin` shows the generated password masked (Show, Generate another, Cancel, Use this password after 1 s), a `result` asks "Did {host} accept the new password?" (It worked after 1 s, Keep old password, Cancel) and says which attempt it closes (`attempt`, `result` only: when it started, how far it got, how many other changes of the login are open; no value; a capture of the pending password on the site opens it too, see `NATIVE_MESSAGING.md`), an `addOrigin` asks "Add {host} to {title}?" with an IDN warning. `host` is the page's host, for `addOrigin` the host to add. **No password**: fetch it with `browser_rotation_reveal`. |
+| `browserRotationClosed` | `{ requestId, reason }` | Close it. |
 | `browserPairingsChanged` | none | A browser was paired, removed, connected or disconnected: read `browser_status` again. |
 | `settingsReset` | none | The first unlock after the start found weaker protection settings in `settings.json` without a valid integrity MAC (edited outside Mosaic, or from before the MAC) and reset them to the defaults (ADR-0030). Show the toast `toast.settingsReset` once. Sent at most once per app start. |
 
@@ -545,7 +596,7 @@ without its own code becomes `internal`, which leaks nothing.
 | Direction | Type | Where |
 |---|---|---|
 | webview → Rust | `SecretIn` (deserializes into a zeroizing `SecretString`) | `password` and `secretKey` of `create_account` and `unlock`, the `password` of `export_passkeys_cxf`, `lastGroup`, secret field values, custom-field values and the SSH private key in `ItemDraft`, the `otpauth://` URI, the `uri` and `secret` of `otp_parse`, the KeePass file password, the re-authentication password in `update_settings`, the master password in `save_emergency_kit`, the `password` of `browser_passkey_respond`, the security-key `pin` of `unlock_quick` and the hardware-key and hardware-vault commands, the `password` of `enroll_biometric` and `enroll_hardware_key`, and (M6) the master password, Secret Key, second-factor codes and invite code of the sync and join commands and of `change_master_password`, and (M7) the passwords, the retyped last Secret Key group, the Secret Key typed from the newest kit and the codes of the account-key commands |
-| Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code`, `sync_totp_begin` (the sync account's second-factor setup key and link: the fifth) |
+| Rust → webview | `SecretOut` | `create_account` (the Secret Key, once), `reveal_secret`, `generate_password`, `totp_code`, `otp_pending_code`, `sync_totp_begin` (the sync account's second-factor setup key and link: the fifth), `rotation_reveal` (the new password of an open change attempt, M7b; `rotation_begin` takes it as a `SecretIn`) |
 
 Preview pixels are a second Rust → webview flow of decrypted content. They are not a
 `SecretOut` (they are binary, not JSON, and are not a string the UI can hide by clearing
@@ -571,6 +622,8 @@ Residual exposure, accepted (THREAT_MODEL, desktop):
   it. The UI clears its state after submitting and on lock.
 - The IPC request body that Tauri parses is a normal heap buffer and is not zeroized.
   The secret is moved into a zeroizing type at deserialization.
+- The generated password of a browser password-change dialog stays in Rust (the event has no
+  secret); "Show" fetches it with `browser_rotation_reveal` and it is hidden again after 15 s.
 - A revealed secret, a generated password and a one-time code live in the webview until
   the UI hides them: after `hideAfterSeconds` (60), on blur, or on lock.
 - Preview pixels of an image attachment live in Tauri's response buffer and the webview
@@ -623,6 +676,17 @@ Rust stub. The mock is selected by build mode (`--mode mock`). Non-mock builds r
   `rekeyPending` a folder with a verified marker: both adopt with that Secret Key and the password `new correct horse battery staple`; a Secret Key the mock device used is refused
   (`secretKeyUnchanged`); `unknownFile` and `conflict` show the folder finding; `slowDevice` answers `profileTooSlow` until forced. `&rotationFail=<errorCode>` fails the commits and
   `&rotationStepMs=<ms>` sets the pause between the phases of a run (default 450).
+  Credential rotation (M7b, Security > Rotate now): `&credRotation=queue|empty|pending|breachRunning|breachOffline|consent`
+  and, for the browser's password-change dialogs, `browserBegin|browserResult|addOrigin` (one request 500 ms after the app subscribes: the
+  generated password `q7#Vt2!mZp9@Lx4$Nw6&`, "Did github.com accept the new password?", "Add gist.github.com to GitHub?")
+  (the spec's `?rotation=` is taken by the key rotation above; `&credRotationStepMs=<ms>` paces a scan, default 250).
+  `queue` seeds weak, reused, old and breached items (GitHub is old and was found by the last scan, Figma and Jira share a
+  weak password, the Wi-Fi password has no https page: "Edit item") with the breach check on (`manual`); `empty` has
+  nothing to change; `pending` leaves an open change on GitHub (delivered) and a not-confirmed history entry;
+  `breachRunning` shows a running weekly scan; `breachOffline` an offline last scan; `consent` the queue with the
+  check off, so "Check now" asks for the consent. The mock's breach check finds `password`, `123456`, `hunter2`,
+  `Sommer2024!` and `letmein`. The browser dialogs of the change (`browserBegin`, `browserResult`, `addOrigin`) belong to
+  the extension track.
 - `pnpm --filter @mosaic/desktop tauri dev`: the real app, running Vite on port 1420
   and Rust in debug mode (devtools available in debug builds only).
 - `pnpm --filter @mosaic/desktop tauri build`: release bundles. The release build has no

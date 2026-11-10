@@ -29,6 +29,7 @@ import {
 } from "./fill.ts";
 import type { NativeClient } from "./native.ts";
 import type { PasskeySwitch } from "./passkey-registry.ts";
+import { chooseChangeTarget, type RotationService } from "./rotation.ts";
 import type { SaveService } from "./save.ts";
 import { lastErrorKey, lastFilledKey } from "./session.ts";
 
@@ -43,6 +44,7 @@ export interface PopupDeps {
   hold: GeneratedHold;
   save: SaveService;
   passkeys: PasskeySwitch;
+  rotation: RotationService;
 }
 
 const MAX_KNOWN_ITEMS = 200;
@@ -128,6 +130,12 @@ export class PopupService {
     savePending: (request, tab) => this.#savePending(request.action, tab),
     saveOffersChanged: async (request) => ({ saveOffers: await this.#deps.save.setOffers(request.enabled) }),
     setPasskeys: async (request) => ({ passkeys: await this.#deps.passkeys.set(request.enabled) }),
+    rotationBegin: (request, tab) => this.#deps.rotation.begin(request, rotationTab(tab)),
+    rotationOpenPage: (request, tab) => this.#deps.rotation.openPage(request, rotationTab(tab)),
+    fillChange: (request, tab) => this.#deps.rotation.fillChange(request, rotationTab(tab)),
+    fillPending: (request, tab) => this.#deps.rotation.fillPending(request, rotationTab(tab)),
+    rotationResult: (request, tab) => this.#deps.rotation.rotationResult(request, rotationTab(tab)),
+    rotationAddOrigin: (_request, tab) => this.#deps.rotation.addOrigin(rotationTab(tab)),
     unpair: async () => {
       await this.#deps.native.unpair();
       return {};
@@ -206,6 +214,7 @@ export class PopupService {
       tab: info,
       frame: "none",
       frameTarget: null,
+      changeFrame: null,
       matches: [],
       warnings: [],
       pendingSave: null,
@@ -214,6 +223,8 @@ export class PopupService {
       saveOffers: false,
       passkeys: false,
       generatorFill: false,
+      rotations: [],
+      rotationTabOffer: null,
     };
     state.saveOffers = await this.#deps.save.offersEnabled().catch(() => false);
     state.passkeys = await this.#deps.passkeys.enabled().catch(() => false);
@@ -228,7 +239,8 @@ export class PopupService {
   async #fillTab(state: PopupState, tab: TabRef, info: TabInfo): Promise<void> {
     const { native } = this.#deps;
     state.lastError = await takeLastError(this.#deps, tab.id);
-    const target = chooseTarget(await probeFrames(this.#deps, tab), null);
+    const probes = await probeFrames(this.#deps, tab);
+    const target = chooseTarget(probes, null);
     const origin = target?.origin ?? info.origin;
     state.frame = classifyFrame(target, info.origin);
     state.frameTarget = target === null ? null : { frameId: target.frameId, documentId: target.documentId };
@@ -239,8 +251,30 @@ export class PopupService {
       state.matches = listing?.items ?? [];
       state.warnings = listing?.warnings ?? [];
       this.#learn(state.matches);
+      Object.assign(state, await this.#deps.rotation.forTab(tab).catch(() => ({ rotations: [], rotationTabOffer: null })));
+      if (state.rotations.length > 0) {
+        state.changeFrame = changeFrameOf(probes, info.origin);
+      }
     }
   }
+}
+
+/** The frame a change fill would go to, for the popup's confirmation; null when there is no change form to pick. */
+function changeFrameOf(probes: readonly FrameProbe[], topOrigin: string): PopupState["changeFrame"] {
+  try {
+    const target = chooseChangeTarget(probes);
+    return { frame: classifyFrame(target, topOrigin), target: { frameId: target.frameId, documentId: target.documentId } };
+  } catch {
+    return null;
+  }
+}
+
+/** The tab a rotation operation is about: there must be one (the popup is open on it). */
+function rotationTab(tab: TabRef | null): TabRef {
+  if (tab === null) {
+    throw new ExtensionError("unsupportedPage");
+  }
+  return tab;
 }
 
 function finish(outcome: FillOutcome): FillSummary {

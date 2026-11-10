@@ -11,6 +11,7 @@ import type {
   TextFieldKey,
   UrlChange,
 } from "../contract/index.ts";
+import { passwordChanged, pushHistory, refreshDetail } from "./credentialRotation.ts";
 import { MOCK_SSH_SUMMARY } from "./data.ts";
 import { requireFreshReauth } from "./quickUnlock.ts";
 import { hardwareVaultOf, vaultReadable } from "./vaults.ts";
@@ -207,13 +208,20 @@ function applyDraft(state: MockState, item: MockItem, draft: ItemDraft): void {
       Reflect.deleteProperty(item.secrets, change.field);
       item.detail.secrets = item.detail.secrets.filter((field) => field !== change.field);
     } else {
+      const old = item.secrets[change.field];
       item.secrets[change.field] = change.value;
       if (!item.detail.secrets.includes(change.field)) {
         item.detail.secrets.push(change.field);
       }
+      // A changed password moves the old one to the history (Rust `ItemEdit::set_secret`).
+      if (change.field === "password" && old !== undefined && old !== change.value) {
+        pushHistory(state, item, old, "replaced");
+        passwordChanged(state, item);
+      }
     }
   }
   applyUrls(item, draft.urls);
+  refreshDetail(item);
   applyCustomFields(item, draft.customFields);
   applySshKey(item, draft);
   if (draft.tags !== null) {
@@ -252,6 +260,10 @@ function newItem(state: MockState, request: AddItemRequest): MockItem {
       attachments: [],
       otp: null,
       historyCount: 0,
+      history: [],
+      rotationAttempts: [],
+      rotationPolicy: null,
+      changeUrl: null,
       review: { conflictingFields: 0, deletedConcurrently: false, conflictCopyOf: null },
       sshKey: null,
       passkey: null,
@@ -335,6 +347,10 @@ export const itemHandlers: MockHandlers = {
   purge_item: (state, request) => {
     requireUnlocked(state);
     const item = findItem(state, request);
+    // As the vault does: no delete-forever while a password change is open (the trash is fine).
+    if (item.detail.rotationAttempts.length > 0) {
+      fail("rotationOpen");
+    }
     state.items = state.items.filter((each) => each !== item);
     return null;
   },

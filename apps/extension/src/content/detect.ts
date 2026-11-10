@@ -102,7 +102,7 @@ function describeField(el: HTMLInputElement): Field | null {
 }
 
 /** Every `input` in `root` and its open shadow roots, with the tree each one lives in. */
-function collectInputs(root: Document | ShadowRoot, depth: number, out: HTMLInputElement[]): void {
+export function collectInputs(root: Document | ShadowRoot, depth: number, out: HTMLInputElement[]): void {
   out.push(...root.querySelectorAll("input"));
   if (depth >= MAX_SHADOW_DEPTH) {
     return;
@@ -204,6 +204,12 @@ function pickUsername(fields: readonly Field[], passwords: readonly Field[]): HT
   const before = candidates.filter((f) => fields.indexOf(f) < index);
   const nearest = before.at(-1);
   return nearest === undefined ? [] : [nearest.el];
+}
+
+/** Whether a field says it holds a user name or an e-mail address (also used by the change-form heuristic). */
+export function looksLikeUsername(el: HTMLInputElement): boolean {
+  const tokens = tokensOf(el);
+  return tokens.includes("username") || tokens.includes("email") || el.type.toLowerCase() === "email" || USERNAME_RE.test(nameOrId(el));
 }
 
 /** A lone field on a page that asks for the username first. */

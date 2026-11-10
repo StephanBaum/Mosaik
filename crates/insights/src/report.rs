@@ -24,16 +24,21 @@ pub enum FindingKind {
     MissingTotp,
     /// A login URL uses plain HTTP.
     InsecureUrl,
+    /// The password appears in a known data breach (Have I Been Pwned range
+    /// check, opt-in, M7b). Fed by [`crate::Extra`]; the item does not hold
+    /// the result.
+    Breached,
 }
 
 impl FindingKind {
     /// Every kind, in the order of the dashboard summary.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Weak,
         Self::Reused,
         Self::Old,
         Self::MissingTotp,
         Self::InsecureUrl,
+        Self::Breached,
     ];
 
     /// The i18n key of the kind's label (`packages/i18n`).
@@ -45,6 +50,7 @@ impl FindingKind {
             Self::Old => "insights.kind.old",
             Self::MissingTotp => "insights.kind.missingTotp",
             Self::InsecureUrl => "insights.kind.insecureUrl",
+            Self::Breached => "insights.kind.breached",
         }
     }
 }
@@ -165,6 +171,8 @@ pub struct Counts {
     pub missing_totp: u32,
     /// Items with a plain-HTTP URL.
     pub insecure_url: u32,
+    /// Items whose password is in a known breach (opt-in check).
+    pub breached: u32,
     /// Items whose most severe finding is `High`.
     pub high: u32,
     /// Items whose most severe finding is `Medium`.
@@ -183,6 +191,7 @@ impl Counts {
             FindingKind::Old => self.old,
             FindingKind::MissingTotp => self.missing_totp,
             FindingKind::InsecureUrl => self.insecure_url,
+            FindingKind::Breached => self.breached,
         }
     }
 }

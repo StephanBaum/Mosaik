@@ -34,6 +34,10 @@ count, uniqueness and that every site rule parses and generates).
   applies to `example.com` and every subdomain, unless the entry sets
   `"exact-domain-match-only": true`.
 
+The same upstream repository and license also cover
+`crates/insights/data/change-password-URLs.json` (M7b, ADR-0070), which carries
+its own copy of the license file; both copies must stay unchanged.
+
 The parser in `src/rules.rs` follows Apple's reference parser
 `tools/PasswordRulesParser/PasswordRulesParser.js` at the same commit (MIT);
 its conformance cases are ported into the unit tests.
