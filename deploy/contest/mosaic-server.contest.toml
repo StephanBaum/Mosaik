@@ -1,0 +1,29 @@
+# mosaic-server.contest.toml: the config of the Security Challenge test server.
+# Copy it next to compose.yaml as mosaic-server.toml and set canonical_origin
+# to https:// plus your {CONTEST_HOST}. Unknown keys are an error. Everything
+# else is explained in ../mosaic-server.example.toml and docs/SERVER.md.
+
+listen = "0.0.0.0:8743"
+
+# The public address, exactly as clients enter it: https://host, lowercase,
+# no path. Set it before `init` and do not change it afterwards.
+canonical_origin = "https://{CONTEST_HOST}"
+
+data_dir = "/data"
+secret_file = "/data/server.key"
+
+# Anyone can register (the server limits each address; see CHALLENGE.md, C5).
+registration = "open"
+
+# The proxy in compose.yaml has this fixed address on the internal network.
+trusted_proxies = ["172.28.0.2"]
+
+# Small limits: this server holds test data only and is wiped every week.
+[limits]
+max_request_bytes = 4194304
+account_attachment_bytes = 33554432
+account_record_count = 2000
+account_record_bytes = 16777216
+session_idle_days = 1
+session_max_days = 7
+soft_delete_days = 1
