@@ -120,6 +120,18 @@ pub const COMMANDS: &[&str] = &[
     "rekey_commit",
     "rotation_resume",
     "rotation_abandon",
+    // Credential rotation and the breach check
+    "rotation_queue",
+    "rotation_begin",
+    "rotation_close",
+    "rotation_reveal",
+    "rotation_copy",
+    "password_history_restore",
+    "rotation_snooze",
+    "rotation_dismiss",
+    "rotation_set_policy",
+    "breach_scan_start",
+    "breach_scan_cancel",
     // Sharing and emergency access
     "sharing_identity",
     "sharing_lookup",

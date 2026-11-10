@@ -18,6 +18,7 @@ import { usePlatform } from "../../platform/platform.ts";
 import { useAppShortcuts } from "../../platform/shortcuts.ts";
 import { DetailFields } from "./DetailFields.tsx";
 import { DetailHeader, type ItemCommand } from "./DetailHeader.tsx";
+import { DetailRotation } from "./DetailRotation.tsx";
 import { FilesSection } from "./files/FilesSection.tsx";
 import { titleOrUntitled } from "./title.ts";
 
@@ -146,6 +147,7 @@ function DetailBody({
     <>
       {isDocument && files}
       <DetailFields detail={detail} item={item} />
+      <DetailRotation detail={detail} item={item} trash={trash} onDetail={onDetail} />
       {!isDocument && files}
       <DetailNotes notes={notes} />
       <DetailFooter detail={detail} />

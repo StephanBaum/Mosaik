@@ -18,6 +18,7 @@ import type {
   VaultSummary,
 } from "../contract/index.ts";
 import type { MockBrowser } from "./browser.ts";
+import type { MockCredRotation } from "./credentialRotation.ts";
 import type { MockRotation } from "./rotation.ts";
 import type { MockSharing } from "./sharingData.ts";
 import type { MockSync } from "./syncData.ts";
@@ -109,6 +110,8 @@ export interface MockState {
   sync: MockSync;
   /** Account keys (`mock/rotation.ts`): the rotation job, the staged Secret Key and the review. */
   rotation: MockRotation;
+  /** Credential rotation (`mock/credentialRotation.ts`): snooze, dismissal, open attempts and the breach scan. */
+  credRotation: MockCredRotation;
   /** Sharing (`mock/sharing.ts`): contacts, members, invites and emergency access. */
   sharing: MockSharing;
   /** The import preview waiting for a commit. */

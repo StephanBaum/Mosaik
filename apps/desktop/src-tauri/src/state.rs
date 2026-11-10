@@ -19,6 +19,7 @@ use crate::adapters::{Adapters, EventSink};
 use crate::autolock::Activity;
 use crate::browser::BrowserService;
 use crate::clipboard::{BackendFactory, ClipboardService, MemoryClipboard};
+use crate::commands::breach::BreachService;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::settings::Settings;
@@ -185,6 +186,9 @@ pub struct Backend {
     focus: Option<Attention>,
     /// The browser extension endpoint (M4).
     pub browser: BrowserService,
+    /// The opt-in breach scan (M7b): whether one runs and where answers
+    /// come from.
+    pub breach: BreachService,
     /// When the user last proved it is them (an unlock or a right master
     /// password), on the browser service's clock and on the wall clock.
     /// Passkeys report user verification only within five minutes of it on
@@ -248,6 +252,7 @@ impl Backend {
             attention: None,
             focus: None,
             browser: BrowserService::new(),
+            breach: BreachService::default(),
             last_user_verification: Mutex::new(None),
             os_sources: Mutex::new(Vec::new()),
             kit_pending: Mutex::new(None),

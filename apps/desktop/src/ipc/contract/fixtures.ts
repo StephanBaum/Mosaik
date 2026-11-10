@@ -28,6 +28,15 @@ export interface EnumFixtures {
   insightKind: string[];
   insightSeverity: string[];
   insightAction: string[];
+  breachMode: string[];
+  queueKind: string[];
+  queueReason: string[];
+  attemptStage: string[];
+  rulesSourceKey: string[];
+  changeUrlSource: string[];
+  rotationOutcomeKey: string[];
+  historyReasonKey: string[];
+  breachScanError: string[];
   importFormat: string[];
   importWarning: string[];
   importEntryWarning: string[];

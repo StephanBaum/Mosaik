@@ -3150,6 +3150,7 @@ dependencies = [
  "idna",
  "libc",
  "mosaic-core",
+ "mosaic-insights",
  "mosaic-server",
  "mosaic-totp",
  "mosaic-vault",

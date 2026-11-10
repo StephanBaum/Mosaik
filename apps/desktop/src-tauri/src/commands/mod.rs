@@ -11,8 +11,10 @@
 )]
 
 pub mod attachments;
+pub mod breach;
 pub mod browser;
 pub mod clipboard;
+pub mod credential_rotation;
 pub mod draft;
 pub mod export;
 pub mod generator;
@@ -148,6 +150,17 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         rotation::rekey_commit,
         rotation::rotation_resume,
         rotation::rotation_abandon,
+        credential_rotation::rotation_queue,
+        credential_rotation::rotation_begin,
+        credential_rotation::rotation_close,
+        credential_rotation::rotation_reveal,
+        credential_rotation::rotation_copy,
+        credential_rotation::password_history_restore,
+        credential_rotation::rotation_snooze,
+        credential_rotation::rotation_dismiss,
+        credential_rotation::rotation_set_policy,
+        breach::breach_scan_start,
+        breach::breach_scan_cancel,
         sharing::sharing_identity,
         sharing::sharing_lookup,
         sharing::sharing_verify_contact,

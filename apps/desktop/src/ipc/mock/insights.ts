@@ -35,7 +35,7 @@ const SAMPLE_TOTP_SITES: ReadonlyMap<string, TotpSiteInfo> = new Map([
   ["dropbox.com", { name: "Dropbox", documentation: null }],
   ["amazon.com", { name: "Amazon", documentation: null }],
 ]);
-const KIND_ORDER: readonly InsightKind[] = ["weak", "reused", "old", "missingTotp", "insecureUrl"];
+const KIND_ORDER: readonly InsightKind[] = ["weak", "reused", "old", "missingTotp", "insecureUrl", "breached"];
 const SEVERITY_RANK: Readonly<Record<InsightSeverity, number>> = { low: 0, medium: 1, high: 2 };
 const ACTIONS: Readonly<Record<InsightKind, InsightAction>> = {
   weak: "changePassword",
@@ -43,6 +43,7 @@ const ACTIONS: Readonly<Record<InsightKind, InsightAction>> = {
   old: "changePassword",
   missingTotp: "setUpTotp",
   insecureUrl: "reviewUrl",
+  breached: "changePassword",
 };
 const LOCAL_SUFFIXES = [".local", ".lan", ".home", ".home.arpa", ".internal", ".intranet", ".corp"];
 
@@ -219,6 +220,7 @@ function tally(findings: readonly InsightFinding[], reusedGroups: number): Insig
     old: 0,
     missingTotp: 0,
     insecureUrl: 0,
+    breached: 0,
     high: 0,
     medium: 0,
     low: 0,
@@ -250,6 +252,28 @@ function sortFindings(findings: InsightFinding[]): void {
   );
 }
 
+/** The IDs of the items whose current password the opt-in breach check found. */
+export function breachedItems(state: MockState): Set<string> {
+  const out = new Set<string>();
+  for (const [itemId, password] of state.credRotation.found) {
+    const item = state.items.find((each) => each.detail.summary.itemId === itemId);
+    if (item !== undefined && secretOf(item) === password) {
+      out.add(itemId);
+    }
+  }
+  return out;
+}
+
+/** The opt-in breach check's findings: `high`, only while the password is the one that was checked. */
+function markBreached(state: MockState, checked: readonly MockItem[], mark: Mark): void {
+  const found = breachedItems(state);
+  for (const item of checked) {
+    if (found.has(item.detail.summary.itemId)) {
+      mark(item, "breached", "high");
+    }
+  }
+}
+
 export function mockSecurityReport(state: MockState): SecurityReport {
   const now = state.now();
   const checked = state.items.filter(
@@ -258,6 +282,7 @@ export function mockSecurityReport(state: MockState): SecurityReport {
   const { entries, mark } = findingCollector();
   const reusedGroups = markPasswordFindings(checked, mark);
   markLoginFindings(checked, now, mark);
+  markBreached(state, checked, mark);
   const findings = [...entries.values()];
   const counts = tally(findings, reusedGroups);
   sortFindings(findings);

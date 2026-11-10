@@ -20,6 +20,7 @@ mod macros;
 pub mod attachments;
 pub mod browser;
 pub mod clipboard;
+pub mod credential_rotation;
 pub mod errors;
 pub mod events;
 pub mod export;

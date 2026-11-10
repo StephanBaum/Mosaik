@@ -5,7 +5,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mosaic_core::Timestamp;
-use mosaic_insights::{Action, Candidate, Finding, FindingKind, Options, Severity, analyze};
+use mosaic_insights::{
+    Action, Candidate, Extra, Finding, FindingKind, Options, Severity, analyze_with,
+};
 use mosaic_vault::session::ItemFilter;
 use tauri::State;
 
@@ -33,14 +35,21 @@ impl Backend {
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         let entries = session.items(&ItemFilter::default());
-        let report = analyze(
+        let candidates = || {
             entries.iter().map(|e| Candidate {
                 vault_id: e.vault_id,
                 item_id: e.item_id,
                 item: e.item,
-            }),
+            })
+        };
+        // The cached answers of the opt-in breach check (none while it never
+        // ran); a row counts only for the password it was made for.
+        let breached = session.breach_states()?.breached_items(candidates());
+        let report = analyze_with(
+            candidates(),
             now,
             &Options::default(),
+            &Extra::new(&breached),
         )
         .map_err(|_| IpcError::INTERNAL)?;
         Ok(to_wire(&report, now))
@@ -59,6 +68,7 @@ fn to_wire(report: &mosaic_insights::Report, now: Timestamp) -> SecurityReport {
             old: c.old,
             missing_totp: c.missing_totp,
             insecure_url: c.insecure_url,
+            breached: c.breached,
             high: c.high,
             medium: c.medium,
             low: c.low,
@@ -107,6 +117,7 @@ fn kind(kind: FindingKind) -> Option<InsightKind> {
         FindingKind::Old => Some(InsightKind::Old),
         FindingKind::MissingTotp => Some(InsightKind::MissingTotp),
         FindingKind::InsecureUrl => Some(InsightKind::InsecureUrl),
+        FindingKind::Breached => Some(InsightKind::Breached),
         _ => None,
     }
 }
@@ -129,7 +140,7 @@ fn action(action: Action) -> Option<InsightAction> {
 }
 
 /// Wall-clock time for the report.
-fn now() -> Timestamp {
+pub(crate) fn now() -> Timestamp {
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
@@ -200,6 +211,7 @@ mod tests {
                 old: 0,
                 missing_totp: 0,
                 insecure_url: 1,
+                breached: 0,
                 high: 2,
                 medium: 0,
                 low: 0,

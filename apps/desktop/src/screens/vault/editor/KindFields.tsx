@@ -54,8 +54,10 @@ function WifiSecurity({ form, label, onChange }: Pick<Shared, "form" | "onChange
   );
 }
 
-function textInputType(spec: FieldSpec): "text" | "email" | "tel" | "date" {
-  return spec.input === "email" || spec.input === "tel" || spec.input === "date" ? spec.input : "text";
+function textInputType(spec: FieldSpec): "text" | "email" | "tel" | "date" | "url" {
+  return spec.input === "email" || spec.input === "tel" || spec.input === "date" || spec.input === "url"
+    ? spec.input
+    : "text";
 }
 
 function TextInput({ spec, form, tried, errors, onChange }: Shared & { spec: FieldSpec }) {
@@ -67,7 +69,9 @@ function TextInput({ spec, form, tried, errors, onChange }: Shared & { spec: Fie
   }
   const value = form.text[key] ?? "";
   let hint: string | undefined;
-  if (spec.input === "expiry") {
+  if (spec.input === "url") {
+    hint = t("credentialRotation.url.help");
+  } else if (spec.input === "expiry") {
     hint = t("editor.card.expiryHint");
   } else if (spec.input === "email" && value !== "" && !value.includes("@")) {
     hint = t("editor.email.hint");

@@ -84,6 +84,7 @@ fn weak() -> Settings {
         theme: Theme::Dark,
         language: Language::De,
         quick_unlock_max_age_days: 30,
+        ..Settings::default()
     }
 }
 

@@ -82,6 +82,18 @@ export const errors = {
   "error.rotationInProgress":
     "Another key change is still open. Finish it with Continue key rotation, or discard it first.",
   "error.rotationNone": "There is no key change to continue.",
+  "error.rotationNotFound":
+    "That password change is no longer open. It may have been closed on another device or in the browser. Reopen the item to see where it stands.",
+  "error.rotationLimit":
+    "Four password changes of this item are open already. Finish or close one in the item first.",
+  "error.rotationNotSupported":
+    "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
+  "error.historyNotFound": "That earlier password isn't in the history any more. Reopen the item to see the current list.",
+  "error.originNotRelated":
+    "That page doesn't belong to this login's site, so Mosaic didn't add it. Edit the item's addresses if it should.",
+  "error.breachConsentRequired":
+    "The breach check is off. Turn it on and agree to what it sends first.",
+  "error.breachRunning": "A breach check is already running. Wait for it to finish, or stop it first.",
   "error.rotationTooFar":
     "This change already reached your account, so it can't be discarded. Continue it to finish.",
   "error.rotationJumpTooLarge":

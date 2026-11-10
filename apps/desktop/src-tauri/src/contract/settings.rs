@@ -31,6 +31,18 @@ wire_enum!(
     }
 );
 
+wire_enum!(
+    /// How the opt-in breach check runs (CRYPTO_SPEC §12, ADR-0065).
+    pub enum BreachMode {
+        /// Never (the default): no request is ever made.
+        Off,
+        /// Only when the user presses "Check now".
+        Manual,
+        /// Also 60 seconds after an unlock when the last scan is a week old.
+        Weekly,
+    }
+);
+
 /// Every setting. `update_settings` takes the whole object and returns what
 /// was stored (values are clamped to their ranges).
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -53,6 +65,15 @@ pub struct Settings {
     /// master password is needed again (1 to 30). Raising it needs the
     /// master password (CRYPTO_SPEC §6.2).
     pub quick_unlock_max_age_days: u32,
+    /// The breach check (M7b). Under the settings MAC: a file edited outside
+    /// Mosaic reads as `off`. Not `off` only together with `breachConsentAt`.
+    pub breach_check: BreachMode,
+    /// When the user agreed to the breach check (Unix ms); `null` exactly
+    /// when `breachCheck` is `off`. Setting it is the consent.
+    pub breach_consent_at: Option<i64>,
+    /// Show "n passwords to change" after an unlock (default on). No
+    /// request is made for it.
+    pub rotation_reminders: bool,
 }
 
 impl Default for Settings {
@@ -65,6 +86,9 @@ impl Default for Settings {
             theme: Theme::System,
             language: Language::System,
             quick_unlock_max_age_days: 14,
+            breach_check: BreachMode::Off,
+            breach_consent_at: None,
+            rotation_reminders: true,
         }
     }
 }
@@ -97,6 +121,9 @@ pub(crate) mod samples {
                 theme: Theme::Dark,
                 language: Language::De,
                 quick_unlock_max_age_days: 30,
+                breach_check: BreachMode::Weekly,
+                breach_consent_at: Some(1_761_000_000_000),
+                rotation_reminders: false,
             },
         ]
     }

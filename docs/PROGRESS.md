@@ -17,7 +17,7 @@ milestone close appends its section there).
 | M6 Sync | ✅ done (2026-11-07; PRs #33, #35, #36, #37, #38 and the close branch `chore/m6-close`, #39; ADR-0042 to 0047 accepted; open: manual checks with real Dropbox, iCloud and OneDrive folders on Windows, macOS and Linux, the hosted server behind Caddy on a VPS, two physical devices, the keystore token on each OS; owner: hosted domain (`HOSTED_DEFAULT_URL`), scope split (M6b), license (AGPL server question; it also gates the free audit programs)) |
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
-| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault done; T3 desktop, T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
+| M7b Credential rotation | in progress (T1 spec, core and insights done 2026-11-10 on `feat/m7b-rotation`; T2 vault and T3 desktop done; T4 extension, T5 review and close to do; ADR-0065 to 0070, R97 to R104; connectors, scheduler and passkey hints deferred) |
 | M8 CLI | — |
 | M9 Hardening | — |
 | M10 Mobile | — |
@@ -2487,6 +2487,38 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
   `migration_v9_to_v10`. Note for T3: `mosaic-desktop` does not compile until it handles
   `TextField::ChangePasswordUrl` (the `field_enum` mapping of the item draft).
   - Left to the next tracks: the HTTP transport (`mosaic_sync::http::pwned`, T3) and everything in the spec's §3.2 to §8.
+- **T3 desktop, breach transport and screens: done** (`crates/sync`, `apps/desktop`, `packages/i18n`,
+  `docs/DESKTOP_IPC.md` "Credential rotation and the breach check"). The browser files stay with T4.
+  - `mosaic_sync::http::pwned::RangeClient` (feature `http`, new optional edge `mosaic-sync` to `mosaic-insights`): the
+    production `RangeSource`. Directly to `api.pwnedpasswords.com` on the sync client's TLS 1.3 configuration,
+    `Add-Padding: true` and `User-Agent: Mosaic`, no redirect, 10 s timeout, a body over 256 KiB is rejected (never cut), 429
+    with `Retry-After`, every other status is `Protocol`, an unreachable host is `Offline`. Tests run against a local
+    socket; no test calls the real service; one `#[ignore]` `pwned_live_smoke`.
+  - Commands (`commands/credential_rotation.rs`, `commands/breach.rs`, `contract/credential_rotation.rs`, TS
+    `ipc/contract/credentialRotation.ts`): `rotation_queue`, `rotation_begin`, `rotation_close`, `rotation_reveal`,
+    `rotation_copy`, `password_history_restore`, `rotation_snooze`, `rotation_dismiss`, `rotation_set_policy`,
+    `breach_scan_start`, `breach_scan_cancel`; events `breachScanProgress` and `breachScanFinished`; `ItemDetail` gains
+    `history`, `rotationAttempts`, `rotationPolicy`, `changeUrl`; `Settings` gains `breachCheck`, `breachConsentAt`,
+    `rotationReminders`; `security_report` gains `counts.breached`; `TextFieldKey::ChangePasswordUrl` (the known
+    breakage: contract, TS mirror, login layout and editor field, label EN and DE, `https` form check in the draft).
+  - The breach scan hashes under the session lock, then runs on its own thread (`BreachService`) with a plan that holds
+    only hash suffixes. Lock, cancel and exit set the scan's own cancel flag, which the pause between requests watches
+    (50 ms slices); the answers of a scan cut off by a lock are dropped. `weekly` starts one scan 60 seconds after an
+    unlock when the last ended a week ago; with `off` (the default) the client is never built.
+  - Settings: `breachCheck` and `breachConsentAt` are protection settings under the settings MAC (ADR-0030). They enter
+    the MAC bytes only while the check is on, so the MAC of an install that never used it stays valid; a file without a
+    valid MAC reads them as `off`; a mode without the consent reads as `off`; turning the check off withdraws the consent.
+  - Screens (`screens/rotation/`, `screens/vault/`): the Security page with its tabs, `RotationQueue`, `RotationPanel` (three
+    steps, focus on the step heading), `BreachCheckCard` (one polite status that changes at the start and the end only),
+    `BreachConsentDialog` ("Not now" has focus and changes nothing), `PendingRotationBanner`, `PasswordHistory` (Restore,
+    "Not confirmed"), `RotationPolicySelect`, the reminder toast after an unlock and its setting. Mock variants
+    `&credRotation=queue|empty|pending|breachRunning|breachOffline|consent` (the spec's `?rotation=` is taken by the key rotation).
+  - Deviations: the policy select sits on the item detail (it is a command, not a draft field); the dashboard's "Change
+    password" opens the queue's panel for guided items and the item otherwise; `forSite` generation passes
+    `rulesSource: null` (the response does not say whether quirks applied); the stored change URL is checked for
+    `https` and length when saved, its relation to the login's site when the page is resolved (`change_url::resolve`
+    ignores one that is unrelated); the browser dialogs (`browser_rotation_respond`, `BrowserRotationDialog`, mock variants
+    `browserBegin`, `browserResult`, `addOrigin`) are T4's.
 
 ## Open risks / findings
 

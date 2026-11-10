@@ -183,6 +183,12 @@ pub fn run() -> tauri::Result<()> {
                 TICK,
             ))));
             app.manage(state.clone());
+            // `weekly` breach check: 60 seconds after an unlock, if it is due.
+            // With the setting `off` (the default) nothing is ever started.
+            let weak = state.downgrade();
+            state.backend().on_unlock(Box::new(move || {
+                Backend::breach_weekly_after_unlock(weak.clone());
+            }));
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
 
@@ -224,6 +230,8 @@ pub fn run() -> tauri::Result<()> {
 
 #[cfg(test)]
 mod browser_tests;
+#[cfg(test)]
+mod credential_rotation_tests;
 #[cfg(test)]
 mod flow_tests;
 #[cfg(test)]

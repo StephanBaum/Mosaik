@@ -483,3 +483,71 @@ fn attachment_requests_refuse_path_keys() {
         }
     }
 }
+
+#[test]
+fn credential_rotation_requests_refuse_extra_keys_urls_and_values_in_the_wrong_place() {
+    // Attempt: the webview smuggles a URL to open, a file path, a hash or a pending password into a
+    // rotation or breach request. The change page is only ever resolved in Rust and handed back
+    // as a link to copy; the new password travels only in `rotation_begin`.
+    use crate::contract::credential_rotation::{
+        HistoryRestoreRequest, RotationAttemptRequest, RotationBeginRequest, RotationCloseRequest,
+        RotationPolicyRequest, RotationSnoozeRequest,
+    };
+
+    fn check<T: serde::de::DeserializeOwned>(what: &str, valid: &Value) {
+        assert!(
+            serde_json::from_value::<T>(valid.clone()).is_ok(),
+            "{what}: the valid sample must parse"
+        );
+        for extra in [
+            "url",
+            "changeUrl",
+            "path",
+            "hash",
+            "prefix",
+            "newPassword",
+            "pending",
+            "isAdmin",
+        ] {
+            let mut value = valid.clone();
+            if value.get(extra).is_some() {
+                continue;
+            }
+            value[extra] = json!("https://evil.example/");
+            assert!(
+                serde_json::from_value::<T>(value).is_err(),
+                "{what}: unknown field {extra} was accepted"
+            );
+        }
+    }
+
+    let ids = json!({
+        "vaultId": "019a2b3c-0000-7000-8000-000000000001",
+        "itemId": "019a2b3c-0000-7000-8000-000000000002",
+    });
+    let with = |extra: Value| {
+        let mut value = ids.clone();
+        for (key, v) in extra.as_object().unwrap() {
+            value[key] = v.clone();
+        }
+        value
+    };
+    check::<RotationBeginRequest>(
+        "rotation_begin",
+        &with(json!({ "newPassword": "q7#Vt2-new", "rulesSource": null })),
+    );
+    check::<RotationAttemptRequest>("rotation_reveal", &with(json!({ "attemptId": "a.b.0" })));
+    check::<RotationCloseRequest>(
+        "rotation_close",
+        &with(json!({ "attemptId": "a.b.0", "outcome": "failed" })),
+    );
+    check::<HistoryRestoreRequest>("restore", &with(json!({ "historyId": "a.b.0" })));
+    check::<RotationSnoozeRequest>("snooze", &with(json!({ "days": 7 })));
+    check::<RotationPolicyRequest>("policy", &with(json!({ "everyDays": null })));
+    // The breach commands take no argument at all, so they cannot be handed a prefix, a hash or a
+    // host: the host of the request is a constant of `mosaic-sync` (api.pwnedpasswords.com).
+    assert!(
+        crate::commands::names::COMMANDS.contains(&"breach_scan_start")
+            && crate::commands::names::COMMANDS.contains(&"breach_scan_cancel")
+    );
+}

@@ -106,6 +106,17 @@ export const fixtures = {
     "rekey_commit",
     "rotation_resume",
     "rotation_abandon",
+    "rotation_queue",
+    "rotation_begin",
+    "rotation_close",
+    "rotation_reveal",
+    "rotation_copy",
+    "password_history_restore",
+    "rotation_snooze",
+    "rotation_dismiss",
+    "rotation_set_policy",
+    "breach_scan_start",
+    "breach_scan_cancel",
     "sharing_identity",
     "sharing_lookup",
     "sharing_verify_contact",
@@ -129,9 +140,24 @@ export const fixtures = {
     "emergency_claim"
   ],
   "enums": {
+    "attemptStage": [
+      "prepared",
+      "delivered"
+    ],
     "biometricPlatformKind": [
       "windowsHello",
       "touchId"
+    ],
+    "breachMode": [
+      "off",
+      "manual",
+      "weekly"
+    ],
+    "breachScanError": [
+      "offline",
+      "rateLimited",
+      "protocol",
+      "cancelled"
     ],
     "browserCloseReason": [
       "answered",
@@ -171,6 +197,11 @@ export const fixtures = {
     "browserSaveKind": [
       "new",
       "update"
+    ],
+    "changeUrlSource": [
+      "stored",
+      "quirks",
+      "wellKnown"
     ],
     "contactStatus": [
       "new",
@@ -343,6 +374,13 @@ export const fixtures = {
       "syncAccountRekeyed",
       "syncEpochRollback",
       "syncRekeyRefused",
+      "rotationNotFound",
+      "rotationLimit",
+      "rotationNotSupported",
+      "historyNotFound",
+      "originNotRelated",
+      "breachConsentRequired",
+      "breachRunning",
       "busy",
       "internal"
     ],
@@ -350,6 +388,10 @@ export const fixtures = {
       "empty",
       "mosaic",
       "other"
+    ],
+    "historyReasonKey": [
+      "replaced",
+      "unconfirmed"
     ],
     "hostedMode": [
       "register",
@@ -405,7 +447,8 @@ export const fixtures = {
       "reused",
       "old",
       "missingTotp",
-      "insecureUrl"
+      "insecureUrl",
+      "breached"
     ],
     "insightSeverity": [
       "low",
@@ -481,6 +524,17 @@ export const fixtures = {
       "preferred",
       "discouraged"
     ],
+    "queueKind": [
+      "guided",
+      "manual"
+    ],
+    "queueReason": [
+      "weak",
+      "reused",
+      "old",
+      "breached",
+      "unfinished"
+    ],
     "quickUnlockKind": [
       "biometric",
       "hardwareKey"
@@ -506,6 +560,10 @@ export const fixtures = {
       "password",
       "kitGroup"
     ],
+    "rotationOutcomeKey": [
+      "succeeded",
+      "failed"
+    ],
     "rotationPhaseName": [
       "prepared",
       "backendStarted",
@@ -519,6 +577,9 @@ export const fixtures = {
       "standard",
       "strong",
       "max"
+    ],
+    "rulesSourceKey": [
+      "siteQuirks"
     ],
     "secretFieldKey": [
       "password",
@@ -605,7 +666,8 @@ export const fixtures = {
       "apiKeyHost",
       "wifiSsid",
       "wifiSecurity",
-      "sshComment"
+      "sshComment",
+      "changePasswordUrl"
     ],
     "theme": [
       "system",
@@ -1045,6 +1107,27 @@ export const fixtures = {
       "code": "syncRekeyRefused"
     },
     {
+      "code": "rotationNotFound"
+    },
+    {
+      "code": "rotationLimit"
+    },
+    {
+      "code": "rotationNotSupported"
+    },
+    {
+      "code": "historyNotFound"
+    },
+    {
+      "code": "originNotRelated"
+    },
+    {
+      "code": "breachConsentRequired"
+    },
+    {
+      "code": "breachRunning"
+    },
+    {
       "code": "busy"
     },
     {
@@ -1253,6 +1336,23 @@ export const fixtures = {
       "type": "rotationProgress"
     },
     {
+      "done": 4,
+      "total": 9,
+      "type": "breachScanProgress"
+    },
+    {
+      "checked": 12,
+      "error": null,
+      "found": 1,
+      "type": "breachScanFinished"
+    },
+    {
+      "checked": 5,
+      "error": "cancelled",
+      "found": 0,
+      "type": "breachScanFinished"
+    },
+    {
       "state": {
         "error": "internal",
         "lastSyncedAt": 1761480000000,
@@ -1398,6 +1498,12 @@ export const fixtures = {
         "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
+    ],
+    "breach_scan_cancel": [
+      null
+    ],
+    "breach_scan_start": [
+      null
     ],
     "browser_pairing_respond": [
       {
@@ -1893,6 +1999,13 @@ export const fixtures = {
         "source": "file"
       }
     ],
+    "password_history_restore": [
+      {
+        "historyId": "00000000000000a2.0123456789abcdef.0",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
     "profile_upgrade": [
       {
         "code": null,
@@ -2000,6 +2113,50 @@ export const fixtures = {
     "rotation_abandon_committed": [
       null
     ],
+    "rotation_begin": [
+      {
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "newPassword": "q7#Vt2-new",
+        "rulesSource": null,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "newPassword": "q7#Vt2-new",
+        "rulesSource": "siteQuirks",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_close": [
+      {
+        "attemptId": "00000000000000a1.0123456789abcdef.0",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "outcome": "succeeded",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "attemptId": "00000000000000a1.0123456789abcdef.0",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "outcome": "failed",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_copy": [
+      {
+        "attemptId": "00000000000000a3.0123456789abcdef.1",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_dismiss": [
+      {
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_queue": [
+      null
+    ],
     "rotation_resume": [
       {
         "code": null,
@@ -2010,6 +2167,47 @@ export const fixtures = {
         "code": "492039",
         "kitGroup": "8VJ2",
         "password": "a new master password"
+      }
+    ],
+    "rotation_reveal": [
+      {
+        "attemptId": "00000000000000a1.0123456789abcdef.0",
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_set_policy": [
+      {
+        "everyDays": 30,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "everyDays": 365,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "everyDays": null,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "rotation_snooze": [
+      {
+        "days": 1,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "days": 7,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "days": 30,
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
       }
     ],
     "rotation_status": [
@@ -2525,11 +2723,14 @@ export const fixtures = {
         "password": null,
         "settings": {
           "autoLockMinutes": 10,
+          "breachCheck": "off",
+          "breachConsentAt": null,
           "clipboardClearSeconds": 30,
           "language": "system",
           "lockOnScreenLock": true,
           "lockOnSleep": true,
           "quickUnlockMaxAgeDays": 14,
+          "rotationReminders": true,
           "theme": "system"
         }
       },
@@ -2537,11 +2738,14 @@ export const fixtures = {
         "password": "correct horse battery staple",
         "settings": {
           "autoLockMinutes": null,
+          "breachCheck": "weekly",
+          "breachConsentAt": 1761000000000,
           "clipboardClearSeconds": null,
           "language": "de",
           "lockOnScreenLock": false,
           "lockOnSleep": false,
           "quickUnlockMaxAgeDays": 30,
+          "rotationReminders": false,
           "theme": "dark"
         }
       }
@@ -2629,6 +2833,10 @@ export const fixtures = {
             "size": 512
           }
         ],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
         "createdAt": 1761400000000,
         "customFields": [
           {
@@ -2642,6 +2850,20 @@ export const fixtures = {
             "kind": "hidden",
             "label": "PIN",
             "value": null
+          }
+        ],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
           }
         ],
         "historyCount": 2,
@@ -2658,6 +2880,14 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
         "secrets": [
           "password"
         ],
@@ -2715,6 +2945,10 @@ export const fixtures = {
               "size": 512
             }
           ],
+          "changeUrl": {
+            "source": "wellKnown",
+            "url": "https://example.com/.well-known/change-password"
+          },
           "createdAt": 1761400000000,
           "customFields": [
             {
@@ -2728,6 +2962,20 @@ export const fixtures = {
               "kind": "hidden",
               "label": "PIN",
               "value": null
+            }
+          ],
+          "history": [
+            {
+              "changedAt": 1761480100000,
+              "historyId": "00000000000000a2.0123456789abcdef.0",
+              "index": 0,
+              "reason": "unconfirmed"
+            },
+            {
+              "changedAt": 1761400000000,
+              "historyId": "00000000000000a0.0123456789abcdef.0",
+              "index": 1,
+              "reason": "replaced"
             }
           ],
           "historyCount": 2,
@@ -2744,6 +2992,14 @@ export const fixtures = {
             "conflictingFields": 0,
             "deletedConcurrently": false
           },
+          "rotationAttempts": [
+            {
+              "attemptId": "00000000000000a1.0123456789abcdef.0",
+              "stage": "prepared",
+              "startedAt": 1761480000000
+            }
+          ],
+          "rotationPolicy": 90,
           "secrets": [
             "password"
           ],
@@ -2798,6 +3054,10 @@ export const fixtures = {
             "size": 512
           }
         ],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
         "createdAt": 1761400000000,
         "customFields": [
           {
@@ -2811,6 +3071,20 @@ export const fixtures = {
             "kind": "hidden",
             "label": "PIN",
             "value": null
+          }
+        ],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
           }
         ],
         "historyCount": 2,
@@ -2827,6 +3101,14 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
         "secrets": [
           "password"
         ],
@@ -2870,6 +3152,12 @@ export const fixtures = {
       {
         "kind": "cancelled"
       }
+    ],
+    "breach_scan_cancel": [
+      null
+    ],
+    "breach_scan_start": [
+      null
     ],
     "browser_pairing_respond": [
       null
@@ -3222,6 +3510,10 @@ export const fixtures = {
             "size": 512
           }
         ],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
         "createdAt": 1761400000000,
         "customFields": [
           {
@@ -3235,6 +3527,20 @@ export const fixtures = {
             "kind": "hidden",
             "label": "PIN",
             "value": null
+          }
+        ],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
           }
         ],
         "historyCount": 2,
@@ -3251,6 +3557,14 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
         "secrets": [
           "password"
         ],
@@ -3288,8 +3602,26 @@ export const fixtures = {
       },
       {
         "attachments": [],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
         "createdAt": 1761400000000,
         "customFields": [],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
+          }
+        ],
         "historyCount": 2,
         "otp": null,
         "passkey": null,
@@ -3298,6 +3630,14 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
         "secrets": [
           "password"
         ],
@@ -3334,8 +3674,10 @@ export const fixtures = {
       },
       {
         "attachments": [],
+        "changeUrl": null,
         "createdAt": 1761400000000,
         "customFields": [],
+        "history": [],
         "historyCount": 0,
         "otp": null,
         "passkey": {
@@ -3352,6 +3694,8 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [],
+        "rotationPolicy": null,
         "secrets": [],
         "sshKey": null,
         "summary": {
@@ -3377,20 +3721,26 @@ export const fixtures = {
     "get_settings": [
       {
         "autoLockMinutes": 10,
+        "breachCheck": "off",
+        "breachConsentAt": null,
         "clipboardClearSeconds": 30,
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
         "quickUnlockMaxAgeDays": 14,
+        "rotationReminders": true,
         "theme": "system"
       },
       {
         "autoLockMinutes": null,
+        "breachCheck": "weekly",
+        "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
         "quickUnlockMaxAgeDays": 30,
+        "rotationReminders": false,
         "theme": "dark"
       }
     ],
@@ -3796,6 +4146,9 @@ export const fixtures = {
         "kind": "cancelled"
       }
     ],
+    "password_history_restore": [
+      null
+    ],
     "profile_upgrade": [
       {
         "finished": true,
@@ -4057,6 +4410,94 @@ export const fixtures = {
     "rotation_abandon_committed": [
       null
     ],
+    "rotation_begin": [
+      {
+        "attemptId": "00000000000000a1.0123456789abcdef.0",
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        }
+      },
+      {
+        "attemptId": "00000000000000a1.0123456789abcdef.0",
+        "changeUrl": null
+      }
+    ],
+    "rotation_close": [
+      null
+    ],
+    "rotation_copy": [
+      {
+        "clearAfterSeconds": 30,
+        "clearsAt": 1761480030000
+      },
+      {
+        "clearAfterSeconds": null,
+        "clearsAt": null
+      }
+    ],
+    "rotation_dismiss": [
+      null
+    ],
+    "rotation_queue": [
+      {
+        "breach": {
+          "consentAt": 1761000000000,
+          "lastError": "offline",
+          "lastFinishedAt": 1761470000000,
+          "mode": "weekly",
+          "running": true
+        },
+        "entries": [
+          {
+            "attempts": [
+              {
+                "attemptId": "00000000000000a1.0123456789abcdef.0",
+                "stage": "prepared",
+                "startedAt": 1761480000000
+              }
+            ],
+            "host": "example.com",
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+            "kind": "guided",
+            "reasons": [
+              "weak",
+              "unfinished"
+            ],
+            "severity": "high",
+            "snoozedUntil": null,
+            "title": "Example",
+            "username": "alex@example.com",
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          },
+          {
+            "attempts": [],
+            "host": null,
+            "itemId": "019a2b3c-4d5e-7020-8000-000000000002",
+            "kind": "manual",
+            "reasons": [
+              "old",
+              "breached"
+            ],
+            "severity": "high",
+            "snoozedUntil": 1761990000000,
+            "title": null,
+            "username": null,
+            "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+          }
+        ]
+      },
+      {
+        "breach": {
+          "consentAt": null,
+          "lastError": null,
+          "lastFinishedAt": null,
+          "mode": "off",
+          "running": false
+        },
+        "entries": []
+      }
+    ],
     "rotation_resume": [
       {
         "finished": true,
@@ -4081,6 +4522,18 @@ export const fixtures = {
         "unreachable": [],
         "unreachableAttachments": 0
       }
+    ],
+    "rotation_reveal": [
+      {
+        "hideAfterSeconds": 60,
+        "value": "q7#Vt2-new"
+      }
+    ],
+    "rotation_set_policy": [
+      null
+    ],
+    "rotation_snooze": [
+      null
     ],
     "rotation_status": [
       {
@@ -4162,6 +4615,7 @@ export const fixtures = {
     "security_report": [
       {
         "counts": {
+          "breached": 1,
           "high": 2,
           "insecureUrl": 1,
           "low": 0,
@@ -4184,6 +4638,11 @@ export const fixtures = {
               {
                 "action": "changePassword",
                 "kind": "reused",
+                "severity": "high"
+              },
+              {
+                "action": "changePassword",
+                "kind": "breached",
                 "severity": "high"
               },
               {
@@ -6446,6 +6905,10 @@ export const fixtures = {
             "size": 512
           }
         ],
+        "changeUrl": {
+          "source": "wellKnown",
+          "url": "https://example.com/.well-known/change-password"
+        },
         "createdAt": 1761400000000,
         "customFields": [
           {
@@ -6459,6 +6922,20 @@ export const fixtures = {
             "kind": "hidden",
             "label": "PIN",
             "value": null
+          }
+        ],
+        "history": [
+          {
+            "changedAt": 1761480100000,
+            "historyId": "00000000000000a2.0123456789abcdef.0",
+            "index": 0,
+            "reason": "unconfirmed"
+          },
+          {
+            "changedAt": 1761400000000,
+            "historyId": "00000000000000a0.0123456789abcdef.0",
+            "index": 1,
+            "reason": "replaced"
           }
         ],
         "historyCount": 2,
@@ -6475,6 +6952,14 @@ export const fixtures = {
           "conflictingFields": 0,
           "deletedConcurrently": false
         },
+        "rotationAttempts": [
+          {
+            "attemptId": "00000000000000a1.0123456789abcdef.0",
+            "stage": "prepared",
+            "startedAt": 1761480000000
+          }
+        ],
+        "rotationPolicy": 90,
         "secrets": [
           "password"
         ],
@@ -6514,20 +6999,26 @@ export const fixtures = {
     "update_settings": [
       {
         "autoLockMinutes": 10,
+        "breachCheck": "off",
+        "breachConsentAt": null,
         "clipboardClearSeconds": 30,
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
         "quickUnlockMaxAgeDays": 14,
+        "rotationReminders": true,
         "theme": "system"
       },
       {
         "autoLockMinutes": null,
+        "breachCheck": "weekly",
+        "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
         "quickUnlockMaxAgeDays": 30,
+        "rotationReminders": false,
         "theme": "dark"
       }
     ],

@@ -1,1 +1,1 @@
-P{"password":null,"settings":{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system"}}
+P{"password":null,"settings":{"autoLockMinutes":10,"clipboardClearSeconds":30,"language":"system","lockOnScreenLock":true,"lockOnSleep":true,"quickUnlockMaxAgeDays":14,"theme":"system","breachCheck":"off","breachConsentAt":null,"rotationReminders":true}}

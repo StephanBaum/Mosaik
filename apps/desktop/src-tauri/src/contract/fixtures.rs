@@ -24,6 +24,11 @@ use super::browser::{
     PasskeyVerification,
 };
 use super::clipboard;
+use super::credential_rotation::{
+    self, AttemptStage, BreachScanError, ChangeUrlSource, HistoryReasonKey, HistoryRestoreRequest,
+    QueueKind, QueueReason, RotationAttemptRequest, RotationCloseRequest, RotationOutcomeKey,
+    RotationPolicyRequest, RotationSnoozeRequest, RulesSourceKey,
+};
 use super::errors::ErrorCode;
 use super::events::{self, LockReason, SyncStatus};
 use super::export;
@@ -50,7 +55,7 @@ use super::secret::{SecretIn, SecretOut};
 use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
 };
-use super::settings::{self, Language, Theme, UpdateSettingsRequest};
+use super::settings::{self, BreachMode, Language, Theme, UpdateSettingsRequest};
 use super::sharing::{
     self, ContactCodeRequest, ContactStatus, EmergencyClaimRequest, EmergencyDecision,
     EmergencyGrantRequest, EmergencyRequestRequest, EmergencyRespondRequest,
@@ -1122,6 +1127,84 @@ fn sharing_emergency_commands(f: &mut Fixtures) {
     );
 }
 
+/// Credential rotation and the breach check (M7b).
+fn credential_rotation_commands(f: &mut Fixtures, item_request: ItemRequest) {
+    use credential_rotation::samples as cr;
+    let at = |attempt_id: &str| RotationAttemptRequest {
+        attempt_id: attempt_id.to_owned(),
+        ..cr::attempt_request()
+    };
+    f.command("rotation_queue", vec![()], cr::queues());
+    f.command("rotation_begin", cr::begin_requests(), cr::begun());
+    f.command(
+        "rotation_close",
+        vec![
+            RotationCloseRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                attempt_id: cr::attempt().attempt_id,
+                outcome: RotationOutcomeKey::Succeeded,
+            },
+            RotationCloseRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                attempt_id: cr::attempt().attempt_id,
+                outcome: RotationOutcomeKey::Failed,
+            },
+        ],
+        vec![()],
+    );
+    f.command(
+        "rotation_reveal",
+        vec![cr::attempt_request()],
+        vec![RevealedSecret {
+            value: SecretOut::test("q7#Vt2-new"),
+            hide_after_seconds: 60,
+        }],
+    );
+    f.command(
+        "rotation_copy",
+        vec![at("00000000000000a3.0123456789abcdef.1")],
+        clipboard::samples::receipts(),
+    );
+    f.command(
+        "password_history_restore",
+        vec![HistoryRestoreRequest {
+            vault_id: ids::vault(1),
+            item_id: ids::item(1),
+            history_id: "00000000000000a2.0123456789abcdef.0".into(),
+        }],
+        vec![()],
+    );
+    f.command(
+        "rotation_snooze",
+        [1, 7, 30]
+            .into_iter()
+            .map(|days| RotationSnoozeRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                days,
+            })
+            .collect::<Vec<_>>(),
+        vec![()],
+    );
+    f.command("rotation_dismiss", vec![item_request], vec![()]);
+    f.command(
+        "rotation_set_policy",
+        [Some(30), Some(365), None]
+            .into_iter()
+            .map(|every_days| RotationPolicyRequest {
+                vault_id: ids::vault(1),
+                item_id: ids::item(1),
+                every_days,
+            })
+            .collect::<Vec<_>>(),
+        vec![()],
+    );
+    f.command("breach_scan_start", vec![()], vec![()]);
+    f.command("breach_scan_cancel", vec![()], vec![()]);
+}
+
 /// Every string enum of the contract, by name.
 fn enums() -> Map<String, Value> {
     let mut enums = Map::new();
@@ -1146,6 +1229,15 @@ fn enums() -> Map<String, Value> {
         ("insightKind", values(InsightKind::ALL)),
         ("insightSeverity", values(InsightSeverity::ALL)),
         ("insightAction", values(InsightAction::ALL)),
+        ("breachMode", values(BreachMode::ALL)),
+        ("queueKind", values(QueueKind::ALL)),
+        ("queueReason", values(QueueReason::ALL)),
+        ("attemptStage", values(AttemptStage::ALL)),
+        ("rulesSourceKey", values(RulesSourceKey::ALL)),
+        ("changeUrlSource", values(ChangeUrlSource::ALL)),
+        ("rotationOutcomeKey", values(RotationOutcomeKey::ALL)),
+        ("historyReasonKey", values(HistoryReasonKey::ALL)),
+        ("breachScanError", values(BreachScanError::ALL)),
         ("importFormat", values(ImportFormat::ALL)),
         ("importWarning", values(ImportWarning::ALL)),
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
@@ -1210,6 +1302,7 @@ pub(crate) fn build() -> Value {
     sync_commands(&mut f);
     rotation_commands(&mut f);
     rotation_fix_commands(&mut f);
+    credential_rotation_commands(&mut f, item_request);
     sharing_commands(&mut f);
     let enums = enums();
 
@@ -1287,6 +1380,7 @@ fn fixtures_hold_secrets_only_where_the_contract_allows() {
                 | "totp_code"
                 | "otp_pending_code"
                 | "sync_totp_begin"
+                | "rotation_reveal"
         );
         for secret in ["hunter2", "M1-7KQ4", "492039", "q7#Vt2", "JBSWY3DPEHPK3PXP"] {
             assert!(

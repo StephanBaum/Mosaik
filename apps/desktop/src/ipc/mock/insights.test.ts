@@ -7,6 +7,7 @@ import { mockSecurityReport } from "./insights.ts";
 import { defaultSettings } from "./settings.ts";
 import { seedSharing } from "./sharingData.ts";
 import { seedSync } from "./syncData.ts";
+import { seedCredRotation } from "./credentialRotation.ts";
 import { seedRotation } from "./rotation.ts";
 import type { MockItem, MockState } from "./state.ts";
 
@@ -22,6 +23,7 @@ function state(items: MockItem[]): MockState {
     sshRequest: false,
     browser: defaultBrowser(() => NOW),
     rotation: seedRotation({}),
+    credRotation: seedCredRotation(undefined),
     sharing: seedSharing(undefined),
     sync: seedSync({}, NOW),
     heldImport: null,
@@ -93,6 +95,7 @@ describe("mock security report", () => {
       old: 1,
       missingTotp: 1,
       insecureUrl: 1,
+      breached: 0,
       high: 2,
       medium: 0,
       low: 1,

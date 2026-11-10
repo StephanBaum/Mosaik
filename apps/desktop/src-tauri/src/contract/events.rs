@@ -8,6 +8,7 @@ use serde::Serialize;
 use super::browser::{
     BrowserCloseReason, BrowserPairingRequest, BrowserPasskeyRequest, BrowserSaveRequest,
 };
+use super::credential_rotation::BreachScanError;
 use super::errors::ErrorCode;
 use super::ids::UnixMillis;
 use super::ids::{WireItemId, WireVaultId};
@@ -183,6 +184,23 @@ pub enum AppEvent {
         /// Steps in all.
         total: u32,
     },
+    /// A breach scan finished another prefix (M7b). The webview shows
+    /// "n of m"; it does not announce every step.
+    BreachScanProgress {
+        /// Prefixes answered.
+        done: u32,
+        /// Prefixes in all.
+        total: u32,
+    },
+    /// A breach scan ended (also when it was cancelled or the vault locked).
+    BreachScanFinished {
+        /// Passwords checked in this scan.
+        checked: u32,
+        /// Of those, in a known breach.
+        found: u32,
+        /// Why it stopped early (`null` if it did not).
+        error: Option<BreachScanError>,
+    },
     /// A sync run merged or repaired something the user may want to look at.
     SyncAttention {
         /// Records merged with a local change.
@@ -271,6 +289,17 @@ pub(crate) mod samples {
                 done: 3,
                 total: 12,
             },
+            AppEvent::BreachScanProgress { done: 4, total: 9 },
+            AppEvent::BreachScanFinished {
+                checked: 12,
+                found: 1,
+                error: None,
+            },
+            AppEvent::BreachScanFinished {
+                checked: 5,
+                found: 0,
+                error: Some(BreachScanError::Cancelled),
+            },
         ];
         all.extend(crate::contract::sync::samples::events());
         for event in &all {
@@ -294,6 +323,8 @@ pub(crate) mod samples {
                 | AppEvent::BrowserPairingsChanged
                 | AppEvent::SharingChanged { .. }
                 | AppEvent::RotationProgress { .. }
+                | AppEvent::BreachScanProgress { .. }
+                | AppEvent::BreachScanFinished { .. }
                 | AppEvent::SyncDataChanged { .. }
                 | AppEvent::SyncAttention { .. } => {}
             }

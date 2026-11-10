@@ -134,6 +134,24 @@ function ClipboardSettings({ settings, onChange }: { settings: Settings; onChang
   );
 }
 
+function ReminderSettings({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
+  const { t } = useI18n();
+  return (
+    <SettingsSection title={t("credentialRotation.settings.title")} body={t("credentialRotation.settings.body")}>
+      <div className="setting-row">
+        <Switch
+          label={t("credentialRotation.settings.reminders")}
+          hint={t("credentialRotation.settings.remindersHint")}
+          checked={settings.rotationReminders}
+          onChange={(event) => {
+            onChange({ ...settings, rotationReminders: event.target.checked });
+          }}
+        />
+      </div>
+    </SettingsSection>
+  );
+}
+
 function Appearance({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
   const { t } = useI18n();
   return (
@@ -253,6 +271,10 @@ export function SettingsScreen() {
     }
   }
 
+  const apply = (next: Settings) => {
+    void change(next);
+  };
+
   if (settings === null) {
     return null;
   }
@@ -267,27 +289,23 @@ export function SettingsScreen() {
         settings={settings}
         status={status}
         lockRequired={lockRequired}
-        onChange={(next) => {
-          void change(next);
-        }}
+        onChange={apply}
       />
       <ClipboardSettings
         settings={settings}
-        onChange={(next) => {
-          void change(next);
-        }}
+        onChange={apply}
+      />
+      <ReminderSettings
+        settings={settings}
+        onChange={apply}
       />
       <Appearance
         settings={settings}
-        onChange={(next) => {
-          void change(next);
-        }}
+        onChange={apply}
       />
       <QuickUnlockSettings
         settings={settings}
-        onChange={(next) => {
-          void change(next);
-        }}
+        onChange={apply}
         onError={setError}
       />
       <Integrations onError={setError} />

@@ -23,6 +23,8 @@ import { ext } from "./catalog/en/ext.ts";
 import { sync } from "./catalog/en/sync.ts";
 import { sharing } from "./catalog/en/sharing.ts";
 import { rotation } from "./catalog/en/rotation.ts";
+import { credentialRotation } from "./catalog/en/credentialRotation.ts";
+import { breach } from "./catalog/en/breach.ts";
 
 export const en = {
   ...app,
@@ -46,6 +48,8 @@ export const en = {
   ...sync,
   ...sharing,
   ...rotation,
+  ...credentialRotation,
+  ...breach,
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

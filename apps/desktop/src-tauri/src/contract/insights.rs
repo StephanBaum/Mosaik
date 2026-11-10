@@ -21,6 +21,8 @@ wire_enum!(
         MissingTotp,
         /// A login URL that allows plain HTTP.
         InsecureUrl,
+        /// The password is in a known data breach (the opt-in check).
+        Breached,
     }
 );
 
@@ -64,6 +66,8 @@ pub struct InsightCounts {
     pub missing_totp: u32,
     /// Logins with a plain-HTTP URL.
     pub insecure_url: u32,
+    /// Items whose password the breach check found.
+    pub breached: u32,
     /// Items whose most severe finding is `high`.
     pub high: u32,
     /// Items whose most severe finding is `medium`.
@@ -154,6 +158,7 @@ pub(crate) mod samples {
                 old: 1,
                 missing_totp: 2,
                 insecure_url: 1,
+                breached: 1,
                 high: 2,
                 medium: 0,
                 low: 0,
@@ -170,6 +175,11 @@ pub(crate) mod samples {
                         },
                         InsightIssue {
                             kind: InsightKind::Reused,
+                            severity: InsightSeverity::High,
+                            action: InsightAction::ChangePassword,
+                        },
+                        InsightIssue {
+                            kind: InsightKind::Breached,
                             severity: InsightSeverity::High,
                             action: InsightAction::ChangePassword,
                         },

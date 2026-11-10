@@ -17,7 +17,8 @@ import type {
 import { CommandPalette } from "../CommandPalette.tsx";
 import { GeneratorPanel } from "../GeneratorPanel.tsx";
 import { ImportFlow } from "../import/ImportFlow.tsx";
-import { SecurityDashboard } from "../SecurityDashboard.tsx";
+import { SecurityPage } from "../rotation/SecurityPage.tsx";
+import { useRotationReminder } from "../rotation/useRotationReminder.ts";
 import { SettingsScreen } from "../SettingsScreen.tsx";
 import { ApprovalDialogs } from "../ApprovalDialogs.tsx";
 import { RekeyNotice } from "../settings/security/RekeyRecovery.tsx";
@@ -70,7 +71,7 @@ function editorTitleOf(editor: Editor, t: Translate): string | null {
 function Page({ view, shell }: { view: View; shell: Shell }) {
   return (
     <div className="page">
-      {view === "security" && <SecurityDashboard onOpenItem={shell.open} />}
+      {view === "security" && <SecurityPage onOpenItem={shell.open} />}
       {view === "generator" && <GeneratorPanel />}
       {view === "settings" && <SettingsScreen />}
       {view === "invites" && (
@@ -105,6 +106,9 @@ function MainArea({
   const { view, query, category, editor, itemCount } = shell;
   const listing = view === "vault" || view === "trash";
   const mainId = useLandmarkId("main");
+  useRotationReminder(() => {
+    shell.go("security");
+  });
   return (
     <main id={mainId} tabIndex={-1} className="vault__main">
       <div className="vault__notices">

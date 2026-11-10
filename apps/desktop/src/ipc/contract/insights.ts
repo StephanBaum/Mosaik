@@ -1,7 +1,7 @@
 /** Security insights contract: mirrors `src-tauri/src/contract/insights.rs`. */
 import type { ItemId, UnixMillis, VaultId } from "./common.ts";
 
-export const insightKinds = ["weak", "reused", "old", "missingTotp", "insecureUrl"] as const;
+export const insightKinds = ["weak", "reused", "old", "missingTotp", "insecureUrl", "breached"] as const;
 export type InsightKind = (typeof insightKinds)[number];
 
 /** Ordered: `low < medium < high`. */
@@ -19,6 +19,8 @@ export interface InsightCounts {
   old: number;
   missingTotp: number;
   insecureUrl: number;
+  /** Items whose password the opt-in breach check found. */
+  breached: number;
   /** Items by their most severe finding. */
   high: number;
   medium: number;

@@ -42,6 +42,12 @@
  * `&rotationFail=<errorCode>` makes the commits fail, `&rotationStepMs=<ms>` sets the pause between
  * the steps of a run (default 450).
  *
+ * Credential rotation (M7b, Security > Rotate now): `&credRotation=queue|empty|pending|breachRunning|
+ * breachOffline|consent` (`&credRotationStepMs=<ms>` paces a scan, default 250): queue seeds weak, reused, old
+ * and breached items and one item Mosaic cannot guide; pending an open change with a not-confirmed history
+ * entry on GitHub; consent a queue with the breach check off. The mock's breach check finds the passwords
+ * password, 123456, hunter2, Sommer2024! and letmein.
+ *
  * Sharing (M6b): `&sharing=basic|empty|invites|emergency|request|findings|keyChanged|manager|viewer|
  * rotation` seeds contacts, members, invites and emergency grants (see `docs/DESKTOP_IPC.md` §7) and, unless
  * `&sync=` is given, a hosted sync account. `&sync=folder` or `&sync=none` shows why sharing is off.
@@ -67,6 +73,14 @@ import {
 } from "./mock/browser.ts";
 import { attachmentHandlers } from "./mock/attachments.ts";
 import { clipboardHandlers } from "./mock/clipboard.ts";
+import { applyCredRotationSeed } from "./mock/credentialRotationSeed.ts";
+import {
+  announceCredRotation,
+  credRotationVariants,
+  credentialRotationHandlers,
+  seedCredRotation,
+  type MockCredRotationOptions,
+} from "./mock/credentialRotation.ts";
 import {
   bulkItems,
   sampleAccount,
@@ -151,6 +165,8 @@ export interface MockOptions extends QuickOptions {
   sync?: MockSyncOptions;
   /** Account keys seed (`&rotation=<variant>`, `&rotationFail=<code>`, `&rotationStepMs=<ms>`); implies a backend unless `&sync=` says otherwise. */
   rotation?: MockRotationOptions;
+  /** Credential rotation seed (`&credRotation=<variant>`, `&credRotationStepMs=<ms>`). */
+  credRotation?: MockCredRotationOptions;
   /** Sharing seed (`&sharing=<variant>`); implies a hosted sync account unless `&sync=` says otherwise. */
   sharing?: SharingVariant;
   /** Add this many generated logins (`?items=5000`), for long-list checks. */
@@ -179,6 +195,7 @@ const handlers: MockHandlers = {
   ...syncHandlers,
   ...rotationHandlers,
   ...markerHandlers,
+  ...credentialRotationHandlers,
   ...sharingHandlers,
 };
 
@@ -304,6 +321,21 @@ function rotationOptionsFromParams(params: URLSearchParams): MockOptions {
   return { rotation };
 }
 
+function credRotationOptionsFromParams(params: URLSearchParams): MockOptions {
+  const variant = credRotationVariants.find((name) => name === params.get("credRotation"));
+  if (variant === undefined) {
+    return {};
+  }
+  const stepParam = params.get("credRotationStepMs");
+  const step = Number(stepParam ?? "");
+  return {
+    credRotation: {
+      variant,
+      ...(stepParam !== null && Number.isFinite(step) && step >= 0 ? { stepMs: step } : {}),
+    },
+  };
+}
+
 function sharingOptionsFromParams(params: URLSearchParams): MockOptions {
   const variant = sharingVariants.find((name) => name === params.get("sharing"));
   if (variant === undefined) {
@@ -330,6 +362,7 @@ export function mockOptionsFromUrl(search: string): MockOptions {
     ...syncOptionsFromParams(params),
     ...sharingOptionsFromParams(params),
     ...rotationOptionsFromParams(params),
+    ...credRotationOptionsFromParams(params),
     ...(bulk > 0 && bulk <= 100_000 ? { bulkItems: bulk } : {}),
     ...quickOptionsFromParams(params),
   };
@@ -375,6 +408,16 @@ function seededBrowser(options: MockOptions, now: () => number): MockState["brow
   };
 }
 
+/** What needs the finished state: the hardware vault, the rotation seeds and the SSH agent. */
+function seedAfterSetup(state: MockState, options: MockOptions, start: MockStart): void {
+  seedHardwareVault(state, options, start !== "noAccount");
+  applyCredRotationSeed(state);
+  applyRotationToSync(state, start !== "noAccount" ? options.rotation?.variant : undefined);
+  if (start === "unlocked") {
+    startAgent(state);
+  }
+}
+
 export function createMockIpc(options: MockOptions = {}): MosaicIpc {
   const listeners = new Set<EventListener>();
   let counter = 0;
@@ -389,6 +432,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     browser: seededBrowser(options, now),
     rotation: seedRotation(options.rotation ?? {}),
     sharing: seedSharing(options.sharing),
+    credRotation: seedCredRotation(options.credRotation),
     sync: seedSync(syncOptionsFor(start, options), now()),
     heldImport: null,
     vaults: start === "noAccount" ? [] : sampleVaults(),
@@ -414,12 +458,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
     },
   };
 
-  seedHardwareVault(state, options, start !== "noAccount");
-  applyRotationToSync(state, start !== "noAccount" ? options.rotation?.variant : undefined);
-
-  if (start === "unlocked") {
-    startAgent(state);
-  }
+  seedAfterSetup(state, options, start);
 
   async function call<K extends CommandName>(
     command: K,
@@ -452,6 +491,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       startBrowser(state);
       announceSync(state);
       announceSharing(state);
+      announceCredRotation(state);
       return Promise.resolve(() => {
         listeners.delete(listener);
       });

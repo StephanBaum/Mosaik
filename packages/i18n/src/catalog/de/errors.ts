@@ -90,6 +90,20 @@ export const errors = {
   "error.rotationInProgress":
     "Eine andere Schlüsseländerung ist noch offen. Schließe sie mit „Schlüsseländerung fortsetzen“ ab oder verwirf sie zuerst.",
   "error.rotationNone": "Es gibt keine Schlüsseländerung, die fortgesetzt werden kann.",
+  "error.rotationNotFound":
+    "Diese Passwortänderung ist nicht mehr offen. Vielleicht wurde sie auf einem anderen Gerät oder im Browser abgeschlossen. Öffne den Eintrag erneut, um den Stand zu sehen.",
+  "error.rotationLimit":
+    "Für diesen Eintrag sind schon vier Passwortänderungen offen. Schließe zuerst eine im Eintrag ab.",
+  "error.rotationNotSupported":
+    "Mosaic kann diese Änderung nicht begleiten. Dafür braucht es einen Login mit https-Adresse. Ändere das Passwort selbst auf der Website.",
+  "error.historyNotFound":
+    "Dieses frühere Passwort steht nicht mehr im Verlauf. Öffne den Eintrag erneut, um die aktuelle Liste zu sehen.",
+  "error.originNotRelated":
+    "Diese Seite gehört nicht zur Website dieses Logins, deshalb hat Mosaic sie nicht hinzugefügt. Bearbeite die Adressen des Eintrags, wenn sie dazugehören soll.",
+  "error.breachConsentRequired":
+    "Die Leck-Prüfung ist aus. Schalte sie zuerst ein und stimme zu, was sie sendet.",
+  "error.breachRunning":
+    "Eine Leck-Prüfung läuft schon. Warte, bis sie fertig ist, oder stoppe sie zuerst.",
   "error.rotationTooFar":
     "Diese Änderung hat dein Konto schon erreicht, deshalb lässt sie sich nicht verwerfen. Setze sie fort, um sie abzuschließen.",
   "error.rotationJumpTooLarge":

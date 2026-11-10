@@ -309,6 +309,23 @@ wire_enum!(
         SyncEpochRollback,
         /// The backend's account keys are not the next ones after this device's.
         SyncRekeyRefused,
+        /// The item has no such open password-change attempt (it was closed
+        /// on another device or in the browser).
+        RotationNotFound,
+        /// Four password changes of this item are open already; finish or
+        /// close one first.
+        RotationLimit,
+        /// Mosaic cannot guide the change of this item: it is not a login or
+        /// has no `https` URL.
+        RotationNotSupported,
+        /// The password history has no such entry any more.
+        HistoryNotFound,
+        /// The page the browser is on does not belong to this login's site.
+        OriginNotRelated,
+        /// The breach check needs the user's consent first.
+        BreachConsentRequired,
+        /// A breach check is running already.
+        BreachRunning,
         /// Another operation that needs the vault is still running.
         Busy,
         /// An unexpected internal failure; details are not shown.
@@ -393,7 +410,9 @@ impl From<SessionError> for IpcError {
             }
             SessionError::RoleForbidden
             | SessionError::NotOwner
-            | SessionError::OwnerCannotBeRevoked => ErrorCode::SharingRoleForbidden,
+            | SessionError::OwnerCannotBeRevoked
+            // A viewer of a shared vault cannot change an item either.
+            | SessionError::ReadOnly => ErrorCode::SharingRoleForbidden,
             SessionError::InviteUnreadable => ErrorCode::SharingInviteUnreadable,
             SessionError::InviteNotInRoster | SessionError::OwnerMismatch => {
                 ErrorCode::SharingInviteNotInRoster
@@ -402,6 +421,7 @@ impl From<SessionError> for IpcError {
             SessionError::AlreadyMember => ErrorCode::SharingAlreadyMember,
             SessionError::ReinviteBlocked => ErrorCode::SharingReinviteBlocked,
             SessionError::VaultKnown => ErrorCode::SharingVaultKnown,
+            SessionError::NoPassword => ErrorCode::FieldEmpty,
             SessionError::Store(store) => return store.into(),
             SessionError::Core(core) => return core.into(),
             _ => ErrorCode::Internal,
@@ -440,6 +460,10 @@ impl From<mosaic_core::Error> for IpcError {
             mosaic_core::Error::SecretKeyMistyped => ErrorCode::SecretKeyMistyped,
             mosaic_core::Error::EmptyPassword => ErrorCode::EmptyPassword,
             mosaic_core::Error::ProfileDowngrade => ErrorCode::ProfileDowngrade,
+            mosaic_core::Error::NotALogin => ErrorCode::RotationNotSupported,
+            mosaic_core::Error::TooManyAttempts => ErrorCode::RotationLimit,
+            mosaic_core::Error::RotationNotFound => ErrorCode::RotationNotFound,
+            mosaic_core::Error::HistoryNotFound => ErrorCode::HistoryNotFound,
             _ => ErrorCode::Internal,
         })
     }
