@@ -1219,6 +1219,7 @@ fn credential_rotation_commands(f: &mut Fixtures, item_request: ItemRequest) {
         vec![()],
     );
     f.command("rotation_dismiss", vec![item_request], vec![()]);
+    f.command("rotation_undismiss", vec![item_request], vec![()]);
     f.command(
         "rotation_set_policy",
         [Some(30), Some(365), None]

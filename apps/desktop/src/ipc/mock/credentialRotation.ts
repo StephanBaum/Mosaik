@@ -399,11 +399,9 @@ export const credentialRotationHandlers: MockHandlers = {
     const item = find(state, request);
     attemptValue(state, item, request.attemptId);
     // A copy hands the value out of the app: the attempt counts as delivered (ADR-0066).
-    for (const open of item.detail.rotationAttempts) {
-      if (open.attemptId === request.attemptId) {
-        open.stage = "delivered";
-      }
-    }
+    item.detail.rotationAttempts = item.detail.rotationAttempts.map((a) =>
+      a.attemptId === request.attemptId ? { ...a, stage: "delivered" as const } : a,
+    );
     const seconds = state.settings.clipboardClearSeconds;
     return {
       clearsAt: seconds === null ? null : state.now() + seconds * 1000,
@@ -439,6 +437,11 @@ export const credentialRotationHandlers: MockHandlers = {
     return null;
   },
 
+  rotation_undismiss: (state, request) => {
+    requireUnlocked(state);
+    state.credRotation.dismissed.delete(find(state, request).detail.summary.itemId);
+    return null;
+  },
   rotation_dismiss: (state, request) => {
     requireUnlocked(state);
     const item = find(state, request);

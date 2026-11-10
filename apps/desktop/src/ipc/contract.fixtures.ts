@@ -116,6 +116,7 @@ export const fixtures = {
     "password_history_restore",
     "rotation_snooze",
     "rotation_dismiss",
+    "rotation_undismiss",
     "rotation_set_policy",
     "breach_scan_start",
     "breach_scan_cancel",
@@ -2329,6 +2330,12 @@ export const fixtures = {
     ],
     "rotation_status": [
       null
+    ],
+    "rotation_undismiss": [
+      {
+        "itemId": "019a2b3c-4d5e-7020-8000-000000000001",
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
     ],
     "save_emergency_kit": [
       {
@@ -4701,6 +4708,9 @@ export const fixtures = {
           "total": 12
         }
       }
+    ],
+    "rotation_undismiss": [
+      null
     ],
     "save_emergency_kit": [
       {

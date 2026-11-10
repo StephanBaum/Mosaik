@@ -401,6 +401,7 @@ const commandSet = {
   password_history_restore: true,
   rotation_snooze: true,
   rotation_dismiss: true,
+  rotation_undismiss: true,
   rotation_set_policy: true,
   breach_scan_start: true,
   breach_scan_cancel: true,

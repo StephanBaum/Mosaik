@@ -113,6 +113,12 @@ pub async fn rotation_dismiss(state: State<'_, AppState>, request: ItemRequest) 
     state.run(move |b| b.rotation_dismiss(request)).await
 }
 
+/// `rotation_undismiss`.
+#[tauri::command]
+pub async fn rotation_undismiss(state: State<'_, AppState>, request: ItemRequest) -> IpcResult<()> {
+    state.run(move |b| b.rotation_undismiss(request)).await
+}
+
 /// `rotation_set_policy`.
 #[tauri::command]
 pub async fn rotation_set_policy(
@@ -517,6 +523,18 @@ impl Backend {
         let mut slot = self.slot()?;
         slot.unlocked_mut()?
             .dismiss_rotation(request.vault_id.get(), request.item_id.get())?;
+        Ok(())
+    }
+
+    /// Takes back a dismissal (the toast's "Undo"); a no-op if there is none.
+    ///
+    /// # Errors
+    /// `locked`, `itemNotFound`, `itemDeleted`.
+    pub fn rotation_undismiss(&self, request: ItemRequest) -> IpcResult<()> {
+        self.touch();
+        let mut slot = self.slot()?;
+        slot.unlocked_mut()?
+            .undismiss_rotation(request.vault_id.get(), request.item_id.get())?;
         Ok(())
     }
 

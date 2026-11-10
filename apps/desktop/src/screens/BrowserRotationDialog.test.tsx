@@ -79,6 +79,35 @@ describe("browser password-change dialog", () => {
     });
   });
 
+  it("calls the way out of a result \"Decide later\": the change stays open", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={mock("browserResult")} languages={["en"]} />);
+    const dialog = await screen.findByRole("dialog", { name: RESULT }, { timeout: 3000 });
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(within(dialog).getByText(/Started .* · the new password was filled into a page · 1 other change open/)).toBeTruthy();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Decide later" }));
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Decide later" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: RESULT })).toBeNull();
+    });
+  });
+
+  it("keeps focus on Generate another and announces the new password", async () => {
+    const user = userEvent.setup();
+    render(<App ipc={mock("browserBegin")} languages={["en"]} />);
+    const dialog = await screen.findByRole("dialog", { name: BEGIN }, { timeout: 3000 });
+    const again = within(dialog).getByRole("button", { name: "Generate another" });
+    await user.click(again);
+    await waitFor(() => {
+      expect(within(dialog).getAllByRole("status").map((node) => node.textContent)).toContain("A new password was generated.");
+    });
+    // The body was not replaced: the same button still has focus.
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Generate another" }));
+    expect(within(dialog).getByRole("button", { name: "Generate another" })).toBe(again);
+  });
+
   it("keeps the old password without a delay", async () => {
     const user = userEvent.setup();
     render(<App ipc={mock("browserResult")} languages={["en"]} />);

@@ -41,6 +41,19 @@ describe("starting a change", () => {
     expect(screen.queryByRole("button", { name: /Change password… for/ })).toBeNull();
   });
 
+  it("hides it while the login has an open change, which shows its own card", async () => {
+    renderPopup(baseState({ matches: [match()], rotations: [attempt()] }));
+    await screen.findByRole("button", { name: "Fill change form" });
+    expect(screen.queryByRole("button", { name: /Change password… for/ })).toBeNull();
+  });
+
+  it("leaves the one primary button to the change card, not the first login", async () => {
+    renderPopup(baseState({ matches: [match()], rotations: [attempt()] }));
+    await screen.findByRole("button", { name: "Fill change form" });
+    const fill = screen.getByRole("button", { name: "Fill alex-dev" });
+    expect(fill.className).not.toMatch(/holo/);
+  });
+
   it("is not offered on an http page", async () => {
     renderPopup(
       baseState({

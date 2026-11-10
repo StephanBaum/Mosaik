@@ -114,6 +114,7 @@
     "allow-password-history-restore",
     "allow-rotation-snooze",
     "allow-rotation-dismiss",
+    "allow-rotation-undismiss",
     "allow-rotation-set-policy",
     "allow-breach-scan-start",
     "allow-breach-scan-cancel",

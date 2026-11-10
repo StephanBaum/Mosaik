@@ -5,7 +5,8 @@ export const credentialRotation = {
   "credentialRotation.tablist": "Ansichten der Sicherheit",
   "credentialRotation.tab.overview": "Übersicht",
   "credentialRotation.tab.rotate": "Jetzt ändern",
-  "credentialRotation.tab.rotateCount": "Jetzt ändern, {count} zu ändern",
+  "credentialRotation.tab.dueHidden":
+    ", {count} offen",
 
   "credentialRotation.queue.title": "Jetzt ändern",
   "credentialRotation.queue.intro":
@@ -34,9 +35,13 @@ export const credentialRotation = {
   "credentialRotation.queue.dismiss": "Ausblenden",
   "credentialRotation.queue.dismissFor": "{title} ausblenden",
   "credentialRotation.queue.dismissed": "Ausgeblendet. Es kommt zurück, wenn sich das Passwort ändert.",
+  "credentialRotation.queue.undo":
+    "Rückgängig",
 
   "credentialRotation.panel.title": "Passwort für {title} ändern",
   "credentialRotation.panel.step": "Schritt {current} von {total}",
+  "credentialRotation.panel.stays":
+    "Die Änderung für {title} bleibt offen. Das neue Passwort bleibt am Eintrag, bis du „Es hat geklappt“ oder „Es hat nicht geklappt“ wählst.",
   "credentialRotation.panel.cancel": "Abbrechen",
 
   "credentialRotation.steps.new.title": "Neues Passwort wählen",
@@ -46,6 +51,8 @@ export const credentialRotation = {
   "credentialRotation.steps.new.use": "Dieses Passwort verwenden",
   "credentialRotation.steps.new.saving": "Wird gespeichert …",
   "credentialRotation.steps.site.title": "Auf der Website ändern",
+  "credentialRotation.steps.site.pageLabel":
+    "Änderungsseite",
   "credentialRotation.steps.site.body":
     "Öffne die Passwortseite der Website in deinem Browser, klicke in der Symbolleiste auf Mosaic und wähle „Änderungsformular ausfüllen“. Mosaic sendet das Formular nie ab.",
   "credentialRotation.steps.site.copyLink": "Link zur Änderungsseite kopieren",
@@ -57,6 +64,10 @@ export const credentialRotation = {
   "credentialRotation.steps.site.copyPassword": "Neues Passwort kopieren",
   "credentialRotation.steps.site.next": "Ich habe es versucht",
   "credentialRotation.steps.result.title": "Hat die Website das neue Passwort akzeptiert?",
+  "credentialRotation.steps.done.failed":
+    "Aktuelles Passwort behalten",
+  "credentialRotation.steps.done.notSure":
+    "Änderung bleibt offen",
   "credentialRotation.steps.result.body":
     "Mosaic sieht die Website nicht. Sag Mosaic, was passiert ist, damit das richtige Passwort im Eintrag bleibt. Gelöscht wird in keinem Fall etwas.",
   "credentialRotation.steps.result.working": "Wird gespeichert …",
@@ -102,7 +113,9 @@ export const credentialRotation = {
     "Eine Erinnerung setzt den Eintrag auf die Liste „Jetzt ändern“. Mosaic sendet keine Benachrichtigung und stellt dafür keine Anfrage.",
 
   "credentialRotation.url.help":
-    "Optional. Die https-Adresse der Passwortseite, auf derselben Website wie dieser Login. Mosaic öffnet sie nie für dich.",
+    "Optional. Die https-Adresse der Passwortseite, auf derselben Website wie dieser Login. Mosaic öffnet sie nur, wenn du in der Browser-Erweiterung „Änderungsseite öffnen“ wählst.",
+  "credentialRotation.url.invalid":
+    "Mosaic verwendet diese Adresse nicht. Sie muss mit https:// beginnen und auf derselben Website wie dieser Login liegen.",
 
   "credentialRotation.settings.title": "Passwort-Erinnerungen",
   "credentialRotation.settings.body":
@@ -124,19 +137,23 @@ export const credentialRotation = {
   "credentialRotation.dialog.hidden": "Verborgen",
   "credentialRotation.dialog.show": "Anzeigen",
   "credentialRotation.dialog.hide": "Verbergen",
-  "credentialRotation.dialog.regenerate": "Anderes erzeugen",
+  "credentialRotation.dialog.regenerate":
+    "Neu erzeugen",
   "credentialRotation.dialog.regenerated": "Ein neues Passwort wurde erzeugt.",
   "credentialRotation.dialog.allow": "Dieses Passwort verwenden",
   "credentialRotation.dialog.cancel": "Abbrechen",
+  "credentialRotation.dialog.decideLater":
+    "Später entscheiden",
   "credentialRotation.dialog.attempt":
-    "Gestartet {at, date, medium}, {at, time, short} · {stage}{n, plural, =0 {} one { · # weitere Änderung offen} other { · # weitere Änderungen offen}}",
+    "Gestartet am {at, date, medium} um {at, time, short} · {stage}{n, plural, =0 {} one { · # weitere Änderung offen} other { · # weitere Änderungen offen}}",
   "credentialRotation.dialog.stagePrepared": "bisher hat keine Seite das neue Passwort",
   "credentialRotation.dialog.stageDelivered": "das neue Passwort wurde in eine Seite eingefügt",
   "credentialRotation.dialog.untitled": "diesen Login",
   "credentialRotation.dialog.resultTitle": "Hat {host} das neue Passwort akzeptiert?",
   "credentialRotation.dialog.resultBody":
     "{browser} meldet, dass die Änderung geklappt hat. Wenn du bestätigst, wird das neue Passwort zum Passwort für {title}, und das aktuelle wandert in den Verlauf.",
-  "credentialRotation.dialog.confirm": "Hat geklappt",
+  "credentialRotation.dialog.confirm":
+    "Es hat geklappt",
   "credentialRotation.dialog.keepOld": "Altes Passwort behalten",
   "credentialRotation.dialog.failedTitle": "Altes Passwort behalten?",
   "credentialRotation.dialog.failedBody":

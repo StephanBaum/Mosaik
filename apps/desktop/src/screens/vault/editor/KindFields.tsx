@@ -14,6 +14,8 @@ import { useI18n } from "../../../i18n/I18nProvider.tsx";
 import type { SecretFieldKey, TextFieldKey } from "../../../ipc/contract/index.ts";
 import type { Form, FormErrors } from "../editorForm.ts";
 import { brandFromNumber, cardNumberHint } from "../kinds/cardFormat.ts";
+import { Callout } from "../../../components/Callout.tsx";
+import { usableChangeUrl } from "../kinds/changeUrl.ts";
 import { layoutOf, WIFI_SECURITY, type FieldSpec } from "../kinds/layouts.ts";
 
 interface Shared {
@@ -60,6 +62,21 @@ function textInputType(spec: FieldSpec): "text" | "email" | "tel" | "date" | "ur
     : "text";
 }
 
+function hintOf(t: ReturnType<typeof useI18n>["t"], spec: FieldSpec, value: string): string | undefined {
+  if (spec.input === "url") {
+    return t("credentialRotation.url.help");
+  }
+  if (spec.input === "expiry") {
+    return t("editor.card.expiryHint");
+  }
+  return spec.input === "email" && value !== "" && !value.includes("@") ? t("editor.email.hint") : undefined;
+}
+
+/** A change-page address that is empty, or one Mosaic would use. */
+function changeUrlOk(value: string, form: Form): boolean {
+  return value.trim() === "" || usableChangeUrl(value, form.urls.map((row) => row.url));
+}
+
 function TextInput({ spec, form, tried, errors, onChange }: Shared & { spec: FieldSpec }) {
   const { t } = useI18n();
   const key = spec.key as TextFieldKey;
@@ -68,26 +85,23 @@ function TextInput({ spec, form, tried, errors, onChange }: Shared & { spec: Fie
     return <WifiSecurity form={form} label={label} onChange={onChange} />;
   }
   const value = form.text[key] ?? "";
-  let hint: string | undefined;
-  if (spec.input === "url") {
-    hint = t("credentialRotation.url.help");
-  } else if (spec.input === "expiry") {
-    hint = t("editor.card.expiryHint");
-  } else if (spec.input === "email" && value !== "" && !value.includes("@")) {
-    hint = t("editor.email.hint");
-  }
+  const hint = hintOf(t, spec, value);
+  const unused = spec.input === "url" && !changeUrlOk(value, form);
   return (
-    <TextField
-      label={label}
-      type={textInputType(spec)}
-      hint={hint}
-      error={tried && errors.cardExpiry && spec.input === "expiry" ? t("editor.card.expiryInvalid") : undefined}
-      value={value}
-      autoComplete="off"
-      onChange={(event) => {
-        onChange({ text: { ...form.text, [key]: event.target.value } });
-      }}
-    />
+    <>
+      <TextField
+        label={label}
+        type={textInputType(spec)}
+        hint={hint}
+        error={tried && errors.cardExpiry && spec.input === "expiry" ? t("editor.card.expiryInvalid") : undefined}
+        value={value}
+        autoComplete="off"
+        onChange={(event) => {
+          onChange({ text: { ...form.text, [key]: event.target.value } });
+        }}
+      />
+      {unused && <Callout tone="warning">{t("credentialRotation.url.invalid")}</Callout>}
+    </>
   );
 }
 

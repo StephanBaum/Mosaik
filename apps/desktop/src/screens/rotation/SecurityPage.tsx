@@ -49,9 +49,6 @@ export function SecurityPage({
             className="segmented__tab"
             aria-selected={each === tab}
             aria-controls={`${id}-panel`}
-            aria-label={
-              each === "rotate" && due > 0 ? t("credentialRotation.tab.rotateCount", { count: due }) : undefined
-            }
             tabIndex={each === tab ? 0 : -1}
             onClick={() => {
               setOpenFor(null);
@@ -60,9 +57,12 @@ export function SecurityPage({
           >
             {t(`credentialRotation.tab.${each}`)}
             {each === "rotate" && due > 0 && (
-              <span className="tab-badge tabular" aria-hidden="true">
-                {due}
-              </span>
+              <>
+                <span className="tab-badge tabular" aria-hidden="true">
+                  {due}
+                </span>
+                <span className="visually-hidden">{t("credentialRotation.tab.dueHidden", { count: due })}</span>
+              </>
             )}
           </button>
         ))}

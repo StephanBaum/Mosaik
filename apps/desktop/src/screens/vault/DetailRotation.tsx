@@ -61,12 +61,11 @@ function useRotationCommands(item: ItemRequest, onDetail: (detail: Detail) => vo
     closeAttempt: (attemptId: string, outcome: RotationOutcomeKey) => {
       void run(() => ipc.call("rotation_close", { ...item, attemptId, outcome }));
     },
-    restore: (entry: HistoryEntryView) => {
-      void run(
+    restore: (entry: HistoryEntryView) =>
+      run(
         () => ipc.call("password_history_restore", { ...item, historyId: entry.historyId }),
         t("credentialRotation.history.restored"),
-      );
-    },
+      ),
     setPolicy: (everyDays: PolicyDays | null) => {
       void run(() => ipc.call("rotation_set_policy", { ...item, everyDays }));
     },
@@ -112,7 +111,7 @@ export function DetailRotation({
               setPanel(true);
             }}
           >
-            {t("credentialRotation.queue.change")}
+            {t(detail.rotationAttempts.length > 0 ? "credentialRotation.queue.continue" : "credentialRotation.queue.change")}
           </Button>
         </div>
       )}
@@ -133,7 +132,7 @@ export function DetailRotation({
             itemId: item.itemId,
             title: detail.summary.title,
             host: detail.summary.host,
-            attempts: [],
+            attempts: detail.rotationAttempts,
           }}
           onClose={() => {
             setPanel(false);

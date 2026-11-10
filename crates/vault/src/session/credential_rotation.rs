@@ -484,6 +484,17 @@ impl UnlockedSession {
         Ok(())
     }
 
+    /// Takes back [`UnlockedSession::dismiss_rotation`] (the "Undo" of the
+    /// dismissal toast). A no-op for an item that was not dismissed.
+    ///
+    /// # Errors
+    /// As [`UnlockedSession::snooze_rotation`].
+    pub fn undismiss_rotation(&mut self, vault: VaultId, item: ItemId) -> Result<()> {
+        self.vault(vault)?.live_item(item)?;
+        self.store.clear_dismissed(&vault, &item)?;
+        Ok(())
+    }
+
     /// The snooze and dismissal of every live item that has one. A
     /// dismissal whose mark no longer matches the password is not reported;
     /// a snooze is reported as stored ([`QueueState::hides`] compares it

@@ -5,13 +5,14 @@ export const breach = {
   "breach.card.title": "Leck-Prüfung",
   "breach.card.off": "Aus. Mosaic kontaktiert Have I Been Pwned nie, solange du das nicht einschaltest.",
   "breach.card.about":
-    "Prüft deine Passwörter gegen bekannte Datenlecks. Nur die ersten 5 Zeichen des SHA-1-Hashes jedes Passworts verlassen dieses Gerät.",
+    "Prüft deine Passwörter gegen bekannte Datenlecks. Pro Passwort verlässt nur ein 5-stelliges Bruchstück eines unumkehrbaren Codes dieses Gerät.",
   "breach.mode.label": "Gegen bekannte Datenlecks prüfen",
   "breach.mode.off": "Aus",
   "breach.mode.manual": "Nur wenn ich es auslöse",
   "breach.mode.weekly": "Wöchentlich, nach dem Entsperren",
   "breach.card.checkNow": "Jetzt prüfen",
-  "breach.card.stop": "Stopp",
+  "breach.card.stop":
+    "Prüfung stoppen",
   "breach.card.turnOff": "Ausschalten",
 
   "breach.progress.starting": "Deine Passwörter werden geprüft …",
@@ -34,9 +35,10 @@ export const breach = {
 
   "breach.consent.title": "Deine Passwörter gegen bekannte Datenlecks prüfen?",
   "breach.consent.body":
-    "Mosaic sendet die ersten 5 Zeichen des SHA-1-Hashes jedes Passworts an Have I Been Pwned (api.pwnedpasswords.com). Der Dienst sieht deine IP-Adresse und diese Präfixe, nie ein Passwort. Die Ergebnisse bleiben auf diesem Gerät.",
+    "Mosaic wandelt jedes Passwort in einen Code um, der sich nicht zurückrechnen lässt (einen Hash), und schickt nur dessen erste 5 Zeichen an Have I Been Pwned (api.pwnedpasswords.com). Der Dienst erfährt deine IP-Adresse und diese 5-stelligen Bruchstücke. Er sieht nie ein Passwort, deine E-Mail-Adresse oder zu welcher Website ein Passwort gehört. Die Ergebnisse bleiben auf diesem Gerät.",
   "breach.consent.detail":
-    "Mosaic schickt die Präfixe einzeln in zufälliger Reihenfolge und fordert aufgefüllte Antworten an. Es bleibt eine Anfrage an einen Dritten, deshalb bleibt die Prüfung aus, bis du zustimmst. Du kannst sie jederzeit wieder ausschalten.",
-  "breach.consent.agree": "Jetzt prüfen",
+    "Viele andere Passwörter teilen sich jedes dieser Bruchstücke, deshalb verrät die Antwort deines nicht. Es bleibt eine Anfrage an einen anderen Dienst, deshalb bleibt die Prüfung aus, bis du zustimmst. Du kannst sie jederzeit ausschalten.",
+  "breach.consent.agree":
+    "Einschalten und jetzt prüfen",
   "breach.consent.decline": "Nicht jetzt",
 } as const satisfies Record<keyof typeof en, string>;

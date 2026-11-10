@@ -7,7 +7,7 @@
  * Live region: one polite status that changes when a scan starts and when it ends. The step
  * counter is for the eyes only, so a screen reader is not told about every prefix.
  */
-import { Button } from "../../components/Button.tsx";
+import { Callout } from "../../components/Callout.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Select } from "../../components/Select.tsx";
@@ -18,42 +18,44 @@ import { useBreachScan, type BreachScan, type ScanSummary } from "./useBreachSca
 
 type Translate = ReturnType<typeof useI18n>["t"];
 
-/** The sentence for the end of a scan, or of the last scan the status remembers. */
-function resultText(t: Translate, status: BreachStatus, finished: ScanSummary | null, found: number): string {
-  if (finished !== null) {
-    const parts: string[] = [];
-    if (finished.error !== null) {
-      parts.push(t(`breach.error.${finished.error}`));
-    }
-    if (finished.checked > 0 || finished.error === null) {
-      parts.push(
-        finished.checked === 0
-          ? t("breach.result.upToDate")
-          : t("breach.result.finished", { checked: finished.checked, found: finished.found }),
-      );
-    }
-    return parts.join(" ");
-  }
-  const parts: string[] = [];
-  if (status.lastError !== null) {
-    parts.push(t(`breach.error.${status.lastError}`));
-  }
-  parts.push(
-    status.lastFinishedAt === null
-      ? t("breach.result.never")
-      : t("breach.result.last", { date: status.lastFinishedAt, found }),
-  );
-  return parts.join(" ");
+/** What the card says: the result line, and the error (a warning of its own) if the scan stopped early. */
+interface Report {
+  text: string;
+  error: string | null;
 }
 
-function statusText(t: Translate, scan: BreachScan, status: BreachStatus, found: number): string {
+/** The result of the scan that just ended, or of the last scan the status remembers. */
+function resultReport(t: Translate, status: BreachStatus, finished: ScanSummary | null, found: number): Report {
+  if (finished !== null) {
+    const error = finished.error === null ? null : t(`breach.error.${finished.error}`);
+    if (finished.checked > 0 || finished.error === null) {
+      return {
+        error,
+        text:
+          finished.checked === 0
+            ? t("breach.result.upToDate")
+            : t("breach.result.finished", { checked: finished.checked, found: finished.found }),
+      };
+    }
+    return { error, text: "" };
+  }
+  return {
+    error: status.lastError === null ? null : t(`breach.error.${status.lastError}`),
+    text:
+      status.lastFinishedAt === null
+        ? t("breach.result.never")
+        : t("breach.result.last", { date: status.lastFinishedAt, found }),
+  };
+}
+
+function report(t: Translate, scan: BreachScan, status: BreachStatus, found: number): Report {
   if (scan.running) {
-    return t("breach.progress.starting");
+    return { text: t("breach.progress.starting"), error: null };
   }
   if (status.mode === "off" && scan.finished === null) {
-    return t("breach.card.off");
+    return { text: t("breach.card.off"), error: null };
   }
-  return resultText(t, status, scan.finished, found);
+  return resultReport(t, status, scan.finished, found);
 }
 
 export function BreachCheckCard({
@@ -70,6 +72,7 @@ export function BreachCheckCard({
   const { t } = useI18n();
   const scan = useBreachScan(status, onChanged);
   const options = breachModes.map((mode) => ({ value: mode, label: t(`breach.mode.${mode}`) }));
+  const shown = report(t, scan, status, found);
   return (
     <section className="card breach" aria-labelledby="breach-title" data-breach-card="">
       <div className="breach__header">
@@ -87,8 +90,9 @@ export function BreachCheckCard({
         }}
       />
       <p role="status" aria-live="polite" className="breach__status">
-        {statusText(t, scan, status, found)}
+        {shown.text}
       </p>
+      {shown.error !== null && <Callout tone="warning">{shown.error}</Callout>}
       {scan.running && scan.progress !== null && (
         <p className="caption tabular" aria-hidden="true">
           {t("breach.progress.step", scan.progress)}
@@ -96,11 +100,10 @@ export function BreachCheckCard({
       )}
       <ErrorAlert error={scan.error} />
       <div className="actions">
-        {scan.running ? (
-          <Button onClick={scan.stop}>{t("breach.card.stop")}</Button>
-        ) : (
-          <HoloButton onClick={scan.checkNow}>{t("breach.card.checkNow")}</HoloButton>
-        )}
+        {/* One button whose label and action change, so focus stays on it. */}
+        <HoloButton onClick={scan.running ? scan.stop : scan.checkNow}>
+          {t(scan.running ? "breach.card.stop" : "breach.card.checkNow")}
+        </HoloButton>
       </div>
       {scan.consenting !== null && <BreachConsentDialog onAgree={scan.agree} onDecline={scan.decline} />}
     </section>

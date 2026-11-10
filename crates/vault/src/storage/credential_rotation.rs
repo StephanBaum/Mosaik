@@ -242,6 +242,21 @@ impl Store {
         Ok(())
     }
 
+    /// Takes back the dismissal of an item (the snooze stays).
+    ///
+    /// # Errors
+    /// [`Error::Database`].
+    pub fn clear_dismissed(&mut self, vault_id: &VaultId, item_id: &ItemId) -> Result<()> {
+        let tx = self.write()?;
+        tx.execute(
+            "UPDATE rotation_queue_state SET dismissed_mark = NULL
+             WHERE vault_id = ?1 AND item_id = ?2",
+            params![vault_id.as_bytes(), item_id.as_bytes()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Dismisses an item at a password mark.
     ///
     /// # Errors

@@ -87,7 +87,7 @@ export const errors = {
   "error.rotationLimit":
     "Four password changes of this item are open already. Finish or close one in the item first.",
   "error.rotationOpen":
-    "This login has a password change in progress. Finish or cancel it first, so the new password isn't lost.",
+    "This login has an open password change. Restore it from the trash, then choose It worked or It didn't work on the item. After that you can delete it forever.",
   "error.rotationNotSupported":
     "Mosaic can't guide this change. It needs a login with an https address. Change the password on the site yourself.",
   "error.historyNotFound": "That earlier password isn't in the history any more. Reopen the item to see the current list.",

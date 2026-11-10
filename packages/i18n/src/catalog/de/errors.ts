@@ -95,7 +95,7 @@ export const errors = {
   "error.rotationLimit":
     "Für diesen Eintrag sind schon vier Passwortänderungen offen. Schließe zuerst eine im Eintrag ab.",
   "error.rotationOpen":
-    "Für dieses Login läuft eine Passwortänderung. Schließ sie zuerst ab oder brich sie ab, damit das neue Passwort nicht verloren geht.",
+    "Für diesen Login ist eine Passwortänderung offen. Stelle ihn aus dem Papierkorb wieder her und wähle dann am Eintrag „Es hat geklappt“ oder „Es hat nicht geklappt“. Danach kannst du ihn endgültig löschen.",
   "error.rotationNotSupported":
     "Mosaic kann diese Änderung nicht begleiten. Dafür braucht es einen Login mit https-Adresse. Ändere das Passwort selbst auf der Website.",
   "error.historyNotFound":

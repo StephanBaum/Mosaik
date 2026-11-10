@@ -3,13 +3,14 @@ export const breach = {
   "breach.card.title": "Breach check",
   "breach.card.off": "Off. Mosaic never contacts Have I Been Pwned unless you turn this on.",
   "breach.card.about":
-    "Checks your passwords against known data breaches. Only the first 5 characters of each password's SHA-1 hash leave this device.",
+    "Checks your passwords against known data breaches. Only a 5-character piece of a scrambled code per password leaves this device.",
   "breach.mode.label": "Check against known data breaches",
   "breach.mode.off": "Off",
   "breach.mode.manual": "Only when I choose",
   "breach.mode.weekly": "Weekly, after unlock",
   "breach.card.checkNow": "Check now",
-  "breach.card.stop": "Stop",
+  "breach.card.stop":
+    "Stop check",
   "breach.card.turnOff": "Turn off",
 
   "breach.progress.starting": "Checking your passwords…",
@@ -32,9 +33,10 @@ export const breach = {
 
   "breach.consent.title": "Check your passwords against known data breaches?",
   "breach.consent.body":
-    "Mosaic sends the first 5 characters of each password's SHA-1 hash to Have I Been Pwned (api.pwnedpasswords.com). The service sees your IP address and those prefixes, never a password. Results stay on this device.",
+    "Mosaic turns each password into a scrambled code that can't be turned back (a hash) and sends only the first 5 characters of that code to Have I Been Pwned (api.pwnedpasswords.com). The service learns your IP address and those 5-character pieces. It never sees a password, your email address or which site a password is for. Results stay on this device.",
   "breach.consent.detail":
-    "Mosaic sends the prefixes one by one in random order and asks for padded answers. It is still a request to a third party, so this stays off until you agree. You can turn it off again at any time.",
-  "breach.consent.agree": "Check now",
+    "Many other passwords share each 5-character piece, so the answer doesn't reveal yours. It is still a request to another service, so it stays off until you agree. You can turn it off at any time.",
+  "breach.consent.agree":
+    "Turn on and check now",
   "breach.consent.decline": "Not now",
 } as const satisfies Record<string, string>;

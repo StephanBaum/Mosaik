@@ -521,6 +521,20 @@ fn dismiss_lasts_until_password_changes() {
 }
 
 #[test]
+fn undismiss_brings_the_item_back() {
+    let mut u = user("a@x");
+    let s = &mut u.s;
+    let v = s.create_vault("V").unwrap();
+    let i = login(s, v, "https://bank.example", "p1");
+    s.dismiss_rotation(v, i).unwrap();
+    assert!(s.queue_states().unwrap().hides(key(v, i), at(0)));
+    s.undismiss_rotation(v, i).unwrap();
+    assert!(!s.queue_states().unwrap().hides(key(v, i), at(0)));
+    // Not dismissed: nothing to undo, no error.
+    s.undismiss_rotation(v, i).unwrap();
+}
+
+#[test]
 fn snooze_expires() {
     let mut u = user("a@x");
     let s = &mut u.s;

@@ -338,6 +338,10 @@ impl Backend {
         writable(session, vault)?;
         let values = values_of(session, vault, item, attempt)?;
         // Marked before the values leave: a crash after the fill finds the attempt delivered.
+        // This also holds when `fill_change` then refuses (`FieldEmpty`: no current password for
+        // the `currentAndNew` shape): the attempt stays `delivered` although nothing was sent. That
+        // is intended. A higher stage is the safe side (it only makes the UI say "may have been
+        // filled"), and the mark is never lowered.
         session
             .mark_rotation_delivered(vault, item, attempt)
             .map_err(ipc)?;

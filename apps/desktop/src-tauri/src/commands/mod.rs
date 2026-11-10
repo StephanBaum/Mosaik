@@ -160,6 +160,7 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         credential_rotation::password_history_restore,
         credential_rotation::rotation_snooze,
         credential_rotation::rotation_dismiss,
+        credential_rotation::rotation_undismiss,
         credential_rotation::rotation_set_policy,
         breach::breach_scan_start,
         breach::breach_scan_cancel,

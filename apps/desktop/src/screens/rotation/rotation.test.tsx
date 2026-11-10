@@ -25,7 +25,10 @@ async function openRotate(options: MockOptions, language = "en") {
 }
 
 async function heading(dialog: HTMLElement, name: string | RegExp) {
-  const found = await within(dialog).findByRole("heading", { name });
+  // A numbered step's heading is read with "Step n of 3." in front of it.
+  const escaped = typeof name === "string" ? name.replace(/\W/g, (c) => "\\" + c) : "";
+  const wanted = typeof name === "string" ? new RegExp(`${escaped}$`) : name;
+  const found = await within(dialog).findByRole("heading", { name: wanted });
   await waitFor(() => {
     expect(document.activeElement).toBe(found);
   });
@@ -66,6 +69,23 @@ describe("rotate-now queue", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Dismiss Jira" })).toBeNull();
     });
+  });
+
+  it("keeps focus in the list when a row leaves it, and Undo takes a dismissal back", async () => {
+    const { user, calls } = await openRotate({ credRotation: { variant: "queue", stepMs: 0 } });
+    const list = await screen.findByRole("list", { name: "Passwords to change" });
+    await user.click(await screen.findByRole("button", { name: "Dismiss Jira" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Dismiss Jira" })).toBeNull();
+    });
+    // Not the page behind: a control of the list (the next row), or the list's caption.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.closest("section")?.contains(list) || document.activeElement?.id === "rotation-queue-caption").toBe(true);
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => {
+      expect(calls.some((c) => c.command === "rotation_undismiss")).toBe(true);
+    });
+    expect(await screen.findByRole("button", { name: "Dismiss Jira" })).toBeTruthy();
   });
 
   it("speaks German too", async () => {
@@ -125,6 +145,29 @@ describe("guided change panel", () => {
     expect(JSON.stringify(calls.find((c) => c.command === "rotation_close")?.request)).toContain('"outcome":"failed"');
   });
 
+  it("says the change stays open when the panel is closed after the password was stored", async () => {
+    const { user } = await openRotate({ credRotation: { variant: "queue", stepMs: 0 } });
+    const dialog = await startChange(user, "Figma");
+    await user.click(await within(dialog).findByRole("button", { name: "Use this password" }));
+    await heading(dialog, "Change it on the site");
+    await user.click(within(dialog).getByRole("button", { name: /^Close/ }));
+    expect(
+      await screen.findByText(
+        "The change for Figma stays open. The new password is kept on the item until you choose It worked or It didn't work.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names the step inside the heading and says what happened on the last step", async () => {
+    const { user } = await openRotate({ credRotation: { variant: "queue", stepMs: 0 } });
+    const dialog = await startChange(user, "Figma");
+    expect(await within(dialog).findByRole("heading", { name: /^Step 1 of 3\W+Choose a new password$/ })).toBeTruthy();
+    await user.click(await within(dialog).findByRole("button", { name: "Use this password" }));
+    await user.click(await within(dialog).findByRole("button", { name: "I've tried it" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Not sure yet" }));
+    expect(await within(dialog).findByRole("heading", { name: "Change left open" })).toBeTruthy();
+  });
+
   it("closes without a trace when cancelled at the first step", async () => {
     const { user, calls } = await openRotate({ credRotation: { variant: "queue", stepMs: 0 } });
     const dialog = await startChange(user, "Figma");
@@ -149,9 +192,15 @@ describe("item detail", () => {
     expect(within(article).getByRole("heading", { name: /Password change started on/ })).toBeTruthy();
     expect(within(article).getByText(/The browser extension filled it into the site's form/)).toBeTruthy();
     expect(within(article).getByText("Not confirmed")).toBeTruthy();
+    // No second parallel change from here: the open change is continued.
+    expect(within(article).queryByRole("button", { name: "Change password" })).toBeNull();
     await user.click(within(article).getByRole("button", { name: /^Restore the password from/ }));
     await waitFor(() => {
       expect(calls.some((c) => c.command === "password_history_restore")).toBe(true);
+    });
+    // Focus lands on the history heading, not on the page behind.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(article).getByRole("heading", { name: "Password history" }));
     });
     // Confirming from the banner closes the attempt.
     await user.click(within(article).getByRole("button", { name: "It worked" }));
@@ -186,8 +235,9 @@ describe("breach check card", () => {
     expect(within(card).getByText(/Off\. Mosaic never contacts Have I Been Pwned/)).toBeTruthy();
     await user.click(within(card).getByRole("button", { name: "Check now" }));
     const dialog = await screen.findByRole("dialog", { name: "Check your passwords against known data breaches?" });
-    expect(within(dialog).getByText(/first 5 characters of each password's SHA-1 hash/)).toBeTruthy();
-    expect(within(dialog).getByText(/sees your IP address and those prefixes, never a password/)).toBeTruthy();
+    expect(within(dialog).getByText(/sends only the first 5 characters of that code/)).toBeTruthy();
+    expect(within(dialog).getByText(/learns your IP address and those 5-character pieces/)).toBeTruthy();
+    expect(dialog.textContent).not.toMatch(/SHA-1|prefix|padded/i);
     expect(within(dialog).getByText(/Results stay on this device/)).toBeTruthy();
     // "Not now" is the focused default and sends nothing.
     await waitFor(() => {
@@ -203,13 +253,15 @@ describe("breach check card", () => {
     const { user, calls, card } = await openOverview({ credRotation: { variant: "consent", stepMs: 0 } });
     await user.click(within(card).getByRole("button", { name: "Check now" }));
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Check now" }));
+    await user.click(within(dialog).getByRole("button", { name: "Turn on and check now" }));
     await waitFor(() => {
       expect(calls.some((c) => c.command === "breach_scan_start")).toBe(true);
     });
     const saved = calls.find((c) => c.command === "update_settings")?.request as { settings: { breachCheck: string; breachConsentAt: number } };
     expect(saved.settings.breachCheck).toBe("manual");
     expect(saved.settings.breachConsentAt).toBeGreaterThan(0);
+    // The one button stays where it was: focus is not lost when its label changes.
+    expect(card.contains(document.activeElement)).toBe(true);
     // One polite status that changes at the start and the end, not per step.
     const status = within(card).getByRole("status");
     expect(status.getAttribute("aria-live")).toBe("polite");
@@ -237,7 +289,8 @@ describe("breach check card", () => {
 
   it("shows the offline error with the last results", async () => {
     const { user, card } = await openOverview({ credRotation: { variant: "breachOffline", stepMs: 0 } });
-    expect(within(card).getByText(/Couldn't reach Have I Been Pwned/)).toBeTruthy();
+    // The error is a warning of its own, apart from the result line.
+    expect(within(card).getByText(/Couldn't reach Have I Been Pwned/).closest(".callout--warning")).not.toBeNull();
     await user.click(within(card).getByRole("button", { name: "Check now" }));
     await waitFor(() => {
       expect(within(card).getAllByText(/Couldn't reach Have I Been Pwned/).length).toBeGreaterThan(0);

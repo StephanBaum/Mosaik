@@ -153,6 +153,7 @@ export interface CredentialRotationCommands {
   password_history_restore: { request: HistoryRestoreRequest; response: null };
   rotation_snooze: { request: RotationSnoozeRequest; response: null };
   rotation_dismiss: { request: ItemRequest; response: null };
+  rotation_undismiss: { request: ItemRequest; response: null };
   rotation_set_policy: { request: RotationPolicyRequest; response: null };
   breach_scan_start: { request: null; response: null };
   breach_scan_cancel: { request: null; response: null };

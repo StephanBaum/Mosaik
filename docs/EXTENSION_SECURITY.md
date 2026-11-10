@@ -264,6 +264,11 @@ the impact stays within the page's own origin:
   never learns the pending value; a page that echoes the value learns nothing it did not receive
   through the user's fill. A capture that differs leaves the attempt open and shows the normal save
   prompt.
+- The rotation dialog (`rotationBegin`, `rotationResult`, `rotationAddOrigin` and the capture hook) is
+  single-instance across all paired browsers, like the save prompt: while one browser holds it,
+  every other request is `busy`, and one browser can hold it for up to the 300 s prompt timeout. It
+  is rate limited to 3 per minute, starts from a click in the popup only, and writes nothing before
+  the user's answer. This is the same accepted design as the save prompt.
 - The popup confirms the frame of the **change** form (`PopupState.changeFrame`) for "Fill change
   form", not the sign-in form's frame: with a sign-in form on top and the change form in a
   same-origin frame the confirmation names the latter, and a confirmation of the former is still

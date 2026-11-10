@@ -56,15 +56,26 @@ function RowSummary({ entry, title }: { entry: QueueEntry; title: string }) {
 }
 
 /** Snooze and dismiss: each answers with a toast and asks the queue to read again. */
-function useRowCommands(entry: QueueEntry, onError: (error: IpcError | null) => void, onDone: () => void) {
+function useRowCommands(
+  entry: QueueEntry,
+  onError: (error: IpcError | null) => void,
+  onDone: () => void,
+  onSettled: () => void,
+) {
   const { t } = useI18n();
   const ipc = useIpc();
   const toast = useToast();
   const item = { vaultId: entry.vaultId, itemId: entry.itemId };
-  async function settle(result: { ok: true } | { ok: false; error: IpcError }, message: string) {
+  async function settle(
+    result: { ok: true } | { ok: false; error: IpcError },
+    message: string,
+    options?: Parameters<typeof toast>[1],
+  ) {
     if (result.ok) {
       onError(null);
-      toast(message);
+      toast(message, options);
+      // The row is about to leave the list: focus moves first, so it never drops to the page.
+      onSettled();
       onDone();
     } else {
       onError(result.error);
@@ -74,9 +85,35 @@ function useRowCommands(entry: QueueEntry, onError: (error: IpcError | null) => 
   return {
     snooze: (days: (typeof snoozeDays)[number]) =>
       ipc.call("rotation_snooze", { ...item, days }).then((r) => settle(r, t("credentialRotation.queue.snoozed", { days }))),
-    dismiss: () => ipc.call("rotation_dismiss", item).then((r) => settle(r, t("credentialRotation.queue.dismissed"))),
+    dismiss: () =>
+      ipc.call("rotation_dismiss", item).then((r) =>
+        settle(r, t("credentialRotation.queue.dismissed"), {
+          action: {
+            label: t("credentialRotation.queue.undo"),
+            run: () => {
+              void ipc.call("rotation_undismiss", item).then((undone) => {
+                if (undone.ok) {
+                  onDone();
+                } else {
+                  onError(undone.error);
+                }
+              });
+            },
+          },
+        }),
+      ),
   };
 }
+
+/** Where focus goes when a row leaves the list: the next row's button, else the previous one's, else the caption. */
+function focusNeighbour(row: HTMLElement | null) {
+  const neighbour = row?.nextElementSibling ?? row?.previousElementSibling ?? null;
+  const target =
+    neighbour?.querySelector<HTMLElement>("button") ?? document.getElementById(QUEUE_CAPTION_ID);
+  target?.focus();
+}
+
+const QUEUE_CAPTION_ID = "rotation-queue-caption";
 
 function Row({
   entry,
@@ -92,7 +129,10 @@ function Row({
   onDone: () => void;
 }) {
   const { t } = useI18n();
-  const commands = useRowCommands(entry, onError, onDone);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const commands = useRowCommands(entry, onError, onDone, () => {
+    focusNeighbour(rowRef.current);
+  });
   const title = entry.title ?? t("vault.untitled");
   const guided = entry.kind === "guided";
   const actionKey = !guided
@@ -102,7 +142,7 @@ function Row({
       : "credentialRotation.queue.change";
   const action = t(actionKey);
   return (
-    <li className="row">
+    <li className="row" ref={rowRef}>
       <Avatar title={title} />
       <RowSummary entry={entry} title={title} />
       <div className="queue__actions">
@@ -209,7 +249,9 @@ function QueueLists({
       {queue !== null && entries.length === 0 && <p className="lede">{t("credentialRotation.queue.empty")}</p>}
       {due.length > 0 && (
         <section className="security__section">
-          <p className="caption">{t("credentialRotation.queue.count", { count: due.length })}</p>
+          <p className="caption" id={QUEUE_CAPTION_ID} tabIndex={-1}>
+            {t("credentialRotation.queue.count", { count: due.length })}
+          </p>
           {rows(due, t("credentialRotation.queue.list"))}
         </section>
       )}
@@ -262,9 +304,11 @@ export function RotationQueue({
 
   return (
     <section className="security" aria-label={t("credentialRotation.queue.title")}>
-      <div className="page__heading">
-        <h2 className="subtitle">{t("credentialRotation.queue.title")}</h2>
-        <p className="lede">{t("credentialRotation.queue.intro")}</p>
+      <div className="page__header">
+        <div className="page__heading">
+          <h2 className="subtitle">{t("credentialRotation.queue.title")}</h2>
+          <p className="lede">{t("credentialRotation.queue.intro")}</p>
+        </div>
       </div>
       <ErrorAlert error={error ?? rowError} />
       <QueueLists queue={queue} onGuide={choose} onOpen={onOpenItem} onError={setRowError} onDone={done} />

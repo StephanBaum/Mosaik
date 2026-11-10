@@ -20,6 +20,7 @@ import { Icon } from "../../components/icons.tsx";
 import { SecretField } from "../../components/SecretField.tsx";
 import { StrengthMeter } from "../../components/StrengthMeter.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { useToast } from "../../components/ToastProvider.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import type {
@@ -47,6 +48,19 @@ type Step = "new" | "site" | "result" | "done";
 type Finished = "worked" | "failed" | "notSure";
 
 const STEP_NUMBER: Record<Exclude<Step, "done">, number> = { new: 1, site: 2, result: 3 };
+
+/** The heading of a numbered step: "Step n of 3" is read with it, the eyes get it in the caption above. */
+function NumberedHeading({ step, children }: { step: Exclude<Step, "done">; children: string }) {
+  const { t } = useI18n();
+  return (
+    <StepHeading>
+      <span className="visually-hidden">
+        {t("credentialRotation.panel.step", { current: STEP_NUMBER[step], total: 3 })}.{" "}
+      </span>
+      {children}
+    </StepHeading>
+  );
+}
 
 function useGenerated(active: boolean, host: string | null, round: number) {
   const ipc = useIpc();
@@ -115,7 +129,7 @@ function NewStep({
   const { t } = useI18n();
   return (
     <>
-      <StepHeading>{t("credentialRotation.steps.new.title")}</StepHeading>
+      <NumberedHeading step="new">{t("credentialRotation.steps.new.title")}</NumberedHeading>
       <p className="caption">{t("credentialRotation.steps.new.intro")}</p>
       {generated !== null && (
         <>
@@ -154,14 +168,14 @@ function SiteStep({
   const { t } = useI18n();
   return (
     <>
-      <StepHeading>{t("credentialRotation.steps.site.title")}</StepHeading>
+      <NumberedHeading step="site">{t("credentialRotation.steps.site.title")}</NumberedHeading>
       <p>{t("credentialRotation.steps.site.body")}</p>
       {url === null ? (
         <p className="caption">{t("credentialRotation.steps.site.noLink")}</p>
       ) : (
         <>
           <TextField
-            label={t("credentialRotation.steps.site.copyLink")}
+            label={t("credentialRotation.steps.site.pageLabel")}
             value={url.url}
             readOnly
             mono
@@ -200,7 +214,7 @@ function ResultStep({
   const { t } = useI18n();
   return (
     <>
-      <StepHeading>{t("credentialRotation.steps.result.title")}</StepHeading>
+      <NumberedHeading step="result">{t("credentialRotation.steps.result.title")}</NumberedHeading>
       <p className="caption">{t("credentialRotation.steps.result.body")}</p>
       <div className="dialog__actions">
         <Button onClick={onBack} disabled={busy}>
@@ -239,7 +253,11 @@ function DoneStep({ finished, onClose }: { finished: Finished; onClose: () => vo
   const { t } = useI18n();
   return (
     <>
-      <StepHeading>{t("action.done")}</StepHeading>
+      <StepHeading>
+        {finished === "worked"
+          ? t("action.done")
+          : t(finished === "failed" ? "credentialRotation.steps.done.failed" : "credentialRotation.steps.done.notSure")}
+      </StepHeading>
       <p role="status">{t(`credentialRotation.result.${finished}Done`)}</p>
       <div className="dialog__actions">
         <HoloButton onClick={onClose} data-autofocus="">
@@ -310,11 +328,21 @@ export function RotationPanel({ entry, onClose }: { entry: PanelTarget; onClose:
   const { generated, error: generateError } = useGenerated(step === "new", entry.host, round);
   const title = entry.title ?? t("vault.untitled");
   const url = flow.begunUrl ?? continuedUrl;
+  const toast = useToast();
+  // Closing after the new password was stored leaves the change open: say so (the X and Esc).
+  const closeWithNotice = () => {
+    if (attemptId !== null && step !== "done") {
+      toast(t("credentialRotation.panel.stays", { title }));
+    }
+    onClose();
+  };
 
   return (
-    <Dialog title={t("credentialRotation.panel.title", { title })} onClose={onClose} size="wide" closeButton>
+    <Dialog title={t("credentialRotation.panel.title", { title })} onClose={closeWithNotice} size="wide" closeButton>
       {step !== "done" && (
-        <p className="caption">{t("credentialRotation.panel.step", { current: STEP_NUMBER[step], total: 3 })}</p>
+        <p className="caption" aria-hidden="true">
+          {t("credentialRotation.panel.step", { current: STEP_NUMBER[step], total: 3 })}
+        </p>
       )}
       <ErrorAlert error={flow.error ?? generateError} />
       {step === "new" && (

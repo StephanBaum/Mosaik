@@ -260,7 +260,8 @@ export const ext = {
   // Passwortänderung auf der Website (M7b)
   "ext.rotation.card.title": "Passwortänderung",
   "ext.rotation.card.for": "Für {name}",
-  "ext.rotation.card.started": "Gestartet {when}",
+  "ext.rotation.card.started":
+    "Gestartet am {when}",
   "ext.rotation.card.delivered": "Das neue Passwort wurde schon einmal eingetragen.",
   "ext.rotation.card.note":
     "Das neue Passwort siehst du nur in der Mosaic-App. Mosaic sendet das Formular nie für dich ab.",

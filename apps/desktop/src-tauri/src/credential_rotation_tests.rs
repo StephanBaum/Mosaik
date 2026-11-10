@@ -366,8 +366,10 @@ fn credential_rotation_queue_snooze_dismiss_and_policy() {
         ErrorCode::InvalidInput
     );
 
-    // Dismiss hides it until the password changes (and not an open change).
+    // Dismiss hides it until the password changes (and not an open change); Undo brings it back.
     e.backend.rotation_dismiss(item_req(&e, weak)).unwrap();
+    e.backend.rotation_dismiss(item_req(&e, fine)).unwrap();
+    e.backend.rotation_undismiss(item_req(&e, fine)).unwrap();
     e.backend.rotation_dismiss(item_req(&e, fine)).unwrap();
     let queue = e.backend.rotation_queue(NOW).unwrap();
     let ids: Vec<_> = queue.entries.iter().map(|x| x.item_id.get()).collect();
@@ -432,6 +434,7 @@ fn credential_rotation_every_command_is_locked() {
         history_id: id.into(),
     }));
     locked(e.backend.rotation_dismiss(item_req(&e, item)));
+    locked(e.backend.rotation_undismiss(item_req(&e, item)));
     locked(e.backend.rotation_snooze(
         &RotationSnoozeRequest {
             vault_id: e.vault.into(),

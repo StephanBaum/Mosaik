@@ -131,6 +131,7 @@ pub const COMMANDS: &[&str] = &[
     "password_history_restore",
     "rotation_snooze",
     "rotation_dismiss",
+    "rotation_undismiss",
     "rotation_set_policy",
     "breach_scan_start",
     "breach_scan_cancel",

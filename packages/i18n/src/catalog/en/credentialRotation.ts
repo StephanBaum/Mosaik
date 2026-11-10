@@ -3,7 +3,8 @@ export const credentialRotation = {
   "credentialRotation.tablist": "Security views",
   "credentialRotation.tab.overview": "Overview",
   "credentialRotation.tab.rotate": "Rotate now",
-  "credentialRotation.tab.rotateCount": "Rotate now, {count} to change",
+  "credentialRotation.tab.dueHidden":
+    ", {count} to change",
 
   "credentialRotation.queue.title": "Rotate now",
   "credentialRotation.queue.intro":
@@ -30,9 +31,13 @@ export const credentialRotation = {
   "credentialRotation.queue.dismiss": "Dismiss",
   "credentialRotation.queue.dismissFor": "Dismiss {title}",
   "credentialRotation.queue.dismissed": "Dismissed. It comes back when the password changes.",
+  "credentialRotation.queue.undo":
+    "Undo",
 
   "credentialRotation.panel.title": "Change password for {title}",
   "credentialRotation.panel.step": "Step {current} of {total}",
+  "credentialRotation.panel.stays":
+    "The change for {title} stays open. The new password is kept on the item until you choose It worked or It didn't work.",
   "credentialRotation.panel.cancel": "Cancel",
 
   "credentialRotation.steps.new.title": "Choose a new password",
@@ -42,6 +47,8 @@ export const credentialRotation = {
   "credentialRotation.steps.new.use": "Use this password",
   "credentialRotation.steps.new.saving": "Saving…",
   "credentialRotation.steps.site.title": "Change it on the site",
+  "credentialRotation.steps.site.pageLabel":
+    "Change page",
   "credentialRotation.steps.site.body":
     "Open the site's password page in your browser, click Mosaic in the toolbar and choose Fill change form. Mosaic never submits the form.",
   "credentialRotation.steps.site.copyLink": "Copy link to the change page",
@@ -53,6 +60,10 @@ export const credentialRotation = {
   "credentialRotation.steps.site.copyPassword": "Copy new password",
   "credentialRotation.steps.site.next": "I've tried it",
   "credentialRotation.steps.result.title": "Did the site accept the new password?",
+  "credentialRotation.steps.done.failed":
+    "Current password kept",
+  "credentialRotation.steps.done.notSure":
+    "Change left open",
   "credentialRotation.steps.result.body":
     "Mosaic can't see the site. Tell it what happened so the right password stays in this item. Nothing is deleted either way.",
   "credentialRotation.steps.result.working": "Saving…",
@@ -96,7 +107,9 @@ export const credentialRotation = {
     "A reminder puts the item in the Rotate now list. Mosaic sends no notification and makes no request for it.",
 
   "credentialRotation.url.help":
-    "Optional. The https address of the site's password page, on the same site as this login. Mosaic never opens it for you.",
+    "Optional. The https address of the site's password page, on the same site as this login. Mosaic opens it only when you choose Open change page in the browser extension.",
+  "credentialRotation.url.invalid":
+    "Mosaic won't use this address. It must start with https:// and be on the same site as this login.",
 
   "credentialRotation.settings.title": "Password reminders",
   "credentialRotation.settings.body": "Mosaic can tell you after you unlock how many passwords are worth changing.",
@@ -120,6 +133,8 @@ export const credentialRotation = {
   "credentialRotation.dialog.regenerated": "A new password was generated.",
   "credentialRotation.dialog.allow": "Use this password",
   "credentialRotation.dialog.cancel": "Cancel",
+  "credentialRotation.dialog.decideLater":
+    "Decide later",
   "credentialRotation.dialog.untitled": "this login",
   "credentialRotation.dialog.attempt":
     "Started {at, date, medium}, {at, time, short} · {stage}{n, plural, =0 {} one { · # other change open} other { · # other changes open}}",

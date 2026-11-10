@@ -108,16 +108,23 @@ function Description({ request, browser }: { request: BrowserRotationRequest; br
 /** The generated password: a mask, "Show" for a few seconds, "Generate another". */
 function GeneratedPassword({
   request,
+  generation,
   regenerate,
   setError,
 }: {
   request: BrowserRotationRequest;
+  /** Counts the passwords generated so far: a new one is shown hidden again. */
+  generation: number;
   regenerate: () => Promise<void>;
   setError: (error: IpcError | null) => void;
 }) {
   const { t } = useI18n();
   const ipc = useIpc();
-  const [shown, setShown] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<{ value: string; generation: number } | null>(null);
+  const shown = revealed?.generation === generation ? revealed.value : null;
+  const setShown = (value: string | null) => {
+    setRevealed(value === null ? null : { value, generation });
+  };
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
     () => () => {
@@ -213,10 +220,12 @@ function AttemptLine({ request }: { request: BrowserRotationRequest }) {
 /** The site, the login and, for a `begin`, the generated password. */
 function Details({
   request,
+  generation,
   regenerate,
   setError,
 }: {
   request: BrowserRotationRequest;
+  generation: number;
   regenerate: () => Promise<void>;
   setError: (error: IpcError | null) => void;
 }) {
@@ -233,7 +242,7 @@ function Details({
           </Row>
         )}
         {request.kind === "begin" && (
-          <GeneratedPassword request={request} setError={setError} regenerate={regenerate} />
+          <GeneratedPassword request={request} generation={generation} setError={setError} regenerate={regenerate} />
         )}
       </dl>
       <AttemptLine request={request} />
@@ -248,21 +257,32 @@ function Details({
 
 function Body({
   request,
-  announcement,
+  generation,
   answer,
   regenerate,
 }: {
   request: BrowserRotationRequest;
-  announcement: string;
+  generation: number;
   answer: (decision: BrowserRotationDecision) => Promise<IpcError | null>;
   regenerate: () => Promise<IpcError | null>;
 }) {
   const { t } = useI18n();
-  const { now, locked } = useAllowGuard();
+  const { now, locked, restart } = useAllowGuard();
   const [error, setError] = useState<IpcError | null>(null);
   const main = mainAction(request);
+  // A new password starts the guard again; the body stays mounted, so focus stays on its button.
+  useEffect(() => {
+    if (generation > 0) {
+      restart();
+    }
+  }, [generation, restart]);
+  // "Cancel" of a result leaves the change open: it says "Decide later".
   const cancelKey =
-    request.kind === "addOrigin" ? "credentialRotation.addOrigin.cancel" : "credentialRotation.dialog.cancel";
+    request.kind === "addOrigin"
+      ? "credentialRotation.addOrigin.cancel"
+      : request.kind === "result"
+        ? "credentialRotation.dialog.decideLater"
+        : "credentialRotation.dialog.cancel";
 
   async function decide(decision: BrowserRotationDecision) {
     setError(await answer(decision));
@@ -273,15 +293,13 @@ function Body({
       <Description request={request} browser={request.pairingLabel} />
       <Details
         request={request}
+        generation={generation}
         setError={setError}
         regenerate={async () => {
           setError(await regenerate());
         }}
       />
       <Expiry expiresAt={request.expiresAt} now={now} label={t("browser.escCancels")} />
-      <p role="status" className="visually-hidden">
-        {announcement}
-      </p>
       <ErrorAlert error={error} />
       <div className="dialog__actions">
         <Button
@@ -316,6 +334,15 @@ function Body({
   );
 }
 
+/** Esc on a dialog the browser opened has no opener to return to: focus goes to the main region. */
+function mainRegion(): HTMLElement | null {
+  const main = document.getElementById("main");
+  if (main !== null) {
+    main.tabIndex = -1;
+  }
+  return main;
+}
+
 function Prompt({ request, close }: { request: BrowserRotationRequest; close: () => void }) {
   const { t } = useI18n();
   const ipc = useIpc();
@@ -343,7 +370,7 @@ function Prompt({ request, close }: { request: BrowserRotationRequest; close: ()
     if (!result.ok) {
       return result.error.code === "browserRequestExpired" ? null : result.error;
     }
-    // A new password restarts the Allow guard: the body mounts again, hidden.
+    // A new password restarts the Allow guard and is shown hidden again.
     setGeneration((n) => n + 1);
     setAnnouncement(t("credentialRotation.dialog.regenerated"));
     return null;
@@ -360,14 +387,13 @@ function Prompt({ request, close }: { request: BrowserRotationRequest; close: ()
       onClose={() => {
         void answer({ kind: "cancel" });
       }}
+      returnFocus={mainRegion}
     >
-      <Body
-        key={generation}
-        request={request}
-        announcement={announcement}
-        answer={answer}
-        regenerate={regenerate}
-      />
+      <Body request={request} generation={generation} answer={answer} regenerate={regenerate} />
+      {/* Outside the body and mounted from the start, so the new text is announced. */}
+      <p role="status" className="visually-hidden">
+        {announcement}
+      </p>
     </Dialog>
   );
 }
