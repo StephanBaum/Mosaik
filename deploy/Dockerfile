@@ -21,6 +21,14 @@
 FROM rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c AS builder
 # Use the image's toolchain as is: no component downloads for rust-toolchain.toml.
 ENV RUSTUP_TOOLCHAIN=1.99.1
+# Reproducible builds (M9, ADR-0086, docs/REPRODUCIBLE_BUILDS.md). The release workflow passes
+# --build-arg SOURCE_DATE_EPOCH=<commit time>; the default 0 is for ad-hoc builds. The sources
+# always sit in /src and the cargo home is /usr/local/cargo, so these remaps give the same
+# paths in the binary however the build context was named on the host.
+ARG SOURCE_DATE_EPOCH=0
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
+    CARGO_INCREMENTAL=0 \
+    RUSTFLAGS="--remap-path-prefix=/src=/mosaic --remap-path-prefix=/usr/local/cargo=/cargo -C link-arg=-Wl,--build-id=none"
 WORKDIR /src
 COPY . .
 RUN cargo build --release --locked -p mosaic-server --bin mosaic-server \

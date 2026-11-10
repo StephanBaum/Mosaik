@@ -1,0 +1,706 @@
+name: Release
+
+# Signed release pipeline (M9 T9; ADR-0081, ADR-0082, ADR-0086; CRYPTO_SPEC section 17; the owner's
+# steps are in docs/RELEASE.md and the user's checks in docs/VERIFY.md).
+#
+# Two ways in:
+#   - a `v*` tag: a real release. Every signing job runs in the GitHub environment `release`
+#     (the owner is the required reviewer). A tag run without the minisign secrets FAILS; it never
+#     turns into a dry run.
+#   - a manual run with `dry_run` (the default): builds everything that can be built without
+#     secrets, signs with an ephemeral key, names the signature SHA256SUMS.DRY-RUN.minisig,
+#     publishes nothing and uploads no Actions artifacts. No environment, so no secrets.
+#
+# Platform signing (Authenticode, Developer ID and notarization) runs only when its secrets are
+# set; without them the builds ship unsigned (OD-M9-2, OD-M9-3, THREAT_MODEL R119). No GitHub
+# provenance attestations (OD-M9-15). The image is built here and pushed only when the repository
+# variable PUBLISH_IMAGE is `true` (OD-M9-10).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry run (no secrets, ephemeral key, nothing published, no artifacts)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  IMAGE_NAME: ghcr.io/stephanbaum/mosaic-server
+
+jobs:
+  prepare:
+    name: Prepare (versions, features, wording, script self-test)
+    runs-on: ubuntu-24.04
+    outputs:
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ github.sha }}
+      sde: ${{ steps.mode.outputs.sde }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Decide the mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "push" ]; then
+            dry=false
+          elif [ "$DRY_INPUT" = "true" ]; then
+            dry=true
+          elif [ "$REF_TYPE" = "tag" ]; then
+            dry=false
+          else
+            echo "::error::A real release needs a v* tag. Run this workflow from a tag, or keep dry_run on."
+            exit 1
+          fi
+          echo "dry_run=$dry" >> "$GITHUB_OUTPUT"
+          echo "sde=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+          if [ "$dry" = true ]; then echo "::warning::DRY RUN: nothing is published, the signature is ephemeral and marked DRY-RUN"; fi
+      - name: Versions agree with the tag
+        id: version
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.mode.outputs.dry_run }}" = true ]; then
+            out="$(bash scripts/release/check-versions.sh --allow-untagged)"
+          else
+            out="$(bash scripts/release/check-versions.sh)"
+          fi
+          echo "$out"
+          echo "version=$(printf '%s\n' "$out" | sed -n 's/^version=//p')" >> "$GITHUB_OUTPUT"
+      - name: The public release key is in the repository
+        if: steps.mode.outputs.dry_run == 'false'
+        run: |
+          set -euo pipefail
+          test -s release/minisign.pub || { echo "::error::release/minisign.pub is missing (the owner generates the key first, docs/RELEASE.md)"; exit 1; }
+      - name: No Cargo features in the release build
+        run: bash scripts/release/check-features.sh
+      - name: Wording check
+        run: node scripts/release/wording-check.mjs
+      - name: Install minisign (pinned version, logged)
+        run: bash scripts/release/install-minisign.sh
+      - name: Release script self-test
+        run: bash scripts/release/selftest.sh
+
+  cli:
+    name: CLI (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    # The real release uses the environment `release` (approval, secrets); a dry run uses none.
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, arch: x86_64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, arch: x86_64 }
+          - { os: macos-latest, target: aarch64-apple-darwin, arch: arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, arch: x86_64 }
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+      DRY: ${{ needs.prepare.outputs.dry_run }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WIN_MODE: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.WINDOWS_SIGN_MODE || '' }}
+      HAS_WIN: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.WINDOWS_SIGN_MODE != '' && secrets.WINDOWS_SIGN_MODE != 'none' }}
+      HAS_APPLE: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_INSTALLER_IDENTITY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: release-${{ matrix.target }}
+      # Same flags as scripts/release/repro-build.sh, so a rebuilder's Linux binary can match ours.
+      - name: Reproducible flags (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "RUSTFLAGS=--remap-path-prefix=$GITHUB_WORKSPACE=/mosaic --remap-path-prefix=$HOME/.cargo=/cargo -C link-arg=-Wl,--build-id=none" >> "$GITHUB_ENV"
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+      - name: Build mosaic and mosaic-native-host
+        shell: bash
+        run: cargo build --release --locked --target "${{ matrix.target }}" -p mosaic-cli -p mosaic-native-messaging
+      - name: Collect the binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""; if [ "$RUNNER_OS" = Windows ]; then ext=".exe"; fi
+          mkdir -p bin out
+          for b in mosaic mosaic-native-host; do
+            cp "target/${{ matrix.target }}/release/$b$ext" "bin/$b$ext"
+          done
+      # Authenticode (Windows). Skips with a warning when WINDOWS_SIGN_MODE is not set.
+      - name: Install trusted-signing-cli
+        if: runner.os == 'Windows' && env.WIN_MODE == 'trusted-signing'
+        run: cargo install trusted-signing-cli --version =0.11.0 --locked
+      - name: Authenticode
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_SIGN_MODE: ${{ env.HAS_WIN == 'true' && secrets.WINDOWS_SIGN_MODE || 'none' }}
+          AZURE_TENANT_ID: ${{ env.HAS_WIN == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ env.HAS_WIN == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ env.HAS_WIN == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ env.HAS_WIN == 'true' && secrets.AZURE_TRUSTED_SIGNING_ENDPOINT || '' }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ env.HAS_WIN == 'true' && secrets.AZURE_TRUSTED_SIGNING_ACCOUNT || '' }}
+          AZURE_CERT_PROFILE: ${{ env.HAS_WIN == 'true' && secrets.AZURE_CERT_PROFILE || '' }}
+          WINDOWS_PFX_BASE64: ${{ env.HAS_WIN == 'true' && secrets.WINDOWS_PFX_BASE64 || '' }}
+          WINDOWS_PFX_PASSWORD: ${{ env.HAS_WIN == 'true' && secrets.WINDOWS_PFX_PASSWORD || '' }}
+        run: ./scripts/release/sign-windows.ps1 bin/mosaic.exe bin/mosaic-native-host.exe
+      # Developer ID, hardened runtime, notarization and the .pkg (macOS). Skips with a warning without secrets.
+      - name: Developer ID, notarize and build the .pkg
+        if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: bash scripts/release/macos-sign-cli.sh bin out "$VERSION" "${{ matrix.arch }}"
+      - name: Unsigned (macOS)
+        if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
+        run: |
+          echo "::warning::unsigned (no Apple signing secrets, or dry run): Gatekeeper will warn, no hardened runtime (R119)"
+      - name: Pack the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path bin/mosaic.exe,bin/mosaic-native-host.exe -DestinationPath 'out/mosaic-cli-$VERSION-${{ matrix.target }}.zip'"
+          else
+            if [ "$RUNNER_OS" = macOS ] && ! command -v gtar > /dev/null; then brew install gnu-tar; fi
+            bash scripts/release/package-cli.sh "${{ matrix.target }}" bin out
+          fi
+          if [ "$DRY" = true ]; then
+            echo "::group::hashes (dry run: nothing is uploaded)"
+            (cd bin && (sha256sum * 2>/dev/null || shasum -a 256 *))
+            echo "::endgroup::"
+          fi
+      - name: Upload
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.target }}
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop (${{ matrix.target }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+      DRY: ${{ needs.prepare.outputs.dry_run }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WIN_MODE: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.WINDOWS_SIGN_MODE || '' }}
+      HAS_WIN: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.WINDOWS_SIGN_MODE != '' && secrets.WINDOWS_SIGN_MODE != 'none' }}
+      HAS_APPLE: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_P8 != '' }}
+      HAS_UPDATER_KEY: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY != '' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # Tauri v2 prerequisites, minus libssl-dev: Mosaic links no OpenSSL (deny.toml bans it).
+      - name: Install Tauri system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential file libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev rpm
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: release-desktop-${{ matrix.target }}
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The CLI and the native host ship inside the app (bundle.externalBin of the release overlay).
+      - name: Build the sidecars
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" -p mosaic-cli -p mosaic-native-messaging
+          ext=""; if [ "$RUNNER_OS" = Windows ]; then ext=".exe"; fi
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp "target/${{ matrix.target }}/release/mosaic$ext" "apps/desktop/src-tauri/binaries/mosaic-${{ matrix.target }}$ext"
+          cp "target/${{ matrix.target }}/release/mosaic-native-host$ext" "apps/desktop/src-tauri/binaries/mosaic-native-host-${{ matrix.target }}$ext"
+      # Signing settings reach the Tauri build through the job environment. They are exported only
+      # when the secrets exist, so an unsigned build sees none of these variables.
+      - name: Windows signing settings
+        if: runner.os == 'Windows' && env.HAS_WIN == 'true'
+        shell: bash
+        env:
+          WINDOWS_SIGN_MODE: ${{ secrets.WINDOWS_SIGN_MODE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in WINDOWS_SIGN_MODE AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT AZURE_CERT_PROFILE WINDOWS_PFX_BASE64 WINDOWS_PFX_PASSWORD; do
+            if [ -n "${!v:-}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          done
+      - name: Install trusted-signing-cli
+        if: runner.os == 'Windows' && env.WIN_MODE == 'trusted-signing'
+        run: cargo install trusted-signing-cli --version =0.11.0 --locked
+      - name: Windows without a certificate
+        if: runner.os == 'Windows' && env.HAS_WIN != 'true'
+        run: |
+          echo "::warning::unsigned (no Windows signing secrets, or dry run): SmartScreen will warn (R119)"
+      - name: macOS signing settings
+        if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/AuthKey.p8"
+          (umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$key")
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY; do
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
+          echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: macOS without a certificate
+        if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
+        run: |
+          echo "::warning::unsigned (no Apple signing secrets, or dry run): Gatekeeper will warn, no hardened runtime (R119)"
+      - name: Updater signing key
+        if: env.HAS_UPDATER_KEY == 'true'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf 'TAURI_SIGNING_PRIVATE_KEY<<MOSAIC_EOF\n%s\nMOSAIC_EOF\n' "$TAURI_SIGNING_PRIVATE_KEY" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" >> "$GITHUB_ENV"
+      - name: Build the bundles
+        shell: bash
+        env:
+          MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
+        run: |
+          set -euo pipefail
+          extra=()
+          # createUpdaterArtifacts needs the updater key; without it (dry run, no secret) it is off.
+          if [ "$HAS_UPDATER_KEY" != true ]; then
+            echo "::warning::no updater key: the .sig files are not built"
+            extra=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+          fi
+          pnpm --filter @mosaic/desktop tauri build --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.release.conf.json "${extra[@]}"
+      - name: Collect the bundles and the pre-signing hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="target/${{ matrix.target }}/release/bundle"
+          mkdir -p out
+          find "$bundle" -type f \( -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.app.tar.gz' -o -name '*.sig' \) -exec cp {} out/ \;
+          if [ "$RUNNER_OS" = macOS ]; then
+            app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)"
+            ditto -c -k --keepParent "$app" "out/Mosaic-$VERSION-${{ matrix.target }}.app.zip"
+          fi
+          test -n "$(ls out)" || { echo "::error::the Tauri build produced no bundles"; exit 1; }
+          # SHA256SUMS.unsigned (R120): the hashes before platform signing. Windows records them in
+          # sign-windows.ps1; an unsigned build's final hashes are its pre-signing hashes; signed
+          # macOS bundles have no pre-signing copy (documented in docs/REPRODUCIBLE_BUILDS.md).
+          part="out/unsigned-part-${{ matrix.target }}.txt"
+          : > "$part"
+          if [ -s "$RUNNER_TEMP/unsigned-hashes.txt" ]; then
+            cat "$RUNNER_TEMP/unsigned-hashes.txt" >> "$part"
+          fi
+          signed_here=false
+          if [ "$RUNNER_OS" = Windows ] && [ "$HAS_WIN" = true ]; then signed_here=true; fi
+          if [ "$RUNNER_OS" = macOS ] && [ "$HAS_APPLE" = true ]; then signed_here=true; fi
+          if [ "$signed_here" = false ]; then
+            for f in out/*.msi out/*.dmg out/*.deb out/*.rpm out/*.app.zip; do
+              [ -f "$f" ] || continue
+              (cd out && (sha256sum "$(basename "$f")" 2>/dev/null || shasum -a 256 "$(basename "$f")")) >> "$part"
+            done
+          fi
+          if [ "$DRY" = true ]; then
+            echo "::group::hashes (dry run: nothing is uploaded)"
+            (cd out && (sha256sum -- * 2>/dev/null || shasum -a 256 -- *))
+            echo "::endgroup::"
+          fi
+      - name: Upload
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-${{ matrix.target }}
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  extension:
+    name: Extension zips
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build and pack
+        run: bash scripts/release/package-extension.sh --build out
+      - name: Hashes (dry run only, nothing is uploaded)
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: cd out && sha256sum -- *
+      - name: Upload
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  server-image:
+    name: Server image (OCI tar)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Build the image as an OCI tar (never pushed here)
+        run: |
+          set -euo pipefail
+          docker buildx create --name mosaic-release --driver docker-container --use
+          docker buildx version
+          docker buildx inspect --bootstrap | sed -n 's/^BuildKit version: */BuildKit: /p;s/^ *Buildkit: */BuildKit: /p'
+          mkdir -p out
+          # No provenance and no SBOM attestation (OD-M9-15): one manifest, one digest.
+          docker buildx build -f deploy/Dockerfile \
+            --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+            --provenance=false --sbom=false \
+            --output "type=oci,dest=out/mosaic-server-$VERSION-oci.tar,rewrite-timestamp=true" .
+          digest="$(tar -xOf "out/mosaic-server-$VERSION-oci.tar" index.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=JSON.parse(s).manifests;if(m.length!==1)process.exit(1);process.stdout.write(m[0].digest)})')"
+          case "$digest" in sha256:*) ;; *) echo "::error::no single image digest in index.json"; exit 1 ;; esac
+          printf '%s@%s\n' "$IMAGE_NAME" "$digest" > out/mosaic-server-image.ref
+          echo "image: $(cat out/mosaic-server-image.ref)"
+      - name: Upload
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-image
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  sbom:
+    name: SBOMs (Rust and JS)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Rust SBOMs (CycloneDX 1.5)
+        run: |
+          set -euo pipefail
+          cargo cyclonedx --format json --spec-version 1.5 --override-filename sbom
+          mkdir -p out
+          cp crates/cli/sbom.json out/mosaic.cdx.json
+          cp crates/server/sbom.json out/mosaic-server.cdx.json
+          cp apps/desktop/src-tauri/sbom.json out/mosaic-desktop.cdx.json
+          cp crates/native-messaging/sbom.json out/mosaic-native-host.cdx.json
+          node scripts/release/sbom-js.mjs normalize out/mosaic.cdx.json out/mosaic-server.cdx.json out/mosaic-desktop.cdx.json out/mosaic-native-host.cdx.json
+      - name: JS SBOMs
+        run: |
+          set -euo pipefail
+          node scripts/release/sbom-js.mjs --package apps/extension --out out/mosaic-extension.cdx.json
+          node scripts/release/sbom-js.mjs --package apps/desktop --out out/mosaic-desktop-frontend.cdx.json
+      - name: Upload
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: out/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Two builds in two different directories must give identical bytes: the Linux CLI and host,
+  # the server binary, the OCI image, and both extension zips (ADR-0086).
+  reproducibility:
+    name: Reproducibility (build twice, compare)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Export the sources twice, into differently named directories
+        run: |
+          set -euo pipefail
+          for d in "$RUNNER_TEMP/first/mosaic-one" "$RUNNER_TEMP/second/another-name"; do
+            mkdir -p "$d"
+            git archive HEAD | tar -x -C "$d"
+          done
+      - name: Build 1
+        run: bash "$RUNNER_TEMP/first/mosaic-one/scripts/release/repro-build.sh" "$RUNNER_TEMP/first/mosaic-one" "$RUNNER_TEMP/first/out"
+      - name: Build 2
+        run: bash "$RUNNER_TEMP/second/another-name/scripts/release/repro-build.sh" "$RUNNER_TEMP/second/another-name" "$RUNNER_TEMP/second/out"
+      - name: Compare the binaries, archives and zips
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/first/out/SHA256SUMS.repro"
+          diff -u "$RUNNER_TEMP/first/out/SHA256SUMS.repro" "$RUNNER_TEMP/second/out/SHA256SUMS.repro" \
+            || { echo "::error::the two builds differ (see the diff above, docs/REPRODUCIBLE_BUILDS.md)"; exit 1; }
+      - name: Build the image twice without cache and compare
+        run: |
+          set -euo pipefail
+          docker buildx create --name mosaic-repro --driver docker-container --use
+          for v in first/mosaic-one second/another-name; do
+            docker buildx build --no-cache -f "$RUNNER_TEMP/$v/deploy/Dockerfile" \
+              --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" --provenance=false --sbom=false \
+              --output "type=oci,dest=$RUNNER_TEMP/$(dirname "$v").oci.tar,rewrite-timestamp=true" "$RUNNER_TEMP/$v"
+          done
+          a="$(sha256sum "$RUNNER_TEMP/first.oci.tar" | cut -d' ' -f1)"
+          b="$(sha256sum "$RUNNER_TEMP/second.oci.tar" | cut -d' ' -f1)"
+          echo "image tar 1: $a"
+          echo "image tar 2: $b"
+          [ "$a" = "$b" ] || { echo "::error::the two image builds differ"; exit 1; }
+          # The report that goes into the release.
+          { cat "$RUNNER_TEMP/first/out/SHA256SUMS.repro"; echo "$a  image-oci-tar (built without cache from two directories)"; } > "$RUNNER_TEMP/reproducibility-report.txt"
+      - name: Upload the report
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reproducibility
+          path: ${{ runner.temp }}/reproducibility-report.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  checksums-sign-verify:
+    name: Checksums, signature and verification
+    needs: [prepare, cli, desktop, extension, server-image, sbom, reproducibility]
+    runs-on: ubuntu-24.04
+    # Signing needs the owner's approval and the environment secrets; a dry run has neither.
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
+    env:
+      DRY: ${{ needs.prepare.outputs.dry_run }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GIT_SHA: ${{ needs.prepare.outputs.sha }}
+      SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.sde }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install minisign (pinned version, logged)
+        run: bash scripts/release/install-minisign.sh
+      - name: A tag run needs the signing secrets
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MINISIGN_SECRET_KEY" ] || [ -z "$MINISIGN_PASSWORD" ]; then
+            echo "::error::MINISIGN_SECRET_KEY and MINISIGN_PASSWORD are not set in the environment 'release'. A tag run never falls back to a dry run (docs/RELEASE.md)."
+            exit 1
+          fi
+      # Real release: every artifact comes from the jobs above.
+      - name: Download the build outputs
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: release-files
+          merge-multiple: true
+      # Dry run: no artifacts cross jobs, so build the parts that need no secrets right here.
+      - name: Dry run, build the Linux CLI and the extension zips in this job
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --release --locked --target x86_64-unknown-linux-gnu -p mosaic-cli -p mosaic-native-messaging
+          mkdir -p bin release-files
+          cp target/x86_64-unknown-linux-gnu/release/mosaic target/x86_64-unknown-linux-gnu/release/mosaic-native-host bin/
+          bash scripts/release/package-cli.sh x86_64-unknown-linux-gnu bin release-files
+          pnpm install --frozen-lockfile
+          bash scripts/release/package-extension.sh --build release-files
+          node scripts/release/sbom-js.mjs --package apps/extension --out release-files/mosaic-extension.cdx.json
+      - name: Merge the pre-signing hashes (SHA256SUMS.unsigned) and add the image SBOM
+        run: |
+          set -euo pipefail
+          cd release-files
+          if ls unsigned-part-*.txt > /dev/null 2>&1; then
+            cat unsigned-part-*.txt | LC_ALL=C sort -k2 > SHA256SUMS.unsigned
+            rm -f unsigned-part-*.txt
+            echo "::group::SHA256SUMS.unsigned"; cat SHA256SUMS.unsigned; echo "::endgroup::"
+          fi
+          cd ..
+          if [ "$DRY" = false ]; then
+            node scripts/release/sbom-js.mjs image --sbom release-files/mosaic-server.cdx.json \
+              --dockerfile deploy/Dockerfile --image-ref "$(cat release-files/mosaic-server-image.ref)" \
+              --out release-files/mosaic-server-image.cdx.json
+          fi
+      - name: SHA256SUMS
+        run: |
+          set -euo pipefail
+          bash scripts/release/checksums.sh release-files
+          cat release-files/SHA256SUMS
+      - name: Sign (release key)
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: bash scripts/release/sign.sh release-files --release
+      - name: Sign (dry run, ephemeral key)
+        if: needs.prepare.outputs.dry_run == 'true'
+        run: |
+          echo "::warning::DRY RUN: signing with an ephemeral key, the signature is named SHA256SUMS.DRY-RUN.minisig"
+          bash scripts/release/sign.sh release-files --dry-run
+      # The same commands docs/VERIFY.md gives the user, on our own output.
+      - name: Verify the output (as a user would)
+        run: |
+          set -euo pipefail
+          if [ "$DRY" = true ]; then
+            bash scripts/release/verify.sh release-files --pubkey-file release-files/DRY-RUN-NOT-A-RELEASE-minisign.pub --version "$VERSION" --dry-run
+          else
+            bash scripts/release/verify.sh release-files --pubkey-file release/minisign.pub --version "$VERSION"
+          fi
+      - name: Upload the signed release files
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: release-files/
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish (draft GitHub release)
+    needs: [prepare, checksums-sign-verify]
+    if: needs.prepare.outputs.dry_run == 'false'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GIT_SHA: ${{ needs.prepare.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-files
+      - name: Create the draft release (a prerelease, pre-audit)
+        run: |
+          set -euo pipefail
+          cat > notes.md <<NOTES
+          Mosaic $VERSION. **Pre-audit: no external audit has been done.**
+
+          Check the download before you run it: follow docs/VERIFY.md (verify \`SHA256SUMS\` with \`SHA256SUMS.minisig\` and the public key in \`release/minisign.pub\`, then the file hash).
+          Builds without a platform certificate are unsigned, so Windows SmartScreen and macOS Gatekeeper warn; see docs/VERIFY.md.
+          The server image is named in \`mosaic-server-image.ref\` by digest. Source commit: $GIT_SHA.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --prerelease \
+            --title "Mosaic $VERSION (pre-audit)" --notes-file notes.md release-files/*
+
+  # Pushes the image only when the repository variable PUBLISH_IMAGE is `true` (OD-M9-10, default off).
+  publish-image:
+    name: Publish the image (only when PUBLISH_IMAGE is true)
+    needs: [prepare, checksums-sign-verify]
+    if: needs.prepare.outputs.dry_run == 'false' && vars.PUBLISH_IMAGE == 'true'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      REGISTRY_USER: ${{ github.actor }}
+      REGISTRY_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-files
+      - name: Push the signed image by digest
+        run: |
+          set -euo pipefail
+          ref="$(cat release-files/mosaic-server-image.ref)"
+          digest="${ref#*@}"
+          skopeo copy --preserve-digests --dest-creds "$REGISTRY_USER:$REGISTRY_TOKEN" \
+            "oci-archive:release-files/mosaic-server-$VERSION-oci.tar" "docker://$IMAGE_NAME:$VERSION"
+          remote="$(skopeo inspect --creds "$REGISTRY_USER:$REGISTRY_TOKEN" --format '{{.Digest}}' "docker://$IMAGE_NAME:$VERSION")"
+          [ "$remote" = "$digest" ] || { echo "::error::pushed digest $remote differs from the signed $digest"; exit 1; }
+          echo "pushed $IMAGE_NAME:$VERSION at $digest"
