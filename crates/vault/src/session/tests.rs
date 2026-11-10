@@ -1430,6 +1430,7 @@ impl UnlockedSession {
         let quick = super::QuickState {
             password_unlocked,
             failed_quick: 0,
+            fresh_password: false,
         };
         Self::load(store, account_id, account_key, quick).unwrap()
     }

@@ -931,6 +931,111 @@ Local state (viewers may use it; it never touches an item):
 `storage` (restricted): `Store::{breach_rows, put_breach_results, breach_scan,
 queue_rows, set_snooze, set_dismissed}`, `BreachRow`, `ScanRow`, `QueueRow`.
 
+## M8: CLI session and encrypted export (vault, import, sync; additive)
+
+The `mosaic` CLI opens a store directly, under the store's exclusive lock
+(ADR-0071). `Store::open` already takes the advisory lock on `<path>-lock` and
+fails at once with `storage::Error::StoreInUse` while the desktop (or another
+process) holds the store: the CLI maps that to exit code 5. Nothing else in the
+store API changes.
+
+### `mosaic-vault` (`session`, `export`)
+
+CLI session (CRYPTO_SPEC §6.8, ADR-0072). The vault layer neither stores nor
+deletes the two parts (the OS keystore entry and the runtime-directory file are
+`mosaic-platform`'s):
+
+- `LockedSession::unlock_cli_session(self, &CliSessionKey, &CliSessionFile,
+  now_ms: u64) -> Result<UnlockedSession, UnlockError>`: checks every rule of
+  §6.8 (expiry, lifetime, clock skew, `session_id`, account, install ID,
+  `ak_epoch` and salt of the store, the AEAD, and that a held vault key opens
+  under the recovered key; a store without a vault key has nothing to check).
+  Any refusal is `Error::CliSessionRejected` (one variant for every reason): the
+  caller then deletes **both** parts. `Error::Store` and `Error::NoAccount`
+  leave the parts alone. The returned session does **not** count as a password
+  unlock (`password_unlocked` is false), so the quick-unlock rules that ask for
+  the password still do.
+- `UnlockedSession::create_cli_session(&self, ttl: Duration, now_ms: u64) ->
+  Result<(CliSessionKey, CliSessionFile)>`: the **only** way to seal a session,
+  and only for a session unlocked with the master password in this process
+  (`create_account`, `unlock`, `join_account`). Everything else (a session
+  opened from a CLI session, `unlock_quick`, `unlock_with_hardware_key`, a
+  session that was locked and reopened any other way than with the password)
+  gets `Error::ReauthenticationRequired`: a session never renews itself (review
+  decision L3). A `ttl` outside 1 to 30 minutes is `Error::Core(InvalidTtl)`.
+  The CLI calls it right after it prompted for the password.
+- `LockedSession::account_id() -> Result<AccountId>`: names the keystore entry
+  and the file before unlocking.
+- The binding is computed from the store (account, install ID, `ak_epoch`,
+  salt), so a password change, Secret Key rotation, profile upgrade or re-key
+  ends every session by itself. The CLI and the desktop must still delete every
+  `mosaic-cli-session-*` entry and file (`CliSessionStore::delete_all`) after
+  any credential change they perform or adopt (R105, review decision H1b).
+
+Encrypted export (CRYPTO_SPEC §11.2, ADR-0073):
+
+- `UnlockedSession::write_export(&self, &ExportSelection, &mut dyn Write,
+  &ExportPassphrase) -> Result<ExportReport>` streams the items of the selected
+  vaults through `mosaic_core::ExportWriter`, one item at a time (an attachment
+  in 64 KiB pieces); the export is never held in memory. Items in the trash and
+  deleted items are left out. Write to a temporary file and move it into place
+  only after `Ok` and a flush; after an error the output is a truncated stream
+  that no reader accepts, so delete it.
+- `ExportSelection { vaults: Option<Vec<VaultId>>, attachments: bool, profile:
+  Argon2Profile }` (default: every openable vault, no attachment data, the
+  standard profile; a profile below standard is `Error::Core(UnknownProfile)`).
+  A named vault the session cannot open is `Error::VaultUnavailable`; with
+  `vaults: None` such a vault is skipped and counted.
+- `ExportReport { vaults, items, attachments, attachments_left_out,
+  unsupported_passkeys, unavailable_vaults }`. Attachment data goes in only with
+  `attachments: true` (OD-M8-7); otherwise each file is listed by name, type and
+  size with `data: null`.
+- `UnlockedSession::export_preview(&self, &ExportSelection) ->
+  Result<ExportPreview>` (`vaults`, `items`, `items_with_attachments:
+  Vec<(VaultId, ItemId)>`, `attachments`, `attachment_bytes`,
+  `unavailable_vaults`): what the CLI shows before it warns about attachments.
+- `mosaic_vault::export` holds the plaintext schema shared with the importer:
+  `ExportItem`, `ExportField`, `ExportPasskey`, `ExportHistory`,
+  `ExportAttachment`, `SecretText` (zeroizing, prints `[REDACTED]`), `FORMAT`,
+  `VERSION`, `CUSTOM_PREFIX`. Its module documentation is the field-by-field
+  reference. Deviations from the §11.2 sketch, all additive: `sshKey` is
+  accompanied by `sshPublicKey` and `sshFingerprint`; the passkey credential
+  carries `signCount`, `discoverable` and `createdAt` next to the CXF members;
+  only ES256 passkeys are exported (another algorithm leaves `passkey` null and
+  is counted); URLs are exported as text (an import uses exact-origin, HTTPS
+  only); only the login password's history is exported. New dependencies of the
+  crate: `serde` (derive), `serde_json` and `base64ct`, all already in the
+  workspace.
+
+### `mosaic-import`
+
+- `mosaic_import::mosaic_export::{parse_reader(R: Read, &ExportPassphrase) ->
+  Result<Import>, parse_bytes(&[u8], &SecretString) -> Result<Import>}`: reads
+  the file as a stream, parses it item by item and returns the `Import` only
+  after `ExportReader` reported the verified end of the stream, so a truncated,
+  extended, reordered or modified file commits nothing (it is an error and no
+  entry leaves the module). Errors: `Error::WrongCredentials` (wrong passphrase
+  or damaged file: the CLI's `exportUnreadable`), `Malformed` (not an export),
+  `UnsupportedVersion` (an unknown version, algorithm or profile), `TooLarge`,
+  `LimitExceeded`, `PasswordRequired` (empty passphrase). Preview, dedupe and
+  `commit` are unchanged. Vaults are flattened into one list; `createdAt` is
+  ignored (new items are stamped now). An attachment without data adds
+  `EntryWarning::AttachmentMissing`.
+- **No `Format::MosaicExport` variant yet.** `Format` is matched exhaustively by
+  the desktop (`apps/desktop/src-tauri/src/adapters/import.rs`), which is
+  outside this track; `Import::format` of an export is `Format::Cxf`. Add the
+  variant together with the desktop arms and the `parse` dispatch when the
+  desktop gets the export format.
+
+### `mosaic-sync` (`engine`)
+
+- `engine::OwnedSession`: an `Arc<Mutex<Option<UnlockedSession>>>` that is both
+  the engine's `SessionAccess` and the transport's `SessionHandle`, for a caller
+  that owns its session for the length of one sync (the CLI syncing its own
+  store as its own device, ADR-0071). `new(UnlockedSession)`, `take() ->
+  Option<UnlockedSession>` (locks every clone: later engine and transport calls
+  fail with `Locked`), `is_unlocked()`. A poisoned lock fails closed.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

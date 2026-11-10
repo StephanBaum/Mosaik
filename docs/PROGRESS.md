@@ -18,7 +18,7 @@ milestone close appends its section there).
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
 | M7b Credential rotation | ✅ done (2026-11-10; branch `feat/m7b-rotation`; T1 to T4, the T1 and milestone reviews, an extension red team and a UX review; ADR-0065 to 0070, R97 to R104; deferred: connectors, scheduler, passkey hints; open: manual checks with real sites and the owner decisions OD-M7b-1 to OD-M7b-9). **M8 CLI is next** |
-| M8 CLI | — |
+| M8 CLI | ✅ done (2026-11-10; PR #50; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
 | M9 Hardening | — |
 | M10 Mobile | — |
 
@@ -2558,6 +2558,22 @@ T3 desktop; T4 extension and channel; T5 review and close. Numbers: store v10, n
   - Tests: native-messaging 105 (100 library and 5 host-binary); desktop `browser_rotation_tests` 13 and the ratelimit and rotation unit tests, full
     `cargo test -p mosaic-desktop` 460 (459 passed, 1 ignored); extension vitest 731 (30 files); desktop vitest 1402 (84 files) (dialog 7); e2e `rotation.spec.ts` 7;
     i18n parity 6996 keys and ICU checks; clippy `-D warnings`, fmt, `cargo check --bins` of both fuzz crates.
+
+## M8 CLI (2026-11-10)
+
+Spec: the `mosaic` command line (`docs/CLI.md`). Numbering: ADR-0071 to ADR-0075, THREAT_MODEL R105 to R111,
+CRYPTO_SPEC §6.8 (CLI session) and §11.2 (encrypted export). Tracks run in order T1 to T5, one agent at a
+time.
+
+| Track | State |
+|---|---|
+| T1 Spec and core | done: CRYPTO_SPEC §3, §4, §6.8, §11, §11.2, §12, §14; ADR-0071 to 0075; THREAT_MODEL §4.7 and R105 to R111; `docs/CLI.md`; `mosaic-core` `cli_session` and `export` modules, labels `cli-session`, `export`, `export-key`, errors `Expired`, `InvalidTtl`, `Io`; known-answer vectors `crates/core/tests/vectors/export_kat.py`; fuzz targets `export_reader` and `cli_session_file` |
+| T2 Platform (`crates/platform`) | open |
+| T3 Vault, import, sync glue | done: `LockedSession::{unlock_cli_session, account_id}`, `UnlockedSession::{create_cli_session, export_preview, write_export}` and `Error::CliSessionRejected` in `mosaic-vault`; the shared export schema `mosaic_vault::export`; `mosaic_import::mosaic_export::{parse_reader, parse_bytes}` (commits only after the verified end of the stream); `mosaic_sync::engine::OwnedSession`; the L3 rule is tested (a session opened from a session, or by quick unlock, cannot seal one); `docs/CORE_API.md` "M8" section. Not added: a `Format::MosaicExport` variant (the desktop matches `Format` exhaustively; see CORE_API) |
+| T4 CLI (`crates/cli`, i18n) | done (2026-11-10): the `mosaic` binary with `spec.rs` (one command table over `lexopt`, drives parser, help, man page and completions), `output.rs` (the only module that prints), `input.rs` (no-echo prompt, stdin, fd), `app.rs` (store lock, session cache, sweep on every run, L3 rule), the commands `unlock`, `lock`, `status`, `list`, `search`, `get`, `totp`, `generate`, `run`, `inject`, `ssh`, `import` (every `mosaic-import` format and `.mosaicx`), `export`, `sync` (folder and hosted with the app's token), `setup own-store --folder`, `completions`, `help`, and the hidden `__clipboard-hold`; EN and DE messages in `packages/i18n/src/catalog/{en,de}/cli.ts` with `export:cli` writing `crates/cli/i18n/*.json`; CRYPTO_SPEC §11.2 now states the exact export JSON. Review follow-ups (2026-11-10, `m8-t4-fix.md`): CI runs the CLI tests in debug; terminal mode restore and Ctrl-C handler; escaping on a terminal; sessions keyed by (account, install); `run` execs on Unix; import caps; Mark of the Web; hard-link export; hosted `setup own-store --server` and `recover` implemented. Not done: tests `sync_hosted_once`, `hardware_vault_item_exit_8`, `inject_to_terminal_needs_reveal` (they need a loopback server, a hardware vault and a pseudo-terminal); `docs_are_current` and the committed man page and completions are T5 |
+| T5 Packaging, review and close | tests and packaging done (2026-11-10): hosted flows against a real loopback `mosaic-server` (join with and without a second factor, wrong password or Secret Key stores nothing, hosted sync with a desktop-style device, `recover` after a password change elsewhere ends every CLI session), halt exit 6 and the typed acknowledgement, rotation job exit 10, hardware vault exit 8, input caps, Windows mark of the web, the committed man page and completions (`docs_are_current`), a CLI job in CI (release build and tests on three systems). Review and full gate: open |
+
+**M9 release TODOs from the M8 review.** (1) Assert in the release job that no features are enabled for `mosaic-cli` and the other crates (`test-util` is a compile error in release builds, but the packaging step should check it too). (2) The CLI session and the `run`/clipboard protections assume the binary is not replaceable by same-user code: install `mosaic` to a protected location (Program Files, `/usr/local/bin`, an app bundle), not a user-writable one.
 
 ## Open risks / findings
 

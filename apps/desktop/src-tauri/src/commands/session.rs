@@ -169,6 +169,7 @@ impl Backend {
         {
             let _ = self.adapters.ssh.start(session, self.event_sink());
         }
+        self.sweep_cli_sessions();
         // Unlocking (password, biometrics or a security key) verifies the user.
         self.note_user_verification();
         self.run_unlock_hooks();
@@ -465,6 +466,7 @@ impl Backend {
     /// cleared if it still holds what Mosaic copied, the lock hooks run (the
     /// onboarding kit window closes) and the webview is told.
     pub fn after_lock(&self, reason: LockReason) {
+        self.sweep_cli_sessions();
         // A breach scan ends at once (its pause watches this flag).
         self.breach_after_lock();
         self.settings_locked();

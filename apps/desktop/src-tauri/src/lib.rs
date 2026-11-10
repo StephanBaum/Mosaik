@@ -130,13 +130,20 @@ pub fn run() -> tauri::Result<()> {
                 LayeredKeystore::new(Box::new(OsKeystore::new(&app.config().identifier)));
             // The Secret Key of a rotation in progress: its own entries, so a
             // crash between the kit and the commit cannot touch the one in use.
-            let pending = LayeredKeystore::new(Box::new(OsKeystore::new(&format!(
-                "{}.pending-secret-key",
-                app.config().identifier
-            ))));
+            let pending =
+                LayeredKeystore::new(Box::new(OsKeystore::pending(&app.config().identifier)));
             let local_dir = app.path().app_local_data_dir()?;
+            // The CLI's cached sessions: the app only sweeps and deletes them.
+            // Without a runtime directory (Linux without `$XDG_RUNTIME_DIR`)
+            // the CLI keeps none either.
+            let cli_sessions: Box<dyn mosaic_platform::session::CliSessionStore> =
+                match mosaic_platform::session::OsCliSessions::new() {
+                    Ok(store) => Box::new(store),
+                    Err(_) => Box::new(mosaic_platform::session::MemoryCliSessions::default()),
+                };
             let backend = Backend::new(slot, Box::new(keystore), mosaic_core::kdf::calibrate)
                 .with_pending_secret_keys(Box::new(pending))
+                .with_cli_sessions(cli_sessions)
                 .with_adapters(Adapters {
                     import: ImportService::default(),
                     ssh: SshAgentService::for_this_os(&local_dir),
@@ -165,6 +172,7 @@ pub fn run() -> tauri::Result<()> {
             // Removes an expired or orphaned quick-unlock enrollment and its
             // platform key before the first unlock screen.
             backend.reconcile_quick_unlock();
+            backend.sweep_cli_sessions();
             let state = AppState::new(backend);
 
             let weak = state.downgrade();

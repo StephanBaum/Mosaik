@@ -1,4 +1,5 @@
 //! Importers for Enpass JSON, Bitwarden JSON, KeePass KDBX 4, 1Password 1PUX,
+//! Mosaic's own encrypted export ([`mosaic_export`]),
 //! FIDO CXF v1.0 JSON and CSV (brief §5 "Import/export").
 //!
 //! Each importer reads an export file into an [`Import`]: one
@@ -69,6 +70,7 @@ pub mod csv;
 pub mod cxf;
 pub mod enpass;
 pub mod kdbx;
+pub mod mosaic_export;
 pub mod onepux;
 
 use mosaic_core::SecretString;

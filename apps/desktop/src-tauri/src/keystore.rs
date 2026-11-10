@@ -2,17 +2,12 @@
 //! `SecretKey` in the OS keystore; the store never holds it"; CRYPTO_SPEC
 //! §5.2).
 //!
-//! - [`OsKeystore`]: the OS credential store through the `keyring` crate,
-//!   one entry per account (service = the app identifier, user = the
-//!   account ID), holding the key's `M1-…` display form:
-//!   - Windows: Credential Manager (generic credential, DPAPI-protected per
-//!     user);
-//!   - macOS: the login Keychain (generic password);
-//!   - Linux: the kernel keyring (`keyutils`), which does **not** survive a
-//!     reboot or logout. Secret Service persistence needs its D-Bus
-//!     transport encryption (DH + AES in `secret-service`) or a plain
-//!     session and is left for an ADR (`docs/PROGRESS.md`). Without an
-//!     entry, the unlock screen asks for the key from the Emergency Kit.
+//! The stores themselves (the OS keystore through `keyring`, the entry names,
+//! the memory stores) live in `mosaic-platform`, shared with the CLI; this
+//! module adapts them to the IPC error type and adds the app's fallback:
+//!
+//! - [`OsKeystore`]: the OS credential store, one entry per account (see
+//!   `mosaic_platform::keystore` for the entry names and what each OS uses).
 //! - [`MemoryKeystore`]: process memory only (zeroized on drop).
 //! - [`LayeredKeystore`]: the OS store with a memory fallback. Writes go to
 //!   the OS store first; only when that write fails is the key kept in the
@@ -23,23 +18,27 @@
 //!   boolean (or one read whose key is zeroized at once). An OS keystore
 //!   failure is never fatal.
 //!
-//! Residual exposure: `keyring` passes the display string to the OS API in
-//! buffers Mosaic cannot zeroize, and the OS keeps the entry as long as the
-//! account exists on this device (by design: that is the point of storing
-//! it).
-//!
-//! - `keyring` passes the display string through OS buffers that cannot be
-//!   zeroized.
-//! - On Windows, any process of the same user can call `CredRead` and read
-//!   the entry: the keystore protects against other users and offline
-//!   disk access, not against malware running as the user.
+//! Residual exposure: see `mosaic_platform::keystore`.
 
 use std::sync::Mutex;
 
-use mosaic_core::{AccountId, SecretKey, SecretString};
-use mosaic_sync::http::{StoredToken, Token as _};
+use mosaic_core::{AccountId, SecretKey};
+use mosaic_platform::PlatformError;
+use mosaic_platform::keystore as platform;
+use mosaic_sync::http::StoredToken;
 
 use crate::contract::errors::{IpcError, IpcResult};
+
+pub(crate) use platform::copy_token;
+
+impl From<PlatformError> for IpcError {
+    fn from(error: PlatformError) -> Self {
+        match error {
+            PlatformError::Core(core) => Self::from(core),
+            _ => Self::INTERNAL,
+        }
+    }
+}
 
 /// The Secret Key store of this install (one entry per account).
 pub trait SecretKeyStore: Send + Sync {
@@ -70,84 +69,50 @@ pub trait SecretKeyStore: Send + Sync {
 
 /// Keeps the Secret Key in process memory only (zeroized on drop).
 #[derive(Default)]
-pub struct MemoryKeystore(Mutex<Option<(AccountId, SecretKey)>>);
+pub struct MemoryKeystore(platform::MemoryKeystore);
 
 impl SecretKeyStore for MemoryKeystore {
     fn load(&self, account: AccountId) -> IpcResult<Option<SecretKey>> {
-        let guard = self.0.lock().map_err(|_| IpcError::INTERNAL)?;
-        match guard.as_ref() {
-            Some((stored, key)) if *stored == account => copy(key).map(Some),
-            _ => Ok(None),
-        }
+        Ok(platform::SecretKeyStore::load(&self.0, account)?)
     }
 
     fn save(&self, account: AccountId, key: &SecretKey) -> IpcResult<()> {
-        let copied = copy(key)?;
-        *self.0.lock().map_err(|_| IpcError::INTERNAL)? = Some((account, copied));
-        Ok(())
+        Ok(platform::SecretKeyStore::save(&self.0, account, key)?)
     }
 
     fn delete(&self, account: AccountId) -> IpcResult<()> {
-        let mut guard = self.0.lock().map_err(|_| IpcError::INTERNAL)?;
-        if guard.as_ref().is_some_and(|(stored, _)| *stored == account) {
-            *guard = None;
-        }
-        Ok(())
+        Ok(platform::SecretKeyStore::delete(&self.0, account)?)
     }
 }
 
-/// `SecretKey` is deliberately not `Clone`; copy through its display form
-/// (both intermediate strings zeroize).
-fn copy(key: &SecretKey) -> IpcResult<SecretKey> {
-    let display = key.to_display().map_err(IpcError::from)?;
-    SecretKey::parse(display.expose_secret()).map_err(IpcError::from)
-}
-
-/// The OS keystore (see the module documentation for what each OS uses).
-pub struct OsKeystore {
-    service: String,
-}
+/// The OS keystore (see `mosaic_platform::keystore` for what each OS uses).
+pub struct OsKeystore(platform::OsKeystore);
 
 impl OsKeystore {
     /// Entries under `service` (the app identifier).
     #[must_use]
     pub fn new(service: &str) -> Self {
-        Self {
-            service: service.to_owned(),
-        }
+        Self(platform::OsKeystore::new(service))
     }
 
-    fn entry(&self, account: AccountId) -> IpcResult<keyring::Entry> {
-        keyring::Entry::new(&self.service, &account.to_string()).map_err(|_| IpcError::INTERNAL)
+    /// The pending Secret Keys of a rotation (M7) next to the keys of `service`.
+    #[must_use]
+    pub fn pending(service: &str) -> Self {
+        Self::new(&platform::pending_service(service))
     }
 }
 
 impl SecretKeyStore for OsKeystore {
     fn load(&self, account: AccountId) -> IpcResult<Option<SecretKey>> {
-        match self.entry(account)?.get_password() {
-            Ok(display) => {
-                let display = SecretString::from(display);
-                // A damaged entry reads as absent: the unlock screen asks
-                // for the key, and a typed key that unlocks replaces it.
-                Ok(SecretKey::parse(display.expose_secret()).ok())
-            }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err(IpcError::INTERNAL),
-        }
+        Ok(platform::SecretKeyStore::load(&self.0, account)?)
     }
 
     fn save(&self, account: AccountId, key: &SecretKey) -> IpcResult<()> {
-        let display = key.to_display().map_err(IpcError::from)?;
-        self.entry(account)?
-            .set_password(display.expose_secret())
-            .map_err(|_| IpcError::INTERNAL)
+        Ok(platform::SecretKeyStore::save(&self.0, account, key)?)
     }
 
     fn delete(&self, account: AccountId) -> IpcResult<()> {
-        match self.entry(account)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(IpcError::INTERNAL),
-        }
+        Ok(platform::SecretKeyStore::delete(&self.0, account)?)
     }
 }
 
@@ -253,93 +218,47 @@ pub trait SyncTokenStore: Send + Sync {
     fn delete(&self, account: AccountId) -> IpcResult<()>;
 }
 
-/// A copy of a token (it is deliberately not `Clone`).
-pub(crate) fn copy_token(token: &StoredToken) -> StoredToken {
-    let mut bytes = *token.expose_bytes();
-    StoredToken::from_array(&mut bytes)
-}
-
 /// Keeps tokens in process memory only (zeroized on drop).
 #[derive(Default)]
-pub struct MemorySyncTokens(Mutex<std::collections::BTreeMap<AccountId, StoredToken>>);
+pub struct MemorySyncTokens(platform::MemorySyncTokens);
 
 impl SyncTokenStore for MemorySyncTokens {
     fn load(&self, account: AccountId) -> IpcResult<Option<StoredToken>> {
-        let guard = self.0.lock().map_err(|_| IpcError::INTERNAL)?;
-        Ok(guard.get(&account).map(copy_token))
+        Ok(platform::SyncTokenStore::load(&self.0, account)?)
     }
 
     fn save(&self, account: AccountId, token: &StoredToken) -> IpcResult<()> {
-        let mut guard = self.0.lock().map_err(|_| IpcError::INTERNAL)?;
-        guard.insert(account, copy_token(token));
-        Ok(())
+        Ok(platform::SyncTokenStore::save(&self.0, account, token)?)
     }
 
     fn delete(&self, account: AccountId) -> IpcResult<()> {
-        let mut guard = self.0.lock().map_err(|_| IpcError::INTERNAL)?;
-        guard.remove(&account);
-        Ok(())
+        Ok(platform::SyncTokenStore::delete(&self.0, account)?)
     }
 }
 
 /// The OS credential store: entry `mosaic-sync-token-<account id>` under the
 /// app's service name.
-pub struct OsSyncTokens {
-    service: String,
-}
+pub struct OsSyncTokens(platform::OsSyncTokens);
 
 impl OsSyncTokens {
     /// Entries under `service` (the app identifier).
     #[must_use]
     pub fn new(service: &str) -> Self {
-        Self {
-            service: service.to_owned(),
-        }
-    }
-
-    fn entry(&self, account: AccountId) -> IpcResult<keyring::Entry> {
-        keyring::Entry::new(&self.service, &format!("mosaic-sync-token-{account}"))
-            .map_err(|_| IpcError::INTERNAL)
+        Self(platform::OsSyncTokens::new(service))
     }
 }
 
 impl SyncTokenStore for OsSyncTokens {
     fn load(&self, account: AccountId) -> IpcResult<Option<StoredToken>> {
-        use base64ct::{Base64UrlUnpadded, Encoding as _};
-        match self.entry(account)?.get_password() {
-            Ok(text) => {
-                let text = zeroize::Zeroizing::new(text);
-                let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
-                // A damaged entry reads as absent: the user signs in again.
-                Ok(
-                    match Base64UrlUnpadded::decode(text.as_str(), bytes.as_mut_slice()) {
-                        Ok(decoded) if decoded.len() == 32 => {
-                            Some(StoredToken::from_array(&mut bytes))
-                        }
-                        _ => None,
-                    },
-                )
-            }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err(IpcError::INTERNAL),
-        }
+        Ok(platform::SyncTokenStore::load(&self.0, account)?)
     }
 
     fn save(&self, account: AccountId, token: &StoredToken) -> IpcResult<()> {
-        use base64ct::{Base64UrlUnpadded, Encoding as _};
-        let mut buffer = zeroize::Zeroizing::new([0u8; 64]);
-        let text = Base64UrlUnpadded::encode(token.expose_bytes(), buffer.as_mut_slice())
-            .map_err(|_| IpcError::INTERNAL)?;
-        self.entry(account)?
-            .set_password(text)
-            .map_err(|_| IpcError::INTERNAL)
+        Ok(platform::SyncTokenStore::save(&self.0, account, token)?)
     }
 
     fn delete(&self, account: AccountId) -> IpcResult<()> {
-        match self.entry(account)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(IpcError::INTERNAL),
-        }
+        Ok(platform::SyncTokenStore::delete(&self.0, account)?)
     }
 }
 

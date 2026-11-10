@@ -61,8 +61,10 @@
 //! ```
 
 mod attachments;
+mod cli_session;
 mod credential_rotation;
 mod error;
+mod export;
 mod hardware_vaults;
 mod items;
 mod rotation;
@@ -92,6 +94,7 @@ pub use credential_rotation::{
     ScanSummary,
 };
 pub use error::{Error, Result};
+pub use export::{ExportPreview, ExportReport, ExportSelection};
 pub use items::{ItemFilter, ItemRef, OtpCode, TrashFilter};
 pub use mosaic_core::sync_auth::FolderMacPurpose;
 pub use rotation::{
@@ -314,6 +317,10 @@ pub struct UnlockedSession {
     proof_id: DeviceId,
     /// Whether the master password unlocked since the store was opened.
     password_unlocked: bool,
+    /// Whether this very session was unlocked with the master password (not
+    /// by quick unlock, a security key or a CLI session): only then may it
+    /// seal a CLI session ([`UnlockedSession::create_cli_session`]).
+    password_fresh: bool,
     vaults: BTreeMap<VaultId, OpenVault>,
     index: search::SearchIndex,
     /// This install's stable ID (CRYPTO_SPEC §10), read from the store at
@@ -766,6 +773,7 @@ impl UnlockedSession {
                     account_key,
                     proof_id,
                     password_unlocked: quick.password_unlocked,
+                    password_fresh: quick.fresh_password,
                     vaults,
                     index,
                     install,
@@ -799,6 +807,7 @@ impl UnlockedSession {
             quick: QuickState {
                 password_unlocked,
                 failed_quick: 0,
+                fresh_password: false,
             },
         }
     }
@@ -819,6 +828,7 @@ impl UnlockedSession {
             quick: QuickState {
                 password_unlocked,
                 failed_quick: MAX_FAILED_QUICK_ATTEMPTS,
+                fresh_password: false,
             },
         }
     }
@@ -955,6 +965,8 @@ impl UnlockedSession {
     }
 }
 
+#[cfg(test)]
+mod cli_export_tests;
 #[cfg(test)]
 mod credential_rotation_tests;
 #[cfg(test)]

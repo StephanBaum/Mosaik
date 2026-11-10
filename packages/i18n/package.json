@@ -6,7 +6,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "export:cli": "node --experimental-strip-types --no-warnings scripts/export-cli.mjs"
   },
   "dependencies": {
     "intl-messageformat": "12.1.4"

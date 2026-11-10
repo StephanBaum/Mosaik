@@ -4599,3 +4599,126 @@ The user (or the extension) needs the page where a site changes its password, fo
 
 ### Consequences
 The data is crowdsourced and may be outdated: a wrong URL costs the user one click. Updates come with releases (`crates/insights/data/README.md`).
+
+## ADR-0071: CLI scope and store access
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M8
+
+### Context
+The brief (§5 "CLI", §2) asks for a Rust `mosaic` command line that shares the core crate: list, get, TOTP, generator, `run` and `inject`, SSH key listing, import and encrypted export, one-shot sync. The desktop app holds its store open for its whole run, under the exclusive OS lock that `Store::open` takes on `<path>-lock`.
+
+### Decision
+The CLI opens a store **directly, under the same exclusive lock**, and never talks to the running desktop. Two profiles: `shared` (the desktop's store; works while the desktop is not running, else exit 5 `storeInUse` with a hint) and `own` (a store of its own, `<data_dir>/io.github.stephanbaum.mosaic/cli/vault.db`, created by `mosaic setup own-store`, which joins the account as a separate device over the configured folder or hosted backend and syncs like any device). `--store PATH` or `MOSAIC_STORE` overrides both. The CLI holds the lock for one command only; `run` and the clipboard helper drop the unlocked session and release the store before they spawn anything.
+- **In scope:** unlock, lock, status, list, search, get (secret fields only with `--reveal`), totp, generate, run, inject, ssh list and public-key, import, encrypted export, one-shot sync with status and acknowledgement, own-store setup, recover. Scripting: `--json`, stable error and exit codes, `--no-input`, no secret in argv or environment (ADR-0075).
+- **Out of scope:** account creation (the Emergency Kit flow stays in the desktop), item editing, key rotation, a CLI-run SSH agent (per-use approval needs a UI), hardware-protected vaults (no CTAP), quick unlock, plaintext export, sharing and emergency commands, release signing and package channels (M9).
+- No local store migration (the session lives outside the store) and no server change.
+
+### Alternatives considered
+- **A client of the running desktop** (native messaging or a new IPC endpoint): the unlocked desktop would answer secret requests from any same-user process that can authenticate to the channel; a pairing key on disk is readable by that same malware (R38), so this adds a path to every secret without the master password while the desktop is unlocked. Per-request approval in the desktop would break scripting. Rejected; a later "desktop agent mode" needs its own ADR (OD-M8-1).
+- **A CLI agent daemon** holding the unlocked session: a new socket, a long-lived unlocked process, and it would hold the store lock and lock the desktop out. Rejected.
+
+### Consequences
+The desktop and the CLI do not use one store at the same time (R108); the `own` profile is one more device holding AK (R57a until a re-key). THREAT_MODEL §4.7 is rewritten; R105 to R111. CRYPTO_SPEC §12 note.
+
+## ADR-0072: CLI session cache
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M8
+
+### Context
+Without a cache, every CLI command prompts for the master password (and Argon2id costs seconds). Scripts need several commands in a row. THREAT_MODEL §4.7 asked for "session key in the OS keystore only, with a short TTL".
+
+### Decision
+`mosaic unlock` creates an **explicit, opt-in session** (CRYPTO_SPEC §6.8): a random `W_cli` held only by the OS keystore together with a `session_id`, and a 162-byte file `session-<account>.mcls` in the runtime directory (`$XDG_RUNTIME_DIR`, else a `cli/run` folder under the local data directory; mode 0600) that holds AK sealed under `W_cli` with XChaCha20-Poly1305, header-bound. No new primitive.
+- **TTL** 5 minutes by default, 1 to 30 minutes by `--ttl`, absolute (use does not extend it, and a session opened from a file cannot create a new one).
+- **Refusals** (both parts deleted): expired, a TTL above 30 minutes, a creation time more than 5 minutes ahead, another `session_id` in the keystore, a different account, install, `ak_epoch` or `account_salt` (so a password change, Secret Key rotation, profile upgrade and a re-key each end every session), a failed AEAD, no held vault key opening under the recovered AK.
+- Created only by a session unlocked with the master password in the same process; a session never counts as a password unlock (no enrollment, no proof of re-authentication).
+- A keystore that refuses or is a memory fallback means no session; the command still works.
+- `MOSAIC_SESSION` and `BW_SESSION`-like variables are never read (ADR-0075).
+- **The TTL is enforced only inside Mosaic** (review of T1), so the parts must be removed actively: (a) every `mosaic` run and the desktop (at start, lock and unlock) delete parts whose header `expires_at_ms` has passed, through one implementation, `CliSessionStore::sweep_expired(now)` in `crates/platform`; (b) every credential change (password change, Secret Key rotation, profile upgrade, re-key; in the desktop and in any CLI flow) deletes every `mosaic-cli-session-*` entry and file; (c) on Linux the file lives in `$XDG_RUNTIME_DIR` only and no session is created when it is missing (no persistent fallback); on macOS and Windows the parts persist until swept, locked or deleted by (b), which R105 states.
+- **No renewal.** The core API cannot tell where an `AccountKey` came from, so the vault and CLI layers create a session only right after a master-password unlock and never from a key recovered from a session; the vault layer tests it and the CLI review checks it.
+
+### Alternatives considered
+- **No cache** (OD-M8-2): safest, but scripts must pipe the password on every call, which is worse in practice.
+- **File only**, or **keystore only**: one stolen backup or one keystore dump would be enough; the split costs nothing.
+- **A key derived from the OS login or a TPM**: platform-specific code and a new construction outside CRYPTO_SPEC §2.
+- **Sliding TTL**: a forgotten terminal would keep the session forever.
+
+### Consequences
+THREAT_MODEL R105 (a pair of parts yields AK until both are deleted, with a faked clock too; not bounded by the TTL) and R111 (keystore entries readable by same-user processes). Tests: `cli_session::*` in `mosaic-core`, the vault and CLI session tests of M8.
+
+## ADR-0073: Encrypted export format
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M8
+
+### Context
+The brief asks for an encrypted export. CRYPTO_SPEC §11 left it open ("an `age`-compatible file with a passphrase recipient (scrypt) is under evaluation"). The export must be importable by every Mosaic client and must not depend on the account.
+
+### Decision
+The format of CRYPTO_SPEC §11.2, built only from the §2 primitives: header `MOSX`, version 1, alg `0x02`, `chunk_log2` 16, an Argon2id profile ID of at least `0x02`, a fresh salt, `export_id` and nonce prefix; `P_x = Argon2id(NFC(passphrase), salt, profile)`; `K_x = HKDF(P_x, export_id, ctx("export-key"), 32)`; the STREAM-BE32-XChaCha20-Poly1305 chunks of §7.3 with `aad = header || aad("export", export_id)`. The plaintext is compact JSON (`mosaic-export` v1): vaults with items in a documented shape, no IDs of the account, no version vectors; attachments only with an explicit flag (OD-M8-7, default off, a warning lists the items with files).
+- A passphrase of its own, typed twice, with the §5.1 strength rule in the client; the crypto layer rejects only an empty one.
+- A wrong passphrase and a damaged file both report `exportUnreadable`. The reader caps the plaintext at 2 GiB, parses item by item, and a consumer treats the stream as unverified until the last chunk verifies.
+- The files are written atomically with mode 0600 (and the Mark of the Web on Windows, as ADR-0034).
+- **Plaintext export (CSV or JSON) is not offered** (OD-M8-4). `Format::MosaicExport` (`.mosaicx`) is added to `mosaic-import`.
+
+### Alternatives considered
+- **`age` with a scrypt recipient**: a new dependency, scrypt as a second password KDF outside §2, and its stream format would still need our JSON on top.
+- **The item-record format under a derived key** (the old §11 sentence): records are padded and bound to vault and item IDs, so an import into another account would have to fake those contexts; it also loads a whole vault into one buffer.
+- **The master password as the export passphrase**: the file would then be as weak as the weakest thing a stolen file can be tested against, and would tie the file to one account.
+- **Baseline profile allowed**: a file lives forever offline; `standard` (256 MiB) costs the user about a second.
+
+### Consequences
+THREAT_MODEL R110 (offline guessing of the passphrase at the chosen Argon2id cost; the file size is visible). Known-answer vectors: `crates/core/tests/vectors/export_kat.py`.
+
+## ADR-0074: Dependencies and `crates/platform`
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M8
+
+### Context
+The CLI needs an argument parser, no-echo prompts, the OS keystore and the clipboard. The desktop already has the keystore and clipboard code.
+
+### Decision
+- **`lexopt`** (zero dependencies) tokenizes argv (`--x=y`, `--`, non-UTF-8 `OsString`); our own static table (`crates/cli/src/spec.rs`) drives parsing, help, the man page and the completions. `clap` was rejected for its size and its dependency tree.
+- **`rpassword`** reads the password from the controlling terminal without echo. Its buffers are not wiped (R109); the CLI copies into `SecretString` and zeroizes the returned `String`.
+- `keyring`, `arboard` and `serde_json` are already in the tree.
+- **`crates/platform`** (`mosaic-platform`, `#![forbid(unsafe_code)]`) takes the OS keystore, the clipboard backend (with the history-exclusion hints) and the data paths out of the desktop so both binaries use one implementation and one set of entry names. The desktop keeps thin adapters; its behavior does not change.
+- No cryptographic dependency is new in M8.
+
+### Alternatives considered
+- Copying the desktop's keystore code into the CLI: two sets of entry names would drift apart and break the shared Secret Key entry.
+- `clap`, `argh`, `pico-args`: `clap` is large; `lexopt` plus one table gives help, man page and completions from one source.
+
+### Consequences
+Each new dependency is justified in its commit message. `cargo deny` and `cargo audit` cover them.
+
+## ADR-0075: Output contract, exit codes and i18n of the CLI
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M8
+
+### Context
+Scripts need stable output, secrets must not leak into argv, environment or logs, and CLAUDE.md requires every UI string to go through `packages/i18n` in DE and EN.
+
+### Decision
+- **No secret in argv or the environment.** No flag takes a password, Secret Key, file password or export passphrase as a value (a `--password=…` style option is a usage error naming the safe ones: terminal prompt, `--password-stdin`, `--password-fd N`). `MOSAIC_PASSWORD`, `MOSAIC_SECRET_KEY` and `MOSAIC_SESSION` are never read; the first two raise the warning `envSecretIgnored`.
+- **Reveal.** Secret fields print as `••••••••` (JSON `{"concealed":true}`) unless `--reveal` is given; asking for a secret field without `--reveal` or `--copy` is exit 9 `revealRequired`. `inject` writes resolved secrets only to a 0600 file or a non-terminal stdout.
+- **`--json`**: stdout carries exactly one document `{"v":1,"data":…}`; errors go to stderr as `{"v":1,"error":{"code","message"}}`. New fields are additive; a breaking change raises `v`. Schemas are in `docs/CLI.md` and pinned by golden files.
+- **Exit codes:** 0 ok; 1 other; 2 usage; 3 authentication failed or input required; 4 not found; 5 store in use; 6 sync halted or error; 7 ambiguous reference; 8 vault part locked (hardware-protected or unavailable); 9 reveal required; 10 rotation in progress; 125 `run` could not spawn; 130 interrupted.
+- **Output layer.** One module may print; secrets are written straight to the locked stdout with no `format!` copy.
+- **i18n.** Messages (prompts, errors, confirmations, text labels) are EN and DE in `packages/i18n/src/catalog/{en,de}/cli.ts`, exported to committed `crates/cli/i18n/{en,de}.json` by a pnpm script and checked by tests. Language: `--lang`, `MOSAIC_LANG`, `LC_ALL`/`LC_MESSAGES`/`LANG`. **JSON output, error codes, help text and the man page are English only** (OD-M8-3): they are reference text for scripts and single-language generators.
+- No logging, no telemetry, no crash reporter.
+
+### Alternatives considered
+- Reading the master password from `MOSAIC_PASSWORD` (as other CLIs do): environments leak to children, logs and `/proc`.
+- Localized help and man page: two generators and two sets of golden files for little gain; owner decision OD-M8-3.
+
+### Consequences
+THREAT_MODEL R106 (child environment of `run`), R107 (revealed output in scrollback and the clipboard), R109 (terminal buffers, no core-dump suppression without `unsafe`).

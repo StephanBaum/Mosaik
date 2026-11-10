@@ -73,3 +73,17 @@ path = "fuzz_targets/item_merge.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "export_reader"
+path = "fuzz_targets/export_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cli_session_file"
+path = "fuzz_targets/cli_session_file.rs"
+test = false
+doc = false
+bench = false

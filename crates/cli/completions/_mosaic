@@ -1,0 +1,30 @@
+#compdef mosaic
+_mosaic() {
+  local -a commands
+  commands=(
+    'unlock:Unlock with the master password and keep a short session.'
+    'lock:End the session.'
+    'status:Show the store, the session and the sync state.'
+    'list:List items.'
+    'search:Search items.'
+    'get:Show an item or one field of it.'
+    'totp:Print the current one-time code.'
+    'generate:Generate a password or passphrase.'
+    'run:Run a command with secrets in its environment.'
+    'inject:Fill {{ mosaic://... }} placeholders of a template.'
+    'ssh:List SSH keys, print a public key, or explain the agent.'
+    'import:Import a file from another password manager or a Mosaic export.'
+    'export:Write an encrypted export file.'
+    'sync:Sync once with the stores backend.'
+    'setup:Give the CLI its own device store.'
+    'recover:Recover after a password or key change made elsewhere.'
+    'completions:Print a shell completion script.'
+    'help:Show help or the manual page.'
+  )
+  if (( CURRENT == 2 )); then
+    _describe 'command' commands
+  else
+    _files
+  fi
+}
+_mosaic "$@"

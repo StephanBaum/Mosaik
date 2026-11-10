@@ -177,6 +177,17 @@ toml = { version = "=1.1.8", default-features = false, features = ["parse", "ser
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 
+# M8 CLI (ADR-0074)
+# Argv tokenizer for the `mosaic` CLI: zero dependencies, handles `--x=y`, `--` and non-UTF-8 arguments (clap rejected for size).
+lexopt = "=0.3.2"
+# No-echo prompts on the controlling terminal (`/dev/tty`, `CONIN$`) for the CLI's secrets; its buffers are not wiped (THREAT_MODEL R109).
+rpassword = "=7.4.0"
+
+# Ctrl-C handler of the CLI: restores the terminal mode and exits 130 (safe API, no unsafe in our code).
+ctrlc = "=3.5.2"
+# Saves and restores the terminal mode (echo) around a no-echo prompt on Unix; safe termios API, already in the tree.
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "termios", "fs"] }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

@@ -25,6 +25,36 @@ use crate::test_support::kdf_permit;
 
 const NEW_PASSWORD: &str = "a brand new master password";
 
+pub(crate) fn now_ms() -> u64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    u64::try_from(since.as_millis()).unwrap()
+}
+
+/// A CLI session of `account` as `mosaic unlock` would have left it (the app
+/// never creates one; the binding does not matter to the sweep and the delete).
+pub(crate) fn plant_cli_session(
+    b: &crate::state::Backend,
+    account: mosaic_core::AccountId,
+    start: u64,
+) {
+    use mosaic_core::{AccountKey, AccountSalt, CliSessionBinding, InstallId, seal_cli_session};
+    let binding = CliSessionBinding {
+        account_id: account,
+        install_id: InstallId::new_v7().unwrap(),
+        ak_epoch: 1,
+        salt: AccountSalt::generate().unwrap(),
+    };
+    let (key, file) =
+        seal_cli_session(&AccountKey::generate().unwrap(), &binding, start, 60_000).unwrap();
+    b.cli_sessions.save(account, &key, &file).unwrap();
+}
+
+pub(crate) fn has_cli_session(b: &crate::state::Backend, account: mosaic_core::AccountId) -> bool {
+    b.cli_sessions.load(account).unwrap().is_some()
+}
+
 fn prepare() -> RotatePrepareRequest {
     RotatePrepareRequest {
         password: SecretIn::test(PASSWORD),
@@ -184,8 +214,13 @@ fn secret_key_rotation_replaces_the_key_only_after_a_verified_kit() {
         ErrorCode::KitNotVerified
     );
     assert!(verify_new_kit(&e, &staged));
+    plant_cli_session(b, e.account(), now_ms());
     let done = b.secret_key_rotate_commit(&commit()).unwrap();
     assert!(done.finished);
+    assert!(
+        !has_cli_session(b, e.account()),
+        "a new Secret Key ends CLI sessions"
+    );
     assert!(b.rotation_status().unwrap().job.is_none());
     assert!(b.pending_secret_keys.load(e.account()).unwrap().is_none());
 
@@ -252,6 +287,45 @@ fn abandon_works_before_the_backend_knows_and_resume_needs_its_input() {
         code: None,
     });
     assert_eq!(wrong_group.unwrap_err().code, ErrorCode::KitGroupMismatch);
+}
+
+#[test]
+fn the_app_sweeps_expired_cli_sessions_at_lock_and_unlock() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    let account = e.account();
+    // Started at 20 minutes ago for one minute: long expired.
+    plant_cli_session(b, account, now_ms() - 20 * 60_000);
+    assert!(has_cli_session(b, account));
+    b.lock(crate::contract::events::LockReason::Manual).unwrap();
+    assert!(!has_cli_session(b, account), "swept at lock");
+
+    // A live session survives lock and unlock; an expired one goes at unlock.
+    plant_cli_session(b, account, now_ms());
+    b.lock(crate::contract::events::LockReason::Manual).unwrap();
+    assert!(has_cli_session(b, account), "not expired: stays");
+    b.cli_sessions.delete_all().unwrap();
+    plant_cli_session(b, account, now_ms() - 20 * 60_000);
+    e.unlock().unwrap();
+    assert!(!has_cli_session(b, account), "swept at unlock");
+}
+
+#[test]
+fn a_master_password_change_deletes_every_cli_session() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    plant_cli_session(b, e.account(), now_ms());
+    b.change_master_password(&crate::contract::sync::ChangePasswordRequest {
+        current_password: SecretIn::test(PASSWORD),
+        new_password: SecretIn::test(NEW_PASSWORD),
+        code: None,
+    })
+    .unwrap();
+    assert!(!has_cli_session(b, e.account()));
 }
 
 #[test]
@@ -339,7 +413,12 @@ fn folder_rekey_renews_every_key_and_the_new_credentials_open_the_account() {
     })
     .unwrap();
     assert!(verify_new_kit(&e, &pending_group(&e)));
+    plant_cli_session(b, e.account(), now_ms());
     let done = b.rekey_commit(&rekey_commit(None)).unwrap();
+    assert!(
+        !has_cli_session(b, e.account()),
+        "a re-key ends CLI sessions"
+    );
     assert!(done.finished, "the data followed");
     assert!(b.rotation_status().unwrap().job.is_none());
     assert_eq!(b.with_unlocked(|s| Ok(s.ak_epoch())).unwrap(), 2);

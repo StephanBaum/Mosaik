@@ -407,6 +407,8 @@ impl Backend {
             }
         };
         drop(new);
+        // This device's password changed (adopted): CLI sessions are void.
+        self.delete_cli_sessions();
         self.quick_unlock.clear_reauth_failures();
         self.remove_platform_key(&changed);
         self.sync.update_view(|view| {
@@ -571,7 +573,7 @@ impl Backend {
         code: Option<&crate::contract::secret::SecretIn>,
         prepared: PreparedPasswordChange,
     ) -> IpcResult<PasswordChanged> {
-        match config {
+        let changed = match config {
             Some(config) if config.kind == SyncKind::Hosted => {
                 let ctx = self.hosted_ctx()?;
                 self.change_password_hosted(&ctx, code, prepared)
@@ -580,7 +582,13 @@ impl Backend {
                 self.change_password_folder(&config, account, install, prepared)
             }
             _ => self.with_unlocked(|session| Ok(session.commit_master_password_change(prepared)?)),
+        };
+        if changed.is_ok() {
+            // The vault committed new credentials (password, Secret Key or
+            // profile): every CLI session is bound to the old ones.
+            self.delete_cli_sessions();
         }
+        changed
     }
 }
 

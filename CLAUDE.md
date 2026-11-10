@@ -32,6 +32,7 @@ of every milestone.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo test -p mosaic-cli --features test-util --locked -- --test-threads=2   # debug only: the CLI integration tests
 cargo deny check
 cargo audit --deny warnings
 pnpm install --frozen-lockfile

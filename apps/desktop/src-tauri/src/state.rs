@@ -131,6 +131,10 @@ pub struct Backend {
     pub pending_secret_keys: Box<dyn SecretKeyStore>,
     /// The sync session token's home on this device.
     pub sync_tokens: Box<dyn SyncTokenStore>,
+    /// The CLI's cached sessions (CRYPTO_SPEC §6.8). The app never creates one;
+    /// it sweeps expired ones (start, lock, unlock) and deletes all of them
+    /// when a credential changes.
+    pub cli_sessions: Box<dyn mosaic_platform::session::CliSessionStore>,
     /// The sync thread and the pending sync flows (M6).
     pub sync: SyncService,
     /// The app data directory of the store (a failed join deletes the new
@@ -224,6 +228,7 @@ impl Backend {
             secret_keys,
             pending_secret_keys: Box::new(crate::keystore::MemoryKeystore::default()),
             sync_tokens: Box::new(MemorySyncTokens::default()),
+            cli_sessions: Box::new(mosaic_platform::session::MemoryCliSessions::default()),
             sync: SyncService::default(),
             store_dir: None,
             stored: Mutex::new(StoredState::default()),
@@ -277,6 +282,37 @@ impl Backend {
     pub fn with_pending_secret_keys(mut self, store: Box<dyn SecretKeyStore>) -> Self {
         self.pending_secret_keys = store;
         self
+    }
+
+    /// Keeps the CLI sessions in `store` (the OS keystore and the runtime
+    /// directory in the app).
+    #[must_use]
+    pub fn with_cli_sessions(
+        mut self,
+        store: Box<dyn mosaic_platform::session::CliSessionStore>,
+    ) -> Self {
+        self.cli_sessions = store;
+        self
+    }
+
+    /// Deletes the CLI sessions whose time is up (best effort: a failure only
+    /// leaves them for the next sweep, which is why it runs at start, lock and
+    /// unlock).
+    pub fn sweep_cli_sessions(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|d| u64::try_from(d.as_millis()).ok());
+        if let Some(now) = now {
+            let _ = self.cli_sessions.sweep_expired(now);
+        }
+    }
+
+    /// Deletes every CLI session: the master password, the Secret Key, the
+    /// KDF profile or the account key changed, so they no longer open
+    /// anything (best effort; the binding in the file refuses them anyway).
+    pub fn delete_cli_sessions(&self) {
+        let _ = self.cli_sessions.delete_all();
     }
 
     /// Keeps the sync session token in `tokens`.
