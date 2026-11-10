@@ -18,8 +18,8 @@ milestone close appends its section there).
 | M6b Sharing and emergency access | ✅ done (2026-11-08; PR #41; open: the manual checks below and the owner decisions OD1 to OD6 of the spec) |
 | M7 Key rotation | ✅ done (2026-11-10; PR #48; T1 to T5, the milestone review, a verify pass and two UX passes, ADR-0057 to 0064, R83 to R96; open: the manual checks and the owner decisions OD-M7-1 to OD-M7-7 below, follow-ups M7-R1 to M7-R3). **M7b credential rotation is next** |
 | M7b Credential rotation | ✅ done (2026-11-10; branch `feat/m7b-rotation`; T1 to T4, the T1 and milestone reviews, an extension red team and a UX review; ADR-0065 to 0070, R97 to R104; deferred: connectors, scheduler, passkey hints; open: manual checks with real sites and the owner decisions OD-M7b-1 to OD-M7b-9). **M8 CLI is next** |
-| M8 CLI | ✅ done (2026-11-10; branch `feat/m8-cli`; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9). **M9 hardening is next** |
-| M9 Hardening | — |
+| M8 CLI | ✅ done (2026-11-10; branch `feat/m8-cli`; T1 to T5, the T1 crypto review and the CLI security review; `crates/cli` and `crates/platform`; ADR-0071 to 0075, R105 to R111; open: Windows console-mode restore after a timeout or Ctrl-C, the owner decisions OD-M8-1 to OD-M8-9, signed distribution in M9) |
+| M9 Hardening | in progress (2026-11-10; branch `feat/m9-hardening`; T1 spec, ADR-0076 to 0087, R112 to R124 and the WebAuthn relying-party vetting done: `passkey-auth` =0.1.3 passed; T2 to T13 open; owner decisions OD-M9-1 to OD-M9-21 below) |
 | M10 Mobile | — |
 
 ## M0 Foundations — done
@@ -2575,6 +2575,64 @@ time.
 
 **M9 release TODOs from the M8 review.** (1) Assert in the release job that no features are enabled for `mosaic-cli` and the other crates (`test-util` is a compile error in release builds, but the packaging step should check it too). (2) The CLI session and the `run`/clipboard protections assume the binary is not replaceable by same-user code: install `mosaic` to a protected location (Program Files, `/usr/local/bin`, an app bundle), not a user-writable one.
 
+## M9 Hardening (2026-11-10)
+
+Spec: the M9 implementation spec (a scratch file of the orchestrator, not in the repo), made normative by the T1 docs.
+Numbering: ADR-0076 to ADR-0087, THREAT_MODEL R112 to R124, server schema v4 (local store stays v10), CRYPTO_SPEC §2,
+§7.1, §9.3, §9.5, §12, §14, §17. Tracks run in order T1 to T13, one agent at a time, `CARGO_BUILD_JOBS=1`, no cargo
+and pnpm in parallel. Each track ends with fmt, its scoped checks, a row here and one Conventional Commit.
+
+**WebAuthn relying-party vetting (T1, ADR-0078): passed with `passkey-auth` =0.1.3.** The spec's candidate
+`webauthn_rp` 0.3.0 failed (last release 2025-04-03; `rsa` with RUSTSEC-2023-0071); `structured-webauthn` 0.1.0 and
+`webauthn-rs` 0.6.2 failed on the same advisory (and MPL-2.0 or pre-release crypto); `caden` and `webauthn-kit` use
+`ring` directly. `passkey-auth` 0.1.3 (MIT OR Apache-2.0, released 2026-05-18, ES256 and EdDSA only, no `rsa`, no
+`ring`, `#![forbid(unsafe_code)]`) passes `cargo deny check` and `cargo audit --deny warnings` with the repo's config.
+Consequences for the later tracks: schema v4 has no `alg` and no `backup_eligible` column and the key list no `synced`
+field (the crate exposes neither); the RUSTSEC-2026-0387 ignore reason is extended to ECDSA verification over public
+data (T2); OD-M9-20 is not triggered.
+
+Decisions on items retargeted to M9 (ADR-0076):
+
+| Item | Decision | Track |
+|---|---|---|
+| M3-R2 Tauri isolation pattern | declined (ADR-0084): AES-GCM outside CRYPTO_SPEC §2, and its hook only re-checks what Rust validates; M3-R2 accepted, compensated by the JS dependency review and the red-team surface tests | T1, T7 |
+| M3-R10 global shortcut | in: remappable, registration errors reported; Wayland and macOS conflicts stay documented limits | T6 |
+| M4-R10 never-save list UI | in: review and remove list in the popup settings | T6 |
+| M2-R16 metadata merge over 64 KiB | in (ADR-0085): write caps and the deterministic oversized-merge rule | T5 |
+| M2-R11 renames in the simulations | in: sync-chaos target | T12 |
+| M3-R25 local quota and lost error | in | T5 |
+| M7-R2 "Rotate vault key" UI | in: engine loop in T5, UI in T6 | T5, T6 |
+| M7-R3 revocation reason | in (ADR-0080, server v4) | T2, T3, T6 |
+| M7-R1 silent recovery | **closed, accepted**: keeping the typed password in memory is worse | T1 |
+| M8 TODO 1: no features in release | in: `scripts/release/check-features.sh` | T9 |
+| M8 TODO 2: protected install | in (ADR-0082) | T8 |
+| M8 hardened runtime vs R105/R111 | in for signed macOS builds; unsigned builds keep R105/R111 (R119) | T8, T9 |
+| M8 Windows console-mode restore | in, through `winapi_util::console::{mode, set_mode}` (safe API); if no safe setter exists, R text and documented `mode` recovery steps instead | T5 |
+| M4-R1 / R38 installer-owned manifests | in (ADR-0083); R38 narrowed (R121) | T8 |
+| M4-R4, M3-R5 | out (need `unsafe`; stay accepted as R42 and R21) | — |
+| M3-R1 Linux Secret Service | deferred: DH and AES-CBC transport outside CRYPTO_SPEC §2 (ADR-0076) | — |
+| R23 MSIX | owner (OD-M9-13); default MSI | — |
+| M3-R15, R20, R21, R22 "revisit in M9" | the crypto-reviewer revisits them in T12 | T12 |
+| M3-R13 `ssh-key` RC pin | T7 moves to 0.7.0 if a final release exists | T7 |
+| M6 (d) server image | in: built and checksummed; the push waits for OD-M9-10 | T9 |
+| M6 (a) `HOSTED_DEFAULT_URL` | owner (domain, OD-M9-6) | — |
+
+| Track | State |
+|---|---|
+| T1 Spec, ADRs, threat model, crate vetting (docs only) | done (2026-11-10): CRYPTO_SPEC §2 (second-factor and release-integrity rows, the randomness exception for the WebAuthn challenge), §7.1 (metadata caps and oversized merges), §9.2, §9.3 (rewritten: gate, budgets, relying-party rules, browser handoff, typed code, `second_factor_until`, operator reset), new §9.5 (revocation reasons), §12, §14, new §17 (release integrity); ADR-0076 to ADR-0087; THREAT_MODEL §4.2, §4.4, §4.5, §4.7, §4.9, R112 to R124, R23, R38, R105, R111 and the §6 log; SERVER.md (security keys, `[webauthn]`, the page behind a proxy, `reset-second-factor`, v4 upgrade, revoked sessions); DESKTOP_IPC §3, §5, §6; CLI.md (`twoFactorMethodUnsupported`, `syncSessionRevoked`, packaging); NATIVE_MESSAGING §2 and §7; EXTENSION_SECURITY §9 (never-save list); the vetting above. Gate: the crypto-reviewer reviews the T1 diff before T2 |
+| T2 Server WebAuthn RP, schema v4, revocation | open |
+| T3 Handoff page, i18n, sync client, CLI behaviour | open |
+| T4 Desktop WebAuthn | open |
+| T5 Core, vault and CLI retargets (M2-R16, M3-R25, M7-R2 engine loop, Windows console mode) | open |
+| T6 UI retargets (M7-R2 dialog, M3-R10 shortcut, M4-R10 never-save list, M7-R3 text, metadata-dropped notice, foreign-connector banner) | open |
+| T7 Dependency minimization | open |
+| T8 Installers, protected locations, manifests | open |
+| T9 Release workflow, signing, SBOM, reproducibility | open |
+| T10 Security docs and challenge kit | open |
+| T11 Fuzz targets and the extended run | open |
+| T12 Full threat-model review (crypto-reviewer, extension-attacker, sync-chaos, ux-reviewer, test-engineer) | open |
+| T13 Fixes and close | open |
+
 ## Open risks / findings
 
 | ID | Severity | Item | Status |
@@ -2655,7 +2713,7 @@ time.
 | M6-R3 | medium | Freeze detection is heuristic: a server or folder that withholds data consistently from every device, checkpoints included, is noticed only through a device's own counter or by the user; the view digest needs two devices at the same head, otherwise `NoCommonView` after 48 hours; findings stay until acknowledged on every device | accepted, THREAT_MODEL R56, CRYPTO_SPEC §10 |
 | M6-R4 | low | The session token is a bearer credential in the OS keystore: same-user malware can download and upload ciphertext and soft-delete attachments; removing a device signs it out but does not take back keys it holds; `reqwest` and `hyper` copy the `Authorization` value while sending | accepted, THREAT_MODEL R57 |
 | M6-R5 | medium | A lost or stolen device keeps AK and every vault key it holds: whoever unlocks it can forge folder objects every other device accepts, and reuse the install ID, until the account is re-keyed; removing it from the list or a halt elsewhere does not take the key back | resolved for the account by the re-key (M7: the lost device's keys stop working once the account is re-keyed; what it already copied stays readable, R85), THREAT_MODEL R57a |
-| M7-R1 | low | The silent recovery of CRYPTO_SPEC §9.4 at the next password unlock (try `adopt_remote_password` with the typed password) is not built: it would hold the typed master password in memory past the unlock. The recovery card asks for the password again | open, small follow-up (owner may accept the extra prompt) |
+| M7-R1 | low | The silent recovery of CRYPTO_SPEC §9.4 at the next password unlock (try `adopt_remote_password` with the typed password) is not built: it would hold the typed master password in memory past the unlock. The recovery card asks for the password again | closed, accepted (M9, ADR-0076): keeping the typed master password in memory past the unlock is worse than one more prompt |
 | M7-R2 | low | No UI for `vault_rotate_key` with the optional attachment re-seal (spec §5.2, "Rotate vault key"); the engine has no attachment loop for a vault-only job | open, follow-up with M7b or M9 |
 | M7-R3 | low | A device that a re-key signed out can't learn "re-keyed" before sign-in: the server deletes the other sessions, so a revoked token is just unknown. The recovery card and its error carry a hint to enter the new Secret Key. A distinct revocation reason needs a sessions schema change | open, M9 hardening |
 | M6-R6 | low | Open registration reveals whether an email is registered (invite mode, the default, limits this); real and fake pre-login IDs are indistinguishable, but account IDs created before the UUIDv4 rule show their creation time (no released users) | accepted, THREAT_MODEL R58, ADR-0044 |
@@ -2752,4 +2810,22 @@ See the THREAT_MODEL §5 residual-risk register.
 - **Manual checks for M7 (2026-11-08)**: see "M7 Key rotation — T5 desktop" above (seven checks: two real devices,
   real cloud folders and a concurrent re-key, kill-at-each-phase resume, quick unlock and security keys across a re-key,
   a shared vault and an emergency contact across a re-key, the keyboard and screen-reader pass, a slow machine).
+- **M9 hardening (2026-11-10)**, owner decisions; the default applies until decided (ADR-0076): (OD-M9-1) signature
+  mechanism and custody: minisign over `SHA256SUMS`, two keys in the GitHub environment `release` with the owner as
+  required reviewer; (OD-M9-2) Windows code-signing certificate: none, unsigned, `docs/VERIFY.md` explains SmartScreen
+  and the checksum; (OD-M9-3) Apple Developer Program: none, unsigned, Gatekeeper steps documented, Touch ID stays
+  hidden (R119); (OD-M9-4) generating the release and updater keys: not generated, dry runs only, no placeholder key;
+  (OD-M9-5) in-app updater: off, only the `.sig` artifacts are built; (OD-M9-6) a domain (`HOSTED_DEFAULT_URL`,
+  a security contact address, `{CONTEST_HOST}`): none, GitHub private reporting only, placeholders; (OD-M9-7) prize or
+  bounty amounts: recognition only, `{PRIZE_*}` placeholders; (OD-M9-8) legal review of the challenge rules: rules as
+  drafted, no money, disclose.io safe harbor; (OD-M9-9) test-server host and budget: not deployed, the kit is ready;
+  (OD-M9-10) registry namespace and publishing: `ghcr.io/stephanbaum/mosaic-server`, push disabled; (OD-M9-11)
+  license: undecided, `publish = false`, SBOMs say NOASSERTION; (OD-M9-12) a browser handoff for the CLI: none,
+  `twoFactorMethodUnsupported`; (OD-M9-13) MSIX: per-machine MSI; (OD-M9-14) formats and targets: MSI, DMG and app,
+  deb and rpm x86_64, macOS arm64 and x86_64 separately; (OD-M9-15) GitHub provenance attestations: off; (OD-M9-16)
+  version scheme and first release: v0.1.0, prerelease, pre-audit; (OD-M9-17) bounty platform and hall-of-fame
+  consent: GitHub only, listing by explicit consent; (OD-M9-18) negated banned claim words in marketing: M9
+  deliverables avoid them, `marketing/` is not scanned; (OD-M9-19) extension store accounts and IDs: empty, zips only;
+  (OD-M9-20) if the WebAuthn crate vetting fails: ship without WebAuthn, TOTP only (not triggered: `passkey-auth`
+  passed, ADR-0078); (OD-M9-21) WebAuthn without a TOTP backup: allowed, with a warning and a recommendation.
 - **Manual verification on real hardware**: Windows Hello and Touch ID quick unlock (once M3-R6 lands), plus a keyboard-only and screen-reader walkthrough of the real app on Windows, macOS and Linux.

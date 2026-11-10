@@ -152,7 +152,17 @@ English only.
 Error codes reuse the desktop's names where they mean the same (`wrongCredentials`, `storeInUse`,
 `syncPasswordNeedsServer`, `vaultUnavailable`, ...) plus `revealRequired`, `ambiguousRef`, `inputRequired`,
 `promptTimeout`, `envSecretIgnored`, `sessionExpired`, `sessionNotCached`, `secretInArgv`,
-`rotationInProgress`, `exportUnreadable`.
+`rotationInProgress`, `exportUnreadable`, and (M9) `twoFactorMethodUnsupported` and `syncSessionRevoked` (both exit 3).
+
+- **`twoFactorMethodUnsupported`** (ADR-0079): the hosted account's only second factor is a security key, which the
+  CLI cannot use (no WebAuthn, no printed approval link). EN: "This account signs in with a security key, which the
+  command line cannot use. Add an authenticator-app code in the desktop app, then try again." The DE text is in the
+  catalog.
+- **`syncSessionRevoked`** (CRYPTO_SPEC §9.5): the server ended the stored session for a reason and says which
+  (`rekey`, `passwordChange`, `deviceRemoved`, `operator`); the message names it. For `rekey`: "This account was
+  re-keyed on another device: sign in with the new Secret Key from your newest Emergency Kit" (`mosaic recover`).
+  JSON errors carry the reason as `"detail":{"revoked":"rekey"}`. The reason is the server's claim and only picks the
+  text.
 
 ## Commands that change state
 
@@ -169,7 +179,10 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
 ## Behavior worth knowing
 
 - `setup own-store --server URL --email E` joins over the hosted backend (OPAQUE sign-in, a second-factor
-  prompt if the account has one) and stores the session token as `mosaic-cli-sync-token-<account>`.
+  prompt if the account has one) and stores the session token as `mosaic-cli-sync-token-<account>`. The second
+  factor is a TOTP code only: after `TwoFactorRequired`, `setup own-store` and `recover` ask the server which methods
+  the account has (`GET /v1/login/methods`) and prompt for a code when TOTP is one of them; an account with only
+  security keys exits 3 with `twoFactorMethodUnsupported` (a browser handoff for the CLI is owner decision OD-M9-12).
   `mosaic recover` adopts a master password change made elsewhere on a hosted store: it unlocks with the
   old password, asks for the new one (and the newest Secret Key if the login fails), and deletes every CLI
   session on success. Folder backends and re-key adoption are not handled by `recover` (`notSupported`).
@@ -199,5 +212,13 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
 
 `cargo build -p mosaic-cli --release` builds `mosaic` on Windows, macOS and Linux. `mosaic help --man`
 prints the man page (committed as `crates/cli/man/mosaic.1`); `mosaic completions <shell>` prints a
-completion script (committed in `crates/cli/completions/`). Signing, installers and package-manager
-channels are M9.
+completion script (committed in `crates/cli/completions/`).
+
+Release builds (M9, ADR-0082) install `mosaic` only to protected, admin-owned locations, because the session cache and
+the `run` and clipboard protections assume that same-user code cannot replace the binary: the per-machine MSI puts it in
+`%ProgramFiles%\Mosaic\` (and on the system `PATH`), a signed macOS `.pkg` installs a root-owned
+`/usr/local/bin/mosaic` (the app bundle carries one too), and deb and rpm install `/usr/bin/mosaic`. Builds are
+Authenticode or Developer ID signed (hardened runtime) once the owner has certificates, and every release is listed in
+a minisign-signed `SHA256SUMS` (CRYPTO_SPEC §17). The release job checks that no Cargo feature (such as `test-util`) is
+enabled. The owner runbook is `docs/RELEASE.md` and the user's verification steps are in `docs/VERIFY.md` (both
+written in M9 T9). Package-manager channels are not part of M9.

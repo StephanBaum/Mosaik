@@ -4722,3 +4722,335 @@ Scripts need stable output, secrets must not leak into argv, environment or logs
 
 ### Consequences
 THREAT_MODEL R106 (child environment of `run`), R107 (revealed output in scrollback and the clipboard), R109 (terminal buffers, no core-dump suppression without `unsafe`).
+
+## ADR-0076: M9 scope and retargeted items
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+M9 "Hardening" (BRIEF §9) collects WebAuthn for the hosted account (CRYPTO_SPEC §9.3 promised it for M9), signed and verifiable releases, protected installs, SBOMs and reproducible builds, dependency minimization, extended fuzzing, a disclosure policy with a public security challenge, and a full threat-model review. Earlier milestones retargeted several follow-ups to M9 (PROGRESS "Open risks / findings", the M8 release TODOs).
+
+### Decision
+- **In scope:** WebAuthn as a second factor for the hosted sync account through a browser handoff (ADR-0077 to ADR-0079); session revocation reasons and server schema v4 (ADR-0080); minisign over `SHA256SUMS` plus platform signing, notarization and protected installs, MSI only on Windows (ADR-0081, ADR-0082); installer-owned native-messaging manifests and an override audit (ADR-0083); CycloneDX SBOMs, reproducibility checks and a dependency inventory with tighter bans (ADR-0086); new fuzz targets and a bounded extended run; `SECURITY.md`, `docs/AUDIT_PREP.md` and the security challenge kit (ADR-0087); a review of every THREAT_MODEL row by the five review agents.
+- **Retargeted items:**
+
+| Item | Decision |
+|---|---|
+| M3-R2 Tauri isolation pattern | declined (ADR-0084); accepted as is |
+| M3-R10 global shortcut | in: remappable, registration errors reported; Wayland and macOS conflicts stay documented limits |
+| M4-R10 never-save list UI | in: review and remove list in the popup settings |
+| M2-R16 metadata merge over 64 KiB | in (ADR-0085) |
+| M2-R11 renames in the simulations | in: sync-chaos target |
+| M3-R25 local quota and lost error | in |
+| M7-R2 "Rotate vault key" UI | in: engine loop and UI |
+| M7-R3 revocation reason | in (ADR-0080) |
+| M7-R1 silent recovery at unlock | closed, accepted: keeping the typed master password in memory past the unlock is worse than one more prompt |
+| M8 TODO 1, no features in release | in: `scripts/release/check-features.sh` |
+| M8 TODO 2, protected install | in (ADR-0082) |
+| M8 hardened runtime (R105, R111) | in for signed macOS builds; unsigned builds keep R105 and R111 (R119) |
+| M8 Windows console-mode restore | in, through the safe `winapi_util::console::{mode, set_mode}` (already in `Cargo.lock`); if no safe setter exists, documented recovery steps instead |
+| M4-R1 / R38 installer-owned manifests | in (ADR-0083); R38 narrowed by R121 |
+| M4-R4, M3-R5, M5-R10 | out: they need `unsafe` FFI; they stay accepted (R42, R21) |
+| M3-R1 Linux Secret Service | deferred: its transport uses DH and AES-CBC, outside CRYPTO_SPEC §2 |
+| R23 MSIX | owner (OD-M9-13); the default is a per-machine MSI |
+| M3-R15, R20, R21, R22 "revisit in M9" | the crypto-reviewer revisits them in the threat-model review |
+| M3-R13 `ssh-key` release candidate pin | moved to 0.7.0 if a final release exists |
+| M6 (d) server image | in: built and checksummed; the push waits for OD-M9-10 |
+| M6 (a) `HOSTED_DEFAULT_URL` | owner (domain, OD-M9-6) |
+
+- **Out of scope:** the website (M9 only produces the artifacts and `docs/VERIFY.md`), a paid audit, an in-app updater (needs a domain, OD-M9-5), WebAuthn in the CLI (ADR-0079), a CTAP transport for security-key vault unlock (M3-R6 WP7), anything needing `unsafe` FFI, MSIX, and ADR-0042's non-key leftovers (OD-M7-2), which move past M10.
+- **Numbering:** ADR-0076 to ADR-0087, THREAT_MODEL R112 to R124, server schema v4, local store stays v10 (an implementer who needs v11 stops and amends this ADR first).
+- **Owner decisions** OD-M9-1 to OD-M9-21 (PROGRESS "Needs owner") are open; each has a default that applies until the owner decides. No M9 text uses the owner's banned claim words; documents say "pre-audit" and "no external audit has been done".
+
+### Alternatives considered
+- Splitting M9 into a WebAuthn milestone and a release milestone: both change the threat model, and the review is cheaper once, over the final state.
+- A paid audit in M9: declined by the owner; the public challenge and `AUDIT_PREP.md` stand in for now.
+
+### Consequences
+Thirteen sequential tracks (PROGRESS "M9 Hardening"). The review in track T12 re-validates every THREAT_MODEL §4 and §5 row; a stale row is a finding.
+
+## ADR-0077: WebAuthn second factor through a browser handoff
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+CRYPTO_SPEC §9.3 promised WebAuthn for the hosted account. A WebAuthn assertion is bound to the RP ID, and the RP ID must be a registrable suffix of the origin of the page that calls `navigator.credentials`. The desktop webview's origin is `tauri://localhost` (Windows `http://tauri.localhost`), so it cannot assert for the server's host. Native platform APIs (`webauthn.dll`, `ASAuthorization`, libfido2) need `unsafe` FFI or entitlements, and no CTAP crate passed our checks (PROGRESS, M3-R6).
+
+### Decision
+The ceremony runs in the user's **system browser**, on a page the **server** serves at its canonical origin (`GET /webauthn/`), and the desktop learns the outcome by polling (CRYPTO_SPEC §9.3).
+- The server creates an in-memory **handoff** bound to the requesting session (purpose login, register or confirm; at most 5 minutes; 3 per account, 10 000 per server).
+- The desktop opens `<canonical origin>/webauthn/#<handoff id>` in the default browser through the `open` crate (exact pin), from one Rust function that builds the URL from the stored canonical origin and the handoff ID; no IPC request carries a URL (THREAT_MODEL R124).
+- The desktop shows a **6-digit match code**; the page releases the WebAuthn options only after the user types it there (constant-time compare; 5 wrong codes fail the handoff). A handoff link that an attacker sends comes with no code the victim knows (R112).
+- On `done`, the desktop finishes the login or join it already started; a register stores the credential; a confirm sets `second_factor_until` (5 minutes) on the session for removals.
+- The page is static (`include_bytes!`): plain ES2022 with `// @ts-check`, strings from `packages/i18n` exported to `strings.json`, CSS from the design tokens, a strict CSP (`frame-ancestors 'none'`, `connect-src 'self'`), `no-store`, `no-referrer`, COOP and a Permissions-Policy that allows WebAuthn for itself only. The handoff ID travels in the URL fragment.
+- `GET /v1/info?features=1` reports whether WebAuthn is available (not for IP-literal origins, not when `[webauthn] enabled = false`).
+
+### Alternatives considered
+- **WebAuthn in the webview:** impossible, wrong origin.
+- **Native platform APIs or a CTAP client:** `unsafe` FFI, entitlements, or a crate that fails vetting (OpenSSL, `ring`, `serde_cbor`).
+- **A loopback HTTP listener in the desktop** (the OAuth native-app pattern): the page would be served from `http://127.0.0.1`, which cannot assert for the server's RP ID either.
+- **A link without a typed code:** a phished user would approve an attacker's sign-in with one touch.
+- **Showing the code in the browser and typing it into the desktop:** an attacker's page can show any code; the code must travel from the trusted desktop to the page.
+
+### Consequences
+New residual risks R112 to R116 and R124. The server serves a static HTML page for the first time (strict headers, a vitest project `server-page`). A server restart loses running handoffs (R116). Desktop commands: DESKTOP_IPC §3; CLI behavior: ADR-0079.
+
+## ADR-0078: WebAuthn relying-party crate (`passkey-auth`) and its vetting
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+A WebAuthn relying party parses CBOR, COSE keys, authenticator data and client data, and verifies ES256 and EdDSA signatures. Writing that ourselves is invented protocol code (CLAUDE.md). The M9 spec named `webauthn_rp` as the candidate and set a vetting gate where all five must hold: (1) an exact `=` pin, a release in the last 12 months, no RustSec advisory; (2) a license in the `deny.toml` allow list; (3) no `openssl`, no `ring` outside rustls, no `serde_cbor`; (4) ES256 and EdDSA only with attestation `none`, and if `rsa` comes in, RS256 never offered, the RUSTSEC-2023-0071 question answered and the crypto-reviewer's sign-off; (5) `cargo deny check` and `cargo audit --deny warnings` pass. If no crate passes, WebAuthn does not ship in M9.
+
+### Vetting (2026-11-10)
+Each candidate was resolved in its own scratch cargo project in the system temp directory (edition 2024, toolchain 1.99.1 from `rust-toolchain.toml`, the repo's `deny.toml` and `.cargo/audit.toml` copied in, the crate as the only dependency). Release data from the crates.io API on 2026-11-10.
+
+| Crate | Last release | License | Banned crates | Algorithms | `deny` / `audit` | Result |
+|---|---|---|---|---|---|---|
+| `webauthn_rp` 0.3.0 (feature `serde` only) | 2025-04-03 (19 months ago) | MIT OR Apache-2.0 | none | ES256, ES384, EdDSA, RS256 (removable per ceremony); `rsa` 0.9.10 always compiled in | `advisories FAILED` (RUSTSEC-2023-0071, `rsa`); `audit`: 1 vulnerability | **fails** (1), (5) |
+| `structured-webauthn` 0.1.0 (a fork of `webauthn_rp`, feature `serde` only) | 2026-10-08, its only release | Apache-2.0 | none | adds ML-DSA; `rsa` 0.10.0-rc.19 (a release candidate) and `ml-dsa` 0.1.2 always compiled in | `advisories FAILED` (RUSTSEC-2023-0071); `audit`: 1 vulnerability | **fails** (5); also two crypto crates outside §2 |
+| `caden` 0.9.0 | 2026-08-06 | MIT OR Apache-2.0 | `ring` 0.17 directly | — | not run | **fails** (3) |
+| `webauthn-kit` 1.0.0 | 2026-10-25 | MIT OR Apache-2.0 | `ring` 0.17 directly | ES256 and RS256 through `ring` | not run | **fails** (3) |
+| `webauthn-rs` 0.6.2 | 2026-10-31 | MPL-2.0 (five crates of its own stack) | no `openssl` any more (RustCrypto through `crypto-glue`), but `serde_cbor_2`, a fork of the banned `serde_cbor` | `rsa` 0.10.0-rc.19 always compiled in (through `crypto-glue`, with `md5`, `aes`, `p521` and others) | `licenses FAILED` (5 crates), `advisories FAILED` (RUSTSEC-2023-0071); `audit`: 1 vulnerability (224 crates) | **fails** (2), (3) in spirit, (5) |
+| **`passkey-auth` 0.1.3** | 2026-05-18 (0.1.0 to 0.1.3, all May 2026) | MIT OR Apache-2.0 | none | ES256 (-7) and EdDSA (-8) only, enforced at registration from the same list it advertises; no `rsa` in the tree | `advisories ok, bans ok, licenses ok, sources ok`; `audit`: no vulnerability (102 crates) | **passes** |
+
+`passkey-auth` 0.1.3 per criterion:
+1. **Pin and maintenance.** `passkey-auth = "=0.1.3"`. Released 2026-05-18, about 67 000 downloads, one maintainer (`marirs`), repository `github.com/marirs/passkey-auth-rs`. No RustSec advisory for the crate. Young (May 2026) and small (about 2 500 lines in `src/`, `#![forbid(unsafe_code)]`), so the crypto-reviewer can read all of it.
+2. **License.** MIT OR Apache-2.0; every crate in its tree passes the repo's license policy without a new exception.
+3. **Banned crates.** `cargo tree -e normal -i` finds no `openssl`, `openssl-sys`, `ring`, `serde_cbor` or `rsa`.
+4. **Algorithms.** `ALLOWED_REGISTRATION_ALGS = [-7, -8]` drives both `pubKeyCredParams` and the registration check (WebAuthn L3 §7.1 step 19); the COSE parser accepts only EC2 / P-256 / ES256 with 32-byte coordinates and OKP / Ed25519 / EdDSA with a 32-byte key. Attestation conveyance `none`; `packed` and `fido-u2f` statements, if a client sends them, are signature-checked without a trust chain, and Mosaic makes no decision on them. RUSTSEC-2023-0071 does not apply (no `rsa`).
+5. **`cargo deny check`:** `advisories ok, bans ok, licenses ok, sources ok` (warnings only: duplicate `syn` 2 and 3, and the repo's exceptions and ignores that this small tree does not hit). **`cargo audit --deny warnings`:** `Scanning Cargo.lock for vulnerabilities (102 crate dependencies)`, no finding, with the repo's `.cargo/audit.toml`. The tree reaches `crypto-bigint` 0.5.5 (`p256` 0.13 → `elliptic-curve` 0.13), which RUSTSEC-2026-0387 names and the repo already ignores for `opaque-ke`; without that ignore, `audit` reports it. Here `crypto-bigint` runs inside ECDSA **verification**, whose inputs (public key, signature, message) are all public, so timing variability reveals nothing secret. The ignore's reason in `deny.toml` and `.cargo/audit.toml` is extended to say so (track T2).
+
+`cargo tree -e normal` of the scratch project: 209 lines, 118 unique crates under `passkey-auth`. Direct dependencies: `base64` 0.22.1, `ciborium` 0.2.2, `const-oid` 0.9.6, `ed25519-dalek` 2.2.0 (→ `curve25519-dalek` 4.1.3), `p256` 0.13.2 (→ `ecdsa` 0.16.9, `elliptic-curve` 0.13.8, `primeorder` 0.13.6, `rfc6979` 0.4.0), `rand` 0.8.8 (→ `rand_chacha` 0.3.1, `getrandom` 0.2.17), `serde` 1, `serde_json` 1, `sha2` 0.10.9, `thiserror` 2.0.21, `url` 2.5.8, `x509-cert` 0.2.5 (→ `der` 0.7.10, `spki` 0.7.3, `tls_codec` 0.4.2). Compared with the workspace `Cargo.lock` it adds the crate names `ciborium` (with `-io` and `-ll`), `x509-cert`, `der_derive`, `flagset`, `tls_codec` (with `_derive`), `utf_types`, `ppv-lite86` and `rand_chacha`, and second majors of `p256` (0.13 next to 0.14), `ecdsa` 0.16, `ed25519-dalek` and `ed25519` 2 (next to 3), `signature` 2, `spki` 0.7, `pkcs8` 0.10 and `base64` 0.22. A smoke program (`Webauthn::new(...).strict_base64(true).require_user_handle(true)`, `start_registration`, `start_authentication_for_user`) built with `CARGO_BUILD_JOBS=1` and confirmed that the options advertise exactly `-7` and `-8`.
+
+### Decision
+`passkey-auth = "=0.1.3"` becomes a **server-only** dependency of `mosaic-server`, admitted as a crypto dependency by this ADR and wrapped by `crates/server/src/auth/webauthn.rs` (`Rp`) as CRYPTO_SPEC §9.3 says. Rules for its use:
+- `Webauthn::new(rp_id, "Mosaic", canonical_origin).strict_base64(true).require_user_handle(true)`; assertions only through `start_authentication_for_user` with the account's user handle and its credentials as the allow list.
+- `Rp` overwrites `authenticatorSelection.residentKey` to `discouraged` (and `requireResidentKey: false`) in the options JSON; it never alters a ceremony state, a challenge or a verification result.
+- The finish route deserializes its own `deny_unknown_fields` type (the browser's `PublicKeyCredential` JSON, 16 KiB cap) and maps it onto the crate's flat `RegistrationResponse` and `AuthenticationResponse`.
+- Errors are mapped to `two_factor_invalid`; `CounterReplay` also audits `WebauthnCounterRegressed`. No error text is logged.
+- The crate exposes neither the authenticator's backup flags nor the credential's algorithm. **Server schema v4 therefore stores no `alg` and no `backup_eligible` column** (the stored COSE key carries the algorithm, and the crate re-parses it with the same ES256/EdDSA-only parser), and the credential list has no `synced` field. This changes the schema sketch of the M9 spec.
+- Not checked by the crate, accepted: `crossOrigin` and `topOrigin` (the page refuses framing); Ed25519 through `verify` rather than `verify_strict` (a weak key would have to be registered by the account itself, after a fresh login); the 60 s `timeout` it puts in the options (the handoff allows 5 minutes and the user can reopen).
+- The crypto-reviewer reads the whole crate at the pinned version in the T12 review and again on every version bump. A bump repeats this vetting.
+
+### Alternatives considered
+- `webauthn_rp`: the most thorough implementation, but no release for 19 months and an `rsa` advisory in its tree.
+- `structured-webauthn`: one release a month old, with a pre-release `rsa` and `ml-dsa` compiled in.
+- `webauthn-rs`: the M9 spec rejected it for OpenSSL; 0.6.2 has moved to RustCrypto, but it is MPL-2.0 across five crates, compiles in `rsa` (with the Marvin advisory) and a wide set of ciphers, and parses CBOR with a `serde_cbor` fork.
+- Our own verification on `coset` or `ciborium` plus `p256` and `ed25519-dalek`: invented protocol code.
+- No WebAuthn in M9 (OD-M9-20): the fallback if the gate had failed; not needed.
+
+### Consequences
+`deny.toml` keeps `rsa` and `serde_cbor` banned (ADR-0086). Track T7 records the duplicate majors in `docs/DEPENDENCIES.md`. The fuzz target `webauthn_bodies` covers both finish paths, so the crate's CBOR and DER parsing runs under the fuzzer. THREAT_MODEL R113.
+
+## ADR-0079: The CLI and accounts whose only second factor is a security key
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+The CLI joins a hosted account (`setup own-store`) and adopts changes (`recover`), both through a login that may need the second factor. The browser handoff (ADR-0077) needs a desktop to show the match code and a browser on the same machine; a CLI on a server or over SSH has neither.
+
+### Decision
+- The CLI offers **no WebAuthn** and prints no approval link.
+- After `TwoFactorRequired`, `hosted::join` and `recover` call `GET /v1/login/methods`. If TOTP is available they prompt for the code as before (also when the account has WebAuthn too). If the account has WebAuthn only, they exit 3 with `twoFactorMethodUnsupported`: "This account signs in with a security key, which the command line cannot use. Add an authenticator-app code in the desktop app, then try again." (EN; the DE text is in the catalog).
+- `mosaic-sync`'s `recover_password` returns `TransportError::SecondFactorUnsupported` when only WebAuthn is available and no code was given.
+- A browser handoff for the CLI is an owner decision (OD-M9-12; default: none).
+
+### Alternatives considered
+- Printing the handoff URL and code in the terminal: the user would copy a link into a browser, the habit phishing exploits, and the code would sit in scrollback next to it.
+- A CTAP client in the CLI: no crate passes vetting (M3-R6).
+
+### Consequences
+A WebAuthn-only account cannot set up a CLI own store or recover through the CLI until it adds TOTP; the desktop recommends keeping two methods. THREAT_MODEL §4.7.
+
+## ADR-0080: Session revocation reasons and server schema v4
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+M7-R3: a device that a re-key, a password change or a device removal signed out sees only `401`, so the recovery card can only guess. The server deletes sessions, so a revoked token is simply unknown.
+
+### Decision
+- **`revoked_sessions`** (CRYPTO_SPEC §9.5): the transaction that deletes sessions for a reason records each token hash with the account, the reason (1 re-key, 2 password change, 3 device removed, 4 operator) and the time; the hourly housekeeping drops rows after 30 days. Logout and expiry are not recorded.
+- An unknown token found there answers `401 unauthorized` with `detail: {revoked: "<reason>"}`; `mosaic-sync` maps it to `TransportError::Revoked(RevokedReason)`; the desktop and the CLI show a text per reason.
+- **Schema v4** (the fourth `MIGRATIONS` entry, run on start): `accounts.webauthn_user_handle` (16 bytes or null); `webauthn_credentials (account_id, credential_id of 16 to 1023 bytes, public_key of at most 1024 bytes, sign_count ≥ 0, label of 1 to 64 characters, created_at, last_used_at)`, primary key `(account_id, credential_id)`, a server-wide unique index on `credential_id`, `ON DELETE CASCADE` from the account, `STRICT` (no `alg` and no `backup_eligible` column, ADR-0078); `sessions.second_factor_until` (default 0); `revoked_sessions (token_hash PRIMARY KEY of 32 bytes, account_id, reason 1 to 4, revoked_at)` with an index on `revoked_at`; the audit table rebuilt like `audit_v3` for kinds 1 to 20 (17 `WebauthnAdded`, 18 `WebauthnRemoved`, 19 `SecondFactorReset`, 20 `WebauthnCounterRegressed`).
+- `accounts::claim_totp_slot` becomes `claim_second_factor_slot`; the columns keep their names.
+- A v3 fixture database (`crates/server/tests/fixtures/`) must upgrade to v4 in a test (`schema_v3_fixture_upgrades_to_v4`).
+
+### Alternatives considered
+- **Keep revoked sessions as rows with a flag:** every session query would need the flag; a separate table keeps the hot path unchanged.
+- **A new status code (for example 410):** older clients would treat it as an unknown error rather than "signed out".
+- **No retention limit:** the table would grow forever; 30 days covers a device that is offline for a month.
+
+### Consequences
+THREAT_MODEL R117: whoever holds an old token learns why it stopped working, for 30 days. SERVER.md gains the upgrade note.
+
+## ADR-0081: Release integrity: minisign over `SHA256SUMS`
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+Users must be able to check that a download is the one the project built (THREAT_MODEL §4.9 "Tampered release"). The Tauri updater already uses minisign signatures.
+
+### Decision
+- One `SHA256SUMS` lists every artifact and SBOM and names the server image by digest; one minisign signature (`SHA256SUMS.minisig`, Ed25519 over BLAKE2b-512, trusted comment `mosaic <version> <git sha>`) covers it (CRYPTO_SPEC §17).
+- Two minisign keys, release and updater, each encrypted with its own password, kept as secrets of the GitHub environment `release` (the owner as required reviewer, protected `v*` tags). The public release key goes to `release/minisign.pub`, `SECURITY.md` and `docs/VERIFY.md` once the owner generates it (OD-M9-4); no placeholder key is committed.
+- Rotation: the new public key plus `release/minisign.pub.next.minisig`, a signature over it with the old key.
+- The workflow `.github/workflows/release.yml` (tags `v*`, and a manual dispatch with `dry_run`, default true) builds, signs, verifies its own output with the `docs/VERIFY.md` commands, and creates a **draft** GitHub release. A dry run uses an ephemeral key marked `DRY-RUN-NOT-A-RELEASE` and publishes nothing. Actions are pinned by SHA; `minisign` comes from Ubuntu's package and its version is logged.
+- GitHub provenance attestations are optional (OD-M9-15, default off).
+
+### Alternatives considered
+- **GPG:** a large tool with legacy defaults and a key format users rarely verify correctly.
+- **Sigstore keyless as the primary mechanism:** depends on Fulcio, Rekor and the GitHub identity being available and trusted; possible later as an addition.
+- **Per-file signatures:** more files to check, the same trust.
+
+### Consequences
+THREAT_MODEL R118 (a GitHub account takeover plus the reviewer's approval can sign a release; no transparency log). CRYPTO_SPEC §2 gains a tooling row; nothing in Mosaic links minisign.
+
+## ADR-0082: Platform signing, hardened runtime, notarization, protected installs, MSI only
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+The M8 review asked that the CLI (and its session cache) not be replaceable by same-user code, and R105 and R111 waited for macOS hardened runtime. Windows SmartScreen and macOS Gatekeeper warn about unsigned builds. NSIS and AppImage install into user-writable places.
+
+### Decision
+- **Windows:** a per-machine MSI into `%ProgramFiles%\Mosaic\` with the app, `mosaic.exe` and `mosaic-native-host.exe`; the installer appends `[INSTALLDIR]` to the system `PATH`. Authenticode with an RFC 3161 timestamp on the three executables and the MSI through `bundle.windows.signCommand` → `scripts/release/sign-windows.ps1` (`WINDOWS_SIGN_MODE` none, trusted-signing or pfx). No NSIS (OD-M9-14).
+- **macOS:** Developer ID with **hardened runtime**; `entitlements.plist` is an empty dictionary (no `allow-jit`, `disable-library-validation`, `allow-dyld-environment-variables` or `get-task-allow`; Touch ID entries only if a manual check proves them necessary). Notarization with `notarytool --wait`, then `stapler staple` on the DMG and the app. The host and the CLI live in the app bundle (`Contents/MacOS/`); the CLI also ships in a signed `.pkg` that installs a root-owned `/usr/local/bin/mosaic`.
+- **Linux:** deb and rpm, installing `/usr/bin/mosaic` and `/usr/lib/mosaic/mosaic-native-host`, signed by minisign only. No AppImage.
+- **Release config overlay** `apps/desktop/src-tauri/tauri.release.conf.json` sets `bundle.*` keys only (sign command, WiX fragments, hardened runtime and entitlements, `externalBin` for the host and the CLI, `createUpdaterArtifacts`, targets `msi`, `dmg`, `app`, `deb`, `rpm`); a test checks that it touches nothing else.
+- Without certificates (OD-M9-2 and OD-M9-3, the defaults) the builds ship unsigned, with the warnings explained in `docs/VERIFY.md`.
+- The release job asserts that no Cargo features are enabled for the shipped crates (`check-features.sh`).
+
+### Alternatives considered
+- **MSIX** (R23, package identity for Windows Hello keys): owner decision OD-M9-13.
+- **Per-user installs** (NSIS, AppImage, `~/.local/bin`): any same-user process can replace the binaries, which undoes the protected-location assumption of R105 and R111 and the host check.
+
+### Consequences
+THREAT_MODEL R119 (unsigned until certificates exist; R105 and R111 remain for unsigned builds); R105 and R111 updated for signed macOS builds. `docs/CLI.md` Packaging points to the release runbook.
+
+## ADR-0083: Installer-owned native-messaging manifests and the override audit
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+R38: same-user malware can rewrite the per-user host manifest or the HKCU key and point the browser at its own host. M4 promised installer-owned manifests (M4-R1).
+
+### Decision
+- **Windows:** the WiX fragment `apps/desktop/src-tauri/wix/native-messaging.wxs` writes `HKLM\Software\{Google\Chrome,Microsoft\Edge,Chromium,Mozilla}\NativeMessagingHosts\<HOST_NAME>` pointing to manifests in `[INSTALLDIR]native-messaging\`.
+- **Linux:** deb and rpm install system manifests in `/etc/opt/chrome/native-messaging-hosts/`, `/etc/opt/edge/native-messaging-hosts/`, `/etc/chromium/native-messaging-hosts/` and `/usr/lib/mozilla/native-messaging-hosts/`.
+- **macOS:** at start the desktop repairs the per-user manifests so they point into its signed bundle.
+- The manifests are generated at build time by `mosaic-native-host manifest --system --os <os> --out <dir>` from the same source as `install.rs`.
+- **Override audit:** `mosaic_native_messaging::install::audit_manifests(expected_host: &Path) -> Vec<ManifestFinding>` reads the per-user locations (files, and on Windows `reg.exe query` by absolute path). The desktop runs it at start and in Settings → Browser; a finding whose path is not the installed host shows the banner `browserConnectorForeign` with a Repair button. `mosaic-native-host check` prints the same findings.
+- `mosaic-native-host install` stays for developer builds.
+
+### Alternatives considered
+- **System manifests only, no audit:** browsers read per-user locations first or as well (HKCU before HKLM on Windows), so a per-user override would win silently.
+- **Deleting per-user overrides on its own:** a same-user process can write them back at once; showing the finding is honest and the user decides.
+
+### Consequences
+R38 is narrowed: R121 records that per-user manifests and HKCU still win in some browsers and that Mosaic detects and repairs, it does not prevent. NATIVE_MESSAGING §2 and §7.
+
+## ADR-0084: Tauri isolation pattern declined
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+ADR-0019 item 4 deferred Tauri's isolation pattern to M9 (M3-R2). The pattern routes every IPC message through a sandboxed iframe that can inspect it, and encrypts the message between that iframe and Rust with AES-GCM under a key made at each start.
+
+### Decision
+Declined; M3-R2 is closed as accepted.
+- The AES-GCM layer is a primitive outside CRYPTO_SPEC §2, added to the trusted path for no gain: both ends run in the same process and the key sits in the same webview.
+- The isolation hook could only re-check what Rust already validates for every command: typed requests with unknown keys refused, the closed command set, IDs instead of paths, secrets as `SecretIn`.
+- The compensating controls stay: the strict CSP, the navigation guard, the capability allow-list, the red-team surface tests (`redteam_surface_tests.rs`), and the JavaScript dependency review of track T7.
+
+### Alternatives considered
+- **Adopt it:** a second frontend bundle and an extra crypto layer to maintain, for checks that already exist in Rust.
+
+### Consequences
+THREAT_MODEL §4.2 is updated; the crypto-reviewer re-checks this decision in the T12 review.
+
+## ADR-0085: Oversized vault-metadata merges
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+M2-R16: vault metadata merges are not split like items (ADR-0016). Two long concurrent versions can merge into a canonical plaintext above the 64 KiB cap, and the merge then fails on every device.
+
+### Decision
+CRYPTO_SPEC §7.1: write caps in `VaultMetaEdit` (name 256 UTF-8 bytes, icon 64, description 4096; longer stored values still read), and a pure `VaultMeta::resolve_oversized(&self, received: &Self) -> (Self, DroppedMeta)` for a merge above `MAX_VAULT_META_PLAINTEXT_LEN`: keep the longer canonical plaintext (on a tie, the larger bytes), join the version vectors, report `ApplyOutcome::MetaValueDropped { vault }`; the desktop shows a dismissable notice. A test runs every delivery order on three devices.
+
+### Alternatives considered
+- **Split metadata like items:** a vault has one metadata object; a conflict copy of a vault name has no place to live.
+- **Refuse the merge (the M2 behavior):** every device stays stuck on the error.
+- **Truncate:** produces a value no user wrote.
+
+### Consequences
+THREAT_MODEL R122: the shorter concurrent version is lost, and the user is told.
+
+## ADR-0086: SBOMs, reproducible builds and dependency policy
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+THREAT_MODEL §4.9 promised SBOMs and reproducible-build instructions in M9. The dependency tree grew from M3 to M8.
+
+### Decision
+- **SBOMs:** CycloneDX 1.5 JSON for each shipped binary (`mosaic`, `mosaic-server`, `mosaic-desktop`, `mosaic-native-host`) with `cargo cyclonedx` (pinned through `taiki-e/install-action`); `scripts/release/sbom-js.mjs` (no new npm dependency) turns `pnpm list --prod --json --depth Infinity` for the extension and the desktop into CycloneDX with integrity hashes from `pnpm-lock.yaml`; the image SBOM adds the base image digest. Mosaic's own components say `NOASSERTION` for the license until OD-M9-11.
+- **Reproducibility:** `docs/REPRODUCIBLE_BUILDS.md`: the pinned toolchain, `--locked`, `SOURCE_DATE_EPOCH` from the last commit, path remapping and no build ID on Linux, deterministic zips. The CI job `reproducibility` builds the Linux CLI, the server binary, the OCI image and both extension zips twice, in different directories, and fails on any hash difference. Desktop bundles and signed binaries are not reproducible; `SHA256SUMS.unsigned` lists their pre-signing hashes.
+- **Dependencies:** `docs/DEPENDENCIES.md` lists every direct production dependency with its reason and admitting ADR, the unique crates per shipped binary and the JS production package count, before and after the trims. Trims: unused dependencies (`cargo machete`, once), default features off where possible, duplicate majors removed by bumps; one commit per removal. `deny.toml` bans `ring` with `wrappers` set to the current rustls users, and bans `serde_cbor` and `rsa` (ADR-0078 admits neither); `multiple-versions` stays `warn`. Dependabot covers every fuzz lockfile.
+- **New dependencies allowed in M9:** only `passkey-auth` (ADR-0078), `open` in the desktop (ADR-0077) and `winapi-util` as a direct Windows dependency of the CLI (already in the tree).
+
+### Alternatives considered
+- **SPDX:** CycloneDX has the better Rust and npm tooling; one format is enough.
+- **Full bit-for-bit reproducibility of the desktop bundles:** WiX, DMG creation and code signing embed time and certificate data; documented as a limit.
+
+### Consequences
+THREAT_MODEL R120 (reproducibility is partial).
+
+## ADR-0087: Disclosure policy, security challenge and public test server
+
+- Status: accepted
+- Date: 2026-11-10
+- Milestone: M9
+
+### Context
+No paid audit is planned (owner direction). Mosaic needs a way for outsiders to report problems, and an incentive and a target for independent testing.
+
+### Decision
+- **`SECURITY.md`:** the newest pre-release is supported; reports through GitHub private vulnerability reporting (email once a domain exists, OD-M9-6; no PGP); response targets: acknowledge in 7 days, triage in 14, fix target 90, disclosure at 90 days or at the fix, whichever comes first (extensions by agreement); severity by CVSS 4.0 plus Mosaic classes (vault plaintext or key disclosure is critical, a fill to the wrong origin is high); a safe-harbor summary; the pre-audit statement.
+- **`docs/BUG_BOUNTY.md`, the "Mosaic Security Challenge":** rolling, with seasons tied to test-server resets; rules and eligibility; out of scope: DoS and volumetric testing, social engineering, physical access, third-party services, the website, accepted THREAT_MODEL §5 residuals unless a report shows impact beyond them, and same-user malware (P5) where a row accepts it; safe harbor adapted from the disclose.io core terms (CC0); the flow report → triage → fix → advisory → hall of fame; rewards as a `{PRIZE_*}` table, recognition only by default (OD-M9-7).
+- **`docs/CHALLENGE.md`:** targets C1 (hostile server with the full data directory), C2 (stolen device, locked store), C3 (export file), C4 (second factor with published password and Secret Key), C5 (cross-account), C6 (extension fill), C7 (desktop and native host).
+- **`docs/HALL_OF_FAME.md`:** listing only with explicit consent (OD-M9-17).
+- **Test-server kit** `deploy/contest/` (compose, Caddyfile, server config, README: no real data, weekly wipe and reseed, logs kept 7 days, host `{CONTEST_HOST}`, OD-M9-9) and the seeder `crates/server/examples/contest_seed.rs`, which writes `public.json` and a never-committed `private.json`.
+- **`docs/AUDIT_PREP.md`:** scope per component with trust boundaries, priority areas, build, test, fuzz and reproduce instructions, the residual-risk register, the internal review ledger (not independent), the challenge accounts and the contact.
+- No document claims an external review that did not happen.
+
+### Alternatives considered
+- **A bounty platform:** fees and terms before any money exists; GitHub's private reporting is enough for now (OD-M9-17).
+- **Testing against production servers:** the test server is separate, wiped weekly and holds no real data.
+
+### Consequences
+THREAT_MODEL R123 (the public test server has published credentials and open registration and is not production).
