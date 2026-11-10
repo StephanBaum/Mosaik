@@ -2932,11 +2932,8 @@ dependencies = [
 name = "mosaic-desktop"
 version = "0.0.0"
 dependencies = [
- "arboard",
  "axum",
- "base64ct",
  "getrandom 0.4.3",
- "keyring",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-import",
@@ -2944,6 +2941,7 @@ dependencies = [
  "mosaic-native-messaging",
  "mosaic-origin",
  "mosaic-passkey",
+ "mosaic-platform",
  "mosaic-qr",
  "mosaic-server",
  "mosaic-ssh-agent",
@@ -3074,6 +3072,20 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mosaic-platform"
+version = "0.0.0"
+dependencies = [
+ "arboard",
+ "base64ct",
+ "keyring",
+ "mosaic-core",
+ "mosaic-sync",
+ "subtle",
+ "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]

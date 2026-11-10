@@ -1,0 +1,25 @@
+[package]
+name = "mosaic-platform"
+description = "Mosaic platform glue shared by the desktop app and the CLI: OS keystore, clipboard, data paths"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mosaic-core = { path = "../core" }
+# `StoredToken`, the sync session token type the keystore holds.
+mosaic-sync = { path = "../sync", features = ["http"] }
+# Tokens and CLI session secrets in the keystore as base64url.
+base64ct = { workspace = true, features = ["alloc"] }
+# The OS credential store (moved from mosaic-desktop, same pin).
+keyring.workspace = true
+# The OS clipboard with the history exclusions and image reads (moved from mosaic-desktop, same pin).
+arboard = { workspace = true, features = ["image-data"] }
+subtle.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true

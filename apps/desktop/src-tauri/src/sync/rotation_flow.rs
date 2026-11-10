@@ -529,6 +529,8 @@ impl Backend {
         // A key that cannot be written stays in the pending entry; the next
         // unlock asks for it from the kit.
         let _ = self.promote_secret_key(account, &committed.new_secret_key);
+        // The re-key ends every CLI session (new epoch, salt and keys).
+        self.delete_cli_sessions();
         self.remove_platform_enrollment(committed.removed_quick_unlock.as_ref());
         self.settings_remac();
         self.emit_rotation_progress();

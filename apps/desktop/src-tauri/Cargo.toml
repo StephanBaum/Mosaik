@@ -25,11 +25,7 @@ path = "src/main.rs"
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
-arboard = { workspace = true, features = ["image-data"] }
-# The session token in the keystore as base64url (already in the tree through mosaic-sync).
-base64ct = { workspace = true, features = ["alloc"] }
 getrandom.workspace = true
-keyring.workspace = true
 mosaic-core = { path = "../../../crates/core" }
 mosaic-generator = { path = "../../../crates/generator" }
 mosaic-import = { path = "../../../crates/import" }
@@ -37,6 +33,8 @@ mosaic-insights = { path = "../../../crates/insights" }
 mosaic-native-messaging = { path = "../../../crates/native-messaging" }
 mosaic-origin = { path = "../../../crates/origin" }
 mosaic-passkey = { path = "../../../crates/passkey" }
+# The OS keystore, the clipboard backend and the data paths, shared with the CLI (M8).
+mosaic-platform = { path = "../../../crates/platform" }
 mosaic-qr = { path = "../../../crates/qr" }
 mosaic-ssh-agent = { path = "../../../crates/ssh-agent" }
 # Sync: the engine, the folder backend and the hosted client (M6); `http` is the hosted backend.

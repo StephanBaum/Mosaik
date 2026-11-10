@@ -5,7 +5,8 @@
 //!   clipboard managers: on Windows the `ExcludeClipboardContentFromMonitorProcessing`,
 //!   `CanIncludeInClipboardHistory = 0` and `CanUploadToCloudClipboard = 0`
 //!   formats, on macOS `org.nspasteboard.ConcealedType`, on Linux
-//!   `x-kde-passwordManagerHint = secret` (all through `arboard`).
+//!   `x-kde-passwordManagerHint = secret` (all through `mosaic-platform`,
+//!   which uses `arboard`).
 //! - After the timeout (`Settings::clipboard_clear_seconds`, default 30 s)
 //!   the clipboard is cleared, but only if it still holds what Mosaic
 //!   copied (compared in constant time), so a value the user copied since
@@ -26,6 +27,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
 use mosaic_core::SecretString;
+use mosaic_platform::clipboard::{self as platform, Clipboard as _};
 use mosaic_qr::{OwnedFrame, PixelLayout};
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq;
@@ -120,15 +122,16 @@ pub struct ClipboardError;
 /// Creates the backend inside the worker thread.
 pub type BackendFactory = Box<dyn FnOnce() -> Option<Box<dyn ClipboardBackend>> + Send>;
 
-/// The system clipboard through `arboard`.
-pub struct SystemClipboard(arboard::Clipboard);
+/// The system clipboard (`mosaic-platform`: `arboard` with the history
+/// exclusions) as the worker's backend.
+pub struct SystemClipboard(platform::SystemClipboard);
 
 impl SystemClipboard {
     /// A factory for the worker; `None` from it when there is no clipboard
     /// (for example no display server).
     pub fn factory() -> BackendFactory {
         Box::new(|| {
-            arboard::Clipboard::new()
+            platform::SystemClipboard::new()
                 .ok()
                 .map(|c| Box::new(Self(c)) as Box<dyn ClipboardBackend>)
         })
@@ -137,38 +140,11 @@ impl SystemClipboard {
 
 impl ClipboardBackend for SystemClipboard {
     fn write(&mut self, text: &str) -> Result<(), ClipboardError> {
-        let set = self.0.set();
-        #[cfg(windows)]
-        let set = {
-            use arboard::SetExtWindows as _;
-            set.exclude_from_monitoring()
-                .exclude_from_history()
-                .exclude_from_cloud()
-        };
-        #[cfg(target_os = "macos")]
-        let set = {
-            use arboard::SetExtApple as _;
-            set.exclude_from_history()
-        };
-        #[cfg(all(
-            unix,
-            not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
-        ))]
-        let set = {
-            use arboard::SetExtLinux as _;
-            set.exclude_from_history()
-        };
-        set.text(text).map_err(|_| ClipboardError)
+        self.0.set(text).map_err(|_| ClipboardError)
     }
 
     fn read(&mut self) -> Result<Option<SecretString>, ClipboardError> {
-        match self.0.get_text() {
-            Ok(text) => Ok(Some(SecretString::from(text))),
-            Err(arboard::Error::ContentNotAvailable | arboard::Error::ConversionFailure) => {
-                Ok(None)
-            }
-            Err(_) => Err(ClipboardError),
-        }
+        self.0.get_text().map_err(|_| ClipboardError)
     }
 
     fn clear(&mut self) -> Result<(), ClipboardError> {
@@ -176,20 +152,15 @@ impl ClipboardBackend for SystemClipboard {
     }
 
     fn read_image(&mut self) -> Result<ClipboardImage, ClipboardError> {
-        match self.0.get_image() {
-            Ok(image) => {
-                let (Ok(width), Ok(height)) =
-                    (u32::try_from(image.width), u32::try_from(image.height))
-                else {
-                    return Ok(ClipboardImage::Unreadable);
-                };
-                let pixels = Zeroizing::new(image.bytes.into_owned());
-                Ok(OwnedFrame::new(width, height, PixelLayout::Rgba8, pixels)
-                    .map_or(ClipboardImage::Unreadable, ClipboardImage::Image))
-            }
-            Err(arboard::Error::ContentNotAvailable) => Ok(ClipboardImage::Empty),
-            Err(arboard::Error::ConversionFailure) => Ok(ClipboardImage::Unreadable),
-            Err(_) => Err(ClipboardError),
+        match self.0.read_image().map_err(|_| ClipboardError)? {
+            platform::ImageRead::Empty => Ok(ClipboardImage::Empty),
+            platform::ImageRead::Unreadable => Ok(ClipboardImage::Unreadable),
+            platform::ImageRead::Rgba {
+                width,
+                height,
+                pixels,
+            } => Ok(OwnedFrame::new(width, height, PixelLayout::Rgba8, pixels)
+                .map_or(ClipboardImage::Unreadable, ClipboardImage::Image)),
         }
     }
 }
