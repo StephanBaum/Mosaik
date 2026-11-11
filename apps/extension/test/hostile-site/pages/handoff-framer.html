@@ -1,0 +1,18 @@
+<!-- attempts (M9 T12): frame the sync server's security-key handoff page
+     (crates/server/assets/webauthn, CRYPTO_SPEC §9.3) from another site, to overlay it and steer
+     the user's code entry or key touch (clickjacking). Query: ?target=<page URL with #id>.
+     handoff-page.spec.ts serves this page itself on https://evil.test. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Handoff framer</title>
+<style>
+  iframe { width: 600px; height: 600px; opacity: 0.01; position: absolute; top: 0; left: 0; }
+  button { position: absolute; top: 300px; left: 200px; }
+</style>
+<button type="button">Claim your prize</button>
+<script>
+  const frame = document.createElement("iframe");
+  frame.id = "victim";
+  frame.src = new URLSearchParams(location.search).get("target") ?? "";
+  document.body.append(frame);
+</script>
