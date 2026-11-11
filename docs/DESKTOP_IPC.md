@@ -211,7 +211,7 @@ service. `sync_hosted_webauthn_begin` and `sync_webauthn_status` also serve a fr
 handoff runs out in Rust. Mock options: `&syncWebauthn=both|only` (a key next to a code, or instead of one; the browser
 step ends on its second status poll) and `&syncHandoff=expired|failed`. Not covered in M9: `sync_recover_password` for an
 account with a security key only (it answers `syncTwoFactorRequired`; `TransportError::SecondFactorUnsupported`), and
-removing a key with a code when the session is not fresh (the code path needs `code` on `sync_webauthn_confirm_begin`).
+removing a key with a code when the session is not fresh: `sync_webauthn_remove` takes the `code` (the dialog asks for it when the account has an authenticator app, M9-UX5) and the server checks it, but only on a fresh login; a stale session answers `syncFreshLoginExpired` and the dialog sends the person through the password and security-key confirm instead. A code in place of that confirm needs `code` on `sync_webauthn_confirm_begin` (a change in `sync/webauthn_flow.rs`, open).
 
 **Revocation reasons (CRYPTO_SPEC §9.5).** `SyncOverview.revoked` is `"rekey" \| "passwordChange" \| "deviceRemoved" \|
 "operator" \| null`; it is set with status `signedOut` when the server answered `401` with a revocation detail, and the
@@ -239,8 +239,8 @@ that took `code: SecretIn` (`sync_totp_disable`, `sync_device_remove`) accept `c
 - Two commands for the connector audit (live since M9 T6; wired in T8 to
   `mosaic_native_messaging::install::audit` and `repair` in `src/connector.rs`; the installed host is the program
   beside the app executable, or `/usr/lib/mosaic/mosaic-native-host` on Linux, and a build without one, such as a
-  developer build, answers no findings and `internal` to a repair): `browser_connector_audit` (`null` → `{ findings: { browser: "chromium" \| "firefox", location, path }[] }`;
-  `location` names the manifest file or registry key, `path` the host program it points to; run when the vault
+  developer build, answers no findings and `browserHostMissing` to a repair; `internal` is only a failed write): `browser_connector_audit` (`null` → `{ findings: { browser: "chromium" \| "firefox", location, path }[] }`;
+  `location` names the manifest file or registry key (`HKCU\...`, and on Windows `HKLM\...` when the MSI's machine-wide entry names another host than the installed one and the browser has no per-user entry), `path` the host program it points to, or `(unreadable manifest)` or `(unexpected extension list)` when the manifest does not name Mosaic's extension list; run when the vault
   opens and when Settings > Browsers opens) and `browser_connector_repair` (`null` → the same shape after the
   repair; it rewrites only the per-user entries of the browsers with a finding to the installed host, never a path
   from the webview; on macOS the app also rewrites all per-user manifests at start so they point into the signed
@@ -649,7 +649,7 @@ webview re-reads `session_state`, since events are notifications and not a log.
 `attachmentPreviewTooLarge`, `clipboardUnavailable`, `importFileUnreadable`,
 `importFormatInvalid`, `importPreviewExpired`, `importTooLarge`, `importUnsupported`,
 `importEncrypted`, `sshRequestExpired`, `sshAgentUnavailable`, `sshAgentEndpointInUse`, `unlockDelayed`, `tooManyAttempts`, `sshAllowTooSoon`,
-`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `busy`,
+`browserRequestExpired`, `browserAllowTooSoon`, `browserPairingNotFound`, `browserHostMissing`, `busy`,
 `internal`, `cancelled`, `quickUnlockExpired`, `quickUnlockInvalidated`, `passwordRequired`,
 `hardwareKeyUnsupported`, `hardwareKeyNotFound`, `hardwareKeyTimeout`,
 `hardwareKeyPinRequired`, `hardwareKeyPinInvalid`, `hardwareKeyPinBlocked`,

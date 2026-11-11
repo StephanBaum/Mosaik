@@ -165,6 +165,9 @@ fn system_manifest_generation_matches_install_rules() {
     }
     assert!(wxs.contains(r"[INSTALLDIR]native-messaging\"));
     assert!(wxs.contains("HKLM"));
+    // M9-F74: nothing is added to the system PATH (the install folder is not pinned).
+    assert!(!wxs.contains("<Environment"));
+    assert!(!wxs.contains("MosaicSystemPath"));
 }
 
 #[test]
@@ -191,4 +194,78 @@ fn write_system_creates_the_tree_below_out() {
     }
     assert_eq!(Os::parse("windows").unwrap(), Os::Windows);
     assert!(Os::parse("beos").is_err());
+}
+
+#[test]
+fn reg_expand_sz_values_are_expanded_from_the_environment() {
+    let env = |name: &str| (name == "LOCALAPPDATA").then(|| r"C:\Users\u\AppData\Local".to_owned());
+    let line = r"    (Default)    REG_EXPAND_SZ    %LOCALAPPDATA%\Mosaic\chromium.json";
+    assert_eq!(
+        parse_reg_query_with(line, env),
+        Some(PathBuf::from(
+            r"C:\Users\u\AppData\Local\Mosaic\chromium.json"
+        ))
+    );
+    // Unknown names, a lone percent sign and an empty pair stay as written.
+    assert_eq!(expand_env(r"%NOPE%\a", &env), r"%NOPE%\a");
+    assert_eq!(expand_env(r"100% \a", &env), r"100% \a");
+    assert_eq!(expand_env("%%x", &env), "%%x");
+    // A value of another type is the unreadable marker, not an absent key.
+    assert_eq!(
+        parse_reg_query_with("    (Default)    REG_DWORD    0x1", env),
+        Some(PathBuf::from(UNREADABLE))
+    );
+    assert_eq!(parse_reg_query_with("no value here", env), None);
+}
+
+#[test]
+fn machine_audit_reports_a_system_entry_for_another_host_unless_shadowed() {
+    use std::collections::HashMap;
+    struct Machine(HashMap<String, PathBuf>);
+    impl Registry for Machine {
+        fn set_default(&mut self, _: &str, _: &Path) -> Result<(), Error> {
+            Err(Error::Install)
+        }
+        fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+            self.0.get(key).cloned()
+        }
+        fn delete(&mut self, _: &str) -> Result<(), Error> {
+            Ok(())
+        }
+        fn root(&self) -> &'static str {
+            "HKLM"
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let layout = windows_layout(root.path());
+    let installed = Path::new(r"D:\Apps\Mosaic\mosaic-native-host.exe");
+    // The MSI's manifest, generated for the default folder.
+    let system = root.path().join("chromium.json");
+    fs::write(
+        &system,
+        manifest_json(false, Path::new(WINDOWS_SYSTEM_HOST)),
+    )
+    .unwrap();
+    let key = registry_key(Browser::Chrome);
+    let mut machine = Machine(HashMap::from([(key.clone(), system)]));
+    let found = audit_machine(&layout, installed, &mut Recorder::default(), &mut machine);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].location.starts_with(r"HKLM\Software\Google"));
+    assert_eq!(found[0].path, PathBuf::from(WINDOWS_SYSTEM_HOST));
+    // Where the host is where the system manifest says, there is nothing.
+    assert_eq!(
+        audit_machine(
+            &layout,
+            Path::new(WINDOWS_SYSTEM_HOST),
+            &mut Recorder::default(),
+            &mut machine
+        ),
+        Vec::new()
+    );
+    // Other systems have no machine-wide registry.
+    let unix = unix_layout(Os::Linux, root.path());
+    assert_eq!(
+        audit_machine(&unix, installed, &mut Recorder::default(), &mut machine),
+        Vec::new()
+    );
 }

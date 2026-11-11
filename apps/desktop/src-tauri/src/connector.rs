@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use mosaic_native_messaging::install::{
-    self, Browser, LINUX_SYSTEM_HOST, Layout, ManifestFinding, RegExe, Registry,
+    self, Browser, LINUX_SYSTEM_HOST, Layout, ManifestFinding, RegExe, RegExeMachine, Registry,
 };
 
 use crate::contract::browser::{BrowserConnectorAudit, BrowserConnectorFinding, BrowserFamily};
@@ -91,22 +91,55 @@ pub(crate) fn refresh_with(
     Some(())
 }
 
-/// The audit of this machine. Empty without an installed host.
+/// The audit of this machine: the per-user entries, and on Windows the
+/// machine-wide ones of the MSI (M9-F3: a host that is not where the system
+/// manifests say is reported too). Empty without an installed host.
 #[must_use]
 pub fn audit() -> BrowserConnectorAudit {
     match (installed_host(), Layout::current()) {
-        (Some(host), Ok(layout)) => audit_with(&layout, &host, &mut RegExe),
+        (Some(host), Ok(layout)) => {
+            let mut audit = audit_with(&layout, &host, &mut RegExe);
+            audit.findings.extend(
+                to_contract(&install::audit_machine(
+                    &layout,
+                    &host,
+                    &mut RegExe,
+                    &mut RegExeMachine,
+                ))
+                .findings,
+            );
+            audit
+        }
         _ => BrowserConnectorAudit { findings: vec![] },
     }
 }
 
-/// The repair of this machine; `None` if there is no installed host or the
-/// rewrite failed.
-#[must_use]
-pub fn repair() -> Option<BrowserConnectorAudit> {
-    let host = installed_host()?;
-    let layout = Layout::current().ok()?;
-    repair_with(&layout, &host, &mut RegExe)
+/// Why [`repair`] did nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RepairError {
+    /// No host program is installed with this app (a developer build).
+    HostMissing,
+    /// An entry could not be written.
+    WriteFailed,
+}
+
+/// The repair of this machine. A machine-wide entry that is wrong cannot be
+/// rewritten without an administrator; the per-user entry that repair writes
+/// for that browser comes first for the browsers, so the audit is clean after.
+///
+/// # Errors
+/// [`RepairError::HostMissing`] without an installed host,
+/// [`RepairError::WriteFailed`] if the rewrite failed.
+pub fn repair() -> Result<BrowserConnectorAudit, RepairError> {
+    let host = installed_host().ok_or(RepairError::HostMissing)?;
+    let layout = Layout::current().map_err(|_| RepairError::WriteFailed)?;
+    repair_with(&layout, &host, &mut RegExe).ok_or(RepairError::WriteFailed)?;
+    let machine = install::audit_machine(&layout, &host, &mut RegExe, &mut RegExeMachine);
+    if !machine.is_empty() {
+        install::repair(&layout, &machine, &host, &mut RegExe)
+            .map_err(|_| RepairError::WriteFailed)?;
+    }
+    Ok(audit())
 }
 
 /// At start on macOS: points the per-user manifests into the signed bundle.

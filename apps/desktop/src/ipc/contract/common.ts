@@ -65,6 +65,7 @@ export const errorCodes = [
   "browserRequestExpired",
   "browserAllowTooSoon",
   "browserPairingNotFound",
+  "browserHostMissing",
   "rotationNotFound",
   "rotationLimit",
   "rotationOpen",
