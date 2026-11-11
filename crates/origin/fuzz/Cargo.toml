@@ -1,0 +1,33 @@
+[package]
+name = "mosaic-origin-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz target for the origin matcher: two URLs through the page-origin parser, the fill rules and the IDN and lookalike checks (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# To check without cargo-fuzz: cargo check --manifest-path
+# crates/origin/fuzz/Cargo.toml --bins
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+mosaic-core = { path = "../../core" }
+mosaic-origin = { path = ".." }
+
+[[bin]]
+name = "origin_match"
+path = "fuzz_targets/origin_match.rs"
+test = false
+doc = false
+bench = false

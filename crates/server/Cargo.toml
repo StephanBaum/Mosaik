@@ -18,6 +18,10 @@ path = "src/lib.rs"
 name = "mosaic-server"
 path = "src/main.rs"
 
+[[example]]
+name = "contest_seed"
+path = "examples/contest_seed.rs"
+
 [dependencies]
 mosaic-core = { path = "../core" }
 # validate_attachment_ciphertext: the same structural check the clients make.
@@ -52,6 +56,11 @@ zeroize.workspace = true
 passkey-auth.workspace = true
 
 [dev-dependencies]
+# Challenge seeder (examples/contest_seed.rs): six-word passphrases for the challenge accounts.
+mosaic-generator = { path = "../generator" }
+# The seeder posts the WebAuthn handoff routes itself over TLS 1.3 (same crates and setup as mosaic-sync).
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
 # Independent software authenticator for the WebAuthn ceremony tests.
 mosaic-passkey = { path = "../passkey" }
 p256.workspace = true

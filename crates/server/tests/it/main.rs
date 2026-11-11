@@ -19,6 +19,7 @@ mod chaos_hosted;
 mod chaos_net;
 mod cli;
 mod common;
+mod contest_seed;
 mod emergency;
 mod hosted;
 mod hosted_client;

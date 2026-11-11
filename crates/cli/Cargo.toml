@@ -52,6 +52,10 @@ mosaic-server = { path = "../server" }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "macros"] }
 
+[lib]
+name = "mosaic_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mosaic"
 path = "src/main.rs"

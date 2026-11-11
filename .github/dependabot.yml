@@ -8,11 +8,13 @@ updates:
   # on the same versions as the main lockfile.
   - package-ecosystem: cargo
     directories:
+      - /crates/cli/fuzz
       - /crates/core/fuzz
       - /crates/generator/fuzz
       - /crates/import/fuzz
       - /crates/insights/fuzz
       - /crates/native-messaging/fuzz
+      - /crates/origin/fuzz
       - /crates/passkey/fuzz
       - /crates/qr/fuzz
       - /crates/server/fuzz
