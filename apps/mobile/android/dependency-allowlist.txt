@@ -1,0 +1,4 @@
+# Allowed runtime dependencies of :app (release runtime classpath), one group:artifact per line.
+# scripts/mobile/check-android-deps.sh compares the resolved classpath with this list and fails on any
+# artifact that is not listed. Regenerate after a reviewed dependency change with:
+#   bash scripts/mobile/check-android-deps.sh --write
