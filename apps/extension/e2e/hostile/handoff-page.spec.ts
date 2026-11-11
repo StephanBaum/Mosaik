@@ -115,9 +115,9 @@ test("hostile device and account names stay text, and requests carry no ID, Refe
 
 // M9-F72: the page reads the handoff ID from the fragment and leaves it there, so the address bar,
 // the browser history (and a synced history) keep `/webauthn/#<id>` after the page has read it.
-// Fix: crates/server/assets/webauthn/page.js `start()`, after `handoffId(env.hash)`, call
-// `history.replaceState(null, "", location.pathname)`; the desktop's Re-open passes the ID again.
-test.fail("the handoff ID leaves the address bar and history once the page has read it (M9-F72)", async ({ page }) => {
+// Defense: page.js `start()` clears the fragment with `history.replaceState` after reading the ID; the
+// desktop's Re-open passes the ID again.
+test("the handoff ID leaves the address bar and history once the page has read it (M9-F72)", async ({ page }) => {
   await serve(page);
   await page.goto(`${SYNC}/webauthn/#${HANDOFF_ID}`);
   await expect(page.locator("#code-form")).toBeVisible();

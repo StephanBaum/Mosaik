@@ -114,15 +114,6 @@ struct ResponseJson {
     _public_key_algorithm: Option<IgnoredAny>,
 }
 
-/// The two members of `clientDataJSON` the library does not look at.
-#[derive(Deserialize)]
-struct FrameCheck {
-    #[serde(rename = "crossOrigin")]
-    cross_origin: Option<bool>,
-    #[serde(rename = "topOrigin")]
-    top_origin: Option<IgnoredAny>,
-}
-
 fn parse_credential(bytes: &[u8]) -> Result<CredentialJson, RpError> {
     let c: CredentialJson = serde_json::from_slice(bytes).map_err(|_| RpError::Invalid)?;
     if c.kind.as_deref().is_some_and(|k| k != "public-key") {
@@ -132,11 +123,19 @@ fn parse_credential(bytes: &[u8]) -> Result<CredentialJson, RpError> {
     Ok(c)
 }
 
-/// Refuses `crossOrigin: true` and any `topOrigin` (CRYPTO_SPEC §9.3).
+/// Refuses `crossOrigin: true` and any `topOrigin` member, `null` included
+/// (CRYPTO_SPEC §9.3): a key that is present at all says the ceremony ran in
+/// a frame.
 fn frame_check(client_data_b64: &str) -> Result<(), RpError> {
+    use serde_json::Value;
     let raw = Base64UrlUnpadded::decode_vec(client_data_b64).map_err(|_| RpError::Invalid)?;
-    let f: FrameCheck = serde_json::from_slice(&raw).map_err(|_| RpError::Invalid)?;
-    if f.cross_origin == Some(true) || f.top_origin.is_some() {
+    let f: serde_json::Map<String, Value> =
+        serde_json::from_slice(&raw).map_err(|_| RpError::Invalid)?;
+    let same_origin = matches!(
+        f.get("crossOrigin"),
+        None | Some(Value::Null | Value::Bool(false))
+    );
+    if !same_origin || f.contains_key("topOrigin") {
         return Err(RpError::Invalid);
     }
     Ok(())
@@ -321,6 +320,11 @@ mod tests {
         assert!(frame_check(&enc(r#"{"type":"webauthn.get"}"#)).is_ok());
         assert!(frame_check(&enc(r#"{"crossOrigin":true}"#)).is_err());
         assert!(frame_check(&enc(r#"{"topOrigin":"https://evil.example"}"#)).is_err());
+        // M9-F7: a present key is a frame, even when it is null.
+        assert!(frame_check(&enc(r#"{"topOrigin":null}"#)).is_err());
+        assert!(frame_check(&enc(r#"{"crossOrigin":false,"topOrigin":null}"#)).is_err());
+        assert!(frame_check(&enc(r#"{"crossOrigin":"yes"}"#)).is_err());
+        assert!(frame_check(&enc(r#"{"crossOrigin":null}"#)).is_ok());
         assert!(frame_check(&enc("not json")).is_err());
         assert!(frame_check("###").is_err());
     }

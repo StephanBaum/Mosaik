@@ -186,7 +186,7 @@ describe("the security-key page", () => {
     await vi.waitFor(() => {
       expect(el("heading").textContent).toBe(en["webauthn.heading.failed"]);
     });
-    expect(el("message").textContent).toBe(en["webauthn.failed.body"]);
+    expect(el("message").textContent).toBe(en["webauthn.code.tooMany"]);
 
     // A rejected answer: failed. A run-out handoff at the finish: expired.
     for (const [status, heading] of [
@@ -264,5 +264,31 @@ describe("the security-key page", () => {
     expect(js).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/);
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)/);
     expect(html).not.toMatch(/\son[a-z]+=|style=/);
+  });
+  it("clears_the_id_from_the_address_and_focuses_each_screen_heading", async () => {
+    // M9-F72: the ID is gone from the address once it is read. M9-UX8: each screen starts at its heading.
+    mount();
+    const cleared = vi.fn();
+    const s = server({ "/v1/webauthn/handoff/options": [options("login")] });
+    await start({
+      document,
+      hash: `#${ID}`,
+      fetch: s.fetch,
+      credentials: credentials(() => new Promise(() => undefined)),
+      languages: ["en"],
+      clearFragment: cleared,
+    });
+    expect(cleared).toHaveBeenCalledTimes(1);
+    type("123456");
+    await vi.waitFor(() => {
+      expect(el("heading").textContent).toBe(en["webauthn.heading.login"]);
+    });
+    expect(document.activeElement).toBe(el("heading"));
+    expect(el("lead").textContent).toContain(en["webauthn.lead.ask"]);
+    // An incomplete link has no ID to clear.
+    mount();
+    const none = vi.fn();
+    await start({ document, hash: "#nope", fetch: s.fetch, credentials: undefined, languages: ["en"], clearFragment: none });
+    expect(none).not.toHaveBeenCalled();
   });
 });

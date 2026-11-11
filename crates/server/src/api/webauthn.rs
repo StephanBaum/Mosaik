@@ -12,6 +12,7 @@ use mosaic_sync::wire::json::{
     HandoffState, HandoffStateRequest, HandoffStateResponse, LoginMethodsResponse,
     RemoveWebauthnRequest, WebauthnEntry, codes,
 };
+use zeroize::Zeroize;
 
 use super::{Gated, HandoffGate, Reply, parse_body, valid_device_name};
 use crate::AppState;
@@ -118,11 +119,15 @@ fn start(
         )
         .ok_or_else(ApiError::internal)?
         .map_err(|_| ApiError::rate_limited(LIMIT_RETRY_S))?;
-    Reply::ok(&HandoffStartResponse {
+    let mut response = HandoffStartResponse {
         handoff_id: B64Fixed(made.id),
         match_code: String::from_utf8_lossy(&made.match_code[..]).into_owned(),
         expires_at: made.expires,
-    })
+    };
+    let reply = Reply::ok(&response);
+    // The wire type owns a plain `String`; wipe it once it is serialized (M9-F9).
+    response.match_code.zeroize();
+    reply
 }
 
 pub async fn login_handoff(
