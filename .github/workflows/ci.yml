@@ -338,6 +338,14 @@ jobs:
       - run: node scripts/release/wording-check.mjs
       - run: pnpm typecheck
       - run: pnpm test
+      # The mobile strings, tokens and generated sources must match the catalogs and tokens (M10).
+      # One OS is enough: the output is byte-identical (.gitattributes pins LF).
+      - name: Mobile export drift check
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pnpm --filter @mosaic/i18n export:mobile
+          pnpm --filter @mosaic/design-tokens export:mobile
+          git diff --exit-code -- apps/mobile
       - run: pnpm audit --audit-level low
 
   # The release scripts (checksums, minisign signing and verification) run against fixtures with

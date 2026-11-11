@@ -22,6 +22,7 @@ import { sharing } from "./catalog/de/sharing.ts";
 import { rotation } from "./catalog/de/rotation.ts";
 import { credentialRotation } from "./catalog/de/credentialRotation.ts";
 import { breach } from "./catalog/de/breach.ts";
+import { mobile } from "./catalog/de/mobile.ts";
 import type { MessageKey } from "./en.ts";
 
 export const de: Readonly<Record<MessageKey, string>> = {
@@ -48,4 +49,5 @@ export const de: Readonly<Record<MessageKey, string>> = {
   ...rotation,
   ...credentialRotation,
   ...breach,
+  ...mobile,
 };
