@@ -104,25 +104,25 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "Um ein Gerät auszusperren, ändere dein Master-Passwort und deinen Secret Key.",
 
-  "settings.sync.totp.title": "Bestätigung in zwei Schritten",
+  "settings.sync.totp.title": "Authenticator-App",
   "settings.sync.totp.body":
     "Verlangt einen Code aus einer Authenticator-App, wenn sich jemand bei deinem Sync-Konto anmeldet. Das schützt das Konto auf dem Server, nicht deine Tresore: Die bleiben mit deinem Master-Passwort und Secret Key verschlüsselt.",
-  "settings.sync.totp.on": "Die Bestätigung in zwei Schritten ist an.",
-  "settings.sync.totp.off": "Die Bestätigung in zwei Schritten ist aus.",
+  "settings.sync.totp.on": "Codes aus einer Authenticator-App sind an.",
+  "settings.sync.totp.off": "Codes aus einer Authenticator-App sind aus.",
   "settings.sync.totp.enable": "Einschalten…",
   "settings.sync.totp.disable": "Ausschalten…",
-  "settings.sync.totp.beginTitle": "Bestätigung in zwei Schritten einschalten",
+  "settings.sync.totp.beginTitle": "Codes aus einer Authenticator-App einschalten",
   "settings.sync.totp.beginBody": "Gib zum Starten dein Master-Passwort ein.",
   "settings.sync.totp.begin": "Weiter",
   "settings.sync.totp.setupBody":
     "Füge diesen Schlüssel deiner Authenticator-App hinzu und gib dann den 6-stelligen Code ein, den sie anzeigt.",
   "settings.sync.totp.secret": "Einrichtungsschlüssel",
   "settings.sync.totp.confirm": "Einschalten",
-  "settings.sync.totp.disableTitle": "Bestätigung in zwei Schritten ausschalten",
+  "settings.sync.totp.disableTitle": "Codes aus einer Authenticator-App ausschalten",
   "settings.sync.totp.disableBody": "Gib dein Master-Passwort und einen aktuellen Code ein.",
   "settings.sync.totp.disableConfirm": "Ausschalten",
-  "settings.sync.totp.enabledToast": "Die Bestätigung in zwei Schritten ist an.",
-  "settings.sync.totp.disabledToast": "Die Bestätigung in zwei Schritten ist aus.",
+  "settings.sync.totp.enabledToast": "Codes aus einer Authenticator-App sind an.",
+  "settings.sync.totp.disabledToast": "Codes aus einer Authenticator-App sind aus.",
 
   "settings.sync.key.title": "Sicherheitsschlüssel",
   "settings.sync.key.body":
@@ -150,6 +150,9 @@ export const sync = {
     "Du bestätigst einmal mit einem Sicherheitsschlüssel in deinem Browser. Danach funktioniert dieser Schlüssel nicht mehr für die Anmeldung.",
   "settings.sync.key.removeLast":
     "Das ist dein letzter zweiter Schritt. Die Bestätigung in zwei Schritten wird ausgeschaltet, und dein Sync-Konto ist dann nur noch durch dein Master-Passwort und deinen Secret Key geschützt.",
+  "settings.sync.key.removeCode": "Code der Authenticator-App",
+  "settings.sync.key.removeCodeHint":
+    "Gib einen aktuellen Code ein, um den Schlüssel gleich zu entfernen. Lass das Feld leer, um stattdessen im Browser mit einem Sicherheitsschlüssel zu bestätigen.",
   "settings.sync.key.removeConfirm": "Schlüssel entfernen",
   "settings.sync.key.removedToast": "Sicherheitsschlüssel entfernt.",
   "settings.sync.key.confirmTitle": "Mit einem Sicherheitsschlüssel bestätigen",
@@ -173,7 +176,7 @@ export const sync = {
   "settings.sync.key.wait.done": "Fertig.",
   "settings.sync.key.wait.expired": "Dieser Schritt hat zu lange gedauert. Starte ihn noch einmal.",
   "settings.sync.key.wait.failed":
-    "Zu viele falsche Codes oder fehlgeschlagene Prüfungen im Browser. Starte den Schritt noch einmal.",
+    "Der Schritt ist fehlgeschlagen: Der Code war zu oft falsch, oder der Sicherheitsschlüssel wurde nicht akzeptiert. Es wurde nichts geändert. Starte noch einmal.",
   "settings.sync.key.wait.reopen": "Browserseite noch einmal öffnen",
   "settings.sync.key.wait.retry": "Noch einmal starten",
 
@@ -209,7 +212,7 @@ export const sync = {
   "toast.syncAttention":
     "Die Synchronisierung hat einige Einträge von einem anderen Gerät zusammengeführt oder repariert. Sieh nach, was sich geändert hat.",
   "sync.revoked.rekey":
-    "Dieses Konto wurde auf einem anderen Gerät neu verschlüsselt: Melde dich mit dem neuen Secret Key aus deinem neuesten Emergency Kit an.",
+    "Die Schlüssel dieses Kontos wurden auf einem anderen Gerät erneuert: Melde dich mit dem neuen Secret Key aus deinem neuesten Emergency Kit an.",
   "sync.revoked.passwordChange":
     "Dein Master-Passwort wurde auf einem anderen Gerät geändert: Melde dich mit dem neuen Passwort an.",
   "sync.revoked.deviceRemoved":

@@ -36,7 +36,7 @@ async function openSettings(user: ReturnType<typeof userEvent.setup>, name = "Se
   await user.click(screen.getByRole("button", { name }));
 }
 
-describe("Rotate vault key…", () => {
+describe("Renew vault key…", () => {
   const sync = { variant: "hostedNoTotp" } as const;
   const rotation = { variant: "none", stepMs: 0 } as const;
 
@@ -44,22 +44,22 @@ describe("Rotate vault key…", () => {
     const { user, calls } = await open(options);
     await user.click(screen.getByRole("button", { name: /^Personal/ }));
     await user.click(await screen.findByRole("button", { name: "Vault actions" }));
-    await user.click(screen.getByRole("menuitem", { name: "Rotate vault key…" }));
-    const dialog = await screen.findByRole("dialog", { name: /^Rotate the key of .*Personal/ });
+    await user.click(screen.getByRole("menuitem", { name: "Renew vault key…" }));
+    const dialog = await screen.findByRole("dialog", { name: /^Renew the key of .*Personal/ });
     return { user, calls, dialog };
   }
 
   it("asks for the master password after the click, then rotates with the attachments option", async () => {
     const { user, calls, dialog } = await openRotateDialog({ sync, rotation });
-    await user.click(within(dialog).getByRole("switch", { name: "Also re-encrypt attachments" }));
-    await user.click(within(dialog).getByRole("button", { name: "Rotate key" }));
+    await user.click(within(dialog).getByRole("switch", { name: "Also renew the keys of attachments" }));
+    await user.click(within(dialog).getByRole("button", { name: "Renew key" }));
 
     const reauth = await screen.findByRole("dialog", { name: "Confirm with your master password" });
-    expect(within(reauth).getByText("Rotating a vault key needs your master password.")).toBeTruthy();
+    expect(within(reauth).getByText("Renewing a vault key needs your master password.")).toBeTruthy();
     await user.type(within(reauth).getByLabelText("Master password"), "mosaic");
     await user.click(within(reauth).getByRole("button", { name: "Confirm" }));
 
-    expect(await within(dialog).findByText("The vault key was rotated and the attachments are encrypted again.")).toBeTruthy();
+    expect(await within(dialog).findByText("The vault key was renewed, and the attachment keys were renewed too.")).toBeTruthy();
     const rotate = calls.filter((call) => call.command === "vault_rotate_key");
     expect(rotate.map((call) => (call.request as { resealAttachments: boolean }).resealAttachments)).toEqual([
       true,
@@ -72,29 +72,29 @@ describe("Rotate vault key…", () => {
 
   it("rotates without the attachments when the option stays off", async () => {
     const { user, calls, dialog } = await openRotateDialog({ sync, rotation });
-    await user.click(within(dialog).getByRole("button", { name: "Rotate key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Renew key" }));
     const reauth = await screen.findByRole("dialog", { name: "Confirm with your master password" });
     await user.type(within(reauth).getByLabelText("Master password"), "mosaic");
     await user.click(within(reauth).getByRole("button", { name: "Confirm" }));
-    expect(await within(dialog).findByText("The vault key was rotated.")).toBeTruthy();
+    expect(await within(dialog).findByText("The vault key was renewed.")).toBeTruthy();
     const last = calls.filter((call) => call.command === "vault_rotate_key").at(-1);
     expect(last?.request).toMatchObject({ resealAttachments: false });
   });
 
   it("goes back to the question when the password dialog is closed, without an error", async () => {
     const { user, dialog } = await openRotateDialog({ sync, rotation });
-    await user.click(within(dialog).getByRole("button", { name: "Rotate key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Renew key" }));
     const reauth = await screen.findByRole("dialog", { name: "Confirm with your master password" });
     await user.click(within(reauth).getByRole("button", { name: "Cancel" }));
     await waitFor(() => {
-      expect(within(dialog).getByRole("button", { name: "Rotate key" })).toHaveProperty("disabled", false);
+      expect(within(dialog).getByRole("button", { name: "Renew key" })).toHaveProperty("disabled", false);
     });
-    expect(within(dialog).queryByText("The vault key was rotated.")).toBeNull();
+    expect(within(dialog).queryByText("The vault key was renewed.")).toBeNull();
   });
 
   it("says what went wrong when the rotation fails", async () => {
     const { user, dialog } = await openRotateDialog({ sync, rotation: { ...rotation, fail: "syncServerUnreachable" } });
-    await user.click(within(dialog).getByRole("button", { name: "Rotate key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Renew key" }));
     const reauth = await screen.findByRole("dialog", { name: "Confirm with your master password" });
     await user.type(within(reauth).getByLabelText("Master password"), "mosaic");
     await user.click(within(reauth).getByRole("button", { name: "Confirm" }));
@@ -134,8 +134,10 @@ describe("the quick search shortcut", () => {
     await openSettings(user);
     const field = await screen.findByLabelText<HTMLInputElement>("Shortcut");
     expect(field.value).toBe("Ctrl+Shift+Space");
-    await user.clear(field);
-    await user.type(field, "Ctrl+Alt+K");
+    // The field records the key press (M9-UX13): nothing is typed.
+    await user.click(field);
+    await user.keyboard("{Control>}{Alt>}k{/Alt}{/Control}");
+    expect(field.value).toBe("Ctrl+Alt+K");
     await user.click(screen.getByRole("button", { name: "Save shortcut" }));
     expect(await screen.findByText("Shortcut saved: Ctrl+Alt+K.")).toBeTruthy();
     const update = calls.filter((call) => call.command === "update_settings").at(-1);
@@ -147,8 +149,8 @@ describe("the quick search shortcut", () => {
     const { user } = await open({});
     await openSettings(user);
     const field = await screen.findByLabelText("Shortcut");
-    await user.clear(field);
-    await user.type(field, "Shift+K");
+    await user.click(field);
+    await user.keyboard("{Shift>}k{/Shift}");
     await user.click(screen.getByRole("button", { name: "Save shortcut" }));
     expect(await screen.findByText(/That isn't a shortcut Mosaic can use/)).toBeTruthy();
   });
@@ -157,8 +159,8 @@ describe("the quick search shortcut", () => {
     const { user } = await open({ shortcut: "conflict" });
     await openSettings(user);
     const field = await screen.findByLabelText("Shortcut");
-    await user.clear(field);
-    await user.type(field, "Ctrl+Alt+K");
+    await user.click(field);
+    await user.keyboard("{Control>}{Alt>}k{/Alt}{/Control}");
     await user.click(screen.getByRole("button", { name: "Save shortcut" }));
     expect(await screen.findByText(/Another program already uses this shortcut/)).toBeTruthy();
   });
@@ -170,7 +172,7 @@ describe("the quick search shortcut", () => {
     await waitFor(() => {
       expect(field.disabled).toBe(true);
     });
-    expect(screen.getByText(/doesn't allow shortcuts that work in every program, so this can't be changed here/)).toBeTruthy();
+    expect(screen.getByText(/doesn't let apps set a global shortcut, so this can't be changed here/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save shortcut" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Use the default" })).toHaveProperty("disabled", true);
   });
@@ -185,7 +187,7 @@ describe("the quick search shortcut", () => {
 
 describe("why a device was signed out", () => {
   const reasons = {
-    rekey: /re-keyed on another device: sign in with the new Secret Key from your newest Emergency Kit/,
+    rekey: /keys were renewed on another device: sign in with the new Secret Key from your newest Emergency Kit/,
     passwordChange: /master password was changed on another device/,
     deviceRemoved: /removed from your account on another device/,
     operator: /operator of the server ended this session/,
@@ -247,11 +249,11 @@ describe("vault details that were shortened", () => {
 describe("a browser connection that points somewhere else", () => {
   it("shows the banner at the start and in Settings > Browsers, and Repair removes it", async () => {
     const { user, calls } = await open({ connector: "foreign" });
-    const banner = await screen.findByText(/starts another program than this Mosaic/);
+    const banner = await screen.findByText(/starts a different program instead of Mosaic/);
     expect(banner.textContent).toContain("other-host.exe");
     await user.click(screen.getByRole("button", { name: "Repair" }));
     await waitFor(() => {
-      expect(screen.queryByText(/starts another program than this Mosaic/)).toBeNull();
+      expect(screen.queryByText(/starts a different program instead of Mosaic/)).toBeNull();
     });
     expect(calls.some((call) => call.command === "browser_connector_repair")).toBe(true);
     expect(await screen.findByText("Browser connection repaired.")).toBeTruthy();
@@ -266,7 +268,7 @@ describe("a browser connection that points somewhere else", () => {
     await openSettings(user);
     const heading = await screen.findByRole("heading", { name: "Browsers" });
     const section = heading.closest("section") as HTMLElement;
-    expect(await within(section).findByText(/starts another program than this Mosaic/)).toBeTruthy();
+    expect(await within(section).findByText(/starts a different program instead of Mosaic/)).toBeTruthy();
     expect(within(section).getByRole("button", { name: "Repair" })).toBeTruthy();
   });
 

@@ -16,6 +16,7 @@ import { useReauth } from "../../hooks/useReauth.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, RotationDone, VaultSummary } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
+import { useWizardOpenMarker } from "../settings/security/hooks.ts";
 import { isolate } from "../sync/hooks.ts";
 import { vaultLabel } from "./Sidebar.tsx";
 
@@ -70,12 +71,18 @@ export function RotateVaultKeyDialog({ vault, onDone, onClose }: { vault: VaultS
   const { t } = useI18n();
   const { reseal, setReseal, step, error, progress, rotate, dialog } = useRotation(vault);
   const working = step.kind === "working";
+  // This dialog owns the job while it runs: "Continue key rotation" stays out of the way.
+  useWizardOpenMarker();
   const name = isolate(vaultLabel(vault, (key) => t(key)));
   return (
     <>
       <Dialog
         title={t("vaultKey.title", { vault: name })}
         onClose={() => {
+          // Esc and the backdrop do nothing while the rotation runs: it cannot be taken back.
+          if (working) {
+            return;
+          }
           if (step.kind === "done") {
             onDone();
           }

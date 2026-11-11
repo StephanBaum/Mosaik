@@ -330,6 +330,7 @@ export const fixtures = {
       "browserRequestExpired",
       "browserAllowTooSoon",
       "browserPairingNotFound",
+      "browserHostMissing",
       "syncNotConfigured",
       "syncAlreadyConfigured",
       "syncServerUnreachable",
@@ -961,6 +962,9 @@ export const fixtures = {
     },
     {
       "code": "browserPairingNotFound"
+    },
+    {
+      "code": "browserHostMissing"
     },
     {
       "code": "syncNotConfigured"

@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 use mosaic_native_messaging::Error;
 use mosaic_native_messaging::ids::HOST_NAME;
 use mosaic_native_messaging::install::{
-    Browser, Layout, Os, Registry, UNREADABLE, audit, manifest_json, parse_reg_query_default,
+    Browser, EXTENSIONS_DIFFER, Layout, Os, Registry, UNREADABLE, audit, manifest_json,
+    parse_reg_query_default,
 };
 
 /// `HKCU\<key>` of each browser (`install.rs` `registry_key`).
@@ -124,7 +125,6 @@ fn browsers(findings: &[mosaic_native_messaging::install::ManifestFinding]) -> V
 /// the key as absent.
 /// Expected defense: the entry is reported (with its host, or as unreadable).
 #[test]
-#[ignore = "M9-F70: a REG_EXPAND_SZ per-user value hides a foreign manifest from the audit"]
 fn audit_reports_a_reg_expand_sz_override() {
     let root = tempfile::tempdir().unwrap();
     let evil = manifest_at(root.path(), "evil.json", r"C:\Users\u\evil\host.exe");
@@ -247,7 +247,6 @@ fn audit_reports_host_paths_that_only_look_like_the_installed_one() {
 /// create; the audit's `to_lowercase` comparison calls it the same.
 /// Expected defense: the entry is reported.
 #[test]
-#[ignore = "M9-F71: the Windows host comparison folds U+212A to k, which NTFS does not"]
 fn audit_reports_a_kelvin_sign_look_alike_host() {
     let root = tempfile::tempdir().unwrap();
     let installed = r"C:\Users\Kai\AppData\Local\Mosaic\mosaic-native-host.exe";
@@ -317,4 +316,79 @@ fn audit_follows_links_and_reports_unreadable_entries() {
     fs::remove_file(&file).unwrap();
     try_symlink(&own, &file).unwrap();
     assert_eq!(audit(&layout, host, &mut RegQuery::default()), Vec::new());
+}
+
+/// Attempt (M9-F2): a manifest with the installed host's path but another
+/// extension allowed to start it, or with the other browser family's list.
+/// Expected defense: reported; the exact manifest Mosaic writes is not.
+#[test]
+fn audit_reports_a_foreign_extension_behind_the_right_host_path() {
+    let root = tempfile::tempdir().unwrap();
+    let layout = unix_layout(Os::Linux, root.path());
+    let host = Path::new(LINUX_HOST);
+    let file = chrome_manifest(&layout);
+    for edit in [
+        (
+            "allowed_origins",
+            serde_json::json!(["chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"]),
+        ),
+        ("allowed_origins", serde_json::json!([])),
+        (
+            "allowed_extensions",
+            serde_json::json!(["evil@example.org"]),
+        ),
+    ] {
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&manifest_json(false, host)).unwrap();
+        manifest[edit.0] = edit.1;
+        fs::write(&file, manifest.to_string()).unwrap();
+        let findings = audit(&layout, host, &mut RegQuery::default());
+        assert_eq!(browsers(&findings), [Browser::Chrome], "{manifest}");
+        assert_eq!(findings[0].path, PathBuf::from(EXTENSIONS_DIFFER));
+    }
+    // An extra allowed origin is a difference too.
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json(false, host)).unwrap();
+    manifest["allowed_origins"]
+        .as_array_mut()
+        .unwrap()
+        .push("chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/".into());
+    fs::write(&file, manifest.to_string()).unwrap();
+    assert_eq!(audit(&layout, host, &mut RegQuery::default()).len(), 1);
+    // The manifest as Mosaic writes it is clean.
+    fs::write(&file, manifest_json(false, host)).unwrap();
+    assert_eq!(audit(&layout, host, &mut RegQuery::default()), Vec::new());
+}
+
+/// A registry value of a type that cannot name a manifest is a finding, not an
+/// absent key; `REG_EXPAND_SZ` is expanded like the browsers do (M9-F70).
+#[test]
+fn audit_reports_other_registry_value_types_as_unreadable() {
+    let root = tempfile::tempdir().unwrap();
+    let mut registry = RegQuery::default();
+    registry.put(Browser::Chrome, "REG_BINARY", "DEADBEEF");
+    registry.put(Browser::Edge, "REG_MULTI_SZ", r"C:.json C:.json");
+    let findings = audit(
+        &windows_layout(root.path()),
+        Path::new(WINDOWS_HOST),
+        &mut registry,
+    );
+    assert_eq!(browsers(&findings), [Browser::Chrome, Browser::Edge]);
+    assert!(findings.iter().all(|f| f.path == Path::new(UNREADABLE)));
+    // The value name may hold spaces (localized); the data keeps its `REG_`.
+    let line = r"    (Par défaut)    REG_SZ    C:\REG_x\m.json";
+    assert_eq!(
+        parse_reg_query_default(line),
+        Some(PathBuf::from(r"C:\REG_x\m.json"))
+    );
+    unknown_variables_stay_as_written();
+}
+
+fn unknown_variables_stay_as_written() {
+    // `%SystemRoot%` exists on Windows only; elsewhere the text stays as written.
+    let line = r"    (Default)    REG_EXPAND_SZ    %MOSAIC_NO_SUCH_VAR_9%\m.json";
+    assert_eq!(
+        parse_reg_query_default(line),
+        Some(PathBuf::from(r"%MOSAIC_NO_SUCH_VAR_9%\m.json"))
+    );
 }

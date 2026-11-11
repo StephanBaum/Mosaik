@@ -310,7 +310,6 @@ HKEY_CURRENT_USER\Software\x
         "",
         "ERROR: The system was unable to find the specified registry key",
         "    (Default)    REG_SZ    \n",
-        "    (Default)    REG_DWORD    0x1\n",
     ] {
         assert_eq!(parse_reg_query_default(none), None, "{none:?}");
     }

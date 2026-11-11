@@ -305,11 +305,22 @@ pub trait Registry {
     /// # Errors
     /// Never in practice; the install is best effort.
     fn delete(&mut self, key: &str) -> Result<(), Error>;
+
+    /// The registry root the keys are below, as shown in findings.
+    fn root(&self) -> &'static str {
+        "HKCU"
+    }
 }
 
 /// `%SystemRoot%\System32\reg.exe`, by absolute path so that no program
 /// earlier on the `PATH` or in the working directory can stand in for it.
 /// `system_root` is `%SystemRoot%`; `C:\Windows` if it is not set.
+///
+/// `%SystemRoot%` comes from the environment, which a same-user process can
+/// set for a program it starts (R121): the path of `reg.exe` is then the
+/// attacker's. That process already runs as the user and could write the
+/// per-user keys itself, so this is no new power; the audit is a tripwire
+/// for installs, not a defence against code that controls this process.
 #[must_use]
 pub fn reg_exe_path(system_root: Option<OsString>) -> PathBuf {
     PathBuf::from(system_root.unwrap_or_else(|| OsString::from(r"C:\Windows")))
@@ -317,16 +328,66 @@ pub fn reg_exe_path(system_root: Option<OsString>) -> PathBuf {
         .join("reg.exe")
 }
 
-/// The value in the output of `reg query <key> /ve`: the text after the type
-/// `REG_SZ` on the line that has one. The name of the value (`(Default)`,
-/// localized by Windows) is not looked at.
+/// The value in the output of `reg query <key> /ve`: the data after the type
+/// on the line that has one. The name of the value (`(Default)`, localized by
+/// Windows) is not looked at.
+///
+/// `REG_SZ` is taken as is and `REG_EXPAND_SZ` with its `%VAR%` references
+/// expanded from this process's environment, as the browsers read both (M9-F70).
+/// A value of any other type cannot name a manifest; it comes back as the
+/// [`UNREADABLE`] marker so that the audit reports the key instead of
+/// treating it as absent.
 #[must_use]
 pub fn parse_reg_query_default(output: &str) -> Option<PathBuf> {
+    parse_reg_query_with(output, |name| std::env::var(name).ok())
+}
+
+fn parse_reg_query_with(output: &str, env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     output.lines().find_map(|line| {
-        let (_, value) = line.split_once("REG_SZ")?;
-        let value = value.trim();
+        // The type is the first `REG_...` word that follows whitespace (the
+        // value name may hold spaces, the data may hold `REG_`).
+        let start = line
+            .match_indices("REG_")
+            .map(|(i, _)| i)
+            .find(|&i| line[..i].ends_with(char::is_whitespace))?;
+        let rest = &line[start..];
+        let (kind, data) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+        let data = data.trim();
+        let value = match kind {
+            "REG_SZ" => data.to_owned(),
+            "REG_EXPAND_SZ" => expand_env(data, &env),
+            _ => return Some(PathBuf::from(UNREADABLE)),
+        };
         (!value.is_empty()).then(|| PathBuf::from(value))
     })
+}
+
+/// `text` with each `%NAME%` replaced by its value; an unknown name stays as
+/// written, so that it can only name a file that does not exist.
+fn expand_env(text: &str, env: &impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('%') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('%') {
+            Some(close) if close > 0 => {
+                if let Some(value) = env(&after[..close]) {
+                    out.push_str(&value);
+                    rest = &after[close + 1..];
+                } else {
+                    out.push('%');
+                    rest = after;
+                }
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The Windows registry through `reg.exe`.
@@ -337,13 +398,11 @@ impl RegExe {
     fn command() -> Command {
         Command::new(reg_exe_path(std::env::var_os("SystemRoot")))
     }
-}
 
-impl Registry for RegExe {
-    fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+    fn query(root: &str, key: &str) -> Option<PathBuf> {
         let output = Self::command()
             .arg("query")
-            .arg(format!(r"HKCU\{key}"))
+            .arg(format!(r"{root}\{key}"))
             .arg("/ve")
             .output()
             .ok()?;
@@ -351,6 +410,36 @@ impl Registry for RegExe {
             return None;
         }
         parse_reg_query_default(&String::from_utf8_lossy(&output.stdout))
+    }
+}
+
+/// The machine-wide entries the MSI writes under `HKLM`, read-only: the
+/// audit compares them with the installed host (M9-F3). Writing is refused,
+/// as it needs an administrator and belongs to the installer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RegExeMachine;
+
+impl Registry for RegExeMachine {
+    fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+        RegExe::query("HKLM", key)
+    }
+
+    fn set_default(&mut self, _key: &str, _value: &Path) -> Result<(), Error> {
+        Err(Error::Install)
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<(), Error> {
+        Err(Error::Install)
+    }
+
+    fn root(&self) -> &'static str {
+        "HKLM"
+    }
+}
+
+impl Registry for RegExe {
+    fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+        Self::query("HKCU", key)
     }
 
     fn set_default(&mut self, key: &str, value: &Path) -> Result<(), Error> {
@@ -457,7 +546,9 @@ pub fn uninstall(layout: &Layout, registry: &mut dyn Registry) -> Result<Uninsta
 mod audit;
 mod system;
 
-pub use audit::{ManifestFinding, UNREADABLE, audit, audit_manifests, repair};
+pub use audit::{
+    EXTENSIONS_DIFFER, ManifestFinding, UNREADABLE, audit, audit_machine, audit_manifests, repair,
+};
 pub use system::{LINUX_SYSTEM_HOST, WINDOWS_SYSTEM_HOST, system_host, system_plan, write_system};
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, OwnedSession, SyncEngine, SyncError, SyncReport};
 use mosaic_sync::folder::{self, FolderConfig, FolderContents, FolderTransport, JoinError};
 use mosaic_sync::http::{HttpTransport, StoredToken};
-use mosaic_sync::transport::{RevokedReason, TransportError, TransportKind};
+use mosaic_sync::transport::{TransportError, TransportKind};
 use mosaic_sync::wire::SessionCrypto;
 use mosaic_sync::wire::device_info::{DeviceInfo, Platform};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
@@ -29,9 +29,7 @@ fn sync_failed(reason: &str) -> CliError {
 /// A transport failure: a session the server ended by a re-key names the new Secret Key.
 fn transport_failed(t: &TransportError) -> CliError {
     match t {
-        TransportError::Revoked(RevokedReason::Rekey) => {
-            CliError::new("syncSessionRevoked", EXIT_SYNC, Msg::ErrSyncSessionRevoked)
-        }
+        TransportError::Revoked(reason) => CliError::session_revoked(*reason),
         other => sync_failed(&other.to_string()),
     }
 }
@@ -44,7 +42,7 @@ fn map_sync_error(e: SyncError) -> CliError {
         SyncError::Transport(t) => transport_failed(&t),
         SyncError::Session(s) => s.into(),
         SyncError::Backoff { .. } => sync_failed("backing off"),
-        SyncError::AccountRekeyed => sync_failed("the account was re-keyed on another device"),
+        SyncError::AccountRekeyed => sync_failed("the account keys were renewed on another device"),
         _ => CliError::internal(),
     }
 }

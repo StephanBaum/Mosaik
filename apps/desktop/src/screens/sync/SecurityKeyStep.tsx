@@ -5,7 +5,7 @@
  * command every two seconds. Focus moves to the heading when the step appears, the code is
  * spoken digit by digit, and a live region reports the status.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type HTMLAttributes, type Ref } from "react";
 import { Button } from "../../components/Button.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
@@ -17,6 +17,16 @@ import type {
   UnixMillis,
 } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
+
+/** A step heading that takes the level of the screen it is on (h2 under a page h1, h4 in a card). */
+export function Heading({
+  level,
+  ref,
+  ...rest
+}: HTMLAttributes<HTMLHeadingElement> & { level: 2 | 4; ref?: Ref<HTMLHeadingElement> }) {
+  const Tag = level === 2 ? "h2" : "h4";
+  return <Tag ref={ref} {...rest} />;
+}
 
 /** How often the status is asked. */
 export const POLL_MS = 2000;
@@ -119,6 +129,7 @@ function HandoffCode({ view }: { view: StepView }) {
 
 export function SecurityKeyStep({
   view,
+  headingLevel = 4,
   poll,
   onView,
   onDone,
@@ -126,6 +137,8 @@ export function SecurityKeyStep({
   onRetry,
 }: {
   view: StepView;
+  /** The level of the step heading: 4 under a card in Settings, 2 on a screen with its own h1. */
+  headingLevel?: 2 | 4;
   /** Asks Rust where the step stands. */
   poll: () => Promise<IpcResult<PollAnswer>>;
   /** The next step started (an account flow that signed in first). */
@@ -156,9 +169,9 @@ export function SecurityKeyStep({
   } as const;
   return (
     <section className="stack handoff" aria-labelledby="handoff-heading">
-      <h4 id="handoff-heading" className="body" ref={heading} tabIndex={-1}>
+      <Heading level={headingLevel} id="handoff-heading" className="body" ref={heading} tabIndex={-1}>
         {t(`settings.sync.key.wait.${view.step}`)}
-      </h4>
+      </Heading>
       {!ended && <HandoffCode view={view} />}
       <p className="status" role="status">
         {t(statusKey[state])}

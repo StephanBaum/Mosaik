@@ -175,6 +175,9 @@ wire_enum!(
         BrowserAllowTooSoon,
         /// No browser pairing with that ID.
         BrowserPairingNotFound,
+        /// No browser host program is installed with this app (a developer
+        /// build), so there is nothing to repair the connections to.
+        BrowserHostMissing,
         /// Sync is not set up.
         SyncNotConfigured,
         /// Sync is already set up; disconnect first.

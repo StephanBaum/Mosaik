@@ -46,9 +46,9 @@ they are not eligible for prizes.
 
 - Test only the challenge accounts, your own accounts and your own machines.
 - Do not read, change or delete another person's data.
-- Do not publish a finding before the advisory, or before 90 days have
-  passed, whichever comes first.
-- Do not publish a flag before the season ends.
+- Keep a finding private until the advisory is out or 90 days have passed,
+  whichever comes first.
+- Keep a flag private until the season ends.
 - One finding per report. Duplicates: the first complete report counts.
 - Tell us how you did it. A flag alone, with no steps, does not count.
 - Do not use what you find to harm anyone.
@@ -84,17 +84,10 @@ If you are not sure that something is allowed, ask first through
 
 ## Rewards
 
-By default, the reward is recognition: your name in the hall of fame, if you
-want it, and a thank-you in the advisory.
+For now we thank finders by name in the [hall of fame](HALL_OF_FAME.md) (if you
+agree) and in the advisory. Money rewards are not decided yet; this page will
+say so when they are.
 
-Money or other prizes are not set. If the owner sets them, they go in this
-table before the season starts. Until then every row stays a placeholder,
-and nothing here is a promise to pay.
-
-| Finding | Reward |
-|---|---|
-| Critical (see [`SECURITY.md`](../SECURITY.md)) | {PRIZE_CRITICAL} |
-| High | {PRIZE_HIGH} |
-| Medium | {PRIZE_MEDIUM} |
-| Low | {PRIZE_LOW} |
-| Each of C1 to C7, first valid solution | {PRIZE_FLAG} |
+<!-- Owner: when prizes are set, add a table here before the season starts.
+Keys: {PRIZE_CRITICAL} {PRIZE_HIGH} {PRIZE_MEDIUM} {PRIZE_LOW} {PRIZE_FLAG}
+(each of C1 to C7, first valid solution). Nothing here is a promise to pay. -->

@@ -89,7 +89,9 @@ export const browser = {
   "browser.connector.title":
     "Eine Browser-Verbindung zeigt woandershin",
   "browser.connector.body":
-    "{browser} startet ein anderes Programm als dieses Mosaic: {path}. Das kann ein älteres Mosaic sein oder etwas, das sich selbst eingetragen hat. „Reparieren“ richtet es wieder auf dieses Mosaic aus.",
+    "Die Verbindung für {browser} startet ein anderes Programm statt Mosaic: {path}. Das kann ein älteres Mosaic sein oder etwas, das sich selbst eingetragen hat. „Reparieren“ richtet es wieder auf dieses Mosaic aus.",
+  "browser.connector.item":
+    "{browser}: {path}",
   "browser.connector.repair":
     "Reparieren",
   "browser.connector.repaired":

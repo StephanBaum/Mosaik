@@ -99,7 +99,7 @@ export const settings = {
   "settings.shortcut.label":
     "Shortcut",
   "settings.shortcut.hint":
-    "Ctrl, Alt or Command, plus one key. For example Ctrl+Shift+Space.",
+    "Click the field, then press the keys you want: Ctrl, Alt or ⌘ (on a Mac), plus one more key.",
   "settings.shortcut.save":
     "Save shortcut",
   "settings.shortcut.reset":
@@ -107,7 +107,7 @@ export const settings = {
   "settings.shortcut.saved":
     "Shortcut saved: {shortcut}.",
   "settings.shortcut.invalid":
-    "That isn't a shortcut Mosaic can use. Use Ctrl, Alt or Command plus one key, for example Ctrl+Shift+Space.",
+    "That isn't a shortcut Mosaic can use. Press Ctrl, Alt or ⌘ (on a Mac) together with one more key.",
   "settings.shortcut.unsupported":
-    "Your system doesn't allow shortcuts that work in every program, so this can't be changed here.",
+    "Your system doesn't let apps set a global shortcut, so this can't be changed here.",
 } as const satisfies Record<string, string>;

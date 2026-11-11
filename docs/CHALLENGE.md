@@ -8,7 +8,9 @@ Each target hides a **flag**: a text like `MOSAIC{c1-0123456789abcdef}`. To
 solve a target, find its flag and report how you did it through
 [`SECURITY.md`](../SECURITY.md). A flag without steps does not count.
 
-The test server is at `{CONTEST_HOST}`. It holds no real data and is wiped
+The contest server's address will be posted here when the contest opens.
+<!-- Owner: put the address here: {CONTEST_HOST} -->
+The server holds no real data and is wiped
 every week ([`deploy/contest/README.md`](../deploy/contest/README.md)).
 `public.json`, published with each season, lists the addresses and the
 downloads below.

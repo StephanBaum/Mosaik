@@ -126,7 +126,10 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - name: Add the target
         run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # No build cache on a real release (M9-F4): a poisoned cache entry must not reach a job that holds
+      # signing secrets. Dry runs keep it.
+      - if: needs.prepare.outputs.dry_run == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: release-${{ matrix.target }}
       # Same flags as scripts/release/repro-build.sh, so a rebuilder's Linux binary can match ours.
@@ -239,14 +242,17 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - name: Add the target
         run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # No build cache on a real release (M9-F4): a poisoned cache entry must not reach a job that holds
+      # signing secrets. Dry runs keep it.
+      - if: needs.prepare.outputs.dry_run == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: release-desktop-${{ matrix.target }}
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
+          cache: ${{ needs.prepare.outputs.dry_run == 'true' && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile
       # The CLI and the native host ship inside the app (bundle.externalBin of the release overlay).
       - name: Build the sidecars
@@ -323,7 +329,20 @@ jobs:
         if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
         run: |
           echo "::warning::unsigned (no Apple signing secrets, or dry run): Gatekeeper will warn, no hardened runtime (R119)"
-      - name: Updater signing key
+      - name: Build the bundles
+        shell: bash
+        env:
+          MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
+        run: |
+          set -euo pipefail
+          # The build never sees the updater key (M9-F4): Tauri would sign the updater artifacts inside
+          # this step, next to every build script and dependency. They are signed in the next step.
+          pnpm --filter @mosaic/desktop tauri build --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.release.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      # Only this step holds the updater key. It signs the finished artifacts (the Authenticode-signed
+      # MSI, and the macOS app archive made here) with `tauri signer sign`; deb and rpm have none.
+      - name: Sign the updater artifacts
         if: env.HAS_UPDATER_KEY == 'true'
         shell: bash
         env:
@@ -331,22 +350,22 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          printf 'TAURI_SIGNING_PRIVATE_KEY<<MOSAIC_EOF\n%s\nMOSAIC_EOF\n' "$TAURI_SIGNING_PRIVATE_KEY" >> "$GITHUB_ENV"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" >> "$GITHUB_ENV"
-      - name: Build the bundles
-        shell: bash
-        env:
-          MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
-        run: |
-          set -euo pipefail
-          extra=()
-          # createUpdaterArtifacts needs the updater key; without it (dry run, no secret) it is off.
-          if [ "$HAS_UPDATER_KEY" != true ]; then
-            echo "::warning::no updater key: the .sig files are not built"
-            extra=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+          bundle="target/${{ matrix.target }}/release/bundle"
+          if [ "$RUNNER_OS" = macOS ]; then
+            app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)"
+            tar -czf "$app.tar.gz" -C "$(dirname "$app")" "$(basename "$app")"
           fi
-          pnpm --filter @mosaic/desktop tauri build --target "${{ matrix.target }}" \
-            --config src-tauri/tauri.release.conf.json "${extra[@]}"
+          signed=0
+          for f in "$bundle"/msi/*.msi "$bundle"/macos/*.app.tar.gz; do
+            [ -f "$f" ] || continue
+            pnpm --filter @mosaic/desktop exec tauri signer sign "$f"
+            test -s "$f.sig"
+            signed=$((signed + 1))
+          done
+          if [ "$RUNNER_OS" != Linux ]; then test "$signed" -ge 1 || { echo "::error::no updater artifact was signed"; exit 1; }; fi
+      - name: No updater key
+        if: env.HAS_UPDATER_KEY != 'true'
+        run: echo "::warning::no updater key: the .sig files are not built"
       - name: Collect the bundles and the pre-signing hashes
         shell: bash
         run: |
@@ -403,7 +422,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
+          cache: ${{ needs.prepare.outputs.dry_run == 'true' && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile
       - name: Build and pack
         run: bash scripts/release/package-extension.sh --build out
@@ -465,7 +484,10 @@ jobs:
         with: { persist-credentials: false }
       - name: Install toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # No build cache on a real release (M9-F4): a poisoned cache entry must not reach a job that holds
+      # signing secrets. Dry runs keep it.
+      - if: needs.prepare.outputs.dry_run == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: cargo-cyclonedx@0.5.9
@@ -473,7 +495,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
+          cache: ${{ needs.prepare.outputs.dry_run == 'true' && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile
       - name: Rust SBOMs (CycloneDX 1.5)
         run: |
@@ -578,7 +600,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
+          cache: ${{ needs.prepare.outputs.dry_run == 'true' && 'pnpm' || '' }}
       - name: Install minisign (pinned version, logged)
         run: bash scripts/release/install-minisign.sh
       - name: A tag run needs the signing secrets

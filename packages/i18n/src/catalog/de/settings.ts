@@ -105,7 +105,7 @@ export const settings = {
   "settings.shortcut.label":
     "Kürzel",
   "settings.shortcut.hint":
-    "Strg, Alt oder Befehlstaste plus eine Taste. Zum Beispiel Ctrl+Shift+Space.",
+    "Klicke ins Feld und drücke dann die gewünschten Tasten: Strg, Alt oder ⌘ (auf dem Mac) plus eine weitere Taste.",
   "settings.shortcut.save":
     "Kürzel speichern",
   "settings.shortcut.reset":
@@ -113,7 +113,7 @@ export const settings = {
   "settings.shortcut.saved":
     "Kürzel gespeichert: {shortcut}.",
   "settings.shortcut.invalid":
-    "Dieses Kürzel kann Mosaic nicht verwenden. Nimm Strg, Alt oder die Befehlstaste plus eine Taste, zum Beispiel Ctrl+Shift+Space.",
+    "Dieses Kürzel kann Mosaic nicht verwenden. Drücke Strg, Alt oder ⌘ (auf dem Mac) zusammen mit einer weiteren Taste.",
   "settings.shortcut.unsupported":
-    "Dein System erlaubt keine Kürzel, die in jedem Programm funktionieren. Deshalb lässt es sich hier nicht ändern.",
+    "Dein System erlaubt Apps keine globale Tastenkombination. Deshalb lässt es sich hier nicht ändern.",
 } satisfies Record<keyof typeof en, string>;
