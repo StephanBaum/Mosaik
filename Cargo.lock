@@ -3187,6 +3187,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-mobile"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "getrandom 0.4.3",
+ "mosaic-core",
+ "mosaic-generator",
+ "mosaic-mobile",
+ "mosaic-origin",
+ "mosaic-qr",
+ "mosaic-server",
+ "mosaic-sync",
+ "mosaic-totp",
+ "mosaic-vault",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "mosaic-native-messaging"
 version = "0.0.0"
 dependencies = [

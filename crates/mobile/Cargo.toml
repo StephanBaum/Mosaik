@@ -1,0 +1,59 @@
+[package]
+name = "mosaic-mobile"
+description = "Mosaic mobile core: all logic of the Android and iOS apps behind plain Rust types (M10, ADR-0089); the UniFFI shell is mosaic-mobile-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# `TestHooks` (local account creation with the Baseline profile, a settable clock
+# offset). Built only for the host tests, the JVM unit tests, the instrumented
+# tests and the XCTest builds; `scripts/mobile/check-no-test-hooks.sh` keeps it out
+# of release libraries.
+test-hooks = []
+
+[dependencies]
+mosaic-core = { path = "../core" }
+mosaic-vault = { path = "../vault" }
+# Hosted join, login, sync engine and transport (feature `http`).
+mosaic-sync = { path = "../sync", features = ["http"] }
+# OTP configurations, `otpauth://` parsing and codes.
+mosaic-totp = { path = "../totp" }
+# Password and passphrase generation.
+mosaic-generator = { path = "../generator" }
+# Camera frames to `otpauth://` entries and setup codes.
+mosaic-qr = { path = "../qr" }
+# Exact-origin matching, app URLs, asset links and fill targets (T3b).
+mosaic-origin = { path = "../origin" }
+thiserror.workspace = true
+zeroize.workspace = true
+# Random IDs of pending slots (same crate as mosaic-core's randomness).
+getrandom.workspace = true
+# settings.json.
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+# The loopback server harness of the join and sync tests (as `mosaic-sync`).
+mosaic-server = { path = "../server" }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "macros"] }
+tempfile.workspace = true
+# A security-key row for the WebAuthn handoff test.
+rusqlite.workspace = true
+# The loopback server harness hashes invite codes (`#[path]`-included).
+sha2.workspace = true
+
+# The integration tests drive `Core` through `TestHooks`: the crate's own
+# dev-dependency turns the feature on for `cargo test` (and for nothing else).
+mosaic-mobile = { path = ".", features = ["test-hooks"] }
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"

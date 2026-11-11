@@ -1,0 +1,368 @@
+//! Hosted sync, password recovery and the device reset (CRYPTO_SPEC §9,
+//! ADR-0091). The transport is `mosaic_sync::http::HttpTransport`; the engine
+//! runs on the unlocked session's holder, so a `lock()` ends a running sync with
+//! `locked` and never deadlocks.
+
+use std::path::{Path, PathBuf};
+
+use mosaic_core::MasterPassword;
+use mosaic_sync::engine::{EngineConfig, SyncEngine, SyncError};
+use mosaic_sync::http::{HttpTransport, StoredToken, Token as _, hosted};
+use mosaic_sync::transport::{Rejection, TransportError, TransportKind};
+use mosaic_vault::storage::SyncKind;
+use zeroize::Zeroizing;
+
+use crate::Core;
+use crate::error::{MobileError, Result};
+use crate::quick_unlock::params::Params;
+use crate::secret::text_of;
+use crate::state::{Phase, SessionState, Slots};
+use crate::storage::{read, secret_key_name, sync_token_name};
+use crate::unlock::Taken;
+
+/// Where sync stands, for the settings screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncOverview {
+    /// The account syncs with a server.
+    pub configured: bool,
+    /// A session token is stored.
+    pub signed_in: bool,
+    /// The server's origin.
+    pub server_url: Option<String>,
+    /// Local changes not yet uploaded (0 while locked).
+    pub pending_uploads: u32,
+    /// The last successful run (Unix ms), since this process started.
+    pub last_synced_at_ms: Option<u64>,
+    /// How the last run failed.
+    pub last_error: Option<MobileError>,
+    /// The engine halted (a rollback or a duplicated identity) or a vault
+    /// carries a finding: the apps tell the user.
+    pub halted: bool,
+}
+
+/// The confirmation of a device reset: the account email, typed.
+pub struct ResetConfirm {
+    /// The email of the account, as the user types it.
+    pub typed_email: String,
+}
+
+/// What a reset did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResetOutcome {
+    /// The state afterwards (`NoAccount`).
+    pub state: SessionState,
+    /// The platform keys to delete (the quick-unlock key).
+    pub key_aliases: Vec<String>,
+}
+
+/// The files of a store: the database, its lock, WAL and journal files, and
+/// the attachment directory.
+fn store_files(store: &Path) -> Vec<PathBuf> {
+    let mut files = vec![store.to_path_buf()];
+    for suffix in ["-lock", "-wal", "-shm", "-journal", "-attachments"] {
+        let mut name = store.as_os_str().to_owned();
+        name.push(suffix);
+        files.push(PathBuf::from(name));
+    }
+    files
+}
+
+fn remove_all(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Maps a sync failure and says whether it ends the session token.
+fn token_ended(e: &TransportError) -> bool {
+    matches!(
+        e,
+        TransportError::Unauthorized
+            | TransportError::Revoked(_)
+            | TransportError::Rejected(Rejection::DeviceRevoked)
+    )
+}
+
+impl Core {
+    /// Removes the store files and the settings file of this install, after
+    /// the store is closed.
+    pub(crate) fn wipe_files(&self) -> Result<()> {
+        for path in store_files(&self.config.store_path()) {
+            remove_all(&path).map_err(|_| MobileError::StoreUnavailable)?;
+        }
+        let settings = self.config.settings_path();
+        remove_all(&settings).map_err(|_| MobileError::StoreUnavailable)?;
+        remove_all(&settings.with_extension("json.tmp")).map_err(|_| MobileError::StoreUnavailable)
+    }
+
+    /// Where sync stands. Total: a failing read gives the plainest answer.
+    #[must_use]
+    pub fn sync_overview(&self) -> SyncOverview {
+        let mut overview = SyncOverview {
+            configured: false,
+            signed_in: false,
+            server_url: None,
+            pending_uploads: 0,
+            last_synced_at_ms: None,
+            last_error: None,
+            halted: false,
+        };
+        let Ok(account) = self.account_id() else {
+            return overview;
+        };
+        let (config, last_sync, last_error, unlocked) = {
+            let Ok(guard) = self.guard() else {
+                return overview;
+            };
+            let config = match &guard.phase {
+                Phase::Locked(ls) => ls.sync_config().ok().flatten(),
+                _ => None,
+            };
+            (
+                config,
+                guard.last_sync_at_ms,
+                guard.last_sync_error,
+                matches!(guard.phase, Phase::Unlocked(_)),
+            )
+        };
+        overview.last_synced_at_ms = last_sync;
+        overview.last_error = last_error;
+        let mut config = config;
+        if unlocked {
+            let facts = self.with_session(|s| {
+                let findings = s.sync_findings()?;
+                let pending = s.pending_uploads(1000)?.len();
+                Ok((s.sync_config()?, !findings.is_clear(), pending))
+            });
+            if let Ok((c, halted, pending)) = facts {
+                config = c;
+                overview.halted = halted;
+                overview.pending_uploads = u32::try_from(pending).unwrap_or(u32::MAX);
+            }
+        }
+        if let Some(config) = config {
+            overview.configured = config.kind == SyncKind::Hosted;
+            overview.server_url = config.server_url;
+        }
+        overview.signed_in = matches!(
+            read(self.storage.as_ref(), &sync_token_name(&account)),
+            Ok(Some(_))
+        );
+        overview
+    }
+
+    /// One sync run: upload local changes, download remote ones.
+    ///
+    /// # Errors
+    /// `invalidInput` in the extension context, `locked`,
+    /// `syncNotConfigured`, `folderAccountUnsupported`, `syncSignedOut`,
+    /// `syncPasswordChanged`, `syncAccountRekeyed`, `syncRateLimited`,
+    /// `syncServerUnreachable` and the other sync codes.
+    pub fn sync_now(&self) -> Result<SyncOverview> {
+        self.require_app()?;
+        let result = self.sync_once();
+        if let Ok(mut guard) = self.guard() {
+            match &result {
+                Ok(()) => {
+                    guard.last_sync_at_ms = Some(self.now_ms());
+                    guard.last_sync_error = None;
+                }
+                Err(e) => guard.last_sync_error = Some(*e),
+            }
+        }
+        result?;
+        Ok(self.sync_overview())
+    }
+
+    fn sync_once(&self) -> Result<()> {
+        use mosaic_sync::wire::SessionHandle as _;
+        let owned = self.owned_session()?;
+        let (config, install, account) = owned
+            .with_session(|s| (s.sync_config(), s.install_id(), s.account_id()))
+            .ok_or(MobileError::Locked)?;
+        let config = config?.ok_or(MobileError::SyncNotConfigured)?;
+        if config.kind != SyncKind::Hosted {
+            return Err(MobileError::FolderAccountUnsupported);
+        }
+        let url = config.server_url.ok_or(MobileError::SyncNotConfigured)?;
+        let token_name = sync_token_name(&account);
+        let stored = read(self.storage.as_ref(), &token_name)?.ok_or(MobileError::SyncSignedOut)?;
+        let mut bytes: [u8; 32] = stored
+            .as_slice()
+            .try_into()
+            .map_err(|_| MobileError::StorageUnavailable)?;
+        let token = StoredToken::from_array(&mut bytes);
+        let transport = HttpTransport::connect(&url, &token, install).map_err(|e| {
+            if token_ended(&e) {
+                let _ = self.storage.delete(&token_name);
+            }
+            MobileError::from(e)
+        })?;
+        let mut engine = SyncEngine::new(transport, EngineConfig::for_kind(TransportKind::Hosted));
+        let mut access = owned.clone();
+        self.work_pause();
+        match engine.sync_once(&mut access, &self.clock) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                if let SyncError::Transport(t) = &error
+                    && token_ended(t)
+                {
+                    let _ = self.storage.delete(&token_name);
+                }
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Recovers from a master password changed on another device: the new
+    /// password signs in to the server and must open this device's own
+    /// account key. The quick-unlock enrolment and the boot marker are
+    /// deleted (the platform reads the old key alias from the state).
+    ///
+    /// # Errors
+    /// `invalidInput` in the extension context, `locked`, `emptyPassword`,
+    /// `secretKeyRequired`, `syncNotConfigured`, `wrongCredentials`,
+    /// `syncTwoFactorRequired` (an account with a second factor cannot recover
+    /// on the phone), and the other sync codes.
+    pub fn recover_password(&self, new_password: Vec<u8>) -> Result<SyncOverview> {
+        self.require_app()?;
+        let mut password = text_of(new_password)?;
+        if password.is_empty() {
+            return Err(MobileError::EmptyPassword);
+        }
+        let account = self.account_id()?;
+        let secret_key = self.stored_secret_key(&account)?;
+        let owned = self.owned_session()?;
+        let (config, install) = {
+            use mosaic_sync::wire::SessionHandle as _;
+            owned
+                .with_session(|s| (s.sync_config(), s.install_id()))
+                .ok_or(MobileError::Locked)?
+        };
+        let config = config?.ok_or(MobileError::SyncNotConfigured)?;
+        if config.kind != SyncKind::Hosted {
+            return Err(MobileError::FolderAccountUnsupported);
+        }
+        let (url, email) = config
+            .server_url
+            .zip(config.email)
+            .ok_or(MobileError::SyncNotConfigured)?;
+        let master = MasterPassword::new(std::mem::take(&mut *password));
+        let unlocked = self.take_unlocked()?;
+        let recovered = hosted::recover_password(
+            &url,
+            &email,
+            &master,
+            &secret_key,
+            install,
+            &config.device_name,
+            None,
+        );
+        let adopted = match recovered {
+            Ok(recovered) => {
+                let params = *recovered.keys.params();
+                let wrapped = recovered.account.wrapped_ak.clone();
+                let token = Zeroizing::new(*recovered.grant.token.expose_bytes());
+                let changed = {
+                    use mosaic_sync::wire::SessionHandle as _;
+                    unlocked.owned.with_session_mut(|s| {
+                        s.adopt_remote_password(recovered.keys, &wrapped, params)
+                            .map_err(MobileError::from)
+                    })
+                };
+                Ok((changed.unwrap_or(Err(MobileError::Locked)), token))
+            }
+            Err(e) => Err(MobileError::from(e)),
+        };
+        self.restore_unlocked(unlocked)?;
+        let (changed, token) = adopted?;
+        let changed = changed?;
+        if let Some(removed) = changed.removed_quick_unlock {
+            let alias = Params::decode(&removed.platform_params, self.config.platform)
+                .ok()
+                .map(|p| p.key_alias());
+            if let Ok(mut guard) = self.guard() {
+                guard.expired_alias = alias;
+            }
+            self.update_info(|i| i.quick_unlock_enrolled = false);
+        }
+        self.storage
+            .put(&sync_token_name(&account), token.as_slice())?;
+        if let Ok(mut guard) = self.guard() {
+            guard.last_sync_error = None;
+        }
+        Ok(self.sync_overview())
+    }
+
+    /// Wipes this phone's account: the store, the settings file and the stored
+    /// secrets; the platform deletes the returned keys. The user confirms with
+    /// the account email.
+    ///
+    /// # Errors
+    /// `invalidInput` (the extension context, or the email does not match),
+    /// `busy`, `storageUnavailable`, `storeUnavailable`.
+    pub fn reset_device(&self, confirm: ResetConfirm) -> Result<ResetOutcome> {
+        self.require_app()?;
+        self.lock();
+        let taken = self.take_locked()?;
+        let Taken::Locked(locked) = taken else {
+            self.put_back(taken);
+            return Ok(ResetOutcome {
+                state: self.state(),
+                key_aliases: Vec::new(),
+            });
+        };
+        let account = locked.account_id();
+        let email = locked.sync_config().ok().flatten().and_then(|c| c.email);
+        let typed = confirm.typed_email.trim().to_lowercase();
+        let matches = email.is_some_and(|e| e.trim().to_lowercase() == typed) && !typed.is_empty();
+        if !matches || account.is_err() {
+            self.put_back(Taken::Locked(locked));
+            return Err(MobileError::InvalidInput);
+        }
+        let mut aliases: Vec<String> = locked
+            .quick_unlock_enrollment()
+            .ok()
+            .flatten()
+            .and_then(|e| Params::decode(&e.platform_params, self.config.platform).ok())
+            .map(|p| p.key_alias())
+            .into_iter()
+            .collect();
+        if let Ok(mut guard) = self.guard() {
+            aliases.extend(guard.expired_alias.take());
+        }
+        let account = account?;
+        // The secrets first, then the files; a failure keeps the store so the
+        // user can try again.
+        let deleted = self
+            .storage
+            .delete(&secret_key_name(&account))
+            .and_then(|()| self.storage.delete(&sync_token_name(&account)));
+        if let Err(e) = deleted {
+            self.put_back(Taken::Locked(locked));
+            return Err(e.into());
+        }
+        drop(locked);
+        self.wipe_files()?;
+        let (phase, busy) = crate::open_phase(&self.config)?;
+        {
+            let mut guard = self.guard()?;
+            guard.phase = phase;
+            guard.store_busy = busy;
+            guard.slots = Slots::default();
+            guard.expired_alias = None;
+            guard.last_sync_at_ms = None;
+            guard.last_sync_error = None;
+            guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
+        }
+        self.lock_requested
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(ResetOutcome {
+            state: self.state(),
+            key_aliases: aliases,
+        })
+    }
+}
