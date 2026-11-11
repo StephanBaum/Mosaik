@@ -23,6 +23,43 @@ pub struct Target {
 
 const SCHEME: &str = "mosaic://";
 
+/// A part of an `inject` template.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Segment<'a> {
+    /// Literal text, copied through.
+    Text(&'a str),
+    /// The trimmed `mosaic://` reference of a `{{ ... }}` placeholder.
+    Reference(&'a str),
+}
+
+/// Splits an `inject` template into literal text and `{{ mosaic://... }}` references. Pure and
+/// total: an unclosed `{{` and a placeholder that is not a `mosaic://` reference stay literal.
+/// The segments always concatenate (with each reference re-wrapped) back to the input's text.
+#[must_use]
+pub fn scan_template(template: &str) -> Vec<Segment<'_>> {
+    let mut out = Vec::new();
+    let mut rest = template;
+    while let Some((before, after)) = rest.split_once("{{") {
+        out.push(Segment::Text(before));
+        let Some((inner, tail)) = after.split_once("}}") else {
+            out.push(Segment::Text("{{"));
+            rest = after;
+            continue;
+        };
+        let reference = inner.trim();
+        if reference.starts_with(SCHEME) {
+            out.push(Segment::Reference(reference));
+        } else {
+            out.push(Segment::Text("{{"));
+            out.push(Segment::Text(inner));
+            out.push(Segment::Text("}}"));
+        }
+        rest = tail;
+    }
+    out.push(Segment::Text(rest));
+    out
+}
+
 fn uuid_bytes(s: &str) -> Option<[u8; 16]> {
     let compact: String = s.chars().filter(|c| *c != '-').collect();
     if compact.len() != 32 || !compact.is_ascii() || (s.len() != 32 && s.len() != 36) {
@@ -207,6 +244,7 @@ pub fn resolve(session: &UnlockedSession, text: &str) -> Result<Target> {
 }
 
 /// Exit code of a missing field.
+#[must_use]
 pub fn no_such_field(field: &str) -> CliError {
     CliError::new("noSuchField", EXIT_NOT_FOUND, Msg::ErrNoSuchField).with("field", field)
 }
@@ -231,5 +269,23 @@ mod tests {
         assert_eq!(percent_decode("e%CC%81").as_deref(), Some("\u{e9}"));
         assert!(percent_decode("bad%zz").is_none());
         assert!(percent_decode("%ff").is_none());
+    }
+
+    #[test]
+    fn scan_template_splits_references_and_keeps_the_rest_literal() {
+        use Segment::{Reference, Text};
+        assert_eq!(
+            scan_template("a {{ mosaic://V/I/f }} b"),
+            vec![Text("a "), Reference("mosaic://V/I/f"), Text(" b")]
+        );
+        assert_eq!(
+            scan_template("{{ other }}"),
+            vec![Text(""), Text("{{"), Text(" other "), Text("}}"), Text("")]
+        );
+        assert_eq!(
+            scan_template("x {{ mosaic://V/I"),
+            vec![Text("x "), Text("{{"), Text(" mosaic://V/I")]
+        );
+        assert_eq!(scan_template(""), vec![Text("")]);
     }
 }

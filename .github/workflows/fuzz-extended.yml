@@ -1,0 +1,140 @@
+name: Extended fuzzing
+
+# The long fuzz run of M9 (docs/FUZZING.md, M9 spec §2.7). Manual only: Tier A targets (the parsers
+# that take attacker-controlled bytes) run for `tier_a_seconds`, every other target for
+# `tier_b_seconds`. The 60-second smoke run on every push stays in ci.yml.
+# A schedule is deliberately not enabled (about 17.5 CPU-hours per run); to run it monthly, add
+#   schedule: [{ cron: "0 3 1 * *" }]
+# below. Scheduled runs use the input defaults.
+on:
+  workflow_dispatch:
+    inputs:
+      tier_a_seconds:
+        description: Seconds per Tier A target
+        type: number
+        default: 1800
+      tier_b_seconds:
+        description: Seconds per Tier B target
+        type: number
+        default: 600
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-extended-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.dir }})
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - crates/core/fuzz
+          - crates/vault/fuzz
+          - crates/totp/fuzz
+          - crates/qr/fuzz
+          - crates/generator/fuzz
+          - crates/insights/fuzz
+          - crates/import/fuzz
+          - crates/ssh-agent/fuzz
+          - crates/native-messaging/fuzz
+          - crates/passkey/fuzz
+          - crates/sync/fuzz
+          - crates/server/fuzz
+          - crates/cli/fuzz
+          - crates/origin/fuzz
+          - apps/desktop/src-tauri/fuzz
+    runs-on: ubuntu-latest
+    # Tier A: up to 8 targets in one directory at 30 minutes, plus margin for the build.
+    timeout-minutes: 330
+    env:
+      # The same dated nightly and cargo-fuzz as the smoke job in ci.yml. Bump together.
+      FUZZ_TOOLCHAIN: nightly-2026-10-25
+      TIER_A_SECONDS: ${{ inputs.tier_a_seconds || 1800 }}
+      TIER_B_SECONDS: ${{ inputs.tier_b_seconds || 600 }}
+      FUZZ_DIR: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Install pinned nightly (cargo-fuzz needs -Z sanitizer flags)
+        run: rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-fuzz@0.13.2
+      - name: Run every fuzz target of the directory
+        working-directory: ${{ matrix.dir }}
+        env:
+          RUSTFLAGS: ""
+        run: |
+          set -euo pipefail
+          case "$TIER_A_SECONDS$TIER_B_SECONDS" in *[!0-9]*) echo "::error::the times must be whole seconds"; exit 1;; esac
+          # Tier A: the directories whose targets all take attacker-controlled bytes, and the
+          # named targets of the mixed ones.
+          tier_a() {
+            case "$FUZZ_DIR" in
+              crates/import/fuzz|crates/cli/fuzz|crates/origin/fuzz) return 0 ;;
+            esac
+            case "$1" in
+              item_ciphertext|wrapped_key|attachment_open|export_reader|cli_session_file|item_plaintext|item_merge) return 0 ;;
+              apply_remote|record_body|attachment_validate) return 0 ;;
+              segment_decode|json_responses|account_file_decode|checkpoint_decode|rekey_marker_decode|folder_name_parse) return 0 ;;
+              request_bodies|checkpoint_upload|webauthn_bodies) return 0 ;;
+              channel_open|envelope|preauth_message) return 0 ;;
+              ipc_requests|state_file|wire_messages|agent_session) return 0 ;;
+            esac
+            return 1
+          }
+          targets="$(cargo "+$FUZZ_TOOLCHAIN" fuzz list)"
+          test -n "$targets"
+          for t in $targets; do
+            echo "::group::$t"
+            test -d "seeds/$t" || { echo "::error::missing seeds/$t"; exit 1; }
+            mkdir -p "corpus/$t"
+            if tier_a "$t"; then secs="$TIER_A_SECONDS"; else secs="$TIER_B_SECONDS"; fi
+            extra=""; if [ -f "dicts/$t.dict" ]; then extra="-dict=dicts/$t.dict"; fi
+            # The same per-target limits as the smoke job in ci.yml, plus the memory cap.
+            case "$t" in
+              attachment_*) extra="$extra -max_len=270000" ;;
+              segment_decode|json_responses|request_bodies) extra="$extra -max_len=65536" ;;
+              checkpoint_upload) extra="$extra -max_len=65600" ;;
+              otpauth_uri|password_rules) extra="$extra -max_len=8192" ;;
+              scan_image) extra="$extra -max_len=1048576 -timeout=10" ;;
+              scan_luma) extra="$extra -timeout=10" ;;
+            esac
+            echo "$t: ${secs} s"
+            cargo "+$FUZZ_TOOLCHAIN" fuzz run --target x86_64-unknown-linux-gnu "$t" "corpus/$t" "seeds/$t" -- \
+              -max_total_time="$secs" -rss_limit_mb=2048 $extra
+            echo "::endgroup::"
+          done
+      # Executions and new corpus inputs per target go to the job summary, to be copied into
+      # docs/PROGRESS.md.
+      - name: Corpus size
+        if: always()
+        working-directory: ${{ matrix.dir }}
+        run: |
+          {
+            echo "### ${FUZZ_DIR}"
+            for d in corpus/*/; do
+              [ -d "$d" ] && echo "- ${d%/}: $(find "$d" -type f | wc -l) inputs"
+            done
+          } >> "$GITHUB_STEP_SUMMARY" || true
+      # A crash input is only reproducible if it survives the job; the grown corpus is kept for
+      # the next run.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-crashes-${{ strategy.job-index }}
+          path: ${{ matrix.dir }}/artifacts
+          if-no-files-found: ignore
+      - name: Upload corpus
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-corpus-${{ strategy.job-index }}
+          path: ${{ matrix.dir }}/corpus
+          if-no-files-found: ignore
+          retention-days: 30

@@ -276,29 +276,16 @@ pub fn inject(app: &mut App, p: &Parsed) -> Result<()> {
     // Resolve every secret first, so the output buffer is reserved at its exact size and never
     // reallocates (a reallocation would leave an unwiped copy behind).
     let mut pieces: Vec<Piece<'_>> = Vec::new();
-    let mut rest = template.as_str();
-    while let Some((before, after)) = rest.split_once("{{") {
-        pieces.push(Piece::Text(before));
-        let Some((inner, tail)) = after.split_once("}}") else {
-            pieces.push(Piece::Text("{{"));
-            rest = after;
-            continue;
-        };
-        let reference = inner.trim();
-        if reference.starts_with("mosaic://") {
-            pieces.push(Piece::Secret(secret_of(
+    for segment in refs::scan_template(template.as_str()) {
+        match segment {
+            refs::Segment::Text(t) => pieces.push(Piece::Text(t)),
+            refs::Segment::Reference(reference) => pieces.push(Piece::Secret(secret_of(
                 &mut u.session,
                 reference,
                 now_secs,
-            )?));
-        } else {
-            pieces.push(Piece::Text("{{"));
-            pieces.push(Piece::Text(inner));
-            pieces.push(Piece::Text("}}"));
+            )?)),
         }
-        rest = tail;
     }
-    pieces.push(Piece::Text(rest));
     drop(u);
     let result = render(&pieces);
     drop(pieces);
