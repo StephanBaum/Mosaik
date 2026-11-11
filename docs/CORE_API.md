@@ -1036,6 +1036,69 @@ Encrypted export (CRYPTO_SPEC §11.2, ADR-0073):
   Option<UnlockedSession>` (locks every clone: later engine and transport calls
   fail with `Locked`), `is_unlocked()`. A poisoned lock fails closed.
 
+## M10: mobile (core, vault, passkey, origin, sync, qr; new crates `mosaic-mobile` and `mosaic-mobile-ffi`)
+
+Planned by M10 T1 (spec-first). Tracks T2, T3a and T3b implement it and update this section with the final
+signatures. CRYPTO_SPEC §6.2, §6.9 and §16 and ADR-0089 to ADR-0093 are normative. Everything here is additive,
+**except** the `mosaic-passkey` input change, which breaks a stable API and is admitted by ADR-0093.
+
+### `mosaic-core`
+- `setup_code` (stable): `SetupCode { server, email, secret_key }` and `build(&SetupCode) -> Zeroizing<String>`,
+  `parse(&[u8]) -> Result<SetupCode>`, `MAX_SETUP_CODE_LEN` (1024), `SETUP_CODE_PREFIX` (`"mosaic-setup:1:"`).
+  - The format follows CRYPTO_SPEC §6.9.7. The parser is strict, and a wrong checksum is `SecretKeyMistyped`.
+  - `SetupCode` does not implement `Clone`, and `Debug` redacts `secret_key`.
+- `encoding::label`: `MOBILE_SECURE_STORE` (`mobile/secure-store`) and `QUICK_UNLOCK_ANDROID`
+  (`quick-unlock/android`), both in `label::ALL`.
+
+### `mosaic-vault` (`session`)
+- `BootId::new(&[u8]) -> Result<BootId>`: 1 to 32 bytes, else `InvalidInput`.
+- `UnlockedSession::record_boot_marker(&mut self, &BootId, now_ms) -> Result<()>`: only right after a
+  master-password unlock of this session, else `ReauthenticationRequired`.
+- `LockedSession::adopt_boot_marker(&mut self, &BootId) -> Result<bool>`: sets the app-start flag if and only if
+  the marker matches. It never resets the failed-attempt counter.
+- Store schema v11 (`boot_marker`). The deletion paths of CRYPTO_SPEC §6.9.2 are wired into every quick-unlock
+  wrapping deletion, `lock_requiring_password` and the failed-quick limit.
+- Restricted to `mosaic-mobile`: the desktop and the CLI never call `record_boot_marker`.
+
+### `mosaic-passkey` (breaking, ADR-0093)
+- `ClientData<'a> { Json { origin: &'a str, challenge: &'a [u8] }, Hash(&'a [u8; 32]) }`.
+- `CreateInput { rp_id, client_data, user_handle, algorithms, user_verified }` and
+  `GetInput { rp_id, client_data, user_verified }` replace the `origin` and `challenge` fields.
+- `Created.client_data_json` and `AssertionResponse.client_data_json` become `Option<Vec<u8>>` (`None` in hash
+  mode).
+- `android_app_origin(&[u8; 32]) -> String`.
+- The extension (through the desktop) and the desktop callers move to `ClientData::Json`, with no behaviour
+  change.
+
+### `mosaic-origin` (additive)
+- `app`: `AndroidAppUrl` parsing and canonical form, `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>`.
+- `android_browsers`: `is_trusted_browser(package, certs) -> bool`, `privileged_browsers_json() -> &'static str`.
+  The data is `data/android-privileged-browsers.json`.
+- `target`: `android_fill_target(caller) -> Result<FillTarget>`, `ios_fill_target(identifier) -> Result<FillTarget>`.
+- `fields`: `select_fill_fields(nodes) -> FieldSelection`.
+- `assetlinks`: `parse_asset_links(&[u8]) -> Result<Vec<Statement>>`,
+  `app_is_delegated(statements, package, cert_sha256, relation) -> bool`.
+
+### `mosaic-sync` (`http`, restricted to the engine, the desktop, the CLI and `mosaic-mobile`)
+- `TlsTrust { Platform, Anchors(Vec<CertificateDer<'static>>) }` and `set_tls_trust(TlsTrust) -> Result<(), TransportError>`.
+  The setting is process-wide and set once. `Platform` is not available on Android.
+- `http::assetlinks::fetch(host) -> Result<Vec<u8>, TransportError>`.
+- `rustls-platform-verifier` becomes a non-Android dependency.
+
+### `mosaic-qr` (additive)
+- The scan result gains a setup-code payload class. Other payloads are dropped unread.
+
+### `mosaic-mobile` (new; restricted: `mosaic-mobile-ffi` and its tests)
+- `Core` and its modules (`config`, `error`, `state`, `secret`, `storage`, `join`, `unlock`, `quick_unlock`,
+  `items`, `otp`, `generator`, `sync`, `settings`, `autofill`, `passkeys`, `setup`; `test_hooks` behind
+  `test-hooks`).
+- The method list mirrors the FFI surface in `docs/MOBILE.md` §2.
+
+### `mosaic-mobile-ffi` (new; the binding shell, consumed only by the generated Kotlin and Swift code)
+- It contains only the mirror records, the `From` conversions, one delegating `impl MosaicCore`, the
+  `SecureStorage` foreign trait and the global allocator (ADR-0089).
+- It is not a Rust API for other crates.
+
 ## Expected additions (pre-approved as additive)
 
 - M3: done (ADR-0028): quick unlock and hardware-key unlock on

@@ -45,14 +45,18 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Breach check (§7.4, §11, ADR-0067) | SHA-1 of the UTF-8 password (as HIBP names a leaked password: an identifier, not a security primitive); only the 5-character prefix is sent, with `Add-Padding`; the 35-character suffixes are compared locally against every line in constant time; no hash is stored. No new primitive | HIBP range API | `sha1`, `subtle` |
 | Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no direct `rand` / `rand_core` use, ADR-0011; `hpke` brings `rand_core` as a transitive dependency and is fed from a buffered `getrandom` draw, ADR-0049). One exception, on the server only: the public WebAuthn challenge is drawn inside `passkey-auth` from `rand` 0.8 `ThreadRng` (ChaCha12, seeded and reseeded from the OS CSPRNG); Mosaic does not alter the crate's ceremony state (ADR-0078). `ThreadRng` **panics** when the OS CSPRNG fails, at its first use on a thread and at each reseed; it never falls back to weaker randomness. The server therefore catches panics per request (§9.3 "Panics") |
 | Constant-time compare | — | — | `subtle` |
-| Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
+| Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007). Mobile library only (M10, §6.9.5): every freed Rust heap block is wiped by the global allocator `zeroizing-alloc` (exact `=0.1.1` pin, `ZeroAlloc<System>`, declared in `mosaic-mobile-ffi` only, ADR-0089). It is not a primitive and protects no data format |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
-| TLS (client) | TLS 1.3 only, OS trust store | RFC 8446 | `rustls` with the `ring` provider, through `reqwest` blocking (ADR-0046); the server runs behind a reverse proxy that terminates TLS |
+| TLS (client) | TLS 1.3 only, OS trust store | RFC 8446 | `rustls` with the `ring` provider, through `reqwest` blocking (ADR-0046); the server runs behind a reverse proxy that terminates TLS. Server verification: Windows, macOS, Linux and iOS through `rustls-platform-verifier`; **Android** through `rustls::client::WebPkiServerVerifier` over the system trust anchors that the platform's default trust manager accepts under the app's network security config, handed to Rust at start (`TlsTrust::Anchors`, §6.9.6, ADR-0091) |
+| Platform keystores (mobile, §6.2, §6.9.1, ADR-0090) | Android Keystore AES-256-GCM (StrongBox when available); iOS Keychain items and Secure Enclave P-256 ECIES (`eciesEncryptionCofactorX963SHA256AESGCM`) | — (OS facilities) | none: used through the OS APIs in Kotlin and Swift only. Rust supplies the AAD and decides what is stored, under which name and when it is deleted |
 | Release integrity (tooling, §17, ADR-0081) | Ed25519 over a BLAKE2b-512 prehash (minisign), SHA-256 manifests | — (minisign format) | the `minisign` CLI in the release job, never linked into Mosaic; Tauri updater artifacts through Tauri's own signer. `minisign-verify` (the updater's verifier) is **not a dependency until OD-M9-5** turns the in-app updater on; that decision needs its own ADR |
 
 Banned: OpenSSL bindings, `ring`-only APIs outside `rustls`, anything
 unmaintained (enforced in `deny.toml`). Adding a crypto dependency needs an
 ADR.
+
+`uniffi` (M10, the mobile bindings, ADR-0089) is **not** a crypto dependency: it moves bytes across the FFI
+and performs no cryptographic operation. The rules for secrets that cross it are in §6.9.5.
 
 Interoperability only (these read or serve third-party formats and never protect Mosaic data):
 
@@ -99,6 +103,11 @@ Interoperability only (these read or serve third-party formats and never protect
   info of `K_x`). `export` is a prefix of `export-key`: the first is only ever used in an AAD (followed
   by `0x00`), the second only as HKDF info, so they never meet. No other label, primitive or algorithm ID
   is new in M8.
+- Labels added for mobile (§6.2, §6.9, M10, ADR-0090): `mobile/secure-store` (the AAD of an Android
+  secure-store file, §6.9.1) and `quick-unlock/android` (the AAD of the Android quick-unlock body, §6.2).
+  Both are used only inside an AAD, followed by `0x00` (`aad(label, …)`), and only as AAD of the platform's
+  AES-256-GCM. They are registered in `label::ALL`. The setup code (§6.9.7) has no label. No other label,
+  primitive or algorithm ID is new in M10.
 - **Algorithm IDs** in object headers: `0x01` XChaCha20-Poly1305 (every envelope of §6 to §7),
   `0x03` the HPKE seal of §8.2 and §8.4 (mode Auth, KEM `0x0020`, KDF `0x0001`, AEAD `0x0003`).
   `0x02` is unused. A decoder refuses any other value.
@@ -195,7 +204,7 @@ rejected. Client UI enforces the strength policy (zxcvbn-style estimate ≥ 3 of
   "Secret Key mistyped", never "wrong password".
 - It is shown once, in the Emergency Kit (PDF with account email, server URL,
   Secret Key and a blank field for the master password), and kept in the OS
-  keystore (Windows Credential Manager/DPAPI, macOS/iOS Keychain, the Linux kernel keyring per login session (Secret Service is deferred: its transport crypto is outside §2; ADR-0020), Android Keystore-wrapped). Without a stored key, the user types it from the Emergency Kit.
+  keystore (Windows Credential Manager/DPAPI, the macOS Keychain, the Linux kernel keyring per login session (Secret Service is deferred: its transport crypto is outside §2; ADR-0020); on iOS and Android the mobile secure storage of §6.9.1). Without a stored key, the user types it from the Emergency Kit, or scans it from a desktop setup code (§6.9.7).
 
 ### 5.3 Argon2id
 
@@ -238,7 +247,8 @@ P = Argon2id(password = MP', salt = account_salt, m, t, p, len = 32)
   change the user already knows costs no extra prompt.
 - Constrained contexts never run Argon2id. This includes the iOS AutoFill
   extension, which has a memory limit of roughly 120 MiB. They use quick
-  unlock (§6.2).
+  unlock (§6.2) and the extension context rule of §6.9.3. A phone that may
+  run Argon2id checks its free memory first (§6.9.4).
 
 ### 5.4 Two-secret root key
 
@@ -278,22 +288,35 @@ platform:
 
 | Platform | Mechanism |
 |---|---|
-| macOS / iOS | A Secure Enclave P-256 key created with access control `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet` (biometry only; a change of enrolled fingers or faces invalidates it). `W` is encrypted with `SecKeyCreateEncryptedData` (`eciesEncryptionCofactorX963SHA256AESGCM`); the 113-byte result is stored as the wrapping's public parameters in the local store. |
-| Android | A Keystore AES-256-GCM key (StrongBox when available) created with `setUserAuthenticationRequired(true)` and invalidated when biometric enrollment changes. It encrypts `W`. |
+| macOS | A Secure Enclave P-256 key created with access control `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAccessControlPrivateKeyUsage | kSecAccessControlBiometryCurrentSet` (biometry only; a change of enrolled fingers or faces invalidates it). `W` is encrypted with `SecKeyCreateEncryptedData` (`eciesEncryptionCofactorX963SHA256AESGCM`); the 113-byte result is stored as the wrapping's public parameters in the local store. |
+| iOS (M10, ADR-0090) | As macOS: a Secure Enclave P-256 key (`kSecAttrTokenIDSecureEnclave`, `kSecAttrIsPermanent`) with the same access control, `W` encrypted with the same ECIES algorithm, the 113-byte result stored as the body. The key's `kSecAttrApplicationTag` is `"<bundle id>.quick-unlock." \|\| hex(key_nonce)`; it lives in the shared keychain access group `<team prefix><bundle id>.shared`, so the app and its AutoFill extension use the same key. Decryption only through `SecKeyCreateDecryptedData` with an `LAContext` that has evaluated `.deviceOwnerAuthenticationWithBiometrics`, passed as `kSecUseAuthenticationContext`. |
+| Android (M10, ADR-0090) | A Keystore AES-256-GCM key, alias `"mosaic-quick-unlock-" \|\| hex(key_nonce)`: key size 256, block mode GCM, no padding, randomized encryption required, `setUserAuthenticationRequired(true)`, `setInvalidatedByBiometricEnrollment(true)`, `setUnlockedDeviceRequired(true)`, StrongBox when available (created again without it on `StrongBoxUnavailableException`). API 30 and later: `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`. API 28 and 29: `setUserAuthenticationValidityDurationSeconds(-1)` (every use needs a biometric `CryptoObject`). Encryption at enrollment and decryption at unlock each run through `BiometricPrompt` with `CryptoObject(cipher)` and `BIOMETRIC_STRONG` only. GCM AAD = `0x02 \|\| 0x04 \|\| aad("quick-unlock/android", key_nonce)` (the parameter version and platform bytes, then §3's `aad`), supplied by Rust. Body = `flags:u8 \|\| iv[12] \|\| ct[32] \|\| tag[16]` (61 bytes); `flags` bit 0 records StrongBox, the other bits MUST be 0; `flags` is not authenticated and no security decision may depend on it. `KeyPermanentlyInvalidatedException` deletes the wrapping (and the platform deletes the key). |
 | Windows | A Windows Hello `KeyCredentialManager` RSA key and a stored random 32-byte `challenge`. `W = HKDF(ikm = Sign(challenge), salt = challenge, info = ctx("hello-unlock"), 32)`. This relies on RSA PKCS#1 v1.5 signatures being deterministic, so enrollment signs twice and fails if the two signatures differ. Enrollment also requires `GetAttestationAsync` to report `Success` or `TemporaryFailure` (a TPM-backed key). |
 | Linux | No hardware binding by default. Quick unlock is unavailable unless a FIDO2 key is used (§6.3). |
 
 The platform key is named by a random 16-byte `key_nonce` drawn per
 enrollment and stored with the public parameters
 (`0x02 || platform:u8 || key_nonce[16] || body`), never by the account ID.
-ADR-0020 item 7 and ADR-0028 pin the Windows and macOS calls. Any deviation
-from this table needs a spec change. `method_id` is an **enrollment ID**: a
+ADR-0020 item 7 and ADR-0028 pin the Windows and macOS calls, ADR-0090 the
+iOS and Android calls. Any deviation from this table needs a spec change.
+
+| Platform byte | Platform | Body | Body length |
+|---|---|---|---|
+| `0x01` | Windows Hello | the random `challenge` the Hello key signs | 32 |
+| `0x02` | macOS Touch ID | the ECIES ciphertext of `W` | 113 |
+| `0x03` | iOS Secure Enclave (M10) | the ECIES ciphertext of `W` | 113 |
+| `0x04` | Android Keystore (M10) | `flags \|\| iv \|\| ct \|\| tag` | 61 |
+
+Decoders are strict: exact length for the platform, version `0x02`, a
+listed platform byte, and on mobile a platform byte that matches the running
+platform (an iOS store refuses `0x04` and the other way round). Any other
+value is refused. `method_id` is an **enrollment ID**: a
 fresh UUIDv7 drawn at enrollment. Its 48-bit timestamp is the enrollment
 time; it is bound into the AAD, so the enrollment time cannot be changed
 without breaking the wrapping. A store holds at most one quick-unlock
 wrapping. Quick unlock is used only after the master password unlocked
 once since the store was opened (once per app start; this is the reboot
-policy), and only before the wrapping's maximum age (default 14 days,
+policy; on iOS and Android the boot rule of §6.9.2 replaces it, ADR-0090), and only before the wrapping's maximum age (default 14 days,
 configurable from 1 to 30 days; implementations MUST NOT accept more than
 30 days). An enrollment time more than 5 minutes in the future counts as
 expired. Expiry, a `W` that does not open the wrapping, a master password
@@ -673,6 +696,180 @@ re-key (§6.6). The TTL and the sweep bound the exposure of a *forgotten* sessio
 against an attacker who already runs as the user (any same-user process can also just run
 `mosaic get --reveal` while the session is valid). The split between keystore and file protects against a
 copy of only one part, not against both (THREAT_MODEL R105, R111). `mosaic lock` deletes both.
+
+### 6.9 Mobile (M10, ADR-0089, ADR-0090)
+
+The iOS and Android apps use the account keys exactly as the desktop does (§5, §6.1, §6.2). This section
+defines only what is new on a phone. Every Rust policy lives in `mosaic-mobile`, which has no `unsafe` code. The
+platform code (Kotlin, Swift) implements storage and the OS keystores and holds no key policy.
+
+#### 6.9.1 Secure storage of the Secret Key and the session token
+
+Rust decides the names and the lifetimes. The platform implements `get`, `put` and `delete` only
+(`SecureStorage`).
+
+| Name | Value | Written | Deleted |
+|---|---|---|---|
+| `secret-key/<account_id hex32>` | the 16-byte `SK`, raw | after a successful join | `reset_device`, account removal |
+| `sync-token/<account_id hex32>` | the 32-byte stored session token | after a login; replaced at each new login | sign-out, revocation (§9.5), `reset_device` |
+| `settings-key-hint` | reserved, not used in M10 | — | — |
+
+- **Android.** One Keystore key, alias `mosaic-secure-store`:
+  - AES-256-GCM, randomized encryption required;
+  - no user authentication, `setUnlockedDeviceRequired(true)`;
+  - StrongBox when available, created again without it on `StrongBoxUnavailableException`.
+
+  Each value is a file `noBackupFilesDir/secure/<hex(SHA-256(name))>.bin`:
+  ```
+  file = 0x01 || iv[12] || ct || tag[16]
+  AAD  = 0x01 || aad("mobile/secure-store", u32(len(name)) || name)
+  ```
+  The leading `0x01` is the file version and the whole header of §3 (the platform row of §2 fixes the
+  algorithm, so there is no algorithm byte); it is bound into the AAD. A file with another
+  version, a wrong length or a failing tag is refused with `storageUnavailable`; it is never treated as absent. Rust
+  supplies the AAD (`secure_store_aad(name)`). Writes are atomic: a temporary file, `fsync`, then rename.
+- **iOS.** A Keychain generic password per value:
+  - `kSecAttrService = "<bundle id>.secure-store"`, `kSecAttrAccount = name`;
+  - `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAttrSynchronizable = false`;
+  - `kSecAttrAccessGroup` = the app-private group `<team prefix><bundle id>`.
+
+  The AutoFill extension has no access to this group and never needs `SK` or the token.
+- Values cross the FFI under the rules of §6.9.5. Neither `SK` nor the token is ever shown to the platform as
+  text, logged, or written outside these places.
+
+#### 6.9.2 The boot rule and store v11
+
+On a phone, quick unlock (§6.2) is allowed once the master password has unlocked **since the device booted**.
+The desktop rule is "since this app start". Processes on a phone die at any time, and the iOS extension is a
+new process for every request.
+
+- **Boot ID.** The platform passes the current boot ID (1 to 32 bytes) when it opens the core:
+  - Android: `Settings.Global.BOOT_COUNT` as a big-endian `u32`;
+  - iOS: `sysctlbyname("kern.boottime")` as big-endian `u64 tv_sec || u64 tv_usec`.
+
+  A read failure gives an empty value. Rust refuses an empty value, so no marker can match and the password is
+  required.
+- **Store v11** (`mosaic-vault`, migration v10 → v11):
+  ```sql
+  CREATE TABLE boot_marker (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    boot_id BLOB NOT NULL CHECK (length(boot_id) BETWEEN 1 AND 32),
+    recorded_at_ms INTEGER NOT NULL
+  ) STRICT;
+  ```
+- **Writing.** `record_boot_marker` MUST be refused unless the session was unlocked with the master password
+  (and Secret Key) in this session. Otherwise the call fails with `ReauthenticationRequired`. A quick unlock
+  never writes or refreshes a marker. A new marker replaces the old one.
+- **Reading.** `adopt_boot_marker` sets the "password unlocked since start" flag of §6.2 if and only if the
+  stored `boot_id` equals the current one. The comparison is constant time. The call MUST NOT reset the
+  failed-quick-unlock counter.
+- **Deleting.** The marker MUST be deleted:
+  - in the same transaction as every deletion of the quick-unlock wrapping: expiry, invalidation,
+    `remove_quick_unlock`, a password change (§6.4), a Secret Key rotation (§6.5), a profile upgrade, a re-key
+    (§6.6) or its adoption (§6.7);
+  - by `lock_requiring_password`;
+  - when the failed-quick-unlock counter reaches its limit.
+- Everything else in §6.2 holds unchanged: the maximum age of the wrapping, the limit of 5 failed attempts, the
+  deletion of the platform key and the wrapping, and enrollment only with `Reauthenticated`.
+  - In the iOS extension the attempt counter is per process. Biometric failures never reach the vault (the OS
+    locks biometrics after 5 failures and asks for the passcode after 20).
+  - A `W` that does not open the wrapping deletes the enrollment and the marker.
+- The desktop and the CLI never write a marker, and their app-start rule is unchanged.
+
+#### 6.9.3 The extension context: no Argon2id, no network
+
+The core is opened with a context: `App`, or `IosAutofillExtension`. In `IosAutofillExtension`, the core refuses
+these calls before doing any work:
+- the master-password unlock, with `passwordInApp`;
+- joining, sync, password recovery, device reset, quick-unlock enrollment and settings changes, with
+  `invalidInput`.
+
+So the extension never runs Argon2id or OPAQUE, and never opens a network connection. It unlocks only by quick
+unlock, under the boot rule (§6.9.2). On Android the providers run in the app process with `App`. A password
+unlock from a provider activity is allowed there, after the check of §6.9.4.
+
+#### 6.9.4 Memory preflight
+
+Before a master-password unlock, a re-authentication or an enrollment on a phone, the platform compares
+`required_unlock_memory_bytes()` with the memory available to the process:
+- `required_unlock_memory_bytes()` is the Argon2 `m` of the stored profile (§5.3) plus 64 MiB;
+- the available memory is `ActivityManager.MemoryInfo.availMem` on Android, `os_proc_available_memory()` on iOS.
+
+If the available memory is lower, the operation fails with `notEnoughMemory` and Argon2id does not start. A
+failed Argon2 allocation would abort the process, which is why the check comes first. The profile is never
+changed on the phone, and profiles only ever increase (§5.3). An account whose profile needs more memory than the
+phone has (likely for `strong` and `max`) cannot be unlocked on that phone, and the error says so. This is an
+availability limit, not a security one (`docs/MOBILE.md` §3).
+
+#### 6.9.5 Secrets across the FFI, and the honest limits
+
+- **Inputs.** Secrets go into Rust as `Vec<u8>` (UTF-8 text, or raw bytes for `W`) and are wrapped in
+  `Zeroizing` at once. This covers the master password, `SK`, `W`, TOTP codes, the setup-code text, secret
+  draft fields and OTP text.
+- **Outputs.** Secrets leave Rust only as a `SecretValue` object: `expose_bytes()` returns a copy, `wipe()`
+  zeroizes and empties it, and drop zeroizes too. `Debug` prints `[REDACTED]`.
+  - The platform calls `expose_bytes()` at the last moment and wipes its own copy (`fill(0)`, or zeroing through
+    `withUnsafeMutableBytes`). Then it calls `wipe()`.
+  - Lists, item details, events and errors never contain a secret value. A concealed field's detail has no
+    value at all.
+- **Secret text input.**
+  - Android: a native `EditText` (password variation, `IME_FLAG_NO_PERSONALIZED_LEARNING`,
+    `importantForAutofill = noExcludeDescendants`), read through `Editable.getChars` into a `CharArray`, then
+    encoded into a `ByteArray`. Both arrays are zeroed, then the editable is overwritten and cleared. A Compose
+    `TextField` is not used.
+  - iOS: a `UITextField` with `isSecureTextEntry`.
+- **Allocator.** The mobile library's global allocator wipes every freed Rust heap block (§2, ADR-0089). This
+  includes UniFFI's `RustBuffer`s, which carry arguments and return values.
+- **The session token** stays in Rust (`HeaderValue::set_sensitive`). The platform sees it only as opaque bytes
+  in `SecureStorage`.
+- **Honest limits** (THREAT_MODEL R125, R126). These are not wiped:
+  - copies that are still allocated, on the stack or in registers;
+  - JVM and Swift strings: `UITextField.text`, displayed values, the clipboard text, `AutofillValue.forText`,
+    `PasswordCredential` and `ASPasswordCredential`;
+  - IME buffers;
+  - arrays that ART's compacting collector moved before they were zeroed.
+
+  The design shortens these lifetimes; it does not remove them.
+
+#### 6.9.6 TLS trust on Android
+
+See §2 (TLS row) and ADR-0091.
+- The Kotlin side collects the anchors from
+  `TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).init(null as KeyStore?)`, then
+  `X509TrustManager.acceptedIssuers`. Under a network security config whose base config trusts
+  `<certificates src="system"/>` only, these are the system CAs minus those the user disabled. User-installed
+  CAs are not among them.
+- `AndroidCAStore` MUST NOT be used as the anchor source.
+- `TlsTrust::Anchors` builds a `WebPkiServerVerifier` with the `ring` provider: TLS 1.3 only, no client
+  authentication. An empty anchor list is refused.
+- The trust is set once per process, before the first connection. It applies to the sync server and to the
+  asset-links fetch (§16).
+- There is no OCSP and no Certificate Transparency on this path (THREAT_MODEL R133).
+
+#### 6.9.7 The setup code (ADR-0096)
+
+The desktop can show the account's server, email and `SK` as a QR code, so a phone can join without typing.
+```
+setup_code = "mosaic-setup:1:" || base64url_unpadded(JSON)
+JSON       = {"v":1,"server":"<canonical origin>","email":"<normalized email>","sk":"<SK display form, §5.2>"}
+```
+- The JSON is canonical: these four members in this order, no whitespace, no other member.
+- The whole code is at most 1 024 bytes.
+- The parser is strict:
+  - the exact prefix;
+  - unpadded base64url;
+  - exactly these keys, with `v == 1`;
+  - `server` passes `canonical_origin`;
+  - `email` equals its own normalization (§9.2);
+  - `sk` passes `SecretKey::parse` with its checksum (a checksum failure is `secretKeyMistyped`).
+
+  Anything else is `setupCodeInvalid`.
+- Both sides build and parse the code in zeroizing buffers.
+- The code carries no master password, no session token and no key derived from either. It has no label and
+  uses no primitive.
+- The desktop shows it only after re-authentication with the master password, for at most 60 s. It hides the
+  code on blur, on lock and when the time is up. It shows the code only for hosted accounts (THREAT_MODEL
+  R139).
 
 ## 7. Vaults and items
 
@@ -2334,7 +2531,11 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   Lamport stamp. A row whose mark differs from the item's current mark is
   stale and ignored; rows go with purged items and removed vaults and
   survive a re-key and a reset of the sync state. The found flag shows a
-  disk reader which items were found in a breach (THREAT_MODEL R102).
+  disk reader which items were found in a breach (THREAT_MODEL R102);
+  v11 (M10, ADR-0090) adds `boot_marker` (§6.9.2): one row with the boot ID
+  of the device boot in which the master password last unlocked, and the
+  time it was written. It is cleartext, not secret and not derived from a
+  secret; it is written only on iOS and Android (THREAT_MODEL R137).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its
@@ -2345,6 +2546,21 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
 - Auto-lock triggers: idle timeout (default 10 min), OS sleep, screen lock,
   user switch, and app quit. All configurable, but they cannot all be
   disabled.
+- Mobile (M10, ADR-0094):
+  - **Store location.** Android: `noBackupFilesDir/mosaic/store.sqlite`, with `allowBackup="false"`,
+    `fullBackupContent="false"`, and data-extraction rules that exclude everything. iOS: the app group's
+    `Library/Application Support/Mosaic/store.sqlite`, with the directory excluded from backup and
+    `NSFileProtectionComplete` as the default data protection.
+  - **Auto-lock triggers.** These cannot be turned off:
+    - going to the background (default immediately; Android allows up to 5 min);
+    - a foreground idle timeout (default 5 min, 1 to 30 min);
+    - screen off on Android, protected data becoming unavailable on iOS;
+    - a new process;
+    - the end of each iOS extension request.
+  - **Provider grace.** On Android only, during an open provider flow, the session may stay unlocked in the
+    background for at most 60 s after an unlock that a provider activity performed (THREAT_MODEL R131).
+  - **iOS store lifecycle.** The app closes the store on going to the background. The extension opens and
+    closes it for each request, so no process holds the store's file lock while it is suspended.
 - Encrypted export: a passphrase-protected file in the format of §11.2 (ADR-0073). `age` (scrypt
   recipient) was not adopted: it needs a second KDF and a new dependency outside §2.
 
@@ -2515,6 +2731,14 @@ browser's IP address (memory only, as above) and its request headers, and the au
 public key, credential ID and counter, which the table lists. Release signing (§17) adds nothing
 here.
 
+The mobile apps (M10) add nothing the server sees. A phone is one more device, visible like any device. Its
+default device name is a generic "Android phone" or "iPhone", which the user can change. The asset-links fetch
+of an Android passkey ceremony (§16) goes to the relying party's own domain, never to the Mosaic server. It
+reveals the device's IP address and the time of the ceremony to that domain (THREAT_MODEL R134). The iOS
+credential identity store holds passkey identities, and password identities only if the user turns them on.
+It lives on the device and is outside Mosaic's encryption; the server never sees it (THREAT_MODEL R132). The
+desktop setup code (§6.9.7) is shown on a screen and never sent anywhere.
+
 ### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
 
 | Field | Notes |
@@ -2632,6 +2856,26 @@ size buckets), tags, vault names, or attachment names.
   artifacts with an ephemeral minisign key, verifies them with the commands of
   `docs/VERIFY.md`, and must fail on one tampered byte in any file or in
   `SHA256SUMS`.
+- Mobile (M10). The binding test names are in `docs/MOBILE.md` §5.
+  - The label uniqueness test covers `mobile/secure-store` and `quick-unlock/android`.
+  - The setup code: round trip, rejection of a wrong prefix, version, keys or size, the checksum, the
+    normalization, and a fuzz target `setup_code`.
+  - Store v11: a committed v10 fixture upgrades to v11. The boot-marker tests cover the same boot, another boot,
+    no marker, the refusal after a quick unlock, every deletion path of §6.9.2, and the unchanged desktop rule.
+  - The quick-unlock parameters for `0x03` and `0x04`: strict decode with exact lengths, and a platform byte
+    that must match the platform. Property tests for both codecs.
+  - Passkeys: hash mode signs `authData || hash`, create in hash mode has no `clientDataJSON`, hash mode and
+    JSON mode give the same signature for the same client data, `android_app_origin`, and the existing
+    vectors unchanged through `ClientData::Json`. The Android response JSON is decoded by an independent
+    parser (`serde_json::Value`, base64url, and a P-256 verification of the signature).
+  - Origins and asset links: app URLs with and without `cert`, the browser allowlist, `webDomain` from untrusted
+    apps ignored, frame exclusion, and asset-links parsing and delegation. Fuzz targets `assetlinks_parse`,
+    `field_selection` (`crates/origin/fuzz`) and `passkey_request_json` (`crates/mobile/fuzz`).
+  - TLS anchors: TLS 1.3 only with `ring`, and empty anchors refused. The asset-links fetch refuses redirects,
+    statuses other than 200, and oversized bodies.
+  - On the CI emulator: the secure-store round trip with its AAD binding, the quick-unlock key's `KeyInfo`
+    (authentication required, invalidated by enrollment, enforced by secure hardware), and trust anchors that
+    contain ISRG Root X1 and no user CA.
 
 ## 15. Browser extension channel (ADR-0036)
 
@@ -2764,7 +3008,9 @@ keys so the stored form is always the 32-byte one. The key is the `private_key` 
 
 **Signature.** `p256::ecdsa::SigningKey::sign(msg)`: RFC 6979 deterministic
 nonce, SHA-256, DER encoding (`Signature::to_der`). No low-S normalization.
-`msg = authenticatorData || SHA-256(clientDataJSON)`.
+`msg = authenticatorData || clientDataHash`, where `clientDataHash` is
+`SHA-256(clientDataJSON)` in JSON mode or the 32 bytes the platform gave in
+hash mode (below, "Mobile providers").
 
 **rpIdHash** = `SHA-256(rpId)` over the bytes of the validated, canonical
 (ASCII) rpId.
@@ -2859,6 +3105,46 @@ load and sign verifies with `VerifyingKey`; the COSE bytes parsed back equal
 the verifying key. Garbage, non-P-256 PKCS#8 (Ed25519, RSA, secp256k1, P-384)
 and a P-256 PKCS#8 whose embedded public key does not match the scalar are
 refused. Fuzz targets: `crates/passkey/fuzz` (`b64url`, `pkcs8`).
+
+**Mobile providers (M10, ADR-0093).** No new primitive. The ceremonies above take a client-data mode:
+
+- `ClientData::Json { origin, challenge }`: the authenticator builds `clientDataJSON` exactly as above and
+  returns it. The extension, the desktop and Android callers that are not privileged browsers use it.
+- `ClientData::Hash(h)`: the platform built `clientDataJSON` and passes `h = SHA-256(clientDataJSON)` (exactly
+  32 bytes). The authenticator signs `authenticatorData || h` and returns no `clientDataJSON`. iOS (the OS checks
+  the caller) and Android privileged browsers use it.
+
+In both modes, `authenticatorData`, the flags, the AAGUID, the COSE key, the attestation object, the sign count
+rule and the key handling are those above.
+
+- **Android app origins.** An Android caller that is not an allowlisted browser has the origin
+  `"android:apk-key-hash:" || b64url(SHA-256(signing certificate))`, from the caller's current signing
+  certificate. Such a caller is served only if the rpId's
+  `https://<rpId>/.well-known/assetlinks.json` delegates to it:
+  - the statement's `target.namespace` is `android_app`;
+  - its `package_name` equals the caller's package;
+  - one of its `sha256_cert_fingerprints` equals the caller's certificate (compared case-insensitively in
+    colon-hex form);
+  - its relation is `delegate_permission/common.get_login_creds` or
+    `delegate_permission/common.handle_all_urls`.
+
+  The fetch follows §6.9.6 and ADR-0091: TLS 1.3, no redirects, at most 64 KiB, a 10 s timeout, a cache of
+  24 h per process. A non-delegated app is refused (`appNotVerified`). A failed fetch is refused too
+  (`assetLinksUnavailable`); it is never treated as success.
+- **Privileged browsers.** A caller that claims a web origin (`CallingAppInfo.getOrigin`) must also be a
+  browser in Mosaic's vendored allowlist, by package **and** signing certificate. The rpId is then validated
+  against that origin with `mosaic_origin::webauthn_rp_id`, as on the desktop.
+- **User verification.** Mobile providers set UV = 1 always, and only after a user verification in the same
+  ceremony:
+  - Android: `BiometricPrompt` with `BIOMETRIC_STRONG` or the device credential, or a quick unlock in the same
+    activity;
+  - iOS: the Secure Enclave biometric unlock of that extension run.
+
+  A ceremony without UV is refused. The 300-second desktop rule above does not apply to mobile.
+- **Order.** A created passkey item is stored before the registration response leaves Rust. The sign-count
+  discipline of `PendingAssertion` applies unchanged.
+- **Request parsing.** Android request JSON is parsed in Rust, strictly, with a cap of 64 KiB, and is fuzzed.
+  Responses (`AuthenticationResponseJSON`, `RegistrationResponseJSON`) are built in Rust.
 
 ## 17. Release integrity (M9, ADR-0081, ADR-0082)
 

@@ -67,6 +67,23 @@ Use tokens only. Never use raw values in components.
 - Extension popup: 360 × 600 maximum. It shows the matching items for the
   current site first.
 - Lists use virtual scrolling past 200 rows.
+- Mobile (M10, `docs/MOBILE.md`):
+  - **Navigation.** Bottom navigation with Vault, Search and Settings. One primary action per screen. Item
+    detail is a full screen, not a pane.
+  - **Touch targets.** At least 48 × 48 dp on Android and 44 × 44 pt on iOS, including the reveal and copy
+    buttons.
+  - **Text size.** Dynamic Type on iOS and font scaling on Android, up to 200 %. Layouts reflow; nothing is cut
+    off or overlaps.
+  - **Screen readers.** TalkBack and VoiceOver labels on every control. Reveal and copy are icon buttons with
+    text labels ("Show password", "Copy password"). A copy is announced through a live region ("Copied. Clears
+    in 30 seconds."). A one-time code is not announced until it is copied.
+  - **Keyboards.** Basic hardware-keyboard support: focus order, Enter submits, Escape or Back closes dialogs.
+  - **The foil.** The holographic foil uses its static fallback; there is no WebGL on mobile.
+  - **Colors, spacing, type and motion** come from the exported tokens (`packages/design-tokens`
+    `export:mobile`), in light and dark. Strings come from `packages/i18n` (`export:mobile`), German with "du".
+  - **Secrets on screen.** They are hidden by default, hide again after 60 s, on background and on lock, and are
+    hidden while the screen is recorded (iOS). Copy and error text follow §5 and §8: what happened, then what to
+    do.
 
 ## 4. Keyboard
 
