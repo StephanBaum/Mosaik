@@ -5,9 +5,10 @@
 
 use mosaic_core::{ItemId, VaultId};
 use mosaic_sync::TransportError;
-use mosaic_sync::engine::{RekeyError, SyncError};
+use mosaic_sync::engine::{RekeyError, RotationOutcome, SyncError};
 use mosaic_sync::http::hosted as client;
 use mosaic_sync::transport::{Rejection, RevokedReason};
+use mosaic_vault::session::RotationPhase;
 
 use crate::chaos_net::{
     DAY_MS, FEngine, Fault, MINUTE_MS, Op, anywhere, assert_converged, faulty, frun, fsync, settle,
@@ -234,14 +235,15 @@ fn device_removal_after_the_30_day_purge_is_a_plain_401() {
 
 // ---- a vault-key rotation with re-seal, interrupted at every call ----------------
 
-/// The app's retry loop for a rotation with re-seal: resume an open job,
-/// otherwise rotate again, until it reports finished.
+/// The app's retry loop for a rotation with re-seal: resume a job past the
+/// key commit ("Continue"), otherwise rotate again (a retry settles a key
+/// offer whose outcome is not known, M9-F1), until it reports finished.
 fn drive_rotation(w: &mut World, e: &mut FEngine, vault: VaultId) {
     for _ in 0..12 {
         w.server.advance_ms(MINUTE_MS);
         let clock = w.clock.clone();
         let job = w.devs[0].s().rotation_job().unwrap();
-        let result = if job.is_some() {
+        let result = if job.is_some_and(|j| j.phase >= RotationPhase::LocalCommitted) {
             e.vault_rotate_continue(&mut w.devs[0].access, &clock)
                 .map(|p| p.finished)
         } else {
@@ -409,6 +411,46 @@ fn rotation_interrupted(seed: u64, exhaustive: bool) {
                 }
             }
             generation_before = g;
+        }
+    }
+}
+
+/// M9-F1 follow-up, hosted: the key offer fails before it reaches the
+/// server (a phase-2 job is left) and a plain retry of `rotate_vault_key`
+/// rotates once and re-seals; after a lost answer to the offer the retry
+/// finishes the landed key without a second rotation.
+#[test]
+fn a_retry_after_a_failed_key_offer_rotates_once() {
+    let (mut w, vault, items) = three_devices(7003);
+    let body = b"attachment body".to_vec();
+    w.devs[0]
+        .s_mut()
+        .add_attachment(vault, items[0], "a.txt", "text/plain", &body)
+        .unwrap();
+    settle(&mut w, &ALL);
+    let mut e: FEngine = faulty(&w, 0);
+    for fault in [Fault::FailBefore, Fault::LoseResponse] {
+        let next = generation(&w, 0, vault).next().unwrap();
+        e.transport_mut().next(Op::PushKey, fault);
+        let clock = w.clock.clone();
+        w.server.advance_ms(MINUTE_MS);
+        let first = e.rotate_vault_key(&mut w.devs[0].access, &clock, vault, true);
+        assert!(first.is_err(), "{fault:?}: {first:?}");
+        let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+        assert_eq!(job.phase, RotationPhase::BackendStarted, "{fault:?}");
+
+        w.server.advance_ms(MINUTE_MS);
+        let done = e
+            .rotate_vault_key(&mut w.devs[0].access, &clock, vault, true)
+            .unwrap();
+        assert_eq!(done.outcome, RotationOutcome::Rotated(next), "{fault:?}");
+        assert!(done.progress.is_some_and(|p| p.finished), "{fault:?}");
+        assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+        settle_with(&mut w, &mut e);
+        let label = format!("{fault:?}");
+        for d in ALL {
+            assert_eq!(generation(&w, d, vault), next, "{label}: device {d}");
+            check_attachment(&w, d, vault, items[0], &body, &label);
         }
     }
 }

@@ -723,7 +723,10 @@ fn vault_rotate_key_spends_the_proof_also_when_it_fails() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "one scenario: rotate, crash, resume, check every attachment")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario: rotate, crash, resume, check every attachment"
+)]
 fn vault_rotate_key_reseals_attachments_and_resumes() {
     let _kdf = kdf_permit();
     let own = tempfile::tempdir().unwrap();
@@ -841,4 +844,27 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     assert!(resumed.finished, "{resumed:?}");
     assert!(b.rotation_status().unwrap().job.is_none());
     assert_eq!(attachment_ids_of(b, vault, item), last);
+
+    // The same stale offer does not block a retried "Rotate vault key": the
+    // call drops it and rotates once.
+    b.with_unlocked(|s| Ok(s.open_vault_offer_job(vault, next)?))
+        .unwrap();
+    let done = b
+        .vault_rotate_key(rotate_request(vault, true, Some(PASSWORD)))
+        .unwrap();
+    assert!(done.finished, "{done:?}");
+    assert!(b.rotation_status().unwrap().job.is_none());
+    let generation = b
+        .with_unlocked(|s| {
+            Ok(s.vaults()
+                .into_iter()
+                .find(|v| v.vault_id == vault)
+                .unwrap()
+                .key_generation)
+        })
+        .unwrap();
+    assert_eq!(generation, next, "rotated once");
+    let retried = attachment_ids_of(b, vault, item);
+    assert_eq!(retried.len(), 2);
+    assert!(retried.iter().all(|a| !last.contains(a)), "re-sealed");
 }

@@ -36,7 +36,9 @@ impl Backend {
     ///
     /// # Errors
     /// `locked`, `reauthRequired`, `wrongCredentials`, `vaultNotFound`,
-    /// `vaultUnavailable`, `rotationInProgress` (any rotation job is open),
+    /// `vaultUnavailable`, `rotationInProgress` (a rotation job is open; a
+    /// phase-2 job of this vault, a key offer whose outcome is not known, is
+    /// settled by the call instead, M9-F1),
     /// `syncNotConfigured` (a vault key is offered to a backend; a device
     /// without sync has none), `sharingRoleForbidden` (a shared vault rotates
     /// from its owner's device) and the transport's `sync*` codes.
@@ -171,7 +173,7 @@ impl Backend {
     /// Whether a vault-only job is open past the key commit (the re-seal is
     /// not done). A job still at phase 2 (the key offered, the outcome not
     /// known, M9-F1) is not: an error then stays an error, and the job waits
-    /// for `rotation_resume`, which settles it.
+    /// for `rotation_resume` or a retried `vault_rotate_key`, which settle it.
     fn vault_job_committed(&self) -> bool {
         self.slot().is_ok_and(|slot| {
             slot.unlocked()
