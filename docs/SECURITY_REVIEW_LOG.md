@@ -85,7 +85,8 @@ tables).
 | M7 Key rotation (T1 review, milestone review, one verify pass and two UX passes) | 6 | 20 | 28 | 2 | none |
 | M7b Credential rotation (T1 review, milestone review, extension red team, UX review) | 1 | 9 | 23 | 12 | none |
 | M8 CLI (T1 review, CLI security review) | 1 | 1 | 10 | 9 | none |
-| **Overall (M0 to M8)** | **34** | **149** | **241** | **67** | **51 recorded** |
+| M9 Hardening (T2 review, milestone review with five reviewers) | 0 | 5 | 11 | 3 | 21 (1 red-team regression, 2 sync-chaos findings, 18 UX findings) |
+| **Overall (M0 to M9)** | **34** | **154** | **252** | **70** | **72 recorded** |
 
 The overall Info and Ungraded figures are lower bounds: most milestones did not
 record them. M4 and M5 recorded no graded counts, so the High, Medium and Low
@@ -308,6 +309,27 @@ its parts are deleted, and on Windows and macOS those parts survive a reboot unt
 process that can read its own environment; revealed values land in scrollback, pipes and the clipboard; the CLI and the
 desktop cannot open one store at the same time; terminal input buffers are not wiped; an export file can be guessed
 offline against its passphrase.
+
+## M9 Hardening
+
+Status: **done.** Sources: the decision file `m9-t13-fix.md` (kept by the orchestrator), the commit messages named below
+and `docs/PROGRESS.md` ("M9 Hardening").
+
+| Date | Track and review | Model tier | H / M / L / Info | Ungraded | Outcome |
+|---|---|---|---|---|---|
+| 2026-11-10 | T2 server WebAuthn relying party: crypto-reviewer | opus | 0 / 3 / 4 / 0 | none | Fixed in T2-fix: a handoff cannot outlive its session, and the other follow-ups in PROGRESS row T2-fix |
+| 2026-11-11 | T12 crypto-reviewer over T1 to T11 | opus | 0 / 1 / 5 / 3 | none | Fixed in `fef52d9`, `6ef58c6`, `7f922d7` and `564f9dd` (M9-F1 to F9): re-seal job before the key offer, atomic grant, manifest audit of path and origins, HKLM check, release secrets out of cached jobs, `topOrigin` refused, threat-model revisit |
+| 2026-11-11 | T12 extension-attacker (`99ca2e9`) | opus | 0 / 1 / 2 / 0 | 1 regression | Fixed in `6ef58c6` and `7f922d7` (M9-F70 to F73): `REG_EXPAND_SZ` overrides, look-alike host bytes, the handoff ID in history, `browserHostMissing`; open: one flaky spec |
+| 2026-11-11 | T12 sync-chaos (`6cc6bd1`) | opus | not graded | 2 | Fixed in `c48d730` (M9-F50, F51): the husk rule makes oversized metadata merges independent of delivery order |
+| 2026-11-11 | T12 ux-reviewer | opus | not graded | 18 (1 blocker, 10 major, 7 minor) | Fixed in `cae6d96`, `564f9dd`, `7f922d7`; open: M9-UX5 rest |
+| 2026-11-12 | T12 test-engineer (`90e7197`) | sonnet | 0 / 0 / 0 / 0 | none | 23 tests, no bug found |
+
+Total: High 0, Medium 5, Low 11, Info 3, plus 21 ungraded.
+
+The headline limits (THREAT_MODEL R112 to R124): the second factor by security key goes through a browser handoff page
+on the sync server; per-user manifests can still shadow the installer's system manifests in some browsers (R121, now
+reported by the override audit); an oversized metadata merge drops values and tells the person which (R122); the
+Authenticode signing step still runs with the certificate in a hosted runner (R118).
 
 ## Appending a milestone
 
