@@ -1272,6 +1272,349 @@ async fn unmatched_route_is_a_plain_404() {
     assert_eq!(r.status, StatusCode::NOT_FOUND);
 }
 
+// ---- M9 T12 (sync-chaos): handoffs under a password change, a restart and a race ----
+
+/// The finish of `h` on a thread of its own, on a runtime of its own, so two
+/// finishes really run at the same time.
+fn finish_on_thread(app: &TestApp, h: &Hand, credential: &Value) -> Resp {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(finish(app, h, credential))
+}
+
+/// Runs two finishes at one moment: a barrier lets both threads start
+/// together.
+fn race(app: &TestApp, a: (&Hand, &Value), b: (&Hand, &Value)) -> (Resp, Resp) {
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|s| {
+        let first = s.spawn(|| {
+            barrier.wait();
+            finish_on_thread(app, a.0, a.1)
+        });
+        let second = s.spawn(|| {
+            barrier.wait();
+            finish_on_thread(app, b.0, b.1)
+        });
+        (first.join().unwrap(), second.join().unwrap())
+    })
+}
+
+fn revoked_reason_of(r: &Resp) -> Option<String> {
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    r.error().detail_as::<RevokedDetail>().map(|d| d.revoked)
+}
+
+/// A password change or a re-key ends every handoff of the account (login,
+/// register and confirm), also with the ceremony under way: options and
+/// finish answer `handoff_expired`, nothing is stored, no second factor is
+/// granted, and the account recovers with new handoffs.
+#[tokio::test]
+async fn password_change_or_rekey_ends_every_pending_handoff() {
+    for rekey in [false, true] {
+        let app = open();
+        let a = crate::sharing::acct(&app, "alice").await;
+        let key = register_key(&app, &a.t, "k").await;
+        // A second device is pending with a login handoff under way.
+        app.clock.advance_ms(13_000);
+        let t2 = pending(
+            app.login_with(
+                &a.u.email,
+                &a.u.opw,
+                a.u.account_id,
+                InstallId::new_v7().unwrap(),
+                IP,
+            )
+            .await,
+        );
+        let (h_login, c_login) = assertion_handoff(&app, &t2, None).await;
+        let (h_confirm, c_confirm) = assertion_handoff(&app, &a.t, Some("confirm")).await;
+        app.clock.advance_ms(7_000);
+        let new_key = Key::new();
+        let h_reg = hand(&account_handoff(&app, &a.t, "register", Some("second")).await);
+        let c_reg = challenge_of(&options(&app, &h_reg, &h_reg.code).await);
+        let credentials = [
+            key.assertion(&c_login, &Assert::default()),
+            key.assertion(&c_confirm, &Assert::default()),
+            new_key.registration(&c_reg, ORIGIN, UP | UV),
+        ];
+
+        let r = if rekey {
+            crate::rekey::rekey_now(&app, &a).await
+        } else {
+            app.change_password(&a.u, &a.t, &[0x77; 32]).await
+        };
+        assert_eq!(r.status, StatusCode::OK, "rekey: {rekey}");
+
+        app.clock.advance_ms(60_000);
+        for (h, credential) in [&h_login, &h_confirm, &h_reg].into_iter().zip(&credentials) {
+            let r = options(&app, h, &h.code).await;
+            assert_eq!(r.status, StatusCode::GONE, "rekey: {rekey}");
+            assert_eq!(r.code(), "handoff_expired");
+            let r = finish(&app, h, credential).await;
+            assert_eq!(r.status, StatusCode::GONE, "rekey: {rekey}");
+            assert_eq!(r.code(), "handoff_expired");
+        }
+        // Nothing happened behind the refusals.
+        assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 1);
+        assert_eq!(count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 17"), 1);
+        assert_eq!(count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 20"), 0);
+        assert_eq!(
+            count(
+                &app,
+                "SELECT COUNT(*) FROM sessions WHERE second_factor_until > 0"
+            ),
+            0,
+            "no confirmation was granted"
+        );
+        // The pending device was ended with the reason, and is not a full
+        // session.
+        let r = app.get("/v1/account", Some(&t2)).await;
+        assert_eq!(
+            revoked_reason_of(&r).as_deref(),
+            Some(if rekey { "rekey" } else { "passwordChange" })
+        );
+
+        // The device that changed things recovers with new handoffs.
+        set_fresh(&app);
+        assert_eq!(
+            confirm(&app, &a.t, &key, &Assert::default()).await.status,
+            StatusCode::OK
+        );
+        register_key_as(&app, &a.t, "second", new_key).await;
+        assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 2);
+    }
+}
+
+/// A server restart loses every handoff (CRYPTO_SPEC §9.3, THREAT_MODEL
+/// R116) and nothing else: the page and the app get `handoff_expired` (a
+/// poll gets the documented 404 for an unknown handoff, which the app maps
+/// to the same), no half-registered key or half-granted login is left, the
+/// stored counter survives, and new handoffs complete the login, the
+/// confirmation and the registration.
+#[tokio::test]
+async fn restart_loses_handoffs_and_the_client_recovers() {
+    let mut app = TestApp::restartable(RegistrationMode::Open);
+    let (u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    let at = |n: u32| Assert {
+        count: n,
+        ..Assert::default()
+    };
+    assert_eq!(
+        confirm(&app, &token, &key, &at(5)).await.status,
+        StatusCode::OK
+    );
+
+    // A pending login with its handoff, a confirm and a registration, all
+    // at the ceremony.
+    app.clock.advance_ms(13_000);
+    let t2 = pending(
+        app.login_with(
+            &u.email,
+            &u.opw,
+            u.account_id,
+            InstallId::new_v7().unwrap(),
+            IP,
+        )
+        .await,
+    );
+    let (h_login, c_login) = assertion_handoff(&app, &t2, None).await;
+    let (h_confirm, c_confirm) = assertion_handoff(&app, &token, Some("confirm")).await;
+    app.clock.advance_ms(7_000);
+    let new_key = Key::new();
+    let h_reg = hand(&account_handoff(&app, &token, "register", Some("second")).await);
+    let c_reg = challenge_of(&options(&app, &h_reg, &h_reg.code).await);
+    let credentials = [
+        key.assertion(&c_login, &at(6)),
+        key.assertion(&c_confirm, &at(6)),
+        new_key.registration(&c_reg, ORIGIN, UP | UV),
+    ];
+
+    app.restart(RegistrationMode::Open);
+    app.clock.advance_ms(60_000);
+
+    // Sessions are in the database and survive.
+    assert_eq!(
+        app.get("/v1/account", Some(&token)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.get("/v1/login/methods", Some(&t2)).await.status,
+        StatusCode::OK,
+        "the pending session survives"
+    );
+    for (h, credential) in [&h_login, &h_confirm, &h_reg].into_iter().zip(&credentials) {
+        let r = options(&app, h, &h.code).await;
+        assert_eq!(r.status, StatusCode::GONE);
+        assert_eq!(r.code(), "handoff_expired");
+        let r = finish(&app, h, credential).await;
+        assert_eq!(r.status, StatusCode::GONE);
+        assert_eq!(r.code(), "handoff_expired");
+    }
+    for (path, tok, h) in [
+        ("/v1/login/webauthn/handoff/state", &t2, &h_login),
+        ("/v1/account/webauthn/handoff/state", &token, &h_confirm),
+        ("/v1/account/webauthn/handoff/state", &token, &h_reg),
+    ] {
+        let r = app.post(path, Some(tok), &json!({"handoffId": h.id})).await;
+        assert_eq!(r.status, StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(r.code(), "not_found");
+    }
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 1);
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 20"), 0);
+
+    // The stored counter survived: an old count is still a replay.
+    invalid(&confirm(&app, &token, &key, &at(5)).await);
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 20"), 1);
+    // Recovery: confirm, the pending login and the registration go through
+    // on new handoffs.
+    assert_eq!(
+        confirm(&app, &token, &key, &at(6)).await.status,
+        StatusCode::OK
+    );
+    let (h, c) = assertion_handoff(&app, &t2, None).await;
+    let r = finish(&app, &h, &key.assertion(&c, &at(7))).await;
+    assert_eq!(
+        r.status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
+    let s: HandoffStateResponse = app
+        .post(
+            "/v1/login/webauthn/handoff/state",
+            Some(&t2),
+            &json!({"handoffId": h.id}),
+        )
+        .await
+        .json();
+    assert_eq!(s.state, HandoffState::Done);
+    assert_eq!(
+        app.get("/v1/account", Some(&t2)).await.status,
+        StatusCode::OK,
+        "the login completed"
+    );
+    register_key_as(&app, &token, "second", new_key).await;
+    assert_eq!(count(&app, "SELECT COUNT(*) FROM webauthn_credentials"), 2);
+    assert_eq!(
+        count(&app, "SELECT COUNT(*) FROM audit WHERE kind = 17"),
+        2,
+        "one audit event per registered key, none for the lost handoff"
+    );
+}
+
+/// A sign-counter race (CRYPTO_SPEC §9.3 compare-and-set): two assertions
+/// with the same count finish at the same moment, on two handoffs of one
+/// session, then on two pending sessions, and then as the same handoff twice.
+/// Exactly one wins; the other is refused, and a refused count is audited as
+/// `WebauthnCounterRegressed` once.
+#[tokio::test]
+async fn simultaneous_assertions_with_one_counter_have_exactly_one_winner() {
+    let app = open();
+    let (u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    let audits = |app: &TestApp| count(app, "SELECT COUNT(*) FROM audit WHERE kind = 20");
+
+    // Two confirm handoffs of one session.
+    for round in 1..=4u32 {
+        let n = round * 10;
+        let at = Assert {
+            count: n,
+            ..Assert::default()
+        };
+        // Handoffs of earlier rounds have run out (three live per account).
+        app.clock.advance_ms(301_000);
+        set_fresh(&app);
+        let (h1, c1) = assertion_handoff(&app, &token, Some("confirm")).await;
+        let (h2, c2) = assertion_handoff(&app, &token, Some("confirm")).await;
+        let (a1, a2) = (key.assertion(&c1, &at), key.assertion(&c2, &at));
+        app.clock.advance_ms(30_000);
+        let (r1, r2) = race(&app, (&h1, &a1), (&h2, &a2));
+        let oks = [&r1, &r2]
+            .iter()
+            .filter(|r| r.status == StatusCode::OK)
+            .count();
+        assert_eq!(oks, 1, "round {round}: {} / {}", r1.status, r2.status);
+        invalid(if r1.status == StatusCode::OK {
+            &r2
+        } else {
+            &r1
+        });
+        assert_eq!(audits(&app), i64::from(round), "one refusal per round");
+        assert_eq!(
+            count(&app, "SELECT sign_count FROM webauthn_credentials"),
+            i64::from(n)
+        );
+    }
+
+    // Two pending sessions of two devices with the same count.
+    let at = Assert {
+        count: 50,
+        ..Assert::default()
+    };
+    let mut pend = Vec::new();
+    app.clock.advance_ms(301_000);
+    for _ in 0..2 {
+        app.clock.advance_ms(13_000);
+        let t = pending(
+            app.login_with(
+                &u.email,
+                &u.opw,
+                u.account_id,
+                InstallId::new_v7().unwrap(),
+                IP,
+            )
+            .await,
+        );
+        let (h, c) = assertion_handoff(&app, &t, None).await;
+        pend.push((t, h, key.assertion(&c, &at)));
+    }
+    app.clock.advance_ms(30_000);
+    let (r1, r2) = race(&app, (&pend[0].1, &pend[0].2), (&pend[1].1, &pend[1].2));
+    let first_won = r1.status == StatusCode::OK;
+    assert!(
+        first_won != (r2.status == StatusCode::OK),
+        "exactly one login"
+    );
+    invalid(if first_won { &r2 } else { &r1 });
+    assert_eq!(audits(&app), 5);
+    let (won, lost) = if first_won { (0, 1) } else { (1, 0) };
+    assert_eq!(
+        app.get("/v1/account", Some(&pend[won].0)).await.status,
+        StatusCode::OK
+    );
+    assert_ne!(
+        app.get("/v1/account", Some(&pend[lost].0)).await.status,
+        StatusCode::OK,
+        "the refused session stays pending"
+    );
+
+    // One handoff finished twice at once.
+    app.clock.advance_ms(301_000);
+    set_fresh(&app);
+    let (h, c) = assertion_handoff(&app, &token, Some("confirm")).await;
+    let cred = key.assertion(
+        &c,
+        &Assert {
+            count: 60,
+            ..Assert::default()
+        },
+    );
+    app.clock.advance_ms(30_000);
+    let (r1, r2) = race(&app, (&h, &cred), (&h, &cred));
+    let oks = [&r1, &r2]
+        .iter()
+        .filter(|r| r.status == StatusCode::OK)
+        .count();
+    assert_eq!(oks, 1, "{} / {}", r1.status, r2.status);
+    assert_eq!(
+        count(&app, "SELECT sign_count FROM webauthn_credentials"),
+        60
+    );
+}
+
 // ---- known-answer vectors ----------------------------------------------------------
 
 // The WebAuthn Level 3 specification publishes no registration or assertion

@@ -16,6 +16,7 @@ mod api_auth;
 mod api_limits;
 mod api_sync;
 mod chaos_hosted;
+mod chaos_m9;
 mod chaos_net;
 mod cli;
 mod common;

@@ -145,6 +145,37 @@ impl TestApp {
         Self::build(mode, true, |_| {})
     }
 
+    /// With the database and the secret file on disk, so [`TestApp::restart`]
+    /// can start a new server state over them (M9 T12).
+    pub fn restartable(mode: RegistrationMode) -> Self {
+        init_logs();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = config_for(dir.path(), mode);
+        let keys = ServerKeys::generate(T0 - 1000).expect("keys");
+        keys.create(&config.secret_file).expect("secret file");
+        std::fs::create_dir_all(dir.path().join("blobs")).expect("blobs");
+        let db = Db::open(&dir.path().join(mosaic_server::DB_FILE)).expect("db");
+        let clock = Arc::new(ManualClock::new(T0));
+        let state = AppState::new(&config, db, keys, clock.clone());
+        let router = app(state.clone());
+        Self {
+            state,
+            clock,
+            dir,
+            router,
+        }
+    }
+
+    /// A server restart: a new [`AppState`] opened over the same database and
+    /// secret file, with the same clock. Everything the server keeps in
+    /// memory (browser handoffs, login states, rate-limit buckets) is gone.
+    pub fn restart(&mut self, mode: RegistrationMode) {
+        let config = config_for(self.dir.path(), mode);
+        let state = AppState::open(&config, self.clock.clone()).expect("reopen");
+        self.router = app(state.clone());
+        self.state = state;
+    }
+
     fn build(mode: RegistrationMode, file: bool, tweak: impl FnOnce(&mut Config)) -> Self {
         init_logs();
         let dir = tempfile::tempdir().expect("tempdir");
