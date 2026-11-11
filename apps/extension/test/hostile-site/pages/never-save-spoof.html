@@ -1,0 +1,47 @@
+<!-- attempts (M4-R10): empty or read the extension's "never offered for saving" list from a web
+     page. It frames the extension's popup page (to drive its Remove buttons or reach its port),
+     posts popup-shaped and passkey-bridge-shaped `neverSaveRemove` / `neverSaveList` messages to
+     its own window (where Mosaic's passkey bridge listens), and asks the hostile extension's
+     content script (test/evil-extension/content.js) to send the same to Mosaic's ID.
+     Query: ?ext=<Mosaic's extension ID>&origins=<comma-separated origins to remove>. -->
+<!doctype html>
+<meta charset="utf-8">
+<title>Never-save spoof</title>
+<script>
+  const query = new URLSearchParams(location.search);
+  const ext = query.get("ext") ?? "";
+  const origins = (query.get("origins") ?? "").split(",").filter((o) => o !== "");
+  window.__neverSaveReplies = [];
+  window.addEventListener("message", (event) => {
+    if (event.source === window) window.__neverSaveReplies.push(event.data);
+  });
+
+  // The popup page in a frame: blocked when it is not web-accessible and frame-ancestors is 'none'.
+  for (const path of ["popup.html", `popup.html?e2eTabId=1`]) {
+    const frame = document.createElement("iframe");
+    frame.src = `chrome-extension://${ext}/${path}`;
+    frame.className = "popup-frame";
+    document.documentElement.append(frame);
+  }
+
+  function spoof() {
+    for (const origin of origins) {
+      const payloads = [
+        { op: "neverSaveRemove", origin },
+        { id: 1, request: { op: "neverSaveRemove", origin } },
+        // The bridge's request type, with a popup operation instead of create/get.
+        { type: "mosaic-passkey-req", id: 7, op: "neverSaveRemove", origin },
+        { type: "mosaic-passkey-req", id: 8, op: "get", options: { op: "neverSaveRemove", origin } },
+        // What the bridge itself would send to the background, posted by the page.
+        { kind: "passkey", op: "neverSaveRemove", pageRequestId: 9, origin },
+      ];
+      for (const payload of payloads) window.postMessage(payload, "*");
+    }
+    window.postMessage({ id: 2, request: { op: "neverSaveList" } }, "*");
+    // Ask the other extension's content script (if one is installed) to try with its API.
+    window.postMessage({ evilNeverSave: ext, origins }, "*");
+  }
+  spoof();
+  setTimeout(spoof, 300);
+</script>
+<p>Never-save spoof page.</p>

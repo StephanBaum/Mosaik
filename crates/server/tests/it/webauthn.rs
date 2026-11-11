@@ -1294,3 +1294,239 @@ impl TestApp {
         self.clock.now_ms()
     }
 }
+
+// ---- M9 T12 red team: the handoff as a web target ------------------------------------
+
+/// The state of handoff `h`, polled by `token` on the login or the account route.
+async fn poll(app: &TestApp, token: &[u8; 32], login: bool, h: &Hand) -> Resp {
+    let path = if login {
+        "/v1/login/webauthn/handoff/state"
+    } else {
+        "/v1/account/webauthn/handoff/state"
+    };
+    app.post(path, Some(token), &json!({"handoffId": h.id}))
+        .await
+}
+
+/// `POST /v1/webauthn/handoff/options` from the address `ip`.
+async fn options_from(app: &TestApp, ip: &str, h: &Hand, code: &str) -> Resp {
+    app.send(
+        Method::POST,
+        "/v1/webauthn/handoff/options",
+        None,
+        ip,
+        serde_json::to_vec(&json!({"handoffId": h.id, "code": code})).unwrap(),
+    )
+    .await
+}
+
+/// A six-digit code that is not `h`'s.
+fn wrong_code(h: &Hand) -> &'static str {
+    if h.code == "000000" {
+        "111111"
+    } else {
+        "000000"
+    }
+}
+
+/// Attempt: use a handoff from another session of the same account, from another
+/// account, or on the other route; and spend a `Confirm` from another session.
+/// Expected: only the creating session sees it, and the confirmation acts on that
+/// session only (CRYPTO_SPEC §9.3, "bound to the creating session's token hash").
+#[tokio::test]
+async fn redteam_handoff_is_bound_to_its_session() {
+    let app = open();
+    let (u, token_a) = app.user("alice").await;
+    app.clock.advance_ms(13_000);
+    let token_b = app.login_device(&u, InstallId::new_v7().unwrap()).await;
+    app.clock.advance_ms(13_000);
+    let (_bob, token_bob) = app.user("bob").await;
+    let key = register_key(&app, &token_a, "one").await;
+    let _two = register_key(&app, &token_a, "two").await;
+
+    let (h, c) = assertion_handoff(&app, &token_a, Some("confirm")).await;
+    assert_eq!(poll(&app, &token_a, false, &h).await.status, StatusCode::OK);
+    for (who, token) in [("other device", &token_b), ("other account", &token_bob)] {
+        assert_eq!(
+            poll(&app, token, false, &h).await.status,
+            StatusCode::NOT_FOUND,
+            "{who}"
+        );
+    }
+    // The right session on the login route: not a login handoff.
+    assert_eq!(
+        poll(&app, &token_a, true, &h).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        finish(&app, &h, &key.assertion(&c, &Assert::default()))
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    // A's confirmation does not let B (fresh, same account) remove a key without a code.
+    let list: Vec<WebauthnEntry> = app.get("/v1/account/webauthn", Some(&token_a)).await.json();
+    let remove = json!({"credentialRef": b64(&list[1].credential_ref.0), "code": null});
+    set_fresh(&app);
+    invalid(
+        &app.post("/v1/account/webauthn/remove", Some(&token_b), &remove)
+            .await,
+    );
+    assert_eq!(
+        app.post("/v1/account/webauthn/remove", Some(&token_a), &remove)
+            .await
+            .status,
+        StatusCode::OK
+    );
+}
+
+/// Attempt: finish one pending login's handoff and use it for another pending login
+/// of the same account, or start an account handoff from a pending session.
+/// Expected: only the pending session that started the handoff is completed.
+#[tokio::test]
+async fn redteam_login_handoff_completes_only_its_own_pending_session() {
+    let app = open();
+    let (u, token) = app.user("alice").await;
+    let key = register_key(&app, &token, "k").await;
+    app.clock.advance_ms(13_000);
+    let p2 = pending(
+        app.login_with(
+            &u.email,
+            &u.opw,
+            u.account_id,
+            InstallId::new_v7().unwrap(),
+            IP,
+        )
+        .await,
+    );
+    app.clock.advance_ms(13_000);
+    let p3 = pending(
+        app.login_with(
+            &u.email,
+            &u.opw,
+            u.account_id,
+            InstallId::new_v7().unwrap(),
+            IP,
+        )
+        .await,
+    );
+    // A pending session cannot open a register or confirm handoff.
+    for purpose in ["register", "confirm"] {
+        assert_eq!(
+            account_handoff(&app, &p3, purpose, None).await.status,
+            StatusCode::UNAUTHORIZED,
+            "{purpose}"
+        );
+    }
+    let (h, c) = assertion_handoff(&app, &p2, None).await;
+    assert_eq!(
+        poll(&app, &p3, true, &h).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        finish(&app, &h, &key.assertion(&c, &Assert::default()))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.get("/v1/account", Some(&p2)).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.get("/v1/account", Some(&p3)).await.status,
+        StatusCode::UNAUTHORIZED,
+        "the other pending login stays pending"
+    );
+}
+
+/// Attempt: guess handoff codes from many addresses (a botnet, or many victims'
+/// browsers driven cross-site) and spread the guesses over every live handoff of
+/// the account, staying under the five-per-handoff limit.
+/// Expected: the shared per-account budget (ten failures an hour) stops the
+/// guessing; after it even the right code is `rate_limited`.
+#[tokio::test]
+async fn redteam_code_guesses_over_handoffs_and_addresses_hit_the_account_budget() {
+    let app = open();
+    let (_u, token) = app.user("alice").await;
+    let _key = register_key(&app, &token, "k").await;
+    let mut hands = Vec::new();
+    for _ in 0..3 {
+        app.clock.advance_ms(1_000);
+        hands.push(hand(&account_handoff(&app, &token, "confirm", None).await));
+    }
+    let mut n = 0u8;
+    for (h, tries) in hands.iter().zip([4, 4, 2]) {
+        for _ in 0..tries {
+            n += 1;
+            let ip = format!("203.0.113.{n}:4000");
+            invalid(&options_from(&app, &ip, h, wrong_code(h)).await);
+        }
+    }
+    let r = options_from(&app, "203.0.113.200:4000", &hands[2], &hands[2].code).await;
+    assert_eq!(
+        r.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        String::from_utf8_lossy(&r.body)
+    );
+    assert_eq!(r.code(), "rate_limited");
+}
+
+/// Attempt: cross-site requests to the page's routes (a form post as `text/plain`,
+/// or a `fetch` that needs a preflight) to read the options or the challenge.
+/// Expected: no route grants CORS; the page's API answers are `no-store` and carry
+/// the ID in no header. (There is no cookie or other ambient credential to forge.)
+#[tokio::test]
+async fn redteam_handoff_routes_grant_no_cross_site_access() {
+    let app = open();
+    let (_u, token) = app.user("alice").await;
+    let _key = register_key(&app, &token, "k").await;
+    app.clock.advance_ms(7_000);
+    let h = hand(&account_handoff(&app, &token, "confirm", None).await);
+    let body = serde_json::to_vec(&json!({"handoffId": h.id, "code": h.code})).unwrap();
+    let pre = app
+        .send_with(
+            Method::OPTIONS,
+            "/v1/webauthn/handoff/options",
+            None,
+            IP,
+            &[
+                ("origin", "https://evil.example"),
+                ("access-control-request-method", "POST"),
+                ("access-control-request-headers", "content-type"),
+            ],
+            Vec::new(),
+        )
+        .await;
+    let simple = app
+        .send_with(
+            Method::POST,
+            "/v1/webauthn/handoff/options",
+            None,
+            "203.0.113.50:4000",
+            &[
+                ("origin", "https://evil.example"),
+                ("content-type", "text/plain"),
+            ],
+            body,
+        )
+        .await;
+    for r in [&pre, &simple] {
+        for name in [
+            "access-control-allow-origin",
+            "access-control-allow-credentials",
+            "access-control-allow-headers",
+        ] {
+            assert!(r.headers.get(name).is_none(), "{name}");
+        }
+    }
+    assert_eq!(simple.headers["cache-control"], "no-store");
+    for (name, value) in &simple.headers {
+        assert!(
+            !value.to_str().unwrap_or("").contains(&h.id),
+            "the ID in {name}"
+        );
+    }
+}

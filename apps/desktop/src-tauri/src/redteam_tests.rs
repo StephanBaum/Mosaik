@@ -1573,3 +1573,53 @@ fn a_passkey_private_key_reaches_no_command_and_no_item_view() {
         }
     }
 }
+
+#[test]
+fn the_handoff_opener_takes_only_a_canonical_web_origin() {
+    // Attempt (M9 T12): make Rust open a URL of the attacker's choosing through the one opener
+    // call site (`Backend::open_handoff`, `opener_has_one_call_site`). Its origin is the sync
+    // server URL the webview passed to `sync_hosted_connect` or the join flow, so a compromised
+    // webview controls that text: a scheme with a protocol handler, a file, a path, credentials,
+    // a second argument or a non-canonical spelling must never reach `open::that_detached`.
+    use mosaic_sync::http::hosted::handoff_page_url;
+    let id = [7u8; 16];
+    for hostile in [
+        "javascript:alert(1)",
+        "file:///C:/Windows/System32/calc.exe",
+        "ms-msdt:/id PCWDiagnostic /skip force",
+        r"search-ms:query=x&crumb=location:\\evil\share",
+        "data:text/html,<script>1</script>",
+        "chrome://settings",
+        r"\\evil.example\share\x.exe",
+        "http://evil.example",
+        "https://evil.example/path",
+        "https://evil.example?x=1",
+        "https://evil.example#x",
+        "https://user@evil.example",
+        r"https://evil.example\@sync.example.com",
+        "https://evil.example%2F..",
+        "https://evil.example \"--flag\"",
+        "https://evil.example\n",
+        "https://EVIL.example",
+        "https://evil.example:443",
+        "https://evil.example:0",
+        "",
+    ] {
+        assert!(
+            handoff_page_url(hostile, &id).is_err(),
+            "{hostile:?} must not be opened"
+        );
+    }
+    // What is opened: the canonical origin, the fixed page and the ID in the fragment only.
+    let url = handoff_page_url("https://sync.example.com:8443", &id).unwrap();
+    let fragment = url
+        .strip_prefix("https://sync.example.com:8443/webauthn/#")
+        .unwrap();
+    assert_eq!(fragment.len(), 22);
+    assert!(
+        fragment
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    );
+    assert!(handoff_page_url("http://127.0.0.1:8743", &id).is_ok());
+}
