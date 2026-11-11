@@ -495,3 +495,50 @@ fn revoked_rekey_prints_secret_key_hint() {
     assert_eq!(out.error_json()["error"]["code"], "syncSessionRevoked");
     assert!(out.stderr.contains("Secret Key"), "{}", out.stderr);
 }
+
+/// Every reason the server records picks its own text (CRYPTO_SPEC §9.5, `docs/CLI.md`); only a
+/// re-key mentions the new Secret Key, and each ends with exit 6 and the same JSON code.
+#[test]
+fn revoked_reasons_pick_their_own_message() {
+    for (reason, expect, secret_key_hint) in [
+        (2, "master password was changed", false),
+        (3, "removed from your account", false),
+        (4, "operator of the server", false),
+        (1, "keys were renewed", true),
+    ] {
+        let mut d = Desktop::new();
+        d.sync();
+        assert_eq!(d.setup(&[d.f.secret_key.as_str(), PASSWORD]).code, 0);
+        assert_eq!(d.cli(&["sync"], &[PASSWORD]).code, 0);
+        d.server
+            .state
+            .db()
+            .run(|c| {
+                c.execute(
+                    &format!(
+                        "INSERT INTO revoked_sessions (token_hash, account_id, reason, revoked_at) \
+                         SELECT token_hash, account_id, {reason}, 0 FROM sessions"
+                    ),
+                    [],
+                )?;
+                c.execute("DELETE FROM sessions", [])?;
+                Ok::<_, mosaic_server::ApiError>(())
+            })
+            .unwrap();
+        d.server.advance_ms(60_000);
+        let out = d.cli(&["sync"], &[PASSWORD]);
+        assert_eq!(out.code, 6, "reason {reason}: {}", out.stderr);
+        assert_eq!(out.error_json()["error"]["code"], "syncSessionRevoked");
+        assert!(
+            out.stderr.contains(expect),
+            "reason {reason}: {}",
+            out.stderr
+        );
+        assert_eq!(
+            out.stderr.contains("Secret Key"),
+            secret_key_hint,
+            "reason {reason}: {}",
+            out.stderr
+        );
+    }
+}

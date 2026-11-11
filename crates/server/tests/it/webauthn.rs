@@ -27,7 +27,7 @@ const RP_ID: &str = "sync.example.com";
 const UP: u8 = 0x01;
 const UV: u8 = 0x04;
 
-fn b64(bytes: &[u8]) -> String {
+pub(crate) fn b64(bytes: &[u8]) -> String {
     Base64UrlUnpadded::encode_string(bytes)
 }
 
@@ -53,7 +53,7 @@ enum Auth {
     Ed25519(ed25519_dalek::SigningKey),
 }
 
-struct Key {
+pub(crate) struct Key {
     sk: Auth,
     id: Vec<u8>,
     cose: Vec<u8>,
@@ -62,7 +62,7 @@ struct Key {
 }
 
 impl Key {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let k = Es256Key::generate().unwrap();
         let der = k.to_pkcs8_der().unwrap();
         Self {
@@ -89,7 +89,7 @@ impl Key {
     }
 
     /// The `PublicKeyCredential` JSON of a registration with `none` attestation.
-    fn registration(&self, challenge: &[u8], origin: &str, flags: u8) -> Value {
+    pub(crate) fn registration(&self, challenge: &[u8], origin: &str, flags: u8) -> Value {
         let mut ad = rp_id_hash(RP_ID).to_vec();
         ad.push(flags | 0x40);
         ad.extend_from_slice(&0u32.to_be_bytes());
@@ -110,7 +110,7 @@ impl Key {
     }
 
     /// The JSON of an assertion over `challenge`.
-    fn assertion(&self, challenge: &[u8], o: &Assert) -> Value {
+    pub(crate) fn assertion(&self, challenge: &[u8], o: &Assert) -> Value {
         let mut ad = rp_id_hash(&o.rp_id).to_vec();
         ad.push(o.flags);
         ad.extend_from_slice(&o.count.to_be_bytes());
@@ -141,13 +141,13 @@ impl Key {
 
 /// What an assertion looks like; the default is a valid one with a zero
 /// counter and no user handle.
-struct Assert {
-    origin: String,
-    rp_id: String,
-    flags: u8,
-    count: u32,
-    handle: Option<Vec<u8>>,
-    client_data: Option<Vec<u8>>,
+pub(crate) struct Assert {
+    pub(crate) origin: String,
+    pub(crate) rp_id: String,
+    pub(crate) flags: u8,
+    pub(crate) count: u32,
+    pub(crate) handle: Option<Vec<u8>>,
+    pub(crate) client_data: Option<Vec<u8>>,
 }
 
 impl Default for Assert {
@@ -165,12 +165,12 @@ impl Default for Assert {
 
 // ---- the routes -----------------------------------------------------------------
 
-struct Hand {
-    id: String,
-    code: String,
+pub(crate) struct Hand {
+    pub(crate) id: String,
+    pub(crate) code: String,
 }
 
-fn hand(r: &Resp) -> Hand {
+pub(crate) fn hand(r: &Resp) -> Hand {
     assert_eq!(
         r.status,
         StatusCode::OK,
@@ -185,7 +185,7 @@ fn hand(r: &Resp) -> Hand {
     }
 }
 
-async fn account_handoff(
+pub(crate) async fn account_handoff(
     app: &TestApp,
     token: &[u8; 32],
     purpose: &str,
@@ -199,7 +199,7 @@ async fn account_handoff(
     .await
 }
 
-async fn options(app: &TestApp, h: &Hand, code: &str) -> Resp {
+pub(crate) async fn options(app: &TestApp, h: &Hand, code: &str) -> Resp {
     app.post(
         "/v1/webauthn/handoff/options",
         None,
@@ -208,7 +208,7 @@ async fn options(app: &TestApp, h: &Hand, code: &str) -> Resp {
     .await
 }
 
-async fn finish(app: &TestApp, h: &Hand, credential: &Value) -> Resp {
+pub(crate) async fn finish(app: &TestApp, h: &Hand, credential: &Value) -> Resp {
     app.post(
         "/v1/webauthn/handoff/finish",
         None,
@@ -218,13 +218,13 @@ async fn finish(app: &TestApp, h: &Hand, credential: &Value) -> Resp {
 }
 
 /// The challenge of an options answer.
-fn challenge_of(r: &Resp) -> Vec<u8> {
+pub(crate) fn challenge_of(r: &Resp) -> Vec<u8> {
     let o: HandoffOptionsResponse = r.json();
     unb64(o.public_key["challenge"].as_str().unwrap())
 }
 
 /// Registers a new key through a `register` handoff.
-async fn register_key(app: &TestApp, token: &[u8; 32], label: &str) -> Key {
+pub(crate) async fn register_key(app: &TestApp, token: &[u8; 32], label: &str) -> Key {
     register_key_as(app, token, label, Key::new()).await
 }
 
@@ -271,7 +271,7 @@ async fn register_key_as(app: &TestApp, token: &[u8; 32], label: &str, mut key: 
 }
 
 /// A confirm or login handoff up to the options; the challenge and the handoff.
-async fn assertion_handoff(
+pub(crate) async fn assertion_handoff(
     app: &TestApp,
     token: &[u8; 32],
     purpose: Option<&str>,
@@ -345,7 +345,7 @@ async fn login_with_key(app: &TestApp, u: &User, key: &Key) -> [u8; 32] {
     t
 }
 
-fn invalid(r: &Resp) {
+pub(crate) fn invalid(r: &Resp) {
     assert_eq!(
         r.status,
         StatusCode::UNAUTHORIZED,
@@ -622,7 +622,7 @@ async fn webauthn_only_account_is_pending_after_opaque() {
     invalid(&r);
 }
 
-fn set_fresh(app: &TestApp) {
+pub(crate) fn set_fresh(app: &TestApp) {
     app.state
         .db()
         .run(|c| {
@@ -1664,7 +1664,7 @@ async fn options_from(app: &TestApp, ip: &str, h: &Hand, code: &str) -> Resp {
 }
 
 /// A six-digit code that is not `h`'s.
-fn wrong_code(h: &Hand) -> &'static str {
+pub(crate) fn wrong_code(h: &Hand) -> &'static str {
     if h.code == "000000" {
         "111111"
     } else {
