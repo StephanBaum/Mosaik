@@ -365,7 +365,7 @@ jobs:
           if [ "$RUNNER_OS" != Linux ]; then test "$signed" -ge 1 || { echo "::error::no updater artifact was signed"; exit 1; }; fi
       - name: No updater key
         if: env.HAS_UPDATER_KEY != 'true'
-        run: echo "::warning::no updater key: the .sig files are not built"
+        run: 'echo "::warning::no updater key, so the .sig files are not built"'
       - name: Collect the bundles and the pre-signing hashes
         shell: bash
         run: |
