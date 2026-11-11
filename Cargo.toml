@@ -189,7 +189,7 @@ rpassword = "=7.4.0"
 # Ctrl-C handler of the CLI: restores the terminal mode and exits 130 (safe API, no unsafe in our code).
 ctrlc = "=3.5.2"
 # Saves and restores the terminal mode (echo) around a no-echo prompt on Unix; safe termios API, already in the tree.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "termios", "fs"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "termios", "fs"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

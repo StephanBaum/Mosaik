@@ -15,6 +15,7 @@
  *
  * Timestamps come from SOURCE_DATE_EPOCH when set (reproducible output), otherwise the clock.
  */
+import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";

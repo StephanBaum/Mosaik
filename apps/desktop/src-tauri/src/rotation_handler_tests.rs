@@ -723,6 +723,7 @@ fn vault_rotate_key_spends_the_proof_also_when_it_fails() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "one scenario: rotate, crash, resume, check every attachment")]
 fn vault_rotate_key_reseals_attachments_and_resumes() {
     let _kdf = kdf_permit();
     let own = tempfile::tempdir().unwrap();

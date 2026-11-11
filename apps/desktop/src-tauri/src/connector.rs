@@ -233,7 +233,7 @@ mod tests {
 
         // Repair rewrites those entries and audits clean.
         let after = repair_with(&layout, &installed, &mut registry).unwrap();
-        assert!(after.findings.is_empty());
+        assert_eq!(after.findings, Vec::new());
         // Repair does not create entries for browsers that had none.
         assert!(
             !install::plan(&layout, &[Browser::Edge], &installed)
@@ -252,10 +252,9 @@ mod tests {
                 .iter()
                 .all(|f| f.path.exists())
         );
-        assert!(
-            audit_with(&layout, &installed, &mut registry)
-                .findings
-                .is_empty()
+        assert_eq!(
+            audit_with(&layout, &installed, &mut registry).findings,
+            Vec::new()
         );
     }
 
