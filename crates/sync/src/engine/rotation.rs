@@ -3,7 +3,9 @@
 //! when the backend accepted it.
 
 use mosaic_core::{KeyGeneration, VaultId};
-use mosaic_vault::session::{Error, PreparedRotation, RotationKind, RotationPhase};
+use mosaic_vault::session::{
+    Error, PreparedRotation, RotationJob, RotationKind, RotationPhase, UnlockedSession,
+};
 
 use super::pull::RunStats;
 use super::rekey::{RekeyError, RekeyProgress};
@@ -36,6 +38,18 @@ impl<T: Transport> SyncEngine<T> {
         clock: &impl Clock,
         vault: VaultId,
     ) -> Result<RotationOutcome, SyncError> {
+        self.rotate_vault_with(access, clock, vault, false)
+    }
+
+    /// [`Self::rotate_vault`]; with `reseal`, the vault-only job is opened
+    /// (and its queue refreshed) before every offer of the key (M9-F1).
+    fn rotate_vault_with(
+        &mut self,
+        access: &mut impl SessionAccess,
+        clock: &impl Clock,
+        vault: VaultId,
+        reseal: bool,
+    ) -> Result<RotationOutcome, SyncError> {
         // A halt stops a rotation like any other run, and nothing is written
         // before the checks that can raise one.
         Self::ensure_not_halted(access)?;
@@ -49,6 +63,12 @@ impl<T: Transport> SyncEngine<T> {
             // A shared vault rotates through the owner's atomic request
             // (CRYPTO_SPEC §8.3): it is the owner's device only, and every
             // member gets a share.
+            if reseal {
+                let next = Self::current_generation(access, vault)?
+                    .next()
+                    .map_err(|e| SyncError::Session(Error::Core(e)))?;
+                access.with(|s| s.open_vault_offer_job(vault, next))??;
+            }
             return match self.rotate_shared(
                 access,
                 vault,
@@ -61,16 +81,18 @@ impl<T: Transport> SyncEngine<T> {
                 None => Err(SyncError::Session(Error::NotOwner)),
             };
         }
-        self.rotate_inner(access, vault)
+        self.rotate_inner(access, vault, reseal)
     }
 
     /// Rotates a vault's key and, with `reseal_attachments`, re-seals the
     /// vault's attachments under fresh attachment IDs and file keys (the
     /// optional step of CRYPTO_SPEC §7.1, M7-R2): a vault-only rotation on
-    /// the rotation journal ([`RotationKind::Vault`], phases 5 to 7). The
+    /// the rotation journal ([`RotationKind::Vault`], phases 2 and 5 to 7). The
     /// re-seal runs only when this device's key won
-    /// ([`RotationOutcome::Rotated`]); the job it opens survives a crash or
-    /// a lock, and [`SyncEngine::vault_rotate_continue`] resumes it.
+    /// ([`RotationOutcome::Rotated`]). The job is opened before the key is
+    /// offered (M9-F1), so it survives a crash or a lock at any point after
+    /// the offer, and [`SyncEngine::vault_rotate_continue`] resumes it; it is
+    /// dropped when another device's key won. A failed call leaves it open.
     ///
     /// # Errors
     /// [`RekeyError::Session`] with `RotationInProgress` if a rotation job is
@@ -87,11 +109,15 @@ impl<T: Transport> SyncEngine<T> {
         if reseal_attachments && access.with(|s| s.rotation_job())??.is_some() {
             return Err(RekeyError::Session(Error::RotationInProgress));
         }
-        let outcome = self.rotate_vault(access, clock, vault)?;
+        let outcome = self.rotate_vault_with(access, clock, vault, reseal_attachments)?;
         let mut progress = None;
-        if reseal_attachments && matches!(outcome, RotationOutcome::Rotated(_)) {
-            access.with(|s| s.queue_vault_attachment_reseal(vault))??;
-            progress = Some(self.reseal_vault_job(access, clock)?);
+        if reseal_attachments {
+            match outcome {
+                RotationOutcome::Rotated(_) => {
+                    progress = Some(self.reseal_vault_job(access, clock)?);
+                }
+                RotationOutcome::RotatedByAnother(_) => Self::drop_offer_job(access)?,
+            }
         }
         Ok(VaultKeyRotation { outcome, progress })
     }
@@ -100,6 +126,12 @@ impl<T: Transport> SyncEngine<T> {
     /// re-seal, M7-R2): re-seals what is left, uploads and closes the job.
     /// Call it again while [`RekeyProgress::more_attachments`] is set.
     ///
+    /// A job still at phase 2 (the key was offered, then a crash or a lock,
+    /// M9-F1) is settled first: the vault is pulled, and if it holds the
+    /// offered generation (or a later one) the re-seal runs; otherwise the
+    /// backend never took the key, the job is dropped and the progress says
+    /// `finished` with nothing done.
+    ///
     /// # Errors
     /// [`RekeyError::NoJob`] without a vault job; [`RekeyError`].
     pub fn vault_rotate_continue(
@@ -107,11 +139,46 @@ impl<T: Transport> SyncEngine<T> {
         access: &mut impl SessionAccess,
         clock: &impl Clock,
     ) -> Result<RekeyProgress, RekeyError> {
-        access
+        let job = access
             .with(|s| s.rotation_job())??
             .filter(|j| j.kind == RotationKind::Vault)
             .ok_or(RekeyError::NoJob)?;
+        if job.phase == RotationPhase::BackendStarted && !self.offer_landed(access, &job)? {
+            Self::drop_offer_job(access)?;
+            return Ok(RekeyProgress {
+                finished: true,
+                ..RekeyProgress::default()
+            });
+        }
         self.reseal_vault_job(access, clock)
+    }
+
+    /// Whether the vault of a phase-2 job holds the offered generation after
+    /// a pull. A job with an empty queue has nothing to re-seal: `false`.
+    fn offer_landed(
+        &mut self,
+        access: &mut impl SessionAccess,
+        job: &RotationJob,
+    ) -> Result<bool, SyncError> {
+        let Some(vault) = access.with(|s| s.reseal_queue_vault())?? else {
+            return Ok(false);
+        };
+        let mut report = SyncReport::default();
+        let mut stats = RunStats::default();
+        self.pull_vault(access, vault, &mut report, &mut stats)?;
+        let held = u64::from(Self::current_generation(access, vault)?.get());
+        Ok(job.target_version.is_some_and(|offered| held >= offered))
+    }
+
+    /// Drops the phase-2 vault job, if one is open.
+    fn drop_offer_job(access: &mut impl SessionAccess) -> Result<(), SyncError> {
+        let open = access.with(|s| s.rotation_job())??.is_some_and(|j| {
+            j.kind == RotationKind::Vault && j.phase == RotationPhase::BackendStarted
+        });
+        if open {
+            access.with(UnlockedSession::drop_vault_offer_job)??;
+        }
+        Ok(())
     }
 
     fn reseal_vault_job(
@@ -133,6 +200,7 @@ impl<T: Transport> SyncEngine<T> {
         &mut self,
         access: &mut impl SessionAccess,
         vault: VaultId,
+        reseal: bool,
     ) -> Result<RotationOutcome, SyncError> {
         let install = access.with(|s| s.install_id())?;
         let mut report = SyncReport::default();
@@ -157,6 +225,11 @@ impl<T: Transport> SyncEngine<T> {
                 },
             };
             let generation = p.generation();
+            if reseal {
+                // Before every offer, so the queue also holds what a pull
+                // after a moved head brought (M9-F1).
+                access.with(|s| s.open_vault_offer_job(vault, generation))??;
+            }
             let wrapped = p.wrapped().clone();
             let head = access
                 .with(|s| s.sync_cursor(vault))??

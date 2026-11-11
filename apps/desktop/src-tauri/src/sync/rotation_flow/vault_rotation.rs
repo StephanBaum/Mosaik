@@ -13,7 +13,7 @@ use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, RekeyError, RekeyProgress, SyncEngine, SyncError};
 use mosaic_sync::http::HttpTransport;
 use mosaic_sync::transport::{Transport, TransportKind};
-use mosaic_vault::session::{RotationKind as VaultKind, SyncKind};
+use mosaic_vault::session::{RotationKind as VaultKind, RotationPhase, SyncKind};
 
 use super::{MAX_CONTINUE_CALLS, Renewed, Who, rekey_error};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
@@ -42,7 +42,18 @@ impl Backend {
     /// from its owner's device) and the transport's `sync*` codes.
     pub fn vault_rotate_key(&self, request: VaultRotateKeyRequest) -> IpcResult<RotationDone> {
         self.touch();
-        self.require_reauth(request.proof)?;
+        // The proof is taken before anything runs and spent whatever the
+        // outcome (M9-F5): of two parallel calls one gets it, and a failed
+        // rotation, which may have offered a key, does not leave it behind.
+        match request.proof {
+            Some(password) if !password.expose_secret().is_empty() => {
+                self.reauthenticate(password)?;
+                let _ = self.quick_unlock.take_reauth();
+            }
+            _ => {
+                let _ = self.take_reauth_grant()?;
+            }
+        }
         let who = self.who()?;
         let _change = self.sync.begin_change()?;
         let result = self.run_vault_work(
@@ -53,10 +64,6 @@ impl Backend {
             },
         );
         self.sync_restart();
-        if result.is_ok() {
-            // The proof is spent on one rotation: the next asks again.
-            let _ = self.quick_unlock.take_reauth();
-        }
         result.map(|finished| self.rotation_done(&no_renewal(), finished))
     }
 
@@ -114,7 +121,7 @@ impl Backend {
         work: &Work,
     ) -> IpcResult<bool> {
         // A job that was open before is not this call's: its errors stay errors.
-        let job_before = self.vault_job_open();
+        let job_before = self.vault_job_committed();
         let first = match work {
             Work::Rotate {
                 vault,
@@ -131,7 +138,7 @@ impl Backend {
         let progress = match first {
             Ok(progress) => progress,
             Err(error)
-                if !job_before && self.vault_job_open() && error.code != ErrorCode::Locked =>
+                if !job_before && self.vault_job_committed() && error.code != ErrorCode::Locked =>
             {
                 // The key moved on; the re-seal waits for "Continue".
                 self.emit_rotation_progress();
@@ -161,14 +168,18 @@ impl Backend {
         Ok(false)
     }
 
-    /// Whether a vault-only job is open (the key was committed, the re-seal
-    /// is not done).
-    fn vault_job_open(&self) -> bool {
+    /// Whether a vault-only job is open past the key commit (the re-seal is
+    /// not done). A job still at phase 2 (the key offered, the outcome not
+    /// known, M9-F1) is not: an error then stays an error, and the job waits
+    /// for `rotation_resume`, which settles it.
+    fn vault_job_committed(&self) -> bool {
         self.slot().is_ok_and(|slot| {
             slot.unlocked()
                 .ok()
                 .and_then(|s| s.rotation_job().ok().flatten())
-                .is_some_and(|job| job.kind == VaultKind::Vault)
+                .is_some_and(|job| {
+                    job.kind == VaultKind::Vault && job.phase >= RotationPhase::LocalCommitted
+                })
         })
     }
 }

@@ -4985,7 +4985,7 @@ ADR-0019 item 4 deferred Tauri's isolation pattern to M9 (M3-R2). The pattern ro
 
 ### Decision
 Declined; M3-R2 is closed as accepted.
-- The AES-GCM layer is a primitive outside CRYPTO_SPEC §2, added to the trusted path for no gain: both ends run in the same process and the key sits in the same webview.
+- The AES-GCM layer is a primitive outside CRYPTO_SPEC §2, added to the trusted path for little gain. Its key lives in the sandboxed isolation iframe, out of reach of the main frame's script, so the layer proves only that a message passed that iframe's hook on its way to Rust; it adds no check of its own (corrected in M9 T13, M9-F8: an earlier text said the key sat in the same webview as the page).
 - The isolation hook could only re-check what Rust already validates for every command: typed requests with unknown keys refused, the closed command set, IDs instead of paths, secrets as `SecretIn`.
 - The compensating controls stay: the strict CSP, the navigation guard, the capability allow-list, the red-team surface tests (`redteam_surface_tests.rs`), and the JavaScript dependency review of track T7.
 

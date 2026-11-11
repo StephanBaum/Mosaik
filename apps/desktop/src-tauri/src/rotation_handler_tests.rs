@@ -696,6 +696,32 @@ fn vault_rotate_key_needs_the_proof_and_a_backend() {
     );
 }
 
+/// M9-F5: the proof is taken before the rotation runs and spent by a failed
+/// call too, so it cannot be used twice.
+#[test]
+fn vault_rotate_key_spends_the_proof_also_when_it_fails() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    let vault = b.list_vaults().unwrap()[0].vault_id.get();
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    // No backend: the first call fails after the proof was taken.
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::SyncNotConfigured
+    );
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::ReauthRequired,
+        "a failed call spent the proof"
+    );
+}
+
 #[test]
 fn vault_rotate_key_reseals_attachments_and_resumes() {
     let _kdf = kdf_permit();
@@ -785,4 +811,33 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     let last = attachment_ids_of(b, vault, item);
     assert_eq!(last.len(), 2);
     assert!(last.iter().all(|a| !after.contains(a)), "new IDs again");
+
+    // M9-F1: a job opened for an offer whose key never reached the backend
+    // (a crash right after it was opened) needs nothing from the user, and
+    // the resume drops it without touching the attachments.
+    let next = b
+        .with_unlocked(|s| {
+            Ok(s.vaults()
+                .into_iter()
+                .find(|v| v.vault_id == vault)
+                .unwrap()
+                .key_generation
+                .next()
+                .unwrap())
+        })
+        .unwrap();
+    b.with_unlocked(|s| Ok(s.open_vault_offer_job(vault, next)?))
+        .unwrap();
+    let job = b.rotation_status().unwrap().job.unwrap();
+    assert_eq!(job.kind, RotationKind::Vault);
+    let resumed = b
+        .rotation_resume(&RotationResumeRequest {
+            password: None,
+            kit_group: None,
+            code: None,
+        })
+        .unwrap();
+    assert!(resumed.finished, "{resumed:?}");
+    assert!(b.rotation_status().unwrap().job.is_none());
+    assert_eq!(attachment_ids_of(b, vault, item), last);
 }

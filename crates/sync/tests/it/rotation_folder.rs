@@ -440,6 +440,91 @@ fn vault_rotate_key_reseals_attachments_and_resumes() {
     one_call_rotation_reseals(&mut w, vault, &items, &after);
 }
 
+/// M9-F1: the vault-only job is opened before the key is offered, so a kill
+/// between the key commit and the re-seal leaves a job that the resume finds
+/// and finishes. A job whose key never reached the backend is dropped.
+#[test]
+fn a_kill_between_the_key_and_the_reseal_leaves_a_job_the_resume_finishes() {
+    use mosaic_vault::session::{RotationKind, RotationPhase};
+
+    let (mut w, vault, items) = three_devices();
+    for (i, item) in items.iter().take(2).enumerate() {
+        w.devs[0]
+            .s_mut()
+            .add_attachment(vault, *item, "f.bin", "application/octet-stream", &fill(i))
+            .unwrap();
+    }
+    w.converge(0);
+    let generation = |w: &World| {
+        w.devs[0]
+            .s()
+            .vaults()
+            .into_iter()
+            .find(|v| v.vault_id == vault)
+            .unwrap()
+            .key_generation
+    };
+    let before: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+
+    // The offer was opened, then the device died before the key was sent:
+    // the resume pulls, finds no new key and drops the job.
+    let start = generation(&w);
+    let next = start.next().unwrap();
+    assert_eq!(
+        w.devs[0].s_mut().open_vault_offer_job(vault, next).unwrap(),
+        2
+    );
+    let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+    assert_eq!(
+        (job.kind, job.phase),
+        (RotationKind::Vault, RotationPhase::BackendStarted)
+    );
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    assert_eq!(generation(&w), start, "nothing rotated");
+    for (i, item) in items.iter().enumerate() {
+        assert_eq!(attachment_ids(&w, 0, vault, *item), before[i]);
+    }
+
+    // The offer was opened and the key committed, then the device died
+    // before the re-seal: the job is still there, and the resume re-seals.
+    w.devs[0].s_mut().open_vault_offer_job(vault, next).unwrap();
+    {
+        let dev = &mut w.devs[0];
+        let outcome = dev
+            .engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+        assert_eq!(outcome, RotationOutcome::Rotated(next));
+    }
+    let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+    assert_eq!(job.phase, RotationPhase::BackendStarted, "the job survived");
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    for i in 0..2 {
+        let after = attachment_ids(&w, 0, vault, items[i]);
+        assert_eq!(after.len(), before[i].len());
+        assert!(after.iter().all(|a| !before[i].contains(a)), "item {i}");
+    }
+    w.converge(1);
+    all_agree(&w, vault);
+}
+
 /// The fill byte of test attachment `i`.
 fn fill(i: usize) -> [u8; 64] {
     [u8::try_from(i).unwrap(); 64]
