@@ -9,7 +9,7 @@ use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::ceremony::create_with;
+use crate::ceremony::{create_request_with, create_with};
 use crate::encode::{authenticator_data, base_flags};
 
 /// RFC 6979 A.2.5 P-256 key (the same key as the ssh-agent known-answer test).
@@ -809,5 +809,183 @@ fn vectors_fixture() {
     assert_eq!(
         stored, current,
         "fixtures/vectors.json is stale; run with MOSAIC_UPDATE_FIXTURES=1"
+    );
+}
+
+// ---- Client-data modes (ADR-0093) ----
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
+}
+
+fn request_hash() -> [u8; 32] {
+    sha256(&client_data_json(Ceremony::Get, &challenge(), ORIGIN))
+}
+
+#[test]
+fn assert_hash_mode_signs_auth_data_and_given_hash() {
+    let hash = [0x5Au8; 32];
+    let request = GetRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Hash(&hash),
+        user_verified: true,
+    };
+    let pending = assert_request(&request, &stored_credential(), 0).unwrap();
+    assert_eq!(pending.count_to_persist(), None);
+    let a = pending.into_client_response_without_count().unwrap();
+    assert_eq!(a.client_data_json, None);
+    assert_eq!(
+        a.authenticator_data,
+        [&RP_ID_HASH_EXAMPLE[..], &[0x1D], &[0, 0, 0, 0]].concat()
+    );
+    let message = [a.authenticator_data.as_slice(), &hash].concat();
+    verify(&key().verifying_key(), &message, &a.signature);
+    // A counter that is not 0 still goes through the persist rule.
+    let pending = assert_request(&request, &stored_credential(), 41).unwrap();
+    assert_eq!(pending.count_to_persist(), Some(42));
+    assert_eq!(
+        assert_request(&request, &stored_credential(), 41)
+            .unwrap()
+            .into_client_response_without_count()
+            .err(),
+        Some(Error::InvalidInput)
+    );
+}
+
+#[test]
+fn create_hash_mode_has_no_client_data_json() {
+    let hash = [7u8; 32];
+    let request = CreateRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Hash(&hash),
+        user_handle: &USER_HANDLE,
+        algorithms: &[-7],
+        user_verified: true,
+    };
+    let c = create_request_with(&request, &key(), credential_id()).unwrap();
+    assert_eq!(c.client_data_json, None);
+    assert_eq!(c.authenticator_data, created(true).authenticator_data);
+    assert_eq!(c.attestation_object, created(true).attestation_object);
+    // The public entry point needs no challenge in hash mode.
+    let fresh = create_request(&request).unwrap();
+    assert_eq!(fresh.client_data_json, None);
+    assert_eq!(fresh.algorithm, -7);
+}
+
+#[test]
+fn hash_mode_equals_json_mode_for_the_same_client_data() {
+    let challenge = challenge();
+    let json_request = GetRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Json {
+            origin: ORIGIN,
+            challenge: &challenge,
+        },
+        user_verified: true,
+    };
+    let hash = request_hash();
+    let hash_request = GetRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Hash(&hash),
+        user_verified: true,
+    };
+    let a = assert_request(&json_request, &stored_credential(), 0)
+        .unwrap()
+        .into_client_response_without_count()
+        .unwrap();
+    let b = assert_request(&hash_request, &stored_credential(), 0)
+        .unwrap()
+        .into_client_response_without_count()
+        .unwrap();
+    // RFC 6979 is deterministic: the same message gives the same signature.
+    assert_eq!(a.signature, b.signature);
+    assert_eq!(a.authenticator_data, b.authenticator_data);
+    assert!(a.client_data_json.is_some());
+    assert_eq!(b.client_data_json, None);
+}
+
+#[test]
+fn json_mode_requires_a_valid_challenge_and_hash_mode_still_checks_the_rp_id() {
+    let short = [0u8; 15];
+    let request = GetRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Json {
+            origin: ORIGIN,
+            challenge: &short,
+        },
+        user_verified: false,
+    };
+    assert_eq!(
+        assert_request(&request, &stored_credential(), 0).err(),
+        Some(Error::InvalidInput)
+    );
+    let hash = [0u8; 32];
+    let request = GetRequest {
+        rp_id: "",
+        client_data: ClientData::Hash(&hash),
+        user_verified: false,
+    };
+    assert_eq!(
+        assert_request(&request, &stored_credential(), 0).err(),
+        Some(Error::InvalidInput)
+    );
+}
+
+#[test]
+fn android_app_origin_is_apk_key_hash_b64url() {
+    let cert = [0xFFu8; 32];
+    assert_eq!(
+        android_app_origin(&cert),
+        format!("android:apk-key-hash:{}", b64url(&cert))
+    );
+    assert_eq!(
+        android_app_origin(&[0u8; 32]),
+        "android:apk-key-hash:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    );
+}
+
+#[test]
+fn json_mode_vectors_unchanged() {
+    // The new API in Json mode produces exactly what the existing API did
+    // (V9 and V10 pin the bytes; this pins the equivalence).
+    let challenge = challenge();
+    let request = CreateRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Json {
+            origin: ORIGIN,
+            challenge: &challenge,
+        },
+        user_handle: &USER_HANDLE,
+        algorithms: &[-7, -257],
+        user_verified: true,
+    };
+    let c = create_request_with(&request, &key(), credential_id()).unwrap();
+    let old = created(true);
+    assert_eq!(c.client_data_json, Some(old.client_data_json));
+    assert_eq!(c.authenticator_data, old.authenticator_data);
+    assert_eq!(c.attestation_object, old.attestation_object);
+    let old_assertion = assert(&get_input(&challenge, true), &stored_credential(), 0)
+        .unwrap()
+        .into_response_without_count()
+        .unwrap();
+    let new_assertion = assert_request(
+        &GetRequest {
+            rp_id: RP_ID,
+            client_data: ClientData::Json {
+                origin: ORIGIN,
+                challenge: &challenge,
+            },
+            user_verified: true,
+        },
+        &stored_credential(),
+        0,
+    )
+    .unwrap()
+    .into_client_response_without_count()
+    .unwrap();
+    assert_eq!(new_assertion.signature, old_assertion.signature);
+    assert_eq!(
+        new_assertion.client_data_json,
+        Some(old_assertion.client_data_json)
     );
 }

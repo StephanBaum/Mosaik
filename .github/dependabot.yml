@@ -13,6 +13,7 @@ updates:
       - /crates/import/fuzz
       - /crates/insights/fuzz
       - /crates/native-messaging/fuzz
+      - /crates/origin/fuzz
       - /crates/passkey/fuzz
       - /crates/qr/fuzz
       - /crates/server/fuzz

@@ -819,6 +819,18 @@ BEGIN
 END;
 ";
 
+/// Version 11: the boot marker (M10, CRYPTO_SPEC §6.9.2, ADR-0090): the boot
+/// ID of the device boot in which the master password last unlocked, and the
+/// time it was written. One row, written only on iOS and Android. It is
+/// cleartext, not secret and not derived from a secret.
+const V11: &str = r"
+CREATE TABLE boot_marker (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    boot_id        BLOB    NOT NULL CHECK (length(boot_id) BETWEEN 1 AND 32),
+    recorded_at_ms INTEGER NOT NULL
+) STRICT;
+";
+
 /// All migrations, in order. Version `n` is at index `n - 1`.
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
@@ -861,10 +873,14 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 10,
         sql: V10,
     },
+    Migration {
+        version: 11,
+        sql: V11,
+    },
 ];
 
 /// The newest schema version this build knows.
-pub const LATEST_VERSION: u32 = 10;
+pub const LATEST_VERSION: u32 = 11;
 
 fn user_version(conn: &Connection) -> Result<u32> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1018,10 +1034,14 @@ mod tests {
             },
             Migration {
                 version: 11,
+                sql: V11,
+            },
+            Migration {
+                version: 12,
                 sql: V6_TEST,
             },
         ];
-        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 11);
+        assert_eq!(migrate(&mut c, &upgraded).unwrap(), 12);
         let flag: i64 = c
             .query_row(
                 "SELECT test_flag FROM vaults WHERE vault_id = ?1",
@@ -1035,11 +1055,11 @@ mod tests {
         assert!(matches!(
             migrate(&mut c, MIGRATIONS),
             Err(Error::SchemaTooNew {
-                found: 11,
-                supported: 10
+                found: 12,
+                supported: 11
             })
         ));
-        assert_eq!(user_version(&c).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), 12);
     }
 
     #[test]
@@ -1089,11 +1109,15 @@ mod tests {
             },
             Migration {
                 version: 11,
+                sql: V11,
+            },
+            Migration {
+                version: 12,
                 sql: "CREATE TABLE half_done (x INTEGER); THIS IS NOT SQL;",
             },
         ];
         assert!(matches!(migrate(&mut c, &broken), Err(Error::Database(_))));
-        assert_eq!(user_version(&c).unwrap(), 10);
+        assert_eq!(user_version(&c).unwrap(), 11);
         let n: i64 = c
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'half_done'",
@@ -1684,7 +1708,7 @@ mod tests {
                          x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a', 1, 1, x'0102', 6);",
         )
         .unwrap();
-        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 10);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), LATEST_VERSION);
         assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
         // Existing data is kept, the new tables start empty.
         let (updated, record_updated): (i64, i64) = c
@@ -1720,6 +1744,38 @@ mod tests {
             .query_row("SELECT count(*) FROM breach_state", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn migration_v10_to_v11() {
+        let mut c = conn();
+        assert_eq!(migrate(&mut c, &MIGRATIONS[..10]).unwrap(), 10);
+        assert_eq!(migrate(&mut c, MIGRATIONS).unwrap(), 11);
+        assert_eq!(user_version(&c).unwrap(), LATEST_VERSION);
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM boot_marker", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "the marker starts absent");
+        // One row, an id of 1, a boot ID of 1 to 32 bytes.
+        for sql in [
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (2, x'01', 0)",
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, x'', 0)",
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, zeroblob(33), 0)",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, zeroblob(32), 0)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            c.execute(
+                "INSERT INTO boot_marker (id, boot_id, recorded_at_ms) VALUES (1, x'01', 0)",
+                [],
+            )
+            .is_err()
+        );
     }
 
     #[test]

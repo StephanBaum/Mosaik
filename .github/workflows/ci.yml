@@ -143,6 +143,7 @@ jobs:
           - crates/import/fuzz
           - crates/ssh-agent/fuzz
           - crates/native-messaging/fuzz
+          - crates/origin/fuzz
           - crates/passkey/fuzz
           - crates/sync/fuzz
           - crates/server/fuzz
@@ -287,6 +288,10 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
+          manifest-path: crates/origin/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
           manifest-path: crates/passkey/fuzz/Cargo.toml
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
@@ -308,7 +313,7 @@ jobs:
         run: |
           set -euo pipefail
           for d in crates/core/fuzz crates/vault/fuzz crates/totp/fuzz crates/qr/fuzz crates/generator/fuzz \
-                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/passkey/fuzz crates/sync/fuzz crates/server/fuzz apps/desktop/src-tauri/fuzz; do
+                   crates/insights/fuzz crates/import/fuzz crates/ssh-agent/fuzz crates/native-messaging/fuzz crates/origin/fuzz crates/passkey/fuzz crates/sync/fuzz crates/server/fuzz apps/desktop/src-tauri/fuzz; do
             cargo audit --deny warnings -f "$d/Cargo.lock"
           done
 

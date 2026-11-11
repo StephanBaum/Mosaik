@@ -86,6 +86,7 @@
 
 mod account;
 mod attachments;
+mod boot_marker;
 mod credential_rotation;
 mod device;
 mod engine_state;
@@ -109,6 +110,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use account::{AccountRekey, NewUnlockMethod, StoredUnlockMethod};
 pub use attachments::{AttachmentInfo, validate_attachment_ciphertext};
+pub use boot_marker::{MAX_BOOT_ID_LEN, StoredBootMarker};
 pub use credential_rotation::{BreachRow, QueueRow, ScanRow};
 pub use engine_state::{
     EngineState, MarkerStamp, OwnSeq, PeerCheckpoint, PeerEntry, ServedRow, SyncHalt, VaultFlag,

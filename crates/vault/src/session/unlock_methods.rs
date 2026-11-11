@@ -489,6 +489,12 @@ impl LockedSession {
     /// (THREAT_MODEL R8).
     pub fn note_failed_hardware_attempt(&mut self) {
         self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
+        // CRYPTO_SPEC §6.9.2: at the limit the boot marker goes too. This call
+        // cannot fail; a marker that cannot be deleted is still refused by the
+        // counter of this session, and the desktop never writes one.
+        if self.quick.failed_quick >= MAX_FAILED_QUICK_ATTEMPTS {
+            let _ = self.store.delete_boot_marker();
+        }
     }
 
     /// The stored quick-unlock enrollment, if any (no side effects).
@@ -638,6 +644,11 @@ impl LockedSession {
             }
             Err(mosaic_core::Error::Decryption) => {
                 self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
+                if self.quick.failed_quick >= MAX_FAILED_QUICK_ATTEMPTS
+                    && let Err(e) = self.store.delete_boot_marker()
+                {
+                    return Err(self.fail(e.into()));
+                }
                 Err(self.fail(Error::HardwareKeyRejected))
             }
             Err(e) => Err(self.fail(e.into())),

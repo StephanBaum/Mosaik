@@ -6,3 +6,4 @@ mod properties;
 mod session;
 mod session_no_plaintext;
 mod sync_sim;
+mod upgrade;

@@ -63,6 +63,7 @@ mod rng;
 mod secret;
 mod secret_key;
 mod settings_mac;
+pub mod setup_code;
 pub mod share;
 mod spoofing;
 pub mod sync_auth;

@@ -7,6 +7,13 @@ use crate::decode::{ImageLimits, decode_image};
 use crate::error::ScanError;
 use crate::frame::{Frame, Luma, OwnedFrame, to_luma};
 
+/// The start of a Mosaic setup code (CRYPTO_SPEC §6.9.7), matched ASCII
+/// case-insensitively like the other prefixes here; the setup code parser
+/// itself is strict.
+const SETUP_PREFIX: &str = "mosaic-setup:";
+/// The longest setup code kept, in bytes (`mosaic_core::setup_code::MAX_SETUP_CODE_LEN`).
+const MAX_SETUP_LEN: usize = 1024;
+
 /// Frames examined per scan; more are ignored.
 pub const MAX_FRAMES: usize = 8;
 /// QR codes decoded per frame.
@@ -46,10 +53,23 @@ pub fn classify(payload: &str) -> Payload {
     }
 }
 
+/// What a scan is looking for.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Want {
+    /// One `otpauth://` URI.
+    #[default]
+    Otp,
+    /// One Mosaic setup code.
+    Setup,
+}
+
 /// What the grids of the frames held so far.
 #[derive(Default)]
 struct Found {
+    want: Want,
     otp: Option<SecretText>,
+    setup: Option<Zeroizing<String>>,
+    setup_distinct: bool,
     migration: bool,
     other: bool,
 }
@@ -64,6 +84,10 @@ impl Found {
             self.other = true;
             return Ok(());
         };
+        if self.want == Want::Setup {
+            self.record_setup(text);
+            return Ok(());
+        }
         match classify(text) {
             Payload::OtpAuth => {
                 let trimmed = text.trim_ascii();
@@ -84,6 +108,31 @@ impl Found {
                 self.other = true;
                 Ok(())
             }
+        }
+    }
+
+    /// Setup-code mode: keeps the one setup code, drops everything else unread.
+    fn record_setup(&mut self, text: &str) {
+        let trimmed = text.trim_ascii();
+        if starts_with_ignore_case(trimmed, SETUP_PREFIX) && trimmed.len() <= MAX_SETUP_LEN {
+            match &self.setup {
+                Some(kept) if kept.as_str() != trimmed => self.setup_distinct = true,
+                Some(_) => {}
+                None => self.setup = Some(Zeroizing::new(trimmed.to_owned())),
+            }
+        } else {
+            self.other = true;
+        }
+    }
+
+    fn finish_setup(self) -> Result<Zeroizing<String>, ScanError> {
+        if self.setup_distinct {
+            return Err(ScanError::Multiple);
+        }
+        match self.setup {
+            Some(code) => Ok(code),
+            None if self.other => Err(ScanError::NotSetupCode),
+            None => Err(ScanError::NotFound),
         }
     }
 
@@ -158,13 +207,44 @@ pub fn scan_owned_frames(frames: Vec<OwnedFrame>) -> Result<OtpAuth, ScanError> 
 }
 
 fn scan_lumas(lumas: &[Luma]) -> Result<OtpAuth, ScanError> {
-    let mut found = Found::default();
+    search(lumas, Found::default())?.finish()
+}
+
+fn search(lumas: &[Luma], mut found: Found) -> Result<Found, ScanError> {
     for luma in lumas {
         if !scan_luma(luma, false, &mut found)? {
             scan_luma(luma, true, &mut found)?;
         }
     }
-    found.finish()
+    Ok(found)
+}
+
+/// Finds the one Mosaic setup code (`mosaic-setup:` ...) in up to
+/// [`MAX_FRAMES`] frames, the same way [`scan_frames`] finds an `otpauth://`
+/// code. The mobile scanner hands it camera frames (grey levels).
+///
+/// Every other payload is dropped unread: it is never kept, parsed or
+/// reported, only counted as "something else was there". The code is kept in
+/// a zeroizing string and is **not** parsed here (`mosaic_core::setup_code`
+/// does that); two different setup codes are `Multiple`.
+///
+/// # Errors
+/// `NotFound` (no QR code), `NotSetupCode` (QR codes, none of them a setup
+/// code), `Multiple`.
+pub fn scan_setup_frames(frames: &[Frame<'_>]) -> Result<Zeroizing<String>, ScanError> {
+    let lumas: Vec<Luma> = frames
+        .iter()
+        .take(MAX_FRAMES)
+        .filter_map(|frame| to_luma(frame, MAX_DECODE_PIXELS).ok())
+        .collect();
+    search(
+        &lumas,
+        Found {
+            want: Want::Setup,
+            ..Found::default()
+        },
+    )?
+    .finish_setup()
 }
 
 /// [`decode_image`] then [`scan_frames`] on the one frame; the decoded frame is

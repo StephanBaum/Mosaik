@@ -19,8 +19,20 @@
 //! - [`canonical_rp_id`]: an rp ID read from a file (an import) brought into
 //!   the one canonical form [`webauthn_rp_id`] accepts.
 //!
+//! Mobile (M10, ADR-0092): [`app`] (Android app URLs bound to a signing
+//! certificate), [`android_browsers`] (the vendored allowlist of browsers that
+//! may pass a web origin), [`target`] (what an Android or iOS autofill request
+//! is for), [`fields`] (which fields of a view tree to fill, never those of a
+//! cross-origin frame) and [`assetlinks`] (Digital Asset Links parsing).
+//!
 //! The public suffix list is a build-time snapshot of the `psl` crate.
 #![forbid(unsafe_code)]
+
+pub mod android_browsers;
+pub mod app;
+pub mod assetlinks;
+pub mod fields;
+pub mod target;
 
 use mosaic_core::model::{LoginUrl, UrlMatch};
 use url::{Host, Origin, Url};
@@ -452,5 +464,7 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
     long.get(common + 1..) == short.get(common..)
 }
 
+#[cfg(test)]
+mod mobile_tests;
 #[cfg(test)]
 mod tests;

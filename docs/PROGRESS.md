@@ -2565,6 +2565,26 @@ Spec: the `mosaic` command line (`docs/CLI.md`). Numbering: ADR-0071 to ADR-0075
 CRYPTO_SPEC §6.8 (CLI session) and §11.2 (encrypted export). Tracks run in order T1 to T5, one agent at a
 time.
 
+**T2 notes (core crates for mobile):**
+- `mosaic-core`: `setup_code` (build and strict parse; the origin and email rules are injected, and `mosaic-sync` supplies
+  them), the two labels, fuzz target `setup_code`.
+- `mosaic-vault`: store v11 (`boot_marker`), `BootId`, `record_boot_marker`, `adopt_boot_marker`, marker deletion in the
+  same transaction as every quick-unlock wrapping deletion, fixture `tests/fixtures/store_v10.sqlite`
+  (written by the v10 code at `cac40bb`).
+- `mosaic-passkey`: `ClientData`, `CreateRequest`, `GetRequest`, `create_request`, `assert_request`,
+  `android_app_origin`. **Deviation:** added next to the old types instead of replacing them, because replacing them breaks
+  `apps/desktop` and `crates/import/tests`, outside the T2 scope. The breaking form of ADR-0093 is a follow-up that must
+  change those callers in the same commit.
+- `mosaic-origin`: `app`, `android_browsers` (14 packages, release signatures, Google's list of 2026-11-11), `target`,
+  `fields`, `assetlinks`; fuzz targets `assetlinks_parse` and `field_selection` in `crates/origin/fuzz` (the crate files
+  are copied from the M9 branch, so the later merge has nothing to reconcile there except the two `[[bin]]` entries).
+- `mosaic-sync`: `http::TlsTrust` and `set_tls_trust`, `http::assetlinks::fetch`, `setup_code::parse`;
+  `rustls-platform-verifier` is a non-Android dependency.
+- `mosaic-qr`: `scan_setup_frames` and `ScanError::NotSetupCode` (`Payload` is unchanged: the desktop matches it exhaustively).
+- `MatchKind` got no new variant for apps (the desktop matches it exhaustively); an app match is `ExactOrigin`.
+- `ci.yml` (fuzz matrix, cargo-deny and cargo-audit lists), `dependabot.yml` and the workspace `exclude` list have
+  `crates/origin/fuzz`.
+
 | Track | State |
 |---|---|
 | T1 Spec and core | done: CRYPTO_SPEC §3, §4, §6.8, §11, §11.2, §12, §14; ADR-0071 to 0075; THREAT_MODEL §4.7 and R105 to R111; `docs/CLI.md`; `mosaic-core` `cli_session` and `export` modules, labels `cli-session`, `export`, `export-key`, errors `Expired`, `InvalidTtl`, `Io`; known-answer vectors `crates/core/tests/vectors/export_kat.py`; fuzz targets `export_reader` and `cli_session_file` |
@@ -2693,7 +2713,7 @@ checks, a row here and one Conventional Commit.
 | Track | State |
 |---|---|
 | T1 Spec, ADRs, threat model, probes (docs only) | done (2026-11-11): the docs listed above and the probes (a) to (d) |
-| T2 Core crate changes (core setup code and labels, vault v11 boot marker, passkey client-data mode, origin app/browser/target/fields/asset links, sync TLS trust and asset-links fetch, qr setup payload) | open |
+| T2 Core crate changes (core setup code and labels, vault v11 boot marker, passkey client-data mode, origin app/browser/target/fields/asset links, sync TLS trust and asset-links fetch, qr setup payload) | done (2026-11-11): see "T2 notes" below |
 | T3a `mosaic-mobile` core | open |
 | T3b Autofill, passkeys, setup; `mosaic-mobile-ffi`; bindgen and scripts; `deny.toml` and `.cargo/audit.toml` | open |
 | G1 crypto-reviewer on T1 to T3b | open |

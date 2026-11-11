@@ -516,6 +516,8 @@ fn delete_other_unlocks(
         rows.collect::<rusqlite::Result<_>>()?
     };
     tx.execute("DELETE FROM unlock_methods WHERE method <> 1", [])?;
+    // CRYPTO_SPEC §6.9.2: the boot marker goes with the quick-unlock wrapping.
+    super::boot_marker::delete_in(tx)?;
     // A row that does not decode is deleted all the same; it is not reported.
     Ok(rows
         .into_iter()

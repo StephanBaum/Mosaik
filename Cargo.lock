@@ -3206,10 +3206,12 @@ dependencies = [
 name = "mosaic-origin"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "idna",
  "mosaic-core",
  "proptest",
  "psl",
+ "serde_json",
  "thiserror 2.0.21",
  "url",
 ]
@@ -3366,6 +3368,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "zeroize",

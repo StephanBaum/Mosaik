@@ -1038,55 +1038,94 @@ Encrypted export (CRYPTO_SPEC §11.2, ADR-0073):
 
 ## M10: mobile (core, vault, passkey, origin, sync, qr; new crates `mosaic-mobile` and `mosaic-mobile-ffi`)
 
-Planned by M10 T1 (spec-first). Tracks T2, T3a and T3b implement it and update this section with the final
-signatures. CRYPTO_SPEC §6.2, §6.9 and §16 and ADR-0089 to ADR-0093 are normative. Everything here is additive,
-**except** the `mosaic-passkey` input change, which breaks a stable API and is admitted by ADR-0093.
+Written by M10 T1 (spec-first) and updated by T2 with the signatures as built. T3a and T3b update the
+`mosaic-mobile` and `mosaic-mobile-ffi` parts. CRYPTO_SPEC §6.2, §6.9 and §16 and ADR-0089 to ADR-0093 are
+normative. Everything below is additive. The one exception the spec admits (ADR-0093), the `mosaic-passkey` input
+change, was built **additively** in T2 (see below); the breaking form is still to come.
 
 ### `mosaic-core`
-- `setup_code` (stable): `SetupCode { server, email, secret_key }` and `build(&SetupCode) -> Zeroizing<String>`,
-  `parse(&[u8]) -> Result<SetupCode>`, `MAX_SETUP_CODE_LEN` (1024), `SETUP_CODE_PREFIX` (`"mosaic-setup:1:"`).
-  - The format follows CRYPTO_SPEC §6.9.7. The parser is strict, and a wrong checksum is `SecretKeyMistyped`.
+- `setup_code` (stable): `SetupCode { server, email, secret_key }`, `build(&SetupCode) -> Result<Zeroizing<String>>`,
+  `parse(&[u8], canonical) -> Result<SetupCode>`, `MAX_SETUP_CODE_LEN` (1024), `SETUP_CODE_PREFIX`
+  (`"mosaic-setup:1:"`).
+  - The format follows CRYPTO_SPEC §6.9.7. The parser is strict, and a wrong checksum is `SecretKeyMistyped`; every
+    other failure is `Malformed`. The Secret Key must be in display form.
+  - Deviation from the spec: the server origin rule (`canonical_origin`) and the email normalization (§9.2) live in
+    `mosaic-sync`, which depends on `mosaic-core`. `parse` therefore takes `canonical(server, email) ->
+    Option<(String, String)>` and requires the code to carry exactly the returned forms. Use
+    `mosaic_sync::setup_code::parse(bytes)` in apps. `build` refuses a server or email with `"`, `\` or a control
+    character (`Malformed`), which is stricter than JSON needs.
   - `SetupCode` does not implement `Clone`, and `Debug` redacts `secret_key`.
 - `encoding::label`: `MOBILE_SECURE_STORE` (`mobile/secure-store`) and `QUICK_UNLOCK_ANDROID`
   (`quick-unlock/android`), both in `label::ALL`.
 
-### `mosaic-vault` (`session`)
-- `BootId::new(&[u8]) -> Result<BootId>`: 1 to 32 bytes, else `InvalidInput`.
+### `mosaic-vault` (`session`, `storage`)
+- `BootId::new(&[u8]) -> Result<BootId>`: 1 to 32 bytes, else `Error::InvalidInput` (a new variant of the
+  non-exhaustive `session::Error`). `BootId::as_bytes()`.
 - `UnlockedSession::record_boot_marker(&mut self, &BootId, now_ms) -> Result<()>`: only right after a
   master-password unlock of this session, else `ReauthenticationRequired`.
 - `LockedSession::adopt_boot_marker(&mut self, &BootId) -> Result<bool>`: sets the app-start flag if and only if
-  the marker matches. It never resets the failed-attempt counter.
-- Store schema v11 (`boot_marker`). The deletion paths of CRYPTO_SPEC §6.9.2 are wired into every quick-unlock
-  wrapping deletion, `lock_requiring_password` and the failed-quick limit.
-- Restricted to `mosaic-mobile`: the desktop and the CLI never call `record_boot_marker`.
+  the marker matches (constant time). It never resets the failed-attempt counter.
+- `Store::boot_marker() -> Result<Option<StoredBootMarker>>`, `put_boot_marker`, `delete_boot_marker`,
+  `StoredBootMarker { boot_id, recorded_at_ms }`, `MAX_BOOT_ID_LEN` (32).
+- Store schema v11 (`boot_marker`), fixture `crates/vault/tests/fixtures/store_v10.sqlite`. The marker is deleted
+  in the same transaction as every quick-unlock wrapping deletion (`remove_unlock_method` of a quick method, a
+  password change, a Secret Key rotation, a profile upgrade, a re-key, an adoption), by
+  `lock_requiring_password`, and when the failed-attempt counter reaches its limit. Enrolling a quick unlock keeps
+  it. `lock_requiring_password` and `note_failed_hardware_attempt` return nothing, so their delete is best effort.
+- Restricted to `mosaic-mobile`: the desktop and the CLI never call `record_boot_marker` or `adopt_boot_marker`.
+  Their behaviour is unchanged.
 
-### `mosaic-passkey` (breaking, ADR-0093)
+### `mosaic-passkey` (additive in T2; ADR-0093)
 - `ClientData<'a> { Json { origin: &'a str, challenge: &'a [u8] }, Hash(&'a [u8; 32]) }`.
-- `CreateInput { rp_id, client_data, user_handle, algorithms, user_verified }` and
-  `GetInput { rp_id, client_data, user_verified }` replace the `origin` and `challenge` fields.
-- `Created.client_data_json` and `AssertionResponse.client_data_json` become `Option<Vec<u8>>` (`None` in hash
-  mode).
+- `CreateRequest { rp_id, client_data, user_handle, algorithms, user_verified }` and
+  `GetRequest { rp_id, client_data, user_verified }`, with `create_request(&CreateRequest) -> Result<ClientCreated>`
+  and `assert_request(&GetRequest, &PasskeyCredential, stored_count) -> Result<PendingAssertion>`.
+- `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>` (`None` in
+  hash mode). A pending assertion is released with `into_client_response(CountPersisted)` or
+  `into_client_response_without_count()`; the sign-count discipline of ADR-0039 D5 is unchanged.
+- The signed message is `authenticatorData ‖ hash`, where the hash is the given one or `SHA-256(clientDataJSON)`.
 - `android_app_origin(&[u8; 32]) -> String`.
-- The extension (through the desktop) and the desktop callers move to `ClientData::Json`, with no behaviour
-  change.
+- **Deviation from ADR-0093:** the spec changes `CreateInput`, `GetInput`, `Created` and `AssertionResponse`
+  in place. That breaks `apps/desktop` (`browser/passkey.rs` and two test files) and `crates/import/tests`, which
+  are outside the T2 write scope. T2 therefore left the four types and `create`/`assert` exactly as they were
+  (they now run through the new path in `Json` mode, with identical bytes: `json_mode_vectors_unchanged`) and added
+  the types above next to them. The breaking form of the ADR is a follow-up that must change the desktop callers in
+  the same commit.
 
 ### `mosaic-origin` (additive)
-- `app`: `AndroidAppUrl` parsing and canonical form, `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>`.
+- `app`: `AndroidAppUrl::{parse, new, package, cert_sha256, canonical}`, `is_valid_package_name`,
+  `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>`. A match is reported as
+  `MatchKind::ExactOrigin` (no new variant: the desktop matches `MatchKind` exhaustively). Parsing is stricter than
+  the `url` crate: the canonical form only.
 - `android_browsers`: `is_trusted_browser(package, certs) -> bool`, `privileged_browsers_json() -> &'static str`.
-  The data is `data/android-privileged-browsers.json`.
-- `target`: `android_fill_target(caller) -> Result<FillTarget>`, `ios_fill_target(identifier) -> Result<FillTarget>`.
-- `fields`: `select_fill_fields(nodes) -> FieldSelection`.
-- `assetlinks`: `parse_asset_links(&[u8]) -> Result<Vec<Statement>>`,
-  `app_is_delegated(statements, package, cert_sha256, relation) -> bool`.
+  The data is `data/android-privileged-browsers.json`: the release signatures of 14 packages (Chrome, Firefox, Edge,
+  Brave, Samsung Internet, DuckDuckGo, Vivaldi, Opera) from Google's privileged-apps list, fetched 2026-11-11.
+- `target`: `android_fill_target(&AndroidCaller) -> Result<FillTarget, TargetError>`,
+  `ios_fill_target(IosIdentifier) -> Result<FillTarget, TargetError>`. `FillTarget::Web { origin, idn_unicode }` or
+  `AndroidApp { package, certs }`. The look-alike check needs the saved hosts, so the caller runs `lookalike_of`.
+  An iOS `Url` identifier keeps scheme, host and port and drops userinfo, path, query and fragment (the spec said
+  `PageOrigin::parse`, which refuses a path).
+- `fields`: `select_fill_fields(&[FieldNode]) -> FieldSelection { root_domain, fields, refused }` with
+  `FieldRole::{Username, Password, NewPassword, Otp}` and `FieldRefusal::ForeignFrame`; at most 4096 nodes.
+- `assetlinks`: `parse_asset_links(&[u8]) -> Result<Vec<Statement>, AssetLinksError>`,
+  `app_is_delegated(statements, package, cert_sha256, Relation) -> bool`,
+  `app_is_delegated_for_passkeys(..)` (either relation).
+- New dependencies: `serde_json` and `base64ct` (both already in the tree).
 
 ### `mosaic-sync` (`http`, restricted to the engine, the desktop, the CLI and `mosaic-mobile`)
-- `TlsTrust { Platform, Anchors(Vec<CertificateDer<'static>>) }` and `set_tls_trust(TlsTrust) -> Result<(), TransportError>`.
-  The setting is process-wide and set once. `Platform` is not available on Android.
-- `http::assetlinks::fetch(host) -> Result<Vec<u8>, TransportError>`.
-- `rustls-platform-verifier` becomes a non-Android dependency.
+- `http::TlsTrust { Platform, Anchors(Vec<CertificateDer<'static>>) }` and
+  `http::set_tls_trust(TlsTrust) -> Result<(), TransportError>`. The setting is process-wide and set once; the same
+  value again is accepted, another one is refused (`Io`), as are no anchors, more than 1024 or an invalid anchor.
+  `Platform` is not available on Android. `http::CertificateDer` is re-exported.
+- `http::assetlinks::fetch(host) -> Result<Vec<u8>, TransportError>`: `NotFound` for a 404, `Protocol` for any other
+  non-200, a redirect or a body over 64 KiB, `Unreachable` for a failed connection.
+- `setup_code::parse(&[u8]) -> Result<SetupCode>` (the core parser with the sync origin and email rules).
+- `rustls-platform-verifier` is a non-Android dependency.
 
 ### `mosaic-qr` (additive)
-- The scan result gains a setup-code payload class. Other payloads are dropped unread.
+- `scan_setup_frames(&[Frame]) -> Result<Zeroizing<String>, ScanError>` returns the one `mosaic-setup:` payload
+  (not parsed here) and drops every other payload unread. New `ScanError::NotSetupCode`. `Payload` and `classify`
+  are unchanged (the desktop matches `Payload` exhaustively).
 
 ### `mosaic-mobile` (new; restricted: `mosaic-mobile-ffi` and its tests)
 - `Core` and its modules (`config`, `error`, `state`, `secret`, `storage`, `join`, `unlock`, `quick_unlock`,
