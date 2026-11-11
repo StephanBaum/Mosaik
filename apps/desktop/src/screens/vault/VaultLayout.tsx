@@ -119,7 +119,7 @@ function MainArea({
         <SharingFindings />
         <RekeyNotice />
         <RotationResumeBanner />
-        <MetaDroppedNotice vaults={vaults} />
+        <MetaDroppedNotice vaults={vaults} onChanged={shell.changed} />
         <BrowserConnectorBanner />
       </div>
       {listing && (

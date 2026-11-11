@@ -41,7 +41,7 @@ export const ext = {
   "ext.neverSave.intro":
     "Auf diesen Websites bietet Mosaic nicht an, Logins zu speichern. Entferne eine Website, damit du dort wieder gefragt wirst.",
   "ext.neverSave.empty":
-    "Noch keine Websites. Du kannst eine mit \"Nie für diese Website\" hinzufügen, wenn Mosaic anbietet, ein Login zu speichern.",
+    "Noch keine Websites. Du kannst eine mit „Nie für diese Website“ hinzufügen, wenn Mosaic anbietet, ein Login zu speichern.",
   "ext.neverSave.remove": "Entfernen",
   "ext.neverSave.removeLabel": "{origin} aus der Liste entfernen",
   "ext.neverSave.removed": "{origin} entfernt. Mosaic kann dort wieder anbieten, Logins zu speichern.",

@@ -69,7 +69,12 @@ export function BrowserConnectorBanner() {
             <ul className="caption">
               {findings.slice(1).map((finding) => (
                 <li key={finding.location}>
-                  <UserText>{finding.path}</UserText>
+                  <UserText>
+                    {t("browser.connector.item", {
+                      browser: t(`browser.family.${finding.browser}`),
+                      path: finding.path,
+                    })}
+                  </UserText>
                 </li>
               ))}
             </ul>

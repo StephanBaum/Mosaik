@@ -5,6 +5,7 @@
  */
 import { useState, type SyntheticEvent } from "react";
 import { Button } from "../../components/Button.tsx";
+import { Callout } from "../../components/Callout.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { PasswordField } from "../../components/PasswordField.tsx";
@@ -50,7 +51,11 @@ function AddForm({
   return (
     <form className="stack" onSubmit={submit} noValidate>
       <p className="body muted">{t("settings.sync.key.addBody")}</p>
-      {warn && <p className="field__hint field__hint--warning">{t("settings.sync.key.noBackup")}</p>}
+      {warn && (
+        <Callout tone="warning">
+          <p className="body">{t("settings.sync.key.noBackup")}</p>
+        </Callout>
+      )}
       <TextField
         label={t("settings.sync.key.label")}
         hint={t("settings.sync.key.labelHint")}
@@ -206,34 +211,55 @@ function PasswordForm({
 
 function AskForm({
   lastFactor,
+  withCode,
   busy,
   error,
   onRemove,
   onClose,
 }: {
   lastFactor: boolean;
+  /** The account has an authenticator-app code: it can stand in for the confirm in the browser. */
+  withCode: boolean;
   busy: boolean;
   error: IpcError | null;
-  onRemove: () => void;
+  onRemove: (code: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const [code, setCode] = useState("");
   return (
     <form
       className="stack"
       onSubmit={(event) => {
         event.preventDefault();
-        onRemove();
+        onRemove(code);
+        setCode("");
       }}
       noValidate
     >
-      <p className="body muted">{t("settings.sync.key.removeBody")}</p>
+      {!withCode && <p className="body muted">{t("settings.sync.key.removeBody")}</p>}
       {lastFactor && (
-        <p className="field__hint field__hint--warning">{t("settings.sync.key.removeLast")}</p>
+        <Callout tone="warning">
+          <p className="body">{t("settings.sync.key.removeLast")}</p>
+        </Callout>
+      )}
+      {withCode && (
+        <TextField
+          label={t("settings.sync.key.removeCode")}
+          hint={t("settings.sync.key.removeCodeHint")}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          mono
+          data-autofocus=""
+          value={code}
+          onChange={(event) => {
+            setCode(event.target.value);
+          }}
+        />
       )}
       <ErrorAlert error={error} />
       <div className="dialog__actions">
-        <Button onClick={onClose} data-autofocus="">
+        <Button onClick={onClose} data-autofocus={withCode ? undefined : ""}>
           {t("action.cancel")}
         </Button>
         <Button type="submit" variant="dangerSolid" disabled={busy}>
@@ -255,12 +281,12 @@ function useRemoveFlow(target: WebauthnKeyView, onDone: () => void, onClose: () 
   const [view, setView] = useState<StepView | null>(null);
 
   /** Removes the key; a missing recent confirm sends the user through the confirm step. */
-  async function remove() {
+  async function remove(code: string) {
     setBusy(true);
     setError(null);
     const result = await ipc.call("sync_webauthn_remove", {
       credentialRef: target.credentialRef,
-      code: null,
+      code: code.trim() === "" ? null : code.trim(),
     });
     setBusy(false);
     if (result.ok) {
@@ -294,6 +320,7 @@ function useRemoveFlow(target: WebauthnKeyView, onDone: () => void, onClose: () 
 export function RemoveDialog({
   target,
   lastFactor,
+  totp,
   onDone,
   onClose,
   returnFocus,
@@ -301,6 +328,8 @@ export function RemoveDialog({
   target: WebauthnKeyView;
   /** Removing it leaves no second step: two-step verification turns off. */
   lastFactor: boolean;
+  /** The account has an authenticator-app code (asked for in the dialog). */
+  totp: boolean;
   onDone: () => void;
   onClose: () => void;
   returnFocus: () => HTMLElement | null;
@@ -322,7 +351,7 @@ export function RemoveDialog({
           onView={setView}
           onDone={() => {
             setPhase("ask");
-            void flow.remove();
+            void flow.remove("");
           }}
           onCancel={onClose}
           onRetry={() => {
@@ -342,10 +371,11 @@ export function RemoveDialog({
       ) : (
         <AskForm
           lastFactor={lastFactor}
+          withCode={totp}
           busy={busy}
           error={error}
-          onRemove={() => {
-            void flow.remove();
+          onRemove={(code) => {
+            void flow.remove(code);
           }}
           onClose={onClose}
         />

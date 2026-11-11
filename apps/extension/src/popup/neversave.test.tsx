@@ -6,7 +6,7 @@ import { baseState, renderPopup, requestsOf } from "./test/harness.tsx";
 
 async function openList(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
   await user.click(await screen.findByRole("button", { name: "More options" }));
-  await user.click(screen.getByRole("menuitem", { name: "Never offered for saving…" }));
+  await user.click(screen.getByRole("menuitem", { name: "Sites never offered for saving…" }));
   return screen.findByRole("dialog", { name: "Never offered for saving" });
 }
 

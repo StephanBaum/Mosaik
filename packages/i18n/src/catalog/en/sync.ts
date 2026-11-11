@@ -99,25 +99,25 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "To lock a device out, change your master password and Secret Key.",
 
-  "settings.sync.totp.title": "Two-step verification",
+  "settings.sync.totp.title": "Authenticator app",
   "settings.sync.totp.body":
     "Asks for a code from an authenticator app when someone signs in to your sync account. It protects the server account, not your vaults: those stay encrypted with your master password and Secret Key.",
-  "settings.sync.totp.on": "Two-step verification is on.",
-  "settings.sync.totp.off": "Two-step verification is off.",
+  "settings.sync.totp.on": "Codes from an authenticator app are on.",
+  "settings.sync.totp.off": "Codes from an authenticator app are off.",
   "settings.sync.totp.enable": "Turn on…",
   "settings.sync.totp.disable": "Turn off…",
-  "settings.sync.totp.beginTitle": "Turn on two-step verification",
+  "settings.sync.totp.beginTitle": "Turn on authenticator-app codes",
   "settings.sync.totp.beginBody": "Enter your master password to start.",
   "settings.sync.totp.begin": "Continue",
   "settings.sync.totp.setupBody":
     "Add this key to your authenticator app, then enter the 6-digit code it shows.",
   "settings.sync.totp.secret": "Setup key",
   "settings.sync.totp.confirm": "Turn on",
-  "settings.sync.totp.disableTitle": "Turn off two-step verification",
+  "settings.sync.totp.disableTitle": "Turn off authenticator-app codes",
   "settings.sync.totp.disableBody": "Enter your master password and a current code.",
   "settings.sync.totp.disableConfirm": "Turn off",
-  "settings.sync.totp.enabledToast": "Two-step verification is on.",
-  "settings.sync.totp.disabledToast": "Two-step verification is off.",
+  "settings.sync.totp.enabledToast": "Codes from an authenticator app are on.",
+  "settings.sync.totp.disabledToast": "Codes from an authenticator app are off.",
 
   "settings.sync.key.title": "Security keys",
   "settings.sync.key.body":
@@ -145,6 +145,9 @@ export const sync = {
     "You confirm once with a security key in your browser. After that, this key no longer works for signing in.",
   "settings.sync.key.removeLast":
     "This is your last second step. Two-step verification turns off, and your sync account is then protected by your master password and Secret Key alone.",
+  "settings.sync.key.removeCode": "Authenticator-app code",
+  "settings.sync.key.removeCodeHint":
+    "Enter a current code to remove the key right away. Leave it empty to confirm with a security key in your browser instead.",
   "settings.sync.key.removeConfirm": "Remove key",
   "settings.sync.key.removedToast": "Security key removed.",
   "settings.sync.key.confirmTitle": "Confirm with a security key",
@@ -168,7 +171,7 @@ export const sync = {
   "settings.sync.key.wait.done": "Done.",
   "settings.sync.key.wait.expired": "This step ran out of time. Start it again.",
   "settings.sync.key.wait.failed":
-    "Too many wrong codes or failed checks in the browser. Start it again.",
+    "The step failed: the code was wrong too often, or the security key was not accepted. Nothing was changed. Start again.",
   "settings.sync.key.wait.reopen": "Open the browser page again",
   "settings.sync.key.wait.retry": "Start again",
 
@@ -204,7 +207,7 @@ export const sync = {
   "toast.syncAttention":
     "Sync merged or repaired some items from another device. Have a look at what changed.",
   "sync.revoked.rekey":
-    "This account was re-keyed on another device: sign in with the new Secret Key from your newest Emergency Kit.",
+    "This account's keys were renewed on another device: sign in with the new Secret Key from your newest Emergency Kit.",
   "sync.revoked.passwordChange":
     "Your master password was changed on another device: sign in with the new password.",
   "sync.revoked.deviceRemoved":
