@@ -5021,6 +5021,16 @@ CRYPTO_SPEC §7.1: write caps in `VaultMetaEdit` (name 256 UTF-8 bytes, icon 64,
 ### Consequences
 THREAT_MODEL R122: concurrent values that are not shown, and whole fields in the rare case the shown values still do not fit, are lost, and the user is told which fields. A vault whose name was dropped has no name until the user types one.
 
+### Amendment (M9 T13, findings M9-F50 and M9-F51)
+The reduction ran after every received record and kept no trace of what it dropped. With three long versions where some pairs fit and the triple does not (40 000 + 40 000 + 5 000 bytes of name), a device that reduced the first pair kept two names after the third record and a device that met the small one first kept one: equal version vectors, different contents (F50). `merge_and_repair` took that for a device-ID collision, so the next exchange wrote dropped values back as local edits, chose the shown one by wall clock, and on the writer's own ID made the engine rotate a device ID nobody had reused (F51).
+
+Decision (CRYPTO_SPEC §7.1): a dropped value leaves a **husk** (same field, stamp and `at`, `"v":null`, a `"dropped"` member with the encoded length). Before every metadata merge each side takes the other's husks, so a husk beats its value and husk-only differences are no collision. `reduce_oversized` decides step 1 on the record's **weight** (canonical length plus the recorded lengths of its husks), which is at least the size of the plain join of everything merged so far in any order (exactly that size without husks); a value under a husked shown value becomes a husk too. When versions only add values to a shared state and step 1 is enough, every delivery order stores the same bytes; in every other case devices that differ only in husks converge byte for byte at the next exchange, with no repair, no device-ID rotation and no wall-clock choice. No new primitive; the encoding uses the existing unknown-member rule of §7.5.
+
+Alternatives considered:
+- **Weaken §7.1 to eventual convergence and treat an equal-vector subset as the reduced side:** without a marker a subset cannot be told from a real collision where one writer only cleared fields under a shared ID, so a value written under that ID could be lost unreported. Rejected.
+- **Strict byte identity for every history:** impossible for any lossy reduction. A device that dropped a value cannot restore it when a later version supersedes the value that made the record too large, while a device that met that version first never had to drop anything. The husk rule limits the difference to husks and closes it at the next exchange.
+- **A doc-wide "reduced" flag instead of recorded lengths:** also order independent for added values, but it would keep husking small concurrent edits until every husked field was rewritten.
+
 ## ADR-0086: SBOMs, reproducible builds and dependency policy
 
 - Status: accepted

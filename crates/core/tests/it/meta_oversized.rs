@@ -233,11 +233,11 @@ fn three_devices_every_delivery_order_store_identical_bytes() {
 /// the three records everything the devices hold must still be identical
 /// (the order a record arrives in must not decide the stored bytes).
 ///
-/// Fails: a device that reduced the first two records (40 000 + 40 000) and
-/// then merges the small third keeps both concurrent name values, while a
-/// device that met the small one first reduces only at the end and keeps one.
+/// M9-F50: a device that reduced the first two records (40 000 + 40 000)
+/// used to keep two names after the small third, while a device that met the
+/// small one first kept one. The weight counts the husks' lengths, so both
+/// reduce at the third record.
 #[test]
-#[ignore = "M9-F50: reduce_oversized runs per received record, so the stored bytes depend on the delivery order when some pairs fit and the triple does not"]
 fn mixed_sizes_every_delivery_order_store_identical_bytes() {
     // 40 000 + 40 000 overflows; 40 000 + 5 000 fits.
     let versions = [
@@ -280,13 +280,11 @@ fn mixed() -> [VaultMeta; 3] {
     ]
 }
 
-/// Two devices end with equal version vectors and different contents (one
-/// kept two concurrent values, one reduced to one). The receiver then treats
-/// the pair as a device-ID reuse: `merge_and_repair` writes the lost values
-/// back as local edits by the receiving device, ordered by the writers'
-/// wall clocks. Nobody reused an ID.
+/// M9-F51: two devices used to end with equal version vectors and different
+/// contents, which `merge_and_repair` took for a device-ID reuse (values
+/// written back by the receiver, ordered by the writers' wall clocks).
+/// Nobody reused an ID: husk-only differences merge without a repair.
 #[test]
-#[ignore = "M9-F51: oversized-merge reduction makes equal-vector states with different contents, which merge_and_repair takes for a device-ID collision (repair or DeviceIdReused and a spurious device-ID rotation)"]
 fn exchange_never_runs_a_device_id_repair() {
     let versions = mixed();
     for orders in PERMS {
@@ -304,7 +302,6 @@ fn exchange_never_runs_a_device_id_repair() {
 /// with the writers' wall clocks skewed by days: the shown name must not
 /// change (the repair above orders re-added values by wall clock).
 #[test]
-#[ignore = "M9-F51: the stamp_collision repair after an oversized reduction picks the shown value by the writers' wall clocks"]
 fn mixed_sizes_outcome_does_not_depend_on_wall_clocks() {
     let outcome = |skew: [i64; 3]| {
         let versions = [
@@ -408,7 +405,6 @@ proptest! {
     /// records were delivered, before any state exchange, the stored bytes
     /// are already the same on every device.
     #[test]
-    #[ignore = "M9-F50: the stored bytes depend on the delivery order when some pairs fit and the triple does not"]
     fn random_sizes_identical_after_delivery(
         sizes in proptest::array::uniform3(arb_version()),
         order_pick in proptest::array::uniform3(0usize..2),
@@ -423,7 +419,6 @@ proptest! {
     /// Exchanging states never runs a device-ID repair, and the shown values
     /// do not depend on the writers' wall clocks (skew of up to 30 days).
     #[test]
-    #[ignore = "M9-F51: equal-vector states after oversized reductions trigger the wall-clock-ordered stamp_collision repair"]
     fn random_schedules_need_no_repair_and_ignore_wall_clocks(
         sizes in proptest::array::uniform3(arb_version()),
         order_pick in proptest::array::uniform3(0usize..2),
@@ -445,6 +440,63 @@ proptest! {
         prop_assert_eq!(skewed.states[0].icon(), plain.states[0].icon());
         prop_assert_eq!(skewed.states[0].description(), plain.states[0].description());
         prop_assert_eq!(skewed.states[0].version(), plain.states[0].version());
+    }
+}
+
+/// Device `i` of [`versions_of`] after it received the record of device
+/// `from` (or nothing, if `from == i`): what it stores, with husks when the
+/// pair did not fit.
+fn replica(versions: &[VaultMeta; 3], i: usize, from: usize) -> VaultMeta {
+    if from == i {
+        return copy(&versions[i]);
+    }
+    let own = dev(u8::try_from(i).unwrap() + 2);
+    let (m, collision) = versions[i].merge_and_repair(&versions[from], own).unwrap();
+    assert!(!collision);
+    copy(&m.reduce_oversized().unwrap().0)
+}
+
+/// The six orders of three replicas.
+const ORDERS: [[usize; 3]; 6] = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+];
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+    /// M9-F50/F51: the plain metadata join stays a semilattice with husks
+    /// (CRYPTO_SPEC §7.1). Three replicas that carry husks from their own
+    /// oversized reductions (step 1, and step 2 when the shown values alone
+    /// do not fit) merge to the same record in every order and grouping,
+    /// that record reduces to identical bytes, and merging is idempotent and
+    /// absorbs each replica.
+    #[test]
+    fn merge_order_of_three_oversized_replicas_does_not_matter(
+        sizes in proptest::array::uniform3((1usize..=36_000, 0usize..=13_000, 0usize..=13_000)),
+        from in proptest::array::uniform3(0usize..3),
+    ) {
+        let versions = versions_of(&sizes, [0; 3]);
+        let r = [0, 1, 2].map(|i| replica(&versions, i, from[i]));
+        let reference = r[0].merge(&r[1]).merge(&r[2]);
+        let reference_bytes = bytes(&reference.reduce_oversized().unwrap().0);
+        for [x, y, z] in ORDERS {
+            let left = r[x].merge(&r[y]).merge(&r[z]);
+            let right = r[x].merge(&r[y].merge(&r[z]));
+            prop_assert!(left == reference, "order {:?}, left grouping", [x, y, z]);
+            prop_assert!(right == reference, "order {:?}, right grouping", [x, y, z]);
+            prop_assert!(bytes(&left.reduce_oversized().unwrap().0) == reference_bytes);
+            prop_assert!(bytes(&right.reduce_oversized().unwrap().0) == reference_bytes);
+        }
+        for x in &r {
+            prop_assert!(&x.merge(x) == x, "idempotent");
+            prop_assert!(reference.merge(x) == reference, "absorbs a replica");
+        }
+        prop_assert!(reference.compare(&versions[0]) != Causality::DominatedBy);
     }
 }
 

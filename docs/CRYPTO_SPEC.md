@@ -715,34 +715,67 @@ aad       = header || aad("vault-meta", vault_id, key_generation:u32)
 ```
 The padded metadata is at most 64 KiB (ADR-0007).
 
-**Write caps and oversized merges (M9, ADR-0085).** A client that writes vault metadata
-(`VaultMetaEdit`) refuses a name above 256 UTF-8 bytes, an icon above 64 and a description
+**Write caps and oversized merges (M9, ADR-0085, amended in M9 T13).** A client that writes vault
+metadata (`VaultMetaEdit`) refuses a name above 256 UTF-8 bytes, an icon above 64 and a description
 above 4096. The caps apply to writes only: a stored or received value that is longer (written
 before M9, or by a peer that ignores them) still decodes and merges. A metadata merge
 (`VaultMeta::merge_and_repair`) can still produce a canonical plaintext above
-`MAX_VAULT_META_PLAINTEXT_LEN` when two long concurrent versions meet. Such a merge is not an
-error. The stored record is `VaultMeta::reduce_oversized(&self) -> (Self, DroppedMeta)` applied
-to the repaired merge. It is a pure function of that merge, never of the pair of inputs or of
-the order they arrived in, so every device that reaches the same merge stores the same bytes
-(the rule follows the item rule of §10, "Oversized merges"):
+`MAX_VAULT_META_PLAINTEXT_LEN` when long concurrent versions meet. Such a merge is not an error.
 
-1. Every field (`name`, `icon`, `description`) keeps only the value it shows (its largest
-   stamp); its other concurrent values go.
-2. If the canonical plaintext still does not fit, whole fields go, one at a time, until it
-   fits: first the field whose shown value has the longest canonical encoding; on equal
-   length, the field whose key bytes compare larger. Only if the record does not fit even
-   with no field left (the version vector alone is too large) does the merge fail with
+*Husks.* A value the reduction below removes leaves a **husk** in its place: an entry of the same
+field with the same stamp and `at`, `"v":null` and one more entry member `"dropped"`, the length in
+bytes of the canonical JSON encoding of the value it replaced (§7.5 keeps unknown entry members;
+`dropped` has this meaning in vault metadata only). A husk shows nothing and is never a conflict
+value. It is superseded like any entry, so an edit of its field removes it. Before every metadata
+merge (the plain join and `merge_and_repair`), each side takes the other side's husks: an entry
+that one side holds as a value and the other as a husk with the same field, stamp, `at` and a
+recorded length equal to the value's encoded length becomes that husk. A husk therefore beats the
+value it replaced, the join stays commutative, associative and idempotent, and two replicas that
+differ only in which entries are husks are not a device-ID collision (§10). A value and a husk of
+one stamp whose lengths differ are left to the collision rules of §10.
+
+*Reduction.* The stored record is `VaultMeta::reduce_oversized(&self) -> (Self, DroppedMeta)`
+applied to the repaired merge. It is a pure function of that merge, with no stamp, clock or device
+of its own:
+
+0. A value below its field's largest-stamped entry becomes a husk when that entry is a husk (the
+   field shows nothing, so the value under it would show nothing either).
+1. The record's **weight** is the length of its canonical plaintext plus the recorded lengths of
+   its husks: never less than its size had nothing been dropped (each husk adds its own few
+   bytes on top). If the weight is above
+   `MAX_VAULT_META_PLAINTEXT_LEN`, every value that is not its field's largest-stamped entry
+   becomes a husk.
+2. If the canonical plaintext still does not fit, shown values become husks one field at a time
+   until it fits: first the field whose shown value has the longest canonical encoding; on equal
+   length, the field whose key bytes compare larger. Only if the record does not fit even with no
+   value left (the version vector and the husks alone are too large) does the merge fail with
    `SizeLimit`, as an item does (PROGRESS M2-R20).
 3. The version vector is the merge's (the join of both inputs), so the result dominates both
    inputs and is never overwritten by either of them.
 
-`DroppedMeta` lists the field keys that lost a value in step 1 or 2. It is reported as
-`ApplyOutcome::MetaValueDropped { vault, fields }` on the device that made the reduction, and
-the desktop shows a notice the user can dismiss, naming the fields (THREAT_MODEL R122). There
-are no conflict copies: a vault has one metadata object and a dropped name has no other place
-to live. A vault whose name was dropped has no name until the user types one. Required test:
-three devices write long concurrent values, and every delivery order of their records ends
-with the **same canonical plaintext bytes** and the same version vector on all three devices.
+*Order.* The weight counts the dropped values, so it is at least the size of the plain join of
+every version merged so far, in whatever order they arrived, and exactly that size on a device
+that holds no husk. When the versions only add values to a
+state they share (none removes or overwrites a value another of them holds), a device that ran
+step 1 on some of them runs it again once it holds all of them, and so does a device that met them
+in any other order; if step 1 is enough, every delivery order stores the **same canonical
+plaintext bytes**. Otherwise (step 2 was needed, or a version supersedes a value that another
+device had already turned into a husk) two devices can hold equal version vectors whose records
+differ only in which entries are husks. The next exchange of stored records makes them byte
+identical, because a husk beats its value: no repair runs, no device ID rotates, and no wall clock
+decides anything. No lossy reduction can do better: a device that dropped a value cannot bring it
+back for a delivery order in which it would have fit.
+
+`DroppedMeta` lists the field keys in which this reduction turned a value into a husk. It is
+reported as `ApplyOutcome::MetaValueDropped { vault, fields }` on the device that made the
+reduction, and the desktop shows a notice the user can dismiss, naming the fields (THREAT_MODEL
+R122). A device that takes a husk from a received record reports nothing: the device that made it
+did. There are no conflict copies: a vault has one metadata object and a dropped name has no other
+place to live. A vault whose name was dropped has no name until the user types one. Required
+tests: three devices write long concurrent values (pairs that fit and pairs that do not), and
+every delivery order of their records ends with the same canonical plaintext bytes and the same
+version vector on all three devices; random sizes, orders and wall-clock skews converge after one
+exchange with no device-ID repair and with shown values that do not depend on the wall clocks.
 
 No new primitive: the result is sealed like any metadata write.
 
@@ -1958,7 +1991,8 @@ the holder of the old token can read its reason (THREAT_MODEL R117).
     the received side's entries under it are kept although the client's
     vector covers their counters.
   - Equal version vectors with different contents are a collision too
-    (honest replicas with equal vectors are equal): every value either
+    (honest replicas with equal vectors are equal; for vault metadata,
+    after each side took the other's husks, §7.1): every value either
     side held that the merge dropped is written back.
   - Equal stamps with different contents are kept as a conflict. A
     password history key is written by one edit, so two writers under one
