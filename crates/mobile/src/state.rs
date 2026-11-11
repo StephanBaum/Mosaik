@@ -7,6 +7,7 @@ use mosaic_vault::session::LockedSession;
 use crate::error::MobileError;
 use crate::join::PendingJoin;
 use crate::otp::PendingOtps;
+use crate::passkeys::PasskeySessions;
 use crate::quick_unlock::PendingEnroll;
 use crate::settings::SettingsGuard;
 
@@ -116,6 +117,7 @@ pub(crate) struct Slots {
     pub quick: Option<PendingEnroll>,
     pub otp: PendingOtps,
     pub join: Option<PendingJoin>,
+    pub passkeys: PasskeySessions,
 }
 
 impl Slots {
@@ -123,6 +125,7 @@ impl Slots {
     pub(crate) fn clear_on_lock(&mut self) {
         self.quick = None;
         self.otp.clear();
+        self.passkeys.clear();
     }
 }
 

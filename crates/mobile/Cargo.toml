@@ -29,8 +29,10 @@ mosaic-totp = { path = "../totp" }
 mosaic-generator = { path = "../generator" }
 # Camera frames to `otpauth://` entries and setup codes.
 mosaic-qr = { path = "../qr" }
-# Exact-origin matching, app URLs, asset links and fill targets (T3b).
+# Exact-origin matching, app URLs, asset links and fill targets.
 mosaic-origin = { path = "../origin" }
+# The software WebAuthn authenticator in client-data hash mode.
+mosaic-passkey = { path = "../passkey" }
 thiserror.workspace = true
 zeroize.workspace = true
 # Random IDs of pending slots (same crate as mosaic-core's randomness).
@@ -47,6 +49,10 @@ tokio = { workspace = true, features = ["rt", "net", "macros"] }
 tempfile.workspace = true
 # A security-key row for the WebAuthn handoff test.
 rusqlite.workspace = true
+# Generated QR frames for the setup-code scan test.
+mosaic-qr = { path = "../qr", features = ["testing"] }
+# Independent P-256 verification of passkey signatures.
+p256.workspace = true
 # The loopback server harness hashes invite codes (`#[path]`-included).
 sha2.workspace = true
 

@@ -79,6 +79,20 @@ impl TestHooks<'_> {
         Ok((core.finish_unlocked(session)?, display))
     }
 
+    /// Replaces the fetch of `assetlinks.json` (`host` in, the file's bytes
+    /// out), so the tests need no network. The cache is cleared.
+    pub fn set_asset_links_fetch(
+        &self,
+        fetch: impl Fn(&str) -> std::result::Result<Vec<u8>, mosaic_sync::TransportError>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.core
+            .assetlinks
+            .replace_fetch(std::sync::Arc::new(fetch));
+    }
+
     /// Moves the core's clock.
     pub fn set_clock_offset_ms(&self, offset: i64) {
         self.core.clock.set_offset_ms(offset);

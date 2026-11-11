@@ -87,3 +87,38 @@ impl From<StorageError> for MobileError {
 pub(crate) fn read(storage: &dyn SecureStorage, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
     Ok(storage.get(name)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secure_store_aad_binds_version_and_name() {
+        let aad = secure_store_aad("secret-key/0123");
+        // 0x01, the label context, 0x00, the name length, the name.
+        assert_eq!(aad.first(), Some(&SECURE_STORE_VERSION));
+        let ctx = label::MOBILE_SECURE_STORE.ctx();
+        assert_eq!(aad.get(1..=ctx.len()), Some(ctx.as_slice()));
+        let rest = &aad[1 + ctx.len()..];
+        assert_eq!(rest.first(), Some(&0x00));
+        assert_eq!(&rest[1..5], &15u32.to_be_bytes());
+        assert_eq!(&rest[5..], b"secret-key/0123");
+        // A file moved to another name, or a changed version, fails its tag.
+        assert_ne!(aad, secure_store_aad("secret-key/0124"));
+        assert_ne!(aad, secure_store_aad("secret-key/012"));
+        assert_ne!(secure_store_aad("a"), secure_store_aad("a\0"));
+        let mut other_version = aad.clone();
+        other_version[0] = 0x02;
+        assert_ne!(aad, other_version);
+        // The names of CRYPTO_SPEC 6.9.1.
+        let account = AccountId::from_bytes([0xab; 16]).unwrap();
+        assert_eq!(
+            secret_key_name(&account),
+            format!("secret-key/{}", "ab".repeat(16))
+        );
+        assert_eq!(
+            sync_token_name(&account),
+            format!("sync-token/{}", "ab".repeat(16))
+        );
+    }
+}

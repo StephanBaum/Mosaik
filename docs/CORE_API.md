@@ -1127,15 +1127,67 @@ change, was built **additively** in T2 (see below); the breaking form is still t
   (not parsed here) and drops every other payload unread. New `ScanError::NotSetupCode`. `Payload` and `classify`
   are unchanged (the desktop matches `Payload` exhaustively).
 
-### `mosaic-mobile` (new; restricted: `mosaic-mobile-ffi` and its tests)
-- `Core` and its modules (`config`, `error`, `state`, `secret`, `storage`, `join`, `unlock`, `quick_unlock`,
-  `items`, `otp`, `generator`, `sync`, `settings`, `autofill`, `passkeys`, `setup`; `test_hooks` behind
-  `test-hooks`).
-- The method list mirrors the FFI surface in `docs/MOBILE.md` §2.
+### `mosaic-mobile` (M10 T3; restricted: `mosaic-mobile-ffi` and its tests)
+The logic of both phone apps behind plain Rust types. No UniFFI dependency, `#![forbid(unsafe_code)]`. One
+[`Core`] per process; every method blocks. The method list mirrors the FFI surface of `docs/MOBILE.md` §2.
+- **Construction and state.** `Core::open(CoreConfig, Arc<dyn SecureStorage>)`, `state() -> SessionState`
+  (`NoAccount`, `Locked { email, secret_key_stored, quick_unlock }`, `Unlocked { account_id, email,
+  quick_unlock_enrolled }`, `StoreClosed`, `StoreBusy`, `Busy`; `Busy` is an addition to the five states of the
+  plan, so `state()` is total while a long call runs), `lock()`, `close_store()`, `reopen_store()`,
+  `required_unlock_memory_bytes()`.
+- **Locking rule.** The core's mutex is never held across Argon2id, the network, a `SecureStorage` callback or
+  another core call. A long call takes the session out and the core reports `Busy`; a `lock()` meanwhile sets a flag
+  and wins when the call stores its result. The lock order is always the session holder first, then the core's
+  mutex. `lock()` wipes every `SecretValue` handed out, and drops the pending slots (quick-unlock enrolment, OTP
+  setups, passkey ceremonies) but not a pending join.
+- **Onboarding and unlock.** `prelogin_check`, `join_hosted` (`JoinOutcome::{Unlocked, SecondFactor}`),
+  `join_totp`, `join_webauthn_begin`, `join_webauthn_status`, `join_cancel`, `parse_setup_code`, `scan_setup_qr`,
+  `unlock_password`, `unlock_quick`. The pending join holds no store and lives 5 minutes. A join over an existing
+  account is `accountExists`.
+- **Quick unlock.** `quick_unlock_enroll_begin` (verifies the master password, returns `W` once in a 120 s slot),
+  `quick_unlock_enroll_finish`, `quick_unlock_remove`, `quick_unlock_platform_failed`; the platform parameters are
+  in `quick_unlock::params` (strict decoder, `key_alias`, `quick_unlock_aad`). An enrolment that ran out, was
+  invalidated or was removed by a password recovery shows as `QuickUnlockAvailability::Expired { key_alias }` until
+  the platform deletes the key (`quick_unlock_remove` returns it).
+- **Vault.** `vaults`, `items`, `search`, `item`, `reveal`, `otp_code`, `save_login`, `save_note`, `trash_item`,
+  `set_favorite`, `generate_password`, `otp_from_text`, `scan_otp_qr`, `otp_pending_discard`. Lists and details
+  hold no concealed value (`FieldView.value` is `None`); a secret leaves only as `Arc<SecretValue>`.
+- **Sync.** `sync_overview`, `sync_now`, `recover_password`, `reset_device(ResetConfirm) -> ResetOutcome { state,
+  key_aliases }`. Deviations: `reset_device` returns the platform keys to delete (the plan returned only the
+  state), and `recover_password` has no second-factor argument, so an account with a second factor cannot recover
+  on the phone (`syncTwoFactorRequired`).
+- **Autofill (T3b).** `select_fill_fields`, `fill_target_android`, `fill_target_ios`, `fill_warning` (an addition:
+  the look-alike warning needs the saved hosts), `fill_candidates`, `fill_values`, `fill_otp`,
+  `privileged_browsers_json`, `link_android_app`, `asset_links_status`. `fill_values` and `fill_otp` check the
+  match again for the chosen login. A login in a hardware-protected vault, a trashed login and an item that is not
+  a login are never candidates. Matching on plain `http` without `allow_http` answers `insecureOrigin`.
+- **Passkeys (T3b).** `passkey_android_{get,create}_{begin,finish}`, `passkey_ios_{candidates,assert,register}`,
+  `passkey_identities`, `password_identities`; `passkeys::json` parses the Credential Manager request JSON strictly
+  (at most 64 KiB, only `public-key` descriptors, a fuzz target) and builds the response JSON. An Android caller
+  that is not on Rust's own browser allowlist cannot pass a platform origin, and any other app must be delegated
+  by the relying party's `assetlinks.json` (cached 24 h in memory). A ceremony without user verification is
+  `reauthRequired`.
+- **Settings.** `settings`, `update_settings(SettingsUpdate)`: `settings.json` with the MAC of CRYPTO_SPEC §11.1.
+  Raising the quick-unlock age or turning the password identity store on needs `reauth_password`.
+- **Setup code (T3b).** `parse_setup_code`, `scan_setup_qr` over `mosaic_sync::setup_code::parse` and
+  `mosaic_qr::scan_setup_frames`.
+- **Test hooks (feature `test-hooks`).** `Core::test_hooks()`: a local Baseline account with one vault, a clock
+  offset, a work delay (makes the lock races deterministic) and a replacement for the asset-links fetch. The crate's
+  own dev-dependency turns the feature on for `cargo test -p mosaic-mobile`; `scripts/mobile/check-no-test-hooks.sh`
+  keeps it out of release libraries.
+- **Errors.** `MobileError` has unit variants only; `code()` is the camelCase code and `error_codes()` lists them.
+  The codes of §3.4 of the plan plus the sync transport codes (`syncServerUnreachable`, `syncServerInvalid`,
+  `syncServerInsecure`, `syncServerMismatch`, `syncServerIncompatible`).
 
 ### `mosaic-mobile-ffi` (new; the binding shell, consumed only by the generated Kotlin and Swift code)
-- It contains only the mirror records, the `From` conversions, one delegating `impl MosaicCore`, the
-  `SecureStorage` foreign trait and the global allocator (ADR-0089).
+- `src/lib.rs` (the `MosaicCore` object, `SecureStorage` foreign trait, `SecretValue`, `mobile_error_codes`,
+  `core_version`), `src/types.rs` (the mirror records and enums), `src/convert.rs` (the conversions) and
+  `src/bin/uniffi-bindgen.rs`. Nothing else may be added (`scripts/mobile/check-ffi-crate.sh`).
+- It keeps `#![forbid(unsafe_code)]` and the workspace lints (UniFFI 0.32.2 compiles under them, ADR-0089 probe a).
+  It declares `zeroizing-alloc` as the global allocator, so every freed Rust heap block is wiped.
+- `SyncOverview.last_error` crosses as the camelCase code (a string). `SecretValue` also exports `is_empty`.
+- `scripts/mobile/bindgen.sh [--out DIR] [--release] [kotlin|swift|all]` generates the bindings into `$TEMP`
+  (the generator needs feature `bindgen`); nothing generated is committed.
 - It is not a Rust API for other crates.
 
 ## Expected additions (pre-approved as additive)

@@ -16,11 +16,14 @@
     reason = "integration tests: scenarios are long and read plainly"
 )]
 
+mod autofill;
 mod common;
 mod items;
 mod join;
 mod lifecycle;
+mod passkeys;
 mod quick_unlock;
 mod settings;
+mod setup;
 mod sync;
 mod unlock;

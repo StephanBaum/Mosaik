@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/desktop/src-tauri"]
 # The fuzz crates have their own workspaces (nightly-only, cargo-fuzz layout).
-exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/origin/fuzz", "crates/passkey/fuzz", "crates/sync/fuzz", "crates/server/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
+exclude = ["crates/core/fuzz", "crates/vault/fuzz", "crates/generator/fuzz", "crates/totp/fuzz", "crates/qr/fuzz", "crates/insights/fuzz", "crates/import/fuzz", "crates/ssh-agent/fuzz", "crates/native-messaging/fuzz", "crates/origin/fuzz", "crates/passkey/fuzz", "crates/mobile/fuzz", "crates/sync/fuzz", "crates/server/fuzz", "apps/desktop/src-tauri/fuzz", "vendor/rqrr"]
 
 # rqrr 0.11.0 with a bound on QR grouping work (vendor/rqrr/MOSAIC_PATCH.md, ADR-0031).
 [patch.crates-io]
@@ -190,6 +190,16 @@ rpassword = "=7.4.0"
 ctrlc = "=3.5.2"
 # Saves and restores the terminal mode (echo) around a no-echo prompt on Unix; safe termios API, already in the tree.
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "termios", "fs"] }
+
+# M10 mobile (ADR-0089, ADR-0091)
+# UniFFI: the binding shell of the Android and iOS apps (crates/mobile-ffi only). MPL-2.0 (file-level
+# copyleft, used unmodified; deny.toml has the per-crate exceptions). Exact pin of the newest release
+# at T1; scaffolding only (no default features: `cargo-metadata` is for the bindgen tool, and the
+# bindgen script passes the config file explicitly).
+uniffi = { version = "=0.32.2", default-features = false }
+# Zero-on-free global allocator of the mobile library (1Password, MIT OR Apache-2.0, about 100 lines,
+# no dependencies): every freed Rust heap block, UniFFI's RustBuffers included, is wiped (R125).
+zeroizing-alloc = "=0.1.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

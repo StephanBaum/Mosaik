@@ -49,6 +49,11 @@ use mosaic_sync::http::TlsTrust;
 use mosaic_vault::session::{BootId, LockedSession, UnlockedSession};
 use mosaic_vault::storage::{Error as StoreError, Store};
 
+pub use autofill::{
+    AndroidCaller, AssetLinksStatus, Attr, FieldNode, FieldRefusal, FieldSelection, FillCandidate,
+    FillMatch, FillTarget, FillTargetKind, FillValues, OriginWarning, ServiceIdentifier,
+    ServiceIdentifierKind,
+};
 pub use config::{CoreConfig, CoreContext, Platform};
 pub use error::{MobileError, Result, error_codes};
 pub use generator::{GeneratedSecret, GeneratorMode, GeneratorOptions};
@@ -60,9 +65,14 @@ pub use join::{
     HandoffInfo, HandoffStatus, JoinHostedRequest, JoinOutcome, SecondFactorMethods, ServerInfo,
 };
 pub use otp::{LumaFrame, OtpCode, OtpPreview, OtpScheme, OtpView};
+pub use passkeys::{
+    AndroidPasskeyRequest, IosAssertRequest, IosAssertion, IosRegisterRequest, IosRegistration,
+    PasskeyCandidate, PasskeyCreateSession, PasskeyIdentity, PasskeySession, PasswordIdentity,
+};
 pub use quick_unlock::{QuickUnlockEnrolled, QuickUnlockSetup};
 pub use secret::SecretValue;
 pub use settings::{MobileSettings, SettingsUpdate};
+pub use setup::SetupCode;
 pub use state::{QuickUnlockAvailability, QuickUnlockPlatform, SessionState};
 pub use storage::{
     SECURE_STORE_VERSION, SETTINGS_KEY_HINT, SecureStorage, StorageError, secret_key_name,
@@ -116,6 +126,8 @@ pub struct Core {
     pub(crate) lock_requested: AtomicBool,
     /// Every secret value handed out; `lock()` wipes the live ones.
     issued: Mutex<Vec<Weak<SecretValue>>>,
+    /// The asset-links fetch and its cache (ADR-0092, ADR-0093).
+    pub(crate) assetlinks: autofill::AssetLinks,
     /// Milliseconds a long call sleeps before it takes the mutex again
     /// (test hooks only: it makes the races of the tests deterministic).
     #[cfg(feature = "test-hooks")]
@@ -197,6 +209,7 @@ impl Core {
             }),
             lock_requested: AtomicBool::new(false),
             issued: Mutex::new(Vec::new()),
+            assetlinks: autofill::AssetLinks::new(),
             #[cfg(feature = "test-hooks")]
             work_delay_ms: std::sync::atomic::AtomicU64::new(0),
         })
@@ -223,6 +236,10 @@ impl Core {
     }
 
     /// Sleeps the configured test delay (no-op in release builds).
+    #[cfg_attr(
+        not(feature = "test-hooks"),
+        expect(clippy::unused_self, reason = "the delay exists in test builds only")
+    )]
     pub(crate) fn work_pause(&self) {
         #[cfg(feature = "test-hooks")]
         {
