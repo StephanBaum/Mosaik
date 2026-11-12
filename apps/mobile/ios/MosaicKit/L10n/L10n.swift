@@ -527,6 +527,18 @@ public enum L10n {
         String(format: NSLocalizedString("item.urls", bundle: .main, comment: ""), locale: .current, arguments: [count])
     }
 
+    public static func aboutLicences() -> String {
+        NSLocalizedString("mobile.about.licences", bundle: .main, comment: "")
+    }
+
+    public static func aboutPreAudit() -> String {
+        NSLocalizedString("mobile.about.preAudit", bundle: .main, comment: "")
+    }
+
+    public static func aboutPrivacy() -> String {
+        NSLocalizedString("mobile.about.privacy", bundle: .main, comment: "")
+    }
+
     public static func appName() -> String {
         NSLocalizedString("mobile.app.name", bundle: .main, comment: "")
     }
@@ -555,20 +567,340 @@ public enum L10n {
         NSLocalizedString("mobile.common.continue", bundle: .main, comment: "")
     }
 
+    public static func commonCopy() -> String {
+        NSLocalizedString("mobile.common.copy", bundle: .main, comment: "")
+    }
+
     public static func commonDone() -> String {
         NSLocalizedString("mobile.common.done", bundle: .main, comment: "")
+    }
+
+    public static func commonEdit() -> String {
+        NSLocalizedString("mobile.common.edit", bundle: .main, comment: "")
+    }
+
+    public static func commonHide() -> String {
+        NSLocalizedString("mobile.common.hide", bundle: .main, comment: "")
     }
 
     public static func commonNotNow() -> String {
         NSLocalizedString("mobile.common.notNow", bundle: .main, comment: "")
     }
 
+    public static func commonRemove() -> String {
+        NSLocalizedString("mobile.common.remove", bundle: .main, comment: "")
+    }
+
+    public static func commonSave() -> String {
+        NSLocalizedString("mobile.common.save", bundle: .main, comment: "")
+    }
+
+    public static func commonShow() -> String {
+        NSLocalizedString("mobile.common.show", bundle: .main, comment: "")
+    }
+
+    public static func commonWorking() -> String {
+        NSLocalizedString("mobile.common.working", bundle: .main, comment: "")
+    }
+
     public static func copyDone(seconds: Int) -> String {
         String(format: NSLocalizedString("mobile.copy.done", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
     }
 
+    public static func detailAttachments(count: Int) -> String {
+        String(format: NSLocalizedString("mobile.detail.attachments", bundle: .main, comment: ""), locale: .current, arguments: [count])
+    }
+
+    public static func detailDelete() -> String {
+        NSLocalizedString("mobile.detail.delete", bundle: .main, comment: "")
+    }
+
+    public static func detailDeleteBody(title: String) -> String {
+        String(format: NSLocalizedString("mobile.detail.deleteBody", bundle: .main, comment: ""), locale: .current, arguments: [title])
+    }
+
+    public static func detailDeleteTitle() -> String {
+        NSLocalizedString("mobile.detail.deleteTitle", bundle: .main, comment: "")
+    }
+
+    public static func detailFavoriteAdd() -> String {
+        NSLocalizedString("mobile.detail.favoriteAdd", bundle: .main, comment: "")
+    }
+
+    public static func detailFavoriteRemove() -> String {
+        NSLocalizedString("mobile.detail.favoriteRemove", bundle: .main, comment: "")
+    }
+
+    public static func detailLinkApp() -> String {
+        NSLocalizedString("mobile.detail.linkApp", bundle: .main, comment: "")
+    }
+
+    public static func detailLinkedApp(name: String) -> String {
+        String(format: NSLocalizedString("mobile.detail.linkedApp", bundle: .main, comment: ""), locale: .current, arguments: [name])
+    }
+
+    public static func detailNeedsLinking() -> String {
+        NSLocalizedString("mobile.detail.needsLinking", bundle: .main, comment: "")
+    }
+
+    public static func detailOtpLeft(seconds: Int) -> String {
+        String(format: NSLocalizedString("mobile.detail.otpLeft", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
+    }
+
+    public static func detailPasskey(site: String) -> String {
+        String(format: NSLocalizedString("mobile.detail.passkey", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func deviceLockRequiredAction() -> String {
+        NSLocalizedString("mobile.deviceLock.required.action", bundle: .main, comment: "")
+    }
+
+    public static func deviceLockRequiredBody() -> String {
+        NSLocalizedString("mobile.deviceLock.required.body", bundle: .main, comment: "")
+    }
+
+    public static func deviceLockRequiredTitle() -> String {
+        NSLocalizedString("mobile.deviceLock.required.title", bundle: .main, comment: "")
+    }
+
+    public static func editorEditLogin() -> String {
+        NSLocalizedString("mobile.editor.editLogin", bundle: .main, comment: "")
+    }
+
+    public static func editorEditNote() -> String {
+        NSLocalizedString("mobile.editor.editNote", bundle: .main, comment: "")
+    }
+
+    public static func editorFavorite() -> String {
+        NSLocalizedString("mobile.editor.favorite", bundle: .main, comment: "")
+    }
+
+    public static func editorGenerate() -> String {
+        NSLocalizedString("mobile.editor.generate", bundle: .main, comment: "")
+    }
+
+    public static func editorNewLogin() -> String {
+        NSLocalizedString("mobile.editor.newLogin", bundle: .main, comment: "")
+    }
+
+    public static func editorNewNote() -> String {
+        NSLocalizedString("mobile.editor.newNote", bundle: .main, comment: "")
+    }
+
+    public static func editorNotes() -> String {
+        NSLocalizedString("mobile.editor.notes", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpAdd() -> String {
+        NSLocalizedString("mobile.editor.otpAdd", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpHave() -> String {
+        NSLocalizedString("mobile.editor.otpHave", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpInput() -> String {
+        NSLocalizedString("mobile.editor.otpInput", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpReady(name: String) -> String {
+        String(format: NSLocalizedString("mobile.editor.otpReady", bundle: .main, comment: ""), locale: .current, arguments: [name])
+    }
+
+    public static func editorOtpRemove() -> String {
+        NSLocalizedString("mobile.editor.otpRemove", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpRemoved() -> String {
+        NSLocalizedString("mobile.editor.otpRemoved", bundle: .main, comment: "")
+    }
+
+    public static func editorOtpTitle() -> String {
+        NSLocalizedString("mobile.editor.otpTitle", bundle: .main, comment: "")
+    }
+
+    public static func editorPassword() -> String {
+        NSLocalizedString("mobile.editor.password", bundle: .main, comment: "")
+    }
+
+    public static func editorPasswordKeep() -> String {
+        NSLocalizedString("mobile.editor.passwordKeep", bundle: .main, comment: "")
+    }
+
+    public static func editorSaving() -> String {
+        NSLocalizedString("mobile.editor.saving", bundle: .main, comment: "")
+    }
+
+    public static func editorTitle() -> String {
+        NSLocalizedString("mobile.editor.title", bundle: .main, comment: "")
+    }
+
+    public static func editorUsername() -> String {
+        NSLocalizedString("mobile.editor.username", bundle: .main, comment: "")
+    }
+
+    public static func editorWebsiteAdd() -> String {
+        NSLocalizedString("mobile.editor.websiteAdd", bundle: .main, comment: "")
+    }
+
+    public static func editorWebsiteHint() -> String {
+        NSLocalizedString("mobile.editor.websiteHint", bundle: .main, comment: "")
+    }
+
+    public static func editorWebsiteRemove(number: String) -> String {
+        String(format: NSLocalizedString("mobile.editor.websiteRemove", bundle: .main, comment: ""), locale: .current, arguments: [number])
+    }
+
+    public static func editorWebsites() -> String {
+        NSLocalizedString("mobile.editor.websites", bundle: .main, comment: "")
+    }
+
+    public static func generatorAmbiguous() -> String {
+        NSLocalizedString("mobile.generator.ambiguous", bundle: .main, comment: "")
+    }
+
+    public static func generatorAppendDigit() -> String {
+        NSLocalizedString("mobile.generator.appendDigit", bundle: .main, comment: "")
+    }
+
+    public static func generatorCapitalize() -> String {
+        NSLocalizedString("mobile.generator.capitalize", bundle: .main, comment: "")
+    }
+
+    public static func generatorDigits() -> String {
+        NSLocalizedString("mobile.generator.digits", bundle: .main, comment: "")
+    }
+
+    public static func generatorLength(length: String) -> String {
+        String(format: NSLocalizedString("mobile.generator.length", bundle: .main, comment: ""), locale: .current, arguments: [length])
+    }
+
+    public static func generatorLowercase() -> String {
+        NSLocalizedString("mobile.generator.lowercase", bundle: .main, comment: "")
+    }
+
+    public static func generatorPassphrase() -> String {
+        NSLocalizedString("mobile.generator.passphrase", bundle: .main, comment: "")
+    }
+
+    public static func generatorPassword() -> String {
+        NSLocalizedString("mobile.generator.password", bundle: .main, comment: "")
+    }
+
+    public static func generatorRun() -> String {
+        NSLocalizedString("mobile.generator.run", bundle: .main, comment: "")
+    }
+
+    public static func generatorSeparator() -> String {
+        NSLocalizedString("mobile.generator.separator", bundle: .main, comment: "")
+    }
+
+    public static func generatorStrength(bits: String) -> String {
+        String(format: NSLocalizedString("mobile.generator.strength", bundle: .main, comment: ""), locale: .current, arguments: [bits])
+    }
+
+    public static func generatorSymbols() -> String {
+        NSLocalizedString("mobile.generator.symbols", bundle: .main, comment: "")
+    }
+
+    public static func generatorTitle() -> String {
+        NSLocalizedString("mobile.generator.title", bundle: .main, comment: "")
+    }
+
+    public static func generatorUppercase() -> String {
+        NSLocalizedString("mobile.generator.uppercase", bundle: .main, comment: "")
+    }
+
+    public static func generatorUse() -> String {
+        NSLocalizedString("mobile.generator.use", bundle: .main, comment: "")
+    }
+
+    public static func generatorWordCount(count: String) -> String {
+        String(format: NSLocalizedString("mobile.generator.wordCount", bundle: .main, comment: ""), locale: .current, arguments: [count])
+    }
+
     public static func homeUnlockedAs(email: String) -> String {
         String(format: NSLocalizedString("mobile.home.unlockedAs", bundle: .main, comment: ""), locale: .current, arguments: [email])
+    }
+
+    public static func licencesIntro() -> String {
+        NSLocalizedString("mobile.licences.intro", bundle: .main, comment: "")
+    }
+
+    public static func licencesRust() -> String {
+        NSLocalizedString("mobile.licences.rust", bundle: .main, comment: "")
+    }
+
+    public static func licencesTitle() -> String {
+        NSLocalizedString("mobile.licences.title", bundle: .main, comment: "")
+    }
+
+    public static func linkApp() -> String {
+        NSLocalizedString("mobile.link.app", bundle: .main, comment: "")
+    }
+
+    public static func linkCertificate() -> String {
+        NSLocalizedString("mobile.link.certificate", bundle: .main, comment: "")
+    }
+
+    public static func linkChecking() -> String {
+        NSLocalizedString("mobile.link.checking", bundle: .main, comment: "")
+    }
+
+    public static func linkChoose(login: String) -> String {
+        String(format: NSLocalizedString("mobile.link.choose", bundle: .main, comment: ""), locale: .current, arguments: [login])
+    }
+
+    public static func linkConfirm(login: String) -> String {
+        String(format: NSLocalizedString("mobile.link.confirm", bundle: .main, comment: ""), locale: .current, arguments: [login])
+    }
+
+    public static func linkDone(login: String) -> String {
+        String(format: NSLocalizedString("mobile.link.done", bundle: .main, comment: ""), locale: .current, arguments: [login])
+    }
+
+    public static func linkFilter() -> String {
+        NSLocalizedString("mobile.link.filter", bundle: .main, comment: "")
+    }
+
+    public static func linkInstaller() -> String {
+        NSLocalizedString("mobile.link.installer", bundle: .main, comment: "")
+    }
+
+    public static func linkInstallerUnknown() -> String {
+        NSLocalizedString("mobile.link.installerUnknown", bundle: .main, comment: "")
+    }
+
+    public static func linkNoApps() -> String {
+        NSLocalizedString("mobile.link.noApps", bundle: .main, comment: "")
+    }
+
+    public static func linkNotVerified() -> String {
+        NSLocalizedString("mobile.link.notVerified", bundle: .main, comment: "")
+    }
+
+    public static func linkPackage() -> String {
+        NSLocalizedString("mobile.link.package", bundle: .main, comment: "")
+    }
+
+    public static func linkTitle() -> String {
+        NSLocalizedString("mobile.link.title", bundle: .main, comment: "")
+    }
+
+    public static func linkUnavailable() -> String {
+        NSLocalizedString("mobile.link.unavailable", bundle: .main, comment: "")
+    }
+
+    public static func linkVerified(host: String) -> String {
+        String(format: NSLocalizedString("mobile.link.verified", bundle: .main, comment: ""), locale: .current, arguments: [host])
+    }
+
+    public static func linkWarning(host: String) -> String {
+        String(format: NSLocalizedString("mobile.link.warning", bundle: .main, comment: ""), locale: .current, arguments: [host])
+    }
+
+    public static func linkWarningNoHost() -> String {
+        NSLocalizedString("mobile.link.warningNoHost", bundle: .main, comment: "")
     }
 
     public static func lockNow() -> String {
@@ -715,12 +1047,88 @@ public enum L10n {
         NSLocalizedString("mobile.onboarding.welcome.title", bundle: .main, comment: "")
     }
 
+    public static func searchHint() -> String {
+        NSLocalizedString("mobile.search.hint", bundle: .main, comment: "")
+    }
+
+    public static func searchNone(query: String) -> String {
+        String(format: NSLocalizedString("mobile.search.none", bundle: .main, comment: ""), locale: .current, arguments: [query])
+    }
+
     public static func searchPlaceholder() -> String {
         NSLocalizedString("mobile.search.placeholder", bundle: .main, comment: "")
     }
 
     public static func settingsAbout() -> String {
         NSLocalizedString("mobile.settings.about", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutoLock() -> String {
+        NSLocalizedString("mobile.settings.autoLock", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutoLockNow() -> String {
+        NSLocalizedString("mobile.settings.autoLock.now", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutoLockS30() -> String {
+        NSLocalizedString("mobile.settings.autoLock.s30", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutoLockS300() -> String {
+        NSLocalizedString("mobile.settings.autoLock.s300", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutoLockS60() -> String {
+        NSLocalizedString("mobile.settings.autoLock.s60", bundle: .main, comment: "")
+    }
+
+    public static func settingsClipboard() -> String {
+        NSLocalizedString("mobile.settings.clipboard", bundle: .main, comment: "")
+    }
+
+    public static func settingsClipboardOption(seconds: Int) -> String {
+        String(format: NSLocalizedString("mobile.settings.clipboardOption", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
+    }
+
+    public static func settingsIdle() -> String {
+        NSLocalizedString("mobile.settings.idle", bundle: .main, comment: "")
+    }
+
+    public static func settingsIdleOption(minutes: Int) -> String {
+        String(format: NSLocalizedString("mobile.settings.idleOption", bundle: .main, comment: ""), locale: .current, arguments: [minutes])
+    }
+
+    public static func settingsQuick() -> String {
+        NSLocalizedString("mobile.settings.quick", bundle: .main, comment: "")
+    }
+
+    public static func settingsQuickDisable() -> String {
+        NSLocalizedString("mobile.settings.quickDisable", bundle: .main, comment: "")
+    }
+
+    public static func settingsQuickEnable() -> String {
+        NSLocalizedString("mobile.settings.quickEnable", bundle: .main, comment: "")
+    }
+
+    public static func settingsQuickOff() -> String {
+        NSLocalizedString("mobile.settings.quickOff", bundle: .main, comment: "")
+    }
+
+    public static func settingsQuickOn() -> String {
+        NSLocalizedString("mobile.settings.quickOn", bundle: .main, comment: "")
+    }
+
+    public static func settingsQuickPassword() -> String {
+        NSLocalizedString("mobile.settings.quickPassword", bundle: .main, comment: "")
+    }
+
+    public static func settingsSecurity() -> String {
+        NSLocalizedString("mobile.settings.security", bundle: .main, comment: "")
+    }
+
+    public static func settingsSync() -> String {
+        NSLocalizedString("mobile.settings.sync", bundle: .main, comment: "")
     }
 
     public static func settingsTitle() -> String {
@@ -737,6 +1145,30 @@ public enum L10n {
 
     public static func setupScanTitle() -> String {
         NSLocalizedString("mobile.setup.scanTitle", bundle: .main, comment: "")
+    }
+
+    public static func syncLast(time: String) -> String {
+        String(format: NSLocalizedString("mobile.sync.last", bundle: .main, comment: ""), locale: .current, arguments: [time])
+    }
+
+    public static func syncLocalOnly() -> String {
+        NSLocalizedString("mobile.sync.localOnly", bundle: .main, comment: "")
+    }
+
+    public static func syncNever() -> String {
+        NSLocalizedString("mobile.sync.never", bundle: .main, comment: "")
+    }
+
+    public static func syncNow() -> String {
+        NSLocalizedString("mobile.sync.now", bundle: .main, comment: "")
+    }
+
+    public static func syncPending(count: Int) -> String {
+        String(format: NSLocalizedString("mobile.sync.pending", bundle: .main, comment: ""), locale: .current, arguments: [count])
+    }
+
+    public static func syncWorking() -> String {
+        NSLocalizedString("mobile.sync.working", bundle: .main, comment: "")
     }
 
     public static func unlockAccount(email: String) -> String {
@@ -799,6 +1231,18 @@ public enum L10n {
         NSLocalizedString("mobile.unlock.working", bundle: .main, comment: "")
     }
 
+    public static func vaultAdd() -> String {
+        NSLocalizedString("mobile.vault.add", bundle: .main, comment: "")
+    }
+
+    public static func vaultAddLogin() -> String {
+        NSLocalizedString("mobile.vault.addLogin", bundle: .main, comment: "")
+    }
+
+    public static func vaultAddNote() -> String {
+        NSLocalizedString("mobile.vault.addNote", bundle: .main, comment: "")
+    }
+
     public static func vaultCount(count: Int) -> String {
         String(format: NSLocalizedString("mobile.vault.count", bundle: .main, comment: ""), locale: .current, arguments: [count])
     }
@@ -811,7 +1255,15 @@ public enum L10n {
         NSLocalizedString("mobile.vault.emptyTitle", bundle: .main, comment: "")
     }
 
+    public static func vaultFavorite() -> String {
+        NSLocalizedString("mobile.vault.favorite", bundle: .main, comment: "")
+    }
+
     public static func vaultTitle() -> String {
         NSLocalizedString("mobile.vault.title", bundle: .main, comment: "")
+    }
+
+    public static func vaultUntitled() -> String {
+        NSLocalizedString("mobile.vault.untitled", bundle: .main, comment: "")
     }
 }

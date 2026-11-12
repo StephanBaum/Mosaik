@@ -285,6 +285,14 @@ class SessionController(
             finishEnroll(context, setup, text)
         }
 
+    /** Turns quick unlock off: the core drops the wrapping and names the key, which goes too. */
+    suspend fun removeQuickUnlock(): Outcome<Unit> =
+        guarded {
+            val alias = holder.call { it.quickUnlockRemove() }
+            if (alias != null) keys.delete(alias)
+            Unit
+        }
+
     /** Creates the key, encrypts `W` behind a biometric, and hands the public body to the core. */
     private suspend fun finishEnroll(context: Context, setup: QuickUnlockSetup, text: PromptText) {
         val alias = setup.keyAlias

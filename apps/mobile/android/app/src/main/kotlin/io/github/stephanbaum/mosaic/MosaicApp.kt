@@ -34,6 +34,7 @@ import io.github.stephanbaum.mosaic.security.QuickUnlockKeys
 import io.github.stephanbaum.mosaic.security.TrustAnchors
 import io.github.stephanbaum.mosaic.session.JoinTracker
 import io.github.stephanbaum.mosaic.session.SessionController
+import io.github.stephanbaum.mosaic.session.VaultController
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +56,9 @@ class MosaicApp : Application() {
         private set
     lateinit var session: SessionController
         private set
+    lateinit var vault: VaultController
+        private set
+    private lateinit var keyguard: KeyguardManager
 
     val joinTracker = JoinTracker()
 
@@ -83,7 +87,7 @@ class MosaicApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val storage = AndroidSecureStorage(File(noBackupFilesDir, "secure"), deviceSecure = { keyguard.isDeviceSecure })
         holder = CoreHolder { openCore(storage) }
         clipboard =
@@ -106,6 +110,7 @@ class MosaicApp : Application() {
                 onSettings = { applySettings(it) },
                 onSessionChanged = { sessionEpochState.update { it + 1 } },
             )
+        vault = VaultController(holder = holder, onSettings = { applySettings(it) })
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
                 override fun onActivityStarted(activity: Activity) {
@@ -149,6 +154,9 @@ class MosaicApp : Application() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
     }
+
+    /** Whether the phone has a secure lock screen; the secure storage needs one (ADR-0090 amendment). */
+    fun isDeviceSecure(): Boolean = keyguard.isDeviceSecure
 
     /** Locks the core at once (it bypasses the call queue) and tells the screens. */
     fun lockNow() {

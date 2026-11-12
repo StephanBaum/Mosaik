@@ -414,6 +414,15 @@ object L10n {
     fun itemUrls(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.item_urls, count, count)
 
+    fun aboutLicences(r: Resources): String =
+        r.getString(R.string.mobile_about_licences)
+
+    fun aboutPreAudit(r: Resources): String =
+        r.getString(R.string.mobile_about_preAudit)
+
+    fun aboutPrivacy(r: Resources): String =
+        r.getString(R.string.mobile_about_privacy)
+
     fun appName(r: Resources): String =
         r.getString(R.string.mobile_app_name)
 
@@ -435,17 +444,257 @@ object L10n {
     fun commonContinue(r: Resources): String =
         r.getString(R.string.mobile_common_continue)
 
+    fun commonCopy(r: Resources): String =
+        r.getString(R.string.mobile_common_copy)
+
     fun commonDone(r: Resources): String =
         r.getString(R.string.mobile_common_done)
+
+    fun commonEdit(r: Resources): String =
+        r.getString(R.string.mobile_common_edit)
+
+    fun commonHide(r: Resources): String =
+        r.getString(R.string.mobile_common_hide)
 
     fun commonNotNow(r: Resources): String =
         r.getString(R.string.mobile_common_notNow)
 
+    fun commonRemove(r: Resources): String =
+        r.getString(R.string.mobile_common_remove)
+
+    fun commonSave(r: Resources): String =
+        r.getString(R.string.mobile_common_save)
+
+    fun commonShow(r: Resources): String =
+        r.getString(R.string.mobile_common_show)
+
+    fun commonWorking(r: Resources): String =
+        r.getString(R.string.mobile_common_working)
+
     fun copyDone(r: Resources, seconds: Int): String =
         r.getQuantityString(R.plurals.mobile_copy_done, seconds, seconds)
 
+    fun detailAttachments(r: Resources, count: Int): String =
+        r.getQuantityString(R.plurals.mobile_detail_attachments, count, count)
+
+    fun detailDelete(r: Resources): String =
+        r.getString(R.string.mobile_detail_delete)
+
+    fun detailDeleteBody(r: Resources, title: String): String =
+        r.getString(R.string.mobile_detail_deleteBody, title)
+
+    fun detailDeleteTitle(r: Resources): String =
+        r.getString(R.string.mobile_detail_deleteTitle)
+
+    fun detailFavoriteAdd(r: Resources): String =
+        r.getString(R.string.mobile_detail_favoriteAdd)
+
+    fun detailFavoriteRemove(r: Resources): String =
+        r.getString(R.string.mobile_detail_favoriteRemove)
+
+    fun detailLinkApp(r: Resources): String =
+        r.getString(R.string.mobile_detail_linkApp)
+
+    fun detailLinkedApp(r: Resources, name: String): String =
+        r.getString(R.string.mobile_detail_linkedApp, name)
+
+    fun detailNeedsLinking(r: Resources): String =
+        r.getString(R.string.mobile_detail_needsLinking)
+
+    fun detailOtpLeft(r: Resources, seconds: Int): String =
+        r.getQuantityString(R.plurals.mobile_detail_otpLeft, seconds, seconds)
+
+    fun detailPasskey(r: Resources, site: String): String =
+        r.getString(R.string.mobile_detail_passkey, site)
+
+    fun deviceLockRequiredAction(r: Resources): String =
+        r.getString(R.string.mobile_deviceLock_required_action)
+
+    fun deviceLockRequiredBody(r: Resources): String =
+        r.getString(R.string.mobile_deviceLock_required_body)
+
+    fun deviceLockRequiredTitle(r: Resources): String =
+        r.getString(R.string.mobile_deviceLock_required_title)
+
+    fun editorEditLogin(r: Resources): String =
+        r.getString(R.string.mobile_editor_editLogin)
+
+    fun editorEditNote(r: Resources): String =
+        r.getString(R.string.mobile_editor_editNote)
+
+    fun editorFavorite(r: Resources): String =
+        r.getString(R.string.mobile_editor_favorite)
+
+    fun editorGenerate(r: Resources): String =
+        r.getString(R.string.mobile_editor_generate)
+
+    fun editorNewLogin(r: Resources): String =
+        r.getString(R.string.mobile_editor_newLogin)
+
+    fun editorNewNote(r: Resources): String =
+        r.getString(R.string.mobile_editor_newNote)
+
+    fun editorNotes(r: Resources): String =
+        r.getString(R.string.mobile_editor_notes)
+
+    fun editorOtpAdd(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpAdd)
+
+    fun editorOtpHave(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpHave)
+
+    fun editorOtpInput(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpInput)
+
+    fun editorOtpReady(r: Resources, name: String): String =
+        r.getString(R.string.mobile_editor_otpReady, name)
+
+    fun editorOtpRemove(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpRemove)
+
+    fun editorOtpRemoved(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpRemoved)
+
+    fun editorOtpTitle(r: Resources): String =
+        r.getString(R.string.mobile_editor_otpTitle)
+
+    fun editorPassword(r: Resources): String =
+        r.getString(R.string.mobile_editor_password)
+
+    fun editorPasswordKeep(r: Resources): String =
+        r.getString(R.string.mobile_editor_passwordKeep)
+
+    fun editorSaving(r: Resources): String =
+        r.getString(R.string.mobile_editor_saving)
+
+    fun editorTitle(r: Resources): String =
+        r.getString(R.string.mobile_editor_title)
+
+    fun editorUsername(r: Resources): String =
+        r.getString(R.string.mobile_editor_username)
+
+    fun editorWebsiteAdd(r: Resources): String =
+        r.getString(R.string.mobile_editor_websiteAdd)
+
+    fun editorWebsiteHint(r: Resources): String =
+        r.getString(R.string.mobile_editor_websiteHint)
+
+    fun editorWebsiteRemove(r: Resources, number: String): String =
+        r.getString(R.string.mobile_editor_websiteRemove, number)
+
+    fun editorWebsites(r: Resources): String =
+        r.getString(R.string.mobile_editor_websites)
+
+    fun generatorAmbiguous(r: Resources): String =
+        r.getString(R.string.mobile_generator_ambiguous)
+
+    fun generatorAppendDigit(r: Resources): String =
+        r.getString(R.string.mobile_generator_appendDigit)
+
+    fun generatorCapitalize(r: Resources): String =
+        r.getString(R.string.mobile_generator_capitalize)
+
+    fun generatorDigits(r: Resources): String =
+        r.getString(R.string.mobile_generator_digits)
+
+    fun generatorLength(r: Resources, length: String): String =
+        r.getString(R.string.mobile_generator_length, length)
+
+    fun generatorLowercase(r: Resources): String =
+        r.getString(R.string.mobile_generator_lowercase)
+
+    fun generatorPassphrase(r: Resources): String =
+        r.getString(R.string.mobile_generator_passphrase)
+
+    fun generatorPassword(r: Resources): String =
+        r.getString(R.string.mobile_generator_password)
+
+    fun generatorRun(r: Resources): String =
+        r.getString(R.string.mobile_generator_run)
+
+    fun generatorSeparator(r: Resources): String =
+        r.getString(R.string.mobile_generator_separator)
+
+    fun generatorStrength(r: Resources, bits: String): String =
+        r.getString(R.string.mobile_generator_strength, bits)
+
+    fun generatorSymbols(r: Resources): String =
+        r.getString(R.string.mobile_generator_symbols)
+
+    fun generatorTitle(r: Resources): String =
+        r.getString(R.string.mobile_generator_title)
+
+    fun generatorUppercase(r: Resources): String =
+        r.getString(R.string.mobile_generator_uppercase)
+
+    fun generatorUse(r: Resources): String =
+        r.getString(R.string.mobile_generator_use)
+
+    fun generatorWordCount(r: Resources, count: String): String =
+        r.getString(R.string.mobile_generator_wordCount, count)
+
     fun homeUnlockedAs(r: Resources, email: String): String =
         r.getString(R.string.mobile_home_unlockedAs, email)
+
+    fun licencesIntro(r: Resources): String =
+        r.getString(R.string.mobile_licences_intro)
+
+    fun licencesRust(r: Resources): String =
+        r.getString(R.string.mobile_licences_rust)
+
+    fun licencesTitle(r: Resources): String =
+        r.getString(R.string.mobile_licences_title)
+
+    fun linkApp(r: Resources): String =
+        r.getString(R.string.mobile_link_app)
+
+    fun linkCertificate(r: Resources): String =
+        r.getString(R.string.mobile_link_certificate)
+
+    fun linkChecking(r: Resources): String =
+        r.getString(R.string.mobile_link_checking)
+
+    fun linkChoose(r: Resources, login: String): String =
+        r.getString(R.string.mobile_link_choose, login)
+
+    fun linkConfirm(r: Resources, login: String): String =
+        r.getString(R.string.mobile_link_confirm, login)
+
+    fun linkDone(r: Resources, login: String): String =
+        r.getString(R.string.mobile_link_done, login)
+
+    fun linkFilter(r: Resources): String =
+        r.getString(R.string.mobile_link_filter)
+
+    fun linkInstaller(r: Resources): String =
+        r.getString(R.string.mobile_link_installer)
+
+    fun linkInstallerUnknown(r: Resources): String =
+        r.getString(R.string.mobile_link_installerUnknown)
+
+    fun linkNoApps(r: Resources): String =
+        r.getString(R.string.mobile_link_noApps)
+
+    fun linkNotVerified(r: Resources): String =
+        r.getString(R.string.mobile_link_notVerified)
+
+    fun linkPackage(r: Resources): String =
+        r.getString(R.string.mobile_link_package)
+
+    fun linkTitle(r: Resources): String =
+        r.getString(R.string.mobile_link_title)
+
+    fun linkUnavailable(r: Resources): String =
+        r.getString(R.string.mobile_link_unavailable)
+
+    fun linkVerified(r: Resources, host: String): String =
+        r.getString(R.string.mobile_link_verified, host)
+
+    fun linkWarning(r: Resources, host: String): String =
+        r.getString(R.string.mobile_link_warning, host)
+
+    fun linkWarningNoHost(r: Resources): String =
+        r.getString(R.string.mobile_link_warningNoHost)
 
     fun lockNow(r: Resources): String =
         r.getString(R.string.mobile_lock_now)
@@ -555,11 +804,68 @@ object L10n {
     fun onboardingWelcomeTitle(r: Resources): String =
         r.getString(R.string.mobile_onboarding_welcome_title)
 
+    fun searchHint(r: Resources): String =
+        r.getString(R.string.mobile_search_hint)
+
+    fun searchNone(r: Resources, query: String): String =
+        r.getString(R.string.mobile_search_none, query)
+
     fun searchPlaceholder(r: Resources): String =
         r.getString(R.string.mobile_search_placeholder)
 
     fun settingsAbout(r: Resources): String =
         r.getString(R.string.mobile_settings_about)
+
+    fun settingsAutoLock(r: Resources): String =
+        r.getString(R.string.mobile_settings_autoLock)
+
+    fun settingsAutoLockNow(r: Resources): String =
+        r.getString(R.string.mobile_settings_autoLock_now)
+
+    fun settingsAutoLockS30(r: Resources): String =
+        r.getString(R.string.mobile_settings_autoLock_s30)
+
+    fun settingsAutoLockS300(r: Resources): String =
+        r.getString(R.string.mobile_settings_autoLock_s300)
+
+    fun settingsAutoLockS60(r: Resources): String =
+        r.getString(R.string.mobile_settings_autoLock_s60)
+
+    fun settingsClipboard(r: Resources): String =
+        r.getString(R.string.mobile_settings_clipboard)
+
+    fun settingsClipboardOption(r: Resources, seconds: Int): String =
+        r.getQuantityString(R.plurals.mobile_settings_clipboardOption, seconds, seconds)
+
+    fun settingsIdle(r: Resources): String =
+        r.getString(R.string.mobile_settings_idle)
+
+    fun settingsIdleOption(r: Resources, minutes: Int): String =
+        r.getQuantityString(R.plurals.mobile_settings_idleOption, minutes, minutes)
+
+    fun settingsQuick(r: Resources): String =
+        r.getString(R.string.mobile_settings_quick)
+
+    fun settingsQuickDisable(r: Resources): String =
+        r.getString(R.string.mobile_settings_quickDisable)
+
+    fun settingsQuickEnable(r: Resources): String =
+        r.getString(R.string.mobile_settings_quickEnable)
+
+    fun settingsQuickOff(r: Resources): String =
+        r.getString(R.string.mobile_settings_quickOff)
+
+    fun settingsQuickOn(r: Resources): String =
+        r.getString(R.string.mobile_settings_quickOn)
+
+    fun settingsQuickPassword(r: Resources): String =
+        r.getString(R.string.mobile_settings_quickPassword)
+
+    fun settingsSecurity(r: Resources): String =
+        r.getString(R.string.mobile_settings_security)
+
+    fun settingsSync(r: Resources): String =
+        r.getString(R.string.mobile_settings_sync)
 
     fun settingsTitle(r: Resources): String =
         r.getString(R.string.mobile_settings_title)
@@ -572,6 +878,24 @@ object L10n {
 
     fun setupScanTitle(r: Resources): String =
         r.getString(R.string.mobile_setup_scanTitle)
+
+    fun syncLast(r: Resources, time: String): String =
+        r.getString(R.string.mobile_sync_last, time)
+
+    fun syncLocalOnly(r: Resources): String =
+        r.getString(R.string.mobile_sync_localOnly)
+
+    fun syncNever(r: Resources): String =
+        r.getString(R.string.mobile_sync_never)
+
+    fun syncNow(r: Resources): String =
+        r.getString(R.string.mobile_sync_now)
+
+    fun syncPending(r: Resources, count: Int): String =
+        r.getQuantityString(R.plurals.mobile_sync_pending, count, count)
+
+    fun syncWorking(r: Resources): String =
+        r.getString(R.string.mobile_sync_working)
 
     fun unlockAccount(r: Resources, email: String): String =
         r.getString(R.string.mobile_unlock_account, email)
@@ -618,6 +942,15 @@ object L10n {
     fun unlockWorking(r: Resources): String =
         r.getString(R.string.mobile_unlock_working)
 
+    fun vaultAdd(r: Resources): String =
+        r.getString(R.string.mobile_vault_add)
+
+    fun vaultAddLogin(r: Resources): String =
+        r.getString(R.string.mobile_vault_addLogin)
+
+    fun vaultAddNote(r: Resources): String =
+        r.getString(R.string.mobile_vault_addNote)
+
     fun vaultCount(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.mobile_vault_count, count, count)
 
@@ -627,6 +960,12 @@ object L10n {
     fun vaultEmptyTitle(r: Resources): String =
         r.getString(R.string.mobile_vault_emptyTitle)
 
+    fun vaultFavorite(r: Resources): String =
+        r.getString(R.string.mobile_vault_favorite)
+
     fun vaultTitle(r: Resources): String =
         r.getString(R.string.mobile_vault_title)
+
+    fun vaultUntitled(r: Resources): String =
+        r.getString(R.string.mobile_vault_untitled)
 }

@@ -26,11 +26,12 @@ class SecureStorageFailure : Exception()
  * names and the lifetimes; this class only puts, gets, deletes and tests for presence.
  *
  * One Keystore key (`mosaic-secure-store`): AES-256-GCM, no user authentication, device must be unlocked,
- * StrongBox when available. A phone without a secure lock screen has no "unlocked" state and the Keystore
- * refuses an unlocked-device key there ("User ECDH key missing"), so only then the key is created without that
- * flag (it adds nothing on such a phone); a phone with a lock screen never downgrades. Each value is the file `<directory>/<hex(SHA-256(name))>.bin`:
- * `0x01 || iv[12] || ct || tag[16]`, with the AAD of [aadFor]. A file with another version, a wrong length
- * or a failing tag is refused, never treated as absent. Writes are atomic.
+ * StrongBox when available. The key is created only on a phone with a secure lock screen and never without the
+ * unlocked-device flag (ADR-0090 amendment "device lock required"): without a lock screen a write fails with
+ * [SecureStorageFailure], and the screens show "set a screen lock first" before that happens. Each value is the
+ * file `<directory>/<hex(SHA-256(name))>.bin`: `0x01 || iv[12] || ct || tag[16]`, with the AAD of [aadFor]. A
+ * file with another version, a wrong length or a failing tag is refused, never treated as absent. Writes are
+ * atomic.
  */
 class AndroidSecureStorage(
     private val directory: File,
@@ -135,32 +136,30 @@ class AndroidSecureStorage(
         return key
     }
 
-    /** StrongBox first, then the TEE; the unlocked-device flag is dropped only without a secure lock screen. */
+    /** StrongBox first, then the TEE. Never without the unlocked-device flag, and never without a lock screen. */
     private fun generateKey(): SecretKey {
-        val unlockedOptions = if (deviceSecure()) listOf(true) else listOf(true, false)
+        if (!deviceSecure()) throw SecureStorageFailure()
         var last: Exception? = null
-        for (unlocked in unlockedOptions) {
-            for (strongBox in listOf(true, false)) {
-                try {
-                    return generate(strongBox, unlocked)
-                } catch (e: ProviderException) {
-                    last = e
-                } catch (e: GeneralSecurityException) {
-                    last = e
-                }
+        for (strongBox in listOf(true, false)) {
+            try {
+                return generate(strongBox)
+            } catch (e: ProviderException) {
+                last = e
+            } catch (e: GeneralSecurityException) {
+                last = e
             }
         }
         throw last ?: SecureStorageFailure()
     }
 
-    private fun generate(strongBox: Boolean, unlockedDeviceRequired: Boolean): SecretKey {
+    private fun generate(strongBox: Boolean): SecretKey {
         val spec =
             KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setKeySize(KEY_BITS)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setRandomizedEncryptionRequired(true)
-                .setUnlockedDeviceRequired(unlockedDeviceRequired)
+                .setUnlockedDeviceRequired(true)
                 .setIsStrongBoxBacked(strongBox)
                 .build()
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)

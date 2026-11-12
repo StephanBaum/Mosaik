@@ -10,6 +10,14 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- The link-app screen lists launchable apps (no QUERY_ALL_PACKAGES). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"

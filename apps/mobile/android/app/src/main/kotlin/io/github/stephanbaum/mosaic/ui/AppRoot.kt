@@ -16,7 +16,7 @@ import io.github.stephanbaum.mosaic.ui.components.BodyText
 import io.github.stephanbaum.mosaic.ui.components.PrimaryButton
 import io.github.stephanbaum.mosaic.ui.components.ScreenFrame
 import io.github.stephanbaum.mosaic.ui.components.TitleText
-import io.github.stephanbaum.mosaic.ui.home.HomeScreen
+import io.github.stephanbaum.mosaic.ui.vault.MainShell
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.onboarding.OnboardingFlow
 import io.github.stephanbaum.mosaic.ui.unlock.UnlockScreen
@@ -31,6 +31,7 @@ import kotlinx.coroutines.CancellationException
 fun AppRoot(app: MosaicApp) {
     val resources = LocalContext.current.resources
     val epoch by app.sessionEpoch.collectAsState()
+    val foreground by app.foreground.collectAsState()
     var state by remember { mutableStateOf<SessionState?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var inOnboarding by rememberSaveable { mutableStateOf(false) }
@@ -50,7 +51,11 @@ fun AppRoot(app: MosaicApp) {
 
     val failure = loadError
     val current = state
-    if (inOnboarding) {
+    // The secure storage needs a screen lock; the answer is read again whenever the app returns to the front.
+    val deviceSecure = remember(foreground, epoch) { app.isDeviceSecure() }
+    if (!deviceSecure && current !is SessionState.Unlocked) {
+        DeviceLockScreen()
+    } else if (inOnboarding) {
         OnboardingFlow(app = app, onFinished = { inOnboarding = false })
     } else if (failure != null) {
         MessageScreen(
@@ -64,7 +69,7 @@ fun AppRoot(app: MosaicApp) {
     } else if (current is SessionState.Locked) {
         UnlockScreen(app = app, state = current)
     } else if (current is SessionState.Unlocked) {
-        HomeScreen(email = current.email, onLock = { app.lockNow() })
+        MainShell(app = app, quickUnlockEnrolled = current.quickUnlockEnrolled)
     } else if (current is SessionState.NoAccount) {
         ScreenFrame { }
     } else {

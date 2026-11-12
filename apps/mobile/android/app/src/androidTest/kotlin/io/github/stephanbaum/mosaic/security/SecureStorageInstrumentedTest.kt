@@ -4,6 +4,7 @@ import android.app.KeyguardManager
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.stephanbaum.mosaic.DeviceLock
 import java.io.File
 import java.security.KeyStore
 import java.util.UUID
@@ -24,9 +25,11 @@ class SecureStorageInstrumentedTest {
     private val alias = "mosaic-secure-store-test-" + UUID.randomUUID()
     private lateinit var directory: File
     private lateinit var storage: AndroidSecureStorage
+    private var setPin = false
 
     @Before
     fun setUp() {
+        setPin = DeviceLock.ensure()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         directory = File(context.noBackupFilesDir, "secure-test-" + UUID.randomUUID())
         val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
@@ -39,6 +42,7 @@ class SecureStorageInstrumentedTest {
         val store = KeyStore.getInstance("AndroidKeyStore")
         store.load(null)
         if (store.containsAlias(alias)) store.deleteEntry(alias)
+        if (setPin) DeviceLock.release()
     }
 
     private fun assertRefused(name: String) {
@@ -97,5 +101,20 @@ class SecureStorageInstrumentedTest {
         assertFalse(storage.contains(name))
         assertNull(storage.get(name))
         storage.delete(name)
+    }
+
+    @Test
+    fun withoutLockScreenNoKeyIsCreated() {
+        val missing = "mosaic-secure-store-test-nolock-" + UUID.randomUUID()
+        val bare = AndroidSecureStorage(File(directory, "nolock"), deviceSecure = { false }, keyAlias = missing)
+        try {
+            bare.put("secret-key/00112233445566778899aabbccddeeff", ByteArray(16))
+            fail("a write without a secure lock screen must be refused")
+        } catch (e: SecureStorageFailure) {
+            // expected: the key is never created without the unlocked-device flag
+        }
+        val store = KeyStore.getInstance("AndroidKeyStore")
+        store.load(null)
+        assertFalse("no key may exist", store.containsAlias(missing))
     }
 }

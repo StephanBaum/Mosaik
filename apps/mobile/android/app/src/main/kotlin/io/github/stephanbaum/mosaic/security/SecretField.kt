@@ -6,6 +6,8 @@ import android.util.TypedValue
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
@@ -29,6 +31,33 @@ import io.github.stephanbaum.mosaic.ui.theme.MosaicType
  */
 class SecretFieldState {
     internal var editText: EditText? = null
+    private var pending: CharSequence? = null
+
+    internal fun attach(view: EditText) {
+        editText = view
+        val waiting = pending
+        if (waiting != null) {
+            view.setText(waiting)
+            pending = null
+        }
+    }
+
+    /** Sets the text (an existing note to edit); applied when the view exists. */
+    fun set(text: CharSequence) {
+        val view = editText
+        if (view != null) view.setText(text) else pending = text
+    }
+
+    /** Puts secret bytes (UTF-8) into the field without a `String`, then zeroes the temporary buffers. */
+    fun put(secret: ByteArray) {
+        val decoded = Charsets.UTF_8.decode(ByteBuffer.wrap(secret))
+        val chars = CharArray(decoded.remaining())
+        decoded.get(chars)
+        if (decoded.hasArray()) decoded.array().fill('\u0000')
+        val view = editText
+        if (view != null) view.setText(CharBuffer.wrap(chars))
+        chars.fill('\u0000')
+    }
 
     /** The number of typed characters. */
     val length: Int get() = editText?.text?.length ?: 0
@@ -72,6 +101,7 @@ fun SecretField(
     label: String,
     modifier: Modifier = Modifier,
     numeric: Boolean = false,
+    multiline: Boolean = false,
     enabled: Boolean = true,
     onSubmit: () -> Unit = {},
 ) {
@@ -94,15 +124,30 @@ fun SecretField(
         factory = { context ->
             EditText(context).apply {
                 inputType =
-                    if (numeric) {
+                    if (multiline) {
+                        InputType.TYPE_CLASS_TEXT or
+                            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                    } else if (numeric) {
                         InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
                     } else {
                         InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                     }
-                imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or EditorInfo.IME_ACTION_DONE
+                imeOptions =
+                    if (multiline) {
+                        EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                    } else {
+                        EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or EditorInfo.IME_ACTION_DONE
+                    }
                 importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
                 isSaveEnabled = false
-                setSingleLine(true)
+                if (multiline) {
+                    setSingleLine(false)
+                    minLines = 4
+                    gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                } else {
+                    setSingleLine(true)
+                }
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, MosaicType.md.size.value)
                 setPadding(padPx, padPx, padPx, padPx)
                 setOnEditorActionListener { _, actionId, _ ->
@@ -114,7 +159,7 @@ fun SecretField(
                     }
                 }
                 ScreenSecurity.markSensitive(this)
-                state.editText = this
+                state.attach(this)
             }
         },
         update = { view ->
