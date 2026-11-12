@@ -262,9 +262,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.6"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
+checksum = "261af4dc7a06ea8a527a8717d8cbba3417530d6ea14e1edb3de6b67806be474f"
 dependencies = [
  "cmov",
  "subtle",
@@ -801,11 +801,14 @@ dependencies = [
 name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
  "mosaic-insights",
  "mosaic-origin",
  "mosaic-totp",
  "rusqlite",
+ "serde",
+ "serde_json",
  "thiserror",
  "zeroize",
 ]
@@ -1189,9 +1192,9 @@ dependencies = [
 
 [[package]]
 name = "ssh-key"
-version = "0.7.0-rc.11"
+version = "0.7.0-rc.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9a32fae177b74a22aa9c5b01bf7e68b33545be32d9e381e248058d2adc15ce3"
+checksum = "0701b552e6bd8f13a6e07bde25307c32d7daad80a79b65832d110c0416e7b638"
 dependencies = [
  "bcrypt-pbkdf",
  "ctutils",
