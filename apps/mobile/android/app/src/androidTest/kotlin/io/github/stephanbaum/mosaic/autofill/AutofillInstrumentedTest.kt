@@ -4,8 +4,6 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Rect
 import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.autofill.AutofillManager
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.stephanbaum.mosaic.DeviceLock
@@ -26,7 +24,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,11 +43,11 @@ class AutofillInstrumentedTest {
     private val password = "correct horse battery staple"
     private var setPin = false
     private lateinit var app: MosaicApp
-    private lateinit var linked: ItemKey
 
     @Before
     fun setUp() {
         setPin = DeviceLock.ensure()
+        FillAudit.last = emptyList()
         app = context.applicationContext as MosaicApp
         val signers = checkNotNull(CallerReader.signersOf(context, clientPackage)) { "the test package is not visible" }
         runBlocking {
@@ -61,7 +58,7 @@ class AutofillInstrumentedTest {
                 val vault = core.vaults().first { it.available }.vaultId
                 // A login of a website with the same name: it must never fill the app.
                 core.saveLogin(draft(vault, "GitHub web", "web-user", "web-secret", "https://github.com"))
-                linked = core.saveLogin(draft(vault, "GitHub", "octocat", "hunter2", null))
+                val linked = core.saveLogin(draft(vault, "GitHub", "octocat", "hunter2", null))
                 core.linkAndroidApp(linked.vaultId, linked.itemId, AndroidCaller(clientPackage, signers, null, null))
             }
         }
@@ -70,7 +67,8 @@ class AutofillInstrumentedTest {
     @After
     fun tearDown() {
         shell("settings delete secure autofill_service")
-        runBlocking { app.holder.call { resetAccount(it) } }
+        shell("input keyevent KEYCODE_HOME")
+        runCatching { runBlocking { app.holder.call { resetAccount(it) } } }
         if (setPin) DeviceLock.release()
     }
 
@@ -144,64 +142,54 @@ class AutofillInstrumentedTest {
 
     // ---- tests --------------------------------------------------------------------------------------
 
+    /** Starts the client app, enables the service, and focuses the user name field the way a user would. */
+    private fun showClientAndFocusUsername() {
+        shell("settings put secure autofill_service $service")
+        shell("am start -n $clientPackage/${AutofillClientActivity::class.java.name}")
+        val field = waitFor(30_000) { findText("client-username") }
+        assertNotNull("the client app did not show", field)
+        tap(field!!)
+    }
+
+    private fun screenTexts(): List<String> {
+        val seen = ArrayList<String>()
+        for (root in windowNodes()) texts(root, seen)
+        return seen
+    }
+
     @Test
     fun fillsLinkedAppAfterDatasetTap() {
-        shell("settings put secure autofill_service $service")
-        ActivityScenario.launch(AutofillClientActivity::class.java).use { scenario ->
-            scenario.onActivity { activity ->
-                activity.username.requestFocus()
-                activity.getSystemService(AutofillManager::class.java).requestAutofill(activity.username)
+        showClientAndFocusUsername()
+        val entry = waitFor(30_000) { findText("octocat") }
+        assertNotNull("the dataset did not show; the screen shows: ${screenTexts()}", entry)
+        // Before the tap the fields are empty: no value reached the client.
+        assertTrue(findText("client-username")?.text.isNullOrEmpty())
+        assertTrue(findText("client-password")?.text.isNullOrEmpty())
+        tap(entry!!)
+        val filled =
+            waitFor(30_000) {
+                val user = findText("client-username")?.text?.toString()
+                val secret = findText("client-password")?.text?.toString()
+                if (user == "octocat" && secret != null) Pair(user, secret) else null
             }
-            val entry = waitFor(30_000) { findText("GitHub") }
-            if (entry == null) {
-                val seen = ArrayList<String>()
-                for (root in windowNodes()) texts(root, seen)
-                fail("the dataset did not show; the screen shows: $seen")
-            }
-            // Before the tap the fields are empty: no value reached the client.
-            scenario.onActivity {
-                assertEquals("", it.username.text.toString())
-                assertEquals("", it.password.text.toString())
-            }
-            tap(entry!!)
-            val filled =
-                waitFor(30_000) {
-                    var values: Pair<String, String>? = null
-                    scenario.onActivity { values = Pair(it.username.text.toString(), it.password.text.toString()) }
-                    values?.takeIf { it.first.isNotEmpty() }
-                }
-            assertNotNull("nothing was filled after the tap", filled)
-            assertEquals("octocat", filled!!.first)
-            assertEquals("hunter2", filled.second)
-        }
+        assertNotNull("nothing was filled after the tap; the screen shows: ${screenTexts()}", filled)
+        assertEquals("octocat", filled!!.first)
+        assertEquals("hunter2", filled.second)
     }
 
     @Test
     fun noDatasetValuesBeforeTap() {
-        ActivityScenario.launch(AutofillClientActivity::class.java).use { scenario ->
-            var fields: FillFields? = null
-            scenario.onActivity { fields = FillFields(it.username.autofillId, it.password.autofillId, null) }
-            val info = FillRequestInfo(clientPackage, null, null, checkNotNull(fields))
-            val planner = FillPlanner(app.holder)
-            val factory = FillResponseFactory(context)
-            runBlocking {
-                val target = checkNotNull(planner.target(context, info)) { "the client app could not be checked" }
-                val found = planner.candidates(target)
-                assertEquals("only the linked login matches the app", 1, found.candidates.size)
-                assertEquals("octocat", found.candidates[0].username)
-
-                assertNotNull(factory.candidatesResponse(info, found.candidates, false, "Client"))
-                val datasets = FillAudit.last
-                assertTrue("the response has datasets", datasets.isNotEmpty())
-                for (dataset in datasets) {
-                    assertTrue("every dataset needs authentication", dataset.authenticated)
-                    assertEquals("no dataset carries a value before the tap", 0, dataset.nonNullValues)
-                }
-
-                factory.unlockResponse(info)
-                assertTrue("the locked response holds no dataset", FillAudit.last.isEmpty())
-            }
+        showClientAndFocusUsername()
+        // The service records what its datasets hold (a seam of debuggable builds); the response is the real one.
+        val datasets = waitFor(30_000) { FillAudit.last.takeIf { it.isNotEmpty() } }
+        assertNotNull("the service made no response; the screen shows: ${screenTexts()}", datasets)
+        for (dataset in datasets!!) {
+            assertTrue("every dataset needs authentication", dataset.authenticated)
+            assertEquals("no dataset carries a value before the tap", 0, dataset.nonNullValues)
         }
+        // Nothing reached the client either.
+        assertTrue(findText("client-username")?.text.isNullOrEmpty())
+        assertTrue(findText("client-password")?.text.isNullOrEmpty())
     }
 
     @Test

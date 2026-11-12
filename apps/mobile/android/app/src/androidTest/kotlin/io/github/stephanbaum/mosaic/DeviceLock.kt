@@ -23,16 +23,27 @@ object DeviceLock {
         return (context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
     }
 
-    /** Sets a PIN when the device has no secure lock screen. True when this call set it (the caller clears it). */
+    /**
+     * Sets a PIN when the device has no secure lock screen. True when this call set it (the caller clears it). It
+     * returns only once the system reports the lock screen as secure: a test that runs right after another one must
+     * not see the state of the PIN that is just being removed.
+     */
     fun ensure(): Boolean {
         if (isSecure()) return false
         shell("locksettings set-pin $PIN")
         shell("wm dismiss-keyguard")
+        waitUntil(true)
         return true
     }
 
-    /** Clears the PIN that [ensure] set. */
+    /** Clears the PIN that [ensure] set, and returns once the system reports no secure lock screen. */
     fun release() {
         shell("locksettings clear --old $PIN")
+        waitUntil(false)
+    }
+
+    private fun waitUntil(secure: Boolean) {
+        val end = System.currentTimeMillis() + 10_000
+        while (isSecure() != secure && System.currentTimeMillis() < end) Thread.sleep(100)
     }
 }

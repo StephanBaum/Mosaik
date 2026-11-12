@@ -5,7 +5,8 @@
              app, which reads its signers through PackageManager (ADR-0092, package visibility). -->
         <activity
             android:name="io.github.stephanbaum.mosaic.autofill.AutofillClientActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
