@@ -26,10 +26,10 @@ final class L10nTests: XCTestCase {
         for language in ["en", "de"] {
             let folder = try XCTUnwrap(Bundle.main.path(forResource: language, ofType: "lproj"))
             let bundle = try XCTUnwrap(Bundle(path: folder))
-            let plist = try XCTUnwrap(bundle.path(forResource: "InfoPlist", ofType: "strings"))
-            let strings = try XCTUnwrap(NSDictionary(contentsOfFile: plist) as? [String: String])
+            // Xcode compiles the table, so ask the bundle instead of opening the file.
+            let faceId = bundle.localizedString(forKey: "NSFaceIDUsageDescription", value: "missing", table: "InfoPlist")
             let catalog = bundle.localizedString(forKey: "mobile.unlock.faceIdReason", value: nil, table: nil)
-            XCTAssertEqual(strings["NSFaceIDUsageDescription"], catalog, language)
+            XCTAssertEqual(faceId, catalog, language)
         }
     }
 }
