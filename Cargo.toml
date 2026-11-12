@@ -159,7 +159,7 @@ sha2_0_10 = { package = "sha2", version = "=0.10.9", default-features = false }
 # with mosaic-sync::wire::json, which rejects unknown keys).
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "matched-path", "query"] }
 # Request body limit and timeout layers; already in the tree through Tauri.
-tower-http = { version = "=0.6.11", default-features = false, features = ["limit", "timeout", "catch-panic"] }
+tower-http = { version = "=0.7.1", default-features = false, features = ["limit", "timeout", "catch-panic"] }
 # `ServiceExt::oneshot` for the in-process API tests.
 tower = { version = "=0.5.3", default-features = false, features = ["util", "limit"] }
 # HTTP client of the sync transport (ADR-0046): blocking, rustls without a bundled
