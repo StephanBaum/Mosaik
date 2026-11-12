@@ -179,9 +179,9 @@ fn hosted_rekey_three_devices_offline_peer_edits_survive() {
         assert!(
             matches!(
                 w.try_sync(d),
-                Err(SyncError::Transport(
-                    mosaic_sync::TransportError::Unauthorized
-                ))
+                Err(SyncError::Transport(mosaic_sync::TransportError::Revoked(
+                    mosaic_sync::transport::RevokedReason::Rekey
+                )))
             ),
             "device {d} is signed out"
         );

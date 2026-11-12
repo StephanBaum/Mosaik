@@ -139,7 +139,8 @@ pub async fn finish(State(st): State<AppState>, body: Bytes) -> Result<Reply, Ap
             return Err(login_failed());
         }
         devices::upsert_on_login(tx, &account_id, &device, &req.device_name, now)?;
-        let pending = account.totp_sealed.is_some();
+        let pending =
+            account.totp_sealed.is_some() || crate::db::webauthn::count(tx, &account_id)? > 0;
         // A pending session ends after five minutes.
         let expires_at = if pending {
             now.saturating_add(PENDING_MS)
@@ -168,6 +169,8 @@ pub async fn finish(State(st): State<AppState>, body: Bytes) -> Result<Reply, Ap
         sessions::evict_over_cap(tx, &account_id, &hash, MAX_SESSIONS_PER_ACCOUNT)?;
         Ok((pending, expires_at))
     })?;
+    // The device's older session is gone, so are its browser handoffs.
+    st.handoffs.drop_device(&account_id, &device);
     Reply::ok(&LoginResponse {
         status: if pending {
             LoginStatus::TwoFactorRequired
@@ -200,7 +203,7 @@ pub async fn totp(
     };
     if let Err(retry) = st
         .db
-        .run(|c| accounts::claim_totp_slot(c, &session.account_id, now))?
+        .run(|c| accounts::claim_second_factor_slot(c, &session.account_id, now))?
     {
         return Err(ApiError::rate_limited(retry));
     }
@@ -229,7 +232,10 @@ pub async fn totp(
             return Err(two_factor_invalid());
         }
         let expires_at = now.saturating_add(idle);
-        sessions::complete_2fa(tx, &session.token_hash, expires_at)?;
+        if !sessions::complete_2fa(tx, &session.token_hash, expires_at)? {
+            // The session ended meanwhile: no login, no audit row.
+            return Err(two_factor_invalid());
+        }
         accounts::refund_totp_slot(tx, &session.account_id)?;
         audit::record(
             tx,
@@ -251,5 +257,6 @@ pub async fn logout(
     AnySession(session): AnySession,
 ) -> Result<Reply, ApiError> {
     st.db.run(|c| sessions::delete(c, &session.token_hash))?;
+    st.handoffs.drop_session(&session.token_hash);
     Reply::ok(&Empty {})
 }

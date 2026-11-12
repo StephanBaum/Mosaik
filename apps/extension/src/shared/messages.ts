@@ -131,6 +131,8 @@ export type PopupRequest =
   | { op: "savePending"; action: SaveAction }
   | { op: "saveOffersChanged"; enabled: boolean }
   | { op: "setPasskeys"; enabled: boolean }
+  | { op: "neverSaveList" }
+  | { op: "neverSaveRemove"; origin: string }
   | { op: "rotationBegin"; vaultId: string; itemId: string }
   | { op: "rotationOpenPage"; vaultId: string; itemId: string; attemptId: string }
   | { op: "fillChange"; vaultId: string; itemId: string; attemptId: string; confirmFrame: FrameRef | null }
@@ -152,6 +154,8 @@ export interface PopupResults {
   savePending: { outcome: "saved" | "updated" | "cancelled" | "dismissed" | "never" };
   saveOffersChanged: { saveOffers: boolean };
   setPasskeys: { passkeys: boolean };
+  neverSaveList: { origins: string[] };
+  neverSaveRemove: { origins: string[] };
   rotationBegin: { outcome: "started" | "cancelled" };
   rotationOpenPage: Record<string, never>;
   fillChange: FillSummary;
@@ -202,6 +206,8 @@ const popupRequest: Guard<PopupRequest> = tagged<PopupRequest>("op", {
   savePending: obj({ op: exactly("savePending" as const), action: lit("save", "dismiss", "never") }),
   saveOffersChanged: obj({ op: exactly("saveOffersChanged" as const), enabled: bool }),
   setPasskeys: obj({ op: exactly("setPasskeys" as const), enabled: bool }),
+  neverSaveList: obj({ op: exactly("neverSaveList" as const) }),
+  neverSaveRemove: obj({ op: exactly("neverSaveRemove" as const), origin: str(2048) }),
   rotationBegin: obj({ op: exactly("rotationBegin" as const), vaultId: id, itemId: id }),
   rotationOpenPage: obj({ op: exactly("rotationOpenPage" as const), vaultId: id, itemId: id, attemptId }),
   fillChange: obj({ op: exactly("fillChange" as const), vaultId: id, itemId: id, attemptId, confirmFrame }),

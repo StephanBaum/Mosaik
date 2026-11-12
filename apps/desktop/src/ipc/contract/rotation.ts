@@ -121,6 +121,15 @@ export interface RekeyCommitRequest {
   code: string | null;
 }
 
+/** `vault_rotate_key` (M7-R2). */
+export interface VaultRotateKeyRequest {
+  vaultId: VaultId;
+  /** Also protect the vault's attachments again under new keys. */
+  resealAttachments: boolean;
+  /** The proof `reauthenticate` left, or the password itself; `null` uses the proof (`reauthRequired` without one). */
+  proof: string | null;
+}
+
 export interface RotationResumeRequest {
   /** The password the account has after the job; `null` if `needs` is `none`. */
   password: string | null;

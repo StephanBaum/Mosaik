@@ -7,6 +7,7 @@
 //! mosaic-server invite create --config <p>
 //! mosaic-server backup       --config <p> --out <file> [--blobs]
 //! mosaic-server account delete --config <p> --email <e>
+//! mosaic-server account reset-second-factor --config <p> --email <e>
 //! ```
 //!
 //! [`run`] writes its output to the given writer; `main` owns stdout and the
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use mosaic_sync::wire::email;
 
-use crate::db::{accounts, invites};
+use crate::db::{accounts, audit, invites, sessions, webauthn};
 use crate::{
     Clock, Config, ConfigError, DB_FILE, Db, DbError, SecretFileError, ServerKeys, StartError,
     SystemClock, blobs,
@@ -62,7 +63,7 @@ pub enum CliError {
     Failed,
 }
 
-const USAGE: &str = "usage: mosaic-server <init|serve|check-config|invite create|backup|account delete> --config <file> [options]";
+const USAGE: &str = "usage: mosaic-server <init|serve|check-config|invite create|backup|account delete|account reset-second-factor> --config <file> [options]";
 
 struct Args {
     config: PathBuf,
@@ -126,6 +127,11 @@ pub fn run(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
             out,
         ),
         "account delete" => account_delete(
+            &config,
+            flags.email.as_deref().ok_or(CliError::Usage(USAGE))?,
+            out,
+        ),
+        "account reset-second-factor" => reset_second_factor(
             &config,
             flags.email.as_deref().ok_or(CliError::Usage(USAGE))?,
             out,
@@ -259,5 +265,33 @@ fn account_delete(config: &Config, address: &str, out: &mut dyn Write) -> Result
         blob_store.remove(&id)?;
     }
     writeln!(out, "account deleted")?;
+    Ok(())
+}
+
+/// Removes the TOTP secret and every security key of an account, ends all its
+/// sessions (recorded as revoked by the operator) and audits
+/// `SecondFactorReset` (CRYPTO_SPEC §9.3, THREAT_MODEL R115).
+fn reset_second_factor(
+    config: &Config,
+    address: &str,
+    out: &mut dyn Write,
+) -> Result<(), CliError> {
+    let normalized = email::normalize(address).map_err(|_| CliError::BadEmail)?;
+    let db = open_db(config)?;
+    let now = SystemClock.now_ms();
+    db.run_tx(|tx| {
+        let Some(a) = accounts::by_email(tx, &normalized)? else {
+            return Ok(false);
+        };
+        accounts::clear_totp(tx, &a.account_id)?;
+        webauthn::delete_all(tx, &a.account_id)?;
+        sessions::delete_all_for_operator(tx, &a.account_id, now)?;
+        audit::record(tx, &a.account_id, now, audit::Kind::SecondFactorReset, None)?;
+        Ok(true)
+    })
+    .map_err(|_| CliError::Failed)?
+    .then_some(())
+    .ok_or(CliError::NoSuchAccount)?;
+    writeln!(out, "second factor reset")?;
     Ok(())
 }

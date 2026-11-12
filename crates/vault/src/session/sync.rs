@@ -4,7 +4,7 @@
 
 use core::cmp::Ordering;
 
-use mosaic_core::model::{Causality, VaultMeta};
+use mosaic_core::model::{Causality, DroppedMeta, VaultMeta};
 use mosaic_core::{ItemId, KeyGeneration, VaultId, VaultKey, VaultMetaCiphertext, WrappedKey};
 
 use super::{
@@ -82,6 +82,16 @@ pub enum ApplyOutcome {
         /// How many conflict copies the split has (some may have been
         /// stored earlier, by this device or as received from another).
         conflict_copies: usize,
+    },
+    /// A vault-metadata merge did not fit the metadata size limit (CRYPTO_SPEC
+    /// §7.1, ADR-0085): the stored record is the reduced merge every device
+    /// computes ([`mosaic_core::model::VaultMeta::reduce_oversized`]), queued
+    /// for upload. Tell the user which fields lost a value (names only).
+    MetaValueDropped {
+        /// The vault.
+        vault: VaultId,
+        /// The fields that lost a value.
+        fields: DroppedMeta,
     },
 }
 
@@ -695,6 +705,15 @@ impl UnlockedSession {
                     ApplyOutcome::Merged {
                         restored_fields: 0,
                         stamp_collision,
+                    }
+                };
+                let (m, dropped) = m.reduce_oversized()?;
+                let outcome = if dropped.is_empty() {
+                    outcome
+                } else {
+                    ApplyOutcome::MetaValueDropped {
+                        vault: vault_id,
+                        fields: dropped,
                     }
                 };
                 (Some(m), outcome)

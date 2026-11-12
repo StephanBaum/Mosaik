@@ -27,6 +27,12 @@ Only what CRYPTO_SPEC §12 lists:
   MAC the clients check; CRYPTO_SPEC §12 is the source of this list);
 - the TOTP secret of a second factor, sealed under a key derived from the
   secret file;
+- for security keys (M9, see "Two-step verification with a security key"
+  below): a random 16-byte user handle per account and, per registered key,
+  its credential ID, public key, label, sign count and times. A running
+  browser handoff is held in memory only;
+- for revoked sessions (M9): the token hash, the account, the reason and the
+  time, for 30 days;
 - for sharing and emergency access (M6b, see "Sharing and emergency access"
   below): each account public identity key and its wrapped private key, the
   encrypted contact book, roles and members of shared vaults, the encrypted
@@ -72,6 +78,7 @@ refuses to run if the secret file or the database already exists.
 | `secret_file` | The secret file (created by `init`, mode 0600 on Unix). |
 | `registration` | `invite` (default for new installs: a code from `invite create` is needed), `open` or `closed`. Open registration lets anyone learn whether an email is registered (R58). |
 | `trusted_proxies` | IP addresses of reverse proxies whose `X-Forwarded-For` header is believed. Default: `127.0.0.1` and `::1`. |
+| `[webauthn] enabled` | Security keys as a second factor (default `true`). The relying-party ID is the host of `canonical_origin`; an origin whose host is an IP address never offers security keys. `false` hides the feature: `GET /v1/info?features=1` says `webauthn: false` and the WebAuthn routes answer `webauthn_unavailable`; registered keys stay stored and still count as a second factor, so an account whose only second factor is a security key cannot finish a sign-in until the setting is back on or you run `account reset-second-factor` for it. |
 | `[limits] max_request_bytes` | Largest JSON body, 2 MiB to 64 MiB (default 8 MiB). Attachments have their own limit (the 50 MiB plaintext maximum plus the envelope). |
 | `[limits] account_attachment_bytes` | Attachment bytes per account, soft-deleted ones included (default 1 GiB). |
 | `[limits] account_record_count` / `account_record_bytes` | Records and record ciphertext per account (default 50 000 and 256 MiB). |
@@ -80,7 +87,7 @@ refuses to run if the secret file or the database already exists.
 | `[limits] max_key_generations` | Key generations per vault (default 10 000). |
 | `[limits] soft_delete_days` | A deleted attachment is kept this long, so a device can restore it (default 30). |
 
-Fixed limits: 32 devices, 64 sessions and 1 000 vaults per account, 32 waiting polls per account, and ten wrong TOTP codes per account per hour. On Unix the server creates the data directory with mode 0700 and the database, WAL and secret files with 0600, and refuses to start if the secret file is readable by group or others.
+Fixed limits: 32 devices, 64 sessions and 1 000 vaults per account, 32 waiting polls per account, ten second-factor failures per account per hour (wrong TOTP codes, wrong handoff codes and failed security-key checks together), 10 security keys per account, 3 running handoffs per account and 10 000 per server. On Unix the server creates the data directory with mode 0700 and the database, WAL and secret files with 0600, and refuses to start if the secret file is readable by group or others.
 
 ## Command line
 
@@ -91,12 +98,24 @@ mosaic-server check-config  --config <file>
 mosaic-server invite create --config <file>
 mosaic-server backup        --config <file> --out <file> [--blobs]
 mosaic-server account delete --config <file> --email <address>
+mosaic-server account reset-second-factor --config <file> --email <address>
 ```
 
 - `invite create` prints a 20-character code once and stores only its hash.
   A code works for one registration.
 - `account delete` removes the account, its vaults, records and attachment
   files. Sessions end at once.
+- `account reset-second-factor` removes the account's TOTP secret and every
+  security key, ends every session (recorded as revoked by the operator) and
+  writes the audit event `SecondFactorReset`. Use it only after you have
+  confirmed who is asking, outside Mosaic: it is the only way back for a user
+  who lost every second factor, and anyone who talks you into it gets the
+  same (THREAT_MODEL R115). The password and the Secret Key are still needed
+  to sign in.
+  The command runs in its own process, so a running server may still hold a
+  browser handoff of the account in memory. It cannot be finished: the finish
+  checks, in the same transaction, that the session which started it still
+  exists, and the reset deleted every session. No restart is needed.
 - `check-config` validates the file and says whether the directory is
   initialised.
 
@@ -132,6 +151,16 @@ sync.example.com {
 
 nginx needs `client_max_body_size 64m;`, `proxy_read_timeout 60s;` (the long
 poll waits up to 25 s) and `proxy_buffering off;` for large downloads.
+
+**The security-key page.** The server serves one static page, `GET /webauthn/`
+with `page.js`, `page.css` and `strings.json`, under the canonical origin. The
+proxy must pass these paths unchanged and must not replace or weaken the
+response headers the server sets (a strict `Content-Security-Policy` with
+`frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `Cache-Control:
+no-store`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy`,
+`Permissions-Policy`), must not cache them, and must not inject scripts
+(analytics, error pages). The page has to be reachable at exactly the canonical
+origin: a browser asserts only for the host it is on.
 
 ## systemd
 
@@ -195,11 +224,21 @@ The database carries its schema version and migrates itself when a newer
 server opens it. A server refuses a database written by a newer version. Back
 up before upgrading.
 
+Schema version 4 (M9) adds the security-key tables, the per-session
+`second_factor_until`, `revoked_sessions` and the audit kinds 17 to 20. The
+migration runs on start and changes no existing row. After it, an M8 server
+cannot open the database: restore the backup to go back.
+
+Changing `canonical_origin` invalidates every registered security key as well
+as every login record (the relying-party ID is its host). Affected users need
+`account reset-second-factor` and a new registration.
+
 ## Operating notes
 
 - Accounts and sessions: a user can remove a device and delete the account
-  from the app; both need a fresh login (within five minutes) and a TOTP code
-  when two-step verification is on.
+  from the app; both need a fresh login (within five minutes) and, when
+  two-step verification is on, a TOTP code or a security-key confirmation in
+  the browser from the same session within the last five minutes.
 - The second factor guards access to the server account. It adds nothing to
   vault confidentiality (the master password and the Secret Key do that).
 - A stolen session token lets a thief download and upload ciphertext and
@@ -382,3 +421,75 @@ What you see as the operator: the audit kinds 15 and 16, the epoch, the
 rotation requests (vault, requester, time), invite state 5. What you do not
 see: any key, any password, any seal content. The sharing graph is as visible as
 before.
+
+## Two-step verification with a security key
+
+Schema version 4 (M9) adds WebAuthn security keys (and passkeys) as a second
+factor next to TOTP (CRYPTO_SPEC §9.3, ADR-0077, ADR-0078). The desktop app
+cannot talk to a security key for your server's address itself, so the
+ceremony runs in the user's normal browser, on a page this server serves:
+
+1. The app asks the server for a **handoff** and shows a 6-digit code.
+2. The app opens `https://<canonical origin>/webauthn/#<handoff id>` in the
+   default browser.
+3. The user types the code on that page; only then does the page get the
+   WebAuthn request. The user touches the key.
+4. The page posts the result to the server; the app, which polls, continues.
+
+Handoffs live in memory only and expire after five minutes at the latest; a
+restart ends every running one (the user starts again). The relying-party
+library is `passkey-auth` (ES256 and EdDSA only, no attestation check). The
+server accepts security keys and platform authenticators alike
+(`authenticatorAttachment` is not limited), and accepts an assertion without a
+user handle; a user handle that is present must belong to the account.
+
+If the database holds security keys but `[webauthn]` is off (or the canonical
+origin is an IP address), the server logs a warning at startup. Those accounts
+cannot finish a login until you turn it back on or reset their second factor.
+
+If the operating system's random number source fails, the WebAuthn library
+panics. A debug build answers that request with a bare `500`; a release build
+stops, and `Restart=on-failure` brings it back (running handoffs are lost).
+
+| Route | Auth | Rules |
+|---|---|---|
+| `GET /v1/info?features=1` | none | Adds `features: {webauthn}`. |
+| `GET /v1/login/methods` | a pending login | `{totp, webauthn}`: what the account can use. |
+| `POST /v1/login/webauthn/handoff` | a pending login | Starts a login handoff: `{handoffId, matchCode, expiresAt}`. |
+| `POST /v1/login/webauthn/handoff/state` | the same pending login | Body `{handoffId}`. Answers `{state}` (`waiting`, `done`, `failed`, `expired`). On `done` the login is complete, as after `POST /v1/login/totp`. |
+| `POST /v1/account/webauthn/handoff` | a session with a fresh login | Body `{purpose: "register" \| "confirm", label?}`. `register` adds a key (label 1 to 64 characters, at most 10 keys); `confirm` proves a second factor for the next five minutes. |
+| `POST /v1/account/webauthn/handoff/state` | the same session | Body `{handoffId}`. Answers `{state}`. |
+| `GET /v1/account/webauthn` | a session | `[{credentialRef, label, createdAt, lastUsedAt}]`; `credentialRef` is the first 16 bytes of SHA-256 of the credential ID. |
+| `POST /v1/account/webauthn/remove` | a session with a fresh login, plus a TOTP `code` or a `confirm` from the last five minutes | Removes one key; audit event `WebauthnRemoved`. Removing the last factor turns two-step verification off. |
+| `GET /webauthn/`, `page.js`, `page.css`, `strings.json` | none | The static page, with the headers listed under "Reverse proxy". |
+| `POST /v1/webauthn/handoff/options` | the handoff ID and the typed code | Body `{handoffId, code}`. Five wrong codes end the handoff. Answers `{purpose, deviceName, requestedAt, publicKey}`. |
+| `POST /v1/webauthn/handoff/finish` | the handoff ID | Body `{handoffId, credential}` (the browser's credential JSON), at most 16 KiB. Answers `{ok: true}`, `twoFactorInvalid`, `handoffExpired` or `rateLimited`. |
+
+No route has the handoff ID in its path: it travels only in the URL fragment
+(which the browser keeps to itself) and in request bodies, so your access and
+proxy logs never record it. Every request body refuses unknown keys. The two unauthenticated handoff routes
+are limited per client IP address (10 a minute, burst 20); wrong codes and
+failed checks also count against the account's hourly second-factor budget.
+Removing TOTP, removing a key, removing a device and deleting the account accept
+either a TOTP code or a recent `confirm`, so an account with only security keys
+can still do them.
+
+Audit events: 17 security key added, 18 removed, 19 second factor reset by the
+operator, 20 a key's signature counter went backwards (the sign-in is refused;
+it can mean a cloned key).
+
+What you see as the operator: credential IDs, public keys, labels, counters and
+times. What you do not see: anything that helps decrypt a vault. A security key
+protects access to the server account; vault data stays protected by the
+master password and the Secret Key.
+
+## Revoked sessions
+
+When the server ends sessions for a reason, it remembers the token hashes for
+30 days in `revoked_sessions` with the reason: `rekey` (a re-key from another
+device), `passwordChange`, `deviceRemoved` or `operator`
+(`account reset-second-factor`). A device that later uses such a token gets the
+usual `401 unauthorized`, with `detail: {revoked: "<reason>"}`, and shows a
+matching message (for a re-key: sign in with the new Secret Key from the newest
+Emergency Kit). Logout and expiry are not recorded. The hourly housekeeping
+drops older rows (CRYPTO_SPEC §9.5, ADR-0080).

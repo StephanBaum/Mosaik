@@ -5,6 +5,7 @@
  * for the master password (`mosaic`). The 1 s Allow guard is enforced here too, like in Rust.
  */
 import type {
+  BrowserConnectorFinding,
   BrowserPairing,
   BrowserPairingRequest,
   BrowserPasskeyRequest,
@@ -52,6 +53,8 @@ export interface MockBrowser {
   rotationShownAt: number;
   /** The open passkey request needs the master password now (the window ran out). */
   passkeyUvExpired: boolean;
+  /** Native-messaging entries that do not point to the installed host (`&connector=foreign`, M9). */
+  connectorFindings: BrowserConnectorFinding[];
 }
 
 export function defaultBrowser(now: () => number): MockBrowser {
@@ -79,6 +82,7 @@ export function defaultBrowser(now: () => number): MockBrowser {
     rotationGenerated: 0,
     rotationShownAt: 0,
     passkeyUvExpired: false,
+    connectorFindings: [],
   };
 }
 
@@ -228,6 +232,14 @@ export function startBrowser(state: MockState): void {
 
 export const browserHandlers: MockHandlers = {
   browser_status: (state) => statusOf(state),
+
+  browser_connector_audit: (state) => ({ findings: state.browser.connectorFindings }),
+
+  browser_connector_repair: (state) => {
+    requireUnlocked(state);
+    state.browser.connectorFindings = [];
+    return { findings: [] };
+  },
 
   browser_remove_pairing: (state, request) => {
     const browser = state.browser;

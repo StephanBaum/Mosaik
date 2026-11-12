@@ -75,6 +75,22 @@ impl Default for Limits {
     }
 }
 
+/// The `[webauthn]` table (CRYPTO_SPEC §9.3).
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct WebauthnConfig {
+    /// Offer security keys as a second factor (default `true`). The
+    /// relying-party ID is the host of `canonical_origin`; an origin whose
+    /// host is an IP address never offers them.
+    pub enabled: bool,
+}
+
+impl Default for WebauthnConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// The server configuration.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +112,9 @@ pub struct Config {
     /// Limits and quotas.
     #[serde(default)]
     pub limits: Limits,
+    /// Security keys as a second factor.
+    #[serde(default)]
+    pub webauthn: WebauthnConfig,
 }
 
 fn default_proxies() -> Vec<IpAddr> {

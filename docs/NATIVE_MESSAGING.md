@@ -93,6 +93,8 @@ name on Windows) is found.
 |---|---|
 | `mosaic-native-host install [--browsers chrome,edge,chromium,firefox]` | writes the host manifests (§7); all four by default |
 | `mosaic-native-host uninstall` | removes everything `install` wrote |
+| `mosaic-native-host manifest --system --os <windows\|macos\|linux> --out <dir>` | (M9, build time) writes the system manifests the installers ship, from the same source as `install` (§7.2) |
+| `mosaic-native-host check` | (M9) prints the per-user manifests and registry keys that point at another host than the installed one (`audit_manifests`, §7.3); exit 0 when there is none, 1 otherwise |
 | anything else | the relay below |
 
 **Caller check.** The browser tells the host who started it. The host takes its full
@@ -448,7 +450,9 @@ passkey request is answered `cancelled`. One passkey prompt is open at a time (a
 Activity: only `fill`, `fillChange`, `fillPending`, `copy` and a **completed** passkey create or sign-in count as user activity
 for the auto-lock; requests that only open a dialog, are cancelled or fail do not.
 
-## 7. Packaging (developer builds)
+## 7. Packaging
+
+### 7.1 Developer builds
 
 `mosaic-native-host install` writes host manifests with `path` set to the running
 executable:
@@ -468,8 +472,43 @@ The registry is written with `%SystemRoot%\System32\reg.exe add ... /ve /t REG_S
 (an absolute path from `SystemRoot`, `C:\Windows` if unset; no unsafe code and no extra crate).
 `uninstall` removes every file `install` can write, for every browser, and a registry key only
 if its default value (`reg query ... /ve`) is the manifest path this binary would write; any
-other value is left in place and reported (`kept HKCU\...`). The M9 installer takes over (sidecar `externalBin`, store IDs only, signing).
+other value is left in place and reported (`kept HKCU\...`). Release installs use §7.2 instead.
 Flatpak and Snap browsers cannot run native hosts; that is documented as unsupported.
+
+### 7.2 Release installs (M9, ADR-0082, ADR-0083)
+
+The installers own the host and its manifests, so a same-user process cannot replace the host binary, and the
+manifests they write need administrator rights to change. The host ships as a Tauri sidecar (`externalBin`); the
+manifests are generated at build time by `mosaic-native-host manifest --system --os <windows|linux> --out <dir> [--host <path>]`
+(default host: the package location below; macOS is refused, it has no system location) from the same code as `install`
+(`system_manifest_generation_matches_install_rules`). Release manifests list store extension IDs only; until the
+owner registers them (`STORE_CHROMIUM_EXTENSION_IDS` is empty) a release host accepts no Chromium extension.
+
+| OS | Host binary | Manifests |
+|---|---|---|
+| Windows (per-machine MSI) | `%ProgramFiles%\Mosaic\mosaic-native-host.exe` | JSON in `%ProgramFiles%\Mosaic\native-messaging\`; the WiX fragment `wix/native-messaging.wxs` writes the default value of `HKLM\Software\{Google\Chrome,Microsoft\Edge,Chromium,Mozilla}\NativeMessagingHosts\<HOST_NAME>` |
+| macOS (signed app) | `/Applications/Mosaic.app/Contents/MacOS/mosaic-native-host` | per-user (no system location serves every browser): the desktop rewrites them at start to point into its bundle |
+| Linux (deb, rpm) | `/usr/lib/mosaic/mosaic-native-host` | `/etc/opt/chrome/native-messaging-hosts/`, `/etc/opt/edge/native-messaging-hosts/`, `/etc/chromium/native-messaging-hosts/`, `/usr/lib/mozilla/native-messaging-hosts/` |
+
+The Linux packages get the tree below `<dir>` (`etc/opt/chrome/native-messaging-hosts/...`) through
+`bundle.linux.{deb,rpm}.files` of `tauri.release.conf.json` and `/usr/bin/mosaic` through `externalBin`. The MSI gets
+`chromium.json` and `firefox.json` from the directory named by the environment variable `MOSAIC_NM_MANIFEST_DIR`, which
+the WiX fragment reads when the MSI is built. The release job must run the generator (once per OS, for `--os linux` and `--os windows`) into
+`apps/desktop/src-tauri/binaries/native-messaging/{linux,windows}` before `tauri build`. The fragment does not touch the system `PATH`
+(ADR-0082, M9-F74: the install folder cannot be pinned, so a folder the user picked must not be on the `PATH` of every user). The manifests name the default
+folder; the desktop's connector audit reports an HKLM entry whose host is not the installed one (M9-F3). Uninstalling the package removes the host, the manifests and the HKLM keys.
+
+### 7.3 Override audit
+
+Browsers also read per-user locations (Chrome and Edge read HKCU before HKLM on Windows), so a same-user process can
+still point a browser at another host. `mosaic_native_messaging::install::audit_manifests(expected_host: &Path) ->
+Vec<ManifestFinding>` reads every per-user location of §7.1 (files, and on Windows `reg.exe query` by absolute path)
+and reports each manifest or key whose `path` is not `expected_host`. The desktop runs it at start and when Settings
+→ Browser opens, and shows the banner `browserConnectorForeign` with a Repair button that rewrites them to the
+installed host; `mosaic-native-host check` prints the same findings (exit 0 when there are none, 1 otherwise). A
+manifest that exists but cannot be read, or has no `path`, is reported as `(unreadable manifest)`. Repair rewrites
+only the browsers with a finding; `mosaic-native-host install` does the same for all browsers. Mosaic detects and repairs; it cannot stop a
+same-user process from writing them again (THREAT_MODEL R121).
 
 ## 8. Fixtures and tests
 

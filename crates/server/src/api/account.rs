@@ -10,8 +10,8 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::{AccountId, Argon2Profile, SecretString, WrappedKey};
 use mosaic_sync::wire::json::{
     AccountResponse, AccountVersionDetail, B64, B64Fixed, CodeRequest, DeleteAccountRequest, Empty,
-    PasswordFinishRequest, PasswordFinishResponse, PasswordStartRequest, RegistrationStartResponse,
-    SecretText, TotpSetupResponse, codes,
+    OptionalCodeRequest, PasswordFinishRequest, PasswordFinishResponse, PasswordStartRequest,
+    RegistrationStartResponse, SecretText, TotpSetupResponse, codes,
 };
 use mosaic_sync::wire::opaque::{
     Suite,
@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use super::{Reply, parse_body};
 use crate::AppState;
-use crate::auth::{Session, totp};
+use crate::auth::{Authed, Session, totp};
 use crate::db::accounts::{self, Account};
 use crate::db::audit;
 use crate::db::sessions;
@@ -65,6 +65,40 @@ fn check_code(
         .run(|c| accounts::set_last_step(c, account_id, step))?
     {
         Ok(step)
+    } else {
+        Err(two_factor_invalid())
+    }
+}
+
+/// The second factor for removing TOTP, a security key or a device and for
+/// deleting the account (CRYPTO_SPEC §9.3 "Recent second factor"): nothing
+/// when two-step verification is off; otherwise a valid TOTP `code` in the
+/// request, or a `Confirm` handoff of this session within the last five
+/// minutes.
+pub fn require_second_factor(
+    st: &AppState,
+    s: &Authed,
+    code: Option<&str>,
+) -> Result<(), ApiError> {
+    let (a, keys) = st.db.run(|c| {
+        let a = accounts::by_id(c, &s.account_id)?.ok_or_else(ApiError::unauthorized)?;
+        Ok((a, crate::db::webauthn::count(c, &s.account_id)?))
+    })?;
+    if a.totp_sealed.is_none() && keys == 0 {
+        return Ok(());
+    }
+    if let (Some(code), Some(_)) = (code, a.totp_sealed.as_ref()) {
+        check_code(
+            st,
+            &s.account_id,
+            a.totp_sealed.as_deref(),
+            code,
+            a.totp_last_step,
+        )?;
+        return Ok(());
+    }
+    if s.second_factor_recent() {
+        Ok(())
     } else {
         Err(two_factor_invalid())
     }
@@ -176,11 +210,19 @@ pub async fn password_finish(
             Some(&s.device_id),
         )?;
         // Every other session of the account ends with the old password.
-        sessions::after_password_change(tx, &s.account_id, &s.token_hash, v)?;
+        sessions::after_password_change(
+            tx,
+            &s.account_id,
+            &s.token_hash,
+            v,
+            sessions::Revoke::PasswordChange,
+            now,
+        )?;
         Ok(v)
     })?;
-    // Logins that started against the old password end with it.
+    // Logins and handoffs that started against the old password end with it.
     st.logins.drop_account(&s.account_id);
+    st.handoffs.drop_account(&s.account_id);
     Reply::ok(&PasswordFinishResponse {
         account_version: version,
     })
@@ -243,15 +285,18 @@ pub async fn totp_disable(
     Session(s): Session,
     body: Bytes,
 ) -> Result<Reply, ApiError> {
-    let req: CodeRequest = parse_body(&body, 1024)?;
+    let req: OptionalCodeRequest = parse_body(&body, 1024)?;
     s.require_fresh()?;
     let a = load(&st, &s.account_id)?;
-    check_code(
+    if a.totp_sealed.is_none() {
+        return Err(two_factor_invalid());
+    }
+    require_second_factor(
         &st,
-        &s.account_id,
-        a.totp_sealed.as_deref(),
-        req.code.expose_secret(),
-        a.totp_last_step,
+        &s,
+        req.code
+            .as_ref()
+            .map(mosaic_sync::wire::json::SecretText::expose_secret),
     )?;
     let now = st.clock.now_ms();
     st.db.run_tx(|tx| {
@@ -274,21 +319,13 @@ pub async fn delete(
 ) -> Result<Reply, ApiError> {
     let req: DeleteAccountRequest = parse_body(&body, 1024)?;
     s.require_fresh()?;
-    let a = load(&st, &s.account_id)?;
-    if a.totp_sealed.is_some() {
-        let code = req
-            .code
+    require_second_factor(
+        &st,
+        &s,
+        req.code
             .as_ref()
-            .ok_or_else(two_factor_invalid)?
-            .expose_secret();
-        check_code(
-            &st,
-            &s.account_id,
-            a.totp_sealed.as_deref(),
-            code,
-            a.totp_last_step,
-        )?;
-    }
+            .map(mosaic_sync::wire::json::SecretText::expose_secret),
+    )?;
     let blobs = st.db.run_tx(|tx| accounts::delete(tx, &s.account_id))?;
     for id in blobs {
         st.blobs.remove(&id)?;

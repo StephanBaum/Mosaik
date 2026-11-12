@@ -246,7 +246,7 @@ export function RotationResumeBanner() {
   // text is often not read).
   const statusLine = (
     <p className="visually-hidden" role="status">
-      {job !== null && wizard === null && !wizardOpen && wizardKindOf(job) !== null ? t("rotation.resume.title") : ""}
+      {job !== null && wizard === null && !wizardOpen ? t("rotation.resume.title") : ""}
     </p>
   );
   if (wizard !== null) {
@@ -261,13 +261,13 @@ export function RotationResumeBanner() {
       />
     );
   }
-  if (job === null || wizardOpen || wizardKindOf(job) === null) {
+  if (job === null || wizardOpen) {
     return statusLine;
   }
   const committed = job.phase === "localCommitted" || job.phase === "attachments" || job.phase === "uploading";
   // A committed job cannot be discarded; once a continue failed it can be given up.
   const canAbandon = committed && stalled;
-  const body = job.needs === "password" ? "password" : (job.kind as "secretKey" | "rekey" | "profile");
+  const body = job.needs === "password" ? "password" : job.kind;
   return (
     <div className="stack" role="region" aria-label={t("rotation.resume.title")}>
       {statusLine}

@@ -15,10 +15,9 @@ unmaintained = "all"
 # list in sync with .cargo/audit.toml.
 ignore = [
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained: build-time proc-macro of glib-macros (gtk-rs 0.18, Linux only); ADR-0019" },
-    { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsound: no crate in the tree calls it (checked tao, wry, muda, tauri, webkit2gtk); Linux only; ADR-0019" },
     { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
-    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing variability: reached only through elliptic-curve 0.13 (opaque-ke 4.0.1 and voprf 0.5.0, the OPAQUE login of the sync server and client, ADR-0046); the ristretto255 suite does every secret group and scalar operation in curve25519-dalek and never calls crypto-bigint arithmetic; opaque-ke 4.1 pre-releases still use elliptic-curve 0.13; revisit when opaque-ke moves to elliptic-curve 0.14" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 timing variability: reached only through elliptic-curve 0.13 (opaque-ke 4.0.1 and voprf 0.5.0, the OPAQUE login of the sync server and client, ADR-0046); the ristretto255 suite does every secret group and scalar operation in curve25519-dalek and never calls crypto-bigint arithmetic; opaque-ke 4.1 pre-releases still use elliptic-curve 0.13; revisit when opaque-ke moves to elliptic-curve 0.14. Also reached through passkey-auth 0.1.3 (p256 0.13, the sync server's WebAuthn relying party, ADR-0078): crypto-bigint runs inside ECDSA verification, whose inputs (public key, signature, message) are all public, so timing variability reveals nothing secret" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6, no fix for zbus 5; via tauri-plugin-single-instance on Linux, and also a direct Linux dependency of mosaic-desktop (logind / screen-saver signals); ADR-0019" },
 ]
 
@@ -78,6 +77,11 @@ deny = [
     { name = "openssl-sys", reason = "use rustls / RustCrypto; see CRYPTO_SPEC.md" },
     { name = "rust-crypto", reason = "unmaintained" },
     { name = "sodiumoxide", reason = "unmaintained" },
+    # ring is allowed only as the rustls provider (rustls with the `ring` feature, and
+    # rustls-webpki, its certificate verifier); no other crate may link it. ADR-0046, ADR-0086.
+    { name = "ring", wrappers = ["rustls", "rustls-webpki"], reason = "TLS provider of rustls only; crypto comes from the CRYPTO_SPEC.md set (ADR-0086)" },
+    { name = "serde_cbor", reason = "unmaintained (RUSTSEC-2021-0127); WebAuthn CBOR is parsed by passkey-auth, passkeys by mosaic-passkey (ADR-0086)" },
+    { name = "rsa", reason = "RUSTSEC-2023-0071 (Marvin attack), no fix; ADR-0078 admits passkey-auth because it has no rsa in its tree (ADR-0086)" },
 ]
 
 [sources]

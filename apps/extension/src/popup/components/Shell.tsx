@@ -10,6 +10,7 @@ import { IconButton } from "./Button.tsx";
 import { ConfirmDialog } from "./Dialog.tsx";
 import { Icon } from "./Icon.tsx";
 import { Menu, type MenuItem } from "./Menu.tsx";
+import { NeverSaveDialog } from "./NeverSaveDialog.tsx";
 
 export type View = "logins" | "generator";
 
@@ -128,11 +129,38 @@ function useSiteAccessItem(config: {
   };
 }
 
-export function Footer({ state }: { state: PopupState }) {
+function DisconnectDialog({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
   const { api, refresh } = useServices();
+  return (
+    <ConfirmDialog
+      title={t("ext.more.disconnectTitle")}
+      confirmLabel={t("ext.more.disconnect")}
+      onCancel={onDone}
+      onConfirm={() => {
+        onDone();
+        void api.request({ op: "unpair" }).finally(() => refresh());
+      }}
+    >
+      <p>{t("ext.more.disconnectBody")}</p>
+    </ConfirmDialog>
+  );
+}
+
+function footerStatus(connection: PopupState["connection"]) {
+  if (connection === "unlocked") {
+    return { key: "ext.footer.connected" as const, tone: "on" };
+  }
+  return connection === "locked"
+    ? { key: "ext.footer.locked" as const, tone: "off" }
+    : { key: "ext.footer.offline" as const, tone: "off" };
+}
+
+export function Footer({ state }: { state: PopupState }) {
+  const { t } = useI18n();
   const { openDesktop } = useActions();
   const [confirming, setConfirming] = useState(false);
+  const [listing, setListing] = useState(false);
   const saveOffers = useSiteAccessItem({
     id: "saveOffers",
     label: t("ext.more.saveOffers"),
@@ -153,7 +181,19 @@ export function Footer({ state }: { state: PopupState }) {
   });
   const paired = state.connection === "locked" || state.connection === "unlocked";
   const items: MenuItem[] = [
-    ...(paired || state.connection === "desktopNotRunning" || state.connection === "error" ? [saveOffers, passkeys] : []),
+    ...(paired || state.connection === "desktopNotRunning" || state.connection === "error"
+      ? [
+          saveOffers,
+          {
+            id: "neverSave",
+            label: t("ext.neverSave.menu"),
+            onSelect: () => {
+              setListing(true);
+            },
+          },
+          passkeys,
+        ]
+      : []),
     ...(paired
       ? [
           {
@@ -166,12 +206,7 @@ export function Footer({ state }: { state: PopupState }) {
         ]
       : []),
   ];
-  const status =
-    state.connection === "unlocked"
-      ? { key: "ext.footer.connected" as const, tone: "on" }
-      : state.connection === "locked"
-        ? { key: "ext.footer.locked" as const, tone: "off" }
-        : { key: "ext.footer.offline" as const, tone: "off" };
+  const status = footerStatus(state.connection);
   return (
     <footer className="footer">
       <button type="button" className="footer__open" onClick={() => void openDesktop()}>
@@ -184,20 +219,19 @@ export function Footer({ state }: { state: PopupState }) {
       {items.length > 0 && (
         <Menu icon="more" label={t("ext.footer.more")} placement="above" items={items} />
       )}
+      {listing && (
+        <NeverSaveDialog
+          onClose={() => {
+            setListing(false);
+          }}
+        />
+      )}
       {confirming && (
-        <ConfirmDialog
-          title={t("ext.more.disconnectTitle")}
-          confirmLabel={t("ext.more.disconnect")}
-          onCancel={() => {
+        <DisconnectDialog
+          onDone={() => {
             setConfirming(false);
           }}
-          onConfirm={() => {
-            setConfirming(false);
-            void api.request({ op: "unpair" }).finally(() => refresh());
-          }}
-        >
-          <p>{t("ext.more.disconnectBody")}</p>
-        </ConfirmDialog>
+        />
       )}
     </footer>
   );

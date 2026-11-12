@@ -14,6 +14,44 @@ pub struct SessionRow {
     /// The account version at the session's login (its KE3): a password
     /// change is accepted only on top of it.
     pub account_version: u64,
+    /// Until when a completed `Confirm` handoff counts as a second factor
+    /// (0: never).
+    pub second_factor_until: u64,
+    /// When the session ends.
+    pub expires_at: u64,
+}
+
+/// Why sessions were deleted (CRYPTO_SPEC §9.5). The numbers are stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Revoke {
+    Rekey = 1,
+    PasswordChange = 2,
+    DeviceRemoved = 3,
+    Operator = 4,
+}
+
+impl Revoke {
+    /// The text of `detail.revoked`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Rekey => "rekey",
+            Self::PasswordChange => "passwordChange",
+            Self::DeviceRemoved => "deviceRemoved",
+            Self::Operator => "operator",
+        }
+    }
+
+    fn from_id(n: i64) -> Option<Self> {
+        match n {
+            1 => Some(Self::Rekey),
+            2 => Some(Self::PasswordChange),
+            3 => Some(Self::DeviceRemoved),
+            4 => Some(Self::Operator),
+            _ => None,
+        }
+    }
 }
 
 /// What a new session is created with.
@@ -60,7 +98,7 @@ pub fn lookup_and_touch(
     let found = conn
         .query_row(
             "SELECT account_id, device_id, created_at, expires_at, fresh_until, pending_2fa, \
-             account_version FROM sessions WHERE token_hash = ?1",
+             account_version, second_factor_until FROM sessions WHERE token_hash = ?1",
             [token_hash.as_slice()],
             |r| {
                 Ok((
@@ -70,6 +108,8 @@ pub fn lookup_and_touch(
                         fresh_until: u64_col(r, 4)?,
                         pending_2fa: r.get::<_, i64>(5)? != 0,
                         account_version: u64_col(r, 6)?,
+                        second_factor_until: u64_col(r, 7)?,
+                        expires_at: u64_col(r, 3)?,
                     },
                     u64_col(r, 2)?,
                     u64_col(r, 3)?,
@@ -106,15 +146,38 @@ pub fn delete(conn: &Connection, token_hash: &[u8; 32]) -> Result<(), ApiError> 
     Ok(())
 }
 
-/// After a password change: deletes every other session of the account (a
-/// token stolen before the change dies with it) and moves the changing
-/// session to the new account version.
+/// Records the sessions of `account` that match `filter` (an SQL condition
+/// over `account_id = ?1` and the extra parameter `?2`) in `revoked_sessions`.
+fn record_revoked(
+    conn: &Connection,
+    account: &[u8; 16],
+    extra: &[u8],
+    filter: &str,
+    reason: Revoke,
+    now: u64,
+) -> Result<(), ApiError> {
+    conn.execute(
+        &format!(
+            "INSERT OR REPLACE INTO revoked_sessions (token_hash, account_id, reason, revoked_at) \n             SELECT token_hash, account_id, ?3, ?4 FROM sessions WHERE account_id = ?1 AND {filter}"
+        ),
+        params![account.as_slice(), extra, reason as u8, int(now)],
+    )?;
+    Ok(())
+}
+
+/// After a password change or a re-key (`reason`): deletes every other session
+/// of the account (a token stolen before the change dies with it, and is
+/// remembered with the reason) and moves the changing session to the new
+/// account version.
 pub fn after_password_change(
     conn: &Connection,
     account: &[u8; 16],
     keep: &[u8; 32],
     new_version: u64,
+    reason: Revoke,
+    now: u64,
 ) -> Result<(), ApiError> {
+    record_revoked(conn, account, keep, "token_hash <> ?2", reason, now)?;
     conn.execute(
         "DELETE FROM sessions WHERE account_id = ?1 AND token_hash <> ?2",
         params![account.as_slice(), keep.as_slice()],
@@ -124,6 +187,92 @@ pub fn after_password_change(
         params![keep.as_slice(), int(new_version)],
     )?;
     Ok(())
+}
+
+/// Deletes every session of the account for the operator (reason 4).
+pub fn delete_all_for_operator(
+    conn: &Connection,
+    account: &[u8; 16],
+    now: u64,
+) -> Result<(), ApiError> {
+    record_revoked(conn, account, &[], "1 = 1", Revoke::Operator, now)?;
+    conn.execute(
+        "DELETE FROM sessions WHERE account_id = ?1",
+        [account.as_slice()],
+    )?;
+    Ok(())
+}
+
+/// Deletes the sessions of a removed device and remembers them (reason 3).
+pub fn delete_for_removed_device(
+    conn: &Connection,
+    account: &[u8; 16],
+    device: &[u8; 16],
+    now: u64,
+) -> Result<(), ApiError> {
+    record_revoked(
+        conn,
+        account,
+        device,
+        "device_id = ?2",
+        Revoke::DeviceRemoved,
+        now,
+    )?;
+    delete_for_device(conn, account, device)
+}
+
+/// Why a token that matches no session was deleted, if it was revoked.
+pub fn revoked_reason(
+    conn: &Connection,
+    token_hash: &[u8; 32],
+) -> Result<Option<Revoke>, ApiError> {
+    let n: Option<i64> = conn
+        .query_row(
+            "SELECT reason FROM revoked_sessions WHERE token_hash = ?1",
+            [token_hash.as_slice()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(n.and_then(Revoke::from_id))
+}
+
+/// Drops revocation records older than `before`.
+pub fn purge_revoked(conn: &Connection, before: u64) -> Result<usize, ApiError> {
+    Ok(conn.execute(
+        "DELETE FROM revoked_sessions WHERE revoked_at < ?1",
+        [int(before)],
+    )?)
+}
+
+/// Starts the five-minute window of a completed `Confirm` handoff. `false`
+/// when the session no longer exists (or is pending, or belongs to another
+/// account): the caller refuses.
+pub fn set_second_factor_until(
+    conn: &Connection,
+    token_hash: &[u8; 32],
+    account: &[u8; 16],
+    until: u64,
+) -> Result<bool, ApiError> {
+    let n = conn.execute(
+        "UPDATE sessions SET second_factor_until = ?3          WHERE token_hash = ?1 AND account_id = ?2 AND pending_2fa = 0",
+        params![token_hash.as_slice(), account.as_slice(), int(until)],
+    )?;
+    Ok(n == 1)
+}
+
+/// Whether a session with this hash exists for the account, pending or full.
+pub fn has_session(
+    conn: &Connection,
+    token_hash: &[u8; 32],
+    account: &[u8; 16],
+    pending: bool,
+) -> Result<bool, ApiError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sessions          WHERE token_hash = ?1 AND account_id = ?2 AND pending_2fa = ?3",
+        params![token_hash.as_slice(), account.as_slice(), i64::from(pending)],
+        |r| r.get(0),
+    )?;
+    Ok(n == 1)
 }
 
 /// Deletes every session of a device.
@@ -165,12 +314,12 @@ pub fn complete_2fa(
     conn: &Connection,
     token_hash: &[u8; 32],
     expires_at: u64,
-) -> Result<(), ApiError> {
-    conn.execute(
-        "UPDATE sessions SET pending_2fa = 0, totp_attempts = 0, expires_at = ?2 WHERE token_hash = ?1",
+) -> Result<bool, ApiError> {
+    let n = conn.execute(
+        "UPDATE sessions SET pending_2fa = 0, totp_attempts = 0, expires_at = ?2 \n             WHERE token_hash = ?1 AND pending_2fa = 1",
         params![token_hash.as_slice(), int(expires_at)],
     )?;
-    Ok(())
+    Ok(n == 1)
 }
 
 /// Keeps at most `cap` sessions of an account (the one named by `keep`

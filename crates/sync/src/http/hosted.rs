@@ -31,10 +31,13 @@ use crate::wire::json::rekey::{
 };
 use crate::wire::json::sharing::{IdentityBody, InviteSealEntry, RecipientSealEntry, WireId};
 use crate::wire::json::{
-    B64, B64Fixed, CodeRequest, Empty, LoginFinishRequest, LoginResponse, LoginStartRequest,
-    LoginStartResponse, LoginStatus, PasswordFinishRequest, PasswordFinishResponse,
-    PasswordStartRequest, PreloginRequest, PreloginResponse, RegisterFinishRequest,
-    RegisterStartRequest, RegistrationStartResponse, codes,
+    AccountHandoffRequest, B64, B64Fixed, CodeRequest, Empty, Features, HandoffPurpose,
+    HandoffStartResponse, HandoffState, HandoffStateRequest, HandoffStateResponse,
+    InfoFeaturesResponse, LoginFinishRequest, LoginMethodsResponse, LoginResponse,
+    LoginStartRequest, LoginStartResponse, LoginStatus, OptionalCodeRequest, PasswordFinishRequest,
+    PasswordFinishResponse, PasswordStartRequest, PreloginRequest, PreloginResponse,
+    RegisterFinishRequest, RegisterStartRequest, RegistrationStartResponse, RemoveWebauthnRequest,
+    SecretText, WebauthnEntry, codes,
 };
 use crate::wire::opaque::ke::{ClientLoginFinishResult, ClientRegistrationFinishResult};
 use crate::wire::opaque::{
@@ -514,23 +517,269 @@ pub fn device_rename(
 }
 
 /// `DELETE /v1/devices/{device}`: ends the device's sessions and refuses its
-/// later logins. Needs a fresh login; a device cannot remove itself.
+/// later logins. Needs a fresh login; a device cannot remove itself. An
+/// account with two-step verification on also needs a second factor
+/// (CRYPTO_SPEC §9.3 "Recent second factor"): a current TOTP `code`, or no
+/// code after a `confirm` handoff of this session
+/// ([`account_webauthn_handoff`]). This form sends no code: it works for an
+/// account with two-step verification off or after a `confirm` handoff; use
+/// [`device_remove_with_code`] to send a TOTP code.
 ///
 /// # Errors
-/// [`Rejection::DeviceIsCurrent`], [`TransportError::FreshLoginRequired`]
-/// and the other [`TransportError`]s.
+/// [`Rejection::DeviceIsCurrent`], [`Rejection::TwoFactorInvalid`] (no or a
+/// wrong second factor), [`TransportError::FreshLoginRequired`] and the
+/// other [`TransportError`]s.
 pub fn device_remove(
     base: &str,
     token: &impl Token,
     device: InstallId,
 ) -> Result<(), TransportError> {
+    device_remove_with_code(base, token, device, None)
+}
+
+/// [`device_remove`] with the TOTP `code` of the second factor.
+///
+/// # Errors
+/// As [`device_remove`].
+pub fn device_remove_with_code(
+    base: &str,
+    token: &impl Token,
+    device: InstallId,
+    code: Option<&str>,
+) -> Result<(), TransportError> {
     let http = connect(base)?;
     let bearer = Bearer::new(token)?;
-    http.call::<Empty, Empty>(
+    let body = code.map(|c| OptionalCodeRequest {
+        code: Some(c.into()),
+    });
+    http.call::<OptionalCodeRequest, Empty>(
         Method::DELETE,
         &format!("/v1/devices/{device}"),
         Some(&bearer),
+        body.as_ref(),
+        &OK_STATUS,
+    )
+    .map(|_| ())
+}
+
+/// `GET /v1/info?features=1`: what the server offers (M9: security keys).
+/// The protocol and the server's identity are checked as everywhere.
+///
+/// # Errors
+/// [`TransportError`].
+pub fn info_features(base: &str) -> Result<Features, TransportError> {
+    let origin = canonical_origin(base)?;
+    let http = Http::new(&origin)?;
+    let (_, info): (u16, InfoFeaturesResponse) = http.call(
+        Method::GET,
+        "/v1/info?features=1",
         None,
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    if info.protocol != crate::wire::json::PROTOCOL_VERSION {
+        return Err(TransportError::Incompatible);
+    }
+    if info.server_identity != origin {
+        return Err(TransportError::ServerMismatch);
+    }
+    Ok(info.features)
+}
+
+/// The page of a browser handoff: `<origin>/webauthn/#<handoffId>`. The ID
+/// travels in the URL fragment only, so it never reaches the server in a
+/// request line or a log. `origin` must be a canonical origin
+/// ([`canonical_origin`]); anything else is refused.
+///
+/// # Errors
+/// [`TransportError::InvalidUrl`] or [`TransportError::InsecureUrl`] for an
+/// origin that is not `https://host[:port]` (or `http` on loopback), or not in
+/// canonical form.
+pub fn handoff_page_url(origin: &str, handoff_id: &[u8; 16]) -> Result<String, TransportError> {
+    if canonical_origin(origin)? != origin {
+        return Err(TransportError::InvalidUrl);
+    }
+    Ok(format!(
+        "{origin}/webauthn/#{}",
+        <base64ct::Base64UrlUnpadded as base64ct::Encoding>::encode_string(handoff_id)
+    ))
+}
+
+/// `GET /v1/login/methods` with a pending session: which second factors the
+/// account can use (`totp`, `webauthn`). `webauthn` is false when the server
+/// cannot run the ceremony.
+///
+/// # Errors
+/// [`TransportError::Unauthorized`] for a session that is not pending, and
+/// the other [`TransportError`]s.
+pub fn login_methods(
+    base: &str,
+    token: &impl Token,
+) -> Result<LoginMethodsResponse, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r) = http.call(
+        Method::GET,
+        "/v1/login/methods",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    Ok(r)
+}
+
+/// `POST /v1/login/webauthn/handoff` with a pending session: starts a login
+/// handoff. Open `<origin>/webauthn/#<handoffId>` in the system browser
+/// (the ID in the fragment only) and show the match code for the user to
+/// type there.
+///
+/// # Errors
+/// [`Rejection::BadRequest`] if the account has no security key,
+/// [`TransportError::RateLimited`] and the other [`TransportError`]s (a
+/// server that cannot run the ceremony answers `webauthn_unavailable`, a
+/// protocol error here).
+pub fn login_webauthn_handoff(
+    base: &str,
+    token: &impl Token,
+) -> Result<HandoffStartResponse, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r) = http.call(
+        Method::POST,
+        "/v1/login/webauthn/handoff",
+        Some(&bearer),
+        Some(&Empty {}),
+        &OK_STATUS,
+    )?;
+    Ok(r)
+}
+
+/// `POST /v1/login/webauthn/handoff/state`: where a login handoff stands.
+/// On [`HandoffState::Done`] the pending session is a full one.
+///
+/// # Errors
+/// [`TransportError::NotFound`] for an unknown handoff, and the other
+/// [`TransportError`]s.
+pub fn login_webauthn_status(
+    base: &str,
+    token: &impl Token,
+    handoff_id: [u8; 16],
+) -> Result<HandoffState, TransportError> {
+    handoff_state(base, token, "/v1/login/webauthn/handoff/state", handoff_id)
+}
+
+/// `POST /v1/account/webauthn/handoff` (a fresh session): starts a handoff
+/// that registers a security key (`label` 1 to 64 characters) or confirms a
+/// second factor for the next five minutes (`label` is `None`).
+///
+/// # Errors
+/// [`TransportError::FreshLoginRequired`], [`TransportError::QuotaExceeded`]
+/// at 10 keys, [`TransportError::RateLimited`] and the other
+/// [`TransportError`]s.
+pub fn account_webauthn_handoff(
+    base: &str,
+    token: &impl Token,
+    purpose: HandoffPurpose,
+    label: Option<&str>,
+) -> Result<HandoffStartResponse, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r) = http.call(
+        Method::POST,
+        "/v1/account/webauthn/handoff",
+        Some(&bearer),
+        Some(&AccountHandoffRequest {
+            purpose,
+            label: label.map(str::to_owned),
+        }),
+        &OK_STATUS,
+    )?;
+    Ok(r)
+}
+
+/// `POST /v1/account/webauthn/handoff/state`: where an account handoff
+/// stands.
+///
+/// # Errors
+/// As [`login_webauthn_status`].
+pub fn account_webauthn_status(
+    base: &str,
+    token: &impl Token,
+    handoff_id: [u8; 16],
+) -> Result<HandoffState, TransportError> {
+    handoff_state(
+        base,
+        token,
+        "/v1/account/webauthn/handoff/state",
+        handoff_id,
+    )
+}
+
+fn handoff_state(
+    base: &str,
+    token: &impl Token,
+    path: &str,
+    handoff_id: [u8; 16],
+) -> Result<HandoffState, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r): (u16, HandoffStateResponse) = http.call(
+        Method::POST,
+        path,
+        Some(&bearer),
+        Some(&HandoffStateRequest {
+            handoff_id: B64Fixed(handoff_id),
+        }),
+        &OK_STATUS,
+    )?;
+    Ok(r.state)
+}
+
+/// `GET /v1/account/webauthn`: the account's security keys.
+///
+/// # Errors
+/// [`TransportError`].
+pub fn account_webauthn_list(
+    base: &str,
+    token: &impl Token,
+) -> Result<Vec<WebauthnEntry>, TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    let (_, r) = http.call(
+        Method::GET,
+        "/v1/account/webauthn",
+        Some(&bearer),
+        None::<&Empty>,
+        &OK_STATUS,
+    )?;
+    Ok(r)
+}
+
+/// `POST /v1/account/webauthn/remove` (a fresh session): removes one key by
+/// its `credential_ref` (see [`WebauthnEntry`]). Needs a second factor: a
+/// current TOTP `code`, or `None` after a `confirm` handoff of this
+/// session. Removing the last factor turns two-step verification off.
+///
+/// # Errors
+/// [`TransportError::NotFound`] for an unknown key,
+/// [`Rejection::TwoFactorInvalid`] without a second factor,
+/// [`TransportError::FreshLoginRequired`] and the other [`TransportError`]s.
+pub fn account_webauthn_remove(
+    base: &str,
+    token: &impl Token,
+    credential_ref: [u8; 16],
+    code: Option<&str>,
+) -> Result<(), TransportError> {
+    let http = connect(base)?;
+    let bearer = Bearer::new(token)?;
+    http.call::<_, Empty>(
+        Method::POST,
+        "/v1/account/webauthn/remove",
+        Some(&bearer),
+        Some(&RemoveWebauthnRequest {
+            credential_ref: B64Fixed(credential_ref),
+            code: code.map(SecretText::from),
+        }),
         &OK_STATUS,
     )
     .map(|_| ())
@@ -634,6 +883,19 @@ impl core::fmt::Debug for Recovered {
     }
 }
 
+/// The error for a pending session that has no code to give:
+/// [`TransportError::SecondFactorUnsupported`] if the account's only second
+/// factor is a security key (CRYPTO_SPEC §9.3: no code exists to type),
+/// otherwise [`TransportError::TwoFactorRequired`] (also when the methods
+/// cannot be fetched).
+#[must_use]
+pub fn missing_code_error(base: &str, token: &impl Token) -> TransportError {
+    match login_methods(base, token) {
+        Ok(m) if m.webauthn && !m.totp => TransportError::SecondFactorUnsupported,
+        _ => TransportError::TwoFactorRequired,
+    }
+}
+
 /// The server side of recovering a master password change that another run
 /// of this device applied to the server only (CRYPTO_SPEC §9.4, "Change
 /// applied elsewhere"): pre-login for the server's current parameters, the
@@ -646,7 +908,8 @@ impl core::fmt::Debug for Recovered {
 /// # Errors
 /// As [`join_login`] and [`join_fetch_account`], plus
 /// [`TransportError::TwoFactorRequired`] if the account needs `totp_code`
-/// and none was given and [`Rejection::TwoFactorInvalid`].
+/// and none was given, [`TransportError::SecondFactorUnsupported`] if the
+/// account has a security key only, and [`Rejection::TwoFactorInvalid`].
 pub fn recover_password(
     base: &str,
     address: &str,
@@ -658,7 +921,9 @@ pub fn recover_password(
 ) -> Result<Recovered, TransportError> {
     let mut login = join_login(base, address, new_password, secret_key, device, device_name)?;
     if login.grant.status == LoginStatus::TwoFactorRequired {
-        let code = totp_code.ok_or(TransportError::TwoFactorRequired)?;
+        let Some(code) = totp_code else {
+            return Err(missing_code_error(base, &login.grant.token));
+        };
         login.grant.expires_at_ms = login_totp(base, &login.grant.token, code)?;
         login.grant.status = LoginStatus::Ok;
     }

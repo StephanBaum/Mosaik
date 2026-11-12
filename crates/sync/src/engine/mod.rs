@@ -41,6 +41,7 @@ pub use owned::OwnedSession;
 #[cfg(feature = "http")]
 pub use rekey::{HostedRekey, HostedRekeyDone, ResumeOutcome, adopt_hosted_rekey};
 pub use rekey::{RekeyError, RekeyProgress, RekeySecrets};
+pub use rotation::VaultKeyRotation;
 pub use sharing_ops::{ContactLookup, InviteSentInfo, MemberState, MemberView, VaultMembers};
 
 use self::consts::{
@@ -215,6 +216,10 @@ pub struct SyncReport {
     pub attachments_down: u32,
     /// Vaults whose content changed.
     pub changed_vaults: Vec<VaultId>,
+    /// Vault-metadata merges that did not fit and lost whole values
+    /// (CRYPTO_SPEC §7.1): the vault and the fields, never the values. The
+    /// desktop shows a dismissable notice (`vaultMetaDropped`).
+    pub meta_dropped: Vec<(VaultId, mosaic_core::model::DroppedMeta)>,
     /// Warnings.
     pub warnings: Vec<SyncWarning>,
     /// Invites waiting for this account (hosted, M6b).

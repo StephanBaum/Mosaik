@@ -21,6 +21,7 @@ pub mod schema;
 pub mod sessions;
 pub mod sharing;
 pub mod vaults;
+pub mod webauthn;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -264,7 +265,7 @@ mod tests {
         let bad = |sql: &str| conn.execute(sql, []).is_err();
         assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 14, NULL)"));
         assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 16, NULL)"));
-        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 17, NULL)"));
+        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 21, NULL)"));
         assert!(bad(
             "INSERT INTO memberships VALUES (zeroblob(16), zeroblob(16), 5, 0, 0)"
         ));
@@ -314,7 +315,7 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(usize::try_from(v).unwrap(), schema::latest_version());
-        assert_eq!(schema::latest_version(), 3);
+        assert_eq!(schema::latest_version(), 4);
         let epoch: i64 = conn
             .query_row("SELECT ak_epoch FROM accounts", [], |r| r.get(0))
             .unwrap();
@@ -337,7 +338,7 @@ mod tests {
         let bad = |sql: &str| conn.execute(sql, []).is_err();
         assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 15, NULL)"));
         assert!(!bad("INSERT INTO audit VALUES (zeroblob(16), 1, 16, NULL)"));
-        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 17, NULL)"));
+        assert!(bad("INSERT INTO audit VALUES (zeroblob(16), 1, 21, NULL)"));
         assert!(!bad("UPDATE share_invites SET state = 5"));
         assert!(bad("UPDATE share_invites SET state = 6"));
         // The invite indexes came back: one open invite per vault and recipient.
@@ -370,5 +371,136 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    const V3_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/server_v3.sqlite"
+    );
+
+    /// Writes `tests/fixtures/server_v3.sqlite`: a database as the M7 server
+    /// (schema version 3) left it, with one account that has TOTP, a device, a
+    /// session and an audit row. Run by hand when the fixture must be rebuilt:
+    /// `cargo test -p mosaic-server write_v3_fixture -- --ignored`.
+    #[test]
+    #[ignore = "writes tests/fixtures/server_v3.sqlite; run by hand"]
+    fn write_v3_fixture() {
+        let path = std::path::Path::new(V3_FIXTURE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(path);
+        let conn = Connection::open(path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for sql in &schema::MIGRATIONS[..3] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak, \
+                 account_version, totp_sealed, created_at, ak_epoch) \
+                 VALUES (x'11111111111111111111111111111111', 'old@example.com', zeroblob(16), 1, x'00', \
+                 zeroblob(74), 4, x'0101', 1000, 2);
+             INSERT INTO devices (account_id, device_id, name, created_at, last_seen_at) \
+                 VALUES (x'11111111111111111111111111111111', x'22222222222222222222222222222222', 'Old laptop', 1000, 2000);
+             INSERT INTO sessions (token_hash, account_id, device_id, created_at, last_used_at, expires_at, \
+                 fresh_until, pending_2fa, totp_attempts, account_version) \
+                 VALUES (zeroblob(32), x'11111111111111111111111111111111', x'22222222222222222222222222222222', \
+                 1000, 2000, 99999999, 0, 0, 0, 4);
+             INSERT INTO audit (account_id, at, kind, device_id) \
+                 VALUES (x'11111111111111111111111111111111', 2000, 16, NULL);
+             INSERT INTO accounts (account_id, email, salt, profile, opaque_record, wrapped_ak, \
+                 account_version, created_at) \
+                 VALUES (x'33333333333333333333333333333333', 'other@example.com', zeroblob(16), 1, x'00', \
+                 zeroblob(74), 1, 1000);",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.close().unwrap();
+    }
+
+    /// A version 3 database (the M7 server) upgrades to version 4 in place:
+    /// the rows survive, the new columns and tables arrive with their rules and
+    /// the audit table accepts the kinds 17 to 20.
+    #[test]
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "short names for the rows of one long schema check"
+    )]
+    fn schema_v3_fixture_upgrades_to_v4() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v3.sqlite");
+        std::fs::copy(V3_FIXTURE, &path).unwrap();
+        {
+            let c = Connection::open(&path).unwrap();
+            let v: i64 = c
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(v, 3, "the fixture is a version 3 database");
+        }
+        let db = Db::open(&path).unwrap();
+        db.run(|c| {
+            let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+            assert_eq!(v, 4);
+            let a: (String, i64, Vec<u8>, Option<Vec<u8>>) = c.query_row(
+                "SELECT email, ak_epoch, totp_sealed, webauthn_user_handle FROM accounts \
+                 WHERE email = 'old@example.com'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+            assert_eq!(a, ("old@example.com".to_owned(), 2, vec![1, 1], None));
+            let s: (i64, i64) = c.query_row(
+                "SELECT account_version, second_factor_until FROM sessions",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            assert_eq!(s, (4, 0), "old sessions have no recent second factor");
+            let d: String = c.query_row("SELECT name FROM devices", [], |r| r.get(0))?;
+            assert_eq!(d, "Old laptop");
+            let kind: i64 = c.query_row("SELECT kind FROM audit", [], |r| r.get(0))?;
+            assert_eq!(kind, 16);
+
+            let bad = |sql: &str| c.execute(sql, []).is_err();
+            // The audit table takes the new kinds and nothing above them.
+            for kind in 17..=20 {
+                assert!(!bad(&format!("INSERT INTO audit VALUES (x'11111111111111111111111111111111', 1, {kind}, NULL)")));
+            }
+            assert!(bad("INSERT INTO audit VALUES (x'11111111111111111111111111111111', 1, 21, NULL)"));
+            // Credentials: the ID is 16 to 1023 bytes, unique server-wide, and
+            // there is no `alg` or `backup_eligible` column (ADR-0078).
+            let id = "x'0102030405060708090a0b0c0d0e0f10'";
+            let ins = |account: &str, id: &str| {
+                format!(
+                    "INSERT INTO webauthn_credentials (account_id, credential_id, public_key, \
+                     sign_count, label, created_at) VALUES ({account}, {id}, x'00', 0, 'k', 1)"
+                )
+            };
+            let old = "x'11111111111111111111111111111111'";
+            let other = "x'33333333333333333333333333333333'";
+            assert!(bad(&ins(old, "x'0102'")), "ID too short");
+            assert!(!bad(&ins(old, id)));
+            assert!(bad(&ins(other, id)), "unique across accounts");
+            assert!(bad(&ins(old, id)), "primary key");
+            assert!(bad("SELECT alg FROM webauthn_credentials"));
+            assert!(bad("SELECT backup_eligible FROM webauthn_credentials"));
+            assert!(bad("UPDATE webauthn_credentials SET sign_count = -1"));
+            assert!(bad(
+                "UPDATE accounts SET webauthn_user_handle = x'01' WHERE email = 'old@example.com'"
+            ));
+            // Revoked sessions: a 32-byte hash and the reasons 1 to 4.
+            let rev = |hash: &str, reason: i64| {
+                format!("INSERT INTO revoked_sessions VALUES ({hash}, {old}, {reason}, 1)")
+            };
+            assert!(bad(&rev("zeroblob(31)", 1)));
+            assert!(bad(&rev("zeroblob(32)", 0)));
+            assert!(bad(&rev("zeroblob(32)", 5)));
+            assert!(!bad(&rev("zeroblob(32)", 4)));
+            // Everything follows the account.
+            c.execute("DELETE FROM accounts WHERE email = 'old@example.com'", [])?;
+            for table in ["webauthn_credentials", "revoked_sessions", "sessions"] {
+                let n: i64 =
+                    c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?;
+                assert_eq!(n, 0, "{table}");
+            }
+            Ok(())
+        })
+        .unwrap();
     }
 }

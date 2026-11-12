@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- the URL options and the seed of every mock area meet here. */
 /**
  * The in-memory mock IPC for browser development (`pnpm dev:mock`), component tests and
  * Playwright. Handlers live per contract area in `mock/`; a command without a handler
@@ -29,7 +30,7 @@
  * `&syncFail=<errorCode>` makes `sync_now` and the two connect commands fail with that code.
  * The mock server takes the master password `mosaic` and the one-time code `123456`. Joining
  * from `?mock=noAccount` takes alex@example.com, `mosaic` and the sample Secret Key;
- * `&syncJoin2fa=1` asks for the code first.
+ * `&syncJoin2fa=1` asks for the code first. M9: `&syncWebauthn=both|only`, `&syncHandoff=expired|failed`.
  *
  * Account keys (M7, Settings > Security): `&rotation=<variant>` with none, shared (a review with shared
  * vaults, members, grants and security keys), resumePrepared, resumeAccepted, resumeAttachments,
@@ -39,6 +40,11 @@
  * `rotationJumpTooLarge`: set the device up again), unknownFile and conflict (a folder account file this device cannot verify), slowDevice
  * (`profile_upgrade` answers `profileTooSlow` unless forced). The other device's kit has the Secret
  * Key `M1-7KQ4-X29H-DM3P-RT6W-ZB04-NCFG-8VJ3` and the password `new correct horse battery staple`.
+ * M9: `&syncRevoked=rekey|passwordChange|deviceRemoved|operator` (a signed-out start with the server's reason),
+ * `&shortcut=registered|conflict|unsupported|unavailable` (what `app_status` says of the global shortcut),
+ * `&metaDropped=name,icon,description` (a sync run reports those vault fields as dropped 500 ms after
+ * subscribing), `&connector=foreign` (the browser connector audit finds a host that is not the installed
+ * one; `browser_connector_repair` clears it), `&rotation=resumeVault` (an interrupted vault-key re-seal).
  * `&rotationFail=<errorCode>` makes the commits fail, `&rotationStepMs=<ms>` sets the pause between
  * the steps of a run (default 450).
  *
@@ -57,14 +63,19 @@ import {
   biometricPlatformKinds,
   errorCodes,
   registrationModes,
+  revokedReasons,
+  shortcutStates,
+  vaultMetaFields,
   type BiometricPlatformKind,
   type CommandName,
   type ErrorCode,
   type IpcResult,
   type RequestOf,
   type ResponseOf,
+  type ShortcutState,
+  type VaultMetaField,
 } from "./contract/index.ts";
-import { appHandlers } from "./mock/app.ts";
+import { announceMetaDropped, appHandlers } from "./mock/app.ts";
 import {
   browserHandlers,
   defaultBrowser,
@@ -122,7 +133,7 @@ import {
   announceSync,
   seedSync,
   syncVariants,
-  type MockFolderAnswer,
+  webauthnOptionsFromParams,
   type MockSyncOptions,
 } from "./mock/syncData.ts";
 import {
@@ -158,6 +169,12 @@ export interface MockOptions extends QuickOptions {
   otpScan?: ErrorCode | "cancel";
   /** Report screen scanning as unsupported when `false` (`&screenScan=0`). */
   screenScan?: boolean;
+  /** What `app_status` says of the global shortcut (`&shortcut=`). */
+  shortcut?: ShortcutState;
+  /** Metadata fields a sync run reports as dropped after subscribing (`&metaDropped=`). */
+  metaDropped?: VaultMetaField[];
+  /** The connector audit finds a foreign host (`&connector=foreign`). */
+  connector?: "foreign";
   /** Fail `attachment_add` with this code, or cancel the file dialog (`?attachAdd=cancel`). */
   attachAdd?: ErrorCode | "cancel";
   /** Fail `attachment_save` with this code, or cancel the save dialog (`?attachSave=cancel`). */
@@ -248,6 +265,20 @@ function otpOptionsFromParams(params: URLSearchParams): MockOptions {
       ? { otpScan: scan as ErrorCode | "cancel" }
       : {}),
     ...(params.get("screenScan") === "0" ? { screenScan: false } : {}),
+    ...m9OptionsFromParams(params),
+  };
+}
+
+/** The M9 options: the shortcut state, dropped metadata and the connector audit. */
+function m9OptionsFromParams(params: URLSearchParams): MockOptions {
+  const shortcut = shortcutStates.find((name) => name === params.get("shortcut"));
+  const dropped = (params.get("metaDropped") ?? "")
+    .split(",")
+    .filter((field): field is VaultMetaField => vaultMetaFields.some((known) => known === field));
+  return {
+    ...(shortcut === undefined ? {} : { shortcut }),
+    ...(dropped.length === 0 ? {} : { metaDropped: dropped }),
+    ...(params.get("connector") === "foreign" ? { connector: "foreign" as const } : {}),
   };
 }
 
@@ -270,18 +301,19 @@ function syncOptionsFromParams(params: URLSearchParams): MockOptions {
   const variant = syncVariants.find((name) => name === params.get("sync"));
   const server = registrationModes.find((mode) => mode === params.get("syncServer"));
   const folderParam = params.get("syncFolder");
-  const folder: MockFolderAnswer | undefined =
-    folderParam === "empty" || folderParam === "mosaic" || folderParam === "other" || folderParam === "cancel"
-      ? folderParam
-      : undefined;
+  const folder = (["empty", "mosaic", "other", "cancel"] as const).find((each) => each === folderParam);
   const failParam = params.get("syncFail");
   const failCode = errorCodes.find((code) => code === failParam);
+  const revoked = revokedReasons.find((reason) => reason === params.get("syncRevoked"));
   const sync: MockSyncOptions = {
+    ...(variant === undefined && revoked !== undefined ? { variant: "signedOut" as const } : {}),
     ...(variant === undefined ? {} : { variant }),
     ...(server === undefined ? {} : { server }),
     ...(folder === undefined ? {} : { folder }),
     ...(failCode === undefined ? {} : { fail: failCode }),
+    ...(revoked === undefined ? {} : { revoked }),
     ...(params.get("syncJoin2fa") === "1" ? { join2fa: true } : {}),
+    ...webauthnOptionsFromParams(params),
   };
   return Object.keys(sync).length === 0 ? {} : { sync };
 }
@@ -395,6 +427,8 @@ function setupOptions(options: MockOptions): MockSetupOptions {
   return {
     otpScan: options.otpScan ?? null,
     screenScan: options.screenScan ?? true,
+    shortcut: options.shortcut ?? "registered",
+    metaDropped: options.metaDropped ?? [],
     attachAdd: options.attachAdd ?? null,
     attachSave: options.attachSave ?? null,
   };
@@ -407,6 +441,16 @@ function seededBrowser(options: MockOptions, now: () => number): MockState["brow
     saveOnStart: options.browserSave ?? null,
     passkeyOnStart: options.browserPasskey ?? null,
     rotationOnStart: rotationOnStartOf(options.credRotation?.variant),
+    connectorFindings:
+      options.connector === "foreign"
+        ? [
+            {
+              browser: "chromium",
+              location: "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host",
+              path: "C:\\Users\\alex\\Downloads\\other-host.exe",
+            },
+          ]
+        : [],
   };
 }
 
@@ -492,6 +536,7 @@ export function createMockIpc(options: MockOptions = {}): MosaicIpc {
       listeners.add(listener);
       startBrowser(state);
       announceSync(state);
+      announceMetaDropped(state);
       announceSharing(state);
       announceCredRotation(state);
       return Promise.resolve(() => {

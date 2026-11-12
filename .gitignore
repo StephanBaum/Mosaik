@@ -39,3 +39,6 @@ Thumbs.db
 *.env
 .env*
 *.mosaic-vault
+
+# Challenge seeder output (flags and secrets): never commit
+contest-out/

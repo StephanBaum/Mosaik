@@ -168,6 +168,9 @@ pub struct Backend {
     pub adapters: Adapters,
     /// Native file dialogs.
     pub dialogs: Box<dyn Dialogs>,
+    /// The one way the app opens the system browser: the security-key page
+    /// of a handoff ([`crate::sync::webauthn_flow`]).
+    pub(crate) opener: Box<dyn crate::sync::webauthn_flow::UrlOpener>,
     /// Files chosen for import.
     pub import_files: Mutex<FileTokens>,
     /// "Scan screen" (ADR-0031); `NoScreenCapture` until the app sets the
@@ -183,6 +186,9 @@ pub struct Backend {
     pub(crate) preview_busy: AtomicBool,
     /// Whether the global shortcut is registered (`None` until tried).
     pub shortcut_status: Mutex<Option<ShortcutStatus>>,
+    /// Re-registers the global shortcut when `settings.globalShortcut`
+    /// changes (`None`: no hotkey manager, or a test).
+    pub shortcut_registrar: Mutex<Option<crate::shortcut::Registrar>>,
     /// Asks the OS to flag the window (taskbar attention) when an SSH
     /// approval arrives. It never focuses the window.
     attention: Option<Attention>,
@@ -248,12 +254,14 @@ impl Backend {
             quick_unlock: QuickUnlockService::default(),
             adapters: Adapters::default(),
             dialogs: Box::new(NoDialogs),
+            opener: Box::new(crate::sync::webauthn_flow::NoOpener),
             import_files: Mutex::new(FileTokens::default()),
             screen: Box::new(NoScreenCapture),
             otp_pending: Mutex::new(PendingOtps::default()),
             otp_scanning: AtomicBool::new(false),
             preview_busy: AtomicBool::new(false),
             shortcut_status: Mutex::new(None),
+            shortcut_registrar: Mutex::new(None),
             attention: None,
             focus: None,
             browser: BrowserService::new(),
@@ -342,6 +350,16 @@ impl Backend {
     #[must_use]
     pub fn with_clipboard(mut self, factory: BackendFactory) -> Self {
         self.clipboard = ClipboardService::spawn(factory, self.events.clone());
+        self
+    }
+
+    /// Uses this opener for the system browser.
+    #[must_use]
+    pub(crate) fn with_opener(
+        mut self,
+        opener: Box<dyn crate::sync::webauthn_flow::UrlOpener>,
+    ) -> Self {
+        self.opener = opener;
         self
     }
 

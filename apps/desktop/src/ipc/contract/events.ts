@@ -30,6 +30,10 @@ export interface SyncState {
   error: ErrorCode | null;
 }
 
+/** A vault metadata field that lost its value in a merge (CRYPTO_SPEC section 7.1). */
+export const vaultMetaFields = ["name", "icon", "description"] as const;
+export type VaultMetaField = (typeof vaultMetaFields)[number];
+
 export type AppEvent =
   | { type: "locked"; reason: LockReason }
   | { type: "syncStateChanged"; state: SyncState }
@@ -72,4 +76,6 @@ export type AppEvent =
   /** A breach scan ended (also when cancelled or the vault locked). */
   | { type: "breachScanFinished"; checked: number; found: number; error: BreachScanError | null }
   /** A sync run merged or repaired something the user may want to look at. */
-  | { type: "syncAttention"; conflicts: number; restored: number; replacedUnreadable: number };
+  | { type: "syncAttention"; conflicts: number; restored: number; replacedUnreadable: number }
+  /** A merged vault name, icon or description was too long to keep whole: names the fields, never the values. */
+  | { type: "vaultMetaDropped"; vaultId: VaultId; fields: VaultMetaField[] };

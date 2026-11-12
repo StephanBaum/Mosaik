@@ -13,6 +13,7 @@ import { HostedForm } from "./HostedForm.tsx";
 import { useFocusSection, useNow } from "./hooks.ts";
 import { RecoverCard } from "./RecoverCard.tsx";
 import { RekeyRecoveryForm } from "../settings/security/RekeyRecovery.tsx";
+import { SecurityKeysCard } from "./SecurityKeysCard.tsx";
 import { TotpCard } from "./TotpCard.tsx";
 import { WarningList } from "./WarningList.tsx";
 
@@ -182,6 +183,24 @@ function StatusBlock({
   );
 }
 
+/** The account was re-keyed elsewhere: told by the account itself, or by the server ending the session. */
+function rekeyedElsewhere(overview: SyncOverview): boolean {
+  return overview.state.error === "syncAccountRekeyed" || overview.revoked === "rekey";
+}
+
+/** Why the server ended this device's session (M7-R3), in plain words. */
+function RevokedNote({ overview }: { overview: SyncOverview }) {
+  const { t } = useI18n();
+  // The region stays mounted, so the reason is announced when the sign-out arrives.
+  return (
+    <div role="status">
+      {overview.state.status === "signedOut" && overview.revoked !== null && (
+        <p className="callout callout--info">{t(`sync.revoked.${overview.revoked}`)}</p>
+      )}
+    </div>
+  );
+}
+
 /** A hosted account re-keyed elsewhere: the Secret Key from the new kit is required. */
 function RekeyedCard({
   needsCode,
@@ -196,6 +215,24 @@ function RekeyedCard({
       <h3 className="subtitle">{t("rotation.recovery.title")}</h3>
       <RekeyRecoveryForm needsCode={needsCode} onRecovered={onRecovered} />
     </div>
+  );
+}
+
+/** Two-step verification (a code) and the security keys of the sync account. */
+function SecondFactorCards({
+  config,
+  signedOut,
+  onChanged,
+}: {
+  config: Extract<SyncConfigView, { kind: "hosted" }>;
+  signedOut: boolean;
+  onChanged: () => void;
+}) {
+  return (
+    <>
+      <TotpCard enabled={config.totpEnabled} onChanged={onChanged} />
+      {!signedOut && <SecurityKeysCard refreshKey={config.webauthnKeys} onChanged={onChanged} />}
+    </>
   );
 }
 
@@ -216,28 +253,21 @@ export function ConnectedPanel({
   const attention = overview.warnings.some((w) => w.kind === "unverifiedAccountFile" && w.conflict);
   // A hosted account that was re-keyed on another device: the new Secret Key is needed, not
   // just a password, so the recovery form replaces the password card and the sign-in form.
-  const rekeyed = config.kind === "hosted" && overview.state.error === "syncAccountRekeyed";
+  const rekeyed = config.kind === "hosted" && rekeyedElsewhere(overview);
+  const recovered = (next: SyncOverview) => {
+    onChange(next);
+    onRefresh();
+  };
   return (
     <div className="stack">
       <Details config={config} state={overview.state} attention={attention} />
       <StatusBlock state={overview.state} onChange={onChange} onRefresh={onRefresh} />
+      <RevokedNote overview={overview} />
       {rekeyed && (
-        <RekeyedCard
-          needsCode={config.totpEnabled}
-          onRecovered={(next) => {
-            onChange(next);
-            onRefresh();
-          }}
-        />
+        <RekeyedCard needsCode={config.totpEnabled} onRecovered={recovered} />
       )}
       {overview.passwordChanged && !rekeyed && (
-        <RecoverCard
-          config={config}
-          onRecovered={(next) => {
-            onChange(next);
-            onRefresh();
-          }}
-        />
+        <RecoverCard config={config} onRecovered={recovered} />
       )}
       {signedOut && config.kind === "hosted" && !rekeyed && (
         <div className="stack">
@@ -259,7 +289,9 @@ export function ConnectedPanel({
         refreshKey={overview.state.lastSyncedAt}
         onRenamed={onRefresh}
       />
-      {config.kind === "hosted" && <TotpCard enabled={config.totpEnabled} onChanged={onRefresh} />}
+      {config.kind === "hosted" && (
+        <SecondFactorCards config={config} signedOut={signedOut} onChanged={onRefresh} />
+      )}
       <div className="actions">
         <Button
           variant="danger"

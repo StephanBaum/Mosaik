@@ -1,1 +1,1 @@
-P{"password":null,"settings":{"autoLockMinutes":-1,"clipboardClearSeconds":1e308,"language":"xx","lockOnScreenLock":null,"lockOnSleep":"true","quickUnlockMaxAgeDays":-30,"theme":"system","breachCheck":"off","breachConsentAt":null,"rotationReminders":true}}
+P{"password":null,"settings":{"autoLockMinutes":-1,"clipboardClearSeconds":1e308,"language":"xx","lockOnScreenLock":null,"lockOnSleep":"true","quickUnlockMaxAgeDays":-30,"theme":"system","breachCheck":"off","breachConsentAt":null,"rotationReminders":true,"globalShortcut":"Ctrl+Shift+Space"}}

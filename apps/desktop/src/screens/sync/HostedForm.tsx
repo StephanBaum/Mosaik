@@ -19,6 +19,7 @@ import type {
 } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { useDefaultDeviceName } from "./hooks.ts";
+import { SecondFactorStep } from "./SecondFactorStep.tsx";
 
 interface Credentials {
   password: string;
@@ -215,18 +216,28 @@ export function HostedForm({
   }
 
   if (needsCode) {
+    const cancel = () => {
+      setNeedsCode(false);
+      setError(null);
+    };
     return (
-      <TwoFactorForm
-        busy={busy}
-        error={error}
-        onVerify={(code) => {
-          void finish(() => ipc.call("sync_hosted_two_factor", { code }));
+      <SecondFactorStep
+        join={false}
+        onSignedIn={() => {
+          // Rust finished the connect when the security key was used.
+          void finish(() => ipc.call("sync_status", null));
         }}
-        onCancel={() => {
-          setNeedsCode(false);
-          setError(null);
-        }}
-      />
+        onCancel={cancel}
+      >
+        <TwoFactorForm
+          busy={busy}
+          error={error}
+          onVerify={(code) => {
+            void finish(() => ipc.call("sync_hosted_two_factor", { code }));
+          }}
+          onCancel={cancel}
+        />
+      </SecondFactorStep>
     );
   }
   return (

@@ -28,6 +28,8 @@ server; it is off by default and unreleased. See
 - [Desktop IPC contract](docs/DESKTOP_IPC.md)
 - [Browser extension security](docs/EXTENSION_SECURITY.md)
 - [Security review log](docs/SECURITY_REVIEW_LOG.md) (internal, AI-assisted review; not an independent audit)
+- [Security policy](SECURITY.md) and [audit preparation](docs/AUDIT_PREP.md)
+- [Security challenge](docs/BUG_BOUNTY.md), its [targets](docs/CHALLENGE.md) and the [hall of fame](docs/HALL_OF_FAME.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Build brief](docs/BRIEF.md)
 

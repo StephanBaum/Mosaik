@@ -17,6 +17,55 @@ const NAME: &str = "name";
 const ICON: &str = "icon";
 const DESCRIPTION: &str = "description";
 
+/// Write cap of a vault name in UTF-8 bytes (CRYPTO_SPEC §7.1, M9).
+pub const MAX_VAULT_NAME_LEN: usize = 256;
+/// Write cap of a vault icon identifier in UTF-8 bytes.
+pub const MAX_VAULT_ICON_LEN: usize = 64;
+/// Write cap of a vault description in UTF-8 bytes.
+pub const MAX_VAULT_DESCRIPTION_LEN: usize = 4096;
+
+/// The metadata fields that lost a value in
+/// [`VaultMeta::reduce_oversized`]. Field names only, never the values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DroppedMeta {
+    /// The name lost a value.
+    pub name: bool,
+    /// The icon lost a value.
+    pub icon: bool,
+    /// The description lost a value.
+    pub description: bool,
+}
+
+impl DroppedMeta {
+    /// Whether nothing was dropped.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        !(self.name || self.icon || self.description)
+    }
+
+    /// The field keys (`"name"`, `"icon"`, `"description"`) in that order.
+    #[must_use]
+    pub fn fields(&self) -> Vec<&'static str> {
+        [
+            (self.name, NAME),
+            (self.icon, ICON),
+            (self.description, DESCRIPTION),
+        ]
+        .into_iter()
+        .filter_map(|(hit, key)| hit.then_some(key))
+        .collect()
+    }
+
+    fn mark(&mut self, key: &str) {
+        match key {
+            NAME => self.name = true,
+            ICON => self.icon = true,
+            DESCRIPTION => self.description = true,
+            _ => {}
+        }
+    }
+}
+
 /// Decrypted vault metadata.
 #[derive(PartialEq, Eq)]
 pub struct VaultMeta {
@@ -72,11 +121,16 @@ impl VaultMeta {
         self.doc.value(DESCRIPTION).and_then(Value::as_str)
     }
 
-    /// Merges two replicas (see [`crate::model::Item::merge`]).
+    /// Merges two replicas (see [`crate::model::Item::merge`]). Each side
+    /// first takes the other's husks (CRYPTO_SPEC §7.1), so a husk beats the
+    /// value it replaced.
     #[must_use]
     pub fn merge(&self, other: &Self) -> Self {
         Self {
-            doc: self.doc.merge(&other.doc),
+            doc: self
+                .doc
+                .with_husks_of(&other.doc)
+                .merge(&other.doc.with_husks_of(&self.doc)),
         }
     }
 
@@ -86,6 +140,9 @@ impl VaultMeta {
     /// Metadata is never deleted, so the only repairs are for device-ID
     /// collisions (two writers sharing a device ID): one stamp with two
     /// contents, or equal version vectors with different contents (ADR-0015).
+    /// Both sides first take the other's husks (CRYPTO_SPEC §7.1), so
+    /// replicas that differ only in which values an oversized merge dropped
+    /// are no collision (M9-F51).
     /// The values the merge dropped are written back as local edits by
     /// `device`, so both names show as a conflict, and the returned flag is
     /// set.
@@ -115,11 +172,56 @@ impl VaultMeta {
         if received.doc.vv().get(&device) > self.doc.vv().get(&device) {
             return Err(Error::DeviceIdReused);
         }
-        let (doc, repair) = self.doc.merge_and_repair(&received.doc, device, reused)?;
+        let local = self.doc.with_husks_of(&received.doc);
+        let received = received.doc.with_husks_of(&self.doc);
+        let (doc, repair) = local.merge_and_repair(&received, device, reused)?;
         if repair.own_stamp_collision {
             return Err(Error::DeviceIdReused);
         }
         Ok((Self { doc }, repair.stamp_collision))
+    }
+
+    /// Reduces a repaired merge (CRYPTO_SPEC §7.1, ADR-0085): a value it
+    /// drops leaves a husk (same stamp and time, no value, its encoded
+    /// length recorded).
+    ///
+    /// 0. A value under a field's largest-stamped entry becomes a husk when
+    ///    that entry is a husk.
+    /// 1. If the weight (canonical length plus the recorded lengths of the
+    ///    husks: at least the size had nothing been dropped) exceeds
+    ///    [`MAX_VAULT_META_PLAINTEXT_LEN`], every value that is not its
+    ///    field's largest-stamped entry becomes a husk.
+    /// 2. While the record does not fit, the shown value with the longest
+    ///    encoding (on a tie the larger key) becomes a husk.
+    ///
+    /// The version vector is unchanged, so the result dominates what the
+    /// merge dominated. A pure function of `self`, with no stamp or clock of
+    /// its own. The weight is at least the size of the plain join of
+    /// everything merged so far, so step 1 runs whatever the delivery order.
+    ///
+    /// # Errors
+    /// [`Error::SizeLimit`] if the record does not fit even with no value
+    /// left; [`Error::Allocation`].
+    pub fn reduce_oversized(&self) -> Result<(Self, DroppedMeta)> {
+        let mut doc = self.doc.dup();
+        let mut dropped = DroppedMeta::default();
+        let limit = u64::try_from(MAX_VAULT_META_PLAINTEXT_LEN).map_err(|_| Error::SizeLimit)?;
+        for key in doc.husk_below_top(false)? {
+            dropped.mark(key.as_str());
+        }
+        let weight = encoded_len(&doc)?.saturating_add(doc.husk_weight());
+        if weight > limit {
+            for key in doc.husk_below_top(true)? {
+                dropped.mark(key.as_str());
+            }
+            while encoded_len(&doc)? > limit {
+                match doc.husk_largest_shown()? {
+                    Some(key) => dropped.mark(key.as_str()),
+                    None => return Err(Error::SizeLimit),
+                }
+            }
+        }
+        Ok((Self { doc }, dropped))
     }
 
     /// The version vector.
@@ -134,10 +236,20 @@ impl VaultMeta {
         self.doc.vv().compare(other.doc.vv())
     }
 
-    /// Fields with concurrent distinct values.
+    /// Fields with concurrent distinct values. Husks are no values: a field
+    /// whose shown entry is a husk has no conflict, and husks are never
+    /// losers (CRYPTO_SPEC §7.1).
     #[must_use]
     pub fn conflicts(&self) -> Vec<FieldConflict<'_>> {
-        self.doc.conflicts(|_| true)
+        self.doc
+            .conflicts(|_| true)
+            .into_iter()
+            .filter(|c| c.winner.husk_len().is_none())
+            .filter_map(|mut c| {
+                c.losers.retain(|e| e.husk_len().is_none());
+                (!c.losers.is_empty()).then_some(c)
+            })
+            .collect()
     }
 
     /// The canonical plaintext.
@@ -236,26 +348,53 @@ impl VaultMetaEdit<'_> {
     /// Renames the vault (resolving any name conflict).
     ///
     /// # Errors
-    /// [`Error::ClockOverflow`].
+    /// [`Error::SizeLimit`] above [`MAX_VAULT_NAME_LEN`] bytes (a write cap;
+    /// longer stored values still read), [`Error::ClockOverflow`].
     pub fn set_name(&mut self, name: &str) -> Result<()> {
+        check_cap(Some(name), MAX_VAULT_NAME_LEN)?;
         self.put(NAME, Some(name))
     }
 
     /// Sets or clears the icon.
     ///
     /// # Errors
+    /// [`Error::SizeLimit`] above [`MAX_VAULT_ICON_LEN`] bytes,
     /// [`Error::ClockOverflow`].
     pub fn set_icon(&mut self, icon: Option<&str>) -> Result<()> {
+        check_cap(icon, MAX_VAULT_ICON_LEN)?;
         self.put(ICON, icon)
     }
 
     /// Sets or clears the description.
     ///
     /// # Errors
+    /// [`Error::SizeLimit`] above [`MAX_VAULT_DESCRIPTION_LEN`] bytes,
     /// [`Error::ClockOverflow`].
     pub fn set_description(&mut self, description: Option<&str>) -> Result<()> {
+        check_cap(description, MAX_VAULT_DESCRIPTION_LEN)?;
         self.put(DESCRIPTION, description)
     }
+}
+
+/// The length of the canonical plaintext of `doc`, without the size limit.
+fn encoded_len(doc: &Doc) -> Result<u64> {
+    let len = to_json(
+        &DocJson {
+            doc,
+            format: Format::Document,
+        },
+        usize::MAX,
+    )?
+    .expose_secret()
+    .len();
+    u64::try_from(len).map_err(|_| Error::SizeLimit)
+}
+
+fn check_cap(value: Option<&str>, cap: usize) -> Result<()> {
+    if value.is_some_and(|v| v.len() > cap) {
+        return Err(Error::SizeLimit);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -361,12 +500,204 @@ mod tests {
 
     #[test]
     fn size_limit() {
-        let at = Timestamp::from_unix_millis(1);
-        let m = VaultMeta::new(&"n".repeat(MAX_VAULT_META_PLAINTEXT_LEN), dev(1), at).unwrap();
-        assert_eq!(m.to_json().unwrap_err(), Error::SizeLimit);
         assert_eq!(
             VaultMeta::from_json(&vec![b' '; MAX_VAULT_META_PLAINTEXT_LEN + 1]).unwrap_err(),
             Error::SizeLimit
         );
+        let at = Timestamp::from_unix_millis(1);
+        let mut m = VaultMeta::new("n", dev(1), at).unwrap();
+        m.edit(dev(1), at)
+            .put(NAME, Some(&"n".repeat(MAX_VAULT_META_PLAINTEXT_LEN)))
+            .unwrap();
+        assert_eq!(m.to_json().unwrap_err(), Error::SizeLimit);
+    }
+
+    /// A version written without the write caps (an older client or a peer
+    /// that ignores them), based on one shared base.
+    fn long(device: u8, name: usize, description: usize) -> VaultMeta {
+        let at = Timestamp::from_unix_millis(1);
+        let mut m = base();
+        let mut e = m.edit(dev(device), at);
+        e.put(NAME, Some(&format!("{device}{}", "n".repeat(name))))
+            .unwrap();
+        e.put(
+            DESCRIPTION,
+            Some(&format!("{device}{}", "d".repeat(description))),
+        )
+        .unwrap();
+        m
+    }
+
+    fn base() -> VaultMeta {
+        VaultMeta::new("base", dev(1), Timestamp::from_unix_millis(1)).unwrap()
+    }
+
+    fn copy(m: &VaultMeta) -> VaultMeta {
+        VaultMeta::from_json(m.to_json().unwrap().expose_secret()).unwrap()
+    }
+
+    #[test]
+    fn meta_caps_apply_to_writes_not_reads() {
+        let at = Timestamp::from_unix_millis(1);
+        let mut m = VaultMeta::new(&"n".repeat(MAX_VAULT_NAME_LEN), dev(1), at).unwrap();
+        let v = m.version().clone();
+        let mut e = m.edit(dev(1), at);
+        assert_eq!(
+            e.set_name(&"n".repeat(MAX_VAULT_NAME_LEN + 1)).unwrap_err(),
+            Error::SizeLimit
+        );
+        assert_eq!(
+            e.set_icon(Some(&"i".repeat(MAX_VAULT_ICON_LEN + 1)))
+                .unwrap_err(),
+            Error::SizeLimit
+        );
+        assert_eq!(
+            e.set_description(Some(&"d".repeat(MAX_VAULT_DESCRIPTION_LEN + 1)))
+                .unwrap_err(),
+            Error::SizeLimit
+        );
+        e.set_icon(Some(&"i".repeat(MAX_VAULT_ICON_LEN))).unwrap();
+        e.set_description(Some(&"d".repeat(MAX_VAULT_DESCRIPTION_LEN)))
+            .unwrap();
+        assert_ne!(m.version(), &v);
+        // Multi-byte text counts bytes, not characters.
+        assert_eq!(
+            m.edit(dev(1), at)
+                .set_name(&"\u{e4}".repeat(MAX_VAULT_NAME_LEN / 2 + 1))
+                .unwrap_err(),
+            Error::SizeLimit
+        );
+
+        // A stored value above the cap still reads, merges and seals.
+        let back = copy(&long(2, 1000, 6000));
+        assert_eq!(back.name().map(str::len), Some(1001));
+        assert_eq!(back.description().map(str::len), Some(6001));
+        assert!(back.merge(&m).to_json().is_ok());
+        let vault = VaultId::from_bytes([0x0B; 16]).unwrap();
+        let vk = VaultKey::generate(KeyGeneration::FIRST).unwrap();
+        let ct = back.seal(&vk, &vault).unwrap();
+        assert_eq!(VaultMeta::open(&ct, &vk, &vault).unwrap(), back);
+    }
+
+    #[test]
+    fn oversized_meta_merge_is_deterministic_on_every_order() {
+        // Three devices write long concurrent names and descriptions that
+        // each fit alone, but not together.
+        let versions = [
+            long(2, 20_000, 20_000),
+            long(3, 21_000, 19_000),
+            long(4, 22_000, 18_000),
+        ];
+        let device = dev(9);
+        let mut results: Vec<(Vec<u8>, VersionVector)> = Vec::new();
+        let perms = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        for order in perms {
+            // A device that starts from the base and stores the reduced
+            // merge after every record it receives.
+            let mut local = base();
+            for i in order {
+                let (m, _) = local.merge_and_repair(&copy(&versions[i]), device).unwrap();
+                local = m.reduce_oversized().unwrap().0;
+                assert!(local.to_json().is_ok(), "every stored state fits");
+            }
+            results.push((
+                local.to_json().unwrap().expose_secret().to_vec(),
+                local.version().clone(),
+            ));
+        }
+        for r in &results[1..] {
+            assert_eq!(r, &results[0]);
+        }
+        // The same merge reached as one join reduces to the same bytes.
+        let joined = versions[0].merge(&versions[1]).merge(&versions[2]);
+        let (reduced, dropped) = joined.reduce_oversized().unwrap();
+        assert!(!dropped.is_empty());
+        assert_eq!(
+            reduced.to_json().unwrap().expose_secret(),
+            &results[0].0[..]
+        );
+        for v in &versions {
+            assert_eq!(reduced.compare(v), Causality::Dominates);
+        }
+        assert!(reduced.conflicts().is_empty());
+    }
+
+    /// M9-F50/F51: step 2 can leave two devices with equal vectors that
+    /// differ in husks only; one exchange makes them identical, with no
+    /// collision repair, and a husk beats the value it replaced.
+    #[test]
+    fn husk_only_differences_close_on_exchange_without_repair() {
+        let at = Timestamp::from_unix_millis(1);
+        let version = |d: u8, key: &str, n: usize| {
+            let mut m = base();
+            m.edit(dev(d), at).put(key, Some(&"x".repeat(n))).unwrap();
+            m
+        };
+        let (v2, v3, v4) = (
+            version(2, NAME, 40_000),
+            version(3, DESCRIPTION, 41_000),
+            version(4, NAME, 1_000),
+        );
+        let apply = |local: &VaultMeta, received: &VaultMeta| {
+            let (m, collision) = local.merge_and_repair(received, dev(9)).unwrap();
+            assert!(!collision, "no device-ID repair");
+            let (m, _) = m.reduce_oversized().unwrap();
+            assert!(m.to_json().is_ok());
+            m
+        };
+        // Step 2 drops the description before the small name arrives.
+        let a = apply(&apply(&copy(&v2), &v3), &v4);
+        // The small name first: step 1 is enough.
+        let b = apply(&apply(&copy(&v2), &v4), &v3);
+        assert_eq!(a.version(), b.version());
+        assert_eq!(a.description(), None);
+        assert!(b.description().is_some());
+        // Husks survive the canonical encoding.
+        assert_eq!(copy(&a), a);
+        let (a2, b2) = (apply(&a, &b), apply(&b, &a));
+        assert_eq!(
+            a2.to_json().unwrap().expose_secret(),
+            b2.to_json().unwrap().expose_secret()
+        );
+        assert_eq!(a2, a, "the husk beats its value");
+        assert_eq!(a.merge(&b), b.merge(&a));
+        assert_eq!(a2.name().map(str::len), Some(1_000));
+        assert!(a2.conflicts().is_empty());
+    }
+
+    #[test]
+    fn reduce_oversized_drops_whole_fields_largest_first() {
+        let at = Timestamp::from_unix_millis(1);
+        let mut meta = base();
+        let mut edit = meta.edit(dev(1), at);
+        edit.put(NAME, Some(&"n".repeat(30_000))).unwrap();
+        edit.put(DESCRIPTION, Some(&"d".repeat(40_000))).unwrap();
+        edit.put(ICON, Some(&"i".repeat(30_000))).unwrap();
+        assert_eq!(meta.to_json().unwrap_err(), Error::SizeLimit);
+        let (reduced, dropped) = meta.reduce_oversized().unwrap();
+        assert_eq!(dropped.fields(), ["description"]);
+        assert_eq!(reduced.description(), None);
+        assert!(reduced.name().is_some() && reduced.icon().is_some());
+        assert_eq!(reduced.version(), meta.version());
+        // Equal lengths: the larger key goes first.
+        let mut tie = base();
+        let mut edit = tie.edit(dev(1), at);
+        edit.put(NAME, Some(&"n".repeat(33_000))).unwrap();
+        edit.put(ICON, Some(&"n".repeat(33_000))).unwrap();
+        let (cut, gone) = tie.reduce_oversized().unwrap();
+        assert_eq!(gone.fields(), ["name"]);
+        assert!(cut.name().is_none() && cut.icon().is_some());
+        // A record that fits is unchanged.
+        let ok = base();
+        let (same, none) = ok.reduce_oversized().unwrap();
+        assert!(none.is_empty());
+        assert_eq!(same, ok);
     }
 }

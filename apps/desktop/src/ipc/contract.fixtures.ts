@@ -67,6 +67,8 @@ export const fixtures = {
     "ssh_agent_set_enabled",
     "ssh_respond",
     "browser_status",
+    "browser_connector_audit",
+    "browser_connector_repair",
     "browser_remove_pairing",
     "browser_pairing_respond",
     "browser_save_respond",
@@ -89,6 +91,16 @@ export const fixtures = {
     "sync_totp_begin",
     "sync_totp_confirm",
     "sync_totp_disable",
+    "sync_login_methods",
+    "sync_hosted_webauthn_begin",
+    "join_hosted_webauthn_begin",
+    "sync_webauthn_status",
+    "sync_webauthn_reopen",
+    "sync_webauthn_list",
+    "sync_webauthn_add_begin",
+    "sync_webauthn_add_status",
+    "sync_webauthn_confirm_begin",
+    "sync_webauthn_remove",
     "join_hosted",
     "join_hosted_two_factor",
     "join_folder",
@@ -108,6 +120,7 @@ export const fixtures = {
     "rekey_commit",
     "rotation_resume",
     "rotation_abandon",
+    "vault_rotate_key",
     "rotation_queue",
     "rotation_begin",
     "rotation_close",
@@ -317,6 +330,7 @@ export const fixtures = {
       "browserRequestExpired",
       "browserAllowTooSoon",
       "browserPairingNotFound",
+      "browserHostMissing",
       "syncNotConfigured",
       "syncAlreadyConfigured",
       "syncServerUnreachable",
@@ -344,6 +358,12 @@ export const fixtures = {
       "syncPasswordChanged",
       "syncPasswordRollback",
       "syncPasswordOutcomeUnknown",
+      "syncWebauthnUnavailable",
+      "syncWebauthnLimit",
+      "syncHandoffExpired",
+      "syncHandoffFailed",
+      "shortcutUnavailable",
+      "shortcutUnsupported",
       "sharingNotHosted",
       "sharingContactUnverified",
       "sharingKeyChanged",
@@ -397,6 +417,17 @@ export const fixtures = {
       "empty",
       "mosaic",
       "other"
+    ],
+    "handoffState": [
+      "waiting",
+      "done",
+      "failed",
+      "expired"
+    ],
+    "handoffStep": [
+      "login",
+      "register",
+      "confirm"
     ],
     "historyReasonKey": [
       "replaced",
@@ -558,6 +589,12 @@ export const fixtures = {
       "hosted",
       "folder"
     ],
+    "revokedReason": [
+      "rekey",
+      "passwordChange",
+      "deviceRemoved",
+      "operator"
+    ],
     "rotationKind": [
       "secretKey",
       "rekey",
@@ -610,7 +647,8 @@ export const fixtures = {
     "shortcutState": [
       "registered",
       "conflict",
-      "unavailable"
+      "unavailable",
+      "unsupported"
     ],
     "sshCloseReason": [
       "answered",
@@ -691,6 +729,11 @@ export const fixtures = {
     "urlMatchMode": [
       "exactOrigin",
       "etld1"
+    ],
+    "vaultMetaField": [
+      "name",
+      "icon",
+      "description"
     ],
     "vaultProtection": [
       "accountKey",
@@ -921,6 +964,9 @@ export const fixtures = {
       "code": "browserPairingNotFound"
     },
     {
+      "code": "browserHostMissing"
+    },
+    {
       "code": "syncNotConfigured"
     },
     {
@@ -1000,6 +1046,24 @@ export const fixtures = {
     },
     {
       "code": "syncPasswordOutcomeUnknown"
+    },
+    {
+      "code": "syncWebauthnUnavailable"
+    },
+    {
+      "code": "syncWebauthnLimit"
+    },
+    {
+      "code": "syncHandoffExpired"
+    },
+    {
+      "code": "syncHandoffFailed"
+    },
+    {
+      "code": "shortcutUnavailable"
+    },
+    {
+      "code": "shortcutUnsupported"
     },
     {
       "code": "sharingNotHosted"
@@ -1411,6 +1475,14 @@ export const fixtures = {
       "type": "rotationProgress"
     },
     {
+      "fields": [
+        "name",
+        "description"
+      ],
+      "type": "vaultMetaDropped",
+      "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+    },
+    {
       "done": 4,
       "total": 9,
       "type": "breachScanProgress"
@@ -1578,6 +1650,12 @@ export const fixtures = {
       null
     ],
     "breach_scan_start": [
+      null
+    ],
+    "browser_connector_audit": [
+      null
+    ],
+    "browser_connector_repair": [
       null
     ],
     "browser_pairing_respond": [
@@ -2048,6 +2126,9 @@ export const fixtures = {
         "code": "492039"
       }
     ],
+    "join_hosted_webauthn_begin": [
+      null
+    ],
     "list_items": [
       {
         "favoritesOnly": true,
@@ -2515,7 +2596,13 @@ export const fixtures = {
         "code": "492039"
       }
     ],
+    "sync_hosted_webauthn_begin": [
+      null
+    ],
     "sync_ignored_rekey_markers": [
+      null
+    ],
+    "sync_login_methods": [
       null
     ],
     "sync_now": [
@@ -2568,6 +2655,45 @@ export const fixtures = {
         "code": "492039",
         "password": "correct horse battery staple"
       }
+    ],
+    "sync_webauthn_add_begin": [
+      {
+        "code": null,
+        "label": "YubiKey 5C",
+        "password": "correct horse battery staple"
+      },
+      {
+        "code": "492039",
+        "label": "Backup key",
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_webauthn_add_status": [
+      null
+    ],
+    "sync_webauthn_confirm_begin": [
+      {
+        "password": "correct horse battery staple"
+      }
+    ],
+    "sync_webauthn_list": [
+      null
+    ],
+    "sync_webauthn_remove": [
+      {
+        "code": null,
+        "credentialRef": "00112233445566778899aabbccddeeff"
+      },
+      {
+        "code": "492039",
+        "credentialRef": "00112233445566778899aabbccddeeff"
+      }
+    ],
+    "sync_webauthn_reopen": [
+      null
+    ],
+    "sync_webauthn_status": [
+      null
     ],
     "totp_code": [
       {
@@ -2850,6 +2976,7 @@ export const fixtures = {
           "breachCheck": "off",
           "breachConsentAt": null,
           "clipboardClearSeconds": 30,
+          "globalShortcut": "Ctrl+Shift+Space",
           "language": "system",
           "lockOnScreenLock": true,
           "lockOnSleep": true,
@@ -2865,6 +2992,7 @@ export const fixtures = {
           "breachCheck": "weekly",
           "breachConsentAt": 1761000000000,
           "clipboardClearSeconds": null,
+          "globalShortcut": "Ctrl+Alt+K",
           "language": "de",
           "lockOnScreenLock": false,
           "lockOnSleep": false,
@@ -2900,6 +3028,18 @@ export const fixtures = {
     "vault_members": [
       {
         "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      }
+    ],
+    "vault_rotate_key": [
+      {
+        "proof": null,
+        "resealAttachments": false,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000001"
+      },
+      {
+        "proof": "correct horse battery staple",
+        "resealAttachments": true,
+        "vaultId": "019a2b3c-4d5e-7010-8000-000000000002"
       }
     ],
     "vault_share": [
@@ -3282,6 +3422,34 @@ export const fixtures = {
     ],
     "breach_scan_start": [
       null
+    ],
+    "browser_connector_audit": [
+      {
+        "findings": []
+      },
+      {
+        "findings": [
+          {
+            "browser": "chromium",
+            "location": "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host",
+            "path": "C:\\Users\\alex\\Downloads\\other-host.exe"
+          }
+        ]
+      }
+    ],
+    "browser_connector_repair": [
+      {
+        "findings": []
+      },
+      {
+        "findings": [
+          {
+            "browser": "chromium",
+            "location": "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\app.mosaic.host",
+            "path": "C:\\Users\\alex\\Downloads\\other-host.exe"
+          }
+        ]
+      }
     ],
     "browser_pairing_respond": [
       null
@@ -3857,6 +4025,7 @@ export const fixtures = {
         "breachCheck": "off",
         "breachConsentAt": null,
         "clipboardClearSeconds": 30,
+        "globalShortcut": "Ctrl+Shift+Space",
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
@@ -3869,6 +4038,7 @@ export const fixtures = {
         "breachCheck": "weekly",
         "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
+        "globalShortcut": "Ctrl+Alt+K",
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
@@ -4087,6 +4257,12 @@ export const fixtures = {
       },
       {
         "state": "twoFactorRequired"
+      }
+    ],
+    "join_hosted_webauthn_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913"
       }
     ],
     "list_items": [
@@ -5013,6 +5189,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5027,10 +5204,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5047,6 +5226,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5163,10 +5343,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5231,6 +5413,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5245,10 +5428,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5265,6 +5450,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5381,10 +5567,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5399,6 +5587,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5413,10 +5602,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5433,6 +5624,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5549,10 +5741,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5567,6 +5761,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5581,10 +5776,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5601,6 +5798,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5717,10 +5915,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5735,6 +5935,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5749,10 +5950,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5769,6 +5972,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -5885,10 +6089,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -5903,6 +6109,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5917,10 +6124,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -5937,6 +6146,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6053,10 +6263,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6071,6 +6283,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6085,10 +6298,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6105,6 +6320,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6221,10 +6437,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6232,6 +6450,12 @@ export const fixtures = {
           "status": "signedOut"
         },
         "warnings": []
+      }
+    ],
+    "sync_hosted_webauthn_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913"
       }
     ],
     "sync_ignored_rekey_markers": [
@@ -6244,11 +6468,26 @@ export const fixtures = {
         }
       ]
     ],
+    "sync_login_methods": [
+      {
+        "totp": true,
+        "webauthn": false
+      },
+      {
+        "totp": true,
+        "webauthn": true
+      },
+      {
+        "totp": false,
+        "webauthn": true
+      }
+    ],
     "sync_now": [
       {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6263,10 +6502,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6283,6 +6524,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6399,10 +6641,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6440,6 +6684,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6454,10 +6699,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6474,6 +6721,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6590,10 +6838,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6618,6 +6868,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6632,10 +6883,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6652,6 +6905,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6768,10 +7022,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6786,6 +7042,7 @@ export const fixtures = {
         "config": null,
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6800,10 +7057,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": true
+          "totpEnabled": true,
+          "webauthnKeys": 2
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [],
         "state": {
           "error": null,
@@ -6820,6 +7079,7 @@ export const fixtures = {
         },
         "passwordChanged": false,
         "rekeyPending": false,
+        "revoked": null,
         "sharingFindings": [
           {
             "kind": "identityMismatch"
@@ -6936,10 +7196,12 @@ export const fixtures = {
           "email": "alex@example.com",
           "kind": "hosted",
           "serverUrl": "https://sync.example.com",
-          "totpEnabled": false
+          "totpEnabled": false,
+          "webauthnKeys": 0
         },
         "passwordChanged": true,
         "rekeyPending": true,
+        "revoked": "rekey",
         "sharingFindings": [],
         "state": {
           "error": "syncSignedOut",
@@ -6960,6 +7222,97 @@ export const fixtures = {
     ],
     "sync_totp_disable": [
       null
+    ],
+    "sync_webauthn_add_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "login"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "register"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_add_status": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "state": "waiting",
+        "step": "register"
+      },
+      {
+        "expiresAt": null,
+        "matchCode": null,
+        "state": "done",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_confirm_begin": [
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "login"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "register"
+      },
+      {
+        "expiresAt": 1761480300000,
+        "matchCode": "482913",
+        "step": "confirm"
+      }
+    ],
+    "sync_webauthn_list": [
+      {
+        "keys": [],
+        "totp": false
+      },
+      {
+        "keys": [
+          {
+            "createdAt": 1761480000000,
+            "credentialRef": "00112233445566778899aabbccddeeff",
+            "label": "YubiKey 5C",
+            "lastUsedAt": 1761480060000
+          },
+          {
+            "createdAt": 1761480001000,
+            "credentialRef": "ffeeddccbbaa99887766554433221100",
+            "label": "Backup key",
+            "lastUsedAt": null
+          }
+        ],
+        "totp": true
+      }
+    ],
+    "sync_webauthn_remove": [
+      null
+    ],
+    "sync_webauthn_reopen": [
+      null
+    ],
+    "sync_webauthn_status": [
+      {
+        "state": "waiting"
+      },
+      {
+        "state": "done"
+      },
+      {
+        "state": "failed"
+      },
+      {
+        "state": "expired"
+      }
     ],
     "totp_code": [
       {
@@ -7138,6 +7491,7 @@ export const fixtures = {
         "breachCheck": "off",
         "breachConsentAt": null,
         "clipboardClearSeconds": 30,
+        "globalShortcut": "Ctrl+Shift+Space",
         "language": "system",
         "lockOnScreenLock": true,
         "lockOnSleep": true,
@@ -7150,6 +7504,7 @@ export const fixtures = {
         "breachCheck": "weekly",
         "breachConsentAt": 1761000000000,
         "clipboardClearSeconds": null,
+        "globalShortcut": "Ctrl+Alt+K",
         "language": "de",
         "lockOnScreenLock": false,
         "lockOnSleep": false,
@@ -7252,6 +7607,31 @@ export const fixtures = {
         "ownRole": "manage",
         "pendingRotation": false,
         "unprotectedAttachments": 0
+      }
+    ],
+    "vault_rotate_key": [
+      {
+        "finished": true,
+        "hardwareKeysRemoved": 1,
+        "quickUnlockRemoved": true,
+        "unreachable": [
+          {
+            "fileName": "statement.pdf",
+            "itemTitle": "Bank"
+          },
+          {
+            "fileName": null,
+            "itemTitle": null
+          }
+        ],
+        "unreachableAttachments": 2
+      },
+      {
+        "finished": false,
+        "hardwareKeysRemoved": 0,
+        "quickUnlockRemoved": false,
+        "unreachable": [],
+        "unreachableAttachments": 0
       }
     ],
     "vault_share": [

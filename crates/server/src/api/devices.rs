@@ -3,7 +3,9 @@
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use mosaic_core::InstallId;
-use mosaic_sync::wire::json::{DeviceEntry, DevicesResponse, RenameDeviceRequest};
+use mosaic_sync::wire::json::{
+    DeviceEntry, DevicesResponse, OptionalCodeRequest, RenameDeviceRequest, SecretText,
+};
 
 use super::{Reply, parse_body, parse_uuid, valid_device_name};
 use crate::AppState;
@@ -54,9 +56,25 @@ pub async fn remove(
     State(st): State<AppState>,
     Session(s): Session,
     Path(device_id): Path<String>,
+    body: Bytes,
 ) -> Result<Reply, ApiError> {
     let device = parse_uuid(&device_id)?;
+    // The body is optional: `{"code": ...}` when two-step verification is on
+    // and the session has no recent `Confirm` handoff.
+    let req: OptionalCodeRequest = if body.is_empty() {
+        OptionalCodeRequest::default()
+    } else {
+        parse_body(&body, 1024)?
+    };
     s.require_fresh()?;
+    // Any account with two-step verification on shows a second factor
+    // (CRYPTO_SPEC §9.3 "Recent second factor"): a code, or a `Confirm`
+    // handoff of this session.
+    super::account::require_second_factor(
+        &st,
+        &s,
+        req.code.as_ref().map(SecretText::expose_secret),
+    )?;
     if device == s.device_id {
         return Err(ApiError::conflict(codes::DEVICE_IS_CURRENT));
     }
@@ -75,6 +93,8 @@ pub async fn remove(
         Ok(removed)
     })?;
     if removed {
+        // Its sessions are gone; so are its browser handoffs.
+        st.handoffs.drop_device(&s.account_id, &device);
         Reply::empty()
     } else {
         Err(ApiError::not_found())

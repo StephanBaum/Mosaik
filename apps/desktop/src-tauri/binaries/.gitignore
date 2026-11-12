@@ -1,0 +1,4 @@
+# Sidecars (bundle.externalBin of tauri.release.conf.json) and the generated system manifests.
+# The release workflow builds them; nothing here is committed.
+*
+!.gitignore

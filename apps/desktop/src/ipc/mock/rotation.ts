@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- the journal and its phases are one state machine. */
 /**
  * Mock account keys (M7): the Secret Key rotation, the key derivation upgrade, the re-key, the
  * journal that resumes them and the adoption of a re-key made on another device. The same rules
@@ -16,6 +17,7 @@ import type {
   SyncOverview,
 } from "../contract/index.ts";
 import { sampleAccount } from "./data.ts";
+import { requireFreshReauth } from "./quickUnlock.ts";
 import { newSecretKey, normalizeKey } from "./session.ts";
 import {
   fail,
@@ -37,6 +39,7 @@ export const rotationVariants = [
   "resumeAttachments",
   "resumeSecretKey",
   "resumeStuck",
+  "resumeVault",
   "rekeyElsewhere",
   "rekeyPending",
   "ignoredNotices",
@@ -120,6 +123,8 @@ function seededJob(variant: RotationVariant): RotationJobView | null {
       return jobOf("rekey", "attachments", "none", { done: 3, total: 12 });
     case "resumeSecretKey":
       return jobOf("secretKey", "backendStarted", "kitGroup");
+    case "resumeVault":
+      return jobOf("vault", "attachments", "none", { done: 3, total: 8 });
     default:
       return null;
   }
@@ -128,7 +133,11 @@ function seededJob(variant: RotationVariant): RotationJobView | null {
 export function seedRotation(options: MockRotationOptions): MockRotation {
   const variant = options.variant ?? "none";
   const elsewhere = variant === "rekeyElsewhere" || variant === "rekeyPending" || variant === "jumpTooLarge";
-  const staged = variant.startsWith("resume") && variant !== "resumeAttachments" && variant !== "resumeStuck";
+  const staged =
+    variant.startsWith("resume") &&
+    variant !== "resumeAttachments" &&
+    variant !== "resumeStuck" &&
+    variant !== "resumeVault";
   return {
     job: seededJob(variant),
     pendingKey: staged ? MOCK_NEW_SECRET_KEY : null,
@@ -356,7 +365,46 @@ export const rotationHandlers: MockHandlers = {
   },
 };
 
+/** The `proof` of `vault_rotate_key`: the typed password, or the two-minute proof of `reauthenticate` (used up). */
+function checkProof(state: MockState, proof: string | null): void {
+  if (proof === null || proof === "") {
+    requireFreshReauth(state, true);
+    return;
+  }
+  checkPassword(state, proof);
+  state.quick.reauthUntil = 0;
+}
+
 export const rotationAsyncHandlers: MockAsyncHandlers = {
+  vault_rotate_key: async (state, request) => {
+    requireUnlocked(state);
+    const { rotation } = state;
+    if (!state.vaults.some((vault) => vault.vaultId === request.vaultId)) {
+      fail("vaultNotFound");
+    }
+    if (rotation.job !== null) {
+      fail("rotationInProgress");
+    }
+    if (state.sync.config === null) {
+      fail("syncNotConfigured");
+    }
+    checkProof(state, request.proof);
+    forcedFailure(state);
+    if (!request.resealAttachments) {
+      await sleep(rotation.stepMs);
+      return { quickUnlockRemoved: false, hardwareKeysRemoved: 0, unreachableAttachments: 0, unreachable: [], finished: true };
+    }
+    rotation.job = jobOf("vault", "attachments", "none", { done: 0, total: 8 });
+    announce(state);
+    for (const count of [3, 6, 8]) {
+      await sleep(rotation.stepMs);
+      rotation.job = jobOf("vault", count === 8 ? "uploading" : "attachments", "none", { done: count, total: 8 });
+      announce(state);
+    }
+    rotation.job = null;
+    return { quickUnlockRemoved: false, hardwareKeysRemoved: 0, unreachableAttachments: 0, unreachable: [], finished: true };
+  },
+
   rekey_commit: async (state, request) => {
     requireUnlocked(state);
     const { rotation } = state;
@@ -381,6 +429,7 @@ export const rotationAsyncHandlers: MockAsyncHandlers = {
     return result;
   },
 
+  // eslint-disable-next-line complexity -- one branch per kind of job and per thing it needs.
   rotation_resume: async (state, request) => {
     requireUnlocked(state);
     const { rotation } = state;
@@ -401,6 +450,12 @@ export const rotationAsyncHandlers: MockAsyncHandlers = {
       }
     }
     forcedFailure(state);
+    if (job.kind === "vault") {
+      // A vault-only job re-seals the rest; no account credentials change.
+      await runPhases(state, job.phase);
+      rotation.job = null;
+      return { quickUnlockRemoved: false, hardwareKeysRemoved: 0, unreachableAttachments: 0, unreachable: [], finished: true };
+    }
     if (rotation.stuck) {
       // The job cannot finish now: the person may wait or give it up.
       return done(state, false);

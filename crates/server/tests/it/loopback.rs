@@ -38,9 +38,13 @@ pub struct Faults {
     pub outage_after_loss: AtomicBool,
     /// While set, every request answers 503 without reaching the server.
     pub outage: AtomicBool,
+    /// Every request that reached the listener (M9 T12: a revoked device
+    /// must not loop).
+    pub requests: std::sync::atomic::AtomicU64,
 }
 
 async fn apply_faults(State(faults): State<Arc<Faults>>, request: Request, next: Next) -> Response {
+    faults.requests.fetch_add(1, Ordering::SeqCst);
     if faults.outage.load(Ordering::SeqCst) {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }

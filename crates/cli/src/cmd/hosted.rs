@@ -26,6 +26,8 @@ fn sync_failed(reason: &str) -> CliError {
 fn transport_error(e: &TransportError) -> CliError {
     match e {
         TransportError::Rejected(Rejection::LoginFailed) => CliError::wrong_credentials(),
+        TransportError::SecondFactorUnsupported => CliError::two_factor_method_unsupported(),
+        TransportError::Revoked(reason) => CliError::session_revoked(*reason),
         other => sync_failed(&other.to_string()),
     }
 }
@@ -85,6 +87,13 @@ fn join(
     let login = hosted::join_login(url, email, password, secret_key, install, DEVICE_NAME)
         .map_err(|e| transport_error(&e))?;
     if login.grant.status == LoginStatus::TwoFactorRequired {
+        // An account with a security key only cannot be joined from the command line (no
+        // browser handoff here, ADR-0079): say so before asking for a code that does not exist.
+        let methods =
+            hosted::login_methods(url, &login.grant.token).map_err(|e| transport_error(&e))?;
+        if !methods.totp {
+            return Err(CliError::two_factor_method_unsupported());
+        }
         let code = two_factor_code(app)?;
         hosted::login_totp(url, &login.grant.token, &code).map_err(|e| transport_error(&e))?;
     }

@@ -16,6 +16,7 @@ use mosaic_sync::clock::SystemClock;
 use mosaic_sync::engine::{EngineConfig, OwnedSession, SyncEngine};
 use mosaic_sync::http::{HttpTransport, hosted};
 use mosaic_sync::transport::TransportKind;
+use mosaic_sync::wire::json::RegistrationMode;
 use mosaic_totp::{Algorithm, Digits, Otp, OtpKind, OtpSecret, Period};
 use mosaic_vault::session::{LockedSession, UnlockedSession};
 use mosaic_vault::storage::{Store, SyncConfig, SyncKind};
@@ -48,7 +49,20 @@ struct Desktop {
 
 impl Desktop {
     fn new() -> Self {
-        let server = LoopbackServer::start();
+        Self::on(LoopbackServer::start())
+    }
+
+    /// On a server whose canonical origin names the host `localhost`: only such a server can run
+    /// WebAuthn ceremonies (a relying party needs a host name), so only there does the account's
+    /// security key count as a second factor.
+    fn with_host_origin() -> Self {
+        let mut server = LoopbackServer::with_origin(RegistrationMode::Open, Some("localhost"));
+        let port = server.base.rsplit(':').next().unwrap().to_owned();
+        server.base = format!("http://localhost:{port}");
+        Self::on(server)
+    }
+
+    fn on(server: LoopbackServer) -> Self {
         let f = Fixture::new();
         let secret_key = SecretKey::parse(&f.secret_key).unwrap();
         let mut session = LockedSession::open(Store::open(&f.store).unwrap())
@@ -355,6 +369,73 @@ fn hosted_join_with_a_second_factor() {
     assert_eq!(d.token_files().len(), 1);
 }
 
+/// Gives the account a security key (a stored row: the ceremony is tested in the server's own
+/// tests; the CLI only asks which second factors the account has).
+fn add_security_key(d: &Desktop) {
+    d.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "INSERT INTO webauthn_credentials (account_id, credential_id, public_key,                  sign_count, label, created_at)                  SELECT account_id, randomblob(16), randomblob(8), 0, 'YubiKey', 0 FROM accounts",
+                [],
+            )?;
+            Ok::<_, mosaic_server::ApiError>(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn join_webauthn_only_exits_3_two_factor_method_unsupported() {
+    let d = Desktop::with_host_origin();
+    add_security_key(&d);
+    // The CLI asks for no code and prints no link: it names the way out.
+    let out = d.setup(&[d.f.secret_key.as_str(), PASSWORD]);
+    assert_eq!(out.code, 3, "{}", out.stderr);
+    assert_eq!(
+        out.error_json()["error"]["code"],
+        "twoFactorMethodUnsupported"
+    );
+    assert!(out.stderr.contains("security key"), "{}", out.stderr);
+    assert!(!out.stderr.contains("/webauthn/"), "no link is printed");
+    assert!(!d.own.exists(), "a failed join leaves no store");
+    assert_eq!(d.token_files().len(), 0);
+    // The German text is in the catalog too.
+    d.server.advance_ms(60_000);
+    let de =
+        d.f.cmd(&[
+            "--lang",
+            "de",
+            "setup",
+            "own-store",
+            "--server",
+            &d.url(),
+            "--email",
+            EMAIL,
+            "--store",
+            d.own(),
+        ])
+        .no_store_flag()
+        .prompts(&[d.f.secret_key.as_str(), PASSWORD])
+        .run();
+    assert_eq!(de.code, 3, "{}", de.stderr);
+    assert!(de.stderr.contains("Sicherheitsschlüssel"), "{}", de.stderr);
+}
+
+#[test]
+fn join_with_totp_and_webauthn_prompts_for_code() {
+    let d = Desktop::with_host_origin();
+    let secret = enable_totp(&d);
+    add_security_key(&d);
+    d.server.advance_ms(60_000);
+    let code = code_now(&d.server, &secret);
+    // The code prompt appears (the third line); a security key does not take its place.
+    let ok = d.setup_now(&[d.f.secret_key.as_str(), PASSWORD, &code]);
+    assert_eq!(ok.code, 0, "{}", ok.stderr);
+    assert!(d.own.exists());
+    assert_eq!(d.token_files().len(), 1);
+}
+
 #[test]
 fn hosted_join_with_a_wrong_password_or_key_stores_nothing() {
     let d = Desktop::new();
@@ -387,4 +468,77 @@ fn hosted_join_with_a_wrong_password_or_key_stores_nothing() {
         .no_store_flag()
         .run();
     assert_eq!(no_email.code, 2);
+}
+
+#[test]
+fn revoked_rekey_prints_secret_key_hint() {
+    let mut d = Desktop::new();
+    d.sync();
+    assert_eq!(d.setup(&[d.f.secret_key.as_str(), PASSWORD]).code, 0);
+    assert_eq!(d.cli(&["sync"], &[PASSWORD]).code, 0);
+    // The account is re-keyed elsewhere: the server ends every session and records why (reason 1).
+    d.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "INSERT INTO revoked_sessions (token_hash, account_id, reason, revoked_at)                  SELECT token_hash, account_id, 1, 0 FROM sessions",
+                [],
+            )?;
+            c.execute("DELETE FROM sessions", [])?;
+            Ok::<_, mosaic_server::ApiError>(())
+        })
+        .unwrap();
+    d.server.advance_ms(60_000);
+    let out = d.cli(&["sync"], &[PASSWORD]);
+    assert_eq!(out.code, 6, "{}", out.stderr);
+    assert_eq!(out.error_json()["error"]["code"], "syncSessionRevoked");
+    assert!(out.stderr.contains("Secret Key"), "{}", out.stderr);
+}
+
+/// Every reason the server records picks its own text (CRYPTO_SPEC §9.5, `docs/CLI.md`); only a
+/// re-key mentions the new Secret Key, and each ends with exit 6 and the same JSON code.
+#[test]
+fn revoked_reasons_pick_their_own_message() {
+    for (reason, expect, secret_key_hint) in [
+        (2, "master password was changed", false),
+        (3, "removed from your account", false),
+        (4, "operator of the server", false),
+        (1, "keys were renewed", true),
+    ] {
+        let mut d = Desktop::new();
+        d.sync();
+        assert_eq!(d.setup(&[d.f.secret_key.as_str(), PASSWORD]).code, 0);
+        assert_eq!(d.cli(&["sync"], &[PASSWORD]).code, 0);
+        d.server
+            .state
+            .db()
+            .run(|c| {
+                c.execute(
+                    &format!(
+                        "INSERT INTO revoked_sessions (token_hash, account_id, reason, revoked_at) \
+                         SELECT token_hash, account_id, {reason}, 0 FROM sessions"
+                    ),
+                    [],
+                )?;
+                c.execute("DELETE FROM sessions", [])?;
+                Ok::<_, mosaic_server::ApiError>(())
+            })
+            .unwrap();
+        d.server.advance_ms(60_000);
+        let out = d.cli(&["sync"], &[PASSWORD]);
+        assert_eq!(out.code, 6, "reason {reason}: {}", out.stderr);
+        assert_eq!(out.error_json()["error"]["code"], "syncSessionRevoked");
+        assert!(
+            out.stderr.contains(expect),
+            "reason {reason}: {}",
+            out.stderr
+        );
+        assert_eq!(
+            out.stderr.contains("Secret Key"),
+            secret_key_hint,
+            "reason {reason}: {}",
+            out.stderr
+        );
+    }
 }

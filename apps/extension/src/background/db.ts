@@ -7,6 +7,8 @@ export interface KeyValueStore {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
+  /** The keys that start with `prefix`, sorted. */
+  keys(prefix: string): Promise<string[]>;
   /** Removes everything (the e2e reset; nothing else calls it). */
   clear(): Promise<void>;
 }
@@ -47,6 +49,10 @@ export function createIndexedDbStore(): KeyValueStore {
     delete: async (key) => {
       await request((await store("readwrite")).delete(key));
     },
+    keys: async (prefix) =>
+      (await request((await store("readonly")).getAllKeys()))
+        .filter((key): key is string => typeof key === "string" && key.startsWith(prefix))
+        .sort(),
     clear: async () => {
       await request((await store("readwrite")).clear());
     },
@@ -65,6 +71,7 @@ export function createMemoryStore(): KeyValueStore {
       map.delete(key);
       return Promise.resolve();
     },
+    keys: (prefix) => Promise.resolve([...map.keys()].filter((key) => key.startsWith(prefix)).sort()),
     clear: () => {
       map.clear();
       return Promise.resolve();

@@ -340,3 +340,335 @@ fn a_rotation_pushed_but_not_committed_is_recovered_from_the_own_log() {
     }
     all_agree(&w, vault);
 }
+
+fn attachment_ids(
+    w: &World,
+    d: usize,
+    vault: VaultId,
+    item: ItemId,
+) -> Vec<mosaic_core::AttachmentId> {
+    let s = w.devs[d].s();
+    let mut ids: Vec<_> = s
+        .item(vault, item)
+        .unwrap()
+        .attachments()
+        .iter()
+        .map(|a| a.attachment_id)
+        .collect();
+    ids.sort_unstable_by_key(|a| *a.as_bytes());
+    ids
+}
+
+#[test]
+fn vault_rotate_key_reseals_attachments_and_resumes() {
+    use mosaic_sync::engine::RekeyError;
+    use mosaic_vault::session::{ResealStep, RotationKind};
+
+    let (mut w, vault, items) = three_devices();
+    for (i, item) in items.iter().take(2).enumerate() {
+        w.devs[0]
+            .s_mut()
+            .add_attachment(vault, *item, "f.bin", "application/octet-stream", &fill(i))
+            .unwrap();
+    }
+    w.converge(0);
+    let before: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+    assert_eq!(before[0].len() + before[1].len(), 2);
+
+    // A crash mid re-seal: the key rotated and the queue is open, one
+    // attachment is done.
+    {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+        dev.s_mut().queue_vault_attachment_reseal(vault).unwrap();
+        let step = dev.s_mut().reseal_next_attachment(None).unwrap();
+        assert!(matches!(step, ResealStep::Resealed { .. }), "{step:?}");
+        let job = dev.s().rotation_job().unwrap().unwrap();
+        assert_eq!(job.kind, RotationKind::Vault);
+        // No second rotation starts on top of an open job.
+        assert!(matches!(
+            dev.engine
+                .rotate_vault_key(&mut dev.access, &w.clock, vault, true),
+            Err(RekeyError::Session(
+                mosaic_vault::session::Error::RotationInProgress
+            ))
+        ));
+    }
+
+    // The resume finishes the rest, uploads and closes the job.
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert_eq!(progress.unreachable_attachments.len(), 0);
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    {
+        let dev = &mut w.devs[0];
+        assert!(matches!(
+            dev.engine.vault_rotate_continue(&mut dev.access, &w.clock),
+            Err(RekeyError::NoJob)
+        ));
+    }
+    let after: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+    for i in 0..2 {
+        assert_eq!(after[i].len(), before[i].len());
+        assert!(after[i].iter().all(|a| !before[i].contains(a)), "item {i}");
+    }
+
+    // The other devices converge on the new IDs and read the files.
+    w.converge(1);
+    for d in 1..3 {
+        for (i, item) in items.iter().take(2).enumerate() {
+            let ids = attachment_ids(&w, d, vault, *item);
+            assert_eq!(ids, after[i], "device {d}");
+            let data = w.devs[d].s().attachment(vault, *item, ids[0]).unwrap();
+            assert_eq!(data.expose_secret(), &fill(i)[..], "device {d}");
+        }
+    }
+    all_agree(&w, vault);
+    one_call_rotation_reseals(&mut w, vault, &items, &after);
+}
+
+/// M9-F1: the vault-only job is opened before the key is offered, so a kill
+/// between the key commit and the re-seal leaves a job that the resume finds
+/// and finishes. A job whose key never reached the backend is dropped.
+#[test]
+fn a_kill_between_the_key_and_the_reseal_leaves_a_job_the_resume_finishes() {
+    use mosaic_vault::session::{RotationKind, RotationPhase};
+
+    let (mut w, vault, items) = three_devices();
+    for (i, item) in items.iter().take(2).enumerate() {
+        w.devs[0]
+            .s_mut()
+            .add_attachment(vault, *item, "f.bin", "application/octet-stream", &fill(i))
+            .unwrap();
+    }
+    w.converge(0);
+    let generation = |w: &World| {
+        w.devs[0]
+            .s()
+            .vaults()
+            .into_iter()
+            .find(|v| v.vault_id == vault)
+            .unwrap()
+            .key_generation
+    };
+    let before: Vec<_> = items
+        .iter()
+        .map(|i| attachment_ids(&w, 0, vault, *i))
+        .collect();
+
+    // The offer was opened, then the device died before the key was sent:
+    // the resume pulls, finds no new key and drops the job.
+    let start = generation(&w);
+    let next = start.next().unwrap();
+    assert_eq!(
+        w.devs[0].s_mut().open_vault_offer_job(vault, next).unwrap(),
+        2
+    );
+    let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+    assert_eq!(
+        (job.kind, job.phase),
+        (RotationKind::Vault, RotationPhase::BackendStarted)
+    );
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    assert_eq!(generation(&w), start, "nothing rotated");
+    for (i, item) in items.iter().enumerate() {
+        assert_eq!(attachment_ids(&w, 0, vault, *item), before[i]);
+    }
+
+    // The offer was opened and the key committed, then the device died
+    // before the re-seal: the job is still there, and the resume re-seals.
+    w.devs[0].s_mut().open_vault_offer_job(vault, next).unwrap();
+    {
+        let dev = &mut w.devs[0];
+        let outcome = dev
+            .engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+        assert_eq!(outcome, RotationOutcome::Rotated(next));
+    }
+    let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+    assert_eq!(job.phase, RotationPhase::BackendStarted, "the job survived");
+    let progress = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap()
+    };
+    assert!(progress.finished, "{progress:?}");
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    for i in 0..2 {
+        let after = attachment_ids(&w, 0, vault, items[i]);
+        assert_eq!(after.len(), before[i].len());
+        assert!(after.iter().all(|a| !before[i].contains(a)), "item {i}");
+    }
+    w.converge(1);
+    all_agree(&w, vault);
+}
+
+/// M9-F1 follow-up: a key offer that never reached the backend (the job was
+/// opened, then the push failed before it was sent) does not block a plain
+/// retry of `rotate_vault_key`: the retry drops the stale job and rotates
+/// once. An offer that did land is finished by the retry, not rotated again,
+/// and a stale offer of another vault still answers `RotationInProgress`.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario: three kinds of stale offer"
+)]
+fn a_retry_after_a_failed_key_offer_rotates_once() {
+    use mosaic_sync::engine::RekeyError;
+    use mosaic_vault::session::RotationPhase;
+
+    let (mut w, vault, items) = three_devices();
+    for (i, item) in items.iter().take(2).enumerate() {
+        w.devs[0]
+            .s_mut()
+            .add_attachment(vault, *item, "f.bin", "application/octet-stream", &fill(i))
+            .unwrap();
+    }
+    w.converge(0);
+    let ids = |w: &World| -> Vec<_> {
+        items
+            .iter()
+            .map(|i| attachment_ids(w, 0, vault, *i))
+            .collect()
+    };
+    let fresh = |old: &[Vec<mosaic_core::AttachmentId>], new: &[Vec<mosaic_core::AttachmentId>]| {
+        (0..2).all(|i| new[i].len() == old[i].len() && new[i].iter().all(|a| !old[i].contains(a)))
+    };
+    let before = ids(&w);
+
+    // The failed offer: the job is open, the backend never saw the key.
+    let start = generation(&w, 0, vault);
+    let next = start.next().unwrap();
+    w.devs[0].s_mut().open_vault_offer_job(vault, next).unwrap();
+    let done = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .rotate_vault_key(&mut dev.access, &w.clock, vault, true)
+            .unwrap()
+    };
+    assert_eq!(done.outcome, RotationOutcome::Rotated(next));
+    assert!(done.progress.unwrap().finished);
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    assert_eq!(generation(&w, 0, vault), next, "rotated once");
+    let after = ids(&w);
+    assert!(fresh(&before, &after), "{before:?} {after:?}");
+
+    // The offer landed (the key committed, then the device died before the
+    // re-seal): the retry re-seals under that key and rotates no further,
+    // even without asking for the re-seal itself.
+    let landed = next.next().unwrap();
+    w.devs[0]
+        .s_mut()
+        .open_vault_offer_job(vault, landed)
+        .unwrap();
+    {
+        let dev = &mut w.devs[0];
+        let outcome = dev
+            .engine
+            .rotate_vault(&mut dev.access, &w.clock, vault)
+            .unwrap();
+        assert_eq!(outcome, RotationOutcome::Rotated(landed));
+    }
+    let job = w.devs[0].s().rotation_job().unwrap().unwrap();
+    assert_eq!(job.phase, RotationPhase::BackendStarted);
+    let done = {
+        let dev = &mut w.devs[0];
+        dev.engine
+            .rotate_vault_key(&mut dev.access, &w.clock, vault, false)
+            .unwrap()
+    };
+    assert_eq!(done.outcome, RotationOutcome::Rotated(landed));
+    assert!(done.progress.unwrap().finished);
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    assert_eq!(generation(&w, 0, vault), landed, "no second rotation");
+    let last = ids(&w);
+    assert!(fresh(&after, &last), "{after:?} {last:?}");
+
+    // A stale offer of another vault is not this call's to settle.
+    let other = w.new_vault(0, "Other");
+    let item = w.devs[0]
+        .s_mut()
+        .add_item(other, &ItemType::Login, |e| e.set_title("other"))
+        .unwrap();
+    w.devs[0]
+        .s_mut()
+        .add_attachment(other, item, "f.bin", "application/octet-stream", &fill(3))
+        .unwrap();
+    w.converge(0);
+    let other_next = generation(&w, 0, other).next().unwrap();
+    w.devs[0]
+        .s_mut()
+        .open_vault_offer_job(other, other_next)
+        .unwrap();
+    {
+        let dev = &mut w.devs[0];
+        assert!(matches!(
+            dev.engine
+                .rotate_vault_key(&mut dev.access, &w.clock, vault, true),
+            Err(RekeyError::Session(
+                mosaic_vault::session::Error::RotationInProgress
+            ))
+        ));
+        let progress = dev
+            .engine
+            .vault_rotate_continue(&mut dev.access, &w.clock)
+            .unwrap();
+        assert!(progress.finished, "{progress:?}");
+    }
+    assert!(w.devs[0].s().rotation_job().unwrap().is_none());
+    assert_eq!(generation(&w, 0, vault), landed);
+    assert_eq!(ids(&w), last);
+    w.converge(1);
+    all_agree(&w, vault);
+}
+
+/// The fill byte of test attachment `i`.
+fn fill(i: usize) -> [u8; 64] {
+    [u8::try_from(i).unwrap(); 64]
+}
+
+/// The one-call path: rotate and re-seal in a single run.
+fn one_call_rotation_reseals(
+    w: &mut World,
+    vault: VaultId,
+    items: &[ItemId],
+    after: &[Vec<mosaic_core::AttachmentId>],
+) {
+    let outcome = {
+        let dev = &mut w.devs[1];
+        dev.engine
+            .rotate_vault_key(&mut dev.access, &w.clock, vault, true)
+            .unwrap()
+    };
+    assert!(matches!(outcome.outcome, RotationOutcome::Rotated(_)));
+    assert!(outcome.progress.unwrap().finished);
+    w.converge(1);
+    for (i, item) in items.iter().take(2).enumerate() {
+        let ids = attachment_ids(w, 2, vault, *item);
+        assert!(ids.iter().all(|a| !after[i].contains(a)));
+        let data = w.devs[2].s().attachment(vault, *item, ids[0]).unwrap();
+        assert_eq!(data.expose_secret(), &fill(i)[..]);
+    }
+}

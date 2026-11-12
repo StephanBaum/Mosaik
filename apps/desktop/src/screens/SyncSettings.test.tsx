@@ -121,7 +121,7 @@ describe("sync settings: not set up", () => {
     await user.type(within(server).getByLabelText("6-digit code"), "123456");
     await user.click(within(server).getByRole("button", { name: "Verify" }));
     await within(section).findByRole("button", { name: "Sync now" });
-    expect(within(section).getByText("Two-step verification is on.")).toBeTruthy();
+    expect(within(section).getByText("Codes from an authenticator app are on.")).toBeTruthy();
   });
 
   it("connects an empty folder", async () => {
@@ -135,7 +135,7 @@ describe("sync settings: not set up", () => {
     await within(section).findByRole("button", { name: "Sync now" });
     expect(within(section).getByText(/To lock a device out, change your master password and Secret Key/)).toBeTruthy();
     // A folder has no sync account: no two-step verification, no Remove.
-    expect(within(section).queryByRole("heading", { name: "Two-step verification" })).toBeNull();
+    expect(within(section).queryByRole("heading", { name: "Authenticator app" })).toBeNull();
     expect(within(section).queryByRole("button", { name: /^Remove / })).toBeNull();
   });
 
@@ -170,7 +170,7 @@ describe("sync settings: connected", () => {
     expect(within(section).getByText("Mosaic on macOS")).toBeTruthy();
     expect(within(section).getByText("Unnamed device")).toBeTruthy();
     expect(within(section).getAllByText("This device").length).toBeGreaterThan(0);
-    expect(within(section).getByText("Two-step verification is on.")).toBeTruthy();
+    expect(within(section).getByText("Codes from an authenticator app are on.")).toBeTruthy();
     await user.click(within(section).getByRole("button", { name: "Sync now" }));
     await within(section).findByText(/^Last synced (now|0 seconds ago|in 0 seconds)/);
   });
@@ -262,7 +262,7 @@ describe("sync settings: connected", () => {
 
   it("turns two-step verification on, then off", async () => {
     const { user, section } = await openSync({ variant: "hostedNoTotp" });
-    expect(await within(section).findByText("Two-step verification is off.")).toBeTruthy();
+    expect(await within(section).findByText("Codes from an authenticator app are off.")).toBeTruthy();
     expect(within(section).getByText(/It protects the server account, not your vaults/)).toBeTruthy();
     await user.click(within(section).getByRole("button", { name: "Turn on…" }));
     let dialog = within(screen.getByRole("dialog"));
@@ -276,7 +276,7 @@ describe("sync settings: connected", () => {
     dialog = within(screen.getByRole("dialog"));
     await user.type(dialog.getByLabelText("6-digit code"), "123456");
     await user.click(dialog.getByRole("button", { name: "Turn on" }));
-    await within(section).findByText("Two-step verification is on.");
+    await within(section).findByText("Codes from an authenticator app are on.");
     expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(within(section).getByRole("button", { name: "Turn off…" }));
@@ -284,7 +284,7 @@ describe("sync settings: connected", () => {
     await user.type(dialog.getByLabelText("Master password"), "mosaic");
     await user.type(dialog.getByLabelText("6-digit code"), "123456");
     await user.click(dialog.getByRole("button", { name: "Turn off" }));
-    await within(section).findByText("Two-step verification is off.");
+    await within(section).findByText("Codes from an authenticator app are off.");
   });
 
   it("shows a wrong two-step code in the setup dialog", async () => {
@@ -493,7 +493,7 @@ describe("sync settings: focus and keyboard", () => {
     expect(secret.getAttribute("data-mask")).toMatch(/^\u2022+$/);
     await user.type(within(screen.getByRole("dialog")).getByLabelText("6-digit code"), "123456");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Turn on" }));
-    await within(section).findByText("Two-step verification is on.");
+    await within(section).findByText("Codes from an authenticator app are on.");
     await waitFor(() => {
       expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Turn off…" }));
     });

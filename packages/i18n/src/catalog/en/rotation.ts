@@ -285,4 +285,6 @@ export const rotation = {
   "rotation.file.conflict.rekey": "Re-key again from this device",
   "rotation.file.conflict.keep":
     "Hide notice",
+  "rotation.resume.body.vault":
+    "Re-encrypting the attachments of a vault was cut off. Nothing is lost. Continue to finish it.",
 } as const satisfies Record<string, string>;

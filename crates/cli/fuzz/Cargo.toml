@@ -1,0 +1,40 @@
+[package]
+name = "mosaic-cli-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "cargo-fuzz targets for the CLI input: the argument parser and the inject template scanner (nightly only)"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace (nightly-only, libFuzzer).
+# To check without cargo-fuzz: cargo check --manifest-path
+# crates/cli/fuzz/Cargo.toml --bins
+[workspace]
+members = ["."]
+
+[lints.rust]
+# CLAUDE.md: no unsafe code in any crate, the fuzz crates included.
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[dependencies]
+# libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
+libfuzzer-sys = "=0.4.10"
+# The library half of the CLI (no `test-util`: the real backends).
+mosaic-cli = { path = ".." }
+
+[[bin]]
+name = "cli_args"
+path = "fuzz_targets/cli_args.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inject_template"
+path = "fuzz_targets/inject_template.rs"
+test = false
+doc = false
+bench = false

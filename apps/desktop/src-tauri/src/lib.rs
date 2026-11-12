@@ -40,6 +40,7 @@ pub mod autolock;
 pub mod browser;
 pub mod clipboard;
 pub mod commands;
+pub mod connector;
 pub mod contract;
 pub mod dialogs;
 pub mod emergency_kit;
@@ -163,6 +164,7 @@ pub fn run() -> tauri::Result<()> {
                 .with_sync_storage(&app.config().identifier, dir.clone())
                 .with_clipboard(SystemClipboard::factory())
                 .with_dialogs(Box::new(NativeDialogs::new(app.handle().clone())))
+                .with_opener(Box::new(crate::sync::webauthn_flow::SystemOpener))
                 .with_screen_capture(Box::new(NativeScreenCapture::new(app.handle().clone())))
                 .with_focus({
                     let handle = app.handle().clone();
@@ -173,6 +175,8 @@ pub fn run() -> tauri::Result<()> {
             // platform key before the first unlock screen.
             backend.reconcile_quick_unlock();
             backend.sweep_cli_sessions();
+            // macOS: the per-user manifests point into the signed bundle.
+            connector::refresh_at_start();
             let state = AppState::new(backend);
 
             let weak = state.downgrade();
@@ -200,9 +204,20 @@ pub fn run() -> tauri::Result<()> {
             // After the state exists: the endpoint reaches the vault through it.
             state.backend().browser.start(&dir, state.downgrade());
 
-            let status = shortcut::install(app.handle());
+            let wanted = state.backend().settings_snapshot().global_shortcut;
+            let accelerator = shortcut::parse_accelerator(&wanted)
+                .or_else(|_| {
+                    shortcut::parse_accelerator(
+                        &crate::contract::settings::default_global_shortcut(),
+                    )
+                })
+                .unwrap_or_else(|_| shortcut::default_accelerator());
+            let (status, registrar) = shortcut::install(app.handle(), accelerator);
             if let Ok(mut slot) = guard(&state.backend().shortcut_status) {
                 *slot = Some(status);
+            }
+            if let Ok(mut slot) = guard(&state.backend().shortcut_registrar) {
+                *slot = registrar;
             }
             Ok(())
         })
@@ -247,6 +262,8 @@ mod flow_tests;
 #[cfg(test)]
 mod handler_tests;
 #[cfg(test)]
+mod m9_ui_tests;
+#[cfg(test)]
 mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
@@ -254,6 +271,8 @@ mod quick_unlock_tests;
 mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
+#[cfg(test)]
+mod release_overlay_tests;
 #[cfg(test)]
 mod rotation_handler_tests;
 #[cfg(test)]
@@ -266,3 +285,5 @@ mod sync_handler_tests;
 mod test_support;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod webauthn_flow_tests;

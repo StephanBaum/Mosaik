@@ -7,6 +7,7 @@ use tauri::State;
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::settings::{Settings, UpdateSettingsRequest};
 use crate::persist::{has_lock_trigger, normalize, same_protection};
+use crate::shortcut::{ShortcutStatus, parse_accelerator};
 use crate::state::{AppState, Backend};
 
 /// `get_settings`.
@@ -39,6 +40,40 @@ pub fn weakens(old: &Settings, new: &Settings) -> bool {
 }
 
 impl Backend {
+    /// Checks and registers a new global shortcut (M3-R10).
+    ///
+    /// # Errors
+    /// `invalidInput` (does not parse), `shortcutUnsupported`,
+    /// `shortcutUnavailable` (another program holds it).
+    fn apply_global_shortcut(&self, text: &str) -> IpcResult<()> {
+        let accelerator =
+            parse_accelerator(text).map_err(|_| IpcError::new(ErrorCode::InvalidInput))?;
+        let status = self.shortcut_status.lock().ok().and_then(|s| *s);
+        if status == Some(ShortcutStatus::Unsupported) {
+            return Err(IpcError::new(ErrorCode::ShortcutUnsupported));
+        }
+        let registrar = self
+            .shortcut_registrar
+            .lock()
+            .map_err(|_| IpcError::INTERNAL)?
+            .clone();
+        // Without a hotkey manager (a test) the value is stored as it is.
+        let Some(registrar) = registrar else {
+            return Ok(());
+        };
+        let now = registrar(accelerator);
+        if let Ok(mut slot) = self.shortcut_status.lock() {
+            *slot = Some(now);
+        }
+        match now {
+            ShortcutStatus::Registered => Ok(()),
+            ShortcutStatus::Unsupported => Err(IpcError::new(ErrorCode::ShortcutUnsupported)),
+            ShortcutStatus::Conflict | ShortcutStatus::Unavailable => {
+                Err(IpcError::new(ErrorCode::ShortcutUnavailable))
+            }
+        }
+    }
+
     /// Stores new settings (clamped). A change that turns a protection off
     /// needs `password`, checked against the vault.
     ///
@@ -46,7 +81,10 @@ impl Backend {
     /// `quickUnlockMaxAgeDays`.
     ///
     /// # Errors
-    /// `invalidInput` when no lock trigger this system can deliver is on
+    /// `shortcutUnavailable` when the new global shortcut cannot be registered
+    /// (the old one stays), `shortcutUnsupported` where the system has none
+    /// (Wayland); `invalidInput` for a shortcut that does not parse or when no
+    /// lock trigger this system can deliver is on
     /// (CRYPTO_SPEC §11; screen lock counts only where
     /// `screenLockDetection`); `reauthRequired` without a password for a
     /// weakening change; `locked` for a change of a protection setting while locked (ADR-0030);
@@ -68,6 +106,10 @@ impl Backend {
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
             self.reauthenticate(password)?;
+        }
+
+        if new.global_shortcut != old.global_shortcut {
+            self.apply_global_shortcut(&new.global_shortcut)?;
         }
 
         // Protection settings are written with a MAC (ADR-0030), which

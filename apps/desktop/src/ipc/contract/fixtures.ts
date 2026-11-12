@@ -42,6 +42,8 @@ export interface EnumFixtures {
   importEntryWarning: string[];
   importSkipReason: string[];
   shortcutState: string[];
+  revokedReason: string[];
+  vaultMetaField: string[];
   sshSkipReason: string[];
   sshSignFailReason: string[];
   sshDecision: string[];
@@ -67,6 +69,8 @@ export interface EnumFixtures {
   rekeyBackend: string[];
   registrationMode: string[];
   hostedMode: string[];
+  handoffState: string[];
+  handoffStep: string[];
   folderState: string[];
   devicePlatform: string[];
   shareRole: string[];

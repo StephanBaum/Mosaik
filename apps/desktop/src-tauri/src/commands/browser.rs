@@ -6,9 +6,9 @@ use tauri::State;
 
 use crate::browser::parse_id;
 use crate::contract::browser::{
-    BrowserPairingRespondRequest, BrowserPasskeyRespondRequest, BrowserRemovePairingRequest,
-    BrowserRotationRespondRequest, BrowserRotationRevealRequest, BrowserRotationRevealed,
-    BrowserSaveRespondRequest, BrowserStatus,
+    BrowserConnectorAudit, BrowserPairingRespondRequest, BrowserPasskeyRespondRequest,
+    BrowserRemovePairingRequest, BrowserRotationRespondRequest, BrowserRotationRevealRequest,
+    BrowserRotationRevealed, BrowserSaveRespondRequest, BrowserStatus,
 };
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::state::{AppState, Backend};
@@ -17,6 +17,24 @@ use crate::state::{AppState, Backend};
 #[tauri::command]
 pub async fn browser_status(state: State<'_, AppState>) -> IpcResult<BrowserStatus> {
     Ok(state.backend().browser_status())
+}
+
+/// `browser_connector_audit`: the per-user native-messaging entries that do
+/// not point to the installed host (`crate::connector`, ADR-0083).
+#[tauri::command]
+pub async fn browser_connector_audit(
+    state: State<'_, AppState>,
+) -> IpcResult<BrowserConnectorAudit> {
+    Ok(state.backend().browser_connector_audit())
+}
+
+/// `browser_connector_repair`: points the per-user entries that differ to the
+/// installed host and audits again.
+#[tauri::command]
+pub async fn browser_connector_repair(
+    state: State<'_, AppState>,
+) -> IpcResult<BrowserConnectorAudit> {
+    state.run(Backend::browser_connector_repair).await
 }
 
 /// `browser_remove_pairing`.
@@ -82,6 +100,30 @@ pub async fn browser_rotation_reveal(
 }
 
 impl Backend {
+    /// The connector audit: what differs from the host installed with this
+    /// app. Empty in a build without an installed host.
+    #[must_use]
+    pub fn browser_connector_audit(&self) -> BrowserConnectorAudit {
+        crate::connector::audit()
+    }
+
+    /// The connector repair: rewrites the per-user entries that differ to
+    /// the installed host (found from this executable, never from the
+    /// webview), then audits again.
+    ///
+    /// # Errors
+    /// `browserHostMissing` without an installed host (a developer build);
+    /// `internal` if an entry could not be written.
+    pub fn browser_connector_repair(&self) -> IpcResult<BrowserConnectorAudit> {
+        self.touch();
+        crate::connector::repair().map_err(|e| match e {
+            crate::connector::RepairError::HostMissing => {
+                IpcError::new(ErrorCode::BrowserHostMissing)
+            }
+            crate::connector::RepairError::WriteFailed => IpcError::INTERNAL,
+        })
+    }
+
     /// The endpoint and the paired browsers.
     #[must_use]
     pub fn browser_status(&self) -> BrowserStatus {

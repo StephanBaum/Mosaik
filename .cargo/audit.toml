@@ -7,5 +7,5 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant (zbus 5, single-instance on Linux)
     "RUSTSEC-2026-0371", # zbus_names (zbus 5, single-instance on Linux)
     "RUSTSEC-2026-0372", # zvariant_derive (zbus 5, single-instance on Linux)
-    "RUSTSEC-2026-0387", # crypto-bigint 0.5.5 (elliptic-curve 0.13 via opaque-ke/voprf; ristretto255 suite never calls it; ADR-0046)
+    "RUSTSEC-2026-0387", # crypto-bigint 0.5.5 (elliptic-curve 0.13 via opaque-ke/voprf; ristretto255 suite never calls it, ADR-0046; also p256 0.13 via passkey-auth, ECDSA verification on public inputs only, ADR-0078)
 ]

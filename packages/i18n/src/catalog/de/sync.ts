@@ -104,25 +104,81 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "Um ein Gerät auszusperren, ändere dein Master-Passwort und deinen Secret Key.",
 
-  "settings.sync.totp.title": "Bestätigung in zwei Schritten",
+  "settings.sync.totp.title": "Authenticator-App",
   "settings.sync.totp.body":
     "Verlangt einen Code aus einer Authenticator-App, wenn sich jemand bei deinem Sync-Konto anmeldet. Das schützt das Konto auf dem Server, nicht deine Tresore: Die bleiben mit deinem Master-Passwort und Secret Key verschlüsselt.",
-  "settings.sync.totp.on": "Die Bestätigung in zwei Schritten ist an.",
-  "settings.sync.totp.off": "Die Bestätigung in zwei Schritten ist aus.",
+  "settings.sync.totp.on": "Codes aus einer Authenticator-App sind an.",
+  "settings.sync.totp.off": "Codes aus einer Authenticator-App sind aus.",
   "settings.sync.totp.enable": "Einschalten…",
   "settings.sync.totp.disable": "Ausschalten…",
-  "settings.sync.totp.beginTitle": "Bestätigung in zwei Schritten einschalten",
+  "settings.sync.totp.beginTitle": "Codes aus einer Authenticator-App einschalten",
   "settings.sync.totp.beginBody": "Gib zum Starten dein Master-Passwort ein.",
   "settings.sync.totp.begin": "Weiter",
   "settings.sync.totp.setupBody":
     "Füge diesen Schlüssel deiner Authenticator-App hinzu und gib dann den 6-stelligen Code ein, den sie anzeigt.",
   "settings.sync.totp.secret": "Einrichtungsschlüssel",
   "settings.sync.totp.confirm": "Einschalten",
-  "settings.sync.totp.disableTitle": "Bestätigung in zwei Schritten ausschalten",
+  "settings.sync.totp.disableTitle": "Codes aus einer Authenticator-App ausschalten",
   "settings.sync.totp.disableBody": "Gib dein Master-Passwort und einen aktuellen Code ein.",
   "settings.sync.totp.disableConfirm": "Ausschalten",
-  "settings.sync.totp.enabledToast": "Die Bestätigung in zwei Schritten ist an.",
-  "settings.sync.totp.disabledToast": "Die Bestätigung in zwei Schritten ist aus.",
+  "settings.sync.totp.enabledToast": "Codes aus einer Authenticator-App sind an.",
+  "settings.sync.totp.disabledToast": "Codes aus einer Authenticator-App sind aus.",
+
+  "settings.sync.key.title": "Sicherheitsschlüssel",
+  "settings.sync.key.body":
+    "Ein Sicherheitsschlüssel kann ein zweiter Schritt bei der Anmeldung an deinem Sync-Konto sein. Er schützt das Konto auf dem Server, nicht deine Tresore. Zum Hinzufügen und Benutzen öffnet sich dein Browser.",
+  "settings.sync.key.none": "Noch kein Sicherheitsschlüssel hinzugefügt.",
+  "settings.sync.key.added": "Hinzugefügt {when}",
+  "settings.sync.key.lastUsed": "Zuletzt benutzt {when}",
+  "settings.sync.key.neverUsed": "Noch nicht benutzt",
+  "settings.sync.key.add": "Sicherheitsschlüssel hinzufügen…",
+  "settings.sync.key.addTitle": "Sicherheitsschlüssel hinzufügen",
+  "settings.sync.key.addBody":
+    "Gib dem Schlüssel einen Namen und dein Master-Passwort ein. Mosaic öffnet dann deinen Browser, in dem du den Schlüssel benutzt.",
+  "settings.sync.key.label": "Name des Schlüssels",
+  "settings.sync.key.labelHint": "Zum Beispiel „Schreibtisch-Schlüssel“. Bis zu 64 Zeichen.",
+  "settings.sync.key.addConfirm": "Weiter",
+  "settings.sync.key.addedToast": "Sicherheitsschlüssel hinzugefügt.",
+  "settings.sync.key.noBackup":
+    "Ein Sicherheitsschlüssel wäre dein einziger zweiter Schritt. Verlierst du ihn, kannst du dich vielleicht nicht mehr an deinem Sync-Konto anmelden. Wir empfehlen eine Absicherung: einen zweiten Schlüssel oder einen Code aus einer Authenticator-App.",
+  "settings.sync.key.recommend":
+    "Wir empfehlen zwei Methoden, zum Beispiel zwei Schlüssel oder einen Schlüssel und einen Code aus einer Authenticator-App.",
+  "settings.sync.key.remove": "Entfernen",
+  "settings.sync.key.removeLabel": "{name} entfernen",
+  "settings.sync.key.removeTitle": "{name} entfernen?",
+  "settings.sync.key.removeBody":
+    "Du bestätigst einmal mit einem Sicherheitsschlüssel in deinem Browser. Danach funktioniert dieser Schlüssel nicht mehr für die Anmeldung.",
+  "settings.sync.key.removeLast":
+    "Das ist dein letzter zweiter Schritt. Die Bestätigung in zwei Schritten wird ausgeschaltet, und dein Sync-Konto ist dann nur noch durch dein Master-Passwort und deinen Secret Key geschützt.",
+  "settings.sync.key.removeCode": "Code der Authenticator-App",
+  "settings.sync.key.removeCodeHint":
+    "Gib einen aktuellen Code ein, um den Schlüssel gleich zu entfernen. Lass das Feld leer, um stattdessen im Browser mit einem Sicherheitsschlüssel zu bestätigen.",
+  "settings.sync.key.removeConfirm": "Schlüssel entfernen",
+  "settings.sync.key.removedToast": "Sicherheitsschlüssel entfernt.",
+  "settings.sync.key.confirmTitle": "Mit einem Sicherheitsschlüssel bestätigen",
+  "settings.sync.key.confirmBody":
+    "Zum Entfernen eines Schlüssels brauchst du einen zweiten Schritt. Gib dein Master-Passwort ein und bestätige dann mit einem Schlüssel in deinem Browser.",
+  "settings.sync.key.step.methods": "Wir prüfen, wie sich dieses Konto anmeldet…",
+  "settings.sync.key.step.useKey": "Sicherheitsschlüssel benutzen (öffnet deinen Browser)",
+  "settings.sync.key.step.keyOnlyTitle": "Benutze deinen Sicherheitsschlüssel",
+  "settings.sync.key.step.keyOnlyBody":
+    "Dieses Konto ist durch einen Sicherheitsschlüssel geschützt. Mosaic öffnet eine Seite in deinem Browser, auf der du ihn benutzt.",
+  "settings.sync.key.step.or": "Oder mit einem Code",
+  "settings.sync.key.wait.login": "Mit deinem Sicherheitsschlüssel anmelden",
+  "settings.sync.key.wait.register": "Deinen Sicherheitsschlüssel hinzufügen",
+  "settings.sync.key.wait.confirm": "Mit deinem Sicherheitsschlüssel bestätigen",
+  "settings.sync.key.wait.lead":
+    "Dein Browser hat eine Mosaic-Seite deines Sync-Servers geöffnet. Tippe dort diesen Code ein und benutze dann deinen Sicherheitsschlüssel.",
+  "settings.sync.key.wait.codeLabel": "Code zum Eintippen im Browser",
+  "settings.sync.key.wait.codeSpoken": "Code zum Eintippen im Browser: {digits}",
+  "settings.sync.key.wait.expires": "Dieser Schritt läuft um {time} ab.",
+  "settings.sync.key.wait.waiting": "Wir warten auf deinen Sicherheitsschlüssel…",
+  "settings.sync.key.wait.done": "Fertig.",
+  "settings.sync.key.wait.expired": "Dieser Schritt hat zu lange gedauert. Starte ihn noch einmal.",
+  "settings.sync.key.wait.failed":
+    "Der Schritt ist fehlgeschlagen: Der Code war zu oft falsch, oder der Sicherheitsschlüssel wurde nicht akzeptiert. Es wurde nichts geändert. Starte noch einmal.",
+  "settings.sync.key.wait.reopen": "Browserseite noch einmal öffnen",
+  "settings.sync.key.wait.retry": "Noch einmal starten",
 
   "sync.warning.region": "Sync-Warnungen",
   "sync.warning.unknownDevice": "einem anderen Gerät",
@@ -155,4 +211,12 @@ export const sync = {
 
   "toast.syncAttention":
     "Die Synchronisierung hat einige Einträge von einem anderen Gerät zusammengeführt oder repariert. Sieh nach, was sich geändert hat.",
+  "sync.revoked.rekey":
+    "Die Schlüssel dieses Kontos wurden auf einem anderen Gerät erneuert: Melde dich mit dem neuen Secret Key aus deinem neuesten Emergency Kit an.",
+  "sync.revoked.passwordChange":
+    "Dein Master-Passwort wurde auf einem anderen Gerät geändert: Melde dich mit dem neuen Passwort an.",
+  "sync.revoked.deviceRemoved":
+    "Dieses Gerät wurde auf einem anderen Gerät aus deinem Konto entfernt. Melde dich erneut an, um es wieder hinzuzufügen.",
+  "sync.revoked.operator":
+    "Der Betreiber des Servers hat diese Sitzung beendet. Melde dich erneut an, um weiter zu synchronisieren.",
 } satisfies Record<keyof typeof en, string>;

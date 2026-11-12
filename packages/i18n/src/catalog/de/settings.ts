@@ -98,4 +98,22 @@ export const settings = {
     "Um einen Eintrag aus einem Tresor mit Sicherheitsschlüssel zu verschieben, brauchst du dein Master-Passwort.",
   "toast.settingsReset":
     "Deine Sicherheitseinstellungen wurden außerhalb von Mosaic geändert und auf sichere Standardwerte zurückgesetzt.",
+  "settings.shortcut.title":
+    "Kürzel für die Schnellsuche",
+  "settings.shortcut.body":
+    "Drücke diese Kombination in einem beliebigen Programm, um die Suche von Mosaic zu öffnen.",
+  "settings.shortcut.label":
+    "Kürzel",
+  "settings.shortcut.hint":
+    "Klicke ins Feld und drücke dann die gewünschten Tasten: Strg, Alt oder ⌘ (auf dem Mac) plus eine weitere Taste.",
+  "settings.shortcut.save":
+    "Kürzel speichern",
+  "settings.shortcut.reset":
+    "Standard verwenden",
+  "settings.shortcut.saved":
+    "Kürzel gespeichert: {shortcut}.",
+  "settings.shortcut.invalid":
+    "Dieses Kürzel kann Mosaic nicht verwenden. Drücke Strg, Alt oder ⌘ (auf dem Mac) zusammen mit einer weiteren Taste.",
+  "settings.shortcut.unsupported":
+    "Dein System erlaubt Apps keine globale Tastenkombination. Deshalb lässt es sich hier nicht ändern.",
 } satisfies Record<keyof typeof en, string>;

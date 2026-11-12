@@ -625,3 +625,246 @@ fn hosted_rekey_signs_the_other_device_out_and_the_new_kit_brings_it_back() {
         })
         .unwrap();
 }
+
+// ---- vault_rotate_key (M7-R2) ---------------------------------------------------
+
+fn attachment_ids_of(
+    b: &crate::state::Backend,
+    vault: mosaic_core::VaultId,
+    item: mosaic_core::ItemId,
+) -> Vec<mosaic_core::AttachmentId> {
+    let mut ids: Vec<_> = b
+        .with_unlocked(|s| {
+            Ok(s.item(vault, item)
+                .unwrap()
+                .attachments()
+                .into_iter()
+                .map(|a| a.attachment_id)
+                .collect())
+        })
+        .unwrap();
+    ids.sort_unstable_by_key(|a: &mosaic_core::AttachmentId| *a.as_bytes());
+    ids
+}
+
+fn rotate_request(
+    vault: mosaic_core::VaultId,
+    reseal: bool,
+    proof: Option<&str>,
+) -> crate::contract::rotation::VaultRotateKeyRequest {
+    crate::contract::rotation::VaultRotateKeyRequest {
+        vault_id: vault.into(),
+        reseal_attachments: reseal,
+        proof: proof.map(SecretIn::test),
+    }
+}
+
+#[test]
+fn vault_rotate_key_needs_the_proof_and_a_backend() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    let b = e.b();
+    let vault = mosaic_core::VaultId::new_v7().unwrap();
+    // Locked, before an account exists.
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, Some(PASSWORD)))
+            .unwrap_err()
+            .code,
+        ErrorCode::Locked
+    );
+    e.create();
+    let vault = b.list_vaults().unwrap()[0].vault_id.get();
+    // No proof, then a wrong password: nothing is rotated.
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, Some("not the password")))
+            .unwrap_err()
+            .code,
+        ErrorCode::WrongCredentials
+    );
+    // A right password on a device without sync: a vault key is offered to a backend.
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, Some(PASSWORD)))
+            .unwrap_err()
+            .code,
+        ErrorCode::SyncNotConfigured
+    );
+}
+
+/// M9-F5: the proof is taken before the rotation runs and spent by a failed
+/// call too, so it cannot be used twice.
+#[test]
+fn vault_rotate_key_spends_the_proof_also_when_it_fails() {
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    let vault = b.list_vaults().unwrap()[0].vault_id.get();
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    // No backend: the first call fails after the proof was taken.
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::SyncNotConfigured
+    );
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::ReauthRequired,
+        "a failed call spent the proof"
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario: rotate, crash, resume, check every attachment"
+)]
+fn vault_rotate_key_reseals_attachments_and_resumes() {
+    let _kdf = kdf_permit();
+    let own = tempfile::tempdir().unwrap();
+    let e = Env::on_disk(own.path());
+    e.create();
+    let b = e.b();
+    let dir = tempfile::tempdir().unwrap();
+    e.connect_folder(dir.path());
+    e.wait_synced();
+    let vault = b.list_vaults().unwrap()[0].vault_id.get();
+    let item = b
+        .add_item(
+            serde_json::from_value(serde_json::json!({
+                "vaultId": vault.to_string(),
+                "kind": "document",
+                "draft": {
+                    "text": [{ "field": "title", "value": "Passport scan" }],
+                    "secrets": [],
+                    "urls": [],
+                    "customFields": [],
+                    "tags": null,
+                    "otp": null
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+        .summary
+        .item_id
+        .get();
+    for fill in [1_u8, 2] {
+        b.with_unlocked(|s| {
+            Ok(s.add_attachment(
+                vault,
+                item,
+                "f.bin",
+                "application/octet-stream",
+                &[fill; 64],
+            )?)
+        })
+        .unwrap();
+    }
+    let before = attachment_ids_of(b, vault, item);
+    assert_eq!(before.len(), 2);
+
+    // The proof of `reauthenticate` is enough, and is spent on this rotation.
+    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    let done = b
+        .vault_rotate_key(rotate_request(vault, true, None))
+        .unwrap();
+    assert!(done.finished, "{done:?}");
+    assert_eq!(done.unreachable_attachments, 0);
+    assert!(b.rotation_status().unwrap().job.is_none());
+    let after = attachment_ids_of(b, vault, item);
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|a| !before.contains(a)), "new IDs");
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, false, None))
+            .unwrap_err()
+            .code,
+        ErrorCode::ReauthRequired,
+        "the proof is spent"
+    );
+
+    // An interrupted re-seal: the job is open, no second rotation starts on
+    // top of it, and "Continue" (`rotation_resume`) finishes it.
+    b.with_unlocked(|s| Ok(s.queue_vault_attachment_reseal(vault)?))
+        .unwrap();
+    let job = b.rotation_status().unwrap().job.unwrap();
+    assert_eq!(job.kind, RotationKind::Vault);
+    assert_eq!(
+        b.vault_rotate_key(rotate_request(vault, true, Some(PASSWORD)))
+            .unwrap_err()
+            .code,
+        ErrorCode::RotationInProgress
+    );
+    let resumed = b
+        .rotation_resume(&RotationResumeRequest {
+            password: None,
+            kit_group: None,
+            code: None,
+        })
+        .unwrap();
+    assert!(resumed.finished, "{resumed:?}");
+    assert!(b.rotation_status().unwrap().job.is_none());
+    let last = attachment_ids_of(b, vault, item);
+    assert_eq!(last.len(), 2);
+    assert!(last.iter().all(|a| !after.contains(a)), "new IDs again");
+
+    // M9-F1: a job opened for an offer whose key never reached the backend
+    // (a crash right after it was opened) needs nothing from the user, and
+    // the resume drops it without touching the attachments.
+    let next = b
+        .with_unlocked(|s| {
+            Ok(s.vaults()
+                .into_iter()
+                .find(|v| v.vault_id == vault)
+                .unwrap()
+                .key_generation
+                .next()
+                .unwrap())
+        })
+        .unwrap();
+    b.with_unlocked(|s| Ok(s.open_vault_offer_job(vault, next)?))
+        .unwrap();
+    let job = b.rotation_status().unwrap().job.unwrap();
+    assert_eq!(job.kind, RotationKind::Vault);
+    let resumed = b
+        .rotation_resume(&RotationResumeRequest {
+            password: None,
+            kit_group: None,
+            code: None,
+        })
+        .unwrap();
+    assert!(resumed.finished, "{resumed:?}");
+    assert!(b.rotation_status().unwrap().job.is_none());
+    assert_eq!(attachment_ids_of(b, vault, item), last);
+
+    // The same stale offer does not block a retried "Rotate vault key": the
+    // call drops it and rotates once.
+    b.with_unlocked(|s| Ok(s.open_vault_offer_job(vault, next)?))
+        .unwrap();
+    let done = b
+        .vault_rotate_key(rotate_request(vault, true, Some(PASSWORD)))
+        .unwrap();
+    assert!(done.finished, "{done:?}");
+    assert!(b.rotation_status().unwrap().job.is_none());
+    let generation = b
+        .with_unlocked(|s| {
+            Ok(s.vaults()
+                .into_iter()
+                .find(|v| v.vault_id == vault)
+                .unwrap()
+                .key_generation)
+        })
+        .unwrap();
+    assert_eq!(generation, next, "rotated once");
+    let retried = attachment_ids_of(b, vault, item);
+    assert_eq!(retried.len(), 2);
+    assert!(retried.iter().all(|a| !last.contains(a)), "re-sealed");
+}

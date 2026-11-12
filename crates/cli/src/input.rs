@@ -52,7 +52,7 @@ fn with_timeout<T: Send + 'static>(
 }
 
 /// The terminal mode (echo) saved before a no-echo prompt, so a timeout, a Ctrl-C or an early
-/// return can put it back. Unix only: the Windows console resets its input mode for the shell.
+/// return can put it back.
 #[cfg(unix)]
 mod tty {
     use std::sync::Mutex;
@@ -86,6 +86,47 @@ mod tty {
     }
 }
 
+/// The Windows console input mode saved before a no-echo prompt (M9, M2 residual): `rpassword`
+/// clears echo and line mode on the console input and restores them itself only when its read
+/// returns, so a timeout (the read thread stays blocked) or a Ctrl-C would leave the shell
+/// without echo. `winapi-util` wraps `GetConsoleMode`/`SetConsoleMode` safely.
+#[cfg(windows)]
+mod console {
+    use std::io;
+    use std::sync::Mutex;
+
+    static SAVED: Mutex<Option<u32>> = Mutex::new(None);
+
+    pub fn save() {
+        save_with(|| winapi_util::console::mode(io::stdin()));
+    }
+
+    pub fn restore() {
+        restore_with(|mode| winapi_util::console::set_mode(io::stdin(), mode));
+    }
+
+    pub fn forget() {
+        if let Ok(mut slot) = SAVED.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Keeps the mode `get` reads; a handle that is not a console (redirected stdin) keeps none.
+    pub(super) fn save_with(get: impl FnOnce() -> io::Result<u32>) {
+        if let (Ok(mode), Ok(mut slot)) = (get(), SAVED.lock()) {
+            *slot = Some(mode);
+        }
+    }
+
+    /// Hands the kept mode, if any, to `set`.
+    pub(super) fn restore_with(set: impl FnOnce(u32) -> io::Result<()>) {
+        let Ok(slot) = SAVED.lock() else { return };
+        if let Some(mode) = *slot {
+            let _ = set(mode);
+        }
+    }
+}
+
 /// Restores the terminal mode when dropped (also on a timeout or an error return).
 struct ModeGuard;
 
@@ -93,6 +134,8 @@ impl ModeGuard {
     fn new() -> Self {
         #[cfg(unix)]
         tty::save();
+        #[cfg(windows)]
+        console::save();
         Self
     }
 }
@@ -104,6 +147,11 @@ impl Drop for ModeGuard {
             tty::restore();
             tty::forget();
         }
+        #[cfg(windows)]
+        {
+            console::restore();
+            console::forget();
+        }
     }
 }
 
@@ -112,6 +160,8 @@ pub fn install_interrupt_handler() {
     let _ = ctrlc::set_handler(|| {
         #[cfg(unix)]
         tty::restore();
+        #[cfg(windows)]
+        console::restore();
         std::process::exit(130);
     });
 }
@@ -227,6 +277,35 @@ pub fn read_secret_fd(fd: i32) -> Result<Zeroizing<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_console_mode_restored_after_timeout() {
+        use std::cell::Cell;
+
+        // The console mode before the prompt: echo, line and processed input on.
+        let mode = Cell::new(0x0007_u32);
+        console::save_with(|| Ok(mode.get()));
+        // `rpassword` switches echo and line mode off, then the read times out and never returns.
+        mode.set(0x0001);
+        // The guard's drop path puts it back.
+        console::restore_with(|saved| {
+            mode.set(saved);
+            Ok(())
+        });
+        assert_eq!(mode.get(), 0x0007);
+        // Once forgotten, a late restore changes nothing.
+        console::forget();
+        mode.set(0x0001);
+        console::restore_with(|saved| {
+            mode.set(saved);
+            Ok(())
+        });
+        assert_eq!(mode.get(), 0x0001);
+        // A handle that is not a console keeps no mode.
+        console::save_with(|| Err(std::io::Error::other("not a console")));
+        console::restore_with(|_| panic!("nothing was saved"));
+    }
 
     #[test]
     fn a_line_loses_its_line_break_only() {

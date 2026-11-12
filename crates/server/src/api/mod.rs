@@ -9,6 +9,7 @@ mod directory;
 mod emergency;
 mod info;
 mod login;
+mod page;
 mod poll;
 mod prelogin;
 mod records;
@@ -16,6 +17,7 @@ mod register;
 mod rekey;
 mod sharing;
 mod vaults;
+mod webauthn;
 mod wire;
 
 use std::marker::PhantomData;
@@ -33,6 +35,7 @@ use mosaic_sync::wire::json::{self, JsonError};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tower::limit::ConcurrencyLimitLayer;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
@@ -280,6 +283,7 @@ macro_rules! gate {
 
 gate!(PreloginGate, Scope::PreloginIp, ratelimit::PRELOGIN_IP);
 gate!(LoginGate, Scope::LoginIp, ratelimit::LOGIN_IP);
+gate!(HandoffGate, Scope::Handoff, ratelimit::HANDOFF_IP);
 gate!(
     RegisterStartGate,
     Scope::RegisterStartIp,
@@ -349,6 +353,13 @@ fn is_json(r: &Response) -> bool {
         .is_some_and(|v| v.as_bytes().starts_with(b"application/json"))
 }
 
+/// A panic in a request becomes a bare `500 internal`; the payload is dropped
+/// without being read.
+fn panic_response(payload: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    drop(payload);
+    ApiError::internal().into_response()
+}
+
 async fn fallback() -> ApiError {
     ApiError::not_found()
 }
@@ -389,6 +400,27 @@ pub fn router(state: AppState) -> Router {
             post(login::totp).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
         )
         .route("/v1/logout", post(login::logout))
+        .route("/v1/login/methods", get(webauthn::login_methods))
+        .route(
+            "/v1/login/webauthn/handoff",
+            post(webauthn::login_handoff).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/login/webauthn/handoff/state",
+            post(webauthn::login_state).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/webauthn/handoff/options",
+            post(webauthn::options).layer(RequestBodyLimitLayer::new(AUTH_BODY)),
+        )
+        .route(
+            "/v1/webauthn/handoff/finish",
+            post(webauthn::finish).layer(RequestBodyLimitLayer::new(webauthn::FINISH_BODY)),
+        )
+        .route("/webauthn/", get(page::index))
+        .route("/webauthn/page.js", get(page::script))
+        .route("/webauthn/page.css", get(page::style))
+        .route("/webauthn/strings.json", get(page::strings))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             JSON_TIMEOUT,
@@ -456,6 +488,16 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/account/totp/setup", post(account::totp_setup))
         .route("/v1/account/totp/confirm", post(account::totp_confirm))
         .route("/v1/account/totp/disable", post(account::totp_disable))
+        .route(
+            "/v1/account/webauthn/handoff",
+            post(webauthn::account_handoff),
+        )
+        .route(
+            "/v1/account/webauthn/handoff/state",
+            post(webauthn::account_state),
+        )
+        .route("/v1/account/webauthn", get(webauthn::list))
+        .route("/v1/account/webauthn/remove", post(webauthn::remove))
         .route("/v1/devices", get(devices::list))
         .route(
             "/v1/devices/{device_id}",
@@ -538,6 +580,44 @@ pub fn router(state: AppState) -> Router {
     limited
         .merge(poll_routes)
         .fallback(fallback)
+        // Inside `finalize`, so the bare 500 gets the usual headers and log
+        // line. The custom handler drops the panic payload unread: the
+        // default one would log the message (CRYPTO_SPEC §9.3 "Panics").
+        .layer(CatchPanicLayer::custom(panic_response))
         .layer(middleware::from_fn(finalize))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower::ServiceExt as _;
+
+    /// A panic in a handler becomes a bare `500 internal`: the body names no
+    /// detail and the panic message never reaches the response.
+    #[tokio::test]
+    async fn a_panic_is_a_bare_500() {
+        async fn boom() -> &'static str {
+            std::panic::panic_any("secret panic text")
+        }
+        let router: Router = Router::new()
+            .route("/boom", get(boom))
+            .layer(CatchPanicLayer::custom(panic_response));
+        let response = router
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/boom")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("\"internal\""), "{text}");
+        assert!(!text.contains("secret"), "{text}");
+    }
 }

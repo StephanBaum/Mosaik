@@ -6,7 +6,7 @@ import type { NativeClient } from "./native.ts";
 import { PasskeySwitch, type PasskeyRegistry } from "./passkey-registry.ts";
 import { PopupService } from "./popup.ts";
 import { RotationService, type RotationDeps } from "./rotation.ts";
-import { SaveService } from "./save.ts";
+import { neverSaveKey, SaveService } from "./save.ts";
 import { lastErrorKey, memorySession, pendingSaveKey } from "./session.ts";
 
 const TOP = "https://bank.test";
@@ -31,6 +31,7 @@ interface Harness {
   service: PopupService;
   hold: GeneratedHold;
   save: SaveService;
+  kv: ReturnType<typeof createMemoryStore>;
   requests: { op: string; body: unknown }[];
   session: ReturnType<typeof memorySession>;
   badge: { clear: ReturnType<typeof vi.fn> };
@@ -68,10 +69,11 @@ function harness(): Harness {
     badge: { set: () => Promise.resolve(), clear: badge.clear, openPopup: () => Promise.resolve() },
     now: () => 1_000_000,
   };
+  const kv = createMemoryStore();
   const save = new SaveService({
     native: native as unknown as ConstructorParameters<typeof SaveService>[0]["native"],
     session,
-    kv: createMemoryStore(),
+    kv,
     badge: { show: () => Promise.resolve(), hide: () => Promise.resolve() },
     capture: {
       hasAccess: () => Promise.resolve(true),
@@ -92,7 +94,7 @@ function harness(): Harness {
   const passkeys = new PasskeySwitch(registry);
   const rotation = new RotationService({ native: native as unknown as RotationDeps["native"], tabs: fill.tabs, session, now: () => 1_000_000 });
   const service = new PopupService({ native: native as unknown as NativeClient, fill, hold, save, passkeys, rotation }, () => null);
-  return { service, hold, save, requests, session, badge, setProbes: (p) => (probes = p) };
+  return { service, hold, save, kv, requests, session, badge, setProbes: (p) => (probes = p) };
 }
 
 let h: Harness;
@@ -200,5 +202,24 @@ describe("savePending", () => {
     const spy = vi.spyOn(h.save, "setOffers").mockRejectedValue(new Error("permissionDenied"));
     await expect(h.service.handle({ op: "saveOffersChanged", enabled: true }, TAB)).rejects.toThrow("permissionDenied");
     expect(spy).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("the never-saved list (M4-R10)", () => {
+  it("lists the exact origins and removes one, leaving the others", async () => {
+    expect(await h.service.handle({ op: "neverSaveList" }, TAB)).toEqual({ origins: [] });
+    await h.kv.set(neverSaveKey(TOP), true);
+    await h.kv.set(neverSaveKey("https://other.test:8443"), true);
+    await h.kv.set("pairing", { not: "a site" });
+    expect(await h.service.handle({ op: "neverSaveList" }, TAB)).toEqual({ origins: [TOP, "https://other.test:8443"] });
+    expect(await h.service.handle({ op: "neverSaveRemove", origin: TOP }, TAB)).toEqual({ origins: ["https://other.test:8443"] });
+    expect(await h.save.isNeverSave(TOP)).toBe(false);
+    expect(await h.kv.get("pairing")).toEqual({ not: "a site" });
+  });
+
+  it("removes only the neverSave entry of that exact origin", async () => {
+    await h.kv.set(neverSaveKey(TOP), true);
+    expect(await h.service.handle({ op: "neverSaveRemove", origin: "https://bank.test." }, TAB)).toEqual({ origins: [TOP] });
+    expect(await h.service.handle({ op: "neverSaveRemove", origin: "pairing" }, TAB)).toEqual({ origins: [TOP] });
   });
 });

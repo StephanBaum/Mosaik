@@ -2,17 +2,43 @@
 //! path, a body or an ID, so the code is all that reaches the webview.
 
 use mosaic_sync::engine::SyncError;
-use mosaic_sync::transport::{Rejection, TransportError};
+use mosaic_sync::transport::{Rejection, RevokedReason, TransportError};
 
 use crate::contract::errors::{ErrorCode, IpcError};
+use crate::contract::sync::RevokedReasonView;
+
+/// The reason a transport error carries (`None` for any other error).
+#[must_use]
+pub fn revoked_reason(error: &TransportError) -> Option<RevokedReason> {
+    match error {
+        TransportError::Revoked(reason) => Some(*reason),
+        _ => None,
+    }
+}
+
+/// The wire name of a revocation reason.
+#[must_use]
+pub fn revoked_view(reason: RevokedReason) -> RevokedReasonView {
+    match reason {
+        RevokedReason::Rekey => RevokedReasonView::Rekey,
+        RevokedReason::PasswordChange => RevokedReasonView::PasswordChange,
+        RevokedReason::DeviceRemoved => RevokedReasonView::DeviceRemoved,
+        // `Operator` and a reason a later version adds.
+        _ => RevokedReasonView::Operator,
+    }
+}
 
 /// The code of a transport failure.
 #[must_use]
 pub fn transport_code(error: TransportError) -> ErrorCode {
     match error {
         TransportError::Unreachable | TransportError::Timeout => ErrorCode::SyncServerUnreachable,
-        TransportError::Unauthorized => ErrorCode::SyncSignedOut,
-        TransportError::TwoFactorRequired => ErrorCode::SyncTwoFactorRequired,
+        // A session the server ended for a known reason is signed out too (the
+        // reason reaches the webview as `SyncOverview.revoked`, M7-R3).
+        TransportError::Unauthorized | TransportError::Revoked(_) => ErrorCode::SyncSignedOut,
+        TransportError::TwoFactorRequired | TransportError::SecondFactorUnsupported => {
+            ErrorCode::SyncTwoFactorRequired
+        }
         TransportError::FreshLoginRequired => ErrorCode::SyncFreshLoginExpired,
         TransportError::RateLimited { .. } => ErrorCode::SyncRateLimited,
         TransportError::QuotaExceeded => ErrorCode::SyncQuotaExceeded,
@@ -42,6 +68,8 @@ fn rejection_code(rejection: Rejection) -> ErrorCode {
         Rejection::LoginFailed => ErrorCode::WrongCredentials,
         Rejection::DeviceRevoked => ErrorCode::SyncSignedOut,
         Rejection::TwoFactorInvalid => ErrorCode::SyncTwoFactorInvalid,
+        Rejection::WebauthnUnavailable => ErrorCode::SyncWebauthnUnavailable,
+        Rejection::HandoffExpired => ErrorCode::SyncHandoffExpired,
         Rejection::DeviceIsCurrent => ErrorCode::SyncDeviceIsCurrent,
         Rejection::TooLarge => ErrorCode::SyncQuotaExceeded,
         Rejection::RoleForbidden | Rejection::EmergencyOwnerOnly => ErrorCode::SharingRoleForbidden,
@@ -133,6 +161,10 @@ mod tests {
             ),
             (TransportError::Timeout, ErrorCode::SyncServerUnreachable),
             (TransportError::Unauthorized, ErrorCode::SyncSignedOut),
+            (
+                TransportError::Revoked(mosaic_sync::transport::RevokedReason::Rekey),
+                ErrorCode::SyncSignedOut,
+            ),
             (
                 TransportError::TwoFactorRequired,
                 ErrorCode::SyncTwoFactorRequired,

@@ -72,4 +72,50 @@ export const vault = {
   "vault.create": "Neuer Tresor",
   "vault.create.name": "Name des Tresors",
   "vault.create.submit": "Tresor erstellen",
+  "vault.menu":
+    "Tresor-Aktionen",
+  "vaultKey.menu":
+    "Tresorschlüssel erneuern…",
+  "vaultKey.title":
+    "Schlüssel von {vault} erneuern",
+  "vaultKey.body":
+    "Mosaic macht einen neuen Schlüssel für diesen Tresor und gibt ihn an jedes Gerät und jede Person mit Zugriff weiter. Kopien, die sie schon haben, bleiben für sie lesbar; der neue Schlüssel schützt, was sich ab jetzt ändert. Nutze das, wenn jemand den Zugriff verloren hat oder ein Gerät verloren ging.",
+  "vaultKey.attachments":
+    "Auch die Schlüssel der Anhänge erneuern",
+  "vaultKey.attachments.hint":
+    "Gibt auch jeder Datei in diesem Tresor einen neuen Schlüssel. Bei vielen oder großen Dateien dauert das länger.",
+  "vaultKey.reauth":
+    "Zum Erneuern eines Tresorschlüssels brauchst du dein Master-Passwort.",
+  "vaultKey.submit":
+    "Schlüssel erneuern",
+  "vaultKey.working":
+    "Schlüssel wird erneuert…",
+  "vaultKey.progress":
+    "Schlüssel der Anhänge werden erneuert: {done} von {total}.",
+  "vaultKey.done":
+    "Der Tresorschlüssel wurde erneuert.",
+  "vaultKey.doneAttachments":
+    "Der Tresorschlüssel wurde erneuert, und die Schlüssel der Anhänge auch.",
+  "vaultKey.unfinished":
+    "Der Tresorschlüssel wurde erneuert. Das Erneuern der Anhangschlüssel läuft später weiter. Wenn Mosaic vorher schließt, wähle beim nächsten Mal „Schlüsseländerung fortsetzen“.",
+  "vaultKey.unreachable":
+    "{count, plural, one {# Anhang ist noch nicht auf diesem Gerät und behält seinen alten Schlüssel.} other {# Anhänge sind noch nicht auf diesem Gerät und behalten ihren alten Schlüssel.}}",
+  "vaultKey.close":
+    "Schließen",
+  "vault.meta.title":
+    "Tresor-Angaben wurden gekürzt",
+  "vault.meta.body":
+    "Zwei Geräte haben {fields} von „{vault}“ gleichzeitig geändert, zusammen war das zu lang zum Speichern. Mosaic hat eine Fassung behalten oder das Feld geleert. Prüfe es und gib es bei Bedarf neu ein.",
+  "vault.edit.title":
+    "Tresor bearbeiten",
+  "vault.meta.edit":
+    "Tresor bearbeiten",
+  "vault.meta.field.name":
+    "den Namen",
+  "vault.meta.field.icon":
+    "das Symbol",
+  "vault.meta.field.description":
+    "die Beschreibung",
+  "vault.meta.dismiss":
+    "Ausblenden",
 } satisfies Record<keyof typeof en, string>;

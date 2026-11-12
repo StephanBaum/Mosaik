@@ -3,6 +3,7 @@ import { Button } from "../../components/Button.tsx";
 import { HoloButton } from "../../components/HoloButton.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { Kbd } from "../../components/Kbd.tsx";
+import { MenuButton } from "../../components/Menu.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import { usePlatform } from "../../platform/platform.ts";
 import { ariaKeyshortcuts, SHORTCUTS } from "../../platform/shortcuts.ts";
@@ -22,6 +23,8 @@ export interface TopBarProps {
   onPalette: () => void;
   /** Opens the sharing dialog of the open vault (`undefined`: no single vault is open). */
   onShare?: (() => void) | undefined;
+  /** Opens "Rotate vault key…" of the open vault (`undefined`: not offered here). */
+  onRotate?: (() => void) | undefined;
 }
 
 function useCrumbs({ view, category, editorTitle, vaultName }: TopBarProps): string[] {
@@ -94,6 +97,12 @@ export function TopBar(props: TopBarProps) {
           <Icon name="users" />
           <span className="topbar__new-label">{t("sharing.share.open")}</span>
         </Button>
+      )}
+      {props.onRotate !== undefined && (
+        <MenuButton
+          label={t("vault.menu")}
+          items={[{ label: t("vaultKey.menu"), onSelect: props.onRotate }]}
+        />
       )}
       <NewButton
         data-new-item=""

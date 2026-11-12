@@ -49,6 +49,18 @@ wire_enum!(
     }
 );
 
+wire_enum!(
+    /// A vault metadata field that lost its value in a merge (CRYPTO_SPEC §7.1).
+    pub enum VaultMetaField {
+        /// The vault's name.
+        Name,
+        /// The vault's icon.
+        Icon,
+        /// The vault's description.
+        Description,
+    }
+);
+
 /// The sync state.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,6 +238,15 @@ pub enum AppEvent {
         /// Unreadable local records replaced by the received version.
         replaced_unreadable: u32,
     },
+    /// A merge of a vault's name, icon or description was too long to keep
+    /// whole and the longer value won (CRYPTO_SPEC §7.1): the notice names the
+    /// fields, never the values.
+    VaultMetaDropped {
+        /// The vault.
+        vault_id: WireVaultId,
+        /// The fields that lost a value, in the order name, icon, description.
+        fields: Vec<VaultMetaField>,
+    },
 }
 
 #[cfg(test)]
@@ -318,6 +339,10 @@ pub(crate) mod samples {
                 done: 3,
                 total: 12,
             },
+            AppEvent::VaultMetaDropped {
+                vault_id: ids::vault(1),
+                fields: vec![VaultMetaField::Name, VaultMetaField::Description],
+            },
             AppEvent::BreachScanProgress { done: 4, total: 9 },
             AppEvent::BreachScanFinished {
                 checked: 12,
@@ -357,7 +382,8 @@ pub(crate) mod samples {
                 | AppEvent::BreachScanProgress { .. }
                 | AppEvent::BreachScanFinished { .. }
                 | AppEvent::SyncDataChanged { .. }
-                | AppEvent::SyncAttention { .. } => {}
+                | AppEvent::SyncAttention { .. }
+                | AppEvent::VaultMetaDropped { .. } => {}
             }
         }
         all

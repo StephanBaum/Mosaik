@@ -1045,9 +1045,9 @@ async fn schema_v3_rules() {
     assert!(bad(&req(2)));
     assert!(!bad(&req(1)));
     assert!(bad(&req(1)));
-    // Audit kinds up to 16; invite states up to 5.
+    // Audit kinds up to 20; invite states up to 5.
     assert!(bad(
-        "INSERT INTO audit SELECT account_id, 1, 17, NULL FROM accounts"
+        "INSERT INTO audit SELECT account_id, 1, 21, NULL FROM accounts"
     ));
     assert!(!bad(
         "INSERT INTO audit SELECT account_id, 1, 16, NULL FROM accounts"
@@ -1136,4 +1136,10 @@ async fn rekey_leaves_no_plaintext_in_logs_or_on_disk() {
             assert!(!contains(&bytes, needle), "{name} contains the {what}");
         }
     }
+}
+
+/// A complete re-key of `a` (tests of other modules).
+pub(crate) async fn rekey_now(app: &TestApp, a: &Acct) -> Resp {
+    let up = upload(app, a, 2).await;
+    Rk::new(2).send(app, a, &up).await
 }

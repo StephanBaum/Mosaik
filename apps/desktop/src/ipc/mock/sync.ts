@@ -7,8 +7,10 @@ import type { FolderChoice, SyncDevice } from "../contract/index.ts";
 import { sampleAccount } from "./data.ts";
 import { adoptRenewedKeys } from "./rotation.ts";
 import { syncJoinHandlers } from "./syncJoin.ts";
+import { syncWebauthnHandlers } from "./syncWebauthn.ts";
 import {
   MOCK_INVITE_CODE,
+  hasSecondFactor,
   MOCK_TOTP_CODE,
   MOCK_FOLDER_PATH,
   normalizeServer,
@@ -50,6 +52,7 @@ function checkCode(code: string | null): void {
 
 export const syncHandlers: MockHandlers = {
   ...syncJoinHandlers,
+  ...syncWebauthnHandlers,
 
   sync_status: (state) => {
     requireUnlocked(state);
@@ -97,7 +100,7 @@ export const syncHandlers: MockHandlers = {
       publish(state);
       fail("syncPasswordChanged");
     }
-    if (sync.totp) {
+    if (hasSecondFactor(sync)) {
       sync.pendingTwoFactor = { kind: "connect", serverUrl, deviceName: request.deviceName };
       fail("syncTwoFactorRequired");
     }

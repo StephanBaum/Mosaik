@@ -130,6 +130,8 @@ export class PopupService {
     savePending: (request, tab) => this.#savePending(request.action, tab),
     saveOffersChanged: async (request) => ({ saveOffers: await this.#deps.save.setOffers(request.enabled) }),
     setPasskeys: async (request) => ({ passkeys: await this.#deps.passkeys.set(request.enabled) }),
+    neverSaveList: async () => ({ origins: await this.#deps.save.neverSaveList() }),
+    neverSaveRemove: async (request) => ({ origins: await this.#deps.save.neverSaveRemove(request.origin) }),
     rotationBegin: (request, tab) => this.#deps.rotation.begin(request, rotationTab(tab)),
     rotationOpenPage: (request, tab) => this.#deps.rotation.openPage(request, rotationTab(tab)),
     fillChange: (request, tab) => this.#deps.rotation.fillChange(request, rotationTab(tab)),

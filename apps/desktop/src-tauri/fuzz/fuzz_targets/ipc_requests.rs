@@ -17,6 +17,18 @@ mod contract;
 mod draft;
 #[path = "../../src/persist.rs"]
 mod persist;
+/// `persist.rs` checks a stored shortcut with `crate::shortcut`, which needs
+/// Tauri. The harness stands in a check that accepts any non-empty text; the
+/// real parser has its own unit tests.
+mod shortcut {
+    pub fn parse_accelerator(text: &str) -> Result<(), ()> {
+        if text.is_empty() {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+}
 
 use contract::clipboard::CopyRequest;
 use contract::credential_rotation::{

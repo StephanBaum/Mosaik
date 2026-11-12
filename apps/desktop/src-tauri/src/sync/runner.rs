@@ -18,6 +18,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
+use mosaic_core::model::DroppedMeta;
 use mosaic_core::{InstallId, VaultId};
 use mosaic_sync::clock::{Clock, SystemClock};
 use mosaic_sync::engine::consts::{BACKOFF_INITIAL_MS, BACKOFF_MAX_MS, LOCAL_CHANGE_DEBOUNCE_MS};
@@ -30,7 +31,7 @@ use super::access::BackendSession;
 use super::errors::{sync_code, transport_code};
 use super::{Cmd, SyncService};
 use crate::contract::errors::ErrorCode;
-use crate::contract::events::{AppEvent, SyncStatus};
+use crate::contract::events::{AppEvent, SyncStatus, VaultMetaField};
 use crate::contract::ids::WireVaultId;
 use crate::contract::sync::SyncWarningView;
 use crate::state::Backend;
@@ -298,9 +299,13 @@ fn poll<T: Transport>(ctx: &Ctx, st: &mut State<T>, rx: &Receiver<Cmd>, slice: D
             true
         }
         Err(TransportError::Locked) => false,
-        Err(TransportError::Unauthorized) => {
+        Err(error @ (TransportError::Unauthorized | TransportError::Revoked(_))) => {
             if let Some(backend) = ctx.backend() {
-                backend.sync_signed_out(ctx.generation, ctx.token.get());
+                backend.sync_signed_out(
+                    ctx.generation,
+                    ctx.token.get(),
+                    super::errors::revoked_reason(&error),
+                );
             }
             false
         }
@@ -397,8 +402,14 @@ fn after_run<T: Transport>(
                 .set_status(backend, ctx.generation, SyncStatus::Offline, None);
             Next::Retry(wait)
         }
-        Err(SyncError::Transport(TransportError::Unauthorized)) => {
-            backend.sync_signed_out(ctx.generation, ctx.token.get());
+        Err(SyncError::Transport(
+            error @ (TransportError::Unauthorized | TransportError::Revoked(_)),
+        )) => {
+            backend.sync_signed_out(
+                ctx.generation,
+                ctx.token.get(),
+                super::errors::revoked_reason(&error),
+            );
             Next::Stop
         }
         Err(SyncError::Transport(error)) => {
@@ -466,6 +477,15 @@ fn publish_report<T: Transport>(
         });
     }
     note_sharing(backend, ctx, report);
+    for (vault, dropped) in &report.meta_dropped {
+        let fields = meta_fields(*dropped);
+        if !fields.is_empty() {
+            backend.emit(&AppEvent::VaultMetaDropped {
+                vault_id: WireVaultId::from(*vault),
+                fields,
+            });
+        }
+    }
     let conflicts = report.merged.saturating_add(report.split_copies);
     if conflicts > 0 || report.restored_fields > 0 || report.replaced_unreadable > 0 {
         backend.emit(&AppEvent::SyncAttention {
@@ -474,6 +494,18 @@ fn publish_report<T: Transport>(
             replaced_unreadable: report.replaced_unreadable,
         });
     }
+}
+
+/// The fields of a dropped-metadata report, as the event names them.
+fn meta_fields(dropped: DroppedMeta) -> Vec<VaultMetaField> {
+    [
+        (dropped.name, VaultMetaField::Name),
+        (dropped.icon, VaultMetaField::Icon),
+        (dropped.description, VaultMetaField::Description),
+    ]
+    .into_iter()
+    .filter_map(|(hit, field)| hit.then_some(field))
+    .collect()
 }
 
 /// The sharing part of a finished run: the invites and emergency requests
@@ -734,5 +766,36 @@ impl SyncService {
         }) {
             backend.emit_sync_state();
         }
+    }
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+
+    #[test]
+    fn dropped_metadata_is_named_by_field_in_a_fixed_order() {
+        let all = DroppedMeta {
+            name: true,
+            icon: true,
+            description: true,
+        };
+        assert_eq!(
+            meta_fields(all),
+            vec![
+                VaultMetaField::Name,
+                VaultMetaField::Icon,
+                VaultMetaField::Description
+            ]
+        );
+        let some = DroppedMeta {
+            description: true,
+            ..DroppedMeta::default()
+        };
+        assert_eq!(meta_fields(some), vec![VaultMetaField::Description]);
+        assert_eq!(
+            meta_fields(DroppedMeta::default()),
+            Vec::<VaultMetaField>::new()
+        );
     }
 }

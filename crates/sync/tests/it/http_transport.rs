@@ -814,3 +814,49 @@ fn join_new_device_over_the_wire() {
         Some(TransportError::Rejected(Rejection::LoginFailed))
     );
 }
+
+#[test]
+fn recover_password_reports_second_factor_unsupported() {
+    // `recover_password` asks `missing_code_error` when the account needs a
+    // code and none was given: a security-key-only account has none to type.
+    for (methods, expected) in [
+        (
+            "{\"totp\":false,\"webauthn\":true}",
+            TransportError::SecondFactorUnsupported,
+        ),
+        (
+            "{\"totp\":true,\"webauthn\":true}",
+            TransportError::TwoFactorRequired,
+        ),
+        (
+            "{\"totp\":true,\"webauthn\":false}",
+            TransportError::TwoFactorRequired,
+        ),
+    ] {
+        let server = RawServer::start(move |path, origin| {
+            if path == "/v1/login/methods" {
+                json_ok(methods.as_bytes())
+            } else if path == "/v1/info" {
+                json_ok(&info_json(origin, ""))
+            } else {
+                http("404 Not Found", &[], b"")
+            }
+        });
+        assert_eq!(
+            hosted::missing_code_error(&server.base, &token(5)),
+            expected
+        );
+    }
+    // Methods that cannot be fetched keep the plain "code required" answer.
+    let server = RawServer::start(|path, origin| {
+        if path == "/v1/info" {
+            json_ok(&info_json(origin, ""))
+        } else {
+            http("500 Internal Server Error", &[], b"")
+        }
+    });
+    assert_eq!(
+        hosted::missing_code_error(&server.base, &token(5)),
+        TransportError::TwoFactorRequired
+    );
+}

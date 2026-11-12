@@ -1,0 +1,26 @@
+# Caddy in front of the challenge server: TLS 1.3 only, automatic
+# certificates, the client address in X-Forwarded-For. Access logs are kept
+# for 7 days at most.
+{$CONTEST_HOST} {
+	tls {
+		protocols tls1.3
+	}
+
+	request_body {
+		max_size 8MB
+	}
+
+	log {
+		output file /data/access.log {
+			roll_keep_for 168h
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy mosaic-server:8743
+}

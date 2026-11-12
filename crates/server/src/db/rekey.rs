@@ -564,7 +564,14 @@ pub fn apply(
     // Every other session ends: a token of the old epoch, a pending second
     // factor and a half-finished login go with it. The changing session
     // moves to the new account version.
-    sessions::after_password_change(tx, account, r.keep_session, version)?;
+    sessions::after_password_change(
+        tx,
+        account,
+        r.keep_session,
+        version,
+        sessions::Revoke::Rekey,
+        now,
+    )?;
 
     notify.remove(account);
     for a in &notify {

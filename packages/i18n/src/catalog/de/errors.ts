@@ -83,6 +83,8 @@ export const errors = {
     "Das ging zu schnell, um die Anfrage zu lesen. Prüfe die Angaben und wähle dann noch einmal.",
   "error.browserPairingNotFound":
     "Dieser Browser ist nicht mehr verbunden. Öffne die Einstellungen neu, um die aktuelle Liste zu sehen.",
+  "error.browserHostMissing":
+    "Zu dieser Kopie von Mosaic ist kein Browser-Connector installiert, deshalb gibt es nichts zu reparieren. Installiere Mosaic mit dem Installer, um einen Browser zu verbinden.",
   "error.kitNotVerified":
     "Speichere zuerst das neue Emergency Kit und bestätige seine letzte Gruppe. Vorher ändert Mosaic nichts.",
   "error.kitGroupMismatch":
@@ -240,6 +242,14 @@ export const errors = {
     "Einige Sync-Dateien in diesem Ordner sind beschädigt. Lass deinen Cloud-Dienst fertig synchronisieren oder stelle den Ordner aus einer Sicherung wieder her und versuche es dann noch einmal.",
   "error.syncPasswordOutcomeUnknown":
     "Wir konnten nicht bestätigen, ob der Server dein Master-Passwort geändert hat. Behalte beide Passwörter, bis der Sync bestätigt, welches gilt.",
+  "error.syncWebauthnUnavailable":
+    "Dein Server kann für diesen Schritt gerade keinen Sicherheitsschlüssel nutzen, oder dieses Konto hat keinen. Nimm stattdessen einen Code aus einer Authenticator-App.",
+  "error.syncWebauthnLimit":
+    "Dieses Konto hat schon so viele Sicherheitsschlüssel, wie der Server erlaubt. Entferne einen, den du nicht mehr brauchst, und versuche es dann noch einmal.",
+  "error.syncHandoffExpired":
+    "Der Schritt im Browser hat zu lange gedauert. Starte ihn noch einmal.",
+  "error.syncHandoffFailed":
+    "Zu viele falsche Codes oder fehlgeschlagene Prüfungen im Browser. Starte den Schritt noch einmal.",
   "error.syncPasswordNeedsServer":
     "Zum Ändern deines Master-Passworts wird dein Sync-Server gebraucht, und er ist nicht erreichbar. Prüfe deine Internetverbindung und versuche es noch einmal.",
   "error.syncDeviceIsCurrent":
@@ -288,4 +298,8 @@ export const errors = {
     "Deine letzte Anfrage wurde abgelehnt. Du kannst nach der Sperrzeit von einem Tag erneut anfragen.",
   "error.emergencyNotGranted":
     "Es gibt nichts abzuholen: Keine Anfrage ist offen, oder die Person hat dir keinen Zugriff erteilt.",
+  "error.shortcutUnavailable":
+    "Ein anderes Programm nutzt dieses Kürzel schon, oder Mosaic kann es nicht anmelden. Wähle eine andere Kombination.",
+  "error.shortcutUnsupported":
+    "Dein System erlaubt Apps keine globale Tastenkombination. Öffne Mosaic stattdessen über sein Fenster.",
 } satisfies Record<keyof typeof en, string>;

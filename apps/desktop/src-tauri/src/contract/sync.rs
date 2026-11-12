@@ -14,6 +14,21 @@ use super::secret::{SecretIn, SecretOut};
 use super::sharing::SharingFindingView;
 
 wire_enum!(
+    /// Why the server ended this device's session (CRYPTO_SPEC §9.5, M7-R3).
+    /// The server's claim: it only selects the text of the recovery card.
+    pub enum RevokedReasonView {
+        /// The account was re-keyed on another device.
+        Rekey,
+        /// The master password was changed on another device.
+        PasswordChange,
+        /// This device was removed from the account.
+        DeviceRemoved,
+        /// The server operator ended the session.
+        Operator,
+    }
+);
+
+wire_enum!(
     /// Who may create an account on a server (`GET /v1/info`).
     pub enum RegistrationMode {
         /// Anyone.
@@ -32,6 +47,32 @@ wire_enum!(
         Register,
         /// Signs in to an existing sync account of this account.
         SignIn,
+    }
+);
+
+wire_enum!(
+    /// Where a browser handoff stands (M9, DESKTOP_IPC §3).
+    pub enum HandoffState {
+        /// Waiting for the browser page.
+        Waiting,
+        /// The security key was used; the step is finished.
+        Done,
+        /// Too many wrong codes or failed checks; start again.
+        Failed,
+        /// It ran out of time (or none is running).
+        Expired,
+    }
+);
+
+wire_enum!(
+    /// Which browser step an account handoff is at.
+    pub enum HandoffStep {
+        /// Signing in with a security key (a fresh login of an account that has them).
+        Login,
+        /// Adding a security key.
+        Register,
+        /// Confirming a second factor so keys can be removed.
+        Confirm,
     }
 );
 
@@ -75,8 +116,10 @@ pub enum SyncConfigView {
         email: String,
         /// This device's name.
         device_name: String,
-        /// Whether the sync account has a second factor.
+        /// Whether the sync account has an authenticator-app second factor.
         totp_enabled: bool,
+        /// How many security keys the sync account has (M9).
+        webauthn_keys: u32,
     },
     /// A folder.
     Folder {
@@ -190,6 +233,9 @@ pub struct SyncOverview {
     /// renewed on another device: `sync_recover_password` with the new Secret
     /// Key adopts them (sync stays paused until then).
     pub rekey_pending: bool,
+    /// Why the server ended this device's session (`null` unless `state.status`
+    /// is `signedOut` after a `401` with a revocation reason).
+    pub revoked: Option<RevokedReasonView>,
 }
 
 /// `sync_check_server`.
@@ -331,6 +377,119 @@ pub struct TotpSetupInfo {
     pub secret: SecretOut,
     /// The `otpauth://` link (for a QR code).
     pub otpauth_uri: SecretOut,
+}
+
+/// The `sync_login_methods` response: the second factors the waiting login can use.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginMethods {
+    /// An authenticator-app code.
+    pub totp: bool,
+    /// A security key, through the browser (the server can run it and the account has one).
+    pub webauthn: bool,
+}
+
+/// What `sync_hosted_webauthn_begin` and `join_hosted_webauthn_begin` return. The code is shown
+/// to the user, who types it on the server's page; it authorizes nothing by itself (it is not a
+/// `SecretOut`, DESKTOP_IPC §3).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnBegin {
+    /// Six digits.
+    pub match_code: String,
+    /// When the handoff runs out (ms since the Unix epoch).
+    pub expires_at: UnixMillis,
+}
+
+/// The `sync_webauthn_status` response.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnStatus {
+    /// Where the handoff stands.
+    pub state: HandoffState,
+}
+
+/// What `sync_webauthn_add_begin` and `sync_webauthn_confirm_begin` return.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnAccountBegin {
+    /// The browser step that starts: `login` first when the fresh login needs a security key.
+    pub step: HandoffStep,
+    /// Six digits.
+    pub match_code: String,
+    /// When the handoff runs out.
+    pub expires_at: UnixMillis,
+}
+
+/// The `sync_webauthn_add_status` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnAccountStatus {
+    /// Where the current step stands.
+    pub state: HandoffState,
+    /// The current step (after a finished login step: the next one).
+    pub step: HandoffStep,
+    /// The new step's code, when a new handoff started.
+    pub match_code: Option<String>,
+    /// The new step's expiry.
+    pub expires_at: Option<UnixMillis>,
+}
+
+/// One security key of the sync account.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnKeyView {
+    /// The key's reference, 32 hex digits (for `sync_webauthn_remove`).
+    pub credential_ref: String,
+    /// What the user called it.
+    pub label: String,
+    /// When it was added.
+    pub created_at: UnixMillis,
+    /// When it was last used.
+    pub last_used_at: Option<UnixMillis>,
+}
+
+/// The `sync_webauthn_list` response.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebauthnKeys {
+    /// Whether the account also has an authenticator-app second factor.
+    pub totp: bool,
+    /// The keys, oldest first.
+    pub keys: Vec<WebauthnKeyView>,
+}
+
+/// `sync_webauthn_add_begin`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WebauthnAddRequest {
+    /// The master password (a fresh login).
+    pub password: SecretIn,
+    /// A current authenticator-app code, when the account has one (else `null`).
+    pub code: Option<SecretIn>,
+    /// The key's name, 1 to 64 characters.
+    pub label: String,
+}
+
+/// `sync_webauthn_confirm_begin`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WebauthnConfirmRequest {
+    /// The master password (a fresh login).
+    pub password: SecretIn,
+}
+
+/// `sync_webauthn_remove`.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WebauthnRemoveRequest {
+    /// The key's reference from `sync_webauthn_list`.
+    pub credential_ref: String,
+    /// A current authenticator-app code, or `null` after a security-key confirm.
+    pub code: Option<SecretIn>,
 }
 
 /// `sync_totp_disable`.
@@ -512,6 +671,7 @@ pub(crate) mod samples {
                 sharing_findings: vec![],
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -519,12 +679,14 @@ pub(crate) mod samples {
                     email: "alex@example.com".into(),
                     device_name: "Mosaic on Windows".into(),
                     totp_enabled: true,
+                    webauthn_keys: 2,
                 }),
                 state: state(SyncStatus::UpToDate),
                 warnings: vec![],
                 sharing_findings: vec![],
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Folder {
@@ -536,6 +698,7 @@ pub(crate) mod samples {
                 sharing_findings: crate::contract::sharing::samples::findings(),
                 password_changed: false,
                 rekey_pending: false,
+                revoked: None,
             },
             SyncOverview {
                 config: Some(SyncConfigView::Hosted {
@@ -543,6 +706,7 @@ pub(crate) mod samples {
                     email: "alex@example.com".into(),
                     device_name: "Mosaic on Windows".into(),
                     totp_enabled: false,
+                    webauthn_keys: 0,
                 }),
                 state: SyncState {
                     status: SyncStatus::SignedOut,
@@ -553,6 +717,7 @@ pub(crate) mod samples {
                 sharing_findings: vec![],
                 password_changed: true,
                 rekey_pending: true,
+                revoked: Some(RevokedReasonView::Rekey),
             },
         ]
     }
@@ -620,6 +785,95 @@ pub(crate) mod samples {
                 },
             ],
         }]
+    }
+
+    pub(crate) fn login_methods() -> Vec<LoginMethods> {
+        vec![
+            LoginMethods {
+                totp: true,
+                webauthn: false,
+            },
+            LoginMethods {
+                totp: true,
+                webauthn: true,
+            },
+            LoginMethods {
+                totp: false,
+                webauthn: true,
+            },
+        ]
+    }
+
+    pub(crate) fn webauthn_begins() -> Vec<WebauthnBegin> {
+        vec![WebauthnBegin {
+            match_code: "482913".into(),
+            expires_at: T + 300_000,
+        }]
+    }
+
+    pub(crate) fn webauthn_statuses() -> Vec<WebauthnStatus> {
+        HandoffState::ALL
+            .iter()
+            .map(|&state| WebauthnStatus { state })
+            .collect()
+    }
+
+    pub(crate) fn webauthn_account_begins() -> Vec<WebauthnAccountBegin> {
+        [
+            HandoffStep::Login,
+            HandoffStep::Register,
+            HandoffStep::Confirm,
+        ]
+        .into_iter()
+        .map(|step| WebauthnAccountBegin {
+            step,
+            match_code: "482913".into(),
+            expires_at: T + 300_000,
+        })
+        .collect()
+    }
+
+    pub(crate) fn webauthn_account_statuses() -> Vec<WebauthnAccountStatus> {
+        vec![
+            WebauthnAccountStatus {
+                state: HandoffState::Waiting,
+                step: HandoffStep::Register,
+                match_code: Some("482913".into()),
+                expires_at: Some(T + 300_000),
+            },
+            WebauthnAccountStatus {
+                state: HandoffState::Done,
+                step: HandoffStep::Confirm,
+                match_code: None,
+                expires_at: None,
+            },
+        ]
+    }
+
+    pub(crate) fn webauthn_keys() -> Vec<WebauthnKeys> {
+        vec![
+            WebauthnKeys {
+                totp: false,
+                keys: vec![],
+            },
+            WebauthnKeys {
+                totp: true,
+                keys: vec![
+                    WebauthnKeyView {
+                        credential_ref: "00112233445566778899aabbccddeeff".into(),
+                        label: "YubiKey 5C".into(),
+                        created_at: T,
+                        last_used_at: Some(T + 60_000),
+                    },
+                    WebauthnKeyView {
+                        credential_ref: "ffeeddccbbaa99887766554433221100".into(),
+                        label: "Backup key".into(),
+                        created_at: T + 1_000,
+                        last_used_at: None,
+                    },
+                ],
+            },
+        ]
     }
 
     pub(crate) fn totp_setups() -> Vec<TotpSetupInfo> {

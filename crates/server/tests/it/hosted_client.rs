@@ -9,6 +9,7 @@ use mosaic_sync::TransportError;
 use mosaic_sync::http::hosted::{self, RekeyOutcome, RekeyRefusal, RekeyStage};
 use mosaic_sync::testutil::ChaosConfig;
 use mosaic_sync::transport::Rejection;
+use mosaic_sync::wire::json::{HandoffPurpose, HandoffState, LoginMethodsResponse};
 use mosaic_totp::{Algorithm, Digits, Otp, OtpKind, OtpSecret, Period};
 use mosaic_vault::session::{PreparedRekey, RekeyPlan, RekeyRequest, RotationKind};
 
@@ -66,6 +67,131 @@ fn prepared(w: &mut World, wrong_head: bool) -> PreparedRekey {
     .unwrap()
 }
 
+/// Stores a security key row for the account (the ceremony itself is tested
+/// in `webauthn.rs`; the client functions only need the key to exist).
+fn add_key_row(w: &World, label: &str) {
+    w.server
+        .state
+        .db()
+        .run(|c| {
+            c.execute(
+                "INSERT INTO webauthn_credentials (account_id, credential_id, public_key,                  sign_count, label, created_at) VALUES (?1, ?2, ?3, 0, ?4, 0)",
+                rusqlite::params![
+                    w.account.as_bytes().as_slice(),
+                    [7u8; 16].as_slice(),
+                    [1u8; 8].as_slice(),
+                    label
+                ],
+            )?;
+            Ok::<_, mosaic_server::ApiError>(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn login_methods_roundtrip() {
+    let w = World::new_with_host_origin(311);
+    let device = w.devs[0].device;
+    assert!(
+        hosted::info_features(&w.server.base).unwrap().webauthn,
+        "a host-name origin runs the ceremony"
+    );
+    let grant = login(&w, device, "device 0");
+    // A full session is not a pending one.
+    assert!(matches!(
+        hosted::login_methods(&w.server.base, &grant.token),
+        Err(TransportError::Unauthorized | TransportError::Rejected(_))
+    ));
+    let setup = hosted::totp_setup(&w.server.base, &grant.token).unwrap();
+    let secret = setup.secret.expose_secret().to_owned();
+    let code = code_now(&w, &secret);
+    hosted::totp_confirm(&w.server.base, &grant.token, &code).unwrap();
+
+    // TOTP only.
+    let pending = login(&w, device, "device 0");
+    assert_eq!(
+        hosted::login_methods(&w.server.base, &pending.token).unwrap(),
+        LoginMethodsResponse {
+            totp: true,
+            webauthn: false
+        }
+    );
+    // The login handoff needs a key.
+    assert!(hosted::login_webauthn_handoff(&w.server.base, &pending.token).is_err());
+
+    // TOTP and a security key.
+    add_key_row(&w, "YubiKey");
+    let started = hosted::login_webauthn_handoff(&w.server.base, &pending.token).unwrap();
+    assert_eq!(
+        hosted::login_methods(&w.server.base, &pending.token).unwrap(),
+        LoginMethodsResponse {
+            totp: true,
+            webauthn: true
+        }
+    );
+    assert_eq!(started.match_code.len(), 6);
+    assert!(started.match_code.bytes().all(|b| b.is_ascii_digit()));
+    assert_eq!(
+        hosted::login_webauthn_status(&w.server.base, &pending.token, started.handoff_id.0)
+            .unwrap(),
+        HandoffState::Waiting
+    );
+    // The account routes do not know a login handoff.
+    assert!(
+        hosted::account_webauthn_status(&w.server.base, &pending.token, started.handoff_id.0)
+            .is_err()
+    );
+    w.server.advance_ms(30_000);
+    let code = code_now(&w, &secret);
+    hosted::login_totp(&w.server.base, &pending.token, &code).unwrap();
+
+    // The key list, a confirm handoff and the removal with a TOTP code.
+    let keys = hosted::account_webauthn_list(&w.server.base, &pending.token).unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].label, "YubiKey");
+    let confirm = hosted::account_webauthn_handoff(
+        &w.server.base,
+        &pending.token,
+        HandoffPurpose::Confirm,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        hosted::account_webauthn_status(&w.server.base, &pending.token, confirm.handoff_id.0)
+            .unwrap(),
+        HandoffState::Waiting
+    );
+    assert!(
+        hosted::account_webauthn_handoff(
+            &w.server.base,
+            &pending.token,
+            HandoffPurpose::Register,
+            Some("")
+        )
+        .is_err(),
+        "an empty label is refused"
+    );
+    let reference = keys[0].credential_ref.0;
+    assert!(
+        hosted::account_webauthn_remove(&w.server.base, &pending.token, reference, None).is_err(),
+        "no second factor"
+    );
+    w.server.advance_ms(30_000);
+    let code = code_now(&w, &secret);
+    hosted::account_webauthn_remove(&w.server.base, &pending.token, reference, Some(&code))
+        .unwrap();
+    assert_eq!(
+        hosted::account_webauthn_list(&w.server.base, &pending.token)
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // An IP-address origin never offers keys.
+    let plain = World::new(312, ChaosConfig::default());
+    assert!(!hosted::info_features(&plain.server.base).unwrap().webauthn);
+}
+
 #[test]
 fn account_info_epoch_totp_and_devices() {
     let w = World::new(301, ChaosConfig::default());
@@ -114,7 +240,14 @@ fn account_info_epoch_totp_and_devices() {
     let code = code_now(&w, &secret);
     hosted::login_totp(&w.server.base, &second.token, &code).unwrap();
     hosted::device_rename(&w.server.base, &pending.token, other, "renamed").unwrap();
-    hosted::device_remove(&w.server.base, &pending.token, other).unwrap();
+    // Two-step verification is on: a removal without a code is refused.
+    assert!(matches!(
+        hosted::device_remove(&w.server.base, &pending.token, other),
+        Err(TransportError::Rejected(Rejection::TwoFactorInvalid))
+    ));
+    w.server.advance_ms(30_000);
+    let code = code_now(&w, &secret);
+    hosted::device_remove_with_code(&w.server.base, &pending.token, other, Some(&code)).unwrap();
     assert!(
         hosted::device_remove(&w.server.base, &pending.token, other).is_err(),
         "a removed device is gone"

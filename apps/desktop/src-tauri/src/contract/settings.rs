@@ -74,6 +74,21 @@ pub struct Settings {
     /// Show "n passwords to change" after an unlock (default on). No
     /// request is made for it.
     pub rotation_reminders: bool,
+    /// The global shortcut that opens the palette, as an accelerator such as
+    /// `Ctrl+Shift+Space` (M3-R10). Validated in Rust by
+    /// `shortcut::parse_accelerator`; not a protection setting, so it
+    /// changes while locked too.
+    pub global_shortcut: String,
+}
+
+/// The default global shortcut of this OS, as an accelerator string.
+#[must_use]
+pub fn default_global_shortcut() -> String {
+    if cfg!(target_os = "macos") {
+        "Alt+Super+Space".to_owned()
+    } else {
+        "Ctrl+Shift+Space".to_owned()
+    }
 }
 
 impl Default for Settings {
@@ -89,6 +104,7 @@ impl Default for Settings {
             breach_check: BreachMode::Off,
             breach_consent_at: None,
             rotation_reminders: true,
+            global_shortcut: default_global_shortcut(),
         }
     }
 }
@@ -112,7 +128,12 @@ pub(crate) mod samples {
 
     pub(crate) fn settings() -> Vec<Settings> {
         vec![
-            Settings::default(),
+            Settings {
+                // The default of a Windows or Linux desktop, so the fixture
+                // is the same on every OS.
+                global_shortcut: "Ctrl+Shift+Space".into(),
+                ..Settings::default()
+            },
             Settings {
                 auto_lock_minutes: None,
                 lock_on_sleep: false,
@@ -124,6 +145,7 @@ pub(crate) mod samples {
                 breach_check: BreachMode::Weekly,
                 breach_consent_at: Some(1_761_000_000_000),
                 rotation_reminders: false,
+                global_shortcut: "Ctrl+Alt+K".into(),
             },
         ]
     }

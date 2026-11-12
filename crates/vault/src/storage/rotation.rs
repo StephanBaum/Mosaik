@@ -120,7 +120,8 @@ impl RotationPhase {
     }
 
     /// Whether a job of `kind` has this phase: kinds 1 and 3 have the phases
-    /// 1 to 3 and 5 only, a vault job 5 to 7.
+    /// 1 to 3 and 5 only, a vault job 2 (its key offered, the outcome not
+    /// known yet, M9-F1) and 5 to 7.
     #[must_use]
     pub const fn valid_for(self, kind: RotationKind) -> bool {
         match kind {
@@ -134,7 +135,7 @@ impl RotationPhase {
             ),
             RotationKind::Vault => matches!(
                 self,
-                Self::LocalCommitted | Self::Attachments | Self::Uploading
+                Self::BackendStarted | Self::LocalCommitted | Self::Attachments | Self::Uploading
             ),
         }
     }
@@ -869,6 +870,74 @@ impl Store {
                 i64::try_from(rows.len()).map_err(|_| Error::Corrupt)?
             ],
         )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Opens the vault-only job of a key rotation that asked for the
+    /// attachment re-seal, before the key of `generation` is offered to the
+    /// backend (M9-F1): phase 2 (the outcome of the offer is not known yet),
+    /// with the vault's attachments `rows` as the re-seal queue. An open
+    /// phase-2 vault job is refreshed (a re-offer after a pull): its queue is
+    /// replaced and its generation set. A crash or a lock after the offer
+    /// leaves the job, so the resume finds it.
+    ///
+    /// # Errors
+    /// [`Error::RotationInProgress`] if another job is open,
+    /// [`Error::Corrupt`], [`Error::Database`].
+    pub fn open_vault_offer_job(
+        &mut self,
+        generation: KeyGeneration,
+        rows: &[(AttachmentId, VaultId, ItemId)],
+    ) -> Result<()> {
+        let tx = self.write()?;
+        match read_job(&tx)? {
+            None => {}
+            Some(job)
+                if job.kind == RotationKind::Vault
+                    && job.phase == RotationPhase::BackendStarted => {}
+            Some(_) => return Err(Error::RotationInProgress),
+        }
+        tx.execute(
+            "DELETE FROM reseal_attachments WHERE state = ?1",
+            params![ResealState::Todo.code()],
+        )?;
+        insert_reseal_rows(&tx, rows)?;
+        tx.execute(
+            "INSERT INTO rotation_job (id, kind, phase, started_at, target_version, done, total)
+             VALUES (1, ?1, ?2, ?3, ?4, 0, ?5)
+             ON CONFLICT (id) DO UPDATE SET target_version = excluded.target_version,
+                                            total = excluded.total",
+            params![
+                RotationKind::Vault.code(),
+                RotationPhase::BackendStarted.number(),
+                now_ms(),
+                i64::from(generation.get()),
+                i64::try_from(rows.len()).map_err(|_| Error::Corrupt)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Drops a phase-2 vault job with its queue: the offered key did not
+    /// become this device's (another device's key won, or the backend never
+    /// took it), so nothing is re-sealed.
+    ///
+    /// # Errors
+    /// [`Error::NoRotationJob`], [`Error::RotationTooFar`] for any other job,
+    /// [`Error::Database`].
+    pub fn drop_vault_offer_job(&mut self) -> Result<()> {
+        let tx = self.write()?;
+        let job = read_job(&tx)?.ok_or(Error::NoRotationJob)?;
+        if job.kind != RotationKind::Vault || job.phase != RotationPhase::BackendStarted {
+            return Err(Error::RotationTooFar);
+        }
+        tx.execute(
+            "DELETE FROM reseal_attachments WHERE state = ?1",
+            params![ResealState::Todo.code()],
+        )?;
+        tx.execute("DELETE FROM rotation_job WHERE id = 1", [])?;
         tx.commit()?;
         Ok(())
     }

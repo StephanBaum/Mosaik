@@ -114,7 +114,7 @@ pub fn revoke(
     if n != 1 {
         return Ok(false);
     }
-    super::sessions::delete_for_device(tx, account, device)?;
+    super::sessions::delete_for_removed_device(tx, account, device, now)?;
     tx.execute(
         "DELETE FROM checkpoints WHERE account_id = ?1 AND device_id = ?2",
         params![account.as_slice(), device.as_slice()],

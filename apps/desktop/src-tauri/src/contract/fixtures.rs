@@ -31,7 +31,7 @@ use super::credential_rotation::{
     RotationPolicyRequest, RotationSnoozeRequest, RulesSourceKey,
 };
 use super::errors::ErrorCode;
-use super::events::{self, LockReason, SyncStatus};
+use super::events::{self, LockReason, SyncStatus, VaultMetaField};
 use super::export;
 use super::generator::{self, Strength};
 use super::ids::samples as ids;
@@ -50,7 +50,7 @@ use super::quick_unlock::{self, BiometricPlatformKind};
 use super::rotation::{
     self, DismissFileRequest, ProfileUpgradeRequest, RekeyBackend, RekeyCommitRequest,
     RekeyPrepareRequest, RotateCommitRequest, RotatePrepareRequest, RotationKind, RotationNeeds,
-    RotationPhaseName, RotationProfile, RotationResumeRequest,
+    RotationPhaseName, RotationProfile, RotationResumeRequest, VaultRotateKeyRequest,
 };
 use super::secret::{SecretIn, SecretOut};
 use super::session::{
@@ -71,8 +71,10 @@ use super::ssh::{
 use super::sync::{
     self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
     DevicePlatform, DeviceRemoveRequest, DeviceRenameRequest, FolderConnectRequest, FolderState,
-    HostedConnectRequest, HostedMode, JoinFolderRequest, JoinHostedRequest, JoinOutcome,
-    RecoverPasswordRequest, RegistrationMode, TotpBeginRequest, TotpDisableRequest,
+    HandoffState, HandoffStep, HostedConnectRequest, HostedMode, JoinFolderRequest,
+    JoinHostedRequest, JoinOutcome, RecoverPasswordRequest, RegistrationMode, RevokedReasonView,
+    TotpBeginRequest, TotpDisableRequest, WebauthnAddRequest, WebauthnConfirmRequest,
+    WebauthnRemoveRequest,
 };
 use super::totp;
 use super::vaults::{self, CreateVaultRequest, RenameVaultRequest};
@@ -578,6 +580,16 @@ fn ssh_commands(f: &mut Fixtures) {
 fn browser_commands(f: &mut Fixtures) {
     f.command("browser_status", vec![()], browser::samples::statuses());
     f.command(
+        "browser_connector_audit",
+        vec![()],
+        browser::samples::audits(),
+    );
+    f.command(
+        "browser_connector_repair",
+        vec![()],
+        browser::samples::audits(),
+    );
+    f.command(
         "browser_remove_pairing",
         vec![BrowserRemovePairingRequest {
             pairing_id: browser::samples::pairing_id(),
@@ -776,8 +788,81 @@ fn sync_commands(f: &mut Fixtures) {
     sync_join_commands(f);
 }
 
+/// The security-key (WebAuthn) commands of the sync account (M9).
+fn sync_webauthn_commands(f: &mut Fixtures) {
+    f.command(
+        "sync_login_methods",
+        vec![()],
+        sync::samples::login_methods(),
+    );
+    f.command(
+        "sync_hosted_webauthn_begin",
+        vec![()],
+        sync::samples::webauthn_begins(),
+    );
+    f.command(
+        "join_hosted_webauthn_begin",
+        vec![()],
+        sync::samples::webauthn_begins(),
+    );
+    f.command(
+        "sync_webauthn_status",
+        vec![()],
+        sync::samples::webauthn_statuses(),
+    );
+    f.command("sync_webauthn_reopen", vec![()], vec![()]);
+    f.command(
+        "sync_webauthn_list",
+        vec![()],
+        sync::samples::webauthn_keys(),
+    );
+    f.command(
+        "sync_webauthn_add_begin",
+        vec![
+            WebauthnAddRequest {
+                password: sync::samples::pw(),
+                code: None,
+                label: "YubiKey 5C".into(),
+            },
+            WebauthnAddRequest {
+                password: sync::samples::pw(),
+                code: Some(SecretIn::test("492039")),
+                label: "Backup key".into(),
+            },
+        ],
+        sync::samples::webauthn_account_begins(),
+    );
+    f.command(
+        "sync_webauthn_add_status",
+        vec![()],
+        sync::samples::webauthn_account_statuses(),
+    );
+    f.command(
+        "sync_webauthn_confirm_begin",
+        vec![WebauthnConfirmRequest {
+            password: sync::samples::pw(),
+        }],
+        sync::samples::webauthn_account_begins(),
+    );
+    f.command(
+        "sync_webauthn_remove",
+        vec![
+            WebauthnRemoveRequest {
+                credential_ref: "00112233445566778899aabbccddeeff".into(),
+                code: None,
+            },
+            WebauthnRemoveRequest {
+                credential_ref: "00112233445566778899aabbccddeeff".into(),
+                code: Some(SecretIn::test("492039")),
+            },
+        ],
+        vec![()],
+    );
+}
+
 /// The acknowledgement and the recovery of a missed password change.
 fn sync_acknowledge_commands(f: &mut Fixtures) {
+    sync_webauthn_commands(f);
     f.command(
         "sync_acknowledge",
         vec![AcknowledgeRequest {}],
@@ -949,6 +1034,27 @@ fn rotation_commands(f: &mut Fixtures) {
             sha256: "ab".repeat(32),
         }],
         sync::samples::overviews(),
+    );
+}
+
+/// The vault key rotation (M7-R2, M9).
+fn vault_rotate_commands(f: &mut Fixtures) {
+    let pw = rotation::samples::pw;
+    f.command(
+        "vault_rotate_key",
+        vec![
+            VaultRotateKeyRequest {
+                vault_id: ids::vault(1),
+                reseal_attachments: false,
+                proof: None,
+            },
+            VaultRotateKeyRequest {
+                vault_id: ids::vault(2),
+                reseal_attachments: true,
+                proof: Some(pw()),
+            },
+        ],
+        rotation::samples::done(),
     );
 }
 
@@ -1274,6 +1380,8 @@ fn enums() -> Map<String, Value> {
         ("importEntryWarning", values(ImportEntryWarning::ALL)),
         ("importSkipReason", values(ImportSkipReason::ALL)),
         ("shortcutState", values(ShortcutState::ALL)),
+        ("revokedReason", values(RevokedReasonView::ALL)),
+        ("vaultMetaField", values(VaultMetaField::ALL)),
         ("sshSkipReason", values(SshSkipReason::ALL)),
         ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
@@ -1298,6 +1406,8 @@ fn enums() -> Map<String, Value> {
         ("rekeyBackend", values(RekeyBackend::ALL)),
         ("registrationMode", values(RegistrationMode::ALL)),
         ("hostedMode", values(HostedMode::ALL)),
+        ("handoffState", values(HandoffState::ALL)),
+        ("handoffStep", values(HandoffStep::ALL)),
         ("folderState", values(FolderState::ALL)),
         ("devicePlatform", values(DevicePlatform::ALL)),
         ("shareRole", values(ShareRole::ALL)),
@@ -1333,6 +1443,7 @@ pub(crate) fn build() -> Value {
     browser_commands(&mut f);
     sync_commands(&mut f);
     rotation_commands(&mut f);
+    vault_rotate_commands(&mut f);
     rotation_fix_commands(&mut f);
     credential_rotation_commands(&mut f, item_request);
     sharing_commands(&mut f);

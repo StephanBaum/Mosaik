@@ -99,25 +99,81 @@ export const sync = {
   "settings.sync.devices.folderNote":
     "To lock a device out, change your master password and Secret Key.",
 
-  "settings.sync.totp.title": "Two-step verification",
+  "settings.sync.totp.title": "Authenticator app",
   "settings.sync.totp.body":
     "Asks for a code from an authenticator app when someone signs in to your sync account. It protects the server account, not your vaults: those stay encrypted with your master password and Secret Key.",
-  "settings.sync.totp.on": "Two-step verification is on.",
-  "settings.sync.totp.off": "Two-step verification is off.",
+  "settings.sync.totp.on": "Codes from an authenticator app are on.",
+  "settings.sync.totp.off": "Codes from an authenticator app are off.",
   "settings.sync.totp.enable": "Turn on…",
   "settings.sync.totp.disable": "Turn off…",
-  "settings.sync.totp.beginTitle": "Turn on two-step verification",
+  "settings.sync.totp.beginTitle": "Turn on authenticator-app codes",
   "settings.sync.totp.beginBody": "Enter your master password to start.",
   "settings.sync.totp.begin": "Continue",
   "settings.sync.totp.setupBody":
     "Add this key to your authenticator app, then enter the 6-digit code it shows.",
   "settings.sync.totp.secret": "Setup key",
   "settings.sync.totp.confirm": "Turn on",
-  "settings.sync.totp.disableTitle": "Turn off two-step verification",
+  "settings.sync.totp.disableTitle": "Turn off authenticator-app codes",
   "settings.sync.totp.disableBody": "Enter your master password and a current code.",
   "settings.sync.totp.disableConfirm": "Turn off",
-  "settings.sync.totp.enabledToast": "Two-step verification is on.",
-  "settings.sync.totp.disabledToast": "Two-step verification is off.",
+  "settings.sync.totp.enabledToast": "Codes from an authenticator app are on.",
+  "settings.sync.totp.disabledToast": "Codes from an authenticator app are off.",
+
+  "settings.sync.key.title": "Security keys",
+  "settings.sync.key.body":
+    "A security key can be a second step when you sign in to your sync account. It guards the account on the server, not your vaults. Adding or using a key opens your browser.",
+  "settings.sync.key.none": "No security keys added.",
+  "settings.sync.key.added": "Added {when}",
+  "settings.sync.key.lastUsed": "Last used {when}",
+  "settings.sync.key.neverUsed": "Not used yet",
+  "settings.sync.key.add": "Add a security key…",
+  "settings.sync.key.addTitle": "Add a security key",
+  "settings.sync.key.addBody":
+    "Name the key and enter your master password. Mosaic then opens your browser, where you use the key.",
+  "settings.sync.key.label": "Name of the key",
+  "settings.sync.key.labelHint": "For example “Desk key”. Up to 64 characters.",
+  "settings.sync.key.addConfirm": "Continue",
+  "settings.sync.key.addedToast": "Security key added.",
+  "settings.sync.key.noBackup":
+    "A security key would be your only second step. If you lose it, you may not be able to sign in to your sync account again. We recommend a backup: a second key or a code from an authenticator app.",
+  "settings.sync.key.recommend":
+    "We recommend two methods, for example two keys, or a key and an authenticator-app code.",
+  "settings.sync.key.remove": "Remove",
+  "settings.sync.key.removeLabel": "Remove {name}",
+  "settings.sync.key.removeTitle": "Remove {name}?",
+  "settings.sync.key.removeBody":
+    "You confirm once with a security key in your browser. After that, this key no longer works for signing in.",
+  "settings.sync.key.removeLast":
+    "This is your last second step. Two-step verification turns off, and your sync account is then protected by your master password and Secret Key alone.",
+  "settings.sync.key.removeCode": "Authenticator-app code",
+  "settings.sync.key.removeCodeHint":
+    "Enter a current code to remove the key right away. Leave it empty to confirm with a security key in your browser instead.",
+  "settings.sync.key.removeConfirm": "Remove key",
+  "settings.sync.key.removedToast": "Security key removed.",
+  "settings.sync.key.confirmTitle": "Confirm with a security key",
+  "settings.sync.key.confirmBody":
+    "Removing a key needs a second step. Enter your master password, then confirm with a key in your browser.",
+  "settings.sync.key.step.methods": "Checking how this account signs in…",
+  "settings.sync.key.step.useKey": "Use security key (opens your browser)",
+  "settings.sync.key.step.keyOnlyTitle": "Use your security key",
+  "settings.sync.key.step.keyOnlyBody":
+    "This account is protected by a security key. Mosaic opens a page in your browser, where you use it.",
+  "settings.sync.key.step.or": "Or use a code",
+  "settings.sync.key.wait.login": "Sign in with your security key",
+  "settings.sync.key.wait.register": "Add your security key",
+  "settings.sync.key.wait.confirm": "Confirm with your security key",
+  "settings.sync.key.wait.lead":
+    "Your browser opened a Mosaic page from your sync server. Type this code there, then use your security key.",
+  "settings.sync.key.wait.codeLabel": "Code to type in your browser",
+  "settings.sync.key.wait.codeSpoken": "Code to type in your browser: {digits}",
+  "settings.sync.key.wait.expires": "This step runs out at {time}.",
+  "settings.sync.key.wait.waiting": "Waiting for your security key…",
+  "settings.sync.key.wait.done": "Done.",
+  "settings.sync.key.wait.expired": "This step ran out of time. Start it again.",
+  "settings.sync.key.wait.failed":
+    "The step failed: the code was wrong too often, or the security key was not accepted. Nothing was changed. Start again.",
+  "settings.sync.key.wait.reopen": "Open the browser page again",
+  "settings.sync.key.wait.retry": "Start again",
 
   "sync.warning.region": "Sync warnings",
   "sync.warning.unknownDevice": "another device",
@@ -150,4 +206,12 @@ export const sync = {
 
   "toast.syncAttention":
     "Sync merged or repaired some items from another device. Have a look at what changed.",
+  "sync.revoked.rekey":
+    "This account's keys were renewed on another device: sign in with the new Secret Key from your newest Emergency Kit.",
+  "sync.revoked.passwordChange":
+    "Your master password was changed on another device: sign in with the new password.",
+  "sync.revoked.deviceRemoved":
+    "This device was removed from your account on another device. Sign in again to add it back.",
+  "sync.revoked.operator":
+    "The operator of the server ended this session. Sign in again to keep syncing.",
 } as const satisfies Record<string, string>;

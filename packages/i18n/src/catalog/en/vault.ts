@@ -68,4 +68,50 @@ export const vault = {
   "vault.create": "New vault",
   "vault.create.name": "Vault name",
   "vault.create.submit": "Create vault",
+  "vault.menu":
+    "Vault actions",
+  "vaultKey.menu":
+    "Renew vault key…",
+  "vaultKey.title":
+    "Renew the key of {vault}",
+  "vaultKey.body":
+    "Mosaic makes a new key for this vault and passes it to every device and person who has access. Copies they already have stay readable to them; the new key protects what changes from now on. Use this after someone lost access or a device was lost.",
+  "vaultKey.attachments":
+    "Also renew the keys of attachments",
+  "vaultKey.attachments.hint":
+    "Gives every file in this vault a new key too. This takes longer with many or large files.",
+  "vaultKey.reauth":
+    "Renewing a vault key needs your master password.",
+  "vaultKey.submit":
+    "Renew key",
+  "vaultKey.working":
+    "Renewing the key…",
+  "vaultKey.progress":
+    "Renewing attachment keys: {done} of {total}.",
+  "vaultKey.done":
+    "The vault key was renewed.",
+  "vaultKey.doneAttachments":
+    "The vault key was renewed, and the attachment keys were renewed too.",
+  "vaultKey.unfinished":
+    "The vault key was renewed. Renewing the attachment keys continues later. If Mosaic closes first, choose Continue key rotation next time.",
+  "vaultKey.unreachable":
+    "{count, plural, one {# attachment isn't on this device yet and keeps its old key.} other {# attachments aren't on this device yet and keep their old key.}}",
+  "vaultKey.close":
+    "Close",
+  "vault.meta.title":
+    "Vault details were shortened",
+  "vault.meta.body":
+    "Two devices changed the {fields} of “{vault}” at the same time, and together they were too long to store. Mosaic kept one version, or left the field empty. Check it and type it again if needed.",
+  "vault.edit.title":
+    "Edit vault",
+  "vault.meta.edit":
+    "Edit vault",
+  "vault.meta.field.name":
+    "name",
+  "vault.meta.field.icon":
+    "icon",
+  "vault.meta.field.description":
+    "description",
+  "vault.meta.dismiss":
+    "Dismiss",
 } as const satisfies Record<string, string>;

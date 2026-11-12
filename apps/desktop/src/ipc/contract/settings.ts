@@ -30,6 +30,8 @@ export interface Settings {
   breachConsentAt: number | null;
   /** Show "n passwords to change" after an unlock (default on). */
   rotationReminders: boolean;
+  /** The accelerator that opens the palette from anywhere, e.g. `Ctrl+Shift+Space` (M3-R10). */
+  globalShortcut: string;
 }
 
 export interface UpdateSettingsRequest {

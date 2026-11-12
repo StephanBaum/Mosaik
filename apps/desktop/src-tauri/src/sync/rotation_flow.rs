@@ -50,6 +50,8 @@ use crate::contract::secret::SecretIn;
 use crate::contract::sync::{RecoverPasswordRequest, SyncOverview};
 use crate::state::{Backend, guard};
 
+mod vault_rotation;
+
 /// The most `rekey_continue` calls one command makes (each re-seals attachments
 /// within the engine's download budget).
 const MAX_CONTINUE_CALLS: usize = 64;
@@ -657,9 +659,8 @@ impl Backend {
             .ok_or(IpcError::new(ErrorCode::RotationNone))?;
         let _change = self.sync.begin_change()?;
         let result = match (job.kind, job.phase) {
-            (_, RotationPhase::Prepared) | (VaultKind::Vault, _) => {
-                Err(IpcError::new(ErrorCode::InvalidInput))
-            }
+            (VaultKind::Vault, _) => self.resume_vault_job(&who),
+            (_, RotationPhase::Prepared) => Err(IpcError::new(ErrorCode::InvalidInput)),
             (VaultKind::Rekey, RotationPhase::BackendStarted | RotationPhase::BackendAccepted) => {
                 self.resume_hosted_rekey(&who, request)
             }

@@ -272,6 +272,22 @@ pub struct RotationResumeRequest {
     pub code: Option<SecretIn>,
 }
 
+/// `vault_rotate_key` (M7-R2): a new key for one vault, with the attachments
+/// optionally protected again under fresh keys.
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VaultRotateKeyRequest {
+    /// The vault.
+    pub vault_id: WireVaultId,
+    /// Also protect the vault's attachments again under new keys.
+    pub reseal_attachments: bool,
+    /// The proof of the master password (`reauthenticate`, within two
+    /// minutes), or the password itself; `null` uses the proof the last
+    /// `reauthenticate` left (`reauthRequired` without one).
+    pub proof: Option<SecretIn>,
+}
+
 /// `sync_dismiss_account_file`: an account file in the sync folder that this
 /// device cannot verify is not a problem the user wants to see again.
 #[derive(Debug, Deserialize)]

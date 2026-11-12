@@ -29,6 +29,7 @@ import type {
 } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
 import { useDefaultDeviceName } from "../sync/hooks.ts";
+import { SecondFactorStep } from "../sync/SecondFactorStep.tsx";
 import { CodeForm, Tabs, type Tab } from "./JoinParts.tsx";
 
 interface Fields {
@@ -167,16 +168,21 @@ function useJoinFlow(onDone: (session: SessionState) => void) {
     } else if (result.value.state === "twoFactorRequired") {
       setNeedsCode(true);
     } else {
-      const session = await ipc.call("session_state", null);
-      if (session.ok) {
-        onDone(session.value);
-      } else {
-        setError(session.error);
-      }
+      await finish();
     }
     setBusy(false);
   }
-  return { needsCode, setNeedsCode, busy, error, setError, run };
+
+  /** The join is done in Rust (a code, or a security key in the browser): read the session. */
+  async function finish() {
+    const session = await ipc.call("session_state", null);
+    if (session.ok) {
+      onDone(session.value);
+    } else {
+      setError(session.error);
+    }
+  }
+  return { needsCode, setNeedsCode, busy, error, setError, run, finish };
 }
 
 type Flow = ReturnType<typeof useJoinFlow>;
@@ -319,6 +325,7 @@ export function JoinStep({
   onBack: () => void;
   onDone: (session: SessionState) => void;
 }) {
+  const { t } = useI18n();
   const ipc = useIpc();
   const flow = useJoinFlow(onDone);
   // The form lives here, so the fields survive the code step; only the password is cleared.
@@ -330,21 +337,37 @@ export function JoinStep({
       clearPassword();
     }
   }, [flow.needsCode, clearPassword]);
+  const back = () => {
+    flow.setNeedsCode(false);
+    flow.setError(null);
+  };
   return (
     <AuthShell>
       <div className="auth__main">
         {flow.needsCode ? (
-          <CodeForm
-            busy={flow.busy}
-            error={flow.error}
-            onSubmit={(code) => {
-              void flow.run(() => ipc.call("join_hosted_two_factor", { code }));
-            }}
-            onBack={() => {
-              flow.setNeedsCode(false);
-              flow.setError(null);
-            }}
-          />
+          <>
+            {/* The page keeps its h1; the step below it is an h2. */}
+            <div className="auth__intro">
+              <h1 className="display">{t("onboarding.join.title")}</h1>
+            </div>
+            <SecondFactorStep
+              join
+              large
+              onSignedIn={() => {
+                void flow.finish();
+              }}
+              onCancel={back}
+            >
+              <CodeForm
+                busy={flow.busy}
+                error={flow.error}
+                onSubmit={(code) => {
+                  void flow.run(() => ipc.call("join_hosted_two_factor", { code }));
+                }}
+                onBack={back}
+              />
+            </SecondFactorStep>
+          </>
         ) : (
           <JoinForm flow={flow} form={form} onBack={onBack} />
         )}

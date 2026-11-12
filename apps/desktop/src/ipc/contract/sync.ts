@@ -11,6 +11,14 @@ export type RegistrationMode = (typeof registrationModes)[number];
 export const hostedModes = ["register", "signIn"] as const;
 export type HostedMode = (typeof hostedModes)[number];
 
+/** Where a browser handoff stands (M9). */
+export const handoffStates = ["waiting", "done", "failed", "expired"] as const;
+export type HandoffState = (typeof handoffStates)[number];
+
+/** Which browser step an account handoff is at (M9). */
+export const handoffSteps = ["login", "register", "confirm"] as const;
+export type HandoffStep = (typeof handoffSteps)[number];
+
 /** What a chosen folder holds. */
 export const folderStates = ["empty", "mosaic", "other"] as const;
 export type FolderState = (typeof folderStates)[number];
@@ -26,6 +34,8 @@ export type SyncConfigView =
       email: string;
       deviceName: string;
       totpEnabled: boolean;
+      /** How many security keys the sync account has (M9). */
+      webauthnKeys: number;
     }
   | { kind: "folder"; displayPath: string; deviceName: string };
 
@@ -47,6 +57,10 @@ export type SyncWarningView =
 
 export type SyncWarningKind = SyncWarningView["kind"];
 
+/** Why the server ended a session (CRYPTO_SPEC section 9.5): the server's claim, it only selects the text. */
+export const revokedReasons = ["rekey", "passwordChange", "deviceRemoved", "operator"] as const;
+export type RevokedReason = (typeof revokedReasons)[number];
+
 /** The `sync_status` response (the spec's "SyncStatus"), and what most sync commands return. */
 export interface SyncOverview {
   config: SyncConfigView | null;
@@ -58,6 +72,8 @@ export interface SyncOverview {
   passwordChanged: boolean;
   /** A verified re-key marker says the keys were renewed on another device; sync is paused (M7). */
   rekeyPending: boolean;
+  /** Why the server ended this device's session; set with status `signedOut` (M7-R3). */
+  revoked: RevokedReason | null;
 }
 
 export interface CheckServerRequest {
@@ -128,6 +144,65 @@ export interface TotpSetupInfo {
   otpauthUri: string;
 }
 
+/** `sync_login_methods`: the second factors the waiting login can use. */
+export interface LoginMethods {
+  totp: boolean;
+  webauthn: boolean;
+}
+
+/** `sync_hosted_webauthn_begin` and `join_hosted_webauthn_begin`. The code is typed on the server's page. */
+export interface WebauthnBegin {
+  matchCode: string;
+  expiresAt: UnixMillis;
+}
+
+export interface WebauthnStatus {
+  state: HandoffState;
+}
+
+/** `sync_webauthn_add_begin` and `sync_webauthn_confirm_begin`. */
+export interface WebauthnAccountBegin {
+  step: HandoffStep;
+  matchCode: string;
+  expiresAt: UnixMillis;
+}
+
+export interface WebauthnAccountStatus {
+  state: HandoffState;
+  step: HandoffStep;
+  matchCode: string | null;
+  expiresAt: UnixMillis | null;
+}
+
+export interface WebauthnKeyView {
+  /** 32 hex digits. */
+  credentialRef: string;
+  label: string;
+  createdAt: UnixMillis;
+  lastUsedAt: UnixMillis | null;
+}
+
+export interface WebauthnKeys {
+  /** The account also has an authenticator-app second factor. */
+  totp: boolean;
+  keys: WebauthnKeyView[];
+}
+
+export interface WebauthnAddRequest {
+  password: string;
+  code: string | null;
+  label: string;
+}
+
+export interface WebauthnConfirmRequest {
+  password: string;
+}
+
+export interface WebauthnRemoveRequest {
+  credentialRef: string;
+  code: string | null;
+}
+
 export interface TotpDisableRequest {
   password: string;
   code: string;
@@ -167,3 +242,33 @@ export interface ChangePasswordRequest {
   newPassword: string;
   code: string | null;
 }
+
+/** The security-key commands of the sync account (M9); `Commands` in `commands.ts` extends it. */
+export interface SyncWebauthnCommands {
+  sync_login_methods: { request: null; response: LoginMethods };
+  sync_hosted_webauthn_begin: { request: null; response: WebauthnBegin };
+  join_hosted_webauthn_begin: { request: null; response: WebauthnBegin };
+  sync_webauthn_status: { request: null; response: WebauthnStatus };
+  sync_webauthn_reopen: { request: null; response: null };
+  sync_webauthn_list: { request: null; response: WebauthnKeys };
+  sync_webauthn_add_begin: { request: WebauthnAddRequest; response: WebauthnAccountBegin };
+  sync_webauthn_add_status: { request: null; response: WebauthnAccountStatus };
+  sync_webauthn_confirm_begin: { request: WebauthnConfirmRequest; response: WebauthnAccountBegin };
+  sync_webauthn_remove: { request: WebauthnRemoveRequest; response: null };
+}
+
+export type SyncWebauthnCommandName = keyof SyncWebauthnCommands;
+
+/** The names of [`SyncWebauthnCommands`], for the command list. */
+export const syncWebauthnCommandNames: readonly SyncWebauthnCommandName[] = [
+  "sync_login_methods",
+  "sync_hosted_webauthn_begin",
+  "join_hosted_webauthn_begin",
+  "sync_webauthn_status",
+  "sync_webauthn_reopen",
+  "sync_webauthn_list",
+  "sync_webauthn_add_begin",
+  "sync_webauthn_add_status",
+  "sync_webauthn_confirm_begin",
+  "sync_webauthn_remove",
+];

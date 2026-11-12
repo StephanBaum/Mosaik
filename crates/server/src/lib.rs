@@ -35,13 +35,18 @@ use mosaic_sync::wire::json::RegistrationMode;
 use mosaic_sync::wire::opaque::{Suite, ke::ServerSetup};
 
 pub use auth::secret_file::{SecretFileError, ServerKeys};
+/// The relying party, for the fuzz targets (not a stable API).
+#[doc(hidden)]
+pub use auth::webauthn as webauthn_rp;
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use config::{Config, ConfigError, Limits};
+pub use config::{Config, ConfigError, Limits, WebauthnConfig};
 pub use db::{Db, DbError};
 pub use error::ApiError;
 
+use auth::handoff::Handoffs;
 use auth::opaque::LoginStates;
 use auth::prelogin::ProfileDist;
+use auth::webauthn::Rp;
 use blobs::Blobs;
 use polls::Polls;
 use ratelimit::RateLimiter;
@@ -80,6 +85,8 @@ pub struct Inner {
     pub(crate) rate: RateLimiter,
     pub(crate) logins: LoginStates,
     pub(crate) polls: Polls,
+    pub(crate) rp: Option<Rp>,
+    pub(crate) handoffs: Handoffs,
     pub(crate) dist: Mutex<Option<(u64, ProfileDist)>>,
     pub(crate) max_attachment: usize,
 }
@@ -107,6 +114,17 @@ impl AppState {
     /// `config.data_dir/blobs`.
     #[must_use]
     pub fn new(config: &Config, db: Db, keys: ServerKeys, clock: Arc<dyn Clock>) -> Self {
+        let rp = Rp::new(&config.canonical_origin, &config.webauthn);
+        if rp.is_none()
+            && let Ok(n) = db.run(db::webauthn::accounts_with_credentials)
+            && n > 0
+        {
+            // Logins of these accounts fail closed (CRYPTO_SPEC §9.3).
+            tracing::warn!(
+                accounts = n,
+                "accounts hold security keys but no WebAuthn relying party is configured; \n                 their logins cannot finish until [webauthn] is on and the origin is a host name, \n                 or their second factor is reset"
+            );
+        }
         Self(Arc::new(Inner {
             db,
             blobs: Blobs::new(&config.data_dir),
@@ -119,6 +137,8 @@ impl AppState {
             rate: RateLimiter::new(),
             logins: LoginStates::new(),
             polls: Polls::new(),
+            rp,
+            handoffs: Handoffs::new(),
             dist: Mutex::new(None),
             max_attachment: ciphertext_len(MAX_ATTACHMENT_LEN).unwrap_or(usize::MAX),
         }))
@@ -157,6 +177,7 @@ impl AppState {
         let retention = self.limits.soft_delete_days.saturating_mul(86_400_000);
         let purged = self.db.run_tx(|tx| {
             db::sessions::purge_expired(tx, now)?;
+            db::sessions::purge_revoked(tx, now.saturating_sub(30 * 86_400_000))?;
             db::audit::purge(tx, now.saturating_sub(365 * 86_400_000))?;
             db::sharing::purge_invites(tx, now.saturating_sub(60 * 86_400_000))?;
             db::attachments::purge_deleted(tx, now.saturating_sub(retention))
@@ -167,6 +188,7 @@ impl AppState {
         self.rate.prune(now);
         self.logins.prune(now);
         self.polls.prune();
+        self.handoffs.prune(now);
         Ok(())
     }
 }
@@ -181,6 +203,9 @@ pub fn app(state: AppState) -> Router {
 /// # Errors
 /// [`StartError`].
 pub async fn serve(config: Config) -> Result<(), StartError> {
+    // The default panic hook prints the panic message; a handler panic must not
+    // put request data into the log (CRYPTO_SPEC §9.3 "Panics").
+    std::panic::set_hook(Box::new(|_| tracing::error!("a request handler panicked")));
     let state = AppState::open(&config, Arc::new(SystemClock))?;
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let housekeeping = state.clone();

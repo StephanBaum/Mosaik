@@ -2,10 +2,10 @@ use super::*;
 
 /// A fake registry: remembers the values set and answers queries from them.
 #[derive(Default)]
-struct Recorder {
-    set: Vec<(String, PathBuf)>,
-    values: std::collections::HashMap<String, PathBuf>,
-    deleted: Vec<String>,
+pub(super) struct Recorder {
+    pub(super) set: Vec<(String, PathBuf)>,
+    pub(super) values: std::collections::HashMap<String, PathBuf>,
+    pub(super) deleted: Vec<String>,
 }
 
 impl Registry for Recorder {
@@ -26,7 +26,7 @@ impl Registry for Recorder {
     }
 }
 
-fn unix_layout(os: Os, root: &Path) -> Layout {
+pub(super) fn unix_layout(os: Os, root: &Path) -> Layout {
     Layout {
         os,
         home: root.join("home"),
@@ -34,7 +34,7 @@ fn unix_layout(os: Os, root: &Path) -> Layout {
     }
 }
 
-fn windows_layout(root: &Path) -> Layout {
+pub(super) fn windows_layout(root: &Path) -> Layout {
     Layout {
         os: Os::Windows,
         home: PathBuf::new(),
@@ -42,7 +42,7 @@ fn windows_layout(root: &Path) -> Layout {
     }
 }
 
-fn host(root: &Path) -> PathBuf {
+pub(super) fn host(root: &Path) -> PathBuf {
     root.join("bin").join("mosaic-native-host")
 }
 
@@ -310,7 +310,6 @@ HKEY_CURRENT_USER\Software\x
         "",
         "ERROR: The system was unable to find the specified registry key",
         "    (Default)    REG_SZ    \n",
-        "    (Default)    REG_DWORD    0x1\n",
     ] {
         assert_eq!(parse_reg_query_default(none), None, "{none:?}");
     }

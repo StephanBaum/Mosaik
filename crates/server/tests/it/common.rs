@@ -145,6 +145,37 @@ impl TestApp {
         Self::build(mode, true, |_| {})
     }
 
+    /// With the database and the secret file on disk, so [`TestApp::restart`]
+    /// can start a new server state over them (M9 T12).
+    pub fn restartable(mode: RegistrationMode) -> Self {
+        init_logs();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config = config_for(dir.path(), mode);
+        let keys = ServerKeys::generate(T0 - 1000).expect("keys");
+        keys.create(&config.secret_file).expect("secret file");
+        std::fs::create_dir_all(dir.path().join("blobs")).expect("blobs");
+        let db = Db::open(&dir.path().join(mosaic_server::DB_FILE)).expect("db");
+        let clock = Arc::new(ManualClock::new(T0));
+        let state = AppState::new(&config, db, keys, clock.clone());
+        let router = app(state.clone());
+        Self {
+            state,
+            clock,
+            dir,
+            router,
+        }
+    }
+
+    /// A server restart: a new [`AppState`] opened over the same database and
+    /// secret file, with the same clock. Everything the server keeps in
+    /// memory (browser handoffs, login states, rate-limit buckets) is gone.
+    pub fn restart(&mut self, mode: RegistrationMode) {
+        let config = config_for(self.dir.path(), mode);
+        let state = AppState::open(&config, self.clock.clone()).expect("reopen");
+        self.router = app(state.clone());
+        self.state = state;
+    }
+
     fn build(mode: RegistrationMode, file: bool, tweak: impl FnOnce(&mut Config)) -> Self {
         init_logs();
         let dir = tempfile::tempdir().expect("tempdir");
@@ -445,6 +476,48 @@ impl TestApp {
             LoginResult::Ok { token, .. } => token,
             _ => panic!("login failed"),
         }
+    }
+
+    /// A password change of the session `token`'s account to `new_opw`
+    /// (`password/start` and `password/finish`); the answer of `finish`.
+    pub async fn change_password(&self, u: &User, token: &[u8; 32], new_opw: &[u8; 32]) -> Resp {
+        use mosaic_sync::wire::json::{PasswordFinishRequest, PasswordStartRequest};
+        let mut rng = OsRng;
+        let start = ClientRegistration::<Suite>::start(&mut rng, new_opw).expect("start");
+        let r = self
+            .post(
+                "/v1/account/password/start",
+                Some(token),
+                &PasswordStartRequest {
+                    registration_request: B64(start.message.serialize().to_vec()),
+                },
+            )
+            .await;
+        assert_eq!(r.status, StatusCode::OK);
+        let resp: RegistrationStartResponse = r.json();
+        let fin = start
+            .state
+            .finish(
+                &mut rng,
+                new_opw,
+                RegistrationResponse::deserialize(&resp.registration_response.0).expect("resp"),
+                ClientRegistrationFinishParameters::new(
+                    identifiers(u.account_id.as_bytes(), ORIGIN.as_bytes()),
+                    None,
+                ),
+            )
+            .expect("finish");
+        self.post(
+            "/v1/account/password/finish",
+            Some(token),
+            &PasswordFinishRequest {
+                registration_upload: B64(fin.message.serialize().to_vec()),
+                wrapped_ak: wrapped_key(9),
+                salt: B64Fixed([5; 16]),
+                profile: Argon2Profile::DEFAULT,
+            },
+        )
+        .await
     }
 
     // ---- vaults ------------------------------------------------------

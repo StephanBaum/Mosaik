@@ -1,0 +1,41 @@
+{
+  "bundle": {
+    "targets": ["msi", "dmg", "app", "deb", "rpm"],
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/mosaic-native-host", "binaries/mosaic"],
+    "windows": {
+      "signCommand": {
+        "cmd": "pwsh",
+        "args": ["-NoProfile", "-File", "../../../scripts/release/sign-windows.ps1", "%1"]
+      },
+      "wix": {
+        "fragmentPaths": ["wix/native-messaging.wxs"],
+        "componentRefs": ["MosaicNativeMessaging"]
+      }
+    },
+    "macOS": {
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist"
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/lib/mosaic/mosaic-native-host": "binaries/mosaic-native-host-x86_64-unknown-linux-gnu",
+          "/etc/opt/chrome/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/opt/chrome/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/etc/opt/edge/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/opt/edge/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/etc/chromium/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/chromium/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/usr/lib/mozilla/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/usr/lib/mozilla/native-messaging-hosts/io.github.stephanbaum.mosaic.json"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/lib/mosaic/mosaic-native-host": "binaries/mosaic-native-host-x86_64-unknown-linux-gnu",
+          "/etc/opt/chrome/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/opt/chrome/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/etc/opt/edge/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/opt/edge/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/etc/chromium/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/etc/chromium/native-messaging-hosts/io.github.stephanbaum.mosaic.json",
+          "/usr/lib/mozilla/native-messaging-hosts/io.github.stephanbaum.mosaic.json": "binaries/native-messaging/linux/usr/lib/mozilla/native-messaging-hosts/io.github.stephanbaum.mosaic.json"
+        }
+      }
+    }
+  }
+}

@@ -75,6 +75,8 @@ export const errors = {
     "That was too quick to read the request. Check the details, then choose again.",
   "error.browserPairingNotFound":
     "That browser is no longer connected. Reopen Settings to see the current list.",
+  "error.browserHostMissing":
+    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
   "error.kitNotVerified":
     "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
   "error.kitGroupMismatch":
@@ -219,6 +221,14 @@ export const errors = {
     "Some sync files in this folder are damaged. Let your cloud service finish syncing or restore the folder from a backup, then try again.",
   "error.syncPasswordOutcomeUnknown":
     "We couldn't confirm whether the server changed your master password. Keep both passwords until sync confirms which one applies.",
+  "error.syncWebauthnUnavailable":
+    "Your server can't use a security key for this right now, or this account has none. Use an authenticator-app code instead.",
+  "error.syncWebauthnLimit":
+    "This account already has the most security keys the server allows. Remove one you no longer use, then try again.",
+  "error.syncHandoffExpired":
+    "The browser step ran out of time. Start it again.",
+  "error.syncHandoffFailed":
+    "Too many wrong codes or failed checks in the browser. Start the step again.",
   "error.syncPasswordNeedsServer":
     "Changing your master password needs your sync server, and it can't be reached. Check your internet connection and try again.",
   "error.syncDeviceIsCurrent":
@@ -267,4 +277,8 @@ export const errors = {
     "Your last request was refused. You can ask again after the waiting period of one day.",
   "error.emergencyNotGranted":
     "There is nothing to claim: no request is open, or the person didn't grant you access.",
+  "error.shortcutUnavailable":
+    "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
+  "error.shortcutUnsupported":
+    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
 } as const satisfies Record<string, string>;

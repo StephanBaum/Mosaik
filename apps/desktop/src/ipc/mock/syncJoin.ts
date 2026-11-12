@@ -9,7 +9,7 @@ import { sampleAccount, sampleAttachments, sampleItems, sampleVaults } from "./d
 import { normalizeKey } from "./session.ts";
 import { startAgent } from "./ssh.ts";
 import { fail, requireUnlocked, type MockHandlers, type MockState } from "./state.ts";
-import { MOCK_TOTP_CODE, normalizeServer, settle } from "./syncData.ts";
+import { MOCK_TOTP_CODE, normalizeServer, seedKeys, settle } from "./syncData.ts";
 
 function requireNoAccount(state: MockState): void {
   if (state.account !== null) {
@@ -31,7 +31,7 @@ function checkSecrets(password: string, secretKey: string): void {
 }
 
 /** The new device now holds the account: unlocked, with the sample vaults and items. */
-function finishJoin(
+export function finishJoin(
   state: MockState,
   deviceName: string,
   backend: { kind: "hosted"; serverUrl: string } | { kind: "folder"; path: string },
@@ -46,7 +46,8 @@ function finishJoin(
   state.attachments = sampleAttachments();
   if (backend.kind === "hosted") {
     state.sync.registered = true;
-    state.sync.totp = state.sync.join2fa;
+    state.sync.totp = state.sync.join2fa && state.sync.webauthnMode !== "only";
+    state.sync.keys = seedKeys(state.sync.webauthnMode, state.now());
     settle(state, { kind: "hosted", serverUrl: backend.serverUrl, deviceName });
   } else {
     settle(state, { kind: "folder", path: backend.path, deviceName });

@@ -37,16 +37,18 @@ Mosaic is pre-audit. Nothing here has been externally reviewed yet.
 | Public-key encryption (sharing, emergency access) | HPKE, mode Auth, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 | RFC 9180 | `hpke` (exact `=0.15.1` pin, features `alloc`, `x25519`, `chacha`, nothing else; mode Auth through the single-shot API only; the ephemeral key is one `random(32)` draw, ADR-0049) |
 | Account login | OPAQUE-3DH, ristretto255, SHA-512 | RFC 9807 | `opaque-ke` (4.x, exact `=` pin, ADR-0046) |
 | Passkeys (§16, ADR-0039) | ECDSA P-256 / SHA-256 (ES256) with RFC 6979 nonces; Ed25519 (EdDSA) reserved, not implemented | FIPS 186-5, RFC 6979, RFC 8032, WebAuthn L3 | `p256` (features `alloc`, `ecdsa`, `pkcs8`; encodings from `pkcs8`, `spki`, `der`); `sha2` (rpIdHash, clientDataJSON hash); `base64ct` (base64url) |
+| Sync-account second factor (§9.3, ADR-0077, ADR-0078) | WebAuthn assertion verification (relying party), ES256 (ECDSA P-256 / SHA-256) and EdDSA (Ed25519) only, attestation `none` | W3C WebAuthn L3, RFC 8152 / RFC 9053 (COSE keys) | `passkey-auth` (exact `=0.1.3` pin, server only, ADR-0078; it verifies with `p256` 0.13, `ed25519-dalek` 2 and `sha2`, parses CBOR with `ciborium`, parses the DER certificates of a `packed` or `fido-u2f` attestation statement with `x509-cert` 0.2 and `der` 0.7, and draws the 32-byte challenge from `rand` 0.8 `ThreadRng`). `x509-cert` and `der` come in with the crate; they parse DER the client sends, which is attacker-controlled input |
 | OTP | HMAC-SHA-1/256/512 | RFC 2104, 4226, 6238 | `hmac`, `sha1`, `sha2` |
 | Settings integrity (§11.1, ADR-0030) | HMAC-SHA-256 under an HKDF-derived key | RFC 2104, 5869 | `hmac`, `hkdf`, `sha2` |
 | Sync checkpoints and folder backend (§10, §10.1, ADR-0043) | HMAC-SHA-256 under HKDF-derived keys; XChaCha20-Poly1305 for device info | RFC 2104, 5869, draft-irtf-cfrg-xchacha | `hmac`, `hkdf`, `sha2`, `chacha20poly1305` |
 | Browser extension channel (§15, ADR-0036) | HKDF-SHA-256, HMAC-SHA-256, XChaCha20-Poly1305 | RFC 5869, RFC 2104, draft-irtf-cfrg-xchacha | `hkdf`, `hmac`, `sha2`, `chacha20poly1305` |
 | Breach check (§7.4, §11, ADR-0067) | SHA-1 of the UTF-8 password (as HIBP names a leaked password: an identifier, not a security primitive); only the 5-character prefix is sent, with `Add-Padding`; the 35-character suffixes are compared locally against every line in constant time; no hash is stored. No new primitive | HIBP range API | `sha1`, `subtle` |
-| Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no direct `rand` / `rand_core` use, ADR-0011; `hpke` brings `rand_core` as a transitive dependency and is fed from a buffered `getrandom` draw, ADR-0049) |
+| Randomness | OS CSPRNG | — | `getrandom`, called directly in `crates/core` and `crates/generator` (no direct `rand` / `rand_core` use, ADR-0011; `hpke` brings `rand_core` as a transitive dependency and is fed from a buffered `getrandom` draw, ADR-0049). One exception, on the server only: the public WebAuthn challenge is drawn inside `passkey-auth` from `rand` 0.8 `ThreadRng` (ChaCha12, seeded and reseeded from the OS CSPRNG); Mosaic does not alter the crate's ceremony state (ADR-0078). `ThreadRng` **panics** when the OS CSPRNG fails, at its first use on a thread and at each reseed; it never falls back to weaker randomness. The server therefore catches panics per request (§9.3 "Panics") |
 | Constant-time compare | — | — | `subtle` |
 | Secret memory | zero on drop | — | `zeroize`, in Mosaic's own containers (`crates/core` `secret`; `secrecy` is not used, ADR-0007) |
 | Unicode normalization | NFC | UAX #15 | `unicode-normalization` |
 | TLS (client) | TLS 1.3 only, OS trust store | RFC 8446 | `rustls` with the `ring` provider, through `reqwest` blocking (ADR-0046); the server runs behind a reverse proxy that terminates TLS |
+| Release integrity (tooling, §17, ADR-0081) | Ed25519 over a BLAKE2b-512 prehash (minisign), SHA-256 manifests | — (minisign format) | the `minisign` CLI in the release job, never linked into Mosaic; Tauri updater artifacts through Tauri's own signer. `minisign-verify` (the updater's verifier) is **not a dependency until OD-M9-5** turns the in-app updater on; that decision needs its own ADR |
 
 Banned: OpenSSL bindings, `ring`-only APIs outside `rustls`, anything
 unmaintained (enforced in `deny.toml`). Adding a crypto dependency needs an
@@ -713,6 +715,70 @@ aad       = header || aad("vault-meta", vault_id, key_generation:u32)
 ```
 The padded metadata is at most 64 KiB (ADR-0007).
 
+**Write caps and oversized merges (M9, ADR-0085, amended in M9 T13).** A client that writes vault
+metadata (`VaultMetaEdit`) refuses a name above 256 UTF-8 bytes, an icon above 64 and a description
+above 4096. The caps apply to writes only: a stored or received value that is longer (written
+before M9, or by a peer that ignores them) still decodes and merges. A metadata merge
+(`VaultMeta::merge_and_repair`) can still produce a canonical plaintext above
+`MAX_VAULT_META_PLAINTEXT_LEN` when long concurrent versions meet. Such a merge is not an error.
+
+*Husks.* A value the reduction below removes leaves a **husk** in its place: an entry of the same
+field with the same stamp and `at`, `"v":null` and one more entry member `"dropped"`, the length in
+bytes of the canonical JSON encoding of the value it replaced (§7.5 keeps unknown entry members;
+`dropped` has this meaning in vault metadata only). A husk shows nothing and is never a conflict
+value. It is superseded like any entry, so an edit of its field removes it. Before every metadata
+merge (the plain join and `merge_and_repair`), each side takes the other side's husks: an entry
+that one side holds as a value and the other as a husk with the same field, stamp, `at` and a
+recorded length equal to the value's encoded length becomes that husk. A husk therefore beats the
+value it replaced, the join stays commutative, associative and idempotent, and two replicas that
+differ only in which entries are husks are not a device-ID collision (§10). A value and a husk of
+one stamp whose lengths differ are left to the collision rules of §10.
+
+*Reduction.* The stored record is `VaultMeta::reduce_oversized(&self) -> (Self, DroppedMeta)`
+applied to the repaired merge. It is a pure function of that merge, with no stamp, clock or device
+of its own:
+
+0. A value below its field's largest-stamped entry becomes a husk when that entry is a husk (the
+   field shows nothing, so the value under it would show nothing either).
+1. The record's **weight** is the length of its canonical plaintext plus the recorded lengths of
+   its husks: never less than its size had nothing been dropped (each husk adds its own few
+   bytes on top). If the weight is above
+   `MAX_VAULT_META_PLAINTEXT_LEN`, every value that is not its field's largest-stamped entry
+   becomes a husk.
+2. If the canonical plaintext still does not fit, shown values become husks one field at a time
+   until it fits: first the field whose shown value has the longest canonical encoding; on equal
+   length, the field whose key bytes compare larger. Only if the record does not fit even with no
+   value left (the version vector and the husks alone are too large) does the merge fail with
+   `SizeLimit`, as an item does (PROGRESS M2-R20).
+3. The version vector is the merge's (the join of both inputs), so the result dominates both
+   inputs and is never overwritten by either of them.
+
+*Order.* The weight counts the dropped values, so it is at least the size of the plain join of
+every version merged so far, in whatever order they arrived, and exactly that size on a device
+that holds no husk. When the versions only add values to a
+state they share (none removes or overwrites a value another of them holds), a device that ran
+step 1 on some of them runs it again once it holds all of them, and so does a device that met them
+in any other order; if step 1 is enough, every delivery order stores the **same canonical
+plaintext bytes**. Otherwise (step 2 was needed, or a version supersedes a value that another
+device had already turned into a husk) two devices can hold equal version vectors whose records
+differ only in which entries are husks. The next exchange of stored records makes them byte
+identical, because a husk beats its value: no repair runs, no device ID rotates, and no wall clock
+decides anything. No lossy reduction can do better: a device that dropped a value cannot bring it
+back for a delivery order in which it would have fit.
+
+`DroppedMeta` lists the field keys in which this reduction turned a value into a husk. It is
+reported as `ApplyOutcome::MetaValueDropped { vault, fields }` on the device that made the
+reduction, and the desktop shows a notice the user can dismiss, naming the fields (THREAT_MODEL
+R122). A device that takes a husk from a received record reports nothing: the device that made it
+did. There are no conflict copies: a vault has one metadata object and a dropped name has no other
+place to live. A vault whose name was dropped has no name until the user types one. Required
+tests: three devices write long concurrent values (pairs that fit and pairs that do not), and
+every delivery order of their records ends with the same canonical plaintext bytes and the same
+version vector on all three devices; random sizes, orders and wall-clock skews converge after one
+exchange with no device-ID repair and with shown values that do not depend on the wall clocks.
+
+No new primitive: the result is sealed like any metadata write.
+
 A shared vault (§8.2) has one more object of the same construction under its own label, the
 member roster:
 ```
@@ -1328,7 +1394,8 @@ from being reused across servers.
   server stores hashed (SHA-256) along with its expiry. Both sides derive
   the token with `mosaic_core::sync_auth::session_token`; the server never
   sends it. When 2FA is enabled, login finish creates a *pending* session
-  that only `POST /v1/login/totp` can upgrade (§9.3).
+  that only the second factor can upgrade: `POST /v1/login/totp`, or a
+  WebAuthn handoff that reached `done` (§9.3).
 - **Pre-login.** A new device needs `(account_id, account_salt, profile)`
   before it can compute `OPW`. The server returns these for any email.
   - Email normalization (same on client and server): trim whitespace, apply
@@ -1358,20 +1425,187 @@ from being reused across servers.
   the main reason the SK is required.
 
 ### 9.3 Second factor for the sync account
-After OPAQUE succeeds, the server can require TOTP or a WebAuthn assertion
-before it issues the `session_token`. This guards server access (for example,
-deleting the account or reading ciphertext) but adds nothing to vault
-confidentiality. The UI says so. TOTP secrets (SHA-1, 6 digits, 30 s, the
+After OPAQUE succeeds, the server can require a second factor before the
+session stops being pending: a TOTP code, or a WebAuthn assertion (M9). This
+guards server access (for example, deleting the account or reading
+ciphertext) but adds nothing to vault confidentiality. The UI says so.
+
+**TOTP.** TOTP secrets (SHA-1, 6 digits, 30 s, the
 replay guard of ADR-0008) are sealed at rest on the server:
 `K_totp = HKDF(server_secret, "", ctx("server/totp-key"), 32)`,
 `sealed = header || nonce[24] || XChaCha20-Poly1305(K_totp, nonce, secret, aad = header || ctx("server/totp-at-rest") || 0x00 || account_id)`
 with the §3 header `version:u8 (1) || algorithm:u8 (1)`, so the AAD binds the
-format. Wrong codes are limited three ways: five per pending session (counted
-atomically before the code is checked), ten per account per hour from any
-session (`rate_limited`), and a pending session ends after five minutes. A
-matched time step is stored with a conditional update, so two concurrent
-requests cannot both accept one code (replay guard).
-WebAuthn for the sync account follows in M9.
+format. A matched time step is stored with a conditional update, so two
+concurrent requests cannot both accept one code (replay guard).
+
+**The gate.** `login::finish` leaves the session pending when the account has
+a TOTP secret **or** at least one WebAuthn credential. `GET /v1/login/methods`
+(a pending session only) answers `{totp, webauthn}` so a client offers only
+what the account has. A pending session becomes a full one in one transaction
+(`complete_2fa`, the budget refund, audit `Login`) after a valid code at
+`POST /v1/login/totp` or when the session's login handoff reached `done`. A
+pending session ends after five minutes. Removing an account's last factor
+turns two-step verification off (the UI warns first, and recommends keeping
+two methods). An account may have WebAuthn without TOTP (OD-M9-21).
+
+**Failure budgets.** Wrong TOTP codes, wrong handoff codes and failed handoff
+finishes share one per-account budget: ten failures per account per hour from
+any session (`accounts::claim_second_factor_slot`, the M6 `claim_totp_slot`
+renamed; the columns keep their names), claimed atomically before the check
+and refunded on success; an empty budget answers `rate_limited`. On top of it:
+five wrong codes per pending session, five wrong typed codes per handoff (the
+handoff becomes `failed`), five finish attempts per handoff, and a per-IP
+limit on the unauthenticated handoff routes (`Scope::Handoff`, 10 a minute,
+burst 20).
+
+**WebAuthn relying party (ADR-0077, ADR-0078).** The server is the relying
+party. The library is `passkey-auth` (§2), behind one module
+(`crates/server/src/auth/webauthn.rs`, type `Rp`); no other server code touches
+WebAuthn bytes. Rules:
+
+- **RP ID and origin.** The RP ID is the host of the configured canonical
+  origin; the only accepted `clientDataJSON.origin` is exactly the canonical
+  origin. An origin whose host is an IP literal, or `[webauthn] enabled =
+  false`, means no relying party (`GET /v1/info?features=1` answers
+  `webauthn: false`, and every WebAuthn route answers `webauthn_unavailable`).
+  Stored credentials still count for the gate (it fails closed: a
+  WebAuthn-only account cannot finish a login until the operator turns it back
+  on or resets the second factor). When the database holds WebAuthn credentials
+  but no relying party is configured, the server logs a warning at startup
+  (the count of affected accounts, no IDs); logins still fail closed. Changing
+  the canonical origin makes every registered credential unusable.
+- **Algorithms and attestation.** `pubKeyCredParams` is `[-7, -8]` (ES256,
+  EdDSA). The library advertises and enforces exactly this list at
+  registration (a credential of any other algorithm is refused) and contains no
+  RSA code, so RS256 is never offered or accepted. Attestation conveyance is
+  `none`: Mosaic makes no trust decision on attestation, stores no AAGUID and no
+  certificate. If a client still sends a `packed` or `fido-u2f` statement, the
+  library checks its signature and Mosaic ignores the result beyond pass or
+  fail.
+- **Options.** `userVerification` is `preferred`; user presence (UP) is
+  required at registration and assertion. The library emits
+  `residentKey: "preferred"`; `Rp` overwrites it in the options JSON to
+  `discouraged` (`requireResidentKey: false`) before they leave the server
+  (options are advice to the browser; verification does not depend on them).
+  `Rp` sets `authenticator_attachment(Attachment::Any)` explicitly: the crate's
+  default is `Platform`, which would steer browsers away from security keys.
+  Base64url decoding is strict (`strict_base64(true)`).
+- **Challenge.** 32 bytes drawn by the library (`Challenge::random`, §2
+  Randomness row), single-use: the ceremony state lives in exactly one handoff
+  and is taken out of it before verification, so a second finish finds none.
+  The library refuses a state older than 300 s; the handoff's own expiry is at
+  most 5 minutes and at most the pending session's expiry.
+- **User handle.** 16 random bytes per account (`accounts.webauthn_user_handle`,
+  OS CSPRNG, created at the first registration options request), never the account ID.
+  Assertions are started with `start_authentication_for_user` and
+  `require_user_handle(false)`. With `residentKey: discouraged` a security key
+  may send no `userHandle`, so an absent one is accepted; a `userHandle` that is
+  present must equal the account's (the crate refuses a mismatch). The binding
+  to the account does not rest on the handle: the allow list holds only the
+  account's credentials and the crate refuses any other asserted ID
+  (`ceremony.rs` lines 570 to 577), and a credential ID is unique server-wide.
+  Required tests: an assertion with no `userHandle` succeeds; one with another
+  account's handle fails.
+- **Credentials.** A credential ID is unique server-wide (a unique index); a
+  registration whose ID exists for any account is refused. At most 10
+  credentials per account. Labels are 1 to 64 characters under the
+  `valid_device_name` rules. The stored public key is the COSE key the library
+  returns (at most 1024 bytes), in clear (§12). The assertion's allow list is
+  the account's credentials; the asserted ID must be one of them.
+- **Counter.** If the stored count is above 0 and the new count is not higher,
+  the assertion is refused and the audit event `WebauthnCounterRegressed` is written; a count of 0
+  on both sides is accepted (no clone detection, THREAT_MODEL R113). The new
+  count is stored in the transaction that completes the handoff, as a
+  compare-and-set: `UPDATE webauthn_credentials SET sign_count = :new … WHERE
+  account_id = … AND credential_id = … AND (sign_count < :new OR (sign_count = 0
+  AND :new = 0))`. If no row changes (a concurrent finish stored an equal or
+  higher count first), the assertion is refused and audited as
+  `WebauthnCounterRegressed`, like a counter replay.
+- **Frame check.** The library does not look at `crossOrigin` or `topOrigin`.
+  Before `Rp` calls it, `Rp` base64url-decodes `clientDataJSON` and parses just
+  these two members with `serde_json` (other members ignored, at most the
+  16 KiB body cap); `crossOrigin: true` or any `topOrigin` member is refused as
+  `two_factor_invalid`. This is a parse, not a new primitive. The page also
+  refuses framing (headers below).
+- **Errors.** Library errors can carry request data (for example the received
+  origin). They are mapped to `two_factor_invalid` and never logged, returned
+  or put in an audit event.
+- **Panics.** The library's `ThreadRng` panics if the OS CSPRNG fails (§2
+  Randomness). The server wraps its router in tower-http's `CatchPanicLayer`
+  (the `catch-panic` feature of the existing pin, no new crate) with a custom
+  handler (`CatchPanicLayer::custom`), which turns a panic in a request into a
+  bare `500 internal` with no detail and drops the payload unread (the default
+  handler would log the panic message). Release builds use `panic = "abort"`
+  (§4), so there the panic ends the process instead and the service manager
+  restarts it (`Restart=on-failure`, SERVER.md); running handoffs are lost
+  (THREAT_MODEL R116). Either way no ceremony continues without fresh randomness.
+- **Not provided by the library, accepted:** the backup-eligible and
+  backup-state flags are not exposed, so the server stores and shows no
+  "synced passkey" marker.
+
+**Browser handoff (ADR-0077).** The desktop webview cannot assert for the
+server's RP ID, so the ceremony runs in the user's system browser on a page the
+server serves at its canonical origin (`GET /webauthn/`). A handoff lives in
+server memory only (`crates/server/src/auth/handoff.rs`):
+
+`Handoff { id: [u8;16], purpose: Login | Register | Confirm, token_hash,
+account_id, device_name, label: Option<String>, match_code: [u8;6] (decimal
+digits), rp_state, created, expires, code_attempts, finish_attempts, state:
+Waiting | Done | Failed | Expired }`
+
+- **Creation.** `POST /v1/login/webauthn/handoff` (a pending session, purpose
+  `Login`) or `POST /v1/account/webauthn/handoff` (a full session with a fresh
+  login, purpose `Register` or `Confirm`). The ID and the match code are drawn
+  from the OS CSPRNG (`getrandom`); the code is uniform over `000000` to
+  `999999`. The handoff is bound to the creating session's token hash: only
+  that session can poll it, and its completion acts on that session only.
+  Limits: 3 live handoffs per account and 10 000 server-wide; one more is
+  refused with `rate_limited` (re-opening the browser reuses the same handoff). A server restart loses every handoff (THREAT_MODEL R116).
+- **Opening.** The desktop opens `<canonical origin>/webauthn/#<b64url id>`; the ID
+  travels in the URL fragment, which the browser never sends to a server, in a
+  `Referer` or to a proxy log. The page shows a field for the 6-digit code.
+- **The ID never in a path.** The page sends the ID only in the JSON body of
+  POSTs to fixed paths, and the desktop polls the same way, so no request line,
+  access log or proxy log holds it: `POST /v1/webauthn/handoff/options`,
+  `POST /v1/webauthn/handoff/finish`, `POST /v1/login/webauthn/handoff/state`
+  and `POST /v1/account/webauthn/handoff/state`, each with `handoffId` in the
+  body.
+- **The typed code.** The user types the code the desktop shows.
+  `POST /v1/webauthn/handoff/options` with `{handoffId, code}` compares it in constant
+  time (`subtle`); only after a correct code does the page get `{purpose,
+  deviceName, requestedAt, publicKey}` (the device name and label are rendered as
+  text only). An attacker who sends the victim a handoff link of their own
+  gives the victim no code to type (THREAT_MODEL R112).
+- **Finish.** `POST /v1/webauthn/handoff/finish` takes `{handoffId, credential}`,
+  where `credential` is the `PublicKeyCredential` JSON (the body at most 16 KiB,
+  `deny_unknown_fields`), which `Rp`
+  maps onto the library's response type and verifies against the handoff's
+  state. On success the handoff is `done` and: `Login` completes the pending
+  session (as `/login/totp`); `Register` stores the credential (audit
+  `WebauthnAdded`); `Confirm` sets the session's `second_factor_until` to now
+  plus 5 minutes. On failure the page sees `twoFactorInvalid`,
+  `handoffExpired` or `rateLimited`, never a reason.
+- **Ending.** A password change, a re-key, a session deletion or the pending
+  session's expiry ends the handoffs bound to those sessions.
+- **Page headers.** `Content-Security-Policy: default-src 'none'; script-src
+  'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none';
+  form-action 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`,
+  `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+  `Cross-Origin-Opener-Policy: same-origin`, `Permissions-Policy:
+  publickey-credentials-get=(self), publickey-credentials-create=(self)`.
+
+**Recent second factor (`second_factor_until`).** Removing TOTP, removing a
+WebAuthn credential, deleting the account and removing a device need a fresh
+login and, when two-step verification is on, a second factor: either a valid
+TOTP `code` in the request, or `sessions.second_factor_until > now` on the
+calling session (set only by a completed `Confirm` handoff of that session). A
+WebAuthn-only account reaches these actions through a `Confirm` handoff.
+
+**Lost factor.** There is no self-service recovery of a lost second factor. The
+operator command `mosaic-server account reset-second-factor --email E` removes
+the TOTP secret and every WebAuthn credential, deletes every session of the
+account and audits `SecondFactorReset` (THREAT_MODEL R115). The vault data is
+unaffected.
 
 ### 9.4 Changing the registration
 A request that re-registers OPAQUE, or that replaces or deletes the password
@@ -1443,6 +1677,32 @@ session token alone therefore cannot lock the user out.
   password state this device never saw, but only one whose password the user
   types and whose wrapping opens to the same AK, which needs the
   Secret Key and the account's current or a newer password.
+
+### 9.5 Session revocation reasons (M9, ADR-0080)
+A device whose session the server deleted used to see only `401
+unauthorized`, so it could not tell a re-key elsewhere from a lost token. When
+the server deletes sessions **for a reason**, the deleting transaction inserts
+each deleted token hash into `revoked_sessions (token_hash, account_id, reason,
+revoked_at)`:
+
+| Reason | Number | Where |
+|---|---|---|
+| `rekey` | 1 | `account/rekey/finish` ends every other session (§6.6) |
+| `passwordChange` | 2 | `sessions::after_password_change` (§9.4) |
+| `deviceRemoved` | 3 | device removal ends that device's sessions |
+| `operator` | 4 | `account reset-second-factor` and other operator commands that end sessions |
+
+Logout, idle and absolute expiry and a deleted account are not recorded. The
+hourly housekeeping drops rows older than 30 days. In the `Session` and
+`AnySession` extractors, a token that matches no session is looked up by its
+hash; a hit answers `401 unauthorized` with `detail: {revoked: "<reason>"}`
+(the status code is unchanged, so older clients behave as before). `mosaic-sync`
+maps it to `TransportError::Revoked(RevokedReason)`; the desktop recovery card
+and the CLI show a text per reason (for `rekey`: sign in with the new Secret
+Key from the newest Emergency Kit). The reason is an unauthenticated claim of
+the server; it only selects a message and never changes keys. Nothing new is
+derived: the stored hash is the existing SHA-256 of the token (§9.2), and only
+the holder of the old token can read its reason (THREAT_MODEL R117).
 
 ## 10. Sync protocol security
 
@@ -1731,7 +1991,8 @@ session token alone therefore cannot lock the user out.
     the received side's entries under it are kept although the client's
     vector covers their counters.
   - Equal version vectors with different contents are a collision too
-    (honest replicas with equal vectors are equal): every value either
+    (honest replicas with equal vectors are equal; for vault metadata,
+    after each side took the other's husks, §7.1): every value either
     side held that the merge dropped is written back.
   - Equal stamps with different contents are kept as a conflict. A
     password history key is written by one edit, so two writers under one
@@ -2252,7 +2513,7 @@ chunks : exactly the layout and nonces of §7.3 (nonce = nonce_prefix || i:u32 |
 | invites (sender, recipient, vault, role, generation, seal, times, delivered time), key-share seals until claimed, block lists | sharing (§8.2, §8.3), spam control |
 | roster ciphertext per vault and generation (§8.2), contact book ciphertext and its length (§8.5) | sharing, pin sync across devices |
 | removals (`vault_removals`: vault, account, the generation a re-invite has to pass), the per-account change counter `inbox_seq` (it moves on every invite, grant, request, decision and release, and wakes `/v1/poll`), the invite `hidden` flag (an invite from a blocked sender or to a full inbox is stored but never shown) | `reinvite_blocked`, change notification without email, spam control |
-| audit event kinds 7 to 16 (identity published, invite sent, invite accepted, member removed, emergency granted, requested, declined or approved, released, account re-keyed, rotation requested), with account, time and device | the user-visible security log |
+| audit event kinds 7 to 20 (identity published, invite sent, invite accepted, member removed, emergency granted, requested, declined or approved, released, account re-keyed, rotation requested; M9: 17 WebAuthn credential added, 18 removed, 19 second factor reset by the operator, 20 WebAuthn counter regressed), with account, time and device | the user-visible security log |
 | emergency grants: grantor, grantee, wait days, scope, vault IDs and generations, state, request, decision and release times, seals (§8.4) | the waiting period, release |
 | directory lookups (counted for rate limits, not logged) | abuse control |
 | record IDs, ciphertext, padded size bucket, `server_seq`, timestamps of upload | sync |
@@ -2262,7 +2523,11 @@ chunks : exactly the layout and nonces of §7.3 (nonce = nonce_prefix || i:u32 |
 | checkpoints (device ID, counter, `issued_at_ms`, per vault generation, `high_seq` and an opaque 32-byte `view_digest`, which commits to the served records, the vault key's wrapping the server already holds, and the vault metadata and roster) | freeze and rollback detection, and the comparison of what the server showed each device (§10) |
 | record kind (item or tombstone, so that deletions are visible as events), per-object lengths and object counts per vault | storage, sync, quotas |
 | the device that generated each wrapped vault key (`device_id` of the key upload) | canonical key winner (§10.1), device list |
-| 2FA configuration (TOTP secret for the *sync account*, WebAuthn credentials) | account 2FA |
+| 2FA configuration: the TOTP secret for the *sync account* (sealed, §9.3) | account 2FA |
+| WebAuthn (M9, §9.3): the per-account 16-byte user handle; per credential the credential ID, the COSE public key (in clear), the label, the sign count, and the created and last-used times | account 2FA (assertion check, the key list) |
+| WebAuthn handoffs (purpose, the session's token hash, device name, label, match code, ceremony state, attempt counts, times): **in memory only**, never written to disk, gone at a restart or after at most 5 minutes | the browser ceremony |
+| `sessions.second_factor_until` (a time) | a recent second factor for removals (§9.3) |
+| revoked session token hashes (SHA-256, as for live sessions) with the account, the reason (re-key, password change, device removed, operator) and the time, for 30 days (§9.5) | telling a signed-out device why |
 | audit events (type, time, device — no content) | user-visible security log |
 
 Quick-unlock wrappings (§6.2) never leave the device.
@@ -2278,6 +2543,11 @@ check talks to Have I Been Pwned directly, never through the server
 The CLI (M8) is a client and adds nothing here: CLI session files and the export file never leave the
 machine. A CLI "own store" (`mosaic setup own-store`, ADR-0071) is one more device of the account, visible like any
 device; an encrypted export (§11.2) is a local file.
+
+The browser that runs a WebAuthn handoff talks to the server directly: the server sees the
+browser's IP address (memory only, as above) and its request headers, and the authenticator's
+public key, credential ID and counter, which the table lists. Release signing (§17) adds nothing
+here.
 
 ### 12.1 Folder backend: visible to the cloud provider and anyone with folder access
 
@@ -2375,6 +2645,27 @@ size buckets), tags, vault names, or attachment names.
   the export reader §11.2).
 - Known-answer vectors for the encrypted export and the CLI session file
   (`crates/core/tests/vectors/export_kat.py`), written by an independent implementation.
+- WebAuthn relying party (M9, §9.3): `webauthn_l3_es256_none_vector` and
+  `webauthn_l3_eddsa_none_vector` run the registration and assertion test
+  vectors of the W3C WebAuthn Level 3 test-vector appendix (ES256 and EdDSA,
+  `none` attestation; the test cites the section and vector name) through
+  `Rp`. The server suite (`crates/server/tests/it/webauthn.rs`) drives full
+  ceremonies with `mosaic-passkey` as an independent software authenticator and
+  covers the refusals of §9.3: a wrong origin, a wrong `rpIdHash`, UP missing, a
+  reused challenge, an assertion of another handoff, a counter regression, a
+  lost counter compare-and-set, a duplicate credential ID, an eleventh
+  credential, `crossOrigin: true`, a `topOrigin` member, an assertion with no
+  `userHandle` (accepted) and one with another account's handle (refused).
+  Fuzz target `webauthn_bodies` (`crates/server/fuzz`) covers the handoff
+  request bodies and both finish paths of `Rp` against fixed credentials. Its
+  seeds and structure must reach: COSE keys whose labels alias each other
+  (one label written twice, in a non-shortest integer form or as a text
+  string), CBOR maps with duplicate keys, and trailing bytes after the authenticator data when the ED
+  (extension data) flag is off.
+- Release integrity (§17): `scripts/release/selftest.sh` signs fixture
+  artifacts with an ephemeral minisign key, verifies them with the commands of
+  `docs/VERIFY.md`, and must fail on one tampered byte in any file or in
+  `SHA256SUMS`.
 
 ## 15. Browser extension channel (ADR-0036)
 
@@ -2602,3 +2893,69 @@ load and sign verifies with `VerifyingKey`; the COSE bytes parsed back equal
 the verifying key. Garbage, non-P-256 PKCS#8 (Ed25519, RSA, secp256k1, P-384)
 and a P-256 PKCS#8 whose embedded public key does not match the scalar are
 refused. Fuzz targets: `crates/passkey/fuzz` (`b64url`, `pkcs8`).
+
+## 17. Release integrity (M9, ADR-0081, ADR-0082)
+
+Release integrity protects users from a tampered download. It adds no
+primitive to Mosaic itself: the signing tools run in the release job and the
+verifier is the user's own `minisign`, `sha256sum` or OS tool. The runbook is
+`docs/RELEASE.md` and the user's commands are in `docs/VERIFY.md` (both written
+in M9 T9).
+
+**What is signed.**
+- `SHA256SUMS` lists the SHA-256 of every release artifact (the MSI, the DMG
+  and the app archive, the deb and the rpm, the CLI archives and the macOS
+  `.pkg`, the extension zips, the CycloneDX SBOMs) and names the server image
+  as `ghcr.io/<namespace>/mosaic-server@sha256:<digest>`.
+- `SHA256SUMS.minisig` is a minisign signature over `SHA256SUMS`: Ed25519 over
+  the BLAKE2b-512 hash of the file (minisign's prehashed mode), with the trusted
+  comment `mosaic <version> <git sha>`, which the signature also covers.
+- Platform signatures where the owner has certificates: Authenticode with an
+  RFC 3161 timestamp on `Mosaic.exe`, `mosaic.exe`, `mosaic-native-host.exe` and
+  the MSI; Developer ID with hardened runtime and notarization on macOS (the
+  app, the DMG, and the CLI and host binaries in a signed `.pkg`). Without
+  certificates the builds ship unsigned and say so (THREAT_MODEL R119).
+- Tauri updater artifacts: one `.sig` per bundle, made with a second, separate
+  minisign key. The in-app updater stays off until the owner decides
+  (OD-M9-5); only the artifacts are built.
+- `SHA256SUMS.unsigned` lists the hashes of the desktop bundles and signed
+  binaries **before** platform signing, for rebuilders (signing is not
+  reproducible, THREAT_MODEL R120).
+
+**Keys and custody.** Two minisign keys, one for releases and one for the
+updater, each encrypted with its own password. The secret keys and passwords
+are secrets of the GitHub environment `release`, which needs the owner's
+approval and runs only for protected `v*` tags. They are never on a developer
+machine after generation, never in the repository and never printed (no
+`set -x` around them). The public release key is published in
+`release/minisign.pub`, `SECURITY.md` and `docs/VERIFY.md` once the owner has
+generated it (OD-M9-4); **no placeholder key is ever committed**.
+
+**Rotation.** A new release key is published as `release/minisign.pub` together
+with `release/minisign.pub.next.minisig`, a signature over the new public key
+made with the old secret key. A verifier that trusts the old key checks that
+signature before it trusts the new one. A lost or leaked key without a
+signed successor is announced through the GitHub security advisory and the
+README; there is no transparency log (THREAT_MODEL R118).
+
+**Offline backup.** The owner also keeps an offline, encrypted backup of both
+minisign secret keys (for example on two encrypted USB drives kept apart, the
+key passwords stored separately). It is never online and never in the
+repository. It lets the owner sign a successor key (Rotation, above) if the
+CI secrets are lost; a leaked key is rotated, not restored.
+
+**Dry runs.** Only a manual dispatch with `dry_run` set is a dry run. A run
+for a `v*` tag without the release secrets **fails**; it never turns into a
+dry run on its own. A dry run skips platform signing with a warning, signs
+with an ephemeral minisign key whose public half is attached as
+`DRY-RUN-NOT-A-RELEASE-minisign.pub`, names its signature
+`SHA256SUMS.DRY-RUN.minisig` (never `SHA256SUMS.minisig`), writes a trusted
+comment that starts with `DRY RUN`, publishes nothing and uploads no Actions
+artifacts. A dry-run signature never verifies under the release key.
+
+**Verification.** A user checks, in this order: the minisign signature of
+`SHA256SUMS` with the published key (`minisign -Vm SHA256SUMS -P <key>`), that
+the trusted comment names the expected version, then the SHA-256 of the
+downloaded file against `SHA256SUMS`, then (where present) the platform
+signature. The release job runs the same commands on its own output before it
+publishes.

@@ -5,9 +5,9 @@
  */
 import type {
   AppEvent,
+  BiometricPlatformKind,
   CommandName,
   ErrorCode,
-  BiometricPlatformKind,
   HardwareKeySummary,
   ItemDetail,
   OtpPending,
@@ -15,6 +15,8 @@ import type {
   ResponseOf,
   SecretFieldKey,
   Settings,
+  ShortcutState,
+  VaultMetaField,
   VaultSummary,
 } from "../contract/index.ts";
 import type { MockBrowser } from "./browser.ts";
@@ -95,6 +97,10 @@ export interface MockSetupOptions {
   otpScan: ErrorCode | "cancel" | null;
   /** Whether "Scan screen" is supported. */
   screenScan: boolean;
+  /** What `app_status` says of the global shortcut (`&shortcut=conflict|unsupported|unavailable`). */
+  shortcut: ShortcutState;
+  /** A sync run reports these metadata fields as dropped 500 ms after subscribing (`&metaDropped=name,description`). */
+  metaDropped: VaultMetaField[];
 }
 
 export interface MockState {
