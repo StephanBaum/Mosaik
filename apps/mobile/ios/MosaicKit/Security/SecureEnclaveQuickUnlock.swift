@@ -164,7 +164,7 @@ public struct SecureEnclaveQuickUnlock: QuickUnlockKeys {
         guard status == errSecSuccess, let item, CFGetTypeID(item) == SecKeyGetTypeID() else {
             throw status == errSecItemNotFound ? QuickUnlockKeyError.invalidated : QuickUnlockKeyError.failed
         }
-        let key = unsafeBitCast(item, to: SecKey.self)
+        let key = unsafeDowncast(item, to: SecKey.self)
         var error: Unmanaged<CFError>?
         guard
             let plain = SecKeyCreateDecryptedData(
