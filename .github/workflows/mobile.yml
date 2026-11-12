@@ -13,9 +13,9 @@ on:
       - ".github/workflows/mobile.yml"
       - "Cargo.lock"
   push:
-    # feat/m10-mobile: workflow_dispatch only works for workflows on the default branch, so until M10 is
+    # feat/m10-mobile and feat/m10-ios: workflow_dispatch only works for workflows on the default branch, so until M10 is
     # merged the branch itself triggers the run. Remove that entry at the merge.
-    branches: [main, feat/m10-mobile]
+    branches: [main, feat/m10-mobile, feat/m10-ios]
     paths:
       - "apps/mobile/**"
       - "crates/**"
