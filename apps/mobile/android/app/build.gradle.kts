@@ -81,6 +81,8 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // The Credential Manager provider API (passwords and passkeys, API 34+): the framework slices are built by it.
+    implementation(libs.androidx.credentials)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
