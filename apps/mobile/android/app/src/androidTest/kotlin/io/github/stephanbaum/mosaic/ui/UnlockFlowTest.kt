@@ -4,7 +4,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
