@@ -231,7 +231,9 @@ fn v11_imported_counter() {
     let challenge = challenge();
     let pending = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
     assert_eq!(pending.count_to_persist(), Some(42));
-    let a = pending.into_response(CountPersisted::after_store_write());
+    let a = pending
+        .into_json_response(CountPersisted::after_store_write())
+        .unwrap();
     assert_eq!(
         a.authenticator_data,
         [&RP_ID_HASH_EXAMPLE[..], &[0x19], &[0, 0, 0, 0x2A]].concat()
@@ -250,7 +252,8 @@ fn a_pending_count_blocks_the_release_without_a_token() {
     // A counter that stays 0 releases either way.
     let zero = assert(&input, &stored_credential(), 0).unwrap();
     assert!(
-        zero.into_response(CountPersisted::after_store_write())
+        zero.into_json_response(CountPersisted::after_store_write())
+            .unwrap()
             .signature
             .len()
             > 8
@@ -263,7 +266,9 @@ fn sign_count_rule() {
     let count = |stored: u64| {
         let pending = assert(&get_input(&challenge, false), &stored_credential(), stored).unwrap();
         let persist = pending.count_to_persist();
-        let a = pending.into_response(CountPersisted::after_store_write());
+        let a = pending
+            .into_json_response(CountPersisted::after_store_write())
+            .unwrap();
         let bytes: [u8; 4] = a.authenticator_data[33..37].try_into().unwrap();
         (u32::from_be_bytes(bytes), persist)
     };
@@ -746,7 +751,9 @@ fn fixture() -> serde_json::Value {
         .unwrap();
     let pending_no_uv = assert(&get_input(&challenge, false), &stored_credential(), 41).unwrap();
     let persist_count = pending_no_uv.count_to_persist();
-    let get_no_uv = pending_no_uv.into_response(CountPersisted::after_store_write());
+    let get_no_uv = pending_no_uv
+        .into_json_response(CountPersisted::after_store_write())
+        .unwrap();
     let hostile = CCD_HOSTILE;
     let k = key();
     json!({

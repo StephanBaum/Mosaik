@@ -707,8 +707,10 @@ platform code (Kotlin, Swift) implements storage and the OS keystores and holds 
 
 #### 6.9.1 Secure storage of the Secret Key and the session token
 
-Rust decides the names and the lifetimes. The platform implements `get`, `put` and `delete` only
-(`SecureStorage`).
+Rust decides the names and the lifetimes. The platform implements `get`, `put`, `delete` and `contains`
+(`SecureStorage`). `contains` is an existence check: it does not decrypt, and a file that is corrupt or has the
+wrong version counts as present. `state()` and `sync_overview()` use it (cached, outside the core's mutex); they never
+read a secret to tell whether it is there.
 
 | Name | Value | Written | Deleted |
 |---|---|---|---|
@@ -758,15 +760,23 @@ new process for every request.
     boot_id BLOB NOT NULL CHECK (length(boot_id) BETWEEN 1 AND 32),
     recorded_at_ms INTEGER NOT NULL
   ) STRICT;
+  CREATE TABLE reauth_failures (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    failures INTEGER NOT NULL CHECK (failures BETWEEN 0 AND 255)
+  ) STRICT;
   ```
+  `reauth_failures` is local-only and never synced; it holds the count of wrong master passwords in a row at a
+  re-authentication (below). Store v11 is not released, so it is part of v11 itself.
 - **Writing.** `record_boot_marker` MUST be refused unless the session was unlocked with the master password
   (and Secret Key) in this session. Otherwise the call fails with `ReauthenticationRequired`. A quick unlock
   never writes or refreshes a marker. A new marker replaces the old one. Replacing a quick-unlock enrollment (a
   new enrollment, with `Reauthenticated`) **keeps** the marker: the master password was verified a moment ago, in
   this boot, so the boot rule still holds; the marker goes only with the deletions listed below.
 - **Reading.** `adopt_boot_marker` sets the "password unlocked since start" flag of §6.2 if and only if the
-  stored `boot_id` equals the current one. The comparison is constant time. The call MUST NOT reset the
-  failed-quick-unlock counter.
+  stored `boot_id` equals the current one **and** the store accepts a write: the call rewrites the marker
+  unchanged in a write transaction first, and a store that cannot be written never lets a marker be adopted (the
+  limits below could not be enforced on it). It also refuses when the stored re-authentication count has reached
+  5. The comparison is constant time. The call MUST NOT reset the failed-quick-unlock counter.
 - **Deleting.** The marker MUST be deleted:
   - in the same transaction as every deletion of the quick-unlock wrapping: expiry, invalidation,
     `remove_quick_unlock`, a password change (§6.4), a Secret Key rotation (§6.5), a profile upgrade, a re-key
@@ -775,13 +785,33 @@ new process for every request.
   - when the failed-quick-unlock counter reaches its limit.
 
   A delete that fails MUST NOT leave a marker a new process can adopt: the marker is overwritten with an ID that
-  matches no boot (32 bytes; the platforms use 4 and 16), and if that fails too, quick unlock stays refused in this
-  process and the delete is retried. On a phone, five wrong master passwords in a row at a re-authentication (quick
-  unlock enrollment, settings) end the session with `lock_requiring_password`, as on the desktop.
+  matches no boot (32 bytes; the platforms use 4 and 16). If that fails too, quick unlock stays refused in this
+  process and the delete is retried; a new process then finds a store it cannot write, and `adopt_boot_marker` (above)
+  refuses the marker, so the password is required. A strict lock (`lock_requiring_password`) that finds the session
+  locked already (a plain `lock()` won the race) sets the failed-attempt counter to its limit and deletes the
+  marker all the same.
+- **Re-authentication limit.** Five wrong master passwords in a row at a re-authentication (quick unlock
+  enrollment, settings) end the session with `lock_requiring_password`. The desktop keeps the count in memory;
+  a phone process dies at any time (and a guesser can kill it), so the count is stored in `reauth_failures`. It is
+  incremented, and written, **before** `wrongCredentials` is returned; a count that cannot be written counts as
+  the limit. It is reset only by a correct master password (a re-authentication or a password unlock), never by a
+  quick unlock, a lock or a restart.
 - **Maximum age on a phone.** The enrollment's parameters carry the maximum age that was verified when it was made
-  (§6.2, 1 to 30 days). A phone that was restarted has no verified settings until the first unlock, so expiry uses the
-  enrollment's own age, never the stricter stand-in values of an unchecked settings file; once the settings were
-  checked, the shorter of the two applies. The cap of 30 days holds in every case.
+  (§6.2, 1 to 30 days). The trailing age byte is **not authenticated** (the wrapping's AAD does not cover it), so
+  the decision rests on the settings MAC:
+  1. Before the settings MAC is checked (a locked phone after a restart, and the first quick unlock), the age is
+     `min(enrollment byte, the unverified settings file's value normalized to 1 to 30, 30)`. The unverified file
+     can only shorten the age. The stricter stand-in values of an unchecked file are not used, because they would
+     shorten an enrollment that was verified when it was made.
+  2. After a quick unlock decrypted the account key and the settings MAC was checked, expiry is decided **again**
+     against `min(enrollment byte, verified setting, 30)`. If the enrollment is expired by that, the enrollment
+     (and the marker) is deleted, the vault is locked again and the call answers `quickUnlockExpired`. A raised age
+     byte or a raised settings file therefore never extends the enrollment beyond the verified setting; a settings
+     file whose MAC fails gives the strict default (14 days) for this decision.
+  3. Once the settings were checked in a process, the shorter of the enrollment and the verified value applies
+     everywhere, so lowering the setting takes effect at once.
+
+  No new cryptography is involved: the decision is authenticated through the existing settings MAC (§11.1).
 - Everything else in §6.2 holds unchanged: the maximum age of the wrapping, the limit of 5 failed attempts, the
   deletion of the platform key and the wrapping, and enrollment only with `Reauthenticated`.
   - In the iOS extension the attempt counter is per process. Biometric failures never reach the vault (the OS
@@ -2548,7 +2578,9 @@ uses HMAC-SHA-256, not signatures; a forger needs `AK`.
   v11 (M10, ADR-0090) adds `boot_marker` (§6.9.2): one row with the boot ID
   of the device boot in which the master password last unlocked, and the
   time it was written. It is cleartext, not secret and not derived from a
-  secret; it is written only on iOS and Android (THREAT_MODEL R137).
+  secret; it is written only on iOS and Android (THREAT_MODEL R137). Next to it,
+  `reauth_failures`: one local-only row with the count of wrong master passwords in
+  a row at a re-authentication (§6.9.2).
 - A removed or replaced wrapped key (quick-unlock
   expiry or invalidation §6.2, password change §6.4, re-key §6.6, a removed
   hardware key or TK wrapping) is erased from the database file and its

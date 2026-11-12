@@ -95,6 +95,86 @@ impl Store {
         }
     }
 
+    /// Proves that the store accepts a write and that the marker is there:
+    /// rewrites the stored time unchanged inside a write transaction. Returns
+    /// whether a marker exists.
+    ///
+    /// # Errors
+    /// [`super::Error::Database`] when the transaction cannot be written.
+    pub fn touch_boot_marker(&mut self) -> Result<bool> {
+        let tx = self.write()?;
+        let n = tx.execute(
+            "UPDATE boot_marker SET recorded_at_ms = recorded_at_ms WHERE id = 1",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(n > 0)
+    }
+
+    /// Whether [`Self::clear_boot_marker`] has nothing left to do: no marker,
+    /// or the all-`0xFF` overwrite that matches no boot.
+    ///
+    /// # Errors
+    /// [`super::Error::Database`].
+    pub fn boot_marker_is_neutral(&self) -> Result<bool> {
+        Ok(self
+            .boot_marker()?
+            .is_none_or(|m| m.boot_id == [0xFF; MAX_BOOT_ID_LEN]))
+    }
+
+    /// The wrong master passwords in a row at a re-authentication (0 when
+    /// none were counted). Local-only; survives a restart of the app.
+    ///
+    /// # Errors
+    /// [`super::Error::Database`].
+    pub fn reauth_failures(&self) -> Result<u8> {
+        let n: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT failures FROM reauth_failures WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(n.and_then(|n| u8::try_from(n).ok()).unwrap_or(0))
+    }
+
+    /// Counts one wrong re-authentication and returns the new count (at most
+    /// 255).
+    ///
+    /// # Errors
+    /// [`super::Error::Database`].
+    pub fn note_reauth_failure(&mut self) -> Result<u8> {
+        let tx = self.write()?;
+        tx.execute(
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, 1)
+             ON CONFLICT (id) DO UPDATE SET failures = MIN(failures + 1, 255)",
+            [],
+        )?;
+        let n: i64 = tx.query_row(
+            "SELECT failures FROM reauth_failures WHERE id = 1",
+            [],
+            |r| r.get(0),
+        )?;
+        tx.commit()?;
+        Ok(u8::try_from(n).unwrap_or(u8::MAX))
+    }
+
+    /// Ends the count (a right master password). Writes only when a count is
+    /// stored.
+    ///
+    /// # Errors
+    /// [`super::Error::Database`].
+    pub fn reset_reauth_failures(&mut self) -> Result<()> {
+        if self.reauth_failures()? == 0 {
+            return Ok(());
+        }
+        let tx = self.write()?;
+        tx.execute("DELETE FROM reauth_failures", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Test only: makes the marker undeletable (`delete_only`) or unchangeable.
     #[cfg(test)]
     pub(crate) fn block_boot_marker_changes_for_test(&mut self, delete_only: bool) {
@@ -136,6 +216,49 @@ mod tests {
         assert!(s.put_boot_marker(&[0; 33], 0).is_err());
         assert!(s.delete_boot_marker().unwrap());
         assert_eq!(s.boot_marker().unwrap(), None);
+    }
+
+    #[test]
+    fn reauth_failures_count_cap_and_reset() {
+        let mut s = Store::open_in_memory().unwrap();
+        assert_eq!(s.reauth_failures().unwrap(), 0);
+        for want in 1..=5u8 {
+            assert_eq!(s.note_reauth_failure().unwrap(), want);
+        }
+        assert_eq!(s.reauth_failures().unwrap(), 5);
+        // Deleting the boot marker does not reset the count.
+        s.put_boot_marker(&[1], 1).unwrap();
+        s.delete_boot_marker().unwrap();
+        assert_eq!(s.reauth_failures().unwrap(), 5);
+        s.reset_reauth_failures().unwrap();
+        assert_eq!(s.reauth_failures().unwrap(), 0);
+        s.reset_reauth_failures().unwrap();
+        // The count stops at 255.
+        for _ in 0..300 {
+            s.note_reauth_failure().unwrap();
+        }
+        assert_eq!(s.reauth_failures().unwrap(), 255);
+    }
+
+    #[test]
+    fn a_neutral_marker_is_absent_or_all_ff() {
+        let mut s = Store::open_in_memory().unwrap();
+        assert!(s.boot_marker_is_neutral().unwrap());
+        s.put_boot_marker(&[1, 2, 3, 4], 5).unwrap();
+        assert!(!s.boot_marker_is_neutral().unwrap());
+        s.put_boot_marker(&[0xFF; MAX_BOOT_ID_LEN], 0).unwrap();
+        assert!(s.boot_marker_is_neutral().unwrap());
+    }
+
+    #[test]
+    fn touch_needs_a_marker_and_a_writable_store() {
+        let mut s = Store::open_in_memory().unwrap();
+        assert!(!s.touch_boot_marker().unwrap());
+        s.put_boot_marker(&[1], 5).unwrap();
+        assert!(s.touch_boot_marker().unwrap());
+        assert_eq!(s.boot_marker().unwrap().unwrap().recorded_at_ms, 5);
+        s.block_boot_marker_changes_for_test(false);
+        assert!(s.touch_boot_marker().is_err());
     }
 
     #[test]

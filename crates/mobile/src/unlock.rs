@@ -25,6 +25,13 @@ const MEMORY_MARGIN_BYTES: u64 = 64 * 1024 * 1024;
 /// ends and the password is required (ADR-0028 item 8; the desktop's limit).
 pub(crate) const MAX_FAILED_REAUTH: u8 = 5;
 
+/// The age of a quick-unlock enrolment decided against the verified settings.
+enum QuickCheck {
+    Stands,
+    /// Expired and removed; the alias of the platform key to delete.
+    Expired(Option<String>),
+}
+
 /// The locked store, taken out of the core for one long call.
 pub(crate) enum Taken {
     /// A store without an account.
@@ -82,6 +89,12 @@ impl Core {
         mut session: UnlockedSession,
         unlock: UnlockKind,
     ) -> Result<SessionState> {
+        if unlock == UnlockKind::Password {
+            // A right password ends the count of wrong re-authentications,
+            // which is stored with the vault (N2). A failed write only keeps
+            // the count, the stricter outcome.
+            let _ = session.reset_failed_reauth();
+        }
         let info = UnlockedInfo {
             account: session.account_id(),
             email: session.sync_config().ok().flatten().and_then(|c| c.email),
@@ -100,11 +113,23 @@ impl Core {
             drop(guard);
             return Ok(self.state());
         }
-        if unlock == UnlockKind::Password {
-            // A right password ends the count of wrong re-authentications.
-            guard.failed_reauth = 0;
-        }
         guard.settings.unlocked(&mut session);
+        // The age of a quick-unlock enrolment was decided before the settings
+        // were checked (the unverified file may only shorten it, and the age
+        // byte is not authenticated). It is decided again now that the settings
+        // MAC verified: the shorter of the enrolment's age and the verified
+        // value applies (N1).
+        if unlock == UnlockKind::Quick
+            && let QuickCheck::Expired(alias) =
+                self.quick_expired_after_check(&mut session, &guard.settings)
+        {
+            self.generation_bump();
+            guard.settings.locked();
+            guard.expired_alias = alias;
+            guard.phase = Phase::Locked(session.lock());
+            drop(guard);
+            return Err(MobileError::QuickUnlockExpired);
+        }
         guard.expired_alias = None;
         guard.phase = Phase::Unlocked(Box::new(UnlockedPhase {
             owned: mosaic_sync::engine::OwnedSession::new(session),
@@ -112,6 +137,29 @@ impl Core {
         }));
         drop(guard);
         Ok(self.state())
+    }
+
+    /// After a quick unlock and the settings check: whether the enrolment is
+    /// expired under the verified settings. If so it is removed from the store
+    /// and the platform key's alias (when known) is returned.
+    fn quick_expired_after_check(
+        &self,
+        session: &mut UnlockedSession,
+        settings: &crate::settings::SettingsGuard,
+    ) -> QuickCheck {
+        let Some(enrollment) = session.quick_unlock_enrollment().ok().flatten() else {
+            return QuickCheck::Stands;
+        };
+        let decoded = Params::decode(&enrollment.platform_params, self.config.platform);
+        let now = i64::try_from(self.now_ms()).unwrap_or(i64::MAX);
+        let stands = decoded.as_ref().is_ok_and(|p| {
+            !enrollment.is_expired(&settings.quick_unlock_policy_for(p.max_age_days), now)
+        });
+        if stands {
+            return QuickCheck::Stands;
+        }
+        let _ = session.remove_quick_unlock();
+        QuickCheck::Expired(decoded.ok().map(|p| p.key_alias()))
     }
 
     /// The Secret Key of an account from secure storage.
@@ -164,46 +212,41 @@ impl Core {
         let secret_key = self.stored_secret_key(&account)?;
         let password = MasterPassword::new(password.to_owned());
         let unlocked = self.take_unlocked()?;
-        let proof = {
+        // The count of wrong passwords is stored with the vault and changed in
+        // the same step as the check, before the answer: a restart of the app
+        // does not start it again, and the guess is counted before it is
+        // refused (N2).
+        let checked = {
             use mosaic_sync::wire::SessionHandle as _;
-            unlocked
-                .owned
-                .with_session_mut(|s| s.verify_master_password(&password, &secret_key))
+            unlocked.owned.with_session_mut(|s| {
+                let result = s.verify_master_password(&password, &secret_key);
+                let failures = match &result {
+                    Ok(_) => {
+                        let _ = s.reset_failed_reauth();
+                        None
+                    }
+                    // A count that cannot be stored counts as the limit.
+                    Err(SessionError::UnlockFailed) => {
+                        Some(s.note_failed_reauth().unwrap_or(MAX_FAILED_REAUTH))
+                    }
+                    Err(_) => None,
+                };
+                (result, failures)
+            })
         };
         self.work_pause();
-        self.restore_unlocked(unlocked)?;
-        match proof.ok_or(MobileError::Locked)? {
-            Ok(proof) => {
-                self.reset_failed_reauth();
-                Ok(proof)
-            }
-            Err(e) => {
-                let error = MobileError::from(e);
-                if error == MobileError::WrongCredentials && self.note_failed_reauth() {
-                    // A guesser at an unlocked phone cannot go on: the session
-                    // ends and only the master password unlocks again.
-                    self.lock_requiring_password();
-                    return Err(MobileError::Locked);
-                }
-                Err(error)
-            }
+        let restored = self.restore_unlocked(unlocked);
+        let (result, failures) = checked.ok_or(MobileError::Locked)?;
+        if failures.is_some_and(|n| n >= MAX_FAILED_REAUTH) {
+            // A guesser at an unlocked phone cannot go on: the session ends
+            // and only the master password unlocks again. A `lock()` that came
+            // meanwhile does not spare the limit: the strict lock also finds a
+            // locked session (N4).
+            self.lock_requiring_password();
+            return Err(MobileError::Locked);
         }
-    }
-
-    /// A right master password at a re-authentication.
-    fn reset_failed_reauth(&self) {
-        if let Ok(mut guard) = self.guard() {
-            guard.failed_reauth = 0;
-        }
-    }
-
-    /// Counts one wrong master password at a re-authentication; `true` when
-    /// the limit is reached.
-    fn note_failed_reauth(&self) -> bool {
-        self.guard().is_ok_and(|mut guard| {
-            guard.failed_reauth = guard.failed_reauth.saturating_add(1);
-            guard.failed_reauth >= MAX_FAILED_REAUTH
-        })
+        restored?;
+        result.map_err(MobileError::from)
     }
 
     /// Unlocks with the master password and the Secret Key (stored, or typed

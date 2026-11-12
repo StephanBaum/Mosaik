@@ -11,6 +11,7 @@
 
 use subtle::ConstantTimeEq;
 
+use super::unlock_methods::MAX_FAILED_QUICK_ATTEMPTS;
 use super::{Error, LockedSession, Result, UnlockedSession};
 use crate::storage::MAX_BOOT_ID_LEN;
 
@@ -58,22 +59,65 @@ impl UnlockedSession {
         self.store.put_boot_marker(boot.as_bytes(), now_ms)?;
         Ok(())
     }
+
+    /// Counts one wrong master password at a re-authentication and returns
+    /// the count. It is stored with the vault, so a restart of the app does
+    /// not start it again; only a right master password ends it
+    /// ([`Self::reset_failed_reauth`]). The count is written before the caller
+    /// answers the wrong password.
+    ///
+    /// # Errors
+    /// [`Error::Store`]; the caller then treats the limit as reached.
+    pub fn note_failed_reauth(&mut self) -> Result<u8> {
+        Ok(self.store.note_reauth_failure()?)
+    }
+
+    /// Ends the count of wrong re-authentications (a right master password,
+    /// at a re-authentication or an unlock).
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn reset_failed_reauth(&mut self) -> Result<()> {
+        Ok(self.store.reset_reauth_failures()?)
+    }
 }
 
 impl LockedSession {
     /// Sets the "password unlocked since start" flag of CRYPTO_SPEC §6.2 if and
-    /// only if the stored marker equals `boot` (constant time). Returns whether
-    /// it matched. It never resets the counter of failed quick unlocks.
+    /// only if the stored marker equals `boot` (constant time) **and** the
+    /// store accepts a write (the marker is rewritten unchanged in a write
+    /// transaction), so a store that cannot be written never lets a marker be
+    /// adopted: the failed-attempt limit could not be enforced on it. It also
+    /// refuses when [`MAX_FAILED_QUICK_ATTEMPTS`] wrong re-authentications are
+    /// stored (the password is then required). Returns whether it matched. It
+    /// never resets the counter of failed quick unlocks.
     ///
     /// # Errors
-    /// [`Error::Store`].
+    /// [`Error::Store`] (the marker is then not adopted).
     pub fn adopt_boot_marker(&mut self, boot: &BootId) -> Result<bool> {
+        if self.store.reauth_failures()? >= MAX_FAILED_QUICK_ATTEMPTS {
+            self.quick.failed_quick = MAX_FAILED_QUICK_ATTEMPTS;
+            let _ = self.store.clear_boot_marker();
+            return Ok(false);
+        }
         let matched = self.store.boot_marker()?.is_some_and(|marker| {
             marker.boot_id.len() == boot.0.len() && bool::from(marker.boot_id.ct_eq(&boot.0))
         });
         if matched {
+            self.store.touch_boot_marker()?;
             self.quick.password_unlocked = true;
         }
         Ok(matched)
+    }
+
+    /// Requires the master password from now on: the failed-attempt counter
+    /// is set to its limit and the boot marker is deleted (or overwritten), as
+    /// [`UnlockedSession::lock_requiring_password`] does. For a strict lock
+    /// that finds the session locked already. The delete cannot fail loudly;
+    /// the counter still refuses quick unlock in this session, and
+    /// [`Self::enforce_boot_marker_limit`] tries again.
+    pub fn require_password(&mut self) {
+        self.quick.failed_quick = MAX_FAILED_QUICK_ATTEMPTS;
+        let _ = self.store.clear_boot_marker();
     }
 }

@@ -892,3 +892,339 @@ fn quick_unlock_aad_is_unchanged_by_the_age_byte() {
     let aad = quick_unlock_aad(&[5; 16]);
     assert_eq!(&aad[..2], &[0x02, 0x04]);
 }
+
+// ---- Round 2 (N1 to N8) --------------------------------------------------------------------------
+
+fn alias_of(state: &SessionState) -> String {
+    match state {
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::Available { key_alias, .. },
+            ..
+        } => key_alias.clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn expired_alias_of(state: &SessionState) -> String {
+    match state {
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::Expired { key_alias },
+            ..
+        } => key_alias.clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+fn is_password_required(state: &SessionState) -> bool {
+    matches!(
+        state,
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::PasswordRequired,
+            ..
+        }
+    )
+}
+
+/// Changes the store behind the core's back (the core's store is closed first).
+fn tamper_store(phone: &Phone, sql: &str) {
+    phone.core.close_store();
+    let conn = rusqlite::Connection::open(phone.store_path()).unwrap();
+    conn.execute_batch(sql).unwrap();
+}
+
+#[test]
+fn n1_lowered_age_applies_in_a_new_process() {
+    let (mut phone, _) = Phone::android_with_account();
+    // Enrolled at the default 14 days, then lowered to 1 (verified).
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone
+        .core
+        .update_settings(SettingsUpdate {
+            quick_unlock_max_age_days: Some(1),
+            ..SettingsUpdate::default()
+        })
+        .unwrap();
+    // A new process, settings not verified yet: the file may shorten the age.
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    phone.core.test_hooks().set_clock_offset_ms(2 * DAY_MS);
+    assert_eq!(
+        phone.core.unlock_quick(w).err(),
+        Some(MobileError::PasswordRequired)
+    );
+    assert!(matches!(
+        phone.core.state(),
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::Expired { .. },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn n1_age_is_decided_again_after_the_settings_check() {
+    let (mut phone, _) = Phone::android_with_account();
+    phone
+        .core
+        .update_settings(SettingsUpdate {
+            quick_unlock_max_age_days: Some(30),
+            reauth_password: Some(PASSWORD.as_bytes().to_vec()),
+            ..SettingsUpdate::default()
+        })
+        .unwrap();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone.core.lock();
+    let alias = alias_of(&phone.core.state());
+    phone.core.close_store();
+    // The settings file is edited: its MAC fails, so the strict 14 days apply
+    // once the file is checked (after the quick unlock decrypted).
+    let path = phone.dir.path().join("mosaic").join("settings.json");
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("\"idleLockMinutes\": 5"));
+    std::fs::write(
+        &path,
+        text.replace("\"idleLockMinutes\": 5", "\"idleLockMinutes\": 4"),
+    )
+    .unwrap();
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    phone.core.test_hooks().set_clock_offset_ms(20 * DAY_MS);
+    // Before the check the enrolment's 30 days apply; after it, 14.
+    assert!(matches!(
+        phone.core.state(),
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::Available { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        phone.core.unlock_quick(w).err(),
+        Some(MobileError::QuickUnlockExpired)
+    );
+    assert_eq!(expired_alias_of(&phone.core.state()), alias);
+    // The enrolment is gone and the core is locked.
+    phone.core.close_store();
+    let locked =
+        mosaic_vault::session::LockedSession::open(Store::open(phone.store_path()).unwrap());
+    assert!(locked.quick_unlock_enrollment().unwrap().is_none());
+}
+
+#[test]
+fn n1_a_raised_age_byte_does_not_outlive_the_verified_setting() {
+    let (mut phone, _) = Phone::android_with_account();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone
+        .core
+        .update_settings(SettingsUpdate {
+            quick_unlock_max_age_days: Some(1),
+            ..SettingsUpdate::default()
+        })
+        .unwrap();
+    // The unauthenticated age byte of the enrolment is raised to 30.
+    tamper_store(
+        &phone,
+        "UPDATE unlock_methods SET params = \
+         unhex(substr(hex(params), 1, length(hex(params)) - 2) || '1E') WHERE method <> 1;",
+    );
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    phone.core.test_hooks().set_clock_offset_ms(2 * DAY_MS);
+    assert_eq!(
+        phone.core.unlock_quick(w).err(),
+        Some(MobileError::PasswordRequired)
+    );
+    assert!(matches!(
+        phone.core.state(),
+        SessionState::Locked {
+            quick_unlock: QuickUnlockAvailability::Expired { .. },
+            ..
+        }
+    ));
+}
+
+#[test]
+fn n2_wrong_reauthentications_are_counted_across_processes() {
+    let (mut phone, _) = Phone::android_with_account();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    for _ in 0..4 {
+        assert_eq!(
+            phone
+                .core
+                .quick_unlock_enroll_begin(b"not the password".to_vec())
+                .err(),
+            Some(MobileError::WrongCredentials)
+        );
+    }
+    // The process ends; a new one quick-unlocks and counts on from four.
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    assert!(matches!(
+        phone.core.unlock_quick(w).unwrap(),
+        SessionState::Unlocked { .. }
+    ));
+    assert_eq!(
+        phone
+            .core
+            .quick_unlock_enroll_begin(b"not the password".to_vec())
+            .err(),
+        Some(MobileError::Locked)
+    );
+    assert!(is_password_required(&phone.core.state()));
+    // Another process cannot adopt the marker either, and a password unlock
+    // starts the count again.
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    assert!(is_password_required(&phone.core.state()));
+    phone
+        .core
+        .unlock_password(PASSWORD.as_bytes().to_vec(), None)
+        .unwrap();
+    for _ in 0..4 {
+        assert_eq!(
+            phone
+                .core
+                .quick_unlock_enroll_begin(b"not the password".to_vec())
+                .err(),
+            Some(MobileError::WrongCredentials)
+        );
+    }
+    assert!(matches!(phone.core.state(), SessionState::Unlocked { .. }));
+}
+
+#[test]
+fn n4_strict_lock_that_finds_the_phone_locked_still_requires_the_password() {
+    let (phone, _) = Phone::android_with_account();
+    enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    let wrong = || {
+        phone
+            .core
+            .quick_unlock_enroll_begin(b"not the password".to_vec())
+            .err()
+    };
+    for _ in 0..4 {
+        assert_eq!(wrong(), Some(MobileError::WrongCredentials));
+    }
+    // The fifth wrong password races a plain `lock()`: the lock wins the phase
+    // first, the strict lock then finds the phone locked.
+    phone.core.test_hooks().set_work_delay_ms(400);
+    let result = std::thread::scope(|scope| {
+        let fifth = scope.spawn(wrong);
+        wait_for_busy(&phone.core);
+        phone.core.lock();
+        fifth.join().unwrap()
+    });
+    assert_eq!(result, Some(MobileError::Locked));
+    assert!(is_password_required(&phone.core.state()));
+    phone.core.close_store();
+    assert!(
+        Store::open(phone.store_path())
+            .unwrap()
+            .boot_marker()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn n5_a_core_that_opened_while_the_store_was_busy_learns_the_flags_on_reopen() {
+    let (phone, _) = Phone::with_account();
+    // The first core holds the store: the second one opens busy and knows nothing.
+    let second = phone.second_core(Platform::Ios, CoreContext::App, &BOOT);
+    assert_eq!(second.state(), SessionState::StoreBusy);
+    phone.core.close_store();
+    match second.reopen_store().unwrap() {
+        SessionState::Locked {
+            secret_key_stored, ..
+        } => assert!(secret_key_stored),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn n6_a_marker_in_a_store_that_cannot_be_written_is_not_adopted() {
+    let (mut phone, _) = Phone::android_with_account();
+    enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    // Every write of the marker fails.
+    tamper_store(
+        &phone,
+        "CREATE TRIGGER no_marker_write BEFORE UPDATE ON boot_marker \
+         BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+    );
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    assert!(is_password_required(&phone.core.state()));
+}
+
+fn reset_confirm() -> ResetConfirm {
+    ResetConfirm {
+        typed_email: "user@example.com".to_owned(),
+    }
+}
+
+#[test]
+fn n7_a_failed_reset_cannot_be_quick_unlocked_and_reports_the_key() {
+    let (phone, _) = Phone::android_with_account();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone.core.lock();
+    let alias = alias_of(&phone.core.state());
+    // The platform cannot delete the secrets: the reset fails.
+    phone.storage.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        phone.core.reset_device(reset_confirm()).err(),
+        Some(MobileError::StorageUnavailable)
+    );
+    phone.storage.fail.store(false, Ordering::SeqCst);
+    // The enrolment and the marker are gone; the key is still reported.
+    assert_eq!(expired_alias_of(&phone.core.state()), alias);
+    assert!(phone.core.unlock_quick(w).is_err());
+    phone.core.close_store();
+    assert!(
+        Store::open(phone.store_path())
+            .unwrap()
+            .boot_marker()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn n7_a_failed_reset_keeps_the_alias_of_an_expired_enrolment() {
+    let (phone, _) = Phone::android_with_account();
+    enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone.core.lock();
+    phone.core.test_hooks().set_clock_offset_ms(20 * DAY_MS);
+    let alias = expired_alias_of(&phone.core.state());
+    phone.storage.fail.store(true, Ordering::SeqCst);
+    assert_eq!(
+        phone.core.reset_device(reset_confirm()).err(),
+        Some(MobileError::StorageUnavailable)
+    );
+    phone.storage.fail.store(false, Ordering::SeqCst);
+    assert_eq!(expired_alias_of(&phone.core.state()), alias);
+}

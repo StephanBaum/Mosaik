@@ -389,3 +389,21 @@ fn lock_during_recover_keeps_the_alias_and_the_token() {
         "the new token is stored"
     );
 }
+
+#[test]
+fn n5_a_missing_token_clears_the_signed_in_flag() {
+    let (_server, _desktop, phone) = world("stale-token@example.com");
+    assert!(phone.core.sync_overview().signed_in);
+    // The platform lost the token behind the core's back.
+    phone
+        .storage
+        .map
+        .lock()
+        .unwrap()
+        .retain(|name, _| !name.starts_with("sync-token/"));
+    assert_eq!(
+        phone.core.sync_now().err(),
+        Some(MobileError::SyncSignedOut)
+    );
+    assert!(!phone.core.sync_overview().signed_in);
+}

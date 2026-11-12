@@ -424,7 +424,8 @@ key type; no vault, no I/O, no origin policy (callers pass an rpId validated by
   (`#[must_use]`, private fields, so the signature cannot be used before the sign
   count is dealt with, ADR-0039 D5). `count_to_persist() -> Option<u64>`: `Some(n)`
   means store `n` with `ItemEdit::set_passkey_sign_count`, wait for the write, then
-  `into_response(CountPersisted) -> AssertionResponse`. `CountPersisted` is a
+  `into_json_response(CountPersisted) -> Result<AssertionResponse>` (the deprecated `into_response` returns the
+  response without the hash-mode check). `CountPersisted` is a
   zero-sized token built with `CountPersisted::after_store_write()`, to be called
   only after that write succeeded (the type cannot check it). `None` (a counter
   that stays 0): `into_response_without_count() -> Result<AssertionResponse,
@@ -1067,7 +1068,13 @@ change, was built **additively** in T2 (see below); the breaking form is still t
 - `UnlockedSession::record_boot_marker(&mut self, &BootId, now_ms) -> Result<()>`: only right after a
   master-password unlock of this session, else `ReauthenticationRequired`.
 - `LockedSession::adopt_boot_marker(&mut self, &BootId) -> Result<bool>`: sets the app-start flag if and only if
-  the marker matches (constant time). It never resets the failed-attempt counter.
+  the marker matches (constant time) and a write transaction (the marker rewritten unchanged) succeeded; it
+  refuses once five wrong re-authentications are stored (N2, N6). It never resets the failed-attempt counter.
+- `LockedSession::require_password(&mut self)`: counter to the limit and the marker deleted, for a strict lock that
+  finds the session locked already (N4).
+- `UnlockedSession::note_failed_reauth(&mut self) -> Result<u8>` and `reset_failed_reauth(&mut self)`: the stored
+  count of wrong master passwords at a re-authentication (`Store::reauth_failures`, `note_reauth_failure`,
+  `reset_reauth_failures`; table `reauth_failures` of the unreleased v11, N2).
 - `Store::boot_marker() -> Result<Option<StoredBootMarker>>`, `put_boot_marker`, `delete_boot_marker`,
   `StoredBootMarker { boot_id, recorded_at_ms }`, `MAX_BOOT_ID_LEN` (32).
 - Store schema v11 (`boot_marker`), fixture `crates/vault/tests/fixtures/store_v10.sqlite`. The marker is deleted
@@ -1088,7 +1095,8 @@ change, was built **additively** in T2 (see below); the breaking form is still t
   and `assert_request(&GetRequest, &PasskeyCredential, stored_count) -> Result<PendingAssertion>`.
 - `PendingAssertion::into_json_response(CountPersisted) -> Result<AssertionResponse>` and
   `into_response_without_count()` refuse a hash-mode assertion (`InvalidInput`, G1-16); `into_response` is
-  unchanged for the existing callers of `assert` (its `Json` mode has a `clientDataJSON`).
+  `#[deprecated]` (it returns an empty `clientDataJSON` in hash mode); the desktop and the import tests use
+  `into_json_response`.
 - `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>` (`None` in
   hash mode). A pending assertion is released with `into_client_response(CountPersisted)` or
   `into_client_response_without_count()`; the sign-count discipline of ADR-0039 D5 is unchanged.

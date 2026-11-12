@@ -297,7 +297,7 @@ pub struct GetRequest<'a> {
 /// 1. [`count_to_persist`](Self::count_to_persist): `Some(n)` means store
 ///    `passkey.sign_count = n` (`ItemEdit::set_passkey_sign_count`), wait for
 ///    the store write to succeed, then call
-///    [`into_response`](Self::into_response) with a [`CountPersisted`].
+///    [`into_json_response`](Self::into_json_response) with a [`CountPersisted`].
 /// 2. `None` (a counter that is, and stays, 0): call
 ///    [`into_response_without_count`](Self::into_response_without_count).
 ///
@@ -316,7 +316,7 @@ pub struct PendingAssertion {
 
 /// Proof that the new sign count is stored.
 #[derive(Clone, Copy, Debug)]
-#[must_use = "pass the token to `PendingAssertion::into_response`"]
+#[must_use = "pass the token to `PendingAssertion::into_json_response`"]
 pub struct CountPersisted(());
 
 impl CountPersisted {
@@ -366,13 +366,11 @@ impl PendingAssertion {
         self.persist_count
     }
 
-    /// Releases the response after the count was stored. For an assertion
-    /// made with [`assert`] only (`Json` mode). On an assertion made in hash
-    /// mode this still returns an **empty** `client_data_json`: it is kept for
-    /// the existing callers of `assert` (the desktop and the import tests,
-    /// which cannot make a hash-mode assertion). New code uses
+    /// Releases the response after the count was stored. On an assertion made
+    /// in hash mode this returns an **empty** `client_data_json`; use
     /// [`into_json_response`](Self::into_json_response), which refuses hash
     /// mode, or [`into_client_response`](Self::into_client_response).
+    #[deprecated(note = "use into_json_response")]
     #[must_use]
     pub fn into_response(self, _persisted: CountPersisted) -> AssertionResponse {
         self.release_json()
@@ -398,7 +396,7 @@ impl PendingAssertion {
     ///
     /// # Errors
     /// [`Error::InvalidInput`] if a count is pending: it must be stored and
-    /// the response released with [`into_response`](Self::into_response); or
+    /// the response released with [`into_json_response`](Self::into_json_response); or
     /// for an assertion made in hash mode, which has no `clientDataJSON`
     /// (G1-16): use [`into_client_response_without_count`](Self::into_client_response_without_count).
     pub fn into_response_without_count(self) -> Result<AssertionResponse, Error> {

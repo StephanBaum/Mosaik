@@ -508,6 +508,11 @@ impl LockedSession {
         if self.quick.failed_quick < MAX_FAILED_QUICK_ATTEMPTS {
             return Ok(());
         }
+        // Nothing to write when the marker is gone or already neutralised (the
+        // phone core calls this on every state read).
+        if self.store.boot_marker_is_neutral()? {
+            return Ok(());
+        }
         Ok(self.store.clear_boot_marker()?)
     }
 

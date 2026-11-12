@@ -5323,10 +5323,6 @@ A phone must keep the Secret Key and the hosted session token across app starts,
 
 ### Alternatives considered
 - **The desktop rule on mobile:** quick unlock would rarely work, and users would type the master password into the extension. That is forbidden (Argon2id in 120 MiB), and it pushes users toward weaker passwords.
-- **Amendments of the M10 G1 review.**
-  - **G1-3, re-authentication limit.** Five wrong master passwords in a row at a re-authentication (`quick_unlock_enroll_begin`, `update_settings`) end the session with `lock_requiring_password` (the boot marker goes too). A right password and a password unlock reset the count. Same limit as the desktop.
-  - **G1-10, the age travels with the enrolment.** The platform parameters are `0x02 ‖ platform ‖ key_nonce ‖ body ‖ max_age_days:u8` (1 to 30); the age is the verified setting at enrolment. Expiry is decided against that age, shortened by the settings once they were checked in this process, and capped at 30 days. Before that check a locked phone after a restart no longer applies the strict stand-in values (14 days) to an enrolment made with a longer verified age. The Android GCM AAD is unchanged.
-  - **G1-13, boot marker deletion.** A delete that fails is retried by overwriting the marker with an ID no platform produces (32 bytes); if that fails too, quick unlock stays refused in this process (the counter), the hardware-key path returns the store error, and the phone core retries whenever it reports the locked state (`LockedSession::enforce_boot_marker_limit`).
 - **A boot marker with its own shorter lifetime:** the wrapping's maximum age (default 14 days, at most 30) already bounds it. A second timer adds state without a clear gain.
 - **Android `EncryptedSharedPreferences` (Jetpack Security):** deprecated, and its key handling would not be ours to specify.
 - **The M10 spec's AAD without the header:** CRYPTO_SPEC §3 binds every AEAD header into the AAD. When Rust builds the AAD, it knows the secure-store version byte and the parameter version and platform bytes, so binding them costs nothing. This tightens the M10 spec.
@@ -5337,6 +5333,22 @@ THREAT_MODEL R127 (per boot, not per app start), R128 (TEE without StrongBox; th
 - §6.2 gets the platform byte table;
 - §6.9 is new;
 - §11 gets v11.
+
+### Amendments
+
+#### M10 G1 review
+- **G1-3, re-authentication limit.** Five wrong master passwords in a row at a re-authentication (`quick_unlock_enroll_begin`, `update_settings`) end the session with `lock_requiring_password` (the boot marker goes too). A right password and a password unlock reset the count. Same limit as the desktop. Superseded in where the count lives by N2 below.
+- **G1-10, the age travels with the enrolment.** The platform parameters are `0x02 ‖ platform ‖ key_nonce ‖ body ‖ max_age_days:u8` (1 to 30); the age is the verified setting at enrolment. Expiry is decided against that age, shortened by the settings once they were checked in this process, and capped at 30 days. Before that check a locked phone after a restart no longer applies the strict stand-in values (14 days) to an enrolment made with a longer verified age. The Android GCM AAD is unchanged. Refined by N1 below.
+- **G1-13, boot marker deletion.** A delete that fails is retried by overwriting the marker with an ID no platform produces (32 bytes); if that fails too, quick unlock stays refused in this process (the counter), the hardware-key path returns the store error, and the phone core retries whenever it reports the locked state (`LockedSession::enforce_boot_marker_limit`).
+
+#### M10 G1 verification follow-ups
+- **N1, the age byte is not authenticated.** The trailing byte of the platform parameters is outside the GCM AAD, so a store write can raise it. Before the settings MAC is checked the age is `min(byte, the unverified file's value, 30)` (the unverified file may only shorten, so lowering the setting works in a new process). After a quick unlock and the MAC check, expiry is decided again against `min(byte, verified setting, 30)`; an expired enrolment is removed, the vault is locked and the call answers `quickUnlockExpired`. The decision is authenticated through the settings MAC; no new cryptography. A settings file whose MAC fails gives the strict default (14 days) for the second decision.
+- **N2, the re-authentication count is stored.** The count of wrong master passwords moves from the core's memory into the store (`reauth_failures`, one local-only row, part of the unreleased v11 schema). It is incremented before `wrongCredentials` is returned and reset only by a correct master password. The desktop keeps its in-memory count because its process is not killed and restarted at will; a phone process is, and a guesser could otherwise reset the limit by ending the process after four tries. At five the session ends with `lock_requiring_password`, and a stored count of five also refuses the boot marker in a new process.
+- **N4, a strict lock that finds the phone locked.** `lock_requiring_password` on a locked session (a plain `lock()` won the race) calls `LockedSession::require_password`: counter to the limit, boot marker deleted. The limit's strict lock also runs when the plain lock took the session first.
+- **N6, a store that cannot be written.** `adopt_boot_marker` adopts only after a successful write transaction (the marker is rewritten unchanged), so a store that cannot be written means the master password is required. This agrees with the rule that a failed marker delete must not leave an adoptable marker.
+- **N7, a reset that fails half way.** `reset_device` removes the quick-unlock enrolment and the boot marker before it deletes the secrets or the files, and keeps the key alias in the state when the reset fails.
+- **N8.** `enforce_boot_marker_limit` writes nothing when the marker is absent or already overwritten.
+- **N3.** `SecureStorage` has a fourth operation, `contains` (CRYPTO_SPEC §6.9.1).
 
 ## ADR-0091: TLS trust on Android and the asset-links fetch
 

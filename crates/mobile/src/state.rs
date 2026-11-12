@@ -180,9 +180,4 @@ pub(crate) struct Inner {
     pub secret_key_stored: bool,
     /// A session token is in secure storage (cached like `secret_key_stored`).
     pub signed_in: bool,
-    /// Wrong master passwords in a row at a re-authentication (quick-unlock
-    /// enrolment, settings); five end the session and require the password
-    /// (ADR-0028 item 8, ported from the desktop). Reset by a right password
-    /// and by a password unlock.
-    pub failed_reauth: u8,
 }

@@ -266,16 +266,22 @@ impl SettingsGuard {
     }
 
     /// The quick-unlock policy for an enrolment that carries `enrolled_days`
-    /// (its verified maximum age, 1 to 30). Before the settings were checked
-    /// since the start (a locked phone after a restart) the strict stand-in
-    /// values must not shorten an enrolment that was verified when it was made
-    /// (G1-10), so the enrolment's own age applies; once they were checked, the
-    /// shorter of the two applies, so lowering the setting still takes effect.
-    /// The 30-day cap of CRYPTO_SPEC §6.2 holds either way.
+    /// (its maximum age at the enrolment, 1 to 30; the byte is not
+    /// authenticated). Before the settings were checked since the start (a
+    /// locked phone after a restart) the strict stand-in values must not
+    /// shorten an enrolment that was verified when it was made (G1-10), so the
+    /// enrolment's age applies, **shortened by the unverified file** (it may
+    /// only shorten, so lowering the setting works in a new process, N1); once
+    /// the settings were checked, the shorter of the enrolment and the
+    /// verified value applies. The 30-day cap of CRYPTO_SPEC §6.2 holds either
+    /// way. A quick unlock decided before the check is decided again after it
+    /// ([`Core::finish_unlocked`]).
     pub(crate) fn quick_unlock_policy_for(&self, enrolled_days: u8) -> QuickUnlockPolicy {
         let mut days = u64::from(enrolled_days).min(30);
         if self.verified {
             days = days.min(u64::from(self.effective.quick_unlock_max_age_days));
+        } else if let Some(file) = self.on_disk {
+            days = days.min(u64::from(file.normalized().quick_unlock_max_age_days));
         }
         QuickUnlockPolicy::new(Duration::from_secs(days.saturating_mul(86_400)))
     }

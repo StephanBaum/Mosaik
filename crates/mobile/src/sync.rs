@@ -196,7 +196,11 @@ impl Core {
         }
         let url = config.server_url.ok_or(MobileError::SyncNotConfigured)?;
         let token_name = sync_token_name(&account);
-        let stored = read(self.storage.as_ref(), &token_name)?.ok_or(MobileError::SyncSignedOut)?;
+        let Some(stored) = read(self.storage.as_ref(), &token_name)? else {
+            // The token is not there: the cached flag was stale (N5).
+            self.note_stored(None, Some(false));
+            return Err(MobileError::SyncSignedOut);
+        };
         let mut bytes: [u8; 32] = stored
             .as_slice()
             .try_into()
@@ -348,6 +352,12 @@ impl Core {
             aliases.extend(guard.expired_alias.take());
         }
         let account = account?;
+        // A reset that fails half way must not leave a phone that quick-unlocks:
+        // the enrolment and the boot marker go first, and the key alias is
+        // reported by the state until the platform deleted the key (N7).
+        let mut locked = locked;
+        let _ = locked.remove_quick_unlock();
+        locked.require_password();
         // The secrets first, then the files; a failure keeps the store so the
         // user can try again.
         let deleted = self
@@ -356,6 +366,9 @@ impl Core {
             .and_then(|()| self.storage.delete(&sync_token_name(&account)));
         if let Err(e) = deleted {
             self.put_back(Taken::Locked(locked));
+            if let Ok(mut guard) = self.guard() {
+                guard.expired_alias = aliases.into_iter().next();
+            }
             return Err(e.into());
         }
         self.note_stored(Some(false), Some(false));
@@ -370,10 +383,15 @@ impl Core {
             guard.phase = phase;
             guard.store_busy = busy;
             guard.slots = Slots::default();
-            guard.expired_alias = None;
+            // A wipe that failed keeps the alias of the removed enrolment
+            // reported (N7).
+            guard.expired_alias = if wiped.is_err() {
+                aliases.first().cloned()
+            } else {
+                None
+            };
             guard.last_sync_at_ms = None;
             guard.last_sync_error = None;
-            guard.failed_reauth = 0;
             guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
             self.lock_requested
                 .store(false, std::sync::atomic::Ordering::SeqCst);

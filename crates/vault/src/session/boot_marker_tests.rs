@@ -345,3 +345,54 @@ fn desktop_app_start_rule_unchanged_without_marker() {
         .unlock_quick(&w, &QuickUnlockPolicy::default(), e.enrolled_at_ms)
         .unwrap();
 }
+
+#[test]
+fn a_marker_is_adopted_only_after_a_successful_write() {
+    // N6: a store that cannot be written never lets a marker be adopted.
+    let (mut s, _) = account();
+    s.record_boot_marker(&boot(3), 0).unwrap();
+    s.store.block_boot_marker_changes_for_test(false);
+    // A new process: the store is opened again, the flag starts false.
+    let mut locked = LockedSession::open(s.lock().into_store());
+    assert!(locked.adopt_boot_marker(&boot(3)).is_err());
+    assert!(locked.password_required(QuickMethod::Biometric));
+}
+
+#[test]
+fn require_password_sets_the_limit_and_clears_the_marker() {
+    // N4: a strict lock that finds the session locked already.
+    let (mut s, sk) = account();
+    s.record_boot_marker(&boot(3), 0).unwrap();
+    let mut locked = s.lock();
+    assert!(locked.adopt_boot_marker(&boot(3)).unwrap());
+    assert!(!locked.password_required(QuickMethod::Biometric));
+    locked.require_password();
+    assert!(locked.password_required(QuickMethod::Biometric));
+    assert!(locked.password_required(QuickMethod::HardwareKey));
+    assert_eq!(locked_marker(&locked), None);
+    let s = locked.unlock(&pw(), &sk).map_err(|e| e.error).unwrap();
+    drop(s);
+}
+
+#[test]
+fn wrong_reauthentications_are_counted_in_the_store() {
+    // N2: the count survives a restart; five stored refuse the marker.
+    let (mut s, sk) = account();
+    s.record_boot_marker(&boot(3), 0).unwrap();
+    for want in 1..MAX_FAILED_QUICK_ATTEMPTS {
+        assert_eq!(s.note_failed_reauth().unwrap(), want);
+    }
+    // Restart: the marker is adopted below the limit.
+    let mut locked = LockedSession::open(s.lock().into_store());
+    assert!(locked.adopt_boot_marker(&boot(3)).unwrap());
+    let mut s = locked.unlock(&pw(), &sk).map_err(|e| e.error).unwrap();
+    assert_eq!(s.note_failed_reauth().unwrap(), MAX_FAILED_QUICK_ATTEMPTS);
+    let mut locked = LockedSession::open(s.lock().into_store());
+    assert!(!locked.adopt_boot_marker(&boot(3)).unwrap());
+    assert!(locked.password_required(QuickMethod::Biometric));
+    assert_eq!(locked_marker(&locked), None);
+    // A right password unlocks and ends the count.
+    let mut s = locked.unlock(&pw(), &sk).map_err(|e| e.error).unwrap();
+    s.reset_failed_reauth().unwrap();
+    assert_eq!(s.store().reauth_failures().unwrap(), 0);
+}

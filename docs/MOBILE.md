@@ -56,7 +56,7 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
   - A call during `Unlocking` answers `busy`. A `lock()` during `Unlocking` ends locked.
   - `lock()` takes the `OwnedSession`, so a running sync fails with `SyncError::Locked` and never deadlocks.
   - Every slot is dropped on lock, the pending join included. `close_store()` keeps an unexpired pending join (the
-    iOS Safari handoff of ADR-0091), so the apps never call `lock()` while that handoff runs; an expired join is
+    iOS Safari handoff of ADR-0091), so the apps never call `lock()` while that handoff runs (the Android lifecycle must not call `lock()` on background while a join is pending either, for example during a TOTP app switch); an expired join is
     dropped by `lock()`, `state()` and `close_store()`. `Core` is `Send + Sync`, checked by a static assertion.
   - The `lock_requested` flag is read and cleared only while the mutex is held, so a `lock()` that arrives during a
     long call always wins (M10-G1-1).

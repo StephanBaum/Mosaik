@@ -243,7 +243,6 @@ impl Core {
                 last_sync_error: None,
                 secret_key_stored,
                 signed_in,
-                failed_reauth: 0,
             }),
             lock_requested: AtomicBool::new(false),
             lock_strict: AtomicBool::new(false),
@@ -454,6 +453,14 @@ impl Core {
                     guard.phase = Phase::Unlocking;
                     None
                 }
+                // A strict lock that finds the session locked already (a plain
+                // `lock()` won a race with the re-authentication limit) still
+                // requires the password and takes the boot marker (N4).
+                Phase::Locked(mut locked) if require_password => {
+                    locked.require_password();
+                    guard.phase = Phase::Locked(locked);
+                    None
+                }
                 other => {
                     guard.phase = other;
                     None
@@ -509,10 +516,15 @@ impl Core {
         if closed {
             // The file lock is taken outside the mutex.
             let (phase, busy) = open_phase(&self.config)?;
+            // The presence flags are asked outside the mutex too: a core that
+            // opened while another process held the store has none (N5).
+            let (secret_key_stored, signed_in) = stored_flags(&phase, self.storage.as_ref());
             let mut guard = self.guard()?;
             if matches!(guard.phase, Phase::Closed) {
                 guard.phase = phase;
                 guard.store_busy = busy;
+                guard.secret_key_stored = secret_key_stored;
+                guard.signed_in = signed_in;
             }
         }
         Ok(self.state())

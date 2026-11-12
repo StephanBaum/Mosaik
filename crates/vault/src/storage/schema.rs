@@ -822,12 +822,22 @@ END;
 /// Version 11: the boot marker (M10, CRYPTO_SPEC §6.9.2, ADR-0090): the boot
 /// ID of the device boot in which the master password last unlocked, and the
 /// time it was written. One row, written only on iOS and Android. It is
-/// cleartext, not secret and not derived from a secret.
+/// cleartext, not secret and not derived from a secret. Next to it, the count
+/// of wrong re-authentications (`reauth_failures`).
 const V11: &str = r"
 CREATE TABLE boot_marker (
     id             INTEGER PRIMARY KEY CHECK (id = 1),
     boot_id        BLOB    NOT NULL CHECK (length(boot_id) BETWEEN 1 AND 32),
     recorded_at_ms INTEGER NOT NULL
+) STRICT;
+
+-- The wrong master passwords in a row at a re-authentication on an unlocked
+-- phone (CRYPTO_SPEC §6.9.2, N2): kept across processes so that a restart
+-- does not start the count again. One row, local-only, never synced. A right
+-- password deletes it; the boot marker's deletion does not.
+CREATE TABLE reauth_failures (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    failures INTEGER NOT NULL CHECK (failures BETWEEN 0 AND 255)
 ) STRICT;
 ";
 
@@ -1776,6 +1786,23 @@ mod tests {
             )
             .is_err()
         );
+        // The re-authentication counter: absent at the start, one row, 0 to 255.
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM reauth_failures", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "the counter starts absent");
+        for sql in [
+            "INSERT INTO reauth_failures (id, failures) VALUES (2, 1)",
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, -1)",
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, 256)",
+        ] {
+            assert!(c.execute(sql, []).is_err(), "{sql}");
+        }
+        c.execute(
+            "INSERT INTO reauth_failures (id, failures) VALUES (1, 255)",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]
