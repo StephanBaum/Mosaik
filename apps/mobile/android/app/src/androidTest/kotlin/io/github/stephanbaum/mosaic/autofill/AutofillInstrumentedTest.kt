@@ -48,6 +48,9 @@ class AutofillInstrumentedTest {
         // The PIN stays after the class: removing a lock screen deletes the Keystore key of the secure storage, which
         // the core of this process has cached, and the tests that follow use the same core (see DeviceLock).
         DeviceLock.ensure()
+        // A secure device can lock its screen again between two tests; the client must be visible to be tapped.
+        shell("input keyevent KEYCODE_WAKEUP")
+        shell("wm dismiss-keyguard")
         FillAudit.last = emptyList()
         app = context.applicationContext as MosaicApp
         val signers = checkNotNull(CallerReader.signersOf(context, clientPackage)) { "the test package is not visible" }
@@ -145,9 +148,17 @@ class AutofillInstrumentedTest {
     /** Starts the client app, enables the service, and focuses the user name field the way a user would. */
     private fun showClientAndFocusUsername() {
         shell("settings put secure autofill_service $service")
-        shell("am start -n $clientPackage/${AutofillClientActivity::class.java.name}")
-        val field = waitFor(30_000) { findText("client-username") }
-        assertNotNull("the client app did not show", field)
+        val start = "am start -n $clientPackage/${AutofillClientActivity::class.java.name}"
+        shell(start)
+        var field = waitFor(10_000) { findText("client-username") }
+        if (field == null) {
+            // The single instance can come back late after the previous test: ask once more.
+            shell("wm dismiss-keyguard")
+            shell(start)
+            field = waitFor(30_000) { findText("client-username") }
+        }
+        val state = shell("dumpsys window").lines().filter { it.contains("mCurrentFocus") || it.contains("isKeyguardShowing") }
+        assertNotNull("the client app did not show; focus: $state; the screen shows: ${screenTexts()}", field)
         tap(field!!)
     }
 
