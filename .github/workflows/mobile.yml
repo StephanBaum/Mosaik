@@ -207,3 +207,67 @@ jobs:
           name: android-instrumented-output
           path: instrument.txt
           if-no-files-found: warn
+
+  ios:
+    name: iOS build and simulator smoke test
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      # XcodeGen is a CI build tool, not a dependency of the app. The zip is checked against the digest
+      # GitHub published for the release asset (bump both together).
+      XCODEGEN_VERSION: "2.45.4"
+      XCODEGEN_SHA256: "090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef"
+      IOS_SIMULATOR: "iPhone 16"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: Newer bash (the scripts use set -u with arrays; macOS ships bash 3.2)
+        run: |
+          command -v /opt/homebrew/bin/bash >/dev/null || brew install bash
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Add the iOS Rust targets (CI only)
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: ios }
+      - name: Show the tool versions
+        run: |
+          bash --version | head -n 1
+          xcodebuild -version
+          xcrun simctl list devices available | grep -F "$IOS_SIMULATOR" || true
+      - name: Install XcodeGen (pinned, SHA-256 verified)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          echo "${XCODEGEN_SHA256}  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          bin="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen | head -n 1)"
+          chmod +x "$bin"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+      - run: bash scripts/mobile/check-ffi-crate.sh
+      - name: Static libraries, Swift bindings and the XCFramework (debug, with test hooks)
+        run: bash scripts/mobile/build-ios-xcframework.sh debug --features test-hooks
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec apps/mobile/ios/project.yml
+      - run: bash scripts/mobile/check-ios-deps.sh
+      - run: bash scripts/mobile/check-no-logging.sh
+      - name: Build the app and the extension, run the smoke tests (simulator)
+        run: >
+          xcodebuild -project apps/mobile/ios/Mosaic.xcodeproj -scheme Mosaic
+          -destination "platform=iOS Simulator,name=${IOS_SIMULATOR}"
+          -derivedDataPath apps/mobile/ios/build/DerivedData
+          -resultBundlePath apps/mobile/ios/build/Tests.xcresult
+          CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO
+          test
+      - name: Release libraries (no features) and the device compile check
+        run: |
+          bash scripts/mobile/build-ios-xcframework.sh release
+          xcodegen generate --spec apps/mobile/ios/project.yml
+          xcodebuild -project apps/mobile/ios/Mosaic.xcodeproj -scheme Mosaic -configuration Release             -sdk iphoneos -derivedDataPath apps/mobile/ios/build/DerivedDataRelease             CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-test-results
+          path: apps/mobile/ios/build/Tests.xcresult
+          if-no-files-found: warn
