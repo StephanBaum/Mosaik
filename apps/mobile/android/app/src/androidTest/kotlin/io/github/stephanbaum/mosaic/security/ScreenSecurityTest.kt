@@ -21,7 +21,8 @@ class ScreenSecurityTest {
 
         val declared = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_ACTIVITIES).activities
         assertTrue("the manifest declares no activity", declared != null && declared.isNotEmpty())
-        for (info in declared.orEmpty()) {
+        // Activities of libraries (the Compose tooling PreviewActivity in debug builds) are not ours to protect.
+        for (info in declared.orEmpty().filter { it.name.startsWith(context.packageName) }) {
             val type = Class.forName(info.name)
             assertTrue("${info.name} must extend SecureActivity", SecureActivity::class.java.isAssignableFrom(type))
         }

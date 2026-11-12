@@ -3,6 +3,7 @@ package io.github.stephanbaum.mosaic
 import android.app.Activity
 import android.app.Application
 import android.app.Application.ActivityLifecycleCallbacks
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -82,7 +83,8 @@ class MosaicApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val storage = AndroidSecureStorage(File(noBackupFilesDir, "secure"))
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val storage = AndroidSecureStorage(File(noBackupFilesDir, "secure"), deviceSecure = { keyguard.isDeviceSecure })
         holder = CoreHolder { openCore(storage) }
         clipboard =
             ClipboardGuard(AndroidClipboardPort(this), MainLooperScheduler()) { UUID.randomUUID().toString() }

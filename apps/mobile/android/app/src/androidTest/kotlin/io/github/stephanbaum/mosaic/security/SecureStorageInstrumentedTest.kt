@@ -1,5 +1,7 @@
 package io.github.stephanbaum.mosaic.security
 
+import android.app.KeyguardManager
+import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -27,7 +29,8 @@ class SecureStorageInstrumentedTest {
     fun setUp() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         directory = File(context.noBackupFilesDir, "secure-test-" + UUID.randomUUID())
-        storage = AndroidSecureStorage(directory, alias)
+        val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        storage = AndroidSecureStorage(directory, deviceSecure = { keyguard.isDeviceSecure }, keyAlias = alias)
     }
 
     @After
