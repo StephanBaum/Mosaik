@@ -7,7 +7,10 @@
 //!
 //! [`SecretOut`]: super::secret::SecretOut
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use super::ids::UnixMillis;
 use super::secret::SecretIn;
@@ -25,8 +28,10 @@ pub struct SetupCodeShowRequest {
     pub password: SecretIn,
 }
 
-/// The `setup_code_show` response.
-#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+/// The `setup_code_show` response. The matrix encodes the Secret Key, so it is
+/// not `Clone`, its `Debug` prints no modules, and `Drop` wipes them
+/// (M10-G2 M4). The QR library's own buffers are not wiped (CRYPTO_SPEC §6.9.7).
+#[derive(PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupCodeShown {
     /// `modules[y][x]` is `true` for a dark module. `size` rows of `size`
@@ -36,6 +41,43 @@ pub struct SetupCodeShown {
     pub size: u32,
     /// When the code must be hidden: 60 s after it was made.
     pub expires_at: UnixMillis,
+}
+
+impl fmt::Debug for SetupCodeShown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SetupCodeShown")
+            .field("size", &self.size)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for SetupCodeShown {
+    fn drop(&mut self) {
+        for row in &mut self.modules {
+            row.zeroize();
+        }
+        self.modules.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_prints_no_modules() {
+        let shown = SetupCodeShown {
+            modules: vec![vec![true, false], vec![false, true]],
+            size: 2,
+            expires_at: 7,
+        };
+        let text = format!("{shown:?}");
+        assert!(text.contains("size: 2"));
+        assert!(text.contains("expires_at: 7"));
+        assert!(!text.contains("modules"));
+        assert!(!text.contains("true"));
+    }
 }
 
 #[cfg(test)]

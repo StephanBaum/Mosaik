@@ -66,9 +66,11 @@ impl Backend {
             secret_key,
         };
         let text = build(&code)?;
-        // The QR library keeps its own copy of the text while it encodes; the
-        // matrix it returns is the same information the screen shows.
-        let qr = QrCode::encode_text(&text, QrCodeEcc::Medium).map_err(|_| IpcError::INTERNAL)?;
+        // `text` is a `Zeroizing<String>`, wiped on drop. The QR library's own
+        // segment, codeword and module buffers are not wiped (CRYPTO_SPEC
+        // 6.9.7); the matrix it returns is what the screen shows.
+        let qr = QrCode::encode_text(text.as_str(), QrCodeEcc::Medium)
+            .map_err(|_| IpcError::INTERNAL)?;
         drop(text);
         let size = qr.size();
         let modules = (0..size)
