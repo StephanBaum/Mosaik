@@ -7,8 +7,8 @@
 # Fails if
 #   (a) the keyword of low-level code appears anywhere under crates/mobile-ffi/src,
 #   (b) a file other than lib.rs, types.rs, convert.rs or bin/uniffi-bindgen.rs exists there, or
-#   (c) the lib.rs (or main.rs, for binaries) of any other workspace crate lacks the
-#       crate-level forbid of unsafe code.
+#   (c) the lib.rs, the main.rs or any src/bin/*.rs of any workspace crate, this crate
+#       included, lacks the crate-level forbid of unsafe code.
 # It reads the sources as text and needs no cargo.
 set -euo pipefail
 
@@ -17,7 +17,8 @@ usage() {
 Usage: check-ffi-crate.sh
 
 Checks crates/mobile-ffi/src (no hand-written low-level code, only the allowed files) and that every
-other workspace crate forbids unsafe code at its crate root. Exit code 0 when all checks pass.
+workspace crate, mosaic-mobile-ffi and every src/bin/*.rs included, forbids unsafe code at its crate
+root. Exit code 0 when all checks pass.
 USAGE
 }
 
@@ -64,12 +65,15 @@ check_root() {
 for dir in "$root"/crates/*/ "$root"/apps/desktop/src-tauri/; do
   rel="${dir#"$root/"}"
   rel="${rel%/}"
-  [ "$rel" = "crates/mobile-ffi" ] && continue
   check_root "$rel/src/lib.rs"
   check_root "$rel/src/main.rs"
+  for bin in "$root/$rel"/src/bin/*.rs; do
+    [ -f "$bin" ] || continue
+    check_root "${bin#"$root/"}"
+  done
 done
 
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
-echo "ok: $ffi holds no low-level code and only its allowed files; every other crate forbids it"
+echo "ok: $ffi holds no low-level code and only its allowed files; every crate root and binary forbids it"

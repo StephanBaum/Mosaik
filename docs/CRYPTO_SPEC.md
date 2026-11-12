@@ -296,7 +296,9 @@ platform:
 
 The platform key is named by a random 16-byte `key_nonce` drawn per
 enrollment and stored with the public parameters
-(`0x02 || platform:u8 || key_nonce[16] || body`), never by the account ID.
+(`0x02 || platform:u8 || key_nonce[16] || body`; on iOS and Android a trailing
+`max_age_days:u8`, 1 to 30, the verified maximum age at enrollment, follows the
+body, §6.9.2), never by the account ID.
 ADR-0020 item 7 and ADR-0028 pin the Windows and macOS calls, ADR-0090 the
 iOS and Android calls. Any deviation from this table needs a spec change.
 
@@ -759,7 +761,9 @@ new process for every request.
   ```
 - **Writing.** `record_boot_marker` MUST be refused unless the session was unlocked with the master password
   (and Secret Key) in this session. Otherwise the call fails with `ReauthenticationRequired`. A quick unlock
-  never writes or refreshes a marker. A new marker replaces the old one.
+  never writes or refreshes a marker. A new marker replaces the old one. Replacing a quick-unlock enrollment (a
+  new enrollment, with `Reauthenticated`) **keeps** the marker: the master password was verified a moment ago, in
+  this boot, so the boot rule still holds; the marker goes only with the deletions listed below.
 - **Reading.** `adopt_boot_marker` sets the "password unlocked since start" flag of §6.2 if and only if the
   stored `boot_id` equals the current one. The comparison is constant time. The call MUST NOT reset the
   failed-quick-unlock counter.
@@ -769,6 +773,15 @@ new process for every request.
     (§6.6) or its adoption (§6.7);
   - by `lock_requiring_password`;
   - when the failed-quick-unlock counter reaches its limit.
+
+  A delete that fails MUST NOT leave a marker a new process can adopt: the marker is overwritten with an ID that
+  matches no boot (32 bytes; the platforms use 4 and 16), and if that fails too, quick unlock stays refused in this
+  process and the delete is retried. On a phone, five wrong master passwords in a row at a re-authentication (quick
+  unlock enrollment, settings) end the session with `lock_requiring_password`, as on the desktop.
+- **Maximum age on a phone.** The enrollment's parameters carry the maximum age that was verified when it was made
+  (§6.2, 1 to 30 days). A phone that was restarted has no verified settings until the first unlock, so expiry uses the
+  enrollment's own age, never the stricter stand-in values of an unchecked settings file; once the settings were
+  checked, the shorter of the two applies. The cap of 30 days holds in every case.
 - Everything else in §6.2 holds unchanged: the maximum age of the wrapping, the limit of 5 failed attempts, the
   deletion of the platform key and the wrapping, and enrollment only with `Reauthenticated`.
   - In the iOS extension the attempt counter is per process. Biometric failures never reach the vault (the OS

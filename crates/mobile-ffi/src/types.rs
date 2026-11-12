@@ -378,7 +378,7 @@ record_out!(ResetOutcome <=> m::ResetOutcome {
 
 record!(AndroidCaller <=> m::AndroidCaller {
     package: String,
-    signing_cert_sha256: Vec<Vec<u8>>,
+    current_signers: Vec<Vec<u8>>,
     web_domain: Option<String>,
     web_scheme: Option<String>,
 });
@@ -434,6 +434,10 @@ record!(FillCandidate <=> m::FillCandidate {
     username: Option<String>,
     match_kind: FillMatch,
     has_otp: bool,
+});
+record!(FillCandidates <=> m::FillCandidates {
+    session_id: String,
+    candidates: Vec<FillCandidate>,
 });
 record_out!(FillValues <=> m::FillValues {
     username: Option<String>,

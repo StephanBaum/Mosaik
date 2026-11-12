@@ -1,9 +1,9 @@
 //! Autofill: targets, fields, candidates, values, app linking and asset links.
 
 use mosaic_mobile::{
-    AndroidCaller, AssetLinksStatus, Attr, FieldNode, FieldRefusal, FillMatch, FillTarget,
-    FillTargetKind, ItemFilter, ItemKey, LoginDraft, MobileError, OtpEdit, ServiceIdentifier,
-    ServiceIdentifierKind, UrlDraft,
+    AndroidCaller, AssetLinksStatus, Attr, Core, FieldNode, FieldRefusal, FillMatch, FillTarget,
+    FillTargetKind, FillValues, ItemFilter, ItemKey, LoginDraft, MobileError, OtpEdit,
+    ServiceIdentifier, ServiceIdentifierKind, UrlDraft,
 };
 use mosaic_passkey::b64url;
 use mosaic_sync::TransportError;
@@ -63,9 +63,36 @@ fn app_target(package: &str, cert: [u8; 32]) -> FillTarget {
 fn caller(package: &str, cert: [u8; 32]) -> AndroidCaller {
     AndroidCaller {
         package: package.to_owned(),
-        signing_cert_sha256: vec![cert.to_vec()],
+        current_signers: vec![cert.to_vec()],
         web_domain: None,
         web_scheme: None,
+    }
+}
+
+/// The old one-call form: opens a fill session for `target`, then asks the
+/// values of `key` with it (G1-12).
+trait FillExt {
+    fn fill_values_t(&self, target: FillTarget, key: ItemKey) -> Result<FillValues, MobileError>;
+    fn fill_otp_t(
+        &self,
+        target: FillTarget,
+        key: ItemKey,
+    ) -> Result<std::sync::Arc<mosaic_mobile::SecretValue>, MobileError>;
+}
+
+impl FillExt for Core {
+    fn fill_values_t(&self, target: FillTarget, key: ItemKey) -> Result<FillValues, MobileError> {
+        let session = self.fill_candidates(target)?.session_id;
+        self.fill_values(session, key)
+    }
+
+    fn fill_otp_t(
+        &self,
+        target: FillTarget,
+        key: ItemKey,
+    ) -> Result<std::sync::Arc<mosaic_mobile::SecretValue>, MobileError> {
+        let session = self.fill_candidates(target)?.session_id;
+        self.fill_otp(session, key)
     }
 }
 
@@ -99,7 +126,8 @@ fn fill_candidates_exact_origin_only() {
     let list = phone
         .core
         .fill_candidates(web("https://example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Example"]);
     assert_eq!(list[0].match_kind, FillMatch::Exact);
     assert_eq!(list[0].username.as_deref(), Some("alice"));
@@ -110,6 +138,7 @@ fn fill_candidates_exact_origin_only() {
             .core
             .fill_candidates(web("https://example.com.evil.test"))
             .unwrap()
+            .candidates
             .is_empty()
     );
     assert!(
@@ -117,6 +146,7 @@ fn fill_candidates_exact_origin_only() {
             .core
             .fill_candidates(web("https://sub.example.com"))
             .unwrap()
+            .candidates
             .is_empty()
     );
     // A target that is not an origin is refused.
@@ -145,14 +175,16 @@ fn fill_candidates_etld1_opt_in() {
     let list = phone
         .core
         .fill_candidates(web("https://login.example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Opted in"]);
     assert_eq!(list[0].match_kind, FillMatch::Etld1);
     // The exact origin lists both, the exact match first.
     let list = phone
         .core
         .fill_candidates(web("https://www.example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Opted in", "Strict"]);
     // The registrable domain of another site never matches.
     assert!(
@@ -160,6 +192,7 @@ fn fill_candidates_etld1_opt_in() {
             .core
             .fill_candidates(web("https://www.example.org"))
             .unwrap()
+            .candidates
             .is_empty()
     );
 }
@@ -182,7 +215,7 @@ fn fill_candidates_http_refused_without_allow_http() {
     assert_eq!(
         phone
             .core
-            .fill_values(web("http://intranet.example.com"), plain.clone())
+            .fill_values_t(web("http://intranet.example.com"), plain.clone())
             .err()
             .map(mosaic_mobile::MobileError::code),
         Some("insecureOrigin")
@@ -193,6 +226,7 @@ fn fill_candidates_http_refused_without_allow_http() {
             .core
             .fill_candidates(web("https://intranet.example.com"))
             .unwrap()
+            .candidates
             .is_empty()
     );
     login(
@@ -206,6 +240,7 @@ fn fill_candidates_http_refused_without_allow_http() {
                 .core
                 .fill_candidates(web("http://127.0.0.1:8080"))
                 .unwrap()
+                .candidates
         ),
         vec!["Local"]
     );
@@ -221,6 +256,7 @@ fn fill_candidates_http_refused_without_allow_http() {
                 .core
                 .fill_candidates(web("http://legacy.example.com"))
                 .unwrap()
+                .candidates
         ),
         vec!["Allowed"]
     );
@@ -240,7 +276,8 @@ fn fill_candidates_android_app_requires_cert_binding() {
     let list = phone
         .core
         .fill_candidates(app_target("com.example.app", CERT))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Bound"]);
     // Another signer, another package, or no signer: nothing.
     for target in [
@@ -255,7 +292,14 @@ fn fill_candidates_android_app_requires_cert_binding() {
             warning: None,
         },
     ] {
-        assert!(phone.core.fill_candidates(target).unwrap().is_empty());
+        assert!(
+            phone
+                .core
+                .fill_candidates(target)
+                .unwrap()
+                .candidates
+                .is_empty()
+        );
     }
     // The detail tells which URL still needs linking.
     let items = phone.core.items(ItemFilter::default()).unwrap();
@@ -271,6 +315,7 @@ fn fill_candidates_android_app_requires_cert_binding() {
             .core
             .fill_candidates(web("https://com.example.app"))
             .unwrap()
+            .candidates
             .is_empty()
     );
 }
@@ -306,13 +351,14 @@ fn fill_candidates_skip_trashed_and_hardware_protected() {
     let list = phone
         .core
         .fill_candidates(web("https://example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Live"]);
     // A trashed login is refused when someone names it anyway.
     assert_eq!(
         phone
             .core
-            .fill_values(web("https://example.com"), trashed)
+            .fill_values_t(web("https://example.com"), trashed)
             .err(),
         Some(MobileError::NotFound)
     );
@@ -355,7 +401,8 @@ fn fill_candidates_skip_trashed_and_hardware_protected() {
     let list = phone
         .core
         .fill_candidates(web("https://example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(titles(&list), vec!["Live"]);
 }
 
@@ -370,7 +417,8 @@ fn fill_candidates_have_no_secret_fields() {
     let list = phone
         .core
         .fill_candidates(web("https://example.com"))
-        .unwrap();
+        .unwrap()
+        .candidates;
     assert_eq!(list.len(), 1);
     let shown = format!("{list:?}");
     assert!(!shown.contains(SECRET), "{shown}");
@@ -385,10 +433,17 @@ fn fill_values_rechecks_the_match() {
         vec![url("https://example.com", false, false)],
     );
     let target = web("https://example.com");
-    let list = phone.core.fill_candidates(target.clone()).unwrap();
+    let list = phone
+        .core
+        .fill_candidates(target.clone())
+        .unwrap()
+        .candidates;
     assert_eq!(list[0].key, key);
     // The tap hands over the user name and the password, as secret values.
-    let values = phone.core.fill_values(target.clone(), key.clone()).unwrap();
+    let values = phone
+        .core
+        .fill_values_t(target.clone(), key.clone())
+        .unwrap();
     assert_eq!(values.username.as_deref(), Some("alice"));
     let password = values.password.unwrap();
     assert_eq!(password.expose_bytes(), SECRET.as_bytes());
@@ -409,14 +464,14 @@ fn fill_values_rechecks_the_match() {
         })
         .unwrap();
     assert_eq!(
-        phone.core.fill_values(target, key.clone()).err(),
+        phone.core.fill_values_t(target, key.clone()).err(),
         Some(MobileError::NoMatch)
     );
     // And for an app: not linked.
     assert_eq!(
         phone
             .core
-            .fill_values(app_target("com.example.app", CERT), key)
+            .fill_values_t(app_target("com.example.app", CERT), key)
             .err(),
         Some(MobileError::AppNotLinked)
     );
@@ -439,14 +494,14 @@ fn fill_values_refuses_other_origin_candidate() {
     assert_eq!(
         phone
             .core
-            .fill_values(web("https://example.com"), theirs.clone())
+            .fill_values_t(web("https://example.com"), theirs.clone())
             .err(),
         Some(MobileError::NoMatch)
     );
     assert_eq!(
         phone
             .core
-            .fill_otp(web("https://example.com"), theirs)
+            .fill_otp_t(web("https://example.com"), theirs)
             .err(),
         Some(MobileError::NoMatch)
     );
@@ -458,7 +513,7 @@ fn fill_values_refuses_other_origin_candidate() {
     assert_eq!(
         phone
             .core
-            .fill_values(web("https://example.com"), nobody)
+            .fill_values_t(web("https://example.com"), nobody)
             .err(),
         Some(MobileError::NotFound)
     );
@@ -469,7 +524,7 @@ fn fill_values_refuses_other_origin_candidate() {
     assert_eq!(
         phone
             .core
-            .fill_values(web("https://example.com"), bad)
+            .fill_values_t(web("https://example.com"), bad)
             .err(),
         Some(MobileError::InvalidInput)
     );
@@ -477,7 +532,7 @@ fn fill_values_refuses_other_origin_candidate() {
 
 #[test]
 fn fill_values_locked_is_locked() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     let key = login(
         &phone,
         "Example",
@@ -486,7 +541,7 @@ fn fill_values_locked_is_locked() {
     phone.core.lock();
     let target = web("https://example.com");
     assert_eq!(
-        phone.core.fill_values(target.clone(), key.clone()).err(),
+        phone.core.fill_values_t(target.clone(), key.clone()).err(),
         Some(MobileError::Locked)
     );
     assert_eq!(
@@ -494,7 +549,7 @@ fn fill_values_locked_is_locked() {
         Some(MobileError::Locked)
     );
     assert_eq!(
-        phone.core.fill_otp(target, key).err(),
+        phone.core.fill_otp_t(target, key).err(),
         Some(MobileError::Locked)
     );
     // The pure calls work while locked.
@@ -535,22 +590,26 @@ fn fill_otp_for_matching_item_only() {
         vec![url("https://example.com", false, false)],
     );
     let target = web("https://example.com");
-    let list = phone.core.fill_candidates(target.clone()).unwrap();
+    let list = phone
+        .core
+        .fill_candidates(target.clone())
+        .unwrap()
+        .candidates;
     assert!(list.iter().find(|c| c.key == with_otp).unwrap().has_otp);
     let code = phone
         .core
-        .fill_otp(target.clone(), with_otp.clone())
+        .fill_otp_t(target.clone(), with_otp.clone())
         .unwrap();
     assert_eq!(code.len(), 6);
     assert!(code.expose_bytes().iter().all(u8::is_ascii_digit));
     assert_eq!(
-        phone.core.fill_otp(target.clone(), without).err(),
+        phone.core.fill_otp_t(target.clone(), without).err(),
         Some(MobileError::NotFound)
     );
     assert_eq!(
         phone
             .core
-            .fill_otp(web("https://example.net"), with_otp)
+            .fill_otp_t(web("https://example.net"), with_otp)
             .err(),
         Some(MobileError::NoMatch)
     );
@@ -558,7 +617,7 @@ fn fill_otp_for_matching_item_only() {
 
 #[test]
 fn link_android_app_writes_cert_bound_url() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     let key = login(
         &phone,
         "Example",
@@ -573,6 +632,7 @@ fn link_android_app_writes_cert_bound_url() {
             .core
             .fill_candidates(target.clone())
             .unwrap()
+            .candidates
             .is_empty()
     );
     phone
@@ -587,7 +647,7 @@ fn link_android_app_writes_cert_bound_url() {
     assert!(urls.contains(&bound.as_str()), "{urls:?}");
     assert!(detail.urls.iter().all(|u| !u.needs_linking));
     assert_eq!(
-        titles(&phone.core.fill_candidates(target).unwrap()),
+        titles(&phone.core.fill_candidates(target).unwrap().candidates),
         vec!["Example"]
     );
     // Linking again changes nothing; a new signer replaces the old binding.
@@ -619,6 +679,7 @@ fn link_android_app_writes_cert_bound_url() {
             .core
             .fill_candidates(app_target("com.example.app", CERT))
             .unwrap()
+            .candidates
             .is_empty()
     );
     // Not a login, bad package, bad certificate.
@@ -630,7 +691,7 @@ fn link_android_app_writes_cert_bound_url() {
         Some(MobileError::InvalidInput)
     );
     let mut short = caller("com.example.app", CERT);
-    short.signing_cert_sha256 = vec![vec![1, 2, 3]];
+    short.current_signers = vec![vec![1, 2, 3]];
     assert_eq!(
         phone
             .core
@@ -656,7 +717,7 @@ fn assetlinks_json(package: &str, cert: &[u8; 32]) -> Vec<u8> {
 
 #[test]
 fn asset_links_status_verified_not_listed_unavailable() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     let key = login(
         &phone,
         "Example",
@@ -713,7 +774,7 @@ fn asset_links_status_verified_not_listed_unavailable() {
 
 #[test]
 fn targets_and_fields_are_pure() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     phone.core.lock();
     // A web domain counts only for a trusted browser.
     let mut app = caller("com.example.app", CERT);
@@ -739,7 +800,7 @@ fn targets_and_fields_are_pure() {
         .collect();
     let browser = AndroidCaller {
         package: package.to_owned(),
-        signing_cert_sha256: vec![cert],
+        current_signers: vec![cert],
         web_domain: Some("Example.COM".to_owned()),
         web_scheme: None,
     };
@@ -752,7 +813,8 @@ fn targets_and_fields_are_pure() {
     );
     assert_eq!(target.display, "example.com");
     // iOS identifiers.
-    let ios = phone
+    let (ios_phone, _) = Phone::with_account();
+    let ios = ios_phone
         .core
         .fill_target_ios(ServiceIdentifier {
             kind: ServiceIdentifierKind::Url,
@@ -765,7 +827,7 @@ fn targets_and_fields_are_pure() {
             origin: "https://example.com".to_owned()
         }
     );
-    let idn = phone
+    let idn = ios_phone
         .core
         .fill_target_ios(ServiceIdentifier {
             kind: ServiceIdentifierKind::Domain,

@@ -4,6 +4,7 @@ use mosaic_core::AccountId;
 use mosaic_sync::engine::OwnedSession;
 use mosaic_vault::session::LockedSession;
 
+use crate::autofill::FillSessions;
 use crate::error::MobileError;
 use crate::join::PendingJoin;
 use crate::otp::PendingOtps;
@@ -84,12 +85,24 @@ pub enum SessionState {
     Busy,
 }
 
+/// How the session in the unlocked phase was opened. Both ways verify the
+/// user (the master password, or the platform's biometric key through `W`);
+/// the iOS passkey calls require it (G1-4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UnlockKind {
+    /// The master password and the Secret Key (also a join or a new account).
+    Password,
+    /// `W`, which the platform released after a biometric check.
+    Quick,
+}
+
 /// What the unlocked phase caches, so `state()` never waits for the session.
 #[derive(Clone, Debug)]
 pub(crate) struct UnlockedInfo {
     pub account: AccountId,
     pub email: Option<String>,
     pub quick_unlock_enrolled: bool,
+    pub unlock: UnlockKind,
 }
 
 /// The unlocked session and what `state()` shows of it.
@@ -110,22 +123,39 @@ pub(crate) enum Phase {
     Busy,
 }
 
-/// Pending slots. Every slot except the join is dropped on lock; the join
-/// survives backgrounding for its five minutes (CRYPTO_SPEC §6.9, ADR-0091).
+/// Pending slots. Every slot is dropped on lock, the pending join included: a
+/// join holds the Secret Key and the derived keys, and must not outlive a lock
+/// (G1-11). The one exception is `close_store()`, which iOS calls when the app
+/// goes to the background while the user is in Safari for the security-key
+/// handoff: an unexpired join survives that (ADR-0091); the apps must not call
+/// `lock()` during the handoff. An expired join is dropped whenever the state
+/// is read.
 #[derive(Default)]
 pub(crate) struct Slots {
     pub quick: Option<PendingEnroll>,
     pub otp: PendingOtps,
     pub join: Option<PendingJoin>,
     pub passkeys: PasskeySessions,
+    pub fill: FillSessions,
 }
 
 impl Slots {
-    /// Drops every slot but the join.
-    pub(crate) fn clear_on_lock(&mut self) {
+    /// Drops every slot (the pending join too, unless `keep_join`).
+    pub(crate) fn clear_on_lock(&mut self, keep_join: bool) {
         self.quick = None;
         self.otp.clear();
         self.passkeys.clear();
+        self.fill.clear();
+        if !keep_join {
+            self.join = None;
+        }
+    }
+
+    /// Drops a pending join that ran out.
+    pub(crate) fn drop_expired_join(&mut self, now_ms: u64) {
+        if self.join.as_ref().is_some_and(|j| j.expired(now_ms)) {
+            self.join = None;
+        }
     }
 }
 
@@ -143,4 +173,16 @@ pub(crate) struct Inner {
     pub last_sync_at_ms: Option<u64>,
     /// How the last sync run failed, until one succeeds.
     pub last_sync_error: Option<MobileError>,
+    /// The Secret Key of the account is in secure storage. Cached: asked of the
+    /// platform (`contains`, never `get`) outside the mutex at open and set
+    /// where the core stores or deletes it, so `state()` never calls the
+    /// platform (G1-2).
+    pub secret_key_stored: bool,
+    /// A session token is in secure storage (cached like `secret_key_stored`).
+    pub signed_in: bool,
+    /// Wrong master passwords in a row at a re-authentication (quick-unlock
+    /// enrolment, settings); five end the session and require the password
+    /// (ADR-0028 item 8, ported from the desktop). Reset by a right password
+    /// and by a password unlock.
+    pub failed_reauth: u8,
 }

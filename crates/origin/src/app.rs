@@ -119,9 +119,13 @@ impl AndroidAppUrl {
 /// Whether the saved URL allows filling the app `package` whose **current**
 /// signers are `certs` (SHA-256 of each certificate).
 ///
-/// Only an equal package and a `cert` equal to one of `certs` match; the
-/// match is reported as [`MatchKind::ExactOrigin`]. A URL without `cert`, a
-/// web URL and an empty `certs` never match.
+/// `certs` is the caller's **current** signer, exactly one (the platform's
+/// `apkContentsSigners`, or the last entry of `signingCertificateHistory`).
+/// More than one current signer is refused as ambiguous (ADR-0092 amendment,
+/// G1-9): the app's identity must be a single certificate. Only an equal
+/// package and a `cert` equal to that signer match; the match is reported as
+/// [`MatchKind::ExactOrigin`]. A URL without `cert`, a web URL and an empty or
+/// multiple `certs` never match.
 ///
 /// # Errors
 /// [`Refusal::NoMatch`].
@@ -132,7 +136,7 @@ pub fn app_fill_allowed(
 ) -> Result<MatchKind, Refusal> {
     let url = AndroidAppUrl::parse(saved.url.as_str()).map_err(|_| Refusal::NoMatch)?;
     let cert = url.cert_sha256().ok_or(Refusal::NoMatch)?;
-    if url.package() == package && certs.contains(cert) {
+    if url.package() == package && matches!(certs, [only] if only == cert) {
         Ok(MatchKind::ExactOrigin)
     } else {
         Err(Refusal::NoMatch)

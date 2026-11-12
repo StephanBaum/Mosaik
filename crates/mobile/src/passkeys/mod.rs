@@ -28,10 +28,11 @@ use mosaic_passkey::{
 use mosaic_vault::session::{ItemFilter as SessionFilter, UnlockedSession};
 
 use crate::Core;
-use crate::autofill::{AndroidCaller, usable_vaults};
+use crate::autofill::{AndroidCaller, single_signer, usable_vaults};
+use crate::config::Platform;
 use crate::error::{MobileError, Result};
 use crate::items::{ItemKey, VaultSummary, parse_item_key, parse_vault_id};
-use crate::state::Phase;
+use crate::state::{Phase, UnlockKind};
 
 /// How long a ceremony waits for the user (CRYPTO_SPEC §16).
 const SESSION_TTL_MS: u64 = 300_000;
@@ -224,8 +225,7 @@ pub(crate) struct PasskeySessions {
 
 impl PasskeySessions {
     fn insert(&mut self, ceremony: Ceremony, now_ms: u64) -> Result<String> {
-        let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).map_err(|_| MobileError::Internal)?;
+        let bytes = mosaic_core::random_public_bytes::<16>()?;
         let id = crate::storage::hex(&bytes);
         self.waiting.retain(|w| now_ms < w.expires_at_ms);
         while self.waiting.len() >= MAX_SESSIONS {
@@ -443,11 +443,10 @@ impl Core {
             return Err(MobileError::InvalidInput);
         }
         let certs: Vec<[u8; 32]> = caller
-            .signing_cert_sha256
+            .current_signers
             .iter()
             .map(|c| hash_of(c))
             .collect::<Result<_>>()?;
-        let cert = certs.first().ok_or(MobileError::InvalidInput)?;
         if let Some(origin_text) = &request.platform_origin {
             // Rust checks the browser itself; the platform's word is not enough.
             if !is_trusted_browser(&caller.package, &certs) {
@@ -467,14 +466,16 @@ impl Core {
         if request.client_data_hash.is_some() {
             return Err(MobileError::InvalidInput);
         }
+        // The app's identity is its one current signer (G1-9).
+        let cert = single_signer(&caller.current_signers)?;
         let rp = rp_id
             .and_then(canonical_rp_id)
             .ok_or(MobileError::RpIdInvalid)?;
-        self.check_asset_links(&rp, &caller.package, cert)?;
+        self.check_asset_links(&rp, &caller.package, &cert)?;
         Ok((
             rp,
             ClientSpec::Json {
-                origin: android_app_origin(cert),
+                origin: android_app_origin(&cert),
                 challenge: challenge.to_vec(),
             },
         ))
@@ -512,6 +513,7 @@ impl Core {
         &self,
         request: AndroidPasskeyRequest,
     ) -> Result<PasskeySession> {
+        self.require_platform(Platform::Android)?;
         // The vault first: a locked phone does not make a request for a
         // relying party.
         drop(self.owned_session()?);
@@ -549,6 +551,7 @@ impl Core {
         candidate: ItemKey,
         user_verified: bool,
     ) -> Result<String> {
+        self.require_platform(Platform::Android)?;
         if !user_verified {
             return Err(MobileError::ReauthRequired);
         }
@@ -593,6 +596,7 @@ impl Core {
         &self,
         request: AndroidPasskeyRequest,
     ) -> Result<PasskeyCreateSession> {
+        self.require_platform(Platform::Android)?;
         drop(self.owned_session()?);
         let options = json::parse_create(request.request_json.as_bytes())?;
         let (rp_id, client) =
@@ -649,6 +653,7 @@ impl Core {
         vault_id: String,
         user_verified: bool,
     ) -> Result<String> {
+        self.require_platform(Platform::Android)?;
         if !user_verified {
             return Err(MobileError::ReauthRequired);
         }
@@ -696,16 +701,34 @@ impl Core {
         ))
     }
 
+    /// Whether this process's session was opened by a verified user: the
+    /// master password or `W` from the platform's biometric key. The iOS
+    /// passkey calls sign only then (G1-4); the extension never opens a session
+    /// any other way.
+    fn require_verified_session(&self) -> Result<()> {
+        let guard = self.guard()?;
+        match &guard.phase {
+            Phase::Unlocked(u) => match u.info.unlock {
+                UnlockKind::Password | UnlockKind::Quick => Ok(()),
+            },
+            Phase::Locked(_) => Err(MobileError::Locked),
+            Phase::NoAccount(_) => Err(MobileError::NoAccount),
+            Phase::Closed => Err(MobileError::StoreUnavailable),
+            Phase::Unlocking | Phase::Busy => Err(MobileError::Busy),
+        }
+    }
+
     /// The passkeys of `rp_id` that can answer an iOS request (`allow` empty:
     /// any discoverable one).
     ///
     /// # Errors
-    /// `locked`, `rpIdInvalid`.
+    /// `locked`, `rpIdInvalid`, `invalidInput` (not an iOS core).
     pub fn passkey_ios_candidates(
         &self,
         rp_id: String,
         allow: Vec<Vec<u8>>,
     ) -> Result<Vec<PasskeyCandidate>> {
+        self.require_platform(Platform::Ios)?;
         let rp_id = canonical_rp_id(&rp_id).ok_or(MobileError::RpIdInvalid)?;
         self.with_session(|s| {
             Ok(stored_passkeys(s)
@@ -719,9 +742,15 @@ impl Core {
     /// Signs an iOS assertion in hash mode. The sign count is stored first.
     ///
     /// # Errors
-    /// `locked`, `rpIdInvalid`, `invalidInput` (the hash is not 32 bytes),
+    /// `locked`, `rpIdInvalid`, `invalidInput` (the hash is not 32 bytes, or
+    /// not an iOS core), `reauthRequired` (the user was not verified),
     /// `passkeyNotFound`.
     pub fn passkey_ios_assert(&self, request: IosAssertRequest) -> Result<IosAssertion> {
+        self.require_platform(Platform::Ios)?;
+        if !request.user_verified {
+            return Err(MobileError::ReauthRequired);
+        }
+        self.require_verified_session()?;
         let rp_id = canonical_rp_id(&request.rp_id).ok_or(MobileError::RpIdInvalid)?;
         let client = ClientSpec::Hash(hash_of(&request.client_data_hash)?);
         let response = self.with_session(|s| {
@@ -729,14 +758,7 @@ impl Core {
                 .into_iter()
                 .find(|p| rp_matches(p, &rp_id) && p.public.credential_id == request.credential_id)
                 .ok_or(MobileError::PasskeyNotFound)?;
-            sign(
-                s,
-                found.vault,
-                found.item,
-                &rp_id,
-                &client,
-                request.user_verified,
-            )
+            sign(s, found.vault, found.item, &rp_id, &client, true)
         })?;
         Ok(IosAssertion {
             credential_id: response.credential_id,
@@ -750,9 +772,16 @@ impl Core {
     /// the attestation is returned.
     ///
     /// # Errors
-    /// `locked`, `rpIdInvalid`, `invalidInput`, `passkeyUnsupportedAlgorithm`,
-    /// `passkeyExcluded`, `notFound`, `vaultUnavailable`.
+    /// `locked`, `rpIdInvalid`, `invalidInput` (also not an iOS core),
+    /// `reauthRequired` (the user was not verified),
+    /// `passkeyUnsupportedAlgorithm`, `passkeyExcluded`, `notFound`,
+    /// `vaultUnavailable`.
     pub fn passkey_ios_register(&self, request: IosRegisterRequest) -> Result<IosRegistration> {
+        self.require_platform(Platform::Ios)?;
+        if !request.user_verified {
+            return Err(MobileError::ReauthRequired);
+        }
+        self.require_verified_session()?;
         let rp_id = canonical_rp_id(&request.rp_id).ok_or(MobileError::RpIdInvalid)?;
         let client = ClientSpec::Hash(hash_of(&request.client_data_hash)?);
         select_algorithm(&request.algorithms).map_err(passkey_error)?;
@@ -771,7 +800,7 @@ impl Core {
                     client_data: client.data(),
                     user_handle: &request.user_handle,
                     algorithms: &request.algorithms,
-                    user_verified: request.user_verified,
+                    user_verified: true,
                 },
                 &request.user_name,
                 &request.user_name,

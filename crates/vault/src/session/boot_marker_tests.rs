@@ -227,6 +227,49 @@ fn boot_marker_deleted_by_lock_requiring_password() {
     drop(s);
 }
 
+#[test]
+fn undeletable_boot_marker_is_overwritten_so_no_boot_matches() {
+    // G1-13: a failed delete must not leave a marker a new process adopts.
+    let (mut s, sk) = account();
+    s.record_boot_marker(&boot(3), 0).unwrap();
+    s.store.block_boot_marker_changes_for_test(true);
+    let mut locked = s.lock_requiring_password();
+    assert_ne!(locked_marker(&locked), Some(vec![3; 4]), "neutralised");
+    assert!(!locked.adopt_boot_marker(&boot(3)).unwrap());
+    assert!(locked.password_required(QuickMethod::HardwareKey));
+    assert!(locked.enforce_boot_marker_limit().is_ok());
+    let s = locked.unlock(&pw(), &sk).map_err(|e| e.error).unwrap();
+    drop(s);
+}
+
+#[test]
+fn unwritable_boot_marker_is_refused_loudly_and_counted() {
+    let (mut s, _) = account();
+    s.enroll_hardware_key(&hw_key(1), &prf(2), &ra(&s)).unwrap();
+    s.record_boot_marker(&boot(3), 0).unwrap();
+    s.store.block_boot_marker_changes_for_test(false);
+    let mut locked = s.lock();
+    for _ in 0..MAX_FAILED_QUICK_ATTEMPTS - 1 {
+        let err = locked
+            .unlock_with_hardware_key(&[1; 32], &prf(9))
+            .unwrap_err();
+        assert!(matches!(err.error, Error::HardwareKeyRejected));
+        locked = err.session;
+    }
+    // The limit is reached and the marker can be neither deleted nor
+    // overwritten: the attempt is refused with a store error, not swallowed.
+    let err = locked
+        .unlock_with_hardware_key(&[1; 32], &prf(9))
+        .unwrap_err();
+    assert!(matches!(err.error, Error::Store(_)), "{:?}", err.error);
+    let mut locked = err.session;
+    assert!(locked.password_required(QuickMethod::HardwareKey));
+    assert!(locked.enforce_boot_marker_limit().is_err());
+    // The same through the infallible paths: the limit still holds.
+    locked.note_failed_hardware_attempt();
+    assert!(locked.password_required(QuickMethod::Biometric));
+}
+
 fn hw_key(fill: u8) -> NewHardwareKey {
     NewHardwareKey::new(vec![fill; 32], DEFAULT_RP_ID.to_owned(), [fill ^ 0x5A; 32]).unwrap()
 }

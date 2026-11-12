@@ -750,6 +750,7 @@ impl Core {
     /// # Errors
     /// `locked`, `notFound`, `invalidInput`.
     pub fn reveal(&self, vault_id: &str, item_id: &str, field: &str) -> Result<Arc<SecretValue>> {
+        let generation = self.generation();
         let (vault, id) = parse_item_key(vault_id, item_id)?;
         let value = self.with_session(|s| {
             let item = s.item(vault, id)?;
@@ -770,7 +771,8 @@ impl Core {
             };
             text.ok_or(MobileError::NotFound)
         })?;
-        Ok(self.issue(SecretValue::from_text(&value)))
+        self.work_pause();
+        self.issue_gated(SecretValue::from_text(&value), generation)
     }
 
     /// Creates or changes a login.

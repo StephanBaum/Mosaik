@@ -110,8 +110,7 @@ impl PendingOtps {
 
     /// Stores `auth` and returns its new opaque ID (16 random bytes in hex).
     pub(crate) fn insert(&mut self, auth: OtpAuth, now_ms: u64) -> Result<String> {
-        let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes).map_err(|_| MobileError::Internal)?;
+        let bytes = mosaic_core::random_public_bytes::<16>()?;
         let id = crate::storage::hex(&bytes);
         self.drop_expired(now_ms);
         while self.entries.len() >= MAX_PENDING {
@@ -312,6 +311,7 @@ impl Core {
     /// # Errors
     /// `locked`, `notFound` (no item, or no generator), `invalidInput`.
     pub fn otp_code(&self, vault_id: &str, item_id: &str) -> Result<OtpCode> {
+        let generation = self.generation();
         let (vault, item) = parse_item_key(vault_id, item_id)?;
         let now = self.now_s();
         let (text, remaining, period, digits) = self.with_session(|session| {
@@ -326,7 +326,7 @@ impl Core {
             Ok((text, code.seconds_remaining.unwrap_or(0), period, digits))
         })?;
         Ok(OtpCode {
-            code: self.issue(SecretValue::from_text(&text)),
+            code: self.issue_gated(SecretValue::from_text(&text), generation)?,
             period_s: period,
             remaining_s: remaining,
             digits,

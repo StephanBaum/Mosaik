@@ -11,7 +11,9 @@ pub mod params;
 use std::sync::Arc;
 
 use mosaic_core::Kek;
-use mosaic_vault::session::{LockedSession, QuickMethod, QuickUnlockPolicy, Reauthenticated};
+use mosaic_vault::session::{
+    LockedSession, QuickMethod, QuickUnlockEnrollment, QuickUnlockPolicy, Reauthenticated,
+};
 use zeroize::Zeroizing;
 
 use crate::Core;
@@ -19,6 +21,7 @@ use crate::config::Platform;
 use crate::error::{MobileError, Result};
 use crate::quick_unlock::params::{KEY_NONCE_LEN, Params, key_alias, quick_unlock_aad};
 use crate::secret::{SecretValue, text_of};
+use crate::settings::SettingsGuard;
 use crate::state::{Phase, QuickUnlockAvailability, QuickUnlockPlatform};
 
 /// How long a pending enrolment waits for the platform (CRYPTO_SPEC §6.2).
@@ -54,12 +57,28 @@ pub struct QuickUnlockEnrolled {
     pub replaced_key_alias: Option<String>,
 }
 
+/// The policy that decides the expiry of `enrollment`: its own verified maximum
+/// age (stored in its platform parameters), shortened by the settings once
+/// those are verified, and never above 30 days (G1-10). An enrolment whose
+/// parameters do not decode has no age: the default policy, and the decoder's
+/// refusal deletes it elsewhere.
+pub(crate) fn policy_of(
+    enrollment: &QuickUnlockEnrollment,
+    platform: Platform,
+    settings: &SettingsGuard,
+) -> QuickUnlockPolicy {
+    Params::decode(&enrollment.platform_params, platform).map_or_else(
+        |_| QuickUnlockPolicy::default(),
+        |p| settings.quick_unlock_policy_for(p.max_age_days),
+    )
+}
+
 /// What the platform can do now (see [`QuickUnlockAvailability`]). Deletes an
 /// enrolment that ran out or that this platform cannot use, and remembers its
 /// key alias until a new enrolment or [`Core::quick_unlock_remove`].
 pub(crate) fn availability(
     platform: Platform,
-    policy: &QuickUnlockPolicy,
+    settings: &SettingsGuard,
     now_ms: u64,
     locked: &mut LockedSession,
     expired_alias: &mut Option<String>,
@@ -73,9 +92,10 @@ pub(crate) fn availability(
             });
     };
     let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
+    let policy = policy_of(&enrollment, platform, settings);
     let decoded = Params::decode(&enrollment.platform_params, platform)
         .ok()
-        .filter(|_| !enrollment.is_expired(policy, now));
+        .filter(|_| !enrollment.is_expired(&policy, now));
     let Some(decoded) = decoded else {
         let alias = Params::decode(&enrollment.platform_params, platform)
             .ok()
@@ -115,14 +135,14 @@ impl Core {
     /// `wrongCredentials`, `secretKeyRequired`.
     pub fn quick_unlock_enroll_begin(&self, password: Vec<u8>) -> Result<QuickUnlockSetup> {
         self.require_app()?;
+        let generation = self.generation();
         let password = text_of(password)?;
         if password.is_empty() {
             return Err(MobileError::EmptyPassword);
         }
         let reauth = self.verify_password(&password)?;
         let w = Kek::generate()?;
-        let mut key_nonce = [0u8; KEY_NONCE_LEN];
-        getrandom::fill(&mut key_nonce).map_err(|_| MobileError::Internal)?;
+        let key_nonce = mosaic_core::random_public_bytes::<KEY_NONCE_LEN>()?;
         let platform = self.platform_row();
         let w_value = SecretValue::new(Zeroizing::new(w.expose_secret().to_vec()));
         let expires_at_ms = self.now_ms().saturating_add(PENDING_TTL_MS);
@@ -145,7 +165,7 @@ impl Core {
                 QuickUnlockPlatform::IosSecureEnclave => Vec::new(),
                 QuickUnlockPlatform::AndroidKeystore { .. } => quick_unlock_aad(&key_nonce),
             },
-            w: self.issue(w_value),
+            w: self.issue_gated(w_value, generation)?,
             expires_at_ms,
         })
     }
@@ -174,17 +194,23 @@ impl Core {
             return Err(MobileError::InvalidInput);
         }
         let now = self.now_ms();
-        let pending = {
+        let (pending, max_age_days) = {
             let mut guard = self.guard()?;
             if !matches!(guard.phase, Phase::Unlocked(_)) {
                 return Err(MobileError::Locked);
             }
-            guard.slots.quick.take()
+            // The settings of an unlocked phase are verified (the MAC was
+            // checked at the unlock): their age is stored in the enrolment.
+            let days = guard.settings.effective().quick_unlock_max_age_days;
+            (guard.slots.quick.take(), days)
         };
+        let max_age_days = u8::try_from(max_age_days)
+            .unwrap_or(params::MAX_AGE_DAYS_LIMIT)
+            .clamp(1, params::MAX_AGE_DAYS_LIMIT);
         let pending = pending
             .filter(|p| now <= p.expires_at_ms)
             .ok_or(MobileError::ReauthRequired)?;
-        let params = match Params::new(platform, pending.key_nonce, body) {
+        let params = match Params::new(platform, pending.key_nonce, body, max_age_days) {
             Ok(p) => p,
             Err(e) => {
                 // A wrong body does not spend the pending enrolment.

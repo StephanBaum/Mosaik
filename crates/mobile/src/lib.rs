@@ -11,7 +11,8 @@
 //!   [`SecureStorage`] callback or another core call. A long operation takes
 //!   its session out (the core reports [`SessionState::Busy`]), works, and puts
 //!   the result back. A `lock()` meanwhile sets a flag, and the session is
-//!   locked again before it is stored.
+//!   locked again before it is stored. The flag is read and cleared **under
+//!   the mutex**, together with the phase, so a lock is never lost (G1-1).
 //! - Secrets go in as `Vec<u8>` and come out only as [`SecretValue`].
 //! - Errors are [`MobileError`]: unit variants, no message, no ID, no value.
 #![forbid(unsafe_code)]
@@ -20,6 +21,13 @@
     clippy::struct_excessive_bools,
     reason = "the API mirrors the UniFFI surface, which hands owned values over, and its records are plain data"
 )]
+
+// The test hooks must never reach a release library (ADR-0089, G1-7): this
+// refuses the build, in addition to `scripts/mobile/check-no-test-hooks.sh`
+// that looks at the result. Debug builds (the host tests, the JVM unit tests,
+// the instrumented tests and the XCTest builds) may enable the feature.
+#[cfg(all(feature = "test-hooks", not(debug_assertions)))]
+compile_error!("the `test-hooks` feature of mosaic-mobile is for debug builds only");
 
 pub mod autofill;
 mod config;
@@ -40,7 +48,7 @@ mod sync;
 pub mod test_hooks;
 mod unlock;
 
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,8 +59,8 @@ use mosaic_vault::storage::{Error as StoreError, Store};
 
 pub use autofill::{
     AndroidCaller, AssetLinksStatus, Attr, FieldNode, FieldRefusal, FieldSelection, FillCandidate,
-    FillMatch, FillTarget, FillTargetKind, FillValues, OriginWarning, ServiceIdentifier,
-    ServiceIdentifierKind,
+    FillCandidates, FillMatch, FillTarget, FillTargetKind, FillValues, OriginWarning,
+    ServiceIdentifier, ServiceIdentifierKind,
 };
 pub use config::{CoreConfig, CoreContext, Platform};
 pub use error::{MobileError, Result, error_codes};
@@ -122,8 +130,15 @@ pub struct Core {
     pub(crate) storage: Arc<dyn SecureStorage>,
     pub(crate) clock: CoreClock,
     pub(crate) inner: Mutex<Inner>,
-    /// `lock()` was called while a long call held the session out.
+    /// `lock()` was called while a long call held the session out. Read and
+    /// cleared only while the core's mutex is held.
     pub(crate) lock_requested: AtomicBool,
+    /// The pending lock must also require the master password (the
+    /// re-authentication limit was hit while a long call held the session).
+    pub(crate) lock_strict: AtomicBool,
+    /// Counts locks. A secret value is handed out only if no lock happened
+    /// since its call started (G1-6).
+    generation: AtomicU64,
     /// Every secret value handed out; `lock()` wipes the live ones.
     issued: Mutex<Vec<Weak<SecretValue>>>,
     /// The asset-links fetch and its cache (ADR-0092, ADR-0093).
@@ -132,6 +147,24 @@ pub struct Core {
     /// (test hooks only: it makes the races of the tests deterministic).
     #[cfg(feature = "test-hooks")]
     pub(crate) work_delay_ms: std::sync::atomic::AtomicU64,
+}
+
+/// Whether the Secret Key and the session token of the account are in secure
+/// storage: asked with `contains`, so no secret is read to test presence.
+fn stored_flags(phase: &Phase, storage: &dyn SecureStorage) -> (bool, bool) {
+    let Phase::Locked(locked) = phase else {
+        return (false, false);
+    };
+    locked.account_id().map_or((false, false), |account| {
+        (
+            storage
+                .contains(&secret_key_name(&account))
+                .unwrap_or(false),
+            storage
+                .contains(&sync_token_name(&account))
+                .unwrap_or(false),
+        )
+    })
 }
 
 /// Opens the store file and classifies it.
@@ -193,6 +226,8 @@ impl Core {
     pub fn open(config: CoreConfig, storage: Arc<dyn SecureStorage>) -> Result<Self> {
         init_tls(&config)?;
         let (phase, store_busy) = open_phase(&config)?;
+        // The platform is asked before the mutex exists, never under it.
+        let (secret_key_stored, signed_in) = stored_flags(&phase, storage.as_ref());
         let settings = settings::SettingsGuard::load(config.settings_path());
         Ok(Self {
             config,
@@ -206,8 +241,13 @@ impl Core {
                 settings,
                 last_sync_at_ms: None,
                 last_sync_error: None,
+                secret_key_stored,
+                signed_in,
+                failed_reauth: 0,
             }),
             lock_requested: AtomicBool::new(false),
+            lock_strict: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
             issued: Mutex::new(Vec::new()),
             assetlinks: autofill::AssetLinks::new(),
             #[cfg(feature = "test-hooks")]
@@ -259,7 +299,19 @@ impl Core {
         }
     }
 
-    /// Registers a secret value so `lock()` wipes it, and hands it out.
+    /// Counts a lock (called with the core's mutex held).
+    pub(crate) fn generation_bump(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// The lock counter, read when a call starts (see [`Core::issue_gated`]).
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// Registers a secret value so `lock()` wipes it, and hands it out. For
+    /// values that do not come from the unlocked session (the generator, a
+    /// scanned setup code).
     pub(crate) fn issue(&self, value: SecretValue) -> Arc<SecretValue> {
         let value = Arc::new(value);
         if let Ok(mut issued) = self.issued.lock() {
@@ -267,6 +319,31 @@ impl Core {
             issued.push(Arc::downgrade(&value));
         }
         value
+    }
+
+    /// Registers and hands out a value read from the unlocked session, under
+    /// the core's mutex. If a lock happened since the call began (`generation`
+    /// is the counter then) or one is pending, the value is wiped and the call
+    /// ends with `locked`: a `lock()` between the read and the hand-out cannot
+    /// leave a live secret behind (G1-6). `lock()` bumps the counter under the
+    /// same mutex and wipes the registered values after it, so either it sees
+    /// this value or this call sees the lock.
+    ///
+    /// # Errors
+    /// `locked`, `internal`.
+    pub(crate) fn issue_gated(
+        &self,
+        value: SecretValue,
+        generation: u64,
+    ) -> Result<Arc<SecretValue>> {
+        let _guard = self.guard()?;
+        if self.generation.load(Ordering::SeqCst) != generation
+            || self.lock_requested.load(Ordering::SeqCst)
+        {
+            value.wipe();
+            return Err(MobileError::Locked);
+        }
+        Ok(self.issue(value))
     }
 
     fn wipe_issued(&self) {
@@ -292,6 +369,7 @@ impl Core {
             return SessionState::StoreClosed;
         };
         let inner = &mut *guard;
+        inner.slots.drop_expired_join(now);
         match &mut inner.phase {
             Phase::Closed => {
                 if inner.store_busy {
@@ -303,13 +381,13 @@ impl Core {
             Phase::NoAccount(_) => SessionState::NoAccount,
             Phase::Locked(locked) => {
                 let email = locked.sync_config().ok().flatten().and_then(|c| c.email);
-                let secret_key_stored = locked
-                    .account_id()
-                    .is_ok_and(|id| self.secret_key_stored(&id));
-                let policy = inner.settings.quick_unlock_policy();
+                let secret_key_stored = inner.secret_key_stored;
+                // A boot marker that could not be deleted at the failed-attempt
+                // limit is tried again here (G1-13).
+                let _ = locked.enforce_boot_marker_limit();
                 let quick_unlock = quick_unlock::availability(
                     self.config.platform,
-                    &policy,
+                    &inner.settings,
                     now,
                     locked,
                     &mut inner.expired_alias,
@@ -329,30 +407,50 @@ impl Core {
         }
     }
 
-    /// Whether the Secret Key of `account` is in secure storage. A failing
-    /// storage reads as "not stored" (the user types it).
-    fn secret_key_stored(&self, account: &mosaic_core::AccountId) -> bool {
-        matches!(
-            storage::read(self.storage.as_ref(), &storage::secret_key_name(account)),
-            Ok(Some(_))
-        )
+    /// Records where the core stored or deleted the Secret Key and the session
+    /// token, for `state()` and `sync_overview()`. `None` keeps a value.
+    pub(crate) fn note_stored(&self, secret_key: Option<bool>, token: Option<bool>) {
+        if let Ok(mut guard) = self.guard() {
+            if let Some(v) = secret_key {
+                guard.secret_key_stored = v;
+            }
+            if let Some(v) = token {
+                guard.signed_in = v;
+            }
+        }
     }
 
     /// Locks. Drops every pending slot (except a pending join) and wipes every
     /// secret value handed out. Never waits for a long call: while one runs it
     /// only sets a flag, and the call locks again before it stores its result.
     pub fn lock(&self) {
-        self.wipe_issued();
+        self.lock_with(false, false);
+    }
+
+    /// Locks and refuses quick unlock until the next master-password unlock
+    /// (the re-authentication limit, ADR-0028 item 8; the boot marker goes too,
+    /// CRYPTO_SPEC §6.9.2).
+    pub(crate) fn lock_requiring_password(&self) {
+        self.lock_with(true, false);
+    }
+
+    fn lock_with(&self, require_password: bool, keep_join: bool) {
         let taken = {
             let Ok(mut guard) = self.guard() else {
                 return;
             };
-            guard.slots.clear_on_lock();
+            // The counter and the slots change under the mutex; the values
+            // handed out are wiped after it (see `issue_gated`).
+            self.generation.fetch_add(1, Ordering::SeqCst);
+            guard.slots.clear_on_lock(keep_join);
             guard.settings.locked();
             match std::mem::replace(&mut guard.phase, Phase::Busy) {
                 Phase::Unlocked(unlocked) => Some(unlocked),
                 Phase::Unlocking | Phase::Busy => {
                     self.lock_requested.store(true, Ordering::SeqCst);
+                    if require_password {
+                        self.lock_strict.store(true, Ordering::SeqCst);
+                    }
                     guard.phase = Phase::Unlocking;
                     None
                 }
@@ -362,33 +460,40 @@ impl Core {
                 }
             }
         };
+        self.wipe_issued();
         if let Some(unlocked) = taken {
-            self.finish_lock(*unlocked);
+            self.finish_lock(*unlocked, require_password);
         }
     }
 
     /// Takes the session back from its holder and stores the locked phase.
     /// The holder's mutex is taken **without** the core's mutex (the order is
     /// always holder first, then core).
-    fn finish_lock(&self, unlocked: UnlockedPhase) {
+    fn finish_lock(&self, unlocked: UnlockedPhase, require_password: bool) {
         // A session that cannot be taken back (it cannot happen: only a lock
         // takes it) closes the store.
-        let phase = unlocked
-            .owned
-            .take()
-            .map_or(Phase::Closed, |session| Phase::Locked(session.lock()));
+        let phase = unlocked.owned.take().map_or(Phase::Closed, |session| {
+            Phase::Locked(if require_password {
+                session.lock_requiring_password()
+            } else {
+                session.lock()
+            })
+        });
         if let Ok(mut guard) = self.guard() {
             guard.phase = phase;
         }
     }
 
     /// Locks, then drops the store and its file lock (iOS in the background,
-    /// the extension before it ends).
+    /// the extension before it ends). An unexpired pending join survives this
+    /// (it holds no store; the Safari handoff needs it), unlike a `lock()`.
     pub fn close_store(&self) {
-        self.lock();
+        self.lock_with(false, true);
+        let now = self.now_ms();
         let Ok(mut guard) = self.guard() else {
             return;
         };
+        guard.slots.drop_expired_join(now);
         if matches!(guard.phase, Phase::Locked(_) | Phase::NoAccount(_)) {
             guard.phase = Phase::Closed;
             guard.store_busy = false;
@@ -476,17 +581,23 @@ impl Core {
     /// # Errors
     /// `locked` when the phase was locked instead.
     pub(crate) fn restore_unlocked(&self, unlocked: Box<UnlockedPhase>) -> Result<()> {
+        // The flag is read and cleared **under the mutex**, in the same step
+        // that decides the phase: a `lock()` either ran before (the flag is set
+        // and wins here) or runs after (it finds the unlocked phase). A flag
+        // read before the mutex lost a lock that came in between (G1-1).
+        let mut guard = self.guard()?;
         if self.lock_requested.swap(false, Ordering::SeqCst) {
-            {
-                let mut guard = self.guard()?;
-                guard.slots.clear_on_lock();
-                guard.settings.locked();
-            }
+            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+            self.generation.fetch_add(1, Ordering::SeqCst);
+            guard.slots.clear_on_lock(false);
+            guard.settings.locked();
+            // The holder's mutex is taken without the core's.
+            drop(guard);
             self.wipe_issued();
-            self.finish_lock(*unlocked);
+            self.finish_lock(*unlocked, strict);
             return Err(MobileError::Locked);
         }
-        self.guard()?.phase = Phase::Unlocked(unlocked);
+        guard.phase = Phase::Unlocked(unlocked);
         Ok(())
     }
 

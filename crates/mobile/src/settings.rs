@@ -226,6 +226,10 @@ pub(crate) struct SettingsGuard {
     effective: MobileSettings,
     /// `K_settings`, only while unlocked and after the check.
     key: Option<SettingsMacKey>,
+    /// The file was checked (or rewritten) under `K_settings` since the start:
+    /// `effective` is then a verified value, not the strict stand-in of a
+    /// locked phone after a restart.
+    verified: bool,
 }
 
 impl SettingsGuard {
@@ -241,6 +245,7 @@ impl SettingsGuard {
                 on_disk: Some(file.settings),
                 unchecked: true,
                 key: None,
+                verified: false,
                 path,
             },
             None => Self {
@@ -249,6 +254,7 @@ impl SettingsGuard {
                 mac: None,
                 unchecked: false,
                 key: None,
+                verified: false,
                 path,
             },
         }
@@ -259,9 +265,18 @@ impl SettingsGuard {
         self.effective
     }
 
-    /// The quick-unlock policy of the settings that apply now.
-    pub(crate) fn quick_unlock_policy(&self) -> QuickUnlockPolicy {
-        let days = u64::from(self.effective.quick_unlock_max_age_days);
+    /// The quick-unlock policy for an enrolment that carries `enrolled_days`
+    /// (its verified maximum age, 1 to 30). Before the settings were checked
+    /// since the start (a locked phone after a restart) the strict stand-in
+    /// values must not shorten an enrolment that was verified when it was made
+    /// (G1-10), so the enrolment's own age applies; once they were checked, the
+    /// shorter of the two applies, so lowering the setting still takes effect.
+    /// The 30-day cap of CRYPTO_SPEC §6.2 holds either way.
+    pub(crate) fn quick_unlock_policy_for(&self, enrolled_days: u8) -> QuickUnlockPolicy {
+        let mut days = u64::from(enrolled_days).min(30);
+        if self.verified {
+            days = days.min(u64::from(self.effective.quick_unlock_max_age_days));
+        }
         QuickUnlockPolicy::new(Duration::from_secs(days.saturating_mul(86_400)))
     }
 
@@ -298,6 +313,7 @@ impl SettingsGuard {
         }
         let current = self.on_disk == Some(self.effective) && self.mac.is_some();
         self.key = Some(key);
+        self.verified = true;
         if rewrite || !current {
             let _ = self.save(session, self.effective);
         }

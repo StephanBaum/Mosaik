@@ -367,20 +367,42 @@ impl PendingAssertion {
     }
 
     /// Releases the response after the count was stored. For an assertion
-    /// made with [`assert`]; `client_data_json` is empty for one made in hash
-    /// mode, so use [`into_client_response`](Self::into_client_response) there.
+    /// made with [`assert`] only (`Json` mode). On an assertion made in hash
+    /// mode this still returns an **empty** `client_data_json`: it is kept for
+    /// the existing callers of `assert` (the desktop and the import tests,
+    /// which cannot make a hash-mode assertion). New code uses
+    /// [`into_json_response`](Self::into_json_response), which refuses hash
+    /// mode, or [`into_client_response`](Self::into_client_response).
     #[must_use]
     pub fn into_response(self, _persisted: CountPersisted) -> AssertionResponse {
         self.release_json()
+    }
+
+    /// Releases the response after the count was stored, in `Json` mode.
+    ///
+    /// # Errors
+    /// [`Error::InvalidInput`] for an assertion made in hash mode: it has no
+    /// `clientDataJSON` to return (G1-16). Use
+    /// [`into_client_response`](Self::into_client_response) there.
+    pub fn into_json_response(
+        self,
+        _persisted: CountPersisted,
+    ) -> Result<AssertionResponse, Error> {
+        if self.client_data_json.is_none() {
+            return Err(Error::InvalidInput);
+        }
+        Ok(self.release_json())
     }
 
     /// Releases the response of an assertion that has no count to store.
     ///
     /// # Errors
     /// [`Error::InvalidInput`] if a count is pending: it must be stored and
-    /// the response released with [`into_response`](Self::into_response).
+    /// the response released with [`into_response`](Self::into_response); or
+    /// for an assertion made in hash mode, which has no `clientDataJSON`
+    /// (G1-16): use [`into_client_response_without_count`](Self::into_client_response_without_count).
     pub fn into_response_without_count(self) -> Result<AssertionResponse, Error> {
-        if self.persist_count.is_some() {
+        if self.persist_count.is_some() || self.client_data_json.is_none() {
             return Err(Error::InvalidInput);
         }
         Ok(self.release_json())

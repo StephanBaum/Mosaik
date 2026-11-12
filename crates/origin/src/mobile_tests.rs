@@ -72,9 +72,14 @@ fn android_app_url_without_cert_never_matches() {
 #[test]
 fn android_app_matches_only_equal_package_and_current_signer() {
     let saved = app_url("com.example.app", &CERT);
+    // G1-9: more than one current signer is ambiguous and refused.
     assert_eq!(
         app_fill_allowed(&saved, "com.example.app", &[OTHER_CERT, CERT]),
-        Ok(MatchKind::ExactOrigin)
+        Err(Refusal::NoMatch)
+    );
+    assert_eq!(
+        app_fill_allowed(&saved, "com.example.app", &[CERT, CERT]),
+        Err(Refusal::NoMatch)
     );
     assert_eq!(
         app_fill_allowed(&saved, "com.example.app", &[OTHER_CERT]),
@@ -118,9 +123,15 @@ fn privileged_browser_allowlist_parses_and_has_chrome_and_firefox() {
     let chrome = first_cert("com.android.chrome").unwrap();
     let firefox = first_cert("org.mozilla.firefox").unwrap();
     assert!(is_trusted_browser("com.android.chrome", &[chrome]));
-    assert!(is_trusted_browser(
+    assert!(is_trusted_browser("org.mozilla.firefox", &[firefox]));
+    // G1-9: the caller's identity is one current signer.
+    assert!(!is_trusted_browser(
         "org.mozilla.firefox",
         &[OTHER_CERT, firefox]
+    ));
+    assert!(!is_trusted_browser(
+        "org.mozilla.firefox",
+        &[firefox, firefox]
     ));
     // Right package, wrong key; right key, wrong package; unknown package.
     assert!(!is_trusted_browser("com.android.chrome", &[OTHER_CERT]));

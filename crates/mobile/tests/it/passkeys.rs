@@ -26,7 +26,7 @@ const USER_HANDLE: [u8; 8] = [4; 8];
 fn caller(package: &str, cert: [u8; 32]) -> AndroidCaller {
     AndroidCaller {
         package: package.to_owned(),
-        signing_cert_sha256: vec![cert.to_vec()],
+        current_signers: vec![cert.to_vec()],
         web_domain: None,
         web_scheme: None,
     }
@@ -85,7 +85,7 @@ fn assetlinks(package: &str, cert: &[u8; 32]) -> Vec<u8> {
 
 /// A phone whose asset-links answer delegates `PACKAGE` for every host.
 fn phone() -> Phone {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     phone
         .core
         .test_hooks()
@@ -106,7 +106,7 @@ fn browser() -> AndroidCaller {
         .collect();
     AndroidCaller {
         package: info["package_name"].as_str().unwrap().to_owned(),
-        signing_cert_sha256: vec![cert],
+        current_signers: vec![cert],
         web_domain: None,
         web_scheme: None,
     }
@@ -145,7 +145,7 @@ fn field(value: &Value, path: &[&str]) -> Vec<u8> {
 
 #[test]
 fn passkey_android_app_requires_asset_links_delegation() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     let calls = Arc::new(AtomicUsize::new(0));
     let counted = calls.clone();
     phone.core.test_hooks().set_asset_links_fetch(move |host| {
@@ -295,7 +295,7 @@ fn passkey_android_untrusted_platform_origin_is_refused() {
     );
     // The right package of a browser with another signer is no browser.
     let mut spoof = browser();
-    spoof.signing_cert_sha256 = vec![vec![0x42; 32]];
+    spoof.current_signers = vec![vec![0x42; 32]];
     let mut create = request(create_json("example.com", &[]), spoof);
     create.platform_origin = Some("https://example.com".to_owned());
     assert_eq!(
@@ -558,7 +558,7 @@ fn stored_sign_count(phone: &Phone, secret_key: &str) -> u64 {
 
 #[test]
 fn passkey_assert_persists_sign_count_before_release() {
-    let (phone, secret_key) = Phone::with_account();
+    let (phone, secret_key) = Phone::android_with_account();
     phone
         .core
         .test_hooks()
@@ -913,7 +913,7 @@ fn passkey_sessions_expire_and_drop_on_lock() {
 
 #[test]
 fn passkey_identities_carry_no_key_material() {
-    let (phone, _) = Phone::with_account();
+    let (phone, _) = Phone::android_with_account();
     phone
         .core
         .test_hooks()

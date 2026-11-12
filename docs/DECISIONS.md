@@ -5323,6 +5323,10 @@ A phone must keep the Secret Key and the hosted session token across app starts,
 
 ### Alternatives considered
 - **The desktop rule on mobile:** quick unlock would rarely work, and users would type the master password into the extension. That is forbidden (Argon2id in 120 MiB), and it pushes users toward weaker passwords.
+- **Amendments of the M10 G1 review.**
+  - **G1-3, re-authentication limit.** Five wrong master passwords in a row at a re-authentication (`quick_unlock_enroll_begin`, `update_settings`) end the session with `lock_requiring_password` (the boot marker goes too). A right password and a password unlock reset the count. Same limit as the desktop.
+  - **G1-10, the age travels with the enrolment.** The platform parameters are `0x02 ‖ platform ‖ key_nonce ‖ body ‖ max_age_days:u8` (1 to 30); the age is the verified setting at enrolment. Expiry is decided against that age, shortened by the settings once they were checked in this process, and capped at 30 days. Before that check a locked phone after a restart no longer applies the strict stand-in values (14 days) to an enrolment made with a longer verified age. The Android GCM AAD is unchanged.
+  - **G1-13, boot marker deletion.** A delete that fails is retried by overwriting the marker with an ID no platform produces (32 bytes); if that fails too, quick unlock stays refused in this process (the counter), the hardware-key path returns the store error, and the phone core retries whenever it reports the locked state (`LockedSession::enforce_boot_marker_limit`).
 - **A boot marker with its own shorter lifetime:** the wrapping's maximum age (default 14 days, at most 30) already bounds it. A second timer adds state without a clear gain.
 - **Android `EncryptedSharedPreferences` (Jetpack Security):** deprecated, and its key handling would not be ours to specify.
 - **The M10 spec's AAD without the header:** CRYPTO_SPEC §3 binds every AEAD header into the AAD. When Rust builds the AAD, it knows the secure-store version byte and the parameter version and platform bytes, so binding them costs nothing. This tightens the M10 spec.
@@ -5372,6 +5376,8 @@ Not verified: the behaviour on specific OEM builds and on API 28–33 images. Th
 - **Sync on mobile.** Hosted only, in the foreground.
   - The join follows the CLI pattern: `prelogin`, the join keys, `join_login`, an optional TOTP or WebAuthn handoff, `join_fetch_account`, then `join_account`.
   - The pending join holds no store, so the iOS app can close the store while the user is in Safari. It expires after 5 minutes.
+  - **Amendment (M10 G1 review, G1-11):** a `lock()` drops the pending join (it holds the Secret Key and the derived keys and must not outlive a lock), and an expired join is dropped by `lock()`, `state()` and `close_store()`. `close_store()` alone keeps an unexpired join, so the Safari handoff survives the iOS background; the apps must not call `lock()` during the handoff.
+  - **Amendment (G1-17):** a release build of the phone refuses `http://` loopback servers (typed or in a setup code) with `syncServerInsecure` (`setupCodeInvalid` for a code); debug builds and the `test-hooks` builds still accept them. `canonical_origin` itself is unchanged for the desktop and the CLI.
   - `syncPasswordChanged` leads to `recover_password(new)` through `adopt_remote_password`, which deletes the quick-unlock wrapping and the boot marker.
   - A re-key or a Secret Key change elsewhere leads to "Set up this phone again". The app shows the number of pending uploads. After the user types the email, `reset_device` deletes the store, the stored secrets and the platform keys.
 
@@ -5414,7 +5420,8 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
 - **Matching is in Rust** (`mosaic-origin`, pure and host-tested).
   - **App URLs** on logins: `androidapp://<package>?cert=<b64url(sha256(signing cert))>`.
     - A URL without `cert` (from an import, for example) **never matches**. It shows as "needs linking".
-    - A match needs an equal package, and a `cert` equal to one of the caller's **current** signers: `apkContentsSigners` when there are several, else the last entry of `signingCertificateHistory`.
+    - A match needs an equal package, and a `cert` equal to the caller's **current** signer: `apkContentsSigners`, else the last entry of `signingCertificateHistory`.
+    - **Amendment (M10 G1 review, G1-9): exactly one current signer.** Kotlin chooses the current signers and hands them over as `AndroidCaller.current_signers`, never the old certificates of a signing history. Rust and `mosaic-origin` refuse a caller with more than one current signer as ambiguous: `link_android_app`, `asset_links_status` and the non-browser passkey path answer `invalidInput`, `app_fill_allowed` does not match, and `is_trusted_browser` does not trust it. A browser's own allowlist entry may still list several release certificates (for rotation); the single current signer of the caller must be one of them. The earlier text ("a `cert` equal to one of the caller's current signers") let a stale or co-signing certificate of the history identify an app.
   - **Browser allowlist:** `crates/origin/data/android-privileged-browsers.json`, in the Credential Manager `getOrigin` format.
     - It holds Chrome (stable and beta), Firefox, Edge, Brave, Samsung Internet, DuckDuckGo, Vivaldi and Opera.
     - It is sourced from Google's published privileged-apps list. The source and date go in a header comment of `android_browsers.rs`.
@@ -5472,24 +5479,23 @@ Android Credential Manager (API 34+) and iOS 17+ let a third-party app act as a 
 
 ### Decision
 - **Client-data mode** (CRYPTO_SPEC §16). `mosaic-passkey` gains `ClientData::{Json { origin, challenge }, Hash(&[u8; 32])}`.
-  - `CreateInput` becomes `{ rp_id, client_data, user_handle, algorithms, user_verified }`.
-  - `GetInput` becomes `{ rp_id, client_data, user_verified }`.
-  - `Created.client_data_json` and `AssertionResponse.client_data_json` become `Option<Vec<u8>>`, which is `None` in `Hash` mode.
+  - `CreateInput` and `GetInput` stay as they are, and run through new **adapters over `CreateRequest { rp_id, client_data, user_handle, algorithms, user_verified }` and `GetRequest { rp_id, client_data, user_verified }`** (M10 T2 built it additively, see CORE_API; the breaking in-place form of the first draft of this ADR was not applied).
+  - `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>`, which is `None` in `Hash` mode. `AssertionResponse.client_data_json` stays a `Vec<u8>` and belongs to `Json` mode only: `into_json_response` and `into_response_without_count` refuse a hash-mode assertion (`InvalidInput`) instead of returning an empty `clientDataJSON` (G1-16).
   - The signed message is `authenticatorData ‖ hash`, where the hash is the given one or `SHA-256(clientDataJSON)`.
   - `android_app_origin(cert_sha256) -> String` returns `"android:apk-key-hash:" ‖ b64url(cert_sha256)`.
   - No new primitive.
-  - This is a **breaking change of a stable API** under the CORE_API change policy, admitted by this ADR. The extension and desktop callers move to `ClientData::Json` with no behaviour change. The existing vectors must still pass (`json_mode_vectors_unchanged`).
+  - The first draft called this a **breaking change of a stable API**, admitted by this ADR. The build is additive instead, so the extension and desktop callers did not change; the breaking form is a follow-up that must change `apps/desktop` and `crates/import/tests` in one commit. The existing vectors still pass (`json_mode_vectors_unchanged`).
 - **Android** (API 34+):
   - **Request.** `AndroidPasskeyRequest { request_json, caller, platform_origin, client_data_hash }`. Rust parses `request_json` strictly, capped at 64 KiB, with a fuzz target.
   - **A caller that brings a `platform_origin`** must also pass Rust's own allowlist check (package and certificate). That checks `CallingAppInfo.getOrigin` a second time. The rpId is validated with `mosaic_origin::webauthn_rp_id(origin, rpId)`. With a `client_data_hash` the mode is `Hash`; without one it is `Json` with that origin.
   - **Any other app** gets `Json` mode with `android_app_origin(cert)`, and the rpId must delegate to the app. Rust fetches the asset links (ADR-0091) and requires `app_is_delegated`. A failure gives `appNotVerified`; no network gives `assetLinksUnavailable`.
-  - **User verification is always required.** `CredentialActivity` runs `BiometricPrompt` with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` for every ceremony; a quick unlock in the same activity counts. Without UV the ceremony is refused, so `user_verified` is always `true`.
+  - **User verification is always required, on iOS too (G1-4).** `CredentialActivity` runs `BiometricPrompt` with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` for every ceremony; a quick unlock in the same activity counts. Without UV the ceremony is refused, so `user_verified` is always `true`.
   - **Get** returns the candidates whose rpId equals the request's exactly, filtered by `allowCredentials`. It signs through `PendingAssertion`, so the sign count is stored before the signature is released (ADR-0039 D5). Rust builds `AuthenticationResponseJSON`, with `authenticatorAttachment:"platform"`.
   - **Create** checks `excludeCredentials` (`passkeyExcluded`). It stores the `passkey` item **before** it returns `RegistrationResponseJSON` (with `transports:["internal","hybrid"]` and `publicKeyAlgorithm:-7`), and syncs later.
   - Sessions expire after 5 minutes and are dropped on lock.
 - **iOS 17+:**
   - The OS gives the rpId and `clientDataHash`, and has already checked the caller: the Safari origin, or the app's associated domains through Apple's CDN. Rust uses `Hash` mode.
-  - UV comes from the Secure Enclave biometric unlock in the same extension run.
+  - UV comes from the Secure Enclave biometric unlock in the same extension run. **Amendment (G1-4):** `passkey_ios_assert` and `passkey_ios_register` answer `reauthRequired` when `user_verified` is `false`, always sign with the UV flag set, and need a session opened by a verified user in this process (`unlock_quick`, or the master password in the app). The `*_ios_*` calls and `fill_target_ios` answer `invalidInput` on an Android core, and the Android calls (`passkey_android_*`, `fill_target_android`, `link_android_app`, `asset_links_status`) on an iOS core (G1-5).
   - After a registration, the extension adds the new `ASPasskeyCredentialIdentity`. The app reconciles at its next unlock.
 - **Unchanged** (CRYPTO_SPEC §16): the flags, the encodings, the zero AAGUID, BE = BS = 1, and ES256 only.
 

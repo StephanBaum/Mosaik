@@ -47,6 +47,9 @@ static ALLOCATOR: ZeroAlloc<System> = ZeroAlloc(System);
 #[uniffi::export(with_foreign)]
 pub trait SecureStorage: Send + Sync {
     fn get(&self, name: String) -> Result<Option<Vec<u8>>, StorageError>;
+    /// Whether a value is stored under `name`, without reading or decrypting
+    /// it: the core asks this when it only needs presence (G1-2).
+    fn contains(&self, name: String) -> Result<bool, StorageError>;
     fn put(&self, name: String, value: Vec<u8>) -> Result<(), StorageError>;
     fn delete(&self, name: String) -> Result<(), StorageError>;
 }
@@ -310,22 +313,22 @@ impl MosaicCore {
     pub fn fill_warning(&self, target: FillTarget) -> Result<Option<OriginWarning>, MobileError> {
         lift(self.inner.fill_warning(target.conv()))
     }
-    pub fn fill_candidates(&self, target: FillTarget) -> Result<Vec<FillCandidate>, MobileError> {
+    pub fn fill_candidates(&self, target: FillTarget) -> Result<FillCandidates, MobileError> {
         lift(self.inner.fill_candidates(target.conv()))
     }
     pub fn fill_values(
         &self,
-        target: FillTarget,
+        session_id: String,
         candidate: ItemKey,
     ) -> Result<FillValues, MobileError> {
-        lift(self.inner.fill_values(target.conv(), candidate.conv()))
+        lift(self.inner.fill_values(session_id, candidate.conv()))
     }
     pub fn fill_otp(
         &self,
-        target: FillTarget,
+        session_id: String,
         candidate: ItemKey,
     ) -> Result<Arc<SecretValue>, MobileError> {
-        lift(self.inner.fill_otp(target.conv(), candidate.conv()))
+        lift(self.inner.fill_otp(session_id, candidate.conv()))
     }
     pub fn privileged_browsers_json(&self) -> String {
         self.inner.privileged_browsers_json()

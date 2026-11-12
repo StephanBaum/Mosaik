@@ -492,9 +492,23 @@ impl LockedSession {
         // CRYPTO_SPEC §6.9.2: at the limit the boot marker goes too. This call
         // cannot fail; a marker that cannot be deleted is still refused by the
         // counter of this session, and the desktop never writes one.
-        if self.quick.failed_quick >= MAX_FAILED_QUICK_ATTEMPTS {
-            let _ = self.store.delete_boot_marker();
+        let _ = self.enforce_boot_marker_limit();
+    }
+
+    /// CRYPTO_SPEC §6.9.2: once the failed-attempt limit is reached the boot
+    /// marker must be gone, so that a new process cannot adopt it. Deletes it
+    /// (or, when the delete fails, overwrites it with an ID that matches no
+    /// boot). Fails only when the limit is reached and the store cannot be
+    /// written: quick unlock stays refused in this process (the counter), and
+    /// a caller can try again later. Below the limit it does nothing.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn enforce_boot_marker_limit(&mut self) -> Result<()> {
+        if self.quick.failed_quick < MAX_FAILED_QUICK_ATTEMPTS {
+            return Ok(());
         }
+        Ok(self.store.clear_boot_marker()?)
     }
 
     /// The stored quick-unlock enrollment, if any (no side effects).
@@ -644,10 +658,10 @@ impl LockedSession {
             }
             Err(mosaic_core::Error::Decryption) => {
                 self.quick.failed_quick = self.quick.failed_quick.saturating_add(1);
-                if self.quick.failed_quick >= MAX_FAILED_QUICK_ATTEMPTS
-                    && let Err(e) = self.store.delete_boot_marker()
-                {
-                    return Err(self.fail(e.into()));
+                if let Err(e) = self.enforce_boot_marker_limit() {
+                    // The marker could be neither deleted nor neutralised:
+                    // refuse loudly instead of leaving it for a new process.
+                    return Err(self.fail(e));
                 }
                 Err(self.fail(Error::HardwareKeyRejected))
             }

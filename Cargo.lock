@@ -3348,7 +3348,6 @@ name = "mosaic-mobile"
 version = "0.0.0"
 dependencies = [
  "axum",
- "getrandom 0.4.3",
  "mosaic-core",
  "mosaic-generator",
  "mosaic-mobile",

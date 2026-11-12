@@ -78,6 +78,39 @@ impl Store {
         tx.commit()?;
         Ok(n > 0)
     }
+
+    /// Makes sure no stored marker can match a boot: deletes it, and when the
+    /// delete fails, overwrites it with an ID no platform produces (32 bytes,
+    /// both platforms use 4 or 16).
+    ///
+    /// # Errors
+    /// The delete error, when the marker could be neither deleted nor
+    /// overwritten (a store that cannot be written).
+    pub fn clear_boot_marker(&mut self) -> Result<()> {
+        match self.delete_boot_marker() {
+            Ok(_) => Ok(()),
+            Err(e) => self
+                .put_boot_marker(&[0xFF; MAX_BOOT_ID_LEN], 0)
+                .map_err(|_| e),
+        }
+    }
+
+    /// Test only: makes the marker undeletable (`delete_only`) or unchangeable.
+    #[cfg(test)]
+    pub(crate) fn block_boot_marker_changes_for_test(&mut self, delete_only: bool) {
+        self.conn
+            .execute_batch(
+                "CREATE TRIGGER boot_marker_no_delete BEFORE DELETE ON boot_marker                  BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+            )
+            .unwrap();
+        if !delete_only {
+            self.conn
+                .execute_batch(
+                    "CREATE TRIGGER boot_marker_no_update BEFORE UPDATE ON boot_marker                      BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+                )
+                .unwrap();
+        }
+    }
 }
 
 #[cfg(test)]

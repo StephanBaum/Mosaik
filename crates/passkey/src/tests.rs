@@ -853,6 +853,35 @@ fn assert_hash_mode_signs_auth_data_and_given_hash() {
 }
 
 #[test]
+fn hash_mode_assertion_refuses_the_json_releases() {
+    // G1-16: no empty `clientDataJSON` leaves a hash-mode assertion.
+    let hash = [0x5Au8; 32];
+    let request = GetRequest {
+        rp_id: RP_ID,
+        client_data: ClientData::Hash(&hash),
+        user_verified: true,
+    };
+    let zero = assert_request(&request, &stored_credential(), 0).unwrap();
+    assert_eq!(
+        zero.into_response_without_count().err(),
+        Some(Error::InvalidInput)
+    );
+    let counted = assert_request(&request, &stored_credential(), 41).unwrap();
+    assert_eq!(
+        counted
+            .into_json_response(CountPersisted::after_store_write())
+            .err(),
+        Some(Error::InvalidInput)
+    );
+    // Json mode releases as before.
+    let json = assert(&get_input(&challenge(), true), &stored_credential(), 41).unwrap();
+    let a = json
+        .into_json_response(CountPersisted::after_store_write())
+        .unwrap();
+    assert!(a.client_data_json.starts_with(b"{"));
+}
+
+#[test]
 fn create_hash_mode_has_no_client_data_json() {
     let hash = [7u8; 32];
     let request = CreateRequest {

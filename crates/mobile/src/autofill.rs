@@ -23,21 +23,32 @@ use mosaic_sync::transport::TransportError;
 use mosaic_vault::session::{ItemFilter as SessionFilter, UnlockedSession, VaultProtection};
 
 use crate::Core;
+use crate::config::Platform;
 use crate::error::{MobileError, Result};
 use crate::items::{ItemKey, parse_item_key};
 use crate::otp::OtpCode;
 use crate::secret::SecretValue;
+use crate::state::Phase;
 
 /// How long an asset-links answer is kept (in memory, per process).
 const ASSET_LINKS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
+/// How long a fill session waits for the user's tap (like a passkey session).
+const FILL_SESSION_TTL_MS: u64 = 300_000;
+/// Most fill sessions waiting at once; the oldest is dropped.
+const MAX_FILL_SESSIONS: usize = 8;
 
 /// An Android app that asks (the activity of the client, with its signers).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AndroidCaller {
     /// The package name.
     pub package: String,
-    /// SHA-256 of each current signing certificate (32 bytes each).
-    pub signing_cert_sha256: Vec<Vec<u8>>,
+    /// SHA-256 of the **current** signing certificate (32 bytes): the platform's
+    /// `apkContentsSigners`, or the **last** entry of `signingCertificateHistory`
+    /// (the newest certificate of a rotated key), chosen in Kotlin (ADR-0092,
+    /// amendment G1-9). Never the old certificates of the history. Exactly one
+    /// signer binds an app or answers a passkey request; more than one is
+    /// refused (`invalidInput`), and a browser with more than one is not trusted.
+    pub current_signers: Vec<Vec<u8>>,
     /// The `webDomain` of the root view node, if any.
     pub web_domain: Option<String>,
     /// The `webScheme` of the root view node, if any.
@@ -127,6 +138,18 @@ pub struct FillCandidate {
     pub match_kind: FillMatch,
     /// It has a one-time-password generator.
     pub has_otp: bool,
+}
+
+/// The logins that may fill a request, and the session the values are asked
+/// with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FillCandidates {
+    /// The opaque ID of the fill session: Rust holds the resolved target
+    /// (5 minutes, dropped on lock). `fill_values` and `fill_otp` take it, not
+    /// a target the platform could change after the user chose (G1-12).
+    pub session_id: String,
+    /// The logins, best match first. No secret value.
+    pub candidates: Vec<FillCandidate>,
 }
 
 /// What a tap hands to the platform.
@@ -249,7 +272,50 @@ impl AssetLinks {
     }
 }
 
+/// The resolved targets of the fill requests waiting for a tap.
+#[derive(Default)]
+pub(crate) struct FillSessions {
+    waiting: Vec<FillWaiting>,
+}
+
+struct FillWaiting {
+    id: String,
+    expires_at_ms: u64,
+    target: Resolved,
+}
+
+impl FillSessions {
+    fn insert(&mut self, target: Resolved, now_ms: u64) -> Result<String> {
+        let id = crate::storage::hex(&mosaic_core::random_public_bytes::<16>()?);
+        self.waiting.retain(|w| now_ms < w.expires_at_ms);
+        while self.waiting.len() >= MAX_FILL_SESSIONS {
+            self.waiting.remove(0);
+        }
+        self.waiting.push(FillWaiting {
+            id: id.clone(),
+            expires_at_ms: now_ms.saturating_add(FILL_SESSION_TTL_MS),
+            target,
+        });
+        Ok(id)
+    }
+
+    /// The target of a session that has not run out.
+    fn target(&mut self, id: &str, now_ms: u64) -> Option<Resolved> {
+        self.waiting.retain(|w| now_ms < w.expires_at_ms);
+        self.waiting
+            .iter()
+            .find(|w| w.id == id)
+            .map(|w| w.target.clone())
+    }
+
+    /// Forgets every session (lock).
+    pub(crate) fn clear(&mut self) {
+        self.waiting.clear();
+    }
+}
+
 /// What a fill request resolved to.
+#[derive(Clone)]
 pub(crate) enum Resolved {
     /// A page.
     Web(PageOrigin),
@@ -267,6 +333,15 @@ fn certs_of(certs: &[Vec<u8>]) -> Result<Vec<[u8; 32]>> {
         .iter()
         .map(|c| <[u8; 32]>::try_from(c.as_slice()).map_err(|_| MobileError::InvalidInput))
         .collect()
+}
+
+/// The one current signer of an app (G1-9): a caller with none or several is
+/// refused, because the app's identity must be a single certificate.
+pub(crate) fn single_signer(certs: &[Vec<u8>]) -> Result<[u8; 32]> {
+    match certs {
+        [only] => <[u8; 32]>::try_from(only.as_slice()).map_err(|_| MobileError::InvalidInput),
+        _ => Err(MobileError::InvalidInput),
+    }
 }
 
 fn target_error(e: TargetError) -> MobileError {
@@ -426,6 +501,16 @@ fn candidate_of(key: ItemKey, item: &Item, kind: MatchKind) -> FillCandidate {
 }
 
 impl Core {
+    /// An Android-only entry point on an iOS core (or the other way round) is
+    /// refused: the platform of the core decides which calls exist (G1-5).
+    pub(crate) fn require_platform(&self, platform: Platform) -> Result<()> {
+        if self.config.platform == platform {
+            Ok(())
+        } else {
+            Err(MobileError::InvalidInput)
+        }
+    }
+
     fn resolve_target(target: &FillTarget) -> Result<Resolved> {
         match &target.kind {
             FillTargetKind::Web { origin } => PageOrigin::parse(origin)
@@ -456,7 +541,8 @@ impl Core {
     /// `invalidInput` (a bad package, certificate or domain), `insecureOrigin`
     /// (a scheme that is neither `http` nor `https`).
     pub fn fill_target_android(&self, caller: AndroidCaller) -> Result<FillTarget> {
-        let certs = certs_of(&caller.signing_cert_sha256)?;
+        self.require_platform(Platform::Android)?;
+        let certs = certs_of(&caller.current_signers)?;
         let target = target::android_fill_target(&target::AndroidCaller {
             package: &caller.package,
             certs: &certs,
@@ -472,6 +558,7 @@ impl Core {
     /// # Errors
     /// `invalidInput`, `insecureOrigin`.
     pub fn fill_target_ios(&self, identifier: ServiceIdentifier) -> Result<FillTarget> {
+        self.require_platform(Platform::Ios)?;
         let id = match identifier.kind {
             ServiceIdentifierKind::Domain => IosIdentifier::Domain(&identifier.value),
             ServiceIdentifierKind::Url => IosIdentifier::Url(&identifier.value),
@@ -515,13 +602,15 @@ impl Core {
         )
     }
 
-    /// The logins that may fill the target. No secret value.
+    /// The logins that may fill the target, and the fill session the values
+    /// are asked with. No secret value.
     ///
     /// # Errors
     /// `locked`, `invalidInput`, `insecureOrigin` (matching logins exist, but
     /// the page is plain `http` and they do not allow it).
-    pub fn fill_candidates(&self, target: FillTarget) -> Result<Vec<FillCandidate>> {
+    pub fn fill_candidates(&self, target: FillTarget) -> Result<FillCandidates> {
         let resolved = Self::resolve_target(&target)?;
+        let held = resolved.clone();
         let (mut list, insecure) = self.with_session(|s| {
             let usable = usable_vaults(s);
             let mut list = Vec::new();
@@ -556,17 +645,42 @@ impl Core {
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
                 .then_with(|| a.key.item_id.cmp(&b.key.item_id))
         });
-        Ok(list)
+        let now = self.now_ms();
+        let mut guard = self.guard()?;
+        if !matches!(guard.phase, Phase::Unlocked(_)) {
+            return Err(MobileError::Locked);
+        }
+        let session_id = guard.slots.fill.insert(held, now)?;
+        Ok(FillCandidates {
+            session_id,
+            candidates: list,
+        })
     }
 
-    /// Checks again that `candidate` may fill `target` and runs `f` on it.
+    /// The target a fill session holds; an unknown, expired or dropped one is
+    /// refused.
+    fn fill_session_target(&self, session_id: &str) -> Result<Resolved> {
+        let now = self.now_ms();
+        let mut guard = self.guard()?;
+        if !matches!(guard.phase, Phase::Unlocked(_)) {
+            return Err(MobileError::Locked);
+        }
+        guard
+            .slots
+            .fill
+            .target(session_id, now)
+            .ok_or(MobileError::NotFound)
+    }
+
+    /// Checks again that `candidate` may fill the target of the fill session
+    /// and runs `f` on it.
     fn with_matching_login<R>(
         &self,
-        target: &FillTarget,
+        session_id: &str,
         candidate: &ItemKey,
         f: impl FnOnce(&mut UnlockedSession, VaultId, ItemId) -> Result<R>,
     ) -> Result<R> {
-        let resolved = Self::resolve_target(target)?;
+        let resolved = self.fill_session_target(session_id)?;
         let (vault, id) = parse_item_key(&candidate.vault_id, &candidate.item_id)?;
         self.with_session(|s| {
             if !usable_vaults(s).contains(&vault) {
@@ -594,28 +708,32 @@ impl Core {
     }
 
     /// The user name and password of a candidate, after the match is checked
-    /// again.
+    /// again against the target the fill session holds.
     ///
     /// # Errors
-    /// `locked`, `notFound`, `noMatch`, `appNotLinked`, `insecureOrigin`,
-    /// `vaultUnavailable`, `invalidInput`.
-    pub fn fill_values(&self, target: FillTarget, candidate: ItemKey) -> Result<FillValues> {
-        let (username, password) = self.with_matching_login(&target, &candidate, |s, v, i| {
-            let item = s.item(v, i)?;
-            let username = item
-                .text(mosaic_core::model::TextField::Username)
-                .filter(|u| !u.is_empty())
-                .map(str::to_owned);
-            let password = item
-                .secret(mosaic_core::model::SecretField::Password)
-                .map_err(MobileError::from)?
-                .map(|p| SecretValue::from_text(p.expose_secret()));
-            Ok((username, password))
-        })?;
-        Ok(FillValues {
-            username,
-            password: password.map(|p| self.issue(p)),
-        })
+    /// `locked`, `notFound` (also an unknown or expired fill session),
+    /// `noMatch`, `appNotLinked`, `insecureOrigin`, `vaultUnavailable`,
+    /// `invalidInput`.
+    pub fn fill_values(&self, session_id: String, candidate: ItemKey) -> Result<FillValues> {
+        let generation = self.generation();
+        let (username, password) =
+            self.with_matching_login(&session_id, &candidate, |s, v, i| {
+                let item = s.item(v, i)?;
+                let username = item
+                    .text(mosaic_core::model::TextField::Username)
+                    .filter(|u| !u.is_empty())
+                    .map(str::to_owned);
+                let password = item
+                    .secret(mosaic_core::model::SecretField::Password)
+                    .map_err(MobileError::from)?
+                    .map(|p| SecretValue::from_text(p.expose_secret()));
+                Ok((username, password))
+            })?;
+        self.work_pause();
+        let password = password
+            .map(|p| self.issue_gated(p, generation))
+            .transpose()?;
+        Ok(FillValues { username, password })
     }
 
     /// The one-time code of a candidate, after the match is checked again.
@@ -623,8 +741,8 @@ impl Core {
     /// # Errors
     /// As [`Core::fill_values`], and `notFound` for a login without a
     /// generator.
-    pub fn fill_otp(&self, target: FillTarget, candidate: ItemKey) -> Result<Arc<SecretValue>> {
-        self.with_matching_login(&target, &candidate, |_, _, _| Ok(()))?;
+    pub fn fill_otp(&self, session_id: String, candidate: ItemKey) -> Result<Arc<SecretValue>> {
+        self.with_matching_login(&session_id, &candidate, |_, _, _| Ok(()))?;
         let code: OtpCode = self.otp_code(&candidate.vault_id, &candidate.item_id)?;
         Ok(code.code)
     }
@@ -648,11 +766,12 @@ impl Core {
         item_id: &str,
         caller: AndroidCaller,
     ) -> Result<()> {
+        self.require_platform(Platform::Android)?;
         let (vault, id) = parse_item_key(vault_id, item_id)?;
-        let certs = certs_of(&caller.signing_cert_sha256)?;
-        // The first signer binds the app (the one `android_app_origin` uses).
-        let cert = certs.first().ok_or(MobileError::InvalidInput)?;
-        let linked = AndroidAppUrl::new(&caller.package, Some(*cert))
+        // The one current signer binds the app (the one `android_app_origin`
+        // uses); several are refused (G1-9).
+        let cert = single_signer(&caller.current_signers)?;
+        let linked = AndroidAppUrl::new(&caller.package, Some(cert))
             .map_err(|_| MobileError::InvalidInput)?;
         let new_url = LoginUrl::new(&linked.canonical());
         self.with_session(|s| {
@@ -696,16 +815,18 @@ impl Core {
     /// app (network).
     ///
     /// # Errors
-    /// `locked`, `notFound`, `invalidInput`.
+    /// `locked`, `notFound`, `invalidInput` (also in the extension context and
+    /// on iOS: the network and the Android entry points are not there).
     pub fn asset_links_status(
         &self,
         vault_id: &str,
         item_id: &str,
         caller: AndroidCaller,
     ) -> Result<AssetLinksStatus> {
+        self.require_app()?;
+        self.require_platform(Platform::Android)?;
         let (vault, id) = parse_item_key(vault_id, item_id)?;
-        let certs = certs_of(&caller.signing_cert_sha256)?;
-        let cert = certs.first().ok_or(MobileError::InvalidInput)?;
+        let cert = &single_signer(&caller.current_signers)?;
         if !is_valid_package_name(&caller.package) {
             return Err(MobileError::InvalidInput);
         }
@@ -767,6 +888,10 @@ impl Core {
         package: &str,
         cert: &[u8; 32],
     ) -> Result<()> {
+        // The fetch is network: the extension context never opens one
+        // (CRYPTO_SPEC §6.9.3, G1-8), and only Android runs this check.
+        self.require_app()?;
+        self.require_platform(Platform::Android)?;
         let key = (rp_id.to_owned(), package.to_owned(), *cert);
         let now = self.now_ms();
         let cached = self

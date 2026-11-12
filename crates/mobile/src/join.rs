@@ -18,12 +18,39 @@ use crate::Core;
 use crate::config::Platform;
 use crate::error::{MobileError, Result};
 use crate::secret::text_of;
-use crate::state::{Phase, SessionState};
+use crate::state::{Phase, SessionState, UnlockKind};
 use crate::storage::{secret_key_name, sync_token_name};
 use crate::unlock::Taken;
 
 /// How long a pending join lives.
 const JOIN_TTL_MS: u64 = 300_000;
+
+/// Plain `http` to a loopback host is for the host tests and the developer
+/// builds only (G1-17): a release build of the phone refuses it, so a typed
+/// address or a setup code cannot send the master-password login over plain
+/// text. `canonical_origin` itself still accepts loopback `http` for the
+/// desktop and the CLI.
+pub(crate) const ALLOW_HTTP_LOOPBACK: bool = cfg!(any(debug_assertions, feature = "test-hooks"));
+
+/// `origin` (canonical) as the phone accepts it: `https`, and loopback `http`
+/// only where `allow_loopback` says so.
+///
+/// # Errors
+/// `syncServerInsecure`.
+pub(crate) fn check_phone_origin(origin: String, allow_loopback: bool) -> Result<String> {
+    if !allow_loopback && !origin.starts_with("https://") {
+        return Err(MobileError::SyncServerInsecure);
+    }
+    Ok(origin)
+}
+
+/// The canonical origin of a server address typed or scanned on the phone.
+///
+/// # Errors
+/// `syncServerInvalid`, `syncServerInsecure`.
+pub(crate) fn phone_origin(server_url: &str) -> Result<String> {
+    check_phone_origin(canonical_origin(server_url)?, ALLOW_HTTP_LOOPBACK)
+}
 
 /// The server as pre-login sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +133,13 @@ pub(crate) struct PendingJoin {
     handoff: Option<[u8; 16]>,
 }
 
+impl PendingJoin {
+    /// Whether the join ran out at `now_ms`.
+    pub(crate) const fn expired(&self, now_ms: u64) -> bool {
+        now_ms > self.expires_at_ms
+    }
+}
+
 fn default_device_name(platform: Platform) -> &'static str {
     match platform {
         Platform::Android => "Android phone",
@@ -123,7 +157,7 @@ impl Core {
     /// `syncServerIncompatible`.
     pub fn prelogin_check(&self, server_url: String) -> Result<ServerInfo> {
         self.require_app()?;
-        let origin = canonical_origin(&server_url)?;
+        let origin = phone_origin(&server_url)?;
         let features = hosted::info_features(&origin)?;
         Ok(ServerInfo {
             origin,
@@ -151,7 +185,7 @@ impl Core {
         if password.is_empty() {
             return Err(MobileError::EmptyPassword);
         }
-        let origin = canonical_origin(&server_url)?;
+        let origin = phone_origin(&server_url)?;
         let email =
             mosaic_sync::wire::email::normalize(&email).map_err(|_| MobileError::InvalidInput)?;
         let device_name = device_name
@@ -216,7 +250,7 @@ impl Core {
             .join
             .take()
             .ok_or(MobileError::NotFound)?;
-        if now > pending.expires_at_ms {
+        if pending.expired(now) {
             return Err(MobileError::SyncHandoffExpired);
         }
         Ok(pending)
@@ -377,6 +411,7 @@ impl Core {
             drop(session.lock());
             let _ = self.storage.delete(&secret_key_name(&account_id));
             let _ = self.storage.delete(&sync_token_name(&account_id));
+            self.note_stored(Some(false), Some(false));
             let _ = self.wipe_files();
             let (phase, busy) = crate::open_phase(&self.config).unwrap_or((Phase::Closed, false));
             if let Ok(mut guard) = self.guard() {
@@ -385,7 +420,27 @@ impl Core {
             }
             return Err(e);
         }
+        self.note_stored(Some(true), Some(true));
         self.record_boot(&mut session);
-        self.finish_unlocked(session)
+        self.finish_unlocked(session, UnlockKind::Password)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_builds_refuse_loopback_http() {
+        // G1-17: the rule a release build applies (`ALLOW_HTTP_LOOPBACK` is
+        // false there), checked directly because the test build allows it.
+        let loopback = canonical_origin("http://127.0.0.1:8080").unwrap();
+        assert_eq!(
+            check_phone_origin(loopback.clone(), false),
+            Err(MobileError::SyncServerInsecure)
+        );
+        assert_eq!(check_phone_origin(loopback.clone(), true), Ok(loopback));
+        let secure = canonical_origin("https://sync.example.com").unwrap();
+        assert_eq!(check_phone_origin(secure.clone(), false), Ok(secure));
     }
 }

@@ -21,6 +21,16 @@ pub trait SecureStorage: Send + Sync {
     /// # Errors
     /// [`StorageError`] when the platform cannot read the value.
     fn get(&self, name: &str) -> core::result::Result<Option<Zeroizing<Vec<u8>>>, StorageError>;
+    /// Whether a value is stored under `name`. The core asks this instead of
+    /// [`Self::get`] whenever it only needs presence, so a secret is never read
+    /// (and a decryption never runs) to answer "is it there". The default reads
+    /// the value; the platforms override it with a cheap existence check.
+    ///
+    /// # Errors
+    /// [`StorageError`] when the platform cannot tell.
+    fn contains(&self, name: &str) -> core::result::Result<bool, StorageError> {
+        Ok(self.get(name)?.is_some())
+    }
     /// Stores `value` under `name`, replacing any earlier value.
     ///
     /// # Errors

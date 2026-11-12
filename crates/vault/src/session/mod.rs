@@ -834,7 +834,10 @@ impl UnlockedSession {
         // CRYPTO_SPEC §6.9.2: the boot marker goes too, so a new process of a
         // phone app cannot adopt it. This call cannot fail; the counter below
         // still refuses quick unlock in this session if the delete did not work.
-        let _ = store.delete_boot_marker();
+        // A delete that failed is tried again (and the marker overwritten with
+        // an ID that matches no boot) by `LockedSession::enforce_boot_marker_limit`,
+        // which the phone core calls whenever it reports the locked state.
+        let _ = store.clear_boot_marker();
         LockedSession {
             store,
             quick: QuickState {

@@ -1055,6 +1055,9 @@ change, was built **additively** in T2 (see below); the breaking form is still t
     `mosaic_sync::setup_code::parse(bytes)` in apps. `build` refuses a server or email with `"`, `\` or a control
     character (`Malformed`), which is stricter than JSON needs.
   - `SetupCode` does not implement `Clone`, and `Debug` redacts `secret_key`.
+- `random_public_bytes::<N>() -> Result<[u8; N]>` (additive, G1-14): `N` bytes from the OS CSPRNG for values that
+  are not secret (pending-slot IDs, key-alias nonces). `mosaic-mobile` draws all its randomness through it and has
+  no `getrandom` dependency.
 - `encoding::label`: `MOBILE_SECURE_STORE` (`mobile/secure-store`) and `QUICK_UNLOCK_ANDROID`
   (`quick-unlock/android`), both in `label::ALL`.
 
@@ -1071,7 +1074,10 @@ change, was built **additively** in T2 (see below); the breaking form is still t
   in the same transaction as every quick-unlock wrapping deletion (`remove_unlock_method` of a quick method, a
   password change, a Secret Key rotation, a profile upgrade, a re-key, an adoption), by
   `lock_requiring_password`, and when the failed-attempt counter reaches its limit. Enrolling a quick unlock keeps
-  it. `lock_requiring_password` and `note_failed_hardware_attempt` return nothing, so their delete is best effort.
+  it. `lock_requiring_password` and `note_failed_hardware_attempt` return nothing; their delete falls back to
+  overwriting the marker with a 32-byte ID that matches no boot (`Store::clear_boot_marker`), and
+  `LockedSession::enforce_boot_marker_limit() -> Result<()>` retries it at the limit (G1-13). The hardware-key
+  unlock path returns the store error when the marker can be neither deleted nor overwritten.
 - Restricted to `mosaic-mobile`: the desktop and the CLI never call `record_boot_marker` or `adopt_boot_marker`.
   Their behaviour is unchanged.
 
@@ -1080,6 +1086,9 @@ change, was built **additively** in T2 (see below); the breaking form is still t
 - `CreateRequest { rp_id, client_data, user_handle, algorithms, user_verified }` and
   `GetRequest { rp_id, client_data, user_verified }`, with `create_request(&CreateRequest) -> Result<ClientCreated>`
   and `assert_request(&GetRequest, &PasskeyCredential, stored_count) -> Result<PendingAssertion>`.
+- `PendingAssertion::into_json_response(CountPersisted) -> Result<AssertionResponse>` and
+  `into_response_without_count()` refuse a hash-mode assertion (`InvalidInput`, G1-16); `into_response` is
+  unchanged for the existing callers of `assert` (its `Json` mode has a `clientDataJSON`).
 - `ClientCreated.client_data_json` and `ClientAssertionResponse.client_data_json` are `Option<Vec<u8>>` (`None` in
   hash mode). A pending assertion is released with `into_client_response(CountPersisted)` or
   `into_client_response_without_count()`; the sign-count discipline of ADR-0039 D5 is unchanged.
@@ -1094,10 +1103,12 @@ change, was built **additively** in T2 (see below); the breaking form is still t
 
 ### `mosaic-origin` (additive)
 - `app`: `AndroidAppUrl::{parse, new, package, cert_sha256, canonical}`, `is_valid_package_name`,
-  `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>`. A match is reported as
+  `app_fill_allowed(saved, package, certs) -> Result<MatchKind, Refusal>` (`certs` is the one current signer: more
+  than one never matches, G1-9). A match is reported as
   `MatchKind::ExactOrigin` (no new variant: the desktop matches `MatchKind` exhaustively). Parsing is stricter than
   the `url` crate: the canonical form only.
-- `android_browsers`: `is_trusted_browser(package, certs) -> bool`, `privileged_browsers_json() -> &'static str`.
+- `android_browsers`: `is_trusted_browser(package, certs) -> bool` (exactly one current signer, which must be one
+  of the browser's listed certificates), `privileged_browsers_json() -> &'static str`.
   The data is `data/android-privileged-browsers.json`: the release signatures of 14 packages (Chrome, Firefox, Edge,
   Brave, Samsung Internet, DuckDuckGo, Vivaldi, Opera) from Google's privileged-apps list, fetched 2026-11-11.
 - `target`: `android_fill_target(&AndroidCaller) -> Result<FillTarget, TargetError>`,
@@ -1138,8 +1149,12 @@ The logic of both phone apps behind plain Rust types. No UniFFI dependency, `#![
 - **Locking rule.** The core's mutex is never held across Argon2id, the network, a `SecureStorage` callback or
   another core call. A long call takes the session out and the core reports `Busy`; a `lock()` meanwhile sets a flag
   and wins when the call stores its result. The lock order is always the session holder first, then the core's
-  mutex. `lock()` wipes every `SecretValue` handed out, and drops the pending slots (quick-unlock enrolment, OTP
-  setups, passkey ceremonies) but not a pending join.
+  mutex. The lock flag is read and cleared under the mutex (G1-1). `lock()` wipes every `SecretValue` handed out
+  (a value read before a lock and handed out after it is wiped and the call answers `locked`, G1-6), and drops the
+  pending slots (quick-unlock enrolment, OTP setups, passkey ceremonies, fill sessions) and a pending join;
+  `close_store()` alone keeps an unexpired join (G1-11). `state()` and `sync_overview()` never call the platform:
+  presence of the Secret Key and the token is cached and asked with `SecureStorage::contains`, never `get` (G1-2).
+  Five wrong master passwords at a re-authentication end the session and require the password (G1-3).
 - **Onboarding and unlock.** `prelogin_check`, `join_hosted` (`JoinOutcome::{Unlocked, SecondFactor}`),
   `join_totp`, `join_webauthn_begin`, `join_webauthn_status`, `join_cancel`, `parse_setup_code`, `scan_setup_qr`,
   `unlock_password`, `unlock_quick`. The pending join holds no store and lives 5 minutes. A join over an existing
@@ -1158,15 +1173,19 @@ The logic of both phone apps behind plain Rust types. No UniFFI dependency, `#![
   on the phone (`syncTwoFactorRequired`).
 - **Autofill (T3b).** `select_fill_fields`, `fill_target_android`, `fill_target_ios`, `fill_warning` (an addition:
   the look-alike warning needs the saved hosts), `fill_candidates`, `fill_values`, `fill_otp`,
-  `privileged_browsers_json`, `link_android_app`, `asset_links_status`. `fill_values` and `fill_otp` check the
-  match again for the chosen login. A login in a hardware-protected vault, a trashed login and an item that is not
+  `privileged_browsers_json`, `link_android_app`, `asset_links_status`. `fill_candidates` returns `FillCandidates {
+  session_id, candidates }`: Rust holds the resolved target for 5 minutes (dropped on lock), and `fill_values(
+  session_id, item)` and `fill_otp(session_id, item)` take that ID instead of a target (G1-12; an unknown or expired
+  session is `notFound`). They check the match again for the chosen login. `AndroidCaller.current_signers` holds
+  the one current signer (G1-9). The iOS entry points refuse an Android core and the other way round (G1-5), and
+  the asset-links fetch is refused in the extension context (G1-8). A login in a hardware-protected vault, a trashed login and an item that is not
   a login are never candidates. Matching on plain `http` without `allow_http` answers `insecureOrigin`.
 - **Passkeys (T3b).** `passkey_android_{get,create}_{begin,finish}`, `passkey_ios_{candidates,assert,register}`,
   `passkey_identities`, `password_identities`; `passkeys::json` parses the Credential Manager request JSON strictly
   (at most 64 KiB, only `public-key` descriptors, a fuzz target) and builds the response JSON. An Android caller
   that is not on Rust's own browser allowlist cannot pass a platform origin, and any other app must be delegated
   by the relying party's `assetlinks.json` (cached 24 h in memory). A ceremony without user verification is
-  `reauthRequired`.
+  `reauthRequired`, on iOS too (G1-4).
 - **Settings.** `settings`, `update_settings(SettingsUpdate)`: `settings.json` with the MAC of CRYPTO_SPEC §11.1.
   Raising the quick-unlock age or turning the password identity store on needs `reauth_password`.
 - **Setup code (T3b).** `parse_setup_code`, `scan_setup_qr` over `mosaic_sync::setup_code::parse` and
@@ -1180,6 +1199,8 @@ The logic of both phone apps behind plain Rust types. No UniFFI dependency, `#![
   `syncServerInsecure`, `syncServerMismatch`, `syncServerIncompatible`).
 
 ### `mosaic-mobile-ffi` (new; the binding shell, consumed only by the generated Kotlin and Swift code)
+- `SecureStorage` (foreign trait) has `contains(name) -> Result<bool>` next to `get`, `put` and `delete`: the
+  platform implements it as an existence check that reads and decrypts nothing (G1-2).
 - `src/lib.rs` (the `MosaicCore` object, `SecureStorage` foreign trait, `SecretValue`, `mobile_error_codes`,
   `core_version`), `src/types.rs` (the mirror records and enums), `src/convert.rs` (the conversions) and
   `src/bin/uniffi-bindgen.rs`. Nothing else may be added (`scripts/mobile/check-ffi-crate.sh`).

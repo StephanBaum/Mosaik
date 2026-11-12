@@ -12,7 +12,7 @@ use zeroize::Zeroizing;
 
 use crate::Core;
 use crate::error::{MobileError, Result};
-use crate::state::SessionState;
+use crate::state::{SessionState, UnlockKind};
 use crate::storage::secret_key_name;
 use crate::unlock::Taken;
 
@@ -76,7 +76,11 @@ impl TestHooks<'_> {
         )?;
         core.record_boot(&mut session);
         let display = Zeroizing::new(created.secret_key.to_display()?.expose_secret().to_owned());
-        Ok((core.finish_unlocked(session)?, display))
+        core.note_stored(Some(true), Some(false));
+        Ok((
+            core.finish_unlocked(session, UnlockKind::Password)?,
+            display,
+        ))
     }
 
     /// Replaces the fetch of `assetlinks.json` (`host` in, the file's bytes

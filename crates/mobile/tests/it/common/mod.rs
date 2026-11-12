@@ -36,9 +36,23 @@ pub const BOOT: [u8; 4] = [0, 0, 0, 7];
 pub struct MemStorage {
     pub map: Mutex<HashMap<String, Vec<u8>>>,
     pub fail: AtomicBool,
+    /// The name of every `get` (a value read), in order.
+    pub gets: Mutex<Vec<String>>,
+    /// The name of every `contains` (presence asked, nothing read).
+    pub contains_calls: Mutex<Vec<String>>,
 }
 
 impl MemStorage {
+    /// How many reads of a name starting with `prefix` happened.
+    pub fn reads_of(&self, prefix: &str) -> usize {
+        self.gets
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.starts_with(prefix))
+            .count()
+    }
+
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.map.lock().unwrap().keys().cloned().collect();
         names.sort();
@@ -47,10 +61,19 @@ impl MemStorage {
 }
 
 impl SecureStorage for MemStorage {
+    fn contains(&self, name: &str) -> Result<bool, StorageError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(StorageError);
+        }
+        self.contains_calls.lock().unwrap().push(name.to_owned());
+        Ok(self.map.lock().unwrap().contains_key(name))
+    }
+
     fn get(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, StorageError> {
         if self.fail.load(Ordering::SeqCst) {
             return Err(StorageError);
         }
+        self.gets.lock().unwrap().push(name.to_owned());
         Ok(self
             .map
             .lock()
@@ -135,7 +158,16 @@ impl Phone {
 
     /// A phone with a local account (no server): unlocked, one vault.
     pub fn with_account() -> (Self, String) {
-        let phone = Self::new();
+        Self::with_account_on(Platform::Ios)
+    }
+
+    /// As [`Phone::with_account`], on Android.
+    pub fn android_with_account() -> (Self, String) {
+        Self::with_account_on(Platform::Android)
+    }
+
+    pub fn with_account_on(platform: Platform) -> (Self, String) {
+        let phone = Self::with(platform, CoreContext::App);
         let (_, sk) = phone
             .core
             .test_hooks()

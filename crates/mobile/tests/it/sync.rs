@@ -342,3 +342,50 @@ fn reset_device_wipes_store_secrets_and_returns_aliases() {
     phone.core.sync_now().unwrap();
     assert_eq!(titles(&phone), vec!["Desk login".to_owned()]);
 }
+
+#[test]
+fn lock_during_recover_keeps_the_alias_and_the_token() {
+    // G1-13: a lock that arrives while the recovery runs wins the phase, but the
+    // key alias to delete and the new token are not lost with it.
+    let (server, desktop, phone) = world("recover-lock@example.com");
+    let setup = phone
+        .core
+        .quick_unlock_enroll_begin(PASSWORD.as_bytes().to_vec())
+        .unwrap();
+    phone
+        .core
+        .quick_unlock_enroll_finish(QuickUnlockPlatform::IosSecureEnclave, vec![5; 113])
+        .unwrap();
+    change_password_on_desktop(&server, &desktop);
+    server.advance_ms(60_000);
+    phone.core.test_hooks().set_work_delay_ms(600);
+    let result = std::thread::scope(|scope| {
+        let recover = scope.spawn(|| {
+            phone
+                .core
+                .recover_password(NEW_PASSWORD.as_bytes().to_vec())
+        });
+        let start = std::time::Instant::now();
+        while phone.core.state() != SessionState::Busy {
+            assert!(start.elapsed().as_secs() < 20, "never busy");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        phone.core.lock();
+        recover.join().unwrap()
+    });
+    assert_eq!(result.err(), Some(MobileError::Locked));
+    phone.core.test_hooks().set_work_delay_ms(0);
+    match phone.core.state() {
+        SessionState::Locked { quick_unlock, .. } => assert_eq!(
+            quick_unlock,
+            QuickUnlockAvailability::Expired {
+                key_alias: setup.key_alias
+            }
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        phone.core.sync_overview().signed_in,
+        "the new token is stored"
+    );
+}

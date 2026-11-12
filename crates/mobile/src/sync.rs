@@ -98,6 +98,13 @@ impl Core {
         remove_all(&settings.with_extension("json.tmp")).map_err(|_| MobileError::StoreUnavailable)
     }
 
+    /// Deletes the session token after the server ended it, and remembers that
+    /// the phone is signed out.
+    fn drop_token(&self, token_name: &str) {
+        let _ = self.storage.delete(token_name);
+        self.note_stored(None, Some(false));
+    }
+
     /// Where sync stands. Total: a failing read gives the plainest answer.
     #[must_use]
     pub fn sync_overview(&self) -> SyncOverview {
@@ -110,10 +117,10 @@ impl Core {
             last_error: None,
             halted: false,
         };
-        let Ok(account) = self.account_id() else {
+        if self.account_id().is_err() {
             return overview;
-        };
-        let (config, last_sync, last_error, unlocked) = {
+        }
+        let (config, last_sync, last_error, unlocked, signed_in) = {
             let Ok(guard) = self.guard() else {
                 return overview;
             };
@@ -126,6 +133,7 @@ impl Core {
                 guard.last_sync_at_ms,
                 guard.last_sync_error,
                 matches!(guard.phase, Phase::Unlocked(_)),
+                guard.signed_in,
             )
         };
         overview.last_synced_at_ms = last_sync;
@@ -147,10 +155,9 @@ impl Core {
             overview.configured = config.kind == SyncKind::Hosted;
             overview.server_url = config.server_url;
         }
-        overview.signed_in = matches!(
-            read(self.storage.as_ref(), &sync_token_name(&account)),
-            Ok(Some(_))
-        );
+        // Cached (G1-2): the token is not read from secure storage to tell
+        // whether it is there.
+        overview.signed_in = signed_in;
         overview
     }
 
@@ -197,7 +204,7 @@ impl Core {
         let token = StoredToken::from_array(&mut bytes);
         let transport = HttpTransport::connect(&url, &token, install).map_err(|e| {
             if token_ended(&e) {
-                let _ = self.storage.delete(&token_name);
+                self.drop_token(&token_name);
             }
             MobileError::from(e)
         })?;
@@ -210,7 +217,7 @@ impl Core {
                 if let SyncError::Transport(t) = &error
                     && token_ended(t)
                 {
-                    let _ = self.storage.delete(&token_name);
+                    self.drop_token(&token_name);
                 }
                 Err(error.into())
             }
@@ -277,7 +284,11 @@ impl Core {
             }
             Err(e) => Err(MobileError::from(e)),
         };
-        self.restore_unlocked(unlocked)?;
+        self.work_pause();
+        // A `lock()` that came meanwhile wins the phase, but the adoption below
+        // already happened: its results (the key alias to delete, the new
+        // token) are recorded either way, so a lock cannot lose them (G1-13).
+        let restored = self.restore_unlocked(unlocked);
         let (changed, token) = adopted?;
         let changed = changed?;
         if let Some(removed) = changed.removed_quick_unlock {
@@ -291,9 +302,11 @@ impl Core {
         }
         self.storage
             .put(&sync_token_name(&account), token.as_slice())?;
+        self.note_stored(None, Some(true));
         if let Ok(mut guard) = self.guard() {
             guard.last_sync_error = None;
         }
+        restored?;
         Ok(self.sync_overview())
     }
 
@@ -345,9 +358,13 @@ impl Core {
             self.put_back(Taken::Locked(locked));
             return Err(e.into());
         }
+        self.note_stored(Some(false), Some(false));
         drop(locked);
-        self.wipe_files()?;
-        let (phase, busy) = crate::open_phase(&self.config)?;
+        // The phase must not stay `Unlocking` if the files cannot be removed
+        // (G1-13): the store is opened again as it is (a new, empty one where
+        // the file is gone), and the failure is reported after.
+        let wiped = self.wipe_files();
+        let (phase, busy) = crate::open_phase(&self.config).unwrap_or((Phase::Closed, false));
         {
             let mut guard = self.guard()?;
             guard.phase = phase;
@@ -356,10 +373,14 @@ impl Core {
             guard.expired_alias = None;
             guard.last_sync_at_ms = None;
             guard.last_sync_error = None;
+            guard.failed_reauth = 0;
             guard.settings = crate::settings::SettingsGuard::load(self.config.settings_path());
+            self.lock_requested
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.lock_strict
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }
-        self.lock_requested
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        wiped?;
         Ok(ResetOutcome {
             state: self.state(),
             key_aliases: aliases,

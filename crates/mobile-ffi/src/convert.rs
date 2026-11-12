@@ -255,6 +255,12 @@ impl m::SecureStorage for ForeignStorage {
             .map_err(|_| m::StorageError)
     }
 
+    fn contains(&self, name: &str) -> Result<bool, m::StorageError> {
+        self.0
+            .contains(name.to_owned())
+            .map_err(|_| m::StorageError)
+    }
+
     fn put(&self, name: &str, value: &[u8]) -> Result<(), m::StorageError> {
         self.0
             .put(name.to_owned(), value.to_vec())
@@ -469,7 +475,7 @@ mod tests {
     fn caller() -> f::AndroidCaller {
         f::AndroidCaller {
             package: s("com.example.app"),
-            signing_cert_sha256: vec![vec![1; 32], vec![2; 32]],
+            current_signers: vec![vec![1; 32], vec![2; 32]],
             web_domain: Some(s("example.com")),
             web_scheme: None,
         }
@@ -709,6 +715,16 @@ mod tests {
             username: None,
             match_kind: f::FillMatch::Etld1,
             has_otp: true,
+        });
+        rt::<f::FillCandidates, m::FillCandidates>(f::FillCandidates {
+            session_id: s("0011"),
+            candidates: vec![f::FillCandidate {
+                key: key(),
+                title: s("t"),
+                username: Some(s("u")),
+                match_kind: f::FillMatch::Exact,
+                has_otp: false,
+            }],
         });
         rt::<f::Attr, m::Attr>(f::Attr {
             name: s("autocomplete"),

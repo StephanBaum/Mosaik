@@ -35,6 +35,10 @@ fn setup_error(e: CoreError) -> MobileError {
 impl Core {
     fn setup_code_of(&self, bytes: &[u8]) -> Result<SetupCode> {
         let code = mosaic_sync::setup_code::parse(bytes).map_err(setup_error)?;
+        // A release build of the phone refuses a code that names a plain-`http`
+        // server (G1-17).
+        crate::join::check_phone_origin(code.server.clone(), crate::join::ALLOW_HTTP_LOOPBACK)
+            .map_err(|_| MobileError::SetupCodeInvalid)?;
         let display = code.secret_key.to_display()?;
         Ok(SetupCode {
             server: code.server,

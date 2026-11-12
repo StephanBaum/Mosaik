@@ -56,14 +56,19 @@ fn entries() -> &'static [(String, Vec<[u8; 32]>)] {
     CACHE.get_or_init(|| parse(DATA).unwrap_or_default())
 }
 
-/// Whether the caller is an allowlisted browser: the package is listed and
-/// one of the caller's signing certificates (SHA-256) is one of its release
-/// certificates.
+/// Whether the caller is an allowlisted browser: the package is listed and the
+/// caller's **one** current signing certificate (SHA-256) is one of the
+/// browser's listed release certificates (a browser may list several, for
+/// rotation). A caller that presents more than one current signer is refused
+/// (ADR-0092 amendment, G1-9): its identity must be a single certificate.
 #[must_use]
 pub fn is_trusted_browser(package: &str, certs: &[[u8; 32]]) -> bool {
+    let [cert] = certs else {
+        return false;
+    };
     entries()
         .iter()
-        .any(|(p, known)| p == package && certs.iter().any(|c| known.contains(c)))
+        .any(|(p, known)| p == package && known.contains(cert))
 }
 
 /// The number of allowlisted packages (for tests).

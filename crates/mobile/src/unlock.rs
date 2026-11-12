@@ -15,11 +15,15 @@ use crate::config::CoreContext;
 use crate::error::{MobileError, Result};
 use crate::quick_unlock::params::Params;
 use crate::secret::text_of;
-use crate::state::{Phase, SessionState, UnlockedInfo, UnlockedPhase};
+use crate::state::{Phase, SessionState, UnlockKind, UnlockedInfo, UnlockedPhase};
 use crate::storage::{read, secret_key_name};
 
 /// The 64 MiB margin of the memory preflight (CRYPTO_SPEC §6.9.4).
 const MEMORY_MARGIN_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Wrong master passwords in a row at a re-authentication before the session
+/// ends and the password is required (ADR-0028 item 8; the desktop's limit).
+pub(crate) const MAX_FAILED_REAUTH: u8 = 5;
 
 /// The locked store, taken out of the core for one long call.
 pub(crate) enum Taken {
@@ -53,28 +57,52 @@ impl Core {
     /// Puts a taken store back. A `lock()` that came meanwhile has nothing
     /// left to lock.
     pub(crate) fn put_back(&self, taken: Taken) {
-        self.lock_requested.store(false, Ordering::SeqCst);
+        // The flag is cleared under the mutex, with the phase (G1-1): a `lock()`
+        // that came meanwhile has nothing to lock, and one that comes after
+        // this sees the locked phase.
         if let Ok(mut guard) = self.guard() {
+            self.lock_requested.store(false, Ordering::SeqCst);
+            self.lock_strict.store(false, Ordering::SeqCst);
             guard.phase = match taken {
                 Taken::NoAccount(ls) => Phase::NoAccount(ls),
-                Taken::Locked(ls) => Phase::Locked(ls),
+                Taken::Locked(mut ls) => {
+                    // A boot marker the failed-attempt limit could not delete
+                    // is tried again (G1-13).
+                    let _ = ls.enforce_boot_marker_limit();
+                    Phase::Locked(ls)
+                }
             };
         }
     }
 
     /// Stores a freshly unlocked session: settings check, cached facts, and
     /// the lock a `lock()` during the unlock asked for.
-    pub(crate) fn finish_unlocked(&self, mut session: UnlockedSession) -> Result<SessionState> {
+    pub(crate) fn finish_unlocked(
+        &self,
+        mut session: UnlockedSession,
+        unlock: UnlockKind,
+    ) -> Result<SessionState> {
         let info = UnlockedInfo {
             account: session.account_id(),
             email: session.sync_config().ok().flatten().and_then(|c| c.email),
             quick_unlock_enrolled: session.quick_unlock_enrollment().ok().flatten().is_some(),
+            unlock,
         };
         let mut guard = self.guard()?;
         if self.lock_requested.swap(false, Ordering::SeqCst) {
-            guard.phase = Phase::Locked(session.lock());
+            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+            self.generation_bump();
+            guard.phase = Phase::Locked(if strict {
+                session.lock_requiring_password()
+            } else {
+                session.lock()
+            });
             drop(guard);
             return Ok(self.state());
+        }
+        if unlock == UnlockKind::Password {
+            // A right password ends the count of wrong re-authentications.
+            guard.failed_reauth = 0;
         }
         guard.settings.unlocked(&mut session);
         guard.expired_alias = None;
@@ -99,12 +127,21 @@ impl Core {
         Ok(key)
     }
 
-    /// The quick-unlock policy of the settings that apply now.
-    pub(crate) fn quick_policy(&self) -> mosaic_vault::session::QuickUnlockPolicy {
-        self.guard().map_or_else(
-            |_| mosaic_vault::session::QuickUnlockPolicy::default(),
-            |g| g.settings.quick_unlock_policy(),
-        )
+    /// The quick-unlock policy for the enrolment of `locked`: its own verified
+    /// maximum age, shortened by verified settings, never above 30 days
+    /// (G1-10).
+    pub(crate) fn quick_policy(
+        &self,
+        locked: &LockedSession,
+    ) -> mosaic_vault::session::QuickUnlockPolicy {
+        let enrollment = locked.quick_unlock_enrollment().ok().flatten();
+        let guard = self.guard();
+        match (enrollment, guard) {
+            (Some(e), Ok(g)) => {
+                crate::quick_unlock::policy_of(&e, self.config.platform, &g.settings)
+            }
+            _ => mosaic_vault::session::QuickUnlockPolicy::default(),
+        }
     }
 
     /// Records that the master password unlocked in this device boot
@@ -135,7 +172,38 @@ impl Core {
         };
         self.work_pause();
         self.restore_unlocked(unlocked)?;
-        proof.ok_or(MobileError::Locked)?.map_err(MobileError::from)
+        match proof.ok_or(MobileError::Locked)? {
+            Ok(proof) => {
+                self.reset_failed_reauth();
+                Ok(proof)
+            }
+            Err(e) => {
+                let error = MobileError::from(e);
+                if error == MobileError::WrongCredentials && self.note_failed_reauth() {
+                    // A guesser at an unlocked phone cannot go on: the session
+                    // ends and only the master password unlocks again.
+                    self.lock_requiring_password();
+                    return Err(MobileError::Locked);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// A right master password at a re-authentication.
+    fn reset_failed_reauth(&self) {
+        if let Ok(mut guard) = self.guard() {
+            guard.failed_reauth = 0;
+        }
+    }
+
+    /// Counts one wrong master password at a re-authentication; `true` when
+    /// the limit is reached.
+    fn note_failed_reauth(&self) -> bool {
+        self.guard().is_ok_and(|mut guard| {
+            guard.failed_reauth = guard.failed_reauth.saturating_add(1);
+            guard.failed_reauth >= MAX_FAILED_REAUTH
+        })
     }
 
     /// Unlocks with the master password and the Secret Key (stored, or typed
@@ -180,7 +248,7 @@ impl Core {
         match result {
             Ok(mut session) => {
                 self.record_boot(&mut session);
-                self.finish_unlocked(session)
+                self.finish_unlocked(session, UnlockKind::Password)
             }
             Err(failed) => {
                 self.put_back(Taken::Locked(failed.session));
@@ -207,7 +275,6 @@ impl Core {
         if matches!(self.state(), SessionState::Unlocked { .. }) {
             return Ok(self.state());
         }
-        let policy = self.quick_policy();
         let now = i64::try_from(self.now_ms()).unwrap_or(i64::MAX);
         let locked = match self.take_locked()? {
             Taken::Locked(ls) => ls,
@@ -216,6 +283,7 @@ impl Core {
                 return Err(MobileError::NoAccount);
             }
         };
+        let policy = self.quick_policy(&locked);
         // The key to delete if the enrolment ends here.
         let alias = locked
             .quick_unlock_enrollment()
@@ -226,7 +294,7 @@ impl Core {
         let result = locked.unlock_quick(&kek, &policy, now);
         self.work_pause();
         match result {
-            Ok(session) => self.finish_unlocked(session),
+            Ok(session) => self.finish_unlocked(session, UnlockKind::Quick),
             Err(failed) => {
                 if matches!(
                     failed.error,
