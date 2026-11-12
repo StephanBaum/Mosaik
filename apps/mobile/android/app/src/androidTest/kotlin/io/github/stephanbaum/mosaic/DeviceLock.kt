@@ -8,7 +8,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 /**
  * The emulator has no lock screen, and the secure storage refuses to create its key without one (ADR-0090
  * amendment "device lock required"). Tests that touch the storage set a PIN through the shell first and clear
- * it afterwards.
+ * it afterwards. Removing it deletes the Keystore key of the secure storage (the key needs a lock screen), and the core
+ * of the process caches that key, so a test class that creates accounts keeps the PIN for the rest of the run.
  */
 object DeviceLock {
     private const val PIN = "1234"

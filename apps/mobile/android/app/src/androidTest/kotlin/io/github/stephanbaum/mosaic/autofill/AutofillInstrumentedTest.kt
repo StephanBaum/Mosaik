@@ -41,12 +41,13 @@ class AutofillInstrumentedTest {
     private val service = "${context.packageName}/${MosaicAutofillService::class.java.name}"
     private val email = "autofill@example.invalid"
     private val password = "correct horse battery staple"
-    private var setPin = false
     private lateinit var app: MosaicApp
 
     @Before
     fun setUp() {
-        setPin = DeviceLock.ensure()
+        // The PIN stays after the class: removing a lock screen deletes the Keystore key of the secure storage, which
+        // the core of this process has cached, and the tests that follow use the same core (see DeviceLock).
+        DeviceLock.ensure()
         FillAudit.last = emptyList()
         app = context.applicationContext as MosaicApp
         val signers = checkNotNull(CallerReader.signersOf(context, clientPackage)) { "the test package is not visible" }
@@ -69,7 +70,6 @@ class AutofillInstrumentedTest {
         shell("settings delete secure autofill_service")
         shell("input keyevent KEYCODE_HOME")
         runCatching { runBlocking { app.holder.call { resetAccount(it) } } }
-        if (setPin) DeviceLock.release()
     }
 
     private fun draft(vault: String, title: String, user: String, secret: String, url: String?) =
