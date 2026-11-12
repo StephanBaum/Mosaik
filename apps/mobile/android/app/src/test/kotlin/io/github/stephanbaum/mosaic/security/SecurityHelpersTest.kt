@@ -1,6 +1,7 @@
 package io.github.stephanbaum.mosaic.security
 
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
