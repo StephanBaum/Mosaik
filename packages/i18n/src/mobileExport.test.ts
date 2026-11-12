@@ -21,6 +21,13 @@ const entriesOf = (enMsgs: Record<string, string>, deMsgs: Record<string, string
   buildEntries(enMsgs, deMsgs, Object.keys(enMsgs));
 
 describe("mobile export", () => {
+  it("android xml comments contain no double hyphen", () => {
+    const xml = androidStrings(entriesOf({ "a.b": "x" }, { "a.b": "y" }), "en");
+    for (const comment of xml.match(/<!--([\s\S]*?)-->/g) ?? []) {
+      expect(comment.slice(4, -3)).not.toContain("--");
+    }
+  });
+
   it("placeholders become positional android and xcode args", () => {
     const entries = entriesOf(
       { "mobile.greet": "{name} has {thing}, {name}!" },
