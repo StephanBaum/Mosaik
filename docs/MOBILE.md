@@ -139,7 +139,9 @@ Limits that users notice:
 
 CI-first (ADR-0095). Native builds run in `.github/workflows/mobile.yml`:
 - `android`: cargo-ndk for `arm64-v8a` and `x86_64`, the host library for the JVM tests, bindgen, Gradle unit
-  tests, lint and assemble.
+  tests, lint and assemble. Its bindings come from the `test-hooks` library
+  (`bindgen.sh --features test-hooks`), so the tests can create a local account with `MosaicTestHooks`; release
+  bindings never contain it.
 - `android-release-check`: a release library without features, a check for test hooks, and an R8 release
   build.
 - `android-instrumented`: emulator API 34, x86_64, no Play services.

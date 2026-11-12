@@ -16,6 +16,16 @@ use crate::state::{SessionState, UnlockKind};
 use crate::storage::secret_key_name;
 use crate::unlock::Taken;
 
+/// Why a replaced `assetlinks.json` fetch failed: the two outcomes the
+/// platform tests need, without the transport crate's error type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchFailure {
+    /// The host serves no `assetlinks.json` (HTTP 404).
+    NotFound,
+    /// The host cannot be reached.
+    Unreachable,
+}
+
 /// The hooks of one core.
 pub struct TestHooks<'a> {
     core: &'a Core,
@@ -95,6 +105,21 @@ impl TestHooks<'_> {
         self.core
             .assetlinks
             .replace_fetch(std::sync::Arc::new(fetch));
+    }
+
+    /// Like [`Self::set_asset_links_fetch`] with the two failures of
+    /// [`FetchFailure`], for callers (the binding shell) that do not name the
+    /// transport crate's error type.
+    pub fn set_asset_links_fetch_outcome(
+        &self,
+        fetch: impl Fn(&str) -> std::result::Result<Vec<u8>, FetchFailure> + Send + Sync + 'static,
+    ) {
+        self.set_asset_links_fetch(move |host| {
+            fetch(host).map_err(|failure| match failure {
+                FetchFailure::NotFound => mosaic_sync::TransportError::NotFound,
+                FetchFailure::Unreachable => mosaic_sync::TransportError::Unreachable,
+            })
+        });
     }
 
     /// Moves the core's clock.

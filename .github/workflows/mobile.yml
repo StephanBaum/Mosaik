@@ -77,8 +77,8 @@ jobs:
       - run: bash scripts/mobile/check-ffi-crate.sh
       - name: Build the native libraries (arm64-v8a and x86_64, with test hooks)
         run: bash scripts/mobile/build-android-native.sh debug --features test-hooks
-      - name: Generate the Kotlin bindings (the library without features, as shipped)
-        run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
+      - name: Generate the Kotlin bindings (from the test-hooks library, so the tests can use MosaicTestHooks)
+        run: bash scripts/mobile/bindgen.sh --features test-hooks --out apps/mobile/android/core/build/generated/uniffi kotlin
       - name: Build the host library for the JVM tests (JNA)
         run: cargo build -p mosaic-mobile-ffi --features test-hooks --locked
       - name: Gradle unit tests, lint and debug APKs
@@ -167,7 +167,7 @@ jobs:
           for lib in apps/mobile/android/core/src/main/jniLibs/*/libmosaic_mobile_ffi.so; do
             bash scripts/mobile/check-no-test-hooks.sh "$lib"
           done
-      - name: Generate the Kotlin bindings
+      - name: Generate the Kotlin bindings (no features, so no MosaicTestHooks)
         run: bash scripts/mobile/bindgen.sh --out apps/mobile/android/core/build/generated/uniffi kotlin
       - name: Unsigned release APK (proves the R8 keep rules)
         working-directory: apps/mobile/android
