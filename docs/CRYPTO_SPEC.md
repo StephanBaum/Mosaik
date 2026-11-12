@@ -721,6 +721,11 @@ read a secret to tell whether it is there.
 - **Android.** One Keystore key, alias `mosaic-secure-store`:
   - AES-256-GCM, randomized encryption required;
   - no user authentication, `setUnlockedDeviceRequired(true)`;
+  - created only on a device with a secure lock screen (`KeyguardManager.isDeviceSecure`). Without one the
+    app refuses to join or unlock and asks the person to set a screen lock first; the key is never created
+    without `setUnlockedDeviceRequired(true)` (ADR-0090 amendment "device lock required"). On iOS the Keychain
+    items use `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`, which has the same effect: no passcode, no
+    secrets;
   - StrongBox when available, created again without it on `StrongBoxUnavailableException`.
 
   Each value is a file `noBackupFilesDir/secure/<hex(SHA-256(name))>.bin`:
