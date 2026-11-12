@@ -71,4 +71,54 @@ export const mobile = {
     "Mosaic hat in diesem Bild keinen QR-Code gefunden. Versuche es mit einem schärferen Bild noch einmal.",
   "error.storageUnavailable":
     "Mosaic konnte den sicheren Speicher dieses Geräts nicht erreichen. Starte dein Telefon neu und versuche es noch einmal.",
+  // iOS (T10)
+  "mobile.common.back": "Zurück",
+  "mobile.common.tryAgain": "Noch einmal versuchen",
+  "mobile.onboarding.welcomeTitle": "Mosaic auf diesem Handy einrichten",
+  "mobile.onboarding.welcomeBody":
+    "Melde dich mit dem Konto an, das du schon am Computer nutzt. Dein Master-Passwort und dein Secret Key verlassen deine Geräte nie.",
+  "mobile.onboarding.preAudit": "Pre-Audit: Mosaic wurde noch nicht von außen geprüft.",
+  "mobile.onboarding.start": "Los geht's",
+  "mobile.onboarding.detailsTitle": "Dein Konto",
+  "mobile.onboarding.server": "Serveradresse",
+  "mobile.onboarding.serverPlaceholder": "https://",
+  "mobile.onboarding.email": "E-Mail",
+  "mobile.onboarding.secretKey": "Secret Key",
+  "mobile.onboarding.secretKeyHint":
+    "Du findest ihn in deinem Emergency Kit oder in den Einstellungen auf deinem Computer. Groß- und Kleinschreibung und Bindestriche spielen keine Rolle.",
+  "mobile.onboarding.deviceName": "Name dieses Handys",
+  "mobile.onboarding.passwordTitle": "Dein Master-Passwort",
+  "mobile.onboarding.passwordHint":
+    "Mosaic prüft es auf diesem Handy. Es wird nie an den Server gesendet.",
+  "mobile.onboarding.signIn": "Anmelden",
+  "mobile.onboarding.working": "Anmeldung läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.onboarding.secondFactorTitle": "Noch ein Schritt",
+  "mobile.onboarding.totpLabel": "Code aus deiner Authenticator-App",
+  "mobile.onboarding.verify": "Bestätigen",
+  "mobile.onboarding.securityKey": "Sicherheitsschlüssel verwenden",
+  "mobile.onboarding.securityKeyWaiting":
+    "Schließe die Anmeldung in deinem Browser ab. Prüfe, dass dort der Code {code} steht, und komm dann hierher zurück.",
+  "mobile.onboarding.autofillTitle": "Passwörter und Passkeys ausfüllen",
+  "mobile.onboarding.autofillBody":
+    "Schalte Mosaic in den AutoFill-Einstellungen ein, damit es Passwörter, Passkeys und Codes in Apps und in Safari ausfüllen kann.",
+  "mobile.onboarding.autofillSteps":
+    "Öffne die Einstellungen, dann Allgemein, dann AutoFill & Passwörter, und schalte Mosaic ein.",
+  "mobile.onboarding.openSettings": "Einstellungen öffnen",
+  "mobile.onboarding.notNow": "Nicht jetzt",
+  "mobile.onboarding.doneTitle": "Alles bereit",
+  "mobile.onboarding.doneBody": "Dein Tresor ist auf diesem Handy und entsperrt.",
+  "mobile.unlock.account": "Konto: {email}",
+  "mobile.unlock.secretKeyNeeded":
+    "Dieses Handy kennt deinen Secret Key nicht. Gib ihn einmal ein, um zu entsperren.",
+  "mobile.unlock.quickOptionFaceId": "Nächstes Mal mit Face ID entsperren",
+  "mobile.unlock.biometricReason": "Deinen Mosaic-Tresor entsperren",
+  "mobile.unlock.faceIdReason":
+    "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch.",
+  "mobile.unlock.usePassword": "Master-Passwort verwenden",
+  "mobile.unlock.working": "Entsperren läuft. Das kann ein paar Sekunden dauern.",
+  "mobile.unlock.quickInvalidated":
+    "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten.",
+  "mobile.unlock.storeBusy": "Mosaic ist beschäftigt. Versuche es gleich noch einmal.",
+  "mobile.unlock.rebootNote": "Entsperre nach einem Neustart einmal mit deinem Master-Passwort.",
+  "mobile.capture.hidden": "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird",
 } satisfies Record<keyof typeof en, string>;

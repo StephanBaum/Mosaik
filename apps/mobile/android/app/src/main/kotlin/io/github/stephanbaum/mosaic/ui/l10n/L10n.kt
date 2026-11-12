@@ -423,6 +423,12 @@ object L10n {
     fun autofillTitle(r: Resources): String =
         r.getString(R.string.mobile_autofill_title)
 
+    fun captureHidden(r: Resources): String =
+        r.getString(R.string.mobile_capture_hidden)
+
+    fun commonBack(r: Resources): String =
+        r.getString(R.string.mobile_common_back)
+
     fun commonCancel(r: Resources): String =
         r.getString(R.string.mobile_common_cancel)
 
@@ -434,6 +440,9 @@ object L10n {
 
     fun commonDone(r: Resources): String =
         r.getString(R.string.mobile_common_done)
+
+    fun commonTryAgain(r: Resources): String =
+        r.getString(R.string.mobile_common_tryAgain)
 
     fun copyDone(r: Resources, seconds: Int): String =
         r.getQuantityString(R.plurals.mobile_copy_done, seconds, seconds)
@@ -449,6 +458,87 @@ object L10n {
 
     fun navVault(r: Resources): String =
         r.getString(R.string.mobile_nav_vault)
+
+    fun onboardingAutofillBody(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_autofillBody)
+
+    fun onboardingAutofillSteps(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_autofillSteps)
+
+    fun onboardingAutofillTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_autofillTitle)
+
+    fun onboardingDetailsTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_detailsTitle)
+
+    fun onboardingDeviceName(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_deviceName)
+
+    fun onboardingDoneBody(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_doneBody)
+
+    fun onboardingDoneTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_doneTitle)
+
+    fun onboardingEmail(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_email)
+
+    fun onboardingNotNow(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_notNow)
+
+    fun onboardingOpenSettings(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_openSettings)
+
+    fun onboardingPasswordHint(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_passwordHint)
+
+    fun onboardingPasswordTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_passwordTitle)
+
+    fun onboardingPreAudit(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_preAudit)
+
+    fun onboardingSecondFactorTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_secondFactorTitle)
+
+    fun onboardingSecretKey(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_secretKey)
+
+    fun onboardingSecretKeyHint(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_secretKeyHint)
+
+    fun onboardingSecurityKey(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_securityKey)
+
+    fun onboardingSecurityKeyWaiting(r: Resources, code: String): String =
+        r.getString(R.string.mobile_onboarding_securityKeyWaiting, code)
+
+    fun onboardingServer(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_server)
+
+    fun onboardingServerPlaceholder(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_serverPlaceholder)
+
+    fun onboardingSignIn(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_signIn)
+
+    fun onboardingStart(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_start)
+
+    fun onboardingTotpLabel(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_totpLabel)
+
+    fun onboardingVerify(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_verify)
+
+    fun onboardingWelcomeBody(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_welcomeBody)
+
+    fun onboardingWelcomeTitle(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_welcomeTitle)
+
+    fun onboardingWorking(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_working)
 
     fun searchPlaceholder(r: Resources): String =
         r.getString(R.string.mobile_search_placeholder)
@@ -468,8 +558,17 @@ object L10n {
     fun setupScanTitle(r: Resources): String =
         r.getString(R.string.mobile_setup_scanTitle)
 
+    fun unlockAccount(r: Resources, email: String): String =
+        r.getString(R.string.mobile_unlock_account, email)
+
     fun unlockAction(r: Resources): String =
         r.getString(R.string.mobile_unlock_action)
+
+    fun unlockBiometricReason(r: Resources): String =
+        r.getString(R.string.mobile_unlock_biometricReason)
+
+    fun unlockFaceIdReason(r: Resources): String =
+        r.getString(R.string.mobile_unlock_faceIdReason)
 
     fun unlockFailed(r: Resources, attempts: Int): String =
         r.getQuantityString(R.plurals.mobile_unlock_failed, attempts, attempts)
@@ -480,8 +579,29 @@ object L10n {
     fun unlockQuick(r: Resources): String =
         r.getString(R.string.mobile_unlock_quick)
 
+    fun unlockQuickInvalidated(r: Resources): String =
+        r.getString(R.string.mobile_unlock_quickInvalidated)
+
+    fun unlockQuickOptionFaceId(r: Resources): String =
+        r.getString(R.string.mobile_unlock_quickOptionFaceId)
+
+    fun unlockRebootNote(r: Resources): String =
+        r.getString(R.string.mobile_unlock_rebootNote)
+
+    fun unlockSecretKeyNeeded(r: Resources): String =
+        r.getString(R.string.mobile_unlock_secretKeyNeeded)
+
+    fun unlockStoreBusy(r: Resources): String =
+        r.getString(R.string.mobile_unlock_storeBusy)
+
     fun unlockTitle(r: Resources): String =
         r.getString(R.string.mobile_unlock_title)
+
+    fun unlockUsePassword(r: Resources): String =
+        r.getString(R.string.mobile_unlock_usePassword)
+
+    fun unlockWorking(r: Resources): String =
+        r.getString(R.string.mobile_unlock_working)
 
     fun vaultCount(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.mobile_vault_count, count, count)

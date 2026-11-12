@@ -69,4 +69,54 @@ export const mobile = {
   "error.qrNotFound": "Mosaic found no QR code in that image. Try again with a sharper picture.",
   "error.storageUnavailable":
     "Mosaic couldn't reach the secure storage of this device. Restart your phone and try again.",
+  // iOS (T10)
+  "mobile.common.back": "Back",
+  "mobile.common.tryAgain": "Try again",
+  "mobile.onboarding.welcomeTitle": "Set up Mosaic on this phone",
+  "mobile.onboarding.welcomeBody":
+    "Sign in with the account you already use on your computer. Your master password and Secret Key never leave your devices.",
+  "mobile.onboarding.preAudit": "Pre-audit software: no outside security review yet.",
+  "mobile.onboarding.start": "Get started",
+  "mobile.onboarding.detailsTitle": "Your account",
+  "mobile.onboarding.server": "Server address",
+  "mobile.onboarding.serverPlaceholder": "https://",
+  "mobile.onboarding.email": "Email",
+  "mobile.onboarding.secretKey": "Secret Key",
+  "mobile.onboarding.secretKeyHint":
+    "You find it in your Emergency Kit or in Settings on your computer. Capital letters and dashes do not matter.",
+  "mobile.onboarding.deviceName": "Name of this phone",
+  "mobile.onboarding.passwordTitle": "Your master password",
+  "mobile.onboarding.passwordHint":
+    "Mosaic checks it on this phone. It is never sent to the server.",
+  "mobile.onboarding.signIn": "Sign in",
+  "mobile.onboarding.working": "Signing in. This can take a few seconds.",
+  "mobile.onboarding.secondFactorTitle": "One more step",
+  "mobile.onboarding.totpLabel": "Code from your authenticator app",
+  "mobile.onboarding.verify": "Verify",
+  "mobile.onboarding.securityKey": "Use your security key",
+  "mobile.onboarding.securityKeyWaiting":
+    "Finish the sign-in in your browser. Check that it shows the code {code}, then come back here.",
+  "mobile.onboarding.autofillTitle": "Fill passwords and passkeys",
+  "mobile.onboarding.autofillBody":
+    "Turn on Mosaic in the AutoFill settings so it can fill passwords, passkeys and codes in apps and in Safari.",
+  "mobile.onboarding.autofillSteps":
+    "Open Settings, then General, then AutoFill & Passwords, and turn on Mosaic.",
+  "mobile.onboarding.openSettings": "Open settings",
+  "mobile.onboarding.notNow": "Not now",
+  "mobile.onboarding.doneTitle": "You're all set",
+  "mobile.onboarding.doneBody": "Your vault is on this phone and unlocked.",
+  "mobile.unlock.account": "Account: {email}",
+  "mobile.unlock.secretKeyNeeded":
+    "This phone does not have your Secret Key. Enter it once to unlock.",
+  "mobile.unlock.quickOptionFaceId": "Unlock with Face ID next time",
+  "mobile.unlock.biometricReason": "Unlock your Mosaic vault",
+  "mobile.unlock.faceIdReason":
+    "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too.",
+  "mobile.unlock.usePassword": "Use master password",
+  "mobile.unlock.working": "Unlocking. This can take a few seconds.",
+  "mobile.unlock.quickInvalidated":
+    "Your Face ID settings changed. Unlock with your master password to turn quick unlock on again.",
+  "mobile.unlock.storeBusy": "Mosaic is busy. Try again in a moment.",
+  "mobile.unlock.rebootNote": "Unlock once with your master password after a restart.",
+  "mobile.capture.hidden": "Hidden while your screen is recorded",
 } as const satisfies Record<string, string>;

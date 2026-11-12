@@ -2058,6 +2058,40 @@
         }
       }
     },
+    "mobile.capture.hidden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hidden while your screen is recorded"
+          }
+        }
+      }
+    },
+    "mobile.common.back" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurück"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
+          }
+        }
+      }
+    },
     "mobile.common.cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2122,6 +2156,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Done"
+          }
+        }
+      }
+    },
+    "mobile.common.tryAgain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch einmal versuchen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
           }
         }
       }
@@ -2235,6 +2286,465 @@
         }
       }
     },
+    "mobile.onboarding.autofillBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schalte Mosaic in den AutoFill-Einstellungen ein, damit es Passwörter, Passkeys und Codes in Apps und in Safari ausfüllen kann."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn on Mosaic in the AutoFill settings so it can fill passwords, passkeys and codes in apps and in Safari."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.autofillSteps" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne die Einstellungen, dann Allgemein, dann AutoFill & Passwörter, und schalte Mosaic ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings, then General, then AutoFill & Passwords, and turn on Mosaic."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.autofillTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passwörter und Passkeys ausfüllen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill passwords and passkeys"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.detailsTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Konto"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your account"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.deviceName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name dieses Handys"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name of this phone"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.doneBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Tresor ist auf diesem Handy und entsperrt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your vault is on this phone and unlocked."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.doneTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alles bereit"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You're all set"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.email" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-Mail"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Email"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.notNow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht jetzt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not now"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.openSettings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open settings"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.passwordHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic prüft es auf diesem Handy. Es wird nie an den Server gesendet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic checks it on this phone. It is never sent to the server."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.passwordTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Master-Passwort"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your master password"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.preAudit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pre-Audit: Mosaic wurde noch nicht von außen geprüft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pre-audit software: no outside security review yet."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.secondFactorTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch ein Schritt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One more step"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.secretKey" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Key"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Key"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.secretKeyHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du findest ihn in deinem Emergency Kit oder in den Einstellungen auf deinem Computer. Groß- und Kleinschreibung und Bindestriche spielen keine Rolle."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You find it in your Emergency Kit or in Settings on your computer. Capital letters and dashes do not matter."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.securityKey" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sicherheitsschlüssel verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use your security key"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.securityKeyWaiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließe die Anmeldung in deinem Browser ab. Prüfe, dass dort der Code %1$@ steht, und komm dann hierher zurück."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finish the sign-in in your browser. Check that it shows the code %1$@, then come back here."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serveradresse"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server address"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.serverPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "https://"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "https://"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.signIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmelden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.start" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los geht's"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get started"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.totpLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code aus deiner Authenticator-App"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code from your authenticator app"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.verify" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestätigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.welcomeBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Melde dich mit dem Konto an, das du schon am Computer nutzt. Dein Master-Passwort und dein Secret Key verlassen deine Geräte nie."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with the account you already use on your computer. Your master password and Secret Key never leave your devices."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.welcomeTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic auf diesem Handy einrichten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set up Mosaic on this phone"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.working" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmeldung läuft. Das kann ein paar Sekunden dauern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signing in. This can take a few seconds."
+          }
+        }
+      }
+    },
     "mobile.search.placeholder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2337,6 +2847,23 @@
         }
       }
     },
+    "mobile.unlock.account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto: %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account: %1$@"
+          }
+        }
+      }
+    },
     "mobile.unlock.action" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2350,6 +2877,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unlock"
+          }
+        }
+      }
+    },
+    "mobile.unlock.biometricReason" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deinen Mosaic-Tresor entsperren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock your Mosaic vault"
+          }
+        }
+      }
+    },
+    "mobile.unlock.faceIdReason" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic nutzt Face ID, um deinen Tresor schnell zu entsperren. Dein Master-Passwort funktioniert immer auch."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses Face ID to unlock your vault quickly. Your master password always works too."
           }
         }
       }
@@ -2429,6 +2990,91 @@
         }
       }
     },
+    "mobile.unlock.quickInvalidated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Face ID settings changed. Unlock with your master password to turn quick unlock on again."
+          }
+        }
+      }
+    },
+    "mobile.unlock.quickOptionFaceId" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächstes Mal mit Face ID entsperren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock with Face ID next time"
+          }
+        }
+      }
+    },
+    "mobile.unlock.rebootNote" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperre nach einem Neustart einmal mit deinem Master-Passwort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock once with your master password after a restart."
+          }
+        }
+      }
+    },
+    "mobile.unlock.secretKeyNeeded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Handy kennt deinen Secret Key nicht. Gib ihn einmal ein, um zu entsperren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This phone does not have your Secret Key. Enter it once to unlock."
+          }
+        }
+      }
+    },
+    "mobile.unlock.storeBusy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic ist beschäftigt. Versuche es gleich noch einmal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic is busy. Try again in a moment."
+          }
+        }
+      }
+    },
     "mobile.unlock.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2442,6 +3088,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unlock Mosaic"
+          }
+        }
+      }
+    },
+    "mobile.unlock.usePassword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Master-Passwort verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use master password"
+          }
+        }
+      }
+    },
+    "mobile.unlock.working" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperren läuft. Das kann ein paar Sekunden dauern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlocking. This can take a few seconds."
           }
         }
       }

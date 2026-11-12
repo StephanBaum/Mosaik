@@ -539,6 +539,14 @@ public enum L10n {
         NSLocalizedString("mobile.autofill.title", bundle: .main, comment: "")
     }
 
+    public static func captureHidden() -> String {
+        NSLocalizedString("mobile.capture.hidden", bundle: .main, comment: "")
+    }
+
+    public static func commonBack() -> String {
+        NSLocalizedString("mobile.common.back", bundle: .main, comment: "")
+    }
+
     public static func commonCancel() -> String {
         NSLocalizedString("mobile.common.cancel", bundle: .main, comment: "")
     }
@@ -553,6 +561,10 @@ public enum L10n {
 
     public static func commonDone() -> String {
         NSLocalizedString("mobile.common.done", bundle: .main, comment: "")
+    }
+
+    public static func commonTryAgain() -> String {
+        NSLocalizedString("mobile.common.tryAgain", bundle: .main, comment: "")
     }
 
     public static func copyDone(seconds: Int) -> String {
@@ -573,6 +585,114 @@ public enum L10n {
 
     public static func navVault() -> String {
         NSLocalizedString("mobile.nav.vault", bundle: .main, comment: "")
+    }
+
+    public static func onboardingAutofillBody() -> String {
+        NSLocalizedString("mobile.onboarding.autofillBody", bundle: .main, comment: "")
+    }
+
+    public static func onboardingAutofillSteps() -> String {
+        NSLocalizedString("mobile.onboarding.autofillSteps", bundle: .main, comment: "")
+    }
+
+    public static func onboardingAutofillTitle() -> String {
+        NSLocalizedString("mobile.onboarding.autofillTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDetailsTitle() -> String {
+        NSLocalizedString("mobile.onboarding.detailsTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDeviceName() -> String {
+        NSLocalizedString("mobile.onboarding.deviceName", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDoneBody() -> String {
+        NSLocalizedString("mobile.onboarding.doneBody", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDoneTitle() -> String {
+        NSLocalizedString("mobile.onboarding.doneTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingEmail() -> String {
+        NSLocalizedString("mobile.onboarding.email", bundle: .main, comment: "")
+    }
+
+    public static func onboardingNotNow() -> String {
+        NSLocalizedString("mobile.onboarding.notNow", bundle: .main, comment: "")
+    }
+
+    public static func onboardingOpenSettings() -> String {
+        NSLocalizedString("mobile.onboarding.openSettings", bundle: .main, comment: "")
+    }
+
+    public static func onboardingPasswordHint() -> String {
+        NSLocalizedString("mobile.onboarding.passwordHint", bundle: .main, comment: "")
+    }
+
+    public static func onboardingPasswordTitle() -> String {
+        NSLocalizedString("mobile.onboarding.passwordTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingPreAudit() -> String {
+        NSLocalizedString("mobile.onboarding.preAudit", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSecondFactorTitle() -> String {
+        NSLocalizedString("mobile.onboarding.secondFactorTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSecretKey() -> String {
+        NSLocalizedString("mobile.onboarding.secretKey", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSecretKeyHint() -> String {
+        NSLocalizedString("mobile.onboarding.secretKeyHint", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSecurityKey() -> String {
+        NSLocalizedString("mobile.onboarding.securityKey", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSecurityKeyWaiting(code: String) -> String {
+        String(format: NSLocalizedString("mobile.onboarding.securityKeyWaiting", bundle: .main, comment: ""), locale: .current, arguments: [code])
+    }
+
+    public static func onboardingServer() -> String {
+        NSLocalizedString("mobile.onboarding.server", bundle: .main, comment: "")
+    }
+
+    public static func onboardingServerPlaceholder() -> String {
+        NSLocalizedString("mobile.onboarding.serverPlaceholder", bundle: .main, comment: "")
+    }
+
+    public static func onboardingSignIn() -> String {
+        NSLocalizedString("mobile.onboarding.signIn", bundle: .main, comment: "")
+    }
+
+    public static func onboardingStart() -> String {
+        NSLocalizedString("mobile.onboarding.start", bundle: .main, comment: "")
+    }
+
+    public static func onboardingTotpLabel() -> String {
+        NSLocalizedString("mobile.onboarding.totpLabel", bundle: .main, comment: "")
+    }
+
+    public static func onboardingVerify() -> String {
+        NSLocalizedString("mobile.onboarding.verify", bundle: .main, comment: "")
+    }
+
+    public static func onboardingWelcomeBody() -> String {
+        NSLocalizedString("mobile.onboarding.welcomeBody", bundle: .main, comment: "")
+    }
+
+    public static func onboardingWelcomeTitle() -> String {
+        NSLocalizedString("mobile.onboarding.welcomeTitle", bundle: .main, comment: "")
+    }
+
+    public static func onboardingWorking() -> String {
+        NSLocalizedString("mobile.onboarding.working", bundle: .main, comment: "")
     }
 
     public static func searchPlaceholder() -> String {
@@ -599,8 +719,20 @@ public enum L10n {
         NSLocalizedString("mobile.setup.scanTitle", bundle: .main, comment: "")
     }
 
+    public static func unlockAccount(email: String) -> String {
+        String(format: NSLocalizedString("mobile.unlock.account", bundle: .main, comment: ""), locale: .current, arguments: [email])
+    }
+
     public static func unlockAction() -> String {
         NSLocalizedString("mobile.unlock.action", bundle: .main, comment: "")
+    }
+
+    public static func unlockBiometricReason() -> String {
+        NSLocalizedString("mobile.unlock.biometricReason", bundle: .main, comment: "")
+    }
+
+    public static func unlockFaceIdReason() -> String {
+        NSLocalizedString("mobile.unlock.faceIdReason", bundle: .main, comment: "")
     }
 
     public static func unlockFailed(attempts: Int) -> String {
@@ -615,8 +747,36 @@ public enum L10n {
         NSLocalizedString("mobile.unlock.quick", bundle: .main, comment: "")
     }
 
+    public static func unlockQuickInvalidated() -> String {
+        NSLocalizedString("mobile.unlock.quickInvalidated", bundle: .main, comment: "")
+    }
+
+    public static func unlockQuickOptionFaceId() -> String {
+        NSLocalizedString("mobile.unlock.quickOptionFaceId", bundle: .main, comment: "")
+    }
+
+    public static func unlockRebootNote() -> String {
+        NSLocalizedString("mobile.unlock.rebootNote", bundle: .main, comment: "")
+    }
+
+    public static func unlockSecretKeyNeeded() -> String {
+        NSLocalizedString("mobile.unlock.secretKeyNeeded", bundle: .main, comment: "")
+    }
+
+    public static func unlockStoreBusy() -> String {
+        NSLocalizedString("mobile.unlock.storeBusy", bundle: .main, comment: "")
+    }
+
     public static func unlockTitle() -> String {
         NSLocalizedString("mobile.unlock.title", bundle: .main, comment: "")
+    }
+
+    public static func unlockUsePassword() -> String {
+        NSLocalizedString("mobile.unlock.usePassword", bundle: .main, comment: "")
+    }
+
+    public static func unlockWorking() -> String {
+        NSLocalizedString("mobile.unlock.working", bundle: .main, comment: "")
     }
 
     public static func vaultCount(count: Int) -> String {

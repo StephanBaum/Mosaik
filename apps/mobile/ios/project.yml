@@ -29,6 +29,7 @@ targets:
     platform: iOS
     sources:
       - path: MosaicKit
+      - path: Resources/PrivacyInfo.xcprivacy
       # UniFFI output (git-ignored), written by build-ios-xcframework.sh.
       - path: Generated/Bindings
         optional: true
@@ -53,6 +54,11 @@ targets:
       - path: Resources/Localizable.xcstrings
       - path: Resources/en.lproj
       - path: Resources/de.lproj
+      - path: Resources/PrivacyInfo.xcprivacy
+      # DM Sans and IBM Plex Mono (SIL OFL), registered at launch by MosaicFonts.
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
     dependencies:
       - target: MosaicKit
         embed: true
@@ -70,6 +76,7 @@ targets:
       - path: MosaicAutoFill
         excludes: ["Info.plist", "*.entitlements"]
       - path: Resources/Localizable.xcstrings
+      - path: Resources/PrivacyInfo.xcprivacy
     dependencies:
       - target: MosaicKit
         embed: true

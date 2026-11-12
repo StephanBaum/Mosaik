@@ -1,0 +1,66 @@
+import Foundation
+
+/// A failure that has an error code of the core's catalog but no `MobileError` of its own, for example the
+/// memory preflight. `ErrorText` maps it to the same strings as the core's errors.
+public struct CodedError: Error, Sendable, Equatable {
+    public let code: String
+
+    public init(_ code: String) {
+        self.code = code
+    }
+}
+
+/// Opens the core for the app (CRYPTO_SPEC 6.9, spec 3.8).
+public enum CoreFactory {
+    /// `<app group>/Library/Application Support/Mosaic`, created with complete file protection and excluded
+    /// from backups. Nil when the App Group container is missing; on a device that is an error, in the
+    /// unsigned simulator builds of CI it falls back to the app's own Application Support directory.
+    public static func storeDirectory(identity: AppIdentity, fileManager: FileManager = .default) -> URL? {
+        let group = fileManager.containerURL(forSecurityApplicationGroupIdentifier: identity.appGroup)
+        #if targetEnvironment(simulator)
+            let base = group ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        #else
+            let base = group
+        #endif
+        guard let base else { return nil }
+        return prepare(
+            base.appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+                .appendingPathComponent("Mosaic", isDirectory: true),
+            fileManager: fileManager)
+    }
+
+    /// Creates `directory` (complete protection) and marks it excluded from backups.
+    static func prepare(_ directory: URL, fileManager: FileManager) -> URL? {
+        do {
+            try fileManager.createDirectory(
+                at: directory, withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.complete])
+            var url = directory
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try url.setResourceValues(values)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    /// The configuration of a core in this process.
+    public static func config(storeDirectory: URL, context: CoreContext, bootId: Data = BootId.current()) -> CoreConfig {
+        CoreConfig(
+            storeDir: storeDirectory.path, platform: .ios, context: context, bootId: bootId,
+            trustAnchorsDer: [])
+    }
+
+    /// Opens the core of the app process: the app context, the Keychain secure store and this boot's ID.
+    public static func openApp(identity: AppIdentity = .from()) throws -> CoreHolder {
+        guard let directory = storeDirectory(identity: identity) else {
+            throw CodedError("storeUnavailable")
+        }
+        let core = try MosaicCore.open(
+            config: config(storeDirectory: directory, context: .app),
+            storage: KeychainSecureStorage(identity: identity))
+        return CoreHolder(core: core)
+    }
+}
