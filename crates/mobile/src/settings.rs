@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Core;
 use crate::error::{MobileError, Result};
+use crate::quick_unlock::params::Params;
 use crate::state::Phase;
 
 /// The format version of the file.
@@ -230,6 +231,15 @@ pub(crate) struct SettingsGuard {
     /// `effective` is then a verified value, not the strict stand-in of a
     /// locked phone after a restart.
     verified: bool,
+    /// The MAC was checked (or the file rewritten) in the latest
+    /// [`Self::unlocked`] run. False when that run could not read the key or
+    /// the nonce: `effective` is then not a verified value (F1).
+    confirmed: bool,
+    /// The file was missing or unusable at the start, or its MAC failed: the
+    /// strict stand-in applies, which may exceed a lowered verified setting, so
+    /// an existing quick-unlock enrolment must not outlive it (F2). Taken once
+    /// by [`Self::take_distrusted`].
+    distrusted: bool,
 }
 
 impl SettingsGuard {
@@ -246,6 +256,8 @@ impl SettingsGuard {
                 unchecked: true,
                 key: None,
                 verified: false,
+                confirmed: false,
+                distrusted: false,
                 path,
             },
             None => Self {
@@ -255,9 +267,23 @@ impl SettingsGuard {
                 unchecked: false,
                 key: None,
                 verified: false,
+                confirmed: false,
+                distrusted: true,
                 path,
             },
         }
+    }
+
+    /// Whether the latest run after an unlock checked the settings file's MAC
+    /// (or rewrote the file) under `K_settings`.
+    pub(crate) const fn confirmed(&self) -> bool {
+        self.confirmed
+    }
+
+    /// Whether the settings file was missing or failed its MAC since the last
+    /// call; clears the mark.
+    pub(crate) fn take_distrusted(&mut self) -> bool {
+        std::mem::take(&mut self.distrusted)
     }
 
     /// The settings that apply now.
@@ -296,6 +322,7 @@ impl SettingsGuard {
     /// MAC when it was missing, invalid or stale. Errors leave the strict
     /// values in place.
     pub(crate) fn unlocked(&mut self, session: &mut UnlockedSession) {
+        self.confirmed = false;
         let Ok(key) = session.settings_mac_key() else {
             return;
         };
@@ -314,12 +341,14 @@ impl SettingsGuard {
                 self.effective = file.normalized();
             } else {
                 self.effective = file.stricter_than_default();
+                self.distrusted = true;
                 rewrite = true;
             }
         }
         let current = self.on_disk == Some(self.effective) && self.mac.is_some();
         self.key = Some(key);
         self.verified = true;
+        self.confirmed = true;
         if rewrite || !current {
             let _ = self.save(session, self.effective);
         }
@@ -363,6 +392,23 @@ impl SettingsGuard {
 }
 
 impl Core {
+    /// Rewrites the age byte of the stored enrolment down to `days` when it is
+    /// higher. The format and the AAD stay as they are.
+    fn lower_enrolment_age(&self, session: &mut UnlockedSession, days: u32) -> Result<()> {
+        let Some(enrollment) = session.quick_unlock_enrollment()? else {
+            return Ok(());
+        };
+        match Params::decode(&enrollment.platform_params, self.config.platform) {
+            Ok(mut params) if u32::from(params.max_age_days) > days => {
+                params.max_age_days = u8::try_from(days).map_err(|_| MobileError::Internal)?;
+                session.set_quick_unlock_params(&params.encode())?;
+            }
+            // No valid age to lower: expiry deals with it elsewhere.
+            Ok(_) | Err(_) => {}
+        }
+        Ok(())
+    }
+
     /// The settings that apply now: the stored values while unlocked and
     /// verified, the strict ones otherwise.
     #[must_use]
@@ -417,7 +463,14 @@ impl Core {
             let password = password.ok_or(MobileError::ReauthRequired)?;
             drop(self.verify_password(&password)?);
         }
+        let lowered = wanted.quick_unlock_max_age_days < current.quick_unlock_max_age_days;
         self.with_session(|session| {
+            if lowered {
+                // The age byte of the enrolment goes down with the setting, so
+                // it holds even if the settings file is lost later (F2). Before
+                // the save: a failed save then leaves the stricter byte.
+                self.lower_enrolment_age(session, wanted.quick_unlock_max_age_days)?;
+            }
             let mut guard = self.guard()?;
             guard.settings.save(session, wanted)
         })?;

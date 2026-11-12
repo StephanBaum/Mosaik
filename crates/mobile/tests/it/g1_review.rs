@@ -1228,3 +1228,90 @@ fn n7_a_failed_reset_keeps_the_alias_of_an_expired_enrolment() {
     phone.storage.fail.store(false, Ordering::SeqCst);
     assert_eq!(expired_alias_of(&phone.core.state()), alias);
 }
+
+// ---- Round 3 (F1, F2; F3 is a unit test in unlock.rs) ----------------------------------------------------------------------------
+
+fn stored_quick_params(phone: &Phone) -> Vec<u8> {
+    phone.core.close_store();
+    mosaic_vault::session::LockedSession::open(Store::open(phone.store_path()).unwrap())
+        .quick_unlock_enrollment()
+        .unwrap()
+        .unwrap()
+        .platform_params
+}
+
+#[test]
+fn f1_a_settings_nonce_that_cannot_be_read_expires_the_enrolment() {
+    let (mut phone, _) = Phone::android_with_account();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone.core.lock();
+    let alias = alias_of(&phone.core.state());
+    // The nonce cannot be read (as for a corrupt row), so the settings file
+    // cannot be verified in this run.
+    tamper_store(&phone, "DROP TABLE settings_nonce;");
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    assert_eq!(
+        phone.core.unlock_quick(w).err(),
+        Some(MobileError::QuickUnlockExpired)
+    );
+    assert_eq!(expired_alias_of(&phone.core.state()), alias);
+    phone.core.close_store();
+    let locked =
+        mosaic_vault::session::LockedSession::open(Store::open(phone.store_path()).unwrap());
+    assert!(locked.quick_unlock_enrollment().unwrap().is_none());
+}
+
+#[test]
+fn f2_a_missing_settings_file_expires_the_enrolment() {
+    let (mut phone, _) = Phone::android_with_account();
+    let w = enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone
+        .core
+        .update_settings(SettingsUpdate {
+            quick_unlock_max_age_days: Some(1),
+            ..SettingsUpdate::default()
+        })
+        .unwrap();
+    // The age byte is put back to 14 (it is not authenticated), then the
+    // settings file goes: the defaults (14 days) would let the enrolment live.
+    tamper_store(
+        &phone,
+        "UPDATE unlock_methods SET params = \
+         unhex(substr(hex(params), 1, length(hex(params)) - 2) || '0E') WHERE method <> 1;",
+    );
+    std::fs::remove_file(phone.dir.path().join("mosaic").join("settings.json")).unwrap();
+    phone.reopen_as(Platform::Android, CoreContext::App, &BOOT);
+    assert_eq!(
+        phone.core.unlock_quick(w).err(),
+        Some(MobileError::QuickUnlockExpired)
+    );
+}
+
+#[test]
+fn f2_lowering_the_age_rewrites_the_stored_byte() {
+    let (phone, _) = Phone::android_with_account();
+    enroll(
+        &phone,
+        QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+        android_body(),
+    );
+    phone
+        .core
+        .update_settings(SettingsUpdate {
+            quick_unlock_max_age_days: Some(1),
+            ..SettingsUpdate::default()
+        })
+        .unwrap();
+    let after = stored_quick_params(&phone);
+    // Only the last byte (the age) changed; the format and the body stay.
+    assert_eq!(after.last().copied(), Some(1));
+    assert_eq!(after.len(), 2 + 16 + 61 + 1);
+}

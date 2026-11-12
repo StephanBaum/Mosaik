@@ -81,4 +81,8 @@ fn schema_v10_fixture_upgrades_to_v11() {
     drop(s.lock().into_store());
     assert_eq!(user_version(&path), 11);
     assert!(has_table(&path, "boot_marker"));
+    // The re-authentication count (N2) exists after the upgrade and starts at 0.
+    assert!(has_table(&path, "reauth_failures"));
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.reauth_failures().unwrap(), 0);
 }

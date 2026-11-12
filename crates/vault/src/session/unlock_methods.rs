@@ -757,6 +757,22 @@ impl UnlockedSession {
         ))
     }
 
+    /// Replaces the platform parameters of the stored quick-unlock
+    /// enrollment, keeping its ID, wrapping and therefore its AAD. For the
+    /// app to lower the age byte it keeps in them (CRYPTO_SPEC §6.9.2).
+    /// Returns whether an enrollment was stored.
+    ///
+    /// # Errors
+    /// [`Error::Store`] (`UnlockParamsTooLarge`).
+    pub fn set_quick_unlock_params(&mut self, platform_params: &[u8]) -> Result<bool> {
+        let Some(row) = quick_rows(self.store.unlock_methods()?).into_iter().next() else {
+            return Ok(false);
+        };
+        self.store
+            .put_unlock_method(&row.method, &row.wrapped_account_key, platform_params)?;
+        Ok(true)
+    }
+
     fn check_reauth(&self, reauth: &Reauthenticated) -> Result<()> {
         if reauth.valid_for(&self.proof_id, Instant::now()) {
             Ok(())

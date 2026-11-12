@@ -806,10 +806,17 @@ new process for every request.
   2. After a quick unlock decrypted the account key and the settings MAC was checked, expiry is decided **again**
      against `min(enrollment byte, verified setting, 30)`. If the enrollment is expired by that, the enrollment
      (and the marker) is deleted, the vault is locked again and the call answers `quickUnlockExpired`. A raised age
-     byte or a raised settings file therefore never extends the enrollment beyond the verified setting; a settings
-     file whose MAC fails gives the strict default (14 days) for this decision.
+     byte or a raised settings file therefore never extends the enrollment beyond the verified setting. Where no
+     verified value exists the enrollment **expires** (it is deleted, and the next quick unlock needs one more
+     master-password unlock): when the settings could not be checked in this run (the key or the settings nonce
+     cannot be read), when `settings.json` was missing or unusable at the start, and when its MAC fails. The strict
+     stand-in values (the defaults, at most 14 days) are never used to extend an enrollment, because they may
+     exceed a lowered verified setting. This check also runs after a password unlock that finds an enrollment: the
+     enrollment is deleted and its key alias is reported for the platform to delete.
   3. Once the settings were checked in a process, the shorter of the enrollment and the verified value applies
      everywhere, so lowering the setting takes effect at once.
+  4. When the setting is lowered, the enrollment's stored age byte is rewritten down to the new value (the format
+     and the AAD stay as they are), so the byte holds the verified value even if `settings.json` is lost later.
 
   No new cryptography is involved: the decision is authenticated through the existing settings MAC (§11.1).
 - Everything else in §6.2 holds unchanged: the maximum age of the wrapping, the limit of 5 failed attempts, the

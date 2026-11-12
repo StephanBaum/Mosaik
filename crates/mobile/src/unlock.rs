@@ -69,10 +69,15 @@ impl Core {
         // this sees the locked phase.
         if let Ok(mut guard) = self.guard() {
             self.lock_requested.store(false, Ordering::SeqCst);
-            self.lock_strict.store(false, Ordering::SeqCst);
+            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
             guard.phase = match taken {
                 Taken::NoAccount(ls) => Phase::NoAccount(ls),
                 Taken::Locked(mut ls) => {
+                    // A strict lock that came while the store was out has
+                    // nothing left to lock, but still sets the limit (F3, N4).
+                    if strict {
+                        ls.require_password();
+                    }
                     // A boot marker the failed-attempt limit could not delete
                     // is tried again (G1-13).
                     let _ = ls.enforce_boot_marker_limit();
@@ -95,7 +100,7 @@ impl Core {
             // the count, the stricter outcome.
             let _ = session.reset_failed_reauth();
         }
-        let info = UnlockedInfo {
+        let mut info = UnlockedInfo {
             account: session.account_id(),
             email: session.sync_config().ok().flatten().and_then(|c| c.email),
             quick_unlock_enrolled: session.quick_unlock_enrollment().ok().flatten().is_some(),
@@ -114,23 +119,31 @@ impl Core {
             return Ok(self.state());
         }
         guard.settings.unlocked(&mut session);
+        let distrusted = guard.settings.take_distrusted();
         // The age of a quick-unlock enrolment was decided before the settings
         // were checked (the unverified file may only shorten it, and the age
         // byte is not authenticated). It is decided again now that the settings
         // MAC verified: the shorter of the enrolment's age and the verified
-        // value applies (N1).
-        if unlock == UnlockKind::Quick
-            && let QuickCheck::Expired(alias) =
-                self.quick_expired_after_check(&mut session, &guard.settings)
-        {
-            self.generation_bump();
-            guard.settings.locked();
+        // value applies (N1). An enrolment does not outlive settings that could
+        // not be verified (F1, F2).
+        let checked =
+            self.quick_expired_after_check(&mut session, &guard.settings, distrusted, unlock);
+        if let QuickCheck::Expired(alias) = checked {
+            if unlock == UnlockKind::Quick {
+                self.generation_bump();
+                guard.settings.locked();
+                guard.expired_alias = alias;
+                guard.phase = Phase::Locked(session.lock());
+                drop(guard);
+                return Err(MobileError::QuickUnlockExpired);
+            }
+            // A password unlock goes on without the enrolment; the platform
+            // learns the key to delete from the expired alias.
+            info.quick_unlock_enrolled = false;
             guard.expired_alias = alias;
-            guard.phase = Phase::Locked(session.lock());
-            drop(guard);
-            return Err(MobileError::QuickUnlockExpired);
+        } else {
+            guard.expired_alias = None;
         }
-        guard.expired_alias = None;
         guard.phase = Phase::Unlocked(Box::new(UnlockedPhase {
             owned: mosaic_sync::engine::OwnedSession::new(session),
             info,
@@ -146,15 +159,31 @@ impl Core {
         &self,
         session: &mut UnlockedSession,
         settings: &crate::settings::SettingsGuard,
+        distrusted: bool,
+        unlock: UnlockKind,
     ) -> QuickCheck {
-        let Some(enrollment) = session.quick_unlock_enrollment().ok().flatten() else {
-            return QuickCheck::Stands;
+        let enrollment = match session.quick_unlock_enrollment() {
+            Ok(Some(enrollment)) => enrollment,
+            Ok(None) => return QuickCheck::Stands,
+            // A failed read counts as expired, like a decode error (F4).
+            Err(_) => {
+                let _ = session.remove_quick_unlock();
+                return QuickCheck::Expired(None);
+            }
         };
         let decoded = Params::decode(&enrollment.platform_params, self.config.platform);
         let now = i64::try_from(self.now_ms()).unwrap_or(i64::MAX);
-        let stands = decoded.as_ref().is_ok_and(|p| {
-            !enrollment.is_expired(&settings.quick_unlock_policy_for(p.max_age_days), now)
-        });
+        // Settings that were not verified in this run (the key or the nonce
+        // could not be read, F1) or whose file was missing or failed its MAC
+        // (the strict stand-in may exceed a lowered verified value, F2) leave
+        // no verified age: the enrolment expires.
+        let trusted = settings.confirmed() && !distrusted;
+        let stands = trusted
+            && decoded.as_ref().is_ok_and(|p| {
+                unlock != UnlockKind::Quick
+                    || !enrollment
+                        .is_expired(&settings.quick_unlock_policy_for(p.max_age_days), now)
+            });
         if stands {
             return QuickCheck::Stands;
         }
@@ -378,4 +407,78 @@ impl Core {
 
 fn memory_of(params: &mosaic_core::PasswordParams) -> u64 {
     u64::from(params.profile.m_cost_kib()) * 1024 + MEMORY_MARGIN_BYTES
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use mosaic_vault::session::QuickMethod;
+    use zeroize::Zeroizing;
+
+    use super::*;
+    use crate::config::{CoreConfig, Platform};
+    use crate::storage::{SecureStorage, StorageError};
+
+    #[derive(Default)]
+    struct Mem(Mutex<HashMap<String, Vec<u8>>>);
+
+    impl SecureStorage for Mem {
+        fn get(
+            &self,
+            name: &str,
+        ) -> core::result::Result<Option<Zeroizing<Vec<u8>>>, StorageError> {
+            Ok(self
+                .0
+                .lock()
+                .map_err(|_| StorageError)?
+                .get(name)
+                .map(|v| Zeroizing::new(v.clone())))
+        }
+        fn put(&self, name: &str, value: &[u8]) -> core::result::Result<(), StorageError> {
+            self.0
+                .lock()
+                .map_err(|_| StorageError)?
+                .insert(name.to_owned(), value.to_vec());
+            Ok(())
+        }
+        fn delete(&self, name: &str) -> core::result::Result<(), StorageError> {
+            self.0.lock().map_err(|_| StorageError)?.remove(name);
+            Ok(())
+        }
+    }
+
+    /// F3: a plain lock won, an unlock took the locked store, a strict lock
+    /// came while it was out, and the unlock failed. The store goes back with
+    /// the password required (the flags are not simply dropped).
+    #[test]
+    fn put_back_keeps_a_strict_lock_that_found_the_store_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = Core::open(
+            CoreConfig {
+                store_dir: dir.path().join("mosaic"),
+                platform: Platform::Android,
+                context: CoreContext::App,
+                boot_id: vec![0, 0, 0, 7],
+                trust_anchors_der: Vec::new(),
+            },
+            Arc::new(Mem::default()),
+        )
+        .unwrap();
+        core.test_hooks()
+            .create_local_account("user@example.com", "correct horse battery staple")
+            .unwrap();
+        core.lock();
+        let taken = core.take_locked().unwrap();
+        core.lock_requiring_password();
+        core.put_back(taken);
+        let guard = core.guard().unwrap();
+        let Phase::Locked(locked) = &guard.phase else {
+            panic!("not locked");
+        };
+        assert!(locked.password_required(QuickMethod::Biometric));
+        assert!(!core.lock_strict.load(Ordering::SeqCst));
+        assert!(!core.lock_requested.load(Ordering::SeqCst));
+    }
 }
