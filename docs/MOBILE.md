@@ -55,7 +55,18 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
   - The mutex is never held across Argon2id, the network, a `SecureStorage` callback or another core call.
   - A call during `Unlocking` answers `busy`. A `lock()` during `Unlocking` ends locked.
   - `lock()` takes the `OwnedSession`, so a running sync fails with `SyncError::Locked` and never deadlocks.
-  - Every slot is dropped on lock. `Core` is `Send + Sync`, checked by a static assertion.
+  - Every slot is dropped on lock, the pending join included. `close_store()` keeps an unexpired pending join (the
+    iOS Safari handoff of ADR-0091), so the apps never call `lock()` while that handoff runs; an expired join is
+    dropped by `lock()`, `state()` and `close_store()`. `Core` is `Send + Sync`, checked by a static assertion.
+  - The `lock_requested` flag is read and cleared only while the mutex is held, so a `lock()` that arrives during a
+    long call always wins (M10-G1-1).
+  - Presence checks (`state()`, `sync_overview()`) use `SecureStorage::contains` outside the mutex and never read a
+    stored secret (M10-G1-2). A secret read before a `lock()` is wiped instead of handed out (M10-G1-6).
+  - Five wrong re-authentications in a row (`quick_unlock_enroll_begin`, `update_settings`) lock with
+    `lock_requiring_password`, as on the desktop (ADR-0028 item 8, M10-G1-3).
+  - Entry points are bound to their platform: the `*_ios_*` calls and `fill_target_ios` answer `invalidInput` on an
+    Android core, the Android calls on an iOS core; the iOS extension context never fetches asset links (M10-G1-5,
+    G1-8).
 - **Secrets.** Secret inputs are `Vec<u8>` UTF-8 (`ByteArray` in Kotlin, `Data` in Swift). Secret outputs are
   only `Arc<SecretValue>`, with `expose_bytes`, `len` and `wipe`. CRYPTO_SPEC §6.9.5 has the full rules.
 - **Errors.** `MobileError` has unit variants only. `code()` is a camelCase string, and `mobile_error_codes()`
@@ -105,9 +116,9 @@ The binding surface is `crates/mobile-ffi/src/lib.rs`; its rustdoc is the refere
 | Screen | `FLAG_SECURE` on every window; no recents screenshot (API 33+); content sensitivity (API 35+) | privacy cover; hidden while captured; `.privacySensitive()` | ADR-0094 |
 | Secret input | native `EditText` read into byte arrays and wiped; no personalized IME learning; excluded from other autofill services | `UITextField` with secure entry (not `SecureField`) | CRYPTO_SPEC §6.9.5 |
 | TLS | system anchors from the default trust manager; no user CAs; TLS 1.3 only | `rustls-platform-verifier` (Security.framework) | CRYPTO_SPEC §2, §6.9.6, ADR-0091 |
-| Autofill | Autofill Service with per-dataset authentication; values only after a tap; `webDomain` only from allowlisted browsers; app logins bound to package and signing certificate; no compatibility mode, inline suggestions or save | Credential Provider: quick unlock, matching items first, `userInteractionRequired` for silent requests, one-time codes on 18+ | ADR-0092 |
+| Autofill | Autofill Service with per-dataset authentication; values only after a tap; `webDomain` only from allowlisted browsers; app logins bound to package and exactly one current signer (`apkContentsSigners`, or the last entry of `signingCertificateHistory`; more than one is refused, ADR-0092 amendment); `fill_candidates` returns a fill session bound to the resolved target and `fill_values`/`fill_otp` take that session, never a target from the platform (M10-G1-12); no compatibility mode, inline suggestions or save | Credential Provider: quick unlock, matching items first, `userInteractionRequired` for silent requests, one-time codes on 18+ | ADR-0092 |
 | Passwords via Credential Manager | API 34+; entries without values; the value only from `CredentialActivity` | — | ADR-0092 |
-| Passkeys | Credential Manager API 34+; privileged browsers in hash mode with a double allowlist check; other apps need asset-links delegation; UV always | Credential Provider 17+, hash mode; UV from the biometric unlock | CRYPTO_SPEC §16, ADR-0093 |
+| Passkeys | Credential Manager API 34+; privileged browsers in hash mode with a double allowlist check; other apps need asset-links delegation; UV always | Credential Provider 17+, hash mode; UV from the biometric unlock; a ceremony without UV is refused, and the extension signs only with a session from `unlock_quick` in that process (M10-G1-4) | CRYPTO_SPEC §16, ADR-0093 |
 | Identity store | — | passkey identities with the passkey setting; password identities only with OD-M10-7 (default off) | ADR-0092, R132 |
 | Setup code | scanned with CameraX and decoded in Rust (no ML Kit) | scanned with `AVCaptureMetadataOutput` | CRYPTO_SPEC §6.9.7, ADR-0096 |
 
