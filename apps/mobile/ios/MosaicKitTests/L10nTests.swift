@@ -13,10 +13,10 @@ final class L10nTests: XCTestCase {
     }
 
     func testErrorTextUsesTheCodeOfTheCore() {
-        XCTAssertEqual(ErrorText.code(of: MobileError.locked), "locked")
-        XCTAssertEqual(ErrorText.code(of: MobileError.passwordInApp), "passwordInApp")
+        XCTAssertEqual(ErrorText.code(of: MobileError.Locked), "locked")
+        XCTAssertEqual(ErrorText.code(of: MobileError.PasswordInApp), "passwordInApp")
         XCTAssertEqual(ErrorText.code(of: CodedError("notEnoughMemory")), "notEnoughMemory")
-        XCTAssertEqual(ErrorText.code(of: StorageError.failed), "storageUnavailable")
+        XCTAssertEqual(ErrorText.code(of: StorageError.Failed), "storageUnavailable")
         XCTAssertEqual(ErrorText.message(forCode: "notEnoughMemory"), L10n.errorNotEnoughMemory())
     }
 

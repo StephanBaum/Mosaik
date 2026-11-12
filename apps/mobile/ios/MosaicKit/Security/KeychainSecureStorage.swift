@@ -28,7 +28,9 @@ public final class KeychainSecureStorage: SecureStorage {
     private let accessibility: Accessibility
 
     public init(service: String, accessGroup: String?) {
-        self.init(service: service, accessGroup: accessGroup, accessibility: .passcodeSetThisDeviceOnly)
+        self.service = service
+        self.accessGroup = accessGroup
+        self.accessibility = .passcodeSetThisDeviceOnly
     }
 
     init(service: String, accessGroup: String?, accessibility: Accessibility) {
@@ -74,12 +76,12 @@ public final class KeychainSecureStorage: SecureStorage {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data else { throw StorageError.failed }
+            guard let data = result as? Data else { throw StorageError.Failed }
             return data
         case errSecItemNotFound:
             return nil
         default:
-            throw StorageError.failed
+            throw StorageError.Failed
         }
     }
 
@@ -96,7 +98,7 @@ public final class KeychainSecureStorage: SecureStorage {
         case errSecItemNotFound:
             return false
         default:
-            throw StorageError.failed
+            throw StorageError.Failed
         }
     }
 
@@ -109,12 +111,12 @@ public final class KeychainSecureStorage: SecureStorage {
                 accessibility: accessibility)
             status = SecItemAdd(attributes as CFDictionary, nil)
         }
-        guard status == errSecSuccess else { throw StorageError.failed }
+        guard status == errSecSuccess else { throw StorageError.Failed }
     }
 
     public func delete(name: String) throws {
         let query = Self.itemQuery(service: service, accessGroup: accessGroup, name: name)
         let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw StorageError.failed }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw StorageError.Failed }
     }
 }

@@ -9,7 +9,9 @@ public enum ErrorText {
             return coded.code
         }
         if let mobile = error as? MobileError {
-            return String(describing: mobile)
+            // UniFFI names error cases in PascalCase (`PasswordInApp`); the catalog codes are camelCase.
+            let name = String(describing: mobile)
+            return name.prefix(1).lowercased() + name.dropFirst()
         }
         if error is StorageError {
             return "storageUnavailable"
