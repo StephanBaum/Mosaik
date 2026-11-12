@@ -21,6 +21,19 @@ const entriesOf = (enMsgs: Record<string, string>, deMsgs: Record<string, string
   buildEntries(enMsgs, deMsgs, Object.keys(enMsgs));
 
 describe("mobile export", () => {
+  it("a plural without a visible count gets an xcstrings count substitution", () => {
+    const entries = entriesOf(
+      { "a.urls": "{count, plural, one {Website} other {Websites}}" },
+      { "a.urls": "{count, plural, one {Website} other {Websites}}" },
+    );
+    const parsed = JSON.parse(xcstrings(entries)) as {
+      strings: Record<string, { localizations: Record<string, Record<string, unknown>> }>;
+    };
+    const en = parsed.strings["a.urls"]?.localizations["en"];
+    expect(en?.["stringUnit"]).toEqual({ state: "translated", value: "%#@count@" });
+    expect(en?.["substitutions"]).toMatchObject({ count: { argNum: 1, formatSpecifier: "lld" } });
+  });
+
   it("android xml comments contain no double hyphen", () => {
     const xml = androidStrings(entriesOf({ "a.b": "x" }, { "a.b": "y" }), "en");
     for (const comment of xml.match(/<!--([\s\S]*?)-->/g) ?? []) {

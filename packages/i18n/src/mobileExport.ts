@@ -197,7 +197,7 @@ function xcodeText(variant: Variant, entry: MobileEntry): string {
   });
 }
 
-type Json = string | { [key: string]: Json };
+type Json = string | number | { [key: string]: Json };
 
 function unit(value: string): Json {
   return { stringUnit: { state: "translated", value } };
@@ -208,11 +208,21 @@ function xcodeLocalization(entry: MobileEntry, locale: ExportLocale): Json {
   if (entry.plural === null) return unit(xcodeText(message.variants[0] as Variant, entry));
   const plural: Record<string, Json> = {};
   for (const v of orderedVariants(message)) plural[v.selector] = unit(xcodeText(v, entry));
-  return { variations: { plural } };
+  const argNum = entry.args.indexOf(entry.plural) + 1;
+  const counted = Object.values(plural).some((u) => JSON.stringify(u).includes(`%${String(argNum)}$lld`));
+  if (counted) return { variations: { plural } };
+  // Xcode infers a plural's format specifier from the variants; when no variant shows the count
+  // ("Website" / "Websites"), the count goes through a substitution that prints nothing itself.
+  return {
+    stringUnit: { state: "translated", value: "%#@count@" },
+    substitutions: {
+      count: { argNum, formatSpecifier: "lld", variations: { plural } },
+    },
+  };
 }
 
 function stringify(value: Json, indent: string): string {
-  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value !== "object") return JSON.stringify(value);
   const inner = `${indent}  `;
   const lines = Object.keys(value)
     .sort(compare)
