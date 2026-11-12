@@ -7,7 +7,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The window background before Compose draws (res/values*/colors.xml) is the generated bg token. */
+/** The window background before Compose draws (res/values and res/values-night, colors.xml) is the generated bg token. */
 class ThemeTokensTest {
     private fun windowBackground(dir: String): Int {
         val xml = File("src/main/res/$dir/colors.xml").readText()
