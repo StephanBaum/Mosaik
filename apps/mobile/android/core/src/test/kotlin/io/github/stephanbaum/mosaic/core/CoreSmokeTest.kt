@@ -22,6 +22,8 @@ class CoreSmokeTest {
 
         override fun get(name: String): ByteArray? = values[name]
 
+        override fun contains(name: String): Boolean = values.containsKey(name)
+
         override fun put(name: String, value: ByteArray) {
             values[name] = value
         }
