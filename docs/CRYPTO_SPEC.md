@@ -726,7 +726,8 @@ read a secret to tell whether it is there.
     without `setUnlockedDeviceRequired(true)` (ADR-0090 amendment "device lock required"). On iOS the Keychain
     items use `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`, which has the same effect: no passcode, no
     secrets;
-  - StrongBox when available, created again without it on `StrongBoxUnavailableException`.
+  - StrongBox when available, created again without it on `StrongBoxUnavailableException` and on no other
+    failure (any other failure of the StrongBox attempt is final: no silent downgrade; M10-G2 L2).
 
   Each value is a file `noBackupFilesDir/secure/<hex(SHA-256(name))>.bin`:
   ```
@@ -736,7 +737,11 @@ read a secret to tell whether it is there.
   The leading `0x01` is the file version and the whole header of §3 (the platform row of §2 fixes the
   algorithm, so there is no algorithm byte); it is bound into the AAD. A file with another
   version, a wrong length or a failing tag is refused with `storageUnavailable`; it is never treated as absent. Rust
-  supplies the AAD (`secure_store_aad(name)`). Writes are atomic: a temporary file, `fsync`, then rename.
+  supplies the AAD (`secure_store_aad(name)`), which `mosaic-mobile-ffi` exports; the Android code uses that export
+  and builds no AAD of its own, and a test on each side pins the same fixed vector (M10-G2 L1). On a write the
+  app checks the cipher output before it stores it: the IV is 12 bytes and the sealed value is the plaintext plus
+  16 bytes, and anything else fails closed with `storageUnavailable` (M10-G2 L2). Writes are atomic: a
+  temporary file, `fsync`, then rename.
 - **iOS.** A Keychain generic password per value:
   - `kSecAttrService = "<bundle id>.secure-store"`, `kSecAttrAccount = name`;
   - `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAttrSynchronizable = false`;
@@ -873,6 +878,10 @@ availability limit, not a security one (`docs/MOBILE.md` §3).
     encoded into a `ByteArray`. Both arrays are zeroed, then the editable is overwritten and cleared. A Compose
     `TextField` is not used.
   - iOS: a `UITextField` with `isSecureTextEntry`.
+  - **Exception: the multiline notes field.** A multiline `EditText` cannot take the password input variation
+    (`TYPE_TEXT_VARIATION_PASSWORD` is single-line only), so the notes field of an item uses the other settings
+    (`IME_FLAG_NO_PERSONALIZED_LEARNING`, `noExcludeDescendants`, no suggestions, a sensitive window) and
+    its keyboard can still learn from or show the text (THREAT_MODEL R126; M10-G2 Info).
 - **Allocator.** The mobile library's global allocator wipes every freed Rust heap block (§2, ADR-0089). This
   includes UniFFI's `RustBuffer`s, which carry arguments and return values.
 - **The session token** stays in Rust (`HeaderValue::set_sensitive`). The platform sees it only as opaque bytes
@@ -882,7 +891,10 @@ availability limit, not a security one (`docs/MOBILE.md` §3).
   - JVM and Swift strings: `UITextField.text`, displayed values, the clipboard text, `AutofillValue.forText`,
     `PasswordCredential` and `ASPasswordCredential`;
   - IME buffers;
-  - arrays that ART's compacting collector moved before they were zeroed.
+  - arrays that ART's compacting collector moved before they were zeroed;
+  - the plaintext array that `SecureStorage.get` returns to the Rust side through the foreign trait: Kotlin cannot
+    wipe it after the call (Rust wipes its own copy at once). `put` wipes the array it was given in a `finally`
+    (M10-G2 L3).
 
   The design shortens these lifetimes; it does not remove them.
 
@@ -919,7 +931,12 @@ JSON       = {"v":1,"server":"<canonical origin>","email":"<normalized email>","
   - `sk` passes `SecretKey::parse` with its checksum (a checksum failure is `secretKeyMistyped`).
 
   Anything else is `setupCodeInvalid`.
-- Both sides build and parse the code in zeroizing buffers.
+- Both sides build and parse the code in zeroizing buffers. The desktop's response (`SetupCodeShown`) is not
+  `Clone`, prints no modules in `Debug`, and wipes its module matrix on drop (M10-G2 M4).
+- **Honest limit.** The QR library (`qrcodegen`) keeps its own segment, codeword and module buffers while it
+  encodes, and these are not wiped. The code is built from the Secret Key only after re-authentication, lives for
+  one call in the local desktop process, and the desktop is already unlocked; Mosaic does not write its own QR
+  segment encoder to close this gap (THREAT_MODEL R139).
 - The code carries no master password, no session token and no key derived from either. It has no label and
   uses no primitive.
 - The desktop shows it only after re-authentication with the master password, for at most 60 s. It hides the

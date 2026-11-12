@@ -129,7 +129,11 @@ Limits that users notice:
   free memory. The phone says "This phone needs more free memory to unlock. Close other apps and try again."
   Profiles never decrease (CRYPTO_SPEC §5.3), so such an account may not work on low-memory phones at all.
 - **Web autofill on Android** works only in browsers that send `webDomain` natively and are on the allowlist.
-  Chrome needs "Autofill using another service" turned on.
+  Chrome needs "Autofill using another service" turned on. A browser reports the `webDomain` on a container
+  node, not on each field, so the structure reader passes the nearest ancestor's `webDomain` (and `webScheme`) down
+  to the fields below it; a field's own value comes first. An allowlisted browser without any `webDomain` (its
+  address bar) is no target and gets no entries, and "No login for X" is never offered for a browser. The core
+  refuses to link a browser package to a login (M10-G2 H1).
 - **Hosted accounts only.** A folder account gets: "This account syncs through a folder. The phone apps support
   Mosaic sync for now."
 - **Re-key or Secret Key change elsewhere.** It needs "Set up this phone again". Unsynced local edits are then
