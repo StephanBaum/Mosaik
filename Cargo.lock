@@ -3263,6 +3263,7 @@ dependencies = [
  "p256 0.14.0",
  "pdf-writer",
  "proptest",
+ "qrcodegen",
  "rfd",
  "security-framework 3.7.0",
  "security-framework-sys",

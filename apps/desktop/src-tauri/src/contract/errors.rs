@@ -245,6 +245,9 @@ wire_enum!(
         /// Sharing and emergency access need the Mosaic server; a folder or
         /// no sync has neither.
         SharingNotHosted,
+        /// The setup code for a phone needs a hosted account; a folder or no
+        /// sync has none (M10).
+        SetupCodeNeedsServer,
         /// The contact's safety code has not been compared yet.
         SharingContactUnverified,
         /// The contact's key changed since it was pinned; compare the new code first.
