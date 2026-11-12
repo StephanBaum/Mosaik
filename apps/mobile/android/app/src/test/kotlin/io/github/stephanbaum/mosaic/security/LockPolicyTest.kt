@@ -109,6 +109,33 @@ class LockPolicyTest {
     }
 
     @Test
+    fun aLockEndsTheProviderFlowsSoAStaleFlowGrantsNoLaterGrace() {
+        val policy = policy()
+        policy.openProviderFlow("fill")
+        policy.onBackground()
+        now += 60_000
+        policy.tick()
+        assertEquals(1, locks)
+        // The user unlocks again later and leaves again: no flow is open, so the background rule applies at once.
+        unlocked = true
+        policy.onForeground()
+        policy.onBackground()
+        assertEquals(2, locks)
+    }
+
+    @Test
+    fun returningToTheForegroundEndsAnAbandonedProviderFlow() {
+        val policy = policy()
+        policy.openProviderFlow("fill")
+        policy.onBackground()
+        now += 5_000
+        policy.onForeground()
+        assertEquals(0, locks)
+        policy.onBackground()
+        assertEquals(1, locks)
+    }
+
+    @Test
     fun aPendingJoinIsNeverLockedAway() {
         joinPending = true
         val policy = policy()

@@ -426,11 +426,32 @@ object L10n {
     fun appName(r: Resources): String =
         r.getString(R.string.mobile_app_name)
 
+    fun autofillCannotCheck(r: Resources): String =
+        r.getString(R.string.mobile_autofill_cannotCheck)
+
+    fun autofillNoLogin(r: Resources, app: String): String =
+        r.getString(R.string.mobile_autofill_noLogin, app)
+
+    fun autofillNoLoginHint(r: Resources): String =
+        r.getString(R.string.mobile_autofill_noLoginHint)
+
+    fun autofillNoUsername(r: Resources): String =
+        r.getString(R.string.mobile_autofill_noUsername)
+
+    fun autofillOtpEntry(r: Resources): String =
+        r.getString(R.string.mobile_autofill_otpEntry)
+
     fun autofillTarget(r: Resources, app: String): String =
         r.getString(R.string.mobile_autofill_target, app)
 
     fun autofillTitle(r: Resources): String =
         r.getString(R.string.mobile_autofill_title)
+
+    fun autofillUnlockEntry(r: Resources): String =
+        r.getString(R.string.mobile_autofill_unlockEntry)
+
+    fun autofillWarning(r: Resources): String =
+        r.getString(R.string.mobile_autofill_warning)
 
     fun commonBack(r: Resources): String =
         r.getString(R.string.mobile_common_back)
@@ -473,6 +494,48 @@ object L10n {
 
     fun copyDone(r: Resources, seconds: Int): String =
         r.getQuantityString(R.plurals.mobile_copy_done, seconds, seconds)
+
+    fun credentialCreateBody(r: Resources, site: String, user: String): String =
+        r.getString(R.string.mobile_credential_createBody, site, user)
+
+    fun credentialCreateConfirm(r: Resources): String =
+        r.getString(R.string.mobile_credential_createConfirm)
+
+    fun credentialCreateEntry(r: Resources): String =
+        r.getString(R.string.mobile_credential_createEntry)
+
+    fun credentialCreateTitle(r: Resources): String =
+        r.getString(R.string.mobile_credential_createTitle)
+
+    fun credentialCreateVault(r: Resources): String =
+        r.getString(R.string.mobile_credential_createVault)
+
+    fun credentialPasskeyEntry(r: Resources): String =
+        r.getString(R.string.mobile_credential_passkeyEntry)
+
+    fun credentialPasswordEntry(r: Resources): String =
+        r.getString(R.string.mobile_credential_passwordEntry)
+
+    fun credentialUnlockEntry(r: Resources): String =
+        r.getString(R.string.mobile_credential_unlockEntry)
+
+    fun credentialUnsupported(r: Resources): String =
+        r.getString(R.string.mobile_credential_unsupported)
+
+    fun credentialVaultDefault(r: Resources): String =
+        r.getString(R.string.mobile_credential_vaultDefault)
+
+    fun credentialVerifyCreate(r: Resources, site: String): String =
+        r.getString(R.string.mobile_credential_verifyCreate, site)
+
+    fun credentialVerifyFailed(r: Resources): String =
+        r.getString(R.string.mobile_credential_verifyFailed)
+
+    fun credentialVerifySignIn(r: Resources, site: String): String =
+        r.getString(R.string.mobile_credential_verifySignIn, site)
+
+    fun credentialVerifyTitle(r: Resources): String =
+        r.getString(R.string.mobile_credential_verifyTitle)
 
     fun detailAttachments(r: Resources, count: Int): String =
         r.getQuantityString(R.plurals.mobile_detail_attachments, count, count)
@@ -680,6 +743,9 @@ object L10n {
 
     fun linkPackage(r: Resources): String =
         r.getString(R.string.mobile_link_package)
+
+    fun linkPickLogin(r: Resources, app: String): String =
+        r.getString(R.string.mobile_link_pickLogin, app)
 
     fun linkTitle(r: Resources): String =
         r.getString(R.string.mobile_link_title)

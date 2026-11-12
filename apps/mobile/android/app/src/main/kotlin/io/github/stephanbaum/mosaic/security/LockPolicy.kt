@@ -59,6 +59,8 @@ class LockPolicy(
         evaluate(now)
         backgroundedAt = null
         graceDeadline = null
+        // A flow only matters while the app is away: a provider activity opens its flow again once it is unlocked.
+        flows.clear()
         lastInteractionAt = now
     }
 
@@ -107,6 +109,9 @@ class LockPolicy(
     private fun lockNow() {
         if (!isUnlocked()) return
         if (joinPending()) return
+        // A lock ends every provider flow, so a flow that was abandoned cannot grant a later grace.
+        flows.clear()
+        graceDeadline = null
         lock()
     }
 

@@ -5,9 +5,9 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
-import android.content.pm.Signature
 import android.content.pm.SigningInfo
 import android.os.Build
+import io.github.stephanbaum.mosaic.autofill.Signers
 import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import java.security.MessageDigest
 
@@ -34,18 +34,7 @@ fun certificateDigest(certificate: ByteArray): ByteArray = MessageDigest.getInst
  * The current signers as the core wants them (CRYPTO_SPEC / ADR-0092): all of `apkContentsSigners` when there are
  * several, otherwise the last entry of the certificate history.
  */
-private fun currentSigners(signing: SigningInfo?): List<ByteArray> {
-    if (signing == null) return emptyList()
-    val signers: Array<Signature>? =
-        if (signing.hasMultipleSigners()) {
-            signing.apkContentsSigners
-        } else {
-            val history: Array<Signature>? = signing.signingCertificateHistory
-            val last: Signature? = history?.lastOrNull()
-            if (last == null) null else arrayOf(last)
-        }
-    return signers.orEmpty().map { certificateDigest(it.toByteArray()) }
-}
+private fun currentSigners(signing: SigningInfo?): List<ByteArray> = Signers.of(signing)
 
 @Suppress("DEPRECATION")
 private fun installerOf(pm: PackageManager, packageName: String): String? =

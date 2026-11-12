@@ -250,4 +250,28 @@ export const mobile = {
   "mobile.licences.intro": "Mosaic für Android besteht auch aus diesen Open-Source-Teilen.",
   "mobile.licences.rust":
     "Der Rust-Kern nutzt Open-Source-Crates. Ihre Lizenzen stehen im Quellcode-Repository des Projekts.",
+  // Android (T9): Autofill-Dienst und Credential-Manager-Anbieter.
+  "mobile.autofill.unlockEntry": "Mosaic entsperren",
+  "mobile.autofill.noLogin": "Kein Login für {app}",
+  "mobile.autofill.noLoginHint": "Tippe, um einen Login zu verknüpfen",
+  "mobile.autofill.cannotCheck": "Diese App konnte nicht geprüft werden",
+  "mobile.autofill.warning": "Prüfe zuerst die Adresse",
+  "mobile.autofill.noUsername": "Kein Benutzername",
+  "mobile.autofill.otpEntry": "Einmalcode",
+  "mobile.link.pickLogin": "Wähle den Login, den Mosaic in {app} ausfüllen soll.",
+  "mobile.credential.unlockEntry": "Mosaic entsperren",
+  "mobile.credential.passwordEntry": "Passwort",
+  "mobile.credential.passkeyEntry": "Passkey",
+  "mobile.credential.createEntry": "Passkey in Mosaic speichern",
+  "mobile.credential.createTitle": "Passkey speichern?",
+  "mobile.credential.createBody": "Mosaic speichert einen Passkey für {site} ({user}).",
+  "mobile.credential.createVault": "Speichern in",
+  "mobile.credential.vaultDefault": "Persönlicher Tresor",
+  "mobile.credential.createConfirm": "Passkey speichern",
+  "mobile.credential.verifyTitle": "Bestätige, dass du es bist",
+  "mobile.credential.verifySignIn": "Bei {site} anmelden",
+  "mobile.credential.verifyCreate": "Passkey für {site} speichern",
+  "mobile.credential.verifyFailed":
+    "Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.",
+  "mobile.credential.unsupported": "Mosaic kann diese Anfrage nicht bearbeiten.",
 } satisfies Record<keyof typeof en, string>;

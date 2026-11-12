@@ -543,12 +543,40 @@ public enum L10n {
         NSLocalizedString("mobile.app.name", bundle: .main, comment: "")
     }
 
+    public static func autofillCannotCheck() -> String {
+        NSLocalizedString("mobile.autofill.cannotCheck", bundle: .main, comment: "")
+    }
+
+    public static func autofillNoLogin(app: String) -> String {
+        String(format: NSLocalizedString("mobile.autofill.noLogin", bundle: .main, comment: ""), locale: .current, arguments: [app])
+    }
+
+    public static func autofillNoLoginHint() -> String {
+        NSLocalizedString("mobile.autofill.noLoginHint", bundle: .main, comment: "")
+    }
+
+    public static func autofillNoUsername() -> String {
+        NSLocalizedString("mobile.autofill.noUsername", bundle: .main, comment: "")
+    }
+
+    public static func autofillOtpEntry() -> String {
+        NSLocalizedString("mobile.autofill.otpEntry", bundle: .main, comment: "")
+    }
+
     public static func autofillTarget(app: String) -> String {
         String(format: NSLocalizedString("mobile.autofill.target", bundle: .main, comment: ""), locale: .current, arguments: [app])
     }
 
     public static func autofillTitle() -> String {
         NSLocalizedString("mobile.autofill.title", bundle: .main, comment: "")
+    }
+
+    public static func autofillUnlockEntry() -> String {
+        NSLocalizedString("mobile.autofill.unlockEntry", bundle: .main, comment: "")
+    }
+
+    public static func autofillWarning() -> String {
+        NSLocalizedString("mobile.autofill.warning", bundle: .main, comment: "")
     }
 
     public static func commonBack() -> String {
@@ -605,6 +633,62 @@ public enum L10n {
 
     public static func copyDone(seconds: Int) -> String {
         String(format: NSLocalizedString("mobile.copy.done", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
+    }
+
+    public static func credentialCreateBody(site: String, user: String) -> String {
+        String(format: NSLocalizedString("mobile.credential.createBody", bundle: .main, comment: ""), locale: .current, arguments: [site, user])
+    }
+
+    public static func credentialCreateConfirm() -> String {
+        NSLocalizedString("mobile.credential.createConfirm", bundle: .main, comment: "")
+    }
+
+    public static func credentialCreateEntry() -> String {
+        NSLocalizedString("mobile.credential.createEntry", bundle: .main, comment: "")
+    }
+
+    public static func credentialCreateTitle() -> String {
+        NSLocalizedString("mobile.credential.createTitle", bundle: .main, comment: "")
+    }
+
+    public static func credentialCreateVault() -> String {
+        NSLocalizedString("mobile.credential.createVault", bundle: .main, comment: "")
+    }
+
+    public static func credentialPasskeyEntry() -> String {
+        NSLocalizedString("mobile.credential.passkeyEntry", bundle: .main, comment: "")
+    }
+
+    public static func credentialPasswordEntry() -> String {
+        NSLocalizedString("mobile.credential.passwordEntry", bundle: .main, comment: "")
+    }
+
+    public static func credentialUnlockEntry() -> String {
+        NSLocalizedString("mobile.credential.unlockEntry", bundle: .main, comment: "")
+    }
+
+    public static func credentialUnsupported() -> String {
+        NSLocalizedString("mobile.credential.unsupported", bundle: .main, comment: "")
+    }
+
+    public static func credentialVaultDefault() -> String {
+        NSLocalizedString("mobile.credential.vaultDefault", bundle: .main, comment: "")
+    }
+
+    public static func credentialVerifyCreate(site: String) -> String {
+        String(format: NSLocalizedString("mobile.credential.verifyCreate", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func credentialVerifyFailed() -> String {
+        NSLocalizedString("mobile.credential.verifyFailed", bundle: .main, comment: "")
+    }
+
+    public static func credentialVerifySignIn(site: String) -> String {
+        String(format: NSLocalizedString("mobile.credential.verifySignIn", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func credentialVerifyTitle() -> String {
+        NSLocalizedString("mobile.credential.verifyTitle", bundle: .main, comment: "")
     }
 
     public static func detailAttachments(count: Int) -> String {
@@ -881,6 +965,10 @@ public enum L10n {
 
     public static func linkPackage() -> String {
         NSLocalizedString("mobile.link.package", bundle: .main, comment: "")
+    }
+
+    public static func linkPickLogin(app: String) -> String {
+        String(format: NSLocalizedString("mobile.link.pickLogin", bundle: .main, comment: ""), locale: .current, arguments: [app])
     }
 
     public static func linkTitle() -> String {

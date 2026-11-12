@@ -81,7 +81,11 @@ class MosaicApp : Application() {
         object : Runnable {
             override fun run() {
                 lockPolicy.tick()
-                handler.postDelayed(this, TICK_MS)
+                // In the background the ticker runs only while the session is open: a background delay or the
+                // provider grace (ADR-0094) must lock on time even when no screen comes back to the front.
+                if (foregroundState.value || holder.state() is SessionState.Unlocked) {
+                    handler.postDelayed(this, TICK_MS)
+                }
             }
         }
 
@@ -118,6 +122,7 @@ class MosaicApp : Application() {
                     if (startedActivities == 1) {
                         foregroundState.value = true
                         lockPolicy.onForeground()
+                        handler.removeCallbacks(ticker)
                         handler.postDelayed(ticker, TICK_MS)
                     }
                 }
@@ -127,7 +132,6 @@ class MosaicApp : Application() {
                     // A configuration change stops and starts the activity again: that is not a background.
                     if (startedActivities == 0 && !activity.isChangingConfigurations) {
                         foregroundState.value = false
-                        handler.removeCallbacks(ticker)
                         lockPolicy.onBackground()
                     }
                 }

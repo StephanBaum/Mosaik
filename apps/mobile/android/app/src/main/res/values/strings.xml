@@ -125,8 +125,15 @@
   <string name="mobile_about_preAudit">Mosaic is pre-audit software. No independent security audit has happened yet.</string>
   <string name="mobile_about_privacy">No analytics, no tracking and no crash reports leave this phone.</string>
   <string name="mobile_app_name">Mosaic</string>
+  <string name="mobile_autofill_cannotCheck">Could not check this app</string>
+  <string name="mobile_autofill_noLogin">No login for %1$s</string>
+  <string name="mobile_autofill_noLoginHint">Tap to link a login</string>
+  <string name="mobile_autofill_noUsername">No user name</string>
+  <string name="mobile_autofill_otpEntry">One-time code</string>
   <string name="mobile_autofill_target">Fill in %1$s?</string>
   <string name="mobile_autofill_title">Fill from Mosaic</string>
+  <string name="mobile_autofill_unlockEntry">Unlock Mosaic</string>
+  <string name="mobile_autofill_warning">Check the address first</string>
   <string name="mobile_common_back">Back</string>
   <string name="mobile_common_cancel">Cancel</string>
   <string name="mobile_common_close">Close</string>
@@ -144,6 +151,20 @@
     <item quantity="one">Copied. It clears from the clipboard in %1$d second.</item>
     <item quantity="other">Copied. It clears from the clipboard in %1$d seconds.</item>
   </plurals>
+  <string name="mobile_credential_createBody">Mosaic will save a passkey for %1$s (%2$s).</string>
+  <string name="mobile_credential_createConfirm">Save passkey</string>
+  <string name="mobile_credential_createEntry">Save passkey in Mosaic</string>
+  <string name="mobile_credential_createTitle">Save a passkey?</string>
+  <string name="mobile_credential_createVault">Save in</string>
+  <string name="mobile_credential_passkeyEntry">Passkey</string>
+  <string name="mobile_credential_passwordEntry">Password</string>
+  <string name="mobile_credential_unlockEntry">Unlock Mosaic</string>
+  <string name="mobile_credential_unsupported">Mosaic can\'t handle this request.</string>
+  <string name="mobile_credential_vaultDefault">Personal vault</string>
+  <string name="mobile_credential_verifyCreate">Save a passkey for %1$s</string>
+  <string name="mobile_credential_verifyFailed">Mosaic could not confirm that it is you. Try again.</string>
+  <string name="mobile_credential_verifySignIn">Sign in to %1$s</string>
+  <string name="mobile_credential_verifyTitle">Confirm that it is you</string>
   <plurals name="mobile_detail_attachments">
     <item quantity="one">%1$d file is attached. Open it on your computer.</item>
     <item quantity="other">%1$d files are attached. Open them on your computer.</item>
@@ -219,6 +240,7 @@
   <string name="mobile_link_noApps">No other apps found.</string>
   <string name="mobile_link_notVerified">Not verified</string>
   <string name="mobile_link_package">Package</string>
+  <string name="mobile_link_pickLogin">Choose the login Mosaic should fill in %1$s.</string>
   <string name="mobile_link_title">Link an app</string>
   <string name="mobile_link_unavailable">Could not check</string>
   <string name="mobile_link_verified">Verified by %1$s</string>

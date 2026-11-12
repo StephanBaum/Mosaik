@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Minimal permissions (docs/MOBILE.md): network for sync, biometrics for quick unlock, and the
          camera only for scanning a setup code (requested at runtime, at that moment). -->
@@ -43,5 +44,52 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The unlock and tap step of the Autofill service. Not exported: only the pending intents of the
+             service's own responses start it. -->
+        <activity
+            android:name=".autofill.FillAuthActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- The ceremony step of the Credential Manager provider; started only by the provider's entries. -->
+        <activity
+            android:name=".provider.CredentialActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            tools:targetApi="upside_down_cake" />
+
+        <!-- The Autofill service. The system binds it, so it is exported and guarded by the bind permission. -->
+        <service
+            android:name=".autofill.MosaicAutofillService"
+            android:exported="true"
+            android:label="@string/mobile_app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- The Credential Manager provider (API 34+): passwords and passkeys. -->
+        <service
+            android:name=".provider.MosaicCredentialProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/mobile_app_name"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE"
+            tools:targetApi="upside_down_cake">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/credential_provider" />
+        </service>
     </application>
 </manifest>

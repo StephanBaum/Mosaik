@@ -31,6 +31,7 @@ import io.github.stephanbaum.mosaic.ffi.ItemKind
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import io.github.stephanbaum.mosaic.ui.link.LinkAppScreen
+import io.github.stephanbaum.mosaic.ui.link.PickLoginScreen
 import io.github.stephanbaum.mosaic.ui.settings.LicencesScreen
 import io.github.stephanbaum.mosaic.ui.settings.SettingsScreen
 import io.github.stephanbaum.mosaic.ui.theme.MosaicSpace
@@ -49,6 +50,9 @@ sealed interface Screen {
 
     class Link(val vaultId: String, val itemId: String, val initialPackage: String?) : Screen
 
+    /** Choose the login to link to the app [packageName] (from the "No login for this app" entry). */
+    class PickLogin(val packageName: String) : Screen
+
     data object Licences : Screen
 }
 
@@ -58,11 +62,25 @@ sealed interface Screen {
  * shell, which wipes every revealed value on its way out.
  */
 @Composable
-fun MainShell(app: MosaicApp, quickUnlockEnrolled: Boolean, initialLink: Screen.Link? = null) {
+fun MainShell(
+    app: MosaicApp,
+    quickUnlockEnrolled: Boolean,
+    initialLink: Screen.Link? = null,
+    initialPickPackage: String? = null,
+) {
     val resources = LocalContext.current.resources
     var tab by remember { mutableStateOf(Tab.Vault) }
     var version by remember { mutableIntStateOf(0) }
-    val stack = remember { mutableStateListOf<Screen>().also { if (initialLink != null) it.add(initialLink) } }
+    val stack =
+        remember {
+            mutableStateListOf<Screen>().also {
+                if (initialLink != null) {
+                    it.add(initialLink)
+                } else if (initialPickPackage != null) {
+                    it.add(Screen.PickLogin(initialPickPackage))
+                }
+            }
+        }
     val top: Screen? = stack.lastOrNull()
 
     BackHandler(enabled = stack.isNotEmpty()) { stack.removeAt(stack.lastIndex) }
@@ -147,8 +165,16 @@ fun MainShell(app: MosaicApp, quickUnlockEnrolled: Boolean, initialLink: Screen.
                         initialPackage = top.initialPackage,
                         onDone = {
                             version += 1
-                            pop()
+                            // Linked from the "No login for this app" entry: the picker below is done too.
+                            if (top.initialPackage != null) stack.clear() else pop()
                         },
+                        onCancel = { pop() },
+                    )
+                is Screen.PickLogin ->
+                    PickLoginScreen(
+                        packageName = top.packageName,
+                        app = app,
+                        onPick = { stack.add(Screen.Link(it.vaultId, it.itemId, top.packageName)) },
                         onCancel = { pop() },
                     )
                 Screen.Licences -> LicencesScreen(onBack = { pop() })

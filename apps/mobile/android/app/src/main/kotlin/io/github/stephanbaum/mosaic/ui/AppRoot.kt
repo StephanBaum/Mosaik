@@ -28,7 +28,7 @@ import kotlinx.coroutines.CancellationException
  * unlocked one the home screen. The state is read again whenever the session epoch changes (a lock, a join).
  */
 @Composable
-fun AppRoot(app: MosaicApp) {
+fun AppRoot(app: MosaicApp, linkPackage: String? = null) {
     val resources = LocalContext.current.resources
     val epoch by app.sessionEpoch.collectAsState()
     val foreground by app.foreground.collectAsState()
@@ -69,7 +69,7 @@ fun AppRoot(app: MosaicApp) {
     } else if (current is SessionState.Locked) {
         UnlockScreen(app = app, state = current)
     } else if (current is SessionState.Unlocked) {
-        MainShell(app = app, quickUnlockEnrolled = current.quickUnlockEnrolled)
+        MainShell(app = app, quickUnlockEnrolled = current.quickUnlockEnrolled, initialPickPackage = linkPackage)
     } else if (current is SessionState.NoAccount) {
         ScreenFrame { }
     } else {

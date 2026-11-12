@@ -125,8 +125,15 @@
   <string name="mobile_about_preAudit">Mosaic ist Pre-Audit-Software. Ein unabhängiges Sicherheitsaudit hat noch nicht stattgefunden.</string>
   <string name="mobile_about_privacy">Keine Analysen, kein Tracking und keine Absturzberichte verlassen dieses Telefon.</string>
   <string name="mobile_app_name">Mosaic</string>
+  <string name="mobile_autofill_cannotCheck">Diese App konnte nicht geprüft werden</string>
+  <string name="mobile_autofill_noLogin">Kein Login für %1$s</string>
+  <string name="mobile_autofill_noLoginHint">Tippe, um einen Login zu verknüpfen</string>
+  <string name="mobile_autofill_noUsername">Kein Benutzername</string>
+  <string name="mobile_autofill_otpEntry">Einmalcode</string>
   <string name="mobile_autofill_target">%1$s ausfüllen?</string>
   <string name="mobile_autofill_title">Mit Mosaic ausfüllen</string>
+  <string name="mobile_autofill_unlockEntry">Mosaic entsperren</string>
+  <string name="mobile_autofill_warning">Prüfe zuerst die Adresse</string>
   <string name="mobile_common_back">Zurück</string>
   <string name="mobile_common_cancel">Abbrechen</string>
   <string name="mobile_common_close">Schließen</string>
@@ -144,6 +151,20 @@
     <item quantity="one">Kopiert. Die Zwischenablage wird in %1$d Sekunde geleert.</item>
     <item quantity="other">Kopiert. Die Zwischenablage wird in %1$d Sekunden geleert.</item>
   </plurals>
+  <string name="mobile_credential_createBody">Mosaic speichert einen Passkey für %1$s (%2$s).</string>
+  <string name="mobile_credential_createConfirm">Passkey speichern</string>
+  <string name="mobile_credential_createEntry">Passkey in Mosaic speichern</string>
+  <string name="mobile_credential_createTitle">Passkey speichern?</string>
+  <string name="mobile_credential_createVault">Speichern in</string>
+  <string name="mobile_credential_passkeyEntry">Passkey</string>
+  <string name="mobile_credential_passwordEntry">Passwort</string>
+  <string name="mobile_credential_unlockEntry">Mosaic entsperren</string>
+  <string name="mobile_credential_unsupported">Mosaic kann diese Anfrage nicht bearbeiten.</string>
+  <string name="mobile_credential_vaultDefault">Persönlicher Tresor</string>
+  <string name="mobile_credential_verifyCreate">Passkey für %1$s speichern</string>
+  <string name="mobile_credential_verifyFailed">Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.</string>
+  <string name="mobile_credential_verifySignIn">Bei %1$s anmelden</string>
+  <string name="mobile_credential_verifyTitle">Bestätige, dass du es bist</string>
   <plurals name="mobile_detail_attachments">
     <item quantity="one">%1$d Datei ist angehängt. Öffne sie auf deinem Computer.</item>
     <item quantity="other">%1$d Dateien sind angehängt. Öffne sie auf deinem Computer.</item>
@@ -219,6 +240,7 @@
   <string name="mobile_link_noApps">Keine weiteren Apps gefunden.</string>
   <string name="mobile_link_notVerified">Nicht bestätigt</string>
   <string name="mobile_link_package">Paket</string>
+  <string name="mobile_link_pickLogin">Wähle den Login, den Mosaic in %1$s ausfüllen soll.</string>
   <string name="mobile_link_title">App verknüpfen</string>
   <string name="mobile_link_unavailable">Konnte nicht geprüft werden</string>
   <string name="mobile_link_verified">Bestätigt durch %1$s</string>
