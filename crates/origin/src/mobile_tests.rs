@@ -237,6 +237,22 @@ fn web_domain_from_allowlisted_browser_is_page_origin() {
 }
 
 #[test]
+fn allowlisted_browser_without_web_domain_is_refused() {
+    let cert = first_cert("com.android.chrome").unwrap();
+    let certs = [cert];
+    assert_eq!(
+        android_fill_target(&caller("com.android.chrome", &certs, None, None)),
+        Err(TargetError::BrowserWithoutDomain)
+    );
+    assert!(crate::android_browsers::is_browser_package(
+        "com.android.chrome"
+    ));
+    assert!(!crate::android_browsers::is_browser_package(
+        "com.example.app"
+    ));
+}
+
+#[test]
 fn web_scheme_http_from_browser_is_refused_without_allow_http() {
     let cert = first_cert("com.android.chrome").unwrap();
     let certs = [cert];

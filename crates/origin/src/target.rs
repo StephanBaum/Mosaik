@@ -23,6 +23,10 @@ pub enum TargetError {
     /// The result is not a canonical origin.
     #[error("not an origin")]
     NotAnOrigin,
+    /// An allowlisted browser sent no `webDomain`: the page is unknown, and
+    /// the browser app itself is never a fill target (M10-G2 H1).
+    #[error("browser without a web domain")]
+    BrowserWithoutDomain,
 }
 
 /// What a fill is for.
@@ -86,6 +90,9 @@ pub fn android_fill_target(caller: &AndroidCaller<'_>) -> Result<FillTarget, Tar
         let origin = PageOrigin::parse(&format!("{scheme}://{}", domain.to_ascii_lowercase()))
             .map_err(|_| TargetError::NotAnOrigin)?;
         return Ok(web(origin));
+    }
+    if is_trusted_browser(caller.package, caller.certs) {
+        return Err(TargetError::BrowserWithoutDomain);
     }
     Ok(FillTarget::AndroidApp {
         package: caller.package.to_owned(),

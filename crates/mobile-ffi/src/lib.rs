@@ -109,6 +109,13 @@ pub fn mobile_error_codes() -> Vec<String> {
     m::error_codes().into_iter().map(str::to_owned).collect()
 }
 
+/// The AAD of an Android secure-store file for `name` (CRYPTO_SPEC §6.9.1).
+/// The app passes it to AES-GCM, so the construction exists once, in Rust.
+#[uniffi::export]
+pub fn secure_store_aad(name: String) -> Vec<u8> {
+    m::secure_store_aad(&name)
+}
+
 /// The version of the library.
 #[uniffi::export]
 pub fn core_version() -> String {
@@ -567,5 +574,25 @@ mod hook_tests {
         core.close_store();
         drop(core);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod aad_tests {
+    use std::fmt::Write as _;
+
+    use super::secure_store_aad;
+
+    /// The vector the Kotlin test `secureStoreAadIsTheCoresExport` pins too.
+    #[test]
+    fn secure_store_aad_has_the_fixed_vector() {
+        let mut hex = String::new();
+        for byte in secure_store_aad("secret-key/0123".to_owned()) {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        assert_eq!(
+            hex,
+            "016d6f736169632f76312f6d6f62696c652f7365637572652d73746f7265000000000f7365637265742d6b65792f30313233"
+        );
     }
 }

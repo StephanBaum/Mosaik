@@ -347,6 +347,8 @@ pub(crate) fn single_signer(certs: &[Vec<u8>]) -> Result<[u8; 32]> {
 fn target_error(e: TargetError) -> MobileError {
     match e {
         TargetError::Scheme => MobileError::InsecureOrigin,
+        // A browser screen without a page (the address bar): nothing to fill.
+        TargetError::BrowserWithoutDomain => MobileError::NoMatch,
         _ => MobileError::InvalidInput,
     }
 }
@@ -539,7 +541,8 @@ impl Core {
     ///
     /// # Errors
     /// `invalidInput` (a bad package, certificate or domain), `insecureOrigin`
-    /// (a scheme that is neither `http` nor `https`).
+    /// (a scheme that is neither `http` nor `https`), `noMatch` (an allowlisted
+    /// browser that sent no `webDomain`: the browser app is never a target).
     pub fn fill_target_android(&self, caller: AndroidCaller) -> Result<FillTarget> {
         self.require_platform(Platform::Android)?;
         let certs = certs_of(&caller.current_signers)?;
@@ -767,6 +770,11 @@ impl Core {
         caller: AndroidCaller,
     ) -> Result<()> {
         self.require_platform(Platform::Android)?;
+        // A browser is a web client: linking it would make the login fill on
+        // every site (M10-G2 H1).
+        if mosaic_origin::android_browsers::is_browser_package(&caller.package) {
+            return Err(MobileError::InvalidInput);
+        }
         let (vault, id) = parse_item_key(vault_id, item_id)?;
         // The one current signer binds the app (the one `android_app_origin`
         // uses); several are refused (G1-9).

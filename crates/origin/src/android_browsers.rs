@@ -71,6 +71,13 @@ pub fn is_trusted_browser(package: &str, certs: &[[u8; 32]]) -> bool {
         .any(|(p, known)| p == package && known.contains(cert))
 }
 
+/// Whether the package name is an allowlisted browser, whatever its signer. A
+/// browser is never a login target by package: its fills are for web pages.
+#[must_use]
+pub fn is_browser_package(package: &str) -> bool {
+    entries().iter().any(|(p, _)| p == package)
+}
+
 /// The number of allowlisted packages (for tests).
 #[cfg(test)]
 pub(crate) fn package_count() -> usize {
