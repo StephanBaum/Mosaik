@@ -58,16 +58,35 @@ list_symbols() {
       # Apple's nm has no -D; llvm-nm and GNU nm read the export table with --defined-only.
       "$nm_tool" -C --defined-only "$library" 2>/dev/null || "$nm_tool" -U "$library" 2>/dev/null
       ;;
+    *.a)
+      # A Rust static archive also holds members that are not objects (`lib.rmeta`), and Apple's nm
+      # exits non-zero on them while still listing every object. The exit status is therefore not
+      # used for archives; instead the listing must show the UniFFI scaffolding of the FFI crate,
+      # which proves the crate's own objects were read.
+      "$nm_tool" -C "$library" 2>"$errors" || true
+      ;;
     *)
-      "$nm_tool" -C --defined-only "$library" 2>/dev/null || "$nm_tool" -C "$library" 2>/dev/null
+      "$nm_tool" -C --defined-only "$library" 2>"$errors" || "$nm_tool" -C "$library" 2>>"$errors"
       ;;
   esac
 }
 
+errors="$(mktemp)"
+trap 'rm -f "$symbols" "$errors"' EXIT
 if ! list_symbols >"$symbols"; then
   echo "error: $nm_tool could not read $library" >&2
+  head -5 "$errors" >&2
   exit 2
 fi
+case "$library" in
+  *.a)
+    if ! grep -q 'uniffi_mosaic' "$symbols"; then
+      echo "error: $nm_tool did not list the FFI crate's objects in $library (this is not a pass)" >&2
+      head -5 "$errors" >&2
+      exit 2
+    fi
+    ;;
+esac
 if [ ! -s "$symbols" ]; then
   echo "error: $nm_tool listed no symbol of $library (a stripped or wrong file: this is not a pass)" >&2
   exit 2
