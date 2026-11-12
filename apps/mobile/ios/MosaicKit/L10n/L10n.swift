@@ -1035,6 +1035,18 @@ public enum L10n {
         NSLocalizedString("mobile.onboarding.details.email", bundle: .main, comment: "")
     }
 
+    public static func onboardingDetailsKeyFromCode() -> String {
+        NSLocalizedString("mobile.onboarding.details.keyFromCode", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDetailsScanOr() -> String {
+        NSLocalizedString("mobile.onboarding.details.scanOr", bundle: .main, comment: "")
+    }
+
+    public static func onboardingDetailsScanned() -> String {
+        NSLocalizedString("mobile.onboarding.details.scanned", bundle: .main, comment: "")
+    }
+
     public static func onboardingDetailsSecretKey() -> String {
         NSLocalizedString("mobile.onboarding.details.secretKey", bundle: .main, comment: "")
     }
@@ -1133,6 +1145,58 @@ public enum L10n {
 
     public static func onboardingWelcomeTitle() -> String {
         NSLocalizedString("mobile.onboarding.welcome.title", bundle: .main, comment: "")
+    }
+
+    public static func scanAllow() -> String {
+        NSLocalizedString("mobile.scan.allow", bundle: .main, comment: "")
+    }
+
+    public static func scanDenied() -> String {
+        NSLocalizedString("mobile.scan.denied", bundle: .main, comment: "")
+    }
+
+    public static func scanLooking() -> String {
+        NSLocalizedString("mobile.scan.looking", bundle: .main, comment: "")
+    }
+
+    public static func scanNotSetupCode() -> String {
+        NSLocalizedString("mobile.scan.notSetupCode", bundle: .main, comment: "")
+    }
+
+    public static func scanNotSetupCodeHelp() -> String {
+        NSLocalizedString("mobile.scan.notSetupCodeHelp", bundle: .main, comment: "")
+    }
+
+    public static func scanOpenSettings() -> String {
+        NSLocalizedString("mobile.scan.openSettings", bundle: .main, comment: "")
+    }
+
+    public static func scanOtpAction() -> String {
+        NSLocalizedString("mobile.scan.otpAction", bundle: .main, comment: "")
+    }
+
+    public static func scanOtpHint() -> String {
+        NSLocalizedString("mobile.scan.otpHint", bundle: .main, comment: "")
+    }
+
+    public static func scanOtpTitle() -> String {
+        NSLocalizedString("mobile.scan.otpTitle", bundle: .main, comment: "")
+    }
+
+    public static func scanPreview() -> String {
+        NSLocalizedString("mobile.scan.preview", bundle: .main, comment: "")
+    }
+
+    public static func scanRationale() -> String {
+        NSLocalizedString("mobile.scan.rationale", bundle: .main, comment: "")
+    }
+
+    public static func scanSetupAction() -> String {
+        NSLocalizedString("mobile.scan.setupAction", bundle: .main, comment: "")
+    }
+
+    public static func scanUnavailable() -> String {
+        NSLocalizedString("mobile.scan.unavailable", bundle: .main, comment: "")
     }
 
     public static func searchHint() -> String {

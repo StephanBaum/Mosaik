@@ -83,6 +83,12 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // The Credential Manager provider API (passwords and passkeys, API 34+): the framework slices are built by it.
     implementation(libs.androidx.credentials)
+    // The setup code and TOTP scanners (ADR-0096): CameraX for the preview and the Y-plane analysis. No ML Kit,
+    // no Google Play services; the core decodes the QR code.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)

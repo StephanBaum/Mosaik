@@ -4238,6 +4238,57 @@
         }
       }
     },
+    "mobile.onboarding.details.keyFromCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Key aus dem Einrichtungscode"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Secret Key from the setup code"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.details.scanOr" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oder gib die Angaben von Hand ein"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Or enter the details by hand"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.details.scanned" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server, E-Mail und Secret Key sind aus dem Einrichtungscode übernommen. Prüfe sie und fahre dann fort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Server, email and Secret Key are filled in from the setup code. Check them, then continue."
+          }
+        }
+      }
+    },
     "mobile.onboarding.details.secretKey" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4659,6 +4710,227 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Set up Mosaic on this phone"
+          }
+        }
+      }
+    },
+    "mobile.scan.allow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kamera erlauben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow the camera"
+          }
+        }
+      }
+    },
+    "mobile.scan.denied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic darf die Kamera nicht nutzen. Erlaube sie in den Einstellungen dieses Handys, oder gib die Angaben von Hand ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic can't use the camera. Allow it in the settings of this phone to scan, or enter the details by hand."
+          }
+        }
+      }
+    },
+    "mobile.scan.looking" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suche nach einem QR-Code"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Looking for a QR code"
+          }
+        }
+      }
+    },
+    "mobile.scan.notSetupCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Mosaic-Einrichtungscode"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not a Mosaic setup code"
+          }
+        }
+      }
+    },
+    "mobile.scan.notSetupCodeHelp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halte die Kamera auf den Code, den Mosaic auf deinem Computer in den Einstellungen unter Sync zeigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold the camera over the code that Mosaic shows on your computer, in Settings under Sync."
+          }
+        }
+      }
+    },
+    "mobile.scan.openSettings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open settings"
+          }
+        }
+      }
+    },
+    "mobile.scan.otpAction" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR-Code scannen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan a QR code"
+          }
+        }
+      }
+    },
+    "mobile.scan.otpHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halte die Kamera auf den QR-Code der Website. Mosaic liest ihn nur auf diesem Handy."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold the camera over the QR code of the website. Mosaic reads it on this phone only."
+          }
+        }
+      }
+    },
+    "mobile.scan.otpTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einmalcode scannen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan the one-time code"
+          }
+        }
+      }
+    },
+    "mobile.scan.preview" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kamerabild"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera view"
+          }
+        }
+      }
+    },
+    "mobile.scan.rationale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic nutzt die Kamera nur, um diesen QR-Code zu lesen. Es wird nichts gespeichert oder gesendet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic uses the camera only to read this QR code. Nothing is saved or sent."
+          }
+        }
+      }
+    },
+    "mobile.scan.setupAction" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einrichtungscode scannen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan setup code"
+          }
+        }
+      }
+    },
+    "mobile.scan.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic konnte die Kamera nicht starten. Gib die Angaben von Hand ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic couldn't start the camera. Enter the details by hand."
           }
         }
       }

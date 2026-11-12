@@ -32,6 +32,9 @@ import io.github.stephanbaum.mosaic.ffi.NoteDraft
 import io.github.stephanbaum.mosaic.ffi.OtpEdit
 import io.github.stephanbaum.mosaic.ffi.SecretValue
 import io.github.stephanbaum.mosaic.ffi.UrlDraft
+import io.github.stephanbaum.mosaic.scan.ScanLayout
+import io.github.stephanbaum.mosaic.scan.ScanScreen
+import io.github.stephanbaum.mosaic.scan.ScanTarget
 import io.github.stephanbaum.mosaic.security.SecretField
 import io.github.stephanbaum.mosaic.security.SecretFieldState
 import io.github.stephanbaum.mosaic.security.SecretText
@@ -96,6 +99,7 @@ fun LoginEditorScreen(
     var pendingId by remember { mutableStateOf<String?>(null) }
     var pendingName by remember { mutableStateOf("") }
     var showGenerator by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var errorCode by remember { mutableStateOf<String?>(null) }
     val urls = remember { mutableStateListOf<UrlEntry>() }
@@ -259,9 +263,25 @@ fun LoginEditorScreen(
             } else if (otpRemoved) {
                 BodyText(L10n.editorOtpRemoved(resources))
             }
-            if (ready == null) {
+            if (ready == null && scanning) {
+                ScanScreen(
+                    app = app,
+                    target = ScanTarget.Otp,
+                    layout = ScanLayout.Embedded,
+                    onSetupCode = {},
+                    onOtp = { preview ->
+                        pendingId = preview.pendingId
+                        pendingName = preview.issuer ?: preview.accountName ?: ""
+                        otpRemoved = false
+                        errorCode = null
+                        scanning = false
+                    },
+                    onCancel = { scanning = false },
+                )
+            } else if (ready == null) {
                 SecretField(state = otpState, label = L10n.editorOtpInput(resources), enabled = !busy, onSubmit = { addOtp() })
                 SecondaryButton(L10n.editorOtpAdd(resources), enabled = !busy, onClick = { addOtp() })
+                SecondaryButton(L10n.scanOtpAction(resources), enabled = !busy, onClick = { scanning = true })
             }
             CheckRow(checked = favorite, onCheckedChange = { favorite = it }, label = L10n.editorFavorite(resources), enabled = !busy)
             val failure = errorCode

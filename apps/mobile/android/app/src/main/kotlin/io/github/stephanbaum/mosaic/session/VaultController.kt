@@ -11,6 +11,7 @@ import io.github.stephanbaum.mosaic.ffi.ItemFilter
 import io.github.stephanbaum.mosaic.ffi.ItemKey
 import io.github.stephanbaum.mosaic.ffi.ItemSummary
 import io.github.stephanbaum.mosaic.ffi.LoginDraft
+import io.github.stephanbaum.mosaic.ffi.LumaFrame
 import io.github.stephanbaum.mosaic.ffi.MobileSettings
 import io.github.stephanbaum.mosaic.ffi.NoteDraft
 import io.github.stephanbaum.mosaic.ffi.OtpCode
@@ -97,6 +98,13 @@ class VaultController(
                 text.wipe()
             }
         }
+
+    /**
+     * Looks for an `otpauth://` QR code in one camera frame (the scanner of the login editor). Null: no code in
+     * this frame. A found code waits in the core as a pending setup, like a typed one. The frame is wiped by the
+     * scanner afterwards.
+     */
+    suspend fun scanOtpQr(frame: LumaFrame): Outcome<OtpPreview?> = guarded { holder.call { it.scanOtpQr(frame) } }
 
     suspend fun assetLinksStatus(vaultId: String, itemId: String, app: AndroidCaller): Outcome<AssetLinksStatus> =
         guarded { holder.call { it.assetLinksStatus(vaultId, itemId, app) } }

@@ -9,12 +9,14 @@ import io.github.stephanbaum.mosaic.ffi.HandoffInfo
 import io.github.stephanbaum.mosaic.ffi.HandoffStatus
 import io.github.stephanbaum.mosaic.ffi.JoinHostedRequest
 import io.github.stephanbaum.mosaic.ffi.JoinOutcome
+import io.github.stephanbaum.mosaic.ffi.LumaFrame
 import io.github.stephanbaum.mosaic.ffi.MobileSettings
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockAvailability
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockPlatform
 import io.github.stephanbaum.mosaic.ffi.QuickUnlockSetup
 import io.github.stephanbaum.mosaic.ffi.ServerInfo
 import io.github.stephanbaum.mosaic.ffi.SessionState
+import io.github.stephanbaum.mosaic.ffi.SetupCode
 import io.github.stephanbaum.mosaic.security.BiometricGate
 import io.github.stephanbaum.mosaic.security.ErrorCodes
 import io.github.stephanbaum.mosaic.security.MemoryCheck
@@ -90,6 +92,12 @@ class SessionController(
     }
 
     // ---- onboarding -----------------------------------------------------------------------------
+
+    /**
+     * Looks for the desktop's setup code in one camera frame (onboarding). Null: no setup code in this frame;
+     * other QR codes are dropped unread by the core. The Secret Key in a found code is the caller's to wipe.
+     */
+    suspend fun scanSetupQr(frame: LumaFrame): Outcome<SetupCode?> = guarded { holder.call { it.scanSetupQr(frame) } }
 
     suspend fun checkServer(url: String): Outcome<ServerInfo> = guarded { holder.call { it.preloginCheck(url) } }
 

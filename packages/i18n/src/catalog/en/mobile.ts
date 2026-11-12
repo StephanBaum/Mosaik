@@ -275,4 +275,26 @@ export const mobile = {
   "mobile.settings.credentialHint":
     "Passkeys and saved passwords can also be offered through the system's credential picker.",
   "mobile.settings.credentialEnable": "Use Mosaic for passkeys and passwords",
+  // Android (T13): the setup code and one-time code scanners (CameraX, no Play services).
+  "mobile.scan.setupAction": "Scan setup code",
+  "mobile.scan.otpAction": "Scan a QR code",
+  "mobile.scan.otpTitle": "Scan the one-time code",
+  "mobile.scan.otpHint":
+    "Hold the camera over the QR code of the website. Mosaic reads it on this phone only.",
+  "mobile.scan.preview": "Camera view",
+  "mobile.scan.looking": "Looking for a QR code",
+  "mobile.scan.notSetupCode": "Not a Mosaic setup code",
+  "mobile.scan.notSetupCodeHelp":
+    "Hold the camera over the code that Mosaic shows on your computer, in Settings under Sync.",
+  "mobile.scan.rationale":
+    "Mosaic uses the camera only to read this QR code. Nothing is saved or sent.",
+  "mobile.scan.allow": "Allow the camera",
+  "mobile.scan.denied":
+    "Mosaic can't use the camera. Allow it in the settings of this phone to scan, or enter the details by hand.",
+  "mobile.scan.openSettings": "Open settings",
+  "mobile.scan.unavailable": "Mosaic couldn't start the camera. Enter the details by hand.",
+  "mobile.onboarding.details.scanned":
+    "Server, email and Secret Key are filled in from the setup code. Check them, then continue.",
+  "mobile.onboarding.details.scanOr": "Or enter the details by hand",
+  "mobile.onboarding.details.keyFromCode": "Secret Key from the setup code",
 } as const satisfies Record<string, string>;

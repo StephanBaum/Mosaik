@@ -22,6 +22,10 @@ import io.github.stephanbaum.mosaic.ffi.HandoffInfo
 import io.github.stephanbaum.mosaic.ffi.HandoffStatus
 import io.github.stephanbaum.mosaic.ffi.JoinOutcome
 import io.github.stephanbaum.mosaic.ffi.SecondFactorMethods
+import io.github.stephanbaum.mosaic.ffi.SetupCode
+import io.github.stephanbaum.mosaic.scan.ScanLayout
+import io.github.stephanbaum.mosaic.scan.ScanScreen
+import io.github.stephanbaum.mosaic.scan.ScanTarget
 import io.github.stephanbaum.mosaic.security.BiometricGate
 import io.github.stephanbaum.mosaic.security.PromptText
 import io.github.stephanbaum.mosaic.security.SecretField
@@ -61,7 +65,7 @@ private val GIVE_UP_ERRORS = setOf("syncHandoffExpired", "noAccount", "accountEx
 private const val POLL_MS = 2000L
 
 /**
- * The mobile onboarding of ADR-0096, typed setup (the scanner arrives with T13): welcome, account details,
+ * The mobile onboarding of ADR-0096: welcome, account details (scanned from the desktop's setup code, or typed),
  * master password, an optional second factor, quick unlock, autofill, done. Every step is one screen with one
  * primary action; the core owns the join (docs/MOBILE.md section 3.14).
  */
@@ -82,6 +86,8 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     var errorCode by remember { mutableStateOf<String?>(null) }
     var methods by remember { mutableStateOf<SecondFactorMethods?>(null) }
     var handoff by remember { mutableStateOf<HandoffInfo?>(null) }
+    var scanning by remember { mutableStateOf(false) }
+    var scanned by remember { mutableStateOf(false) }
 
     val keyHolder = remember { KeyHolder() }
     val keyField = remember { SecretFieldState() }
@@ -134,6 +140,27 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
 
     val error = errorCode
 
+    if (scanning && step == Step.Details) {
+        ScanScreen(
+            app = app,
+            target = ScanTarget.SetupCode,
+            layout = ScanLayout.Screen,
+            onSetupCode = { code ->
+                useSetupCode(code, keyHolder) { scannedServer, scannedEmail ->
+                    server = scannedServer
+                    email = scannedEmail
+                }
+                keyField.take()?.wipe()
+                errorCode = null
+                scanned = true
+                scanning = false
+            },
+            onOtp = {},
+            onCancel = { scanning = false },
+        )
+        return
+    }
+
     when (step) {
         Step.Welcome ->
             ScreenFrame {
@@ -145,6 +172,8 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
         Step.Details ->
             ScreenFrame {
                 TitleText(L10n.onboardingDetailsTitle(resources))
+                SecondaryButton(L10n.scanSetupAction(resources), onClick = { scanning = true }, enabled = !busy)
+                if (scanned) HintText(L10n.onboardingDetailsScanned(resources)) else HintText(L10n.onboardingDetailsScanOr(resources))
                 TextInput(
                     value = server,
                     onValueChange = { server = it },
@@ -165,6 +194,7 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                     label = L10n.onboardingDetailsSecretKey(resources),
                     enabled = !busy,
                 )
+                if (scanned && keyHolder.bytes != null) HintText(L10n.onboardingDetailsKeyFromCode(resources))
                 HintText(L10n.onboardingDetailsSecretKeyHelp(resources))
                 TextInput(
                     value = deviceName,
@@ -399,6 +429,17 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
                 PrimaryButton(L10n.onboardingDoneAction(resources), onClick = onFinished)
             }
     }
+}
+
+/**
+ * Takes the details of a scanned setup code: the server and the email go to [fill]; the Secret Key moves into the
+ * flow's holder as bytes (the core's copy is wiped at once) and never becomes a `String`.
+ */
+private fun useSetupCode(code: SetupCode, holder: KeyHolder, fill: (String, String) -> Unit) {
+    holder.wipe()
+    holder.bytes = code.secretKey.exposeBytes()
+    code.secretKey.wipe()
+    fill(code.server, code.email)
 }
 
 /** Opens the handoff page in the system browser; only an https address is opened. */

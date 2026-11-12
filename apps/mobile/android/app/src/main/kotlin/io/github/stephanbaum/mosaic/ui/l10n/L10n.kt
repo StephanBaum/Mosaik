@@ -795,6 +795,15 @@ object L10n {
     fun onboardingDetailsEmail(r: Resources): String =
         r.getString(R.string.mobile_onboarding_details_email)
 
+    fun onboardingDetailsKeyFromCode(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_details_keyFromCode)
+
+    fun onboardingDetailsScanOr(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_details_scanOr)
+
+    fun onboardingDetailsScanned(r: Resources): String =
+        r.getString(R.string.mobile_onboarding_details_scanned)
+
     fun onboardingDetailsSecretKey(r: Resources): String =
         r.getString(R.string.mobile_onboarding_details_secretKey)
 
@@ -869,6 +878,45 @@ object L10n {
 
     fun onboardingWelcomeTitle(r: Resources): String =
         r.getString(R.string.mobile_onboarding_welcome_title)
+
+    fun scanAllow(r: Resources): String =
+        r.getString(R.string.mobile_scan_allow)
+
+    fun scanDenied(r: Resources): String =
+        r.getString(R.string.mobile_scan_denied)
+
+    fun scanLooking(r: Resources): String =
+        r.getString(R.string.mobile_scan_looking)
+
+    fun scanNotSetupCode(r: Resources): String =
+        r.getString(R.string.mobile_scan_notSetupCode)
+
+    fun scanNotSetupCodeHelp(r: Resources): String =
+        r.getString(R.string.mobile_scan_notSetupCodeHelp)
+
+    fun scanOpenSettings(r: Resources): String =
+        r.getString(R.string.mobile_scan_openSettings)
+
+    fun scanOtpAction(r: Resources): String =
+        r.getString(R.string.mobile_scan_otpAction)
+
+    fun scanOtpHint(r: Resources): String =
+        r.getString(R.string.mobile_scan_otpHint)
+
+    fun scanOtpTitle(r: Resources): String =
+        r.getString(R.string.mobile_scan_otpTitle)
+
+    fun scanPreview(r: Resources): String =
+        r.getString(R.string.mobile_scan_preview)
+
+    fun scanRationale(r: Resources): String =
+        r.getString(R.string.mobile_scan_rationale)
+
+    fun scanSetupAction(r: Resources): String =
+        r.getString(R.string.mobile_scan_setupAction)
+
+    fun scanUnavailable(r: Resources): String =
+        r.getString(R.string.mobile_scan_unavailable)
 
     fun searchHint(r: Resources): String =
         r.getString(R.string.mobile_search_hint)
