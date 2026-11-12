@@ -44,6 +44,11 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
+    // The fonts (DM Sans, IBM Plex Mono; SIL OFL 1.1) are vendored once for both platforms and read as assets.
+    sourceSets.getByName("main").assets.srcDir(rootDir.resolve("../shared/fonts"))
+
+    testOptions.unitTests.isReturnDefaultValues = true
+
     lint {
         abortOnError = true
         warningsAsErrors = false
@@ -61,6 +66,16 @@ kotlin {
     }
 }
 
+// JNA loads the host library of the core in JVM unit tests (the UniFFI library override); same as :core.
+val hostLibrary: String =
+    providers.gradleProperty("mosaic.hostLib").orNull
+        ?: (System.getenv("CARGO_TARGET_DIR") ?: rootDir.resolve("../../../target").path)
+            .let { "$it/debug/libmosaic_mobile_ffi.so" }
+
+tasks.withType<Test>().configureEach {
+    systemProperty("uniffi.component.mosaic.libraryOverride", hostLibrary)
+}
+
 dependencies {
     implementation(project(":core"))
 
@@ -74,6 +89,7 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation(libs.jna)
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

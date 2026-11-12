@@ -69,7 +69,8 @@ tasks.withType<Test>().configureEach {
 }
 
 dependencies {
-    implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+    // api: the generated bindings expose JNA types (Pointer) to :app, which must compile against them.
+    api("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     api(libs.coroutines.android)
 
     testImplementation(libs.junit)
