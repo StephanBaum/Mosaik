@@ -1,6 +1,12 @@
 package io.github.stephanbaum.mosaic.ui.settings
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.view.autofill.AutofillManager
+import androidx.credentials.CredentialManager
+import kotlinx.coroutines.delay
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
@@ -270,6 +276,7 @@ fun SettingsContent(
                 }
             }
         }
+        FillProvidersPanel()
         Panel {
             SectionTitle(L10n.settingsSync(resources))
             if (syncText.isNotEmpty()) Line(syncText)
@@ -314,3 +321,55 @@ private val LICENCES =
         "Kotlin, kotlinx.coroutines" to "Apache License 2.0",
         "JNA" to "Apache License 2.0 or LGPL 2.1 or later",
     )
+
+/**
+ * Enabling Mosaic as the Autofill service and as the Credential Manager provider happens in system screens; these
+ * entries open them. The Autofill state is shown (it is exposed); the provider state is not, and its entry exists
+ * from API 34 only. The state is read again every second while the page is shown, so it is right after the user
+ * comes back from the system screen.
+ */
+@Composable
+private fun FillProvidersPanel() {
+    val context = LocalContext.current
+    val resources = context.resources
+    var autofillOn by remember { mutableStateOf(autofillEnabled(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            autofillOn = autofillEnabled(context)
+            delay(1_000)
+        }
+    }
+    Panel {
+        SectionTitle(L10n.settingsFill(resources))
+        Line(if (autofillOn) L10n.settingsAutofillOn(resources) else L10n.settingsAutofillOff(resources))
+        if (!autofillOn) {
+            SecondaryButton(L10n.settingsAutofillEnable(resources), onClick = { openAutofillSettings(context) })
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            HintText(L10n.settingsCredentialHint(resources))
+            SecondaryButton(L10n.settingsCredentialEnable(resources), onClick = { openCredentialSettings(context) })
+        }
+    }
+}
+
+private fun autofillEnabled(context: Context): Boolean =
+    context.getSystemService(AutofillManager::class.java)?.hasEnabledAutofillServices() ?: false
+
+private fun openAutofillSettings(context: Context) {
+    val intent =
+        Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:" + context.packageName))
+    try {
+        context.startActivity(intent)
+    } catch (e: android.content.ActivityNotFoundException) {
+        // A phone without the screen: the user enables it in the system settings by hand.
+    }
+}
+
+private fun openCredentialSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+    try {
+        CredentialManager.create(context).createSettingsPendingIntent().send()
+    } catch (e: android.app.PendingIntent.CanceledException) {
+        // The system screen is gone; nothing to do.
+    }
+}

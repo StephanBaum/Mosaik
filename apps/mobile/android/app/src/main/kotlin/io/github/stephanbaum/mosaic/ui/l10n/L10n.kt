@@ -897,11 +897,29 @@ object L10n {
     fun settingsAutoLockS60(r: Resources): String =
         r.getString(R.string.mobile_settings_autoLock_s60)
 
+    fun settingsAutofillEnable(r: Resources): String =
+        r.getString(R.string.mobile_settings_autofillEnable)
+
+    fun settingsAutofillOff(r: Resources): String =
+        r.getString(R.string.mobile_settings_autofillOff)
+
+    fun settingsAutofillOn(r: Resources): String =
+        r.getString(R.string.mobile_settings_autofillOn)
+
     fun settingsClipboard(r: Resources): String =
         r.getString(R.string.mobile_settings_clipboard)
 
     fun settingsClipboardOption(r: Resources, seconds: Int): String =
         r.getQuantityString(R.plurals.mobile_settings_clipboardOption, seconds, seconds)
+
+    fun settingsCredentialEnable(r: Resources): String =
+        r.getString(R.string.mobile_settings_credentialEnable)
+
+    fun settingsCredentialHint(r: Resources): String =
+        r.getString(R.string.mobile_settings_credentialHint)
+
+    fun settingsFill(r: Resources): String =
+        r.getString(R.string.mobile_settings_fill)
 
     fun settingsIdle(r: Resources): String =
         r.getString(R.string.mobile_settings_idle)

@@ -291,11 +291,17 @@
   <string name="mobile_settings_autoLock_s30">Nach 30 Sekunden</string>
   <string name="mobile_settings_autoLock_s300">Nach 5 Minuten</string>
   <string name="mobile_settings_autoLock_s60">Nach 1 Minute</string>
+  <string name="mobile_settings_autofillEnable">Mosaic für Autofill verwenden</string>
+  <string name="mobile_settings_autofillOff">Mosaic ist noch nicht dein Autofill-Dienst.</string>
+  <string name="mobile_settings_autofillOn">Mosaic ist dein Autofill-Dienst.</string>
   <string name="mobile_settings_clipboard">Kopierte Werte löschen</string>
   <plurals name="mobile_settings_clipboardOption">
     <item quantity="one">Nach %1$d Sekunde</item>
     <item quantity="other">Nach %1$d Sekunden</item>
   </plurals>
+  <string name="mobile_settings_credentialEnable">Mosaic für Passkeys und Passwörter verwenden</string>
+  <string name="mobile_settings_credentialHint">Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten.</string>
+  <string name="mobile_settings_fill">In anderen Apps ausfüllen</string>
   <string name="mobile_settings_idle">Sperren, wenn du den Bildschirm nicht berührst</string>
   <plurals name="mobile_settings_idleOption">
     <item quantity="one">Nach %1$d Minute</item>

@@ -4816,6 +4816,57 @@
         }
       }
     },
+    "mobile.settings.autofillEnable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic für Autofill verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Mosaic for Autofill"
+          }
+        }
+      }
+    },
+    "mobile.settings.autofillOff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic ist noch nicht dein Autofill-Dienst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic is not your Autofill service yet."
+          }
+        }
+      }
+    },
+    "mobile.settings.autofillOn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic ist dein Autofill-Dienst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic is your Autofill service."
+          }
+        }
+      }
+    },
     "mobile.settings.clipboard" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4870,6 +4921,57 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "mobile.settings.credentialEnable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic für Passkeys und Passwörter verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Mosaic for passkeys and passwords"
+          }
+        }
+      }
+    },
+    "mobile.settings.credentialHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passkeys and saved passwords can also be offered through the system's credential picker."
+          }
+        }
+      }
+    },
+    "mobile.settings.fill" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In anderen Apps ausfüllen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill in other apps"
           }
         }
       }

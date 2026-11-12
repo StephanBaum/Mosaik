@@ -274,4 +274,11 @@ export const mobile = {
   "mobile.credential.verifyFailed":
     "Mosaic konnte nicht bestätigen, dass du es bist. Versuche es noch einmal.",
   "mobile.credential.unsupported": "Mosaic kann diese Anfrage nicht bearbeiten.",
+  "mobile.settings.fill": "In anderen Apps ausfüllen",
+  "mobile.settings.autofillOn": "Mosaic ist dein Autofill-Dienst.",
+  "mobile.settings.autofillOff": "Mosaic ist noch nicht dein Autofill-Dienst.",
+  "mobile.settings.autofillEnable": "Mosaic für Autofill verwenden",
+  "mobile.settings.credentialHint":
+    "Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten.",
+  "mobile.settings.credentialEnable": "Mosaic für Passkeys und Passwörter verwenden",
 } satisfies Record<keyof typeof en, string>;

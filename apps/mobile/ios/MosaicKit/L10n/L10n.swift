@@ -1171,12 +1171,36 @@ public enum L10n {
         NSLocalizedString("mobile.settings.autoLock.s60", bundle: .main, comment: "")
     }
 
+    public static func settingsAutofillEnable() -> String {
+        NSLocalizedString("mobile.settings.autofillEnable", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutofillOff() -> String {
+        NSLocalizedString("mobile.settings.autofillOff", bundle: .main, comment: "")
+    }
+
+    public static func settingsAutofillOn() -> String {
+        NSLocalizedString("mobile.settings.autofillOn", bundle: .main, comment: "")
+    }
+
     public static func settingsClipboard() -> String {
         NSLocalizedString("mobile.settings.clipboard", bundle: .main, comment: "")
     }
 
     public static func settingsClipboardOption(seconds: Int) -> String {
         String(format: NSLocalizedString("mobile.settings.clipboardOption", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
+    }
+
+    public static func settingsCredentialEnable() -> String {
+        NSLocalizedString("mobile.settings.credentialEnable", bundle: .main, comment: "")
+    }
+
+    public static func settingsCredentialHint() -> String {
+        NSLocalizedString("mobile.settings.credentialHint", bundle: .main, comment: "")
+    }
+
+    public static func settingsFill() -> String {
+        NSLocalizedString("mobile.settings.fill", bundle: .main, comment: "")
     }
 
     public static func settingsIdle() -> String {

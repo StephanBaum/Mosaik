@@ -268,4 +268,11 @@ export const mobile = {
   "mobile.credential.verifyCreate": "Save a passkey for {site}",
   "mobile.credential.verifyFailed": "Mosaic could not confirm that it is you. Try again.",
   "mobile.credential.unsupported": "Mosaic can't handle this request.",
+  "mobile.settings.fill": "Fill in other apps",
+  "mobile.settings.autofillOn": "Mosaic is your Autofill service.",
+  "mobile.settings.autofillOff": "Mosaic is not your Autofill service yet.",
+  "mobile.settings.autofillEnable": "Use Mosaic for Autofill",
+  "mobile.settings.credentialHint":
+    "Passkeys and saved passwords can also be offered through the system's credential picker.",
+  "mobile.settings.credentialEnable": "Use Mosaic for passkeys and passwords",
 } as const satisfies Record<string, string>;
