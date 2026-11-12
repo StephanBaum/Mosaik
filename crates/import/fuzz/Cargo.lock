@@ -709,6 +709,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosaic-generator"
+version = "0.0.0"
+dependencies = [
+ "getrandom",
+ "serde_json",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "mosaic-import"
 version = "0.0.0"
 dependencies = [
@@ -742,6 +752,23 @@ dependencies = [
  "mosaic-core",
  "mosaic-import",
  "mosaic-passkey",
+]
+
+[[package]]
+name = "mosaic-insights"
+version = "0.0.0"
+dependencies = [
+ "hmac",
+ "mosaic-core",
+ "mosaic-generator",
+ "mosaic-origin",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "url",
+ "zeroize",
 ]
 
 [[package]]
@@ -782,9 +809,14 @@ dependencies = [
 name = "mosaic-vault"
 version = "0.0.0"
 dependencies = [
+ "base64ct",
  "mosaic-core",
+ "mosaic-insights",
+ "mosaic-origin",
  "mosaic-totp",
  "rusqlite",
+ "serde",
+ "serde_json",
  "thiserror",
  "zeroize",
 ]
@@ -926,9 +958,9 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.246"
+version = "2.1.248"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27d58bd13c235442118460335daf360f0fefaa9035ec4ad957f851d738e7b7d6"
+checksum = "db58c388e851a5e62d8b5373b0f41135edac0bd43009832ba362691089d7367c"
 dependencies = [
  "psl-types",
 ]
@@ -1044,6 +1076,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

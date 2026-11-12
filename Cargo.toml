@@ -99,7 +99,7 @@ quick-xml = { version = "=0.42.0", default-features = false }
 zip = { version = "=9.1.2", default-features = false, features = ["deflate-flate2"] }
 # M4 browser extension (ADR-0035, ADR-0036, ADR-0037)
 # Public suffix list compiled in (MIT/Apache-2.0, no_std), for opt-in eTLD+1 matching.
-psl = { version = "=2.1.246", default-features = false, features = ["helpers"] }
+psl = { version = "=2.1.248", default-features = false, features = ["helpers"] }
 # WHATWG URL parsing, identical to the browser's origin rules; already in the tree through Tauri.
 url = { version = "=2.5.8", default-features = false, features = ["std"] }
 # IDNA to-Unicode for the lookalike and IDN warnings; already in the tree through url.
