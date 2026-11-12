@@ -184,7 +184,7 @@ passkey-auth = { version = "=0.1.3", default-features = false }
 # Argv tokenizer for the `mosaic` CLI: zero dependencies, handles `--x=y`, `--` and non-UTF-8 arguments (clap rejected for size).
 lexopt = "=0.3.2"
 # No-echo prompts on the controlling terminal (`/dev/tty`, `CONIN$`) for the CLI's secrets; its buffers are not wiped (THREAT_MODEL R109).
-rpassword = "=7.4.0"
+rpassword = "=7.5.0"
 
 # Ctrl-C handler of the CLI: restores the terminal mode and exits 130 (safe API, no unsafe in our code).
 ctrlc = "=3.5.2"
