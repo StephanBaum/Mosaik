@@ -70,7 +70,7 @@ tauri-plugin-global-shortcut = { version = "=2.4.1", default-features = false }
 # Native save dialog for the Emergency Kit, opened from Rust. The backend of
 # tauri-plugin-dialog, used directly: the plugin forces Common Controls v6,
 # which breaks `cargo test` on Windows (ADR-0019).
-rfd = { version = "=0.16.1", default-features = false, features = ["gtk3"] }
+rfd = { version = "=0.17.2", default-features = false, features = ["gtk3"] }
 # Emergency Kit PDF: a small low-level PDF writer (typst), base-14 fonts only.
 pdf-writer = { version = "=0.15.0", default-features = false }
 # Windows Hello (KeyCredentialManager) for quick unlock; the version Tauri's
