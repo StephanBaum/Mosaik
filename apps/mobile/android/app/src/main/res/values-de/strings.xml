@@ -135,6 +135,8 @@
     <item quantity="one">Kopiert. Die Zwischenablage wird in %1$d Sekunde geleert.</item>
     <item quantity="other">Kopiert. Die Zwischenablage wird in %1$d Sekunden geleert.</item>
   </plurals>
+  <string name="mobile_deviceLock_required_body">Mosaic speichert deinen Secret Key nur auf Handys, die mit einem Code geschützt sind. Richte in den Geräteeinstellungen einen Code ein und öffne Mosaic dann noch einmal.</string>
+  <string name="mobile_deviceLock_required_title">Richte zuerst einen Gerätecode ein</string>
   <string name="mobile_lock_now">Jetzt sperren</string>
   <string name="mobile_nav_search">Suche</string>
   <string name="mobile_nav_settings">Einstellungen</string>

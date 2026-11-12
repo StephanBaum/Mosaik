@@ -447,6 +447,12 @@ object L10n {
     fun copyDone(r: Resources, seconds: Int): String =
         r.getQuantityString(R.plurals.mobile_copy_done, seconds, seconds)
 
+    fun deviceLockRequiredBody(r: Resources): String =
+        r.getString(R.string.mobile_deviceLock_required_body)
+
+    fun deviceLockRequiredTitle(r: Resources): String =
+        r.getString(R.string.mobile_deviceLock_required_title)
+
     fun lockNow(r: Resources): String =
         r.getString(R.string.mobile_lock_now)
 

@@ -135,6 +135,8 @@
     <item quantity="one">Copied. It clears from the clipboard in %1$d second.</item>
     <item quantity="other">Copied. It clears from the clipboard in %1$d seconds.</item>
   </plurals>
+  <string name="mobile_deviceLock_required_body">Mosaic stores your Secret Key only on phones that are protected by a passcode. Set a passcode in your device settings, then open Mosaic again.</string>
+  <string name="mobile_deviceLock_required_title">Set a device passcode first</string>
   <string name="mobile_lock_now">Lock now</string>
   <string name="mobile_nav_search">Search</string>
   <string name="mobile_nav_settings">Settings</string>

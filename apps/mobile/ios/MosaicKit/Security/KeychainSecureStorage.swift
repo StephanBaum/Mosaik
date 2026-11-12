@@ -4,16 +4,37 @@ import Security
 /// `SecureStorage` on the iOS Keychain (CRYPTO_SPEC 6.9.1, ADR-0090). Rust decides the names and the
 /// lifetimes; this type stores one generic password per name.
 ///
-/// Items are `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and never synchronizable, so they stay out of
-/// iCloud Keychain and out of backups. The access group is the app-private group: the AutoFill extension is
+/// Items are `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` (no secret is stored on a device without a
+/// passcode, ADR-0090 amendment) and never synchronizable, so they stay out of iCloud Keychain and out of
+/// backups. The access group is the app-private group: the AutoFill extension is
 /// not in it and never needs the Secret Key or the session token.
 public final class KeychainSecureStorage: SecureStorage {
+    /// The accessibility class of new items. Only tests on the simulator (which has no passcode) use the
+    /// other one.
+    enum Accessibility: Sendable {
+        case passcodeSetThisDeviceOnly
+        case unlockedThisDeviceOnlyForTests
+
+        var value: CFString {
+            switch self {
+            case .passcodeSetThisDeviceOnly: kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
+            case .unlockedThisDeviceOnlyForTests: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            }
+        }
+    }
+
     private let service: String
     private let accessGroup: String?
+    private let accessibility: Accessibility
 
     public init(service: String, accessGroup: String?) {
+        self.init(service: service, accessGroup: accessGroup, accessibility: .passcodeSetThisDeviceOnly)
+    }
+
+    init(service: String, accessGroup: String?, accessibility: Accessibility) {
         self.service = service
         self.accessGroup = accessGroup
+        self.accessibility = accessibility
     }
 
     public convenience init(identity: AppIdentity) {
@@ -36,11 +57,12 @@ public final class KeychainSecureStorage: SecureStorage {
 
     /// The attributes of a new item: the query, the value, and the accessibility class.
     static func newItemAttributes(
-        service: String, accessGroup: String?, name: String, value: Data
+        service: String, accessGroup: String?, name: String, value: Data,
+        accessibility: Accessibility = .passcodeSetThisDeviceOnly
     ) -> [String: Any] {
         var attributes = itemQuery(service: service, accessGroup: accessGroup, name: name)
         attributes[kSecValueData as String] = value
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        attributes[kSecAttrAccessible as String] = accessibility.value
         return attributes
     }
 
@@ -83,7 +105,8 @@ public final class KeychainSecureStorage: SecureStorage {
         var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: value] as CFDictionary)
         if status == errSecItemNotFound {
             let attributes = Self.newItemAttributes(
-                service: service, accessGroup: accessGroup, name: name, value: value)
+                service: service, accessGroup: accessGroup, name: name, value: value,
+                accessibility: accessibility)
             status = SecItemAdd(attributes as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw StorageError.failed }

@@ -43,7 +43,15 @@ struct RootView: View {
                 ErrorLine(text: message)
             }
         case .ready:
-            ready
+            if model.deviceLockMissing {
+                MosaicScreen {
+                    ScreenTitle(text: L10n.deviceLockRequiredTitle())
+                        .accessibilityIdentifier("device-lock-required")
+                    BodyText(text: L10n.deviceLockRequiredBody())
+                }
+            } else {
+                ready
+            }
         }
     }
 

@@ -7,7 +7,9 @@ final class KeychainSecureStorageTests: XCTestCase {
     func testRoundTripDeleteAccessibilityAndNoSync() throws {
         let service = "io.github.stephanbaum.mosaic.tests.\(UUID().uuidString)"
         let name = "secret-key/00112233445566778899aabbccddeeff"
-        let storage = KeychainSecureStorage(service: service, accessGroup: nil)
+        // The simulator has no passcode, so the class that needs one cannot be stored there.
+        let storage = KeychainSecureStorage(
+            service: service, accessGroup: nil, accessibility: .unlockedThisDeviceOnlyForTests)
         addTeardownBlock { try? storage.delete(name: name) }
 
         XCTAssertFalse(try storage.contains(name: name))
@@ -25,7 +27,7 @@ final class KeychainSecureStorageTests: XCTestCase {
         let other = KeychainSecureStorage(service: service + ".other", accessGroup: nil)
         XCTAssertFalse(try other.contains(name: name))
 
-        // The stored item is this-device-only, available when unlocked, and not synchronizable.
+        // The stored item is this-device-only, in the class the storage was given, and not synchronizable.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -56,9 +58,10 @@ final class KeychainSecureStorageTests: XCTestCase {
         XCTAssertEqual(attributes[kSecAttrAccount as String] as? String, "n")
         XCTAssertEqual(attributes[kSecAttrAccessGroup as String] as? String, "TEAM.group")
         XCTAssertEqual(attributes[kSecAttrSynchronizable as String] as? Bool, false)
+        // The default needs a passcode (no secret on a device without one).
         XCTAssertEqual(
             attributes[kSecAttrAccessible as String] as? String,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String)
         let query = KeychainSecureStorage.itemQuery(service: "svc", accessGroup: nil, name: "n")
         XCTAssertNil(query[kSecAttrAccessGroup as String])
     }

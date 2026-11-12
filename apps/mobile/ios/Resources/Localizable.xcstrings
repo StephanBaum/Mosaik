@@ -2218,6 +2218,40 @@
         }
       }
     },
+    "mobile.deviceLock.required.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic speichert deinen Secret Key nur auf Handys, die mit einem Code geschützt sind. Richte in den Geräteeinstellungen einen Code ein und öffne Mosaic dann noch einmal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic stores your Secret Key only on phones that are protected by a passcode. Set a passcode in your device settings, then open Mosaic again."
+          }
+        }
+      }
+    },
+    "mobile.deviceLock.required.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richte zuerst einen Gerätecode ein"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set a device passcode first"
+          }
+        }
+      }
+    },
     "mobile.lock.now" : {
       "extractionState" : "manual",
       "localizations" : {

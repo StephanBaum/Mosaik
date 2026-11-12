@@ -118,5 +118,8 @@ export const mobile = {
     "Your Face ID settings changed. Unlock with your master password to turn quick unlock on again.",
   "mobile.unlock.storeBusy": "Mosaic is busy. Try again in a moment.",
   "mobile.unlock.rebootNote": "Unlock once with your master password after a restart.",
+  "mobile.deviceLock.required.title": "Set a device passcode first",
+  "mobile.deviceLock.required.body":
+    "Mosaic stores your Secret Key only on phones that are protected by a passcode. Set a passcode in your device settings, then open Mosaic again.",
   "mobile.capture.hidden": "Hidden while your screen is recorded",
 } as const satisfies Record<string, string>;

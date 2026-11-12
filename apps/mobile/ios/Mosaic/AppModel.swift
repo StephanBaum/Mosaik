@@ -22,6 +22,8 @@ final class AppModel {
     /// Set while the onboarding runs; it outlives the unlock that the join causes, up to its last step.
     var onboarding: OnboardingModel?
     private(set) var isSceneActive = true
+    /// The device has no passcode: no secret is stored, so onboarding and unlock are refused.
+    private(set) var deviceLockMissing = false
     /// The unlock screen's state. A new one replaces it when the vault opens, so no typed secret survives.
     private(set) var unlock: UnlockModel?
 
@@ -67,6 +69,7 @@ final class AppModel {
     /// Reads the state of the core and runs what it asks for: a quick-unlock key that ran out is deleted,
     /// the idle timer follows the unlocked state, and the onboarding starts when there is no account.
     func refreshState() {
+        deviceLockMissing = !DeviceLock.isPasscodeSet()
         guard let holder else { return }
         session = holder.state()
         if case let .locked(_, _, availability) = session, case let .expired(alias) = availability {

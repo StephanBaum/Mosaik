@@ -120,5 +120,8 @@ export const mobile = {
     "Deine Face-ID-Einstellungen haben sich geändert. Entsperre mit deinem Master-Passwort, um das schnelle Entsperren wieder einzuschalten.",
   "mobile.unlock.storeBusy": "Mosaic ist beschäftigt. Versuche es gleich noch einmal.",
   "mobile.unlock.rebootNote": "Entsperre nach einem Neustart einmal mit deinem Master-Passwort.",
+  "mobile.deviceLock.required.title": "Richte zuerst einen Gerätecode ein",
+  "mobile.deviceLock.required.body":
+    "Mosaic speichert deinen Secret Key nur auf Handys, die mit einem Code geschützt sind. Richte in den Geräteeinstellungen einen Code ein und öffne Mosaic dann noch einmal.",
   "mobile.capture.hidden": "Ausgeblendet, solange dein Bildschirm aufgezeichnet wird",
 } satisfies Record<keyof typeof en, string>;

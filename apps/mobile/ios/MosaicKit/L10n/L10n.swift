@@ -571,6 +571,14 @@ public enum L10n {
         String(format: NSLocalizedString("mobile.copy.done", bundle: .main, comment: ""), locale: .current, arguments: [seconds])
     }
 
+    public static func deviceLockRequiredBody() -> String {
+        NSLocalizedString("mobile.deviceLock.required.body", bundle: .main, comment: "")
+    }
+
+    public static func deviceLockRequiredTitle() -> String {
+        NSLocalizedString("mobile.deviceLock.required.title", bundle: .main, comment: "")
+    }
+
     public static func lockNow() -> String {
         NSLocalizedString("mobile.lock.now", bundle: .main, comment: "")
     }
