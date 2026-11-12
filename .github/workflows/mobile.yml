@@ -74,6 +74,10 @@ jobs:
       - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with: { cache-read-only: false }
+      # TEMPORARY: the generated strings.xml header comment contains "--filter", and "--" is illegal in an XML
+      # comment. The exporter (packages/i18n/src/mobileExport.ts, T4) must reword it; then delete this step.
+      - name: Work around the exporter's XML comment
+        run: sed -i 's/pnpm --filter/pnpm -F/' apps/mobile/android/app/src/main/res/values/strings.xml apps/mobile/android/app/src/main/res/values-de/strings.xml
       - run: bash scripts/mobile/check-ffi-crate.sh
       - name: Build the native libraries (arm64-v8a and x86_64, with test hooks)
         run: bash scripts/mobile/build-android-native.sh debug --features test-hooks
@@ -160,6 +164,10 @@ jobs:
       - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with: { cache-read-only: false }
+      # TEMPORARY: the generated strings.xml header comment contains "--filter", and "--" is illegal in an XML
+      # comment. The exporter (packages/i18n/src/mobileExport.ts, T4) must reword it; then delete this step.
+      - name: Work around the exporter's XML comment
+        run: sed -i 's/pnpm --filter/pnpm -F/' apps/mobile/android/app/src/main/res/values/strings.xml apps/mobile/android/app/src/main/res/values-de/strings.xml
       - name: Build the release libraries (no features)
         run: bash scripts/mobile/build-android-native.sh release
       - name: No test hooks in the release libraries
