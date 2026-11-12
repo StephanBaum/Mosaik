@@ -3,16 +3,17 @@ package io.github.stephanbaum.mosaic.security
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import io.github.stephanbaum.mosaic.ffi.SecureStorage
+import io.github.stephanbaum.mosaic.ffi.secureStoreAad
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.ProviderException
+import android.security.keystore.StrongBoxUnavailableException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -92,6 +93,8 @@ class AndroidSecureStorage(
                 throw SecureStorageFailure()
             } finally {
                 temp?.delete()
+                // The caller's array is ours to wipe once it is written (the caller still owns nothing else of it).
+                value.fill(0)
             }
         }
     }
@@ -115,6 +118,8 @@ class AndroidSecureStorage(
         cipher.updateAAD(aadFor(name))
         val iv = cipher.iv
         val sealed = cipher.doFinal(value)
+        // Fail closed on a provider that returns an unexpected layout: decrypt would refuse the file later.
+        if (iv == null || iv.size != IV_LEN || sealed.size != value.size + TAG_LEN) throw SecureStorageFailure()
         return byteArrayOf(VERSION) + iv + sealed
     }
 
@@ -136,20 +141,18 @@ class AndroidSecureStorage(
         return key
     }
 
-    /** StrongBox first, then the TEE. Never without the unlocked-device flag, and never without a lock screen. */
+    /**
+     * StrongBox first, then the TEE, and only when StrongBox is unavailable on this device: any other failure of the
+     * StrongBox attempt is final (no silent downgrade). Never without the unlocked-device flag, and never without a
+     * lock screen.
+     */
     private fun generateKey(): SecretKey {
         if (!deviceSecure()) throw SecureStorageFailure()
-        var last: Exception? = null
-        for (strongBox in listOf(true, false)) {
-            try {
-                return generate(strongBox)
-            } catch (e: ProviderException) {
-                last = e
-            } catch (e: GeneralSecurityException) {
-                last = e
-            }
+        return try {
+            generate(true)
+        } catch (e: StrongBoxUnavailableException) {
+            generate(false)
         }
-        throw last ?: SecureStorageFailure()
     }
 
     private fun generate(strongBox: Boolean): SecretKey {
@@ -177,24 +180,11 @@ class AndroidSecureStorage(
         private const val TAG_LEN = 16
         private const val TAG_BITS = 128
 
-        /** `ctx("mobile/secure-store")` of the core: `"mosaic/v1/" || label` (CRYPTO_SPEC 3). */
-        private val CONTEXT = "mosaic/v1/mobile/secure-store".toByteArray(Charsets.US_ASCII)
-
         /**
-         * The AAD of CRYPTO_SPEC 6.9.1: `0x01 || ctx(label) || 0x00 || u32_be(len(name)) || name`, the same bytes as
-         * `secure_store_aad(name)` in `mosaic-mobile`. The binding does not export that function, so the layout is
-         * built here and pinned by SecureStorageInstrumentedTest.
+         * The AAD of CRYPTO_SPEC 6.9.1, from the core (`secure_store_aad` in `mosaic-mobile`): the layout exists
+         * once, in Rust, and the JVM test pins one fixed vector (M10-G2 L1).
          */
-        fun aadFor(name: String): ByteArray {
-            val nameBytes = name.toByteArray(Charsets.UTF_8)
-            return ByteBuffer.allocate(1 + CONTEXT.size + 1 + Int.SIZE_BYTES + nameBytes.size)
-                .put(VERSION)
-                .put(CONTEXT)
-                .put(0.toByte())
-                .putInt(nameBytes.size)
-                .put(nameBytes)
-                .array()
-        }
+        fun aadFor(name: String): ByteArray = secureStoreAad(name)
 
         fun sha256Hex(name: String): String =
             MessageDigest.getInstance("SHA-256")

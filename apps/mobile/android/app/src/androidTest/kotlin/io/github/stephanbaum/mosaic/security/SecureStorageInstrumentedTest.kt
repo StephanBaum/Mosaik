@@ -63,7 +63,9 @@ class SecureStorageInstrumentedTest {
         assertNull(storage.get(name))
         assertFalse(storage.contains(name))
 
-        storage.put(name, secret)
+        val given = secret.copyOf()
+        storage.put(name, given)
+        assertTrue("put wipes the caller's array (M10-G2 L3)", given.all { it == 0.toByte() })
         assertTrue(storage.contains(name))
         assertArrayEquals(secret, storage.get(name))
         val file = storage.fileFor(name)
@@ -73,7 +75,7 @@ class SecureStorageInstrumentedTest {
 
         // Each put draws a new IV and replaces the value.
         val replacement = ByteArray(32) { 9 }
-        storage.put(name, replacement)
+        storage.put(name, replacement.copyOf())
         assertArrayEquals(replacement, storage.get(name))
         assertFalse("a new IV for every write", raw.copyOfRange(1, 13).contentEquals(file.readBytes().copyOfRange(1, 13)))
 
@@ -91,7 +93,7 @@ class SecureStorageInstrumentedTest {
         assertRefused(name)
 
         // A flipped ciphertext bit fails the tag.
-        val flipped = storage.fileFor("flip").also { storage.put("flip", secret) }.readBytes()
+        val flipped = storage.fileFor("flip").also { storage.put("flip", secret.copyOf()) }.readBytes()
         flipped[flipped.size - 1] = (flipped[flipped.size - 1].toInt() xor 0x01).toByte()
         storage.fileFor("flip").writeBytes(flipped)
         assertRefused("flip")

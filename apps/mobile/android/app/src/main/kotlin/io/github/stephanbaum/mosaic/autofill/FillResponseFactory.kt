@@ -11,7 +11,6 @@ import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
 import io.github.stephanbaum.mosaic.R
 import io.github.stephanbaum.mosaic.ffi.FillCandidate
-import io.github.stephanbaum.mosaic.ui.MainActivity
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 
 /** What one dataset of the last response held, kept in debug builds only: counts, never a value. */
@@ -38,7 +37,7 @@ object FillAudit {
  * or a save request.
  */
 @Suppress("DEPRECATION")
-class FillResponseFactory(private val context: Context) {
+class FillResponseFactory(private val context: Context, private val linkTokens: LinkTokens) {
     private val resources = context.resources
 
     /** The one "Unlock Mosaic" entry; its authentication opens [FillAuthActivity] in list mode. */
@@ -56,8 +55,9 @@ class FillResponseFactory(private val context: Context) {
 
     /**
      * One authenticated dataset per matching login (and per one-time code for a field that takes one). With no match
-     * in an app: the "No login for ..." entry. With no match in a browser page ([noLoginLabel] null): no response,
-     * so the browser keeps its own suggestions. [warning] adds the address warning to every line.
+     * in an app: the "No login for ..." entry. With no match in a browser page ([noLoginLabel] null, which
+     * [FillPlanner.linkLabel] also gives for a browser package): no response, so the browser keeps its own
+     * suggestions. [warning] adds the address warning to every line.
      */
     fun candidatesResponse(
         info: FillRequestInfo,
@@ -115,9 +115,10 @@ class FillResponseFactory(private val context: Context) {
     }
 
     private fun noLoginDataset(info: FillRequestInfo, label: String): Dataset {
+        // A non-exported activity and a one-time token, never the exported main activity (M10-G2 M3).
         val link =
-            Intent(context, MainActivity::class.java)
-                .putExtra(FillIntents.EXTRA_LINK_PACKAGE, info.callerPackage)
+            Intent(context, LinkActivity::class.java)
+                .putExtra(FillIntents.EXTRA_LINK_TOKEN, linkTokens.issue(info.callerPackage))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val builder =
             Dataset.Builder(presentation(L10n.autofillNoLogin(resources, label), L10n.autofillNoLoginHint(resources)))

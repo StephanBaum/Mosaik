@@ -9,7 +9,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,9 +52,21 @@ import kotlinx.coroutines.launch
 
 private enum class Step { Welcome, Details, Password, Second, Quick, Autofill, Done }
 
-/** The Secret Key typed in step 2, kept as bytes until the join no longer needs it (never a `String`). */
+/**
+ * The Secret Key typed in step 2, kept as bytes until the join no longer needs it (never a `String`). The flow wipes
+ * it when the app goes to the background and [KEY_TTL_MS] after it was set (M10-G2 L6); the user then types or scans
+ * it again.
+ */
 private class KeyHolder {
+    /** Counts up whenever the key is set or wiped, so the expiry timer restarts. */
+    var version by mutableIntStateOf(0)
+        private set
+
     var bytes: ByteArray? = null
+        set(value) {
+            field = value
+            version += 1
+        }
 
     fun wipe() {
         bytes?.fill(0)
@@ -63,6 +77,9 @@ private class KeyHolder {
 private val KEY_ERRORS = setOf("secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired")
 private val GIVE_UP_ERRORS = setOf("syncHandoffExpired", "noAccount", "accountExists")
 private const val POLL_MS = 2000L
+
+/** How long a Secret Key stays in memory while the onboarding waits for the user: five minutes. */
+private const val KEY_TTL_MS = 5 * 60_000L
 
 /**
  * The mobile onboarding of ADR-0096: welcome, account details (scanned from the desktop's setup code, or typed),
@@ -104,6 +121,17 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
 
     DisposableEffect(Unit) {
         onDispose { keyHolder.wipe() }
+    }
+
+    // The key is wiped when the app goes to the background, and five minutes after it was set.
+    val inForeground by app.foreground.collectAsState()
+    LaunchedEffect(inForeground) {
+        if (!inForeground) keyHolder.wipe()
+    }
+    LaunchedEffect(keyHolder.version) {
+        if (keyHolder.bytes == null) return@LaunchedEffect
+        delay(KEY_TTL_MS)
+        keyHolder.wipe()
     }
 
     // The security-key handoff: poll every 2 s while the app is in the foreground.

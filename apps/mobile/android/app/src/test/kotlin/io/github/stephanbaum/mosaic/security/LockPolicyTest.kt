@@ -1,6 +1,9 @@
 package io.github.stephanbaum.mosaic.security
 
+import io.github.stephanbaum.mosaic.ffi.SessionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LockPolicyTest {
@@ -14,7 +17,7 @@ class LockPolicyTest {
         LockPolicy(
             clock = { now },
             settings = { settings },
-            isUnlocked = { unlocked },
+            hasSession = { unlocked },
             joinPending = { joinPending },
             lock = {
                 locks += 1
@@ -65,6 +68,19 @@ class LockPolicyTest {
         assertEquals(0, locks)
         now += 1_000
         policy.tick()
+        assertEquals(1, locks)
+    }
+
+    @Test
+    fun aLockDuringBusyReachesTheCore() {
+        // The core is unlocking (Busy) when the lock fires: it must be passed on, not skipped (M10-G2 M1).
+        assertTrue(sessionNeedsLock(SessionState.Busy))
+        assertTrue(sessionNeedsLock(SessionState.StoreBusy))
+        assertTrue(sessionNeedsLock(SessionState.StoreClosed))
+        assertFalse(sessionNeedsLock(SessionState.NoAccount))
+        assertFalse(sessionNeedsLock(null))
+        val policy = policy()
+        policy.onScreenOff()
         assertEquals(1, locks)
     }
 

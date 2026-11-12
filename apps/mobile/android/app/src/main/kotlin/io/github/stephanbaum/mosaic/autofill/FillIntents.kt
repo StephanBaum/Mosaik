@@ -6,7 +6,7 @@ import android.content.Intent
 import android.view.autofill.AutofillId
 import androidx.core.content.IntentCompat
 import io.github.stephanbaum.mosaic.ffi.ItemKey
-import java.util.concurrent.atomic.AtomicInteger
+import java.security.SecureRandom
 
 /** The autofill fields a request can fill (the IDs the platform gave), chosen by the core. */
 class FillFields(val username: AutofillId?, val password: AutofillId?, val otp: AutofillId?) {
@@ -84,19 +84,21 @@ object FillIntents {
     const val EXTRA_PASSWORD_ID = "io.github.stephanbaum.mosaic.autofill.PASSWORD_ID"
     const val EXTRA_OTP_ID = "io.github.stephanbaum.mosaic.autofill.OTP_ID"
 
-    /** The main activity opens the "choose a login for this app" screen with this package. */
-    const val EXTRA_LINK_PACKAGE = "io.github.stephanbaum.mosaic.autofill.LINK_PACKAGE"
+    /** [LinkActivity] redeems this one-time token (see [LinkTokens]) for the package of the "choose a login" screen. */
+    const val EXTRA_LINK_TOKEN = "io.github.stephanbaum.mosaic.autofill.LINK_TOKEN"
 
-    private val requestCodes = AtomicInteger(1)
+    private val random = SecureRandom()
 
     /**
-     * A mutable pending intent (the platform adds the authentication extras) for an explicit component. A distinct
-     * request code per entry keeps the platform from merging the intents of two datasets.
+     * A mutable pending intent (the platform adds the authentication extras) for an explicit component. A random
+     * request code per entry keeps the platform from merging the intents of two datasets, and an app cannot guess it
+     * to create a pending intent first; `FLAG_CANCEL_CURRENT` voids an earlier one with the same intent
+     * (M10-G2 L5).
      */
     fun pending(context: Context, intent: Intent): PendingIntent =
         PendingIntent.getActivity(
             context,
-            requestCodes.getAndIncrement(),
+            random.nextInt(),
             intent,
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_CANCEL_CURRENT,
         )

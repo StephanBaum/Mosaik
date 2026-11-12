@@ -40,6 +40,7 @@ import io.github.stephanbaum.mosaic.ffi.ItemKind
 import io.github.stephanbaum.mosaic.ffi.OtpScheme
 import io.github.stephanbaum.mosaic.ffi.SecretValue
 import io.github.stephanbaum.mosaic.security.SecretText
+import io.github.stephanbaum.mosaic.security.SensitiveWhile
 import io.github.stephanbaum.mosaic.session.Outcome
 import io.github.stephanbaum.mosaic.ui.MosaicTheme
 import io.github.stephanbaum.mosaic.ui.components.ActionButton
@@ -296,6 +297,8 @@ fun ItemDetailContent(
 ) {
     val resources = LocalContext.current.resources
     var confirmDelete by remember { mutableStateOf(false) }
+    // A revealed value or a one-time code is on screen: the window is sensitive for that time (M10-G2 L7).
+    SensitiveWhile(revealed.isNotEmpty() || otp != null)
     Box(modifier = Modifier.fillMaxSize()) {
         PageColumn {
             val summary = detail?.summary

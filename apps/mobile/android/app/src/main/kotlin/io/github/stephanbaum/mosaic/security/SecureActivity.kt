@@ -1,5 +1,6 @@
 package io.github.stephanbaum.mosaic.security
 
+import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
@@ -15,6 +16,9 @@ abstract class SecureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         ScreenSecurity.protect(this)
         super.onCreate(savedInstanceState)
+        // API 31+: other apps' overlay windows are hidden while this window is in front (needs the
+        // HIDE_OVERLAY_WINDOWS permission of the manifest), so nothing can draw over a secret.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) window.setHideOverlayWindows(true)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

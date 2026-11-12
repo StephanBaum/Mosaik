@@ -1,5 +1,15 @@
 package io.github.stephanbaum.mosaic.security
 
+import io.github.stephanbaum.mosaic.ffi.SessionState
+
+/**
+ * Whether a lock must reach the core in [state]: every state except a locked one and "no account". A lock that
+ * arrives while the core is unlocking (`Busy`) is passed on too: the core turns it into "ends locked" (M10-G2 M1).
+ * A core that is not open yet (null) has no session.
+ */
+fun sessionNeedsLock(state: SessionState?): Boolean =
+    state != null && state !is SessionState.Locked && state !is SessionState.NoAccount
+
 /** The settings the lock policy reads (from `MobileSettings`; the defaults apply until they are loaded). */
 class LockSettings(
     val backgroundSeconds: Int = DEFAULT_BACKGROUND_SECONDS,
@@ -33,7 +43,7 @@ class LockSettings(
 class LockPolicy(
     private val clock: () -> Long,
     private val settings: () -> LockSettings,
-    private val isUnlocked: () -> Boolean,
+    private val hasSession: () -> Boolean,
     private val joinPending: () -> Boolean,
     private val lock: () -> Unit,
 ) {
@@ -107,7 +117,7 @@ class LockPolicy(
     }
 
     private fun lockNow() {
-        if (!isUnlocked()) return
+        if (!hasSession()) return
         if (joinPending()) return
         // A lock ends every provider flow, so a flow that was abandoned cannot grant a later grace.
         flows.clear()

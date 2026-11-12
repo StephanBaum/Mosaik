@@ -6,6 +6,7 @@ import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import io.github.stephanbaum.mosaic.ffi.FillCandidates
 import io.github.stephanbaum.mosaic.ffi.FillTarget
 import io.github.stephanbaum.mosaic.ffi.FillTargetKind
+import io.github.stephanbaum.mosaic.ffi.MobileException
 import io.github.stephanbaum.mosaic.ffi.OriginWarning
 import kotlinx.coroutines.CancellationException
 
@@ -39,17 +40,34 @@ class FillPlanner(private val holder: CoreHolder) {
             )
         if (fields.all.isEmpty()) return Prepared.NothingToFill
         val info = FillRequestInfo(parsed.callerPackage, parsed.webDomain, parsed.webScheme, fields)
-        val target = target(context, info) ?: return Prepared.CannotCheck(info)
+        val target: FillTarget?
+        try {
+            target = resolve(context, info)
+        } catch (e: MobileException.NoMatch) {
+            // An allowlisted browser sent no webDomain (its address bar, say): the browser app is no target.
+            return Prepared.NothingToFill
+        }
+        if (target == null) return Prepared.CannotCheck(info)
         return Prepared.Ready(info, target)
     }
 
     /** The target of [info], read again from the platform: current signers, then the core. Null: cannot check. */
-    suspend fun target(context: Context, info: FillRequestInfo): FillTarget? {
+    suspend fun target(context: Context, info: FillRequestInfo): FillTarget? =
+        try {
+            resolve(context, info)
+        } catch (e: MobileException.NoMatch) {
+            null
+        }
+
+    /** As [target], but a `noMatch` of the core (a browser without a page) is thrown for the caller to read. */
+    private suspend fun resolve(context: Context, info: FillRequestInfo): FillTarget? {
         val signers = CallerReader.signersOf(context, info.callerPackage) ?: return null
         val caller = AndroidCaller(info.callerPackage, signers, info.webDomain, info.webScheme)
         return try {
             holder.call { it.fillTargetAndroid(caller) }
         } catch (e: CancellationException) {
+            throw e
+        } catch (e: MobileException.NoMatch) {
             throw e
         } catch (e: Exception) {
             null
@@ -71,4 +89,21 @@ class FillPlanner(private val holder: CoreHolder) {
 
     /** True when [target] is an app (not a page in a browser): only then can the user link a login to it. */
     fun isApp(target: FillTarget): Boolean = target.kind is FillTargetKind.AndroidApp
+
+    /**
+     * The label of the app for the "No login for ..." entry, or null when there is nothing to link: the target is a
+     * page, or the caller is an allowlisted browser (which is never linked, whatever its signer: M10-G2 H1).
+     */
+    suspend fun linkLabel(context: Context, target: FillTarget, callerPackage: String): String? {
+        if (!isApp(target) || callerPackage in browsers()) return null
+        return CallerReader.labelOf(context, callerPackage)
+    }
+
+    private suspend fun browsers(): Set<String> =
+        cachedBrowsers ?: BrowserPackages.parse(holder.call { it.privilegedBrowsersJson() }).also { cachedBrowsers = it }
+
+    private companion object {
+        @Volatile
+        var cachedBrowsers: Set<String>? = null
+    }
 }

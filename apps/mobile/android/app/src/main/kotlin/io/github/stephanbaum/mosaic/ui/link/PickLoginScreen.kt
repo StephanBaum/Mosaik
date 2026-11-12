@@ -9,7 +9,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,7 +42,7 @@ fun PickLoginScreen(
 ) {
     val context = LocalContext.current
     val resources = context.resources
-    var filter by rememberSaveable { mutableStateOf("") }
+    var filter by remember { mutableStateOf("") }
     var logins by remember { mutableStateOf<List<ItemSummary>?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     val label = remember(packageName) { CallerReader.labelOf(context, packageName) }

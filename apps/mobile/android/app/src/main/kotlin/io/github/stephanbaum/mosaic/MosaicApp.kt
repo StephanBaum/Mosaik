@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import io.github.stephanbaum.mosaic.autofill.LinkTokens
 import io.github.stephanbaum.mosaic.core.CoreHolder
 import io.github.stephanbaum.mosaic.ffi.CoreConfig
 import io.github.stephanbaum.mosaic.ffi.CoreContext
@@ -20,7 +21,6 @@ import io.github.stephanbaum.mosaic.ffi.MobileSettings
 import io.github.stephanbaum.mosaic.ffi.MosaicCore
 import io.github.stephanbaum.mosaic.ffi.Platform
 import io.github.stephanbaum.mosaic.ffi.SecureStorage
-import io.github.stephanbaum.mosaic.ffi.SessionState
 import io.github.stephanbaum.mosaic.security.AndroidClipboardPort
 import io.github.stephanbaum.mosaic.security.AndroidSecureStorage
 import io.github.stephanbaum.mosaic.security.BiometricGate
@@ -32,6 +32,7 @@ import io.github.stephanbaum.mosaic.security.MainLooperScheduler
 import io.github.stephanbaum.mosaic.security.MemoryCheck
 import io.github.stephanbaum.mosaic.security.QuickUnlockKeys
 import io.github.stephanbaum.mosaic.security.TrustAnchors
+import io.github.stephanbaum.mosaic.security.sessionNeedsLock
 import io.github.stephanbaum.mosaic.session.JoinTracker
 import io.github.stephanbaum.mosaic.session.SessionController
 import io.github.stephanbaum.mosaic.session.VaultController
@@ -62,6 +63,9 @@ class MosaicApp : Application() {
 
     val joinTracker = JoinTracker()
 
+    /** The one-time tokens of the "No login for ..." entries (M10-G2 M3). */
+    val linkTokens = LinkTokens(SystemClock::elapsedRealtime)
+
     @Volatile
     var lockSettings = LockSettings()
         private set
@@ -81,9 +85,11 @@ class MosaicApp : Application() {
         object : Runnable {
             override fun run() {
                 lockPolicy.tick()
-                // In the background the ticker runs only while the session is open: a background delay or the
-                // provider grace (ADR-0094) must lock on time even when no screen comes back to the front.
-                if (foregroundState.value || holder.state() is SessionState.Unlocked) {
+                clipboard.tick()
+                // In the background the ticker runs only while the session is open or a copied secret is on the
+                // clipboard: a background delay or the provider grace (ADR-0094) must lock on time, and the clipboard
+                // deadline must hold, even when no screen comes back to the front.
+                if (foregroundState.value || sessionNeedsLock(holder.state()) || clipboard.hasPending) {
                     handler.postDelayed(this, TICK_MS)
                 }
             }
@@ -95,12 +101,14 @@ class MosaicApp : Application() {
         val storage = AndroidSecureStorage(File(noBackupFilesDir, "secure"), deviceSecure = { keyguard.isDeviceSecure })
         holder = CoreHolder { openCore(storage) }
         clipboard =
-            ClipboardGuard(AndroidClipboardPort(this), MainLooperScheduler()) { UUID.randomUUID().toString() }
+            ClipboardGuard(AndroidClipboardPort(this), MainLooperScheduler(), SystemClock::elapsedRealtime) {
+                UUID.randomUUID().toString()
+            }
         lockPolicy =
             LockPolicy(
                 clock = SystemClock::elapsedRealtime,
                 settings = { lockSettings },
-                isUnlocked = { holder.state() is SessionState.Unlocked },
+                hasSession = { sessionNeedsLock(holder.state()) },
                 joinPending = { joinTracker.isPending },
                 lock = { lockNow() },
             )
@@ -112,7 +120,18 @@ class MosaicApp : Application() {
                 availableMemory = { MemoryCheck.availableBytes(this) },
                 joinTracker = joinTracker,
                 onSettings = { applySettings(it) },
-                onSessionChanged = { sessionEpochState.update { it + 1 } },
+                onSessionChanged = {
+                    sessionEpochState.update { it + 1 }
+                    // An unlock can finish after the app went to the background (a lock that arrived while the core
+                    // was busy ended it locked, but a late unlock may not): check the deadlines at once and restart
+                    // the ticker, which stopped while the core was locked (M10-G2 M1).
+                    if (!foregroundState.value) {
+                        handler.post {
+                            handler.removeCallbacks(ticker)
+                            ticker.run()
+                        }
+                    }
+                },
             )
         vault = VaultController(holder = holder, onSettings = { applySettings(it) })
         registerActivityLifecycleCallbacks(
@@ -122,6 +141,7 @@ class MosaicApp : Application() {
                     if (startedActivities == 1) {
                         foregroundState.value = true
                         lockPolicy.onForeground()
+                        clipboard.onForeground()
                         handler.removeCallbacks(ticker)
                         handler.postDelayed(ticker, TICK_MS)
                     }
@@ -151,6 +171,7 @@ class MosaicApp : Application() {
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
+                    clipboard.clearNow()
                     lockPolicy.onScreenOff()
                 }
             },
@@ -164,6 +185,7 @@ class MosaicApp : Application() {
 
     /** Locks the core at once (it bypasses the call queue) and tells the screens. */
     fun lockNow() {
+        clipboard.clearNow()
         holder.lock()
         sessionEpochState.update { it + 1 }
     }

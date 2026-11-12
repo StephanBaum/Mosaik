@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Hides other apps' overlay windows while a secret is on screen (API 31+, SecureActivity). -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
@@ -38,6 +40,7 @@
             android:name=".ui.MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
             android:exported="true"
+            android:taskAffinity=""
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -49,6 +52,14 @@
              service's own responses start it. -->
         <activity
             android:name=".autofill.FillAuthActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- The "No login for this app" screen of the Autofill service. Not exported: only the service's pending
+             intent, which carries a one-time token, starts it (M10-G2 M3). -->
+        <activity
+            android:name=".autofill.LinkActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale|locale|layoutDirection|density"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />

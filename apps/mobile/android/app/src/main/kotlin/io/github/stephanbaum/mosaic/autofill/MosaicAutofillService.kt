@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The Autofill service (ADR-0092). It answers a fill request with datasets that carry no value: the values are
@@ -58,10 +59,13 @@ class MosaicAutofillService : AutofillService() {
 
     private suspend fun respond(request: FillRequest): FillResponse? {
         val app = application as MosaicApp
+        // A late answer must not hand out entries of a session that is past its deadline (M10-G2 L4): the lock
+        // policy runs on the main thread, and a deadline that passed while the process slept is enforced now.
+        withContext(Dispatchers.Main) { app.lockPolicy.tick() }
         val context = request.fillContexts.lastOrNull() ?: return null
         val parsed = StructureReader.read(context.structure)
         val planner = FillPlanner(app.holder)
-        val factory = FillResponseFactory(this)
+        val factory = FillResponseFactory(this, app.linkTokens)
         return when (val prepared = planner.prepare(this, parsed)) {
             Prepared.NothingToFill -> null
             is Prepared.CannotCheck -> factory.cannotCheckResponse(prepared.info)
@@ -71,8 +75,7 @@ class MosaicAutofillService : AutofillService() {
                 } else {
                     val candidates = planner.candidates(prepared.target)
                     val warning = planner.warning(prepared.target) != null
-                    val label =
-                        if (planner.isApp(prepared.target)) CallerReader.labelOf(this, prepared.info.callerPackage) else null
+                    val label = planner.linkLabel(this, prepared.target, prepared.info.callerPackage)
                     factory.candidatesResponse(prepared.info, candidates.candidates, warning, label)
                 }
             }

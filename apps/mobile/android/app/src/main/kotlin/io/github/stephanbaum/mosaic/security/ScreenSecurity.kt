@@ -21,4 +21,11 @@ object ScreenSecurity {
             view.setContentSensitivity(View.CONTENT_SENSITIVITY_SENSITIVE)
         }
     }
+
+    /** Takes the mark of [markSensitive] off again (the platform decides on its own again). */
+    fun clearSensitive(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            view.setContentSensitivity(View.CONTENT_SENSITIVITY_AUTO)
+        }
+    }
 }

@@ -61,7 +61,7 @@ fun LinkAppScreen(
     val scope = rememberCoroutineScope()
     var login by remember { mutableStateOf<ItemDetail?>(null) }
     var choices by remember { mutableStateOf<List<AppChoice>?>(null) }
-    var filter by rememberSaveable { mutableStateOf("") }
+    var filter by remember { mutableStateOf("") }
     var selected by rememberSaveable { mutableStateOf(initialPackage) }
     var details by remember { mutableStateOf<AppDetails?>(null) }
     var status by remember { mutableStateOf<AssetLinksStatus?>(null) }

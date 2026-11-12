@@ -91,7 +91,7 @@ class FillAuthActivity : SecureActivity() {
 
     private suspend fun work(app: MosaicApp, mode: String, info: FillRequestInfo): Intent? {
         val planner = FillPlanner(app.holder)
-        val factory = FillResponseFactory(this)
+        val factory = FillResponseFactory(this, app.linkTokens)
         val target = planner.target(this, info)
         if (target == null) {
             return if (mode == FillIntents.MODE_LIST) result(factory.cannotCheckResponse(info)) else null
@@ -99,7 +99,7 @@ class FillAuthActivity : SecureActivity() {
         val candidates = planner.candidates(target)
         return if (mode == FillIntents.MODE_LIST) {
             val warning = planner.warning(target) != null
-            val label = if (planner.isApp(target)) CallerReader.labelOf(this, info.callerPackage) else null
+            val label = planner.linkLabel(this, target, info.callerPackage)
             val response = factory.candidatesResponse(info, candidates.candidates, warning, label)
             if (response == null) null else result(response)
         } else {

@@ -21,8 +21,10 @@ import io.github.stephanbaum.mosaic.ffi.AndroidPasskeyRequest
 import io.github.stephanbaum.mosaic.ffi.ItemKey
 import io.github.stephanbaum.mosaic.ffi.SessionState
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
-import java.util.concurrent.atomic.AtomicInteger
+import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** The extras of the credential activity's pending intents. They name the chosen entry and never carry a value. */
 object CredentialIntents {
@@ -35,17 +37,20 @@ object CredentialIntents {
     const val EXTRA_ITEM_VAULT = "io.github.stephanbaum.mosaic.provider.ITEM_VAULT"
     const val EXTRA_ITEM_ID = "io.github.stephanbaum.mosaic.provider.ITEM_ID"
 
-    private val requestCodes = AtomicInteger(1)
+    private val random = SecureRandom()
 
-    /** Mutable (the platform adds the request) and distinct per entry. The component is explicit. */
+    /**
+     * Mutable (the platform adds the request), with a random request code per entry (an app cannot guess it to
+     * create the pending intent first) and `FLAG_CANCEL_CURRENT` (M10-G2 L5). The component is explicit.
+     */
     fun pending(context: Context, mode: String, key: ItemKey?): PendingIntent {
         val intent = Intent(context, CredentialActivity::class.java).putExtra(EXTRA_MODE, mode)
         if (key != null) intent.putExtra(EXTRA_ITEM_VAULT, key.vaultId).putExtra(EXTRA_ITEM_ID, key.itemId)
         return PendingIntent.getActivity(
             context,
-            requestCodes.getAndIncrement(),
+            random.nextInt(),
             intent,
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_CANCEL_CURRENT,
         )
     }
 }
@@ -63,6 +68,8 @@ class CredentialEntries(private val context: Context, private val app: MosaicApp
     suspend fun begin(request: BeginGetCredentialRequest): BeginGetCredentialResponse {
         val builder = BeginGetCredentialResponse.Builder()
         val info = request.callingAppInfo ?: return builder.build()
+        // A late answer must not hand out entries of a session that is past its deadline (M10-G2 L4).
+        withContext(Dispatchers.Main) { app.lockPolicy.tick() }
         val caller = CredentialCallers.of(app.holder, info) ?: return builder.build()
         if (app.holder.state() !is SessionState.Unlocked) {
             val unlock = CredentialIntents.pending(context, CredentialIntents.MODE_UNLOCK, null)

@@ -21,6 +21,28 @@ class RawNode(
     val hint: String?,
 )
 
+/**
+ * One node of a view tree, as far as the walk needs it. [AssistNode] adapts the platform's `ViewNode`; the JVM tests
+ * use a plain tree.
+ */
+interface ViewSource {
+    /** The node itself is visible (not its ancestors). */
+    val visible: Boolean
+
+    /** The `webDomain` the node reports itself (a browser reports it on a container, not on each field). */
+    val webDomain: String?
+    val webScheme: String?
+    val childCount: Int
+
+    fun child(index: Int): ViewSource
+
+    /**
+     * The field this node is, or null for a node that takes no autofill value. [domain] and [scheme] are the node's
+     * own values, or the nearest ancestor's when it has none (M10-G2 H1).
+     */
+    fun raw(shown: Boolean, domain: String?, scheme: String?): RawNode?
+}
+
 /** What the reader found: the caller package and the fields, in tree order, with the IDs to answer them. */
 class ParsedStructure(
     val callerPackage: String,
@@ -67,7 +89,7 @@ object StructureReader {
     fun read(structure: AssistStructure): ParsedStructure {
         val out = ArrayList<RawNode>()
         for (index in 0 until structure.windowNodeCount) {
-            walk(structure.getWindowNodeAt(index).rootViewNode, true, 0, out)
+            walk(AssistNode(structure.getWindowNodeAt(index).rootViewNode), true, null, null, 0, out)
         }
         return ParsedStructure(
             callerPackage = structure.activityComponent?.packageName.orEmpty(),
@@ -85,31 +107,56 @@ object StructureReader {
         return if (first <= 0) nodes else nodes.subList(first, nodes.size)
     }
 
-    private fun walk(node: AssistStructure.ViewNode, parentShown: Boolean, depth: Int, out: MutableList<RawNode>) {
+    /**
+     * Walks the tree in order. A browser (Chrome, a WebView) reports the `webDomain` on a container node and not on
+     * the fields below it, so the nearest ancestor's value is passed down and a field uses its own value first
+     * (M10-G2 H1). Without it a page's fields would look like a native screen of the browser app.
+     */
+    fun walk(
+        node: ViewSource,
+        parentShown: Boolean,
+        inheritedDomain: String?,
+        inheritedScheme: String?,
+        depth: Int,
+        out: MutableList<RawNode>,
+    ) {
         if (out.size >= MAX_NODES || depth > MAX_DEPTH) return
-        val shown = parentShown && node.visibility == View.VISIBLE
-        val id = node.autofillId
-        if (id != null && node.autofillType != View.AUTOFILL_TYPE_NONE) {
-            val html = node.htmlInfo
-            val attrs = html?.attributes
-            out.add(
-                RawNode(
-                    autofillId = id,
-                    focused = node.isFocused,
-                    visible = shown && node.width > 0 && node.height > 0,
-                    webDomain = node.webDomain,
-                    webScheme = node.webScheme,
-                    inputType = node.inputType,
-                    autofillHints = node.autofillHints?.toList().orEmpty(),
-                    htmlTag = html?.tag,
-                    htmlAttrs = attrs?.map { Pair(it.first.orEmpty(), it.second.orEmpty()) }.orEmpty(),
-                    idEntry = node.idEntry,
-                    hint = node.hint,
-                ),
-            )
-        }
+        val shown = parentShown && node.visible
+        val domain = node.webDomain ?: inheritedDomain
+        val scheme = node.webScheme ?: inheritedScheme
+        node.raw(shown, domain, scheme)?.let { out.add(it) }
         for (child in 0 until node.childCount) {
-            walk(node.getChildAt(child), shown, depth + 1, out)
+            walk(node.child(child), shown, domain, scheme, depth + 1, out)
         }
+    }
+}
+
+/** [ViewSource] over a platform `ViewNode`: plain reads, no logic. */
+private class AssistNode(private val node: AssistStructure.ViewNode) : ViewSource {
+    override val visible: Boolean get() = node.visibility == View.VISIBLE
+    override val webDomain: String? get() = node.webDomain
+    override val webScheme: String? get() = node.webScheme
+    override val childCount: Int get() = node.childCount
+
+    override fun child(index: Int): ViewSource = AssistNode(node.getChildAt(index))
+
+    override fun raw(shown: Boolean, domain: String?, scheme: String?): RawNode? {
+        val id = node.autofillId
+        if (id == null || node.autofillType == View.AUTOFILL_TYPE_NONE) return null
+        val html = node.htmlInfo
+        val attrs = html?.attributes
+        return RawNode(
+            autofillId = id,
+            focused = node.isFocused,
+            visible = shown && node.width > 0 && node.height > 0,
+            webDomain = domain,
+            webScheme = scheme,
+            inputType = node.inputType,
+            autofillHints = node.autofillHints?.toList().orEmpty(),
+            htmlTag = html?.tag,
+            htmlAttrs = attrs?.map { Pair(it.first.orEmpty(), it.second.orEmpty()) }.orEmpty(),
+            idEntry = node.idEntry,
+            hint = node.hint,
+        )
     }
 }

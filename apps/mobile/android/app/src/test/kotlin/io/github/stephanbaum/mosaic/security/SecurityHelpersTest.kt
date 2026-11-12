@@ -1,7 +1,6 @@
 package io.github.stephanbaum.mosaic.security
 
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -34,13 +33,11 @@ class SecurityHelpersTest {
 
     @Test
     fun secureStoreAadHasTheLayoutOfCryptoSpec691() {
-        val name = "secret-key/0123"
+        // The vector of the Rust test `secure_store_aad_has_the_fixed_vector` (M10-G2 L1).
         val expected =
-            byteArrayOf(0x01) +
-                "mosaic/v1/mobile/secure-store".toByteArray(Charsets.US_ASCII) +
-                byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x0F) +
-                name.toByteArray(Charsets.UTF_8)
-        assertArrayEquals(expected, AndroidSecureStorage.aadFor(name))
+            "016d6f736169632f76312f6d6f62696c652f7365637572652d73746f7265000000000f7365637265742d6b65792f30313233"
+        val actual = AndroidSecureStorage.aadFor("secret-key/0123").joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        assertEquals(expected, actual)
     }
 
     @Test

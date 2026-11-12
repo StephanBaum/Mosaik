@@ -102,6 +102,90 @@ class AutofillHelpersTest {
         assertEquals(2, StructureReader.trimToWebRoot(nodes).size)
     }
 
+    // ---- web domain inheritance (M10-G2 H1) ----------------------------------------------------------
+
+    /** A plain view tree: [field] nodes take a value, the others are containers. */
+    private class Tree(
+        override val webDomain: String?,
+        override val webScheme: String? = null,
+        private val field: Boolean = false,
+        private val kids: List<Tree> = emptyList(),
+        override val visible: Boolean = true,
+    ) : ViewSource {
+        override val childCount: Int get() = kids.size
+
+        override fun child(index: Int): ViewSource = kids[index]
+
+        override fun raw(shown: Boolean, domain: String?, scheme: String?): RawNode? =
+            if (!field) null else RawNode(null, false, shown, domain, scheme, 0, emptyList(), null, emptyList(), null, null)
+    }
+
+    private fun walked(root: Tree): List<RawNode> {
+        val out = ArrayList<RawNode>()
+        StructureReader.walk(root, true, null, null, 0, out)
+        return out
+    }
+
+    @Test
+    fun fieldsInheritTheDomainOfTheContainerAboveThem() {
+        // What Chrome and a WebView produce: the web domain sits on a container that takes no value.
+        val page =
+            Tree(
+                "example.com",
+                "https",
+                kids =
+                    listOf(
+                        Tree(null, kids = listOf(Tree(null, field = true), Tree(null, field = true))),
+                        Tree(null, field = true),
+                    ),
+            )
+        val nodes = walked(page)
+        assertEquals(3, nodes.size)
+        assertTrue(nodes.all { it.webDomain == "example.com" && it.webScheme == "https" })
+    }
+
+    @Test
+    fun aFieldsOwnDomainWinsOverTheInheritedOne() {
+        val page =
+            Tree(
+                "example.com",
+                kids = listOf(Tree("other.example", "http", field = true), Tree(null, field = true)),
+            )
+        val nodes = walked(page)
+        assertEquals("other.example", nodes[0].webDomain)
+        assertEquals("http", nodes[0].webScheme)
+        assertEquals("example.com", nodes[1].webDomain)
+        assertNull(nodes[1].webScheme)
+    }
+
+    @Test
+    fun theBrowsersOwnFieldsBeforeTheContainerStayWithoutADomain() {
+        // The address bar comes first and has no domain; the page container follows.
+        val window = Tree(null, kids = listOf(Tree(null, field = true), Tree("example.com", kids = listOf(Tree(null, field = true)))))
+        val nodes = StructureReader.trimToWebRoot(walked(window))
+        assertEquals(1, nodes.size)
+        assertEquals("example.com", nodes[0].webDomain)
+    }
+
+    @Test
+    fun aNativeScreenKeepsNoDomain() {
+        val nodes = walked(Tree(null, kids = listOf(Tree(null, field = true), Tree(null, field = true))))
+        assertEquals(2, nodes.size)
+        assertTrue(nodes.all { it.webDomain == null })
+    }
+
+    // ---- browser packages (M10-G2 H1) ------------------------------------------------------------
+
+    @Test
+    fun browserPackagesAreReadFromTheCoresList() {
+        val json =
+            """{"apps":[{"type":"android","info":{"package_name":"com.android.chrome","signatures":[]}},
+                |{"type":"android","info":{ "package_name" : "org.mozilla.firefox","signatures":[]}}]}"""
+                .trimMargin()
+        assertEquals(setOf("com.android.chrome", "org.mozilla.firefox"), BrowserPackages.parse(json))
+        assertTrue(BrowserPackages.parse("{}").isEmpty())
+    }
+
     // ---- provider caller ------------------------------------------------------------------------
 
     @Test

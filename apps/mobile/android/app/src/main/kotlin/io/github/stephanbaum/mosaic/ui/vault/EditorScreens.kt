@@ -38,6 +38,7 @@ import io.github.stephanbaum.mosaic.scan.ScanTarget
 import io.github.stephanbaum.mosaic.security.SecretField
 import io.github.stephanbaum.mosaic.security.SecretFieldState
 import io.github.stephanbaum.mosaic.security.SecretText
+import io.github.stephanbaum.mosaic.security.SensitiveWhile
 import io.github.stephanbaum.mosaic.session.Outcome
 import io.github.stephanbaum.mosaic.ui.components.ActionButton
 import io.github.stephanbaum.mosaic.ui.components.BodyText
@@ -90,8 +91,9 @@ fun LoginEditorScreen(
     val scope = rememberCoroutineScope()
     var loaded by remember { mutableStateOf(itemId == null) }
     var target by remember { mutableStateOf(vaultId) }
-    var title by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
+    // Vault metadata stays out of the saved instance state (the bundle is not wiped): `remember`, not `rememberSaveable`.
+    var title by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var favorite by rememberSaveable { mutableStateOf(false) }
     var hadNotes by remember { mutableStateOf(false) }
     var hasOtp by remember { mutableStateOf(false) }
@@ -304,7 +306,7 @@ fun NoteEditorScreen(
     val scope = rememberCoroutineScope()
     var loaded by remember { mutableStateOf(itemId == null) }
     var target by remember { mutableStateOf(vaultId) }
-    var title by rememberSaveable { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
     var favorite by rememberSaveable { mutableStateOf(false) }
     var hadNotes by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -412,6 +414,8 @@ private fun GeneratorPanel(app: MosaicApp, onUse: (ByteArray) -> Unit) {
     DisposableEffect(Unit) {
         onDispose { holder.replace(null) }
     }
+    // The preview shows a password: the window is sensitive while it is up (M10-G2 L7).
+    SensitiveWhile(preview != null)
 
     Panel {
         SectionTitle(L10n.generatorTitle(resources))

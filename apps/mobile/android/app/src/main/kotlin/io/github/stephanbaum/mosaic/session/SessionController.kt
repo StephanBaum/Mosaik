@@ -27,6 +27,7 @@ import io.github.stephanbaum.mosaic.security.QuickUnlockKeys
 import io.github.stephanbaum.mosaic.security.SecureStorageFailure
 import java.security.GeneralSecurityException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 
 /** The result of a session operation: a value, a core error code (`error.<code>`), or a cancel by the user. */
@@ -95,9 +96,21 @@ class SessionController(
 
     /**
      * Looks for the desktop's setup code in one camera frame (onboarding). Null: no setup code in this frame;
-     * other QR codes are dropped unread by the core. The Secret Key in a found code is the caller's to wipe.
+     * other QR codes are dropped unread by the core. The Secret Key in a found code is the caller's to wipe, except
+     * when the code never reaches the caller (the scan was cancelled as the call returned): it is wiped here
+     * (M10-G2 L6).
      */
-    suspend fun scanSetupQr(frame: LumaFrame): Outcome<SetupCode?> = guarded { holder.call { it.scanSetupQr(frame) } }
+    suspend fun scanSetupQr(frame: LumaFrame): Outcome<SetupCode?> {
+        val found = AtomicReference<SetupCode?>(null)
+        try {
+            val outcome = guarded { holder.call { core -> core.scanSetupQr(frame).also { found.set(it) } } }
+            // Handed over: the caller owns the key now.
+            if (outcome is Outcome.Ok) found.set(null)
+            return outcome
+        } finally {
+            found.getAndSet(null)?.secretKey?.wipe()
+        }
+    }
 
     suspend fun checkServer(url: String): Outcome<ServerInfo> = guarded { holder.call { it.preloginCheck(url) } }
 

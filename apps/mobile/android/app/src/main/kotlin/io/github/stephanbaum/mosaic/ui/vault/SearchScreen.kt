@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +33,8 @@ private const val DEBOUNCE_MS = 150L
 @Composable
 fun SearchScreen(app: MosaicApp, version: Int, onOpen: (ItemSummary) -> Unit) {
     val resources = LocalContext.current.resources
-    var query by rememberSaveable { mutableStateOf("") }
+    // What the user searches for is vault metadata: not saved in the instance state (the bundle is not wiped).
+    var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<ItemSummary>>(emptyList()) }
     var failure by remember { mutableStateOf<String?>(null) }
 
