@@ -26,10 +26,13 @@ final class L10nTests: XCTestCase {
         for language in ["en", "de"] {
             let folder = try XCTUnwrap(Bundle.main.path(forResource: language, ofType: "lproj"))
             let bundle = try XCTUnwrap(Bundle(path: folder))
-            // Xcode compiles the table, so ask the bundle instead of opening the file.
-            let faceId = bundle.localizedString(forKey: "NSFaceIDUsageDescription", value: "missing", table: "InfoPlist")
+            // The hand-written source file: the compiled table is not a plain file in the lproj of the host app.
+            let source = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Resources/\(language).lproj/InfoPlist.strings")
+            let strings = try XCTUnwrap(NSDictionary(contentsOf: source) as? [String: String])
             let catalog = bundle.localizedString(forKey: "mobile.unlock.faceIdReason", value: nil, table: nil)
-            XCTAssertEqual(faceId, catalog, language)
+            XCTAssertEqual(strings["NSFaceIDUsageDescription"], catalog, language)
         }
     }
 }
