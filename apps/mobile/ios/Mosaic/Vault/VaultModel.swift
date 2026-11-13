@@ -90,6 +90,10 @@ final class VaultModel {
 
     /// Applies a settings change. `reauthPassword` is needed to turn the password identity store on.
     func updateSettings(_ update: SettingsUpdate) async throws {
+        // A re-authentication runs Argon2id: the same memory preflight as an unlock (CRYPTO_SPEC 6.9.4).
+        if update.reauthPassword != nil {
+            try await app.preflightMemory()
+        }
         let next = try await holder.call { core in try core.updateSettings(update: update) }
         settings = next
         app.idleMinutesChanged(Int(next.idleLockMinutes))

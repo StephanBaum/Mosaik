@@ -83,20 +83,29 @@ final class ScanModel {
         }
         guard let holder else { return }
         inFlight = true
-        let text = Data(payload.utf8)
         let target = self.target
         Task { [self] in
             defer { inFlight = false }
             do {
                 switch target {
                 case .setupCode:
-                    let code = try await holder.call { core in try core.parseSetupCode(text: text) }
+                    // The bytes are made inside the call and wiped there: the setup code holds the Secret Key.
+                    // (The `String` the camera API gave cannot be wiped, THREAT_MODEL R126.)
+                    let code = try await holder.call { core in
+                        var text = Data(payload.utf8)
+                        defer { text.wipe() }
+                        return try core.parseSetupCode(text: text)
+                    }
                     finished = true
                     feedback = .looking
                     controller?.stop()
                     onSetupCode(code)
                 case .otp:
-                    let preview = try await holder.call { core in try core.otpFromText(text: text) }
+                    let preview = try await holder.call { core in
+                        var text = Data(payload.utf8)
+                        defer { text.wipe() }
+                        return try core.otpFromText(text: text)
+                    }
                     finished = true
                     feedback = .looking
                     controller?.stop()

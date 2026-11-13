@@ -141,10 +141,15 @@ final class SettingsModel {
         busy = true
         errorCode = nil
         defer { busy = false }
-        let buffer = password
+        var typed = password.copyOut()
+        // The update holds the same bytes as `typed`; it lives only in this inner scope, so `typed` is the
+        // last reference when it is wiped (a best effort: the core call has its own copy until it returns).
+        defer { typed.wipe() }
         do {
-            let update = SettingsOptions.update(passwordIdentities: true, reauthPassword: buffer.copyOut())
-            try await vault.updateSettings(update)
+            do {
+                let update = SettingsOptions.update(passwordIdentities: true, reauthPassword: typed)
+                try await vault.updateSettings(update)
+            }
             cancelPassword()
         } catch {
             errorCode = ErrorText.code(of: error)
@@ -347,6 +352,7 @@ struct SettingsView: View {
                     isOn: $model.passwordIdentities)
                     .onChange(of: model.passwordIdentities) { _, on in Task { await model.passwordIdentitiesChanged(on) } }
                 HintText(text: L10n.settingsPasswordIdentitiesHint())
+                HintText(text: L10n.settingsPasswordIdentitiesLimit())
                 if model.askIdentityPassword {
                     passwordPrompt(
                         text: L10n.settingsIdentitiesPassword(), action: L10n.settingsQuickEnable(),

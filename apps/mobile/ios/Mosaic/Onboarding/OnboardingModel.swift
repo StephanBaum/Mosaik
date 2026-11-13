@@ -109,11 +109,14 @@ final class OnboardingModel {
         secretKeyClearToken += 1
     }
 
-    /// The app left the foreground: a scanned Secret Key does not wait in memory.
+    /// The app left the foreground: a typed or scanned Secret Key and a typed password do not wait in memory,
+    /// and the text fields empty too (the clear tokens). A pending join (the handoff, the second factor) is
+    /// not affected: Rust keeps its own copy for it. A step that needs the wiped values is asked again.
     func sceneWentToBackground() {
         stopScanning()
-        if keyFromCode {
-            discardScannedKey()
+        wipeSecrets()
+        if step == .password {
+            step = .details
         }
     }
 
@@ -281,14 +284,16 @@ final class OnboardingModel {
         }
         secondFactor = nil
         handoffCode = nil
-        step = .password
+        // The Secret Key may have been wiped in the background: ask for it again from the details.
+        step = secretKeyFilled ? .password : .details
     }
 
     /// The phone joined and is unlocked: enrol quick unlock if asked, wipe the typed secrets, go on.
     private func finishJoin() async {
         pollTask?.cancel()
         pollTask = nil
-        if enrollQuickUnlock, canUseQuickUnlock, let holder = app.holder {
+        // A password wiped in the background (second factor) leaves quick unlock off; Settings can turn it on.
+        if enrollQuickUnlock, canUseQuickUnlock, !password.isEmpty, let holder = app.holder {
             let keys = app.keys
             let passwordBuffer = password
             do {
