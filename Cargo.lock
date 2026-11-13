@@ -3360,6 +3360,7 @@ dependencies = [
  "mosaic-totp",
  "mosaic-vault",
  "p256 0.14.0",
+ "proptest",
  "rusqlite",
  "serde",
  "serde_json",

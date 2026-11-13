@@ -272,3 +272,223 @@ impl From<mosaic_generator::Error> for MobileError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn error_codes_are_unique_camel_case_and_complete() {
+        let codes = error_codes();
+        assert_eq!(codes.len(), MobileError::ALL.len());
+        let unique: HashSet<_> = codes.iter().collect();
+        assert_eq!(unique.len(), codes.len(), "codes must be unique");
+        for (e, c) in MobileError::ALL.iter().zip(&codes) {
+            assert_eq!(e.code(), *c);
+            assert_eq!(e.to_string(), *c, "Display is the code, nothing else");
+            let mut chars = c.chars();
+            assert!(chars.next().is_some_and(|f| f.is_ascii_lowercase()), "{c}");
+            assert!(c.chars().all(|ch| ch.is_ascii_alphanumeric()), "{c}");
+        }
+    }
+
+    #[test]
+    fn store_errors_map_to_their_codes() {
+        assert_eq!(
+            MobileError::from(StoreError::StoreInUse),
+            MobileError::StoreInUse
+        );
+        assert_eq!(
+            MobileError::from(StoreError::NoAccount),
+            MobileError::NoAccount
+        );
+        assert_eq!(
+            MobileError::from(StoreError::AccountExists),
+            MobileError::AccountExists
+        );
+        assert_eq!(
+            MobileError::from(StoreError::Corrupt),
+            MobileError::StoreUnavailable
+        );
+        assert_eq!(
+            MobileError::from(StoreError::InvalidPath),
+            MobileError::StoreUnavailable
+        );
+    }
+
+    #[test]
+    fn core_errors_map_to_their_codes() {
+        use mosaic_core::Error as C;
+        assert_eq!(
+            MobileError::from(C::EmptyPassword),
+            MobileError::EmptyPassword
+        );
+        assert_eq!(
+            MobileError::from(C::SecretKeyMistyped),
+            MobileError::SecretKeyMistyped
+        );
+        assert_eq!(
+            MobileError::from(C::SecretKeyMalformed),
+            MobileError::SecretKeyMalformed
+        );
+        assert_eq!(MobileError::from(C::Malformed), MobileError::InvalidInput);
+        assert_eq!(MobileError::from(C::SizeLimit), MobileError::InvalidInput);
+        assert_eq!(MobileError::from(C::Decryption), MobileError::Internal);
+    }
+
+    #[test]
+    fn session_errors_map_to_their_codes() {
+        use SessionError as S;
+        let cases = [
+            (S::UnlockFailed, MobileError::WrongCredentials),
+            (S::NoAccount, MobileError::NoAccount),
+            (S::UnknownVault, MobileError::NotFound),
+            (S::UnknownItem, MobileError::NotFound),
+            (S::ItemDeleted, MobileError::NotFound),
+            (S::NoOtp, MobileError::NotFound),
+            (S::VaultUnavailable, MobileError::VaultUnavailable),
+            (S::QuickUnlockExpired, MobileError::QuickUnlockExpired),
+            (
+                S::QuickUnlockInvalidated,
+                MobileError::QuickUnlockInvalidated,
+            ),
+            (S::NoQuickUnlock, MobileError::PasswordRequired),
+            (S::PasswordRequired, MobileError::PasswordRequired),
+            (S::ReauthenticationRequired, MobileError::ReauthRequired),
+            (S::InvalidInput, MobileError::InvalidInput),
+            (
+                S::Otp(mosaic_totp::Error::InvalidSecret),
+                MobileError::InvalidInput,
+            ),
+            (S::ItemTypeNotAllowed, MobileError::ItemTypeNotAllowed),
+            (S::SameVault, MobileError::Internal),
+            (
+                S::Core(mosaic_core::Error::EmptyPassword),
+                MobileError::EmptyPassword,
+            ),
+            (S::Store(StoreError::StoreInUse), MobileError::StoreInUse),
+        ];
+        for (from, want) in cases {
+            let label = format!("{from:?}");
+            assert_eq!(MobileError::from(from), want, "{label}");
+        }
+    }
+
+    #[test]
+    fn transport_errors_map_to_their_codes() {
+        use TransportError as T;
+        let cases = [
+            (T::Unreachable, MobileError::SyncServerUnreachable),
+            (T::Timeout, MobileError::SyncServerUnreachable),
+            (
+                T::Revoked(RevokedReason::PasswordChange),
+                MobileError::SyncPasswordChanged,
+            ),
+            (
+                T::Revoked(RevokedReason::Rekey),
+                MobileError::SyncAccountRekeyed,
+            ),
+            (
+                T::Revoked(RevokedReason::DeviceRemoved),
+                MobileError::SyncSignedOut,
+            ),
+            (
+                T::Revoked(RevokedReason::Operator),
+                MobileError::SyncSignedOut,
+            ),
+            (T::Unauthorized, MobileError::SyncSignedOut),
+            (T::TwoFactorRequired, MobileError::SyncTwoFactorRequired),
+            (
+                T::SecondFactorUnsupported,
+                MobileError::SyncTwoFactorRequired,
+            ),
+            (
+                T::RateLimited { retry_after_s: 3 },
+                MobileError::SyncRateLimited,
+            ),
+            (T::ServerMismatch, MobileError::SyncServerMismatch),
+            (T::Incompatible, MobileError::SyncServerIncompatible),
+            (T::Protocol, MobileError::SyncServerInvalid),
+            (T::InvalidUrl, MobileError::SyncServerInvalid),
+            (T::InsecureUrl, MobileError::SyncServerInsecure),
+            (T::Locked, MobileError::Locked),
+            (T::QuotaExceeded, MobileError::SyncFailed),
+            (T::Forbidden, MobileError::SyncFailed),
+            (
+                T::Rejected(Rejection::LoginFailed),
+                MobileError::WrongCredentials,
+            ),
+            (
+                T::Rejected(Rejection::TwoFactorInvalid),
+                MobileError::SyncTwoFactorInvalid,
+            ),
+            (
+                T::Rejected(Rejection::HandoffExpired),
+                MobileError::SyncHandoffExpired,
+            ),
+            (
+                T::Rejected(Rejection::InvalidEmail),
+                MobileError::InvalidInput,
+            ),
+            (
+                T::Rejected(Rejection::BadRequest),
+                MobileError::InvalidInput,
+            ),
+            (
+                T::Rejected(Rejection::DeviceRevoked),
+                MobileError::SyncSignedOut,
+            ),
+            (
+                T::Rejected(Rejection::AccountExists),
+                MobileError::AccountExists,
+            ),
+            (T::Rejected(Rejection::TooLarge), MobileError::SyncFailed),
+        ];
+        for (from, want) in cases {
+            let label = format!("{from:?}");
+            assert_eq!(MobileError::from(from), want, "{label}");
+        }
+    }
+
+    #[test]
+    fn sync_errors_map_to_their_codes() {
+        assert_eq!(MobileError::from(SyncError::Locked), MobileError::Locked);
+        assert_eq!(
+            MobileError::from(SyncError::AccountRekeyed),
+            MobileError::SyncAccountRekeyed
+        );
+        assert_eq!(
+            MobileError::from(SyncError::Transport(TransportError::Timeout)),
+            MobileError::SyncServerUnreachable
+        );
+        assert_eq!(
+            MobileError::from(SyncError::Session(SessionError::UnlockFailed)),
+            MobileError::WrongCredentials
+        );
+        assert_eq!(
+            MobileError::from(SyncError::RollbackDetected),
+            MobileError::SyncFailed
+        );
+    }
+
+    #[test]
+    fn totp_and_generator_errors_map_to_their_codes() {
+        assert_eq!(
+            MobileError::from(mosaic_totp::Error::InvalidDigits),
+            MobileError::InvalidInput
+        );
+        assert_eq!(
+            MobileError::from(mosaic_generator::Error::Randomness),
+            MobileError::Internal
+        );
+        assert_eq!(
+            MobileError::from(mosaic_generator::Error::Wordlist),
+            MobileError::Internal
+        );
+        assert_eq!(
+            MobileError::from(mosaic_generator::Error::NoCharacterClasses),
+            MobileError::InvalidInput
+        );
+    }
+}

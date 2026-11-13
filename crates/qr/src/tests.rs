@@ -639,3 +639,35 @@ fn scan_drops_other_payloads_unread() {
     // The otpauth scan still ignores a setup code beside the OTP code.
     assert_sample(&scan_one(&both).unwrap());
 }
+
+#[test]
+fn setup_payload_length_limit_is_exact() {
+    // 1024 bytes is the longest code kept (`MAX_SETUP_CODE_LEN`); one more is
+    // some other payload.
+    let prefix = "mosaic-setup:1:";
+    let at_limit = format!("{prefix}{}", "A".repeat(1024 - prefix.len()));
+    assert_eq!(at_limit.len(), 1024);
+    let qr = qr_frame(&at_limit, 3, 4);
+    assert_eq!(scan_setup(&qr).unwrap().as_str(), at_limit);
+    let over = format!("{at_limit}A");
+    let qr = qr_frame(&over, 3, 4);
+    assert_eq!(scan_setup(&qr).unwrap_err(), ScanError::NotSetupCode);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(12))]
+
+    /// Whatever base64url-looking text follows the prefix, a scan returns it
+    /// unchanged (trimmed) and an otpauth scan of the same frame refuses it.
+    #[test]
+    fn setup_payload_round_trips_through_a_frame(
+        body in "[A-Za-z0-9_-]{1,200}",
+        pad in "[ \t\n]{0,3}",
+    ) {
+        let code = format!("mosaic-setup:1:{body}");
+        let qr = qr_frame(&format!("{pad}{code}{pad}"), 3, 4);
+        let scanned = scan_setup(&qr).unwrap();
+        prop_assert_eq!(scanned.as_str(), code.as_str());
+        prop_assert_eq!(scan_one(&qr).unwrap_err(), ScanError::NotOtp);
+    }
+}

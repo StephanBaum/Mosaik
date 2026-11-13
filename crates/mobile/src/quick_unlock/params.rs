@@ -316,3 +316,121 @@ mod tests {
         assert_ne!(aad, quick_unlock_aad(&[6; 16]));
     }
 }
+
+/// Property tests (M10-G5): the encoding round-trips, and the decoder is
+/// strict about every byte of it.
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn params() -> impl Strategy<Value = Params> {
+        (
+            any::<[u8; KEY_NONCE_LEN]>(),
+            1u8..=MAX_AGE_DAYS_LIMIT,
+            0u8..3,
+            prop::collection::vec(any::<u8>(), ANDROID_BODY_LEN.max(IOS_BODY_LEN)),
+        )
+            .prop_map(|(nonce, age, kind, mut raw)| match kind {
+                0 => {
+                    raw.truncate(IOS_BODY_LEN);
+                    Params::new(QuickUnlockPlatform::IosSecureEnclave, nonce, raw, age).unwrap()
+                }
+                k => {
+                    raw.truncate(ANDROID_BODY_LEN);
+                    raw[0] = if k == 1 { FLAG_STRONGBOX } else { 0 };
+                    Params::new(
+                        QuickUnlockPlatform::AndroidKeystore { strongbox: k == 1 },
+                        nonce,
+                        raw,
+                        age,
+                    )
+                    .unwrap()
+                }
+            })
+    }
+
+    fn platform_of(p: &Params) -> Platform {
+        match p.platform {
+            QuickUnlockPlatform::IosSecureEnclave => Platform::Ios,
+            QuickUnlockPlatform::AndroidKeystore { .. } => Platform::Android,
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn encode_then_decode_is_the_identity(p in params()) {
+            let bytes = p.encode();
+            prop_assert_eq!(Params::decode(&bytes, platform_of(&p)).unwrap(), p.clone());
+            // Idempotent.
+            prop_assert_eq!(
+                Params::decode(&bytes, platform_of(&p)).unwrap().encode(),
+                bytes
+            );
+        }
+
+        #[test]
+        fn the_other_platform_never_decodes_it(p in params()) {
+            let other = match platform_of(&p) {
+                Platform::Ios => Platform::Android,
+                Platform::Android => Platform::Ios,
+            };
+            prop_assert!(Params::decode(&p.encode(), other).is_err());
+        }
+
+        #[test]
+        fn any_truncation_or_extension_is_refused(
+            p in params(), cut in 1usize..8, extra in prop::collection::vec(any::<u8>(), 1..4),
+        ) {
+            let bytes = p.encode();
+            let plat = platform_of(&p);
+            prop_assert!(Params::decode(&bytes[..bytes.len() - cut], plat).is_err());
+            let mut long = bytes;
+            long.extend(extra);
+            prop_assert!(Params::decode(&long, plat).is_err());
+        }
+
+        /// Any accepted byte string is exactly what its decoded form encodes
+        /// to (no two encodings of one value), whatever bytes are thrown at it.
+        #[test]
+        fn accepted_bytes_are_canonical(
+            p in params(), pos in any::<prop::sample::Index>(), delta in 1u8..=255,
+        ) {
+            let mut bytes = p.encode();
+            let i = pos.index(bytes.len());
+            bytes[i] ^= delta;
+            for plat in [Platform::Ios, Platform::Android] {
+                if let Ok(q) = Params::decode(&bytes, plat) {
+                    prop_assert_eq!(q.encode(), bytes.clone());
+                }
+            }
+        }
+
+        #[test]
+        fn max_age_outside_one_to_thirty_is_refused(age in prop_oneof![Just(0u8), 31u8..=255]) {
+            prop_assert!(
+                Params::new(
+                    QuickUnlockPlatform::IosSecureEnclave,
+                    [0; KEY_NONCE_LEN],
+                    vec![0; IOS_BODY_LEN],
+                    age,
+                )
+                .is_err()
+            );
+        }
+
+        #[test]
+        fn alias_and_aad_depend_on_the_nonce_only(a in any::<[u8; 16]>(), b in any::<[u8; 16]>()) {
+            prop_assume!(a != b);
+            prop_assert_ne!(quick_unlock_aad(&a), quick_unlock_aad(&b));
+            for plat in [
+                QuickUnlockPlatform::IosSecureEnclave,
+                QuickUnlockPlatform::AndroidKeystore { strongbox: false },
+            ] {
+                prop_assert_ne!(key_alias(plat, &a), key_alias(plat, &b));
+            }
+        }
+    }
+}

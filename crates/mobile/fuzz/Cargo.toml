@@ -30,3 +30,10 @@ path = "fuzz_targets/passkey_request_json.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "quick_unlock_params"
+path = "fuzz_targets/quick_unlock_params.rs"
+test = false
+doc = false
+bench = false

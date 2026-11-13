@@ -45,3 +45,10 @@ path = "fuzz_targets/field_selection.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "app_url_rp_id"
+path = "fuzz_targets/app_url_rp_id.rs"
+test = false
+doc = false
+bench = false

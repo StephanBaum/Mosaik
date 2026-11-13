@@ -1,5 +1,6 @@
 //! Integration tests of `mosaic-vault`, built as one binary.
 
+mod boot_marker_props;
 mod common;
 mod no_plaintext;
 mod properties;

@@ -45,6 +45,8 @@ mosaic-server = { path = "../server" }
 axum.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "macros"] }
 tempfile.workspace = true
+# Property tests of the quick-unlock params encoding (M10-G5).
+proptest.workspace = true
 # A security-key row for the WebAuthn handoff test.
 rusqlite.workspace = true
 # Generated QR frames for the setup-code scan test.

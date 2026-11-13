@@ -6,3 +6,4 @@ mod model_items;
 mod model_sync;
 mod properties;
 mod secret_key;
+mod setup_code_props;
