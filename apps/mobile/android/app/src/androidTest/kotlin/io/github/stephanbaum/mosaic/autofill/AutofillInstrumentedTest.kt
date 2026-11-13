@@ -10,6 +10,7 @@ import io.github.stephanbaum.mosaic.DeviceLock
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.AndroidCaller
 import io.github.stephanbaum.mosaic.ffi.FieldRefusal
+import io.github.stephanbaum.mosaic.ffi.FillTarget
 import io.github.stephanbaum.mosaic.ffi.FillTargetKind
 import io.github.stephanbaum.mosaic.ffi.ItemKey
 import io.github.stephanbaum.mosaic.ffi.LoginDraft
@@ -232,17 +233,18 @@ class AutofillInstrumentedTest {
                 idEntry = null,
                 hint = null,
             )
+        val webTarget = FillTarget(FillTargetKind.Web("https://a.example"), "a.example", null)
         runBlocking {
             // The page of a.example holds a user name field; a frame of b.example holds a password field.
             val page = ParsedStructure(clientPackage, listOf(node("a.example", "username", true), node("b.example", "password", false)))
-            val selection = app.holder.call { it.selectFillFields(page.fieldNodes()) }
+            val selection = app.holder.call { it.selectFillFields(page.fieldNodes(), webTarget) }
             assertNull("no refusal while the focus is on the page", selection.refused)
             assertEquals(0u, selection.username)
             assertNull("the password field of the foreign frame is not filled", selection.password)
 
             // The focus is in the foreign frame: the request is refused.
             val framed = ParsedStructure(clientPackage, listOf(node("a.example", "username", false), node("b.example", "password", true)))
-            val refused = app.holder.call { it.selectFillFields(framed.fieldNodes()) }
+            val refused = app.holder.call { it.selectFillFields(framed.fieldNodes(), webTarget) }
             assertEquals(FieldRefusal.FOREIGN_FRAME, refused.refused)
             assertNull(refused.username)
             assertNull(refused.password)

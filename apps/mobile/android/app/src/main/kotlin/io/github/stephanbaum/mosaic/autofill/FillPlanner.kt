@@ -30,7 +30,17 @@ class FillPlanner(private val holder: CoreHolder) {
     /** Works while locked (both core calls are pure). */
     suspend fun prepare(context: Context, parsed: ParsedStructure): Prepared {
         if (parsed.callerPackage.isEmpty() || parsed.nodes.isEmpty()) return Prepared.NothingToFill
-        val selection = holder.call { it.selectFillFields(parsed.fieldNodes()) }
+        // The target comes first: what may be filled depends on it (an app gets native fields only, M10-G2 round 2,
+        // N1), and it needs no fields.
+        val target: FillTarget?
+        try {
+            target = resolve(context, parsed.callerPackage, parsed.webDomain, parsed.webScheme)
+        } catch (e: MobileException.NoMatch) {
+            // An allowlisted browser sent no webDomain (its address bar, say): the browser app is no target.
+            return Prepared.NothingToFill
+        }
+        if (target == null) return Prepared.CannotCheck(infoOf(parsed, FillFields(null, null, null)))
+        val selection = holder.call { it.selectFillFields(parsed.fieldNodes(), target) }
         if (selection.refused != null) return Prepared.NothingToFill
         val fields =
             FillFields(
@@ -39,30 +49,29 @@ class FillPlanner(private val holder: CoreHolder) {
                 otp = parsed.idOf(selection.otp),
             )
         if (fields.all.isEmpty()) return Prepared.NothingToFill
-        val info = FillRequestInfo(parsed.callerPackage, parsed.webDomain, parsed.webScheme, fields)
-        val target: FillTarget?
-        try {
-            target = resolve(context, info)
-        } catch (e: MobileException.NoMatch) {
-            // An allowlisted browser sent no webDomain (its address bar, say): the browser app is no target.
-            return Prepared.NothingToFill
-        }
-        if (target == null) return Prepared.CannotCheck(info)
-        return Prepared.Ready(info, target)
+        return Prepared.Ready(infoOf(parsed, fields), target)
     }
+
+    private fun infoOf(parsed: ParsedStructure, fields: FillFields) =
+        FillRequestInfo(parsed.callerPackage, parsed.webDomain, parsed.webScheme, fields)
 
     /** The target of [info], read again from the platform: current signers, then the core. Null: cannot check. */
     suspend fun target(context: Context, info: FillRequestInfo): FillTarget? =
         try {
-            resolve(context, info)
+            resolve(context, info.callerPackage, info.webDomain, info.webScheme)
         } catch (e: MobileException.NoMatch) {
             null
         }
 
     /** As [target], but a `noMatch` of the core (a browser without a page) is thrown for the caller to read. */
-    private suspend fun resolve(context: Context, info: FillRequestInfo): FillTarget? {
-        val signers = CallerReader.signersOf(context, info.callerPackage) ?: return null
-        val caller = AndroidCaller(info.callerPackage, signers, info.webDomain, info.webScheme)
+    private suspend fun resolve(
+        context: Context,
+        callerPackage: String,
+        webDomain: String?,
+        webScheme: String?,
+    ): FillTarget? {
+        val signers = CallerReader.signersOf(context, callerPackage) ?: return null
+        val caller = AndroidCaller(callerPackage, signers, webDomain, webScheme)
         return try {
             holder.call { it.fillTargetAndroid(caller) }
         } catch (e: CancellationException) {

@@ -48,11 +48,16 @@ class ParsedStructure(
     val callerPackage: String,
     val nodes: List<RawNode>,
 ) {
-    /** The web domain of the page: the first node's (the core uses the same root), null for a native screen. */
-    val webDomain: String? get() = nodes.firstOrNull()?.webDomain
+    private val pageRoot: RawNode? get() = nodes.firstOrNull { it.webDomain != null }
 
-    /** The scheme the page root reports, if any. */
-    val webScheme: String? get() = nodes.firstOrNull()?.webScheme
+    /**
+     * The web domain of the page: the first node that has one (the core starts a web fill at the same node), null
+     * for a native screen. Only an allowlisted browser's value counts: the core decides that, see `fillTargetAndroid`.
+     */
+    val webDomain: String? get() = pageRoot?.webDomain
+
+    /** The scheme of that same node, if it reports one. */
+    val webScheme: String? get() = pageRoot?.webScheme
 
     /** The node list in the core's record, the position in [nodes] being the node ID. */
     fun fieldNodes(): List<FieldNode> =
@@ -76,8 +81,10 @@ class ParsedStructure(
 }
 
 /**
- * Reads an `AssistStructure` into [ParsedStructure]. The reader only describes; whether a field is filled, and for
- * whom, is decided by the core (`select_fill_fields`, `fill_target_android`).
+ * Reads an `AssistStructure` into [ParsedStructure]. The reader only describes, and drops nothing: whether a field is
+ * filled, and for whom, is decided by the core (`select_fill_fields`, `fill_target_android`). In particular the core,
+ * not the reader, cuts a browser's own screen off a page, and only for a page: an app with a `WebView` keeps its
+ * native fields (M10-G2 round 2, N1).
  */
 @Suppress("NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
 object StructureReader {
@@ -93,18 +100,8 @@ object StructureReader {
         }
         return ParsedStructure(
             callerPackage = structure.activityComponent?.packageName.orEmpty(),
-            nodes = trimToWebRoot(out),
+            nodes = out,
         )
-    }
-
-    /**
-     * A browser's own screen (the address bar, the tab strip) comes before the page, and has no web domain. The core
-     * takes the first node as the page root, so everything before the first node with a web domain is dropped when
-     * the tree has one. A native screen has no web domain at all and stays whole.
-     */
-    fun trimToWebRoot(nodes: List<RawNode>): List<RawNode> {
-        val first = nodes.indexOfFirst { it.webDomain != null }
-        return if (first <= 0) nodes else nodes.subList(first, nodes.size)
     }
 
     /**
@@ -122,8 +119,11 @@ object StructureReader {
     ) {
         if (out.size >= MAX_NODES || depth > MAX_DEPTH) return
         val shown = parentShown && node.visible
-        val domain = node.webDomain ?: inheritedDomain
-        val scheme = node.webScheme ?: inheritedScheme
+        // The domain and the scheme come as a pair from one node: a scheme of another ancestor would pair an origin
+        // the page never had (M10-G2 round 2, N5).
+        val ownDomain = node.webDomain
+        val domain = ownDomain ?: inheritedDomain
+        val scheme = if (ownDomain != null) node.webScheme else inheritedScheme
         node.raw(shown, domain, scheme)?.let { out.add(it) }
         for (child in 0 until node.childCount) {
             walk(node.child(child), shown, domain, scheme, depth + 1, out)

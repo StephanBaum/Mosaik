@@ -55,8 +55,12 @@ class ClipboardGuard(
     private var deadline: Long? = null
     private var awaitingForeground = false
 
-    /** True while a copied secret may still be on the clipboard (the ticker keeps running for it). */
-    val hasPending: Boolean get() = currentLabel != null
+    /**
+     * True while a deadline is running (the ticker keeps running for it). A clear that could not be checked in the
+     * background is repeated by [onForeground], which needs no ticker: otherwise the ticker would run forever
+     * (M10-G2 round 2, N4).
+     */
+    val hasPending: Boolean get() = deadline != null
 
     /** Copies [value] and schedules the clearing after [clearAfterSeconds] seconds. */
     fun copy(value: CharSequence, clearAfterSeconds: Int) {

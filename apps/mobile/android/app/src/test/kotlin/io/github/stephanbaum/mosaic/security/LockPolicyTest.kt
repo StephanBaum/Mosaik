@@ -75,8 +75,9 @@ class LockPolicyTest {
     fun aLockDuringBusyReachesTheCore() {
         // The core is unlocking (Busy) when the lock fires: it must be passed on, not skipped (M10-G2 M1).
         assertTrue(sessionNeedsLock(SessionState.Busy))
-        assertTrue(sessionNeedsLock(SessionState.StoreBusy))
-        assertTrue(sessionNeedsLock(SessionState.StoreClosed))
+        // A store that is closed or in use by another process has no session: no ticker runs for it (N4).
+        assertFalse(sessionNeedsLock(SessionState.StoreBusy))
+        assertFalse(sessionNeedsLock(SessionState.StoreClosed))
         assertFalse(sessionNeedsLock(SessionState.NoAccount))
         assertFalse(sessionNeedsLock(null))
         val policy = policy()

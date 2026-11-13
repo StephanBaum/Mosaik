@@ -112,7 +112,8 @@ class ClipboardGuardTest {
         now += 30_000
         guard.tick()
         assertEquals(1, port.clears)
-        assertTrue(guard.hasPending)
+        // The deadline is spent: the ticker may stop (N4). The repeat waits for the foreground, which needs no ticker.
+        assertEquals(false, guard.hasPending)
         // Back in the foreground the clipboard is readable and holds our clip again (the first clear did not run).
         port.current = ClipRead.Readable(port.label)
         guard.onForeground()
