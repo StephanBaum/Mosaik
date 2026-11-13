@@ -660,6 +660,15 @@ object L10n {
     fun extConfigTitle(r: Resources): String =
         r.getString(R.string.mobile_ext_configTitle)
 
+    fun extConfirmFillBody(r: Resources): String =
+        r.getString(R.string.mobile_ext_confirmFillBody)
+
+    fun extConfirmFillButton(r: Resources): String =
+        r.getString(R.string.mobile_ext_confirmFillButton)
+
+    fun extConfirmFillTitle(r: Resources, site: String): String =
+        r.getString(R.string.mobile_ext_confirmFillTitle, site)
+
     fun extFillHint(r: Resources): String =
         r.getString(R.string.mobile_ext_fillHint)
 
@@ -1106,6 +1115,9 @@ object L10n {
 
     fun settingsPasswordIdentitiesHint(r: Resources): String =
         r.getString(R.string.mobile_settings_passwordIdentitiesHint)
+
+    fun settingsPasswordIdentitiesLimit(r: Resources): String =
+        r.getString(R.string.mobile_settings_passwordIdentitiesLimit)
 
     fun settingsQuick(r: Resources): String =
         r.getString(R.string.mobile_settings_quick)

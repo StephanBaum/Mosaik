@@ -3473,6 +3473,57 @@
         }
       }
     },
+    "mobile.ext.confirmFillBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS teilt Mosaic nicht mit, auf welcher Seite du bist, deshalb kann Mosaic das nicht prüfen. Fülle nur aus, wenn das die Website ist, die du meinst. Danach fragt Mosaic nach Face ID oder Touch ID."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS does not tell Mosaic which page you are on, so Mosaic cannot check it. Fill only if this is the site you mean. Mosaic then asks for Face ID or Touch ID."
+          }
+        }
+      }
+    },
+    "mobile.ext.confirmFillButton" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Login ausfüllen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill this login"
+          }
+        }
+      }
+    },
+    "mobile.ext.confirmFillTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Login für %1$@ ausfüllen?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill the login for %1$@?"
+          }
+        }
+      }
+    },
     "mobile.ext.fillHint" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6050,6 +6101,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic's encryption."
+          }
+        }
+      }
+    },
+    "mobile.settings.passwordIdentitiesLimit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du einen Vorschlag antippst, teilt iOS Mosaic nicht mit, auf welcher Seite du bist. Deshalb zeigt Mosaic die gespeicherte Website und füllt erst aus, nachdem du sie bestätigt und mit Face ID oder Touch ID entsperrt hast."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When you tap a suggestion, iOS does not tell Mosaic which page you are on. So Mosaic shows the saved site and fills only after you confirm it and unlock with Face ID or Touch ID."
           }
         }
       }

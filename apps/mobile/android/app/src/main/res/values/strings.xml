@@ -212,6 +212,9 @@
   <string name="mobile_editor_websites">Websites</string>
   <string name="mobile_ext_configBody">Mosaic offers your logins, passkeys and one-time codes when you tap a field or a sign-in button. You change what it offers in Settings in the Mosaic app.</string>
   <string name="mobile_ext_configTitle">Mosaic AutoFill</string>
+  <string name="mobile_ext_confirmFillBody">iOS does not tell Mosaic which page you are on, so Mosaic cannot check it. Fill only if this is the site you mean. Mosaic then asks for Face ID or Touch ID.</string>
+  <string name="mobile_ext_confirmFillButton">Fill this login</string>
+  <string name="mobile_ext_confirmFillTitle">Fill the login for %1$s?</string>
   <string name="mobile_ext_fillHint">Fills this login</string>
   <string name="mobile_ext_hideAll">Hide other logins</string>
   <string name="mobile_ext_loading">Opening your vault</string>
@@ -367,6 +370,7 @@
   <string name="mobile_settings_passkeyIdentitiesHint">Mosaic tells the system the website and username of each passkey so it can offer it. The keys never leave Mosaic.</string>
   <string name="mobile_settings_passwordIdentities">Suggest logins above the keyboard</string>
   <string name="mobile_settings_passwordIdentitiesHint">Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic\'s encryption.</string>
+  <string name="mobile_settings_passwordIdentitiesLimit">When you tap a suggestion, iOS does not tell Mosaic which page you are on. So Mosaic shows the saved site and fills only after you confirm it and unlock with Face ID or Touch ID.</string>
   <string name="mobile_settings_quick">Quick unlock</string>
   <string name="mobile_settings_quickDisable">Turn off</string>
   <string name="mobile_settings_quickEnable">Turn on</string>

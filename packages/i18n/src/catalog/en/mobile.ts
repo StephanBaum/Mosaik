@@ -365,4 +365,11 @@ export const mobile = {
   "mobile.ext.configTitle": "Mosaic AutoFill",
   "mobile.ext.configBody":
     "Mosaic offers your logins, passkeys and one-time codes when you tap a field or a sign-in button. You change what it offers in Settings in the Mosaic app.",
+  // iOS (G2): a QuickType suggestion asks first (M3), and the settings text names the limit.
+  "mobile.ext.confirmFillTitle": "Fill the login for {site}?",
+  "mobile.ext.confirmFillBody":
+    "iOS does not tell Mosaic which page you are on, so Mosaic cannot check it. Fill only if this is the site you mean. Mosaic then asks for Face ID or Touch ID.",
+  "mobile.ext.confirmFillButton": "Fill this login",
+  "mobile.settings.passwordIdentitiesLimit":
+    "When you tap a suggestion, iOS does not tell Mosaic which page you are on. So Mosaic shows the saved site and fills only after you confirm it and unlock with Face ID or Touch ID.",
 } as const satisfies Record<string, string>;

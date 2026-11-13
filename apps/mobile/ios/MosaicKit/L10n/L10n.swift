@@ -855,6 +855,18 @@ public enum L10n {
         NSLocalizedString("mobile.ext.configTitle", bundle: .main, comment: "")
     }
 
+    public static func extConfirmFillBody() -> String {
+        NSLocalizedString("mobile.ext.confirmFillBody", bundle: .main, comment: "")
+    }
+
+    public static func extConfirmFillButton() -> String {
+        NSLocalizedString("mobile.ext.confirmFillButton", bundle: .main, comment: "")
+    }
+
+    public static func extConfirmFillTitle(site: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.confirmFillTitle", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
     public static func extFillHint() -> String {
         NSLocalizedString("mobile.ext.fillHint", bundle: .main, comment: "")
     }
@@ -1449,6 +1461,10 @@ public enum L10n {
 
     public static func settingsPasswordIdentitiesHint() -> String {
         NSLocalizedString("mobile.settings.passwordIdentitiesHint", bundle: .main, comment: "")
+    }
+
+    public static func settingsPasswordIdentitiesLimit() -> String {
+        NSLocalizedString("mobile.settings.passwordIdentitiesLimit", bundle: .main, comment: "")
     }
 
     public static func settingsQuick() -> String {
