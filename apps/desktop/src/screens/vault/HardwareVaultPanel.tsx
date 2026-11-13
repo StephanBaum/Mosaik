@@ -177,7 +177,7 @@ function useTimeLeft(openUntil: number | null): number | null {
 /** The keys of an open hardware vault, with the add and remove calls that keep them current. */
 function useVaultKeys(vaultId: string) {
   const ipc = useIpc();
-  const { guard, dialog } = useReauth("reauth.bodyKey");
+  const { guard, dialog } = useReauth("reauth.bodyKey", "hardwareVaultKey");
   const [keys, setKeys] = useState<readonly HardwareKeySummary[] | null>(null);
   useEffect(() => {
     let current = true;

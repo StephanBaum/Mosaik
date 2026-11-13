@@ -40,7 +40,7 @@ use std::time::SystemTime;
 use mosaic_core::{AccountId, InstallId, KeyGeneration, VaultId};
 
 pub use account::{JoinError, JoinFailure, current_account_file, join_from_folder};
-pub use init::{FolderContents, FolderError, init, inspect, list_accounts};
+pub use init::{FolderContents, FolderError, MAX_LISTED_ACCOUNTS, init, inspect, list_accounts};
 
 use self::layout::{HEAD_NAME, INFO_NAME, Layout};
 use crate::clock::Clock;

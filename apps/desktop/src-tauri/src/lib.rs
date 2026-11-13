@@ -85,6 +85,14 @@ pub fn open_store(dir: &std::path::Path) -> Slot {
     if std::fs::create_dir_all(dir).is_err() {
         return Slot::Unavailable(ErrorCode::StoreUnavailable);
     }
+    // Owner-only on Unix, whatever the umask says (RT-desktop-2).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() {
+            return Slot::Unavailable(ErrorCode::StoreUnavailable);
+        }
+    }
     match Store::open(dir.join(STORE_FILE)) {
         Ok(store) => Slot::Locked(LockedSession::open(store)),
         Err(error) => Slot::Unavailable(IpcError::from(error).code),

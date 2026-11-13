@@ -47,14 +47,21 @@ pub enum FolderContents {
     Empty,
     /// A Mosaic folder with these accounts.
     Mosaic {
-        /// The account directories, ascending.
+        /// The account directories, ascending, at most
+        /// [`MAX_LISTED_ACCOUNTS`] (a hostile peer can plant any number).
         accounts: Vec<AccountId>,
+        /// More account directories exist than `accounts` lists.
+        truncated: bool,
     },
     /// A Mosaic marker of another version.
     OtherVersion,
     /// Files that are not Mosaic's. Nothing may be written.
     Foreign,
 }
+
+/// How many accounts [`inspect`] lists (RT-desktop info: a folder shared with
+/// a hostile peer can hold any number of directories).
+pub const MAX_LISTED_ACCOUNTS: usize = 64;
 
 /// File names an OS or sync client puts into every folder; they do not make
 /// a folder non-empty.
@@ -75,9 +82,15 @@ pub fn inspect(root: &Path) -> FolderContents {
         return FolderContents::Foreign;
     };
     match fsutil::read_capped(&root.join(MARKER_NAME), 256) {
-        Ok(Some(bytes)) if bytes == MARKER_BYTES => FolderContents::Mosaic {
-            accounts: list_accounts(root),
-        },
+        Ok(Some(bytes)) if bytes == MARKER_BYTES => {
+            let mut accounts = list_accounts(root);
+            let truncated = accounts.len() > MAX_LISTED_ACCOUNTS;
+            accounts.truncate(MAX_LISTED_ACCOUNTS);
+            FolderContents::Mosaic {
+                accounts,
+                truncated,
+            }
+        }
         Ok(Some(bytes)) => {
             if String::from_utf8_lossy(&bytes).contains("\"mosaic-folder\"") {
                 FolderContents::OtherVersion
@@ -121,7 +134,7 @@ pub fn init(root: &Path) -> Result<(), FolderError> {
 }
 
 /// The account directories of a folder, ascending (empty if there are none
-/// or the folder is unreadable).
+/// or the folder is unreadable). Not capped: [`inspect`] caps what it lists.
 #[must_use]
 pub fn list_accounts(root: &Path) -> Vec<AccountId> {
     let Ok(entries) = fsutil::list(&root.join("a")) else {

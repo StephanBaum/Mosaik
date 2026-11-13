@@ -26,7 +26,7 @@ use crate::contract::quick_unlock::{
     HardwareKeySummary, QuickUnlockStatus, RemoveHardwareKeyRequest,
 };
 use crate::contract::secret::SecretIn;
-use crate::contract::session::{QuickUnlockKind, QuickUnlockRequest, SessionState};
+use crate::contract::session::{QuickUnlockKind, QuickUnlockRequest, ReauthPurpose, SessionState};
 use crate::quick_unlock::{
     BiometricPlatform, CancelFlag, HardwareCandidate, HardwareKeyError, PlatformError,
 };
@@ -445,7 +445,7 @@ impl Backend {
             Err(TryLockError::WouldBlock) => return Err(IpcError::new(ErrorCode::Busy)),
             Err(TryLockError::Poisoned(_)) => return Err(IpcError::INTERNAL),
         };
-        self.require_reauth(request.password)?;
+        self.require_reauth(request.password, ReauthPurpose::QuickUnlockEnroll)?;
         let platform = self
             .quick_unlock
             .available_biometric()
@@ -471,7 +471,9 @@ impl Backend {
             .map(|e| e.platform_params);
         let enrolled = self
             .quick_unlock
-            .consume_reauth(|proof| session.enroll_quick_unlock(&w, &payload, proof));
+            .consume_reauth(ReauthPurpose::QuickUnlockEnroll, |proof| {
+                session.enroll_quick_unlock(&w, &payload, proof)
+            });
         drop(w);
         match enrolled {
             Some(Ok(_)) => {
@@ -538,7 +540,7 @@ impl Backend {
         if !hardware.is_supported() {
             return Err(IpcError::new(ErrorCode::HardwareKeyUnsupported));
         }
-        self.require_reauth(request.password.take())?;
+        self.require_reauth(request.password.take(), ReauthPurpose::QuickUnlockEnroll)?;
         if self.slot()?.unlocked()?.hardware_keys()?.len() >= MAX_HARDWARE_KEYS {
             return Err(IpcError::new(ErrorCode::HardwareKeyLimit));
         }
@@ -563,7 +565,9 @@ impl Backend {
         };
         let enrolled = self
             .quick_unlock
-            .consume_reauth(|proof| session.enroll_hardware_key(&key, &prf, proof));
+            .consume_reauth(ReauthPurpose::QuickUnlockEnroll, |proof| {
+                session.enroll_hardware_key(&key, &prf, proof)
+            });
         drop(prf);
         match enrolled {
             Some(Ok(_)) => {}

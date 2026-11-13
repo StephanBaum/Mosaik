@@ -18,6 +18,7 @@ use mosaic_vault::session::{RotationKind as VaultKind, RotationPhase, SyncKind};
 use super::{MAX_CONTINUE_CALLS, Renewed, Who, rekey_error};
 use crate::contract::errors::{ErrorCode, IpcError, IpcResult};
 use crate::contract::rotation::{RotationDone, VaultRotateKeyRequest};
+use crate::contract::session::ReauthPurpose;
 use crate::state::Backend;
 use crate::sync::access::BackendSession;
 use crate::sync::open_folder;
@@ -49,11 +50,13 @@ impl Backend {
         // rotation, which may have offered a key, does not leave it behind.
         match request.proof {
             Some(password) if !password.expose_secret().is_empty() => {
-                self.reauthenticate(password)?;
-                let _ = self.quick_unlock.take_reauth();
+                self.reauthenticate(password, ReauthPurpose::VaultKeyRotation)?;
+                let _ = self
+                    .quick_unlock
+                    .take_reauth(ReauthPurpose::VaultKeyRotation);
             }
             _ => {
-                let _ = self.take_reauth_grant()?;
+                let _ = self.take_reauth_grant(ReauthPurpose::VaultKeyRotation)?;
             }
         }
         let who = self.who()?;

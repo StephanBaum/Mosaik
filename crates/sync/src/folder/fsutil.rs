@@ -112,14 +112,15 @@ pub(crate) fn read_capped(path: &Path, max: u64) -> Result<Option<Vec<u8>>, Tran
 
 /// Opens a file for reading. On Unix with `O_NONBLOCK`, so that a FIFO that
 /// replaced the file does not block the open (the caller checks that the
-/// opened file is a regular file).
+/// opened file is a regular file), and `O_NOFOLLOW`, so that a symlink put in
+/// place of the file between the check and the open is refused, not followed.
 fn open_regular(path: &Path) -> std::io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NONBLOCK);
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
     options.open(path)
 }

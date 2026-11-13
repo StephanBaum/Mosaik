@@ -23,6 +23,7 @@ use crate::contract::items::{
     UpdateItemRequest, UrlEntry, UrlMatchMode,
 };
 use crate::contract::secret::SecretOut;
+use crate::contract::session::ReauthPurpose;
 use crate::state::{AppState, Backend};
 
 /// How long a revealed secret stays visible (UX_GUIDELINES §8).
@@ -610,7 +611,7 @@ impl Backend {
         // of two parallel moves one gets it) and spends it on success; a
         // failed move hands it back.
         let grant = if leaves_hardware_vault {
-            Some(self.take_reauth_grant()?)
+            Some(self.take_reauth_grant(ReauthPurpose::LeaveHardwareVault)?)
         } else {
             None
         };

@@ -127,6 +127,7 @@ export const syncHandlers: MockHandlers = {
       displayPath: CHOICE_PATHS[answer],
       contents: answer,
       accounts: answer === "mosaic" ? [sampleAccount.accountId] : [],
+      accountsTruncated: false,
     };
     state.sync.choices.set(choice.choiceId, choice);
     return choice;

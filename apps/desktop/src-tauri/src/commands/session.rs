@@ -13,8 +13,8 @@ use crate::contract::events::{AppEvent, LockReason};
 use crate::contract::secret::{SecretIn, SecretOut};
 use crate::contract::session::{
     AppStatus, CreateAccountRequest, CreatedAccount, EmergencyKit, KitSaved, KitVerification,
-    ReauthenticateRequest, SaveKitRequest, SessionState, ShortcutState, UnlockRequest,
-    VerifyKitRequest,
+    ReauthPurpose, ReauthenticateRequest, SaveKitRequest, SessionState, ShortcutState,
+    UnlockRequest, VerifyKitRequest,
 };
 use crate::emergency_kit::{self, KitValues};
 use crate::persist::{AccountInfo, valid_email};
@@ -84,7 +84,9 @@ pub async fn reauthenticate(
     state: State<'_, AppState>,
     request: ReauthenticateRequest,
 ) -> IpcResult<()> {
-    state.run(move |b| b.reauthenticate(request.password)).await
+    state
+        .run(move |b| b.reauthenticate(request.password, request.purpose))
+        .await
 }
 
 /// `subscribe_events`: the webview hands over a channel for [`AppEvent`]s.
@@ -504,16 +506,17 @@ impl Backend {
     /// a protection off, or enrolling a quick method, needs it again) with
     /// `UnlockedSession::verify_master_password`. Nothing locks or unlocks:
     /// the vault stays open on a wrong password. A right password keeps the
-    /// vault's `Reauthenticated` proof for two minutes (the enroll commands
-    /// take `password: null` within that time); the fifth wrong one in a row
+    /// vault's `Reauthenticated` proof for two minutes, **for `purpose` only**
+    /// (the command that purpose names takes `password: null` within that
+    /// time; any other command asks again, RT-desktop-1); the fifth wrong one in a row
     /// locks the vault **and** requires the password for the next unlock
     /// (no quick method is offered until then). Any lock resets the count
     /// and drops the proof.
     ///
     /// # Errors
     /// `locked`, `secretKeyRequired`, `wrongCredentials`, `emptyPassword`.
-    pub fn reauthenticate(&self, password: SecretIn) -> IpcResult<()> {
-        self.reauthenticate_master(&master_password(password))
+    pub fn reauthenticate(&self, password: SecretIn, purpose: ReauthPurpose) -> IpcResult<()> {
+        self.reauthenticate_master(&master_password(password), purpose)
     }
 
     /// [`Backend::reauthenticate`] for a password already in a zeroizing
@@ -522,23 +525,32 @@ impl Backend {
     ///
     /// # Errors
     /// As [`Backend::reauthenticate`].
-    pub(crate) fn reauthenticate_master(&self, password: &MasterPassword) -> IpcResult<()> {
-        self.check_master(password, true)
+    pub(crate) fn reauthenticate_master(
+        &self,
+        password: &MasterPassword,
+        purpose: ReauthPurpose,
+    ) -> IpcResult<()> {
+        self.check_master(password, Some(purpose))
     }
 
     /// The passkey dialog's check: like [`Backend::reauthenticate_master`]
     /// (wrong passwords count towards the five-failure lock, a right one
     /// marks the user as verified for passkeys) but it earns **no**
-    /// two-minute re-authentication grant, so a passkey confirmation cannot
-    /// be spent on a protection change or a move out of a hardware vault.
+    /// two-minute re-authentication grant, so a passkey confirmation, a
+    /// settings change or an Emergency Kit save cannot be spent on anything
+    /// else (RT-desktop-1).
     ///
     /// # Errors
     /// As [`Backend::reauthenticate`].
     pub(crate) fn verify_master_only(&self, password: &MasterPassword) -> IpcResult<()> {
-        self.check_master(password, false)
+        self.check_master(password, None)
     }
 
-    fn check_master(&self, password: &MasterPassword, grant: bool) -> IpcResult<()> {
+    fn check_master(
+        &self,
+        password: &MasterPassword,
+        grant: Option<ReauthPurpose>,
+    ) -> IpcResult<()> {
         let slot = self.slot()?;
         let session = slot.unlocked()?;
         let key = self
@@ -546,8 +558,8 @@ impl Backend {
             .ok_or(IpcError::new(ErrorCode::SecretKeyRequired))?;
         match session.verify_master_password(password, &key) {
             Ok(proof) => {
-                if grant {
-                    self.quick_unlock.grant_reauth(proof);
+                if let Some(purpose) = grant {
+                    self.quick_unlock.grant_reauth(proof, purpose);
                 } else {
                     self.quick_unlock.clear_reauth_failures();
                 }
@@ -578,10 +590,16 @@ impl Backend {
     ///
     /// # Errors
     /// `reauthRequired`, and those of [`Backend::reauthenticate`].
-    pub(crate) fn require_reauth(&self, password: Option<SecretIn>) -> IpcResult<()> {
+    pub(crate) fn require_reauth(
+        &self,
+        password: Option<SecretIn>,
+        purpose: ReauthPurpose,
+    ) -> IpcResult<()> {
         match password {
-            Some(password) if !password.expose_secret().is_empty() => self.reauthenticate(password),
-            _ if self.quick_unlock.reauth_granted() => Ok(()),
+            Some(password) if !password.expose_secret().is_empty() => {
+                self.reauthenticate(password, purpose)
+            }
+            _ if self.quick_unlock.reauth_granted(purpose) => Ok(()),
             _ => Err(IpcError::new(ErrorCode::ReauthRequired)),
         }
     }
@@ -593,9 +611,12 @@ impl Backend {
     /// # Errors
     /// `reauthRequired` without a grant within two minutes (or when a
     /// parallel command took it).
-    pub(crate) fn take_reauth_grant(&self) -> IpcResult<crate::quick_unlock::Grant> {
+    pub(crate) fn take_reauth_grant(
+        &self,
+        purpose: ReauthPurpose,
+    ) -> IpcResult<crate::quick_unlock::Grant> {
         self.quick_unlock
-            .take_reauth()
+            .take_reauth(purpose)
             .ok_or(IpcError::new(ErrorCode::ReauthRequired))
     }
 
@@ -621,7 +642,8 @@ impl Backend {
             if password.expose_secret().is_empty() {
                 return Err(IpcError::new(ErrorCode::ReauthRequired));
             }
-            self.reauthenticate(password)?;
+            // The password typed for the kit pays for the kit only.
+            self.verify_master_only(&master_password(password))?;
         }
         self.touch();
         let Some(path) = self

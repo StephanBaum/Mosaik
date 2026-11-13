@@ -203,7 +203,6 @@ fn add_passkey(b: &Backend) {
 /// for the kit pays for the kit only (no grant from `save_emergency_kit`, or a
 /// grant scoped to the action that earned it).
 #[test]
-#[ignore = "RT-desktop-1: a cancelled Emergency Kit save leaves a two-minute grant that a passkey export spends"]
 fn a_password_typed_for_the_kit_does_not_pay_for_a_passkey_export() {
     let _kdf = crate::test_support::kdf_permit();
     let dialog = PathDialog::default();
@@ -216,7 +215,10 @@ fn a_password_typed_for_the_kit_does_not_pay_for_a_passkey_export() {
     // Without a grant the export asks for the password.
     let export = b.export_passkeys_cxf(typed(json!({ "vaultId": vault, "password": null })));
     assert_eq!(code(export.unwrap_err()), ErrorCode::ReauthRequired);
-    assert!(!b.quick_unlock.reauth_granted());
+    assert!(
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::PasskeyExport)
+    );
 
     // The kit: password typed, dialog cancelled, nothing written.
     assert_eq!(save_kit(&b, Some(PASSWORD)).unwrap(), KitSaved::Cancelled);
@@ -224,7 +226,8 @@ fn a_password_typed_for_the_kit_does_not_pay_for_a_passkey_export() {
 
     // Wanted: no grant from a kit save.
     assert!(
-        !b.quick_unlock.reauth_granted(),
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::PasskeyExport),
         "the password typed for the kit left a re-authentication grant"
     );
     // Wanted: the export still asks for the password. Today it reaches the
@@ -249,8 +252,15 @@ fn the_grant_pays_for_no_settings_weakening_and_no_kit_save() {
     let b = backend(Store::open_in_memory().unwrap(), &dialog);
     let secret_key = create(&b);
     verify_kit(&b, &secret_key);
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
-    assert!(b.quick_unlock.reauth_granted());
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::QuickUnlockEnroll,
+    )
+    .unwrap();
+    assert!(
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::QuickUnlockEnroll)
+    );
 
     let mut weaker = serde_json::to_value(b.settings_snapshot()).unwrap();
     let days = weaker["quickUnlockMaxAgeDays"].as_u64().unwrap();
@@ -281,7 +291,8 @@ fn the_grant_pays_for_no_settings_weakening_and_no_kit_save() {
     }
     assert_eq!(dialog.saves(), 0, "no kit dialog without the password");
     assert!(
-        b.quick_unlock.reauth_granted(),
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::QuickUnlockEnroll),
         "the refusals kept the grant"
     );
 
@@ -289,7 +300,10 @@ fn the_grant_pays_for_no_settings_weakening_and_no_kit_save() {
     b.lock(LockReason::Manual).unwrap();
     b.unlock(typed(json!({ "password": PASSWORD, "secretKey": null })))
         .unwrap();
-    assert!(!b.quick_unlock.reauth_granted());
+    assert!(
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::QuickUnlockEnroll)
+    );
     assert_eq!(
         code(save_kit(&b, None).unwrap_err()),
         ErrorCode::ReauthRequired
@@ -441,7 +455,11 @@ fn a_passkey_export_spends_one_grant_per_written_file() {
 
     // A wrong password is counted even while a grant is held, and the
     // grant stays: five wrong ones lock the vault.
-    b.reauthenticate(SecretIn::test(PASSWORD)).unwrap();
+    b.reauthenticate(
+        SecretIn::test(PASSWORD),
+        crate::contract::session::ReauthPurpose::PasskeyExport,
+    )
+    .unwrap();
     assert_eq!(
         code(
             b.export_passkeys_cxf(typed(request(json!("wrong"))))
@@ -449,7 +467,10 @@ fn a_passkey_export_spends_one_grant_per_written_file() {
         ),
         ErrorCode::WrongCredentials
     );
-    assert!(b.quick_unlock.reauth_granted());
+    assert!(
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::PasskeyExport)
+    );
     assert_eq!(dialog.saves(), 0);
 
     // Cancelled: the grant is handed back; written: it is spent.
@@ -458,14 +479,22 @@ fn a_passkey_export_spends_one_grant_per_written_file() {
         b.export_passkeys_cxf(typed(request(Value::Null))).unwrap(),
         PasskeysExported::Cancelled
     );
-    assert!(b.quick_unlock.reauth_granted(), "a cancel keeps the grant");
+    assert!(
+        b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::PasskeyExport),
+        "a cancel keeps the grant"
+    );
     let target = dir.path().join("passkeys.json");
     dialog.set(Some(target.clone()));
     assert_eq!(
         b.export_passkeys_cxf(typed(request(Value::Null))).unwrap(),
         PasskeysExported::Saved { count: 1 }
     );
-    assert!(!b.quick_unlock.reauth_granted(), "a written file spends it");
+    assert!(
+        !b.quick_unlock
+            .reauth_granted(crate::contract::session::ReauthPurpose::PasskeyExport),
+        "a written file spends it"
+    );
     assert!(
         std::fs::read_to_string(&target)
             .unwrap()
@@ -497,7 +526,6 @@ fn a_passkey_export_spends_one_grant_per_written_file() {
 /// "another user" attacker).
 #[cfg(unix)]
 #[test]
-#[ignore = "RT-desktop-2: settings.json and the data directory are created with the umask default, readable by other local users"]
 fn the_state_file_and_the_data_directory_are_owner_only() {
     use std::os::unix::fs::PermissionsExt as _;
 
