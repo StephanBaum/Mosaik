@@ -9,16 +9,20 @@ import Security
 /// backups. The access group is the app-private group: the AutoFill extension is
 /// not in it and never needs the Secret Key or the session token.
 public final class KeychainSecureStorage: SecureStorage {
-    /// The accessibility class of new items. Only tests on the simulator (which has no passcode) use the
-    /// other one.
+    /// The accessibility class of items. Only tests on the simulator (which has no passcode) use the other
+    /// one, and it exists in Debug builds only, so a Release build cannot store a secret in it.
     enum Accessibility: Sendable {
         case passcodeSetThisDeviceOnly
-        case unlockedThisDeviceOnlyForTests
+        #if DEBUG
+            case unlockedThisDeviceOnlyForTests
+        #endif
 
         var value: CFString {
             switch self {
             case .passcodeSetThisDeviceOnly: kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
-            case .unlockedThisDeviceOnlyForTests: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            #if DEBUG
+                case .unlockedThisDeviceOnlyForTests: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            #endif
             }
         }
     }
@@ -33,11 +37,13 @@ public final class KeychainSecureStorage: SecureStorage {
         self.accessibility = .passcodeSetThisDeviceOnly
     }
 
-    init(service: String, accessGroup: String?, accessibility: Accessibility) {
-        self.service = service
-        self.accessGroup = accessGroup
-        self.accessibility = accessibility
-    }
+    #if DEBUG
+        init(service: String, accessGroup: String?, accessibility: Accessibility) {
+            self.service = service
+            self.accessGroup = accessGroup
+            self.accessibility = accessibility
+        }
+    #endif
 
     public convenience init(identity: AppIdentity) {
         self.init(service: identity.secureStoreService, accessGroup: identity.keychainGroup)
@@ -104,7 +110,12 @@ public final class KeychainSecureStorage: SecureStorage {
 
     public func put(name: String, value: Data) throws {
         let query = Self.itemQuery(service: service, accessGroup: accessGroup, name: name)
-        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: value] as CFDictionary)
+        // The class is set again on update, so an item an older build stored in a weaker class is upgraded.
+        let update: [String: Any] = [
+            kSecValueData as String: value,
+            kSecAttrAccessible as String: accessibility.value,
+        ]
+        var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if status == errSecItemNotFound {
             let attributes = Self.newItemAttributes(
                 service: service, accessGroup: accessGroup, name: name, value: value,

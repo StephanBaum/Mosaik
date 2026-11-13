@@ -30,12 +30,21 @@ public enum CoreFactory {
             fileManager: fileManager)
     }
 
-    /// Creates `directory` (complete protection) and marks it excluded from backups.
+    /// Creates `directory` (complete protection) and marks it excluded from backups. A directory that exists
+    /// already (an older build, or the system) gets the protection class too.
     static func prepare(_ directory: URL, fileManager: FileManager) -> URL? {
         do {
             try fileManager.createDirectory(
                 at: directory, withIntermediateDirectories: true,
                 attributes: [.protectionKey: FileProtectionType.complete])
+            #if targetEnvironment(simulator)
+                // The simulator has no data protection: it does not matter there, so a refusal is ignored.
+                try? fileManager.setAttributes(
+                    [.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
+            #else
+                try fileManager.setAttributes(
+                    [.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
+            #endif
             var url = directory
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
@@ -59,21 +68,21 @@ public enum CoreFactory {
             throw CodedError("storeUnavailable")
         }
         let core = try MosaicCore.open(
-            config: config(storeDirectory: directory, context: .app),
-            storage: KeychainSecureStorage(identity: identity))
+            config: config(storeDirectory: directory, context: .app), storage: identity.appSecureStorage())
         return CoreHolder(core: core)
     }
 
     /// Opens the core for one request of the AutoFill extension: the extension context (no password unlock, no
-    /// sync, no changes), the same Keychain secure store and this boot's ID. The store is open only while the
-    /// request runs; `ProviderSession.finish()` closes it.
+    /// sync, no changes), a secure store that refuses every call (it never needs the Secret Key or the token) and
+    /// this boot's ID. The store is open only while the request
+    /// runs; `ProviderSession.finish()` closes it.
     public static func openExtension(identity: AppIdentity = .from()) throws -> CoreHolder {
         guard let directory = storeDirectory(identity: identity) else {
             throw CodedError("storeUnavailable")
         }
         let core = try MosaicCore.open(
             config: config(storeDirectory: directory, context: .iosAutofillExtension),
-            storage: KeychainSecureStorage(identity: identity))
+            storage: RefusingSecureStorage())
         return CoreHolder(core: core)
     }
 }

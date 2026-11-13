@@ -27,6 +27,25 @@ public struct AppIdentity: Sendable, Equatable {
     /// The prefix of the quick-unlock key tag; the core's key alias follows (`quick-unlock.<hex>`).
     public var quickUnlockTagPrefix: String { bundleID + "." }
 
+    /// Whether a missing keychain group is a fatal configuration error: a device build outside Debug. The
+    /// simulator and Debug builds are unsigned and use the default group.
+    public static var requiresKeychainGroup: Bool {
+        #if targetEnvironment(simulator) || DEBUG
+            return false
+        #else
+            return true
+        #endif
+    }
+
+    /// The secure store of the app. A device build without its keychain group refuses to open (a build
+    /// configuration error), rather than store the Secret Key in an unnamed group.
+    public func appSecureStorage(requireGroup: Bool = AppIdentity.requiresKeychainGroup) throws -> any SecureStorage {
+        if requireGroup && keychainGroup == nil {
+            throw CodedError("storeUnavailable")
+        }
+        return KeychainSecureStorage(identity: self)
+    }
+
     /// Reads the identity from the `Info.plist` of `bundle`.
     ///
     /// Simulator builds are unsigned in CI and have no team prefix or keychain entitlement, so they use the

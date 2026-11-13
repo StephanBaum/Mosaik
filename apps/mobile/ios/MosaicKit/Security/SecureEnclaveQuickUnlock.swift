@@ -146,6 +146,8 @@ public struct SecureEnclaveQuickUnlock: QuickUnlockKeys {
     ) async throws -> Data {
         let tag = Self.tag(prefix: tagPrefix, alias: alias)
         let context = LAContext()
+        // The authentication is over when this call ends, so a retained context cannot be reused.
+        defer { context.invalidate() }
         // Biometry only: an empty fallback title hides "Enter Password".
         context.localizedFallbackTitle = ""
         context.localizedCancelTitle = cancelTitle
@@ -205,6 +207,8 @@ public struct SecureEnclaveQuickUnlock: QuickUnlockKeys {
         switch OSStatus(truncatingIfNeeded: ns.code) {
         case errSecUserCanceled:
             return .cancelled
+        // errSecAuthFailed can also come from a transient failure. It still maps to `invalidated`: that
+        // fails safe (the user enters the master password and enrols again), at the cost of availability.
         case errSecAuthFailed, errSecItemNotFound:
             return .invalidated
         default:
