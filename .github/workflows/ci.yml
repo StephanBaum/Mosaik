@@ -104,8 +104,8 @@ jobs:
         # input; insights rates vault passwords; origin decides which site gets a
         # fill and native-messaging frames the extension channel; sync holds the
         # wire formats of both sync backends and server is the sync server (M6).
-        # All are held to the same bar.
-        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server]
+        # mobile is the phone core (M10). All are held to the same bar.
+        crate: [mosaic-core, mosaic-totp, mosaic-generator, mosaic-vault, mosaic-insights, mosaic-import, mosaic-ssh-agent, mosaic-qr, mosaic-origin, mosaic-native-messaging, mosaic-passkey, mosaic-sync, mosaic-server, mosaic-mobile]
         include:
           # The folder, engine, HTTP and chaos tests of the sync crate need the
           # test utilities. The hosted engine paths are exercised by the server
@@ -147,6 +147,7 @@ jobs:
           - crates/passkey/fuzz
           - crates/sync/fuzz
           - crates/server/fuzz
+          - crates/mobile/fuzz
           # Includes the shell's contract, persist, draft and Emergency Kit modules by
           # path; no tauri, so no WebKitGTK is needed.
           - apps/desktop/src-tauri/fuzz
@@ -301,6 +302,10 @@ jobs:
         with:
           command: check
           manifest-path: crates/server/fuzz/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: crates/mobile/fuzz/Cargo.toml
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
