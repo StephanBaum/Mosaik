@@ -569,4 +569,24 @@ mod tests {
         }
         assert_eq!(files.probes.get(), 10_000);
     }
+
+    /// RT-parsers-verify-1 (red team verify 2026-11-13): `Files::new` keeps
+    /// one `prefixed` key per `__` in a member name, each a copy of the name
+    /// up to that point. A name of n underscores costs about n^2/2 bytes of
+    /// keys: one 64 KiB member name (the zip maximum) is about 2 GiB, and a
+    /// 256 MiB file holds thousands of them. The `document_key` it replaced
+    /// cut at the first `__` and was linear.
+    #[test]
+    #[ignore = "RT-parsers-verify-1: Files::new stores a prefix per `__` of each member name, quadratic memory in the name length (one 64 KiB name is about 2 GiB)"]
+    fn prefix_map_is_linear_in_the_member_name_length() {
+        let name = format!("files/{}", "_".repeat(20_000));
+        let bytes = archive(std::slice::from_ref(&name));
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let key_bytes: usize = files.prefixed.keys().map(|k| k.len()).sum();
+        assert!(
+            key_bytes <= 64 * name.len(),
+            "{key_bytes} bytes of prefix keys for one {}-byte member name",
+            name.len()
+        );
+    }
 }
