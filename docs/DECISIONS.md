@@ -5278,7 +5278,7 @@ A phone must keep the Secret Key and the hosted session token across app starts,
 
    **iOS** uses a Keychain generic password:
    - service `<bundle id>.secure-store`, account = the name;
-   - `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, not synchronizable;
+   - `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`, not synchronizable;
    - the app-private access group. The extension never needs the Secret Key or the token.
 2. **Platform bytes** in the quick-unlock parameters `0x02 ‖ platform ‖ key_nonce[16] ‖ body` (CRYPTO_SPEC §6.2). The decoder is strict: exact lengths, version `0x02`, and a known platform byte that matches the running platform.
    - `0x03`, **iOS Secure Enclave.** The body is the 113-byte ECIES ciphertext of `W` (`eciesEncryptionCofactorX963SHA256AESGCM`), as for Touch ID on the desktop (ADR-0028).
@@ -5480,6 +5480,7 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
   - **Amendment (M10 G3 red team, G3-4): loopback needs `allow_http` on a phone.** On a phone any installed app can listen on `127.0.0.1`, so the ADR-0037 loopback exemption does not hold. The mobile core matches web pages with `fill_allowed_with(.., HttpPolicy::LoopbackNeedsAllowHttp)`: a loopback `http` page needs the URL's `allow_http` like any other `http` page. `fill_allowed` (desktop, extension) keeps the exemption.
   - **Amendment (M10 G3 red team, G3-5): browser packages are never apps.** `android_fill_target` refuses a package on the browser list whose signer is not trusted (`TargetError::UntrustedBrowser`, `noMatch`), and `app_fill_allowed` never matches a browser package. A fake or a rotated key the list does not know yet can no longer fill an `androidapp://<browser>?cert=` login on every page.
   - **Amendment (M10 G3 red team, G3-6 and housekeeping): DNS names, bounded state.** `canonical_rp_id` requires DNS labels: ASCII letters, digits and hyphens, no leading or trailing hyphen, at most 63 bytes per label (253 in total). Callers: the passkey import and the mobile passkey calls; the desktop does not use it. The asset-links answer cache holds at most 256 entries and evicts the one that expires first. The system pickers' lists open a fill or passkey session per request that nothing uses: `fill_release` and `passkey_release` drop it (the provider calls them right after building the list and on every failed exit of the get flows).
+  - **Amendment (M10-G2-iOS, M3): a QuickType selection fills only after a confirm.** For a tap on a QuickType suggestion (`prepareInterfaceToProvideCredential`) iOS gives the provider the identity (its own domain and record) and not the page the user is on. The core's origin match would compare the identity with itself, so a login saved for `a.example` could be offered for a page of another site that the keyboard showed it on. The conservative choice is taken: the request never fills by itself. The extension opens the interface, shows "Fill the login for <saved site>?" naming the site of the identity, and asks for Face ID or Touch ID only after the explicit confirm; then it fills the identity's login, if the core still lists it as a match for that site. The settings text of OD-M10-7 says so. Alternative rejected: filling at once after Face ID, as a QuickType suggestion normally does (the user cannot see which page the fill is for, and the check proves nothing).
 
 ### Alternatives considered
 - **Trust `webDomain` from any app:** any app could ask for any site's password.
@@ -5525,6 +5526,7 @@ Android Credential Manager (API 34+) and iOS 17+ let a third-party app act as a 
   - UV comes from the Secure Enclave biometric unlock in the same extension run. **Amendment (G1-4):** `passkey_ios_assert` and `passkey_ios_register` answer `reauthRequired` when `user_verified` is `false`, always sign with the UV flag set, and need a session opened by a verified user in this process (`unlock_quick`, or the master password in the app). The `*_ios_*` calls and `fill_target_ios` answer `invalidInput` on an Android core, and the Android calls (`passkey_android_*`, `fill_target_android`, `link_android_app`, `asset_links_status`) on an iOS core (G1-5).
   - After a registration, the extension adds the new `ASPasskeyCredentialIdentity`. The app reconciles at its next unlock.
 - **Unchanged** (CRYPTO_SPEC §16): the flags, the encodings, the zero AAGUID, BE = BS = 1, and ES256 only.
+  - **Amendment (M10-G2-iOS, L1): the exclude list.** On iOS 18+ the registration request carries `excludedCredentials`; the extension passes their credential IDs to `passkey_ios_register`, which refuses a duplicate (`passkeyExcluded`). iOS 17 has no such field, so on iOS 17 a relying party's exclude list is not enforced; the system's own checks apply.
 
 ### Alternatives considered
 - **A second signing function for hash mode, next to the old API:** two code paths over the same key, and the old API would remain a client-data builder that mobile cannot use. One enum keeps one signing path.
@@ -5589,6 +5591,7 @@ Credential Manager and per-dataset autofill take two steps: the provider shows e
     - Screenshots cannot be blocked. The screenshot notification only hides the values again.
 - **TOTP.** Codes are `SecretValue`s with `remaining_s`. Pending OTP slots follow ADR-0031 item 2: at most 4, for 10 minutes, dropped on lock.
 - **Settings.** Auto-lock, clipboard, the quick-unlock maximum age and the identity-store opt-in carry the MAC of CRYPTO_SPEC §11.1 (ADR-0030). The code is ported from the desktop into `mosaic_mobile::settings`.
+  - **Amendment (M10-G2-iOS, M1): the extension's end and its idle timer.** Every end of an extension request (a completion, a failure, the user's cancel, a newer request) runs one `finish()`: lock, close the store, release the fill session. A dismissal without a completion call (`viewWillDisappear`), the host resigning active or entering the background (`NSExtensionHostWillResignActive`, `NSExtensionHostDidEnterBackground`) and `protectedDataWillBecomeUnavailable` end the request the same way, exactly once. The 120 s idle timer is only a backstop: it is re-armed on each user action and does not run while the process is suspended, so the dismissal and the host's background are the real bound on how long the store stays open.
 
 ### Alternatives considered
 - **No provider grace:** Credential Manager entries could never be used without a second unlock. That would push users to a background delay above 0 s, which is worse.
