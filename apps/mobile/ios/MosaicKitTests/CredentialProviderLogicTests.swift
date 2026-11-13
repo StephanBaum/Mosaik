@@ -177,7 +177,7 @@ final class CredentialProviderLogicTests: XCTestCase {
         let elsewhere = try await session.passkeyCandidates(rpId: "other.example", allow: [])
         XCTAssertTrue(elsewhere.isEmpty)
 
-        // Hash mode: the platform's hash is signed over; UP and UV are set; the sign count goes up.
+        // Hash mode: the platform's hash is signed over; UP and UV are set.
         let first = try await session.assertPasskey(
             rpId: "example.com", clientDataHash: hash, credentialId: made.registration.credentialId)
         XCTAssertEqual(first.credentialId, made.registration.credentialId)
@@ -188,7 +188,8 @@ final class CredentialProviderLogicTests: XCTestCase {
         XCTAssertEqual(first.authenticatorData[32] & 0x05, 0x05, "user present and user verified")
         let second = try await session.assertPasskey(
             rpId: "example.com", clientDataHash: hash, candidate: identity.record)
-        XCTAssertGreaterThan(signCount(second.authenticatorData), signCount(first.authenticatorData))
+        // The count of a synced passkey may stay 0 (CRYPTO_SPEC 16); it never goes down.
+        XCTAssertGreaterThanOrEqual(signCount(second.authenticatorData), signCount(first.authenticatorData))
 
         // The wrong relying party finds no passkey.
         do {
