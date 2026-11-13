@@ -22,12 +22,12 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
-libfuzzer-sys = "=0.4.10"
+libfuzzer-sys = "=0.4.13"
 mosaic-core = { path = "../../core" }
 mosaic-ssh-agent = { path = ".." }
 # The same versions and features as the main workspace.
 signature = { version = "=3.0.0", default-features = false }
-ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["std", "ed25519", "p256", "encryption"] }
+ssh-key = { version = "=0.7.0-rc.12", default-features = false, features = ["std", "ed25519", "p256", "encryption"] }
 tokio = { version = "=1.54.1", default-features = false, features = ["net", "rt", "sync", "time", "io-util"] }
 
 [[bin]]
