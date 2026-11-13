@@ -12,7 +12,10 @@ use crate::assetlinks::{
     AssetLinksError, MAX_ASSET_LINKS_LEN, MAX_STATEMENTS, Relation, app_is_delegated,
     app_is_delegated_for_passkeys, parse_asset_links,
 };
-use crate::fields::{FieldNode, FieldRefusal, FieldRole, InputKind, select_fill_fields};
+use crate::fields::{
+    FieldNode, FieldRefusal, FieldRole, FieldScope, InputKind, select_fill_fields,
+    select_scoped_fill_fields,
+};
 use crate::target::{
     AndroidCaller, FillTarget, IosIdentifier, TargetError, android_fill_target, ios_fill_target,
 };
@@ -576,4 +579,41 @@ fn assetlinks_rejects_malformed_and_oversized() {
         MAX_STATEMENTS
     );
     assert_eq!(parse_asset_links(b"[]").unwrap().len(), 0);
+}
+
+#[test]
+fn app_scope_excludes_every_web_node_and_refuses_a_focused_one() {
+    let nodes = [
+        node(None, &["username"]),
+        node(None, &["password"]),
+        node(Some("ads.example"), &["password"]),
+    ];
+    let s = select_scoped_fill_fields(&nodes, FieldScope::App);
+    let picked: Vec<_> = s.fields.iter().map(|f| (f.index, f.role)).collect();
+    assert_eq!(picked, [(0, FieldRole::Username), (1, FieldRole::Password)]);
+    assert_eq!(s.root_domain, None);
+    let mut focused = nodes.clone();
+    focused[2].focused = true;
+    let s = select_scoped_fill_fields(&focused, FieldScope::App);
+    assert_eq!(s.refused, Some(FieldRefusal::ForeignFrame));
+    assert_eq!(s.fields, []);
+    // A page whose nodes all carry a domain gives nothing.
+    let page = [
+        node(Some("a.com"), &["username"]),
+        node(Some("a.com"), &["password"]),
+    ];
+    assert_eq!(select_scoped_fill_fields(&page, FieldScope::App).fields, []);
+}
+
+#[test]
+fn web_scope_starts_at_the_first_node_with_a_domain() {
+    let nodes = [
+        node(None, &["username"]),
+        node(Some("a.com"), &["username"]),
+        node(Some("a.com"), &["password"]),
+    ];
+    let s = select_scoped_fill_fields(&nodes, FieldScope::Web);
+    let picked: Vec<_> = s.fields.iter().map(|f| (f.index, f.role)).collect();
+    assert_eq!(picked, [(1, FieldRole::Username), (2, FieldRole::Password)]);
+    assert_eq!(s.root_domain.as_deref(), Some("a.com"));
 }

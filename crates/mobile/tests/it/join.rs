@@ -8,6 +8,17 @@ use mosaic_sync::wire::json::RegistrationMode;
 
 use crate::common::{BOOT, Desktop, LoopbackServer, PASSWORD, Phone};
 
+fn wait_for_busy(core: &mosaic_mobile::Core) {
+    let start = std::time::Instant::now();
+    while core.state() != SessionState::Busy {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(20),
+            "never busy"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 fn request(server: &LoopbackServer, email: &str, sk: &str, password: &str) -> JoinHostedRequest {
     JoinHostedRequest {
         server_url: server.base.clone(),
@@ -381,4 +392,33 @@ fn folder_setup_code_or_config_is_folder_account_unsupported() {
     );
     let overview = phone.core.sync_overview();
     assert!(!overview.configured);
+}
+
+#[test]
+fn a_lock_during_join_without_a_second_factor_ends_locked() {
+    // M10-G2 round 2, N3: the lock came while the join call ran.
+    let server = LoopbackServer::start();
+    let desktop = Desktop::register(&server, "joinlock@example.com");
+    desktop.sync(&server);
+    let phone = Phone::new();
+    server.advance_ms(60_000);
+    phone.core.test_hooks().set_work_delay_ms(400);
+    let outcome = std::thread::scope(|scope| {
+        let join = scope.spawn(|| {
+            phone.core.join_hosted(request(
+                &server,
+                "joinlock@example.com",
+                &desktop.sk_text(),
+                PASSWORD,
+            ))
+        });
+        wait_for_busy(&phone.core);
+        phone.core.lock();
+        join.join().unwrap()
+    });
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert!(
+        matches!(phone.core.state(), SessionState::Locked { .. }),
+        "the lock was kept"
+    );
 }

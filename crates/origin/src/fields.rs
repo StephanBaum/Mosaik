@@ -197,3 +197,54 @@ pub fn select_fill_fields(nodes: &[FieldNode]) -> FieldSelection {
     }
     selection
 }
+
+/// Whose fill a selection serves (ADR-0092). The platform tree is the same
+/// for both; what may be filled is not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FieldScope {
+    /// A page in an allowlisted browser. The browser's own screen before the
+    /// page (address bar, tab strip) has no `web_domain` and is dropped: the
+    /// page root is the first node that has one.
+    Web,
+    /// An app, which includes a browser that is not allowlisted. Only native
+    /// nodes can be filled: a node with a `web_domain`, own or inherited, is
+    /// web content of someone else and is excluded, and a focus in one refuses
+    /// the request (M10-G2 round 2, N1).
+    App,
+}
+
+/// [`select_fill_fields`] for a [`FieldScope`]. `index` always points into the
+/// `nodes` given.
+#[must_use]
+pub fn select_scoped_fill_fields(nodes: &[FieldNode], scope: FieldScope) -> FieldSelection {
+    let nodes = nodes.get(..MAX_NODES).unwrap_or(nodes);
+    match scope {
+        FieldScope::Web => {
+            let start = nodes
+                .iter()
+                .position(|n| n.web_domain.is_some())
+                .unwrap_or(0);
+            let mut selection = select_fill_fields(nodes.get(start..).unwrap_or_default());
+            for field in &mut selection.fields {
+                field.index = field.index.saturating_add(start);
+            }
+            selection
+        }
+        FieldScope::App => {
+            let mut selection = FieldSelection::default();
+            if nodes.iter().any(|n| n.focused && n.web_domain.is_some()) {
+                selection.refused = Some(FieldRefusal::ForeignFrame);
+                return selection;
+            }
+            for (index, node) in nodes.iter().enumerate() {
+                if node.web_domain.is_some() || !node.visible {
+                    continue;
+                }
+                if let Some(role) = role_of(node) {
+                    selection.fields.push(SelectedField { index, role });
+                }
+            }
+            selection
+        }
+    }
+}

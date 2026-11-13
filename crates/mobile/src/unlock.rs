@@ -64,12 +64,27 @@ impl Core {
     /// Puts a taken store back. A `lock()` that came meanwhile has nothing
     /// left to lock.
     pub(crate) fn put_back(&self, taken: Taken) {
+        self.put_back_with(taken, false);
+    }
+
+    /// As [`Core::put_back`], but a `lock()` that came meanwhile stays
+    /// requested, for a call that goes on to unlock (the join, M10-G2 round 2,
+    /// N3): `finish_unlocked` then ends locked.
+    pub(crate) fn put_back_keeping_lock(&self, taken: Taken) {
+        self.put_back_with(taken, true);
+    }
+
+    fn put_back_with(&self, taken: Taken, keep_lock: bool) {
         // The flag is cleared under the mutex, with the phase (G1-1): a `lock()`
         // that came meanwhile has nothing to lock, and one that comes after
         // this sees the locked phase.
         if let Ok(mut guard) = self.guard() {
-            self.lock_requested.store(false, Ordering::SeqCst);
-            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+            let strict = if keep_lock {
+                false
+            } else {
+                self.lock_requested.store(false, Ordering::SeqCst);
+                self.lock_strict.swap(false, Ordering::SeqCst)
+            };
             guard.phase = match taken {
                 Taken::NoAccount(ls) => Phase::NoAccount(ls),
                 Taken::Locked(mut ls) => {

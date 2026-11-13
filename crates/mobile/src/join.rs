@@ -216,7 +216,13 @@ impl Core {
         let login =
             hosted::join_login(&origin, &email, &master, &secret_key, install, &device_name);
         self.work_pause();
-        self.put_back(Taken::NoAccount(locked));
+        // A `lock()` during this call stays requested when the join goes on
+        // (no second factor, or one waiting): `finish_join` ends locked (N3).
+        if login.is_ok() {
+            self.put_back_keeping_lock(Taken::NoAccount(locked));
+        } else {
+            self.put_back(Taken::NoAccount(locked));
+        }
         let login = login?;
         let mut pending = PendingJoin {
             origin,

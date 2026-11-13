@@ -305,8 +305,10 @@ impl MosaicCore {
     }
 
     // ---- autofill -----------------------------------------------------------------------------
-    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>) -> FieldSelection {
-        self.inner.select_fill_fields(nodes.conv()).conv()
+    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>, target: FillTarget) -> FieldSelection {
+        self.inner
+            .select_fill_fields(nodes.conv(), &target.conv())
+            .conv()
     }
     pub fn fill_target_android(&self, caller: AndroidCaller) -> Result<FillTarget, MobileError> {
         lift(self.inner.fill_target_android(caller.conv()))

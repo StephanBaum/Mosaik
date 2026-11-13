@@ -416,10 +416,14 @@ fn node_of(n: &FieldNode) -> fields::FieldNode {
 }
 
 /// The nodes a selection can point at; the same cap as the origin crate's.
-fn select_fields(nodes: &[FieldNode]) -> FieldSelection {
+fn select_fields(nodes: &[FieldNode], target: &FillTarget) -> FieldSelection {
+    let scope = match target.kind {
+        FillTargetKind::Web { .. } => fields::FieldScope::Web,
+        FillTargetKind::AndroidApp { .. } => fields::FieldScope::App,
+    };
     let limited = nodes.get(..fields::MAX_NODES).unwrap_or(nodes);
     let mapped: Vec<fields::FieldNode> = limited.iter().map(node_of).collect();
-    let chosen = fields::select_fill_fields(&mapped);
+    let chosen = fields::select_scoped_fill_fields(&mapped, scope);
     let mut out = FieldSelection::default();
     if chosen.refused == Some(fields::FieldRefusal::ForeignFrame) {
         out.refused = Some(FieldRefusal::ForeignFrame);
@@ -530,10 +534,13 @@ impl Core {
         }
     }
 
-    /// Which fields of a view tree to fill. Pure; works while locked.
+    /// Which fields of a view tree to fill for `target` (from
+    /// `fill_target_android`). An app target gets native fields only, never web
+    /// content in a `WebView`; a web target starts at the page root. Pure;
+    /// works while locked.
     #[must_use]
-    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>) -> FieldSelection {
-        select_fields(&nodes)
+    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>, target: &FillTarget) -> FieldSelection {
+        select_fields(&nodes, target)
     }
 
     /// What an Android request is for. Pure; works while locked. A
