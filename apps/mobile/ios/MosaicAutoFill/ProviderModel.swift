@@ -25,6 +25,8 @@ struct PasskeyRegistrationRequest: Sendable {
     let userHandle: Data
     let clientDataHash: Data
     let algorithms: [Int64]
+    /// The credential IDs the relying party already has for this user (iOS 18+; empty before).
+    let excluded: [Data]
 }
 
 /// How a request ended. The view controller turns it into the system's completion call.
@@ -49,13 +51,17 @@ final class ProviderModel {
         case loading
         case message(String, retry: Bool)
         case unlock
+        /// A QuickType selection: the saved site is shown and nothing fills before the user confirms it.
+        case confirmFill(site: String)
         case logins
         case passkeys
         case confirmRegistration
         case configuration
     }
 
-    /// An idle extension gives up after this long (the store stays open while it waits).
+    /// The backstop for a request nobody ends: an idle extension gives up after this long (the store stays open
+    /// while it waits). The timer is re-armed on every action and does not run while the process is suspended,
+    /// so the dismissal and the host going to the background (`DismissalObserver`) are the real bound.
     static let idleSeconds = 120
 
     private(set) var screen: Screen = .loading
@@ -72,8 +78,10 @@ final class ProviderModel {
     @ObservationIgnored private let session: ProviderSession?
     @ObservationIgnored private let openFailure: Error?
     @ObservationIgnored private let onFinish: (ProviderOutcome) -> Void
-    @ObservationIgnored private var finished = false
+    /// Ends the request once: lock, close the store, release the fill session (M1).
+    @ObservationIgnored private let lifecycle: RequestLifecycle
     @ObservationIgnored private var triedAutomaticUnlock = false
+    @ObservationIgnored private var fillConfirmed = false
     @ObservationIgnored private var timeout: Task<Void, Never>?
 
     init(
@@ -82,13 +90,20 @@ final class ProviderModel {
     ) {
         self.request = request
         self.onFinish = onFinish
-        do {
-            self.session = try makeSession()
-            self.openFailure = nil
-        } catch {
-            self.session = nil
-            self.openFailure = error
+        var opened: ProviderSession?
+        var failure: Error?
+        if case .configuration = request {
+            // The configuration screen needs no vault: no session, so the store is not opened.
+        } else {
+            do {
+                opened = try makeSession()
+            } catch {
+                failure = error
+            }
         }
+        self.session = opened
+        self.openFailure = failure
+        self.lifecycle = RequestLifecycle(close: { [opened] in opened?.finish() })
     }
 
     var isOneTimeCode: Bool {
@@ -118,6 +133,7 @@ final class ProviderModel {
     // MARK: Request
 
     func start() async {
+        guard !lifecycle.isFinished else { return }
         armTimeout()
         if case .configuration = request {
             screen = .configuration
@@ -137,8 +153,13 @@ final class ProviderModel {
             case .needsApp, .unlocked:
                 screen = .message(L10n.extOpenApp(), retry: false)
             case .quickUnlock:
-                screen = .unlock
-                await unlock(automatic: true)
+                if case let .passwordProvide(identifiers, _) = request {
+                    // No automatic fill and no automatic Face ID: the user confirms the saved site first.
+                    screen = .confirmFill(site: ProviderFillPolicy.savedSite(of: identifiers) ?? L10n.extThisSite())
+                } else {
+                    screen = .unlock
+                    await unlock(automatic: true)
+                }
             }
         } catch {
             fail(error)
@@ -147,7 +168,7 @@ final class ProviderModel {
 
     /// Face ID or Touch ID. Runs once when the screen appears and again from its button.
     func unlock(automatic: Bool = false) async {
-        guard let session, !isWorking else { return }
+        guard let session, !isWorking, !lifecycle.isFinished else { return }
         if automatic {
             guard !triedAutomaticUnlock else { return }
             triedAutomaticUnlock = true
@@ -174,8 +195,16 @@ final class ProviderModel {
         await proceed()
     }
 
+    /// The user confirmed "Fill the login for <site>?": now the Face ID prompt, then the fill.
+    func confirmFill() async {
+        guard case .confirmFill = screen, !isWorking, !lifecycle.isFinished else { return }
+        fillConfirmed = true
+        screen = .unlock
+        await unlock(automatic: true)
+    }
+
     private func proceed() async {
-        guard let session else { return }
+        guard let session, !lifecycle.isFinished else { return }
         screen = .loading
         do {
             switch request {
@@ -186,8 +215,10 @@ final class ProviderModel {
                 let found = try await session.list(identifiers: identifiers)
                 list = found
                 screen = .logins
-                if let record, found.matches.contains(where: { $0.key == record }) {
-                    await fill(record)
+                if let key = ProviderFillPolicy.loginToFill(
+                    record: record, matches: found.matches.map(\.key), confirmed: fillConfirmed)
+                {
+                    await fill(key)
                 }
             case let .passkeyList(identifiers, rpId, _, allowed):
                 passkeys = try await session.passkeyCandidates(rpId: rpId, allow: allowed)
@@ -223,7 +254,7 @@ final class ProviderModel {
 
     /// The user chose a login (a tap on a match).
     func fill(_ key: ItemKey) async {
-        guard let session, !isWorking else { return }
+        guard let session, !isWorking, !lifecycle.isFinished else { return }
         armTimeout()
         isWorking = true
         errorText = nil
@@ -266,7 +297,7 @@ final class ProviderModel {
             let made = try await session.registerPasskey(
                 rpId: register.rpId, userName: register.userName, userHandle: register.userHandle,
                 clientDataHash: register.clientDataHash, algorithms: register.algorithms,
-                excludedCredentialIds: [], vaultId: vault)
+                excludedCredentialIds: register.excluded, vaultId: vault)
             if let identity = made.identity {
                 await IdentityStoreSync.add(identity, to: SystemIdentityStore())
             }
@@ -290,12 +321,11 @@ final class ProviderModel {
 
     // MARK: End
 
-    /// A newer request replaces this one: the session closes and nobody is told.
+    /// A newer request replaces this one, or the sheet is dismissed, or the host went away: the session locks,
+    /// closes the store and releases the fill session, and nobody is told. Safe to call any number of times.
     func cancelSilently() {
-        guard !finished else { return }
-        finished = true
         timeout?.cancel()
-        session?.finish()
+        lifecycle.end()
     }
 
     private func fail(_ error: Error) {
@@ -306,10 +336,8 @@ final class ProviderModel {
     /// Ends the request once: the session releases its fill session, locks and closes the store first, then
     /// the system hears the outcome.
     private func finish(_ outcome: ProviderOutcome) {
-        guard !finished else { return }
-        finished = true
         timeout?.cancel()
-        session?.finish()
+        guard lifecycle.end() else { return }
         onFinish(outcome)
     }
 

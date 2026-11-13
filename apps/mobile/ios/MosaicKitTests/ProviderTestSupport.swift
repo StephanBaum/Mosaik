@@ -84,6 +84,25 @@ final class TestPhone {
         CoreHolder(core: try openCore(.iosAutofillExtension))
     }
 
+    /// The key alias of the quick-unlock enrolment, read by a core that is closed again at once.
+    func enrolledAlias() throws -> String {
+        let core = try openCore(.iosAutofillExtension)
+        defer { core.closeStore() }
+        guard case let .locked(_, _, availability) = core.state(), case let .available(_, alias, _, _) = availability
+        else {
+            throw CodedError("notFound")
+        }
+        return alias
+    }
+
+    /// The extension side with a core whose clock is `days` ahead: an enrolment older than its maximum age (30
+    /// days at most) has run out for this core.
+    func extensionHolder(clockAheadDays days: Int64) throws -> CoreHolder {
+        let core = try openCore(.iosAutofillExtension)
+        MosaicTestHooks(core: core).setClockOffsetMs(offset: days * 24 * 60 * 60 * 1000)
+        return CoreHolder(core: core)
+    }
+
     func login(
         _ core: MosaicCore, title: String, username: String, password: String, url: String
     ) throws -> ItemKey {

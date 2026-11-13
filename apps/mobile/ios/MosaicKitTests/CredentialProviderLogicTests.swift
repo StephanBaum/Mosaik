@@ -103,6 +103,39 @@ final class CredentialProviderLogicTests: XCTestCase {
         fresh.finish()
     }
 
+    /// G2 M2: the core drops an expired enrolment in the process that notices it and reports the key alias
+    /// once, so the extension must delete the Secure Enclave key itself (CRYPTO_SPEC 6.2: delete both).
+    func testExpiredEnrolmentDeletesTheKeyInTheExtension() async throws {
+        let phone = try TestPhone(for: self)
+        try phone.seed()
+        let alias = try phone.enrolledAlias()
+        XCTAssertNotNil(phone.keys.secret(for: alias))
+
+        let session = ProviderSession(holder: try phone.extensionHolder(clockAheadDays: 40), keys: phone.keys)
+        let readiness = try await session.begin()
+        XCTAssertEqual(readiness, .needsApp)
+        XCTAssertNil(phone.keys.secret(for: alias), "the key of an expired enrolment must be deleted")
+        session.finish()
+    }
+
+    func testFailedQuickUnlockOfAnInvalidatedKeyDeletesItAndAsksForThePassword() async throws {
+        let phone = try TestPhone(for: self)
+        try phone.seed()
+        let alias = try phone.enrolledAlias()
+        let session = ProviderSession(holder: try phone.extensionHolder(), keys: phone.keys)
+        let readiness = try await session.begin()
+        XCTAssertEqual(readiness, .quickUnlock)
+        // The fake key vanishes as a biometry change would make the real one.
+        try phone.keys.deleteKey(alias: alias)
+        do {
+            try await session.unlockQuick(reason: "test", cancelTitle: "Cancel")
+            XCTFail("an invalidated key must not unlock")
+        } catch {
+            XCTAssertEqual(code(of: error), "quickUnlockInvalidated")
+        }
+        session.finish()
+    }
+
     func testBusyStoreIsReportedNotOpened() async throws {
         let phone = try TestPhone(for: self)
         try phone.seed()

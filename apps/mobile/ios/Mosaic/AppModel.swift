@@ -91,9 +91,7 @@ final class AppModel {
             return
         }
         session = next
-        if case let .locked(_, _, availability) = session, case let .expired(alias) = availability {
-            try? keys.deleteKey(alias: alias)
-        }
+        QuickUnlockFlow.deleteExpiredKey(state: session, keys: keys)
         if case .noAccount = session {
             if onboarding == nil {
                 onboarding = OnboardingModel(app: self)

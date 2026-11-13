@@ -42,7 +42,7 @@ public struct CredentialList: Sendable {
 }
 
 /// A user name and password for `ASPasswordCredential`. The system API takes `String`s, so these two values
-/// cannot be wiped; they live only until the request completes (honest limit, THREAT_MODEL R131).
+/// cannot be wiped; they live only until the request completes (honest limit, THREAT_MODEL R126).
 public struct ProviderPassword: Sendable {
     public let user: String
     public let password: String
@@ -137,6 +137,8 @@ public final class ProviderSession: Sendable {
             holder.lock()
             state = holder.state()
         }
+        // An enrolment that ran out: the core dropped it in this process, so this process deletes the key.
+        QuickUnlockFlow.deleteExpiredKey(state: state, keys: keys)
         return Self.readiness(of: state)
     }
 

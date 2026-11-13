@@ -55,6 +55,8 @@ struct ProviderRootView: View {
             }
         case .unlock:
             UnlockPanel(model: model)
+        case let .confirmFill(site):
+            ConfirmFillPanel(model: model, site: site)
         case .logins:
             LoginsPanel(model: model)
         case .passkeys:
@@ -236,6 +238,23 @@ private struct UnlockPanel: View {
                 .buttonStyle(ProviderPrimaryStyle())
                 .disabled(model.isWorking)
                 .accessibilityIdentifier("provider-unlock")
+        }
+    }
+}
+
+/// A tap on a QuickType suggestion: names the saved site and asks before anything unlocks or fills.
+private struct ConfirmFillPanel: View {
+    let model: ProviderModel
+    let site: String
+
+    var body: some View {
+        ProviderScroll {
+            ProviderTitle(text: L10n.extConfirmFillTitle(site: site))
+                .accessibilityIdentifier("provider-confirm-fill-title")
+            ProviderBody(text: L10n.extConfirmFillBody(), muted: true)
+            Button(L10n.extConfirmFillButton()) { Task { await model.confirmFill() } }
+                .buttonStyle(ProviderPrimaryStyle())
+                .accessibilityIdentifier("provider-confirm-fill")
         }
     }
 }

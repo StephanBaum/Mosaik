@@ -34,11 +34,33 @@ public enum QuickUnlockFlow {
         }
     }
 
+    /// Deletes the Secure Enclave key of an enrolment that ran out (CRYPTO_SPEC 6.2: the wrapping and the key
+    /// go together). The core reports the alias once, from the process that noticed the expiry and dropped the
+    /// wrapping, so the extension has to delete it too: the app would never hear of it. Both the app and the
+    /// extension call this after they read the state.
+    public static func deleteExpiredKey(state: SessionState, keys: any QuickUnlockKeys) {
+        if case let .locked(_, _, availability) = state, case let .expired(alias) = availability {
+            try? keys.deleteKey(alias: alias)
+        }
+    }
+
     /// Opens the vault with the key of the current enrolment: one biometric prompt, then `unlock_quick(W)`.
     ///
     /// A key the system invalidated (biometry changed) tells the core, which deletes the wrapping, and the
-    /// platform deletes the key. The caller shows the password screen.
+    /// platform deletes the key. The caller shows the password screen. Any failure also deletes the key of an
+    /// enrolment that ran out meanwhile.
     public static func unlock(
+        holder: CoreHolder, keys: any QuickUnlockKeys, reason: String, cancelTitle: String
+    ) async throws {
+        do {
+            try await unlockOnce(holder: holder, keys: keys, reason: reason, cancelTitle: cancelTitle)
+        } catch {
+            deleteExpiredKey(state: holder.state(), keys: keys)
+            throw error
+        }
+    }
+
+    private static func unlockOnce(
         holder: CoreHolder, keys: any QuickUnlockKeys, reason: String, cancelTitle: String
     ) async throws {
         guard
@@ -55,16 +77,27 @@ public enum QuickUnlockFlow {
                 if let old = try? await holder.call({ core in try core.quickUnlockPlatformFailed() }) {
                     try? keys.deleteKey(alias: old)
                 }
+                // The core may have dropped the wrapping already (no alias to hand back): the key we just
+                // tried is the one to delete.
+                try? keys.deleteKey(alias: alias)
                 throw CodedError("quickUnlockInvalidated")
             }
             throw failure
         }
         let secret = SecretBuffer(taking: &w)
         defer { secret.wipe() }
-        try await holder.call { core in
-            var bytes = secret.copyOut()
-            defer { bytes.wipe() }
-            _ = try core.unlockQuick(w: bytes)
+        do {
+            try await holder.call { core in
+                var bytes = secret.copyOut()
+                defer { bytes.wipe() }
+                _ = try core.unlockQuick(w: bytes)
+            }
+        } catch {
+            let code = ErrorText.code(of: error)
+            if code == "quickUnlockExpired" || code == "quickUnlockInvalidated" {
+                try? keys.deleteKey(alias: alias)
+            }
+            throw error
         }
     }
 }

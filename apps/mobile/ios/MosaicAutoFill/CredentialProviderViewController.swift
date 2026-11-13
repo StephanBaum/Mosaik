@@ -8,16 +8,32 @@ import UIKit
 /// - It never fills without the user: `provideCredentialWithoutUserInteraction` always answers "user
 ///   interaction required", because every request is a new process with a locked vault.
 /// - Every request opens the store, unlocks with Face ID or Touch ID (the user verification of a passkey
-///   ceremony) and closes the store before the system hears the result (`ProviderModel.finish`).
+///   ceremony) and closes the store before the system hears the result (`ProviderModel.finish`). A dismissal
+///   or the host going to the background closes it too (`RequestLifecycle`, `DismissalObserver`).
+/// - A tap on a QuickType suggestion never fills by itself: the saved site is shown and the user confirms it
+///   first (`ProviderFillPolicy`).
 /// - The core decides which logins may fill which site. This class reads the system's request objects into
 ///   plain values and hands the result back.
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     private var model: ProviderModel?
     private var host: UIViewController?
+    private var dismissal: DismissalObserver?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         MosaicFonts.register()
+        // The host going away (it resigns active or enters the background, or the phone locks) ends the
+        // request: lock, close the store, release the fill session. The idle timer is only the backstop (M1).
+        dismissal = DismissalObserver(queue: .main) { [weak self] in
+            MainActor.assumeIsolated { self?.model?.cancelSilently() }
+        }
+    }
+
+    /// The sheet is dismissed without a completion call (the user swiped it away, or the system closed it):
+    /// the store must not stay open until the timer.
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        model?.cancelSilently()
     }
 
     // MARK: Lists
@@ -75,12 +91,19 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             extensionContext.cancelRequest(withError: ASExtensionError(.failed))
             return
         }
+        // iOS 18 adds the exclude list of the relying party. iOS 17 has no such field, so there the core cannot
+        // refuse a duplicate (ADR-0093 Amendment).
+        var excluded: [Data] = []
+        if #available(iOS 18.0, *) {
+            excluded = request.excludedCredentials?.map(\.credentialID) ?? []
+        }
         start(
             .passkeyRegister(
                 PasskeyRegistrationRequest(
                     rpId: identity.relyingPartyIdentifier, userName: identity.userName,
                     userHandle: identity.userHandle, clientDataHash: request.clientDataHash,
-                    algorithms: request.supportedAlgorithms.map { Int64($0.rawValue) })))
+                    algorithms: request.supportedAlgorithms.map { Int64($0.rawValue) },
+                    excluded: excluded)))
     }
 
     // MARK: Configuration
