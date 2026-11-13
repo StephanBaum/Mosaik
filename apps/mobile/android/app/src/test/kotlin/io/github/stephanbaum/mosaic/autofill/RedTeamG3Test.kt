@@ -5,15 +5,14 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Ignore
 import org.junit.Test
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 
 /**
  * M10-G3 red team (Android): the structure reader, the platform origin of a privileged browser, and what the
- * manifest exposes to other apps. A hole found here is `@Ignore("M10-G3-<n>: ...")` until the fix round removes it;
- * the other tests pin defenses that held.
+ * manifest exposes to other apps. A hole found here was `@Ignore("M10-G3-<n>: ...")` until its fix; the other
+ * tests pin defenses that held.
  */
 class RedTeamG3Test {
     /** A plain view tree: [field] nodes take a value, the others are containers. */
@@ -48,7 +47,6 @@ class RedTeamG3Test {
      * reports a domain, container or not (and the core roots the field selection at the target, see the Rust test
      * `g3_1_web_fields_are_rooted_at_the_target_host`).
      */
-    @Ignore("M10-G3-1: the page root is the first fillable node, so a cross-origin frame that comes first becomes the page")
     @Test
     fun aCrossOriginFrameBeforeThePageFieldsIsNotThePageRoot() {
         val page =

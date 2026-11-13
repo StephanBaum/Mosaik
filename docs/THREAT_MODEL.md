@@ -398,6 +398,7 @@ Design: `docs/MOBILE.md`, CRYPTO_SPEC §6.9, ADR-0088 to ADR-0096. Until OD-M10-
 | R138 | The generated UniFFI scaffolding is `unsafe` code that Mosaic does not write, and it ships in the mobile library. The trust rests on the exact pin and on reading the macro output for each version; `#![forbid(unsafe_code)]` stays on every crate (ADR-0089) | accepted (ADR-0089) |
 | R139 | The desktop setup code shows the Secret Key as a QR code for 60 s, after re-authentication. A camera or a screen capture in that window captures it. It is still useless without the master password. The QR library keeps its own segment, codeword and module buffers, which Mosaic does not wipe, and neither is the serialized IPC JSON of the module matrix (CRYPTO_SPEC §6.9.7): they are short-lived, in the local desktop process, which is already unlocked, and the user has just re-authenticated | accepted (ADR-0096) |
 | R140 | A malicious accessibility service or IME on Android can read what is on the screen or typed: this is same-user malware (P5) on mobile. `FLAG_SECURE` does not stop accessibility services | accepted (ADR-0092, ADR-0094) |
+| R141 | Honest limits of the Android field decisions (M10 G3). Chrome sends one `webDomain` per form, so a cross-origin frame whose fields Chrome reports under the top document's domain is guarded by Chrome's own fill policy, not by Mosaic. `setWebDomain` carries the host only, with no port, so a page on another port of the same host matches the same saved login | accepted, ADR-0092 |
 
 ## 6. Review log
 

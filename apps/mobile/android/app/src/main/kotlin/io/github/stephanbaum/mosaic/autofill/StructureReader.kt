@@ -19,7 +19,32 @@ class RawNode(
     val htmlAttrs: List<Pair<String, String>>,
     val idEntry: String?,
     val hint: String?,
+    /**
+     * The domain of the first node in tree order that reports one, container or not, set by the walk on every field
+     * it reads; null before that node. A container that carries the top document's domain takes no value, so without
+     * this a cross-origin frame placed before the page's own fields would become the page root (M10-G3-1).
+     */
+    val pageDomain: String? = null,
+    /** The scheme that same node reports. */
+    val pageScheme: String? = null,
 )
+
+/** The first domain a walk meets, shared by every window of one structure. */
+class PageRoot {
+    var domain: String? = null
+        private set
+    var scheme: String? = null
+        private set
+    private var found = false
+
+    /** Records [domain] and [scheme] when this is the first node that reports a domain. */
+    fun see(domain: String?, scheme: String?) {
+        if (found || domain == null) return
+        found = true
+        this.domain = domain
+        this.scheme = scheme
+    }
+}
 
 /**
  * One node of a view tree, as far as the walk needs it. [AssistNode] adapts the platform's `ViewNode`; the JVM tests
@@ -43,21 +68,29 @@ interface ViewSource {
     fun raw(shown: Boolean, domain: String?, scheme: String?): RawNode?
 }
 
+private fun RawNode.withRoot(root: PageRoot) =
+    RawNode(
+        autofillId, focused, visible, webDomain, webScheme, inputType, autofillHints, htmlTag, htmlAttrs, idEntry, hint,
+        root.domain, root.scheme,
+    )
+
 /** What the reader found: the caller package and the fields, in tree order, with the IDs to answer them. */
 class ParsedStructure(
     val callerPackage: String,
     val nodes: List<RawNode>,
 ) {
-    private val pageRoot: RawNode? get() = nodes.firstOrNull { it.webDomain != null }
+    private val walkedRoot: RawNode? get() = nodes.firstOrNull { it.pageDomain != null }
+    private val firstWithDomain: RawNode? get() = nodes.firstOrNull { it.webDomain != null }
 
     /**
-     * The web domain of the page: the first node that has one (the core starts a web fill at the same node), null
-     * for a native screen. Only an allowlisted browser's value counts: the core decides that, see `fillTargetAndroid`.
+     * The web domain of the page: the first node in tree order that reports one, a container or a field (the core
+     * roots a web fill at the target's own host, so a foreign frame is never the page), null for a native screen.
+     * Only an allowlisted browser's value counts: the core decides that, see `fillTargetAndroid`.
      */
-    val webDomain: String? get() = pageRoot?.webDomain
+    val webDomain: String? get() = walkedRoot?.pageDomain ?: firstWithDomain?.webDomain
 
     /** The scheme of that same node, if it reports one. */
-    val webScheme: String? get() = pageRoot?.webScheme
+    val webScheme: String? get() = if (walkedRoot != null) walkedRoot?.pageScheme else firstWithDomain?.webScheme
 
     /** The node list in the core's record, the position in [nodes] being the node ID. */
     fun fieldNodes(): List<FieldNode> =
@@ -95,8 +128,9 @@ object StructureReader {
 
     fun read(structure: AssistStructure): ParsedStructure {
         val out = ArrayList<RawNode>()
+        val root = PageRoot()
         for (index in 0 until structure.windowNodeCount) {
-            walk(AssistNode(structure.getWindowNodeAt(index).rootViewNode), true, null, null, 0, out)
+            walk(AssistNode(structure.getWindowNodeAt(index).rootViewNode), true, null, null, 0, out, root)
         }
         return ParsedStructure(
             callerPackage = structure.activityComponent?.packageName.orEmpty(),
@@ -116,6 +150,7 @@ object StructureReader {
         inheritedScheme: String?,
         depth: Int,
         out: MutableList<RawNode>,
+        root: PageRoot = PageRoot(),
     ) {
         if (out.size >= MAX_NODES || depth > MAX_DEPTH) return
         val shown = parentShown && node.visible
@@ -124,9 +159,11 @@ object StructureReader {
         val ownDomain = node.webDomain
         val domain = ownDomain ?: inheritedDomain
         val scheme = if (ownDomain != null) node.webScheme else inheritedScheme
-        node.raw(shown, domain, scheme)?.let { out.add(it) }
+        // The page root is the first node that reports a domain, even one that takes no value (M10-G3-1).
+        root.see(ownDomain, node.webScheme)
+        node.raw(shown, domain, scheme)?.let { out.add(it.withRoot(root)) }
         for (child in 0 until node.childCount) {
-            walk(node.child(child), shown, domain, scheme, depth + 1, out)
+            walk(node.child(child), shown, domain, scheme, depth + 1, out, root)
         }
     }
 }
