@@ -168,4 +168,20 @@ mod tests {
             Some(TransportError::Io)
         );
     }
+
+    #[test]
+    fn anchors_trust_over_the_limit_is_refused() {
+        let many = vec![test_root(); MAX_TRUST_ANCHORS + 1];
+        assert_eq!(
+            config_for(&TlsTrust::Anchors(many.clone())).err(),
+            Some(TransportError::Io)
+        );
+        assert_eq!(
+            set_tls_trust(TlsTrust::Anchors(many)),
+            Err(TransportError::Io)
+        );
+        // The limit itself is fine.
+        let at = vec![test_root(); MAX_TRUST_ANCHORS];
+        assert!(config_for(&TlsTrust::Anchors(at)).is_ok());
+    }
 }

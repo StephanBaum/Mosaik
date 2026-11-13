@@ -45,11 +45,15 @@ pub fn fetch(host: &str) -> Result<Vec<u8>, TransportError> {
 }
 
 fn fetch_from(origin: &str, no_proxy: bool) -> Result<Vec<u8>, TransportError> {
+    fetch_with(origin, no_proxy, TIMEOUT)
+}
+
+fn fetch_with(origin: &str, no_proxy: bool, timeout: Duration) -> Result<Vec<u8>, TransportError> {
     // `http` passes `canonical_origin` for loopback only (tests).
     let origin = canonical_origin(origin)?;
     let mut builder = Client::builder()
-        .connect_timeout(TIMEOUT)
-        .timeout(TIMEOUT)
+        .connect_timeout(timeout)
+        .timeout(timeout)
         .redirect(Policy::none());
     if no_proxy {
         builder = builder.no_proxy();
@@ -183,6 +187,72 @@ mod tests {
         assert_eq!(
             fetch_from(&origin, true).unwrap_err(),
             TransportError::Protocol
+        );
+        let _ = server.join();
+    }
+
+    #[test]
+    fn assetlinks_fetch_rejects_a_declared_oversize_body_unread() {
+        // Only the head is sent: the length alone refuses it.
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            MAX_BODY_LEN + 1
+        );
+        let (origin, server) = serve(head.into_bytes());
+        assert_eq!(
+            fetch_from(&origin, true).unwrap_err(),
+            TransportError::Protocol
+        );
+        let _ = server.join();
+    }
+
+    #[test]
+    fn assetlinks_fetch_caps_a_chunked_body_with_no_length() {
+        let chunk = vec![b' '; MAX_BODY_LEN + 1];
+        let mut reply =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+        reply.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+        reply.extend_from_slice(&chunk);
+        reply.extend_from_slice(b"\r\n0\r\n\r\n");
+        let (origin, server) = serve(reply);
+        assert_eq!(
+            fetch_from(&origin, true).unwrap_err(),
+            TransportError::Protocol
+        );
+        let _ = server.join();
+    }
+
+    #[test]
+    fn assetlinks_fetch_hands_a_non_json_body_over_unparsed() {
+        // The fetch checks the status and the size; the file is parsed (and a
+        // non-JSON one refused) by `mosaic_origin::assetlinks`, never trusted here.
+        let (origin, server) = serve(http("200 OK", "", b"<html>not json</html>"));
+        assert_eq!(fetch_from(&origin, true).unwrap(), b"<html>not json</html>");
+        let _ = server.join();
+    }
+
+    #[test]
+    fn assetlinks_fetch_gives_up_on_a_silent_server() {
+        // The server accepts (the backlog) and never answers; the request times
+        // out as "unreachable", not as a file and not as "not found".
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let origin = format!("http://{}", listener.local_addr().expect("addr"));
+        let started = std::time::Instant::now();
+        let err = fetch_with(&origin, true, Duration::from_millis(300)).unwrap_err();
+        assert_eq!(err, TransportError::Unreachable);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        drop(listener);
+    }
+
+    #[test]
+    fn assetlinks_fetch_treats_a_cut_off_body_as_unreachable() {
+        // The head promises 100 bytes and the connection ends after 3.
+        let reply =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nabc".to_vec();
+        let (origin, server) = serve(reply);
+        assert_eq!(
+            fetch_from(&origin, true).unwrap_err(),
+            TransportError::Unreachable
         );
         let _ = server.join();
     }

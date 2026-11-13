@@ -130,8 +130,10 @@ fn a_join_whose_secrets_cannot_be_stored_leaves_no_account() {
     let server = LoopbackServer::start();
     let desktop = Desktop::register(&server, "nostore@example.com");
     let phone = Phone::new();
-    // The platform's secure storage refuses every write.
-    phone.storage.fail.store(true, Ordering::SeqCst);
+    // The platform's secure storage refuses every write, but nothing else: the
+    // login and the account fetch succeed, so the join reaches the step that
+    // stores the Secret Key and the "start over" cleanup runs.
+    phone.storage.fail_puts.store(true, Ordering::SeqCst);
     server.advance_ms(60_000);
     let result = phone.core.join_hosted(JoinHostedRequest {
         server_url: server.base.clone(),
@@ -141,7 +143,17 @@ fn a_join_whose_secrets_cannot_be_stored_leaves_no_account() {
         device_name: None,
     });
     assert!(result.is_err(), "a join cannot succeed without its storage");
-    phone.storage.fail.store(false, Ordering::SeqCst);
+    phone.storage.fail_puts.store(false, Ordering::SeqCst);
+    // The cleanup ran: it deleted the Secret Key and the token of the account.
+    let deletes = phone.storage.deletes.lock().unwrap().clone();
+    assert!(
+        deletes.iter().any(|n| n.starts_with("secret-key/")),
+        "the start-over cleanup did not delete the Secret Key: {deletes:?}"
+    );
+    assert!(
+        deletes.iter().any(|n| n.starts_with("sync-token/")),
+        "the start-over cleanup did not delete the token: {deletes:?}"
+    );
     // No half account: the Secret Key and token are not stored, and the phone
     // is a fresh one again (a later join can start over).
     assert!(

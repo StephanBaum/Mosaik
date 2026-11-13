@@ -36,6 +36,10 @@ pub const BOOT: [u8; 4] = [0, 0, 0, 7];
 pub struct MemStorage {
     pub map: Mutex<HashMap<String, Vec<u8>>>,
     pub fail: AtomicBool,
+    /// Refuses only `put`; reads, presence checks and deletes keep working.
+    pub fail_puts: AtomicBool,
+    /// The name of every `delete` call, in order.
+    pub deletes: Mutex<Vec<String>>,
     /// The name of every `get` (a value read), in order.
     pub gets: Mutex<Vec<String>>,
     /// The name of every `contains` (presence asked, nothing read).
@@ -83,7 +87,7 @@ impl SecureStorage for MemStorage {
     }
 
     fn put(&self, name: &str, value: &[u8]) -> Result<(), StorageError> {
-        if self.fail.load(Ordering::SeqCst) {
+        if self.fail.load(Ordering::SeqCst) || self.fail_puts.load(Ordering::SeqCst) {
             return Err(StorageError);
         }
         self.map
@@ -97,6 +101,7 @@ impl SecureStorage for MemStorage {
         if self.fail.load(Ordering::SeqCst) {
             return Err(StorageError);
         }
+        self.deletes.lock().unwrap().push(name.to_owned());
         self.map.lock().unwrap().remove(name);
         Ok(())
     }
