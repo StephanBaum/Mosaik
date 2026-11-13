@@ -5,7 +5,11 @@
   - Installs the system manifests into [INSTALLDIR]native-messaging\ and points the browsers to them
     through HKLM, which only an administrator can change. (A per-user entry can still override this:
     the desktop app audits and repairs those, docs/NATIVE_MESSAGING.md section 7.3.)
-  - Appends [INSTALLDIR] to the system PATH so `mosaic` works in a new terminal.
+  - Does NOT add [INSTALLDIR] to the system PATH (M9-F74, ADR-0082): Tauri's WiX settings cannot pin the
+    install folder (the template shows a folder choice), and a folder the user picked, writable by
+    non-administrators, on the system PATH would let any program there shadow `mosaic` for every
+    user. The manifests below name the default %ProgramFiles%\Mosaic folder (M9-F3); the desktop app
+    compares them with the host it runs beside (connector audit) and reports a mismatch.
 
   The manifests are generated at build time, from the same code as `mosaic-native-host install`:
 
@@ -56,11 +60,6 @@
           <RegistryValue Type="string" Value="[INSTALLDIR]native-messaging\firefox.json" KeyPath="yes" />
         </RegistryKey>
       </Component>
-      <Component Id="MosaicSystemPath" Guid="6f0d6a52-3f6b-4d0e-9a58-2a0e6f6d1c07" Win64="yes">
-        <CreateFolder />
-        <Environment Id="MosaicPath" Name="PATH" Action="set" Part="last" System="yes"
-                     Permanent="no" Value="[INSTALLDIR]" />
-      </Component>
     </DirectoryRef>
   </Fragment>
 
@@ -72,7 +71,6 @@
       <ComponentRef Id="MosaicEdgeKey" />
       <ComponentRef Id="MosaicChromiumKey" />
       <ComponentRef Id="MosaicFirefoxKey" />
-      <ComponentRef Id="MosaicSystemPath" />
     </ComponentGroup>
   </Fragment>
 </Wix>

@@ -1513,6 +1513,53 @@ impl UnlockedSession {
         Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
     }
 
+    /// Opens (or refreshes) the vault-only job of a key rotation with the
+    /// attachment re-seal before the key of `generation` is offered to the
+    /// backend (M9-F1): phase 2, the vault's attachments queued. A crash or a
+    /// lock between the offer and the re-seal leaves the job, and the resume
+    /// re-seals once the vault holds that generation (or drops the job if the
+    /// key never arrived). Returns how many attachments are queued.
+    ///
+    /// # Errors
+    /// [`Error::RotationInProgress`] (another job is open),
+    /// [`Error::UnknownVault`], [`Error::WrongVaultProtection`],
+    /// [`Error::Store`].
+    pub fn open_vault_offer_job(
+        &mut self,
+        vault: VaultId,
+        generation: KeyGeneration,
+    ) -> Result<u32> {
+        let ov = self.vault(vault)?;
+        if ov.protection != VaultKeyWrap::AccountKey {
+            return Err(Error::WrongVaultProtection);
+        }
+        let rows = self.attachment_rows(&[vault])?;
+        self.store.open_vault_offer_job(generation, &rows)?;
+        Ok(u32::try_from(rows.len()).unwrap_or(u32::MAX))
+    }
+
+    /// Drops a phase-2 vault job and its queue: the offered key did not
+    /// become this device's, so nothing is re-sealed.
+    ///
+    /// # Errors
+    /// [`Error::Store`] (`NoRotationJob`, `RotationTooFar` for any other job).
+    pub fn drop_vault_offer_job(&mut self) -> Result<()> {
+        Ok(self.store.drop_vault_offer_job()?)
+    }
+
+    /// The vault whose attachments the open re-seal queue holds, if any.
+    ///
+    /// # Errors
+    /// [`Error::Store`].
+    pub fn reseal_queue_vault(&self) -> Result<Option<VaultId>> {
+        Ok(self
+            .store
+            .reseal_rows()?
+            .into_iter()
+            .find(|r| r.state == ResealState::Todo)
+            .map(|r| r.vault_id))
+    }
+
     /// The vaults shared to this account, with the generation held, that
     /// this device can re-wrap on adoption. Needs no clean sync; a vault of
     /// unknown ownership or without its current key is left out (review M1).

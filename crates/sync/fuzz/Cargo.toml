@@ -21,14 +21,14 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
-libfuzzer-sys = "=0.4.10"
+libfuzzer-sys = "=0.4.13"
 mosaic-core = { path = "../../core" }
 # test-util: `KeyedCrypto`, the MAC provider that needs no unlocked session, so
 # a target can compute the MAC of a mutated body and reach the parser behind it.
 mosaic-sync = { path = "..", features = ["test-util"] }
 # The same versions and features as the main workspace.
 serde = { version = "=1.0.229", default-features = false, features = ["std"] }
-serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
 
 [[bin]]
 name = "segment_decode"

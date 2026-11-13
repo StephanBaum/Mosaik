@@ -1,0 +1,82 @@
+# The Mosaic Security Challenge test server (docs/CHALLENGE.md). Not deployed:
+# the owner decides on a host and a budget first. Run it only on a machine
+# that holds nothing else of value. It holds no real data and is wiped
+# every week (README.md).
+#
+#   cp mosaic-server.contest.toml mosaic-server.toml   # set canonical_origin
+#   export CONTEST_HOST=...                            # the same host
+#   docker compose run --rm mosaic-server init --config /config/mosaic-server.toml
+#   docker compose up -d
+#
+# Run these commands from this directory.
+name: mosaic-contest
+
+services:
+  mosaic-server:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    image: mosaic-server:contest
+    command: ["serve", "--config", "/config/mosaic-server.toml"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - mosaic-data:/data
+      - ./mosaic-server.toml:/config/mosaic-server.toml:ro
+    expose: ["8743"]
+    # The logs live with the container. The weekly reset removes the
+    # container, so no log is older than 7 days.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "7"
+    networks:
+      internal:
+        ipv4_address: 172.28.0.3
+
+  caddy:
+    # caddy:2.11-alpine
+    image: caddy:2.11-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [mosaic-server]
+    environment:
+      CONTEST_HOST: ${CONTEST_HOST:?set CONTEST_HOST to the host of canonical_origin}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "7"
+    networks:
+      internal:
+        ipv4_address: 172.28.0.2
+      front: {}
+
+volumes:
+  mosaic-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.0.0/29
+  front: {}

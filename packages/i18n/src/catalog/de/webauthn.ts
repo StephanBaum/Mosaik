@@ -15,6 +15,7 @@ export const webauthn: Record<keyof typeof en, string> = {
   "webauthn.code.submit": "Weiter",
   "webauthn.code.format": "Gib die 6 Ziffern ein.",
   "webauthn.code.invalid": "Dieser Code stimmt nicht. Prüfe die Ziffern in der Mosaic-App.",
+  "webauthn.code.tooMany": "Der Code war zu oft falsch. Starte noch einmal in Mosaic.",
   "webauthn.heading.login": "Mit deinem Sicherheitsschlüssel anmelden",
   "webauthn.heading.register": "Sicherheitsschlüssel hinzufügen",
   "webauthn.heading.confirm": "Mit deinem Sicherheitsschlüssel bestätigen",
@@ -22,8 +23,8 @@ export const webauthn: Record<keyof typeof en, string> = {
   "webauthn.facts.time": "Angefragt um",
   "webauthn.facts.account": "Konto",
   "webauthn.lead.ask":
-    "Prüfe, ob Gerät und Zeit oben zu dir gehören. Nutze dann deinen Sicherheitsschlüssel, sobald dein Browser danach fragt.",
-  "webauthn.status.waiting": "Wartet auf deinen Sicherheitsschlüssel.",
+    "Prüfe, ob Gerät und Zeit oben zu dir gehören. Nutze dann deinen Sicherheitsschlüssel, sobald dein Browser danach fragt. Wenn du das nicht gestartet hast, schließe diesen Tab.",
+  "webauthn.status.waiting": "Wir warten auf deinen Sicherheitsschlüssel.",
   "webauthn.status.sending": "Deine Antwort wird geprüft.",
   "webauthn.retry": "Noch einmal versuchen",
   "webauthn.cancelled":
@@ -44,7 +45,7 @@ export const webauthn: Record<keyof typeof en, string> = {
     "Die Anfrage war nur wenige Minuten gültig. Starte noch einmal in der Mosaic-App.",
   "webauthn.heading.failed": "Das hat nicht geklappt",
   "webauthn.failed.body":
-    "Dein Sicherheitsschlüssel wurde nicht akzeptiert, oder alle Versuche sind aufgebraucht. Starte noch einmal in der Mosaic-App.",
+    "Der Schritt mit dem Sicherheitsschlüssel wurde nicht abgeschlossen: Er wurde abgebrochen, ist abgelaufen oder der Schlüssel wurde nicht akzeptiert. Es wurde nichts geändert. Starte noch einmal in der Mosaic-App.",
   "webauthn.heading.invalid": "Dieser Link ist nicht vollständig",
   "webauthn.invalid.body":
     "Öffne den Link aus der Mosaic-App. Tippe ihn nicht ab und nimm ihn nicht von woanders.",

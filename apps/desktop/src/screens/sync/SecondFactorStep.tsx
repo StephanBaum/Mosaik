@@ -11,7 +11,7 @@ import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useI18n } from "../../i18n/I18nProvider.tsx";
 import type { IpcError, LoginMethods } from "../../ipc/contract/index.ts";
 import { useIpc } from "../../ipc/IpcProvider.tsx";
-import { SecurityKeyStep, type StepView } from "./SecurityKeyStep.tsx";
+import { Heading, SecurityKeyStep, type StepView } from "./SecurityKeyStep.tsx";
 
 /** The methods of the waiting login; `null` while they are read. */
 function useLoginMethods(): LoginMethods | null {
@@ -52,9 +52,9 @@ function KeyChoice({
     <section className="stack">
       {keyOnly && (
         <>
-          <h4 className="body" ref={heading} tabIndex={-1}>
+          <Heading level={large ? 2 : 4} className="body" ref={heading} tabIndex={-1}>
             {t("settings.sync.key.step.keyOnlyTitle")}
-          </h4>
+          </Heading>
           <p className="field__hint">{t("settings.sync.key.step.keyOnlyBody")}</p>
         </>
       )}
@@ -113,6 +113,7 @@ export function SecondFactorStep({
     return (
       <SecurityKeyStep
         view={view}
+        headingLevel={large ? 2 : 4}
         poll={() => ipc.call("sync_webauthn_status", null)}
         onDone={onSignedIn}
         onCancel={() => {

@@ -1,5 +1,5 @@
 // @ts-check
-/* global atob, btoa, document, location, navigator */
+/* global atob, btoa, document, history, location, navigator */
 /**
  * The security-key page of the sync server (CRYPTO_SPEC §9.3, ADR-0077).
  *
@@ -27,6 +27,7 @@ const PURPOSES = ["login", "register", "confirm"];
  * @property {typeof fetch} fetch
  * @property {CredentialsContainer | undefined} credentials
  * @property {readonly string[]} languages
+ * @property {() => void} [clearFragment] Removes the ID from the address bar and the history entry once it is read.
  */
 /**
  * @typedef {object} Options
@@ -261,6 +262,8 @@ export async function start(env) {
     ui.facts.hidden = v.facts !== true;
     ui.retry.hidden = v.retry === undefined;
     ui.retry.textContent = v.retry ?? "";
+    // Every screen starts at its heading, so a screen reader announces what changed.
+    ui.heading.focus();
   };
   /** A final screen; the heading takes the focus so a screen reader announces it. @param {"expired" | "failed" | "invalid"} kind @param {string} [body] */
   const end = (kind, body) => {
@@ -273,6 +276,8 @@ export async function start(env) {
     end("invalid");
     return;
   }
+  // The ID is read: it does not stay in the address bar or in the history (M9-F72).
+  env.clearFragment?.();
 
   let wrongCodes = 0;
   /** @param {string} text @param {boolean} focus */
@@ -371,7 +376,7 @@ export async function start(env) {
         void run(options);
       } else if (r.status === 401) {
         wrongCodes += 1;
-        if (wrongCodes >= MAX_WRONG_CODES) end("failed");
+        if (wrongCodes >= MAX_WRONG_CODES) end("failed", t("webauthn.code.tooMany"));
         else codeError(t("webauthn.code.invalid"), true);
       } else if (r.status === 410) {
         end("expired");
@@ -397,5 +402,8 @@ if (document.getElementById("app") !== null) {
     fetch: globalThis.fetch.bind(globalThis),
     credentials: navigator.credentials,
     languages: navigator.languages,
+    clearFragment: () => {
+      history.replaceState(null, "", location.pathname);
+    },
   });
 }

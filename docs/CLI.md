@@ -160,7 +160,7 @@ Error codes reuse the desktop's names where they mean the same (`wrongCredential
   catalog.
 - **`syncSessionRevoked`** (CRYPTO_SPEC §9.5): the server ended the stored session for a reason and says which
   (`rekey`, `passwordChange`, `deviceRemoved`, `operator`); the message names it. For `rekey`: "This account was
-  re-keyed on another device: sign in with the new Secret Key from your newest Emergency Kit" (`mosaic recover`).
+  renewed on another device ... sign in with the new Secret Key from your newest Emergency Kit" (`mosaic recover`); the other reasons have their own texts (the `sync.revoked.*` wording of the app).
   JSON errors carry the reason as `"detail":{"revoked":"rekey"}`. The reason is the server's claim and only picks the
   text.
 
@@ -216,7 +216,7 @@ completion script (committed in `crates/cli/completions/`).
 
 Release builds (M9, ADR-0082) install `mosaic` only to protected, admin-owned locations, because the session cache and
 the `run` and clipboard protections assume that same-user code cannot replace the binary: the per-machine MSI puts it in
-`%ProgramFiles%\Mosaic\` (and on the system `PATH`), a signed macOS `.pkg` installs a root-owned
+`%ProgramFiles%\Mosaic\` (it is not added to the system `PATH`, see ADR-0082; run `mosaic.exe` from that folder or add the folder to your own `PATH`), a signed macOS `.pkg` installs a root-owned
 `/usr/local/bin/mosaic` (the app bundle carries one too), and deb and rpm install `/usr/bin/mosaic`. Builds are
 Authenticode or Developer ID signed (hardened runtime) once the owner has certificates, and every release is listed in
 a minisign-signed `SHA256SUMS` (CRYPTO_SPEC §17). The release job checks that no Cargo feature (such as `test-util`) is
@@ -227,6 +227,8 @@ The installers come from the desktop build (`apps/desktop/src-tauri/tauri.releas
 `.github/workflows/release.yml`): the sidecars `mosaic` and `mosaic-native-host` are built first and placed in
 `apps/desktop/src-tauri/binaries/` as `<name>-<target triple>[.exe]`; Tauri's `externalBin` installs them beside the app
 (`%ProgramFiles%\Mosaic\`, `Contents/MacOS/`, `/usr/bin/`). Targets are `msi`, `dmg`, `app`, `deb` and `rpm`; there is
-no NSIS and no AppImage because both install to user-writable places. The MSI is per-machine and appends its folder
-to the system `PATH` (`wix/native-messaging.wxs`). A `mosaic` found earlier on the `PATH` in a user-writable folder
-still wins over the installed one: check `where mosaic` or `command -v mosaic` after installing.
+no NSIS and no AppImage because both install to user-writable places. The MSI is per-machine and does not touch the
+system `PATH` (`wix/native-messaging.wxs`, M9-F74): Tauri's WiX settings cannot pin the install folder, and a chosen
+folder that non-administrators can write would then sit on the system `PATH`. A `mosaic` found earlier on the `PATH`
+in a user-writable folder still wins over the installed one: check `where mosaic` or `command -v mosaic` after
+installing.

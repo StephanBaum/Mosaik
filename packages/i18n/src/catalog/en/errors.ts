@@ -75,6 +75,8 @@ export const errors = {
     "That was too quick to read the request. Check the details, then choose again.",
   "error.browserPairingNotFound":
     "That browser is no longer connected. Reopen Settings to see the current list.",
+  "error.browserHostMissing":
+    "This copy of Mosaic has no browser connector installed, so there is nothing to repair. Install Mosaic with its installer to connect a browser.",
   "error.kitNotVerified":
     "Save the new Emergency Kit and confirm its last group first. Mosaic changes nothing before that.",
   "error.kitGroupMismatch":
@@ -279,5 +281,5 @@ export const errors = {
   "error.shortcutUnavailable":
     "Another program already uses this shortcut, or Mosaic can't register it. Choose a different combination.",
   "error.shortcutUnsupported":
-    "Your system doesn't allow shortcuts that work in every program (this is the case on Wayland). Open Mosaic from its window instead.",
+    "Your system doesn't let apps set a global shortcut. Open Mosaic from its window instead.",
 } as const satisfies Record<string, string>;

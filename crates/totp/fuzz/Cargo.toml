@@ -18,7 +18,7 @@ unsafe_code = "forbid"
 
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
-libfuzzer-sys = "=0.4.10"
+libfuzzer-sys = "=0.4.13"
 mosaic-totp = { path = ".." }
 
 [[bin]]

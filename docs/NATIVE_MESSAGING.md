@@ -494,9 +494,9 @@ The Linux packages get the tree below `<dir>` (`etc/opt/chrome/native-messaging-
 `bundle.linux.{deb,rpm}.files` of `tauri.release.conf.json` and `/usr/bin/mosaic` through `externalBin`. The MSI gets
 `chromium.json` and `firefox.json` from the directory named by the environment variable `MOSAIC_NM_MANIFEST_DIR`, which
 the WiX fragment reads when the MSI is built. The release job must run the generator (once per OS, for `--os linux` and `--os windows`) into
-`apps/desktop/src-tauri/binaries/native-messaging/{linux,windows}` before `tauri build`. The fragment also appends
-`[INSTALLDIR]` to the system `PATH`. Uninstalling the package removes the host, the manifests, the HKLM keys and the
-`PATH` entry.
+`apps/desktop/src-tauri/binaries/native-messaging/{linux,windows}` before `tauri build`. The fragment does not touch the system `PATH`
+(ADR-0082, M9-F74: the install folder cannot be pinned, so a folder the user picked must not be on the `PATH` of every user). The manifests name the default
+folder; the desktop's connector audit reports an HKLM entry whose host is not the installed one (M9-F3). Uninstalling the package removes the host, the manifests and the HKLM keys.
 
 ### 7.3 Override audit
 

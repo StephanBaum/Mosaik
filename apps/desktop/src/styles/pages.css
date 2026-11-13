@@ -460,6 +460,11 @@
   width: 100%;
 }
 
+.setting-row__form {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .setting-row .field__hint,
 .setting-row .alert {
   flex: 1 1 100%;

@@ -71,29 +71,29 @@ export const vault = {
   "vault.menu":
     "Vault actions",
   "vaultKey.menu":
-    "Rotate vault key…",
+    "Renew vault key…",
   "vaultKey.title":
-    "Rotate the key of {vault}",
+    "Renew the key of {vault}",
   "vaultKey.body":
-    "Mosaic makes a new key for this vault and passes it to every device and person who has access. Use this after someone lost access or a device was lost.",
+    "Mosaic makes a new key for this vault and passes it to every device and person who has access. Copies they already have stay readable to them; the new key protects what changes from now on. Use this after someone lost access or a device was lost.",
   "vaultKey.attachments":
-    "Also re-encrypt attachments",
+    "Also renew the keys of attachments",
   "vaultKey.attachments.hint":
     "Gives every file in this vault a new key too. This takes longer with many or large files.",
   "vaultKey.reauth":
-    "Rotating a vault key needs your master password.",
+    "Renewing a vault key needs your master password.",
   "vaultKey.submit":
-    "Rotate key",
+    "Renew key",
   "vaultKey.working":
-    "Rotating the key…",
+    "Renewing the key…",
   "vaultKey.progress":
-    "Re-encrypting attachments: {done} of {total}.",
+    "Renewing attachment keys: {done} of {total}.",
   "vaultKey.done":
-    "The vault key was rotated.",
+    "The vault key was renewed.",
   "vaultKey.doneAttachments":
-    "The vault key was rotated and the attachments are encrypted again.",
+    "The vault key was renewed, and the attachment keys were renewed too.",
   "vaultKey.unfinished":
-    "The vault key was rotated. Re-encrypting the attachments continues later. If Mosaic closes first, choose Continue key rotation next time.",
+    "The vault key was renewed. Renewing the attachment keys continues later. If Mosaic closes first, choose Continue key rotation next time.",
   "vaultKey.unreachable":
     "{count, plural, one {# attachment isn't on this device yet and keeps its old key.} other {# attachments aren't on this device yet and keep their old key.}}",
   "vaultKey.close":
@@ -101,7 +101,11 @@ export const vault = {
   "vault.meta.title":
     "Vault details were shortened",
   "vault.meta.body":
-    "Two devices changed the {fields} of “{vault}” at the same time, and the result was too long. Mosaic kept the longer value. Check it and change it if needed.",
+    "Two devices changed the {fields} of “{vault}” at the same time, and together they were too long to store. Mosaic kept one version, or left the field empty. Check it and type it again if needed.",
+  "vault.edit.title":
+    "Edit vault",
+  "vault.meta.edit":
+    "Edit vault",
   "vault.meta.field.name":
     "name",
   "vault.meta.field.icon":

@@ -35,7 +35,7 @@ async function seed(worker: Worker, origins: readonly string[]): Promise<void> {
 
 async function openList(popup: Page): Promise<void> {
   await popup.getByRole("button", { name: "More options" }).click();
-  await popup.getByRole("menuitem", { name: "Never offered for saving…" }).click();
+  await popup.getByRole("menuitem", { name: "Sites never offered for saving…" }).click();
 }
 
 test("lists the never-saved sites and removes one", async ({ page, context, ext, fake }) => {

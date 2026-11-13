@@ -4,6 +4,8 @@
 use mosaic_vault::session::Error as VaultError;
 use mosaic_vault::storage::Error as StorageError;
 
+use mosaic_sync::transport::RevokedReason;
+
 use crate::i18n::Msg;
 
 /// Exit code: other error.
@@ -106,6 +108,20 @@ impl CliError {
             EXIT_AUTH,
             Msg::ErrTwoFactorMethodUnsupported,
         )
+    }
+
+    /// The server ended the stored session (exit 6). The reason is the server's
+    /// claim and only picks the text (`docs/CLI.md`).
+    #[must_use]
+    pub const fn session_revoked(reason: RevokedReason) -> Self {
+        let msg = match reason {
+            RevokedReason::Rekey => Msg::ErrSyncSessionRevoked,
+            RevokedReason::PasswordChange => Msg::ErrSyncSessionPasswordChanged,
+            RevokedReason::DeviceRemoved => Msg::ErrSyncSessionDeviceRemoved,
+            // The operator, and any reason a later server adds: the session ended.
+            _ => Msg::ErrSyncSessionOperator,
+        };
+        Self::new("syncSessionRevoked", EXIT_SYNC, msg)
     }
 
     /// The store is open in another process (exit 5).

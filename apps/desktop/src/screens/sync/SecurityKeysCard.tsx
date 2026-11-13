@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/Button.tsx";
+import { Callout } from "../../components/Callout.tsx";
 import { ErrorAlert } from "../../components/ErrorAlert.tsx";
 import { useToast } from "../../components/ToastProvider.tsx";
 import { UserText } from "../../components/UserText.tsx";
@@ -115,6 +116,7 @@ function KeyDialogs({
         <RemoveDialog
           target={removing}
           lastFactor={count === 1 && !totp}
+          totp={totp}
           onDone={onRemoved}
           onClose={onCloseRemove}
           returnFocus={returnFocus}
@@ -124,6 +126,7 @@ function KeyDialogs({
   );
 }
 
+// eslint-disable-next-line max-lines-per-function -- the card: list, hints, add button and the two dialogs.
 export function SecurityKeysCard({
   refreshKey,
   onChanged,
@@ -171,7 +174,9 @@ export function SecurityKeysCard({
         </ul>
       )}
       {list.length === 1 && !totp && (
-        <p className="field__hint field__hint--warning">{t("settings.sync.key.recommend")}</p>
+        <Callout tone="warning">
+          <p className="body">{t("settings.sync.key.recommend")}</p>
+        </Callout>
       )}
       <div className="actions">
         <Button

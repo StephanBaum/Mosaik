@@ -50,12 +50,16 @@ use serde::ser::{SerializeMap as _, SerializeSeq as _};
 use serde::{Serialize, Serializer};
 
 use super::clock::{Stamp, Timestamp, VersionVector};
-use super::value::{Object, Text, Value, parse_json, to_json};
+use super::value::{Number, Object, Text, Value, parse_json, to_json};
 use crate::error::{Error, Result};
 use crate::ids::DeviceId;
 
 /// The reserved field key of deletion entries.
 pub(crate) const DELETED_KEY: &str = "deleted";
+
+/// The entry member of a husk that records the length of the value it
+/// replaced (vault metadata, CRYPTO_SPEC §7.1).
+pub(crate) const DROPPED_MEMBER: &str = "dropped";
 
 /// Top-level member names that both plaintext layouts reserve. A decoder
 /// rejects any of them as an unknown member, so neither layout can carry
@@ -118,6 +122,52 @@ impl Entry {
             value: self.value.dup(),
             extra: self.extra.dup(),
         }
+    }
+
+    /// The recorded length if this entry is a husk: `v` is null and the
+    /// entry has a `dropped` member holding a non-negative integer (vault
+    /// metadata, CRYPTO_SPEC §7.1).
+    pub(crate) fn husk_len(&self) -> Option<u64> {
+        if self.value != Value::Null {
+            return None;
+        }
+        self.extra.get(DROPPED_MEMBER).and_then(Value::as_u64)
+    }
+
+    /// The length of the canonical encoding of the value.
+    fn value_len(&self) -> Result<u64> {
+        let len = to_json(&self.value, usize::MAX)?.expose_secret().len();
+        u64::try_from(len).map_err(|_| Error::SizeLimit)
+    }
+
+    /// The husk of this entry: same stamp and time, no value, the value's
+    /// encoded length recorded. A husk stays the same husk.
+    fn to_husk(&self) -> Result<Self> {
+        if self.husk_len().is_some() {
+            return Ok(self.dup());
+        }
+        let mut extra = Object::new();
+        extra.insert(
+            DROPPED_MEMBER,
+            Value::Number(Number::PosInt(self.value_len()?)),
+        );
+        Ok(Self {
+            stamp: self.stamp,
+            at: self.at,
+            value: Value::Null,
+            extra,
+        })
+    }
+
+    /// Whether `husk` is the husk of this value: a husk of the same stamp
+    /// and time whose recorded length is this value's encoded length.
+    fn husked_by(&self, husk: &Self) -> bool {
+        self.husk_len().is_none()
+            && husk.stamp == self.stamp
+            && husk.at == self.at
+            && husk
+                .husk_len()
+                .is_some_and(|len| self.value_len().is_ok_and(|own| own == len))
     }
 }
 
@@ -706,6 +756,104 @@ impl Doc {
             .and_then(|mut reg| reg.0.pop_last())
             .map(|(_, e)| e);
         Ok(winner.map(|e| (key, e)))
+    }
+
+    // ---- husks (vault metadata, CRYPTO_SPEC §7.1) ----------------------------
+
+    /// A copy of `self` in which every value that `other` holds as its husk
+    /// (same field, stamp and time, recorded length equal to the value's
+    /// encoded length) is that husk. Applied to both sides before a merge,
+    /// a husk beats the value it replaced, and replicas that differ only in
+    /// husks merge without a collision. A value whose length cannot be
+    /// computed stays (the collision rules see it).
+    pub(crate) fn with_husks_of(&self, other: &Self) -> Self {
+        let mut out = self.dup();
+        for (key, reg) in &mut out.fields {
+            let Some(theirs) = other.fields.get(key.as_str()) else {
+                continue;
+            };
+            for (stamp, entry) in &mut reg.0 {
+                if let Some(husk) = theirs.0.get(stamp)
+                    && entry.husked_by(husk)
+                {
+                    *entry = husk.dup();
+                }
+            }
+        }
+        out
+    }
+
+    /// The sum of the recorded lengths of every husk (saturating).
+    pub(crate) fn husk_weight(&self) -> u64 {
+        self.fields
+            .values()
+            .flat_map(Register::entries)
+            .filter_map(Entry::husk_len)
+            .fold(0u64, u64::saturating_add)
+    }
+
+    /// Turns into husks the values below each field's largest-stamped
+    /// entry: in every field with `all`, otherwise only in fields whose
+    /// largest-stamped entry is a husk. Returns the keys of the fields that
+    /// lost a value.
+    ///
+    /// # Errors
+    /// [`Error::Allocation`], [`Error::SizeLimit`].
+    pub(crate) fn husk_below_top(&mut self, all: bool) -> Result<Vec<Text>> {
+        let mut changed = Vec::new();
+        for (key, reg) in &mut self.fields {
+            let Some((top, top_entry)) = reg.0.last_key_value() else {
+                continue;
+            };
+            if !all && top_entry.husk_len().is_none() {
+                continue;
+            }
+            let top = *top;
+            let mut hit = false;
+            for (stamp, entry) in &mut reg.0 {
+                if *stamp != top && entry.husk_len().is_none() {
+                    *entry = entry.to_husk()?;
+                    hit = true;
+                }
+            }
+            if hit {
+                changed.push(key.dup());
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Turns into a husk the shown value (a largest-stamped entry that is
+    /// not a husk) with the longest canonical encoding, on equal length the
+    /// one of the larger key. Returns its key, or `None` if no field shows a
+    /// value.
+    ///
+    /// # Errors
+    /// [`Error::Allocation`], [`Error::SizeLimit`].
+    pub(crate) fn husk_largest_shown(&mut self) -> Result<Option<Text>> {
+        let mut largest: Option<(u64, &Text)> = None;
+        for (key, reg) in &self.fields {
+            let Some(w) = reg.winner() else {
+                continue;
+            };
+            if w.husk_len().is_some() {
+                continue;
+            }
+            let len = w.value_len()?;
+            if largest.is_none_or(|(l, k)| (len, key) > (l, k)) {
+                largest = Some((len, key));
+            }
+        }
+        let Some((_, key)) = largest else {
+            return Ok(None);
+        };
+        let key = key.dup();
+        if let Some(reg) = self.fields.get_mut(key.as_str())
+            && let Some((_, winner)) = reg.0.iter_mut().next_back()
+        {
+            *winner = winner.to_husk()?;
+        }
+        Ok(Some(key))
     }
 
     /// A conflict copy that holds `piece` under `key` (ADR-0016) and, with

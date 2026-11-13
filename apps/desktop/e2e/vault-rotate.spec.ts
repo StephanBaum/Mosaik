@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { expectAccessible, watch } from "./helpers.ts";
 
-// "Rotate vault key…" (M7-R2) on the mock: the vault menu, the dialog with the attachments option,
+// "Renew vault key…" (M7-R2) on the mock: the vault menu, the dialog with the attachments option,
 // the master password after the click, the progress as a live region, and the banner that
 // finishes a re-seal that was cut off. The mock's steps are paced by `rotationStepMs`.
 for (const colorScheme of ["light", "dark"] as const) {
@@ -15,27 +15,27 @@ for (const colorScheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: /^Personal/ }).click();
 
       await page.getByRole("button", { name: "Vault actions" }).click();
-      await page.getByRole("menuitem", { name: "Rotate vault key…" }).click();
-      const dialog = page.getByRole("dialog", { name: /Rotate the key of/ });
+      await page.getByRole("menuitem", { name: "Renew vault key…" }).click();
+      const dialog = page.getByRole("dialog", { name: /Renew the key of/ });
       await expect(dialog).toBeVisible();
       // Cancel has focus first, so Enter never rotates by accident.
       await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
       await expectAccessible(page);
 
-      await dialog.getByRole("switch", { name: "Also re-encrypt attachments" }).check();
-      await dialog.getByRole("button", { name: "Rotate key" }).click();
+      await dialog.getByRole("switch", { name: "Also renew the keys of attachments" }).check();
+      await dialog.getByRole("button", { name: "Renew key" }).click();
 
       // The password comes after the click, not before it.
       const reauth = page.getByRole("dialog", { name: "Confirm with your master password" });
-      await expect(reauth.getByText("Rotating a vault key needs your master password.")).toBeVisible();
+      await expect(reauth.getByText("Renewing a vault key needs your master password.")).toBeVisible();
       await expectAccessible(page);
       await reauth.getByLabel("Master password").fill("mosaic");
       await reauth.getByRole("button", { name: "Confirm" }).click();
 
       // The progress is said from one live region, then the result.
       const status = dialog.getByRole("status");
-      await expect(status).toContainText(/Re-encrypting attachments: \d+ of 8\./);
-      await expect(dialog.getByText("The vault key was rotated and the attachments are encrypted again.")).toBeVisible({
+      await expect(status).toContainText(/Renewing attachment keys: \d+ of 8\./);
+      await expect(dialog.getByText("The vault key was renewed, and the attachment keys were renewed too.")).toBeVisible({
         timeout: 15_000,
       });
       await expectAccessible(page);
@@ -49,9 +49,9 @@ for (const colorScheme of ["light", "dark"] as const) {
       await expect(page.getByText("GitHub")).toBeVisible();
       await page.getByRole("button", { name: /^Personal/ }).click();
       await page.getByRole("button", { name: "Vault actions" }).click();
-      await page.getByRole("menuitem", { name: "Rotate vault key…" }).click();
-      const dialog = page.getByRole("dialog", { name: /Rotate the key of/ });
-      await dialog.getByRole("button", { name: "Rotate key" }).click();
+      await page.getByRole("menuitem", { name: "Renew vault key…" }).click();
+      const dialog = page.getByRole("dialog", { name: /Renew the key of/ });
+      await dialog.getByRole("button", { name: "Renew key" }).click();
       const reauth = page.getByRole("dialog", { name: "Confirm with your master password" });
       await reauth.getByLabel("Master password").fill("not the password");
       await reauth.getByRole("button", { name: "Confirm" }).click();

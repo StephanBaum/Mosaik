@@ -325,6 +325,7 @@ export function JoinStep({
   onBack: () => void;
   onDone: (session: SessionState) => void;
 }) {
+  const { t } = useI18n();
   const ipc = useIpc();
   const flow = useJoinFlow(onDone);
   // The form lives here, so the fields survive the code step; only the password is cleared.
@@ -344,23 +345,29 @@ export function JoinStep({
     <AuthShell>
       <div className="auth__main">
         {flow.needsCode ? (
-          <SecondFactorStep
-            join
-            large
-            onSignedIn={() => {
-              void flow.finish();
-            }}
-            onCancel={back}
-          >
-            <CodeForm
-              busy={flow.busy}
-              error={flow.error}
-              onSubmit={(code) => {
-                void flow.run(() => ipc.call("join_hosted_two_factor", { code }));
+          <>
+            {/* The page keeps its h1; the step below it is an h2. */}
+            <div className="auth__intro">
+              <h1 className="display">{t("onboarding.join.title")}</h1>
+            </div>
+            <SecondFactorStep
+              join
+              large
+              onSignedIn={() => {
+                void flow.finish();
               }}
-              onBack={back}
-            />
-          </SecondFactorStep>
+              onCancel={back}
+            >
+              <CodeForm
+                busy={flow.busy}
+                error={flow.error}
+                onSubmit={(code) => {
+                  void flow.run(() => ipc.call("join_hosted_two_factor", { code }));
+                }}
+                onBack={back}
+              />
+            </SecondFactorStep>
+          </>
         ) : (
           <JoinForm flow={flow} form={form} onBack={onBack} />
         )}

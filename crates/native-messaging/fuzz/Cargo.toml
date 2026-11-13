@@ -21,11 +21,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [dependencies]
 # libFuzzer bindings for cargo-fuzz; fuzz-only, never linked into Mosaic.
-libfuzzer-sys = "=0.4.10"
+libfuzzer-sys = "=0.4.13"
 mosaic-core = { path = "../../core" }
 mosaic-native-messaging = { path = ".." }
 # The same version and features as the main workspace.
-serde_json = { version = "=1.0.151", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["std", "float_roundtrip", "raw_value"] }
 
 [[bin]]
 name = "envelope"

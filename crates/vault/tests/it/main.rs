@@ -2,6 +2,7 @@
 
 mod boot_marker_props;
 mod common;
+mod meta_oversized;
 mod no_plaintext;
 mod properties;
 mod session;

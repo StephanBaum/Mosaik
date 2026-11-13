@@ -1863,7 +1863,7 @@ Brief §5 asks for an SSH agent with approval for every use. CRYPTO_SPEC §2
 had no SSH row.
 
 ### Decision
-1. **Crate:** `ssh-key =0.7.0-rc.11` (RustCrypto), with `std`, `ed25519`,
+1. **Crate:** `ssh-key =0.7.0-rc.12` (rc.11 until 2026-11-12; rc.11 to rc.12 only added CA-key certificate checks and renamed `rsa` types, none used here) (RustCrypto), with `std`, `ed25519`,
    `p256` and `encryption`. Move to 0.7.0 when it is released; the stable
    0.6.7 is blocked by RUSTSEC-2026-0387 (crypto-bigint 0.5). Feature
    unification turns on `zeroize` in `ed25519-dalek =3.0.0` and
@@ -4936,12 +4936,18 @@ THREAT_MODEL R118 (a GitHub account takeover plus the reviewer's approval can si
 The M8 review asked that the CLI (and its session cache) not be replaceable by same-user code, and R105 and R111 waited for macOS hardened runtime. Windows SmartScreen and macOS Gatekeeper warn about unsigned builds. NSIS and AppImage install into user-writable places.
 
 ### Decision
-- **Windows:** a per-machine MSI into `%ProgramFiles%\Mosaic\` with the app, `mosaic.exe` and `mosaic-native-host.exe`; the installer appends `[INSTALLDIR]` to the system `PATH`. Authenticode with an RFC 3161 timestamp on the three executables and the MSI through `bundle.windows.signCommand` → `scripts/release/sign-windows.ps1` (`WINDOWS_SIGN_MODE` none, trusted-signing or pfx). No NSIS (OD-M9-14).
+- **Windows:** a per-machine MSI into `%ProgramFiles%\Mosaic\` with the app, `mosaic.exe` and `mosaic-native-host.exe`; the installer does **not** append `[INSTALLDIR]` to the system `PATH` (see "Amendment, M9 fix track" below). Authenticode with an RFC 3161 timestamp on the three executables and the MSI through `bundle.windows.signCommand` → `scripts/release/sign-windows.ps1` (`WINDOWS_SIGN_MODE` none, trusted-signing or pfx). No NSIS (OD-M9-14).
 - **macOS:** Developer ID with **hardened runtime**; `entitlements.plist` is an empty dictionary (no `allow-jit`, `disable-library-validation`, `allow-dyld-environment-variables` or `get-task-allow`; Touch ID entries only if a manual check proves them necessary). Notarization with `notarytool --wait`, then `stapler staple` on the DMG and the app. The host and the CLI live in the app bundle (`Contents/MacOS/`); the CLI also ships in a signed `.pkg` that installs a root-owned `/usr/local/bin/mosaic`.
 - **Linux:** deb and rpm, installing `/usr/bin/mosaic` and `/usr/lib/mosaic/mosaic-native-host`, signed by minisign only. No AppImage.
 - **Release config overlay** `apps/desktop/src-tauri/tauri.release.conf.json` sets `bundle.*` keys only (sign command, WiX fragments, hardened runtime and entitlements, `externalBin` for the host and the CLI, `createUpdaterArtifacts`, targets `msi`, `dmg`, `app`, `deb`, `rpm`); a test checks that it touches nothing else.
 - Without certificates (OD-M9-2 and OD-M9-3, the defaults) the builds ship unsigned, with the warnings explained in `docs/VERIFY.md`.
 - The release job asserts that no Cargo features are enabled for the shipped crates (`check-features.sh`).
+
+### Amendment, M9 fix track (M9-F3, M9-F74)
+Tauri's WiX settings (`bundle.windows.wix`) have `fragmentPaths`, `componentRefs`, `template`, `language` and similar, but no option that fixes `INSTALLDIR` or removes the folder choice of the default template; only a full custom `template` replaces it, and that forks the whole generated `main.wxs` for every Tauri update. So the install folder is **not** pinned. Consequences, chosen conservatively:
+- The `[INSTALLDIR]` entry on the system `PATH` is dropped. A folder the user picked, writable by non-administrators, on the system `PATH` would let any program placed there shadow `mosaic` for every user. `mosaic.exe` is run from its folder or from the user's own `PATH`.
+- The HKLM manifests are generated at build time with the default `C:\Program Files\Mosaic\mosaic-native-host.exe`. If someone installs into another folder, the registry values (`[INSTALLDIR]`) still point to the manifests, but the manifests name a host that is not there. The desktop's connector audit now also reads the HKLM entries (`RegExeMachine`, read-only) and reports one whose host differs from the host the app runs beside, unless the browser has a per-user entry (that one wins in the browsers and is audited on its own). Repair writes the per-user entries.
+- Generating the manifests at install time (a custom action that runs the host) was rejected: it adds an elevated step that runs a binary from the install folder.
 
 ### Alternatives considered
 - **MSIX** (R23, package identity for Windows Hello keys): owner decision OD-M9-13.
@@ -4985,7 +4991,7 @@ ADR-0019 item 4 deferred Tauri's isolation pattern to M9 (M3-R2). The pattern ro
 
 ### Decision
 Declined; M3-R2 is closed as accepted.
-- The AES-GCM layer is a primitive outside CRYPTO_SPEC §2, added to the trusted path for no gain: both ends run in the same process and the key sits in the same webview.
+- The AES-GCM layer is a primitive outside CRYPTO_SPEC §2, added to the trusted path for little gain. Its key lives in the sandboxed isolation iframe, out of reach of the main frame's script, so the layer proves only that a message passed that iframe's hook on its way to Rust; it adds no check of its own (corrected in M9 T13, M9-F8: an earlier text said the key sat in the same webview as the page).
 - The isolation hook could only re-check what Rust already validates for every command: typed requests with unknown keys refused, the closed command set, IDs instead of paths, secrets as `SecretIn`.
 - The compensating controls stay: the strict CSP, the navigation guard, the capability allow-list, the red-team surface tests (`redteam_surface_tests.rs`), and the JavaScript dependency review of track T7.
 
@@ -5020,6 +5026,16 @@ CRYPTO_SPEC §7.1: write caps in `VaultMetaEdit` (name 256 UTF-8 bytes, icon 64,
 
 ### Consequences
 THREAT_MODEL R122: concurrent values that are not shown, and whole fields in the rare case the shown values still do not fit, are lost, and the user is told which fields. A vault whose name was dropped has no name until the user types one.
+
+### Amendment (M9 T13, findings M9-F50 and M9-F51)
+The reduction ran after every received record and kept no trace of what it dropped. With three long versions where some pairs fit and the triple does not (40 000 + 40 000 + 5 000 bytes of name), a device that reduced the first pair kept two names after the third record and a device that met the small one first kept one: equal version vectors, different contents (F50). `merge_and_repair` took that for a device-ID collision, so the next exchange wrote dropped values back as local edits, chose the shown one by wall clock, and on the writer's own ID made the engine rotate a device ID nobody had reused (F51).
+
+Decision (CRYPTO_SPEC §7.1): a dropped value leaves a **husk** (same field, stamp and `at`, `"v":null`, a `"dropped"` member with the encoded length). Before every metadata merge each side takes the other's husks, so a husk beats its value and husk-only differences are no collision. `reduce_oversized` decides step 1 on the record's **weight** (canonical length plus the recorded lengths of its husks), which is at least the size of the plain join of everything merged so far in any order (exactly that size without husks); a value under a husked shown value becomes a husk too. When versions only add values to a shared state and step 1 is enough, every delivery order stores the same bytes; in every other case devices that differ only in husks converge byte for byte at the next exchange, with no repair, no device-ID rotation and no wall-clock choice. No new primitive; the encoding uses the existing unknown-member rule of §7.5.
+
+Alternatives considered:
+- **Weaken §7.1 to eventual convergence and treat an equal-vector subset as the reduced side:** without a marker a subset cannot be told from a real collision where one writer only cleared fields under a shared ID, so a value written under that ID could be lost unreported. Rejected.
+- **Strict byte identity for every history:** impossible for any lossy reduction. A device that dropped a value cannot restore it when a later version supersedes the value that made the record too large, while a device that met that version first never had to drop anything. The husk rule limits the difference to husks and closes it at the next exchange.
+- **A doc-wide "reduced" flag instead of recorded lengths:** also order independent for added values, but it would keep husking small concurrent edits until every husked field was rewritten.
 
 ## ADR-0086: SBOMs, reproducible builds and dependency policy
 

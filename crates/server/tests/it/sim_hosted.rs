@@ -710,3 +710,122 @@ fn a_rotation_during_offline_edits_reaches_everyone() {
         ));
     }
 }
+
+// ---- M9 T12 (M2-R11): concurrent vault renames in the random simulation ----
+
+/// Every name of `vault` a device shows: the winner and the conflict copies.
+fn visible_names(s: &UnlockedSession, vault: VaultId) -> BTreeSet<String> {
+    let meta = s.vault_meta(vault).unwrap().unwrap();
+    let mut names = BTreeSet::new();
+    if let Some(n) = meta.name() {
+        names.insert(n.to_owned());
+    }
+    for c in meta.conflicts() {
+        if c.key == "name" {
+            for e in c.losers.iter().chain(std::iter::once(&c.winner)) {
+                if let Value::String(t) = e.value() {
+                    names.insert(t.as_str().to_owned());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// The same seeded schedules as [`run`], plus renames: each device renames
+/// vaults while offline (sometimes twice, one name superseding the other),
+/// next to edits, moves, deletes and key rotations. After every round:
+///
+/// - every device holds the same vault metadata (name and conflict copies);
+/// - every name a device wrote last in the round is still visible, as the
+///   shown name or as a conflict copy (no silent loss);
+/// - a rename made after syncing resolves the conflict everywhere, and what
+///   it wrote is the shown name on every device whatever the order.
+fn run_renames(seed: u64, rounds: usize) {
+    let mut sim = Sim::new(seed);
+    sim.assert_converged();
+    for round in 0..rounds {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut ops = Vec::new();
+            let mut written: BTreeMap<(usize, VaultId), String> = BTreeMap::new();
+            let rotator = (sim.rng.below(3) == 0).then(|| sim.rng.below(DEVICES));
+            for d in 0..DEVICES {
+                sim.offline_edits(d, rotator == Some(d), &mut ops);
+                for _ in 0..sim.rng.below(3) {
+                    let vault = sim.vaults[sim.rng.below(2)];
+                    let name = sim.unique("name");
+                    sim.w.devs[d].s_mut().rename_vault(vault, &name).unwrap();
+                    written.insert((d, vault), name);
+                }
+            }
+            sim.sync(1);
+            let state = sim.assert_converged();
+            check_round(&sim, &ops, &state);
+            for vault in sim.vaults {
+                let reference = sim
+                    .device(0)
+                    .vault_meta(vault)
+                    .unwrap()
+                    .unwrap()
+                    .to_json()
+                    .unwrap();
+                for d in 1..DEVICES {
+                    let s = sim.device(d);
+                    let other = s.vault_meta(vault).unwrap().unwrap().to_json().unwrap();
+                    assert!(
+                        other.expose_secret() == reference.expose_secret(),
+                        "devices 0 and {d} hold different metadata of {vault:?}"
+                    );
+                }
+                let shown = visible_names(&sim.device(0), vault);
+                for ((writer, _), name) in written.iter().filter(|((_, v), _)| *v == vault) {
+                    assert!(
+                        shown.contains(name),
+                        "{name} (device {writer}) was silently lost"
+                    );
+                }
+            }
+            // Every other round a device resolves what it sees.
+            if round % 2 == 1 {
+                let d = round % DEVICES;
+                let vault = sim.vaults[round % 2];
+                let name = sim.unique("resolved");
+                sim.w.devs[d].s_mut().rename_vault(vault, &name).unwrap();
+                sim.sync(1);
+                sim.assert_converged();
+                for e in 0..DEVICES {
+                    let s = sim.device(e);
+                    let meta = s.vault_meta(vault).unwrap().unwrap();
+                    assert_eq!(meta.name(), Some(name.as_str()), "device {e}");
+                    assert!(
+                        meta.conflicts().iter().all(|c| c.key != "name"),
+                        "device {e}"
+                    );
+                }
+            }
+        }));
+        if let Err(cause) = result {
+            let message = cause
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| cause.downcast_ref::<&str>().copied())
+                .unwrap_or("(no message)");
+            panic!("seed {seed}, round {round}: {message}");
+        }
+    }
+}
+
+#[test]
+fn concurrent_renames_in_the_random_schedules_converge_without_loss() {
+    for seed in [11, 12, 13] {
+        run_renames(seed, 6);
+    }
+}
+
+#[test]
+#[ignore = "long-running; run with --release -- --ignored"]
+fn concurrent_renames_many_seeds() {
+    for seed in 1..=40 {
+        run_renames(seed * 104_729, 10);
+    }
+}

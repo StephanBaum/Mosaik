@@ -148,7 +148,7 @@ Not trimmed:
 
 - `tauri` feature `compression` (pulls `brotli`): ADR-0019 keeps compressed embedded assets; dropping it grows
   the bundle and saves the `brotli` crates.
-- `ssh-key` stays at `=0.7.0-rc.11` (M3-R13). The newest on crates.io is `0.7.0-rc.12`; no final 0.7.0 exists.
+- `ssh-key` is `=0.7.0-rc.12`; no final 0.7.0 exists (rc.11 to rc.12 changed certificate CA-key checks and docs only, no key parsing, encryption or signing).
   The stable 0.6.7 pulls `p256` 0.13 and `crypto-bigint` 0.5 (RUSTSEC-2026-0387). Revisit when 0.7.0 is final.
 
 ### Duplicate majors (`multiple-versions = "warn"`)

@@ -115,7 +115,7 @@ impl<T: Transport> SyncEngine<T> {
         match decision {
             Decision::Nothing => Ok(Resolution::Settled),
             Decision::Rotate => {
-                self.rotate_inner(access, vault)?;
+                self.rotate_inner(access, vault, false)?;
                 Ok(Resolution::Settled)
             }
             Decision::Adopt {

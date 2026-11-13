@@ -112,11 +112,16 @@ impl Backend {
     /// webview), then audits again.
     ///
     /// # Errors
-    /// `internal` without an installed host, or if an entry could not be
-    /// written.
+    /// `browserHostMissing` without an installed host (a developer build);
+    /// `internal` if an entry could not be written.
     pub fn browser_connector_repair(&self) -> IpcResult<BrowserConnectorAudit> {
         self.touch();
-        crate::connector::repair().ok_or(IpcError::INTERNAL)
+        crate::connector::repair().map_err(|e| match e {
+            crate::connector::RepairError::HostMissing => {
+                IpcError::new(ErrorCode::BrowserHostMissing)
+            }
+            crate::connector::RepairError::WriteFailed => IpcError::INTERNAL,
+        })
     }
 
     /// The endpoint and the paired browsers.

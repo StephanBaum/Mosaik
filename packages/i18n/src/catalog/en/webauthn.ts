@@ -13,6 +13,7 @@ export const webauthn = {
   "webauthn.code.submit": "Continue",
   "webauthn.code.format": "Enter the 6 digits.",
   "webauthn.code.invalid": "That code is not right. Check the digits in the Mosaic app.",
+  "webauthn.code.tooMany": "The code was wrong too often. Start again in Mosaic.",
   "webauthn.heading.login": "Sign in with your security key",
   "webauthn.heading.register": "Add a security key",
   "webauthn.heading.confirm": "Confirm with your security key",
@@ -20,7 +21,7 @@ export const webauthn = {
   "webauthn.facts.time": "Asked at",
   "webauthn.facts.account": "Account",
   "webauthn.lead.ask":
-    "Make sure the device and time above are yours. Then use your security key when your browser asks for it.",
+    "Make sure the device and time above are yours. Then use your security key when your browser asks for it. If you didn't start this, close this tab.",
   "webauthn.status.waiting": "Waiting for your security key.",
   "webauthn.status.sending": "Checking your answer.",
   "webauthn.retry": "Try again",
@@ -40,7 +41,7 @@ export const webauthn = {
     "It was valid for a few minutes only. Start again in the Mosaic app.",
   "webauthn.heading.failed": "That did not work",
   "webauthn.failed.body":
-    "Your security key was not accepted, or too many tries were used up. Start again in the Mosaic app.",
+    "The security key step did not finish: it was cancelled, it timed out, or the key was not accepted. Nothing was changed. Start again in the Mosaic app.",
   "webauthn.heading.invalid": "This link is not complete",
   "webauthn.invalid.body":
     "Open the link from the Mosaic app. Do not retype it or take it from anywhere else.",
