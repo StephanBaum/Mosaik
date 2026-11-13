@@ -3,8 +3,8 @@
  *
  *   node --test scripts/release/sbom-js.test.mjs
  *
- * The regressions run every time. The open finding is skipped unless RT_RELEASE_RUN_KNOWN_FAILING=1
- * is set, so CI stays green until it is fixed. No dependency beyond Node.
+ * Every case runs every time (RT-release-4 is fixed and stays as a regression test). No dependency
+ * beyond Node.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = join(here, "sbom-js.mjs");
-const runKnown = process.env["RT_RELEASE_RUN_KNOWN_FAILING"] === "1";
 const DIGEST = "a".repeat(64);
 
 /** @param {string[]} args @returns {{ status: number; out: string }} */
@@ -117,20 +116,15 @@ test("normalize: only Mosaic's own components lose their license, third parties 
 });
 
 // RT-release-4: when `pnpm list` resolves nothing (the package is not installed, or pnpm answers
-// with an empty tree), sbom-js writes an SBOM with zero components and exits 0. A release could
-// ship an SBOM that lists none of the extension's dependencies without any job failing.
-test(
-  "npm: a declared dependency that is not resolved is an error, not an empty SBOM",
-  { skip: runKnown ? false : "RT-release-4: open finding, set RT_RELEASE_RUN_KNOWN_FAILING=1 to run" },
-  () => {
-    const { dir, done } = scratch();
-    try {
-      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "rt-probe", version: "1.0.0", dependencies: { react: "19.3.1" } }));
-      const out = join(dir, "out.cdx.json");
-      const r = run(["--package", dir, "--out", out]);
-      assert.notEqual(r.status, 0, `sbom-js exited 0: ${r.out}`);
-    } finally {
-      done();
-    }
-  },
-);
+// with an empty tree), sbom-js used to write an SBOM with zero components and exit 0. It now fails.
+test("npm: a declared dependency that is not resolved is an error, not an empty SBOM", () => {
+  const { dir, done } = scratch();
+  try {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "rt-probe", version: "1.0.0", dependencies: { react: "19.3.1" } }));
+    const out = join(dir, "out.cdx.json");
+    const r = run(["--package", dir, "--out", out]);
+    assert.notEqual(r.status, 0, `sbom-js exited 0: ${r.out}`);
+  } finally {
+    done();
+  }
+});

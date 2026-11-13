@@ -47,8 +47,11 @@ jobs:
       sha: ${{ github.sha }}
       sde: ${{ steps.mode.outputs.sde }}
     steps:
+      # Full history: the next steps check that the tagged commit is on main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { persist-credentials: false }
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -73,6 +76,19 @@ jobs:
           echo "dry_run=$dry" >> "$GITHUB_OUTPUT"
           echo "sde=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
           if [ "$dry" = true ]; then echo "::warning::DRY RUN: nothing is published, the signature is ephemeral and marked DRY-RUN"; fi
+      # A real release is built from a commit that is on main (RT-release). Only admins can create v*
+      # tags (tag ruleset), and this check refuses a tag on a commit that never went through the main
+      # ruleset (pull request, 17 checks, signed commits).
+      - name: The tagged commit is on main
+        if: steps.mode.outputs.dry_run == 'false'
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::$GITHUB_SHA is not an ancestor of origin/main. A release is built only from a commit that is on main."
+            exit 1
+          fi
+          echo "$GITHUB_SHA is on main"
       - name: Versions agree with the tag
         id: version
         run: |
@@ -280,12 +296,38 @@ jobs:
           else
             "$host" manifest --system --os linux --out apps/desktop/src-tauri/binaries/native-messaging/linux
           fi
-      # Signing settings reach the Tauri build through the job environment. They are exported only
-      # when the secrets exist, so an unsigned build sees none of these variables.
-      - name: Windows signing settings
+      # Signing secrets never reach the compile, the frontend build or a build script (RT-release,
+      # R118): `tauri build --no-bundle` runs with no signing variable, and only the bundle step
+      # below (the one that signs) has an `env:` with them. No secret is written to GITHUB_ENV.
+      # trusted-signing-cli is built here, before any secret is in a step environment.
+      - name: Install trusted-signing-cli
+        if: runner.os == 'Windows' && env.WIN_MODE == 'trusted-signing'
+        run: cargo install trusted-signing-cli --version =0.11.0 --locked
+      - name: Windows without a certificate
+        if: runner.os == 'Windows' && env.HAS_WIN != 'true'
+        run: |
+          echo "::warning::unsigned (no Windows signing secrets, or dry run): SmartScreen will warn (R119)"
+      - name: macOS without a certificate
+        if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
+        run: |
+          echo "::warning::unsigned (no Apple signing secrets, or dry run): Gatekeeper will warn, no hardened runtime (R119)"
+      # The build never sees the updater key or any platform signing secret (M9-F4): Tauri would sign
+      # inside this step, next to every build script and dependency. It compiles and builds the
+      # frontend only; the bundles are made, and signed, by the bundle step after it.
+      - name: Build the app (no bundles, no signing secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @mosaic/desktop tauri build --no-bundle --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.release.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      # Bundle and sign. Three steps with one command, so that a signing secret is in the environment
+      # of exactly the step that uses it and an unsigned build sees none of these variables.
+      - name: Bundle and sign (Windows)
         if: runner.os == 'Windows' && env.HAS_WIN == 'true'
         shell: bash
         env:
+          MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
           WINDOWS_SIGN_MODE: ${{ secrets.WINDOWS_SIGN_MODE }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -297,20 +339,18 @@ jobs:
           WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
         run: |
           set -euo pipefail
-          for v in WINDOWS_SIGN_MODE AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT AZURE_CERT_PROFILE WINDOWS_PFX_BASE64 WINDOWS_PFX_PASSWORD; do
-            if [ -n "${!v:-}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          # An empty secret is not set at all (the mode only needs its own variables).
+          for v in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT AZURE_CERT_PROFILE WINDOWS_PFX_BASE64 WINDOWS_PFX_PASSWORD; do
+            if [ -z "${!v:-}" ]; then unset "$v"; fi
           done
-      - name: Install trusted-signing-cli
-        if: runner.os == 'Windows' && env.WIN_MODE == 'trusted-signing'
-        run: cargo install trusted-signing-cli --version =0.11.0 --locked
-      - name: Windows without a certificate
-        if: runner.os == 'Windows' && env.HAS_WIN != 'true'
-        run: |
-          echo "::warning::unsigned (no Windows signing secrets, or dry run): SmartScreen will warn (R119)"
-      - name: macOS signing settings
+          pnpm --filter @mosaic/desktop tauri bundle --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.release.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Bundle and sign (macOS)
         if: runner.os == 'macOS' && env.HAS_APPLE == 'true'
         shell: bash
         env:
+          MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -321,23 +361,20 @@ jobs:
           set -euo pipefail
           key="$RUNNER_TEMP/AuthKey.p8"
           (umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$key")
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY; do
-            echo "$v=${!v}" >> "$GITHUB_ENV"
-          done
-          echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
-      - name: macOS without a certificate
-        if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
-        run: |
-          echo "::warning::unsigned (no Apple signing secrets, or dry run): Gatekeeper will warn, no hardened runtime (R119)"
-      - name: Build the bundles
+          trap 'rm -f "$key"' EXIT
+          export APPLE_API_KEY_PATH="$key"
+          unset APPLE_API_KEY_P8
+          pnpm --filter @mosaic/desktop tauri bundle --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.release.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Bundle (unsigned)
+        if: ${{ !((runner.os == 'Windows' && env.HAS_WIN == 'true') || (runner.os == 'macOS' && env.HAS_APPLE == 'true')) }}
         shell: bash
         env:
           MOSAIC_UNSIGNED_HASHES: ${{ runner.temp }}/unsigned-hashes.txt
         run: |
           set -euo pipefail
-          # The build never sees the updater key (M9-F4): Tauri would sign the updater artifacts inside
-          # this step, next to every build script and dependency. They are signed in the next step.
-          pnpm --filter @mosaic/desktop tauri build --target "${{ matrix.target }}" \
+          pnpm --filter @mosaic/desktop tauri bundle --target "${{ matrix.target }}" \
             --config src-tauri/tauri.release.conf.json \
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
       # Only this step holds the updater key. It signs the finished artifacts (the Authenticode-signed

@@ -8,7 +8,8 @@
 #    --dry-run: SHA256SUMS.DRY-RUN.minisig, which must start its trusted comment with
 #    "DRY RUN" and must not sit next to a release signature).
 # 2. The trusted comment names the expected version (when --version is given).
-# 3. Every file in SHA256SUMS has the listed SHA-256.
+# 3. Every file in SHA256SUMS has the listed SHA-256 (--strict), and every file in <dir> is listed
+#    (except SHA256SUMS*, *.minisig and, in a dry run, the ephemeral public key).
 # 4. When present, mosaic-server-image.ref holds a ghcr.io reference pinned by digest.
 # Exits non-zero on the first failure.
 set -euo pipefail
@@ -20,7 +21,14 @@ version=""
 dry=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --pubkey-file) pub_args=(-p "${2:?}"); shift 2 ;;
+    --pubkey-file)
+      # Absolute before the `cd "$dir"` below: a relative path is relative to the caller (RT-release-1).
+      pk="${2:?}"
+      case "$pk" in /* | [A-Za-z]:[\/]*) ;; *) pk="$PWD/$pk" ;; esac
+      [ -f "$pk" ] || { echo "error: public key file $pk not found" >&2; exit 1; }
+      pub_args=(-p "$pk")
+      shift 2
+      ;;
     --pubkey) pub_args=(-P "${2:?}"); shift 2 ;;
     --version) version="${2:?}"; shift 2 ;;
     --dry-run) dry=1; shift ;;
@@ -55,7 +63,23 @@ if [ -n "$version" ]; then
   esac
 fi
 
-if command -v sha256sum >/dev/null; then sha256sum -c SHA256SUMS; else shasum -a 256 -c SHA256SUMS; fi
+# --strict: an improper line in SHA256SUMS is an error, not a warning (RT-release-2).
+if command -v sha256sum >/dev/null; then sha256sum --strict -c SHA256SUMS; else shasum -a 256 -c SHA256SUMS; fi
+
+# Every regular file must be listed (RT-release-5): sha256sum -c only checks listed files, so an
+# unlisted file dropped next to a signed SHA256SUMS would ship unsigned. Exempt are the manifests
+# (SHA256SUMS*), the signatures (*.minisig) and, in a dry run only, the ephemeral public key.
+listed="$(mktemp)"
+trap 'rm -f "$listed"' EXIT
+sed -E 's/^[0-9a-fA-F]+ [ *]//' SHA256SUMS > "$listed"
+unlisted=0
+while IFS= read -r f; do
+  f="${f#./}"
+  case "$f" in SHA256SUMS* | *.minisig) continue ;; esac
+  if [ "$dry" -eq 1 ] && [ "$f" = DRY-RUN-NOT-A-RELEASE-minisign.pub ]; then continue; fi
+  if ! grep -Fxq -- "$f" "$listed"; then echo "error: $f is in the release directory but not in SHA256SUMS" >&2; unlisted=1; fi
+done < <(find . -maxdepth 1 ! -type d ! -name . | LC_ALL=C sort)
+[ "$unlisted" -eq 0 ] || exit 1
 
 if [ -f mosaic-server-image.ref ]; then
   grep -Eq '^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$' mosaic-server-image.ref \

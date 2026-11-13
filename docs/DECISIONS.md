@@ -179,7 +179,10 @@ and design tokens. The owner's tooling standard is pnpm.
 A pnpm workspace (`apps/*`, `packages/*`) with `packages/design-tokens`
 (tokens and a WCAG contrast test) and `packages/i18n` (DE/EN ICU catalogs and
 a parity test). The ICU formatter library is chosen in M3. Dependency
-lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`).
+lifecycle scripts are disabled by default (`onlyBuiltDependencies: []`, set in the
+root `package.json` `pnpm` field, which the pinned pnpm 9.15.4 reads, and in
+`pnpm-workspace.yaml` for pnpm 10; RT-release-3 found that the workspace file
+alone does nothing on pnpm 9, and a CI test now guards it).
 
 TypeScript is pinned to 6.0.x because typescript-eslint 8.x does not support
 TypeScript 7 yet. Revisit when it does.

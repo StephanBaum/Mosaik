@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Red-team tests of the release scripts (RT-release, whole-app red team 2026-11-13).
-# Complements selftest.sh: the attacks that held are regression tests and run every time; the
-# open findings are skipped unless asked for, so CI stays green until they are fixed.
+# Complements selftest.sh. Every case runs every time: the attacks that held, and the
+# findings that are now fixed (RT-release-1 to 5), which stay as regression tests. CI runs it.
 #
-#   redteam-selftest.sh                                 the regression tests
-#   RT_RELEASE_RUN_KNOWN_FAILING=1 redteam-selftest.sh  also the open findings (expected to FAIL today)
+#   redteam-selftest.sh
 #
 # Needs minisign; the pnpm case needs pnpm (it installs a `file:` package offline, no network).
 # Keys are ephemeral and thrown away.
@@ -16,7 +15,6 @@ command -v minisign >/dev/null || { echo "error: minisign is not installed" >&2;
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 export VERSION=9.9.9 GIT_SHA=0123456789abcdef0123456789abcdef01234567
-run_known="${RT_RELEASE_RUN_KNOWN_FAILING:-0}"
 
 passed=0
 failed=0
@@ -32,15 +30,11 @@ must_pass() {
   shift
   if "$@" > /dev/null 2>&1; then ok "$what"; else bad "$what"; fi
 }
-# A known-failing case: runs only on request; a pass there means the finding is fixed.
+# A case for a fixed finding: a pass means the fix still holds.
 known() {
   local id="$1" what="$2"
   shift 2
-  if [ "$run_known" != 1 ]; then
-    echo "skip: $id ($what; open finding, set RT_RELEASE_RUN_KNOWN_FAILING=1 to run)"
-    return 0
-  fi
-  if "$@"; then ok "$id fixed: $what"; else bad "$id still open: $what"; fi
+  if "$@"; then ok "$id fixed: $what"; else bad "$id regressed: $what"; fi
 }
 
 fixture() {
@@ -108,7 +102,7 @@ release_sign "$s"
 printf 'swapped\n' > "$s/mosaic-extension-9.9.9-chromium.zip"
 must_fail "verify: a swapped artifact of the right name" bash "$here/verify.sh" "$s" --pubkey-file "$work/rel.pub" --version 9.9.9
 
-echo "# open findings"
+echo "# fixed findings (regression tests)"
 
 # RT-release-1: release.yml calls verify.sh with a relative --pubkey-file (release/minisign.pub and
 # release-files/DRY-RUN-NOT-A-RELEASE-minisign.pub); verify.sh does `cd "$dir"` first, so the key is
@@ -154,8 +148,8 @@ rt5() {
 known RT-release-5 "verify.sh accepts a release directory with an unlisted file" rt5
 
 # RT-release-3: THREAT_MODEL 4.9 says dependency lifecycle scripts are off (`onlyBuiltDependencies`).
-# The repository pins pnpm 9.15.4 (package.json packageManager) and puts the key into
-# pnpm-workspace.yaml, which pnpm 9 does not read for settings: a dependency's postinstall runs.
+# The repository pins pnpm 9.15.4 (package.json packageManager), which reads the key from the root
+# package.json `pnpm` field and ignores pnpm-workspace.yaml (pnpm 10 reads the latter); both are set.
 rt3() {
   command -v pnpm > /dev/null || { echo "pnpm is not installed" >&2; return 1; }
   local base="$work/rt3" marker

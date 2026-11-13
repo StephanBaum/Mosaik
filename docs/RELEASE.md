@@ -38,7 +38,9 @@ Do this on a machine you trust, offline if you can.
    placeholder key: until you do this, a tag run stops in `prepare`.
 4. **Create the GitHub environment `release`** (Settings, Environments): you as the required
    reviewer, and deployment only from `v*` tags. Add a tag protection rule (a ruleset) for `v*` so
-   only you can create them.
+   only repository admins can create them. The `prepare` job also fails a real release unless the
+   tagged commit is an ancestor of `origin/main`, so a tag on a commit that never went through the
+   main ruleset (pull request, required checks, signed commits) cannot ship.
 5. **Add the environment secrets** (not repository secrets):
 
    | Secret | Needed for |
