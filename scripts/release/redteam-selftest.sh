@@ -146,6 +146,19 @@ rt5() {
   ! bash "$here/verify.sh" "$d" --pubkey-file "$work/rel.pub" --version 9.9.9 > /dev/null 2>&1
 }
 known RT-release-5 "verify.sh accepts a release directory with an unlisted file" rt5
+# The exemptions are exact names: an unlisted SHA256SUMS.exe or setup.exe.minisig, or a name with a
+# newline made of two listed names, must not pass either (found when verifying the RT-release fixes).
+rt5_name() {
+  local d="$work/rt5-$1"
+  fixture "$d"
+  release_sign "$d"
+  printf 'unlisted\n' > "$d/$2"
+  ! bash "$here/verify.sh" "$d" --pubkey-file "$work/rel.pub" --version 9.9.9 > /dev/null 2>&1
+}
+known RT-release-5 "verify.sh exempts SHA256SUMS* by prefix" rt5_name a SHA256SUMS.exe
+known RT-release-5 "verify.sh exempts any *.minisig" rt5_name b mosaic-setup.exe.minisig
+known RT-release-5 "verify.sh reads a newline name as two listed names" rt5_name c \
+  $'mosaic-cli-9.9.9-x86_64-unknown-linux-gnu.tar.gz\nmosaic-extension-9.9.9-chromium.zip'
 
 # RT-release-3: THREAT_MODEL 4.9 says dependency lifecycle scripts are off (`onlyBuiltDependencies`).
 # The repository pins pnpm 9.15.4 (package.json packageManager), which reads the key from the root

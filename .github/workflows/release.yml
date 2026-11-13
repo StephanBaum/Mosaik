@@ -299,6 +299,8 @@ jobs:
       # Signing secrets never reach the compile, the frontend build or a build script (RT-release,
       # R118): `tauri build --no-bundle` runs with no signing variable, and only the bundle step
       # below (the one that signs) has an `env:` with them. No secret is written to GITHUB_ENV.
+      # This keeps the secrets out of the build's environment only: the steps share the runner, so
+      # an actively compromised build can still reach the bundle step (R118 lists what remains).
       # trusted-signing-cli is built here, before any secret is in a step environment.
       - name: Install trusted-signing-cli
         if: runner.os == 'Windows' && env.WIN_MODE == 'trusted-signing'

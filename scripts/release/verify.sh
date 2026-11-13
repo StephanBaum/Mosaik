@@ -9,7 +9,7 @@
 #    "DRY RUN" and must not sit next to a release signature).
 # 2. The trusted comment names the expected version (when --version is given).
 # 3. Every file in SHA256SUMS has the listed SHA-256 (--strict), and every file in <dir> is listed
-#    (except SHA256SUMS*, *.minisig and, in a dry run, the ephemeral public key).
+#    (except SHA256SUMS, the signature checked in step 1 and, in a dry run, the ephemeral public key).
 # 4. When present, mosaic-server-image.ref holds a ghcr.io reference pinned by digest.
 # Exits non-zero on the first failure.
 set -euo pipefail
@@ -64,21 +64,25 @@ if [ -n "$version" ]; then
 fi
 
 # --strict: an improper line in SHA256SUMS is an error, not a warning (RT-release-2).
-if command -v sha256sum >/dev/null; then sha256sum --strict -c SHA256SUMS; else shasum -a 256 -c SHA256SUMS; fi
+if command -v sha256sum >/dev/null; then sha256sum --strict -c SHA256SUMS; else shasum -a 256 --strict -c SHA256SUMS; fi
 
 # Every regular file must be listed (RT-release-5): sha256sum -c only checks listed files, so an
-# unlisted file dropped next to a signed SHA256SUMS would ship unsigned. Exempt are the manifests
-# (SHA256SUMS*), the signatures (*.minisig) and, in a dry run only, the ephemeral public key.
+# unlisted file dropped next to a signed SHA256SUMS would ship unsigned. Exempt are SHA256SUMS, the
+# signature checked above and, in a dry run only, the ephemeral public key.
 listed="$(mktemp)"
 trap 'rm -f "$listed"' EXIT
 sed -E 's/^[0-9a-fA-F]+ [ *]//' SHA256SUMS > "$listed"
 unlisted=0
-while IFS= read -r f; do
+# NUL-separated, and a name with a control character is refused: a name with a newline would
+# otherwise read as two listed names. Only the exact manifest and signature names are exempt
+# (not SHA256SUMS* or *.minisig, which would let SHA256SUMS.exe or setup.exe.minisig through).
+while IFS= read -r -d '' f; do
   f="${f#./}"
-  case "$f" in SHA256SUMS* | *.minisig) continue ;; esac
+  case "$f" in *[[:cntrl:]]*) echo "error: a file name in the release directory holds a control character" >&2; unlisted=1; continue ;; esac
+  case "$f" in SHA256SUMS | "$sig") continue ;; esac
   if [ "$dry" -eq 1 ] && [ "$f" = DRY-RUN-NOT-A-RELEASE-minisign.pub ]; then continue; fi
   if ! grep -Fxq -- "$f" "$listed"; then echo "error: $f is in the release directory but not in SHA256SUMS" >&2; unlisted=1; fi
-done < <(find . -maxdepth 1 ! -type d ! -name . | LC_ALL=C sort)
+done < <(find . -maxdepth 1 ! -type d -print0 | LC_ALL=C sort -z)
 [ "$unlisted" -eq 0 ] || exit 1
 
 if [ -f mosaic-server-image.ref ]; then

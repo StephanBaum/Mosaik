@@ -36,8 +36,9 @@ sha256sum --strict -c --ignore-missing SHA256SUMS
 
 If it prints anything else, delete the file and download it again. Do not run it.
 
-Also check the version: it must be the release marked "Latest" on the GitHub Releases page. An older
-release is genuine too, and its checksums match.
+Also check the version: it must be the newest release, the one at the top of the GitHub Releases
+page. (Mosaic is pre-audit, so every release is marked "Pre-release" and none carries the "Latest"
+badge.) An older release is genuine too, and its checksums match.
 
 This check proves the file matches the list. It does not prove the list is genuine, because whoever
 could swap the file could swap the list. The expert check below does.
@@ -64,7 +65,7 @@ minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p release/minisign.pub
 
 It must print `Signature and comment signature verified` and a trusted comment of the form
 `mosaic <version> <git commit>`. Check that the version is the one you meant to download, and that
-it is the newest: compare it with the release marked "Latest" on the GitHub Releases page. An old
+it is the newest: compare it with the newest release at the top of the GitHub Releases page. An old
 release is genuine and signed too, so the signature alone does not tell you that you got the newest.
 If it prints anything else, stop and do not run the files.
 
