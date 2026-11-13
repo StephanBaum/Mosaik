@@ -39,8 +39,10 @@ class FillPlanner(private val holder: CoreHolder) {
             // An allowlisted browser sent no webDomain (its address bar, say): the browser app is no target.
             return Prepared.NothingToFill
         }
-        if (target == null) return Prepared.CannotCheck(infoOf(parsed, FillFields(null, null, null)))
-        val selection = holder.call { it.selectFillFields(parsed.fieldNodes(), target) }
+        // The target could not be checked: the entry only says so and a tap closes it (MODE_DISMISS), so its fields
+        // are picked for the shape of the screen alone, a page or an app. Nothing is ever filled from them.
+        val scopeTarget = target ?: shapeOnly(parsed)
+        val selection = holder.call { it.selectFillFields(parsed.fieldNodes(), scopeTarget) }
         if (selection.refused != null) return Prepared.NothingToFill
         val fields =
             FillFields(
@@ -49,7 +51,19 @@ class FillPlanner(private val holder: CoreHolder) {
                 otp = parsed.idOf(selection.otp),
             )
         if (fields.all.isEmpty()) return Prepared.NothingToFill
+        if (target == null) return Prepared.CannotCheck(infoOf(parsed, fields))
         return Prepared.Ready(infoOf(parsed, fields), target)
+    }
+
+    /** A target that stands for the shape of the screen only (a page has a `webDomain`, an app has none). */
+    private fun shapeOnly(parsed: ParsedStructure): FillTarget {
+        val kind =
+            if (parsed.webDomain != null) {
+                FillTargetKind.Web(origin = "")
+            } else {
+                FillTargetKind.AndroidApp(package = parsed.callerPackage, certs = emptyList())
+            }
+        return FillTarget(kind = kind, display = "", warning = null)
     }
 
     private fun infoOf(parsed: ParsedStructure, fields: FillFields) =
