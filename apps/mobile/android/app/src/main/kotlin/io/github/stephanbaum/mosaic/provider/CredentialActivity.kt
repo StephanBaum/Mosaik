@@ -42,7 +42,9 @@ import io.github.stephanbaum.mosaic.ui.components.Working
 import io.github.stephanbaum.mosaic.ui.errorText
 import io.github.stephanbaum.mosaic.ui.l10n.L10n
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The activity behind the entries of [MosaicCredentialProviderService] (ADR-0092, ADR-0093). The platform starts it
@@ -188,7 +190,7 @@ class CredentialActivity : SecureActivity() {
                 app.holder.call { it.passkeyAndroidGetFinish(session.sessionId, key, true) }
             } finally {
                 // A finished session is gone already; every other exit forgets it here (M10-G3).
-                app.holder.call { it.passkeyRelease(session.sessionId) }
+                withContext(NonCancellable) { app.holder.call { it.passkeyRelease(session.sessionId) } }
             }
         val data = Intent()
         PendingIntentHandler.setGetCredentialResponse(data, GetCredentialResponse(PublicKeyCredential(json)))
