@@ -324,6 +324,21 @@ mod tests {
         );
     }
 
+    /// RT-parsers-5 (red team 2026-11-13): an `HmacOtp-Counter` that is not
+    /// a number becomes `u64::MAX`. The import stores it, the item's counter
+    /// can never go down (`ItemEdit::set_otp_counter` only raises), and the
+    /// next code needs `counter + 1`, which overflows: the imported HOTP
+    /// never produces a code and cannot be repaired without re-creating the
+    /// item. A value that does not parse should make the OTP unreadable
+    /// (kept as hidden custom fields), like every other bad attribute.
+    #[test]
+    #[ignore = "RT-parsers-5: an unparsable KeePass HmacOtp-Counter imports as u64::MAX, a HOTP that can never produce a code"]
+    fn keepass_hmac_otp_with_a_bad_counter_is_unreadable() {
+        let k = kp(&[("HmacOtp-Secret", "abcdefghij"), ("HmacOtp-Counter", "x")]);
+        assert!(k.is_present());
+        assert!(k.finish().is_none());
+    }
+
     #[test]
     fn keepass_tray_totp() {
         let (c, _) = kp(&[("TOTP Seed", B32), ("TOTP Settings", "30;8")])

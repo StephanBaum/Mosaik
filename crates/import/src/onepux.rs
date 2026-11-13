@@ -561,6 +561,27 @@ mod tests {
         assert_eq!(files.find("b_"), None);
     }
 
+    /// RT-parsers-2 (red team 2026-11-13): the bucket of a document key is
+    /// walked to its end whenever the ID does not match a member exactly or
+    /// as `<id>__`. An ID with a `__` of its own (`doc__zz`, key `doc`) or
+    /// one ending in `_` lands in a bucket it never matches, and a file with
+    /// 100,000 `files/doc__<n>` members and 100,000 entries (or `file`
+    /// section fields) naming such an ID costs 10^10 probes: the sibling of
+    /// the M3 P2 quadratic lookup that the bucket map did not cover.
+    #[test]
+    #[ignore = "RT-parsers-2: Files::find walks a whole document bucket for an ID that matches none of its members (quadratic 1PUX lookup, sibling of M3 P2)"]
+    fn find_is_bounded_for_ids_that_match_no_member() {
+        let names: Vec<String> = (0..20_000).map(|i| format!("files/doc__{i}")).collect();
+        let bytes = archive(&names);
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        assert_eq!(files.find("doc__zz"), None);
+        assert!(
+            files.probes.get() <= 2,
+            "one miss probed {} members",
+            files.probes.get()
+        );
+    }
+
     #[test]
     fn find_is_linear_in_lookups() {
         let names: Vec<String> = (0..10_000).map(|i| format!("files/m{i}__x.bin")).collect();

@@ -2,3 +2,4 @@
 
 mod agent;
 mod openssh_interop;
+mod redteam;
