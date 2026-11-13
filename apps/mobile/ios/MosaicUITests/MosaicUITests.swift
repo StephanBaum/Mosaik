@@ -104,8 +104,7 @@ final class MosaicUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 30))
         title.tap()
         // The return key closes the keyboard, which would cover the save button.
-        title.typeText("UI test note
-")
+        title.typeText("UI test note" + XCUIKeyboardKey.return.rawValue)
         app.buttons["editor-save"].tap()
         XCTAssertTrue(app.staticTexts["UI test note"].waitForExistence(timeout: 30))
     }
