@@ -228,6 +228,7 @@
   <string name="mobile_generator_wordCount">Wörter: %1$s</string>
   <string name="mobile_home_unlockedAs">Entsperrt als %1$s</string>
   <string name="mobile_licences_intro">Mosaic für Android besteht auch aus diesen Open-Source-Teilen.</string>
+  <string name="mobile_licences_introIos">Mosaic für das iPhone besteht aus diesen Open-Source-Teilen.</string>
   <string name="mobile_licences_rust">Der Rust-Kern nutzt Open-Source-Crates. Ihre Lizenzen stehen im Quellcode-Repository des Projekts.</string>
   <string name="mobile_licences_title">Open-Source-Lizenzen</string>
   <string name="mobile_link_app">App</string>
@@ -339,11 +340,16 @@
   <string name="mobile_settings_credentialEnable">Mosaic für Passkeys und Passwörter verwenden</string>
   <string name="mobile_settings_credentialHint">Passkeys und gespeicherte Passwörter kann auch die Anmeldeauswahl des Systems anbieten.</string>
   <string name="mobile_settings_fill">In anderen Apps ausfüllen</string>
+  <string name="mobile_settings_identitiesPassword">Gib dein Master-Passwort ein, um das einzuschalten.</string>
   <string name="mobile_settings_idle">Sperren, wenn du den Bildschirm nicht berührst</string>
   <plurals name="mobile_settings_idleOption">
     <item quantity="one">Nach %1$d Minute</item>
     <item quantity="other">Nach %1$d Minuten</item>
   </plurals>
+  <string name="mobile_settings_passkeyIdentities">Mosaic für Passkeys verwenden</string>
+  <string name="mobile_settings_passkeyIdentitiesHint">Mosaic teilt dem System Website und Benutzernamen jedes Passkeys mit, damit es ihn anbieten kann. Die Schlüssel verlassen Mosaic nie.</string>
+  <string name="mobile_settings_passwordIdentities">Logins über der Tastatur vorschlagen</string>
+  <string name="mobile_settings_passwordIdentitiesHint">Mosaic teilt dem System Website und Benutzernamen jedes Logins mit. Das System speichert diese Liste auf dem Handy, außerhalb der Verschlüsselung von Mosaic.</string>
   <string name="mobile_settings_quick">Schnellentsperrung</string>
   <string name="mobile_settings_quickDisable">Ausschalten</string>
   <string name="mobile_settings_quickEnable">Einschalten</string>

@@ -3745,6 +3745,23 @@
         }
       }
     },
+    "mobile.licences.introIos" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic für das iPhone besteht aus diesen Open-Source-Teilen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic for iPhone is built with these open-source parts."
+          }
+        }
+      }
+    },
     "mobile.licences.rust" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5605,6 +5622,23 @@
         }
       }
     },
+    "mobile.settings.identitiesPassword" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib dein Master-Passwort ein, um das einzuschalten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your master password to turn this on."
+          }
+        }
+      }
+    },
     "mobile.settings.idle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5659,6 +5693,74 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "mobile.settings.passkeyIdentities" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic für Passkeys verwenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Mosaic for passkeys"
+          }
+        }
+      }
+    },
+    "mobile.settings.passkeyIdentitiesHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic teilt dem System Website und Benutzernamen jedes Passkeys mit, damit es ihn anbieten kann. Die Schlüssel verlassen Mosaic nie."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic tells the system the website and username of each passkey so it can offer it. The keys never leave Mosaic."
+          }
+        }
+      }
+    },
+    "mobile.settings.passwordIdentities" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logins über der Tastatur vorschlagen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggest logins above the keyboard"
+          }
+        }
+      }
+    },
+    "mobile.settings.passwordIdentitiesHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic teilt dem System Website und Benutzernamen jedes Logins mit. Das System speichert diese Liste auf dem Handy, außerhalb der Verschlüsselung von Mosaic."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic's encryption."
           }
         }
       }

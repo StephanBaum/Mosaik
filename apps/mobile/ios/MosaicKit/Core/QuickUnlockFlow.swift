@@ -9,24 +9,29 @@ public enum QuickUnlockFlow {
     /// Returns whether quick unlock is on afterwards. Every failure leaves the vault unlocked and quick unlock
     /// off, and removes a key that was created but not recorded.
     public static func enroll(core: MosaicCore, password: Data, keys: any QuickUnlockKeys) -> Bool {
-        guard keys.isAvailable else { return false }
-        guard let setup = try? core.quickUnlockEnrollBegin(password: password) else { return false }
+        (try? enrollOrThrow(core: core, password: password, keys: keys)) != nil
+    }
+
+    /// Like `enroll`, for the Settings screen, which tells the user what went wrong (a mistyped password).
+    public static func enrollOrThrow(core: MosaicCore, password: Data, keys: any QuickUnlockKeys) throws {
+        guard keys.isAvailable else { throw CodedError("internal") }
+        let setup = try core.quickUnlockEnrollBegin(password: password)
         var w = setup.w.exposeBytes()
         defer {
             w.wipe()
             setup.w.wipe()
         }
-        guard let body = try? keys.enroll(alias: setup.keyAlias, secret: w) else { return false }
-        guard
-            let enrolled = try? core.quickUnlockEnrollFinish(platform: .iosSecureEnclave, body: body)
-        else {
+        let body = try keys.enroll(alias: setup.keyAlias, secret: w)
+        let enrolled: QuickUnlockEnrolled
+        do {
+            enrolled = try core.quickUnlockEnrollFinish(platform: .iosSecureEnclave, body: body)
+        } catch {
             try? keys.deleteKey(alias: setup.keyAlias)
-            return false
+            throw error
         }
         if let replaced = enrolled.replacedKeyAlias {
             try? keys.deleteKey(alias: replaced)
         }
-        return true
     }
 
     /// Opens the vault with the key of the current enrolment: one biometric prompt, then `unlock_quick(W)`.

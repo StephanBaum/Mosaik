@@ -340,4 +340,13 @@ export const mobile = {
     "Server, E-Mail und Secret Key sind aus dem Einrichtungscode übernommen. Prüfe sie und fahre dann fort.",
   "mobile.onboarding.details.scanOr": "Oder gib die Angaben von Hand ein",
   "mobile.onboarding.details.keyFromCode": "Secret Key aus dem Einrichtungscode",
+  // iOS (T11): identity store settings and the licences intro.
+  "mobile.settings.passkeyIdentities": "Mosaic für Passkeys verwenden",
+  "mobile.settings.passkeyIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Passkeys mit, damit es ihn anbieten kann. Die Schlüssel verlassen Mosaic nie.",
+  "mobile.settings.passwordIdentities": "Logins über der Tastatur vorschlagen",
+  "mobile.settings.passwordIdentitiesHint":
+    "Mosaic teilt dem System Website und Benutzernamen jedes Logins mit. Das System speichert diese Liste auf dem Handy, außerhalb der Verschlüsselung von Mosaic.",
+  "mobile.settings.identitiesPassword": "Gib dein Master-Passwort ein, um das einzuschalten.",
+  "mobile.licences.introIos": "Mosaic für das iPhone besteht aus diesen Open-Source-Teilen.",
 } satisfies Record<keyof typeof en, string>;

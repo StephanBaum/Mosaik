@@ -26,6 +26,8 @@ final class AppModel {
     private(set) var deviceLockMissing = false
     /// The unlock screen's state. A new one replaces it when the vault opens, so no typed secret survives.
     private(set) var unlock: UnlockModel?
+    /// The unlocked vault (list, sync, settings). It exists exactly while the session is unlocked.
+    private(set) var vault: VaultModel?
 
     let privacy = PrivacyCoverModel()
     let capture = CaptureObserver()
@@ -44,7 +46,7 @@ final class AppModel {
         self.keys = SecureEnclaveQuickUnlock(identity: identity)
         MosaicFonts.register()
         do {
-            let holder = try CoreFactory.openApp(identity: identity)
+            let holder = try AppModel.openCore(identity: identity)
             self.holder = holder
             self.lifecycle = StoreLifecycle(holder: holder)
             self.phase = .ready
@@ -64,6 +66,17 @@ final class AppModel {
         refreshState()
     }
 
+    /// Opens the core. A Debug build started with `-mosaic-test-account` opens a seeded local account on test
+    /// storage instead (the UI tests); no other build has that path.
+    private static func openCore(identity: AppIdentity) throws -> CoreHolder {
+        #if DEBUG
+            if UITestAccount.isRequested {
+                return try UITestAccount.openApp(identity: identity)
+            }
+        #endif
+        return try CoreFactory.openApp(identity: identity)
+    }
+
     // MARK: State
 
     /// Reads the state of the core and runs what it asks for: a quick-unlock key that ran out is deleted,
@@ -71,7 +84,12 @@ final class AppModel {
     func refreshState() {
         deviceLockMissing = !DeviceLock.isPasscodeSet()
         guard let holder else { return }
-        session = holder.state()
+        let next = holder.state()
+        if case .busy = next, case .unlocked = session {
+            // A long call (a sync) is running: the screens stay as they are until it ends.
+            return
+        }
+        session = next
         if case let .locked(_, _, availability) = session, case let .expired(alias) = availability {
             try? keys.deleteKey(alias: alias)
         }
@@ -82,9 +100,15 @@ final class AppModel {
             unlock?.wipe()
             unlock = UnlockModel(app: self)
             startIdleLock()
+            if vault == nil {
+                let model = VaultModel(app: self, holder: holder)
+                vault = model
+                Task { await model.start() }
+            }
         } else {
             idle?.stop()
             idleStarted = false
+            vault = nil
         }
     }
 
@@ -95,6 +119,11 @@ final class AppModel {
             let minutes = (try? await holder.call { core in Int(core.settings().idleLockMinutes) }) ?? 5
             idle?.start(minutes: minutes)
         }
+    }
+
+    /// The idle timeout changed in Settings: the countdown starts over with the new value.
+    func idleMinutesChanged(_ minutes: Int) {
+        idle?.start(minutes: minutes)
     }
 
     /// A touch anywhere: the idle countdown starts over.
@@ -122,6 +151,7 @@ final class AppModel {
         case .background:
             isSceneActive = false
             privacy.sceneWillResignActive()
+            onboarding?.sceneWentToBackground()
             idle?.stop()
             idleStarted = false
             lifecycle?.sceneDidEnterBackground()
@@ -169,6 +199,29 @@ final class AppModel {
             if enrol {
                 _ = QuickUnlockFlow.enroll(core: core, password: pw, keys: keys)
             }
+        }
+    }
+
+    /// Turns quick unlock on from Settings: the typed master password enrols the Secure Enclave key.
+    func enrollQuickUnlock(password: SecretBuffer) async throws {
+        guard let holder else { throw CodedError("storeUnavailable") }
+        try await preflightMemory()
+        let keys = self.keys
+        defer { refreshState() }
+        try await holder.call { core in
+            var pw = password.copyOut()
+            defer { pw.wipe() }
+            try QuickUnlockFlow.enrollOrThrow(core: core, password: pw, keys: keys)
+        }
+    }
+
+    /// Turns quick unlock off: the core drops the enrolment and the Secure Enclave key is deleted.
+    func disableQuickUnlock() async throws {
+        guard let holder else { throw CodedError("storeUnavailable") }
+        defer { refreshState() }
+        let alias = try await holder.call { core in try core.quickUnlockRemove() }
+        if let alias {
+            try? keys.deleteKey(alias: alias)
         }
     }
 

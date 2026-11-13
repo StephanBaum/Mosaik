@@ -333,4 +333,13 @@ export const mobile = {
     "Server, email and Secret Key are filled in from the setup code. Check them, then continue.",
   "mobile.onboarding.details.scanOr": "Or enter the details by hand",
   "mobile.onboarding.details.keyFromCode": "Secret Key from the setup code",
+  // iOS (T11): identity store settings and the licences intro.
+  "mobile.settings.passkeyIdentities": "Use Mosaic for passkeys",
+  "mobile.settings.passkeyIdentitiesHint":
+    "Mosaic tells the system the website and username of each passkey so it can offer it. The keys never leave Mosaic.",
+  "mobile.settings.passwordIdentities": "Suggest logins above the keyboard",
+  "mobile.settings.passwordIdentitiesHint":
+    "Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic's encryption.",
+  "mobile.settings.identitiesPassword": "Type your master password to turn this on.",
+  "mobile.licences.introIos": "Mosaic for iPhone is built with these open-source parts.",
 } as const satisfies Record<string, string>;

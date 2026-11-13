@@ -708,6 +708,9 @@ object L10n {
     fun licencesIntro(r: Resources): String =
         r.getString(R.string.mobile_licences_intro)
 
+    fun licencesIntroIos(r: Resources): String =
+        r.getString(R.string.mobile_licences_introIos)
+
     fun licencesRust(r: Resources): String =
         r.getString(R.string.mobile_licences_rust)
 
@@ -1032,11 +1035,26 @@ object L10n {
     fun settingsFill(r: Resources): String =
         r.getString(R.string.mobile_settings_fill)
 
+    fun settingsIdentitiesPassword(r: Resources): String =
+        r.getString(R.string.mobile_settings_identitiesPassword)
+
     fun settingsIdle(r: Resources): String =
         r.getString(R.string.mobile_settings_idle)
 
     fun settingsIdleOption(r: Resources, minutes: Int): String =
         r.getQuantityString(R.plurals.mobile_settings_idleOption, minutes, minutes)
+
+    fun settingsPasskeyIdentities(r: Resources): String =
+        r.getString(R.string.mobile_settings_passkeyIdentities)
+
+    fun settingsPasskeyIdentitiesHint(r: Resources): String =
+        r.getString(R.string.mobile_settings_passkeyIdentitiesHint)
+
+    fun settingsPasswordIdentities(r: Resources): String =
+        r.getString(R.string.mobile_settings_passwordIdentities)
+
+    fun settingsPasswordIdentitiesHint(r: Resources): String =
+        r.getString(R.string.mobile_settings_passwordIdentitiesHint)
 
     fun settingsQuick(r: Resources): String =
         r.getString(R.string.mobile_settings_quick)

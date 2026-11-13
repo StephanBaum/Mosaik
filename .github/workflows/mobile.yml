@@ -250,7 +250,7 @@ jobs:
         run: bash scripts/mobile/build-ios-xcframework.sh debug --features test-hooks
       - name: Show the generated Swift API the app code uses (names, labels, cases)
         run: >
-          grep -nE '^public (protocol|enum|struct|final class) (MosaicCore|SecureStorage|StorageError|MobileError|SessionState|QuickUnlock[A-Za-z]*|SecretValue|CoreConfig|CoreContext|Platform|JoinHostedRequest|JoinOutcome|HandoffStatus|HandoffInfo|ServerInfo|SecondFactorMethods|MobileSettings)|^    (case|public func|public static func|public init) |^    public var ' apps/mobile/ios/Generated/Bindings/mosaic.swift | head -300 || true
+          grep -hnE '^public (protocol|enum|struct|final class) |^    (case|public func|public static func|public init|public convenience init) |^    public (var|let) ' apps/mobile/ios/Generated/Bindings/*.swift | head -1500 || true
       - name: Generate the Xcode project
         run: xcodegen generate --spec apps/mobile/ios/project.yml
       - run: bash scripts/mobile/check-ios-deps.sh

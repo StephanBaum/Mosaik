@@ -58,7 +58,7 @@ struct RootView: View {
     @ViewBuilder
     private var ready: some View {
         if let onboarding = model.onboarding {
-            OnboardingFlow(model: onboarding, capture: model.capture)
+            OnboardingFlow(model: onboarding, capture: model.capture, sceneActive: model.isSceneActive)
         } else {
             switch model.session {
             case let .locked(email, secretKeyStored, availability):
@@ -67,8 +67,12 @@ struct RootView: View {
                         model: unlock, email: email, secretKeyStored: secretKeyStored,
                         availability: availability)
                 }
-            case let .unlocked(_, email, _):
-                VaultHomeView(model: model, email: email)
+            case .unlocked:
+                if let vault = model.vault {
+                    MainShell(app: model, vault: vault)
+                } else {
+                    ProgressView()
+                }
             case .storeBusy:
                 MosaicScreen {
                     ScreenTitle(text: L10n.appName())

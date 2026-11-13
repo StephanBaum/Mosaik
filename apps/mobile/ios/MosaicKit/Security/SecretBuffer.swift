@@ -70,6 +70,25 @@ public final class SecretBuffer: @unchecked Sendable {
         }
     }
 
+    /// Replaces the content with the bytes of `data` and wipes `data` (the Secret Key of a scanned setup code).
+    public func replace(taking data: inout Data) {
+        let count = data.count
+        lock.lock()
+        defer { lock.unlock() }
+        clearLocked()
+        if count > 0 {
+            let allocation = UnsafeMutablePointer<UInt8>.allocate(capacity: count)
+            data.withUnsafeBytes { raw in
+                if let base = raw.baseAddress {
+                    allocation.initialize(from: base.assumingMemoryBound(to: UInt8.self), count: count)
+                }
+            }
+            pointer = allocation
+            length = count
+        }
+        data.wipe()
+    }
+
     /// A copy of the bytes. The caller wipes it (`Data.wipe()`) as soon as the call that needs it ends.
     public func copyOut() -> Data {
         lock.lock()

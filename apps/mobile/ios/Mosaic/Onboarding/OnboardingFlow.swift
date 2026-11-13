@@ -5,13 +5,18 @@ import SwiftUI
 struct OnboardingFlow: View {
     @Bindable var model: OnboardingModel
     let capture: CaptureObserver
+    let sceneActive: Bool
 
     var body: some View {
         switch model.step {
         case .welcome:
             WelcomeStep(model: model)
         case .details:
-            DetailsStep(model: model, capture: capture)
+            if model.scanning, let scan = model.scanModel {
+                SetupScanScreen(model: scan, sceneActive: sceneActive, onBack: { model.stopScanning() })
+            } else {
+                DetailsStep(model: model, capture: capture)
+            }
         case .password:
             PasswordStep(model: model)
         case .secondFactor:
@@ -55,12 +60,27 @@ private struct DetailsStep: View {
     var body: some View {
         MosaicScreen {
             ScreenTitle(text: L10n.onboardingDetailsTitle())
+            Button(L10n.scanSetupAction()) { model.startScanning() }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(model.isWorking)
+                .accessibilityIdentifier("onboarding-scan")
+            HintText(text: model.keyFromCode ? L10n.onboardingDetailsScanned() : L10n.onboardingDetailsScanOr())
             PlainField(
                 label: L10n.onboardingServer(), placeholder: L10n.onboardingServerPlaceholder(),
                 text: $model.server, identifier: "onboarding-server", keyboard: .URL, contentType: .URL)
             PlainField(
                 label: L10n.onboardingEmail(), placeholder: "", text: $model.email,
                 identifier: "onboarding-email", keyboard: .emailAddress, contentType: .emailAddress)
+            if model.keyFromCode {
+                VStack(alignment: .leading, spacing: MosaicTokens.Space.s3) {
+                    FieldLabel(text: L10n.onboardingSecretKey())
+                    BodyText(text: L10n.onboardingDetailsKeyFromCode())
+                        .accessibilityIdentifier("onboarding-key-from-code")
+                    Button(L10n.commonRemove()) { model.discardScannedKey() }
+                        .buttonStyle(QuietButtonStyle())
+                        .accessibilityIdentifier("onboarding-key-remove")
+                }
+            } else {
             VStack(alignment: .leading, spacing: MosaicTokens.Space.s3) {
                 SecretField(
                     label: L10n.onboardingSecretKey(), buffer: model.secretKey,
@@ -77,6 +97,7 @@ private struct DetailsStep: View {
                     .accessibilityIdentifier("onboarding-secret-key-reveal")
                 }
                 BodyText(text: L10n.onboardingSecretKeyHint(), muted: true)
+            }
             }
             PlainField(
                 label: L10n.onboardingDeviceName(), placeholder: "", text: $model.deviceName,

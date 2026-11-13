@@ -228,6 +228,7 @@
   <string name="mobile_generator_wordCount">Words: %1$s</string>
   <string name="mobile_home_unlockedAs">Unlocked as %1$s</string>
   <string name="mobile_licences_intro">Mosaic for Android is built with these open-source parts.</string>
+  <string name="mobile_licences_introIos">Mosaic for iPhone is built with these open-source parts.</string>
   <string name="mobile_licences_rust">The Rust core uses open-source crates. Their licences are listed in the project\'s source repository.</string>
   <string name="mobile_licences_title">Open-source licences</string>
   <string name="mobile_link_app">App</string>
@@ -339,11 +340,16 @@
   <string name="mobile_settings_credentialEnable">Use Mosaic for passkeys and passwords</string>
   <string name="mobile_settings_credentialHint">Passkeys and saved passwords can also be offered through the system\'s credential picker.</string>
   <string name="mobile_settings_fill">Fill in other apps</string>
+  <string name="mobile_settings_identitiesPassword">Type your master password to turn this on.</string>
   <string name="mobile_settings_idle">Lock when you stop touching the screen</string>
   <plurals name="mobile_settings_idleOption">
     <item quantity="one">After %1$d minute</item>
     <item quantity="other">After %1$d minutes</item>
   </plurals>
+  <string name="mobile_settings_passkeyIdentities">Use Mosaic for passkeys</string>
+  <string name="mobile_settings_passkeyIdentitiesHint">Mosaic tells the system the website and username of each passkey so it can offer it. The keys never leave Mosaic.</string>
+  <string name="mobile_settings_passwordIdentities">Suggest logins above the keyboard</string>
+  <string name="mobile_settings_passwordIdentitiesHint">Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic\'s encryption.</string>
   <string name="mobile_settings_quick">Quick unlock</string>
   <string name="mobile_settings_quickDisable">Turn off</string>
   <string name="mobile_settings_quickEnable">Turn on</string>

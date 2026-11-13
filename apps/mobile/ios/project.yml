@@ -52,8 +52,10 @@ targets:
         excludes: ["Info.plist", "*.entitlements"]
       # L10n looks strings up in Bundle.main, so the catalog is a resource of the app and the extension.
       - path: Resources/Localizable.xcstrings
-      - path: Resources/en.lproj
-      - path: Resources/de.lproj
+      # The localized Info.plist strings (Face ID, camera) are a String Catalog named InfoPlist: Xcode writes
+      # en.lproj/InfoPlist.strings and de.lproj/InfoPlist.strings into the app from it. (A bare lproj folder as a
+      # source did not put the InfoPlist table into the built app.)
+      - path: Resources/InfoPlist.xcstrings
       - path: Resources/PrivacyInfo.xcprivacy
       # DM Sans and IBM Plex Mono (SIL OFL), registered at launch by MosaicFonts.
       - path: ../shared/fonts

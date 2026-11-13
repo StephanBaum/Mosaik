@@ -919,6 +919,10 @@ public enum L10n {
         NSLocalizedString("mobile.licences.intro", bundle: .main, comment: "")
     }
 
+    public static func licencesIntroIos() -> String {
+        NSLocalizedString("mobile.licences.introIos", bundle: .main, comment: "")
+    }
+
     public static func licencesRust() -> String {
         NSLocalizedString("mobile.licences.rust", bundle: .main, comment: "")
     }
@@ -1351,12 +1355,32 @@ public enum L10n {
         NSLocalizedString("mobile.settings.fill", bundle: .main, comment: "")
     }
 
+    public static func settingsIdentitiesPassword() -> String {
+        NSLocalizedString("mobile.settings.identitiesPassword", bundle: .main, comment: "")
+    }
+
     public static func settingsIdle() -> String {
         NSLocalizedString("mobile.settings.idle", bundle: .main, comment: "")
     }
 
     public static func settingsIdleOption(minutes: Int) -> String {
         String(format: NSLocalizedString("mobile.settings.idleOption", bundle: .main, comment: ""), locale: .current, arguments: [minutes])
+    }
+
+    public static func settingsPasskeyIdentities() -> String {
+        NSLocalizedString("mobile.settings.passkeyIdentities", bundle: .main, comment: "")
+    }
+
+    public static func settingsPasskeyIdentitiesHint() -> String {
+        NSLocalizedString("mobile.settings.passkeyIdentitiesHint", bundle: .main, comment: "")
+    }
+
+    public static func settingsPasswordIdentities() -> String {
+        NSLocalizedString("mobile.settings.passwordIdentities", bundle: .main, comment: "")
+    }
+
+    public static func settingsPasswordIdentitiesHint() -> String {
+        NSLocalizedString("mobile.settings.passwordIdentitiesHint", bundle: .main, comment: "")
     }
 
     public static func settingsQuick() -> String {

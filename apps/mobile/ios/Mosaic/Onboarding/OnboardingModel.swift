@@ -5,8 +5,8 @@ import SwiftUI
 import UIKit
 
 /// The onboarding of a phone without an account (spec 3.14): welcome, the account details, the master
-/// password, a second factor when the account has one, quick unlock, AutoFill setup, done. The scanner
-/// for the desktop setup code arrives with T13, so the details are typed.
+/// password, a second factor when the account has one, quick unlock, AutoFill setup, done. The details are
+/// scanned from the desktop's setup code or typed (spec 3.14).
 @MainActor
 @Observable
 final class OnboardingModel {
@@ -30,6 +30,11 @@ final class OnboardingModel {
     var passwordClearToken = 0
     var secretKeyClearToken = 0
     var showSecretKey = false
+    /// The scanner is open (step 2).
+    private(set) var scanning = false
+    private(set) var scanModel: ScanModel?
+    /// The server, email and Secret Key came from a scanned setup code. The key is in `secretKey` and is not shown.
+    private(set) var keyFromCode = false
     private(set) var secondFactor: SecondFactorMethods?
     private(set) var handoffCode: String?
     private(set) var errorMessage: String?
@@ -44,6 +49,9 @@ final class OnboardingModel {
     private unowned let app: AppModel
     @ObservationIgnored private var canonicalServer: String?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var keyTimer: Task<Void, Never>?
+    /// A Secret Key from a scanned code is dropped after this long (the user then types or scans again).
+    private static let scannedKeySeconds = 300
 
     init(app: AppModel) {
         self.app = app
@@ -57,6 +65,66 @@ final class OnboardingModel {
     var canSignIn: Bool { passwordFilled && !isWorking }
 
     var canUseQuickUnlock: Bool { app.keys.isAvailable }
+
+    // MARK: Setup code
+
+    /// Takes the details of a scanned setup code. The server and the email fill their fields; the Secret Key moves
+    /// into the buffer of this screen and the core's copy is wiped at once.
+    func useSetupCode(_ code: SetupCode) {
+        server = code.server
+        email = code.email
+        var bytes = code.secretKey.exposeBytes()
+        secretKey.replace(taking: &bytes)
+        code.secretKey.wipe()
+        secretKeyFilled = !secretKey.isEmpty
+        keyFromCode = secretKeyFilled
+        showSecretKey = false
+        stopScanning()
+        errorMessage = nil
+        startKeyTimer()
+    }
+
+    /// Opens the scanner for the desktop's setup code. The camera permission is asked there, when it is used.
+    func startScanning() {
+        errorMessage = nil
+        scanModel = ScanModel(
+            target: .setupCode, holder: app.holder,
+            onSetupCode: { [weak self] code in self?.useSetupCode(code) })
+        scanning = true
+    }
+
+    func stopScanning() {
+        scanModel?.stop()
+        scanModel = nil
+        scanning = false
+    }
+
+    /// Forgets a scanned Secret Key so the user can type one.
+    func discardScannedKey() {
+        keyTimer?.cancel()
+        keyTimer = nil
+        secretKey.wipe()
+        secretKeyFilled = false
+        keyFromCode = false
+        secretKeyClearToken += 1
+    }
+
+    /// The app left the foreground: a scanned Secret Key does not wait in memory.
+    func sceneWentToBackground() {
+        stopScanning()
+        if keyFromCode {
+            discardScannedKey()
+        }
+    }
+
+    private func startKeyTimer() {
+        keyTimer?.cancel()
+        keyTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.scannedKeySeconds))
+            guard !Task.isCancelled else { return }
+            self?.discardScannedKey()
+        }
+    }
 
     // MARK: Steps
 
@@ -271,6 +339,9 @@ final class OnboardingModel {
     }
 
     private func wipeSecrets() {
+        keyTimer?.cancel()
+        keyTimer = nil
+        keyFromCode = false
         password.wipe()
         secretKey.wipe()
         passwordFilled = false

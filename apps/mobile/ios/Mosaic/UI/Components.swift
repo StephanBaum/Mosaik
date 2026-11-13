@@ -194,6 +194,8 @@ struct SecretField: View {
     let identifier: String
     /// Bumping it empties the field.
     var clearToken: Int
+    /// Bumping it fills the field with what the buffer holds (a generated password).
+    var fillToken = 0
     /// The value is shown as typed (the Secret Key, never while the screen is captured).
     var reveal = false
     var onChange: @MainActor (Bool) -> Void = { _ in }
@@ -205,7 +207,7 @@ struct SecretField: View {
             FieldLabel(text: label)
             SecretTextField(
                 buffer: buffer, accessibilityText: label, identifier: identifier, clearToken: clearToken,
-                reveal: reveal, textColor: UIColor(colors.text), onChange: onChange, onSubmit: onSubmit
+                fillToken: fillToken, reveal: reveal, textColor: UIColor(colors.text), onChange: onChange, onSubmit: onSubmit
             )
             .frame(minHeight: 48)
             .mosaicFieldBox(colors: colors)
@@ -219,6 +221,7 @@ struct SecretTextField: UIViewRepresentable {
     let accessibilityText: String
     let identifier: String
     let clearToken: Int
+    let fillToken: Int
     let reveal: Bool
     let textColor: UIColor
     let onChange: @MainActor (Bool) -> Void
@@ -260,16 +263,24 @@ struct SecretTextField: UIViewRepresentable {
             context.coordinator.lastClearToken = clearToken
             field.text = ""
         }
+        if context.coordinator.lastFillToken != fillToken {
+            context.coordinator.lastFillToken = fillToken
+            var bytes = buffer.copyOut()
+            field.text = String(decoding: bytes, as: UTF8.self)
+            bytes.wipe()
+        }
     }
 
     @MainActor
     final class Coordinator: NSObject, UITextFieldDelegate {
         var parent: SecretTextField
         var lastClearToken: Int
+        var lastFillToken: Int
 
         init(parent: SecretTextField) {
             self.parent = parent
             self.lastClearToken = parent.clearToken
+            self.lastFillToken = parent.fillToken
         }
 
         @objc func editingChanged(_ field: UITextField) {
@@ -301,5 +312,101 @@ struct OptionRow: View {
         .tint(colorScheme.mosaic.accent)
         .frame(minHeight: 48)
         .accessibilityIdentifier(identifier)
+    }
+}
+
+/// A group of related controls on a surface card (settings, the generator).
+struct Panel<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        let colors = colorScheme.mosaic
+        VStack(alignment: .leading, spacing: MosaicTokens.Space.s4) {
+            content
+        }
+        .padding(MosaicTokens.Space.s5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colors.surface, in: RoundedRectangle(cornerRadius: MosaicTokens.Radius.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: MosaicTokens.Radius.card)
+                .strokeBorder(colors.border, lineWidth: MosaicTokens.BorderWidth.hairline)
+        )
+    }
+}
+
+/// A section heading inside a screen.
+struct SectionTitle: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Font.mosaic(MosaicTokens.FontSize.lg, weight: .semibold))
+            .foregroundStyle(colorScheme.mosaic.text)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A small muted line (a hint, a count, a sync state).
+struct HintText: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(Font.mosaic(MosaicTokens.FontSize.sm))
+            .foregroundStyle(colorScheme.mosaic.textMuted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The least prominent action: a text button in the accent color with the 44 pt target.
+struct QuietButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        QuietButtonBody(configuration: configuration)
+    }
+
+    private struct QuietButtonBody: View {
+        @Environment(\.colorScheme) private var colorScheme
+        @Environment(\.isEnabled) private var isEnabled
+        let configuration: ButtonStyleConfiguration
+
+        var body: some View {
+            configuration.label
+                .font(Font.mosaic(MosaicTokens.FontSize.sm, weight: .medium))
+                .foregroundStyle(colorScheme.mosaic.accentText)
+                .frame(minWidth: 44, minHeight: 44)
+                .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.5)
+                .contentShape(Rectangle())
+        }
+    }
+}
+
+/// A transient message at the bottom of a screen (copied, revealed). Announced to VoiceOver.
+struct NoticeBanner: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let text: String
+
+    var body: some View {
+        let colors = colorScheme.mosaic
+        Text(text)
+            .font(Font.mosaic(MosaicTokens.FontSize.sm))
+            .foregroundStyle(colors.text)
+            .padding(MosaicTokens.Space.s4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(colors.bgSelected, in: RoundedRectangle(cornerRadius: MosaicTokens.Radius.field))
+            .overlay(
+                RoundedRectangle(cornerRadius: MosaicTokens.Radius.field)
+                    .strokeBorder(colors.border, lineWidth: MosaicTokens.BorderWidth.hairline)
+            )
+            .accessibilityIdentifier("notice")
+            .onAppear {
+                UIAccessibility.post(notification: .announcement, argument: text)
+            }
     }
 }

@@ -35,6 +35,8 @@
 	<string>$(AppIdentifierPrefix)$(MOSAIC_BUNDLE_ID)</string>
 	<key>MosaicSharedKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)$(MOSAIC_BUNDLE_ID).shared</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Mosaic uses the camera only to read this QR code. Nothing is saved or sent.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Mosaic uses Face ID to unlock your vault quickly. Your master password always works too.</string>
 	<key>UILaunchScreen</key>
