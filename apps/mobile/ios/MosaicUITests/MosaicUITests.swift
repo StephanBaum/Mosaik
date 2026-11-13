@@ -95,13 +95,17 @@ final class MosaicUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         // A coordinate tap: the toolbar menu reports "failed to scroll to visible" on a plain tap.
         menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        let add = app.buttons["add-note"]
+        let add = app.buttons.matching(
+            NSPredicate(format: "identifier == %@ OR label == %@", "add-note", "Secure note")
+        ).firstMatch
         XCTAssertTrue(add.waitForExistence(timeout: 10))
         add.tap()
         let title = app.textFields["editor-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 30))
         title.tap()
-        title.typeText("UI test note")
+        // The return key closes the keyboard, which would cover the save button.
+        title.typeText("UI test note
+")
         app.buttons["editor-save"].tap()
         XCTAssertTrue(app.staticTexts["UI test note"].waitForExistence(timeout: 30))
     }
