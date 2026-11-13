@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.stephanbaum.mosaic.AppForeground
 import io.github.stephanbaum.mosaic.DeviceLock
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.AndroidCaller
@@ -54,9 +55,11 @@ class AutofillInstrumentedTest {
         shell("wm dismiss-keyguard")
         FillAudit.last = emptyList()
         app = context.applicationContext as MosaicApp
+        AppForeground.hold(app)
         val signers = checkNotNull(CallerReader.signersOf(context, clientPackage)) { "the test package is not visible" }
         runBlocking {
             app.holder.call { core ->
+              AppForeground.explainLock(app) {
                 resetAccount(core)
                 val account = MosaicTestHooks(core).createLocalAccount(email, password.toByteArray())
                 account.secretKey.wipe()
@@ -65,6 +68,7 @@ class AutofillInstrumentedTest {
                 core.saveLogin(draft(vault, "GitHub web", "web-user", "web-secret", "https://github.com"))
                 val linked = core.saveLogin(draft(vault, "GitHub", "octocat", "hunter2", null))
                 core.linkAndroidApp(linked.vaultId, linked.itemId, AndroidCaller(clientPackage, signers, null, null))
+              }
             }
         }
     }
