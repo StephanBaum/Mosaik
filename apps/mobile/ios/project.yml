@@ -78,7 +78,13 @@ targets:
       - path: MosaicAutoFill
         excludes: ["Info.plist", "*.entitlements"]
       - path: Resources/Localizable.xcstrings
+      # The Face ID text of the extension (quick unlock runs in it) comes from the same InfoPlist catalog as
+      # the app's, so both bundles ship it in English and German.
+      - path: Resources/InfoPlist.xcstrings
       - path: Resources/PrivacyInfo.xcprivacy
+      - path: ../shared/fonts
+        includes: ["*.ttf"]
+        buildPhase: resources
     dependencies:
       - target: MosaicKit
         embed: true

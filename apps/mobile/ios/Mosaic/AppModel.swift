@@ -39,6 +39,7 @@ final class AppModel {
     @ObservationIgnored private var idle: IdleLock?
     @ObservationIgnored private var idleStarted = false
     @ObservationIgnored private var protectedDataObserver: NSObjectProtocol?
+    @ObservationIgnored private var identitiesCleared = false
 
     init() {
         let identity = AppIdentity.from()
@@ -93,8 +94,13 @@ final class AppModel {
         if case let .locked(_, _, availability) = session, case let .expired(alias) = availability {
             try? keys.deleteKey(alias: alias)
         }
-        if case .noAccount = session, onboarding == nil {
-            onboarding = OnboardingModel(app: self)
+        if case .noAccount = session {
+            if onboarding == nil {
+                onboarding = OnboardingModel(app: self)
+            }
+            clearIdentitiesOnce()
+        } else {
+            identitiesCleared = false
         }
         if case .unlocked = session {
             unlock?.wipe()
@@ -110,6 +116,14 @@ final class AppModel {
             idleStarted = false
             vault = nil
         }
+    }
+
+    /// No account: the system identity store must not keep the passkeys or logins of a removed one. A locked
+    /// app cannot read its settings, so this clears without asking the core (spec 3.11).
+    private func clearIdentitiesOnce() {
+        guard !identitiesCleared else { return }
+        identitiesCleared = true
+        Task { await IdentityStoreSync.clearAll(store: SystemIdentityStore()) }
     }
 
     private func startIdleLock() {

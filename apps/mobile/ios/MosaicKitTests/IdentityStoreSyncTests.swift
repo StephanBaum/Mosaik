@@ -33,6 +33,10 @@ private final class RecordingStore: CredentialIdentityStoring, @unchecked Sendab
     func removeAll() async throws {
         record("removeAll")
     }
+
+    func add(_ passkey: PasskeyIdentity) async throws {
+        record("add \(passkey.rpId)")
+    }
 }
 
 final class IdentityStoreSyncTests: XCTestCase {
@@ -71,6 +75,26 @@ final class IdentityStoreSyncTests: XCTestCase {
 
     func testRecordIdentifierNamesTheItem() {
         XCTAssertEqual(IdentityStoreSync.recordIdentifier(key), "v1/i1")
+    }
+
+    func testRecordIdentifierRoundTripsAndRefusesAnythingElse() {
+        XCTAssertEqual(IdentityStoreSync.parseRecordIdentifier("v1/i1"), key)
+        XCTAssertEqual(IdentityStoreSync.parseRecordIdentifier(IdentityStoreSync.recordIdentifier(key)), key)
+        for bad in [nil, "", "v1", "v1/", "/i1", "v1/i1/x", "/"] as [String?] {
+            XCTAssertNil(IdentityStoreSync.parseRecordIdentifier(bad), bad ?? "nil")
+        }
+    }
+
+    func testClearAllEmptiesAnEnabledStoreAndAddWritesOneIdentity() async {
+        let enabled = RecordingStore(enabled: true)
+        await IdentityStoreSync.clearAll(store: enabled)
+        await IdentityStoreSync.add(passkey, to: enabled)
+        XCTAssertEqual(enabled.calls, ["removeAll", "add example.com"])
+
+        let disabled = RecordingStore(enabled: false)
+        await IdentityStoreSync.clearAll(store: disabled)
+        await IdentityStoreSync.add(passkey, to: disabled)
+        XCTAssertTrue(disabled.calls.isEmpty)
     }
 
     func testApplyClearsWhenEmptyWritesWhenNotAndSkipsADisabledStore() async {

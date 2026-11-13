@@ -63,4 +63,17 @@ public enum CoreFactory {
             storage: KeychainSecureStorage(identity: identity))
         return CoreHolder(core: core)
     }
+
+    /// Opens the core for one request of the AutoFill extension: the extension context (no password unlock, no
+    /// sync, no changes), the same Keychain secure store and this boot's ID. The store is open only while the
+    /// request runs; `ProviderSession.finish()` closes it.
+    public static func openExtension(identity: AppIdentity = .from()) throws -> CoreHolder {
+        guard let directory = storeDirectory(identity: identity) else {
+            throw CodedError("storeUnavailable")
+        }
+        let core = try MosaicCore.open(
+            config: config(storeDirectory: directory, context: .iosAutofillExtension),
+            storage: KeychainSecureStorage(identity: identity))
+        return CoreHolder(core: core)
+    }
 }

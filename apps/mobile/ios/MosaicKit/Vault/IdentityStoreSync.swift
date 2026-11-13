@@ -20,6 +20,12 @@ public protocol CredentialIdentityStoring: Sendable {
     func isEnabled() async -> Bool
     func replaceAll(_ plan: IdentityPlan) async throws
     func removeAll() async throws
+    /// Adds one passkey identity (the extension, right after a registration).
+    func add(_ passkey: PasskeyIdentity) async throws
+}
+
+extension CredentialIdentityStoring {
+    public func add(_ passkey: PasskeyIdentity) async throws {}
 }
 
 /// Keeps the identity store in step with the vault: run in the app after an unlock, after each sync and after
@@ -38,6 +44,15 @@ public enum IdentityStoreSync {
     /// The record ID of an identity: the item it comes from (`<vault id>/<item id>`).
     public static func recordIdentifier(_ key: ItemKey) -> String {
         key.vaultId + "/" + key.itemId
+    }
+
+    /// The item an identity's record ID names (`<vault id>/<item id>`), or nil for anything else. The
+    /// extension only uses it as a hint: the core still checks the match against the request's target.
+    public static func parseRecordIdentifier(_ identifier: String?) -> ItemKey? {
+        guard let identifier else { return nil }
+        let parts = identifier.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        return ItemKey(vaultId: String(parts[0]), itemId: String(parts[1]))
     }
 
     /// Reads the plan from the core. A locked core or a core error gives nil and leaves the store as it is.
@@ -71,6 +86,19 @@ public enum IdentityStoreSync {
         } catch {
             // The system list stays as it was.
         }
+    }
+
+    /// Empties the system store without asking the core. A locked app cannot read the settings (`currentPlan`
+    /// is nil then), so the app calls this when the account is gone (a device reset): no identity of a removed
+    /// account stays behind.
+    public static func clearAll(store: any CredentialIdentityStoring) async {
+        await apply(IdentityPlan(passkeys: [], passwords: []), to: store)
+    }
+
+    /// Adds the passkey the extension just created. Best effort, like `apply`.
+    public static func add(_ passkey: PasskeyIdentity, to store: any CredentialIdentityStoring) async {
+        guard await store.isEnabled() else { return }
+        _ = try? await store.add(passkey)
     }
 
     public static func run(holder: CoreHolder, store: any CredentialIdentityStoring) async {
@@ -111,6 +139,23 @@ public struct SystemIdentityStore: CredentialIdentityStoring {
         let entries = identities
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             ASCredentialIdentityStore.shared.replaceCredentialIdentities(entries) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    public func add(_ passkey: PasskeyIdentity) async throws {
+        let identity = ASPasskeyCredentialIdentity(
+            relyingPartyIdentifier: passkey.rpId, userName: passkey.userName,
+            credentialID: passkey.credentialId, userHandle: passkey.userHandle,
+            recordIdentifier: IdentityStoreSync.recordIdentifier(passkey.record))
+        let entries: [any ASCredentialIdentity] = [identity]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            ASCredentialIdentityStore.shared.saveCredentialIdentities(entries) { _, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {

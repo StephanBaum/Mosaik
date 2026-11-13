@@ -90,4 +90,10 @@ public actor CoreHolder {
     public nonisolated func state() -> SessionState {
         core.state()
     }
+
+    /// Forgets a fill session the request will not use any more, without waiting for a running call. An
+    /// unknown session or a locked core is ignored (`fill_release`).
+    public nonisolated func releaseFillSession(_ id: String) {
+        core.fillRelease(sessionId: id)
+    }
 }
