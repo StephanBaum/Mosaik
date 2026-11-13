@@ -29,6 +29,7 @@ mod malicious_rekey;
 mod malicious_server;
 mod malicious_sharing;
 mod no_plaintext;
+mod redteam_server;
 mod rekey;
 mod scenarios;
 mod sharing;
