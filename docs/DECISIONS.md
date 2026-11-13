@@ -5083,3 +5083,26 @@ No paid audit is planned (owner direction). Mosaic needs a way for outsiders to 
 
 ### Consequences
 THREAT_MODEL R123 (the public test server has published credentials and open registration and is not production).
+
+## ADR-0152: SSH agent reads session-bind and does not reuse grants on forwarded connections
+
+- Status: accepted
+- Date: 2026-11-13
+- Milestone: RT-parsers (red team of the importers, the SSH agent and the QR scanner)
+
+### Context
+A remembered "allow for 15 minutes" grant is bound to the key and the client executable. With `ForwardAgent yes`, requests from the remote host come through the same local `ssh` process, so they rode on the grant the user gave for their own login (finding RT-parsers-4). The agent answered every extension with `SSH_AGENT_FAILURE`, so it could not see the hop.
+
+### Decision
+- The agent parses `session-bind@openssh.com` (`string hostkey, string session identifier, string signature, bool is_forwarding`) and verifies the signature over the session identifier with the host key, using the `ssh-key` crate's verifier. No signature code of our own.
+- The result is kept per connection. A valid bind answers `SSH_AGENT_SUCCESS`; a bad signature or malformed message answers `SSH_AGENT_FAILURE`.
+- A connection with any `is_forwarding = true` bind, or a failed bind, is untrusted: every signature on it asks again (`can_remember` is false in the prompt) and no grant is created from it.
+- A connection without any bind behaves as before, so old clients are unaffected.
+- The prompt does not yet show the destination host-key fingerprint (it needs a field on `ApprovalRequest` and the desktop prompt); left for a later change.
+
+### Alternatives considered
+- **Refuse forwarded connections:** breaks a legitimate workflow; asking each time is enough.
+- **Ignore the bind and never remember grants:** removes a convenience for everyone.
+
+### Consequences
+THREAT_MODEL R152.

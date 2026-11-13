@@ -440,6 +440,7 @@ export const fixtures = {
     "importEntryWarning": [
       "unmappedFields",
       "otpUnreadable",
+      "otpWeak",
       "attachmentTooLarge",
       "attachmentMissing",
       "tagsDropped",
@@ -472,6 +473,7 @@ export const fixtures = {
       "attachmentsSkipped",
       "entriesSkipped",
       "otpUnreadable",
+      "otpWeak",
       "passkeysNotImported",
       "passkeyUnreadable",
       "passkeyUnsupported",
@@ -4114,6 +4116,7 @@ export const fixtures = {
             "warnings": [
               "unmappedFields",
               "otpUnreadable",
+              "otpWeak",
               "attachmentTooLarge",
               "attachmentMissing",
               "tagsDropped",
@@ -4161,6 +4164,7 @@ export const fixtures = {
           "attachmentsSkipped",
           "entriesSkipped",
           "otpUnreadable",
+          "otpWeak",
           "passkeysNotImported",
           "passkeyUnreadable",
           "passkeyUnsupported",

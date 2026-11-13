@@ -78,6 +78,54 @@ pub enum WireError {
     UnexpectedMessage,
 }
 
+/// The extension name of `session-bind@openssh.com` (OpenSSH PROTOCOL.agent
+/// §3.3).
+pub const SESSION_BIND: &[u8] = b"session-bind@openssh.com";
+
+/// The fields of a `session-bind@openssh.com` extension request: the host
+/// the client authenticated, the session identifier it signed, and whether
+/// the connection is a forwarded one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SessionBind<'a> {
+    /// The host key blob.
+    pub host_key: &'a [u8],
+    /// The session identifier the host signed.
+    pub session_id: &'a [u8],
+    /// The signature blob (string algorithm, string signature).
+    pub signature: &'a [u8],
+    /// Whether the agent connection is forwarded to another host.
+    pub forwarding: bool,
+}
+
+impl<'a> SessionBind<'a> {
+    /// Parses one extension message body (without its length prefix).
+    ///
+    /// # Errors
+    /// [`WireError::UnexpectedMessage`] if it is not a `session-bind`
+    /// extension, [`WireError::Truncated`] or [`WireError::TrailingData`]
+    /// if its fields do not fill the body exactly.
+    pub fn parse(payload: &'a [u8]) -> Result<Self, WireError> {
+        if payload.len() > MAX_MESSAGE_LEN {
+            return Err(WireError::TooLong);
+        }
+        let mut r = Reader::new(payload);
+        if r.u8().map_err(|_| WireError::Empty)? != msg::EXTENSION || r.string()? != SESSION_BIND {
+            return Err(WireError::UnexpectedMessage);
+        }
+        let host_key = r.string()?;
+        let session_id = r.string()?;
+        let signature = r.string()?;
+        let forwarding = r.u8()? != 0;
+        r.finish()?;
+        Ok(Self {
+            host_key,
+            session_id,
+            signature,
+            forwarding,
+        })
+    }
+}
+
 /// A request that changes the agent's keys or lock state. The agent refuses
 /// all of them: its keys come from the vault only (brief §5).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -135,18 +135,28 @@ fn string(out: &mut Vec<u8>, s: &[u8]) {
 
 /// `session-bind@openssh.com` (OpenSSH PROTOCOL.agent §3.3): the client tells
 /// the agent which host it is talking to and whether this connection is a
-/// forwarded one. Mosaic refuses every extension, so this one too.
-fn session_bind(forwarding: bool) -> Vec<u8> {
+/// forwarded one. `signed` signs the session identifier with the host key;
+/// otherwise the signature is junk.
+fn bind(forwarding: bool, signed: bool) -> Vec<u8> {
+    use signature::Signer;
+    let host = ssh_key::PrivateKey::from_openssh(ED25519.0).unwrap();
+    let session_id = [0x5a; 32];
+    let sig: ssh_key::Signature = Signer::sign(&host, &session_id);
+    let mut blob = Vec::<u8>::try_from(sig).unwrap();
+    if !signed {
+        *blob.last_mut().unwrap() ^= 1;
+    }
     let mut body = vec![msg::EXTENSION];
     string(&mut body, b"session-bind@openssh.com");
-    string(
-        &mut body,
-        b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20hostkey-of-the-remote-host!!!!!!",
-    );
-    string(&mut body, &[0x5a; 32]);
-    string(&mut body, b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x40sig");
+    string(&mut body, &host.public_key().to_bytes().unwrap());
+    string(&mut body, &session_id);
+    string(&mut body, &blob);
     body.push(u8::from(forwarding));
     body
+}
+
+fn session_bind(forwarding: bool) -> Vec<u8> {
+    bind(forwarding, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +172,6 @@ fn session_bind(forwarding: bool) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "RT-parsers-4: a 15-minute grant to /usr/bin/ssh also covers requests forwarded through that ssh from a remote host (session-bind is refused, so the hop is invisible)"]
 fn rt_parsers_4_a_forwarded_connection_does_not_reuse_a_local_grant() {
     rt().block_on(async {
         let approver = Scripted::new(&[Decision::AllowFor(Duration::from_mins(15))]);
@@ -172,7 +181,10 @@ fn rt_parsers_4_a_forwarded_connection_does_not_reuse_a_local_grant() {
 
         // The user's own login: approved, remembered for 15 minutes.
         let (mut local, _t1) = connect(&core, client.clone());
-        let _ = roundtrip(&mut local, &session_bind(false)).await;
+        assert_eq!(
+            roundtrip(&mut local, &session_bind(false)).await,
+            [msg::SUCCESS]
+        );
         assert!(is_signature(
             &roundtrip(&mut local, &sign_body(&blob, b"userauth to my-server")).await
         ));
@@ -181,7 +193,10 @@ fn rt_parsers_4_a_forwarded_connection_does_not_reuse_a_local_grant() {
         // A second connection through the same ssh, bound as a forwarded hop
         // (what sshd on the remote host drives): must not ride on the grant.
         let (mut forwarded, _t2) = connect(&core, client);
-        let _ = roundtrip(&mut forwarded, &session_bind(true)).await;
+        assert_eq!(
+            roundtrip(&mut forwarded, &session_bind(true)).await,
+            [msg::SUCCESS]
+        );
         let resp = roundtrip(
             &mut forwarded,
             &sign_body(&blob, b"userauth to the victim's other server"),
@@ -191,6 +206,47 @@ fn rt_parsers_4_a_forwarded_connection_does_not_reuse_a_local_grant() {
             !is_signature(&resp) || approver.asked() == 2,
             "the forwarded request was signed under the local grant without asking"
         );
+        assert_eq!(approver.asked(), 2, "the forwarded request asked again");
+    });
+}
+
+/// A valid bind with `is_forwarding = false` keeps today's behaviour: the
+/// grant covers the second connection and no prompt appears. A bind with a
+/// bad signature is refused and marks its connection untrusted.
+#[test]
+fn a_local_bind_keeps_the_grant_and_a_bad_bind_is_untrusted() {
+    rt().block_on(async {
+        let approver = Scripted::new(&[Decision::AllowFor(Duration::from_mins(15))]);
+        let core = core(&approver, AgentConfig::default());
+        let blob = agent_key().public_key_blob().to_vec();
+        let client = ssh_client("/usr/bin/ssh");
+
+        let (mut first, _t1) = connect(&core, client.clone());
+        assert_eq!(
+            roundtrip(&mut first, &session_bind(false)).await,
+            [msg::SUCCESS]
+        );
+        assert!(is_signature(
+            &roundtrip(&mut first, &sign_body(&blob, b"login")).await
+        ));
+        let (mut second, _t2) = connect(&core, client.clone());
+        assert_eq!(
+            roundtrip(&mut second, &session_bind(false)).await,
+            [msg::SUCCESS]
+        );
+        assert!(is_signature(
+            &roundtrip(&mut second, &sign_body(&blob, b"another login")).await
+        ));
+        assert_eq!(approver.asked(), 1, "the grant covered the second login");
+
+        let (mut bad, _t3) = connect(&core, client);
+        assert_eq!(
+            roundtrip(&mut bad, &bind(false, false)).await,
+            [msg::FAILURE]
+        );
+        let resp = roundtrip(&mut bad, &sign_body(&blob, b"after a bad bind")).await;
+        assert_eq!(resp, [msg::FAILURE], "asked again, and the script is spent");
+        assert_eq!(approver.asked(), 2);
     });
 }
 

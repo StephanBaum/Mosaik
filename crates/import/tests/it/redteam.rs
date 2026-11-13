@@ -2,12 +2,7 @@
 //! a user got from somewhere else. Tests marked `ignore` demonstrate an open
 //! finding; the others are regression tests of attacks that held.
 
-#![expect(
-    clippy::unwrap_used,
-    clippy::format_push_string,
-    clippy::indexing_slicing,
-    reason = "tests"
-)]
+#![expect(clippy::unwrap_used, clippy::format_push_string, reason = "tests")]
 
 use std::io::{Cursor, Read as _, Write as _};
 use std::time::{Duration, Instant};
@@ -43,7 +38,6 @@ fn cxf_with_note_credentials(count: usize, content_len: usize) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "RT-parsers-1: Builder::notes re-copies the whole notes text per note credential; a CXF file with many notes is quadratic"]
 fn rt_parsers_1_many_note_credentials_stay_linear() {
     // 16,000 notes of 2,000 bytes: a 32 MiB file. Linear: well under a
     // second. Today: 16,000^2 * 2,000 / 2 bytes of copying (and as much
@@ -68,18 +62,21 @@ fn rt_parsers_1_many_note_credentials_stay_linear() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "RT-parsers-3: a hostile KDBX file may ask for 1 GiB of Argon2 memory and 64 GiB of fills before the password is checked"]
 fn rt_parsers_3_kdbx_argon2_limits_fit_a_phone() {
     use mosaic_import::kdbx::{MAX_ARGON2_MEMORY_KIB, MAX_ARGON2_WORK};
-    assert!(
-        MAX_ARGON2_MEMORY_KIB <= 256 * 1024,
-        "memory limit is {MAX_ARGON2_MEMORY_KIB} KiB"
-    );
+    const {
+        assert!(
+            MAX_ARGON2_MEMORY_KIB <= 256 * 1024,
+            "the Argon2 memory limit is above 256 MiB"
+        );
+    }
     // About 15 s single-threaded at 1 GiB/s.
-    assert!(
-        MAX_ARGON2_WORK <= 16 * 1024 * 1024,
-        "work limit is {MAX_ARGON2_WORK} KiB of fills"
-    );
+    const {
+        assert!(
+            MAX_ARGON2_WORK <= 16 * 1024 * 1024,
+            "the Argon2 work limit is above 16 GiB of fills"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,17 +237,17 @@ fn onepux_attachment_names_are_not_paths() {
 /// can compute. The value should stay a hidden custom field with
 /// `OtpUnreadable`, or at least carry a warning.
 #[test]
-#[ignore = "RT-parsers-6: imported otpauth secrets below RFC 4226's 128-bit minimum are stored as working generators without a warning"]
 fn weak_otp_secrets_from_a_file_are_not_silently_accepted() {
     // "GE" is one byte of secret.
     let csv = "name,username,password,otp\nx,u,p,otpauth://totp/x?secret=GE\n";
     let import = parse(Format::Csv, csv.as_bytes(), None).unwrap();
     let d = &import.entries[0].draft;
     if d.otp.is_some() {
-        let (config, _) = d.otp.as_ref().unwrap();
+        // Kept, but the preview says the secret is weak.
         assert!(
-            config.secret.expose_secret().len() >= 10,
-            "a stored generator has at least a 10-byte secret"
+            import.entries[0]
+                .warnings
+                .contains(&mosaic_import::EntryWarning::OtpWeak)
         );
     } else {
         assert!(

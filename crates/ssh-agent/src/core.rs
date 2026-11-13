@@ -19,8 +19,8 @@ use crate::approval::{
     ApprovalRequest, Approver, ClientInfo, CloseReason, DEFAULT_GRANT, Decision, Grants, RequestId,
     SignFailed,
 };
-use crate::keys::{AgentKey, DEFAULT_MAX_KDF_ROUNDS, KeySet, SignFailure};
-use crate::wire::{self, Request, Response, SignRequest};
+use crate::keys::{AgentKey, DEFAULT_MAX_KDF_ROUNDS, KeySet, SignFailure, verify_session_bind};
+use crate::wire::{self, Request, Response, SESSION_BIND, SessionBind, SignRequest};
 
 /// Agent limits. Start from [`AgentConfig::default`] and change fields.
 #[derive(Clone, Debug)]
@@ -150,9 +150,21 @@ impl<A: Approver> AgentCore<A> {
 
     /// Answers one message body (without its length prefix) from `client`
     /// and returns the response body. Malformed requests, management
-    /// requests (add, remove, lock, unlock) and extensions get
-    /// `SSH_AGENT_FAILURE`.
+    /// requests (add, remove, lock, unlock) and extensions other than
+    /// `session-bind@openssh.com` get `SSH_AGENT_FAILURE`. Each call is a
+    /// connection of its own: a bind answered here does not reach the next
+    /// call (use [`AgentCore::serve`] for a connection).
     pub async fn handle(&self, payload: &[u8], client: &ClientInfo) -> Vec<u8> {
+        self.handle_conn(payload, client, &mut ConnState::default())
+            .await
+    }
+
+    async fn handle_conn(
+        &self,
+        payload: &[u8],
+        client: &ClientInfo,
+        conn: &mut ConnState,
+    ) -> Vec<u8> {
         if self.is_stopped() {
             return failure();
         }
@@ -163,20 +175,42 @@ impl<A: Approver> AgentCore<A> {
                     .encode()
                     .unwrap_or_else(|_| failure())
             }
-            Ok(Request::Sign(req)) => self.sign(req, client).await,
+            Ok(Request::Sign(req)) => self.sign(req, client, conn.untrusted).await,
+            Ok(Request::Extension { name }) if name == SESSION_BIND => {
+                Self::session_bind(payload, conn)
+            }
             Ok(_) | Err(_) => failure(),
         }
     }
 
-    async fn sign(&self, req: SignRequest<'_>, client: &ClientInfo) -> Vec<u8> {
+    /// Answers `session-bind@openssh.com`: SUCCESS if the host key signed the
+    /// session identifier. A forwarded bind, a bad signature or a malformed
+    /// message marks the connection untrusted: a remembered grant does not
+    /// cover it and it creates none (the request may come from a remote
+    /// host, not from the local client the grant was given to).
+    fn session_bind(payload: &[u8], conn: &mut ConnState) -> Vec<u8> {
+        let verified = SessionBind::parse(payload)
+            .ok()
+            .filter(|b| verify_session_bind(b.host_key, b.session_id, b.signature));
+        if let Some(bind) = verified {
+            conn.untrusted |= bind.forwarding;
+            vec![wire::msg::SUCCESS]
+        } else {
+            conn.untrusted = true;
+            failure()
+        }
+    }
+
+    async fn sign(&self, req: SignRequest<'_>, client: &ClientInfo, untrusted: bool) -> Vec<u8> {
         let Some(key) = self.keys().find(req.key_blob) else {
             return failure();
         };
         let id = RequestId::next();
-        let granted = self
-            .grants()
-            .allows(key.public_key_blob(), client, Instant::now());
-        if !granted && !self.approve(id, &key, client).await {
+        let granted = !untrusted
+            && self
+                .grants()
+                .allows(key.public_key_blob(), client, Instant::now());
+        if !granted && !self.approve(id, &key, client, untrusted).await {
             return failure();
         }
         let data = req.data.to_vec();
@@ -217,13 +251,19 @@ impl<A: Approver> AgentCore<A> {
 
     /// Asks the approver; `true` if the request may be signed. Remembers
     /// grants.
-    async fn approve(&self, id: RequestId, key: &AgentKey, client: &ClientInfo) -> bool {
+    async fn approve(
+        &self,
+        id: RequestId,
+        key: &AgentKey,
+        client: &ClientInfo,
+        untrusted: bool,
+    ) -> bool {
         let Some(_slot) = PendingSlot::take(&self.pending, self.config.max_pending_approvals)
         else {
             return false;
         };
         let now = SystemTime::now();
-        let can_remember = client.can_remember();
+        let can_remember = client.can_remember() && !untrusted;
         let request = ApprovalRequest {
             id,
             vault: key.vault(),
@@ -284,6 +324,7 @@ impl<A: Approver> AgentCore<A> {
         mut stream: S,
         client: ClientInfo,
     ) -> io::Result<()> {
+        let mut conn = ConnState::default();
         loop {
             let mut prefix = [0u8; 4];
             match race(stream.read_exact(&mut prefix), self.stopped()).await {
@@ -306,7 +347,7 @@ impl<A: Approver> AgentCore<A> {
                 Ok(Err(e)) => return Err(e),
                 Err(_) => return Ok(()),
             }
-            let response = self.handle(&body, &client).await;
+            let response = self.handle_conn(&body, &client, &mut conn).await;
             if self.is_stopped() {
                 return Ok(());
             }
@@ -323,6 +364,14 @@ impl<A: Approver> AgentCore<A> {
     fn grants(&self) -> MutexGuard<'_, Grants> {
         self.grants.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// What one connection has told the agent so far.
+#[derive(Default)]
+struct ConnState {
+    /// A `session-bind` showed a forwarded hop or failed: grants do not
+    /// apply and none is created.
+    untrusted: bool,
 }
 
 fn failure() -> Vec<u8> {

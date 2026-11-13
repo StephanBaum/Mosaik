@@ -24,6 +24,8 @@ export const importMessages = {
     "Manche Einträge konnten nicht gelesen werden und werden ausgelassen. Prüfe sie in deinem alten Passwortmanager.",
   "import.warning.otpUnreadable":
     "Manche Einstellungen für Einmalcodes wurden nicht erkannt. Sie wurden als verborgene Felder übernommen; richte den Code damit neu ein.",
+  "import.warning.otpWeak":
+    "Bei manchen Einmalcodes ist das Geheimnis kürzer als 80 Bit, die Codes lassen sich also leichter erraten. Sie wurden trotzdem übernommen; richte sie bei Gelegenheit mit einem neuen Geheimnis ein.",
   "import.warning.passkeysNotImported":
     "Dieses Exportformat enthält die privaten Schlüssel der Passkeys nicht, deshalb lassen sie sich nicht importieren. Der Rest dieser Einträge wird importiert.",
   "import.warning.passkeyUnreadable":
@@ -37,6 +39,8 @@ export const importMessages = {
     "Manche Felder haben kein passendes Feld in Mosaic. Sie wurden als eigene Felder übernommen.",
   "import.entry.otpUnreadable":
     "Die Einstellung für den Einmalcode wurde nicht erkannt. Sie wurde als verborgenes Feld übernommen; richte den Code damit neu ein.",
+  "import.entry.otpWeak":
+    "Das Geheimnis des Einmalcodes ist kürzer als 80 Bit, der Code lässt sich also leichter erraten. Er wurde trotzdem übernommen; richte ihn bei Gelegenheit mit einem neuen Geheimnis ein.",
   "import.entry.attachmentTooLarge":
     "Ein Anhang ist größer als 50 MiB und wurde ausgelassen. Füge ihn nach dem Import von Hand hinzu.",
   "import.entry.attachmentMissing":

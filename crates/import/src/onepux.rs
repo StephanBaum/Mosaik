@@ -116,39 +116,45 @@ fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) 
     buf::read_limited(reader, limit, hint.min(limit))
 }
 
-/// Members of one document: `(member index, name after files/)`.
-type Bucket = Vec<(usize, Box<[u8]>)>;
-
 /// The attachment files of the archive, looked up by document ID.
 struct Files<'a> {
     zip: ZipArchive<Cursor<&'a [u8]>>,
     budget: AttachmentBudget,
-    /// `files/` members grouped by the document ID part of their name (the
-    /// text before the first `__`), as `(member index, name after files/)` in
-    /// index order. One pass over the central directory builds it, so a
-    /// lookup visits only the members of one document.
-    by_document: HashMap<Box<[u8]>, Bucket>,
-    /// Number of bucket entries visited by `find` (linearity test).
+    /// `files/<name>`: the member index of each exact name after `files/`
+    /// (the lowest index for a repeated name).
+    exact: HashMap<Box<[u8]>, usize>,
+    /// For each prefix `p` such that some member is named `p__...`: the
+    /// lowest index of such a member. One pass over the central directory
+    /// builds both maps, so a lookup is two hash probes whatever the ID.
+    prefixed: HashMap<Box<[u8]>, usize>,
+    /// Number of lookups made by `find` (linearity test).
     #[cfg(test)]
     probes: core::cell::Cell<usize>,
 }
 
 impl<'a> Files<'a> {
     fn new(zip: ZipArchive<Cursor<&'a [u8]>>) -> Self {
-        let mut by_document: HashMap<Box<[u8]>, Bucket> = HashMap::new();
+        let mut exact: HashMap<Box<[u8]>, usize> = HashMap::new();
+        let mut prefixed: HashMap<Box<[u8]>, usize> = HashMap::new();
         for (i, raw) in zip.file_names_raw().enumerate() {
             let Some(rest) = raw.strip_prefix(b"files/") else {
                 continue;
             };
-            by_document
-                .entry(document_key(rest).into())
-                .or_default()
-                .push((i, rest.into()));
+            exact.entry(rest.into()).or_insert(i);
+            let heads = rest
+                .windows(2)
+                .enumerate()
+                .filter(|(_, w)| *w == b"__")
+                .filter_map(|(p, _)| rest.get(..p));
+            for prefix in heads {
+                prefixed.entry(prefix.into()).or_insert(i);
+            }
         }
         Self {
             zip,
             budget: AttachmentBudget::new(),
-            by_document,
+            exact,
+            prefixed,
             #[cfg(test)]
             probes: core::cell::Cell::new(0),
         }
@@ -161,45 +167,17 @@ impl<'a> Files<'a> {
         if id.is_empty() {
             return None;
         }
-        let key = document_key(id);
-        // An ID ending in `_` with no `__` of its own can match a member
-        // `<id>___x` whose key is one byte shorter.
-        let short = (key.len() == id.len())
-            .then(|| id.strip_suffix(b"_"))
-            .flatten();
-        let mut best: Option<usize> = None;
-        for k in std::iter::once(key).chain(short) {
-            let Some(bucket) = self.by_document.get(k) else {
-                continue;
-            };
-            for (i, rest) in bucket {
-                #[cfg(test)]
-                self.probes.set(self.probes.get() + 1);
-                if &**rest == id
-                    || rest
-                        .strip_prefix(id)
-                        .is_some_and(|tail| tail.starts_with(b"__"))
-                {
-                    best = Some(best.map_or(*i, |b| b.min(*i)));
-                    break;
-                }
-            }
+        #[cfg(test)]
+        self.probes.set(self.probes.get() + 1);
+        match (self.exact.get(id), self.prefixed.get(id)) {
+            (Some(a), Some(b)) => Some(*a.min(b)),
+            (a, b) => a.or(b).copied(),
         }
-        best
     }
 
     fn read(&mut self, index: usize) -> Result<Buf> {
         read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
     }
-}
-
-/// The part of a member name (after `files/`) before the first `__`, or all
-/// of it.
-fn document_key(name: &[u8]) -> &[u8] {
-    name.windows(2)
-        .position(|w| w == b"__")
-        .and_then(|p| name.get(..p))
-        .unwrap_or(name)
 }
 
 fn category(uuid: &str) -> (ItemType, bool) {
@@ -569,7 +547,6 @@ mod tests {
     /// section fields) naming such an ID costs 10^10 probes: the sibling of
     /// the M3 P2 quadratic lookup that the bucket map did not cover.
     #[test]
-    #[ignore = "RT-parsers-2: Files::find walks a whole document bucket for an ID that matches none of its members (quadratic 1PUX lookup, sibling of M3 P2)"]
     fn find_is_bounded_for_ids_that_match_no_member() {
         let names: Vec<String> = (0..20_000).map(|i| format!("files/doc__{i}")).collect();
         let bytes = archive(&names);
