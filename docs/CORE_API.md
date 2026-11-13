@@ -1126,6 +1126,9 @@ change, was built **additively** in T2 (see below); the breaking form is still t
   `PageOrigin::parse`, which refuses a path).
 - `fields`: `select_fill_fields(&[FieldNode]) -> FieldSelection { root_domain, fields, refused }` with
   `FieldRole::{Username, Password, NewPassword, Otp}` and `FieldRefusal::ForeignFrame`; at most 4096 nodes.
+  `select_scoped_fill_fields(&[FieldNode], FieldScope::{Web, App})` is what the mobile core calls with the fill
+  target's kind: `App` selects native nodes only, `Web` starts at the first node with a `web_domain` (M10-G2 round 2, N1).
+  `mosaic_mobile::Core::select_fill_fields` takes the `FillTarget` as a second argument.
 - `assetlinks`: `parse_asset_links(&[u8]) -> Result<Vec<Statement>, AssetLinksError>`,
   `app_is_delegated(statements, package, cert_sha256, Relation) -> bool`,
   `app_is_delegated_for_passkeys(..)` (either relation).

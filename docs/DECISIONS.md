@@ -5474,6 +5474,8 @@ Brief §4 sets four rules: no fill without a trusted user gesture, exact-origin 
   - One-time codes on iOS 18+.
   - **Identity store.** Passkey identities are written when "Use Mosaic for passkeys" is on. Password identities are written only with OD-M10-7 (default off). On reset, and when the setting is turned off, `removeAllCredentialIdentities` runs.
 
+  - **Amendment (M10 G2 round 2, N1): fields by target kind.** `select_fill_fields` takes the fill target. For an app target (which includes a browser that is not on the allowlist) it excludes every node with a `webDomain`, own or inherited, and a focus in one refuses the fill. For a web target it starts at the first node with a `webDomain`, which drops the browser's own screen; the Kotlin reader no longer trims. Without this, a `WebView` of a third party inside an app could receive the login linked to that app.
+
 ### Alternatives considered
 - **Trust `webDomain` from any app:** any app could ask for any site's password.
 - **Match apps by package name only:** a sideloaded app with the same package and another key would get the login.

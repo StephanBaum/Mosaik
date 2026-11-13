@@ -936,7 +936,8 @@ JSON       = {"v":1,"server":"<canonical origin>","email":"<normalized email>","
 - **Honest limit.** The QR library (`qrcodegen`) keeps its own segment, codeword and module buffers while it
   encodes, and these are not wiped. The code is built from the Secret Key only after re-authentication, lives for
   one call in the local desktop process, and the desktop is already unlocked; Mosaic does not write its own QR
-  segment encoder to close this gap (THREAT_MODEL R139).
+  segment encoder to close this gap (THREAT_MODEL R139). The serialized IPC JSON of the module matrix, which
+  carries the same QR modules to the webview, is not wiped either (M10-G2 round 2, N6).
 - The code carries no master password, no session token and no key derived from either. It has no label and
   uses no primitive.
 - The desktop shows it only after re-authentication with the master password, for at most 60 s. It hides the
