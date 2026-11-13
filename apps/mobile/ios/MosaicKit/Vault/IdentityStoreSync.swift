@@ -110,7 +110,7 @@ public struct SystemIdentityStore: CredentialIdentityStoring {
         }
         let entries = identities
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            ASCredentialIdentityStore.shared.replaceCredentialIdentityEntries(entries) { _, error in
+            ASCredentialIdentityStore.shared.replaceCredentialIdentities(entries) { _, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
