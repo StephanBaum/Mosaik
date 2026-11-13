@@ -173,15 +173,17 @@ fn web_domain_from_untrusted_app_is_ignored() {
             certs: vec![CERT],
         }
     );
-    // A browser package with the wrong key is not a browser either.
-    let target = android_fill_target(&caller(
-        "com.android.chrome",
-        &[OTHER_CERT],
-        Some("github.com"),
-        None,
-    ))
-    .unwrap();
-    assert!(matches!(target, FillTarget::AndroidApp { .. }));
+    // A browser package with the wrong key is not a browser, and no app
+    // either (M10-G3-5).
+    assert_eq!(
+        android_fill_target(&caller(
+            "com.android.chrome",
+            &[OTHER_CERT],
+            Some("github.com"),
+            None,
+        )),
+        Err(TargetError::UntrustedBrowser)
+    );
     assert_eq!(
         android_fill_target(&caller("bad pkg", &[], None, None)),
         Err(TargetError::BadPackage)
@@ -335,6 +337,7 @@ fn ios_punycode_identifier_carries_idn_warning() {
 fn node(domain: Option<&str>, hints: &[&str]) -> FieldNode {
     FieldNode {
         web_domain: domain.map(str::to_owned),
+        is_web: false,
         hints: hints.iter().map(|h| (*h).to_owned()).collect(),
         autocomplete: None,
         input_kind: InputKind::Text,
@@ -606,14 +609,54 @@ fn app_scope_excludes_every_web_node_and_refuses_a_focused_one() {
 }
 
 #[test]
-fn web_scope_starts_at_the_first_node_with_a_domain() {
+fn web_scope_is_rooted_at_the_target_host() {
     let nodes = [
         node(None, &["username"]),
-        node(Some("a.com"), &["username"]),
+        node(Some("A.com"), &["username"]),
         node(Some("a.com"), &["password"]),
+        node(Some("b.com"), &["password"]),
     ];
-    let s = select_scoped_fill_fields(&nodes, FieldScope::Web);
+    let scope = FieldScope::Web { host: "a.com" };
+    let s = select_scoped_fill_fields(&nodes, scope);
     let picked: Vec<_> = s.fields.iter().map(|f| (f.index, f.role)).collect();
     assert_eq!(picked, [(1, FieldRole::Username), (2, FieldRole::Password)]);
     assert_eq!(s.root_domain.as_deref(), Some("a.com"));
+    // A focus on a node of another domain, or of none, refuses.
+    for foreign in [0, 3] {
+        let mut focused = nodes.clone();
+        focused[foreign].focused = true;
+        let s = select_scoped_fill_fields(&focused, scope);
+        assert_eq!(s.refused, Some(FieldRefusal::ForeignFrame));
+        assert_eq!(s.fields, []);
+    }
+}
+
+#[test]
+fn app_scope_excludes_html_without_a_domain() {
+    let mut html = node(None, &["password"]);
+    html.is_web = true;
+    let nodes = [node(None, &["username"]), html];
+    let s = select_scoped_fill_fields(&nodes, FieldScope::App);
+    assert_eq!(s.fields.len(), 1);
+    let mut focused = nodes.clone();
+    focused[1].focused = true;
+    let s = select_scoped_fill_fields(&focused, FieldScope::App);
+    assert_eq!(s.refused, Some(FieldRefusal::ForeignFrame));
+}
+
+#[test]
+fn loopback_http_needs_allow_http_only_under_the_strict_policy() {
+    use crate::{HttpPolicy, fill_allowed_with};
+    let saved = |allow_http| {
+        let mut u = LoginUrl::new("http://localhost:8080");
+        u.allow_http = allow_http;
+        u
+    };
+    let page = PageOrigin::parse("http://localhost:8080").unwrap();
+    assert!(fill_allowed_with(&saved(false), &page, HttpPolicy::LoopbackExempt).is_ok());
+    assert_eq!(
+        fill_allowed_with(&saved(false), &page, HttpPolicy::LoopbackNeedsAllowHttp),
+        Err(Refusal::Insecure)
+    );
+    assert!(fill_allowed_with(&saved(true), &page, HttpPolicy::LoopbackNeedsAllowHttp).is_ok());
 }

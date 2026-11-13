@@ -239,6 +239,11 @@ impl PasskeySessions {
         Ok(id)
     }
 
+    /// Forgets one ceremony; an unknown one is ignored.
+    fn release(&mut self, id: &str) {
+        self.waiting.retain(|w| w.id != id);
+    }
+
     /// Removes and returns a ceremony unless it expired.
     fn take(&mut self, id: &str, now_ms: u64) -> Option<Ceremony> {
         self.waiting.retain(|w| now_ms < w.expires_at_ms);
@@ -488,6 +493,15 @@ impl Core {
             return Err(MobileError::Locked);
         }
         guard.slots.passkeys.insert(ceremony, now)
+    }
+
+    /// Forgets a passkey session the caller will not finish (a list built for
+    /// the system picker opens one per request). An unknown or expired
+    /// session, and a locked core, are ignored (M10-G3).
+    pub fn passkey_release(&self, session_id: String) {
+        if let Ok(mut guard) = self.guard() {
+            guard.slots.passkeys.release(&session_id);
+        }
     }
 
     fn take_ceremony(&self, session_id: &str) -> Result<Ceremony> {

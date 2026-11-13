@@ -182,7 +182,6 @@ fn g3_look_alike_browser_packages_are_apps_and_never_web_targets() {
 /// (`is_browser_package`'s own contract), so the "app" would get the login on
 /// every page it shows (the M10-G2 H1 hole through another door).
 #[test]
-#[ignore = "M10-G3-5: a browser package with a foreign signer still matches an androidapp:// URL of that package"]
 fn g3_browser_package_with_a_foreign_signer_never_matches_an_app_url() {
     let url = LoginUrl::new(&format!(
         "androidapp://com.android.chrome?cert={}",
@@ -210,6 +209,7 @@ fn g3_browser_package_with_a_foreign_signer_never_matches_an_app_url() {
 fn field(domain: Option<&str>, hint: &str) -> FieldNode {
     FieldNode {
         web_domain: domain.map(str::to_owned),
+        is_web: false,
         hints: vec![hint.to_owned()],
         autocomplete: None,
         input_kind: InputKind::Text,
@@ -231,7 +231,12 @@ fn g3_nodes_past_the_cap_are_never_selected() {
     let mut foreign = field(Some("ads.example"), "password");
     foreign.focused = true;
     nodes.push(foreign);
-    for scope in [FieldScope::Web, FieldScope::App] {
+    for scope in [
+        FieldScope::Web {
+            host: "bank.example",
+        },
+        FieldScope::App,
+    ] {
         let selection = select_scoped_fill_fields(&nodes, scope);
         assert!(selection.fields.is_empty(), "{scope:?}");
         assert!(selection.fields.iter().all(|f| f.index < MAX_NODES));
@@ -249,7 +254,12 @@ fn g3_no_focus_in_the_tree_selects_only_the_page_frame() {
         field(Some("ads.example"), "username"),
         field(Some("ads.example"), "password"),
     ];
-    let selection = select_scoped_fill_fields(&nodes, FieldScope::Web);
+    let selection = select_scoped_fill_fields(
+        &nodes,
+        FieldScope::Web {
+            host: "bank.example",
+        },
+    );
     assert_eq!(selection.refused, None);
     let indexes: Vec<usize> = selection.fields.iter().map(|f| f.index).collect();
     assert_eq!(indexes, vec![0, 1]);
@@ -398,7 +408,6 @@ fn g3_rp_id_tricks_have_no_canonical_form() {
 /// an import can store such an rp ID. Defense wanted: an rp ID is a DNS name
 /// (letters, digits, hyphens, dots).
 #[test]
-#[ignore = "M10-G3-6: canonical_rp_id accepts rp IDs that are not DNS names (*, !, $, (, ', =, ~)"]
 fn g3_rp_id_must_be_a_dns_name() {
     for rp in [
         "*.bank.example",

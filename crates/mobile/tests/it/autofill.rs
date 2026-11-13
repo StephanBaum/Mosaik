@@ -220,7 +220,8 @@ fn fill_candidates_http_refused_without_allow_http() {
             .map(mosaic_mobile::MobileError::code),
         Some("insecureOrigin")
     );
-    // An https page is not matched by an http URL, and loopback is allowed.
+    // An https page is not matched by an http URL, and loopback is no
+    // exception on a phone, where any app can serve it (M10-G3-4).
     assert!(
         phone
             .core
@@ -235,14 +236,26 @@ fn fill_candidates_http_refused_without_allow_http() {
         vec![url("http://127.0.0.1:8080", false, false)],
     );
     assert_eq!(
+        phone
+            .core
+            .fill_candidates(web("http://127.0.0.1:8080"))
+            .err(),
+        Some(mosaic_mobile::MobileError::InsecureOrigin)
+    );
+    login(
+        &phone,
+        "Local ok",
+        vec![url("http://127.0.0.1:9090", false, true)],
+    );
+    assert_eq!(
         titles(
             &phone
                 .core
-                .fill_candidates(web("http://127.0.0.1:8080"))
+                .fill_candidates(web("http://127.0.0.1:9090"))
                 .unwrap()
                 .candidates
         ),
-        vec!["Local"]
+        vec!["Local ok"]
     );
     // The login itself allows http.
     login(
@@ -767,7 +780,12 @@ fn asset_links_status_verified_not_listed_unavailable() {
             .asset_links_status(&key.vault_id, &key.item_id, caller(package, cert))
             .unwrap()
     };
-    assert_eq!(status(CERT, "com.example.app"), AssetLinksStatus::Verified);
+    assert_eq!(
+        status(CERT, "com.example.app"),
+        AssetLinksStatus::Verified {
+            host: "example.com".to_owned()
+        }
+    );
     // Only the https host is asked.
     assert_eq!(*hosts.lock().unwrap(), vec!["example.com".to_owned()]);
     // The file does not list this signer or this package.

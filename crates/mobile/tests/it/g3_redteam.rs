@@ -1,7 +1,7 @@
 //! M10-G3 red team (Android): the autofill field and target decisions, the
 //! link screen's asset-links status, and the Credential Manager passkey path.
-//! A hole found here is `#[ignore = "M10-G3-<n>: ..."]` until the fix round
-//! removes the attribute; the other tests pin defenses that held.
+//! A hole found here was `#[ignore = "M10-G3-<n>: ..."]` until its fix; the
+//! other tests pin defenses that held.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -138,7 +138,6 @@ fn node(id: u32, domain: Option<&str>, role: &str, html: bool, focused: bool) ->
 /// the target's own host; a node of any other domain, or of none, is foreign,
 /// and a focus in one refuses the request.
 #[test]
-#[ignore = "M10-G3-1: web field selection is rooted at the first node with a domain, not at the target"]
 fn g3_1_web_fields_are_rooted_at_the_target_host() {
     let (phone, _) = Phone::with_account();
     // The target is the top document; the bank frame comes first in the tree.
@@ -181,7 +180,6 @@ fn g3_1_web_fields_are_rooted_at_the_target_host() {
 /// HTML info is web content in an app target, whatever its domain, and a focus
 /// in one refuses the fill.
 #[test]
-#[ignore = "M10-G3-2: an app target treats WebView HTML without a webDomain as native fields"]
 fn g3_2_webview_html_without_a_domain_is_never_an_apps_field() {
     let (phone, _) = Phone::with_account();
     let app = app_target(PACKAGE, CERT);
@@ -232,7 +230,6 @@ fn assetlinks(package: &str, cert: &[u8; 32]) -> Vec<u8> {
 /// `Verified` only for the host the screen names, or the status carries the
 /// verifying host.
 #[test]
-#[ignore = "M10-G3-3: asset_links_status is Verified by any URL's host, the link screen names the primary host"]
 fn g3_3_link_status_is_verified_only_by_the_host_it_names() {
     let (phone, _) = Phone::android_with_account();
     let key = login(
@@ -265,10 +262,13 @@ fn g3_3_link_status_is_verified_only_by_the_host_it_names() {
             caller("com.attacker.app", ATTACKER_CERT),
         )
         .unwrap();
-    assert_ne!(
+    // The status names the host whose file lists the app, so the screen can
+    // never say "Verified by bank.example" for helper.example's file.
+    assert_eq!(
         status,
-        AssetLinksStatus::Verified,
-        "bank.example does not list the app, yet the screen would say \"Verified by bank.example\""
+        AssetLinksStatus::Verified {
+            host: "helper.example".to_owned()
+        }
     );
 }
 
@@ -282,7 +282,6 @@ fn g3_3_link_status_is_verified_only_by_the_host_it_names() {
 /// scope there), so Mosaic offers the login. Defense wanted on mobile: a
 /// loopback `http` page needs `allow_http` like any other `http` page.
 #[test]
-#[ignore = "M10-G3-4: a loopback http page fills without allow_http, but any Android app can serve loopback"]
 fn g3_4_loopback_http_on_a_phone_needs_allow_http() {
     let (phone, _) = Phone::android_with_account();
     login(&phone, "NAS", vec![url("http://localhost:8080", false)]);
@@ -303,7 +302,6 @@ fn g3_4_loopback_http_on_a_phone_needs_allow_http() {
 /// is offered on every page it shows. Defense wanted: a browser package is
 /// never an app target or an app match.
 #[test]
-#[ignore = "M10-G3-5: a browser package with a foreign signer matches an androidapp:// URL of that package"]
 fn g3_5_a_browser_package_is_never_an_app_login() {
     let (phone, _) = Phone::android_with_account();
     let chrome = browser();
@@ -612,5 +610,24 @@ fn g3_a_passkey_ceremony_is_single_use_and_bound_to_its_candidates() {
             .passkey_android_get_finish(create.session_id, bank_key, true)
             .err(),
         Some(MobileError::InvalidInput)
+    );
+}
+
+/// Info (M10-G3): the list built for the system picker opens a fill session per
+/// request and never fills from it. `fill_release` forgets it at once, and a
+/// release of an unknown session is harmless.
+#[test]
+fn a_released_fill_session_is_gone() {
+    let (phone, _) = Phone::android_with_account();
+    let key = login(&phone, "Bank", vec![url("https://bank.example", false)]);
+    let found = phone
+        .core
+        .fill_candidates(web("https://bank.example"))
+        .unwrap();
+    phone.core.fill_release(found.session_id.clone());
+    phone.core.fill_release("unknown".to_owned());
+    assert_eq!(
+        phone.core.fill_values(found.session_id, key).err(),
+        Some(MobileError::NotFound)
     );
 }

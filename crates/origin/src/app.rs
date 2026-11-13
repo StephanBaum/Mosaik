@@ -8,6 +8,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use mosaic_core::model::LoginUrl;
 
+use crate::android_browsers::is_browser_package;
 use crate::{MatchKind, Refusal};
 
 /// The longest Android package name accepted, in bytes.
@@ -134,6 +135,10 @@ pub fn app_fill_allowed(
     package: &str,
     certs: &[[u8; 32]],
 ) -> Result<MatchKind, Refusal> {
+    // A browser package is never an app login, whatever its signer (M10-G3-5).
+    if is_browser_package(package) {
+        return Err(Refusal::NoMatch);
+    }
     let url = AndroidAppUrl::parse(saved.url.as_str()).map_err(|_| Refusal::NoMatch)?;
     let cert = url.cert_sha256().ok_or(Refusal::NoMatch)?;
     if url.package() == package && matches!(certs, [only] if only == cert) {

@@ -239,18 +239,34 @@ fn is_canonical_domain(rp: &str) -> bool {
         && Host::parse(rp) == Ok(Host::Domain(rp.to_owned()))
 }
 
+/// Whether every label is a DNS label: ASCII letters, digits and hyphens, no
+/// leading or trailing hyphen, at most 63 bytes (M10-G3-6). The WHATWG host
+/// parser lets `*`, `!`, `$` and the like through; a DNS name never has them.
+fn is_ldh_name(rp: &str) -> bool {
+    rp.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
 /// The canonical relying party ID for an rp ID read from a file (an import
 /// from another password manager), or `None` if it cannot be one: ASCII
 /// letters are lowercased and one trailing dot is removed; the result must
-/// be a canonical domain name (the check [`webauthn_rp_id`] applies: no
-/// U-labels, IP addresses, URLs, spaces or direction-changing characters, at
+/// be a canonical DNS name (letters, digits and hyphens per label; the
+/// check [`webauthn_rp_id`] applies: no U-labels, IP addresses, URLs, spaces or direction-changing characters, at
 /// most [`MAX_RP_ID_LEN`] bytes) with a registrable domain in the public
 /// suffix list (so `com` is refused).
 #[must_use]
 pub fn canonical_rp_id(raw: &str) -> Option<String> {
     let prepared = raw.to_ascii_lowercase();
     let rp = prepared.strip_suffix('.').unwrap_or(&prepared);
-    (is_canonical_domain(rp) && registrable_domain(rp).is_some()).then(|| rp.to_owned())
+    (is_canonical_domain(rp) && is_ldh_name(rp) && registrable_domain(rp).is_some())
+        .then(|| rp.to_owned())
 }
 
 /// The WebAuthn relying party ID for a request from `origin` (WebAuthn L3
@@ -338,6 +354,30 @@ pub enum Refusal {
 /// # Errors
 /// [`Refusal`] as above.
 pub fn fill_allowed(saved: &LoginUrl, page: &PageOrigin) -> Result<MatchKind, Refusal> {
+    fill_allowed_with(saved, page, HttpPolicy::LoopbackExempt)
+}
+
+/// How an `http` page on a loopback address is treated by [`fill_allowed_with`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HttpPolicy {
+    /// Loopback `http` needs no `allow_http` (ADR-0037: on a desktop, other
+    /// processes of the same user are out of scope).
+    LoopbackExempt,
+    /// Loopback `http` needs `allow_http` like any other `http` page. On a
+    /// phone any installed app can listen on `127.0.0.1` and serve a fake form
+    /// (ADR-0092 amendment, M10-G3-4).
+    LoopbackNeedsAllowHttp,
+}
+
+/// [`fill_allowed`] with the loopback rule of `policy`.
+///
+/// # Errors
+/// [`Refusal`] as for [`fill_allowed`].
+pub fn fill_allowed_with(
+    saved: &LoginUrl,
+    page: &PageOrigin,
+    policy: HttpPolicy,
+) -> Result<MatchKind, Refusal> {
     let origin = saved_origin(saved.url.as_str()).ok_or(Refusal::NoMatch)?;
     let kind = if origin == *page {
         MatchKind::ExactOrigin
@@ -346,7 +386,8 @@ pub fn fill_allowed(saved: &LoginUrl, page: &PageOrigin) -> Result<MatchKind, Re
     } else {
         return Err(Refusal::NoMatch);
     };
-    if page.is_http() && !page.is_loopback() && !saved.allow_http {
+    let exempt = policy == HttpPolicy::LoopbackExempt && page.is_loopback();
+    if page.is_http() && !exempt && !saved.allow_http {
         return Err(Refusal::Insecure);
     }
     Ok(kind)

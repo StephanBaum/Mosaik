@@ -423,6 +423,26 @@ impl Conv<m::FillTargetKind> for f::FillTargetKind {
     }
 }
 
+impl Conv<f::AssetLinksStatus> for m::AssetLinksStatus {
+    fn conv(self) -> f::AssetLinksStatus {
+        match self {
+            Self::Verified { host } => f::AssetLinksStatus::Verified { host },
+            Self::NotListed => f::AssetLinksStatus::NotListed,
+            Self::Unavailable => f::AssetLinksStatus::Unavailable,
+        }
+    }
+}
+
+impl Conv<m::AssetLinksStatus> for f::AssetLinksStatus {
+    fn conv(self) -> m::AssetLinksStatus {
+        match self {
+            Self::Verified { host } => m::AssetLinksStatus::Verified { host },
+            Self::NotListed => m::AssetLinksStatus::NotListed,
+            Self::Unavailable => m::AssetLinksStatus::Unavailable,
+        }
+    }
+}
+
 impl Conv<f::OriginWarning> for m::OriginWarning {
     fn conv(self) -> f::OriginWarning {
         match self {
@@ -894,7 +914,7 @@ mod tests {
             rt::<f::FieldRefusal, m::FieldRefusal>(v);
         }
         for v in [
-            f::AssetLinksStatus::Verified,
+            f::AssetLinksStatus::Verified { host: s("h") },
             f::AssetLinksStatus::NotListed,
             f::AssetLinksStatus::Unavailable,
         ] {
