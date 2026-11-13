@@ -170,7 +170,7 @@ struct ScanBody: View {
 struct SetupScanScreen: View {
     let model: ScanModel
     let sceneActive: Bool
-    let onBack: () -> Void
+    let onBack: @MainActor () -> Void
 
     var body: some View {
         MosaicScreen {

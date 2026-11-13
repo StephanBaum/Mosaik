@@ -304,7 +304,7 @@ struct SettingsView: View {
         }
     }
 
-    private func passwordPrompt(text: String, action: String, onConfirm: @escaping () -> Void) -> some View {
+    private func passwordPrompt(text: String, action: String, onConfirm: @escaping @MainActor () -> Void) -> some View {
         VStack(alignment: .leading, spacing: MosaicTokens.Space.s3) {
             BodyText(text: text)
             SecretField(

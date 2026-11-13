@@ -606,7 +606,7 @@ private struct GeneratorPanel: View {
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: GeneratorModel
     let holder: CoreHolder
-    let onUse: () -> Void
+    let onUse: @MainActor () -> Void
 
     var body: some View {
         let colors = colorScheme.mosaic
