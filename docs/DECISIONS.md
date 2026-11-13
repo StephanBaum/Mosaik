@@ -1863,7 +1863,7 @@ Brief §5 asks for an SSH agent with approval for every use. CRYPTO_SPEC §2
 had no SSH row.
 
 ### Decision
-1. **Crate:** `ssh-key =0.7.0-rc.11` (RustCrypto), with `std`, `ed25519`,
+1. **Crate:** `ssh-key =0.7.0-rc.12` (rc.11 until 2026-11-12; rc.11 to rc.12 only added CA-key certificate checks and renamed `rsa` types, none used here) (RustCrypto), with `std`, `ed25519`,
    `p256` and `encryption`. Move to 0.7.0 when it is released; the stable
    0.6.7 is blocked by RUSTSEC-2026-0387 (crypto-bigint 0.5). Feature
    unification turns on `zeroize` in `ed25519-dalek =3.0.0` and
