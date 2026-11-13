@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generates the Kotlin and Swift bindings of mosaic-mobile-ffi (ADR-0089).
 #
-#   bindgen.sh [--out DIR] [--release] [kotlin|swift|all]
+#   bindgen.sh [--out DIR] [--release] [--features LIST] [kotlin|swift|all]
 #
 # Builds the library, runs the `uniffi-bindgen` binary of the crate (feature `bindgen`) in library
 # mode (it reads crates/mobile-ffi/uniffi.toml), and writes the bindings under DIR/kotlin and DIR/swift
@@ -11,10 +11,12 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: bindgen.sh [--out DIR] [--release] [kotlin|swift|all]
+Usage: bindgen.sh [--out DIR] [--release] [--features LIST] [kotlin|swift|all]
 
   --out DIR   output directory (default: $TEMP/mosaic-bindings; DIR/kotlin and DIR/swift)
   --release   build and read the release library instead of the debug one
+  --features LIST   cargo features of mosaic-mobile-ffi for the library the bindings are read from
+                    (e.g. test-hooks: the debug/test bindings with MosaicTestHooks; never for release)
   kotlin|swift|all   which bindings to generate (default: all)
 
 Needs cargo and the Rust toolchain of the repository. Run it from anywhere.
@@ -25,12 +27,14 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="${TEMP:-${TMPDIR:-/tmp}}/mosaic-bindings"
 profile=debug
 build_flags=()
+features=""
 languages=(kotlin swift)
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --out) out="${2:?--out needs a directory}"; shift 2 ;;
+    --features) features="${2:?--features needs a list}"; shift 2 ;;
     --release) profile=release; build_flags=(--release); shift ;;
     kotlin) languages=(kotlin); shift ;;
     swift) languages=(swift); shift ;;
@@ -53,7 +57,7 @@ case "$(uname -s)" in
   *) lib_name=libmosaic_mobile_ffi.so ;;
 esac
 
-cargo build -p mosaic-mobile-ffi "${build_flags[@]}"
+cargo build -p mosaic-mobile-ffi "${build_flags[@]}" ${features:+--features "$features"}
 library="$target_dir/$profile/$lib_name"
 if [ ! -f "$library" ]; then
   echo "error: $library was not built" >&2
@@ -67,7 +71,7 @@ for language in "${languages[@]}"; do
   rm -rf "${out:?}/$language"
   mkdir -p "$out/$language"
   # --no-format: ktlint and swiftformat are not needed (and not required to be installed).
-  cargo run -q -p mosaic-mobile-ffi --features bindgen --bin uniffi-bindgen "${build_flags[@]}" -- \
+  cargo run -q -p mosaic-mobile-ffi --features "bindgen${features:+,$features}" --bin uniffi-bindgen "${build_flags[@]}" -- \
     generate --library "$library" --language "$language" \
     --no-format --out-dir "$out/$language" 2>"$log" || {
       cat "$log" >&2

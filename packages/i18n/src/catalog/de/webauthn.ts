@@ -10,7 +10,7 @@ export const webauthn: Record<keyof typeof en, string> = {
   "webauthn.documentTitle": "Mosaic: Sicherheitsschlüssel",
   "webauthn.heading.code": "Prüfe zuerst den Code",
   "webauthn.lead.code":
-    "Gib die 6 Ziffern ein, die die Mosaic-App auf deinem Computer anzeigt. Erst danach fragt diese Seite nach deinem Sicherheitsschlüssel.",
+    "Gib die 6 Ziffern ein, die die Mosaic-App anzeigt. Erst danach fragt diese Seite nach deinem Sicherheitsschlüssel.",
   "webauthn.code.label": "Code aus der Mosaic-App",
   "webauthn.code.submit": "Weiter",
   "webauthn.code.format": "Gib die 6 Ziffern ein.",
@@ -41,13 +41,13 @@ export const webauthn: Record<keyof typeof en, string> = {
     "Bestätigt. Gehe zurück zur Mosaic-App. Du kannst diesen Tab schließen.",
   "webauthn.heading.expired": "Diese Anfrage ist abgelaufen",
   "webauthn.expired.body":
-    "Die Anfrage war nur wenige Minuten gültig. Starte noch einmal in der Mosaic-App auf deinem Computer.",
+    "Die Anfrage war nur wenige Minuten gültig. Starte noch einmal in der Mosaic-App.",
   "webauthn.heading.failed": "Das hat nicht geklappt",
   "webauthn.failed.body":
-    "Dein Sicherheitsschlüssel wurde nicht akzeptiert, oder alle Versuche sind aufgebraucht. Starte noch einmal in der Mosaic-App auf deinem Computer.",
+    "Dein Sicherheitsschlüssel wurde nicht akzeptiert, oder alle Versuche sind aufgebraucht. Starte noch einmal in der Mosaic-App.",
   "webauthn.heading.invalid": "Dieser Link ist nicht vollständig",
   "webauthn.invalid.body":
-    "Öffne den Link aus der Mosaic-App auf deinem Computer. Tippe ihn nicht ab und nimm ihn nicht von woanders.",
+    "Öffne den Link aus der Mosaic-App. Tippe ihn nicht ab und nimm ihn nicht von woanders.",
   "webauthn.rateLimited":
     "Zu viele Versuche. Warte ein paar Minuten und starte dann noch einmal in der Mosaic-App.",
   "webauthn.unavailable":

@@ -241,6 +241,19 @@ pub fn lift<T: Conv<U>, U>(result: m::Result<T>) -> Result<U, MobileError> {
     result.map(Conv::conv).map_err(MobileError::from)
 }
 
+/// The password bytes of a test hook as zeroizing text; invalid UTF-8 wipes
+/// the bytes and is `invalidInput`.
+#[cfg(feature = "test-hooks")]
+pub fn password_text(bytes: Vec<u8>) -> Result<Zeroizing<String>, MobileError> {
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(Zeroizing::new(text)),
+        Err(e) => {
+            drop(Zeroizing::new(e.into_bytes()));
+            Err(MobileError::InvalidInput)
+        }
+    }
+}
+
 // ---- the platform's secure storage -------------------------------------------------------------
 
 /// The platform's `SecureStorage` as the core's trait. Values come back in

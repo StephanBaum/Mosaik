@@ -5350,6 +5350,14 @@ THREAT_MODEL R127 (per boot, not per app start), R128 (TEE without StrongBox; th
 - **N8.** `enforce_boot_marker_limit` writes nothing when the marker is absent or already overwritten.
 - **N3.** `SecureStorage` has a fourth operation, `contains` (CRYPTO_SPEC §6.9.1).
 
+#### Device lock required (M10 T7, 2026-11-12)
+- On an Android device without a secure lock screen the Keystore refuses `setUnlockedDeviceRequired(true)`. The
+  conservative choice is taken: Mosaic stores no secret on such a device. Join and unlock are refused with a request
+  to set a screen lock; the secure-store key is never created without the flag. iOS uses
+  `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` for the same rule. Alternative rejected: dropping the flag when
+  no lock screen exists (a phone without a lock screen would keep the Secret Key and the token readable by anyone
+  holding the unlocked-at-boot device). Emulator tests set a PIN through the shell first.
+
 ## ADR-0091: TLS trust on Android and the asset-links fetch
 
 - Status: accepted

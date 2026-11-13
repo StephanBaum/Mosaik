@@ -3,7 +3,7 @@
 #
 #   check-no-test-hooks.sh <library.so|library.a|library.dylib|library.dll>
 #
-# The test hooks (`mosaic_mobile::test_hooks::TestHooks`) are built only for the JVM unit tests, the
+# The test hooks (`mosaic_mobile::test_hooks::TestHooks`, and `MosaicTestHooks` of the FFI crate) are built only for the JVM unit tests, the
 # instrumented tests and the XCTest builds (and `mosaic-mobile` refuses to compile them without debug
 # assertions). This lists the symbols with `nm` (or `llvm-nm`) and fails if one mentions them. A shared
 # library is read through its dynamic symbol table (`nm -D --defined-only`, where the tool has it); a
@@ -92,9 +92,9 @@ if [ ! -s "$symbols" ]; then
   exit 2
 fi
 
-if grep -Eiq 'test_?hooks' "$symbols"; then
+if grep -Eiq 'test_?hooks|testassetlinksfetch' "$symbols"; then
   echo "error: $library contains test-hooks symbols:" >&2
-  grep -Ei 'test_?hooks' "$symbols" | head -20 >&2
+  grep -Ei 'test_?hooks|testassetlinksfetch' "$symbols" | head -20 >&2
   exit 1
 fi
 echo "ok: $library has no test-hooks symbol"

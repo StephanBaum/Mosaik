@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window background before Compose draws: the bg token of the light theme (MosaicLightColors.bg).
+         ThemeTokensTest keeps it equal to the generated token. -->
+    <color name="mosaic_window_background">#FFFFFFFF</color>
+</resources>

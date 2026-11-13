@@ -109,6 +109,13 @@ pub fn mobile_error_codes() -> Vec<String> {
     m::error_codes().into_iter().map(str::to_owned).collect()
 }
 
+/// The AAD of an Android secure-store file for `name` (CRYPTO_SPEC §6.9.1).
+/// The app passes it to AES-GCM, so the construction exists once, in Rust.
+#[uniffi::export]
+pub fn secure_store_aad(name: String) -> Vec<u8> {
+    m::secure_store_aad(&name)
+}
+
 /// The version of the library.
 #[uniffi::export]
 pub fn core_version() -> String {
@@ -398,5 +405,194 @@ impl MosaicCore {
     }
     pub fn update_settings(&self, update: SettingsUpdate) -> Result<MobileSettings, MobileError> {
         lift(self.inner.update_settings(update.conv()))
+    }
+}
+
+// ---- test hooks (feature `test-hooks`; never in a release library) -------------------------------
+
+/// Why the platform test's `assetlinks.json` fetch failed.
+#[cfg(feature = "test-hooks")]
+#[derive(Clone, Copy, Debug, uniffi::Error)]
+pub enum TestFetchError {
+    NotFound,
+    Unreachable,
+}
+
+#[cfg(feature = "test-hooks")]
+impl core::fmt::Display for TestFetchError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("testFetchFailed")
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+impl std::error::Error for TestFetchError {}
+
+#[cfg(feature = "test-hooks")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for TestFetchError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Unreachable
+    }
+}
+
+/// The platform test's replacement of the `assetlinks.json` fetch: `host` in,
+/// the file's bytes out.
+#[cfg(feature = "test-hooks")]
+#[uniffi::export(with_foreign)]
+pub trait TestAssetLinksFetch: Send + Sync {
+    fn fetch(&self, host: String) -> Result<Vec<u8>, TestFetchError>;
+}
+
+/// A local test account: the state after creation and the Secret Key.
+#[cfg(feature = "test-hooks")]
+#[derive(uniffi::Record)]
+pub struct TestAccount {
+    pub state: SessionState,
+    pub secret_key: Arc<SecretValue>,
+}
+
+/// The test hooks of one core (`mosaic_mobile::test_hooks`).
+#[cfg(feature = "test-hooks")]
+#[derive(uniffi::Object)]
+pub struct MosaicTestHooks {
+    core: Arc<MosaicCore>,
+}
+
+#[cfg(feature = "test-hooks")]
+#[uniffi::export]
+impl MosaicTestHooks {
+    #[uniffi::constructor]
+    pub fn new(core: Arc<MosaicCore>) -> Arc<Self> {
+        Arc::new(Self { core })
+    }
+
+    /// An account without a server (Baseline profile, vault "Personal"),
+    /// unlocked; the Secret Key is in secure storage as after a join.
+    pub fn create_local_account(
+        &self,
+        email: String,
+        password: Vec<u8>,
+    ) -> Result<TestAccount, MobileError> {
+        let password = convert::password_text(password)?;
+        let (state, key) = self
+            .core
+            .inner
+            .test_hooks()
+            .create_local_account(&email, &password)
+            .map_err(MobileError::from)?;
+        Ok(TestAccount {
+            state: state.conv(),
+            secret_key: Arc::new(SecretValue::wrap(Arc::new(m::SecretValue::from_text(&key)))),
+        })
+    }
+
+    pub fn set_asset_links_fetch(&self, fetch: Arc<dyn TestAssetLinksFetch>) {
+        self.core
+            .inner
+            .test_hooks()
+            .set_asset_links_fetch_outcome(move |host| {
+                fetch.fetch(host.to_owned()).map_err(|e| match e {
+                    TestFetchError::NotFound => m::test_hooks::FetchFailure::NotFound,
+                    TestFetchError::Unreachable => m::test_hooks::FetchFailure::Unreachable,
+                })
+            });
+    }
+
+    pub fn set_clock_offset_ms(&self, offset: i64) {
+        self.core.inner.test_hooks().set_clock_offset_ms(offset);
+    }
+
+    pub fn set_work_delay_ms(&self, ms: u64) {
+        self.core.inner.test_hooks().set_work_delay_ms(ms);
+    }
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+#[expect(clippy::unwrap_used, reason = "a test: a failed call is the failure")]
+mod hook_tests {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct MemStorage(Mutex<HashMap<String, Vec<u8>>>);
+
+    impl SecureStorage for MemStorage {
+        fn get(&self, name: String) -> Result<Option<Vec<u8>>, StorageError> {
+            Ok(self.0.lock().unwrap().get(&name).cloned())
+        }
+        fn contains(&self, name: String) -> Result<bool, StorageError> {
+            Ok(self.0.lock().unwrap().contains_key(&name))
+        }
+        fn put(&self, name: String, value: Vec<u8>) -> Result<(), StorageError> {
+            self.0.lock().unwrap().insert(name, value);
+            Ok(())
+        }
+        fn delete(&self, name: String) -> Result<(), StorageError> {
+            self.0.lock().unwrap().remove(&name);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn local_account_through_the_hooks_then_lock_and_unlock() {
+        let dir = std::env::temp_dir().join(format!("mosaic-ffi-hooks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = CoreConfig {
+            store_dir: dir.to_string_lossy().into_owned(),
+            platform: Platform::Android,
+            context: CoreContext::App,
+            boot_id: vec![1, 2, 3],
+            trust_anchors_der: vec![],
+        };
+        let core = MosaicCore::open(config, Arc::new(MemStorage::default())).unwrap();
+        let hooks = MosaicTestHooks::new(Arc::clone(&core));
+        hooks.set_clock_offset_ms(0);
+        hooks.set_work_delay_ms(0);
+        let account = hooks
+            .create_local_account("a@example.com".to_owned(), b"correct horse".to_vec())
+            .unwrap();
+        assert!(matches!(account.state, SessionState::Unlocked { .. }));
+        assert!(!account.secret_key.is_empty());
+        core.lock();
+        assert!(matches!(core.state(), SessionState::Locked { .. }));
+        assert_eq!(
+            hooks
+                .create_local_account("b@example.com".to_owned(), b"x".to_vec())
+                .err(),
+            Some(MobileError::AccountExists)
+        );
+        assert!(matches!(
+            core.unlock_password(b"wrong".to_vec(), None),
+            Err(MobileError::WrongCredentials)
+        ));
+        let state = core
+            .unlock_password(b"correct horse".to_vec(), None)
+            .unwrap();
+        assert!(matches!(state, SessionState::Unlocked { .. }));
+        core.close_store();
+        drop(core);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod aad_tests {
+    use std::fmt::Write as _;
+
+    use super::secure_store_aad;
+
+    /// The vector the Kotlin test `secureStoreAadIsTheCoresExport` pins too.
+    #[test]
+    fn secure_store_aad_has_the_fixed_vector() {
+        let mut hex = String::new();
+        for byte in secure_store_aad("secret-key/0123".to_owned()) {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        assert_eq!(
+            hex,
+            "016d6f736169632f76312f6d6f62696c652f7365637572652d73746f7265000000000f7365637265742d6b65792f30313233"
+        );
     }
 }

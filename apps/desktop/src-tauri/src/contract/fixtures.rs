@@ -57,6 +57,7 @@ use super::session::{
     self, KitVerification, QuickUnlockKind, QuickUnlockRequest, ShortcutState, VerifyKitRequest,
 };
 use super::settings::{self, BreachMode, Language, Theme, UpdateSettingsRequest};
+use super::setup_code;
 use super::sharing::{
     self, ContactCodeRequest, ContactStatus, EmergencyClaimRequest, EmergencyDecision,
     EmergencyGrantRequest, EmergencyRequestRequest, EmergencyRespondRequest,
@@ -551,6 +552,15 @@ fn export_commands(f: &mut Fixtures) {
         "export_passkeys_cxf",
         export::samples::requests(),
         export::samples::results(),
+    );
+}
+
+/// The setup code command.
+fn setup_code_commands(f: &mut Fixtures) {
+    f.command(
+        "setup_code_show",
+        setup_code::samples::requests(),
+        setup_code::samples::results(),
     );
 }
 
@@ -1439,6 +1449,7 @@ pub(crate) fn build() -> Value {
     tool_commands(&mut f, item_request);
     import_commands(&mut f);
     export_commands(&mut f);
+    setup_code_commands(&mut f);
     ssh_commands(&mut f);
     browser_commands(&mut f);
     sync_commands(&mut f);

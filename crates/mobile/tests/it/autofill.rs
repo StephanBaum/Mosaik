@@ -616,6 +616,35 @@ fn fill_otp_for_matching_item_only() {
 }
 
 #[test]
+fn link_android_app_refuses_a_browser_package() {
+    let (phone, _) = Phone::android_with_account();
+    let key = login(
+        &phone,
+        "Example",
+        vec![url("https://example.com", false, false)],
+    );
+    for package in ["com.android.chrome", "org.mozilla.firefox"] {
+        assert_eq!(
+            phone
+                .core
+                .link_android_app(&key.vault_id, &key.item_id, caller(package, CERT))
+                .err(),
+            Some(MobileError::InvalidInput),
+            "{package}"
+        );
+    }
+    assert_eq!(
+        phone
+            .core
+            .item(&key.vault_id, &key.item_id)
+            .unwrap()
+            .urls
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn link_android_app_writes_cert_bound_url() {
     let (phone, _) = Phone::android_with_account();
     let key = login(
@@ -800,7 +829,7 @@ fn targets_and_fields_are_pure() {
         .collect();
     let browser = AndroidCaller {
         package: package.to_owned(),
-        current_signers: vec![cert],
+        current_signers: vec![cert.clone()],
         web_domain: Some("Example.COM".to_owned()),
         web_scheme: None,
     };
@@ -812,6 +841,17 @@ fn targets_and_fields_are_pure() {
         }
     );
     assert_eq!(target.display, "example.com");
+    // The same browser without a webDomain is no target at all (M10-G2 H1).
+    let no_page = AndroidCaller {
+        package: package.to_owned(),
+        current_signers: vec![cert],
+        web_domain: None,
+        web_scheme: None,
+    };
+    assert_eq!(
+        phone.core.fill_target_android(no_page).err(),
+        Some(MobileError::NoMatch)
+    );
     // iOS identifiers.
     let (ios_phone, _) = Phone::with_account();
     let ios = ios_phone
