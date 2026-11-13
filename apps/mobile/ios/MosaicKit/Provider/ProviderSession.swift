@@ -60,6 +60,7 @@ public struct ProviderRegistration: Sendable {
 private final class RequestFlags: @unchecked Sendable {
     private let lock = NSLock()
     private var verified = false
+    private var finished = false
     private var fillSession: String?
 
     var isVerified: Bool {
@@ -72,6 +73,28 @@ private final class RequestFlags: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         verified = value
+    }
+
+    /// Marks the user as verified unless the request ended meanwhile (G3i Info: an unlock that finished after
+    /// `finish()` must not leave the session verified).
+    func setVerifiedUnlessFinished() {
+        lock.lock()
+        defer { lock.unlock() }
+        verified = !finished
+    }
+
+    /// Marks the request as ended and clears the verification, in one step.
+    func markFinished() {
+        lock.lock()
+        defer { lock.unlock() }
+        finished = true
+        verified = false
+    }
+
+    var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finished
     }
 
     /// Stores the new fill session and returns the one it replaces.
@@ -130,6 +153,12 @@ public final class ProviderSession: Sendable {
                 if ErrorText.code(of: error) == "storeInUse" { return .busy }
                 throw error
             }
+            // The request ended while the reopen ran (a dismissal, a newer request): `finish()` found the
+            // store closed and closed nothing, so the store the reopen just took is closed here (G3i-2).
+            if flags.isFinished {
+                holder.closeStore()
+                state = holder.state()
+            }
         default:
             break
         }
@@ -161,7 +190,8 @@ public final class ProviderSession: Sendable {
     /// Unlocks with Face ID or Touch ID (one prompt). This is the user verification of a passkey ceremony.
     public func unlockQuick(reason: String, cancelTitle: String) async throws {
         try await QuickUnlockFlow.unlock(holder: holder, keys: keys, reason: reason, cancelTitle: cancelTitle)
-        flags.setVerified(true)
+        // `finish()` may have run during the unlock: the request is over and nothing counts as verified.
+        flags.setVerifiedUnlessFinished()
     }
 
     // MARK: Passwords and one-time codes
@@ -183,10 +213,19 @@ public final class ProviderSession: Sendable {
         }
         var matches: [FillCandidate] = []
         var warning: OriginWarning?
+        var opened = false
+        defer {
+            // No new fill session (no accepted identifier, or the core refused the origin): the previous
+            // one no longer belongs to this list and is released.
+            if !opened, let old = flags.swapFillSession(nil) {
+                holder.releaseFillSession(old)
+            }
+        }
         if let target {
             warning = try await holder.call { core in try core.fillWarning(target: target) }
             do {
                 let found = try await holder.call { core in try core.fillCandidates(target: target) }
+                opened = true
                 if let old = flags.swapFillSession(found.sessionId) {
                     holder.releaseFillSession(old)
                 }
@@ -285,7 +324,7 @@ public final class ProviderSession: Sendable {
     /// Releases the fill session, locks (which wipes every handed-out secret) and closes the store with its
     /// file lock. Safe to call more than once and on every exit path; it does not wait for a running call.
     public func finish() {
-        flags.setVerified(false)
+        flags.markFinished()
         if let session = flags.swapFillSession(nil) {
             holder.releaseFillSession(session)
         }

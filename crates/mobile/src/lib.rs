@@ -136,6 +136,12 @@ pub struct Core {
     /// The pending lock must also require the master password (the
     /// re-authentication limit was hit while a long call held the session).
     pub(crate) lock_strict: AtomicBool,
+    /// `close_store()` was called while an unlock, a long call or a reopen was
+    /// in flight (G3i-1, G3i-2). Set and cleared only while the core's mutex is
+    /// held; whoever settles the phase then closes the store.
+    pub(crate) close_requested: AtomicBool,
+    /// A `reopen_store()` is opening the store. Changed only under the mutex.
+    reopening: AtomicBool,
     /// Counts locks. A secret value is handed out only if no lock happened
     /// since its call started (G1-6).
     generation: AtomicU64,
@@ -246,6 +252,8 @@ impl Core {
             }),
             lock_requested: AtomicBool::new(false),
             lock_strict: AtomicBool::new(false),
+            close_requested: AtomicBool::new(false),
+            reopening: AtomicBool::new(false),
             generation: AtomicU64::new(0),
             issued: Mutex::new(Vec::new()),
             assetlinks: autofill::AssetLinks::new(),
@@ -501,9 +509,30 @@ impl Core {
             return;
         };
         guard.slots.drop_expired_join(now);
-        if matches!(guard.phase, Phase::Locked(_) | Phase::NoAccount(_)) {
-            guard.phase = Phase::Closed;
-            guard.store_busy = false;
+        match guard.phase {
+            Phase::Locked(_) | Phase::NoAccount(_) => {
+                guard.phase = Phase::Closed;
+                guard.store_busy = false;
+            }
+            // An unlock or a long call holds the store, or a reopen is opening
+            // it: whoever settles the phase closes it (G3i-1, G3i-2).
+            Phase::Unlocking | Phase::Busy => self.close_requested.store(true, Ordering::SeqCst),
+            Phase::Closed if self.reopening.load(Ordering::SeqCst) => {
+                self.close_requested.store(true, Ordering::SeqCst);
+            }
+            _ => {}
+        }
+    }
+
+    /// Closes a settled locked phase when `close_store()` came while it was
+    /// out. The dropped store releases its file lock. Called with the mutex
+    /// held, right after the phase is set.
+    pub(crate) fn close_if_requested(&self, inner: &mut Inner) {
+        if matches!(inner.phase, Phase::Locked(_) | Phase::NoAccount(_))
+            && self.close_requested.swap(false, Ordering::SeqCst)
+        {
+            inner.phase = Phase::Closed;
+            inner.store_busy = false;
         }
     }
 
@@ -512,15 +541,37 @@ impl Core {
     /// # Errors
     /// `storeUnavailable`.
     pub fn reopen_store(&self) -> Result<SessionState> {
-        let closed = matches!(self.guard()?.phase, Phase::Closed);
+        let closed = {
+            let guard = self.guard()?;
+            let closed = matches!(guard.phase, Phase::Closed);
+            if closed {
+                // A close that came before this open does not apply to it.
+                self.close_requested.store(false, Ordering::SeqCst);
+                self.reopening.store(true, Ordering::SeqCst);
+            }
+            closed
+        };
         if closed {
             // The file lock is taken outside the mutex.
-            let (phase, busy) = open_phase(&self.config)?;
+            let (phase, busy) = match open_phase(&self.config) {
+                Ok(opened) => opened,
+                Err(e) => {
+                    if let Ok(_guard) = self.guard() {
+                        self.reopening.store(false, Ordering::SeqCst);
+                        self.close_requested.store(false, Ordering::SeqCst);
+                    }
+                    return Err(e);
+                }
+            };
             // The presence flags are asked outside the mutex too: a core that
             // opened while another process held the store has none (N5).
             let (secret_key_stored, signed_in) = stored_flags(&phase, self.storage.as_ref());
             let mut guard = self.guard()?;
-            if matches!(guard.phase, Phase::Closed) {
+            self.reopening.store(false, Ordering::SeqCst);
+            // A `close_store()` during the open wins: the opened store is
+            // dropped, and its file lock released, here (G3i-2).
+            let close = self.close_requested.swap(false, Ordering::SeqCst);
+            if matches!(guard.phase, Phase::Closed) && !close {
                 guard.phase = phase;
                 guard.store_busy = busy;
                 guard.secret_key_stored = secret_key_stored;
@@ -607,6 +658,9 @@ impl Core {
             drop(guard);
             self.wipe_issued();
             self.finish_lock(*unlocked, strict);
+            if let Ok(mut guard) = self.guard() {
+                self.close_if_requested(&mut guard);
+            }
             return Err(MobileError::Locked);
         }
         guard.phase = Phase::Unlocked(unlocked);

@@ -8,6 +8,7 @@ import UIKit
 public final class RequestLifecycle: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
+    private var told = false
     private let close: @Sendable () -> Void
 
     /// `close` is `ProviderSession.finish` (it is idempotent too; this guard makes the count one).
@@ -32,6 +33,24 @@ public final class RequestLifecycle: @unchecked Sendable {
             close()
         }
         return first
+    }
+
+    /// True once, when the request has ended and the system has not been told yet (G3i-4). A request that
+    /// ended silently (a dismissal, the host going away) leaves a sheet the system still shows; the next user
+    /// action or the host becoming active again tells it, exactly once.
+    public func claimTelling() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard done, !told else { return false }
+        told = true
+        return true
+    }
+
+    /// The system needs no telling (a newer request replaced this one and owns the sheet now).
+    public func markTold() {
+        lock.lock()
+        told = true
+        lock.unlock()
     }
 }
 

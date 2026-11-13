@@ -133,7 +133,10 @@ final class ProviderModel {
     // MARK: Request
 
     func start() async {
-        guard !lifecycle.isFinished else { return }
+        guard !lifecycle.isFinished else {
+            tellSilentEnd()
+            return
+        }
         armTimeout()
         if case .configuration = request {
             screen = .configuration
@@ -168,6 +171,7 @@ final class ProviderModel {
 
     /// Face ID or Touch ID. Runs once when the screen appears and again from its button.
     func unlock(automatic: Bool = false) async {
+        tellSilentEnd()
         guard let session, !isWorking, !lifecycle.isFinished else { return }
         if automatic {
             guard !triedAutomaticUnlock else { return }
@@ -197,6 +201,7 @@ final class ProviderModel {
 
     /// The user confirmed "Fill the login for <site>?": now the Face ID prompt, then the fill.
     func confirmFill() async {
+        tellSilentEnd()
         guard case .confirmFill = screen, !isWorking, !lifecycle.isFinished else { return }
         fillConfirmed = true
         screen = .unlock
@@ -254,6 +259,7 @@ final class ProviderModel {
 
     /// The user chose a login (a tap on a match).
     func fill(_ key: ItemKey) async {
+        tellSilentEnd()
         guard let session, !isWorking, !lifecycle.isFinished else { return }
         armTimeout()
         isWorking = true
@@ -272,7 +278,10 @@ final class ProviderModel {
 
     /// The user chose a passkey from the sign-in sheet.
     func choose(passkey: PasskeyCandidate) async {
-        guard let session, !isWorking, case let .passkeyList(_, rpId, hash, _) = request else { return }
+        tellSilentEnd()
+        guard let session, !isWorking, !lifecycle.isFinished, case let .passkeyList(_, rpId, hash, _) = request else {
+            return
+        }
         armTimeout()
         isWorking = true
         errorText = nil
@@ -287,7 +296,10 @@ final class ProviderModel {
 
     /// The user confirmed "Save passkey".
     func confirmRegistration() async {
-        guard let session, case let .passkeyRegister(register) = request, let vault = selectedVault, !isWorking else {
+        tellSilentEnd()
+        guard let session, !lifecycle.isFinished, case let .passkeyRegister(register) = request,
+            let vault = selectedVault, !isWorking
+        else {
             return
         }
         isWorking = true
@@ -312,6 +324,7 @@ final class ProviderModel {
     }
 
     func cancel() {
+        tellSilentEnd()
         if case .configuration = screen {
             finish(.configurationDone)
         } else {
@@ -323,9 +336,29 @@ final class ProviderModel {
 
     /// A newer request replaces this one, or the sheet is dismissed, or the host went away: the session locks,
     /// closes the store and releases the fill session, and nobody is told. Safe to call any number of times.
-    func cancelSilently() {
+    ///
+    /// A silent end leaves the sheet on screen, and the system has not heard about it (G3i-4). Unless a newer
+    /// request `replaced` this one (it owns the sheet), the next user action or the host becoming active again
+    /// tells the system once (`tellSilentEnd`, `hostDidBecomeActive`).
+    func cancelSilently(replaced: Bool = false) {
         timeout?.cancel()
         lifecycle.end()
+        if replaced {
+            lifecycle.markTold()
+        }
+    }
+
+    /// The host became active again (`NSExtensionHostDidBecomeActive`). A request that ended silently is told
+    /// to the system now.
+    func hostDidBecomeActive() {
+        tellSilentEnd()
+    }
+
+    /// Tells the system once that a silently ended request is over (`userCanceled`).
+    private func tellSilentEnd() {
+        if lifecycle.claimTelling() {
+            onFinish(.cancelled)
+        }
     }
 
     private func fail(_ error: Error) {
@@ -338,6 +371,7 @@ final class ProviderModel {
     private func finish(_ outcome: ProviderOutcome) {
         timeout?.cancel()
         guard lifecycle.end() else { return }
+        _ = lifecycle.claimTelling()
         onFinish(outcome)
     }
 

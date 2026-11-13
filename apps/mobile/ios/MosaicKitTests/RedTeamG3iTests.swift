@@ -4,8 +4,8 @@ import XCTest
 
 /// M10-G3 red team (iOS): hostile service identifiers, record hints and lifecycle races against the
 /// extension's logic (`ProviderSession`, `ProviderFillPolicy`, `IdentityStoreSync`, `RequestLifecycle`) on a
-/// real core in the extension context. A hole found here skips with `M10-G3i-<n>` until its fix; the other
-/// tests pin defenses that held. The core's own decisions (identifier disguises, rp IDs, the fill session)
+/// real core in the extension context. The tests pin defenses that held and the fixes of the holes found.
+/// The core's own decisions (identifier disguises, rp IDs, the fill session)
 /// are pinned in `crates/mobile/tests/it/g3i_redteam.rs`.
 final class RedTeamG3iTests: XCTestCase {
     private func domain(_ value: String) -> ServiceIdentifier {
@@ -87,16 +87,11 @@ final class RedTeamG3iTests: XCTestCase {
     /// before `@`), on case and on IDNs, so the confirm step could name one site while the core fills
     /// another. Not reachable today, because the identities Mosaic writes are `.domain` identifiers; the
     /// fix is to name the core's `fillTargetIos(...).display` and never parse in Swift.
-    func testTheConfirmedSiteIsTheSiteTheCoreTargetsForAUrlIdentifier() throws {
-        throw XCTSkip("M10-G3i-3: savedSite parses a .URL identifier with Foundation, not with the core")
-        // let directory = try TestSupport.storeDirectory(for: self)
-        // let core = try TestSupport.openCore(in: directory, context: .iosAutofillExtension)
-        // defer { core.closeStore() }
-        // for page in ["https://evil.example\\@github.com/", "https://GitHub.com/", "https://bücher.example/"] {
-        //     let identifiers = [pageUrl(page)]
-        //     let target = try core.fillTargetIos(identifier: identifiers[0])
-        //     XCTAssertEqual(ProviderFillPolicy.savedSite(of: identifiers), target.display, page)
-        // }
+    func testTheConfirmedSiteIsNeverParsedInSwiftForAUrlIdentifier() throws {
+        for page in ["https://evil.example\\@github.com/", "https://GitHub.com/", "https://bücher.example/"] {
+            XCTAssertNil(ProviderFillPolicy.savedSite(of: [pageUrl(page)]), page)
+        }
+        XCTAssertEqual(ProviderFillPolicy.savedSite(of: [domain("github.com")]), "github.com")
     }
 
     // MARK: The record hint
@@ -208,28 +203,27 @@ final class RedTeamG3iTests: XCTestCase {
     /// will close it again. The same happens to the app when it goes to the background during a master
     /// password unlock (`0xdead10cc`). The core test is `g3i_1_close_store_during_an_unlock_ends_closed`.
     func testAFinishDuringTheQuickUnlockClosesTheStore() async throws {
-        throw XCTSkip("M10-G3i-1: a close_store() during an unlock leaves the store open (core lifecycle)")
-        // let phone = try TestPhone(for: self)
-        // try phone.seed()
-        // let core = try phone.openCore(.iosAutofillExtension)
-        // MosaicTestHooks(core: core).setWorkDelayMs(ms: 400)
-        // let holder = CoreHolder(core: core)
-        // let session = ProviderSession(holder: holder, keys: phone.keys)
-        // let lifecycle = RequestLifecycle { session.finish() }
-        // _ = try await session.begin()
-        // let unlock = Task { try await session.unlockQuick(reason: "test", cancelTitle: "Cancel") }
-        // // The unlock is past `take_locked` once the core reports a running long call.
-        // let start = Date()
-        // while true {
-        //     if case .busy = holder.state() { break }
-        //     XCTAssertLessThan(Date().timeIntervalSince(start), 10, "the core never got busy")
-        //     try await Task.sleep(for: .milliseconds(5))
-        // }
-        // XCTAssertTrue(lifecycle.end())
-        // _ = try? await unlock.value
-        // guard case .storeClosed = holder.state() else {
-        //     return XCTFail("a finished request must leave the store closed, got \(holder.state())")
-        // }
+        let phone = try TestPhone(for: self)
+        try phone.seed()
+        let core = try phone.openCore(.iosAutofillExtension)
+        MosaicTestHooks(core: core).setWorkDelayMs(ms: 400)
+        let holder = CoreHolder(core: core)
+        let session = ProviderSession(holder: holder, keys: phone.keys)
+        let lifecycle = RequestLifecycle { session.finish() }
+        _ = try await session.begin()
+        let unlock = Task { try await session.unlockQuick(reason: "test", cancelTitle: "Cancel") }
+        // The unlock is past `take_locked` once the core reports a running long call.
+        let start = Date()
+        while true {
+            if case .busy = holder.state() { break }
+            XCTAssertLessThan(Date().timeIntervalSince(start), 10, "the core never got busy")
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(lifecycle.end())
+        _ = try? await unlock.value
+        guard case .storeClosed = holder.state() else {
+            return XCTFail("a finished request must leave the store closed, got \(holder.state())")
+        }
     }
 
     /// M10-G3i-2. `ProviderModel.start` checks `isFinished` only before `await session.begin()`. When the app
@@ -237,28 +231,27 @@ final class RedTeamG3iTests: XCTestCase {
     /// request meanwhile closes nothing (the phase is still `Closed`), and the reopen then takes the store and
     /// its App Group file lock for a request nobody will finish again.
     func testADismissalWhileBeginReopensTheStoreLeavesItClosed() async throws {
-        throw XCTSkip("M10-G3i-2: a request that ends while begin() reopens the store leaves the store open")
-        // let phone = try TestPhone(for: self)
-        // try phone.seed()
-        // // The app holds the store, so the extension's begin() has to reopen it.
-        // let app = try phone.openCore(.app)
-        // let holder = try phone.extensionHolder()
-        // let session = ProviderSession(holder: holder, keys: phone.keys)
-        // let lifecycle = RequestLifecycle { session.finish() }
-        // // A running call keeps the core's serial queue busy, so the reopen waits behind it.
-        // let blocker = Task { try await holder.call { _ in Thread.sleep(forTimeInterval: 1.5) } }
-        // try await Task.sleep(for: .milliseconds(200))
-        // app.closeStore()
-        // XCTAssertFalse(lifecycle.isFinished)
-        // let begin = Task { try await session.begin() }
-        // try await Task.sleep(for: .milliseconds(300))
-        // // The sheet is dismissed while begin() waits.
-        // XCTAssertTrue(lifecycle.end())
-        // try await blocker.value
-        // _ = try await begin.value
-        // guard case .storeClosed = holder.state() else {
-        //     return XCTFail("a finished request must leave the store closed, got \(holder.state())")
-        // }
+        let phone = try TestPhone(for: self)
+        try phone.seed()
+        // The app holds the store, so the extension's begin() has to reopen it.
+        let app = try phone.openCore(.app)
+        let holder = try phone.extensionHolder()
+        let session = ProviderSession(holder: holder, keys: phone.keys)
+        let lifecycle = RequestLifecycle { session.finish() }
+        // A running call keeps the core's serial queue busy, so the reopen waits behind it.
+        let blocker = Task { try await holder.call { _ in Thread.sleep(forTimeInterval: 1.5) } }
+        try await Task.sleep(for: .milliseconds(200))
+        app.closeStore()
+        XCTAssertFalse(lifecycle.isFinished)
+        let begin = Task { try await session.begin() }
+        try await Task.sleep(for: .milliseconds(300))
+        // The sheet is dismissed while begin() waits.
+        XCTAssertTrue(lifecycle.end())
+        try await blocker.value
+        _ = try await begin.value
+        guard case .storeClosed = holder.state() else {
+            return XCTFail("a finished request must leave the store closed, got \(holder.state())")
+        }
     }
 
     /// Held: a second request while the first is unlocked finds the store busy, inherits no verification and

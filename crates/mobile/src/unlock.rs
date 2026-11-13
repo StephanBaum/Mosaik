@@ -99,6 +99,12 @@ impl Core {
                     Phase::Locked(ls)
                 }
             };
+            // A `close_store()` that came meanwhile closes the store now
+            // (G3i-1). A put-back that goes on to unlock leaves it to the end
+            // of that unlock.
+            if !keep_lock {
+                self.close_if_requested(&mut guard);
+            }
         }
     }
 
@@ -130,6 +136,7 @@ impl Core {
             } else {
                 session.lock()
             });
+            self.close_if_requested(&mut guard);
             drop(guard);
             return Ok(self.state());
         }
@@ -149,6 +156,7 @@ impl Core {
                 guard.settings.locked();
                 guard.expired_alias = alias;
                 guard.phase = Phase::Locked(session.lock());
+                self.close_if_requested(&mut guard);
                 drop(guard);
                 return Err(MobileError::QuickUnlockExpired);
             }

@@ -85,4 +85,24 @@ final class RequestLifecycleTests: XCTestCase {
             return XCTFail("the store must be closed after a dismissal, got \(holder.state())")
         }
     }
+
+    /// G3i-4. A request that ended silently is told to the system exactly once, by the next action or the
+    /// host becoming active; one that was told when it ended, or was replaced, is never told again.
+    func testASilentEndIsToldExactlyOnce() {
+        let lifecycle = RequestLifecycle {}
+        XCTAssertFalse(lifecycle.claimTelling(), "a running request has nothing to tell")
+        lifecycle.end()
+        XCTAssertTrue(lifecycle.claimTelling())
+        XCTAssertFalse(lifecycle.claimTelling())
+
+        let told = RequestLifecycle {}
+        told.end()
+        XCTAssertTrue(told.claimTelling(), "the outcome of a normal end is the one telling")
+        XCTAssertFalse(told.claimTelling())
+
+        let replaced = RequestLifecycle {}
+        replaced.end()
+        replaced.markTold()
+        XCTAssertFalse(replaced.claimTelling(), "a newer request owns the sheet")
+    }
 }

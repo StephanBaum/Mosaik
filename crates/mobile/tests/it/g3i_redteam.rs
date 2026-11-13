@@ -784,7 +784,6 @@ fn g3i_password_identities_name_the_host_only_and_fill_only_an_exact_origin() {
 /// request keeps the store from the app. Defense wanted: a close during an
 /// unlock ends closed, as a lock during an unlock ends locked.
 #[test]
-#[ignore = "M10-G3i-1: close_store() during an unlock leaves the store open and the file lock held"]
 fn g3i_1_close_store_during_an_unlock_ends_closed() {
     let (phone, _) = Phone::with_account();
     phone.core.lock();
@@ -817,7 +816,6 @@ fn g3i_1_close_store_during_an_unlock_ends_closed() {
 /// The same race with a failed unlock (a wrong password while the app goes to
 /// the background): `put_back` restores `Locked`, and the store stays open.
 #[test]
-#[ignore = "M10-G3i-1: close_store() during a failed unlock leaves the store open and the file lock held"]
 fn g3i_1_close_store_during_a_failed_unlock_ends_closed() {
     let (phone, _) = Phone::with_account();
     phone.core.lock();

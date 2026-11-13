@@ -397,6 +397,8 @@ impl Core {
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             self.lock_strict
                 .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.close_requested
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }
         wiped?;
         Ok(ResetOutcome {

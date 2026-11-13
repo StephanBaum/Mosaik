@@ -225,6 +225,8 @@ impl Core {
                 .map_err(MobileError::from)
         })?;
         self.update_info(|i| i.quick_unlock_enrolled = true);
+        // The cleared `expired_alias` is not returned: `refreshState` runs
+        // before an enrolment, so the platform has handled the alias already.
         if let Ok(mut guard) = self.guard() {
             guard.expired_alias = None;
         }

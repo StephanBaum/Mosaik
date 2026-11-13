@@ -18,6 +18,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private var model: ProviderModel?
     private var host: UIViewController?
     private var dismissal: DismissalObserver?
+    private var becameActive: (any NSObjectProtocol)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,6 +27,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         // request: lock, close the store, release the fill session. The idle timer is only the backstop (M1).
         dismissal = DismissalObserver(queue: .main) { [weak self] in
             MainActor.assumeIsolated { self?.model?.cancelSilently() }
+        }
+        // A request that ended silently left its sheet on screen: the host becoming active again tells the
+        // system once (G3i-4). `WillResignActive` is left as it is until a device check (docs/MOBILE.md).
+        becameActive = NotificationCenter.default.addObserver(
+            forName: .NSExtensionHostDidBecomeActive, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model?.hostDidBecomeActive() }
         }
     }
 
@@ -121,7 +129,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func start(_ request: ProviderRequest) {
-        model?.cancelSilently()
+        model?.cancelSilently(replaced: true)
         let model = ProviderModel(
             request: request, makeSession: { try ProviderSession() },
             onFinish: { [weak self] outcome in self?.complete(outcome) })

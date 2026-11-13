@@ -18,12 +18,12 @@ final class ProviderFillPolicyTests: XCTestCase {
         XCTAssertNil(ProviderFillPolicy.loginToFill(record: nil, matches: [record], confirmed: true))
     }
 
-    func testTheSavedSiteIsNamedByItsHost() {
+    func testTheSavedSiteIsTheDomainIdentifier() {
         XCTAssertEqual(
             ProviderFillPolicy.savedSite(of: [ServiceIdentifier(kind: .domain, value: "github.com")]), "github.com")
-        XCTAssertEqual(
-            ProviderFillPolicy.savedSite(of: [ServiceIdentifier(kind: .url, value: "https://example.com/login?x=1")]),
-            "example.com")
+        // A URL identifier is never parsed in Swift: the screen says "this site" (G3i-3).
+        XCTAssertNil(
+            ProviderFillPolicy.savedSite(of: [ServiceIdentifier(kind: .url, value: "https://example.com/login?x=1")]))
         XCTAssertNil(ProviderFillPolicy.savedSite(of: []))
     }
 }

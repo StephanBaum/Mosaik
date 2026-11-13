@@ -13,12 +13,14 @@ public enum ProviderFillPolicy {
         return record
     }
 
-    /// The saved site to name in "Fill the login for ...?": the host of the first identifier.
+    /// The saved site to name in "Fill the login for ...?": the value of a `.domain` identifier. A `.url`
+    /// identifier gives nil (the screen says "this site"): Swift never parses a URL, because Foundation and
+    /// the core's WHATWG parser disagree and the screen could name another site than the core fills (G3i-3).
     public static func savedSite(of identifiers: [ServiceIdentifier]) -> String? {
         guard let first = identifiers.first else { return nil }
         switch first.kind {
         case .url:
-            return URL(string: first.value)?.host ?? first.value
+            return nil
         default:
             return first.value
         }

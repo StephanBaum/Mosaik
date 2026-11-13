@@ -434,6 +434,13 @@ These need real hardware, and they wait for OD-M10-2 and OD-M10-3. Record each r
 - [ ] The app switcher shows the privacy cover; a screen recording hides revealed values.
 - [ ] Extension memory with a large vault (5 000 items) stays under the limit.
 - [ ] The app and the extension never crash with `0xdead10cc` (the store is closed on background).
+- [ ] Is `UIApplication.protectedDataWillBecomeUnavailableNotification` delivered to the extension when the
+  phone locks during a request? If not, the host's background notification is the only bound (G3i).
+- [ ] Does the Face ID prompt fire `NSExtensionHostWillResignActive` in the extension? If so, the request ends
+  silently during the unlock; today the sheet then gets one `userCanceled` on the next action or on
+  `NSExtensionHostDidBecomeActive` (G3i-4). Decide from the result whether `WillResignActive` stays an end.
+- [ ] Does Safari send a `.domain` identifier for `http://` pages? The core refuses an insecure origin; check
+  that the list then shows no matches and says why (G3i).
 
 **Both:**
 - [ ] Join with a desktop setup code, then with a TOTP second factor, then with the WebAuthn handoff in the
