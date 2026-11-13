@@ -3,7 +3,7 @@
 
 use url::{Host, Url};
 
-use crate::android_browsers::is_trusted_browser;
+use crate::android_browsers::{is_browser_package, is_trusted_browser};
 use crate::app::is_valid_package_name;
 use crate::{PageOrigin, idn_unicode};
 
@@ -27,6 +27,10 @@ pub enum TargetError {
     /// the browser app itself is never a fill target (M10-G2 H1).
     #[error("browser without a web domain")]
     BrowserWithoutDomain,
+    /// The package is an allowlisted browser's, but its signer is not: no
+    /// fill, neither as a browser nor as an app (M10-G3-5).
+    #[error("browser with an unknown signer")]
+    UntrustedBrowser,
 }
 
 /// What a fill is for.
@@ -93,6 +97,11 @@ pub fn android_fill_target(caller: &AndroidCaller<'_>) -> Result<FillTarget, Tar
     }
     if is_trusted_browser(caller.package, caller.certs) {
         return Err(TargetError::BrowserWithoutDomain);
+    }
+    // A browser package with a signer the list does not know (a sideloaded
+    // fake, a rotated key) is no app either (M10-G3-5).
+    if is_browser_package(caller.package) {
+        return Err(TargetError::UntrustedBrowser);
     }
     Ok(FillTarget::AndroidApp {
         package: caller.package.to_owned(),

@@ -4,12 +4,12 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +29,7 @@ import io.github.stephanbaum.mosaic.scan.ScanLayout
 import io.github.stephanbaum.mosaic.scan.ScanScreen
 import io.github.stephanbaum.mosaic.scan.ScanTarget
 import io.github.stephanbaum.mosaic.security.BiometricGate
+import io.github.stephanbaum.mosaic.security.ExpiringKey
 import io.github.stephanbaum.mosaic.security.PromptText
 import io.github.stephanbaum.mosaic.security.SecretField
 import io.github.stephanbaum.mosaic.security.SecretFieldState
@@ -58,20 +59,31 @@ private enum class Step { Welcome, Details, Password, Second, Quick, Autofill, D
  * it again.
  */
 private class KeyHolder {
+    private val key = ExpiringKey(SystemClock::elapsedRealtime, KEY_TTL_MS)
+
     /** Counts up whenever the key is set or wiped, so the expiry timer restarts. */
     var version by mutableIntStateOf(0)
         private set
 
-    var bytes: ByteArray? = null
+    var bytes: ByteArray?
+        get() = key.bytes
         set(value) {
-            field = value
+            if (value == null) key.wipe() else key.set(value)
             version += 1
         }
 
     fun wipe() {
-        bytes?.fill(0)
-        bytes = null
+        if (key.bytes == null) return
+        key.wipe()
+        version += 1
     }
+
+    /** Wipes the key when its time is up (measured with the clock that counts deep sleep). */
+    fun wipeIfExpired() {
+        if (key.wipeIfExpired()) version += 1
+    }
+
+    fun remainingMs(): Long? = key.remainingMs()
 }
 
 private val KEY_ERRORS = setOf("secretKeyMalformed", "secretKeyMistyped", "secretKeyRequired")
@@ -124,14 +136,21 @@ fun OnboardingFlow(app: MosaicApp, onFinished: () -> Unit) {
     }
 
     // The key is wiped when the app goes to the background, and five minutes after it was set.
-    val inForeground by app.foreground.collectAsState()
-    LaunchedEffect(inForeground) {
-        if (!inForeground) keyHolder.wipe()
+    // Collected, not keyed on a recomposition: a stopped activity draws no frame, and the key must still go (N2).
+    LaunchedEffect(Unit) {
+        app.foreground.collect { inForeground ->
+            if (inForeground) keyHolder.wipeIfExpired() else keyHolder.wipe()
+        }
     }
     LaunchedEffect(keyHolder.version) {
-        if (keyHolder.bytes == null) return@LaunchedEffect
-        delay(KEY_TTL_MS)
-        keyHolder.wipe()
+        while (true) {
+            val left = keyHolder.remainingMs() ?: return@LaunchedEffect
+            if (left <= 0) {
+                keyHolder.wipeIfExpired()
+                return@LaunchedEffect
+            }
+            delay(left)
+        }
     }
 
     // The security-key handoff: poll every 2 s while the app is in the foreground.

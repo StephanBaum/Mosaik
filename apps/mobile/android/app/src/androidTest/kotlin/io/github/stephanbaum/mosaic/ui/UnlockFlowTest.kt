@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.stephanbaum.mosaic.AppForeground
 import io.github.stephanbaum.mosaic.DeviceLock
 import io.github.stephanbaum.mosaic.MosaicApp
 import io.github.stephanbaum.mosaic.ffi.LoginDraft
@@ -45,8 +46,10 @@ class UnlockFlowTest {
     fun setUp() {
         setPin = DeviceLock.ensure()
         app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as MosaicApp
+        AppForeground.hold(app)
         runBlocking {
             app.holder.call { core ->
+              AppForeground.explainLock(app) {
                 val state = core.state()
                 val existing =
                     when (state) {
@@ -71,6 +74,7 @@ class UnlockFlowTest {
                         favorite = false,
                     ),
                 )
+              }
             }
         }
         app.lockNow()

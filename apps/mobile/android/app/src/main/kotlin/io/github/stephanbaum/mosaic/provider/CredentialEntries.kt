@@ -106,6 +106,8 @@ class CredentialEntries(private val context: Context, private val app: MosaicApp
         try {
             val target = app.holder.call { it.fillTargetAndroid(androidCaller) }
             val found = app.holder.call { it.fillCandidates(target) }
+            // The list is only shown; the tap makes its own session (M10-G3).
+            app.holder.call { it.fillRelease(found.sessionId) }
             for (candidate in found.candidates) {
                 val pending = CredentialIntents.pending(context, CredentialIntents.MODE_PASSWORD, candidate.key)
                 builder.addCredentialEntry(
@@ -129,6 +131,8 @@ class CredentialEntries(private val context: Context, private val app: MosaicApp
         try {
             val request = AndroidPasskeyRequest(option.requestJson, caller.forPasskeys(), caller.platformOrigin, option.clientDataHash)
             val session = app.holder.call { it.passkeyAndroidGetBegin(request) }
+            // The list is only shown; the tap begins again and finishes that session (M10-G3).
+            app.holder.call { it.passkeyRelease(session.sessionId) }
             for (candidate in session.candidates) {
                 val pending = CredentialIntents.pending(context, CredentialIntents.MODE_PASSKEY, candidate.key)
                 builder.addCredentialEntry(

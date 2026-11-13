@@ -11,13 +11,13 @@ import org.junit.Test
 class AutofillHelpersTest {
     private fun cert(vararg bytes: Int) = ByteArray(bytes.size) { bytes[it].toByte() }
 
-    private fun node(domain: String?, focused: Boolean = false) =
+    private fun node(domain: String?, focused: Boolean = false, scheme: String? = null) =
         RawNode(
             autofillId = null,
             focused = focused,
             visible = true,
             webDomain = domain,
-            webScheme = null,
+            webScheme = scheme,
             inputType = 0,
             autofillHints = emptyList(),
             htmlTag = null,
@@ -82,24 +82,24 @@ class AutofillHelpersTest {
         assertNull(PlatformOrigin.parse("not an origin"))
     }
 
-    // ---- web root -------------------------------------------------------------------------------
+    // ---- web root (the core cuts the browser's own screen off, the reader keeps every node) ----------
 
     @Test
-    fun theBrowsersOwnScreenBeforeThePageIsDropped() {
-        val trimmed = StructureReader.trimToWebRoot(listOf(node(null), node(null), node("a.example"), node("a.example")))
-        assertEquals(2, trimmed.size)
-        assertEquals("a.example", trimmed[0].webDomain)
+    fun thePageRootIsTheFirstNodeWithADomainAndItsOwnScheme() {
+        val parsed =
+            ParsedStructure(
+                "com.android.chrome",
+                listOf(node(null), node("a.example", scheme = "https"), node("b.example", scheme = "http")),
+            )
+        assertEquals("a.example", parsed.webDomain)
+        assertEquals("https", parsed.webScheme)
     }
 
     @Test
-    fun aNativeScreenStaysWhole() {
-        assertEquals(3, StructureReader.trimToWebRoot(listOf(node(null), node(null), node(null))).size)
-    }
-
-    @Test
-    fun aTreeThatStartsOnThePageIsNotChanged() {
-        val nodes = listOf(node("a.example"), node("b.example", focused = true))
-        assertEquals(2, StructureReader.trimToWebRoot(nodes).size)
+    fun aNativeScreenHasNoPageRoot() {
+        val parsed = ParsedStructure("com.example.app", listOf(node(null), node(null)))
+        assertNull(parsed.webDomain)
+        assertNull(parsed.webScheme)
     }
 
     // ---- web domain inheritance (M10-G2 H1) ----------------------------------------------------------
@@ -160,11 +160,29 @@ class AutofillHelpersTest {
 
     @Test
     fun theBrowsersOwnFieldsBeforeTheContainerStayWithoutADomain() {
-        // The address bar comes first and has no domain; the page container follows.
+        // The address bar comes first and has no domain; the page container follows. The reader keeps both: the core
+        // drops the address bar for a page, and keeps native fields for an app with a WebView (N1).
         val window = Tree(null, kids = listOf(Tree(null, field = true), Tree("example.com", kids = listOf(Tree(null, field = true)))))
-        val nodes = StructureReader.trimToWebRoot(walked(window))
-        assertEquals(1, nodes.size)
-        assertEquals("example.com", nodes[0].webDomain)
+        val nodes = walked(window)
+        assertEquals(2, nodes.size)
+        assertNull(nodes[0].webDomain)
+        assertEquals("example.com", nodes[1].webDomain)
+    }
+
+    @Test
+    fun aSchemeIsNeverTakenFromAnotherNodeThanItsDomain() {
+        // N5: the field has its own domain and no scheme; the container's scheme must not be paired with it.
+        val page =
+            Tree(
+                "example.com",
+                "https",
+                kids = listOf(Tree("other.example", null, field = true), Tree(null, field = true)),
+            )
+        val nodes = walked(page)
+        assertEquals("other.example", nodes[0].webDomain)
+        assertNull(nodes[0].webScheme)
+        assertEquals("example.com", nodes[1].webDomain)
+        assertEquals("https", nodes[1].webScheme)
     }
 
     @Test

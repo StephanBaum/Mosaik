@@ -141,8 +141,12 @@ class CredentialActivity : SecureActivity() {
         val values =
             app.holder.call { core ->
                 val found = core.fillCandidates(target)
-                if (found.candidates.none { it.key == key }) throw Failure("noMatch")
-                core.fillValues(found.sessionId, key)
+                try {
+                    if (found.candidates.none { it.key == key }) throw Failure("noMatch")
+                    core.fillValues(found.sessionId, key)
+                } finally {
+                    core.fillRelease(found.sessionId)
+                }
             }
         val secret = values.password ?: throw Failure("notFound")
         // The platform's PasswordCredential takes a String, which cannot be wiped; the core's copy and the bytes are.
@@ -171,15 +175,21 @@ class CredentialActivity : SecureActivity() {
         val caller = CredentialCallers.of(app.holder, request.callingAppInfo) ?: throw Failure("noMatch")
         val passkeyRequest = AndroidPasskeyRequest(option.requestJson, caller.forPasskeys(), caller.platformOrigin, option.clientDataHash)
         val session = app.holder.call { it.passkeyAndroidGetBegin(passkeyRequest) }
-        if (session.candidates.none { it.key == key }) throw Failure("passkeyNotFound")
-        val verified =
-            UserVerification.verify(
-                this,
-                L10n.credentialVerifyTitle(resources),
-                L10n.credentialVerifySignIn(resources, session.rpId),
-            )
-        if (!verified) throw VerifyFailed()
-        val json = app.holder.call { it.passkeyAndroidGetFinish(session.sessionId, key, true) }
+        val json =
+            try {
+                if (session.candidates.none { it.key == key }) throw Failure("passkeyNotFound")
+                val verified =
+                    UserVerification.verify(
+                        this,
+                        L10n.credentialVerifyTitle(resources),
+                        L10n.credentialVerifySignIn(resources, session.rpId),
+                    )
+                if (!verified) throw VerifyFailed()
+                app.holder.call { it.passkeyAndroidGetFinish(session.sessionId, key, true) }
+            } finally {
+                // A finished session is gone already; every other exit forgets it here (M10-G3).
+                app.holder.call { it.passkeyRelease(session.sessionId) }
+            }
         val data = Intent()
         PendingIntentHandler.setGetCredentialResponse(data, GetCredentialResponse(PublicKeyCredential(json)))
         return data

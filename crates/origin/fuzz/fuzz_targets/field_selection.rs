@@ -35,6 +35,7 @@ fuzz_target!(|data: &[u8]| {
             visible: c[0] & 1 != 0,
             focused: c[0] & 2 != 0,
             web_domain: DOMAINS[usize::from(c[1]) % DOMAINS.len()].map(str::to_owned),
+            is_web: c[4] & 0x40 != 0,
             hints: vec![HINTS[usize::from(c[2]) % HINTS.len()].to_owned()],
             autocomplete: AUTOCOMPLETE[usize::from(c[3]) % AUTOCOMPLETE.len()].map(str::to_owned),
             input_kind: match c[4] % 3 {

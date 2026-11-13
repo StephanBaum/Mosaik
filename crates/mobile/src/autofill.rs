@@ -17,7 +17,8 @@ use mosaic_origin::assetlinks::{Relation, app_is_delegated, parse_asset_links};
 use mosaic_origin::fields::{self, FieldRole, InputKind};
 use mosaic_origin::target::{self, IosIdentifier, TargetError};
 use mosaic_origin::{
-    MatchKind, PageOrigin, Refusal, app, fill_allowed, idn_unicode, lookalike_of, saved_origin,
+    HttpPolicy, MatchKind, PageOrigin, Refusal, app, fill_allowed_with, idn_unicode, lookalike_of,
+    saved_origin,
 };
 use mosaic_sync::transport::TransportError;
 use mosaic_vault::session::{ItemFilter as SessionFilter, UnlockedSession, VaultProtection};
@@ -219,10 +220,15 @@ pub struct FieldSelection {
 }
 
 /// What the site's asset-links file says about an app.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssetLinksStatus {
-    /// A web domain of the login lists the app and its certificate.
-    Verified,
+    /// A web domain of the login lists the app and its certificate. `host` is
+    /// the domain whose file did, which need not be the login's primary host
+    /// (M10-G3-3).
+    Verified {
+        /// The host that lists the app.
+        host: String,
+    },
     /// The files were read and none lists the app.
     NotListed,
     /// No file could be read.
@@ -240,6 +246,10 @@ pub(crate) struct AssetLinks {
     cache: Mutex<HashMap<AssetLinksKey, (u64, bool)>>,
 }
 
+/// The most asset-links answers kept in memory (a hostile app can ask about
+/// any relying party it likes).
+const MAX_ASSET_LINKS_CACHE: usize = 256;
+
 /// The relying party, the package and the signer an answer is for.
 type AssetLinksKey = (String, String, [u8; 32]);
 
@@ -249,6 +259,25 @@ impl AssetLinks {
             fetch: Mutex::new(Arc::new(mosaic_sync::http::assetlinks::fetch)),
             cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Caches an answer until `until` (ms). The map holds at most
+    /// [`MAX_ASSET_LINKS_CACHE`] answers; a new one beyond that evicts the
+    /// oldest (the one that expires first).
+    fn remember(&self, key: AssetLinksKey, until: u64, delegated: bool) {
+        let Ok(mut cache) = self.cache.lock() else {
+            return;
+        };
+        if cache.len() >= MAX_ASSET_LINKS_CACHE && !cache.contains_key(&key) {
+            let oldest = cache
+                .iter()
+                .min_by_key(|(_, (u, _))| *u)
+                .map(|(k, _)| k.clone());
+            if let Some(oldest) = oldest {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(key, (until, delegated));
     }
 
     /// Replaces the fetch and forgets what was cached (test hooks).
@@ -308,6 +337,11 @@ impl FillSessions {
             .map(|w| w.target.clone())
     }
 
+    /// Forgets one session; an unknown one is ignored.
+    fn release(&mut self, id: &str) {
+        self.waiting.retain(|w| w.id != id);
+    }
+
     /// Forgets every session (lock).
     pub(crate) fn clear(&mut self) {
         self.waiting.clear();
@@ -348,7 +382,7 @@ fn target_error(e: TargetError) -> MobileError {
     match e {
         TargetError::Scheme => MobileError::InsecureOrigin,
         // A browser screen without a page (the address bar): nothing to fill.
-        TargetError::BrowserWithoutDomain => MobileError::NoMatch,
+        TargetError::BrowserWithoutDomain | TargetError::UntrustedBrowser => MobileError::NoMatch,
         _ => MobileError::InvalidInput,
     }
 }
@@ -406,6 +440,7 @@ fn node_of(n: &FieldNode) -> fields::FieldNode {
     };
     fields::FieldNode {
         web_domain: n.web_domain.clone(),
+        is_web: n.html_tag.is_some(),
         hints: n.autofill_hints.clone(),
         autocomplete,
         input_kind: input_kind(n.input_type),
@@ -416,10 +451,26 @@ fn node_of(n: &FieldNode) -> fields::FieldNode {
 }
 
 /// The nodes a selection can point at; the same cap as the origin crate's.
-fn select_fields(nodes: &[FieldNode]) -> FieldSelection {
+fn select_fields(nodes: &[FieldNode], target: &FillTarget) -> FieldSelection {
+    // A web page is rooted at the target's own host: nodes of any other domain,
+    // or of none, are foreign (M10-G3-1). A target that is not an origin has no
+    // host, so every node is foreign.
+    let host = match &target.kind {
+        FillTargetKind::Web { origin } => Some(
+            PageOrigin::parse(origin)
+                .map(|o| o.host_str())
+                .unwrap_or_default(),
+        ),
+        FillTargetKind::AndroidApp { .. } => None,
+    };
+    let scope = host
+        .as_deref()
+        .map_or(fields::FieldScope::App, |host| fields::FieldScope::Web {
+            host,
+        });
     let limited = nodes.get(..fields::MAX_NODES).unwrap_or(nodes);
     let mapped: Vec<fields::FieldNode> = limited.iter().map(node_of).collect();
-    let chosen = fields::select_fill_fields(&mapped);
+    let chosen = fields::select_scoped_fill_fields(&mapped, scope);
     let mut out = FieldSelection::default();
     if chosen.refused == Some(fields::FieldRefusal::ForeignFrame) {
         out.refused = Some(FieldRefusal::ForeignFrame);
@@ -469,7 +520,9 @@ fn match_item(item: &Item, target: &Resolved) -> std::result::Result<MatchKind, 
     let mut best: Option<MatchKind> = None;
     for (_, url) in item.urls() {
         let verdict = match target {
-            Resolved::Web(page) => fill_allowed(&url, page),
+            Resolved::Web(page) => {
+                fill_allowed_with(&url, page, HttpPolicy::LoopbackNeedsAllowHttp)
+            }
             Resolved::App { package, certs } => app::app_fill_allowed(&url, package, certs),
         };
         match verdict {
@@ -530,10 +583,13 @@ impl Core {
         }
     }
 
-    /// Which fields of a view tree to fill. Pure; works while locked.
+    /// Which fields of a view tree to fill for `target` (from
+    /// `fill_target_android`). An app target gets native fields only, never web
+    /// content in a `WebView`; a web target starts at the page root. Pure;
+    /// works while locked.
     #[must_use]
-    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>) -> FieldSelection {
-        select_fields(&nodes)
+    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>, target: &FillTarget) -> FieldSelection {
+        select_fields(&nodes, target)
     }
 
     /// What an Android request is for. Pure; works while locked. A
@@ -658,6 +714,16 @@ impl Core {
             session_id,
             candidates: list,
         })
+    }
+
+    /// Forgets a fill session the caller will not use (a list built for the
+    /// system picker opens one per request and never fills from it). An
+    /// unknown or expired session, and a locked core, are ignored: there is
+    /// nothing to release (M10-G3).
+    pub fn fill_release(&self, session_id: String) {
+        if let Ok(mut guard) = self.guard() {
+            guard.slots.fill.release(&session_id);
+        }
     }
 
     /// The target a fill session holds; an unknown, expired or dropped one is
@@ -874,7 +940,7 @@ impl Core {
             if parse_asset_links(&body).is_ok_and(|st| {
                 app_is_delegated(&st, &caller.package, cert, Relation::GetLoginCreds)
             }) {
-                return Ok(AssetLinksStatus::Verified);
+                return Ok(AssetLinksStatus::Verified { host: host.clone() });
             }
         }
         Ok(if read_any {
@@ -919,9 +985,8 @@ impl Core {
                 Err(TransportError::NotFound) => false,
                 Err(_) => return Err(MobileError::AssetLinksUnavailable),
             };
-            if let Ok(mut cache) = self.assetlinks.cache.lock() {
-                cache.insert(key, (now.saturating_add(ASSET_LINKS_TTL_MS), delegated));
-            }
+            self.assetlinks
+                .remember(key, now.saturating_add(ASSET_LINKS_TTL_MS), delegated);
             delegated
         };
         if delegated {
@@ -929,5 +994,23 @@ impl Core {
         } else {
             Err(MobileError::AppNotVerified)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_asset_links_cache_is_bounded_and_evicts_the_oldest() {
+        let links = AssetLinks::new();
+        let key = |n: usize| (format!("rp{n}.example"), "pkg".to_owned(), [0u8; 32]);
+        for n in 0..MAX_ASSET_LINKS_CACHE + 10 {
+            links.remember(key(n), 1000 + n as u64, true);
+        }
+        let cache = links.cache.lock().unwrap();
+        assert_eq!(cache.len(), MAX_ASSET_LINKS_CACHE);
+        assert!(!cache.contains_key(&key(0)), "the oldest answer is evicted");
+        assert!(cache.contains_key(&key(MAX_ASSET_LINKS_CACHE + 9)));
     }
 }

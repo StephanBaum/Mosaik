@@ -3,12 +3,11 @@ package io.github.stephanbaum.mosaic.security
 import io.github.stephanbaum.mosaic.ffi.SessionState
 
 /**
- * Whether a lock must reach the core in [state]: every state except a locked one and "no account". A lock that
- * arrives while the core is unlocking (`Busy`) is passed on too: the core turns it into "ends locked" (M10-G2 M1).
- * A core that is not open yet (null) has no session.
+ * Whether a lock must reach the core in [state]: an open session, or a core that is unlocking (`Busy`), which turns
+ * the lock into "ends locked" (M10-G2 M1). A closed or busy store has no session and a locked one is locked, so the
+ * background ticker does not run for them (M10-G2 round 2, N4). A core that is not open yet (null) has none either.
  */
-fun sessionNeedsLock(state: SessionState?): Boolean =
-    state != null && state !is SessionState.Locked && state !is SessionState.NoAccount
+fun sessionNeedsLock(state: SessionState?): Boolean = state is SessionState.Unlocked || state is SessionState.Busy
 
 /** The settings the lock policy reads (from `MobileSettings`; the defaults apply until they are loaded). */
 class LockSettings(

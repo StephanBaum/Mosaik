@@ -220,7 +220,8 @@ fn fill_candidates_http_refused_without_allow_http() {
             .map(mosaic_mobile::MobileError::code),
         Some("insecureOrigin")
     );
-    // An https page is not matched by an http URL, and loopback is allowed.
+    // An https page is not matched by an http URL, and loopback is no
+    // exception on a phone, where any app can serve it (M10-G3-4).
     assert!(
         phone
             .core
@@ -235,14 +236,26 @@ fn fill_candidates_http_refused_without_allow_http() {
         vec![url("http://127.0.0.1:8080", false, false)],
     );
     assert_eq!(
+        phone
+            .core
+            .fill_candidates(web("http://127.0.0.1:8080"))
+            .err(),
+        Some(mosaic_mobile::MobileError::InsecureOrigin)
+    );
+    login(
+        &phone,
+        "Local ok",
+        vec![url("http://127.0.0.1:9090", false, true)],
+    );
+    assert_eq!(
         titles(
             &phone
                 .core
-                .fill_candidates(web("http://127.0.0.1:8080"))
+                .fill_candidates(web("http://127.0.0.1:9090"))
                 .unwrap()
                 .candidates
         ),
-        vec!["Local"]
+        vec!["Local ok"]
     );
     // The login itself allows http.
     login(
@@ -767,7 +780,12 @@ fn asset_links_status_verified_not_listed_unavailable() {
             .asset_links_status(&key.vault_id, &key.item_id, caller(package, cert))
             .unwrap()
     };
-    assert_eq!(status(CERT, "com.example.app"), AssetLinksStatus::Verified);
+    assert_eq!(
+        status(CERT, "com.example.app"),
+        AssetLinksStatus::Verified {
+            host: "example.com".to_owned()
+        }
+    );
     // Only the https host is asked.
     assert_eq!(*hosts.lock().unwrap(), vec!["example.com".to_owned()]);
     // The file does not list this signer or this package.
@@ -892,9 +910,10 @@ fn targets_and_fields_are_pure() {
         id_entry: None,
         hint: None,
     };
-    let selection = phone
-        .core
-        .select_fill_fields(vec![node(1, &["username"], 1), node(2, &[], 0x81)]);
+    let selection = phone.core.select_fill_fields(
+        vec![node(1, &["username"], 1), node(2, &[], 0x81)],
+        &web("https://example.com"),
+    );
     assert_eq!(selection.username, Some(1));
     assert_eq!(selection.password, Some(2));
     assert_eq!(selection.refused, None);
@@ -904,12 +923,100 @@ fn targets_and_fields_are_pure() {
     foreign.focused = true;
     let mut root = node(1, &["username"], 1);
     root.focused = false;
-    let selection = phone.core.select_fill_fields(vec![root, foreign]);
+    let selection = phone
+        .core
+        .select_fill_fields(vec![root, foreign], &web("https://example.com"));
     assert_eq!(selection.refused, Some(FieldRefusal::ForeignFrame));
     assert_eq!(selection.password, None);
     // Nothing fillable.
-    let selection = phone.core.select_fill_fields(vec![node(1, &["name"], 1)]);
+    let selection = phone
+        .core
+        .select_fill_fields(vec![node(1, &["name"], 1)], &web("https://example.com"));
     assert_eq!(selection.refused, Some(FieldRefusal::NoFillableField));
+}
+
+/// A native field of an app, or a field of the same app inside a `WebView`.
+fn native_or_web(id: u32, domain: Option<&str>, hints: &[&str], focused: bool) -> FieldNode {
+    FieldNode {
+        id,
+        focused,
+        visible: true,
+        web_domain: domain.map(str::to_owned),
+        input_type: 1,
+        autofill_hints: hints.iter().map(|h| (*h).to_owned()).collect(),
+        html_tag: None,
+        html_attrs: vec![],
+        id_entry: None,
+        hint: None,
+    }
+}
+
+#[test]
+fn an_app_target_fills_native_fields_and_never_a_webview_above_or_below() {
+    // M10-G2 round 2, N1: native login fields above a WebView of a third party.
+    let (phone, _) = Phone::with_account();
+    let app = app_target("com.example.app", [1; 32]);
+    let selection = phone.core.select_fill_fields(
+        vec![
+            native_or_web(1, None, &["username"], false),
+            native_or_web(2, None, &["password"], false),
+            native_or_web(3, Some("ads.example.net"), &["username"], false),
+            native_or_web(4, Some("ads.example.net"), &["password"], false),
+            native_or_web(5, Some("ads.example.net"), &["one-time-code"], false),
+        ],
+        &app,
+    );
+    assert_eq!(selection.username, Some(1));
+    assert_eq!(selection.password, Some(2));
+    assert_eq!(selection.otp, None);
+    assert_eq!(selection.refused, None);
+}
+
+#[test]
+fn a_focused_webview_field_in_an_app_is_refused() {
+    let (phone, _) = Phone::with_account();
+    let app = app_target("com.example.app", [1; 32]);
+    let selection = phone.core.select_fill_fields(
+        vec![
+            native_or_web(1, None, &["username"], false),
+            native_or_web(2, Some("ads.example.net"), &["password"], true),
+        ],
+        &app,
+    );
+    assert_eq!(selection.refused, Some(FieldRefusal::ForeignFrame));
+    assert_eq!(selection.password, None);
+    assert_eq!(selection.username, None);
+}
+
+#[test]
+fn a_page_in_a_browser_that_is_not_allowlisted_gives_nothing() {
+    // Brave stays an app (ADR-0092): every field of the page carries a webDomain.
+    let (phone, _) = Phone::with_account();
+    let app = app_target("com.brave.browser", [1; 32]);
+    let selection = phone.core.select_fill_fields(
+        vec![
+            native_or_web(1, Some("bank.example"), &["username"], false),
+            native_or_web(2, Some("bank.example"), &["password"], false),
+        ],
+        &app,
+    );
+    assert_eq!(selection.refused, Some(FieldRefusal::NoFillableField));
+    assert_eq!(selection.username, None);
+}
+
+#[test]
+fn a_web_target_starts_at_the_page_root_and_drops_the_browser_screen() {
+    let (phone, _) = Phone::with_account();
+    let selection = phone.core.select_fill_fields(
+        vec![
+            native_or_web(1, None, &["username"], false),
+            native_or_web(2, Some("example.com"), &["username"], false),
+            native_or_web(3, Some("example.com"), &["password"], false),
+        ],
+        &web("https://example.com"),
+    );
+    assert_eq!(selection.username, Some(2));
+    assert_eq!(selection.password, Some(3));
 }
 
 #[test]

@@ -305,8 +305,10 @@ impl MosaicCore {
     }
 
     // ---- autofill -----------------------------------------------------------------------------
-    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>) -> FieldSelection {
-        self.inner.select_fill_fields(nodes.conv()).conv()
+    pub fn select_fill_fields(&self, nodes: Vec<FieldNode>, target: FillTarget) -> FieldSelection {
+        self.inner
+            .select_fill_fields(nodes.conv(), &target.conv())
+            .conv()
     }
     pub fn fill_target_android(&self, caller: AndroidCaller) -> Result<FillTarget, MobileError> {
         lift(self.inner.fill_target_android(caller.conv()))
@@ -322,6 +324,9 @@ impl MosaicCore {
     }
     pub fn fill_candidates(&self, target: FillTarget) -> Result<FillCandidates, MobileError> {
         lift(self.inner.fill_candidates(target.conv()))
+    }
+    pub fn fill_release(&self, session_id: String) {
+        self.inner.fill_release(session_id);
     }
     pub fn fill_values(
         &self,
@@ -347,6 +352,9 @@ impl MosaicCore {
         req: AndroidPasskeyRequest,
     ) -> Result<PasskeySession, MobileError> {
         lift(self.inner.passkey_android_get_begin(req.conv()))
+    }
+    pub fn passkey_release(&self, session_id: String) {
+        self.inner.passkey_release(session_id);
     }
     pub fn passkey_android_get_finish(
         &self,

@@ -94,7 +94,7 @@ fun LinkAppScreen(
         }
         when (val result = app.vault.assetLinksStatus(vaultId, itemId, found.caller)) {
             is Outcome.Ok -> status = result.value
-            is Outcome.Failed -> status = AssetLinksStatus.UNAVAILABLE
+            is Outcome.Failed -> status = AssetLinksStatus.Unavailable
             Outcome.Cancelled -> Unit
         }
     }
@@ -158,12 +158,13 @@ fun LinkAppScreen(
             val statusText =
                 when (current) {
                     null -> L10n.linkChecking(resources)
-                    AssetLinksStatus.VERIFIED -> L10n.linkVerified(resources, host.orEmpty())
-                    AssetLinksStatus.NOT_LISTED -> L10n.linkNotVerified(resources)
-                    AssetLinksStatus.UNAVAILABLE -> L10n.linkUnavailable(resources)
+                    // The host whose file lists the app, not the login's primary host (M10-G3-3).
+                    is AssetLinksStatus.Verified -> L10n.linkVerified(resources, current.host)
+                    is AssetLinksStatus.NotListed -> L10n.linkNotVerified(resources)
+                    is AssetLinksStatus.Unavailable -> L10n.linkUnavailable(resources)
                 }
             Line(statusText)
-            if (current != null && current != AssetLinksStatus.VERIFIED) {
+            if (current != null && current !is AssetLinksStatus.Verified) {
                 BodyText(if (host != null) L10n.linkWarning(resources, host) else L10n.linkWarningNoHost(resources))
             }
             if (failure != null) ErrorText(errorText(resources, failure))

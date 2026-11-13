@@ -464,7 +464,20 @@ record!(FieldSelection <=> m::FieldSelection {
     otp: Option<u32>,
     refused: Option<FieldRefusal>,
 });
-unit_enum!(AssetLinksStatus <=> m::AssetLinksStatus { Verified, NotListed, Unavailable });
+/// What the site's asset-links file says about an app.
+#[derive(Clone, uniffi::Enum)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum AssetLinksStatus {
+    /// A web domain of the login lists the app and its certificate.
+    Verified {
+        /// The host whose file lists the app.
+        host: String,
+    },
+    /// The files were read and none lists the app.
+    NotListed,
+    /// No file could be read.
+    Unavailable,
+}
 
 // ---- passkeys ------------------------------------------------------------------------------------------------
 
