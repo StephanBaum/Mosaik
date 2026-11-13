@@ -268,6 +268,8 @@ mod otp_tests;
 #[cfg(test)]
 mod quick_unlock_tests;
 #[cfg(test)]
+mod redteam_desktop_tests;
+#[cfg(test)]
 mod redteam_surface_tests;
 #[cfg(test)]
 mod redteam_tests;
