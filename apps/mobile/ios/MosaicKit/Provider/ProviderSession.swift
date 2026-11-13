@@ -69,18 +69,20 @@ private final class RequestFlags: @unchecked Sendable {
         return verified
     }
 
-    func setVerified(_ value: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        verified = value
-    }
-
     /// Marks the user as verified unless the request ended meanwhile (G3i Info: an unlock that finished after
     /// `finish()` must not leave the session verified).
     func setVerifiedUnlessFinished() {
         lock.lock()
         defer { lock.unlock() }
         verified = !finished
+    }
+
+    /// Starts a new request on a reused session: not verified, not finished.
+    func startRequest() {
+        lock.lock()
+        defer { lock.unlock() }
+        finished = false
+        verified = false
     }
 
     /// Marks the request as ended and clears the verification, in one step.
@@ -142,7 +144,9 @@ public final class ProviderSession: Sendable {
     /// unlocked (it was not this request that unlocked it) is locked first, so every request verifies the
     /// user itself.
     public func begin() async throws -> ProviderReadiness {
-        flags.setVerified(false)
+        // A new request: nothing is verified and the previous request's end no longer applies. A `finish()`
+        // that arrives from here on (even during the reopen below) still ends this request.
+        flags.startRequest()
         var state = holder.state()
         switch state {
         case .storeClosed, .storeBusy:
