@@ -1,5 +1,7 @@
 import MosaicKit
 import SwiftUI
+import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// A screen with the app background and the standard padding, scrolling when the content is taller than the
 /// screen or the text is large (Dynamic Type).
@@ -379,7 +381,7 @@ struct QuietButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(Font.mosaic(MosaicTokens.FontSize.sm, weight: .medium))
-                .foregroundStyle(colorScheme.mosaic.accentText)
+                .foregroundStyle(colorScheme.mosaic.text)
                 .frame(minWidth: 44, minHeight: 44)
                 .opacity(isEnabled ? (configuration.isPressed ? 0.6 : 1) : 0.5)
                 .contentShape(Rectangle())
@@ -408,5 +410,57 @@ struct NoticeBanner: View {
             .onAppear {
                 UIAccessibility.post(notification: .announcement, argument: text)
             }
+    }
+}
+
+/// Tells the idle lock about every touch without taking part in it. A SwiftUI drag gesture on the root view
+/// cancels the touches of the UIKit bars (back button, tab bar, toolbar menu); this recognizer fails at once,
+/// does not cancel or delay anything, and sees every touch of the window.
+struct TouchProbe: UIViewRepresentable {
+    let onTouch: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> TouchProbeView {
+        let view = TouchProbeView()
+        view.onTouch = onTouch
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        return view
+    }
+
+    func updateUIView(_ uiView: TouchProbeView, context: Context) {
+        uiView.onTouch = onTouch
+    }
+}
+
+final class TouchProbeView: UIView {
+    var onTouch: @MainActor () -> Void = {}
+    private let recognizer = TouchRecognizer(target: nil, action: nil)
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        recognizer.view?.removeGestureRecognizer(recognizer)
+        recognizer.report = { [weak self] in self?.onTouch() }
+        window?.addGestureRecognizer(recognizer)
+    }
+
+    override func removeFromSuperview() {
+        recognizer.view?.removeGestureRecognizer(recognizer)
+        super.removeFromSuperview()
+    }
+}
+
+final class TouchRecognizer: UIGestureRecognizer {
+    var report: @MainActor () -> Void = {}
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        report()
+        state = .failed
     }
 }

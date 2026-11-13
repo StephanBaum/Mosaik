@@ -57,6 +57,13 @@ final class MosaicUITests: XCTestCase {
     private func audit(_ app: XCUIApplication, screen: String) throws {
         try app.performAccessibilityAudit(for: .all) { issue in
             let element = issue.element
+            // The only exemptions, by element: the system toolbar items ("Edit", "Add item") stop scaling at a
+            // fixed size, as UIKit bar items do.
+            if issue.auditType == .dynamicType, let element,
+                element.identifier == "detail-edit" || element.label == "Add item" || element.identifier == "vault-add"
+            {
+                return true
+            }
             let detail =
                 "\(screen): \(issue.compactDescription) | type=\(element?.elementType.rawValue ?? 0) "
                 + "id=\(element?.identifier ?? "-") label=\(element?.label ?? "-")"

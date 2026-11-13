@@ -28,7 +28,7 @@ struct RootView: View {
             content
         }
         .background(CaptureProbe(observer: model.capture))
-        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in MainActor.assumeIsolated { model.userActivity() } })
+        .background(TouchProbe { model.userActivity() })
         .privacyCover(model.privacy)
     }
 

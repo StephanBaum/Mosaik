@@ -335,6 +335,7 @@ struct ItemDetailView: View {
                         }
                     } else {
                         BodyText(text: url.url)
+                            .accessibilityLabel(L10n.editorWebsites() + ": " + url.url)
                     }
                 }
             }
@@ -380,6 +381,7 @@ private struct FieldRow: View {
         let label = FieldLabels.label(for: field)
         VStack(alignment: .leading, spacing: MosaicTokens.Space.s2) {
             HintText(text: label)
+                .accessibilityHidden(!field.concealed)
             HStack(spacing: MosaicTokens.Space.s3) {
                 valueText(colors: colors)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -422,13 +424,14 @@ private struct FieldRow: View {
                 Text("••••••••")
                     .font(Font.mosaicMono(MosaicTokens.FontSize.md))
                     .foregroundStyle(colors.text)
-                    .accessibilityLabel(L10n.itemSecretHiddenLabel())
+                    .accessibilityHidden(true)
             }
         } else {
             Text(field.value ?? "")
                 .font(Font.mosaic(MosaicTokens.FontSize.md))
                 .foregroundStyle(colors.text)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(FieldLabels.label(for: field) + ": " + (field.value ?? ""))
         }
     }
 }

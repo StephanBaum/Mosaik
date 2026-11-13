@@ -21,7 +21,7 @@ struct ItemRow: View {
                 Text(title)
                     .font(Font.mosaic(MosaicTokens.FontSize.md, weight: .medium))
                     .foregroundStyle(colors.text)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(second)
                     .font(Font.mosaic(MosaicTokens.FontSize.sm))
                     .foregroundStyle(colors.textMuted)
