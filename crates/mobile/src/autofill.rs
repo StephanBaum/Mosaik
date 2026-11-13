@@ -456,11 +456,16 @@ fn select_fields(nodes: &[FieldNode], target: &FillTarget) -> FieldSelection {
     // or of none, are foreign (M10-G3-1). A target that is not an origin has no
     // host, so every node is foreign.
     let host = match &target.kind {
-        FillTargetKind::Web { origin } => Some(
-            PageOrigin::parse(origin)
-                .map(|o| o.host_str())
-                .unwrap_or_default(),
-        ),
+        FillTargetKind::Web { origin } => match PageOrigin::parse(origin) {
+            Ok(o) => Some(o.host_str()),
+            // An origin that does not parse has no page to root at (M10-G3 round 2, N3).
+            Err(_) => {
+                return FieldSelection {
+                    refused: Some(FieldRefusal::ForeignFrame),
+                    ..FieldSelection::default()
+                };
+            }
+        },
         FillTargetKind::AndroidApp { .. } => None,
     };
     let scope = host

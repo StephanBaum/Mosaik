@@ -273,7 +273,7 @@ pub fn canonical_rp_id(raw: &str) -> Option<String> {
 /// 5.1.3 step 8 and 5.1.4.1 step 7), restricted (ADR-0040): `https` only;
 /// the host must be a domain, not loopback; the rp ID defaults to the host;
 /// a given rp ID must be canonical (`Host::parse(rp)` is the same domain,
-/// no trailing dot, at most [`MAX_RP_ID_LEN`] bytes), equal the host or be a
+/// DNS labels only (letters, digits, hyphens), no trailing dot, at most [`MAX_RP_ID_LEN`] bytes), equal the host or be a
 /// dot-suffix of it, have a registrable domain in the public suffix list, and
 /// lie at or under the host's registrable domain (so a tenant of a wildcard
 /// public suffix such as `*.platformsh.site` cannot claim the parent).
@@ -294,7 +294,7 @@ pub fn webauthn_rp_id(origin: &PageOrigin, requested: Option<&str>) -> Result<St
         return Err(RpIdError::NotADomain);
     }
     let rp = requested.unwrap_or(host.as_str());
-    if !is_canonical_domain(rp) {
+    if !is_canonical_domain(rp) || !is_ldh_name(rp) {
         return Err(RpIdError::NotCanonical);
     }
     let is_suffix = host == rp

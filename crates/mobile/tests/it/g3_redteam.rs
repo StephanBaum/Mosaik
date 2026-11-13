@@ -169,6 +169,23 @@ fn g3_1_web_fields_are_rooted_at_the_target_host() {
     assert_eq!(selection.password, None);
 }
 
+/// M10-G3 round 2, N3: a web target whose origin does not parse has no page to
+/// root a selection at. It is refused, never matched against an empty host.
+#[test]
+fn g3_n3_an_unparseable_web_target_refuses_the_fill() {
+    let (phone, _) = Phone::with_account();
+    let selection = phone.core.select_fill_fields(
+        vec![
+            node(1, None, "username", false, false),
+            node(2, Some(""), "password", false, false),
+        ],
+        &web("not an origin"),
+    );
+    assert_eq!(selection.refused, Some(FieldRefusal::ForeignFrame));
+    assert_eq!(selection.username, None);
+    assert_eq!(selection.password, None);
+}
+
 // ---- M10-G3-2: WebView content without a webDomain counts as native ------------------------
 
 /// Attack (M10-G3-2): an app the user linked (a mail app, say) shows

@@ -1,6 +1,8 @@
 //! Field selection (ADR-0092, brief §4.3): any view tree never panics the
 //! selector, no selected field is invisible or in another web domain than the
 //! root, and a focus in a foreign frame refuses the request with no fields.
+//! The scoped selection (M10-G3 round 2, N2) holds the same for a web host and
+//! for an app: nothing foreign is selected, and a refusal selects nothing.
 //!
 //! The input is read as nodes of 5 bytes (flags, domain, two hints and an
 //! input type) followed by nothing else; bytes that do not fill a node are
@@ -8,7 +10,9 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use mosaic_origin::fields::{FieldNode, FieldRefusal, InputKind, select_fill_fields};
+use mosaic_origin::fields::{
+    FieldNode, FieldRefusal, FieldScope, InputKind, select_fill_fields, select_scoped_fill_fields,
+};
 
 const DOMAINS: [Option<&str>; 4] = [None, Some("a.com"), Some("b.com"), Some("A.com")];
 const HINTS: [&str; 8] = [
@@ -58,4 +62,38 @@ fuzz_target!(|data: &[u8]| {
         assert!(node.visible);
         assert_eq!(node.web_domain, root);
     }
+    // The scoped selector, for a web host of the domains above and for an app.
+    for host in ["a.com", "b.com"] {
+        let scoped = select_scoped_fill_fields(&nodes, FieldScope::Web { host });
+        if scoped.refused == Some(FieldRefusal::ForeignFrame) {
+            assert!(scoped.fields.is_empty());
+            assert!(nodes.iter().any(|n| n.focused && !in_host(n, host)));
+        }
+        for field in &scoped.fields {
+            let node = &nodes[field.index];
+            assert!(node.visible);
+            assert!(in_host(node, host));
+        }
+    }
+    let app = select_scoped_fill_fields(&nodes, FieldScope::App);
+    if app.refused == Some(FieldRefusal::ForeignFrame) {
+        assert!(app.fields.is_empty());
+        assert!(
+            nodes
+                .iter()
+                .any(|n| n.focused && (n.web_domain.is_some() || n.is_web))
+        );
+    }
+    for field in &app.fields {
+        let node = &nodes[field.index];
+        assert!(node.visible);
+        assert!(node.web_domain.is_none() && !node.is_web);
+    }
 });
+
+/// Whether the node's domain is the host, ignoring ASCII case.
+fn in_host(node: &FieldNode, host: &str) -> bool {
+    node.web_domain
+        .as_deref()
+        .is_some_and(|d| d.eq_ignore_ascii_case(host))
+}
