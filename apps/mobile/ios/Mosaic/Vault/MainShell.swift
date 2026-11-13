@@ -24,13 +24,13 @@ struct MainShell: View {
     var body: some View {
         TabView(selection: $tab) {
             VaultTab(app: app, vault: vault)
-                .tabItem { Label(L10n.navVault(), systemImage: "lock.rectangle.stack") }
+                .tabItem { Label(L10n.navVault(), systemImage: "lock.rectangle.stack").accessibilityLabel(L10n.navVault()) }
                 .tag(ShellTab.vault)
             SearchTab(app: app, vault: vault)
-                .tabItem { Label(L10n.navSearch(), systemImage: "magnifyingglass") }
+                .tabItem { Label(L10n.navSearch(), systemImage: "magnifyingglass").accessibilityLabel(L10n.navSearch()) }
                 .tag(ShellTab.search)
             SettingsTab(app: app, vault: vault)
-                .tabItem { Label(L10n.navSettings(), systemImage: "gearshape") }
+                .tabItem { Label(L10n.navSettings(), systemImage: "gearshape").accessibilityLabel(L10n.navSettings()) }
                 .tag(ShellTab.settings)
         }
         .tint(colorScheme.mosaic.accent)

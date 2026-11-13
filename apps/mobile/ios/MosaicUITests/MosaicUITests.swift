@@ -52,16 +52,16 @@ final class MosaicUITests: XCTestCase {
         }
     }
 
-    /// Audits the screen that is showing. The colors come from the design tokens, which are checked against
-    /// WCAG AA in `packages/design-tokens`, so the contrast audit is left out here. The Dynamic Type audit is
-    /// left out too, with the clipped-text check: the first reported "partially unsupported" on a simulator run
-    /// without naming an element, and the text is set with `Font.custom(_:size:relativeTo:)`, which scales. They
-    /// need a look on a device with Dynamic Type at its largest sizes (open point of T11). The system's own bars
-    /// are not ours to fix.
-    private func audit(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) throws {
-        try app.performAccessibilityAudit(for: .all.subtracting([.contrast, .dynamicType, .textClipped])) { issue in
-            guard let element = issue.element else { return true }
-            return element.elementType == .tabBar || element.elementType == .navigationBar
+    /// Audits the screen that is showing, every audit type. Each issue is reported with the element it names
+    /// (type, identifier, label), so a failure says what to fix. Issues are collected, not stopped at.
+    private func audit(_ app: XCUIApplication, screen: String) throws {
+        try app.performAccessibilityAudit(for: .all) { issue in
+            let element = issue.element
+            let detail =
+                "\(screen): \(issue.compactDescription) | type=\(element?.elementType.rawValue ?? 0) "
+                + "id=\(element?.identifier ?? "-") label=\(element?.label ?? "-")"
+            XCTFail(detail)
+            return true
         }
     }
 
@@ -113,26 +113,27 @@ final class MosaicUITests: XCTestCase {
         let app = launch()
         unlock(app)
         tab(app, 2)
-        let about = app.staticTexts["about-pre-audit"]
+        let about = app.descendants(matching: .any)["about-pre-audit"]
         scrollTo(about, in: app)
-        XCTAssertTrue(about.waitForExistence(timeout: 30))
+        XCTAssertTrue(about.waitForExistence(timeout: 30), app.debugDescription)
         scrollTo(app.buttons["lock-now"], in: app)
         XCTAssertTrue(app.buttons["lock-now"].exists)
     }
 
     func testAccessibilityAuditMainScreens() throws {
         let app = launch()
+        continueAfterFailure = true
         unlock(app)
-        try audit(app)
+        try audit(app, screen: "vault")
         openFirstItem(app)
         XCTAssertTrue(app.buttons["reveal-login.password"].waitForExistence(timeout: 30))
-        try audit(app)
+        try audit(app, screen: "detail")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         tab(app, 1)
-        try audit(app)
+        try audit(app, screen: "search")
         tab(app, 2)
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 30))
-        try audit(app)
+        try audit(app, screen: "settings")
     }
 
     func testScreenshotsLightDarkEnDe() {
