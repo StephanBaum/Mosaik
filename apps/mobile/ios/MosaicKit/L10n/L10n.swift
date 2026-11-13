@@ -847,6 +847,74 @@ public enum L10n {
         NSLocalizedString("mobile.editor.websites", bundle: .main, comment: "")
     }
 
+    public static func extConfigBody() -> String {
+        NSLocalizedString("mobile.ext.configBody", bundle: .main, comment: "")
+    }
+
+    public static func extConfigTitle() -> String {
+        NSLocalizedString("mobile.ext.configTitle", bundle: .main, comment: "")
+    }
+
+    public static func extFillHint() -> String {
+        NSLocalizedString("mobile.ext.fillHint", bundle: .main, comment: "")
+    }
+
+    public static func extHideAll() -> String {
+        NSLocalizedString("mobile.ext.hideAll", bundle: .main, comment: "")
+    }
+
+    public static func extLoading() -> String {
+        NSLocalizedString("mobile.ext.loading", bundle: .main, comment: "")
+    }
+
+    public static func extMatches(site: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.matches", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func extNoAccount() -> String {
+        NSLocalizedString("mobile.ext.noAccount", bundle: .main, comment: "")
+    }
+
+    public static func extNoMatches(site: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.noMatches", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func extNoMatchesHint() -> String {
+        NSLocalizedString("mobile.ext.noMatchesHint", bundle: .main, comment: "")
+    }
+
+    public static func extNotSavedFor(site: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.notSavedFor", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func extOpenApp() -> String {
+        NSLocalizedString("mobile.ext.openApp", bundle: .main, comment: "")
+    }
+
+    public static func extOtpTitle() -> String {
+        NSLocalizedString("mobile.ext.otpTitle", bundle: .main, comment: "")
+    }
+
+    public static func extPasskeyTitle() -> String {
+        NSLocalizedString("mobile.ext.passkeyTitle", bundle: .main, comment: "")
+    }
+
+    public static func extSearchAll() -> String {
+        NSLocalizedString("mobile.ext.searchAll", bundle: .main, comment: "")
+    }
+
+    public static func extThisSite() -> String {
+        NSLocalizedString("mobile.ext.thisSite", bundle: .main, comment: "")
+    }
+
+    public static func extWarnLookalike(site: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.warnLookalike", bundle: .main, comment: ""), locale: .current, arguments: [site])
+    }
+
+    public static func extWarnPunycode(unicode: String) -> String {
+        String(format: NSLocalizedString("mobile.ext.warnPunycode", bundle: .main, comment: ""), locale: .current, arguments: [unicode])
+    }
+
     public static func generatorAmbiguous() -> String {
         NSLocalizedString("mobile.generator.ambiguous", bundle: .main, comment: "")
     }

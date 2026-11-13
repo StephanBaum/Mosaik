@@ -342,4 +342,27 @@ export const mobile = {
     "Mosaic tells the system the website and username of each login. The system keeps this list on the phone, outside Mosaic's encryption.",
   "mobile.settings.identitiesPassword": "Type your master password to turn this on.",
   "mobile.licences.introIos": "Mosaic for iPhone is built with these open-source parts.",
+  // iOS (T12): the AutoFill extension (password, passkey and one-time-code pickers, configuration).
+  "mobile.ext.openApp": "Open Mosaic and unlock it once with your master password.",
+  "mobile.ext.noAccount":
+    "Mosaic has no account on this iPhone yet. Open Mosaic to set it up.",
+  "mobile.ext.loading": "Opening your vault",
+  "mobile.ext.thisSite": "this site",
+  "mobile.ext.matches": "Logins for {site}",
+  "mobile.ext.noMatches": "No login for {site}",
+  "mobile.ext.noMatchesHint":
+    "Mosaic fills only logins that are saved for this site. Open Mosaic to add this site to a login.",
+  "mobile.ext.searchAll": "Search all logins",
+  "mobile.ext.hideAll": "Hide other logins",
+  "mobile.ext.notSavedFor": "Not saved for {site}",
+  "mobile.ext.fillHint": "Fills this login",
+  "mobile.ext.warnPunycode":
+    "This address is written with special characters: {unicode}. Check that it is the site you mean.",
+  "mobile.ext.warnLookalike":
+    "This address looks like {site}, which you saved in Mosaic. Check that it is the site you mean.",
+  "mobile.ext.otpTitle": "Choose a one-time code",
+  "mobile.ext.passkeyTitle": "Choose a passkey",
+  "mobile.ext.configTitle": "Mosaic AutoFill",
+  "mobile.ext.configBody":
+    "Mosaic offers your logins, passkeys and one-time codes when you tap a field or a sign-in button. You change what it offers in Settings in the Mosaic app.",
 } as const satisfies Record<string, string>;

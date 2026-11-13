@@ -654,6 +654,57 @@ object L10n {
     fun editorWebsites(r: Resources): String =
         r.getString(R.string.mobile_editor_websites)
 
+    fun extConfigBody(r: Resources): String =
+        r.getString(R.string.mobile_ext_configBody)
+
+    fun extConfigTitle(r: Resources): String =
+        r.getString(R.string.mobile_ext_configTitle)
+
+    fun extFillHint(r: Resources): String =
+        r.getString(R.string.mobile_ext_fillHint)
+
+    fun extHideAll(r: Resources): String =
+        r.getString(R.string.mobile_ext_hideAll)
+
+    fun extLoading(r: Resources): String =
+        r.getString(R.string.mobile_ext_loading)
+
+    fun extMatches(r: Resources, site: String): String =
+        r.getString(R.string.mobile_ext_matches, site)
+
+    fun extNoAccount(r: Resources): String =
+        r.getString(R.string.mobile_ext_noAccount)
+
+    fun extNoMatches(r: Resources, site: String): String =
+        r.getString(R.string.mobile_ext_noMatches, site)
+
+    fun extNoMatchesHint(r: Resources): String =
+        r.getString(R.string.mobile_ext_noMatchesHint)
+
+    fun extNotSavedFor(r: Resources, site: String): String =
+        r.getString(R.string.mobile_ext_notSavedFor, site)
+
+    fun extOpenApp(r: Resources): String =
+        r.getString(R.string.mobile_ext_openApp)
+
+    fun extOtpTitle(r: Resources): String =
+        r.getString(R.string.mobile_ext_otpTitle)
+
+    fun extPasskeyTitle(r: Resources): String =
+        r.getString(R.string.mobile_ext_passkeyTitle)
+
+    fun extSearchAll(r: Resources): String =
+        r.getString(R.string.mobile_ext_searchAll)
+
+    fun extThisSite(r: Resources): String =
+        r.getString(R.string.mobile_ext_thisSite)
+
+    fun extWarnLookalike(r: Resources, site: String): String =
+        r.getString(R.string.mobile_ext_warnLookalike, site)
+
+    fun extWarnPunycode(r: Resources, unicode: String): String =
+        r.getString(R.string.mobile_ext_warnPunycode, unicode)
+
     fun generatorAmbiguous(r: Resources): String =
         r.getString(R.string.mobile_generator_ambiguous)
 

@@ -3439,6 +3439,295 @@
         }
       }
     },
+    "mobile.ext.configBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic bietet deine Logins, Passkeys und Einmalcodes an, wenn du ein Feld oder eine Anmelde-Schaltfläche antippst. Was Mosaic anbietet, änderst du in den Einstellungen der Mosaic-App."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic offers your logins, passkeys and one-time codes when you tap a field or a sign-in button. You change what it offers in Settings in the Mosaic app."
+          }
+        }
+      }
+    },
+    "mobile.ext.configTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic AutoFill"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic AutoFill"
+          }
+        }
+      }
+    },
+    "mobile.ext.fillHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füllt diesen Login aus"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fills this login"
+          }
+        }
+      }
+    },
+    "mobile.ext.hideAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Logins ausblenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide other logins"
+          }
+        }
+      }
+    },
+    "mobile.ext.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Tresor wird geöffnet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening your vault"
+          }
+        }
+      }
+    },
+    "mobile.ext.matches" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logins für %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logins for %1$@"
+          }
+        }
+      }
+    },
+    "mobile.ext.noAccount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone ist noch kein Mosaic-Konto eingerichtet. Öffne Mosaic, um es einzurichten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic has no account on this iPhone yet. Open Mosaic to set it up."
+          }
+        }
+      }
+    },
+    "mobile.ext.noMatches" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Login für %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No login for %1$@"
+          }
+        }
+      }
+    },
+    "mobile.ext.noMatchesHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic füllt nur Logins aus, die für diese Website gespeichert sind. Öffne Mosaic, um diese Website bei einem Login einzutragen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mosaic fills only logins that are saved for this site. Open Mosaic to add this site to a login."
+          }
+        }
+      }
+    },
+    "mobile.ext.notSavedFor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht für %1$@ gespeichert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not saved for %1$@"
+          }
+        }
+      }
+    },
+    "mobile.ext.openApp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne Mosaic und entsperre es einmal mit deinem Master-Passwort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Mosaic and unlock it once with your master password."
+          }
+        }
+      }
+    },
+    "mobile.ext.otpTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einmalcode auswählen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a one-time code"
+          }
+        }
+      }
+    },
+    "mobile.ext.passkeyTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passkey auswählen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a passkey"
+          }
+        }
+      }
+    },
+    "mobile.ext.searchAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Logins durchsuchen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search all logins"
+          }
+        }
+      }
+    },
+    "mobile.ext.thisSite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "diese Website"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "this site"
+          }
+        }
+      }
+    },
+    "mobile.ext.warnLookalike" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Adresse sieht aus wie %1$@, die du in Mosaic gespeichert hast. Prüfe, ob es die Website ist, die du meinst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This address looks like %1$@, which you saved in Mosaic. Check that it is the site you mean."
+          }
+        }
+      }
+    },
+    "mobile.ext.warnPunycode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Adresse enthält Sonderzeichen: %1$@. Prüfe, ob es die Website ist, die du meinst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This address is written with special characters: %1$@. Check that it is the site you mean."
+          }
+        }
+      }
+    },
     "mobile.generator.ambiguous" : {
       "extractionState" : "manual",
       "localizations" : {
