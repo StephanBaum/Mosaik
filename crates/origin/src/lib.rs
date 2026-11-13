@@ -467,4 +467,6 @@ fn is_one_deletion(long: &[char], short: &[char]) -> bool {
 #[cfg(test)]
 mod mobile_tests;
 #[cfg(test)]
+mod redteam_g3_tests;
+#[cfg(test)]
 mod tests;

@@ -19,6 +19,7 @@
 mod autofill;
 mod common;
 mod g1_review;
+mod g3_redteam;
 mod items;
 mod join;
 mod lifecycle;
