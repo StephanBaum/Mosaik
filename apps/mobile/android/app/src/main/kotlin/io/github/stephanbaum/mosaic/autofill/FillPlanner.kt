@@ -59,11 +59,11 @@ class FillPlanner(private val holder: CoreHolder) {
     private fun shapeOnly(parsed: ParsedStructure): FillTarget {
         val kind =
             if (parsed.webDomain != null) {
-                FillTargetKind.Web(origin = "")
+                FillTargetKind.Web("")
             } else {
-                FillTargetKind.AndroidApp(package = parsed.callerPackage, certs = emptyList())
+                FillTargetKind.AndroidApp(parsed.callerPackage, emptyList())
             }
-        return FillTarget(kind = kind, display = "", warning = null)
+        return FillTarget(kind, "", null)
     }
 
     private fun infoOf(parsed: ParsedStructure, fields: FillFields) =
