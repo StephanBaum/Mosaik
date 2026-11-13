@@ -94,6 +94,9 @@ wire_enum!(
         /// Passkeys over the limit (100 per entry, 10,000 per file) are left
         /// out.
         PasskeysLimit,
+        /// A note was over the item size limit; the entry's notes are
+        /// incomplete.
+        NotesTruncated,
     }
 );
 

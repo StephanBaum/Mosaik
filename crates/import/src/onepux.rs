@@ -123,9 +123,11 @@ struct Files<'a> {
     /// `files/<name>`: the member index of each exact name after `files/`
     /// (the lowest index for a repeated name).
     exact: HashMap<Box<[u8]>, usize>,
-    /// For each prefix `p` such that some member is named `p__...`: the
-    /// lowest index of such a member. One pass over the central directory
-    /// builds both maps, so a lookup is two hash probes whatever the ID.
+    /// `files/<head>__<name>`: for each member name containing `__`, the
+    /// text before its FIRST `__` (one key per member, so O(name) memory)
+    /// maps to the lowest member index with that head. An ID that itself
+    /// contains `__` therefore matches only by exact name; real 1Password
+    /// IDs contain none. A lookup is two hash probes whatever the ID.
     prefixed: HashMap<Box<[u8]>, usize>,
     /// Number of lookups made by `find` (linearity test).
     #[cfg(test)]
@@ -141,13 +143,12 @@ impl<'a> Files<'a> {
                 continue;
             };
             exact.entry(rest.into()).or_insert(i);
-            let heads = rest
+            if let Some(head) = rest
                 .windows(2)
-                .enumerate()
-                .filter(|(_, w)| *w == b"__")
-                .filter_map(|(p, _)| rest.get(..p));
-            for prefix in heads {
-                prefixed.entry(prefix.into()).or_insert(i);
+                .position(|w| w == b"__")
+                .and_then(|p| rest.get(..p))
+            {
+                prefixed.entry(head.into()).or_insert(i);
             }
         }
         Self {
@@ -514,26 +515,27 @@ mod tests {
     fn find_matches_document_id_and_double_underscore_names() {
         let bytes = archive(&["files/a__b__c".into(), "files/ab".into(), "files/a".into()]);
         let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        // Member 0 is keyed by the text before its FIRST `__`: "a".
         assert_eq!(files.find("a"), Some(0));
-        assert_eq!(files.find("a__b"), Some(0));
+        // An ID with a `__` of its own matches only an exact name.
+        assert_eq!(files.find("a__b"), None);
+        assert_eq!(files.find("a__b__c"), Some(0));
         assert_eq!(files.find("ab"), Some(1));
         assert_eq!(files.find(""), None);
         assert_eq!(files.find("zz"), None);
     }
 
     #[test]
-    fn find_checks_the_shorter_key_for_ids_ending_in_underscore() {
+    fn find_keys_a_member_by_the_text_before_its_first_double_underscore() {
         let bytes = archive(&[
-            "files/a___x".into(), // 0: key "a", matches ID "a_" as "a_" + "__x"
-            "files/___y".into(),  // 1: key "",  matches ID "_"  as "_" + "__y"
-            "files/__z".into(),   // 2: key "",  exact match for ID "__z" only
-            "files/a_".into(),    // 3: key "a_", exact match for ID "a_"
+            "files/a___x".into(), // 0: key "a" (first `__` at 1)
+            "files/___y".into(),  // 1: key ""  (never looked up: IDs are not empty)
+            "files/__z".into(),   // 2: key ""; exact match for ID "__z" only
+            "files/a_".into(),    // 3: no `__`; exact match for ID "a_" only
         ]);
         let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
-        // Both buckets hit; the lowest index (short bucket) wins.
-        assert_eq!(files.find("a_"), Some(0));
-        // Only the short (empty) bucket can match.
-        assert_eq!(files.find("_"), Some(1));
+        assert_eq!(files.find("a_"), Some(3));
+        assert_eq!(files.find("_"), None);
         assert_eq!(files.find("__z"), Some(2));
         assert_eq!(files.find("a"), Some(0));
         assert_eq!(files.find("b_"), None);
@@ -577,7 +579,6 @@ mod tests {
     /// 256 MiB file holds thousands of them. The `document_key` it replaced
     /// cut at the first `__` and was linear.
     #[test]
-    #[ignore = "RT-parsers-verify-1: Files::new stores a prefix per `__` of each member name, quadratic memory in the name length (one 64 KiB name is about 2 GiB)"]
     fn prefix_map_is_linear_in_the_member_name_length() {
         let name = format!("files/{}", "_".repeat(20_000));
         let bytes = archive(std::slice::from_ref(&name));

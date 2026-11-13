@@ -112,6 +112,17 @@ impl<'a> SessionBind<'a> {
         if r.u8().map_err(|_| WireError::Empty)? != msg::EXTENSION || r.string()? != SESSION_BIND {
             return Err(WireError::UnexpectedMessage);
         }
+        Self::parse_body(r.rest())
+    }
+
+    /// Parses the fields that follow the extension name: the bytes in
+    /// [`Request::Extension::body`] of a `session-bind@openssh.com` request.
+    ///
+    /// # Errors
+    /// [`WireError::Truncated`] or [`WireError::TrailingData`] if the fields
+    /// do not fill `body` exactly.
+    pub fn parse_body(body: &'a [u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(body);
         let host_key = r.string()?;
         let session_id = r.string()?;
         let signature = r.string()?;
@@ -195,11 +206,14 @@ pub enum Request<'a> {
     Sign(SignRequest<'a>),
     /// A key or lock management request; its body is not parsed.
     Refused(RefusedRequest),
-    /// `SSH_AGENTC_EXTENSION` with its extension name; the contents after
-    /// the name are not parsed.
+    /// `SSH_AGENTC_EXTENSION` with its extension name. The bytes after the
+    /// name are kept as they are; the caller parses them for the extensions
+    /// it supports (see [`SessionBind::parse_body`]).
     Extension {
         /// The extension name, for example `session-bind@openssh.com`.
         name: &'a [u8],
+        /// The bytes after the name, unparsed.
+        body: &'a [u8],
     },
     /// Any other message number.
     Unknown(u8),
@@ -236,14 +250,20 @@ impl<'a> Request<'a> {
                     flags,
                 }))
             }
-            msg::EXTENSION => Ok(Self::Extension { name: r.string()? }),
+            msg::EXTENSION => {
+                let name = r.string()?;
+                Ok(Self::Extension {
+                    name,
+                    body: r.rest(),
+                })
+            }
             n => Ok(RefusedRequest::from_number(n).map_or(Self::Unknown(n), Self::Refused)),
         }
     }
 
     /// Encodes the message body, as a client sends it. Refused requests are
     /// encoded with an empty body (the agent never reads it), extensions
-    /// with the name only.
+    /// with the name only (their `body` is not encoded).
     ///
     /// # Errors
     /// [`WireError::TooLong`] if the body would exceed [`MAX_MESSAGE_LEN`].
@@ -258,7 +278,7 @@ impl<'a> Request<'a> {
                 w.u32(s.flags);
             }
             Self::Refused(r) => w.u8(r.number()),
-            Self::Extension { name } => {
+            Self::Extension { name, .. } => {
                 w.u8(msg::EXTENSION);
                 w.string(name)?;
             }
@@ -400,6 +420,11 @@ struct Reader<'a> {
 impl<'a> Reader<'a> {
     const fn new(buf: &'a [u8]) -> Self {
         Self { buf }
+    }
+
+    /// The bytes not read yet.
+    const fn rest(&self) -> &'a [u8] {
+        self.buf
     }
 
     const fn remaining(&self) -> usize {
@@ -585,7 +610,8 @@ mod tests {
         assert_eq!(
             Request::parse(&body).unwrap(),
             Request::Extension {
-                name: b"session-bind@openssh.com"
+                name: b"session-bind@openssh.com",
+                body: &[1, 2, 3],
             }
         );
         assert_eq!(Request::parse(&[27]), Err(WireError::Truncated));

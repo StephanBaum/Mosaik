@@ -5095,10 +5095,13 @@ A remembered "allow for 15 minutes" grant is bound to the key and the client exe
 
 ### Decision
 - The agent parses `session-bind@openssh.com` (`string hostkey, string session identifier, string signature, bool is_forwarding`) and verifies the signature over the session identifier with the host key, using the `ssh-key` crate's verifier. No signature code of our own.
-- The result is kept per connection. A valid bind answers `SSH_AGENT_SUCCESS`; a bad signature or malformed message answers `SSH_AGENT_FAILURE`.
-- A connection with any `is_forwarding = true` bind, or a failed bind, is untrusted: every signature on it asks again (`can_remember` is false in the prompt) and no grant is created from it.
-- A connection without any bind behaves as before, so old clients are unaffected.
-- The prompt does not yet show the destination host-key fingerprint (it needs a field on `ApprovalRequest` and the desktop prompt); left for a later change.
+- The result is kept per connection as an origin, `ConnOrigin { Local, Forwarded, BindFailed }`. A valid bind answers `SSH_AGENT_SUCCESS`; a bad signature or malformed message answers `SSH_AGENT_FAILURE`. The message is parsed once, after the extension name.
+- A bind can only move the origin away from `Local` (`Local` < `Forwarded` < `BindFailed`), never back. A verified bind with `is_forwarding = true` gives `Forwarded`; a failed or malformed bind gives `BindFailed`.
+- A connection that is not `Local` asks again for every signature (`can_remember` is false in the prompt) and creates no grant. `ApprovalRequest` carries the origin to the desktop prompt, which shows a warning line for `Forwarded` ("A server you are connected to asks to use this key") and for `BindFailed` (the origin is unknown, the host check failed).
+- A connection without any bind stays `Local` and behaves as before, so old clients are unaffected.
+- Like OpenSSH, the agent accepts any host key: the bind signature only proves that the session identifier came from that host key, not that the host is the one the user meant. Trust comes from the `is_forwarding` flag and the per-connection origin, not from host authentication.
+- Host keys of type RSA, P-384 and P-521 cannot be verified: the `ssh-key` `rsa` feature stays off, because the `rsa` crate carries RUSTSEC-2023-0071 and would fail cargo-deny and cargo-audit. Such a connection counts as `BindFailed`, and the user sees the `BindFailed` line in the prompt, which explains why it asks.
+- The prompt does not yet show the destination host-key fingerprint; left for a later change.
 
 ### Alternatives considered
 - **Refuse forwarded connections:** breaks a legitimate workflow; asking each time is enough.

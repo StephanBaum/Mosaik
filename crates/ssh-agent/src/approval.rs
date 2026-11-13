@@ -94,6 +94,25 @@ impl ClientInfo {
     }
 }
 
+/// Where a connection's requests come from, as far as its
+/// `session-bind@openssh.com` message shows. A connection starts `Local`; a
+/// bind can only move it to a later variant (the order is the severity),
+/// never back. Only `Local` may use or create a remembered grant.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub enum ConnOrigin {
+    /// No bind, or only verified binds that are not forwarded: the request
+    /// comes from the client process on this machine.
+    #[default]
+    Local,
+    /// A verified bind says the agent connection is forwarded: the request
+    /// comes from a server the user is connected to.
+    Forwarded,
+    /// A bind was malformed or its signature did not verify (this includes
+    /// host keys of a type the agent cannot verify, such as RSA, P-384 and
+    /// P-521): where the request comes from is unknown.
+    BindFailed,
+}
+
 /// A sign request waiting for the user.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ApprovalRequest {
@@ -115,6 +134,8 @@ pub struct ApprovalRequest {
     pub requested_at: SystemTime,
     /// When it is refused without an answer.
     pub expires_at: SystemTime,
+    /// Where the request comes from; show it to the user unless `Local`.
+    pub origin: ConnOrigin,
     /// Whether `Decision::AllowFor` is remembered; if `false` it counts as
     /// `AllowOnce`. Hide "Allow for 15 minutes" when `false`.
     pub can_remember: bool,
@@ -382,6 +403,7 @@ mod tests {
             client: client(None),
             requested_at: SystemTime::now(),
             expires_at: SystemTime::now() + Duration::from_mins(1),
+            origin: ConnOrigin::Local,
             can_remember: false,
         }
     }

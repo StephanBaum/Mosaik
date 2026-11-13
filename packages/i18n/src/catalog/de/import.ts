@@ -64,6 +64,8 @@ export const importMessages = {
     "Dieser Eintrag hat mehr Passkeys, als ein Import übernimmt (100 pro Eintrag, 10.000 pro Datei). Die überzähligen Passkeys wurden ausgelassen. Behalte deine alte App, bis du sie umgezogen hast.",
   "import.entry.fieldsDropped":
     "Dieser Eintrag hat mehr Felder, als Mosaic speichert. Die übrigen Felder werden ausgelassen.",
+  "import.entry.notesTruncated":
+    "Die Notizen dieses Eintrags sind länger, als ein Eintrag fassen kann. Der Teil, der nicht mehr hineinpasst, wurde ausgelassen.",
   "import.skip.malformed": "Dieser Eintrag ist beschädigt und lässt sich nicht lesen.",
   "import.skip.empty": "Dieser Eintrag ist leer.",
   "import.skip.tooLarge": "Dieser Eintrag ist größer als 1 MiB, das Maximum für einen Eintrag.",

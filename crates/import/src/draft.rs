@@ -110,6 +110,9 @@ pub enum EntryWarning {
     /// The one-time-password secret is shorter than 80 bits, so its codes
     /// are easy to guess. It was kept as it is.
     OtpWeak,
+    /// A note did not fit under the item size limit and was left out (or
+    /// cut off at a note boundary): the entry's notes are incomplete.
+    NotesTruncated,
 }
 
 /// An attachment file of an entry.
@@ -452,7 +455,9 @@ impl Builder {
 
     /// Adds notes; several notes are joined by a blank line. Each note is
     /// appended to one buffer, so many notes cost time linear in their total
-    /// size. The text stops growing at the item size limit.
+    /// size. The text stops growing at the item size limit: a note that does
+    /// not fit is left out whole and the entry gets
+    /// [`EntryWarning::NotesTruncated`].
     pub(crate) fn notes(&mut self, value: &str) {
         if value.trim().is_empty() {
             return;
@@ -460,7 +465,7 @@ impl Builder {
         let cap = mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN;
         if let Some(existing) = &mut self.notes {
             if existing.len().saturating_add(value.len()).saturating_add(2) > cap {
-                self.warn(EntryWarning::FieldsDropped);
+                self.warn(EntryWarning::NotesTruncated);
             } else {
                 existing.push_str(
                     "
@@ -470,9 +475,10 @@ impl Builder {
                 existing.push_str(value);
             }
         } else if value.len() > cap {
-            self.warn(EntryWarning::FieldsDropped);
+            self.warn(EntryWarning::NotesTruncated);
         } else if self.room() {
-            let mut buf = Str::default();
+            // The first note's length is known: one allocation of its size.
+            let mut buf = Str::new(String::with_capacity(value.len()));
             buf.push_str(value);
             self.notes = Some(buf);
         }
@@ -1074,6 +1080,27 @@ mod tests {
         let mut b = Builder::new(ItemType::Login);
         b.tag("only a tag");
         assert!(b.finish().is_none());
+    }
+
+    /// A note that does not fit under the item size limit gets
+    /// `NotesTruncated` (not `FieldsDropped`), whether it is the first note
+    /// or a later one; the notes already kept stay.
+    #[test]
+    fn oversized_notes_warn_notes_truncated() {
+        let cap = mosaic_core::envelope::MAX_ITEM_PLAINTEXT_LEN;
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.title("t");
+        b.notes(&"a".repeat(cap + 1));
+        let (_, w) = b.finish().unwrap();
+        assert_eq!(w, [EntryWarning::NotesTruncated]);
+
+        let mut b = Builder::new(ItemType::SecureNote);
+        b.title("t");
+        b.notes("first");
+        b.notes(&"b".repeat(cap));
+        let (d, w) = b.finish().unwrap();
+        assert_eq!(w, [EntryWarning::NotesTruncated]);
+        assert_eq!(d.text(TextField::Notes), Some("first"));
     }
 
     #[test]

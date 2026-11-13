@@ -16,8 +16,8 @@ use zeroize::Zeroizing;
 use mosaic_core::{ItemId, VaultId};
 
 use crate::approval::{
-    ApprovalRequest, Approver, ClientInfo, CloseReason, DEFAULT_GRANT, Decision, Grants, RequestId,
-    SignFailed,
+    ApprovalRequest, Approver, ClientInfo, CloseReason, ConnOrigin, DEFAULT_GRANT, Decision,
+    Grants, RequestId, SignFailed,
 };
 use crate::keys::{AgentKey, DEFAULT_MAX_KDF_ROUNDS, KeySet, SignFailure, verify_session_bind};
 use crate::wire::{self, Request, Response, SESSION_BIND, SessionBind, SignRequest};
@@ -175,42 +175,47 @@ impl<A: Approver> AgentCore<A> {
                     .encode()
                     .unwrap_or_else(|_| failure())
             }
-            Ok(Request::Sign(req)) => self.sign(req, client, conn.untrusted).await,
-            Ok(Request::Extension { name }) if name == SESSION_BIND => {
-                Self::session_bind(payload, conn)
+            Ok(Request::Sign(req)) => self.sign(req, client, conn.origin).await,
+            Ok(Request::Extension { name, body }) if name == SESSION_BIND => {
+                Self::session_bind(body, conn)
             }
             Ok(_) | Err(_) => failure(),
         }
     }
 
-    /// Answers `session-bind@openssh.com`: SUCCESS if the host key signed the
-    /// session identifier. A forwarded bind, a bad signature or a malformed
-    /// message marks the connection untrusted: a remembered grant does not
-    /// cover it and it creates none (the request may come from a remote
-    /// host, not from the local client the grant was given to).
-    fn session_bind(payload: &[u8], conn: &mut ConnState) -> Vec<u8> {
-        let verified = SessionBind::parse(payload)
+    /// Answers `session-bind@openssh.com` (`body`: the bytes after the
+    /// extension name, parsed here for the first time): SUCCESS if the host
+    /// key signed the session identifier. A forwarded bind moves the
+    /// connection to [`ConnOrigin::Forwarded`]; a bad signature or a
+    /// malformed message moves it to [`ConnOrigin::BindFailed`]. Neither
+    /// move can be undone by a later bind. Like OpenSSH, the agent accepts
+    /// any host key: the signature only shows that the session identifier
+    /// came from that host key, not that the host is the one the user meant.
+    fn session_bind(body: &[u8], conn: &mut ConnState) -> Vec<u8> {
+        let verified = SessionBind::parse_body(body)
             .ok()
             .filter(|b| verify_session_bind(b.host_key, b.session_id, b.signature));
         if let Some(bind) = verified {
-            conn.untrusted |= bind.forwarding;
+            if bind.forwarding {
+                conn.escalate(ConnOrigin::Forwarded);
+            }
             vec![wire::msg::SUCCESS]
         } else {
-            conn.untrusted = true;
+            conn.escalate(ConnOrigin::BindFailed);
             failure()
         }
     }
 
-    async fn sign(&self, req: SignRequest<'_>, client: &ClientInfo, untrusted: bool) -> Vec<u8> {
+    async fn sign(&self, req: SignRequest<'_>, client: &ClientInfo, origin: ConnOrigin) -> Vec<u8> {
         let Some(key) = self.keys().find(req.key_blob) else {
             return failure();
         };
         let id = RequestId::next();
-        let granted = !untrusted
+        let granted = origin == ConnOrigin::Local
             && self
                 .grants()
                 .allows(key.public_key_blob(), client, Instant::now());
-        if !granted && !self.approve(id, &key, client, untrusted).await {
+        if !granted && !self.approve(id, &key, client, origin).await {
             return failure();
         }
         let data = req.data.to_vec();
@@ -256,14 +261,14 @@ impl<A: Approver> AgentCore<A> {
         id: RequestId,
         key: &AgentKey,
         client: &ClientInfo,
-        untrusted: bool,
+        origin: ConnOrigin,
     ) -> bool {
         let Some(_slot) = PendingSlot::take(&self.pending, self.config.max_pending_approvals)
         else {
             return false;
         };
         let now = SystemTime::now();
-        let can_remember = client.can_remember() && !untrusted;
+        let can_remember = client.can_remember() && origin == ConnOrigin::Local;
         let request = ApprovalRequest {
             id,
             vault: key.vault(),
@@ -274,6 +279,7 @@ impl<A: Approver> AgentCore<A> {
             client: client.clone(),
             requested_at: now,
             expires_at: now.checked_add(self.config.approval_timeout).unwrap_or(now),
+            origin,
             can_remember,
         };
         // `closed` runs exactly once, also if this future is dropped
@@ -369,9 +375,16 @@ impl<A: Approver> AgentCore<A> {
 /// What one connection has told the agent so far.
 #[derive(Default)]
 struct ConnState {
-    /// A `session-bind` showed a forwarded hop or failed: grants do not
-    /// apply and none is created.
-    untrusted: bool,
+    /// Starts `Local`; see [`ConnOrigin`]. Only [`ConnState::escalate`]
+    /// writes it.
+    origin: ConnOrigin,
+}
+
+impl ConnState {
+    /// Moves the origin to `to` if that is a later variant; never back.
+    fn escalate(&mut self, to: ConnOrigin) {
+        self.origin = self.origin.max(to);
+    }
 }
 
 fn failure() -> Vec<u8> {

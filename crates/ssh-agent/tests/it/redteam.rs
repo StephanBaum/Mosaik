@@ -13,8 +13,8 @@ use mosaic_core::model::{SshKeyMaterial, Text};
 use mosaic_core::{ItemId, SecretString, VaultId};
 use mosaic_ssh_agent::wire::{self, MAX_MESSAGE_LEN, Request, Response, SignRequest, msg};
 use mosaic_ssh_agent::{
-    AgentConfig, AgentCore, AgentKey, ApprovalRequest, Approver, ClientInfo, CloseReason, Decision,
-    KeySet,
+    AgentConfig, AgentCore, AgentKey, ApprovalRequest, Approver, ClientInfo, CloseReason,
+    ConnOrigin, Decision, KeySet,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
@@ -66,6 +66,16 @@ impl Scripted {
 
     fn asked(&self) -> usize {
         self.requests.lock().unwrap().len()
+    }
+
+    /// The origin each approval request carried, in order.
+    fn origins(&self) -> Vec<ConnOrigin> {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.origin)
+            .collect()
     }
 }
 
@@ -207,6 +217,60 @@ fn rt_parsers_4_a_forwarded_connection_does_not_reuse_a_local_grant() {
             "the forwarded request was signed under the local grant without asking"
         );
         assert_eq!(approver.asked(), 2, "the forwarded request asked again");
+        assert_eq!(
+            approver.origins(),
+            [ConnOrigin::Local, ConnOrigin::Forwarded],
+            "the approval request says it is forwarded"
+        );
+    });
+}
+
+/// RT-parsers round 2 (verify-2): a bind moves the origin only away from
+/// `Local`. A forwarded connection stays `Forwarded` after a later local
+/// bind, becomes `BindFailed` after a bad or truncated bind, and does not
+/// go back to `Forwarded` after a later forwarded one.
+#[test]
+fn a_bind_never_moves_the_origin_back_towards_local() {
+    rt().block_on(async {
+        let approver = Scripted::new(&[]);
+        let core = core(&approver, AgentConfig::default());
+        let blob = agent_key().public_key_blob().to_vec();
+        let client = ssh_client("/usr/bin/ssh");
+
+        let (mut a, _t1) = connect(&core, client.clone());
+        roundtrip(&mut a, &session_bind(true)).await;
+        assert_eq!(
+            roundtrip(&mut a, &session_bind(false)).await,
+            [msg::SUCCESS]
+        );
+        roundtrip(&mut a, &sign_body(&blob, b"1")).await;
+
+        let (mut b, _t2) = connect(&core, client.clone());
+        roundtrip(&mut b, &session_bind(true)).await;
+        assert_eq!(roundtrip(&mut b, &bind(true, false)).await, [msg::FAILURE]);
+        assert_eq!(roundtrip(&mut b, &session_bind(true)).await, [msg::SUCCESS]);
+        roundtrip(&mut b, &sign_body(&blob, b"2")).await;
+
+        let (mut c, _t3) = connect(&core, client.clone());
+        let mut truncated = vec![msg::EXTENSION];
+        string(&mut truncated, b"session-bind@openssh.com");
+        assert_eq!(roundtrip(&mut c, &truncated).await, [msg::FAILURE]);
+        roundtrip(&mut c, &sign_body(&blob, b"3")).await;
+
+        let (mut d, _t4) = connect(&core, client);
+        roundtrip(&mut d, &bind(false, false)).await;
+        roundtrip(&mut d, &session_bind(false)).await;
+        roundtrip(&mut d, &sign_body(&blob, b"4")).await;
+
+        assert_eq!(
+            approver.origins(),
+            [
+                ConnOrigin::Forwarded,
+                ConnOrigin::BindFailed,
+                ConnOrigin::BindFailed,
+                ConnOrigin::BindFailed
+            ]
+        );
     });
 }
 

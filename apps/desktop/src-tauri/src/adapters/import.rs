@@ -192,6 +192,7 @@ fn entry_warning(warning: EntryWarning) -> Option<ImportEntryWarning> {
         EntryWarning::PasskeyUnreadable => ImportEntryWarning::PasskeyUnreadable,
         EntryWarning::PasskeyUnsupported => ImportEntryWarning::PasskeyUnsupported,
         EntryWarning::PasskeysLimit => ImportEntryWarning::PasskeysLimit,
+        EntryWarning::NotesTruncated => ImportEntryWarning::NotesTruncated,
         _ => return None,
     })
 }

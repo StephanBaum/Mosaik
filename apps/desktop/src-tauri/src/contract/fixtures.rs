@@ -65,8 +65,8 @@ use super::sharing::{
     MemberRowState, SetRoleRequest, ShareRole, ShareVaultRequest,
 };
 use super::ssh::{
-    self, SshCloseReason, SshDecision, SshRespondRequest, SshSetEnabledRequest, SshSignFailReason,
-    SshSkipReason,
+    self, SshCloseReason, SshDecision, SshOrigin, SshRespondRequest, SshSetEnabledRequest,
+    SshSignFailReason, SshSkipReason,
 };
 use super::sync::{
     self, AcknowledgeRequest, ChangePasswordRequest, CheckServerRequest, CodeRequest,
@@ -1386,6 +1386,7 @@ fn enums() -> Map<String, Value> {
         ("sshSignFailReason", values(SshSignFailReason::ALL)),
         ("sshDecision", values(SshDecision::ALL)),
         ("sshCloseReason", values(SshCloseReason::ALL)),
+        ("sshOrigin", values(SshOrigin::ALL)),
         ("browserEndpointState", values(BrowserEndpointState::ALL)),
         ("browserRegistryState", values(BrowserRegistryState::ALL)),
         ("browserFamily", values(BrowserFamily::ALL)),

@@ -60,6 +60,8 @@ export const importMessages = {
     "This item has more passkeys than one import takes (100 per item, 10,000 per file). The extra passkeys were left out. Keep your old app until you've moved them.",
   "import.entry.fieldsDropped":
     "This item has more fields than Mosaic keeps. The extra fields are left out.",
+  "import.entry.notesTruncated":
+    "This item's notes are longer than one item can hold. The part that didn't fit was left out.",
   "import.skip.malformed": "This entry is damaged and can't be read.",
   "import.skip.empty": "This entry is empty.",
   "import.skip.tooLarge": "This entry is larger than 1 MiB, the most one item can hold.",
