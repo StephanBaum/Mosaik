@@ -664,7 +664,6 @@ mod tests {
     /// `lock_with` on a settled phase clears `pending.lock`/`strict` (a lock
     /// on a locked phase is met).
     #[test]
-    #[ignore = "RT-verify2-ios-1: a lock kept for a join that never finishes locks the account created next"]
     fn rt_verify2_ios_1_a_lock_kept_for_an_abandoned_join_outlives_it() {
         let dir = tempfile::tempdir().unwrap();
         let core = core_without_account(dir.path());
@@ -698,7 +697,6 @@ mod tests {
     /// RT-verify2-ios-1, or `put_back_keeping_lock` honours `pending.close`
     /// (a close ends the join: it needs the store).
     #[test]
-    #[ignore = "RT-verify2-ios-2: close_store() during a join start leaves the store open when the join is abandoned"]
     fn rt_verify2_ios_2_a_close_kept_for_an_abandoned_join_leaves_the_store_open() {
         let dir = tempfile::tempdir().unwrap();
         let core = core_without_account(dir.path());

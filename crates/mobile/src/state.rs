@@ -151,11 +151,13 @@ impl Slots {
         }
     }
 
-    /// Drops a pending join that ran out.
-    pub(crate) fn drop_expired_join(&mut self, now_ms: u64) {
-        if self.join.as_ref().is_some_and(|j| j.expired(now_ms)) {
+    /// Drops a pending join that ran out; `true` when one was dropped.
+    pub(crate) fn drop_expired_join(&mut self, now_ms: u64) -> bool {
+        let expired = self.join.as_ref().is_some_and(|j| j.expired(now_ms));
+        if expired {
             self.join = None;
         }
+        expired
     }
 }
 
@@ -217,11 +219,33 @@ impl Inner {
 
     /// Settles a phase installed fresh from the store file (a failed join, a
     /// reset): a lock request that came meanwhile is met by the fresh locked
-    /// state, and a pending close is honoured.
+    /// state (a strict one still sets the password limit, as in `put_back`),
+    /// and a pending close is honoured.
     pub fn settle_fresh_phase(&mut self) {
         self.pending.lock = false;
-        self.pending.strict = false;
+        if std::mem::take(&mut self.pending.strict)
+            && let Phase::Locked(locked) = &mut self.phase
+        {
+            locked.require_password();
+        }
         self.close_if_requested();
+    }
+
+    /// Settles the requests a join start kept (`put_back_keeping_lock`) when
+    /// the join ends without `finish_join` (cancelled, expired, refused): on
+    /// a settled phase no request stays armed. A phase that is held out, or
+    /// a closed one a reopen is opening, keeps them for whoever settles it.
+    pub fn settle_abandoned_join(&mut self) {
+        if matches!(self.phase, Phase::Locked(_) | Phase::NoAccount(_)) {
+            self.settle_fresh_phase();
+        }
+    }
+
+    /// Drops a pending join that ran out and settles what it kept.
+    pub fn drop_expired_join(&mut self, now_ms: u64) {
+        if self.slots.drop_expired_join(now_ms) {
+            self.settle_abandoned_join();
+        }
     }
 }
 

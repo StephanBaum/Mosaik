@@ -250,16 +250,22 @@ impl Core {
     /// Takes the pending join; one that expired is dropped.
     fn take_pending_join(&self) -> Result<PendingJoin> {
         let now = self.now_ms();
-        let pending = self
-            .guard()?
-            .slots
-            .join
-            .take()
-            .ok_or(MobileError::NotFound)?;
+        let mut guard = self.guard()?;
+        let pending = guard.slots.join.take().ok_or(MobileError::NotFound)?;
         if pending.expired(now) {
+            // The join ends here: no request it kept stays armed.
+            guard.settle_abandoned_join();
             return Err(MobileError::SyncHandoffExpired);
         }
         Ok(pending)
+    }
+
+    /// Ends a join that will not finish (the join slot is already empty):
+    /// the requests its start kept are settled on the settled phase.
+    fn abandon_join(&self) {
+        if let Ok(mut guard) = self.guard() {
+            guard.settle_abandoned_join();
+        }
     }
 
     /// Puts a pending join back after a failure that allows a retry.
@@ -286,7 +292,9 @@ impl Core {
                 self.finish_join(pending)
             }
             Err(e) => {
-                if !matches!(e, TransportError::Unauthorized) {
+                if matches!(e, TransportError::Unauthorized) {
+                    self.abandon_join();
+                } else {
                     self.keep_pending_join(pending);
                 }
                 Err(e.into())
@@ -342,8 +350,14 @@ impl Core {
                 Ok(HandoffStatus::Waiting)
             }
             Ok(HandoffState::Done) => self.finish_join(pending).map(HandoffStatus::Done),
-            Ok(HandoffState::Failed) => Ok(HandoffStatus::Failed),
-            Ok(HandoffState::Expired) => Ok(HandoffStatus::Expired),
+            Ok(HandoffState::Failed) => {
+                self.abandon_join();
+                Ok(HandoffStatus::Failed)
+            }
+            Ok(HandoffState::Expired) => {
+                self.abandon_join();
+                Ok(HandoffStatus::Expired)
+            }
             Err(e) => {
                 self.keep_pending_join(pending);
                 Err(e.into())
@@ -351,10 +365,12 @@ impl Core {
         }
     }
 
-    /// Drops a pending join.
+    /// Drops a pending join and settles the requests its start kept: on a
+    /// settled phase no lock or close stays armed for a join that ends.
     pub fn join_cancel(&self) {
         if let Ok(mut guard) = self.guard() {
             guard.slots.join = None;
+            guard.settle_abandoned_join();
         }
     }
 
@@ -369,7 +385,13 @@ impl Core {
             secret_key,
             ..
         } = pending;
-        let account = hosted::join_fetch_account(&origin, &login.grant.token, &login.keys)?;
+        let account = match hosted::join_fetch_account(&origin, &login.grant.token, &login.keys) {
+            Ok(account) => account,
+            Err(e) => {
+                self.abandon_join();
+                return Err(e.into());
+            }
+        };
         // The store may have been closed (iOS) while the user was in Safari.
         if matches!(self.guard()?.phase, Phase::Closed) {
             self.reopen_store()?;

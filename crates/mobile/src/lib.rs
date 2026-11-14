@@ -359,7 +359,7 @@ impl Core {
             return SessionState::StoreClosed;
         };
         let inner = &mut *guard;
-        inner.slots.drop_expired_join(now);
+        inner.drop_expired_join(now);
         match &mut inner.phase {
             Phase::Closed => {
                 if inner.store_busy {
@@ -441,7 +441,7 @@ impl Core {
             inner.slots.clear_on_lock(keep_join);
             inner.settings.locked();
             if close {
-                inner.slots.drop_expired_join(now);
+                inner.drop_expired_join(now);
             }
             match std::mem::replace(&mut inner.phase, Phase::Busy) {
                 Phase::Unlocked(unlocked) => {
@@ -462,13 +462,18 @@ impl Core {
                 Phase::Locked(mut locked) if require_password => {
                     locked.require_password();
                     inner.phase = Phase::Locked(locked);
+                    inner.settle_fresh_phase();
                     None
                 }
                 // A settled phase is closed here, in the deciding section; the
-                // dropped store releases its file lock.
+                // dropped store releases its file lock. No request stays armed
+                // on it (a join start may have kept one).
                 Phase::Locked(_) | Phase::NoAccount(_) if close => {
                     inner.phase = Phase::Closed;
                     inner.store_busy = false;
+                    inner.pending.lock = false;
+                    inner.pending.strict = false;
+                    inner.pending.close = false;
                     None
                 }
                 // A reopen is opening the store: it closes what it opened
@@ -478,8 +483,13 @@ impl Core {
                     inner.phase = Phase::Closed;
                     None
                 }
+                // A lock on a phase that is settled is met by it: a request a
+                // join start kept for a `finish_join` that never came is
+                // cleared and a pending close applied. Any other phase keeps
+                // its requests.
                 other => {
                     inner.phase = other;
+                    inner.settle_abandoned_join();
                     None
                 }
             }
@@ -499,7 +509,8 @@ impl Core {
     fn finish_lock(&self, unlocked: UnlockedPhase, require_password: bool) {
         // A session that cannot be taken back (it cannot happen: only a lock
         // takes it) closes the store.
-        let mut phase = unlocked.owned.take().map_or(Phase::Closed, |session| {
+        let owned = unlocked.owned.take();
+        let mut phase = owned.map_or(Phase::Closed, |session| {
             Phase::Locked(if require_password {
                 session.lock_requiring_password()
             } else {
@@ -513,7 +524,13 @@ impl Core {
             if late_strict && let Phase::Locked(locked) = &mut phase {
                 locked.require_password();
             }
+            // A session that could not be taken back leaves the phase closed
+            // already: a pending close has nothing left to close.
+            let closed = matches!(phase, Phase::Closed);
             guard.phase = phase;
+            if closed {
+                guard.pending.close = false;
+            }
             guard.close_if_requested();
         }
     }
