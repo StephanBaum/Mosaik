@@ -60,12 +60,10 @@ fn check_code(
     last_step: Option<u64>,
 ) -> Result<u64, ApiError> {
     let now = st.clock.now_ms();
-    if let Err(retry) = st
+    let claim = st
         .db
         .run(|c| accounts::claim_second_factor_slot(c, account_id, now))?
-    {
-        return Err(ApiError::rate_limited(retry));
-    }
+        .map_err(ApiError::rate_limited)?;
     let step = sealed
         .and_then(|s| totp::open(&st.keys.server_secret, account_id, s))
         .and_then(|secret| totp::verify(&secret, code, now, last_step))
@@ -74,7 +72,7 @@ fn check_code(
     // Only the request that stored the step gives its attempt back.
     st.db.run_tx(|tx| {
         if accounts::set_last_step(tx, account_id, step)? {
-            accounts::refund_totp_slot(tx, account_id)?;
+            accounts::refund_totp_slot(tx, account_id, claim)?;
             Ok(step)
         } else {
             Err(two_factor_invalid())

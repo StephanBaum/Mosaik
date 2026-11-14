@@ -198,6 +198,17 @@ pub const TOTP_FAIL_WINDOW_MS: u64 = 3_600_000;
 /// Wrong TOTP codes allowed per account and window, from any session.
 pub const TOTP_FAIL_BUDGET: u64 = 10;
 
+/// One claimed attempt of the per-account budget. It names the window the
+/// attempt was counted in and is spent by value: [`refund_totp_slot`] takes it,
+/// so one claim is refunded at most once, and only while its window is still
+/// the current one (a window that has rolled over already forgot the attempt,
+/// so a late refund would erase somebody else's failure).
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "a claimed attempt stays spent unless it is refunded after a right code"]
+pub struct SlotClaim {
+    window: i64,
+}
+
 /// Claims one attempt of the per-account budget before a code is checked:
 /// an atomic count, so concurrent guesses cannot exceed it. The attempt is
 /// given back with [`refund_totp_slot`] when the code was right. The error is
@@ -206,7 +217,7 @@ pub fn claim_second_factor_slot(
     conn: &Connection,
     id: &[u8; 16],
     now: u64,
-) -> Result<Result<(), u32>, ApiError> {
+) -> Result<Result<SlotClaim, u32>, ApiError> {
     let n = conn.execute(
         "UPDATE accounts SET \
            totp_fail_count = CASE WHEN ?2 - totp_fail_window >= ?3 THEN 1 ELSE totp_fail_count + 1 END, \
@@ -219,9 +230,6 @@ pub fn claim_second_factor_slot(
             int(TOTP_FAIL_BUDGET)
         ],
     )?;
-    if n == 1 {
-        return Ok(Ok(()));
-    }
     let window: i64 = conn
         .query_row(
             "SELECT totp_fail_window FROM accounts WHERE account_id = ?1",
@@ -230,6 +238,9 @@ pub fn claim_second_factor_slot(
         )
         .optional()?
         .unwrap_or(0);
+    if n == 1 {
+        return Ok(Ok(SlotClaim { window }));
+    }
     let end = u64::try_from(window)
         .unwrap_or(0)
         .saturating_add(TOTP_FAIL_WINDOW_MS);
@@ -238,11 +249,21 @@ pub fn claim_second_factor_slot(
         .max(1)))
 }
 
-/// Gives an attempt of the budget back (the code was right).
-pub fn refund_totp_slot(conn: &Connection, id: &[u8; 16]) -> Result<(), ApiError> {
+/// Gives the claimed attempt back (the code was right). Spends the claim, and
+/// does nothing when the window of the claim is no longer the current one.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "by value on purpose: a claim is refunded once"
+)]
+pub fn refund_totp_slot(
+    conn: &Connection,
+    id: &[u8; 16],
+    claim: SlotClaim,
+) -> Result<(), ApiError> {
     conn.execute(
-        "UPDATE accounts SET totp_fail_count = MAX(totp_fail_count - 1, 0) WHERE account_id = ?1",
-        [id.as_slice()],
+        "UPDATE accounts SET totp_fail_count = MAX(totp_fail_count - 1, 0) \
+         WHERE account_id = ?1 AND totp_fail_window = ?2",
+        params![id.as_slice(), claim.window],
     )?;
     Ok(())
 }
@@ -348,17 +369,48 @@ mod tests {
         let db = db();
         let id = [0u8; 16];
         db.run(|c| {
+            let mut first = None;
             for _ in 0..10 {
-                assert_eq!(claim_second_factor_slot(c, &id, T + 1_000)?, Ok(()));
+                let claim = claim_second_factor_slot(c, &id, T + 1_000)?;
+                first = first.or(claim.ok());
             }
             assert_eq!(claim_second_factor_slot(c, &id, T + 61_000)?, Err(3_540));
-            refund_totp_slot(c, &id)?;
-            assert_eq!(claim_second_factor_slot(c, &id, T + 61_000)?, Ok(()));
+            refund_totp_slot(c, &id, first.expect("first claim"))?;
+            assert!(claim_second_factor_slot(c, &id, T + 61_000)?.is_ok());
             assert!(claim_second_factor_slot(c, &id, T + 62_000)?.is_err());
-            assert_eq!(
-                claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?,
-                Ok(())
-            );
+            assert!(claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?.is_ok());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    fn fail_count(c: &Connection, id: &[u8; 16]) -> rusqlite::Result<i64> {
+        c.query_row(
+            "SELECT totp_fail_count FROM accounts WHERE account_id = ?1",
+            [id.as_slice()],
+            |r| r.get(0),
+        )
+    }
+
+    /// A refund after the window rolled over must not erase the failure that
+    /// opened the new window, and a refund never lifts the budget above its
+    /// value before the claim.
+    #[test]
+    fn late_refund_does_not_raise_the_budget() {
+        let db = db();
+        let id = [0u8; 16];
+        db.run(|c| {
+            let old = claim_second_factor_slot(c, &id, T + 1_000)?.expect("claim");
+            // A wrong guess in the next window: count 1.
+            let _wrong = claim_second_factor_slot(c, &id, T + 1_000 + TOTP_FAIL_WINDOW_MS)?;
+            refund_totp_slot(c, &id, old)?;
+            assert_eq!(fail_count(c, &id)?, 1);
+            // A refund in its own window restores exactly the claimed attempt.
+            let fresh =
+                claim_second_factor_slot(c, &id, T + 2_000 + TOTP_FAIL_WINDOW_MS)?.expect("claim");
+            assert_eq!(fail_count(c, &id)?, 2);
+            refund_totp_slot(c, &id, fresh)?;
+            assert_eq!(fail_count(c, &id)?, 1);
             Ok(())
         })
         .unwrap();
