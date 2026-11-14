@@ -252,6 +252,7 @@ Design: `docs/MOBILE.md`, CRYPTO_SPEC §6.9, ADR-0088 to ADR-0096. Until OD-M10-
 | Compromised developer machine | the release and updater keys exist only as secrets of the GitHub environment `release` (owner as required reviewer, protected `v*` tags) after generation, never on a developer machine or in the repository; actions pinned by SHA with `contents: read` by default; publishing creates a draft only (ADR-0081), M9. Residual: R118 |
 | A key or certificate placeholder shipped as if real | no placeholder key or certificate is committed; the public key appears only once the owner generates it (OD-M9-4) |
 | The mobile build chain (Gradle and AndroidX, JNA's prebuilt native library, XcodeGen, UniFFI) | Gradle dependency verification (SHA-256) and wrapper validation; a release classpath allowlist that also greps for Firebase, Play services, analytics and crash reporting; no remote Swift packages; XcodeGen checked against a pinned SHA-256; UniFFI pinned exactly, with `cargo deny` over all features (ADR-0089, ADR-0095), M10. `cargo deny` does not cover the JVM tree; mobile SBOMs are a follow-up if the owner wants store releases |
+| Wrapper crates and `mosaic-winshim` run `unsafe` Windows calls inside the vault process (program fill) | ADR-0157 vetting; exact pins; `unsafe` only in `crates/winshim`, each block with a `// SAFETY:` reading; Fable red-team review before the first merge and on every change; a re-vetting on every version bump |
 
 ## 5. Residual risks register
 
