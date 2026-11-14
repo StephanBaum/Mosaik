@@ -49,7 +49,7 @@ vec3 foil(vec2 p, vec2 B, float PX, vec2 tilt, float e, float extra, vec2 nb, fl
   vec2 g=normalize(vec2(p.x-clamp(p.x,-(B.x-0.5),B.x-0.5),p.y)+1e-6);
   float kk=clamp(1.0-e/0.06,0.0,1.0);
   n=normalize(n+vec3(g*kk*kk*1.2,0.0));
-  vec3 V=normalize(vec3(-tilt*0.6,1.0));
+  vec2 sa=vec2(-dg.y,dg.x); vec3 V=normalize(vec3(sa*dot(-tilt*0.6,sa),1.0));
   float cosT=clamp(dot(n,V),0.0,1.0);
   float thick=0.45+0.30*warp+0.10*rid*3.5+0.18*dot(p,vec2(0.6,0.9))+0.45*tilt.x+0.25*tilt.y+0.1+0.5*sin((uTime-2.0)*0.1)+uSeed*0.1+extra;
   vec3 irid=thinFilm(2.2*thick*cosT);
