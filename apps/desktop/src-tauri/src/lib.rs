@@ -76,6 +76,10 @@ use crate::quick_unlock::QuickUnlockService;
 use crate::screen_capture::NativeScreenCapture;
 use crate::state::{AppState, Backend, Slot, guard};
 
+/// The window title of a preview build (ADR-0153): the English and German word for "preview".
+#[cfg(feature = "preview")]
+const PREVIEW_WINDOW_TITLE: &str = "Mosaic (Preview / Vorschau)";
+
 /// The store's file name in the app data directory.
 pub const STORE_FILE: &str = "vault.sqlite3";
 
@@ -177,6 +181,13 @@ pub fn run() -> tauri::Result<()> {
             backend.sweep_cli_sessions();
             // macOS: the per-user manifests point into the signed bundle.
             connector::refresh_at_start();
+            // A preview build marks its native window (ADR-0153). The native title cannot reach
+            // the i18n catalog (the webview has no window permission, ADR-0019), so it names
+            // both languages.
+            #[cfg(feature = "preview")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(PREVIEW_WINDOW_TITLE);
+            }
             let state = AppState::new(backend);
 
             let weak = state.downgrade();

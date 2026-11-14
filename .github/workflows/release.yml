@@ -91,6 +91,25 @@ jobs:
           test -s release/minisign.pub || { echo "::error::release/minisign.pub is missing (the owner generates the key first, docs/RELEASE.md)"; exit 1; }
       - name: No Cargo features in the release build
         run: bash scripts/release/check-features.sh
+      # ADR-0153: the `preview` Cargo feature makes the native host trust the dev extension ID, so it
+      # must never reach a release. check-features.sh already refuses every feature flag; this step
+      # names the preview feature on its own, in this workflow, the release scripts and the image build.
+      - name: No preview feature in the release build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The word is split in the pattern, so this step does not match itself.
+          pat='(-''-features|-''-all-features|-F)[^#]*pre''view|features[[:space:]]*[:=][^#]*pre''view'
+          fail=0
+          for f in .github/workflows/release.yml deploy/Dockerfile scripts/release/*.sh apps/desktop/src-tauri/tauri.release.conf.json; do
+            [ -f "$f" ] || continue
+            hits="$(grep -nE -- "$pat" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+            if [ -n "$hits" ]; then echo "::error file=$f::the preview feature in a release build: $hits"; fail=1; fi
+          done
+          # The shipped crates must not turn it on by default or through a dependency.
+          if grep -nE '^default[[:space:]]*=.*pre''view' crates/native-messaging/Cargo.toml apps/desktop/src-tauri/Cargo.toml crates/cli/Cargo.toml; then fail=1; fi
+          if grep -nE 'mosaic-native-messaging[^#]*features[^#]*pre''view' apps/desktop/src-tauri/Cargo.toml crates/*/Cargo.toml; then fail=1; fi
+          exit "$fail"
       - name: Wording check
         run: node scripts/release/wording-check.mjs
       - name: Install minisign (pinned version, logged)

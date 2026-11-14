@@ -2,6 +2,8 @@
 export const app = {
   "app.name": "Mosaic",
   "app.preAudit": "Pre-audit software: not yet reviewed by an external security auditor.",
+  "app.previewTag": "Preview",
+  "app.previewBuild": "Preview build, not a release. Unsigned, pre-audit, for trying out only.",
   "action.cancel": "Cancel",
   "action.continue": "Continue",
   "action.retry": "Retry",
