@@ -3,6 +3,7 @@
  * A change that weakens protection asks for the master password (`reauthRequired`).
  */
 import { useEffect, useState } from "react";
+import { IS_PREVIEW } from "../app/preview.ts";
 import { useSettings } from "../app/SettingsProvider.tsx";
 import { Button } from "../components/Button.tsx";
 import { ErrorAlert } from "../components/ErrorAlert.tsx";
@@ -288,7 +289,7 @@ export function SettingsScreen() {
     <section className="settings" aria-label={t("settings.title")}>
       <div className="settings__intro">
         <h1 className="display">{t("settings.title")}</h1>
-        <p className="lede">{t("settings.intro")}</p>
+        <p className="lede">{IS_PREVIEW ? `${t("settings.intro")} ${t("app.previewBuild")}` : t("settings.intro")}</p>
       </div>
       <ErrorAlert error={error} />
       <AutoLockSettings

@@ -7,6 +7,7 @@ import {
   type MessageValues,
 } from "@mosaic/i18n";
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { IS_PREVIEW } from "../app/preview.ts";
 import type { IpcError, Language } from "../ipc/contract/index.ts";
 
 export interface I18n {
@@ -34,6 +35,10 @@ export function I18nProvider({ locale, children }: { locale: Locale; children: R
   );
   useEffect(() => {
     document.documentElement.lang = locale;
+    // A preview build (ADR-0153) says so in the page title as well.
+    if (IS_PREVIEW) {
+      document.title = `Mosaic (${formatMessage(locale, "app.previewTag")})`;
+    }
   }, [locale]);
   return <I18nContext value={value}>{children}</I18nContext>;
 }

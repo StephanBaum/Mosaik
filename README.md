@@ -22,6 +22,7 @@ server; it is off by default and unreleased. See
 
 ## Documents
 
+- [Try a preview build](docs/TRY_IT.md) (unsigned Windows, Chrome and Edge, Android; for trying out only)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Cryptography specification](docs/CRYPTO_SPEC.md)
 - [UX guidelines](docs/UX_GUIDELINES.md)
