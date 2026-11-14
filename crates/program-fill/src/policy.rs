@@ -228,7 +228,7 @@ mod tests {
             ProgramUrl::package("microsoft.windowsnotepad_8wekyb3d8bbwe").unwrap()
         );
         assert_eq!(p.confirmations, Confirmations::One);
-        assert!(p.warnings.is_empty());
+        assert_eq!(p.warnings, Vec::new());
 
         let p = propose_binding(&signed("discord.exe"), &[]).unwrap();
         assert_eq!(p.url, ProgramUrl::signed("discord.exe", SIGNER).unwrap());
@@ -294,17 +294,17 @@ mod tests {
         // A Cyrillic o is the same warning.
         let homoglyph = signed("disc\u{043e}rd.exe");
         let p = propose_binding(&homoglyph, &["discord.exe"]).unwrap();
-        assert!(!p.warnings.is_empty());
+        assert_ne!(p.warnings, Vec::new());
         assert_eq!(
             program_fill_allowed(&discord, &homoglyph.as_identity()),
             Err(Refusal::NoMatch)
         );
         // No similar bound program, no warning.
-        assert!(
+        assert_eq!(
             propose_binding(&signed("slack.exe"), &["discord.exe"])
                 .unwrap()
-                .warnings
-                .is_empty()
+                .warnings,
+            Vec::new()
         );
     }
 

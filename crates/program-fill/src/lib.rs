@@ -10,10 +10,16 @@
 //!   signer or file hash) and why a capture is refused.
 //! - [`policy`]: the link policy: what a login is bound to, and the two
 //!   confirmations an unsigned program needs.
+//! - [`verify`]: the re-verification before every write (focus, window,
+//!   process, image path, field, occlusion, time).
 #![forbid(unsafe_code)]
 
 pub mod identity;
 pub mod policy;
+pub mod verify;
+
+#[cfg(any(test, feature = "fake"))]
+pub mod fake;
 
 pub use identity::{
     CaptureRefusal, CapturedIdentity, HashError, IdentitySource, MAX_UNSIGNED_IMAGE_BYTES,

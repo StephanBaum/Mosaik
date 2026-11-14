@@ -170,7 +170,7 @@ pub fn exe_name_of(final_path: &str) -> Option<String> {
 /// Which process the identity comes from: the window owner when it is the
 /// element's process, the element's process for a UWP window (owner
 /// `ApplicationFrameHost.exe`, element with a package family). Everything else
-/// is foreign content (WebView2 included, ADR-0158 Q2).
+/// is foreign content (`WebView2` included, ADR-0158 Q2).
 ///
 /// # Errors
 /// [`CaptureRefusal::ForeignContent`].
