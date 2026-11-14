@@ -18,7 +18,7 @@
   into ..\binaries\native-messaging\windows next to this file. The paths below use the WiX
   variable sys.SOURCEFILEDIR, because tauri-bundler does not pass the build environment to candle
   (a missing file stops the build). tauri.release.conf.json lists the component
-  group MosaicNativeMessaging in bundle.windows.wix.componentRefs.
+  group MosaicNativeMessaging in bundle.windows.wix.componentGroupRefs.
 
   The registry key names are the per-user ones of install.rs below HKLM; a test of the
   native-messaging crate checks them against this file.
