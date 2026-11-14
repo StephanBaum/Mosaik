@@ -47,7 +47,11 @@ fn load(st: &AppState, id: &[u8; 16]) -> Result<Account, ApiError> {
 }
 
 /// Checks `code` against a sealed secret with the replay guard; returns the
-/// matched step.
+/// matched step. Counts against the per-account second-factor budget exactly
+/// like the login does (CRYPTO_SPEC §9.3): the attempt is claimed atomically
+/// before the code is looked at (a storage error refuses the request) and is
+/// refunded only in the transaction that stores the step, which one winner of
+/// parallel requests with the same code can do, so it cannot be refunded twice.
 fn check_code(
     st: &AppState,
     account_id: &[u8; 16],
@@ -55,19 +59,25 @@ fn check_code(
     code: &str,
     last_step: Option<u64>,
 ) -> Result<u64, ApiError> {
+    let now = st.clock.now_ms();
+    let claim = st
+        .db
+        .run(|c| accounts::claim_second_factor_slot(c, account_id, now))?
+        .map_err(ApiError::rate_limited)?;
     let step = sealed
         .and_then(|s| totp::open(&st.keys.server_secret, account_id, s))
-        .and_then(|secret| totp::verify(&secret, code, st.clock.now_ms(), last_step))
+        .and_then(|secret| totp::verify(&secret, code, now, last_step))
         .ok_or_else(two_factor_invalid)?;
     // Conditional store: a code is accepted once even under parallel requests.
-    if st
-        .db
-        .run(|c| accounts::set_last_step(c, account_id, step))?
-    {
-        Ok(step)
-    } else {
-        Err(two_factor_invalid())
-    }
+    // Only the request that stored the step gives its attempt back.
+    st.db.run_tx(|tx| {
+        if accounts::set_last_step(tx, account_id, step)? {
+            accounts::refund_totp_slot(tx, claim)?;
+            Ok(step)
+        } else {
+            Err(two_factor_invalid())
+        }
+    })
 }
 
 /// The second factor for removing TOTP, a security key or a device and for

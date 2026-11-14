@@ -201,12 +201,10 @@ pub async fn totp(
         st.db.run(|c| sessions::delete(c, &session.token_hash))?;
         return Err(ApiError::unauthorized());
     };
-    if let Err(retry) = st
+    let claim = st
         .db
         .run(|c| accounts::claim_second_factor_slot(c, &session.account_id, now))?
-    {
-        return Err(ApiError::rate_limited(retry));
-    }
+        .map_err(ApiError::rate_limited)?;
     let account = st
         .db
         .run(|c| accounts::by_id(c, &session.account_id))?
@@ -236,7 +234,7 @@ pub async fn totp(
             // The session ended meanwhile: no login, no audit row.
             return Err(two_factor_invalid());
         }
-        accounts::refund_totp_slot(tx, &session.account_id)?;
+        accounts::refund_totp_slot(tx, claim)?;
         audit::record(
             tx,
             &session.account_id,
