@@ -166,3 +166,89 @@ pub fn repair(
     }
     install(layout, &browsers, host, registry).map(|_| ())
 }
+
+/// Removes Mosaic's own per-user entries (Windows only) that do not name
+/// `expected_host` with the expected extension list, so that the browser falls
+/// back to the machine-wide entry of the MSI. This is what a release install
+/// does about the residue of a Windows preview build (CHAIN-1): the preview
+/// writes `HKCU` keys and per-user manifests for its own host, which accepts
+/// the development extension, and the browsers read `HKCU` before `HKLM`.
+///
+/// An entry is only removed when it is Mosaic's own (the key's default value
+/// is exactly the manifest path Mosaic writes, as [`super::uninstall`] checks) and
+/// its manifest is unreadable, names another host or lists other extensions;
+/// and only for a browser whose `HKLM` entry names `expected_host`, so a
+/// broken machine-wide entry never loses its only replacement. Entries that
+/// point to `expected_host` (what a repair writes) stay. Returns how many
+/// keys and files were removed.
+///
+/// # Errors
+/// [`Error::Install`] if `expected_host` is not absolute or a key or file
+/// that has to go could not be removed; entries not yet reached stay.
+pub fn remove_foreign_user_entries(
+    layout: &Layout,
+    expected_host: &Path,
+    user: &mut dyn Registry,
+    machine: &mut dyn Registry,
+) -> Result<usize, Error> {
+    if !expected_host.is_absolute() {
+        return Err(Error::Install);
+    }
+    if layout.os != Os::Windows {
+        return Ok(0);
+    }
+    // The host is not written: only the key and manifest locations are used.
+    let plan = super::plan(
+        layout,
+        &Browser::ALL,
+        &layout.local_app_data.join("mosaic-native-host.exe"),
+    )?;
+    let mut removed = 0;
+    let mut gone_files: Vec<PathBuf> = Vec::new();
+    for (browser, entry) in Browser::ALL.into_iter().zip(&plan.registry) {
+        // A fallback has to exist: the MSI's entry for this browser.
+        let machine_ok = machine
+            .default_value(&entry.key)
+            .and_then(|file| manifest_host(&file, browser, expected_host))
+            .is_some_and(|(path, same_list)| {
+                same_list && same_host(layout.os, &path, expected_host)
+            });
+        if !machine_ok {
+            continue;
+        }
+        let Some(value) = user.default_value(&entry.key) else {
+            continue;
+        };
+        if !same_host(layout.os, &value, &entry.manifest) {
+            // Not Mosaic's manifest: somebody else's entry, the audit's business.
+            continue;
+        }
+        let foreign = match manifest_host(&entry.manifest, browser, expected_host) {
+            None => true,
+            Some((path, same_list)) => !(same_list && same_host(layout.os, &path, expected_host)),
+        };
+        if foreign {
+            user.delete(&entry.key)?;
+            removed += 1;
+            if !gone_files.contains(&entry.manifest) {
+                gone_files.push(entry.manifest.clone());
+            }
+        }
+    }
+    // The manifest files of the removed keys, unless another key still uses one.
+    for file in gone_files {
+        let in_use = plan
+            .registry
+            .iter()
+            .any(|e| e.manifest == file && user.default_value(&e.key).is_some_and(|v| v == file));
+        if in_use {
+            continue;
+        }
+        match fs::remove_file(&file) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(Error::Install),
+        }
+    }
+    Ok(removed)
+}

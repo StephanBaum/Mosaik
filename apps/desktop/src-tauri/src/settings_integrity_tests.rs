@@ -147,8 +147,8 @@ fn check_valid_mac_is_accepted(d: &Path, secret_key: &str) {
             })
             .unwrap_err()
             .code,
-            ErrorCode::Locked,
-            "a protection setting does not change while locked"
+            ErrorCode::ReauthRequired,
+            "a later idle lock is a weakening: it needs the password, whether locked or not"
         );
         unlock(&b, secret_key);
         let expected = Settings {

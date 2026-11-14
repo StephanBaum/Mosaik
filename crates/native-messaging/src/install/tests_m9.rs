@@ -269,3 +269,87 @@ fn machine_audit_reports_a_system_entry_for_another_host_unless_shadowed() {
         Vec::new()
     );
 }
+
+/// CHAIN-1: a release install removes the preview's per-user keys and
+/// manifests (they point at another host) once the MSI's entry is the fallback,
+/// and nothing else.
+#[test]
+fn foreign_user_entries_are_removed_once_the_machine_entry_is_the_fallback() {
+    use std::collections::HashMap;
+    struct Machine(HashMap<String, PathBuf>);
+    impl Registry for Machine {
+        fn set_default(&mut self, _: &str, _: &Path) -> Result<(), Error> {
+            Err(Error::Install)
+        }
+        fn default_value(&mut self, key: &str) -> Option<PathBuf> {
+            self.0.get(key).cloned()
+        }
+        fn delete(&mut self, _: &str) -> Result<(), Error> {
+            Err(Error::Install)
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let layout = windows_layout(root.path());
+    let release = &root
+        .path()
+        .join("Program Files")
+        .join("mosaic-native-host.exe");
+    let preview = root
+        .path()
+        .join("Local")
+        .join("Mosaic")
+        .join("mosaic-native-host.exe");
+    // The MSI's manifests (HKLM) for the release host.
+    let mut machine = Machine(HashMap::new());
+    for browser in Browser::ALL {
+        let file = root.path().join(format!("system-{}.json", browser.name()));
+        fs::write(&file, manifest_json(browser.is_firefox(), release)).unwrap();
+        machine.0.insert(registry_key(browser), file);
+    }
+    // What the preview left: per-user manifests and keys for its own host.
+    let mut user = Recorder::default();
+    install(&layout, &Browser::ALL, &preview, &mut user).unwrap();
+    let files = plan(&layout, &Browser::ALL, &preview).unwrap().files;
+    assert!(files.iter().all(|f| f.path.is_file()));
+
+    // Without the machine entry nothing is removed (no fallback).
+    let mut empty = Machine(HashMap::new());
+    assert_eq!(
+        remove_foreign_user_entries(&layout, release, &mut user, &mut empty).unwrap(),
+        0
+    );
+    assert_eq!(user.values.len(), 4);
+
+    // An entry of somebody else stays; the rest of the residue goes.
+    let foreign = PathBuf::from(r"D:\other\chromium.json");
+    user.values
+        .insert(registry_key(Browser::Edge), foreign.clone());
+    let removed = remove_foreign_user_entries(&layout, release, &mut user, &mut machine).unwrap();
+    assert_eq!(removed, 3 + files.len());
+    assert_eq!(user.values.len(), 1);
+    assert_eq!(
+        user.values.get(&registry_key(Browser::Edge)),
+        Some(&foreign)
+    );
+    assert!(files.iter().all(|f| !f.path.exists()));
+    assert_eq!(
+        remove_foreign_user_entries(&layout, release, &mut user, &mut machine).unwrap(),
+        0,
+        "nothing is left to remove"
+    );
+
+    // Entries that point to the installed host (what a repair writes) stay.
+    let mut user = Recorder::default();
+    install(&layout, &Browser::ALL, release, &mut user).unwrap();
+    assert_eq!(
+        remove_foreign_user_entries(&layout, release, &mut user, &mut machine).unwrap(),
+        0
+    );
+    assert_eq!(user.values.len(), 4);
+    // Other systems have no registry.
+    let unix = unix_layout(Os::Linux, root.path());
+    assert_eq!(
+        remove_foreign_user_entries(&unix, release, &mut user, &mut machine).unwrap(),
+        0
+    );
+}

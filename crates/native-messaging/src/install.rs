@@ -547,7 +547,8 @@ mod audit;
 mod system;
 
 pub use audit::{
-    EXTENSIONS_DIFFER, ManifestFinding, UNREADABLE, audit, audit_machine, audit_manifests, repair,
+    EXTENSIONS_DIFFER, ManifestFinding, UNREADABLE, audit, audit_machine, audit_manifests,
+    remove_foreign_user_entries, repair,
 };
 pub use system::{LINUX_SYSTEM_HOST, WINDOWS_SYSTEM_HOST, system_host, system_plan, write_system};
 

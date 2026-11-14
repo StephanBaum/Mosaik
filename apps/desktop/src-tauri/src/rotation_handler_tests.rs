@@ -236,6 +236,63 @@ fn secret_key_rotation_replaces_the_key_only_after_a_verified_kit() {
     e.unlock().unwrap();
 }
 
+/// KEY-1: the pending kit saves without the password only in the window the
+/// prepare opened; a lock closes it and an unlock (quick or not) never reopens it.
+#[test]
+fn the_pending_kit_needs_the_password_outside_the_prepare_window() {
+    use crate::contract::session::SaveKitRequest;
+    let _kdf = kdf_permit();
+    let e = Env::new();
+    e.create();
+    let b = e.b();
+    let kit = |password: Option<&str>| SaveKitRequest {
+        labels: crate::emergency_kit::tests::labels(),
+        pending: true,
+        password: password.map(SecretIn::test),
+    };
+    // No window before a prepare.
+    assert_eq!(
+        b.save_emergency_kit(kit(None)).unwrap_err().code,
+        ErrorCode::ReauthRequired
+    );
+    b.secret_key_rotate_prepare(&prepare()).unwrap();
+    // Inside the window the call passes the gate (the dialog answers next).
+    let inside = b.save_emergency_kit(kit(None));
+    assert!(
+        inside
+            .as_ref()
+            .is_err_and(|error| error.code != ErrorCode::ReauthRequired)
+            || inside.is_ok()
+    );
+    // Stage, lock, unlock: the staged job survives, the window does not.
+    b.lock(crate::contract::events::LockReason::Manual).unwrap();
+    e.unlock().unwrap();
+    assert!(b.rotation_status().unwrap().job.is_some());
+    assert!(b.pending_secret_keys.load(e.account()).unwrap().is_some());
+    assert_eq!(
+        b.save_emergency_kit(kit(None)).unwrap_err().code,
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(
+        b.save_emergency_kit(kit(Some(""))).unwrap_err().code,
+        ErrorCode::ReauthRequired
+    );
+    assert_eq!(
+        b.save_emergency_kit(kit(Some("not the password")))
+            .unwrap_err()
+            .code,
+        ErrorCode::WrongCredentials
+    );
+    // A right password passes the gate.
+    let with_password = b.save_emergency_kit(kit(Some(PASSWORD)));
+    assert!(
+        with_password
+            .as_ref()
+            .is_err_and(|error| error.code != ErrorCode::ReauthRequired)
+            || with_password.is_ok()
+    );
+}
+
 #[test]
 fn abandon_works_before_the_backend_knows_and_resume_needs_its_input() {
     let _kdf = kdf_permit();
