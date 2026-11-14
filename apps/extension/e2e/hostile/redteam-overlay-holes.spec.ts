@@ -25,9 +25,8 @@ async function expectCovered(page: Page, overlayId: string): Promise<void> {
   expect(topAtCentre).toBe(overlayId);
 }
 
-// RT-EXT-1: fails today (the decoy is filled, `summary.password` is 2): `isTarget` in
-// content/visibility.ts accepts a `<label>` whose `control` is the field as a hit, whatever covers it.
-test.fixme("RT-EXT-1: an opaque label laid over a decoy password field does not make it fillable", async ({ page, fake }) => {
+// RT-EXT-1: only the field or its own descendants count as a hit (a label does not).
+test("RT-EXT-1: an opaque label laid over a decoy password field does not make it fillable", async ({ page, fake }) => {
   await fake.reset({ items: [bankItem()] });
   await open(page, `${BANK}/redteam-label-overlay.html`);
   await expectCovered(page, "banner");
@@ -40,9 +39,8 @@ test.fixme("RT-EXT-1: an opaque label laid over a decoy password field does not 
   ]);
 });
 
-// RT-EXT-2: fails today (the decoy is filled, `summary.password` is 2): the five sample points of
-// `samplePoints` are fixed and computable from the field's box, so an overlay with holes there passes.
-test.fixme("RT-EXT-2: an opaque overlay with holes at the five sample points does not make the decoy fillable", async ({ page, fake }) => {
+// RT-EXT-2: the centre and a majority of four random points must hit, so fixed holes fail.
+test("RT-EXT-2: an opaque overlay with holes at the five sample points does not make the decoy fillable", async ({ page, fake }) => {
   await fake.reset({ items: [bankItem()] });
   await open(page, `${BANK}/redteam-pinhole-overlay.html`);
   await expectCovered(page, "");

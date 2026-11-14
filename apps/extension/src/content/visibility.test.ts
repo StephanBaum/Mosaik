@@ -124,13 +124,83 @@ describe("isFillable", () => {
     expect(isFillable(field(), makeEnv({ elementAt: () => null }))).toBe(false);
   });
 
-  it("accepts a field that is on top at just one of the five points", () => {
+  it("needs the centre and a majority of the five points", () => {
     const el = field();
     const cover = document.createElement("div");
-    let calls = 0;
-    const env = makeEnv({ elementAt: () => (++calls === 3 ? el : cover) });
-    expect(isFillable(el, env)).toBe(true);
-    expect(calls).toBe(3);
+    const hitsAt = (pattern: boolean[]): VisibilityEnv => {
+      let calls = 0;
+      return makeEnv({ elementAt: () => (pattern[calls++] === true ? el : cover) });
+    };
+    expect(isFillable(el, hitsAt([true, true, true, false, false]), () => 0.5)).toBe(true);
+    expect(isFillable(el, hitsAt([true, true, false, false, false]), () => 0.5)).toBe(false);
+    expect(isFillable(el, hitsAt([false, true, true, true, true]), () => 0.5)).toBe(false);
+  });
+
+  it("refuses a label over the field, accepts a child of the field", () => {
+    document.body.innerHTML = '<label for="f" id="l">x</label><div id="w"><input id="f"><span id="c"></span></div>';
+    const el = document.querySelector("#w") as HTMLElement;
+    const label = document.querySelector("#l") as HTMLElement;
+    expect(isFillable(el, makeEnv({ elementAt: () => label }), () => 0.5)).toBe(false);
+    const input = document.querySelector("#f") as HTMLInputElement;
+    expect(isFillable(input, makeEnv({ elementAt: () => label }), () => 0.5)).toBe(false);
+    expect(isFillable(el, makeEnv({ elementAt: () => document.querySelector("#c") }), () => 0.5)).toBe(true);
+  });
+
+  it("draws four points inside the box, with a margin, from the injected source", () => {
+    const points: [number, number][] = [];
+    const env = makeEnv({
+      box: () => box(100, 100, 200, 30),
+      elementAt: (el, x, y) => {
+        points.push([x, y]);
+        return el;
+      },
+    });
+    for (const r of [0, 0.999999]) {
+      points.length = 0;
+      expect(isFillable(field(), env, () => r)).toBe(true);
+      expect(points).toHaveLength(5);
+      expect(points[0]).toEqual([200, 115]);
+      for (const [x, y] of points.slice(1)) {
+        expect(x).toBeGreaterThanOrEqual(102);
+        expect(x).toBeLessThanOrEqual(298);
+        expect(y).toBeGreaterThanOrEqual(102);
+        expect(y).toBeLessThanOrEqual(128);
+      }
+    }
+  });
+
+  it("changes the points per check with the real source", () => {
+    const seen = new Set<string>();
+    const env = makeEnv({
+      elementAt: (el, x, y) => {
+        seen.add([x, y].join(","));
+        return el;
+      },
+    });
+    const el = field();
+    isFillable(el, env);
+    isFillable(el, env);
+    expect(seen.size).toBeGreaterThan(5);
+  });
+
+  it("fails closed when no random source works", () => {
+    const boom = (): number => {
+      throw new Error("no entropy");
+    };
+    expect(isFillable(field(), makeEnv(), boom)).toBe(false);
+  });
+
+  it("keeps the points inside a tiny box", () => {
+    const points: [number, number][] = [];
+    const env = makeEnv({
+      box: () => box(100, 100, 4, 4),
+      elementAt: (el, x, y) => {
+        points.push([x, y]);
+        return el;
+      },
+    });
+    expect(isFillable(field(), env, () => 1)).toBe(true);
+    expect(points.every(([x, y]) => x >= 100 && x <= 104 && y >= 100 && y <= 104)).toBe(true);
   });
 
   it("samples the visible part when the field is half off screen", () => {
@@ -148,11 +218,11 @@ describe("isFillable", () => {
     expect(points.every(([x]) => x >= 0 && x <= 100)).toBe(true);
   });
 
-  it("treats a label whose control is the field, and a descendant, as the field", () => {
+  it("refuses a label whose control is the field (RT-EXT-1)", () => {
     document.body.innerHTML = '<label id="l" for="f">Name</label><input id="f">';
     const el = document.querySelector<HTMLInputElement>("#f") as HTMLInputElement;
     const label = document.querySelector("#l") as HTMLLabelElement;
-    expect(isFillable(el, makeEnv({ elementAt: () => label }))).toBe(true);
+    expect(isFillable(el, makeEnv({ elementAt: () => label }))).toBe(false);
     const other = document.createElement("label");
     expect(isFillable(el, makeEnv({ elementAt: () => other }))).toBe(false);
   });

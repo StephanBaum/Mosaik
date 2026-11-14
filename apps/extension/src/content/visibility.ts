@@ -159,26 +159,34 @@ function intersectViewport(box: Box, view: ViewportInfo): Box | null {
   return { left, top, right, bottom, width: right - left, height: bottom - top };
 }
 
-/** The centre and four points inset by a quarter of the width and height. */
-function samplePoints(box: Box): [number, number][] {
-  const dx = box.width / 4;
-  const dy = box.height / 4;
-  const cx = box.left + box.width / 2;
-  const cy = box.top + box.height / 2;
-  return [
-    [cx, cy],
-    [box.left + dx, box.top + dy],
-    [box.right - dx, box.top + dy],
-    [box.left + dx, box.bottom - dy],
-    [box.right - dx, box.bottom - dy],
-  ];
+/** A random number in [0, 1) from the platform's CSPRNG: the page can neither predict nor bias it. */
+export function secureRandom(): number {
+  const word = new Uint32Array(1);
+  crypto.getRandomValues(word);
+  return (word[0] ?? 0) / 2 ** 32;
 }
 
-function isTarget(hit: Element | null, el: Element): boolean {
-  if (hit === null) {
-    return false;
+/** Points drawn per check, besides the centre. */
+const RANDOM_POINTS = 4;
+
+/**
+ * The centre, then four points drawn with `random` inside the box with a small margin, so a
+ * page cannot know where the test looks. The box is never empty (`intersectViewport`), so every
+ * point lies inside it.
+ */
+function samplePoints(box: Box, random: () => number): [number, number][] {
+  const mx = Math.min(2, box.width / 4);
+  const my = Math.min(2, box.height / 4);
+  const points: [number, number][] = [[box.left + box.width / 2, box.top + box.height / 2]];
+  for (let i = 0; i < RANDOM_POINTS; i++) {
+    points.push([box.left + mx + random() * (box.width - 2 * mx), box.top + my + random() * (box.height - 2 * my)]);
   }
-  return hit === el || el.contains(hit) || (hit.localName === "label" && (hit as HTMLLabelElement).control === el);
+  return points;
+}
+
+/** Only the field itself or something inside it counts as on top: a label or any other element does not. */
+function isTarget(hit: Element | null, el: Element): boolean {
+  return hit !== null && (hit === el || el.contains(hit));
 }
 
 function intersect(a: Box, b: Box): Box | null {
@@ -226,11 +234,12 @@ export function isClippedAway(el: Element, box: Box, env: VisibilityEnv): boolea
 
 /**
  * Whether the user could see and click `el`: displayed, at least 4 x 4 px, combined opacity at
- * least 0.2, inside the document, and on top at one of five sample points. Off screen there is
+ * least 0.2, inside the document, and on top at the centre and at a majority of five sample
+ * points (the centre and four drawn per check with `random`). Off screen there is
  * no hit test, so there it must be in the top document (in a frame the viewport is all the user
  * sees) and not clipped away by an ancestor.
  */
-export function isFillable(el: Element, env: VisibilityEnv = domEnv): boolean {
+export function isFillable(el: Element, env: VisibilityEnv = domEnv, random: () => number = secureRandom): boolean {
   if (!isElementVisible(el, env)) {
     return false;
   }
@@ -246,5 +255,13 @@ export function isFillable(el: Element, env: VisibilityEnv = domEnv): boolean {
   if (onScreen === null) {
     return view.framed !== true && !isClippedAway(el, box, env);
   }
-  return samplePoints(onScreen).some(([x, y]) => isTarget(env.elementAt(el, x, y), el));
+  let points: [number, number][];
+  try {
+    points = samplePoints(onScreen, random);
+  } catch {
+    // No randomness, no trust: the fixed centre alone would be what the page can aim at.
+    return false;
+  }
+  const hits = points.map(([x, y]) => isTarget(env.elementAt(el, x, y), el));
+  return hits[0] === true && hits.filter(Boolean).length > points.length / 2;
 }
