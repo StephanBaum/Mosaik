@@ -124,39 +124,46 @@ fn read_member(zip: &mut ZipArchive<Cursor<&[u8]>>, index: usize, limit: usize) 
     buf::read_limited(reader, limit, hint.min(limit))
 }
 
-/// Members of one document: `(member index, name after files/)`.
-type Bucket = Vec<(usize, Box<[u8]>)>;
-
 /// The attachment files of the archive, looked up by document ID.
 struct Files<'a> {
     zip: ZipArchive<Cursor<&'a [u8]>>,
     budget: AttachmentBudget,
-    /// `files/` members grouped by the document ID part of their name (the
-    /// text before the first `__`), as `(member index, name after files/)` in
-    /// index order. One pass over the central directory builds it, so a
-    /// lookup visits only the members of one document.
-    by_document: HashMap<Box<[u8]>, Bucket>,
-    /// Number of bucket entries visited by `find` (linearity test).
+    /// `files/<name>`: the member index of each exact name after `files/`
+    /// (the lowest index for a repeated name).
+    exact: HashMap<Box<[u8]>, usize>,
+    /// `files/<head>__<name>`: for each member name containing `__`, the
+    /// text before its FIRST `__` (one key per member, so O(name) memory)
+    /// maps to the lowest member index with that head. An ID that itself
+    /// contains `__` therefore matches only by exact name; real 1Password
+    /// IDs contain none. A lookup is two hash probes whatever the ID.
+    prefixed: HashMap<Box<[u8]>, usize>,
+    /// Number of lookups made by `find` (linearity test).
     #[cfg(test)]
     probes: core::cell::Cell<usize>,
 }
 
 impl<'a> Files<'a> {
     fn new(zip: ZipArchive<Cursor<&'a [u8]>>) -> Self {
-        let mut by_document: HashMap<Box<[u8]>, Bucket> = HashMap::new();
+        let mut exact: HashMap<Box<[u8]>, usize> = HashMap::new();
+        let mut prefixed: HashMap<Box<[u8]>, usize> = HashMap::new();
         for (i, raw) in zip.file_names_raw().enumerate() {
             let Some(rest) = raw.strip_prefix(b"files/") else {
                 continue;
             };
-            by_document
-                .entry(document_key(rest).into())
-                .or_default()
-                .push((i, rest.into()));
+            exact.entry(rest.into()).or_insert(i);
+            if let Some(head) = rest
+                .windows(2)
+                .position(|w| w == b"__")
+                .and_then(|p| rest.get(..p))
+            {
+                prefixed.entry(head.into()).or_insert(i);
+            }
         }
         Self {
             zip,
             budget: AttachmentBudget::new(),
-            by_document,
+            exact,
+            prefixed,
             #[cfg(test)]
             probes: core::cell::Cell::new(0),
         }
@@ -169,45 +176,17 @@ impl<'a> Files<'a> {
         if id.is_empty() {
             return None;
         }
-        let key = document_key(id);
-        // An ID ending in `_` with no `__` of its own can match a member
-        // `<id>___x` whose key is one byte shorter.
-        let short = (key.len() == id.len())
-            .then(|| id.strip_suffix(b"_"))
-            .flatten();
-        let mut best: Option<usize> = None;
-        for k in std::iter::once(key).chain(short) {
-            let Some(bucket) = self.by_document.get(k) else {
-                continue;
-            };
-            for (i, rest) in bucket {
-                #[cfg(test)]
-                self.probes.set(self.probes.get() + 1);
-                if &**rest == id
-                    || rest
-                        .strip_prefix(id)
-                        .is_some_and(|tail| tail.starts_with(b"__"))
-                {
-                    best = Some(best.map_or(*i, |b| b.min(*i)));
-                    break;
-                }
-            }
+        #[cfg(test)]
+        self.probes.set(self.probes.get() + 1);
+        match (self.exact.get(id), self.prefixed.get(id)) {
+            (Some(a), Some(b)) => Some(*a.min(b)),
+            (a, b) => a.or(b).copied(),
         }
-        best
     }
 
     fn read(&mut self, index: usize) -> Result<Buf> {
         read_member(&mut self.zip, index, mosaic_core::MAX_ATTACHMENT_LEN)
     }
-}
-
-/// The part of a member name (after `files/`) before the first `__`, or all
-/// of it.
-fn document_key(name: &[u8]) -> &[u8] {
-    name.windows(2)
-        .position(|w| w == b"__")
-        .and_then(|p| name.get(..p))
-        .unwrap_or(name)
 }
 
 fn category(uuid: &str) -> (ItemType, bool) {
@@ -544,29 +523,50 @@ mod tests {
     fn find_matches_document_id_and_double_underscore_names() {
         let bytes = archive(&["files/a__b__c".into(), "files/ab".into(), "files/a".into()]);
         let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        // Member 0 is keyed by the text before its FIRST `__`: "a".
         assert_eq!(files.find("a"), Some(0));
-        assert_eq!(files.find("a__b"), Some(0));
+        // An ID with a `__` of its own matches only an exact name.
+        assert_eq!(files.find("a__b"), None);
+        assert_eq!(files.find("a__b__c"), Some(0));
         assert_eq!(files.find("ab"), Some(1));
         assert_eq!(files.find(""), None);
         assert_eq!(files.find("zz"), None);
     }
 
     #[test]
-    fn find_checks_the_shorter_key_for_ids_ending_in_underscore() {
+    fn find_keys_a_member_by_the_text_before_its_first_double_underscore() {
         let bytes = archive(&[
-            "files/a___x".into(), // 0: key "a", matches ID "a_" as "a_" + "__x"
-            "files/___y".into(),  // 1: key "",  matches ID "_"  as "_" + "__y"
-            "files/__z".into(),   // 2: key "",  exact match for ID "__z" only
-            "files/a_".into(),    // 3: key "a_", exact match for ID "a_"
+            "files/a___x".into(), // 0: key "a" (first `__` at 1)
+            "files/___y".into(),  // 1: key ""  (never looked up: IDs are not empty)
+            "files/__z".into(),   // 2: key ""; exact match for ID "__z" only
+            "files/a_".into(),    // 3: no `__`; exact match for ID "a_" only
         ]);
         let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
-        // Both buckets hit; the lowest index (short bucket) wins.
-        assert_eq!(files.find("a_"), Some(0));
-        // Only the short (empty) bucket can match.
-        assert_eq!(files.find("_"), Some(1));
+        assert_eq!(files.find("a_"), Some(3));
+        assert_eq!(files.find("_"), None);
         assert_eq!(files.find("__z"), Some(2));
         assert_eq!(files.find("a"), Some(0));
         assert_eq!(files.find("b_"), None);
+    }
+
+    /// RT-parsers-2 (red team 2026-11-13): the bucket of a document key is
+    /// walked to its end whenever the ID does not match a member exactly or
+    /// as `<id>__`. An ID with a `__` of its own (`doc__zz`, key `doc`) or
+    /// one ending in `_` lands in a bucket it never matches, and a file with
+    /// 100,000 `files/doc__<n>` members and 100,000 entries (or `file`
+    /// section fields) naming such an ID costs 10^10 probes: the sibling of
+    /// the M3 P2 quadratic lookup that the bucket map did not cover.
+    #[test]
+    fn find_is_bounded_for_ids_that_match_no_member() {
+        let names: Vec<String> = (0..20_000).map(|i| format!("files/doc__{i}")).collect();
+        let bytes = archive(&names);
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        assert_eq!(files.find("doc__zz"), None);
+        assert!(
+            files.probes.get() <= 2,
+            "one miss probed {} members",
+            files.probes.get()
+        );
     }
 
     #[test]
@@ -578,5 +578,24 @@ mod tests {
             assert!(files.find(&format!("m{i}")).is_some());
         }
         assert_eq!(files.probes.get(), 10_000);
+    }
+
+    /// RT-parsers-verify-1 (red team verify 2026-11-13): `Files::new` keeps
+    /// one `prefixed` key per `__` in a member name, each a copy of the name
+    /// up to that point. A name of n underscores costs about n^2/2 bytes of
+    /// keys: one 64 KiB member name (the zip maximum) is about 2 GiB, and a
+    /// 256 MiB file holds thousands of them. The `document_key` it replaced
+    /// cut at the first `__` and was linear.
+    #[test]
+    fn prefix_map_is_linear_in_the_member_name_length() {
+        let name = format!("files/{}", "_".repeat(20_000));
+        let bytes = archive(std::slice::from_ref(&name));
+        let files = Files::new(ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap());
+        let key_bytes: usize = files.prefixed.keys().map(|k| k.len()).sum();
+        assert!(
+            key_bytes <= 64 * name.len(),
+            "{key_bytes} bytes of prefix keys for one {}-byte member name",
+            name.len()
+        );
     }
 }

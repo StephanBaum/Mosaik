@@ -26,5 +26,8 @@ export const ssh = {
   "ssh.skip.malformed": "Not served: the key can't be read.",
   "ssh.skip.duplicate": "Not served: another item has the same key.",
   "ssh.description": "An app asked the Mosaic SSH agent to sign in with this key.",
+  "ssh.origin.forwarded": "A server you are connected to asks to use this key.",
+  "ssh.origin.bindFailed":
+    "Mosaic can't tell where this request comes from: the connection's host check failed. Only allow it if you expect it.",
   "ssh.escDenies": "to deny",
 } as const satisfies Record<string, string>;

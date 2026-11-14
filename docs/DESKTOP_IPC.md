@@ -505,7 +505,7 @@ Notes per area:
   with `duplicateOf` or `duplicateInFile` start unticked in the UI. `ImportEntryWarning` is
   `unmappedFields`, `otpUnreadable`, `attachmentTooLarge`, `attachmentMissing`, `tagsDropped`,
   `historyTruncated`, `passkeysNotImported`, `unknownCategory`, `fieldsDropped`, `archived` or
-  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported` or `passkeysLimit`.
+  `attachmentQuota`, `titleCleaned`, `passkeyUnreadable`, `passkeyUnsupported`, `passkeysLimit` or `notesTruncated` (a note over the item size limit was left out).
   `ImportWarning` is
   `unmappedFields`, `attachmentsSkipped`, `entriesSkipped`, `otpUnreadable`, `passkeysNotImported`,
   `passkeyUnreadable`, `passkeyUnsupported` or `passkeysSkipped`. `ImportFormat` is `enpass`, `bitwarden`, `keepass`,
@@ -528,7 +528,12 @@ Notes per area:
   - the key item and its fingerprint;
   - the client process (`processName` and `pid`: both `null` on Windows, `pid` only on macOS);
   - `requestedAt` and `expiresAt`;
-  - `canRemember`: when it is `false`, the UI hides "Allow for 15 minutes".
+  - `origin`: `local`, `forwarded` (a server the user is connected to asks, through agent
+    forwarding) or `bindFailed` (the connection's host binding was malformed or did not verify,
+    which includes RSA, P-384 and P-521 host keys the agent cannot check). The prompt shows a
+    warning line for the last two;
+  - `canRemember`: when it is `false`, the UI hides "Allow for 15 minutes". It is `false` for
+    every origin but `local`.
 
   The UI answers with `ssh_respond`. An unanswered request is refused on expiry, on lock, or when
   4 prompts are already open (`sshApprovalClosed`). A request that fails after approval arrives as

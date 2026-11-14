@@ -5108,3 +5108,29 @@ The two-minute grant a right master password leaves (CRYPTO_SPEC §6.2) was not 
 
 ### Consequences
 CRYPTO_SPEC §6.2, UX_GUIDELINES §8 and DESKTOP_IPC updated. No new cryptography. THREAT_MODEL: R151.
+
+## ADR-0152: SSH agent reads session-bind and does not reuse grants on forwarded connections
+
+- Status: accepted
+- Date: 2026-11-13
+- Milestone: RT-parsers (red team of the importers, the SSH agent and the QR scanner)
+
+### Context
+A remembered "allow for 15 minutes" grant is bound to the key and the client executable. With `ForwardAgent yes`, requests from the remote host come through the same local `ssh` process, so they rode on the grant the user gave for their own login (finding RT-parsers-4). The agent answered every extension with `SSH_AGENT_FAILURE`, so it could not see the hop.
+
+### Decision
+- The agent parses `session-bind@openssh.com` (`string hostkey, string session identifier, string signature, bool is_forwarding`) and verifies the signature over the session identifier with the host key, using the `ssh-key` crate's verifier. No signature code of our own.
+- The result is kept per connection as an origin, `ConnOrigin { Local, Forwarded, BindFailed }`. A valid bind answers `SSH_AGENT_SUCCESS`; a bad signature or malformed message answers `SSH_AGENT_FAILURE`. The message is parsed once, after the extension name.
+- A bind can only move the origin away from `Local` (`Local` < `Forwarded` < `BindFailed`), never back. A verified bind with `is_forwarding = true` gives `Forwarded`; a failed or malformed bind gives `BindFailed`.
+- A connection that is not `Local` asks again for every signature (`can_remember` is false in the prompt) and creates no grant. `ApprovalRequest` carries the origin to the desktop prompt, which shows a warning line for `Forwarded` ("A server you are connected to asks to use this key") and for `BindFailed` (the origin is unknown, the host check failed).
+- A connection without any bind stays `Local` and behaves as before, so old clients are unaffected.
+- Like OpenSSH, the agent accepts any host key: the bind signature only proves that the session identifier came from that host key, not that the host is the one the user meant. Trust comes from the `is_forwarding` flag and the per-connection origin, not from host authentication.
+- Host keys of type RSA, P-384 and P-521 cannot be verified: the `ssh-key` `rsa` feature stays off, because the `rsa` crate carries RUSTSEC-2023-0071 and would fail cargo-deny and cargo-audit. Such a connection counts as `BindFailed`, and the user sees the `BindFailed` line in the prompt, which explains why it asks.
+- The prompt does not yet show the destination host-key fingerprint; left for a later change.
+
+### Alternatives considered
+- **Refuse forwarded connections:** breaks a legitimate workflow; asking each time is enough.
+- **Ignore the bind and never remember grants:** removes a convenience for everyone.
+
+### Consequences
+THREAT_MODEL R152.
