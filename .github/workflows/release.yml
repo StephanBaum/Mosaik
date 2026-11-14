@@ -115,6 +115,8 @@ jobs:
           test -s release/minisign.pub || { echo "::error::release/minisign.pub is missing (the owner generates the key first, docs/RELEASE.md)"; exit 1; }
       - name: No Cargo features in the release build
         run: bash scripts/release/check-features.sh
+      - name: No double hyphen in an XML comment (WiX and the Android resource merger refuse it)
+        run: bash scripts/release/check-xml-comments.sh
       # ADR-0153: the `preview` Cargo feature makes the native host trust the dev extension ID, so it
       # must never reach a release. check-features.sh already refuses every feature flag; this step
       # names the preview feature on its own, in this workflow, the release scripts and the image build.
