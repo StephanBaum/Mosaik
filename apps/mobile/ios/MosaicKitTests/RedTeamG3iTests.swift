@@ -254,6 +254,24 @@ final class RedTeamG3iTests: XCTestCase {
         }
     }
 
+    /// A `finish()` that comes before `begin()` ends the request that `begin()` starts: it reports `.busy` and
+    /// leaves the store closed. The next `begin()` is a new request.
+    func testAFinishBeforeBeginEndsTheRequestItBegins() async throws {
+        let phone = try TestPhone(for: self)
+        try phone.seed()
+        let holder = try phone.extensionHolder()
+        let session = ProviderSession(holder: holder, keys: phone.keys)
+        session.finish()
+        let ended = try await session.begin()
+        XCTAssertEqual(ended, .busy)
+        guard case .storeClosed = holder.state() else {
+            return XCTFail("a finished request must leave the store closed, got \(holder.state())")
+        }
+        let next = try await session.begin()
+        XCTAssertEqual(next, .quickUnlock)
+        session.finish()
+    }
+
     /// Held: a second request while the first is unlocked finds the store busy, inherits no verification and
     /// no fill session, and opens the store only after the first one finished; the first one's handles are
     /// dead from then on.

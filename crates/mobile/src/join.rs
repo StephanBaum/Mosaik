@@ -423,6 +423,9 @@ impl Core {
             if let Ok(mut guard) = self.guard() {
                 guard.phase = phase;
                 guard.store_busy = busy;
+                // The fresh phase meets a lock that came meanwhile and honours
+                // a close.
+                guard.settle_fresh_phase();
             }
             return Err(e);
         }

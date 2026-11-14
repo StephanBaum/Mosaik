@@ -55,12 +55,16 @@ public struct ProviderRegistration: Sendable {
     public let identity: PasskeyIdentity?
 }
 
-/// What one request has done so far, behind a lock (the session is used from the main actor and from the
-/// serial core queue).
+/// What the requests of one session have done so far, behind a lock (the session is used from the main actor
+/// and from the serial core queue). Requests are numbered: `begin()` takes the next number, `finish()` ends
+/// the current one, so the end of an older request never touches a newer one and a request that ended while
+/// one of its calls was in flight stays ended.
 private final class RequestFlags: @unchecked Sendable {
     private let lock = NSLock()
+    private var generation: UInt64 = 0
+    /// Every request numbered up to and including this one has ended.
+    private var finishedThrough: UInt64 = 0
     private var verified = false
-    private var finished = false
     private var fillSession: String?
 
     var isVerified: Bool {
@@ -69,34 +73,44 @@ private final class RequestFlags: @unchecked Sendable {
         return verified
     }
 
-    /// Marks the user as verified unless the request ended meanwhile (G3i Info: an unlock that finished after
-    /// `finish()` must not leave the session verified).
-    func setVerifiedUnlessFinished() {
+    /// The number of the current request (0 before the first `begin()`).
+    var current: UInt64 {
         lock.lock()
         defer { lock.unlock() }
-        verified = !finished
+        return generation
     }
 
-    /// Starts a new request on a reused session: not verified, not finished.
-    func startRequest() {
+    /// Starts the next request: not verified, a new number. A request that was ended before it began (a
+    /// `finish()` on a session that never began one) is already finished.
+    func startRequest() -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
-        finished = false
+        generation += 1
         verified = false
+        return generation
     }
 
-    /// Marks the request as ended and clears the verification, in one step.
+    /// Ends the current request and clears the verification, in one step. On a session that has not begun a
+    /// request yet, the next request it begins is the one that ends here.
     func markFinished() {
         lock.lock()
         defer { lock.unlock() }
-        finished = true
+        finishedThrough = max(generation, 1)
         verified = false
     }
 
-    var isFinished: Bool {
+    func isFinished(_ request: UInt64) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return finished
+        return request <= finishedThrough
+    }
+
+    /// Marks the user as verified for `request`, unless it ended or a newer request began meanwhile (an
+    /// unlock that finished after `finish()` must not leave the session verified, G3i Info).
+    func setVerified(for request: UInt64) {
+        lock.lock()
+        defer { lock.unlock() }
+        verified = request == generation && request > finishedThrough
     }
 
     /// Stores the new fill session and returns the one it replaces.
@@ -121,7 +135,10 @@ private final class RequestFlags: @unchecked Sendable {
 /// between the system API and the core.
 ///
 /// A session serves one request. The extension makes a new one per request, so each request needs its own
-/// biometric prompt, and a passkey ceremony always has user verification (ADR-0093).
+/// biometric prompt, and a passkey ceremony always has user verification (ADR-0093). A session that is reused
+/// (the tests do) numbers its requests: `begin()` starts the next one and `finish()` ends the current one. A
+/// `finish()` on a session that has not begun a request ends the request it begins next, and that `begin()`
+/// reports `.busy` and opens nothing.
 public final class ProviderSession: Sendable {
     private let holder: CoreHolder
     private let keys: any QuickUnlockKeys
@@ -144,9 +161,14 @@ public final class ProviderSession: Sendable {
     /// unlocked (it was not this request that unlocked it) is locked first, so every request verifies the
     /// user itself.
     public func begin() async throws -> ProviderReadiness {
-        // A new request: nothing is verified and the previous request's end no longer applies. A `finish()`
-        // that arrives from here on (even during the reopen below) still ends this request.
-        flags.startRequest()
+        // A new request: nothing is verified, and it has a number of its own. A `finish()` that arrives from
+        // here on (even during the reopen below) ends this request and no other.
+        let request = flags.startRequest()
+        if flags.isFinished(request) {
+            // Ended before it began: `finish()` already closed the store.
+            holder.closeStore()
+            return .busy
+        }
         var state = holder.state()
         switch state {
         case .storeClosed, .storeBusy:
@@ -157,9 +179,9 @@ public final class ProviderSession: Sendable {
                 if ErrorText.code(of: error) == "storeInUse" { return .busy }
                 throw error
             }
-            // The request ended while the reopen ran (a dismissal, a newer request): `finish()` found the
-            // store closed and closed nothing, so the store the reopen just took is closed here (G3i-2).
-            if flags.isFinished {
+            // This request ended while the reopen ran (a dismissal): `finish()` found the store closed and
+            // closed nothing, so the store the reopen just took is closed here (G3i-2).
+            if flags.isFinished(request) {
                 holder.closeStore()
                 state = holder.state()
             }
@@ -193,9 +215,10 @@ public final class ProviderSession: Sendable {
 
     /// Unlocks with Face ID or Touch ID (one prompt). This is the user verification of a passkey ceremony.
     public func unlockQuick(reason: String, cancelTitle: String) async throws {
+        let request = flags.current
         try await QuickUnlockFlow.unlock(holder: holder, keys: keys, reason: reason, cancelTitle: cancelTitle)
         // `finish()` may have run during the unlock: the request is over and nothing counts as verified.
-        flags.setVerifiedUnlessFinished()
+        flags.setVerified(for: request)
     }
 
     // MARK: Passwords and one-time codes

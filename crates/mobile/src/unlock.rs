@@ -2,8 +2,6 @@
 //! (CRYPTO_SPEC §6.1, §6.2, §6.9.2 to §6.9.4), and the helpers that take the
 //! locked store out of the core for one long call and put it back.
 
-use std::sync::atomic::Ordering;
-
 use mosaic_core::{AccountId, Kek, MasterPassword, SecretBytes, SecretKey};
 use mosaic_vault::session::{
     BootId, Error as SessionError, LockedSession, Reauthenticated, UnlockedSession,
@@ -82,8 +80,8 @@ impl Core {
             let strict = if keep_lock {
                 false
             } else {
-                self.lock_requested.store(false, Ordering::SeqCst);
-                self.lock_strict.swap(false, Ordering::SeqCst)
+                guard.pending.lock = false;
+                std::mem::take(&mut guard.pending.strict)
             };
             guard.phase = match taken {
                 Taken::NoAccount(ls) => Phase::NoAccount(ls),
@@ -103,7 +101,7 @@ impl Core {
             // (G3i-1). A put-back that goes on to unlock leaves it to the end
             // of that unlock.
             if !keep_lock {
-                self.close_if_requested(&mut guard);
+                guard.close_if_requested();
             }
         }
     }
@@ -128,15 +126,14 @@ impl Core {
             unlock,
         };
         let mut guard = self.guard()?;
-        if self.lock_requested.swap(false, Ordering::SeqCst) {
-            let strict = self.lock_strict.swap(false, Ordering::SeqCst);
+        if let Some(strict) = guard.pending.take_lock() {
             self.generation_bump();
             guard.phase = Phase::Locked(if strict {
                 session.lock_requiring_password()
             } else {
                 session.lock()
             });
-            self.close_if_requested(&mut guard);
+            guard.close_if_requested();
             drop(guard);
             return Ok(self.state());
         }
@@ -156,7 +153,7 @@ impl Core {
                 guard.settings.locked();
                 guard.expired_alias = alias;
                 guard.phase = Phase::Locked(session.lock());
-                self.close_if_requested(&mut guard);
+                guard.close_if_requested();
                 drop(guard);
                 return Err(MobileError::QuickUnlockExpired);
             }
@@ -501,14 +498,15 @@ mod tests {
             panic!("not locked");
         };
         assert!(locked.password_required(QuickMethod::Biometric));
-        assert!(!core.lock_strict.load(Ordering::SeqCst));
-        assert!(!core.lock_requested.load(Ordering::SeqCst));
+        assert!(!guard.pending.strict);
+        assert!(!guard.pending.lock);
     }
 
     const RT_PASSWORD: &str = "correct horse battery staple";
 
     /// An opened core with a local account, unlocked; the Secret Key's
     /// display form comes with it.
+    #[expect(clippy::unwrap_used, reason = "a test helper")]
     fn core_with_account(dir: &std::path::Path) -> (Core, Zeroizing<String>) {
         let core = Core::open(
             CoreConfig {
@@ -528,25 +526,26 @@ mod tests {
         (core, key)
     }
 
-    /// RT-verify-ios-1 (red team verify 2026-11-14, G3i-1 follow-up).
+    /// RT-verify-ios-1 (red team verify 2026-11-14, G3i-1 follow-up; fixed: the
+    /// requests live in `Inner::pending`, and `close_store()` decides lock and
+    /// close in one critical section). The window, as found:
     /// `close_store()` decides in two critical sections: `lock_with` takes
     /// the mutex, locks an `Unlocked` phase (no lock is requested, the phase
     /// was there to lock), releases the mutex for `finish_lock`, and only
     /// then takes the mutex again to close. Between the two an unlock can
     /// take the locked store (`take_locked`, phase `Unlocking`): the close
-    /// section then sets only `close_requested`. The unlock's success path
-    /// (`finish_unlocked`) honours `lock_requested` alone, so it ends
+    /// section then sets only `pending.close`. The unlock's success path
+    /// (`finish_unlocked`) honours `pending.lock` alone, so it ends
     /// `Unlocked` with the store open and its file lock held, after a
     /// `close_store()` that returned. The flag stays set and closes the
     /// store at the next settled lock instead (a surprise `StoreClosed`).
     /// Defense wanted: every path that settles a phase treats
-    /// `close_requested` like `lock_requested` (lock, then close), and
+    /// `pending.close` like `pending.lock` (lock, then close), and
     /// `close_store()` sets the flag in the same critical section that
     /// decides the lock. This test puts the core into the state the window
     /// leaves (`Unlocking`, no lock requested, a close requested) and lets
     /// the unlock finish.
     #[test]
-    #[ignore = "RT-verify-ios-1: finish_unlocked ends Unlocked with close_requested set when no lock is requested"]
     fn rt_verify_ios_1_close_requested_without_a_lock_requested_does_not_end_unlocked() {
         let dir = tempfile::tempdir().unwrap();
         let (core, key) = core_with_account(dir.path());
@@ -555,10 +554,10 @@ mod tests {
         let taken = core.take_locked().unwrap();
         // The app goes to the background: `close_store()` finds `Unlocking`.
         core.close_store();
-        assert!(core.close_requested.load(Ordering::SeqCst));
+        assert!(core.guard().unwrap().pending.close);
         // The window of `close_store()`: its lock section ran before this
         // unlock took the store, so no lock is requested.
-        core.lock_requested.store(false, Ordering::SeqCst);
+        core.guard().unwrap().pending.lock = false;
         let Taken::Locked(locked) = taken else {
             panic!("no account");
         };
@@ -575,24 +574,62 @@ mod tests {
             SessionState::StoreClosed,
             "a close during the unlock must end closed, not {state:?}"
         );
-        assert!(!core.close_requested.load(Ordering::SeqCst));
+        assert!(!core.guard().unwrap().pending.close);
     }
 
     /// RT-verify-ios-2: the same window with a long call. `restore_unlocked`
-    /// honours `lock_requested` alone; with only `close_requested` set it puts
+    /// honours `pending.lock` alone; with only `pending.close` set it puts
     /// the unlocked phase back and the flag stays armed.
     #[test]
-    #[ignore = "RT-verify-ios-2: restore_unlocked ends Unlocked with close_requested set when no lock is requested"]
     fn rt_verify_ios_2_restore_unlocked_honours_a_close_requested_alone() {
         let dir = tempfile::tempdir().unwrap();
         let (core, _) = core_with_account(dir.path());
         let unlocked = core.take_unlocked().unwrap();
         core.close_store();
-        assert!(core.close_requested.load(Ordering::SeqCst));
-        core.lock_requested.store(false, Ordering::SeqCst);
+        assert!(core.guard().unwrap().pending.close);
+        core.guard().unwrap().pending.lock = false;
         let restored = core.restore_unlocked(unlocked);
         assert_eq!(restored, Err(MobileError::Locked), "the close must win");
         assert_eq!(core.state(), SessionState::StoreClosed);
-        assert!(!core.close_requested.load(Ordering::SeqCst));
+        assert!(!core.guard().unwrap().pending.close);
+    }
+
+    /// A reopen that is already running does the opening: a second
+    /// `reopen_store()` only reports the state and neither opens the store nor
+    /// clears the running reopen's flag.
+    #[test]
+    fn a_second_reopen_while_one_runs_does_not_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        core.close_store();
+        assert_eq!(core.state(), SessionState::StoreClosed);
+        // The state a running reopen leaves: still closed, flag set.
+        core.guard().unwrap().pending.reopening = true;
+        assert_eq!(core.reopen_store(), Ok(SessionState::StoreClosed));
+        let guard = core.guard().unwrap();
+        assert!(matches!(guard.phase, Phase::Closed));
+        assert!(guard.pending.reopening, "the running reopen keeps its flag");
+    }
+
+    /// A lock that arrives while a lock is settling (the session is out in
+    /// `finish_lock`) is met by that lock: no request survives to lock the
+    /// next unlock, and a strict one still requires the password.
+    #[test]
+    fn a_lock_during_a_settling_lock_does_not_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let (core, _) = core_with_account(dir.path());
+        let unlocked = core.take_unlocked().unwrap();
+        {
+            let mut guard = core.guard().unwrap();
+            guard.pending.lock = true;
+            guard.pending.strict = true;
+        }
+        core.finish_lock(*unlocked, false);
+        let guard = core.guard().unwrap();
+        assert!(!guard.pending.lock && !guard.pending.strict && !guard.pending.close);
+        let Phase::Locked(locked) = &guard.phase else {
+            panic!("not locked");
+        };
+        assert!(locked.password_required(QuickMethod::Biometric));
     }
 }

@@ -180,4 +180,60 @@ pub(crate) struct Inner {
     pub secret_key_stored: bool,
     /// A session token is in secure storage (cached like `secret_key_stored`).
     pub signed_in: bool,
+    /// Requests that came while a phase was held out. Read and changed only
+    /// under the core's mutex, in the same step that decides the phase.
+    pub pending: Pending,
+}
+
+/// Requests that arrived while an unlock, a long call or a reopen held the
+/// phase out. Whoever settles the phase takes them (`Core::finish_lock`,
+/// `Inner::close_if_requested`).
+#[derive(Debug, Default)]
+pub(crate) struct Pending {
+    /// `lock()` or `close_store()` came: the settled session ends locked.
+    pub lock: bool,
+    /// The pending lock must also require the master password (the
+    /// re-authentication limit was hit while a long call held the session).
+    pub strict: bool,
+    /// `close_store()` came while an unlock, a long call or a reopen was in
+    /// flight (G3i-1, G3i-2): after the lock, the store is closed.
+    pub close: bool,
+    /// A `reopen_store()` is opening the store.
+    pub reopening: bool,
+}
+
+impl Inner {
+    /// Closes a settled locked phase when `close_store()` came while it was
+    /// out. The dropped store releases its file lock. Called with the mutex
+    /// held, right after the phase is set.
+    pub fn close_if_requested(&mut self) {
+        if matches!(self.phase, Phase::Locked(_) | Phase::NoAccount(_))
+            && std::mem::take(&mut self.pending.close)
+        {
+            self.phase = Phase::Closed;
+            self.store_busy = false;
+        }
+    }
+
+    /// Settles a phase installed fresh from the store file (a failed join, a
+    /// reset): a lock request that came meanwhile is met by the fresh locked
+    /// state, and a pending close is honoured.
+    pub fn settle_fresh_phase(&mut self) {
+        self.pending.lock = false;
+        self.pending.strict = false;
+        self.close_if_requested();
+    }
+}
+
+impl Pending {
+    /// Takes the lock request that settles a held-out session: `Some(strict)`
+    /// when a lock or a close is pending. A close is also a lock (lock, then
+    /// close); `close` stays set for `Inner::close_if_requested`.
+    pub fn take_lock(&mut self) -> Option<bool> {
+        if !(self.lock || self.close) {
+            return None;
+        }
+        self.lock = false;
+        Some(std::mem::take(&mut self.strict))
+    }
 }
