@@ -710,4 +710,30 @@ mod tests {
             "a close_store() that returned must leave the store closed"
         );
     }
+    /// A join in flight (its fetch runs): a strict lock is armed with its
+    /// strictness, a close is armed, and `join_cancel` and the expiry leave
+    /// them. The settled phase stays `NoAccount` until the join ends.
+    #[test]
+    fn a_lock_and_a_close_during_a_join_in_flight_are_armed_and_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_without_account(dir.path());
+        core.guard().unwrap().pending.join_in_flight = true;
+        core.lock_requiring_password();
+        {
+            let guard = core.guard().unwrap();
+            assert!(guard.pending.lock && guard.pending.strict && !guard.pending.close);
+        }
+        core.close_store();
+        core.join_cancel();
+        core.guard().unwrap().drop_expired_join(u64::MAX);
+        {
+            let guard = core.guard().unwrap();
+            assert!(guard.pending.lock && guard.pending.strict && guard.pending.close);
+            assert!(matches!(guard.phase, Phase::NoAccount(_)));
+        }
+        // The join ends (its guard clears the mark): the same calls settle.
+        core.guard().unwrap().pending.join_in_flight = false;
+        core.join_cancel();
+        assert_eq!(core.state(), SessionState::StoreClosed);
+    }
 }

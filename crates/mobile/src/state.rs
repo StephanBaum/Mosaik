@@ -202,6 +202,11 @@ pub(crate) struct Pending {
     pub close: bool,
     /// A `reopen_store()` is opening the store.
     pub reopening: bool,
+    /// A join is between its pending slot and its end (the network fetch,
+    /// the unlock): a `lock()` or `close_store()` that comes meanwhile is
+    /// armed for it, never settled away, and `join_cancel` and the expiry
+    /// leave the armed requests alone. Set and cleared by `JoinFlight`.
+    pub join_in_flight: bool,
 }
 
 impl Inner {
@@ -243,7 +248,7 @@ impl Inner {
 
     /// Drops a pending join that ran out and settles what it kept.
     pub fn drop_expired_join(&mut self, now_ms: u64) {
-        if self.slots.drop_expired_join(now_ms) {
+        if self.slots.drop_expired_join(now_ms) && !self.pending.join_in_flight {
             self.settle_abandoned_join();
         }
     }

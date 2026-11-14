@@ -422,3 +422,68 @@ fn a_lock_during_join_without_a_second_factor_ends_locked() {
         "the lock was kept"
     );
 }
+
+/// A phone with a TOTP join pending, then `act` runs while `finish_join`
+/// fetches the account (the work delay holds it there). Returns the phone and
+/// what the join call returned.
+fn totp_join_with(act: impl FnOnce(&Phone)) -> (Phone, Result<SessionState, MobileError>) {
+    let server = LoopbackServer::start();
+    let desktop = Desktop::register(&server, "joinflight@example.com");
+    let secret = desktop.enable_totp(&server);
+    let phone = Phone::new();
+    server.advance_ms(60_000);
+    phone
+        .core
+        .join_hosted(request(
+            &server,
+            "joinflight@example.com",
+            &desktop.sk_text(),
+            PASSWORD,
+        ))
+        .unwrap();
+    server.advance_ms(30_000);
+    let code = Desktop::code_now(&server, &secret);
+    phone.core.test_hooks().set_work_delay_ms(400);
+    let outcome = std::thread::scope(|scope| {
+        let join = scope.spawn(|| phone.core.join_totp(code.into_bytes()));
+        let start = std::time::Instant::now();
+        while !phone.core.test_hooks().join_in_flight() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        act(&phone);
+        join.join().unwrap()
+    });
+    phone.core.test_hooks().set_work_delay_ms(0);
+    (phone, outcome)
+}
+
+#[test]
+fn a_lock_during_finish_joins_fetch_ends_locked() {
+    let (phone, outcome) = totp_join_with(|phone| phone.core.lock());
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert!(
+        matches!(phone.core.state(), SessionState::Locked { .. }),
+        "the lock was kept, not cleared"
+    );
+}
+
+#[test]
+fn a_close_during_finish_joins_fetch_ends_closed() {
+    let (phone, outcome) = totp_join_with(|phone| phone.core.close_store());
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert_eq!(phone.core.state(), SessionState::StoreClosed);
+}
+
+#[test]
+fn a_join_cancel_during_finish_joins_fetch_keeps_the_lock() {
+    let (phone, outcome) = totp_join_with(|phone| {
+        phone.core.lock();
+        phone.core.join_cancel();
+    });
+    assert!(outcome.is_ok(), "{outcome:?}");
+    assert!(
+        matches!(phone.core.state(), SessionState::Locked { .. }),
+        "join_cancel in flight neither unlocked nor dropped the lock"
+    );
+}

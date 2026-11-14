@@ -127,6 +127,15 @@ impl TestHooks<'_> {
         self.core.clock.set_offset_ms(offset);
     }
 
+    /// Whether a join is in flight (its fetch or unlock runs), for the tests
+    /// that lock during it.
+    #[must_use]
+    pub fn join_in_flight(&self) -> bool {
+        self.core
+            .guard()
+            .is_ok_and(|guard| guard.pending.join_in_flight)
+    }
+
     /// Makes every long call sleep this long before it takes the core's mutex
     /// again.
     pub fn set_work_delay_ms(&self, ms: u64) {

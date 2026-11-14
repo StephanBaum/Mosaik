@@ -147,6 +147,28 @@ fn default_device_name(platform: Platform) -> &'static str {
     }
 }
 
+/// Marks a join as in flight (`Pending::join_in_flight`) and clears the mark
+/// on drop, on every exit. The core's mutex is taken only briefly, never across
+/// the network call (the order is holder first, then core).
+pub(crate) struct JoinFlight<'a>(&'a Core);
+
+impl<'a> JoinFlight<'a> {
+    fn start(core: &'a Core) -> Self {
+        if let Ok(mut guard) = core.guard() {
+            guard.pending.join_in_flight = true;
+        }
+        Self(core)
+    }
+}
+
+impl Drop for JoinFlight<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.0.guard() {
+            guard.pending.join_in_flight = false;
+        }
+    }
+}
+
 impl Core {
     /// Checks a server address: its canonical origin, its protocol and
     /// whether it offers security keys (`GET /v1/info`).
@@ -247,8 +269,9 @@ impl Core {
         self.finish_join(pending).map(JoinOutcome::Unlocked)
     }
 
-    /// Takes the pending join; one that expired is dropped.
-    fn take_pending_join(&self) -> Result<PendingJoin> {
+    /// Takes the pending join; one that expired is dropped. The join is in
+    /// flight until the returned guard drops.
+    fn take_pending_join(&self) -> Result<(PendingJoin, JoinFlight<'_>)> {
         let now = self.now_ms();
         let mut guard = self.guard()?;
         let pending = guard.slots.join.take().ok_or(MobileError::NotFound)?;
@@ -257,7 +280,9 @@ impl Core {
             guard.settle_abandoned_join();
             return Err(MobileError::SyncHandoffExpired);
         }
-        Ok(pending)
+        guard.pending.join_in_flight = true;
+        drop(guard);
+        Ok((pending, JoinFlight(self)))
     }
 
     /// Ends a join that will not finish (the join slot is already empty):
@@ -271,7 +296,15 @@ impl Core {
     /// Puts a pending join back after a failure that allows a retry.
     fn keep_pending_join(&self, pending: PendingJoin) {
         if let Ok(mut guard) = self.guard() {
-            guard.slots.join = Some(pending);
+            // A `lock()` that came while the join was out (a lock without a
+            // close) ends it: a join must not outlive a lock (G1-11). A close
+            // keeps it (ADR-0091).
+            if guard.pending.lock && !guard.pending.close {
+                drop(pending);
+                guard.settle_abandoned_join();
+            } else {
+                guard.slots.join = Some(pending);
+            }
         }
     }
 
@@ -284,7 +317,7 @@ impl Core {
     pub fn join_totp(&self, code: Vec<u8>) -> Result<SessionState> {
         self.require_app()?;
         let code = text_of(code)?;
-        let pending = self.take_pending_join()?;
+        let (pending, _flight) = self.take_pending_join()?;
         match hosted::login_totp(&pending.origin, &pending.login.grant.token, code.trim()) {
             Ok(expires) => {
                 let mut pending = pending;
@@ -310,7 +343,7 @@ impl Core {
     /// key), `syncRateLimited`, and the server codes.
     pub fn join_webauthn_begin(&self) -> Result<HandoffInfo> {
         self.require_app()?;
-        let mut pending = self.take_pending_join()?;
+        let (mut pending, _flight) = self.take_pending_join()?;
         let started = hosted::login_webauthn_handoff(&pending.origin, &pending.login.grant.token);
         let started = match started {
             Ok(s) => s,
@@ -337,7 +370,7 @@ impl Core {
     /// `notFound` (no handoff), `syncHandoffExpired`, and the server codes.
     pub fn join_webauthn_status(&self) -> Result<HandoffStatus> {
         self.require_app()?;
-        let pending = self.take_pending_join()?;
+        let (pending, _flight) = self.take_pending_join()?;
         let Some(handoff) = pending.handoff else {
             self.keep_pending_join(pending);
             return Err(MobileError::NotFound);
@@ -370,7 +403,11 @@ impl Core {
     pub fn join_cancel(&self) {
         if let Ok(mut guard) = self.guard() {
             guard.slots.join = None;
-            guard.settle_abandoned_join();
+            // A join in flight (its fetch or unlock runs) keeps the requests
+            // that came: its own end settles them.
+            if !guard.pending.join_in_flight {
+                guard.settle_abandoned_join();
+            }
         }
     }
 
@@ -385,6 +422,9 @@ impl Core {
             secret_key,
             ..
         } = pending;
+        // In flight from here to every exit (also set by the caller's guard).
+        let _flight = JoinFlight::start(self);
+        self.work_pause();
         let account = match hosted::join_fetch_account(&origin, &login.grant.token, &login.keys) {
             Ok(account) => account,
             Err(e) => {

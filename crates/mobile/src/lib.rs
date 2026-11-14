@@ -443,7 +443,25 @@ impl Core {
             if close {
                 inner.drop_expired_join(now);
             }
+            let in_flight = inner.pending.join_in_flight;
             match std::mem::replace(&mut inner.phase, Phase::Busy) {
+                // A join is fetching its account (`finish_join`): the request
+                // is armed for it, so the join ends locked (or closed) and
+                // nothing settles it away (N3). A store that is closed (a
+                // reopen follows the fetch) keeps the lock; a close there is
+                // already met.
+                other @ (Phase::Locked(_) | Phase::NoAccount(_) | Phase::Closed) if in_flight => {
+                    let closed = matches!(other, Phase::Closed);
+                    inner.phase = other;
+                    inner.pending.lock = true;
+                    inner.pending.strict |= require_password;
+                    if closed {
+                        inner.pending.close |= close && inner.pending.reopening;
+                    } else {
+                        inner.pending.close |= close;
+                    }
+                    None
+                }
                 Phase::Unlocked(unlocked) => {
                     // `finish_lock` closes the locked phase it stores.
                     inner.pending.close |= close;
